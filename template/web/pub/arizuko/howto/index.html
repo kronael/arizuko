@@ -63,7 +63,7 @@ make build
 sudo make images   # build agent + daemon docker images
 sudo install -m 0755 arizuko /usr/local/bin/arizuko</code></pre>
     <p>To grab just the CLI, <code>go install github.com/kronael/arizuko/cmd/arizuko@latest</code> &mdash; handy for the command itself, but a full deploy still needs the repo for the images and the runtime mount.</p>
-    <p>The <code>make images</code> step is the longest (several minutes the first time). It builds <code>arizuko-ant:latest</code>, the per-group agent image, plus one image per shipped adapter. From here, <code>arizuko run</code> generates a Docker Compose file and brings the stack up &mdash; <strong>Docker Compose is the deploy path</strong>. For Kubernetes, see the Helm chart under <code>deploy/helm/arizuko/</code>.</p>
+    <p>The <code>make images</code> step is the longest (several minutes the first time). It builds <code>arizuko-ant:latest</code>, the per-group agent image, plus one image per shipped adapter. From here, <code>arizuko run</code> generates a Docker Compose file and brings the stack up &mdash; <strong>Docker Compose is the deploy path</strong>. For Kubernetes, see <a href="kubernetes.html">Deploy on Kubernetes</a>.</p>
 
     <h2>3. Create your first instance</h2>
     <p>Pick a short name. The name becomes the data directory and the systemd unit name.</p>
@@ -160,7 +160,7 @@ arizuko apply demo demo.yaml        # apply the manifest back</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/howto/index.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-09-13">2026-09-13</time>
+        &middot; updated <time class="docs-updated" datetime="2026-09-16">2026-09-16</time>
       </div>
     </main>
 

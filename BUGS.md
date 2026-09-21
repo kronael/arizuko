@@ -5354,7 +5354,7 @@ should NOT be reattempted as written:
 
 - **Status:** closed — recorded to prevent a repeat, no action wanted
 
-## S1b — the helm chart deploys the deleted `gated` daemon (2026-08-05, PROPOSED — redesign, needs sign-off)
+## S1b — the helm chart deploys the deleted `gated` daemon (2026-08-05, PROPOSED — redesign, needs sign-off; RE-MEASURED 2026-09-21)
 
 Split out of S1, whose fix ("wire `AUTHD_SERVICE_KEY` instead of the dead
 `CHANNEL_SECRET`") cannot be applied to `deploy/helm` as a config change. The
@@ -5376,18 +5376,81 @@ chart would now *look* current. That is worse than the honest breakage.
 
 - **Severity:** medium (k8s install path is dead; no runtime effect on the three
   compose instances)
-- **Scope:** deploy/helm, and `template/web/pub/arizuko/howto/kubernetes.html`
-  which documents it (left at `CHANNEL_SECRET` on purpose — the page and the
-  chart must move together)
+- **Scope:** deploy/helm
 - **Affected:** anyone installing via helm
 - **Source:** deploy/helm/arizuko/templates/gated.yaml:57;
   deploy/helm/arizuko/templates/_helpers.tpl:89-97;
-  deploy/helm/arizuko/values.yaml:119; deploy/helm/arizuko/templates/secret.yaml:13;
-  deploy/helm/arizuko/templates/adapters.yaml:68-75
-- **Status:** PROPOSED — redesign, needs sign-off. The real fix is a split-topology
-  chart (authd/routd/runed deployments + services, repoint `routerService`, add
-  the `AUTHD_*` env, drop `gated.yaml` and `secrets.channelSecret`), or deleting
-  the chart if helm is not a supported install path. Do not half-wire it.
+  deploy/helm/arizuko/templates/dashd.yaml:56;
+  deploy/helm/arizuko/templates/adapters.yaml:64-65
+- **Status:** PROPOSED — redesign, needs sign-off. Do not half-wire it.
+
+- **RE-MEASURED at 17459f6a 2026-09-21. The defect is real and BIGGER than
+  filed, two of the entry's own claims are stale, and the one user-facing half
+  is now fixed.**
+
+  **Fixed in this pass (bounded):** `howto/index.html:66` was the only thing in
+  the repo that sent a reader to this chart — "For Kubernetes, see the Helm
+  chart under `deploy/helm/arizuko/`". It now points at `kubernetes.html`, the
+  Kubernetes howto that sits beside it. Nothing else references the chart; its
+  own `README.md` is the sole remaining mention. The dead install path is no
+  longer advertised, and the chart was NOT touched — half-wiring it is still
+  refused.
+
+  **REFUTED — the `CHANNEL_SECRET` half already shipped.** `46c4e69e`
+  ("fix(helm): drop CHANNEL_SECRET and PROXYD_HMAC_SECRET from the chart")
+  removed it. `grep -rn "CHANNEL_SECRET\|channelSecret" deploy/helm/` answers
+  nothing, so this entry's cited `values.yaml:119` and `secret.yaml:13` and its
+  prescription to "drop `secrets.channelSecret`" all name something that is
+  already gone.
+
+  **REFUTED — the page and the chart do NOT have to move together.** This entry
+  scoped in `template/web/pub/arizuko/howto/kubernetes.html` as "left at
+  `CHANNEL_SECRET` on purpose". It carries zero occurrences of `CHANNEL_SECRET`,
+  and it is CURRENT: it names `routd` 35 times, `runed` 30, `authd` 6 and
+  `extenddb` 5. Its single `gated` hit is `<data>/ipc/<folder>/gated.sock`,
+  which is still the live socket filename (`groupfolder/folder.go:189`) and
+  therefore correct. The page documents hand-written manifests, not this chart —
+  its only `helm` lines install third-party `external-secrets`. The page moved
+  with the split and with the store; the chart is the orphan that did not.
+
+  **Bigger than filed — the storage model changed too, and the chart missed
+  that as well.** Beyond the three missing core daemons:
+  - **The whole persistence layer is absent.** Every owner table now lives on
+    the `extenddb` store server reached over TLS (`template/services/extenddb.yml`,
+    spec 6/42) — "no daemon opens a file". The chart has no `extenddb` or
+    `extenddb_db` object and none of the env that addresses them. It instead
+    provisions an RWO PVC whose stated job is "a live SQLite WAL"
+    (`gated.yaml:17`, `values.yaml:32,71`) that nothing opens any more.
+  - `dashd.yaml:56` sets `DB_PATH=/srv/app/home/store/routd/routd.db`. Those
+    files are frozen leftovers that answer a lie.
+  - `SECRETS_KEY` is absent from `configmap.yaml` and `secret.yaml`; routd
+    refuses to start without it.
+  - Four adapters shipped since are missing from `values.yaml`: `gitd`, `ttsd`,
+    `twitd`, `whapd`.
+  - `Chart.yaml` `appVersion: '0.49.0'` against a shipped `v0.69.0`.
+
+  **NOT stale, checked and kept:** `davd` and `vited` are both still live
+  (`compose/compose.go:688` and `compose/compose.go:1339`), so their templates
+  are not a second `gated`. A word-boundary grep says otherwise and is wrong —
+  the live symbol is `vitedService`.
+
+  **Root cause, and why it will recur: the chart is unowned and ungated.** Five
+  commits in its whole history, the last substantive one the starter commit
+  `388f73b4`. `helm` is not installed on the build host and `.github/workflows/ci.yml`
+  never renders the chart, so no gate could have caught any of the above — it
+  drifted through the daemon split and the DynamoDB move in silence, and any
+  rewrite drifts again by the next release unless a render gate lands with it.
+
+  **Recommendation: delete `deploy/helm/`.** The rewrite is not a chart edit but
+  a new chart — three core deployments, a store server with TLS and a minted
+  credential per daemon, and an agent-spawn model the chart's own README already
+  files as unsolved ("a k8s-native Job/Pod runner is future work"). The reason to
+  carry that cost was that it is the documented k8s path, and it is not:
+  `kubernetes.html` is, and it is current and maintained. Deleting the chart
+  costs a k8s user nothing and removes a surface that has never once been
+  rendered in CI. Rewriting it is defensible ONLY together with a `helm template`
+  gate in `ci.yml` and an owner. Either way this is the owner's call, not a
+  refinement — which is why it stays PROPOSED.
 
 ## ✅ CLOSED 2026-09-21 O2 — two adapters down on platform credentials, not code (2026-08-02)
 
