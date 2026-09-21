@@ -629,6 +629,12 @@ func buildMounts(
 	m = append(m, volumeMount{Host: hp(cfg, groupCodex), Container: containerHome + "/.codex"})
 	if cfg.HostCodexDir != "" {
 		SeedCodexMountTargets(groupCodex)
+		runUID, _ := containerRunUID()
+		for _, p := range unreadableCodexCreds(cfg.HostCodexDir, runUID) {
+			slog.Error("codex credential not readable by the agent's uid — codex in "+
+				"the container will report 'not logged in'; grant that uid read on it",
+				"path", p, "uid", runUID)
+		}
 		for _, name := range CodexROMounts {
 			m = append(m, volumeMount{
 				Host:      filepath.Join(cfg.HostCodexDir, name),
@@ -780,11 +786,9 @@ func buildArgs(
 			"-e", "NODE_OPTIONS=--require=/app/proxy-shim.js")
 	}
 
-	uid := os.Getuid()
-	gid := os.Getgid()
-	if uid > 0 && uid != 1000 {
+	if uid, explicit := containerRunUID(); explicit {
 		args = append(args,
-			"--user", fmt.Sprintf("%d:%d", uid, gid),
+			"--user", fmt.Sprintf("%d:%d", uid, os.Getgid()),
 			"-e", "HOME="+containerHome)
 	}
 
@@ -1170,6 +1174,18 @@ func seedGroupDir(cfg *core.Config, folder string) error {
 }
 
 const containerUID = 1000
+
+// containerRunUID reports the uid the agent runs as INSIDE the container, and
+// whether docker has to be told it. runed as root or as 1000 leaves the image's
+// own uid alone; any other host uid is passed through with --user so the mounted
+// group home stays writable. Declared once because two readers need it: buildArgs
+// passes the flag, buildMounts asks which uid must be able to open a host file.
+func containerRunUID() (uid int, explicit bool) {
+	if host := os.Getuid(); host > 0 && host != containerUID {
+		return host, true
+	}
+	return containerUID, false
+}
 
 // ownedByContainerUID reports whether a stat already names the agent uid, so a
 // caller can skip a repair it does not need. A platform without a Unix stat
