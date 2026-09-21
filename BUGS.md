@@ -5002,6 +5002,54 @@ Closed since, with evidence:
   single-segment wildcard is now `{jid...}`, the catch-all `proxyd_routes` and
   `github_sources` already use. Guard:
   `TestFeature_RouteTokens/http-revoke-slash-bearing-hook-jid`.
+- **F10, first half (misconfig laundered as transient) — FIXED 2026-09-21
+  (`416c4cb2`).** `resolve()` now returns `surrogate.ErrNotConfigured` for
+  "unknown provider" / "no client credentials", before any network call, and
+  `refreshOAuth` branches on it and logs at ERROR. The stale token is still
+  kept: nulling the row would force every user of that provider to reconnect
+  over one operator mistake, which is the decision F9 recorded for
+  `invalid_client`. Guards: `TestResolve_MisconfigurationIsNotTransient`,
+  `TestBroker_MisconfiguredProviderIsErrorNotTransient`. Note the honest limit —
+  the entry asked for a permanent fault to "stop being retried forever", and no
+  retry loop exists to stop: the attempt is once per row per tool call and never
+  reaches the network. What was wrong was the CLASSIFICATION, and that is what
+  changed.
+- **F11, second half — FIXED 2026-09-21 (`fcd203c3`); the filed wording was
+  wrong.** `Provider` carries no secret field, so no TOML "inherits the
+  built-in's client secret" — the pairing is by NAME, in the environment
+  (`SURROGATE_<NAME>_CLIENT_ID/_SECRET`), while a datadir `<name>.toml` replaces
+  the embedded struct whole. `loadRegistry` now reports which built-ins an
+  operator file MOVED (`auth_url`/`token_url` changed) and `NewEngine` warns for
+  those carrying creds. A replacement that leaves the endpoints alone stays
+  silent — a warning nobody can act on trains operators to skip the one that
+  matters. Guard: `TestRegistry_RedirectedCredentialedBuiltinWarns` (4 cases).
+- **F13 (unvalidated `secret_key` collisions) — FIXED 2026-09-21
+  (`8d493784`).** `loadRegistry` now rejects two providers writing one
+  `secret_key`, naming both. **The deployment risk was taken deliberately**: a
+  colliding registry fails to load, which today means routd and dashd exit
+  (F11's first half, below, still unresolved). Reasons on the record — it is the
+  same class as the existing required-field error and `specs/5/15` already rules
+  a half-defined provider a hard boot error; dropping one of the pair would pick
+  a winner arbitrarily and leave a provider whose Connect button writes into
+  another's row; and the blast radius is a datadir that ALREADY corrupts
+  credentials silently, since the embedded pair cannot collide
+  (`TestRegistry_EmbeddedSecretKeysUnique` pins that). Guard:
+  `TestRegistry_DuplicateSecretKeyErrors`.
+- **F14 (a de-registered provider leaves a live, unlistable, unrevocable token)
+  — FIXED 2026-09-21 (`9ef99cb1`).** `listConnections` lists the union of
+  registry + stored providers inside itself (no third reader), and
+  `handleMeConnectionDelete` resolves the stored row it was already reading for
+  the revoke and deletes by THAT row's key — the registry lookup is gone, not
+  made conditional. Two behaviours fell out, both wanted: a stored-row read
+  failure now 500s instead of being swallowed by an `err == nil` guard, and
+  disconnecting a provider with no OAuth row is a 404 that no longer deletes a
+  hand-pasted PAT sitting at that provider's `secret_key` (the old path did —
+  proven by reverting). Guards:
+  `TestConnections_DeregisteredProviderStaysListableAndDeletable`,
+  `TestConnections_DeleteWithoutRowKeepsPastedPAT`. Still true and correct: the
+  upstream revoke for a de-registered provider warns, because there is no
+  endpoint left to call — the local row is gone but the token may live on at the
+  provider.
 - **F10, second half ("near-expiry token dropped, not stale-used") — wrong
   premise.** `routd/sibling_db.go` `connectorSecrets` pre-populates `out[k]` from
   the stored value BEFORE calling `refreshOAuth`, and the transient-failure branch
@@ -5025,13 +5073,6 @@ Still live:
   "resolve at 5/33" — wrong: 5/33 governs ACL rows and shipped without touching
   this. The model to reconcile against is 5/1 / `auth/scope.go`, and the fix spans
   authd's mint side and routd's gate side.
-- **F10, first half (misconfig laundered as transient) — real, small, bounded.**
-  `auth/surrogate/engine.go` `resolve()` returns a plain error for "unknown
-  provider" / "no client credentials", and `routd/surrogate_refresh.go`
-  `refreshOAuth` treats it exactly like a network blip ("transient refresh
-  failure; using stale token", at WARN). That is the standing `CLAUDE.md` rule
-  "retry ONLY transient errors" being violated in two files. Fix: a distinct
-  sentinel plus an ERROR-level log. **Take this one first.**
 - **F11, first half (`os.Exit(1)` on a malformed operator TOML) — real, but the
   failure mode needs a decision.** `routd/cmd/routd/main.go` and `dashd/main.go`
   exit if `surrogate.NewEngine(dataDir)` errors, so one bad optional-feature file
@@ -5039,14 +5080,6 @@ Still live:
   `surrogate == nil`. Log-and-continue is one line per call site, but it trades a
   loud crash for a silently-absent feature, which is the fail-loud rule cutting
   both ways. Sign-off, not a mechanical fix.
-- **F11, second half — restated; the filed wording is wrong.** `Provider`
-  (`auth/surrogate/registry.go`) carries no secret field, so no TOML "inherits the
-  built-in's client secret". The real shape: client id/secret come from
-  `SURROGATE_<NAME>_CLIENT_ID/_SECRET`, keyed purely by NAME, and an operator file
-  fully replaces the embedded struct — so a datadir file reusing a built-in's
-  filename with a different `auth_url`/`token_url` is still paired with the real
-  credential and sends it wherever that file points. Fix: warn on a filename
-  collision with a credentialed built-in. Small, bounded.
 - **F12 (`Provider.AllowedDomain` parsed, never enforced) — real, REDESIGN.**
   `AllowedDomain` is populated in both shipped TOMLs and read nowhere in
   `engine.go`; it is the only occurrence of that identifier in the Go tree. Egress
@@ -5054,26 +5087,16 @@ Still live:
   `egress/match`, folder-scoped host allowlists). Giving the field teeth means a
   new contract joining provider config to that egress point. Until then it is a
   false guarantee in a config file — deleting the field is the other honest option.
-- **F13 (unvalidated `secret_key` collisions) — real, small, bounded.**
-  `loadRegistry`/`addProvider` check that required fields are non-empty but never
-  check `secret_key` uniqueness, and `dashd/me_connections.go` upserts via
-  `PutOAuthSecret(sub, p.SecretKey, ...)` keyed on that string alone, so two
-  providers sharing one clobber the same row. Note the deployment risk: adding the
-  check makes a colliding registry fail to load.
-- **F14 (a de-registered provider leaves a live, unlistable, unrevocable token) —
-  real, small, bounded.** `dashd/me_connections.go` `listConnections` iterates
-  `d.surrogate.Names()` (the current registry only), and
-  `handleMeConnectionDelete` 404s on `Provider(provider)` before touching the
-  stored row — so the row can be neither seen nor deleted. With F10's live half it
-  is also logged "transient" forever. Fix: list the union of registry + stored
-  keys, and let delete resolve the row without a live registry entry.
 
 - **Severity:** medium (F6 blocks a documented REST face for humans; F12 is a
   false security guarantee)
-- **Scope:** `auth/surrogate`, `routd/surrogate_refresh.go`,
-  `dashd/me_connections.go`, `routd/groups_http.go`
-- **Status:** open — F10a/F11b/F13/F14 are bounded fixes; F6 and F12 need sign-off
-- **Fix:** F7 fixed 2026-09-21 (`debe58f4`); F1 and F10b closed as dead / wrong premise
+- **Scope:** `routd/groups_http.go`, `auth/surrogate/registry.go` (`AllowedDomain`)
+- **Status:** open — the four left for the owner are F5 (a standing decision, no
+  action), F6 and F12 (both redesigns needing sign-off), and F11's first half
+  (`os.Exit(1)` on a malformed operator TOML — a decision, not a mechanical fix,
+  and F13 now rides on it). The four bounded ones are fixed.
+- **Fix:** F10a `416c4cb2`, F11b `fcd203c3`, F13 `8d493784`, F14 `9ef99cb1`, F7
+  `debe58f4` — all 2026-09-21; F1 and F10b closed as dead / wrong premise
 
 ## ✅ CLOSED 2026-09-21 5/33 grant-surface flip — attempted, reverted (2026-07-30)
 
