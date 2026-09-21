@@ -546,27 +546,23 @@ func (d *DB) Engaged(jid, topic string) (string, bool) {
 }
 
 // ListEngaged enumerates the live engagement windows visible to folder, newest
-// deadline first. `all` widens to the whole fleet and belongs ONLY to a
-// root/service caller; the handler derives it from an EMPTY folder claim, never
-// from depth.
+// deadline first. An EMPTY folder is the root or a service token and sees the
+// whole fleet — visibleTo says so, and it is the one containment predicate this
+// package answers with.
 //
-// Containment is descendant(row.Folder, folder) — self-or-below — deliberately
-// NOT ownsFolder, which reports true for an empty target and would show every
-// scoped caller the rows no folder has claimed. The window filter runs here
-// because the deadline is core.TSLayout TEXT, and the subtree filter runs here so
-// containment has ONE implementation instead of a LIKE pattern that a folder name
-// containing _ or % would silently widen.
-func (d *DB) ListEngaged(folder string, all bool) ([]Engagement, error) {
+// The window filter runs here because the deadline is core.TSLayout TEXT, and
+// the subtree filter runs here so containment stays in memory instead of a LIKE
+// pattern that a folder name containing _ or % would silently widen.
+func (d *DB) ListEngaged(folder string) ([]Engagement, error) {
 	live, err := d.store().LiveEngagements(time.Now())
 	if err != nil {
 		return nil, err
 	}
 	out := []Engagement{}
 	for _, e := range live {
-		if !all && !descendant(e.Folder, folder) {
-			continue
+		if visibleTo(folder, e.Folder) {
+			out = append(out, e)
 		}
-		out = append(out, e)
 	}
 	return out, nil
 }

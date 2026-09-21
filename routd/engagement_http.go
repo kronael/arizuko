@@ -55,7 +55,7 @@ func (s *Server) handleEngagementGet(w http.ResponseWriter, r *http.Request) {
 // depth would hand it every other tenant's chats. Per-row containment then runs in
 // DB.ListEngaged.
 func (s *Server) listEngagement(w http.ResponseWriter, folder string) {
-	live, err := s.db.ListEngaged(folder, folder == "")
+	live, err := s.db.ListEngaged(folder)
 	if err != nil {
 		writeErr(w, 500, "store_error", err.Error())
 		return
