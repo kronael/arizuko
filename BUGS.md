@@ -1784,7 +1784,7 @@ sharing hazard that does not exist today.
 - **Status:** proposal (needs sign-off) — nothing changed
 - **Fix:** add a folder-addressed token surface whose grant set may be a glob; keep the one-element pinned form as the default a shared link gets
 
-## L99 — `/invite/` and `/onboard` are `public` routes whose handlers key on identity, so onboarding is an infinite redirect (2026-08-26, proposal — needs sign-off)
+## L99 — `/invite/` and `/onboard` are `public` routes whose handlers key on identity, so onboarding is an infinite redirect (2026-08-26, FIXED 2026-09-21)
 
 Nobody can redeem an invite or create a world through the web. The link 303s to
 `/auth/login`, OAuth returns instantly because the provider session is live, and
@@ -1838,6 +1838,33 @@ Bearer header, and a browser navigation carries a cookie.
   The line numbers moved; the declaration did not. Still correctly a proposal:
   the fix changes either the auth on three routes or the identity model of the
   handlers behind them.
+
+- **REPRODUCED then FIXED 2026-09-21.** `onbod/onboarding_gate_test.go` stands
+  onbod's real mux behind the gate its routes really declare, read from
+  `compose.CoreRouteAuth`, and walks it with a cookie jar and a login that
+  returns at once. Before the fix `/invite/<tok>` ended in
+  `stopped after 10 redirects` — the browser hop limit, from code, not a curl.
+
+  Both halves moved, because either one alone leaves the loop reachable:
+
+  - the three rows are `Auth: "user"`, so proxyd's `requireAuth` trades the
+    session cookie for an identity. `optional` was checked and rejected for the
+    reason the entry gives: its arm only calls `tryAuth`, which reads a Bearer.
+  - onbod answers **401** where it bounced. `handleOnboardPost` already did;
+    the two GETs now match it. proxyd's `requireAuth` is the only writer of the
+    `auth_return` cookie (spec `5/31`), and onbod's second one disagreed with
+    it on lifetime — 86400 against 600, which is what the live capture caught.
+    With the bounce gone the loop cannot re-form when the transit proof stops
+    verifying and `stripUnsignedGuard` strips a signed-in caller's sub.
+
+  **Two details of the entry are wrong.** `/onboard` does not loop: onbod wrote
+  no `auth_return` there, so authd's `consumeReturn` had nothing and dropped the
+  caller on `/`. Same outcome, different mechanism — only `/invite/` loops.
+  And the `userSub == ""` branches do not become dead code: `stripUnsignedGuard`
+  still strips an unprovable sub, which is why they answer rather than vanish.
+
+  Unverified as before: no live instance was driven. `arizuko generate` on each
+  instance is still required for the route change to reach proxyd.
 ## L106 — the agent's `reply`/`send` sends one idempotency key and the retry sweep sends a different one, so the whole dedup contract is off for every MCP message (2026-08-26, proposal — needs sign-off; the fix crosses the ipc↔routd contract)
 
 `routd/mcp.go:259` delivers with a throwaway key:

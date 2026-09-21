@@ -79,7 +79,9 @@ routd reads.
 - Binary: `onbod/main.go`; admin surface: `onbod/admin.go`; owned-DB
   open: `onbod/db.go`
 - Listen: `$ONBOD_LISTEN_ADDR` (default `:8080`)
-- Public surface (transit-verified via authd JWKS):
+- Onboarding surface — proxyd routes these `auth: user`, so the caller has
+  already signed in and arrives with a transit-verified `X-User-Sub` (authd
+  JWKS). Every handler names that caller, and answers 401 without one:
   - `GET /onboard` — world picker (spec 5/18 step 6), username picker (step 8),
     dashboard, or queue position. Carries no `?token=`: redemption is webd's
     `/pair/{token}`.

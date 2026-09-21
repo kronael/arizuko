@@ -340,14 +340,23 @@ func TestRequireAuth_SetsReturnCookie(t *testing.T) {
 	if w.Code != http.StatusSeeOther {
 		t.Fatalf("status = %d, want 303", w.Code)
 	}
-	var found bool
+	var got *http.Cookie
 	for _, c := range w.Result().Cookies() {
 		if c.Name == "auth_return" && c.Value == "/dash/status?x=1" {
-			found = true
+			got = c
 		}
 	}
-	if !found {
-		t.Error("auth_return cookie not set with correct target path")
+	if got == nil {
+		t.Fatal("auth_return cookie not set with correct target path")
+	}
+	// requireAuth is the cookie's only writer, so its hygiene is pinned here and
+	// nowhere else: it carries the path a bounced caller resumes to, and it is
+	// readable by script or replayable cross-site if these slip.
+	if !got.HttpOnly {
+		t.Error("auth_return must be HttpOnly")
+	}
+	if got.SameSite != http.SameSiteLaxMode {
+		t.Errorf("auth_return SameSite = %v, want Lax", got.SameSite)
 	}
 }
 

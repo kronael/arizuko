@@ -173,6 +173,13 @@ func newOnbodMux(xdb, obdb *store.Store, cfg config, ks *auth.KeySet) *http.Serv
 	// OAuth'd end-user, so we must NOT stamp the bearer's own service:proxyd subject
 	// over it. An unproven X-User-Sub is stripped. No verifier (local dev) → pass
 	// through.
+	//
+	// What is left after the strip is a caller proxyd could not name, and every
+	// handler below answers 401 to one. proxyd owns the login bounce and the
+	// auth_return cookie authd resumes from (spec 5/31); a second bounce here
+	// sends an already-signed-in caller back to a login that returns them just
+	// as anonymous, which is the loop that made onboarding unreachable on every
+	// instance (BUGS L99). Refusing keeps the failure where its cause is.
 	stripUnsigned := stripUnsignedGuard(ks)
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -547,11 +554,12 @@ func auditAdmission(jid, userSub, action, gateKey string) {
 // link redeems at webd's /pair/{token}, which writes the edge and sends the user
 // here. This page reads the edge and asks where the chat should go.
 func handleOnboard(w http.ResponseWriter, r *http.Request, db, obdb *store.Store, cfg config) {
-	if userSub := r.Header.Get("X-User-Sub"); userSub != "" {
-		handleDashboard(w, r, db, obdb, userSub, ensureCSRFToken(w, r, cfg))
+	userSub := r.Header.Get("X-User-Sub")
+	if userSub == "" {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	http.Redirect(w, r, "/auth/login", http.StatusSeeOther)
+	handleDashboard(w, r, db, obdb, userSub, ensureCSRFToken(w, r, cfg))
 }
 
 // csrf is the double-submit token GET /onboard just minted; every form this
@@ -1132,13 +1140,7 @@ func handleInvite(w http.ResponseWriter, r *http.Request, db, obdb *store.Store,
 
 	userSub := r.Header.Get("X-User-Sub")
 	if userSub == "" {
-		http.SetCookie(w, &http.Cookie{
-			Name: "auth_return", Value: "/invite/" + token, Path: "/",
-			MaxAge: 86400, HttpOnly: true,
-			Secure:   cfg.secureCookie,
-			SameSite: http.SameSiteLaxMode,
-		})
-		http.Redirect(w, r, "/auth/login", http.StatusSeeOther)
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 

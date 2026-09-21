@@ -139,8 +139,10 @@ func (o *oauth) redirect(provider string) http.HandlerFunc {
 	}
 }
 
-// authReturnCookie is the same-origin hand-off proxyd (and onbod) write before
-// bouncing a caller to /auth/login.
+// authReturnCookie is the same-origin hand-off proxyd writes before bouncing a
+// caller to /auth/login. proxyd's requireAuth is its only writer (spec 5/31): a
+// backend that wrote one too would be bouncing a caller proxyd had already let
+// through, and the two cookies disagreed on lifetime.
 const authReturnCookie = "auth_return"
 
 // consumeReturn reads the post-login destination — ?return= wins, else the
