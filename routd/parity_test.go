@@ -372,7 +372,7 @@ func contains(s, sub string) bool { return strings.Contains(s, sub) }
 
 // TestGroupBySenderConsecutiveRuns: an interleaved A,B,A backlog splits into
 // THREE ordered batches [A],[B],[A], not the reordered [A,A],[B] a whole-slice
-// map regroup would produce (gated groupBySender consecutive-run parity).
+// map regroup would produce (consecutive-run grouping parity).
 func TestGroupBySenderConsecutiveRuns(t *testing.T) {
 	db, loop, rr := recLoop(t)
 	_ = db.PutGroup(core.Group{Folder: "demo"})

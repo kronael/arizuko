@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/kronael/arizuko/groupfolder"
 	"log/slog"
 	"maps"
 	"net"
@@ -48,7 +47,14 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 		// BotMsg, so the delegation is dropped here and the child never runs.
 		// The drop is silent by design, which is why that went unnoticed since
 		// August (BUGS L2) — so the CROSS-FOLDER case says so.
-		if author := groupfolder.JidFolder(chatJID); author != "" && last.Sender != "" && last.Sender != author {
+		//
+		// The chat's folder is READ, never parsed out of the JID. The grammar is
+		// ambiguous — `web:t/sfx` reads as folder `t/sfx` while its mint recorded
+		// `t`, `hook:a/b/c` reads as `a/b` — so parsing made a folder's OWN reply
+		// into its own route-token chat compare unequal and log this alarm once
+		// per reply, forever. directFolder is the reader that consults the mint
+		// record first (BUGS L4, L1).
+		if author := l.directFolder(chatJID); author != "" && last.Sender != "" && last.Sender != author {
 			slog.Warn("delegation woke nothing: the chat holds only bot rows, so no turn ran",
 				"chat_jid", chatJID, "wrote_by", last.Sender, "chat_folder", author,
 				"rows", len(msgs))
@@ -119,14 +125,44 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 		return steerConsumed, nil
 	}
 
-	// web: chats dispatch one turn per topic in first-seen order; everyone
-	// else batches per distinct sender, one turn each. The route-pinned topic
-	// (r.Topic) overrides the message's own topic for the non-web path.
+	// turnTopic answers the topic one row's turn dispatches under. It is DECLARED
+	// ONCE because the grouping key below and the loop body both read it, and a
+	// group whose rows disagree about their destination has no destination of
+	// its own.
+	//
+	// Both overrides — a set sticky #topic and a route-pinned topic — are
+	// properties of the CHAT, so they resolve ONCE, here. The key function runs
+	// for every row and pollBatch is 200, so reading the sticky pin inside it
+	// would be hundreds of chat reads for one fact. effectiveTopic on an empty
+	// topic IS that pin, which keeps the rule declared in one place.
+	web := strings.HasPrefix(chatJID, "web:")
+	pin := l.effectiveTopic(chatJID, "")
+	if !web && r.Topic != "" {
+		pin = r.Topic
+	}
+	turnTopic := func(m core.Message) string {
+		if pin != "" {
+			return pin
+		}
+		return m.Topic
+	}
+
+	// web: chats dispatch one turn per topic in first-seen order; everyone else
+	// batches per distinct sender AND destination topic, one turn each.
+	//
+	// The topic half of that key is not decoration. Grouping by sender alone put
+	// two of one person's Discord threads in one batch, and the turn took the
+	// topic of the group's LAST row — so the older thread's @mention was answered
+	// inside the newer thread and its own thread went silent for three weeks
+	// (BUGS L305, measured on sloth). A sticky or route-pinned topic collapses
+	// the key back to one value, so a pinned chat still dispatches one turn.
 	var groups [][]core.Message
-	if strings.HasPrefix(chatJID, "web:") {
+	if web {
 		groups = groupByTopic(trigger)
 	} else {
-		groups = groupBySender(trigger)
+		groups = consecutiveRuns(trigger, func(m core.Message) string {
+			return m.Sender + "\x00" + turnTopic(m)
+		})
 	}
 
 	hadAny := false
@@ -135,12 +171,7 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 	var marks []observedAdvance
 	for _, batch := range groups {
 		bl := batch[len(batch)-1]
-		// A set sticky #topic overrides the message's own topic; a route-pinned
-		// topic is the explicit non-web override.
-		topic := l.effectiveTopic(chatJID, bl.Topic)
-		if !strings.HasPrefix(chatJID, "web:") && r.Topic != "" {
-			topic = r.Topic
-		}
+		topic := turnTopic(bl)
 		had, steered, busy, mark, derr := l.runTurn(folder, topic, chatJID, bl.ID, batch)
 		if derr != nil {
 			// Transport failure: do NOT advance — re-fed next poll
@@ -735,10 +766,6 @@ func consecutiveRuns(msgs []core.Message, key func(core.Message) string) [][]cor
 		batches[len(batches)-1] = append(batches[len(batches)-1], m)
 	}
 	return batches
-}
-
-func groupBySender(msgs []core.Message) [][]core.Message {
-	return consecutiveRuns(msgs, func(m core.Message) string { return m.Sender })
 }
 
 func groupByTopic(msgs []core.Message) [][]core.Message {

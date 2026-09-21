@@ -17,6 +17,7 @@ import (
 	"github.com/kronael/arizuko/core"
 	apiv1 "github.com/kronael/arizuko/routd/api/v1"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
+	"github.com/kronael/arizuko/store"
 )
 
 // stubRunner records the POST /v1/runs body and, on Run, replies through
@@ -638,5 +639,46 @@ func TestDispatch_AnAgentsOwnOutputIsDroppedQuietly(t *testing.T) {
 	}
 	if strings.Contains(logged.String(), "delegation woke nothing") {
 		t.Errorf("a folder's own output logged a false alarm:\n%s", logged.String())
+	}
+}
+
+// A route-token chat's JID is ambiguous by grammar: `web:acme/tok` reads as
+// folder `acme/tok` while its mint recorded `acme`. Parsing the folder out of
+// the JID therefore made a folder's OWN reply into its own chat compare
+// unequal, and the delegation notice fired once per reply, forever. The chat's
+// folder is READ from the mint record (BUGS L2, the L4/L1 class).
+func TestDispatch_ARouteTokenChatsOwnReplyIsNotADelegation(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	const jid = "web:acme/tok"
+	if err := db.store().InsertRouteToken("raw-token-acme", store.RouteToken{
+		JID: jid, OwnerFolder: "acme", TargetFolder: "acme",
+	}); err != nil {
+		t.Fatalf("mint: %v", err)
+	}
+	var logged bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logged, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	loop := NewLoop(db, runnerFn(func(context.Context, runedv1.RunRequest) (runedv1.RunOutcome, error) {
+		return runedv1.RunOutcome{}, nil
+	}), LoopConfig{})
+	loop.StopQueue()
+
+	// acme's own reply into the chat its own token delivers to.
+	if err := db.PutMessage(core.Message{ID: "o1", ChatJID: jid,
+		Sender: "acme", Content: "my own reply", BotMsg: true, FromMe: true,
+		Timestamp: time.Now().UTC(), Verb: "message"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loop.processGroupMessages(jid); err != nil {
+		t.Fatalf("process: %v", err)
+	}
+	if strings.Contains(logged.String(), "delegation woke nothing") {
+		t.Errorf("a route-token chat's own reply logged a false alarm:\n%s", logged.String())
 	}
 }

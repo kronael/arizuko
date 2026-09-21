@@ -1377,7 +1377,7 @@ into which folder. `C0B4JMQ8X89`'s pair is the shape to copy (`verb=mention`
 at the lower seq, `#observe` above it — see eval check 22 for why that order
 matters).
 
-## L305 — two live threads in one Discord channel: the second one's mention is never answered (2026-09-18, open — proposal, needs sign-off)
+## L305 — two live threads in one Discord channel: the second one's mention is never answered (2026-09-18, GROUPING HALF FIXED 2026-09-21; the cursor proposal is unevidenced)
 
 MEASURED on sloth, and it is the cause behind "sloth is not remaining active in
 threads which he did not start".
@@ -1438,6 +1438,44 @@ grouped by SENDER, not topic (`routd/dispatch.go:129`, `groupBySender` at
 threads from one person collapse into one turn in one thread, which reproduces
 the sloth trace exactly. A per-(chat, topic) cursor alone therefore will not fix
 this; the grouping key belongs in the proposal before sign-off.
+
+- **The grouping half is FIXED 2026-09-21 (`1c263329`), and it is the half that
+  reproduces the sloth trace.** `routd/dispatch.go` now keys the non-web batch
+  on the sender AND the topic the turn will dispatch under, read from ONE
+  declaration (`turnTopic`) that the grouping key and the loop body share. A
+  group can no longer span two destinations and then silently take one of them.
+  Reproduced first, before any edit: two mentions, one sender, topics
+  `thread-a` and `thread-b`, one poll → **one** turn, `topic=thread-b`,
+  carrying thread-a's mention inside its batch. That is the sloth trace
+  verbatim.
+- **PROVEN BY MUTATION, both directions.** Drop the topic term from the key and
+  `TestDispatch_TwoThreadsOneSenderGetOneTurnEach` fails with one turn instead
+  of two. Key on the raw `m.Topic` instead of the dispatch topic and both
+  `TestDispatch_ARoutePinnedTopicStillTakesOneTurn` and
+  `TestDispatch_AStickyTopicStillTakesOneTurn` fail with two turns — a chat
+  whose route or sticky pins one topic must still take exactly one.
+- **The cursor proposal is now UNEVIDENCED, and that is what changes the
+  sign-off.** Its premise is "a topic that is simply not dispatched in this pass
+  is carried past". After the grouping fix every topic holding a non-bot row in
+  the batch IS dispatched in the pass, so no topic reaches `l.advance`
+  undispatched. The three non-advancing exits (`derr`, `busy`, `steered`) re-feed
+  the whole batch, and `PutTurnContext` answers `live=false` for a turn that
+  already completed, so the re-feed replays nothing. Whoever signs off should
+  first be shown a case the grouping fix leaves open.
+- **And the cursor change is not the small one the entry implies.** Five of the
+  cursor's readers are not batch reads. Two take `GetAgentCursor(chatJID)` as
+  "when this CHAT was last active", which a per-topic cursor gives N answers to
+  and no rule for choosing one: `sessionIdleExpired` (`routd/loop.go:845`),
+  which resets a stale Claude session, and the `new_day` check in
+  `emitSystemEvents` (`routd/prompt.go:240`). Two more key the busy backoff on
+  the chat rather than the cursor (`busyDeferred`/`noteBusy`), so a refusal in
+  one topic parks the other. The fifth is the steer contract: `L104` guarantees
+  a steer consumes its own row and leaves the older rows their turn, and that
+  guarantee is written in terms of ONE ordered cursor over the chat.
+- **One question for the sign-off:** is there a case, after the grouping fix,
+  where a topic's rows are carried past undispatched — and if not, does the
+  per-(chat, topic) cursor still buy anything worth those five readers losing
+  their definition?
 
 ## L283 — the agent turn container runs unhardened while its own egress sidecar is locked down (2026-09-12, open — needs sign-off)
 
@@ -3064,7 +3102,7 @@ list, audit list, sessions list, signing_keys list, proxyd_routes list/get/creat
   same way and is a separate entry's worth of work: `POST /v1/routes` documents a
   `RoutesRow` body while the handler reads `{"route": "<json>"}`.
 
-## L96 — an inbound reaction reaches the DB but never reliably reaches the agent (2026-08-25, proposal)
+## L96 — an inbound reaction reaches the agent, but never as a distinguishable event (2026-08-25, RE-SCOPED 2026-09-21 — one question, no redesign)
 
 Inbound reactions are wired end-to-end on the four chat adapters — teled asks
 Telegram for them explicitly (`teled/bot.go:233` `allowed_updates` must NAME
@@ -3096,13 +3134,50 @@ Also structural, and separate: `bskyd`, `reditd` and `linkd` can SEND a reaction
 and can never receive one — no `InboundMsg` is ever built from a like or an
 upvote in those three.
 
-- **RE-MEASURED 2026-09-20 at `6cef0e48`: CONFIRMED LIVE.** The ingest half is
-  as the entry describes. The delivery half is confirmed by ABSENCE, which is
-  what makes it hard to see: `grep -i reaction` over `routd/dispatch.go` and
-  `routd/prompt.go` returns **nothing**, and `router/router.go` has no reaction
-  verb. So a stored reaction has no path into a prompt and no route can select
-  on it — there is no code to be unreliable, which is why no log line reports
-  the loss.
+- **RE-MEASURED 2026-09-21 at `b3b973e2`: the 2026-09-20 note above is REFUTED
+  on both of its claims, and the refutation removes all three options.** That
+  note grepped for `reaction` in `routd/` and concluded from the silence that no
+  delivery path exists. The mechanism is spelled `verb`, not `reaction`, so the
+  grep could not see it.
+  - `router.FormatMessages` emits `verb="like"` for any verb but `message`
+    (`router/router.go:133`) above a `<reply-to sender=…>excerpt</reply-to>`
+    header (`router/router.go:75-92`). A reaction that reaches a prompt already
+    says what arrived and which message it was on.
+    `router/router_test.go:422` pins it.
+  - `verb` IS a route predicate (`router/router.go:329`), so `verb=like` is a
+    routable match today. `router/router_test.go:269` pins it.
+  Therefore, of the entry's three candidate shapes:
+  - **(b) a route-level `verb=like` opt-in needs NO code.** It is one route row.
+    Ruled out as work.
+  - **(c) promote reactions on the bot's own messages is SHIPPED**, and not
+    "half, via `ReplyTo`": `routd/server.go:578` resolves the parent through
+    `MessageByID`, which matches on `platform_id` — the id a reaction actually
+    carries — and then tests `parent.BotMsg`, which is authorship.
+    `ThreadHasBotMessage` widens it to any thread the bot has spoken in
+    (spec `5/L`). Every adapter sets `ReplyTo` on a reaction
+    (`discd/bot.go:273`, `teled/bot.go:264`). Ruled out as work.
+  - **(a) is already the shipped default on the canonical config.** A reaction
+    that misses the `verb=mention` trigger row hits `5/B`'s `#observe`
+    catch-all, so `routeMiss` ingests it with `is_observed=1` and it reaches the
+    NEXT turn's `<observed>` window — under the rule "Observed messages are
+    context, not requests. Do not reply to them." The live krons finding, "the
+    bot's next reply answers the user's next TEXT message", is that rule
+    working as specified, not a delivery failure. Ruled out as work.
+  So the title is wrong: a reaction DOES reach the agent, by all three doors.
+  What is left is narrower. Once promoted, `verb` is OVERWRITTEN to `mention`
+  and `core.Message` carries no reaction field at all
+  (`routd/routes_http.go:38` drops `apiv1.Message.Reaction`), so the agent reads
+  a message whose entire body is `👍`. A reaction is never a distinguishable
+  EVENT — only ambient text it is told to ignore, or a bare emoji under a
+  `<reply-to>` header.
+- **One question for the sign-off:** should a reaction be distinguishable in the
+  prompt — a `reaction` attribute the mention promotion does not overwrite — or
+  is a bare emoji under a `<reply-to>` header enough? Nothing here needs a
+  redesign or a product decision about spending a turn per emoji: (b) is a
+  config row and (c) already ships. The structural half of this entry —
+  `bskyd`, `reditd` and `linkd` can SEND a reaction and never receive one —
+  is untouched and still open.
+
 ## L92 — the HITL hold gate fails OPEN when the `acl` read fails (2026-08-24, proposal)
 
 `auth.CheckHold` (`auth/authorize.go:392`) logs and returns `false` when
@@ -3202,6 +3277,38 @@ the history — which is what `L87` fixes on the fork axis.
 
 Both are behaviour changes on every turn on every instance, so neither ships
 inline. `5/B` and `5/F` are the specs to amend.
+
+- **RE-MEASURED 2026-09-21 at `b3b973e2`: the defect is CONFIRMED and proposal 1
+  is MIS-SCOPED in both directions.** `store.ObservedSince`
+  (`store/message_folders.go:337-356`) reads the observer's own folder with
+  `is_observed` **Present** and each watched folder with **Absent**. There is no
+  intra-folder primary read, so the hole is real.
+  - It is NARROWER than the entry implies. That read is partitioned by FOLDER,
+    not by topic, so sibling topics ALREADY share every `is_observed=1` row —
+    and on `5/B`'s canonical mention-only shape (a `verb=mention` trigger row
+    above a `#observe` catch-all) that is most of the channel. The rows a
+    sibling cannot see are exactly the ones that TRIGGERED a turn.
+  - It is also WIDER than the entry implies, and this is the half proposal 1
+    does not name: BOTH reads carry `{Attr: attrFeedBot, Op: objstore.Absent}`,
+    so the ambient window excludes bot rows outright. Thread B never sees what
+    the agent SAID in thread A. "dont yiu see the history?" is about a
+    conversation, and half of a conversation is the agent's own turns.
+  - The bot filter is LOAD-BEARING and its comment says so, so widening it is
+    the part that needs the sign-off, not the `is_observed` term.
+    `router/router.go`'s `bot="true"` comment names that same filter as the
+    reason a bot row never reaches the injected history, and says that without a
+    marker the agent "reads its own past words as another user's — the read-side
+    twin of BUGS L150". `L184` (local-row half shipped 2026-09-21) supplies the
+    marker, so an ambient window COULD now carry the agent's own words without
+    the agent reading them as another user's. Before `L184` the same widening
+    would have re-opened that twin.
+  - `L305`'s grouping fix (`1c263329`) removes the other reported symptom — the
+    desk answering thread A inside thread B — but not this one. The two are
+    independent.
+- **One question for the sign-off:** does the intra-folder ambient window carry
+  the siblings' BOT rows as well as their triggering user rows — and if it does,
+  is `observe_window_*` still the right budget once the window stops meaning
+  "what nobody answered" and starts meaning "the channel"?
 
 ## L75 — a dispatch failure loses the trigger silently: the retry never retries, and pending mentions get demoted to "observed" (2026-08-23, (a) FIXED 2026-09-20; (b) needs sign-off)
 
@@ -4796,6 +4903,36 @@ Silently storing a row nobody will ever act on is the worst of the three.
   delegation wake its target needs a row shape that is neither "a person spoke"
   nor "my own output" — a message-model change, which is the sign-off this
   entry has been waiting for since August.
+- **The notice shipped 2026-09-20 read the chat's folder out of the JID, and on
+  two JID shapes that made it lie. FIXED 2026-09-21 (`2abe141f`).** It called
+  `groupfolder.JidFolder(chatJID)`, but the grammar is ambiguous by design —
+  `web:t/sfx` reads as folder `t/sfx` while its mint recorded `t`, and
+  `hook:a/b/c` reads as `a/b`. So on every route-token chat and every `hook:`
+  chat the comparison was `t/sfx != t`, and the folder's OWN reply logged
+  "delegation woke nothing" once per reply, forever.
+  `store.RouteTokenTargetByJID` is "the single reader every folder-from-JID path
+  goes through" (its own comment) and `routd/loop.go` `directFolder` is the call
+  site that already uses it; the notice now uses it too. The 2026-09-20 mutation
+  proof could not catch this because both its tests use a plain `web:<folder>`
+  JID, where the grammar happens to be right. Same bug class as `L4`/`L1`, in
+  the code written to report `L2`.
+  - PROVEN BY MUTATION: with the grammar reader,
+    `TestDispatch_ARouteTokenChatsOwnReplyIsNotADelegation` fails with
+    `chat_folder=acme/tok wrote_by=acme`; the two 2026-09-20 tests keep passing
+    either way, so a real cross-folder delegation still warns and a plain
+    folder chat still stays quiet.
+- **The warning is NOT enough to act on, and that is the bounded half of the
+  sign-off.** A `slog.Warn` in routd reaches an operator reading the census. It
+  does not reach the agent that called `send`, which still gets a success and
+  then waits for a callback that cannot come, and it does not reach the person
+  who asked for the delegation. `CLAUDE.md` §Fail loud requires an error on a
+  user-facing path to surface to the caller, not only to a log — and the entry
+  already named this option ("refused loudly at the `send` gate"). It is one
+  question, not a redesign: **should `send` refuse when the target chat's folder
+  is not the caller's own, given that posting a notification into another
+  folder's channel is a legitimate use of the same call?** The message-model
+  change (a row that is neither "a person spoke" nor "my own output", plus the
+  hop budget) stays the separate, larger sign-off; nothing here touches it.
 
 ## ✅ FIXED 2026-09-20 J16 — `ant/CLAUDE.md` tells the agent connector tools are deferred; they are eager (2026-08-09)
 
