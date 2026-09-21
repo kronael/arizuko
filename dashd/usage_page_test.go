@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/kronael/arizuko/core"
-	"github.com/kronael/arizuko/dashd/dashstore"
 	"github.com/kronael/arizuko/objstore"
 
 	"time"
@@ -121,12 +120,14 @@ func TestUsageSaysSoWhenThereIsNoMeter(t *testing.T) {
 	}
 }
 
-// TestGroupUsageBulkBatchesLargeFolderLists: groupUsageBulk must not build a
-// single IN(...) list sized to the whole folder count — that fails outright
-// once SQLite's bound-parameter limit is exceeded. Seed more folders than
-// dashstore.UsageBatch and confirm every one still gets a row back.
-func TestGroupUsageBulkBatchesLargeFolderLists(t *testing.T) {
-	n := dashstore.UsageBatch + 10
+// TestGroupUsageBulkWholeFolderList: groupUsageBulk answers for EVERY folder it
+// is asked about, however many that is. The page fans out over the whole group
+// tree, and a read that silently truncated would show an instance's newest
+// groups as never-used rather than erroring — so the assertions that matter are
+// the row count and the metered row landing on the LAST folder of the list.
+func TestGroupUsageBulkWholeFolderList(t *testing.T) {
+	// Far past any real instance's group count (krons runs 95).
+	const n = 510
 	folders := make([]string, n)
 	for i := range folders {
 		folders[i] = strings.Repeat("f", 1) + string(rune('a'+i%26)) + strconv.Itoa(i)

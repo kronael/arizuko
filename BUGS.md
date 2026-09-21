@@ -5579,44 +5579,55 @@ A rollout snapshot; the rollout finished. Each of its six items re-verified at
 - **Status:** closed — nothing left to track
 - **Fix:** none needed
 
-## dashd reads SQLite directly — spec 7/1 (formerly 6/1) says it shouldn't; code and CLAUDE.md say it should (2026-06-16, PROPOSED — spec/code conflict, needs sign-off, verified 2026-08-15)
+## dashd's cross-owner reads — two survive spec 6/28's read rule (2026-06-16, rewritten 2026-09-21)
 
-`dashd/main.go` opens `routd.db` (`dbRoutd`), `onbod.db` (`dbOnbod`) and `runed.db`
-(`dbRuned`, via `openSiblingOwner`) directly and queries them from most page handlers
-(groups, tasks, routes, activity, secrets, usage). The renamed spec (`6/1` →
-`specs/6/28-cockpit-index.md`, still `status: draft`) still says, verbatim: "Every
-datum a dashboard shows or mutates flows through the owning daemon's `/v1` surface.
-No dashboard — hub or per-daemon — reads a SQLite DB directly. This retires dashd's
-current direct reads of routd.db/onbod.db/messages.db."
+**The conflict this entry tracked is resolved, and not by code.** It read: the
+renamed spec (`7/1` → `specs/6/28-cockpit-index.md`) forbids the direct DB read,
+the code and root `CLAUDE.md` require it, someone must pick. `6/28` is
+`status: shipped` and now states both halves itself. Its §"Read-path: `/v1`
+only, no direct DB" carves the `secrets` exception on a named test — "would the
+owner serve this if asked", and routd's secrets resource refuses a read face on
+purpose (`routd/secrets_resource.go`) — and its §"WRITES are governed by
+CLAUDE.md" quotes §"Split write-discipline" verbatim. Nothing is left to sign
+off.
 
-That is the OPPOSITE of root `CLAUDE.md`'s current "### Split write-discipline":
-"FS-mounted daemons (dashd, onbod, CLI) write owned tables directly to the owner's
-DB" — and the code comments agree with CLAUDE.md, not the spec: `dashd/main.go:385`
-"dbRoutd *sql.DB // routd.db handle — dashd's ONLY message/config store", `:417`
-"dashd IS FS-mounted on onbod.db (dbOnbod, for the invites page)". `openSiblingOwner`
-(`dashd/main.go:451`) is a THIRD documented pattern: dashd also opens `runed.db`
-read-only as a "sibling owner" for dashboard views it doesn't own.
+**The SQLite half is subsystem-gone.** `database/sql` is imported by exactly one
+file in the tree (`audit/audit_log_test.go`) and no SQLite driver is linked at
+all. `dbRoutd`, `dbOnbod` and `dbRuned` do not exist: dashd holds an
+`objstore.Store` over routd's owner partition and reads it through
+`dashd/dashstore` (`6/37` step 1). The `runed.db` read the entry named is gone
+outright — `openSiblingOwner` is called once, for `store.OwnerOnbod`
+(`dashd/main.go:263`).
 
-The one page that WAS moved off direct DB reads is `/dash/audit/`
-(`dashd/audit_page.go`), whose header comment explicitly frames the old direct-read
-pattern as "the recorded defect class that dashd/route_tokens.go already is" and
-fans out to each owner's `/v1/audit` instead. So the codebase is not uniform: one
-page adopted the spec's contract, most did not, and CLAUDE.md documents the
-NON-adoption as the shipped decision.
+**Most of the pages it named already moved.** Routes, tasks and groups render
+from routd's `/v1` over the service bearer (`routes_admin.go:379`,
+`tasks_admin.go:310,330`, `groups_admin.go:451`); their surviving `dashstore`
+calls are the write path and its pre-write lookups, which CLAUDE.md governs.
+`/dash/audit/` fans out to each owner's `/v1/audit`, and `route_tokens.go:37`
+cites the rule in its own comment.
 
-- **Severity:** high
-- **Scope:** dashd, spec 7/1 (draft, never shipped) vs. root CLAUDE.md (shipped)
-- **Affected:** all dashd pages (groups, status, invites, memory, tokens, activity, tasks, usage)
-- **Source:** dashd/main.go:385-451; dashd/audit_page.go:3-16; specs/6/28-cockpit-index.md:33-61;
-  root CLAUDE.md "### Split write-discipline"
-- **Status:** PROPOSED, not fixed — this is a spec-vs-implementation conflict, not a
-  contained bug: resolving it either means (a) implementing the full `/v1`-only
-  read-path for every dashd page the way `/dash/audit/` already does (cross-daemon
-  control-flow change, new `/v1` read endpoints per `specs/6/30`/`6/32`), or (b)
-  marking spec 7/1's "no direct DB" section declined/superseded and updating it to
-  document the FS-mounted direct-read pattern CLAUDE.md and the code already ship.
-  Either direction needs a decision, not a docs-only close. NOT fixed this pass.
-- **Fix:** needs sign-off — see Status.
+**What survives: two cross-owner READS.** Neither is the spec's `secrets`
+exception, and neither needs a decision — `6/28` already prescribes the remedy.
+
+1. `dashd/usage_page.go:148` → `dashstore.MessageActivityByFolder`, reading
+   routd's `message_folder_counts` entity and each folder's feed head. The cost
+   half of the same page already goes through `GET /v1/cost/summary`
+   (`usage_page.go:264`); the message half has no endpoint, so this is 6/28's
+   "failing that, add a minimal daemon-owned read endpoint".
+2. `dashd/invites.go:34` → `onbodStore().ListInvites("")`. The page's WRITES are
+   CLAUDE.md's FS-mounted discipline; the LIST is not, and onbod already serves
+   `GET /v1/invites` on resreg (`onbod/invites_resource.go`), so this one is a
+   swap, not an addition.
+
+Severity drops from high to low, scope from "all dashd pages" to these two.
+
+- **Severity:** low
+- **Scope:** `dashd/usage_page.go`, `dashd/invites.go`
+- **Affected:** `/dash/usage/`, `/dash/invites/`
+- **Source:** dashd/usage_page.go:148; dashd/invites.go:34;
+  specs/6/28-cockpit-index.md:33-71; dashd/main.go:263
+- **Status:** open — undone spec work, no sign-off pending
+- **Fix:**
 
 ## ✅ CLOSED-STALE 2026-09-21 chat: loadChatSessions limits before filtering; nondeterministic continue links (2026-06-18)
 

@@ -143,13 +143,6 @@ type MessageActivity struct {
 	LastAt string
 }
 
-// UsageBatch bounds how many folders go into one IN(...) list. SQLite caps
-// bound parameters per statement (SQLITE_MAX_VARIABLE_NUMBER); an unbatched
-// IN-list sized to the full folder count fails outright once an instance's
-// group tree passes that ceiling, so MessageActivityByFolder chunks instead.
-// It is exported because the ceiling is what the batching test has to exceed.
-const UsageBatch = 500
-
 // MessageActivityByFolder returns the message count and last-active timestamp
 // per folder, for the folders asked about and no others. A folder with no
 // messages is absent from the map rather than present with a zero, so the
