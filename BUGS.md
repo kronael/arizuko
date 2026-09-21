@@ -13,6 +13,361 @@
 > work items are their own entries. A record has nothing to fix and never will,
 > so counting one as open overstates the queue.
 
+## ✅ FIXED 2026-09-21 L333 — an operator-only slash command refuses without naming the principal it tested, and the refusal leaves no trace
+
+sloth's operator typed `/root <request>` in the Telegram DM on 2026-09-17 and
+2026-09-21. This entry is the 2026-09-21 one, where routd DID intercept the
+command: it consumed the row (`routd.chats.agent_cursor` advanced to
+`…/4181`), dispatched no turn, wrote no `root-…` re-injection, and answered:
+
+```
+Permission denied: /root requires an operator grant (**).
+```
+
+The sentence is true and useless. It does not say WHICH principal was tested,
+and the operator cannot see it: a chat identity is a platform id the person
+never types, and `IsOperator` reads it verbatim — `auth.Authorize` resolves
+nothing on the way in (`auth/authorize.go:13-16`, "There is no resolve step
+here"). So a grant row written against a different platform id reads exactly
+like the platform refusing everybody, and the operator concluded `/root` was
+broken. The agent published the opposite diagnosis into the chat:
+*"`$ARIZUKO_IS_ROOT` is empty … it reached me as plain text (not intercepted as
+an operator command)"* (`telegram:user/1112184352`, 2026-09-18T20:41:17Z). That
+sentence is TRUE of the 2026-09-17 attempt and false of this one — the two
+attempts failed in two different ways, and the other one is `L336`. Nothing the
+operator could see distinguished them.
+
+**And nothing on the instance recorded the refusal.** An ack goes straight to
+the platform through the Deliverer (`routd/deliver.go:86`) and is never
+appended, so there is no `messages` row. `IsOperator` writes no `audit_log`
+row. Nothing logged. The only surviving evidence of the 2026-09-21 attempt was
+teled's own idempotency record:
+
+```sql
+-- sloth, teled.outbound_dedup
+select pk, item_data->'chat_jid'->>'S', item_data->'created_at'->>'S'
+  from "_ddb_163d7d83-363a-42c1-9e4c-095e3106c8ee" where pk like 'ack-%';
+-- ack--1789973515767194979 | telegram:user/1112184352 | 2026-09-21T06:51:55Z
+```
+
+Four commands shared the gate and each spelled its own refusal —
+`/status`, `/invite` and `/gate` said only `Permission denied: operator only.`
+
+- **Severity:** high (the operator's escalation path. 8 Telegram `/root`
+  attempts on this workload since 2026-04-02 and not one succeeded; the denial
+  never said why, and the agent published the wrong cause into the chat)
+- **Scope:** `routd/steer.go` — `cmdRoot`, `cmdStatus`, `cmdInvite`, `cmdGate`
+- **Source:** sloth `routd.messages` (`telegram:user/1112184352`,
+  2026-09-21T06:52:28Z, id `…/4181`), `routd.chats.agent_cursor` advanced to
+  that id, `teled.outbound_dedup` row `ack--1789973515767194979` → Telegram
+  message 4182, and NO `dispatch run` for 4181 in `journalctl -u arizuko_sloth`
+- **Status:** FIXED
+- **Fix:** one renderer, `Loop.denyNonOperator(chatJID, sender, cmd)`, used by
+  all four. It names the principal (`… requires an operator grant (**);
+  "telegram:user/1112184352" has none.`) and logs the denial at WARN, which is
+  the operator-side half — a steer refusal now leaves a trace somewhere.
+  Test: `TestOperatorDenialNamesTheSender` (`routd/steer_commands_test.go`) —
+  fails on all four commands without the fix. It does NOT change who may run
+  `/root`; the wrong-principal data is `L334`. (`4f78901e`)
+
+## L334 — sloth grants instance-wide operator to a third party's Telegram account, and to none of the operator's (2026-09-21, open — operator data, needs the owner)
+
+On sloth, `role:operator` holds `* :: ** :: allow` and its Telegram member is:
+
+```sql
+-- sloth, routd.acl_membership
+select replace(sk_s, chr(31), ' -> '), item_data->'added_by'->>'S'
+  from "_ddb_78dd52a0-e302-47a2-8cbe-e4cd2e9c201d" where sk_s like 'telegram%';
+-- telegram:user/1183985669 -> role:operator | cli:kron-all
+```
+
+`telegram:user/1183985669` is **Michal F** — 120 messages on the instance, most
+recent 2026-09-11, 117 of them in `telegram:group/5125571890`, which routes to
+`main/trading` (route ids 33/34). He is not the operator. He holds `**`: every
+`/root` elevation, every ACL write, every folder.
+
+The operator's own account, `telegram:user/1112184352` ("Kron Ael", 2 922
+messages, the DM that runs `atlas`), holds **no** membership edge and **no**
+`acl` row. That is `L333`'s denial.
+
+`cli:kron-all` wrote three edges in the same second on 2026-07-19T08:56:14 —
+`discord:user/811295670702047272`, `google:115672318187756389401` and this one.
+The first two are the operator's. The Telegram id in that batch is not.
+
+**The instance ran the controlled experiment itself.** Same command, same code,
+one variable — the membership edge:
+
+| when | surface | sender | `root-…` re-injection? |
+| --- | --- | --- | --- |
+| 2026-07-18 10:27, 2026-07-19 08:42 | Discord | `discord:user/811295670702047272` | no |
+| **2026-07-19 08:44:11** | — | `cli:kron-discord` writes `discord:user/811295670702047272 -> role:operator` | — |
+| 2026-07-26 20:01, 2026-09-20 17:06 | Discord | same sender | **yes** — `root-main/trading-1785096086061959777`, `…-1789924050142714754` |
+| 2026-04-02 … 2026-09-21 (8 attempts) | Telegram | `telegram:user/1112184352` | never |
+
+Across the whole live store there are 15 `/root <arg>` rows (telegram 8,
+discord 4, slack 3) and exactly 2 re-injections, both Discord, both after the
+grant landed:
+
+```sql
+-- sloth, routd.messages (table 10acfe05-…)
+select split_part(pk,':',1), count(*) from "_ddb_<messages>"
+  where item_data->'content'->>'S' like '/root %' group by 1;          -- 8 / 4 / 3
+select split_part(sk_s,chr(31),2), pk from "_ddb_<messages>"
+  where split_part(sk_s,chr(31),2) like 'root-%';                      -- 2 rows, discord
+```
+
+The same wrong row is on krons, where it was worked around rather than fixed:
+
+```sql
+-- krons, routd.acl_membership
+-- telegram:user/1112184352 -> role:operator | hitl-experiment | 2026-08-25
+-- telegram:user/1183985669 -> role:operator | cli:kron-all    | 2026-07-19
+```
+
+**This corrects `L152`**, which read the same id on krons as "inert … has sent
+zero messages on the instance, ever". That was true of krons and is false of
+sloth: here it is a live sender holding the widest grant in the tree. A grant
+can name a principal that is real, present, and the wrong human — and no
+surface distinguishes that from the intended one, which is `L152`'s point with
+a sharper edge.
+
+- **Severity:** high (a third party holds `**` on a live instance; the operator
+  holds nothing on the surface he uses daily)
+- **Scope:** operator data on sloth and krons — no code change
+- **Status:** open, NOT applied. Operator data is the owner's.
+- **Proposed rows** (`arizuko group <inst> grant|ungrant <sub> ** admin` is the
+  operator-role shortcut — `operatorRow` at `cmd/arizuko/main.go:668`, the
+  membership write at `:685`):
+
+  ```sh
+  # sloth: give the operator's own Telegram account the ** grant.
+  # Writes acl_membership telegram:user/1112184352 -> role:operator.
+  # Effect: /root, /status, /invite, /gate work from the atlas DM.
+  arizuko group sloth grant telegram:user/1112184352 ** admin
+
+  # sloth AND krons: drop the third party's ** grant, if unintended.
+  # Removes acl_membership telegram:user/1183985669 -> role:operator.
+  # Effect: ordinary chatting is untouched — a turn's authority comes from the
+  # ROUTE axis (folder:main/trading -> role:member, auth/authorize.go), and the
+  # sender axis only ADDS. He loses /root, add_acl and cross-folder reach.
+  # Decide before removing — this IS a revocation.
+  arizuko group sloth ungrant telegram:user/1183985669 ** admin
+  arizuko group krons ungrant telegram:user/1183985669 ** admin
+  ```
+
+  Related, same table, not proposed: `telegram:user/1183985669 ->
+  google:114015391913260915382` (`migration-0053`, 2026-05-06) is an identity
+  link to a Google sub authd does not know — `authd.oauth_identities` holds one
+  row, `google:115672318187756389401`. It confers `admin :: coach` on him.
+
+## L335 — sloth serves marinade's Slack routes with no Slack adapter, credential or compose fragment (2026-09-21, open — operator data + deploy)
+
+marinade's store was consolidated into sloth's ExtendDB around 2026-09-18:
+sloth's own frozen SQLite (`store/routd/routd.db`, 2026-09-18 19:20) holds
+**0** `slack:` messages and no `slack:user/U4PMARRT6` edge, marinade's
+(2026-09-18 20:22) holds 1 160 and the edge, and sloth's LIVE store now holds
+both — together with the `atlas` folders and the DM that answers the operator
+today. marinade's service went down 2026-09-18T20:20:48 and has not come back.
+
+The routes and the Slack operator grant came across. The adapter did not:
+
+| carried into sloth | not carried |
+| --- | --- |
+| `atlas/support` ← `slack:T4PNSRSP7/channel/C0B4JMQ8X89 verb=mention` (seq 10) | `services/slakd.yml` — sloth's `docker-compose.yml:2-5` includes only discd, extenddb, teled |
+| its `#observe` twin (seq 11) | `SLACK_BOT_TOKEN` / `SLACK_SIGNING_SECRET` — absent from `/srv/data/arizuko_sloth/.env`, present in marinade's (lines 43-44) |
+| `slack:user/U4PMARRT6 -> role:operator` | any slakd process — `journalctl -u arizuko_sloth` since 2026-08-23: **0** occurrences of `slakd`; routd registers `telegram`, `discord`, `web` and nothing else |
+
+So a Slack message cannot reach routd at all, and `/root` there fails before
+any gate — it is not `L333` and not `L334`. `env/slakd.env` exists and is
+regenerated on every `arizuko apply`, which is the `instance_fragments_freeze`
+shape: `env/` regenerates, `services/` froze at first write, and the env file
+alone looks like the adapter is configured.
+
+The Slack path was never exercised after it could have worked: all three Slack
+`/root` attempts (2026-05-18 ×2, 2026-07-16 13:03) predate
+`slack:user/U4PMARRT6 -> role:operator`, written the same afternoon at
+2026-07-16T15:33:40 by `cli:ondra-grant`. So the grant is in place and untested,
+and now unreachable. Evidence table in `L334`.
+
+**The merge also carried sloth's cursor for a partition that is now
+marinade's.** Both instances had a `telegram:user/1112184352` chat — different
+bots, the same person. sloth's own 19 rows end 2026-04-16; marinade's 3 007 end
+2026-09-18T13:23:42. They are now one partition, and the `chats` row that came
+across is sloth's:
+
+```
+sloth frozen store/routd/routd.db  chats[telegram:user/1112184352]
+  agent_cursor = 2026-04-16T22:10:16.000000000Z | 3126
+marinade frozen store/routd/routd.db  chats[telegram:user/1112184352]
+  (no row)
+```
+
+Twenty minutes after the cutover sloth re-fed rows marinade had already
+answered — `2026-09-18T20:40:11Z dispatch run turn_id=telegram:user/1112184352/5628`
+replays a message from the previous afternoon. That replay is what delivered
+the operator's `/root` to the agent as plain text (`L336`). The platform ids
+also now overlap: marinade's history reaches `…/5639` while sloth's teled is
+issuing `…/4179`, `…/4181` today, so the same id will be minted twice in one
+partition — the shape `L105` already cost on `id=? OR platform_id=?` lookups.
+Recorded, not fixed: reconciling a merged cursor is not an edit.
+
+- **Severity:** medium (a whole ingress surface is advertised by the route
+  table and cannot deliver; the operator reads it as `/root` being broken)
+- **Scope:** `/srv/data/arizuko_sloth/.env`, `services/slakd.yml`, `routd.routes`
+- **Status:** open, NOT applied. Deploy + operator data are the owner's.
+- **Fix — one of two, and it is a decision:**
+  1. **Restore Slack on sloth**: copy `SLACK_BOT_TOKEN` / `SLACK_SIGNING_SECRET`
+     from `/srv/data/arizuko_marinade/.env` into `/srv/data/arizuko_sloth/.env`,
+     then install the fragment — `arizuko packages sloth add slakd`, which links
+     `template/services/slakd.yml` into `services/`, provisions its `env` block
+     and re-applies. `readFragments` derives the `include:` list from that
+     directory (`compose/compose.go:658`), so nothing else has to be edited.
+     Then `sudo systemctl restart arizuko_sloth`. `slack:user/U4PMARRT6 ->
+     role:operator` is already in place, so `/root` from Slack works on arrival.
+  2. **Retire it**: delete the two Slack route rows (ids 17, 18) so the table
+     stops advertising an ingress nothing serves. `L307` (marinade's two
+     unrouted Slack channels) is moot either way — that instance is stopped.
+
+## L336 — a slash command that is not the newest row of its batch is never steered, and `/root` then reaches the agent as plain text (2026-09-21, proposal — needs sign-off)
+
+`steer` inspects exactly ONE row per batch:
+
+```go
+steerIdx := newestUserIdx(msgs)          // routd/dispatch.go:43
+…
+if l.steer(chatJID, steerMsg, folder) {  // routd/dispatch.go:92
+```
+
+`newestUserIdx` (`routd/dispatch.go:202`) returns the newest **non-bot** row by
+position; it asks nothing about content. So when anything non-bot lands after a
+command before the next poll — a second human message, a `timed`/`sched-task`
+cron row, another person in a group chat — the command is not the row that gets
+steered. It is not dropped either: it stays in `trigger`, and the agent receives
+it verbatim.
+
+Measured, two rows in one batch (`/root mint the token`, then `and also look at
+this`, operator granted):
+
+```
+runs=1  turn=m2  elevated=false  batch-has-/root=true
+ack[0] "⚠️ I couldn't produce a reply to that — please re-send."
+```
+
+One unelevated turn, the literal `/root …` inside its message batch, no
+elevation, no denial, no re-injection.
+
+**This is live.** sloth dispatched the operator's 2026-09-17 `/root give this
+folder the capability to approve pull requests` as an ordinary turn 31 hours
+later:
+
+```
+2026-09-18T20:40:11Z  dispatch run  folder=atlas  turn_id=telegram:user/1112184352/5628
+                      chat_jid=telegram:user/1112184352  elevated=false
+```
+
+`turn_id` is the tail of a TRIGGER group (`bl.ID` in `runTurn`'s caller), so
+that row was the thing the turn was run for, not ambient context — and the
+container transcript carries it verbatim:
+
+```
+groups/atlas/.claude/projects/-home-node/c1b0a600-97d2-4132-b6f5-33b2ad45f2c6.jsonl
+  prompt ts 2026-09-18T20:40:16.914Z
+  <messages> … <message id="telegram:user/1112184352/5628" … >/root give this
+  folder the capability to approve pull requests</message> </messages>
+```
+
+The agent then answered the operator in the chat — *"`$ARIZUKO_IS_ROOT` is empty
+— the `/root` grant didn't land. It reached me as plain text (not intercepted as
+an operator command)"* — which is correct for THIS attempt and wrong for the
+2026-09-21 one, where the steer did fire and refused it (`L333`). Two different
+failures of one command, four days apart, and the owner read them as one.
+
+Honest gap: I did not reconstruct which row WAS the newest in that batch — the
+chat had just been handed from marinade to sloth on a stale cursor (`L335`),
+and routd logs no steer decision. The code property above is what makes any
+such batch behave this way, and the probe reproduces it in isolation.
+
+**It is the same bug twice already.** `BUGS L56` moved the steer from "newest
+row" to "newest USER row" after a bot reply landing first swallowed a command;
+`caf38bfb` moved steering into `processGroupMessages` after a Slack `/root mint`
+raced the queue (marinade atlas, 2026-07-16). Both fixed WHICH single row is
+steered. Neither made it more than one.
+
+- **Severity:** high (the operator's only escalation path, lost silently to
+  ordinary chat timing; a `/root` reaching a model as plain text is also the
+  agent being handed an instruction the platform never authorised)
+- **Scope:** `routd/dispatch.go` `processGroupMessages` — the steer/consume/advance contract
+- **Status:** proposal, NOT shipped — needs sign-off (root `CLAUDE.md`,
+  "Redesigns need sign-off")
+- **Why it is a redesign, not an edit:** steering every command in a batch
+  changes what the cursor may advance over and what survives into the turn. The
+  function already carries three recorded scars on exactly that contract — "A
+  STEER CONSUMES ITS OWN ROW AND NO OTHER" (`L104`), the `steerConsumed`
+  re-feed guarantee, and the busy-backoff key. Two commands in one batch, a
+  command with ordinary rows on both sides, and a `/root` whose re-injection
+  must land AHEAD of the cursor (`L102`) each need an answer before it ships.
+- **Shape to sign off on:** walk the batch once, oldest→newest, steering every
+  row a handler claims and keeping the rest in `trigger`; the cursor advances to
+  the newest steered row only when nothing unsteered is older than it, otherwise
+  the turn takes the remainder as it does today. Alternative, smaller and worse:
+  steer only the newest row as now, but REFUSE to dispatch a batch containing an
+  unsteered leading `/`-command and tell the chat to re-send it — loud, but it
+  makes ordinary chat timing reject the operator's message.
+
+## L337 — sloth's teled has no state directory, so the next inbound Telegram message kills it (2026-09-21, open — found while diagnosing `L333`)
+
+`teled` writes its Telegram poll offset to `STATE_FILE`, and the directory is
+gone on sloth:
+
+```
+$ sudo ls /srv/data/arizuko_sloth/store/
+authd  extenddb  extenddb_db  messages.db  onbod  routd  routd.db  runed  timed.db
+$ sudo ls /srv/data/arizuko_krons/store/
+authd  extenddb  extenddb_db  messages.db  onbod  routd  runed  teled  teled-rhias  whapd  …
+```
+
+krons has `store/teled`; sloth does not, and nothing in the code creates it —
+`saveOffset` opens `StateFile + ".tmp"` directly (`teled/bot.go:110`). So every
+save fails:
+
+```
+2026-09-21T06:50:34Z WARN offset save failed  err="open /srv/app/home/store/teled/teled-offset-telegram.tmp: no such file or directory" consecutive=1
+2026-09-21T06:51:55Z WARN offset save failed  …                                                                                    consecutive=2
+```
+
+`saveOffset` fires once per received update batch and the streak only resets on
+a success, so **the third inbound Telegram message exits the process**
+(`maxSaveFailStreak = 3`, `teled/bot.go:92,115` — `fatalExit(1)`, deliberately,
+"so the mount problem is visible"). The counter stands at 2 right now. The
+escalation is working as designed; what is broken is the directory under it.
+
+On restart the offset file is still absent, so teled resumes from no offset and
+Telegram re-delivers its backlog — duplicate inbound on the operator's own DM,
+which is the chat `L333` is about.
+
+The two failures are the operator's own two messages of 2026-09-21 06:50/06:51.
+There has been no other inbound Telegram traffic since the container started
+(2026-09-20T07:36:48Z, `RestartCount=0`), which is the only reason it is still
+up.
+
+- **Severity:** high (armed; the next Telegram message to sloth takes the
+  adapter down, and the restart re-ingests the backlog)
+- **Scope:** `/srv/data/arizuko_sloth/store/teled/` (missing), `teled/bot.go`
+- **Source:** `journalctl -u arizuko_sloth | grep 'offset save failed'` —
+  2 hits, both 2026-09-21; `sudo ls /srv/data/arizuko_sloth/store/`
+- **Status:** open, NOT applied — a live instance's filesystem is the owner's
+- **Fix, two halves:**
+  1. **Now, on the box:** `sudo -u mivu mkdir -p /srv/data/arizuko_sloth/store/teled`
+     (owner `mivu`, matching the sibling `store/routd`). No restart needed —
+     the next save succeeds and resets the streak.
+  2. **So it cannot recur:** `saveOffset` should `os.MkdirAll(filepath.Dir(
+     b.cfg.StateFile), 0o755)` before the atomic write, or the daemon should
+     make its state dir at startup and fail loudly there instead of three
+     messages later. A daemon that names a path it will not create is relying
+     on an installer step; sloth's `store/` was reorganised for ExtendDB on
+     2026-09-18 and the directory did not come back. Not shipped here: it is a
+     different concern from `L333`, and it wants its own test.
+
 ## L332 — the release broadcast pipes a human banner into `jq` (2026-09-21, open)
 
 `ant/skills/migrate/SKILL.md:293` captures a tool result and parses it as JSON:
