@@ -6,7 +6,10 @@ package resreg
 // 3.1 document: one walk over the registry, served from every daemon's
 // `/openapi.json`. No huma, no swag, no codegen.
 //
-// Schemas cannot drift — handler and doc read the same struct. Paths cannot
+// Schemas cannot drift — handler and doc read the same struct. A response body
+// is the one thing reflection cannot see, because a Handler returns `any`; so
+// the resource DECLARES the answering type (Resource.Responses) and an action
+// that declares none documents no body schema at all. Paths cannot
 // drift either, and for a stronger reason: the advertised set is READ OFF THE MUX
 // (MountedResources), so a daemon documents exactly the faces RegisterREST put on
 // its routing table. Each daemon used to hand OpenAPIHandler a list of resource
@@ -15,6 +18,7 @@ package resreg
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"net/http"
@@ -57,7 +61,11 @@ func OpenAPI(daemon, baseURL string, rs []*Resource) ([]byte, error) {
 			return nil, fmt.Errorf("%s: schema: %w", r.Name, err)
 		}
 		schemas[schemaName(r.Name)] = schema
-		for path, ops := range endpointPaths(r) {
+		responses, err := responseRefs(r, schemas)
+		if err != nil {
+			return nil, fmt.Errorf("%s: response schema: %w", r.Name, err)
+		}
+		for path, ops := range endpointPaths(r, responses) {
 			paths[path] = ops
 		}
 	}
@@ -153,6 +161,22 @@ func rowSchema(rt reflect.Type) (map[string]any, error) {
 	var required []string
 	for i := 0; i < rt.NumField(); i++ {
 		sf := rt.Field(i)
+		if embedded, ok := embeddedStruct(sf); ok {
+			// encoding/json PROMOTES an untagged embedded struct's fields into the
+			// outer object, so the schema has to inline them. Left to the field walk
+			// below they render as one member named after the type, and the document
+			// then describes an object the wire never carries: router.RouteView
+			// embeds core.Route, which is where every route field lives.
+			sub, err := rowSchema(embedded)
+			if err != nil {
+				return nil, err
+			}
+			maps.Copy(props, sub["properties"].(map[string]any))
+			if req, ok := sub["required"].([]string); ok {
+				required = append(required, req...)
+			}
+			continue
+		}
 		name, omit := parseJSONTag(sf)
 		if name == "" {
 			continue
@@ -171,6 +195,20 @@ func rowSchema(rt reflect.Type) (map[string]any, error) {
 		out["required"] = required
 	}
 	return out, nil
+}
+
+// embeddedStruct reports the struct type whose fields sf promotes into its
+// outer object — an anonymous field with no name of its own. A TAGGED embedded
+// field is a named member like any other, so it is not one of these.
+func embeddedStruct(sf reflect.StructField) (reflect.Type, bool) {
+	if !sf.Anonymous || sf.Tag.Get("json") != "" || sf.Tag.Get("yaml") != "" {
+		return nil, false
+	}
+	t := sf.Type
+	for t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	return t, t.Kind() == reflect.Struct
 }
 
 // parseJSONTag returns (name, omitempty) from a struct field's `json:`
@@ -229,13 +267,75 @@ func kindToSchema(t reflect.Type) map[string]any {
 	}
 }
 
+// responseRefs reflects a resource's declared response types into schemas and
+// returns the per-action JSON-Schema fragment naming each. A type is registered
+// under its Go NAME, so two resources answering with one type share the
+// component; two different types under one name is refused rather than letting
+// the later walk overwrite the earlier resource's schema.
+func responseRefs(r *Resource, schemas map[string]any) (map[Action]map[string]any, error) {
+	if len(r.Responses) == 0 {
+		return nil, nil
+	}
+	out := map[Action]map[string]any{}
+	for action, rt := range r.Responses {
+		if rt == nil {
+			return nil, fmt.Errorf("%s: nil type", action)
+		}
+		frag, err := responseFragment(r, rt, schemas)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", action, err)
+		}
+		out[action] = frag
+	}
+	return out, nil
+}
+
+// responseFragment renders one declared response type, registering every named
+// struct it reaches in schemas. A slice is the collection shape; anything that
+// is not a struct or a slice of one has no schema to reflect and is refused at
+// emission — a doc that cannot be built is louder than one that guesses.
+func responseFragment(r *Resource, rt reflect.Type, schemas map[string]any) (map[string]any, error) {
+	for rt.Kind() == reflect.Pointer {
+		rt = rt.Elem()
+	}
+	if rt.Kind() == reflect.Slice || rt.Kind() == reflect.Array {
+		items, err := responseFragment(r, rt.Elem(), schemas)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"type": "array", "items": items}, nil
+	}
+	if rt.Kind() != reflect.Struct {
+		return nil, fmt.Errorf("want a struct or a slice of one, got %s", rt.Kind())
+	}
+	// Answering with the row itself is the common case, and it reuses the
+	// resource's own component: a second one under the Go type name would put
+	// the same schema in the document twice under two names.
+	name := rt.Name()
+	if rt == r.RowType {
+		name = schemaName(r.Name)
+	}
+	if name == "" {
+		return nil, errors.New("an anonymous struct has no component name; declare a named type")
+	}
+	schema, err := rowSchema(rt)
+	if err != nil {
+		return nil, err
+	}
+	if prev, ok := schemas[name]; ok && !reflect.DeepEqual(prev, schema) {
+		return nil, fmt.Errorf("two different types both name component %q", name)
+	}
+	schemas[name] = schema
+	return map[string]any{"$ref": "#/components/schemas/" + name}, nil
+}
+
 // endpointPaths renders one operation per declared Endpoint — the doc mirrors
 // what RegisterREST mounts, so the two cannot drift. The path key + parameters
 // come from the stdlib-mux Path (placeholders {id}/{path...} → OpenAPI {param});
-// request/response shape is picked from the verb + action so the doc matches
-// what the handler actually accepts and returns. withMCPDoc adds the agent-
-// facing x-mcp-when per operation when the resource carries an MCPDoc entry.
-func endpointPaths(r *Resource) map[string]map[string]any {
+// the request shape comes from the verb, the response shape ONLY from
+// Resource.Responses. withMCPDoc adds the agent-facing x-mcp-when per operation
+// when the resource carries an MCPDoc entry.
+func endpointPaths(r *Resource, responses map[Action]map[string]any) map[string]map[string]any {
 	schemaRef := map[string]any{"$ref": "#/components/schemas/" + schemaName(r.Name)}
 	out := map[string]map[string]any{}
 	for _, e := range r.Endpoints {
@@ -253,46 +353,55 @@ func endpointPaths(r *Resource) map[string]map[string]any {
 			}
 			out[pathKey] = item
 		}
-		item[strings.ToLower(e.Verb)] = endpointOp(r, e, schemaRef, len(params) > 0)
+		item[strings.ToLower(e.Verb)] = endpointOp(r, e, schemaRef, len(params) > 0, responses[e.Action])
 	}
 	return out
 }
 
-// endpointOp builds one operation for an Endpoint. Read actions (list/get) get
-// their read shapes; mutations carry a request body (a body-addressed DELETE —
-// one with no path placeholder — also reads the target from the JSON body); the
-// success status is Endpoint.Status when set, else 200 (matching restHandler).
-func endpointOp(r *Resource, e Endpoint, schemaRef map[string]any, hasPathParam bool) map[string]any {
+// endpointOp builds one operation for an Endpoint. Mutations carry a request
+// body (a body-addressed DELETE — one with no path placeholder — also reads the
+// target from the JSON body); the success status is Endpoint.Status when set,
+// else 200 (matching restHandler). The success BODY is whatever the resource
+// declared for this action and nothing otherwise — see successResponse.
+func endpointOp(r *Resource, e Endpoint, schemaRef map[string]any, hasPathParam bool, resp map[string]any) map[string]any {
 	status := e.Status
 	if status == 0 {
 		status = http.StatusOK
 	}
-	code := strconv.Itoa(status)
 	op := map[string]any{
 		"summary":     fmt.Sprintf("%s %s", titleAction(e.Action), r.Name),
 		"operationId": fmt.Sprintf("%s_%s", e.Action, r.Name),
 	}
-	var success map[string]any
 	switch {
-	case e.Action == ActionList:
-		success = map[string]any{code: listResponse(schemaRef)}
 	case e.Verb == http.MethodGet:
-		success = map[string]any{code: itemResponse(schemaRef)}
 	case e.Verb == http.MethodDelete:
 		if !hasPathParam { // body-addressed delete reads the key from the body
 			op["requestBody"] = requestBody(schemaRef)
 		}
-		if status == http.StatusNoContent {
-			success = map[string]any{code: map[string]any{"description": "No Content"}}
-		} else {
-			success = map[string]any{code: map[string]any{"description": "OK"}}
-		}
 	default: // POST / PUT / PATCH
 		op["requestBody"] = requestBody(schemaRef)
-		success = map[string]any{code: itemResponse(schemaRef)}
 	}
-	op["responses"] = mergeResponses(success)
+	op["responses"] = mergeResponses(map[string]any{
+		strconv.Itoa(status): successResponse(status, resp),
+	})
 	return withMCPDoc(r, e.Action, op)
+}
+
+// successResponse renders the success entry. A DECLARED response type is the
+// only thing that puts a body schema in the document: an action without one
+// documents "OK" and says nothing about the body, because the emitter cannot
+// see what a Handler returns and a guess is worse than a gap (BUGS L120).
+func successResponse(status int, resp map[string]any) map[string]any {
+	if status == http.StatusNoContent {
+		return map[string]any{"description": "No Content"}
+	}
+	if resp == nil {
+		return map[string]any{"description": "OK"}
+	}
+	return map[string]any{
+		"description": "OK",
+		"content":     map[string]any{"application/json": map[string]any{"schema": resp}},
+	}
 }
 
 // openAPIPath converts a stdlib-mux path to an OpenAPI path key plus its path
@@ -335,26 +444,7 @@ func OpenAPIPathKey(p string) string {
 	return strings.Join(segs, "/")
 }
 
-// listResponse / itemResponse / requestBody are the shared JSON shapes for a
-// collection read, a single-item read/write, and a mutation body.
-func listResponse(schemaRef map[string]any) map[string]any {
-	return map[string]any{
-		"description": "OK",
-		"content": map[string]any{
-			"application/json": map[string]any{
-				"schema": map[string]any{"type": "array", "items": schemaRef},
-			},
-		},
-	}
-}
-
-func itemResponse(schemaRef map[string]any) map[string]any {
-	return map[string]any{
-		"description": "OK",
-		"content":     map[string]any{"application/json": map[string]any{"schema": schemaRef}},
-	}
-}
-
+// requestBody is the shared JSON shape for a mutation body.
 func requestBody(schemaRef map[string]any) map[string]any {
 	return map[string]any{
 		"required": true,

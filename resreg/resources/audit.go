@@ -37,6 +37,12 @@ var AuditEndpoints = []resreg.Endpoint{
 	{Verb: "GET", Path: "/v1/audit", Action: resreg.ActionList, Status: http.StatusOK},
 }
 
+// AuditResponses: audit.Query answers []audit.Row, the registered RowType, on
+// all four daemons that mount this resource.
+var AuditResponses = map[resreg.Action]reflect.Type{
+	resreg.ActionList: reflect.TypeFor[[]audit.Row](),
+}
+
 // AuditMCPNames maps the action to the flat agent tool name, matching the flat
 // convention every other agent-facing resource uses (list_packages, add_route)
 // rather than the dotted `audit.list` default. `query_audit` is the name
@@ -89,6 +95,7 @@ func init() {
 		RowType:   reflect.TypeFor[audit.Row](),
 		PKFields:  []string{"ID"},
 		Endpoints: AuditEndpoints,
+		Responses: AuditResponses,
 		MCPDoc:    AuditMCPDoc,
 		MCPArgs:   AuditMCPArgs,
 		MCPNames:  AuditMCPNames,

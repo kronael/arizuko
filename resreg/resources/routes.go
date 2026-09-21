@@ -4,6 +4,7 @@ import (
 	"reflect"
 
 	"github.com/kronael/arizuko/resreg"
+	"github.com/kronael/arizuko/router"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -58,6 +59,16 @@ var RoutesEndpoints = []resreg.Endpoint{
 	{Verb: "GET", Path: "/v1/routes", Action: resreg.ActionList},
 }
 
+// RoutesResponses declares what each mounted REST face ANSWERS with. list is
+// the only one: routd annotates every row (mode, fires_turn, triggers_on,
+// announce, explain, shadowed_by) and answers []router.RouteView, never the
+// stored RoutesRow. add answers {"id"}, set {"updated","count"} — ad-hoc maps
+// with no Go type to name, so they declare nothing and document no body
+// (BUGS L120).
+var RoutesResponses = map[resreg.Action]reflect.Type{
+	resreg.ActionList: reflect.TypeFor[[]router.RouteView](),
+}
+
 // RoutesMCPNames maps each action to the flat tool name the live agent already
 // calls; routd's routes_resource.go references it (agent socket derivation) and
 // ipc.ListTools reads it via the registry walk, so the tool wire contract has one
@@ -105,6 +116,7 @@ func init() {
 		EntitySortKey: []string{"Seq", "Target", "Match"},
 		EntityKeySep:  store.KeySep,
 		Endpoints:     RoutesEndpoints,
+		Responses:     RoutesResponses,
 		MCPDoc:        RoutesMCPDoc,
 		MCPArgs:       RoutesMCPArgs,
 		MCPNames:      RoutesMCPNames,

@@ -27,6 +27,12 @@ type InstalledPackagesRow struct {
 	AssetHashes map[string]string   `db:"asset_hashes,json" yaml:"asset_hashes,omitempty" json:"asset_hashes,omitempty"`
 }
 
+// InstalledPackagesResponses: both reads answer the row itself.
+var InstalledPackagesResponses = map[resreg.Action]reflect.Type{
+	resreg.ActionList: reflect.TypeFor[[]InstalledPackagesRow](),
+	resreg.ActionGet:  reflect.TypeFor[InstalledPackagesRow](),
+}
+
 // InstalledPackagesEndpoints is the single owner of the endpoint set that drives
 // BOTH faces: routd's mounted handler (routd/packages_resource.go) and the
 // /openapi.json doc. READ-ONLY BY DESIGN — there is no create/update/delete.
@@ -103,6 +109,7 @@ func init() {
 		EntitySortKey: []string{"Folder", "Name"},
 		EntityKeySep:  store.KeySep,
 		Endpoints:     InstalledPackagesEndpoints,
+		Responses:     InstalledPackagesResponses,
 		MCPDoc:        InstalledPackagesMCPDoc,
 		MCPArgs:       InstalledPackagesMCPArgs,
 		MCPNames:      InstalledPackagesMCPNames,

@@ -1968,7 +1968,7 @@ live evidence stand exactly as written above.
   `:285` does the same for `Document`. A throwaway key on each, so the retry
   sweep's own key can never match either. Still correctly a proposal: the fix
   crosses the ipc↔routd contract.
-## L120 — `/openapi.json` fabricates response schemas from a verb convention, so at least 11 mounted REST operations are documented wrongly (2026-08-26, open)
+## L120 — `/openapi.json` fabricated response schemas from a verb convention, so 22 mounted REST operations were documented wrongly (2026-08-26, LIE REMOVED 2026-09-21; typing the remaining 22 bodies is a proposal)
 
 `resreg/openapi.go:283` `endpointOp` INVENTS the response — list → `array<RowType>`,
 GET → `RowType`, POST/PUT → `RowType` — while `restHandler`
@@ -2006,6 +2006,69 @@ list, audit list, sessions list, signing_keys list, proxyd_routes list/get/creat
   the wire, with no test tying `Handler` output to `RowType`.
 - **Fix (cross-cutting):** project every handler return through its Row (the
   dead_letters pattern), or emit per-action response schemas.
+
+- **MEASURED + FIXED 2026-09-21 at `a388cad7`.** The real count is **22**, not
+  11. Method: every non-`MCPOnly` endpoint of every catalog resource carrying a
+  `RowType` (the only ones the emitter documents) read against its mounted
+  handler's REST return — 53 documented operations over five daemons. 22 assert
+  a schema the handler contradicts; ~10 more are DELETEs the emitter described as
+  bare `"OK"` while the handler answers a body, which is a gap, not a lie, and is
+  counted separately. The 22: `routes` list/add/set; `route_tokens`
+  list/issue_chat/issue_hook; `pending_actions` list; `tasks` list/get;
+  `groups` list; `acl` add; `secrets` create; `github_sources` register;
+  `dead_letters` replay; onbod `onboarding` list/create/approve/reprompt,
+  `invites` list/create, `gates` list/update.
+
+- **The fix is that the emitter stopped guessing.** `Resource.Responses` maps an
+  action to the Go type its handler returns; `endpointOp` emits a schema from
+  that and from nothing else, and an action with no entry now documents `"OK"`
+  with **no content schema**. So no operation is documented wrongly any more:
+  22 lies became 0 lies plus 21 stated gaps, which a generated client handles
+  and a wrong struct does not. `listResponse`/`itemResponse` — the two
+  convention renderers — are deleted. `rowSchema` also learned to inline an
+  untagged embedded struct, without which `router.RouteView` documents as one
+  member named `Route` and loses every route field.
+
+  Declared so far, one line each in the catalog file that already owns the Row:
+  `routes` list (`[]router.RouteView`), `scheduled_tasks` list/get/patch
+  (`core.Task` — the Go field names it really answers), `dead_letters` list,
+  `installed_packages` list/get, `github_sources` list, `web_routes` list,
+  `audit` list, `sessions` list, `signing_keys` list, `proxyd_routes`
+  list/get/create/update, and `groups` list — that last one named the
+  folder-only projection the handler had been building as an anonymous
+  struct twice, so declaring it deleted the duplicate.
+
+- **The guard**: `resregtest.AssertDocumentedResponse` serves a REAL request on
+  the daemon's own mux and compares the body to the schema the production
+  emitter publishes for that operation. Nothing else could: paths derive from
+  the mux and request schemas from `RowType`, but `Handler` returns `any`, so
+  only a served body proves the doc. `routd/openapi_response_test.go` runs it
+  over `/v1/routes`, the two task reads and `/v1/groups`, and pins the count it
+  actually checked, so dropping a declaration fails the test rather than
+  silently returning to a bodyless doc.
+
+- **Refuted from the 2026-08-26 triage**: `invites` DOES declare a `RowType`
+  (`resreg/resources/invites.go`), and the gates resource is
+  `resreg/resources/onboarding_gates.go` — it declares `/v1/gates` and a
+  `RowType`. Neither is undocumented; both are misdocumented, in the same way as
+  the other 20. Also, the claim that `routd/routes_resource.go` answers
+  `{"routes"}` is the MCP branch only: the REST branch answers
+  `[]router.RouteView`, and `/openapi.json` documents REST.
+
+- **Still open, and a proposal because it is a redesign.** The remaining 21 handlers keep
+  answering ad-hoc `map[string]any` literals — `{"ok":true}`, `{"id":n}`,
+  `{"token","jid","url"}`, `{"pending":[…]}` — which have no Go type to name, so
+  those operations document no body. Closing it means giving each a named struct
+  and returning it. Two costs decide it and neither is mine to take: (a) the MCP
+  face shares the handler, so any change to the VALUE (unwrapping
+  `{"onboarding":[…]}` to a bare array, the way proxyd's list was already
+  unwrapped) is an agent wire-contract break; keeping the value and only naming
+  its type is safe but adds ~15 structs; (b) two of the real types —
+  `ipc.RouteTokenInfo` and `routd.PendingAction` — are unreachable from
+  `resreg/resources` (`ipc` imports `resreg`, and `routd` imports `resources`),
+  so they must move or the declaration must. The REQUEST body is invented the
+  same way and is a separate entry's worth of work: `POST /v1/routes` documents a
+  `RoutesRow` body while the handler reads `{"route": "<json>"}`.
 
 ## L96 — an inbound reaction reaches the DB but never reliably reaches the agent (2026-08-25, proposal)
 

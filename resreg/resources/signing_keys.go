@@ -40,6 +40,11 @@ type SigningKeysRow struct {
 	ServesUntil string `json:"serves_until,omitempty"`
 }
 
+// SigningKeysResponses: SigningKeyMetadata answers []SigningKeysRow.
+var SigningKeysResponses = map[resreg.Action]reflect.Type{
+	resreg.ActionList: reflect.TypeFor[[]SigningKeysRow](),
+}
+
 // SigningKeysEndpoints is the read-only key-metadata surface. List only, and
 // deliberately so on all three axes:
 //
@@ -63,6 +68,7 @@ func init() {
 		RowType:   reflect.TypeFor[SigningKeysRow](),
 		PKFields:  []string{"Kid"},
 		Endpoints: SigningKeysEndpoints,
+		Responses: SigningKeysResponses,
 		Table:     "signing_keys",
 		// DB is deliberately EMPTY, exactly as for audit: BySubsystem never
 		// returns this resource, so Export/Plan/Apply never touch it. A signing

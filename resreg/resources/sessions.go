@@ -42,6 +42,12 @@ type SessionsRow struct {
 	Status    string `json:"status"`
 }
 
+// SessionsResponses: SessionsByFamily answers []SessionsRow. The revoke
+// answers {"family_id","revoked"} and declares nothing.
+var SessionsResponses = map[resreg.Action]reflect.Type{
+	resreg.ActionList: reflect.TypeFor[[]SessionsRow](),
+}
+
 // SessionsEndpoints is the operator session surface: list the families, and
 // kill one. The DELETE is the incident-response verb spec 5/1 frames and BUGS
 // F15 records as missing — self-service logout already existed
@@ -71,6 +77,7 @@ func init() {
 		RowType:   reflect.TypeFor[SessionsRow](),
 		PKFields:  []string{"FamilyID"},
 		Endpoints: SessionsEndpoints,
+		Responses: SessionsResponses,
 		Table:     "refresh_tokens",
 		// DB is deliberately EMPTY, exactly as for audit and signing_keys:
 		// BySubsystem never returns this resource, so Export/Plan/Apply never
