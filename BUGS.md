@@ -5506,8 +5506,14 @@ chart would now *look* current. That is worse than the honest breakage.
   chart under `deploy/helm/arizuko/`". It now points at `kubernetes.html`, the
   Kubernetes howto that sits beside it. Nothing else references the chart; its
   own `README.md` is the sole remaining mention. The dead install path is no
-  longer advertised, and the chart was NOT touched — half-wiring it is still
-  refused.
+  longer advertised, and the chart's templates were NOT touched — half-wiring
+  them is still refused.
+
+  Its `README.md`, the one remaining mention, now opens by stating that the
+  chart does not deploy arizuko and pointing at the Kubernetes howto, so a
+  reader who reaches it directly is not told a dead path is a supported one.
+  That is the opposite of half-wiring: the chart still does not work, and now
+  says so instead of describing a `gated` monolith as current.
 
   **REFUTED — the `CHANNEL_SECRET` half already shipped.** `46c4e69e`
   ("fix(helm): drop CHANNEL_SECRET and PROXYD_HMAC_SECRET from the chart")
