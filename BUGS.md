@@ -6241,7 +6241,7 @@ so a stored `time=` written before today is not correctable by a fixed offset.
 - **Status:** fixed (host config)
 - **Fix:** `/etc/chrony/sources.d/hetzner.sources`
 
-## L184 — `fetch_history` cannot tell the agent which rows are its own (2026-09-05, proposal)
+## L184 — `fetch_history` cannot tell the agent which rows are its own (2026-09-05, LOCAL-ROW HALF FIXED 2026-09-21; the platform-fetched half stays the chanlib proposal)
 
 With L178 fixed the rows are rendered from the adapter's response, whose
 `InboundMsg` has no own-author flag, so the bot's posts render as
@@ -6273,6 +6273,52 @@ wire change; decide before adding the field.
   knows its own platform user id (`session.State.User.ID` on Discord), so the
   flag has to be added to the wire type and set by each of the ten adapters — a
   `chanlib` contract change, the same reach `5/34` governs.
+
+- **SCOPE CORRECTION 2026-09-21 — the entry named one tool and the defect had
+  three, and two of them needed no wire change at all.** `fetch_history` is not
+  the only agent surface that returns bot rows. `inspect_messages` (`ipc/ipc.go:2177`)
+  and `get_thread` (`ipc/ipc.go:2297`) read `MessagesBefore` / `MessagesByThread`,
+  which apply no `is_bot_message` filter (`store/messages.go:541,559`), and
+  `fetch_history` falls back to the same unfiltered read when the adapter is
+  unreachable (`routd/mcp.go:392`). On every one of those rows the store HAS the
+  answer: `ipc/ipc.go:792` writes the agent's own reply `BotMsg: true`,
+  `store/messages.go:206` persists it and `:238` reads it back. Only the
+  renderer lost it — `router.FormatMessages` emitted twelve attributes and not
+  that one.
+
+  `inspect_messages`'s own tool description promises rows "including
+  outbound/bot rows", so the tool documented a distinction its output could not
+  express.
+
+- **FIXED 2026-09-21 (local-row half), at the one renderer.** `FormatMessages`
+  now emits `bot="true"` when `BotMsg` is set, beside the existing
+  `errored="true"`. One renderer serves all four message sinks — the three tools
+  and the turn prompt — so the fix lands once. The injected history is unchanged:
+  it filters bot rows out (`is_bot_message` Absent, `store/messages.go:1106,1150,1244,1299`),
+  which is spec `1/N`'s rule, so the marker only ever appears on rows the agent
+  explicitly asked for.
+
+  `BotMsg`, NOT `FromMe`: an imported archive sets `FromMe` for the linked
+  ACCOUNT's own messages — the operator's, not the agent's
+  (`store/messages_archive.go:411`). A test pins that.
+
+  Tests: `TestFormatMessagesMarksBotRows` and
+  `TestFormatMessagesFromMeIsNotOwnAuthorship`. Mutation-proven three ways —
+  dropping the marker, emitting it unconditionally, and reading `FromMe` instead
+  of `BotMsg` each fail.
+
+  `ant/CLAUDE.md` tells the agent to read the attribute rather than infer
+  authorship by matching `sender` against its folder name — the inference the
+  doc previously implied, which is right only for rows this instance wrote and
+  silently wrong for every platform-fetched one (the
+  `identity_derived_not_read` class). Editing `ant/` rides a release: NOT bumped
+  here, it ships with the next `MIGRATION_VERSION`.
+
+- **Still open, and it is the original entry unchanged:** a row fetched FROM THE
+  PLATFORM still carries no own-author flag, because `chanlib.InboundMsg` has no
+  field for one and `routd/mcp.go:409` has nothing to map. That half is the
+  chanlib wire change above and still needs sign-off. The fix here does not
+  pre-empt it — it adds the renderer the wire flag would feed once it exists.
 
 ## L185 — proposal: `arizuko` runtime verbs as HTTP clients need a CLI principal and an audit-surface decision; refused as a mechanical cut (2026-09-05, proposal — needs sign-off)
 

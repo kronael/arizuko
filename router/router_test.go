@@ -625,3 +625,51 @@ func TestFormatOutboundKeepsAnAnswerThatMerelyMentionsSilence(t *testing.T) {
 		}
 	}
 }
+
+// TestFormatMessagesMarksBotRows: a bot row renders bot="true" and a user row
+// does not. The three tools that deliberately return outbound rows
+// (inspect_messages, get_thread, fetch_history's cache fallback) read through
+// this renderer, and until it emitted the flag the agent read its own past
+// words as another user's — BUGS L184.
+//
+// The user row is asserted CLEAN on purpose: an attribute emitted
+// unconditionally would mark every row and answer nothing.
+func TestFormatMessagesMarksBotRows(t *testing.T) {
+	ts := time.Date(2025, 3, 7, 12, 0, 0, 0, time.UTC)
+	got := FormatMessages([]core.Message{
+		{ID: "u1", Sender: "alice", Content: "who wrote that?", Timestamp: ts},
+		{ID: "b1", Sender: "solo/inbox", Content: "I did", Timestamp: ts.Add(time.Minute), BotMsg: true},
+	})
+
+	user, bot := msgLineByID(t, got, "u1"), msgLineByID(t, got, "b1")
+	if strings.Contains(user, `bot="true"`) {
+		t.Errorf("a user row must not be marked bot: %s", user)
+	}
+	if !strings.Contains(bot, `bot="true"`) {
+		t.Errorf("the agent's own row must be marked bot: %s", bot)
+	}
+}
+
+// TestFormatMessagesFromMeIsNotOwnAuthorship: FromMe marks the linked
+// ACCOUNT's own messages in an imported archive — the operator's, not the
+// agent's — so it must never render as the own-authorship marker (BUGS L184).
+func TestFormatMessagesFromMeIsNotOwnAuthorship(t *testing.T) {
+	got := FormatMessages([]core.Message{
+		{ID: "h1", Sender: "owner", Content: "sent from my phone", Timestamp: time.Now(), FromMe: true},
+	})
+	if strings.Contains(got, `bot="true"`) {
+		t.Errorf("FromMe alone must not mark a row as the agent's own: %s", got)
+	}
+}
+
+// msgLineByID returns the rendered element carrying id="<id>".
+func msgLineByID(t *testing.T, rendered, id string) string {
+	t.Helper()
+	for _, line := range strings.Split(rendered, "\n") {
+		if strings.Contains(line, `id="`+id+`"`) {
+			return line
+		}
+	}
+	t.Fatalf("no rendered row with id=%q in:\n%s", id, rendered)
+	return ""
+}
