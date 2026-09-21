@@ -591,13 +591,13 @@ func CheckHold(s *store.Store, caller Caller, tool, scope string, params map[str
 	}
 	rows, err := policyRows(s, expandPrincipals(s, caller))
 	if err != nil {
-		// This is the OPPOSITE direction to Authorize's deny, not the same one.
-		// Authorize's false REFUSES the call; this false only says "no special
-		// treatment", so the call proceeds unapproved. It is survivable because
-		// every write tool runs Authorize after this gate and Authorize denies
-		// on the same unreadable acl — the reads that skip Authorize are never
-		// held anyway. Whether an unreadable acl should HOLD instead is an open
-		// decision, not an oversight (BUGS L92).
+		// This is the OPPOSITE direction to Authorize's deny. Authorize's false
+		// REFUSES the call; this false only says "no special treatment", so the
+		// call proceeds unapproved. It is survivable because every write tool
+		// runs Authorize after this gate and Authorize denies on the same
+		// unreadable acl — the reads that skip Authorize are never held anyway.
+		// Whether an unreadable acl should HOLD instead is an open decision,
+		// not an oversight (BUGS L92).
 		slog.Error("check hold: acl read failed; holding NOTHING",
 			"principal", caller.Principal, "tool", tool, "err", err)
 		return false

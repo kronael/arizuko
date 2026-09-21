@@ -140,19 +140,10 @@ func FormatMessages(msgs []core.Message, observed ...[]core.Message) string {
 			b.WriteString(escapeXml(m.Topic))
 			b.WriteString(`"`)
 		}
-		// bot="true" is the agent's own output, and it is emitted ONLY where a
-		// bot row can reach the feed at all. The injected history filters them
-		// (`is_bot_message` Absent on the folder-feed and activity reads), so
-		// this attribute appears on the three tools that deliberately return
-		// them: inspect_messages, get_thread and fetch_history's cache
-		// fallback. Without it the agent reads its own past words as another
-		// user's — the read-side twin of BUGS L150, and the reason
-		// inspect_messages could promise "including outbound/bot rows" and
-		// still not say which ones those were.
-		//
-		// BotMsg, never FromMe: an imported archive sets FromMe for the linked
-		// ACCOUNT's own messages, which are the operator's, while BotMsg marks
-		// what this agent wrote (store/messages_archive.go).
+		// Without this the agent reads its own past words as another user's —
+		// the read-side twin of BUGS L150. BotMsg, never FromMe: an imported
+		// archive's FromMe rows are the linked ACCOUNT's, i.e. the operator's
+		// (store/messages_archive.go).
 		if m.BotMsg {
 			b.WriteString(` bot="true"`)
 		}
@@ -178,17 +169,13 @@ var statusRe = regexp.MustCompile(`(?s)<status>(.*?)</status>`)
 // Whole-string match only; substrings stay.
 var silentRefusalRe = regexp.MustCompile(`(?is)^\s*\(?\[?\s*(no response(?: requested| needed)?|no reply(?: needed)?|nothing to (?:add|say)|staying silent|remaining silent|silent|acknowledged)\s*\.?\s*\]?\)?\s*$`)
 
-// trailingRefusalRe matches a block that ENDS by announcing the decision not
-// to speak, after saying why. The whole block goes, not the last sentence: an
-// agent that closes with "staying silent" has told us every word before it was
-// deliberation, and delivering the reasoning alone is the leak this catches. A
-// desk agent shipped exactly that — "Not addressed to me — [user] is
-// continuing the geopolitics discussion ... Staying silent." (BUGS L329).
-//
-// The phrases here are a SUBSET of the ones above, and deliberately. Anchored
-// to the whole string, bare "silent" and "acknowledged" are unambiguous; at the
-// end of a sentence they are not, and "the alert stayed silent." is a real
-// answer. Only phrases that can only be a decision about replying belong here.
+// trailingRefusalRe drops the WHOLE block when it ENDS by announcing the
+// decision not to speak: an agent that closes with "staying silent" said every
+// word before it as deliberation, so delivering the reasoning alone is the leak
+// (a desk agent shipped exactly that, BUGS L329). Its phrases are a deliberate
+// SUBSET of the list above, because this anchor also accepts a phrase that is
+// merely the last SENTENCE: widen it to bare "silent" or "acknowledged" and
+// "The upstream API returns 202. Acknowledged." stops being delivered.
 var trailingRefusalRe = regexp.MustCompile(`(?is)(?:^|[.!?\n])\s*\(?\[?\s*(?:i(?:'m| am) (?:staying|remaining) silent|staying silent|remaining silent|no reply needed|no response (?:needed|requested)|nothing to (?:add|say) here|not addressed to me)\s*[.!]?\s*\]?\)?\s*$`)
 
 func FormatOutbound(raw string) string {

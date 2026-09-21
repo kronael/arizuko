@@ -465,19 +465,10 @@ func (d *dash) secretStore() *store.Store {
 	return s
 }
 
-// guard proves a request transited proxyd before letting a handler trust the
-// proxyd-stamped identity. The bearer is a TRANSIT proof only — dashd's authz reads
-// X-User-Sub/-Groups directly, so we deliberately do NOT stamp the bearer's own
-// subject over them. No verifier passes through open; failure redirects to
-// /auth/login.
 // operatorCtxKey carries the caller's operator verdict for the length of one
-// request.
-//
-// IT EXISTS BECAUSE TWO READERS ANSWERED ONE QUESTION DIFFERENTLY. `callerScope`
-// reads the proxyd-stamped header and falls back to an `auth.UserScopes` ACL
-// read; `dashNavFor` read the header alone. So an operator BY GRANT, arriving
-// without the header, was served the pages and shown no links to them
-// (BUGS L324). One derivation, decided once per request, read by both.
+// request, so callerScope and dashNavFor cannot answer differently. dashNavFor
+// reading the stamped header alone is what served an operator BY GRANT the
+// pages and then showed no links to them (BUGS L324).
 type operatorCtxKey struct{}
 
 // operatorFromCtx reports the verdict the guard decided, and whether it decided
@@ -488,8 +479,11 @@ func operatorFromCtx(ctx context.Context) (bool, bool) {
 	return v, ok
 }
 
-// guard proves the request came through proxyd and decides the operator verdict
-// once for the handlers below it.
+// guard proves a request transited proxyd before letting a handler trust the
+// proxyd-stamped identity, and decides the operator verdict once for the
+// handlers below it. The bearer is a TRANSIT proof only — dashd's authz reads
+// X-User-Sub/-Groups directly, so we deliberately do NOT stamp the bearer's own
+// subject over them; failure redirects to /auth/login.
 //
 // THE WRAPPER IS UNCONDITIONAL. A nil keyset means local dev with no AUTHD_URL
 // — the transit check cannot run — but the verdict still must, and returning

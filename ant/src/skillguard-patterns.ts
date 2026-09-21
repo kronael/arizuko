@@ -6,7 +6,8 @@
 // Three entries carry a local narrowing, each marked by the comment above it
 // and each tested both ways: upstream matched a MENTION where the threat is an
 // ACT, and the mentions were arizuko's own shipped skills documenting the very
-// thing the pattern guards (BUGS L155). A regeneration must re-apply them.
+// thing the pattern guards (BUGS L155). A regeneration must re-apply them,
+// and with them the one alternation hoisted to a constant below.
 
 export type Severity = 'critical' | 'high' | 'medium' | 'low';
 
@@ -17,6 +18,10 @@ export interface ThreatPattern {
   category: string;
   description: string;
 }
+
+// The agent-config filenames, named once per write shape by agent_config_mod
+// below. One declaration so a fifth filename reaches every shape.
+const AGENT_CONFIG = '(?:AGENTS\\.md|CLAUDE\\.md|\\.cursorrules|\\.clinerules)';
 
 export const THREAT_PATTERNS: ThreatPattern[] = [
   { re: "curl\\s+[^\\n]*\\$\\{?\\w*(KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|API)", id: "env_exfil_curl", severity: "critical", category: "exfiltration", description: "curl command interpolating secret environment variable" },
@@ -137,7 +142,7 @@ export const THREAT_PATTERNS: ThreatPattern[] = [
   // shell command or fs call; a Write/Edit tool call, which names a PATH — the
   // table compiles /i, so a bare `Write` also caught the English verb; and a
   // write-mode open, since `open(x).read()` is a read.
-  { re: "(?:^|[\\s\\d])>>?\\s*[^\\s\\n]{0,60}(?:AGENTS\\.md|CLAUDE\\.md|\\.cursorrules|\\.clinerules)|(?:\\btee\\b|\\bsed\\s+-i\\b|\\brm\\b|\\bmv\\b|\\bcp\\b|\\btruncate\\b|\\bwriteFile(?:Sync)?\\b|\\bappendFile(?:Sync)?\\b)[^\\n]{0,80}(?:AGENTS\\.md|CLAUDE\\.md|\\.cursorrules|\\.clinerules)|(?:\\bWrite\\b|\\bEdit\\b)[^\\n]{0,60}[~/][^\\s\\n]{0,40}(?:AGENTS\\.md|CLAUDE\\.md|\\.cursorrules|\\.clinerules)|(?:AGENTS\\.md|CLAUDE\\.md|\\.cursorrules|\\.clinerules)[^\\n]{0,40}[\"'][wa]\\+?[\"']", id: "agent_config_mod", severity: "critical", category: "persistence", description: "writes an agent config file (could persist malicious instructions across sessions)" },
+  { re: `(?:^|[\\s\\d])>>?\\s*[^\\s\\n]{0,60}${AGENT_CONFIG}|(?:\\btee\\b|\\bsed\\s+-i\\b|\\brm\\b|\\bmv\\b|\\bcp\\b|\\btruncate\\b|\\bwriteFile(?:Sync)?\\b|\\bappendFile(?:Sync)?\\b)[^\\n]{0,80}${AGENT_CONFIG}|(?:\\bWrite\\b|\\bEdit\\b)[^\\n]{0,60}[~/][^\\s\\n]{0,40}${AGENT_CONFIG}|${AGENT_CONFIG}[^\\n]{0,40}[\"'][wa]\\+?[\"']`, id: "agent_config_mod", severity: "critical", category: "persistence", description: "writes an agent config file (could persist malicious instructions across sessions)" },
   { re: "\\.hermes/config\\.yaml|\\.hermes/SOUL\\.md", id: "hermes_config_mod", severity: "critical", category: "persistence", description: "references Hermes configuration files directly" },
   { re: "\\.claude/settings|\\.codex/config", id: "other_agent_config", severity: "high", category: "persistence", description: "references other agent configuration files" },
   { re: "(?:api[_-]?key|token|secret|password)\\s*[=:]\\s*[\"\\'][A-Za-z0-9+/=_-]{20,}", id: "hardcoded_secret", severity: "critical", category: "credential_exposure", description: "possible hardcoded API key, token, or secret" },
