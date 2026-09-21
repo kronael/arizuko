@@ -1426,8 +1426,14 @@ func cpDirOverwrite(src, dst string) { cpDirImpl(src, dst, false) }
 func cpDirFresh(src, dst string) { cpDirImpl(src, dst, true) }
 
 func cpDirImpl(src, dst string, skipExisting bool) {
+	// ERROR, not warn: a destination the run uid cannot create is the
+	// "typing but no reply" outage — the agent spawns with the files this copy
+	// was meant to place missing, and answers nothing. seedSettings names the
+	// same symptom at the same level; a Warn here was quieter than the failure.
 	if err := os.MkdirAll(dst, 0o755); err != nil {
-		slog.Warn("cpDir: mkdir failed", "path", dst, "err", err)
+		slog.Error("cpDir: mkdir failed — the group home is not writable by the run uid, "+
+			"so the agent starts without these files; chown the home to the run uid",
+			"path", dst, "err", err)
 		return
 	}
 	entries, err := os.ReadDir(src)
@@ -1467,7 +1473,9 @@ func cpDirImpl(src, dst string, skipExisting bool) {
 			// and the styles stay frozen — the staleness it was meant to cure.
 			os.Remove(dp)
 			if err := os.WriteFile(dp, data, 0o644); err != nil {
-				slog.Warn("cpDir: write failed", "path", dp, "err", err)
+				slog.Error("cpDir: write failed — the agent starts without this file; "+
+					"chown the group home to the run uid",
+					"path", dp, "err", err)
 			}
 		}
 	}
