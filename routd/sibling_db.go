@@ -256,9 +256,9 @@ func (d *DB) connectorSecrets(folder, callerSub string, required []string, force
 	return out, scopes, err
 }
 
-// ListACL returns acl rows, optionally filtered by principal. Used for the
-// mcp:<tool> operator overlay (deriveFolderGrants) and the list_acl tool.
-// A read failure is an error, never an empty list (BUGS A4).
+// ListACL returns acl rows, optionally filtered by principal. Backs the list_acl
+// tool (acl_resource.go). A read failure is an error, never an empty list
+// (BUGS A4).
 func (d *DB) ListACL(principal string) ([]core.ACLRow, error) {
 	return d.store().ListACL(principal)
 }

@@ -16,12 +16,13 @@ import (
 // The socket stays up across both calls: same turn, same connection-less socket,
 // same agent. Only the acl table changes between them.
 //
-// Note which half of the gate catches it. toolGrant's first half tests `rules`,
-// a SNAPSHOT taken by deriveFolderGrants when the socket was bound; the second
-// half calls db.Authorize, which hits SQLite live. A mid-turn deny is invisible
-// to the snapshot, so if anyone ever caches the live half per turn, this test is
-// what fails. The asymmetry is deliberate: revocation is immediate, elevation is
-// not (a mid-turn allow still needs the next turn to register the tool).
+// Note which half of the gate catches it. turnVisible decides which tools are
+// REGISTERED when the socket binds, so it is a snapshot; turnAuthorize calls
+// db.AuthorizeTurn, which reads the acl rows on every call. A mid-turn deny is
+// invisible to the snapshot, so if anyone ever caches the live half per turn,
+// this test is what fails. The asymmetry is deliberate: revocation is
+// immediate, elevation is not (a mid-turn allow still needs the next turn to
+// register the tool).
 func TestServeTurnMCP_RevokeAppliesToNextCallInSameTurn(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
