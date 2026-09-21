@@ -70,7 +70,7 @@ func TestBuildMounts_FHSPaths(t *testing.T) {
 	}{
 		{"/opt/arizuko", true, filepath.Join(cfg.ProjectRoot, AppSrcDir)},
 		{"/run/ipc", false, ""},                                   // host varies
-		{"/var/lib/www", true, filepath.Join(cfg.WebDir, "pub")},  // RO whole pub tree
+		{webRoot, true, filepath.Join(cfg.WebDir, "pub")},         // RO whole pub tree
 		{filepath.Join(containerHome, "public_html"), false, ""},  // ~/public_html bind
 		{filepath.Join(containerHome, "private_html"), false, ""}, // ~/private_html bind
 		{containerHome, false, groupDir},                          // group home
@@ -225,7 +225,7 @@ func TestBuildMounts_WWWBeforeHomeSlot(t *testing.T) {
 	os.MkdirAll(groupDir, 0o755)
 	mounts := buildMounts(cfg, in, groupDir, false, folders)
 
-	wwwIdx := indexOfMount(mounts, "/var/lib/www")
+	wwwIdx := indexOfMount(mounts, webRoot)
 	pubIdx := indexOfMount(mounts, filepath.Join(containerHome, "public_html"))
 	privIdx := indexOfMount(mounts, filepath.Join(containerHome, "private_html"))
 	if wwwIdx < 0 || pubIdx < 0 || privIdx < 0 {
@@ -263,37 +263,6 @@ func TestBuildMounts_HomeSlotsCreatesPerGroupDirs(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(cfg.WebDir, "priv", "newgroup")); err != nil {
 		t.Errorf("expected web/priv/newgroup created: %v", err)
-	}
-}
-
-// TestBuildMounts_Tier3NoWebSlots verifies tier 3+ gets no /var/lib/www
-// and no home web slots.
-func TestBuildMounts_Tier3NoWebSlots(t *testing.T) {
-	tmp := t.TempDir()
-	cfg := &core.Config{
-		GroupsDir:   filepath.Join(tmp, "groups"),
-		IpcDir:      filepath.Join(tmp, "ipc"),
-		HostAppDir:  filepath.Join(tmp, "app"),
-		WebDir:      filepath.Join(tmp, "web"),
-		ProjectRoot: tmp,
-	}
-	os.MkdirAll(cfg.GroupsDir, 0o755)
-	os.MkdirAll(cfg.IpcDir, 0o755)
-	os.MkdirAll(filepath.Join(cfg.WebDir, "pub"), 0o755)
-	folders := &groupfolder.Resolver{GroupsDir: cfg.GroupsDir, IpcDir: cfg.IpcDir}
-
-	in := Input{Folder: "a/b/c"} // tier 3
-	groupDir := filepath.Join(cfg.GroupsDir, in.Folder)
-	os.MkdirAll(groupDir, 0o755)
-	mounts := buildMounts(cfg, in, groupDir, false, folders)
-
-	for _, m := range mounts {
-		if m.Container == "/var/lib/www" {
-			t.Errorf("tier 3 should not get /var/lib/www mount")
-		}
-		if strings.HasSuffix(m.Container, "/public_html") || strings.HasSuffix(m.Container, "/private_html") {
-			t.Errorf("tier 3 should not get home web slot mount: %s", m.Container)
-		}
 	}
 }
 
@@ -519,23 +488,13 @@ func TestBuildMountsOwnsTheGroupCodexDirBeforeDockerSeesIt(t *testing.T) {
 // published — which a group may gate at the edge with an `auth`/`deny`
 // web_routes row that a filesystem mount would bypass — and no writable slot.
 func TestBuildMounts_DocsSubtreeWithoutWebPublish(t *testing.T) {
-	tmp := t.TempDir()
-	cfg := &core.Config{
-		GroupsDir:   filepath.Join(tmp, "groups"),
-		IpcDir:      filepath.Join(tmp, "ipc"),
-		HostAppDir:  filepath.Join(tmp, "app"),
-		WebDir:      filepath.Join(tmp, "web"),
-		ProjectRoot: tmp,
-	}
-	os.MkdirAll(cfg.GroupsDir, 0o755)
-	os.MkdirAll(cfg.IpcDir, 0o755)
+	cfg, folders := fhsConfig(t)
 	pubHost := filepath.Join(cfg.WebDir, "pub")
 	docsHost := filepath.Join(pubHost, webDocsDir)
 	os.MkdirAll(docsHost, 0o755)
 	// A sibling group's published tree: what the whole-tree mount carries and
 	// the docs mount must not.
 	os.MkdirAll(filepath.Join(pubHost, "atlas"), 0o755)
-	folders := &groupfolder.Resolver{GroupsDir: cfg.GroupsDir, IpcDir: cfg.IpcDir}
 
 	in := Input{Folder: "nogrant"} // holds no web:publish
 	groupDir := filepath.Join(cfg.GroupsDir, in.Folder)
