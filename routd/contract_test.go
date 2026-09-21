@@ -463,6 +463,19 @@ func TestDeliverRow_SkipsBareFolderJid(t *testing.T) {
 		t.Fatalf("bare-folder jid must NOT call Send, got %d", dl.sends)
 	}
 
+	// A prefix-less ROOM takes the same path as a bare folder: it names a chat,
+	// but with no `platform:` no adapter can own it, so ForJID has no answer and
+	// there is nothing better to resolve it to. It dead-letters rather than
+	// routing anywhere — the shape a stale route leaves behind.
+	rowRoom := &core.Message{ID: "out-room"}
+	statusRoom := srv.deliverRow(TurnContext{Folder: "atlas"}, "user/137865889", rowRoom, "", "")
+	if statusRoom != core.MessageStatusFailed {
+		t.Fatalf("prefix-less room: want failed (dead-lettered), got %q", statusRoom)
+	}
+	if dl.sends != 0 {
+		t.Fatalf("prefix-less room must NOT call Send, got %d", dl.sends)
+	}
+
 	row2 := &core.Message{ID: "out-2"}
 	status2 := srv.deliverRow(TurnContext{Folder: "atlas"}, "slack:T/C/1", row2, "", "")
 	if dl.sends != 1 || status2 != core.MessageStatusSent {
