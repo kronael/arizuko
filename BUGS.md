@@ -7258,7 +7258,7 @@ simply never appears in the shell.
     `hold:` fail-open closes at the write. Smaller, and it removes a row shape
     no evaluator reads.
 
-## L133 — `actionCovers`'s `*` covers rule namespaces too, so every namespaced rule needs its own evaluator (2026-08-29, open — proposal, needs sign-off)
+## L133 — `actionCovers`'s `*` covers rule namespaces too, so every namespaced rule needs its own evaluator (2026-08-29, open — RE-MEASURED 2026-09-21: `ext:` is a third namespace the proposal would break, check 2 half REFUTED; ONE question, needs sign-off)
 
 `auth.Authorize` is documented as the SOLE runtime authorization evaluator
 (`5/33`). It is not, and the reason is one line.
@@ -7324,6 +7324,69 @@ This entry is about the shape, not a live defect.
   as a rule would hold every tool call the operator makes (`5/19` Hazard 2) and
   hand every folder secret to every operator turn. Exact matching is what stops
   both.
+
+- **RE-MEASURED 2026-09-21 at `b3b973e2`. The one line is unchanged
+  (`auth/authorize.go:390-393`). Three things moved under it.**
+
+- **(1) There is now a THIRD colon-namespace, and it is a GRANT — which makes
+  the entry's own check 1 sharper and more dangerous than it records.**
+  `auth.ExtScopePrefix` (`auth/authorize.go:655`) opens `ext:`, and an ext
+  tool's `scope` string is passed as the ACTION to `Authorize`
+  (`ipc/ipc.go:1187`, `db.Authorize(folder, tool.Scope, nil)`; the field is
+  `Authorize func(folder, action string, …)`, `ipc/ipc.go:274`). So `ext:` is
+  evaluated through `actionCovers` ON PURPOSE. Its comment says why, and it
+  cites a bug ID: "an action in this namespace has to be grantable or the only
+  rows that reach an ext tool are a blanket `*` and an operator elevation, both
+  of which confer everything (BUGS `L230`)".
+  - Check 1 names `mcp:send` and `web:publish` as the false positives a sniffed
+    "has a `:` → it is a rule" test would catch. It misses `ext:`, which is
+    shaped EXACTLY like `shell:env:` — multi-segment, colon-delimited,
+    open-ended, allowlisted by the same `grantableAction` prefix switch
+    (`cmd/arizuko/main.go:600-605`). An implementation that sniffs would take
+    `*` away from every ext tool and leave them reachable only by an exact
+    `ext:<provider>:<area>:<verb>` row. That is a functional regression on the
+    namespace whose comment cites `L230`, not a security one — but it is the
+    landmine in this proposal, and it is the one the entry does not name.
+  - **The declaration has no home yet.** `HoldPrefix` and `ShellEnvPrefix` are
+    declared in `store` (`store/acl.go:141,148`); `ExtScopePrefix` is declared
+    in `auth`. `grantableAction` already enumerates all four open-ended prefixes
+    in ONE place, so the SET exists — what does not exist is the rule/grant bit,
+    and `auth` cannot read it from `cmd/arizuko`. If this ships, the bit belongs
+    beside the prefixes in `store`, which already holds two of the three and
+    owns the acl row.
+
+- **(2) Check 2 is half REFUTED.** `EffectiveActions` cannot surface a rule row
+  as a grant. Its lattice branch answers only `strings.HasPrefix(action, "mcp:")`,
+  its exact branch keys `held[r.Action]` on the FULL action string, and the only
+  caller queries it as `held("mcp:"+name)` (`routd/agent_gate.go:73`). A
+  `hold:mcp:delete` row lands at `held["hold:mcp:delete"]` and is never asked
+  for. `UserScopes` is the half that STANDS: it filters on effect and scope and
+  reads no action at all (`auth/authorize.go:239-262`), so a `hold:` or
+  `shell:env:` row's SCOPE does enter the `X-User-Groups` header proxyd stamps
+  and authd's login-time snapshot, as though it were a grant scope. Its own
+  comment already says a listing "can never be the decision", so this is a
+  listing defect, not a gate defect.
+
+- **(3) The lattice is now refused in THREE bodies, not two.** `identityCovers`
+  (`auth/authorize.go:~150`) is a second exact-match matcher inside `Authorize`
+  itself, for the identity axis, and its comment gives `namespacedAllows`'
+  reason verbatim — `5/19` Hazard 2. So the shape the entry describes has
+  spread INSIDE the evaluator it wants to fix, which strengthens the argument
+  that the lattice cannot express "exact match" and weakens "one more
+  hand-rolled evaluator per namespace forever" — nobody added a third namespace
+  evaluator; `ext:` deliberately took the lattice instead.
+
+- **THE ONE QUESTION:** is the rule/grant split a declared property of an action
+  namespace that `actionCovers` reads — accepting that `ext:` must be declared a
+  GRANT or it silently loses operator `*` — or does `Authorize` stay a
+  grant-only evaluator, with `5/33`'s "SOLE runtime authorization evaluator"
+  corrected to say it decides grants while rules are read exactly?
+  - Answer "declared split" → the bit lands in `store` beside the prefixes,
+    `namespacedAllows` deletes, `UserScopes` gains an action filter. Core
+    evaluator contract change.
+  - Answer "correct the spec" → nothing in the code moves, `5/33` gets one
+    sentence, and this entry closes as a RECORD. `namespacedAllows`' comment
+    already carries the whole argument.
 
 ## L136 — the `--internal` network does not seal UDP/53, and the two docs that explain the DNS filter's absence give a reason that does not cover DNS (2026-08-30, open)
 
