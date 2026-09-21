@@ -1377,7 +1377,7 @@ into which folder. `C0B4JMQ8X89`'s pair is the shape to copy (`verb=mention`
 at the lower seq, `#observe` above it — see eval check 22 for why that order
 matters).
 
-## L305 — two live threads in one Discord channel: the second one's mention is never answered (2026-09-18, open — proposal, needs sign-off)
+## L305 — two live threads in one Discord channel: the second one's mention is never answered (2026-09-18, GROUPING HALF FIXED 2026-09-21; the cursor proposal is unevidenced)
 
 MEASURED on sloth, and it is the cause behind "sloth is not remaining active in
 threads which he did not start".
@@ -1438,6 +1438,44 @@ grouped by SENDER, not topic (`routd/dispatch.go:129`, `groupBySender` at
 threads from one person collapse into one turn in one thread, which reproduces
 the sloth trace exactly. A per-(chat, topic) cursor alone therefore will not fix
 this; the grouping key belongs in the proposal before sign-off.
+
+- **The grouping half is FIXED 2026-09-21 (`1c263329`), and it is the half that
+  reproduces the sloth trace.** `routd/dispatch.go` now keys the non-web batch
+  on the sender AND the topic the turn will dispatch under, read from ONE
+  declaration (`turnTopic`) that the grouping key and the loop body share. A
+  group can no longer span two destinations and then silently take one of them.
+  Reproduced first, before any edit: two mentions, one sender, topics
+  `thread-a` and `thread-b`, one poll → **one** turn, `topic=thread-b`,
+  carrying thread-a's mention inside its batch. That is the sloth trace
+  verbatim.
+- **PROVEN BY MUTATION, both directions.** Drop the topic term from the key and
+  `TestDispatch_TwoThreadsOneSenderGetOneTurnEach` fails with one turn instead
+  of two. Key on the raw `m.Topic` instead of the dispatch topic and both
+  `TestDispatch_ARoutePinnedTopicStillTakesOneTurn` and
+  `TestDispatch_AStickyTopicStillTakesOneTurn` fail with two turns — a chat
+  whose route or sticky pins one topic must still take exactly one.
+- **The cursor proposal is now UNEVIDENCED, and that is what changes the
+  sign-off.** Its premise is "a topic that is simply not dispatched in this pass
+  is carried past". After the grouping fix every topic holding a non-bot row in
+  the batch IS dispatched in the pass, so no topic reaches `l.advance`
+  undispatched. The three non-advancing exits (`derr`, `busy`, `steered`) re-feed
+  the whole batch, and `PutTurnContext` answers `live=false` for a turn that
+  already completed, so the re-feed replays nothing. Whoever signs off should
+  first be shown a case the grouping fix leaves open.
+- **And the cursor change is not the small one the entry implies.** Five of the
+  cursor's readers are not batch reads. Two take `GetAgentCursor(chatJID)` as
+  "when this CHAT was last active", which a per-topic cursor gives N answers to
+  and no rule for choosing one: `sessionIdleExpired` (`routd/loop.go:845`),
+  which resets a stale Claude session, and the `new_day` check in
+  `emitSystemEvents` (`routd/prompt.go:240`). Two more key the busy backoff on
+  the chat rather than the cursor (`busyDeferred`/`noteBusy`), so a refusal in
+  one topic parks the other. The fifth is the steer contract: `L104` guarantees
+  a steer consumes its own row and leaves the older rows their turn, and that
+  guarantee is written in terms of ONE ordered cursor over the chat.
+- **One question for the sign-off:** is there a case, after the grouping fix,
+  where a topic's rows are carried past undispatched — and if not, does the
+  per-(chat, topic) cursor still buy anything worth those five readers losing
+  their definition?
 
 ## L283 — the agent turn container runs unhardened while its own egress sidecar is locked down (2026-09-12, open — needs sign-off)
 
