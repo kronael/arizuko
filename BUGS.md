@@ -872,12 +872,15 @@ calls nothing else: `DYNAMODB_URL`, `AWS_REGION`, `AWS_ACCESS_KEY_ID`,
 `AWS_SECRET_ACCESS_KEY`, `STORE_CA` (`objstore/dynstore/env.go:16-22`). A grep
 over the tree for `create-user`, `create-access-key`, `put-user-policy` and
 `EXTENDDB_ACCOUNT_ID` returns no Go hit; the only `EXTENDDB_*` strings are test
-container flags in `dyntest.go`. `EXTENDDB_ACCOUNT_ID` and `EXTENDDB_PASSWORD`
-sit in `.env` for a person to type into `extenddb manage`.
+container flags in `dyntest.go`. The account and the admin password sit in
+`.env` for a person to type into `extenddb manage` — persisted as
+`STORE_ACCOUNT_ID` and `STORE_ADMIN_PASSWORD` (`INSTALL.md:188`), not under the
+`EXTENDDB_*` names this entry first used; `EXTENDDB_PASSWORD` is only the
+ephemeral variable the `manage` CLI reads at invocation.
 
 `generate` PRESERVES and never mints: for each daemon it reads the key out of
 `env/<daemon>.env` and carries it forward, skipping the daemon when either half
-is absent (`compose/compose.go:862-872`). The comment says why — a daemon whose
+is absent (`compose/compose.go:882-901`). The comment says why — a daemon whose
 key changed under it signs every request wrong.
 
 `template/services/extenddb.yml` states the design outright: the operator runs
@@ -891,21 +894,75 @@ server serving the fleet, which needs a per-deployment step that does not exist:
 `manage create-account`, then one `create-user` + `put-user-policy` +
 `create-access-key` per daemon, against a server that already exists.
 
-Two further things the by-hand run hides, both blocking:
+**RE-MEASURED 2026-09-21 at `f5851f94`. The "two further things, both blocking"
+paragraph that stood here is STALE — both were answered the same day this entry
+was filed, five hours later.** `63050bfb` added `INSTALL.md` §"A shared server
+for several instances" (`INSTALL.md:291-390`), which documents the manual
+procedure for exactly the two:
 
-- **The certificate SAN is the compose service name `extenddb`**, which resolves
-  only inside ONE instance's network. A shared server needs a SAN every instance
-  can reach, and each instance's `STORE_CA` must carry that certificate.
-- **The per-instance PostgreSQL role is a superuser of its own server**
-  (`POSTGRES_USER: ${APP}_${FLAVOR}`, and the fragment says "the role IS the
-  instance"). On a shared server that role must not exist, so the account becomes
-  the only boundary and `L318` stops being cosmetic.
+- **The SAN.** Step 3 runs `init` for the certificate alone with
+  `--tls-san <host-ip> --tls-san <host-fqdn>` instead of the service name
+  (`INSTALL.md:329`). The per-instance fragment's SAN really is the compose
+  service name (`template/services/extenddb.yml:9`), but that is the
+  per-instance cert; a shared server is brought up with reachable SANs and an
+  enrolling instance takes THAT certificate as its `STORE_CA`. It is a
+  data-movement step, not an unsolved problem.
+- **The PostgreSQL role.** Step 1 creates a single `dynamo` role owning
+  `dynamo` / `dynamo_catalog`, and no per-instance role exists in that model at
+  all. `6/43` §4 point 4 already makes this normative — "The PostgreSQL role is
+  **not** a tenancy boundary … A deployment never holds a PostgreSQL credential"
+  — so this is a settled decision to implement, not an open question.
+
+That section's own closing line already scopes this entry down: "Creating that
+account and minting that key is still by hand through `extenddb manage`:
+`arizuko` has no enrolment subcommand (BUGS `L319`)" (`INSTALL.md:388`). The doc
+commit never touched `BUGS.md`, which is why the entry kept claiming blockers
+that had a documented answer.
+
+**So the remaining scope is exactly the automation, and NOTHING here is bounded
+today.** What enrolment would concretely write, verified 2026-09-21:
+
+- It would register in `cmd/arizuko/main.go`'s command table beside `generate`
+  and `packages` — there is no `enrol`, confirmed against the full list (`run`,
+  `generate`, `proxy-config`, `create`, `github`, `group`, `gate`, `invite`,
+  `chat`, `send`, `talk`, `status`, `pair`, `network`, `route`, `packages`,
+  `products`, `secret`, `user-secret`, `budget`, `token`, `apply`, `plan`,
+  `get`, `export`, `archive`, `probe`). Not `apply --as-folder`, which
+  retargets FOLDERS and is unrelated despite the name.
+- It would run `manage create-account`, then per daemon `create-user` +
+  `put-user-policy` + `create-access-key` (the `L318` recipe), and write the
+  pair into `env/<daemon>.env` — the only file `generate` will carry forward.
+- `DYNAMODB_URL`, `AWS_REGION` and `STORE_CA` already flow from `.env` into
+  every daemon's file via `commonKeys` (`compose/compose.go:95-99`); only the
+  key pair is per-daemon and unminted.
+
+It needs a live server, an admin password, and `L318`'s policy shape settled, so
+it stays a proposal.
+
+**One adjacent BOUNDED candidate, found while re-measuring, NOT shipped here
+because it is a second concern.** `generate`'s carry-forward loop skips a daemon
+SILENTLY when either half of the key is absent:
+
+```go
+if keyID == "" || secret == "" {
+        continue                        // compose/compose.go:894
+}
+```
+
+Nothing logs it. `StoreReach` (`store/owner_reach.go`) already declares which
+daemons need a key and which need none (`timed`, `ttsd` are empty), so
+`generate` has the second reader it would need to say "these daemons want a
+store key and have none". That is the class `L45` names — a generated env var
+that silently stops applying and looks healthy — and it is the thing that would
+make a half-finished enrolment visible. It is not shipped because it must not
+fire on a fresh `arizuko create`, where no daemon has a key yet; that contract
+question is what needs deciding, and it is not this entry's concern.
 
 - **Severity:** medium — no instance is broken; a shared store server cannot be built without this
-- **Scope:** `cmd/arizuko`, `compose/compose.go`, `template/services/extenddb.yml`, `INSTALL.md` § The store server
+- **Scope:** `cmd/arizuko` (a new subcommand); `compose/compose.go:882-901` carry-forward; `INSTALL.md` §"A shared server for several instances"
 - **Affected:** any second instance on one store server; the 10.0.5.1 consolidation
-- **Source:** `objstore/dynstore/env.go:16-22`; `compose/compose.go:855-872`; `template/services/extenddb.yml` header
-- **Status:** open — proposal, needs sign-off on the shape: an `arizuko enrol <instance>` subcommand against a shared server, minting the account and the 19 scoped keys `L318` specifies, in one loop. It writes the identity plane arizuko today leaves to a person.
+- **Source:** `objstore/dynstore/env.go:16-22`; `compose/compose.go:882-901`; `INSTALL.md:291-390`; `specs/6/43` §6 (which already carries `defects: [L319]`)
+- **Status:** open — proposal, needs sign-off on the shape: an `arizuko enrol <instance>` subcommand against a shared server, minting the account and the scoped keys `L318` specifies, in one loop. It writes the identity plane arizuko today leaves to a person. The manual path is documented and works; only the automation is missing.
 - **Fix:**
 
 ## L318 — every daemon's store key carries `dynamodb:* on *`, so 19 per-daemon keys give attribution and not isolation (2026-09-20, open)
