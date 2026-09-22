@@ -336,17 +336,33 @@ The subtest sets the folder cap to 0 and expects the turn to run: `capCents > 0
 && SpentCents >= capCents` (`routd/budget.go:87`) means 0 is unlimited, so the
 budget gate is NOT the refusal. What stops the turn closing is unmeasured.
 
+**The target's own timeout hides which test failed, and it is the F37 signature
+the Makefile warns about ten lines above.** `integration` runs
+`go test ./tests/... -count=1 -timeout 120s`, and this test needs ~250s, so the
+package is killed at the budget before the test can report. What an operator
+sees is a bare `FAIL github.com/kronael/arizuko/tests 124.493s` with NO
+`--- FAIL:` line — exactly the shape `GOFLAGS`' comment says BUGS F37 hunted for
+six weeks. Reading the real assertion needs `-timeout 300s` by hand.
+
+So there are two defects, and the second one hid the first: the turn does not
+close, AND `integration`'s per-package budget is shorter than the test it runs.
+
+`make test-turns` runs the same test with `-timeout 600s` and a vacuous-pass
+guard, so it would show the real failure. It is not in CI either.
+
 - **Severity:** medium (a documented gate that no one runs and that does not
   pass; the failing case covers cost accounting for a refused model call)
-- **Scope:** `tests/e2e_turn_test.go`, `Makefile` `integration`,
-  `.github/workflows/ci.yml`
+- **Scope:** `tests/e2e_turn_test.go`, `Makefile` `integration` (the 120s
+  budget) and `test-turns`, `.github/workflows/ci.yml`
 - **Affected:** nothing at runtime — the failure is in the harness or in what
   it asserts, and which is unmeasured
 - **Source:** `make integration` at HEAD and at `b0998e91`; CI workflow
-- **Status:** open — two questions, and the second is the owner's. (1) Why does
-  the turn never close? Unmeasured; it needs the run inspected rather than
-  guessed at. (2) Should `integration` join CI, or should its comment stop
-  claiming it has? Wiring a red gate breaks every build, so the order is fix
+- **Status:** open — three, and the last is the owner's. (1) Why does the turn
+  never close? Unmeasured; it needs the run inspected rather than guessed at.
+  (2) `integration`'s `-timeout 120s` is shorter than the test it runs and must
+  grow, or that package moves to `test-turns` alone — otherwise every failure
+  here reports as F37's unreadable signature. (3) Should `integration` join CI,
+  or should its comment stop claiming it has? Wiring a red gate breaks every build, so the order is fix
   then wire — but whether it belongs in CI at all is a cost call, because the
   target takes ~250s on this host and needs docker.
 
