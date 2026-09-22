@@ -188,9 +188,33 @@ the drift stayed invisible because each reader agreed with itself.
 - **Scope:** grants
 - **Affected:** store, routd, cmd/arizuko
 - **Source:** the three sites above
-- **Status:** open. One declaration in `store/`, the other two read it. This
-  is a cross-package contract change, so it needs sign-off before it ships.
+**MEASURED 2026-09-22, and the three do NOT declare the same thing.**
 
+| site | action | effect | other |
+| --- | --- | --- | --- |
+| `store/acl.go aclDefaults` | **not set** | `EffectAllow` | `GrantedAt` |
+| `routd/acl_resource.go aclDefaults` | `admin` | `allow` | — |
+| `cmd/arizuko/main.go grantDefaults` | `admin` | `store.EffectAllow` | — |
+
+They AGREE on the values they both set. The gap is that store's sets no action,
+so a row reaching `store.AddACLRow` with an empty action stays empty —
+`onbod/main.go`, `dashd/grants_admin.go` and `cmd/arizuko/main.go` all call it.
+Collapsing onto store's therefore makes an empty action default to `admin`,
+which WIDENS those three. That is the decision, and it is why this is not the
+`L340` fix it resembles.
+
+Shipped meanwhile, behaviour-preserving: routd's copy used the literal
+`"allow"` beside `store.EffectAllow`, under a comment calling itself "the ONE
+place they are declared" — which was false and is the sentence that would stop
+the next reader looking. It now uses the constant and names the other two.
+
+Not done, and deliberately: there is no `ActionAdmin` constant and `"admin"`
+appears at 12 sites across six packages. Naming it is behaviour-preserving but
+it is a wider change than this entry describes.
+
+- **Status:** open — needs the decision above: may an empty action default to
+  `admin` inside `store`, or must the two callers that want that default keep
+  applying it themselves?
 ## L346 — whapd's sweep reports a hold it does not have (2026-09-21, fixed `pending`)
 
 `whapd/src/main.ts` logs "the sweep holds the message" on a path where

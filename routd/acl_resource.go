@@ -258,16 +258,23 @@ func aclArgsRow(args resreg.Args) core.ACLRow {
 	}
 }
 
-// aclDefaults applies the writer's defaults — action `admin`, effect `allow` —
-// and is the ONE place they are declared. The Gate must validate the row the
-// write produces, so a default only the writer knew about is a row auth.Delegate
-// judged as something else (the shape of BUGS L93).
+// aclDefaults applies this writer's defaults — action `admin`, effect `allow`.
+// The Gate must validate the row the WRITE produces, so a default only the
+// writer knew about is a row auth.Delegate judged as something else (the shape
+// of BUGS L93).
+//
+// It is NOT the only declaration, whatever an earlier comment here claimed.
+// `cmd/arizuko` grantDefaults sets the same two, and `store.aclDefaults` sets
+// the effect and NOT the action — so an empty action reaching store directly
+// stays empty. The three agree on the values today; collapsing them is BUGS
+// L345, and it is a decision because store's would have to start defaulting an
+// empty action to `admin`, which widens three live callers.
 func aclDefaults(r core.ACLRow) core.ACLRow {
 	if r.Action == "" {
 		r.Action = "admin"
 	}
 	if r.Effect == "" {
-		r.Effect = "allow"
+		r.Effect = store.EffectAllow
 	}
 	return r
 }
