@@ -127,15 +127,19 @@ injecting token needs `messages:write` + read scope on the eval folder, and the
 
 `Cost()` reads routd `GET /v1/cost?turn_id=` (token needs `cost:read`); a 404
 — no cost recorded yet, or a routd predating the endpoint — reads as 0, other
-failures surface. One known gap (honest, not silent): `McpMessages` GETs a
-REST-shaped `/v1/messages/inspect`, so `--mcp` can only be pointed at a REST
-URL and never at the platform's own MCP face, and the `rest-mcp-parity` case
-failed every live run by construction — deleted 2026-08-21. Closing it is
-anteval-side work, not a platform contract: webd serves `get_history` over
-streamable HTTP on `POST /chat/{token}/mcp`, and it returns user frames as
-well as assistant ones, which is what a sentinel needs. The
-`parity_sentinel` checker and the `--mcp` flag remain for that case's return,
-and for product catalogs whose target has such a face.
+failures surface.
+
+`--mcp` points at the platform's own MCP face. `McpMessages` speaks streamable
+HTTP to it and calls `get_history`, which webd serves on `POST /mcp` and on
+`POST /chat/{token}/mcp` from one builder, returning user frames as well as
+assistant ones — which is what a sentinel needs. The tool reads by FOLDER and
+TOPIC, so the reader takes the per-case topic (the run's nonce) and resolves the
+folder from the chat JID through `groupfolder.JidFolder`; a suffixed JID names
+no folder and is refused rather than read as some other group's history. Its
+payload is a JSON string inside the MCP result envelope, so it is decoded twice,
+and `role` is the bot flag REST spells `is_bot_message`. Without `--mcp` the
+read answers "surface not configured" and an mcp or parity case fails loudly
+instead of passing on nothing.
 
 The callback sink binds locally; the agent containers must be able to reach
 `--sink`, so the eval host has to be on the target folder's crackbox egress

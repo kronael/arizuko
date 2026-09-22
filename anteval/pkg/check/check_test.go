@@ -15,8 +15,8 @@ func (f fakeSink) Hits(n string) []Hit { return f.hits[n] }
 
 type fakeReader struct{ rest, mcp []Msg }
 
-func (f fakeReader) RestMessages(string) ([]Msg, error) { return f.rest, nil }
-func (f fakeReader) McpMessages(string) ([]Msg, error)  { return f.mcp, nil }
+func (f fakeReader) RestMessages(string) ([]Msg, error)        { return f.rest, nil }
+func (f fakeReader) McpMessages(string, string) ([]Msg, error) { return f.mcp, nil }
 
 func exp(s string) string { return strings.ReplaceAll(s, "{nonce}", "N1") }
 

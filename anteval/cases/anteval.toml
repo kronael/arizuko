@@ -238,11 +238,22 @@ text = "{nonce}"
 # mcp-roundtrip deleted 2026-08-21: a self-reported callback duplicating
 # rest-roundtrip's harness-observed landing — every case already drives the
 # agent's MCP tools, so "post via MCP and self-confirm" added no evidence.
-# rest-mcp-parity deleted the same day: it could not pass on any live run —
-# the platform's chat-token MCP face lacks an inspect-read, so --mcp was never
-# configurable and the case failed by construction ("surface not configured";
-# the proposal to add the read is in BUGS.md). Re-add it when the face exists;
-# the parity_sentinel checker stays in the vocabulary.
+# rest-mcp-parity is back 2026-09-22. It was deleted the same day because
+# --mcp could not be configured: the reader GET'd a REST path, so pointing it
+# at an MCP face was not a misconfiguration an operator could fix. webd's
+# get_history closed the face half, and anteval now speaks MCP to it, so the
+# case can pass. It needs --mcp; without it the read answers "surface not
+# configured" and the case fails loudly, which is the point.
+
+[[case]]
+id = "rest-mcp-parity"
+dimension = "reach"
+prompt = "Reply in this chat with exactly: parity-{nonce}"
+max_wall_ms = 90000
+[case.check]
+kind = "parity_sentinel"
+chat = "{chat}"
+text = "parity-{nonce}"
 
 # Doc: ant/CLAUDE.md "[Document: name] with NO <attachment path=…> tag → the file
 # did NOT arrive. Do NOT claim you read it." Real incident (memory .diary/20260405):

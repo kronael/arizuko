@@ -37,10 +37,10 @@ func (a *agentSim) Inject(_, _, prompt string) (string, error) {
 	}
 	return "turn-1", nil
 }
-func (a *agentSim) RestMessages(string) ([]check.Msg, error) { return a.msgs, nil }
-func (a *agentSim) McpMessages(string) ([]check.Msg, error)  { return a.msgs, nil }
-func (a *agentSim) Cost(string) (int, error)                 { return 7, nil }
-func (a *agentSim) Session(string, string) (string, error)   { return "", nil }
+func (a *agentSim) RestMessages(string) ([]check.Msg, error)        { return a.msgs, nil }
+func (a *agentSim) McpMessages(string, string) ([]check.Msg, error) { return a.msgs, nil }
+func (a *agentSim) Cost(string) (int, error)                        { return 7, nil }
+func (a *agentSim) Session(string, string) (string, error)          { return "", nil }
 
 func TestDriveCallback(t *testing.T) {
 	c := spec.Case{ID: "self-skill", Dimension: "self", Prompt: "curl {sink}/cb/{nonce}",
@@ -98,11 +98,11 @@ func TestDriveStatusSeesRedirect(t *testing.T) {
 
 type silentTarget struct{}
 
-func (silentTarget) Inject(_, _, _ string) (string, error)    { return "t", nil }
-func (silentTarget) RestMessages(string) ([]check.Msg, error) { return nil, nil }
-func (silentTarget) McpMessages(string) ([]check.Msg, error)  { return nil, nil }
-func (silentTarget) Cost(string) (int, error)                 { return 0, nil }
-func (silentTarget) Session(string, string) (string, error)   { return "", nil }
+func (silentTarget) Inject(_, _, _ string) (string, error)           { return "t", nil }
+func (silentTarget) RestMessages(string) ([]check.Msg, error)        { return nil, nil }
+func (silentTarget) McpMessages(string, string) ([]check.Msg, error) { return nil, nil }
+func (silentTarget) Cost(string) (int, error)                        { return 0, nil }
+func (silentTarget) Session(string, string) (string, error)          { return "", nil }
 
 func TestDriveTokenBudget(t *testing.T) {
 	c := spec.Case{ID: "b", Prompt: "curl {sink}/cb/{nonce}", MaxTokens: 5,

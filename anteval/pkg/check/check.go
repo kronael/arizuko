@@ -35,7 +35,9 @@ type Sink interface {
 // faces of the uniform surface, spec 5/5).
 type Reader interface {
 	RestMessages(chat string) ([]Msg, error)
-	McpMessages(chat string) ([]Msg, error)
+	// McpMessages takes the TOPIC as well, because the MCP face reads by
+	// (folder, topic) and a chat jid carries no topic. Ctx.Topic supplies it.
+	McpMessages(chat, topic string) ([]Msg, error)
 }
 
 // Ctx is what a checker needs: HTTP for URL probes, the sink, a chat reader,
@@ -44,6 +46,9 @@ type Ctx struct {
 	HTTP   *http.Client
 	Sink   Sink
 	Reader Reader
+	// Topic is the per-case topic — the nonce the runner injected under. The
+	// MCP read needs it; the REST read does not.
+	Topic  string
 	Expand func(string) string
 }
 
@@ -93,7 +98,7 @@ func findText(ctx Ctx, c spec.Check, mcp, botOnly bool) (bool, string) {
 	var msgs []Msg
 	var err error
 	if mcp {
-		msgs, err = ctx.Reader.McpMessages(chat)
+		msgs, err = ctx.Reader.McpMessages(chat, ctx.Topic)
 	} else {
 		msgs, err = ctx.Reader.RestMessages(chat)
 	}
@@ -113,7 +118,7 @@ func parity(ctx Ctx, c spec.Check) (bool, string) {
 	if err != nil {
 		return false, "rest read: " + err.Error()
 	}
-	mcp, err := ctx.Reader.McpMessages(chat)
+	mcp, err := ctx.Reader.McpMessages(chat, ctx.Topic)
 	if err != nil {
 		return false, "mcp read: " + err.Error()
 	}

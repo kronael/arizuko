@@ -195,7 +195,7 @@ func runCase(cfg Config, s *sink, c spec.Case) report.Result {
 		return r
 	}
 	r.TurnID = turn
-	ctx := check.Ctx{HTTP: noRedirectClient, Sink: s, Reader: cfg.Target, Expand: expand}
+	ctx := check.Ctx{HTTP: noRedirectClient, Sink: s, Reader: cfg.Target, Topic: nonce, Expand: expand}
 	deadline := time.Now().Add(budget(c))
 	for {
 		pass, reason := check.Run(ctx, c.Check)

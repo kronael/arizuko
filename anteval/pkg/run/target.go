@@ -101,10 +101,12 @@ func (t *HTTPTarget) messages(base, chat string) ([]check.Msg, error) {
 // RestMessages reads a chat via routd REST (GET /v1/messages/inspect).
 func (t *HTTPTarget) RestMessages(chat string) ([]check.Msg, error) { return t.messages(t.API, chat) }
 
-// McpMessages reads the same chat via an inspect-compatible MCP-over-HTTP face
-// (--mcp). Empty MCPURL → "surface not configured", so mcp/parity cases fail
-// loudly rather than false-pass.
-func (t *HTTPTarget) McpMessages(chat string) ([]check.Msg, error) { return t.messages(t.MCPURL, chat) }
+// McpMessages reads the same rows through webd's MCP face (--mcp). Empty MCPURL
+// → "surface not configured", so mcp/parity cases fail loudly rather than
+// false-pass.
+func (t *HTTPTarget) McpMessages(chat, topic string) ([]check.Msg, error) {
+	return t.mcpHistory(chat, topic)
+}
 
 // Session reads the persisted resume-session id for (folder, topic) via routd
 // GET /v1/topic_sessions (needs a read scope on the folder; messages:read —
