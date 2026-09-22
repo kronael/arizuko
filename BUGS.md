@@ -2072,7 +2072,7 @@ what the field means for every consumer, including the reply-to-bot →
 `verb=mention` promotion. Decide whether the row needs a separate `in_reply_to`
 before doing it — do not widen `ReplyToID`.
 
-## L167 — `reply(replyToId=<parent-channel message>)` from inside a thread: the tool doc promised a quote Discord cannot make, and which thread it should go to is undecided (2026-09-05, open — proposal)
+## L167 — which thread a `reply(replyToId=…)` should root is undecided (2026-09-05, open — proposal; the doc half is done)
 
 The `reply` description (`ipc/ipc.go:1186`) says "pass replyToId to target a
 specific earlier message", and `ant/CLAUDE.md` said Discord "has no native
@@ -2092,8 +2092,24 @@ Decide before changing; it changes what `reply` means for every turn.
 - **Affected:** every Discord instance
 - **Source:** `ipc/ipc.go:1186`, `ant/CLAUDE.md` § Discord threading,
   `routd/turns.go:232`
-- **Status:** proposal (needs sign-off)
-- **Fix:**
+**RE-MEASURED 2026-09-22: the documentation half this entry was titled for is
+CLOSED.** `ipc/ipc.go`'s `reply` description now states the built mechanics
+rather than a promise Discord cannot keep — "pass it to target a specific
+earlier message in the SAME thread. A target outside the current thread still
+delivers — the text lands in the thread without the quote banner, because the
+platform resolves a reference inside the destination channel only." That is the
+sentence whose earlier version sent the agent into a wall of refusals, and
+`ant/CLAUDE.md` § Discord threading was corrected in the same direction.
+
+So nothing here is a doc defect any more, and the title said otherwise for two
+weeks.
+
+- **Status:** open — proposal, and ONLY the policy question is left: should
+  `replyThreadRoot` (`routd/turns.go`, the single policy site) root a thread on
+  `replyToId` when it names a parent-channel message other than the trigger?
+  That is what the operator asked for, and it changes what `reply` means for
+  every turn on every platform, so it is not a default anyone should pick
+  silently.
 
 ## L171 — proposal: one TypeScript channel module for whapd and twitd (2026-09-05, proposal — needs sign-off)
 
