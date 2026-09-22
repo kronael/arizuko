@@ -374,12 +374,23 @@ than 429 is the caller's own request — a bad model name, a malformed body, a
 dead credential — and re-sending it cannot change the answer. By that rule the
 current behaviour is wrong and costs three container spawns per occurrence.
 
-But `claude.test.ts` "ClaudeTurn marks an is_error result as a failure"
-asserts `r.terminal` is UNDEFINED for exactly this input, so retryable is a
-PINNED contract, not an oversight nobody noticed. I implemented the change
-(a `permanentAPIError` helper reading the SDK's `API Error: <code>` line,
-4xx-except-429 → terminal) and reverted it rather than flip a pinned contract
-unasked.
+`claude.test.ts` asserts `r.terminal` is UNDEFINED for exactly this input, so
+the behaviour is pinned. **But `git blame` says the pin is incidental.** Commit
+`55980815` (2026-09-20) INTRODUCED `terminal` and scoped it to `this.rejected`,
+and its subject was "a model failure ends the run instead of answering as the
+agent" — the bug was ant submitting `status:success` so routd delivered "API
+Error: 400 …" as the reply. Whether a 400 should RETRY was never the question
+being answered; retryable is the default it inherited, and the assertion marks
+"not the rejected case" rather than "400 must retry".
+
+I implemented the change — a `permanentAPIError` helper reading the SDK's
+`API Error: <code>` line, 4xx-except-429 → terminal — and reverted it, because
+it changes retry behaviour on a live path.
+
+**My own classification was also too broad**, which is why this wants a decision
+rather than a quick flip: 408 Request Timeout and 425 Too Early ARE transient
+and belong with 429. The permanent set is 400/401/403/404/422 and their
+neighbours, not "4xx except 429".
 
 **And it would not be enough on its own.** A failure notice goes out through
 `chanDeliverer.send`, which calls the channel directly and writes NO message
