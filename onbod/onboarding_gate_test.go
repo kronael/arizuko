@@ -147,7 +147,15 @@ func TestStrandedRowAdviceNamesTheStatusesThatAdvance(t *testing.T) {
 	if !strings.Contains(out, "stranded") {
 		t.Fatalf("a row in an unknown status was not reported: %q", out)
 	}
-	for status := range knownStatuses {
+	// NAMED, not derived from knownStatuses: an assertion built from the same
+	// map the advice is built from moves with it and catches nothing. A status
+	// dropped from the pipeline should fail here, so the removal is a decision
+	// and not a silent narrowing of what an operator is told.
+	for _, status := range []string{"awaiting_message", "queued", "approved", "refused"} {
+		if !knownStatuses[status] {
+			t.Fatalf("the pipeline no longer advances %q; decide whether the advice "+
+				"should still name it before changing this list", status)
+		}
 		if !strings.Contains(out, status) {
 			t.Errorf("the advice omits %q, which the pipeline does advance: %q", status, out)
 		}
