@@ -38,8 +38,6 @@ line; none can be answered from the code.
   its entry.
 - `L348` — delete `store`'s unreached legacy-import region, or keep it as
   `L249`'s finished import half and write the export side against it.
-- `L349` — should `make integration` join CI once it is green, or should its
-  comment stop saying it already has? It is red today and CI never runs it.
 - `L339`, `L167`, `L200` — proposals too. `L200` and `L133` were re-measured
   2026-09-21 and each came back narrower than filed.
 - `L133` — one question after that re-measure: `ext:` is a third namespace the
@@ -314,7 +312,7 @@ failure read as a quiet success.
 - **Status:** fixed. The sweep log reads `held`, and `pending` logs at ERROR
   before it answers empty. `pending says so when the ledger cannot be read`
   pins the second; removing the log fails it.
-## L349 — `make integration` is red, and the comment saying CI runs it is false (2026-09-22, open)
+## ✅ FIXED 2026-09-22 L349 — `make integration` was red, four defects deep (2026-09-22)
 
 `make integration` fails. `tests/TestE2ETurn_CostAccounting`'s subtest
 "model failure moves the meter only by what it served" times out after 4
@@ -405,18 +403,33 @@ cause named (terminal) and the notice recorded.
 - **Affected:** nothing at runtime — the failure is in the harness or in what
   it asserts, and which is unmeasured
 - **Source:** `make integration` at HEAD and at `b0998e91`; CI workflow
-- **Status:** open — four now, and two are the owner's. (0) Is a 4xx model
-  error terminal? The retry rule says yes, the pinned test says no. Flipping it
-  also decides whether a platform failure notice becomes a `messages` row, or
-  stays a delivery the transcript never records. (1) Why does the turn
-  never close? Unmeasured; it needs the run inspected rather than guessed at.
-  (2) `integration`'s `-timeout 120s` is shorter than the test it runs and must
-  grow, or that package moves to `test-turns` alone — otherwise every failure
-  here reports as F37's unreadable signature. (3) Should `integration` join CI,
-  or should its comment stop claiming it has? Wiring a red gate breaks every build, so the order is fix
-  then wire — but whether it belongs in CI at all is a cost call, because the
-  target takes ~250s on this host and needs docker.
+- **Status:** FIXED. `make integration` is green. Four defects, each hiding
+  the next:
 
+  1. **The target's budget was shorter than its test.** `-timeout 120s` against
+     a ~250s test, so the package died before reporting — the bare
+     `FAIL <pkg> 124s` F37 signature. Now 600s.
+  2. **A refused request was retried.** `API Error: 400` was classified
+     retryable, so routd spawned three more containers for the same refusal.
+     400/401/403/404/405/410/422 are terminal now; 408, 425, 429 and every 5xx
+     stay retryable. The assertion that pinned 400 as retryable was incidental
+     — `git blame` shows `55980815` introduced `terminal` for the quota case
+     and its subject was that ant answered as the agent.
+  3. **The test waited for a bot row that never comes.** A notice is delivered
+     and never appended, which the subtest above it already asserts. It waits
+     on the delivery now.
+  4. **`recordTurnResult` dropped `req.Error`.** The agent submits its own
+     account — "API Error: 400 fake says no" — and routd showed the user the
+     container's stderr tail: "ake says no", truncated mid-word with ant's log
+     lines. `RecordTurnResult` stores it, `TurnFailure` reads it back, and the
+     terminal notice prefers it. Same class as the drop that broke every reply
+     for two days.
+
+  `TestE2ETurn_CostAccounting`: 250s timeout → 17s green.
+
+  **Still open and NOT part of this fix:** CI does not run `make integration`.
+  The target's comment no longer claims it does. Wiring it is a cost call —
+  ~250s and docker — and belongs to the owner.
 ## L348 — `store`'s legacy-import region has no production caller, and its header names two commands that do not exist (2026-09-22, open)
 
 850 lines across `store/import_hot.go` (502) and `store/import_routd.go` (348)
