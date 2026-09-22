@@ -23,7 +23,7 @@ open set disagree, so it cannot quietly rot.
 It reads the HEADING, because that is what a reader sees and it is the only
 marker every entry carries. Ten entries said open in the heading and carried no
 `- **Status:** open` line, so a Status-only count answered 22 for a queue of
-32 — this section shipped with those ten missing.
+31 — this section shipped with those ten missing.
 
 **A contract or design decision.** Each names the question in its own Status
 line; none can be answered from the code.
