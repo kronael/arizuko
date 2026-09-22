@@ -6387,7 +6387,7 @@ A rollout snapshot; the rollout finished. Each of its six items re-verified at
 - **Status:** closed — nothing left to track
 - **Fix:** none needed
 
-## dashd's cross-owner reads — two survive spec 6/28's read rule (2026-06-16, rewritten 2026-09-21)
+## dashd's cross-owner reads — two survive spec 6/28's read rule (2026-06-16, one of two fixed 2026-09-22)
 
 **The conflict this entry tracked is resolved, and not by code.** It read: the
 renamed spec (`7/1` → `specs/6/28-cockpit-index.md`) forbids the direct DB read,
@@ -6434,9 +6434,22 @@ Severity drops from high to low, scope from "all dashd pages" to these two.
 - **Affected:** `/dash/usage/`, `/dash/invites/`
 - **Source:** dashd/usage_page.go:148; dashd/invites.go:34;
   specs/6/28-cockpit-index.md:33-71; dashd/main.go:263
-- **Status:** open — undone spec work, no sign-off pending
-- **Fix:**
+- **Status:** item 2 FIXED 2026-09-22, item 1 open.
 
+  **Item 2 (invites) — done.** `dashd/invites.go` reads
+  `GET /v1/invites` over the service bearer, the way the audit page already
+  reads onbod. The page's WRITES stay on the FS-mounted discipline. onbod's
+  `inviteJSON` is in its own package main, so nothing binds the two shapes and
+  a renamed field would decode as a blank with no error — the page would render
+  empty refs and report nothing. `TestInviteRowMatchesOnbodsWireShape` reads
+  onbod's declaration with `go/parser` and demands the same tag set; renaming
+  one tag fails it. `stubOnbod` in the test file serves the same shape, because
+  onbod's real resource cannot be mounted from another main.
+
+  **Item 1 (usage page) — open.** It needs routd to grow the read first:
+  `dashstore.MessageActivityByFolder` has no `/v1` twin, so this is 6/28's
+  "failing that, add a minimal daemon-owned read endpoint" — a new endpoint on
+  routd, which is an addition to a public surface rather than a swap.
 ## ✅ CLOSED-STALE 2026-09-21 chat: loadChatSessions limits before filtering; nondeterministic continue links (2026-06-18)
 
 Subsystem gone. `dashd/chat.go` was deleted at `f98f2f33` (2026-08-15, "V2 delete
