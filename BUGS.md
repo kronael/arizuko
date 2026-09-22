@@ -72,6 +72,11 @@ revoked — see its entry.)
 
 - `L189` — blocked on `L137`. Do not take it alone.
 
+**A spec whose status is a claim.**
+
+- `L350` — `6/37` cites six deleted artifacts, four of them its own guards. The
+  invariant still holds; the tests that held it do not.
+
 ## ✅ FIXED 2026-09-21 L333 — an operator-only slash command refuses without naming the principal it tested, and the refusal leaves no trace
 
 sloth's operator typed `/root <request>` in the Telegram DM on 2026-09-17 and
@@ -325,6 +330,46 @@ failure read as a quiet success.
 - **Status:** fixed. The sweep log reads `held`, and `pending` logs at ERROR
   before it answers empty. `pending says so when the ledger cannot be read`
   pins the second; removing the log fails it.
+## L350 — spec `6/37` cites six artifacts that no longer exist, four of them the guards it rests on (2026-09-22, open)
+
+`specs/6/37-store-model.md` is `status: partial` and its steps 1-2 name the
+tests that hold the SQL→objstore move honest. Every path in the spec was
+checked against HEAD on 2026-09-22; six do not resolve:
+
+| named in `6/37` | at HEAD |
+| --- | --- |
+| `db_utils/opener_test.go` | the whole `db_utils/` package is gone |
+| `db_utils/sql_layer_test.go` | gone with it |
+| `store/migrations/` | gone |
+| `store/migrations_frozen_test.go` | gone |
+| `auditstore/` | gone |
+| `audit/query.go` | gone (`audit/query_test.go` remains) |
+
+It also says "`migrate-split` migrates FROM it and nothing else runs it". No
+`migrate-*` subcommand exists; `773cb5c5` deleted the last on 2026-09-13.
+
+**The INVARIANTS still hold — it is the guards that are missing.** No
+production file imports `database/sql` (one match, `objstore/ordered.go`, is a
+comment naming `database/sql.Register` as an analogy). The one live import is
+`audit/audit_log_test.go`, for a `routeCount` helper nothing calls. So the move
+finished, and `6/37` describes it with tests that were removed once it did.
+
+That is the question this entry holds: a spec at `status: partial` whose guards
+were deleted as complete reads as work outstanding AND as protected, and it is
+neither. Either `6/37` moves to `shipped` with the dead references cut, or the
+guards come back because the invariant still needs holding.
+
+- **Severity:** low (no runtime defect; a spec that sends a reader to six files
+  that are not there)
+- **Scope:** `specs/6/37-store-model.md`
+- **Affected:** nobody at runtime; the next person to read `6/37`
+- **Source:** every `` `path` `` in `6/37` tested against HEAD 2026-09-22;
+  `git ls-files | xargs grep -l database/sql`
+- **Status:** open — needs a decision: shipped-and-cut, or the guards return.
+  Memory `phase5_closed` is the precedent: re-verifying 50 "shipped" specs
+  found 13 drifts, so a status is a claim, not a fact.
+- **Fix:**
+
 ## ✅ FIXED 2026-09-22 L349 — `make integration` was red, four defects deep (2026-09-22)
 
 `make integration` fails. `tests/TestE2ETurn_CostAccounting`'s subtest
