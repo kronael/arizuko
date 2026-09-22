@@ -1,18 +1,12 @@
-// Package substrate declares what an execution substrate can do. One value
-// per substrate, in the substrate's own package: container.Profile for
-// Docker, sandbox.Profile for KVM. The substrate reads it to decide whether
-// a feature runs; runed logs it at start and shows it on its dashboard;
-// tests pin it. The declaration is a ceiling. Effective is what a
-// configuration delivers against it, and the function that computes an
-// Effective is the one place a capability may be found missing — a feature
-// that quietly does not happen is the failure this package ends (spec 6/25
-// §3).
+// Package substrate declares what an execution substrate can do — one value per
+// substrate, in the substrate's own package. The declaration is a CEILING;
+// Effective is what a configuration delivers against it, and computing an
+// Effective is the one place a capability may be found missing. A feature that
+// quietly does not happen is the failure this package ends (spec 6/25 §3).
 //
-// Every Profile field is a bool or an enum declared here, and the package
-// imports nothing. A field that could hold a folder, a grant, a principal or
-// an allowlist could carry policy, and policy belongs to arizuko, never to
-// the substrate (spec 6/16, the component contract). TestProfileCarriesNoPolicy
-// pins the fields; tests/components pins the imports.
+// Every Profile field is a bool or an enum and the package imports nothing: a
+// field holding a folder, a grant or an allowlist could carry policy, and
+// policy belongs to arizuko, never to the substrate (6/16).
 package substrate
 
 // Backend names the mechanism that runs a workload.
