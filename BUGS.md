@@ -74,8 +74,6 @@ revoked — see its entry.)
 
 **A pointer that resolves and lies.**
 
-- `L356` — 19 repointed; six sites claim something no spec states any more,
-  which needs the spec to gain it or the comment to drop it.
 
 - `L355` — the comment audit shipped; what is left is 31 citations inside Go
   string literals (three pinned by tests) and four stale § names.
@@ -277,78 +275,6 @@ is the reference — do not restate here".
   user-facing message is a code change with three test assertions on it, and a
   wrong § inside a right document is a second concern from this entry's.
 - **Fix:** `fc356ac1` (the comment audit).
-
-## L356 — 27 citations name a section their spec no longer has (2026-09-22, open)
-
-The third layer of one rot. `L354` was numbers that resolved to nothing.
-`L355` was numbers that resolved to the WRONG document. This is the right
-document with the cited section removed under it — and no guard looks at the
-part after the `§`.
-
-Measured 2026-09-22 by grepping each cited heading against the spec that names
-it. 27 sites:
-
-| citation | sites | what the spec holds today |
-| --- | --- | --- |
-| `5/8 §"Apply lifecycle" step 1/3/5` | 7 | no apply lifecycle at all; the two numbered lists are a shipped-status list (`:43`) and consistency caveats (`:330`) |
-| `5/8 §"CAS implementation"` | 2 | `## Content-hash CAS, not a counter` (`:154`) |
-| `5/8 §"Atomicity model"` | 1 | `## Cross-subsystem apply: per-subsystem transaction, pre-image rollback` (`:191`) |
-| `5/8 §"Path-retargeting apply"` | 1 | `## Path retargeting: primitive shipped, no caller` (`:267`) |
-| `5/8 §"Testability"`, `§"arizuko get round-trip"` | 2 | no heading of either name in ANY spec |
-| `5/G-engagement item 6` | 3 | `5/G` has two short numbered lists, 1-2 and 1-3; there is no item 6 |
-| `5/G-engagement fix 2`, `fix 5` | 3 | `5/G` has no numbered fixes |
-| `5/E-routd §"Standalone-ready acceptance"` | 2 | the section is `5/P-runed:229` |
-| `5/O-observability §"Histogram buckets"` | 1 | `5/O:53` says "code is the reference — do not restate here" |
-| `5/32-acl-unified §"Operator implicit"` | 1 | absent |
-| `6/28 §"Read-path: /v1 only, no direct DB"` | 1 | absent |
-
-`5/8` is the most-cited spec in the tree (121 references), so half of this sits
-in the one document a reader is most likely to follow.
-
-Two that LOOK wrong and are not, checked: `6/27 decision 4` (it has eight) and
-`6/25 decision 1` (its title is "three decisions to take from qm", so the
-numbers are the title's).
-
-**The content did not vanish; the headings did.** `5/8` was restructured and
-the pointers kept the old names. So this is not a repoint to another spec — it
-is reading each sentence against the current text and citing the section that
-supports it, exactly as `specs/CLAUDE.md` says.
-
-- **Severity:** low (no runtime defect; a reader who follows the pointer finds
-  the document and then no such section)
-- **Scope:** the 27 sites; `cmd/arizuko/apply.go`, `resreg/engine.go`,
-  `resreg/resreg.go`, `dashd/engagement_page.go`, `ipc/ipc.go`,
-  `obs/metrics.go` and their tests
-- **Affected:** anyone following a spec pointer out of the code
-- **Source:** every `§"..."` and `item|fix|decision N` citation in tracked
-  `.go`, grepped against the spec its number names
-**19 REPOINTED 2026-09-22** (`03544c39`), each to a heading verified present.
-The `5/8` cluster moved to `§"Surface"`, `§"Round-trip honesty"` (`:925`) and
-`§"Path retargeting"` (`:267`); the one-audit-row claims moved to
-`5/17-openapi-mcp §"Audit contract"` (`:254`), which owns them; `5/G`'s
-`item 6` and `fix 2`/`fix 5` became the sections that carry those rules.
-
-**Six are left because no spec states the claim any more**, and naming a
-section that merely sounds close would look checked and be wrong: "print plan
-+ ok before the commit" (`5/8` lists `plan` as its own verb and never requires
-it), "an unknown row field rejects before any DB write" (four sites; no spec
-says it — `grep` for `unknown field|KnownFields|strict pars` over `specs/`
-returns nothing), `§"Testability"`, and `5/O §"Histogram buckets"` where
-`5/O:53` declines to hold the values.
-
-**TWO OF THIS ENTRY'S OWN CLAIMS WERE WRONG.** `5/P:229 §"Standalone-ready
-acceptance"` describes RUNED's contract test, which `runed/contract_test.go:27`
-already cites; `5/E:392` names `routd/contract_test.go` by path, so routd's is
-a section repoint, not a document one. And `6/28 §"Read-path: /v1 only, no
-direct DB"` is NOT absent — the heading carries markdown backticks around
-`/v1`, which the sweep did not strip, so six correct citations read as dead.
-The same strip bug made `6/37 §"How \`messages\` leaves"` look dead; it is a
-correct prefix of `:615`.
-
-- **Status:** open on the six unsupported sites. Each needs the spec to gain
-  the sentence, or the comment to stop claiming it — a spec change either way,
-  so it is not a repoint.
-- **Fix:** `03544c39` (the 19).
 
 ## L352 — `tmp/` is gitignored but its Go files join the module, so the lint gate is not the gate CI runs (2026-09-22, open)
 
