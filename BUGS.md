@@ -7392,10 +7392,32 @@ can.
 - **Scope:** `dashd` grants page
 - **Affected:** `dashd/grants_admin.go`; `specs/6/29-dashd-hub.md`
   §"Retained cross-cutting pages"
-- **Status:** open — the view, wired to the existing unpair action. Not a
-  redesign: the reads exist (`store.MemberEdges` / `store.ParentEdges`,
-  `added_by` is already stamped by `store.PairingAddedBy`) and the page exists
-- **Fix:**
+**MEASURED 2026-09-22: "not a redesign" was wrong, and the blocker is
+specific.** The store reads do exist. What does not is a way for dashd to make
+them, because `6/28` puts dashd's grants page on routd's `/v1` — reading
+`store.MemberEdges` from dashd would re-introduce exactly the cross-owner read
+just removed from `dashd/invites.go`.
+
+routd's `acl_membership` resource declares **one action, delete**, and its
+header says so on purpose: "It gains exactly ONE action — delete — scoped to
+`added_by='pairing'` so it cannot reach role membership." A provenance view
+needs a LIST, and adding one to that resource publishes "who holds authority
+over whom" on REST and, per `5/17`, on MCP as well.
+
+- **Status:** open — needs sign-off on the read, not on the view. Three
+  questions the delete action did not have to answer:
+  1. **Who may list whose edges?** Delete proves the caller IS an endpoint of
+     the edge. A list has no such natural bound: an operator listing a folder's
+     edges is one thing, a folder-scoped caller listing another folder's is a
+     disclosure.
+  2. **Does the agent get it too?** `5/17` derives the MCP face from the REST
+     one. `unpair` is deliberately agent-reachable; a `list_membership` tells
+     every granted agent who else holds authority.
+  3. **Which direction?** `MemberEdges(parent)` and `ParentEdges(child)` answer
+     different questions and leak differently.
+
+  Once the read is signed off the view itself IS small — the page exists and
+  the unpair action exists.
 
 ### The August review, kept for the record
 
