@@ -267,6 +267,11 @@ arizuko run demo                       # compose up; @mention the bot in a chann
           action is an MCP tool call. The matching REST endpoint arrives
           resource by resource &mdash; the two faces are converging, not
           finished.</li>
+        <li><strong>Connectors, with the credential kept back.</strong> One
+          TOML block gives an agent somebody else&rsquo;s API as a tool. The
+          call goes out from the host, the secret is filled in on the way,
+          and no token ever enters the container &mdash;
+          <a href="concepts/ext-mcp.html">connectors</a>.</li>
         <li><strong>Sized for agent teams.</strong> Dozens of messages a
           day per group, not consumer-scale traffic.</li>
       </ul>
@@ -299,7 +304,7 @@ arizuko run demo                       # compose up; @mention the bot in a chann
       <p class="dim" style="margin-top: 2em; font-size: 0.9em">
         MIT &middot; Go + Docker.
       </p>
-      <p class="docs-footer">updated <time class="docs-updated" datetime="2026-09-13">2026-09-13</time></p>
+      <p class="docs-footer">updated <time class="docs-updated" datetime="2026-09-16">2026-09-16</time></p>
     </div>
     <button class="theme-toggle">&#127769;</button>
     <script src="assets/hub.js"></script>

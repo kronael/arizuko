@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>connectors</title>
+  <link rel="stylesheet" href="../assets/hub.css">
+</head>
+<body>
+  <header class="docs-topbar">
+    <button class="docs-navtoggle" aria-label="Toggle navigation" aria-expanded="false">&#9776;</button>
+    <a class="docs-wordmark" href="../">arizuko</a>
+  </header>
+  <div class="guide-layout">
+    <nav class="docs-nav" aria-label="Concepts">
+      <ul>
+        <li><a class="nav-section" href="./">Concepts</a>
+          <ul class="nav-children">
+            <li><a href="index.html">Start here</a></li>
+            <li><a href="primitives.html">Primitives</a></li>
+            <li><a href="built.html">How it&rsquo;s built</a></li>
+            <li><a href="ant.html">The ant</a></li>
+            <li><a href="routing.html">Routing</a></li>
+            <li><a href="engagement.html">Engagement</a></li>
+            <li><a href="proactive.html">Proactive</a></li>
+            <li><a href="topics.html">Topics</a></li>
+            <li><a href="progress.html">Live progress</a></li>
+            <li><a href="retries.html">Retries</a></li>
+            <li><a href="onboarding.html">Onboarding</a></li>
+            <li><a href="autoviv.html">Autoviv</a></li>
+            <li><a href="personas.html">Personas</a></li>
+            <li><a href="auth.html">Auth</a></li>
+            <li><a href="grants.html">Grants</a></li>
+            <li><a href="scopes.html">Scopes</a></li>
+            <li><a href="secrets.html">Secrets</a></li>
+            <li><a href="audit.html">Audit trail</a></li>
+            <li><a href="skills.html">Skills</a></li>
+            <li><a href="tasks.html">Tasks</a></li>
+            <li><a href="workflows.html">Workflows</a></li>
+            <li><a href="tokens.html">Tokens</a></li>
+            <li><a href="web-native-agents.html">Web-native agents</a></li>
+            <li><a href="webdav.html">WebDAV</a></li>
+            <li><a href="voice.html">Voice</a></li>
+            <li><a href="slack-pane.html">Slack pane</a></li>
+            <li><a href="jid.html">Addressing (JID)</a></li>
+          </ul>
+        </li>
+        <li><a class="nav-section" href="../reference/">Reference</a></li>
+        <li><a class="nav-section" href="../howto/">How-to</a></li>
+        <li><a class="nav-section" href="../components/">Components</a></li>
+        <li><a class="nav-section" href="../products/">Products</a></li>
+      </ul>
+    </nav>
+
+    <main class="docs-content">
+      <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">concepts</a> &rsaquo; connectors</p>
+<h1>connectors</h1>
+
+    <p class="lede">A connector hands the agent a tool it did not ship with &mdash; a DNS registrar, an internal API, somebody else&rsquo;s MCP server &mdash; and does it without letting the credential into the container. You write one TOML block. <code>routd</code> makes the call on the host, fills the secret in on the way out, and hands the agent back the response body and nothing else.</p>
+
+    <h2>the shape of the problem</h2>
+    <p>An agent that can only talk is not much use. Sooner or later it needs to read a DNS zone, file a ticket, or query your own service. The usual way to arrange that is to put an API token in the container and let the agent call <code>curl</code>. That works, and it means the token is now readable by anything the agent runs &mdash; including whatever it was asked to summarise from a web page.</p>
+    <p>A connector splits the two halves. The agent gets the <em>tool</em>; the host keeps the <em>credential</em>. From inside the container there is an MCP tool called <code>cloudflare_dns_list</code>, and no <code>CF_API_TOKEN</code> anywhere in the environment, the filesystem, or <code>/proc</code>.</p>
+
+    <h2>one block, two transports</h2>
+    <p>Every connector is one <code>[[connector]]</code> block, and <code>transport</code> picks which dispatch path it takes. A field is absent for a transport rather than meaning two different things:</p>
+    <ul>
+      <li><strong><code>mcp</code></strong> (the default when you leave <code>transport</code> out) &mdash; the far side is already an MCP server over HTTP. It discovers its own catalogue, so you declare no tools. It reads <code>headers</code> only, because that is where an HTTP MCP server takes its credential.</li>
+      <li><strong><code>rest</code></strong> &mdash; the far side is an ordinary REST API that has never heard of MCP. You declare one <code>[[connector.tool]]</code> per endpoint, and you may use all three credential sinks.</li>
+    </ul>
+    <p>Connectors reach out over HTTP, never over stdio. That is not a simplification &mdash; MCP&rsquo;s OAuth flow is defined for the HTTP transport only, so a stdio connector could never carry a user&rsquo;s own authorisation.</p>
+
+    <h2>a rest connector, end to end</h2>
+    <pre><code># connectors.toml in the instance directory
+[[connector]]
+name      = "cloudflare"
+transport = "rest"
+url       = "https://api.cloudflare.com/client/v4"
+secrets   = ["CF_API_TOKEN"]
+headers   = { Authorization = "Bearer {secret:CF_API_TOKEN}" }
+
+  [[connector.tool]]
+  name        = "dns_list"
+  description = "List DNS records for a Cloudflare zone."
+  scope       = "ext:cloudflare:dns:read"
+  method      = "GET"
+  path        = "/zones/{zone_id}/dns_records"</code></pre>
+    <p>The agent sees a tool named <code>cloudflare_dns_list</code> &mdash; <code>&lt;provider&gt;_&lt;tool&gt;</code>. It takes one argument, <code>zone_id</code>, because <code>{zone_id}</code> is a path placeholder and those are schema&rsquo;d for you. Any argument that is not a path placeholder becomes the query string on a GET or DELETE, and the JSON body on a POST, PUT or PATCH.</p>
+
+    <h2>where the secret goes</h2>
+    <p>There is no auth-method enum to pick from. You write <code>{secret:KEY}</code> at the spot in the request where the value belongs, and it is rendered per call into one of three sinks:</p>
+    <table class="params">
+      <thead><tr><th>sink</th><th>looks like</th></tr></thead>
+      <tbody>
+        <tr><td class="name">headers</td><td><code>{ Authorization = "Bearer {secret:CF_API_TOKEN}" }</code></td></tr>
+        <tr><td class="name">query</td><td><code>{ ApiKey = "{secret:NAMECHEAP_KEY}" }</code></td></tr>
+        <tr><td class="name">body</td><td><code>{ apikey = "{secret:PB_API_KEY}", secretapikey = "{secret:PB_SECRET}" }</code></td></tr>
+      </tbody>
+    </table>
+    <p>&ldquo;Bearer&rdquo; is a literal prefix you typed, not a mode the loader understands. That is the whole reason a provider with an unusual scheme needs no new case, and a provider wanting four credentials is written exactly like one wanting one.</p>
+    <p>Three things happen to the value on every call, and they are worth knowing before you debug one:</p>
+    <ul>
+      <li>It is looked up <strong>for the triggering user</strong>. Their own key beats the folder default, so one connector serves a team whose members each hold their own token.</li>
+      <li>It is <strong>scrubbed out of the response</strong> before the text reaches the agent, so an API that echoes your key back does not leak it into the transcript.</li>
+      <li>A declared key the store resolves to nothing has its <strong>whole entry dropped</strong>. An unset secret sends no header at all, rather than sending the literal text <code>{secret:CF_API_TOKEN}</code> upstream and getting a confusing 401.</li>
+    </ul>
+
+    <h2>the grant decides who sees it</h2>
+    <p>Each tool carries a <code>scope</code> shaped <code>ext:&lt;service&gt;:&lt;operation&gt;</code>. Registration is grant-filtered like every other MCP tool: the tool joins <code>tools/list</code> only where <code>Authorize(folder, scope)</code> passes. A folder without the grant does not see a refusal &mdash; it sees no such tool. The call-time check runs anyway, as defence in depth.</p>
+    <p>So one <code>connectors.toml</code> can declare your whole external surface, and which folder gets which piece of it is a grants question, decided per folder:</p>
+    <pre><code>arizuko group &lt;instance&gt; grant main/infra 'ext:cloudflare:dns:read' 'main/infra/**'</code></pre>
+
+    <h2>what ships already</h2>
+    <p>arizuko carries descriptors for four DNS registrars &mdash; Cloudflare, Porkbun, Gandi and Namecheap &mdash; each covering list, create and delete. They do nothing until the operator sets that provider&rsquo;s token, because a descriptor is a shape, not a credential.</p>
+
+    <h2>limits worth knowing</h2>
+    <ul>
+      <li><strong>A connector is host-side, so the container&rsquo;s egress rules do not apply to it.</strong> The call leaves from <code>routd</code>, not from the agent&rsquo;s network. Decide what a folder may reach with the grant, not with the allowlist.</li>
+      <li><strong>The response body is all the agent gets.</strong> No status line, no headers. A connector that needs the agent to branch on a status code is the wrong shape for the job.</li>
+      <li><strong>An <code>mcp</code> connector trusts the far side&rsquo;s catalogue.</strong> It discovers tools at connect time, so a server that adds a tool gives your agent that tool the next time it connects &mdash; gated by the grant, but not by anything you wrote down.</li>
+    </ul>
+
+    <h2>go deeper</h2>
+    <p>Adding one, step by step: <a href="../howto/add-connector.html">how-to / add a connector</a>. The descriptor field by field, and every built-in tool: <a href="../reference/mcp.html#ext-descriptor">reference / mcp</a>. How the scope is evaluated: <a href="grants.html">grants</a>. Where the value is stored and who may read it: <a href="secrets.html">secrets</a>.</p>
+
+      <nav class="docs-pager" aria-label="Pager">
+        <a rel="prev" href="secrets.html">&larr; Secrets</a>
+        <a rel="next" href="audit.html">Audit trail &rarr;</a>
+      </nav>
+      <div class="docs-footer">
+        <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/concepts/ext-mcp.html">Edit this page</a>
+        &middot; updated <time class="docs-updated" datetime="2026-09-22">2026-09-22</time>
+      </div>
+    </main>
+
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="../assets/hub.js"></script>
+</body>
+</html>

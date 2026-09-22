@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>add a connector — arizuko</title>
+  <link rel="stylesheet" href="../assets/hub.css">
+</head>
+<body>
+  <header class="docs-topbar">
+    <button class="docs-navtoggle" aria-label="Toggle navigation" aria-expanded="false">&#9776;</button>
+    <a class="docs-wordmark" href="../">arizuko</a>
+  </header>
+  <div class="guide-layout">
+    <nav class="docs-nav" aria-label="How-to">
+      <ul>
+        <li><a class="nav-section" href="../concepts/">Concepts</a></li>
+        <li><a class="nav-section" href="../reference/">Reference</a></li>
+        <li><a class="nav-section" href="./">How-to</a>
+          <ul class="nav-children">
+            <li><a href="index.html">Getting started</a></li>
+            <li><a href="talking-to-agents.html">Talking to agents</a></li>
+            <li><a href="build-a-product.html">Build a product</a></li>
+            <li><a href="slack.html">Slack</a></li>
+            <li><a href="discord.html">Discord</a></li>
+            <li><a href="asymmetric-channels.html">Asymmetric channels</a></li>
+            <li><a href="chat-link.html">Chat link on your site</a></li>
+            <li><a href="chat-sdk.html">Embed chat (SDK)</a></li>
+            <li><a href="webhooks.html">Webhooks</a></li>
+            <li><a href="add-connector.html" aria-current="page">Add a connector</a></li>
+            <li><a href="oauth-provider.html">Add an OAuth provider</a></li>
+            <li><a href="webdav.html">WebDAV mount</a></li>
+            <li><a href="kubernetes.html">Kubernetes</a></li>
+          </ul>
+        </li>
+        <li><a class="nav-section" href="../components/">Components</a></li>
+        <li><a class="nav-section" href="../products/">Products</a></li>
+      </ul>
+    </nav>
+
+    <main class="docs-content">
+      <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">howto</a> &rsaquo; Add a connector</p>
+      <h1>add a connector</h1>
+
+      <p>
+        A connector gives an agent a tool that calls somebody else&rsquo;s
+        API, without putting that API&rsquo;s credential in the container.
+        You write one TOML block, store the secret, and grant the scope to
+        the folders that should see the tool. This page walks one through,
+        end to end, with a real API.
+      </p>
+
+      <p>
+        Background on what a connector is and why the credential stays on
+        the host: <a href="../concepts/ext-mcp.html">concepts / connectors</a>.
+      </p>
+
+      <h2>1. decide which transport</h2>
+      <p>
+        If the far side is already an MCP server reachable over HTTP, you
+        want <code>transport = "mcp"</code> and you declare no tools &mdash;
+        it publishes its own catalogue. If it is an ordinary REST API, you
+        want <code>transport = "rest"</code> and one
+        <code>[[connector.tool]]</code> per endpoint you intend to expose.
+        The rest of this page does the REST case, because it is the one with
+        choices in it.
+      </p>
+
+      <h2>2. write the block</h2>
+      <p>
+        Connectors live in <code>connectors.toml</code> in the instance
+        directory, beside <code>docker-compose.yml</code>. Create it if it
+        is not there.
+      </p>
+      <pre><code>[[connector]]
+name      = "statuspage"
+transport = "rest"
+url       = "https://api.statuspage.io/v1"
+secrets   = ["STATUSPAGE_TOKEN"]
+headers   = { Authorization = "OAuth {secret:STATUSPAGE_TOKEN}" }
+
+  [[connector.tool]]
+  name        = "incident_list"
+  description = "List open incidents for a status page."
+  scope       = "ext:statuspage:incident:read"
+  method      = "GET"
+  path        = "/pages/{page_id}/incidents/unresolved"
+
+  [[connector.tool]]
+  name        = "incident_create"
+  description = "Open an incident on a status page."
+  scope       = "ext:statuspage:incident:write"
+  method      = "POST"
+  path        = "/pages/{page_id}/incidents"</code></pre>
+      <p>
+        Two details decide whether this works on the first try. The
+        <code>Authorization</code> value is a literal string you are
+        writing, so the scheme word &mdash; <code>OAuth</code> here, not
+        <code>Bearer</code> &mdash; is yours to get right. And
+        <code>{page_id}</code> is a path placeholder, so it becomes a
+        required argument on both tools automatically; you do not declare
+        it.
+      </p>
+
+      <h2>3. store the secret</h2>
+      <p>
+        The key named in <code>secrets</code> is resolved from the
+        <code>secrets</code> table at call time. Set it for the folder that
+        will use it:
+      </p>
+      <pre><code>arizuko secret &lt;instance&gt; set main/infra STATUSPAGE_TOKEN --value 'sp_live_…'</code></pre>
+      <p>
+        A person can hold their own key instead, and theirs wins over the
+        folder default for turns they trigger:
+      </p>
+      <pre><code>arizuko user-secret &lt;instance&gt; set 'slack:user/U123' STATUSPAGE_TOKEN --value 'sp_live_…'</code></pre>
+
+      <h2>4. grant the scope</h2>
+      <p>
+        Until a folder holds the tool&rsquo;s scope, the tool is not in its
+        <code>tools/list</code> at all. Grant read and write separately if
+        you want them separate &mdash; that is why they are two scopes:
+      </p>
+      <pre><code>arizuko group &lt;instance&gt; grant main/infra 'ext:statuspage:incident:read'  'main/infra/**'
+arizuko group &lt;instance&gt; grant main/infra 'ext:statuspage:incident:write' 'main/infra/**'</code></pre>
+
+      <h2>5. restart and check</h2>
+      <p>
+        Connectors are read at <code>routd</code> start, so the instance has
+        to come back up before the tool exists:
+      </p>
+      <pre><code>sudo systemctl restart arizuko_&lt;instance&gt;</code></pre>
+      <p>
+        Then ask the agent in the granted folder what tools it has. The name
+        to look for is <code>&lt;provider&gt;_&lt;tool&gt;</code> &mdash;
+        <code>statuspage_incident_list</code>. If it is absent, the grant is
+        the first thing to check: a missing scope produces no tool and no
+        error message, by design.
+      </p>
+
+      <h2>when it does not work</h2>
+      <ul>
+        <li>
+          <strong>The tool is missing.</strong> The folder does not hold the
+          scope, or the block failed to load. A connector whose
+          <code>transport</code> is neither <code>mcp</code> nor
+          <code>rest</code>, or a <code>rest</code> block with no
+          <code>[[connector.tool]]</code>, is refused at load with the
+          connector named.
+        </li>
+        <li>
+          <strong>The upstream returns 401.</strong> Check the secret is
+          actually set for the folder or the user. An unset key does not
+          send a placeholder &mdash; the whole header is dropped, so the
+          request arrives with no credential at all.
+        </li>
+        <li>
+          <strong>The agent says the response is empty.</strong> A connector
+          hands back the response body and nothing else. There is no status
+          code for the agent to read, so an endpoint that answers 204 with
+          no body looks like nothing happened.
+        </li>
+        <li>
+          <strong>The call reaches a host the folder is not allowed to
+          reach.</strong> It will work, and that is expected: the request
+          leaves from <code>routd</code> on the host, not from the
+          agent&rsquo;s network, so the egress allowlist does not apply.
+          The grant is the boundary here.
+        </li>
+      </ul>
+
+      <h2>next</h2>
+      <p>
+        If the service wants a &ldquo;Connect&rdquo; flow rather than a
+        pasted key, you want
+        <a href="oauth-provider.html">add an OAuth provider</a> instead
+        &mdash; arizuko runs the dance and refreshes the token, and the
+        connector then reads what it stored.
+      </p>
+
+      <nav class="docs-pager" aria-label="Pager">
+        <a rel="prev" href="webhooks.html">&larr; Webhooks</a>
+        <a rel="next" href="oauth-provider.html">Add an OAuth provider &rarr;</a>
+      </nav>
+      <div class="docs-footer">
+        <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/howto/add-connector.html">Edit this page</a>
+        &middot; updated <time class="docs-updated" datetime="2026-09-22">2026-09-22</time>
+      </div>
+    </main>
+
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="../assets/hub.js"></script>
+</body>
+</html>
