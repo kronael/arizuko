@@ -303,6 +303,15 @@ question when runed refuses the turn.
 
 The ERROR log is a symptom marker — it names the loss without ending it.
 
+**The observability half ships 2026-09-22.** While this waits, the ERROR log is
+the ONLY record that a person's question vanished, and it read `rows: 3,
+first: m1` — one row of N and no person. It names every id and every distinct
+sender now, so an operator can find what was dropped and whose it was. The
+CONTENT stays out on purpose, and `TestTheLostRowsLogNamesWhoseTheyWere` pins
+both halves of that.
+
+That changes no behaviour and settles nothing: the rows are still not re-fed.
+
 - **Severity:** medium (a user message silently dropped, on a path that
   already knows it happened)
 - **Scope:** dispatch
