@@ -130,6 +130,9 @@ func parseWindow(raw string) (Window, error) {
 
 func atoiOr(s string) int {
 	var n int
-	fmt.Sscanf(s, "%d", &n)
+	// quietHourRE captures \d{2} groups and nothing else calls this, so the
+	// scan cannot fail; the drop is explicit because a silent one would hide a
+	// zero if a future caller passed unvalidated text.
+	_, _ = fmt.Sscanf(s, "%d", &n)
 	return n
 }

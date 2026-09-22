@@ -3,6 +3,7 @@ package run
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -66,7 +67,12 @@ func (t *HTTPTarget) Inject(chat, topic, prompt string) (string, error) {
 		OK bool   `json:"ok"`
 		ID string `json:"id"`
 	}
-	json.NewDecoder(resp.Body).Decode(&ack)
+	// An empty body is fine — the id is advisory. A body that is present and
+	// unparseable is not: the caller records ack.ID as the turn's trace handle,
+	// so swallowing this loses the handle and says nothing about why.
+	if err := json.NewDecoder(resp.Body).Decode(&ack); err != nil && !errors.Is(err, io.EOF) {
+		return "", fmt.Errorf("inject %s: ack body: %w", chat, err)
+	}
 	return ack.ID, nil
 }
 
