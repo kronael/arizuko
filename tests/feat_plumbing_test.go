@@ -68,7 +68,7 @@ func TestStore_WebRouteInventory(t *testing.T) {
 func TestStore_TurnResult(t *testing.T) {
 	s := testutils.NewRoutdStore(t)
 
-	if _, err := s.RecordTurnResult("hq", "turn-1", "sess-1", "success"); err != nil {
+	if _, err := s.RecordTurnResult("hq", "turn-1", "sess-1", "success", ""); err != nil {
 		t.Fatal(err)
 	}
 	ti, err := s.GetTurnResult("hq", "turn-1")

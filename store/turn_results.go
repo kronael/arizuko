@@ -30,6 +30,10 @@ import (
 const (
 	attrTurnSessionID = "session_id"
 	attrTurnStatus    = "status"
+	// attrTurnError is the agent's OWN report of why the turn failed. The
+	// container's stderr tail says the same thing worse — truncated mid-word
+	// and mixed with ant's log lines (BUGS L349).
+	attrTurnError = "error"
 	// AttrTurnRecordedAt is when the outcome landed. Exported because the move
 	// that carries these rows names the instant it re-renders.
 	AttrTurnRecordedAt = "recorded_at"
@@ -64,7 +68,7 @@ func turnResultKey(folder, turnID string) (objstore.Key, error) {
 
 // RecordTurnResult records the agent-submitted outcome for one turn, and
 // answers whether THIS call is the one that recorded it (file header).
-func (s *Store) RecordTurnResult(folder, turnID, sessionID, status string) (bool, error) {
+func (s *Store) RecordTurnResult(folder, turnID, sessionID, status, failure string) (bool, error) {
 	key, err := turnResultKey(folder, turnID)
 	if err != nil {
 		return false, err
@@ -72,6 +76,7 @@ func (s *Store) RecordTurnResult(folder, turnID, sessionID, status string) (bool
 	attrs := map[string]string{AttrTurnRecordedAt: core.NowTS()}
 	setAttr(attrs, attrTurnSessionID, sessionID)
 	setAttr(attrs, attrTurnStatus, status)
+	setAttr(attrs, attrTurnError, failure)
 	first, err := s.TryWriteEntities(context.Background(), nil, objstore.Write{
 		Op: objstore.Put, Entity: TurnResults, Key: key, Attrs: attrs,
 		Cond: objstore.Cond{Item: objstore.ItemAbsent},
@@ -128,4 +133,23 @@ func (s *Store) CountTurnResults(ctx context.Context) (int, error) {
 		return 0, fmt.Errorf("read the turn results: %w", err)
 	}
 	return len(items), nil
+}
+
+// TurnFailure answers the agent's own report of why a turn failed, or "" when
+// it reported none. routd prefers it over the container's stderr tail when it
+// tells the user a turn died.
+func (s *Store) TurnFailure(folder, turnID string) string {
+	key, err := turnResultKey(folder, turnID)
+	if err != nil {
+		return ""
+	}
+	items, err := s.Obj().Query(context.Background(), objstore.Query{
+		Entity: TurnResults, Partition: key.Partition,
+		Key:     objstore.KeyPredicate{Op: objstore.ExactKey, Value: key.Sort},
+		Project: []string{attrTurnError},
+	})
+	if err != nil || len(items) == 0 {
+		return ""
+	}
+	return items[0].Attrs[attrTurnError]
 }

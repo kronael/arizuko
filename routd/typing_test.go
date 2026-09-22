@@ -93,7 +93,7 @@ type steeringRunner struct {
 func (r *steeringRunner) Run(_ context.Context, req runedv1.RunRequest) (runedv1.RunOutcome, error) {
 	if r.deliverContent {
 		r.srv.appendAndDeliver(req.TurnID, req.ChatJID, "hello steered")
-		first, _ := r.srv.db.RecordTurnResult(string(req.Folder), req.TurnID, "sess-steered", "success")
+		first, _ := r.srv.db.RecordTurnResult(string(req.Folder), req.TurnID, "sess-steered", "success", "")
 		if first {
 			_ = r.srv.db.SetTurnState(req.TurnID, "done")
 		}

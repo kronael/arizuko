@@ -41,7 +41,7 @@ func (r *stubRunner) Run(_ context.Context, req runedv1.RunRequest) (runedv1.Run
 	// appender).
 	r.srv.appendAndDeliver(req.TurnID, req.ChatJID, "hello back")
 	// the agent submits its turn.
-	first, _ := r.srv.db.RecordTurnResult(string(req.Folder), req.TurnID, "sess-stub", "success")
+	first, _ := r.srv.db.RecordTurnResult(string(req.Folder), req.TurnID, "sess-stub", "success", "")
 	if first {
 		_ = r.srv.db.SetTurnState(req.TurnID, "done")
 	}
@@ -111,7 +111,7 @@ func TestContractRoundTrip(t *testing.T) {
 	}
 
 	// (5) turn_results has one row; a duplicate submit_turn is dropped.
-	first, _ := db.RecordTurnResult("demo", "m1", "sess-stub", "success")
+	first, _ := db.RecordTurnResult("demo", "m1", "sess-stub", "success", "")
 	if first {
 		t.Fatal("duplicate submit_turn was recorded (want dropped)")
 	}

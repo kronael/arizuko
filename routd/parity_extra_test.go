@@ -70,7 +70,7 @@ func TestRecoverPending_ReEnqueuesRunningTurns(t *testing.T) {
 		t.Fatal(err)
 	}
 	// t3 reached a terminal state — RunningTurns must exclude it.
-	if _, err := db.RecordTurnResult("demo", "t3", "s", "success"); err != nil {
+	if _, err := db.RecordTurnResult("demo", "t3", "s", "success", ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.SetTurnState("t3", "done"); err != nil {

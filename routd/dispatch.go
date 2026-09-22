@@ -501,9 +501,16 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 			if !hasBotReply && tc.RetryCount > 0 && tc.RetryCount >= l.maxTurnRetry {
 				notice = retryExhaustedNotice(l.maxTurnRetry)
 			}
-			// A terminal failure names the real cause (spec 5/12).
+			// A terminal failure names the real cause (spec 5/12). The agent's
+			// OWN report is preferred: out.Error is the container's stderr
+			// tail, truncated mid-word and carrying ant's log lines, so a user
+			// was shown "ake says no" for an API Error: 400 (BUGS L349).
 			if out.Terminal {
-				notice = terminalFailureNotice(out.Error)
+				cause := l.db.TurnFailure(folder, turnID)
+				if cause == "" {
+					cause = out.Error
+				}
+				notice = terminalFailureNotice(cause)
 			}
 			// Every chat this run owed an answer to: a follow-up steered into the
 			// live container was marked done long before the run died (BUGS T2).

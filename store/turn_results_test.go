@@ -18,14 +18,14 @@ import (
 
 func TestTheSecondReportOfOneTurnClaimsNothing(t *testing.T) {
 	s := openEntities(t)
-	first, err := s.RecordTurnResult("g1", "msg-1", "sess-a", "success")
+	first, err := s.RecordTurnResult("g1", "msg-1", "sess-a", "success", "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !first {
 		t.Error("the first report did not claim the turn, so nothing delivers its answer")
 	}
-	second, err := s.RecordTurnResult("g1", "msg-1", "sess-b", "error")
+	second, err := s.RecordTurnResult("g1", "msg-1", "sess-b", "error", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,11 +48,11 @@ func TestTheSecondReportOfOneTurnClaimsNothing(t *testing.T) {
 
 func TestOneTurnIdInTwoFoldersIsTwoTurns(t *testing.T) {
 	s := openEntities(t)
-	a, err := s.RecordTurnResult("g1", "msg-1", "", "success")
+	a, err := s.RecordTurnResult("g1", "msg-1", "", "success", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := s.RecordTurnResult("g2", "msg-1", "", "success")
+	b, err := s.RecordTurnResult("g2", "msg-1", "", "success", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +65,7 @@ func TestOneTurnIdInTwoFoldersIsTwoTurns(t *testing.T) {
 func TestDistinctTurnsInOneFolderEachClaimOnce(t *testing.T) {
 	s := openEntities(t)
 	for _, id := range []string{"m1", "m2", "m3"} {
-		ok, err := s.RecordTurnResult("g1", id, "s", "success")
+		ok, err := s.RecordTurnResult("g1", id, "s", "success", "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -94,7 +94,7 @@ func TestAnUnreportedTurnIsPending(t *testing.T) {
 // the silent-turn alarm fires at an operator.
 func TestTurnResultRecordedSeparatesRecordedFromAbsent(t *testing.T) {
 	s := openEntities(t)
-	if _, err := s.RecordTurnResult("g1", "msg-1", "sess-a", "success"); err != nil {
+	if _, err := s.RecordTurnResult("g1", "msg-1", "sess-a", "success", ""); err != nil {
 		t.Fatal(err)
 	}
 	recorded, err := s.TurnResultRecorded("g1", "msg-1")
@@ -113,13 +113,39 @@ func TestTurnResultRecordedSeparatesRecordedFromAbsent(t *testing.T) {
 // REFUSED rather than written.
 func TestACoordinateFieldCarryingTheSeparatorIsRefused(t *testing.T) {
 	s := openEntities(t)
-	if _, err := s.RecordTurnResult("g1"+KeySep+"x", "msg-1", "", "ok"); err == nil {
+	if _, err := s.RecordTurnResult("g1"+KeySep+"x", "msg-1", "", "ok", ""); err == nil {
 		t.Error("a folder carrying the coordinate separator was accepted")
 	}
-	if _, err := s.RecordTurnResult("g1", "msg"+KeySep+"1", "", "ok"); err == nil {
+	if _, err := s.RecordTurnResult("g1", "msg"+KeySep+"1", "", "ok", ""); err == nil {
 		t.Error("a turn id carrying the coordinate separator was accepted")
 	}
 	if n, err := s.CountTurnResults(context.Background()); err != nil || n != 0 {
 		t.Fatalf("%d items landed (err=%v); a refused coordinate wrote one anyway", n, err)
+	}
+}
+
+// The agent reports why its turn failed through submit_turn. routd tells the
+// user, and the container's stderr tail says the same thing worse — truncated
+// mid-word and mixed with ant's own log lines, so a user was shown
+// "ake says no" for an API Error: 400 (BUGS L349).
+func TestTurnFailureKeepsTheAgentsOwnReport(t *testing.T) {
+	s := openEntities(t)
+	if _, err := s.RecordTurnResult("g1", "msg-1", "sess", "error",
+		"API Error: 400 fake says no"); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.TurnFailure("g1", "msg-1"); got != "API Error: 400 fake says no" {
+		t.Errorf("TurnFailure = %q; the user sees the stderr tail instead", got)
+	}
+	// A turn that reported none answers empty, so the caller falls back rather
+	// than telling the user nothing at all.
+	if _, err := s.RecordTurnResult("g1", "msg-2", "sess", "error", ""); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.TurnFailure("g1", "msg-2"); got != "" {
+		t.Errorf("TurnFailure = %q, want empty", got)
+	}
+	if got := s.TurnFailure("g1", "never-recorded"); got != "" {
+		t.Errorf("TurnFailure for an unrecorded turn = %q, want empty", got)
 	}
 }

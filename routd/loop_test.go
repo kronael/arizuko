@@ -455,7 +455,7 @@ func TestSteeredPartialBatchNoRedispatch(t *testing.T) {
 		if req.TriggerSender == "u2" {
 			return runedv1.RunOutcome{Outcome: runedv1.OutcomeOK, Steered: true}, nil
 		}
-		_, _ = db.RecordTurnResult(string(req.Folder), req.TurnID, "sess", "success")
+		_, _ = db.RecordTurnResult(string(req.Folder), req.TurnID, "sess", "success", "")
 		_ = db.SetTurnState(req.TurnID, "done")
 		return runedv1.RunOutcome{Outcome: runedv1.OutcomeOK, SessionID: "sess"}, nil
 	})

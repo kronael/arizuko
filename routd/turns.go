@@ -207,7 +207,7 @@ func (s *Server) recordTurnResult(turnID string, req apiv1.TurnResult) (bool, er
 	if !ok {
 		return false, fmt.Errorf("no turn context for turn_id")
 	}
-	first, err := s.db.RecordTurnResult(tc.Folder, turnID, req.SessionID, req.Status)
+	first, err := s.db.RecordTurnResult(tc.Folder, turnID, req.SessionID, req.Status, req.Error)
 	if err != nil {
 		return false, err
 	}

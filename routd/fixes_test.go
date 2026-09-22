@@ -371,7 +371,7 @@ func TestSubmitTurnSessionWinsOverRunResponse(t *testing.T) {
 
 	// submit_turn arrives first via the runner stub, recording session "fromsubmit".
 	runner := runnerFn(func(_ context.Context, req runedv1.RunRequest) (runedv1.RunOutcome, error) {
-		_, _ = db.RecordTurnResult(string(req.Folder), req.TurnID, "fromsubmit", "success")
+		_, _ = db.RecordTurnResult(string(req.Folder), req.TurnID, "fromsubmit", "success", "")
 		_ = db.PutSession(string(req.Folder), req.Topic, "fromsubmit")
 		_ = db.SetTurnState(req.TurnID, "done")
 		// the run-response carries a DIFFERENT session_id (the backstop).

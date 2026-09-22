@@ -425,16 +425,29 @@ func TestE2ETurn_CostAccounting(t *testing.T) {
 		// keeps no number the agent could write to.
 		s.llm.SetReply(testutils.LLMReply{Status: 400, Message: "fake says no", CostCents: 0})
 		calls := len(s.llm.Calls())
+		sentBefore := len(s.sends.sent())
 		s.inbound(t, "wamid.3", "one more")
-		waitFor(t, "the turn to close", turnTimeout, func() bool {
-			return countBotRows(t, s.routdDB, turnChat) >= 2
+		// Wait on the DELIVERY, not on a bot row: a failure notice goes out
+		// through the deliverer and is never appended to `messages`, which the
+		// subtest above already asserts ("the refusal is a notice, not a reply
+		// row"). Waiting for a second row waited for something the contract
+		// says never arrives (BUGS L349).
+		waitFor(t, "the failure notice to reach the chat", turnTimeout, func() bool {
+			return len(s.sends.sent()) > sentBefore
 		})
 		if n := len(s.llm.Calls()); n <= calls {
 			t.Fatal("the model endpoint saw no request for the third turn")
 		}
-		// The CLI reports the API failure as its result text; ant forwards it
-		// as the turn's reply with no usage attached.
-		testutils.AssertMessage(t, store.NewOver(s.routdDB.Obj()), turnChat, "API Error: 400")
+		// A refused request is terminal, so routd names the cause instead of
+		// the generic retry-exhausted notice — and spawns one container, not
+		// four (BUGS L349).
+		notice := s.sends.sent()[len(s.sends.sent())-1]
+		if !strings.Contains(notice, "API Error: 400") {
+			t.Fatalf("the notice does not name the refusal: %q", notice)
+		}
+		if n := countBotRows(t, s.routdDB, turnChat); n != 1 {
+			t.Fatalf("bot rows = %d, want 1: a notice is not a reply row", n)
+		}
 		// The gateway writes a spend row for a refused call too — status
 		// "failure", zero tokens, zero spend — so the turn IS metered and is
 		// charged nothing. Reporting it as 404 would lose the difference between

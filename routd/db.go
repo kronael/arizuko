@@ -597,8 +597,8 @@ func (d *DB) SweepExpiredRunning(timeout time.Duration) (int64, error) {
 // RecordTurnResult records the agent-submitted outcome for one turn. Returns
 // true on the FIRST record, false on a repeat — the claim that makes one
 // report one delivery.
-func (d *DB) RecordTurnResult(folder, turnID, sessionID, status string) (bool, error) {
-	return d.store().RecordTurnResult(folder, turnID, sessionID, status)
+func (d *DB) RecordTurnResult(folder, turnID, sessionID, status, failure string) (bool, error) {
+	return d.store().RecordTurnResult(folder, turnID, sessionID, status, failure)
 }
 
 // TurnHasBotReply reports whether the agent already delivered a bot message
@@ -768,4 +768,9 @@ func (d *DB) ThreadHasBotMessage(chatJID, topic string) bool {
 // StartSearch itself.
 func OpenOver(obj objstore.Store) *DB {
 	return &DB{obj: obj}
+}
+
+// TurnFailure answers the agent's own report of why a turn failed.
+func (d *DB) TurnFailure(folder, turnID string) string {
+	return d.store().TurnFailure(folder, turnID)
 }
