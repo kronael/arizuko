@@ -4601,10 +4601,6 @@ untestable, because the budget is not per-visitor.
 - **Affected:** every anonymous `/chat/` and `/hook/` caller
 - **Source:** `proxyd/main.go` `fixForwardedFor`; `TRUSTED_PROXIES` unset in
   `/srv/data/arizuko_krons/.env`
-- **Status:** open — needs the edge's `X-Forwarded-For` behaviour confirmed
-  before anything is trusted
-- **Fix:**
-
 - **RE-MEASURED 2026-09-20, and the obvious lever is the WRONG one.** The
   tempting fix is to add the gateway to `TRUSTED_PROXIES` — it is unset on
   krons, so the `127.0.0.1/32` default applies and `10.0.5.1` is not in it.
@@ -8520,9 +8516,6 @@ Local paths table (`link-is-public-url`), the map (`self-skill`).
 - **Affected:** every backend, every group
 - **Source:** `specs/6/34-resident-prompt.md:276` §"The failure mode, and the three guards" (`status: shipped`); the move
   commit `docs(ant): ant/CLAUDE.md carries only what the rule of 6/34 keeps resident`
-- **Status:** open — each row wants a case before the ledger is done
-- **Fix:**
-
 - **RE-MEASURED 2026-09-20 and the ledger was wrong about two of its own rows.**
   A ledger that names a rule as unguarded when the rule never left sends the
   next person to write a case for something that already loads on every turn.
