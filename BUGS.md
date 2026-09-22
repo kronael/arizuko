@@ -446,12 +446,24 @@ Neither `migrate-split` nor `migrate-routd` is a subcommand — `./arizuko` list
 neither and no Go file registers them. `audit/import.go` carries the same stale
 reference.
 
-**It is NOT obviously deletable, and that is the point of recording it rather
-than cutting it.** `L249` wants the archive to carry the runtime plane, and
-`HotEntities` is exactly that plane's list with a written import half. Deleting
-it would throw away the finished half of the thing `L249` asks for. The
-question is whether this region is dead weight or a half-built feature, and
-that is the owner's call.
+**INVESTIGATED 2026-09-22, and both of this entry's guesses were wrong.**
+
+It is NOT `L249`'s import half. `git log` shows `import_hot.go` arrived with
+"the hot tier's five tables are entities" (6/37 step 7, the SQL→objstore move)
+and `import_routd.go` alongside `cmd/arizuko/migrate_routd.go`. Both
+subcommands were DELETED on 2026-09-13 (`773cb5c5`), leaving the import halves
+behind. And `RoutdSnapshot`/`RoutdRow` model LEGACY SQL ROWS, not the archive's
+resreg snapshot format, so it was never reusable for `L249` anyway.
+
+It is also not simply dead. Five test files write through it, and
+`store/turn_context_test.go` says why in its own comment: it is "the only
+writer that can put `started_at` in the past". `ImportHot` takes raw
+attributes, so it is the escape hatch tests use to construct states the
+production API refuses to create — a stale RUNNING turn, a task run log with a
+chosen instant.
+
+So: DEAD in production, LOAD-BEARING in tests, and not the thing this entry
+hoped it was.
 
 - **Severity:** low (no runtime defect; 850 lines and a header that lies about
   who calls it)
@@ -459,10 +471,12 @@ that is the owner's call.
 - **Affected:** nothing at runtime
 - **Source:** grep for `.ImportRoutd(`, `.ImportHot(`, `HotEntities` over the
   tree; `./arizuko` usage
-- **Status:** open — needs the owner to say which: delete the region as the
-  residue of a completed migration, or keep it as `L249`'s import half and
-  write the export side against it. `store_is_shared_library` is the standing
-  caution here — settle per method, not per package.
+- **Status:** open — and the question is now precise. Tests need an
+  unrestricted writer to build states the API forbids. Should that be these 850
+  lines of legacy-SQL importer, or a small test-only raw writer that takes an
+  entity, a key and attributes? The second deletes the region and keeps the
+  seeding power; it costs rewriting five test seeds, which is why it is not a
+  cleanup someone should do unasked.
 
 ## L347 — rows behind a steered command are never re-fed (2026-09-21, open)
 
