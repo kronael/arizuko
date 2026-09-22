@@ -1370,20 +1370,24 @@ if keyID == "" || secret == "" {
 }
 ```
 
-Nothing logs it. `StoreReach` (`store/owner_reach.go`) already declares which
-daemons need a key and which need none (`timed`, `ttsd` are empty), so
-`generate` has the second reader it would need to say "these daemons want a
-store key and have none". That is the class `L45` names — a generated env var
-that silently stops applying and looks healthy — and it is the thing that would
-make a half-finished enrolment visible. It is not shipped because it must not
-fire on a fresh `arizuko create`, where no daemon has a key yet; that contract
-question is what needs deciding, and it is not this entry's concern.
+**The visibility half SHIPPED 2026-09-22, and the contract question answered
+itself.** `generate` now reports a half-finished enrolment by name, reading
+`StoreReach` for who needs a key (`timed`, `ttsd` need none) rather than keeping
+a second list. That is the `L45` class made visible: a generated value that
+silently stops applying while the instance looks healthy.
+
+The reason it was held back — "it must not fire on a fresh `arizuko create`" —
+turned out to be a rule, not a decision. NONE enrolled is a fresh create and
+stays silent. ALL enrolled is done and stays silent. Only the MIDDLE is a fault,
+and that is exactly the state an interrupted enrolment leaves.
+`TestPartialStoreEnrolmentIsLoudAndAFreshInstanceIsNot` pins all three, and
+each of the two guard conditions fails it when mutated.
 
 - **Severity:** medium — no instance is broken; a shared store server cannot be built without this
 - **Scope:** `cmd/arizuko` (a new subcommand); `compose/compose.go:882-901` carry-forward; `INSTALL.md` §"A shared server for several instances"
 - **Affected:** any second instance on one store server; the 10.0.5.1 consolidation
 - **Source:** `objstore/dynstore/env.go:16-22`; `compose/compose.go:882-901`; `INSTALL.md:291-390`; `specs/6/43` §6 (which already carries `defects: [L319]`)
-- **Status:** open — proposal, needs sign-off on the shape: an `arizuko enrol <instance>` subcommand against a shared server, minting the account and the scoped keys `L318` specifies, in one loop. It writes the identity plane arizuko today leaves to a person. The manual path is documented and works; only the automation is missing.
+- **Status:** open — the AUTOMATION only; the visibility half is shipped (above). Needs sign-off on the shape: an `arizuko enrol <instance>` subcommand against a shared server, minting the account and the scoped keys `L318` specifies, in one loop. It writes the identity plane arizuko today leaves to a person. The manual path is documented and works; only the automation is missing.
 - **Fix:**
 
 ## L318 — every daemon's store key carries `dynamodb:* on *`, so 19 per-daemon keys give attribution and not isolation (2026-09-20, open)
