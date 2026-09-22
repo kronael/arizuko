@@ -274,14 +274,24 @@ func TestNoOnboardSubtreeRouteWithoutASubtreeHandler(t *testing.T) {
 // enrolled is a fresh `arizuko create` and must stay silent, or the warning
 // fires on every new instance and nobody reads it again (BUGS L319).
 func TestPartialStoreEnrolmentIsLoudAndAFreshInstanceIsNot(t *testing.T) {
+	// The "complete" case needs the whole set, so it is derived. The membership
+	// this test actually depends on is NAMED, so a change to that predicate
+	// fails here instead of moving the test with it.
+	for _, daemon := range []string{"routd", "authd", "onbod", "dashd"} {
+		if len(store.StoreReach[daemon]) == 0 {
+			t.Fatalf("StoreReach says %s needs no store key; this test assumes it does", daemon)
+		}
+	}
+	for _, daemon := range []string{"timed", "ttsd"} {
+		if len(store.StoreReach[daemon]) != 0 {
+			t.Fatalf("StoreReach now gives %s a store key; the assertion below assumes none", daemon)
+		}
+	}
 	var need []string
 	for daemon, owners := range store.StoreReach {
 		if len(owners) > 0 {
 			need = append(need, daemon)
 		}
-	}
-	if len(need) < 2 {
-		t.Fatalf("StoreReach names %d daemons needing a key; this test needs at least 2", len(need))
 	}
 
 	logs := captureComposeErrors(t)

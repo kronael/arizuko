@@ -14,18 +14,15 @@ import (
 	"github.com/kronael/arizuko/groupfolder"
 )
 
-// mcpHistory reads one topic through webd's MCP face — the same rows RestMessages
-// reads over REST, which is what makes a parity check mean anything.
+// mcpHistory reads one topic through webd's MCP face — the same rows
+// RestMessages reads over REST, which is what makes a parity check mean
+// anything. The tool is `get_history` and it takes FOLDER and TOPIC, not a chat
+// jid.
 //
-// The tool is `get_history`, and it takes FOLDER and TOPIC, not a chat jid. webd
-// registers it in `buildWebMCP`, the one builder both doors call, so it answers
-// on POST /mcp and on POST /chat/{token}/mcp alike; the grant set comes from the
-// route-token row, never from a request parameter.
-//
-// The folder is read out of the chat jid with the package that owns that
-// grammar. A bare `web:<folder>` is 1:1 with its folder; a SUFFIXED jid is not,
-// and JidFolder answers "" for anything it cannot read, which surfaces here as a
-// loud error rather than a read of the wrong folder.
+// The folder comes from the package that owns that grammar. A bare
+// `web:<folder>` is 1:1 with its folder; a SUFFIXED jid is not, and JidFolder
+// answers "" for one, which surfaces here as a loud error rather than a read of
+// the wrong folder.
 func (t *HTTPTarget) mcpHistory(chat, topic string) ([]check.Msg, error) {
 	if t.MCPURL == "" {
 		return nil, fmt.Errorf("surface not configured")

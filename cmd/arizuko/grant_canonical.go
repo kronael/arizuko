@@ -9,17 +9,13 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
-// storeIdentity answers routd's IdentityResolver off authd's OWN store rather
-// than over HTTP. routd federates the question because it is not mounted; the
-// CLI is (root CLAUDE.md, "Split write-discipline"), so it reads the same
-// declaration authd's GET /v1/identities/{sub} is a thin wrapper over —
-// authstore.OAuthIdentityForSub. One answer, two readers, no second resolution
-// rule to drift.
+// storeIdentity answers routd's IdentityResolver off authd's own store. routd
+// federates the question because it is not mounted; the CLI is, so it reads the
+// declaration authd's identity endpoint is a thin wrapper over —
+// authstore.OAuthIdentityForSub. One answer, two readers.
 type storeIdentity struct{ st *authstore.Store }
 
-// CreatedAt is left zero on purpose: authstore answers it as a string, the
-// warning reads only ID and claimed, and parsing a field nobody reads would be
-// a second timestamp rule to get wrong.
+// CreatedAt stays zero: the warning reads only ID and claimed.
 func (s storeIdentity) Resolve(sub string) (ipc.Identity, []string, bool, error) {
 	id, name, _, subs, ok := s.st.OAuthIdentityForSub(sub)
 	if !ok {
