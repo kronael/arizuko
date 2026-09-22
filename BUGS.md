@@ -341,7 +341,7 @@ failure read as a quiet success.
 - **Status:** fixed. The sweep log reads `held`, and `pending` logs at ERROR
   before it answers empty. `pending says so when the ledger cannot be read`
   pins the second; removing the log fails it.
-## L353 — the shutdown guard named its own scope, so `timed` kept `L127`'s window (2026-09-22, fixed `pending`)
+## L353 — two guards named their own scope: `timed` kept `L127`'s window and `mcpfw` was unguarded (2026-09-22, fixed `pending`)
 
 `tests/shutdown` exists to stop exactly one defect: a daemon that arms
 `signal.Notify` AFTER its listener accepts, where a SIGTERM takes Go's default
@@ -377,10 +377,26 @@ the file.
 - **Affected:** every instance, on every deploy
 - **Source:** a source scan of every `package main` holding `ListenAndServe`,
   compared against the guard's hardcoded list
+**A SECOND GUARD HAD THE SAME HOLE, found by sweeping for the shape.**
+`tests/components` enforces that a shippable sibling imports nothing
+arizuko-internal, and its header says the invariant "held by habit" before the
+test existed. Its list held four — `sandbox`, `egress`, `crackbox`,
+`substrate` — and root `CLAUDE.md` names `mcpfw` a shippable sibling as well.
+So mcpfw's standalone-ness held by habit, guarded by nothing. It passes
+today (mcpfw imports only its own subpackages) and is in the list now, proven
+by adding `core` to `mcpfw/pkg/rule`, which fails it by name. `gateway/`, the
+other sibling CLAUDE.md names, does not exist yet.
+
+Unlike the shutdown set, this list cannot be derived: which components must
+stand alone is a declaration of intent, not a fact about the tree. What it can
+do is match the declaration it comes from.
+
 - **Status:** fixed `pending`. The same shape as `L342`'s and `L349`'s lesson,
   and `gate_cannot_fail`: a gate whose scope is hand-maintained stops covering
-  what moves, and reports green the whole time.
-- **Fix:** shipped in `80b641fa` (the two daemons) and `4bb4ef9d` (the guard).
+  what moves, and reports green the whole time. Two guards, one day, found by
+  looking for the shape rather than for a symptom.
+- **Fix:** shipped in `80b641fa` (the two daemons), `4bb4ef9d` (the shutdown
+  guard derives its set) and `2d704c0a` (the components guard gains mcpfw).
 
 ## L352 — `tmp/` is gitignored but its Go files join the module, so the lint gate is not the gate CI runs (2026-09-22, open)
 
