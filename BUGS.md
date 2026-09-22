@@ -358,8 +358,10 @@ Three measured consequences, all from one day:
 - A stray scratch file BREAKS the gate for a reason that has nothing to do with
   the change under test. `tmp/seed-original.go` — a one-line `git show` recovery
   copy — failed `go build ./...` with eleven undefined-symbol errors.
-- `deadcode ./...` takes every scratch `main` as a ROOT, so anything they
-  reach reads as live. The `L351` census had to be taken with them removed.
+- `deadcode ./...` takes every scratch `main` as a ROOT, so anything they reach
+  reads as live. MEASURED after removing the three: 156 findings before and
+  156 after, identical. So the hazard is real by construction and did NOT bite
+  here — these three reached nothing the real binaries do not.
 - `govulncheck` and `staticcheck` list them among the packages they cannot
   analyse, which buries whatever they do report.
 
