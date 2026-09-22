@@ -82,14 +82,17 @@ func runSplit(routerURL, tz string) {
 	}
 	dash := &dashServer{r: r, ks: ks}
 
+	// Register the signal handler BEFORE the listener accepts: a SIGTERM in
+	// between takes Go's default disposition and kills the process, so the
+	// stop case below never runs (BUGS L127, the same window routd closed).
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+
 	go func() {
 		if err := http.ListenAndServe(":8080", newTimedMux(dash)); err != nil {
 			slog.Error("health server", "err", err)
 		}
 	}()
-
-	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 
 	tick := time.NewTicker(60 * time.Second)
 	defer tick.Stop()

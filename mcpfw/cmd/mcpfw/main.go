@@ -6,6 +6,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -13,6 +14,9 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/kronael/arizuko/mcpfw/internal/transport"
 	"github.com/kronael/arizuko/mcpfw/pkg/firewall"
@@ -72,9 +76,24 @@ func main() {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write(out)
 	})
-	slog.Info("mcpfw listening", "addr", *listen, "upstream", *upstream, "rules", len(set.Rules))
-	if err := http.ListenAndServe(*listen, mux); err != nil {
-		slog.Error("mcpfw serve", "err", err)
-		os.Exit(1)
-	}
+	// Register the signal handler BEFORE the listener accepts: a SIGTERM in
+	// between takes Go's default disposition and kills the process, so the
+	// Shutdown below never runs (BUGS L127).
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+
+	srv := &http.Server{Addr: *listen, Handler: mux}
+	go func() {
+		slog.Info("mcpfw listening", "addr", *listen, "upstream", *upstream, "rules", len(set.Rules))
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			slog.Error("mcpfw serve", "err", err)
+			os.Exit(1)
+		}
+	}()
+
+	<-stop
+	slog.Info("mcpfw stopping")
+	sctx, scancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer scancel()
+	_ = srv.Shutdown(sctx)
 }
