@@ -10,5 +10,7 @@ token_url      = "https://oauth2.googleapis.com/token"
 revoke_url     = "https://oauth2.googleapis.com/revoke"
 scopes         = ["https://www.googleapis.com/auth/drive.readonly"]
 secret_key     = "GOOGLE_TOKEN"
+# Documentation only — nothing reads this. Egress is bounded by the folder's
+# host allowlist (network_rules), not by this line (BUGS F12).
 allowed_domain = "googleapis.com"
 access_type    = "offline"

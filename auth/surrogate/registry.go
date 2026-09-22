@@ -25,13 +25,20 @@ var builtinProviders embed.FS
 // Provider is one registry entry: the endpoints, scopes, and the secrets.key an
 // obtained token is written to. Loaded from providers/<name>.toml.
 type Provider struct {
-	AuthURL       string   `toml:"auth_url"`
-	TokenURL      string   `toml:"token_url"`
-	RevokeURL     string   `toml:"revoke_url"`
-	Scopes        []string `toml:"scopes"`
-	SecretKey     string   `toml:"secret_key"`
-	AllowedDomain string   `toml:"allowed_domain"`
-	AccessType    string   `toml:"access_type"`
+	AuthURL   string   `toml:"auth_url"`
+	TokenURL  string   `toml:"token_url"`
+	RevokeURL string   `toml:"revoke_url"`
+	Scopes    []string `toml:"scopes"`
+	SecretKey string   `toml:"secret_key"`
+	// AllowedDomain IS PARSED AND ENFORCED BY NOTHING. Both shipped providers
+	// set it and no code in the tree reads it — egress is decided elsewhere, by
+	// the folder-scoped host allowlists in `routd/network_rules_resource.go`
+	// and `egress/match`. Read it as documentation of where the provider's API
+	// lives, never as a bound on where a token may be sent. Giving it teeth
+	// joins provider config to that egress point, which is a new contract;
+	// deleting it is the other honest option (BUGS F12).
+	AllowedDomain string `toml:"allowed_domain"`
+	AccessType    string `toml:"access_type"`
 }
 
 // loadRegistry parses every embedded providers/*.toml, then overlays operator
