@@ -114,6 +114,11 @@ func (r *Resolver) IpcPath(folder string) (string, error) {
 // read side sent a suffixed chat's frames to a key nobody held (BUGS L30).
 func WebJID(folder string) string { return "web:" + folder }
 
+// HookJID is the chat JID a folder's webhook source delivers into, the write
+// half of the hook grammar JidFolder reads: JidFolder(HookJID(f, s)) == f for a
+// single-segment source. A mint suffix is appended by the caller, as for WebJID.
+func HookJID(folder, source string) string { return "hook:" + folder + "/" + source }
+
 // JidFolder extracts the owner folder from a route-token / web-chat JID by
 // prefix grammar alone. web:<folder>[/<suffix>] → the whole rest (the folder
 // may itself contain "/", e.g. acme/eng). hook:<folder>/<source>[/...] →

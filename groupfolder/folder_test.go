@@ -204,3 +204,24 @@ func TestWebJIDCarriesTheWebScheme(t *testing.T) {
 		t.Fatalf("WebJID = %q, want web:acme/eng", got)
 	}
 }
+
+// HookJID and JidFolder are the write and read halves of the hook grammar,
+// so they must be inverses for every folder shape and a single-segment source.
+func TestHookJIDAndJidFolderAreInverses(t *testing.T) {
+	for _, folder := range []string{
+		"main",
+		"acme/eng",
+		"acme/eng/sre/oncall",
+	} {
+		jid := HookJID(folder, "github")
+		if got := JidFolder(jid); got != folder {
+			t.Errorf("JidFolder(HookJID(%q, github)) = %q, want %q", folder, got, folder)
+		}
+	}
+}
+
+func TestHookJIDCarriesTheHookScheme(t *testing.T) {
+	if got := HookJID("acme/eng", "github"); got != "hook:acme/eng/github" {
+		t.Fatalf("HookJID = %q, want hook:acme/eng/github", got)
+	}
+}

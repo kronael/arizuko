@@ -260,7 +260,7 @@ func routeTokenJID(kind, targetFolder, sourceLabel, jidSuffix string) (jid, urlP
 		if sourceLabel == "" {
 			return "", "", fmt.Errorf("source_label required for webhook")
 		}
-		jid, urlPrefix = "hook:"+targetFolder+"/"+sourceLabel, "/hook/"
+		jid, urlPrefix = groupfolder.HookJID(targetFolder, sourceLabel), "/hook/"
 	default:
 		return "", "", fmt.Errorf("kind must be chat|hook")
 	}

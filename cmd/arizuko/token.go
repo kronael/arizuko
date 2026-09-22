@@ -89,9 +89,9 @@ func tokenIssue(st *store.Store, dataDir string, args []string) {
 			suffix = args[3]
 		}
 		if suffix != "" {
-			jid = "hook:" + folder + "/" + label + "/" + suffix
+			jid = groupfolder.HookJID(folder, label) + "/" + suffix
 		} else {
-			jid = "hook:" + folder + "/" + label
+			jid = groupfolder.HookJID(folder, label)
 		}
 	default:
 		die("unknown kind %q; use chat or webhook", kind)
