@@ -20,9 +20,8 @@ var (
 	scopeRead        = []string{"chats:read:own_group", "chats:read", "messages:read"}
 	scopeRoutesRead  = []string{"routes:read", "routes:read:own_group"}
 	scopeRoutesWrite = []string{"routes:write", "routes:write:own_group"}
-	// Cost accounting is its own capability, NOT messages:send: cost-write is
-	// never coupled to outbound conversation.
-	scopeCost     = []string{"cost:write", "cost:write:own_group"}
+	// Read only: `6/39-gateway-owns-spend` moved the write path out, so routd
+	// serves the two GET faces and mints no cost row.
 	scopeCostRead = []string{"cost:read", "cost:read:own_group"}
 )
 

@@ -165,8 +165,11 @@ func TestRESTCostSummaryFolderBound(t *testing.T) {
 	if c := getCode(t, "", "/v1/cost/summary", read); c != 400 {
 		t.Errorf("summary with no since = %d, want 400", c)
 	}
-	// The dedicated scope is required — the write scope must not satisfy it.
+	// The dedicated scope is required: a bearer holding some OTHER cost-shaped
+	// scope is refused. `cost:write` is the string used because routd issues no
+	// such scope since `6/39-gateway-owns-spend` took the write path, so nothing
+	// can satisfy this by accident.
 	if c := getCode(t, "alice", "/v1/cost/summary"+since, "cost:write:own_group"); c != 403 {
-		t.Errorf("summary with cost:write = %d, want 403", c)
+		t.Errorf("summary with a non-read cost scope = %d, want 403", c)
 	}
 }
