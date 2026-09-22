@@ -24,7 +24,7 @@ func routdHandle(t *testing.T) *dynstore.Store {
 	t.Helper()
 	d := dyntest.Store(t)
 	ctx := context.Background()
-	if err := store.EnsureEntities(ctx, d, store.OwnerRoutd); err != nil {
+	if err := store.PrepareOwner(ctx, d, store.OwnerRoutd); err != nil {
 		t.Fatalf("make routd's entities: %v", err)
 	}
 	// The version marker is one item per subsystem and lives beside them.

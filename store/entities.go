@@ -176,22 +176,6 @@ type Driver interface {
 	CreateEntity(ctx context.Context, entity string) error
 }
 
-// EnsureEntities prepares ONE owner's database to hold the entities this
-// package reads there. Asking twice is a no-op.
-//
-// The owner is a parameter, never derived from the handle (CLAUDE.md), and an
-// owner with no entities declared fails loudly: a silent no-op there is a store
-// that boots healthy and drops every write. audit's entity is NOT created here;
-// audit owns that declaration and `arizuko migrate-audit` moves all four owners
-// in one run, so a caller that needs both calls both (runed/db.go).
-func EnsureEntities(ctx context.Context, d Driver, owner string) error {
-	entities, ok := EntitiesByOwner[owner]
-	if !ok {
-		return fmt.Errorf("store: %q owns none of this package's entities", owner)
-	}
-	return EnsureEntitySet(ctx, d, owner, entities...)
-}
-
 // EnsureEntitySet prepares exactly the entities NAMED, plus the owner's counters
 // and version marker. It is the migration tools' door: CreateEntity PROBES the
 // columns it needs, so a tool that asked for the whole owner's set would fail

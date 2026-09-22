@@ -119,7 +119,6 @@ func (s *Store) SpendRedemption(ctx context.Context, userSub string, r Redemptio
 }
 
 // CountRedemptions answers how many unspent redemptions one person holds.
-// `arizuko migrate-onbod` reads it back to check that every row travelled.
 func (s *Store) CountRedemptions(ctx context.Context, userSub string) (int, error) {
 	items, err := s.Obj().Query(ctx, objstore.Query{
 		Entity: InviteRedemptions, Partition: userSub,

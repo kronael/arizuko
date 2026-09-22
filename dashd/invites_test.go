@@ -27,7 +27,7 @@ func testDBWithInvites(t *testing.T) objstore.Store {
 	if !ok {
 		t.Fatalf("routd's handle is %T, which makes no entities", db)
 	}
-	if err := store.EnsureEntities(t.Context(), d, store.OwnerOnbod); err != nil {
+	if err := store.PrepareOwner(t.Context(), d, store.OwnerOnbod); err != nil {
 		t.Fatalf("onbod entities: %v", err)
 	}
 	return db

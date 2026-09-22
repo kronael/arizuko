@@ -5,10 +5,10 @@ package resreg
 // apply again rather than to edit `resreg_scopes` by hand.
 //
 // THE FAILURE IS THE ONE THAT WAS REPRODUCED, not a stand-in. L267 was produced
-// by running `arizuko apply` before `arizuko migrate-audit`: every row write
-// lands, and the apply's LAST write — its single audit row — hits a table that
-// is not there. So the fixture here leaves the audit entity uncreated and lets
-// the real write fail, the same way. Nothing stubs Apply and nothing reaches
+// by applying against a database whose audit entity did not exist yet: every
+// row write lands, and the apply's LAST write — its single audit row — hits a
+// table that is not there. So the fixture here leaves the audit entity
+// uncreated and lets the real write fail, the same way. Nothing stubs Apply and nothing reaches
 // into the marker to wedge it.
 
 import (
@@ -94,8 +94,8 @@ func TestEntity_APartAppliedScopeIsRolledForwardByTheSameManifest(t *testing.T) 
 			"reads as settled and correct")
 	}
 
-	// The operator fixes the cause — this is `arizuko migrate-audit` — and runs
-	// the SAME apply again. That is the roll-forward, and it is the whole bug.
+	// The operator fixes the cause — the audit entity is created — and runs the
+	// SAME apply again. That is the roll-forward, and it is the whole bug.
 	if err := s.CreateEntity(t.Context(), "audit_log"); err != nil {
 		t.Fatalf("create the audit entity: %v", err)
 	}
