@@ -162,7 +162,7 @@ func TestReleaseLeavesASettledClaim(t *testing.T) {
 	}
 }
 
-// The read the data move's verify uses answers about a key without CREATING it,
+// The read the verify uses answers about a key without CREATING it,
 // which is the whole reason it is not ClaimDelivery: a check that wrote its own
 // evidence would report every missing row as present.
 func TestRecordedClaimWritesNothing(t *testing.T) {
@@ -352,7 +352,7 @@ func TestATimestampOfTheWrongWidthIsRefused(t *testing.T) {
 	}
 }
 
-// --- the data move ---
+// --- the seed path ---
 
 // The import writes what the store reads back, through the same methods the
 // adapter calls. An import that wrote the wrong attribute name would report its

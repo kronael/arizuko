@@ -131,9 +131,9 @@ func (s *Store) ClaimDelivery(ctx context.Context, key, jid string) (Claim, erro
 // classified `state` differently is exactly the drift that would let one path
 // call a message unsent and the other call it delivered.
 //
-// The caller that needs it WITHOUT the claim is the data move's verify: reading
-// a key back through ClaimDelivery would CREATE the record for any row the
-// import missed, so a check would repair its own evidence.
+// The caller that needs it WITHOUT the claim verifies what landed: reading a
+// key back through ClaimDelivery would CREATE the record for any row that never
+// arrived, so the check would repair its own evidence.
 func (s *Store) RecordedClaim(ctx context.Context, key string) (Claim, bool, error) {
 	it, held, err := s.point(ctx, OutboundDedup, dedupKey(key), attrState, attrPlatformID)
 	if err != nil {

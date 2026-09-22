@@ -417,8 +417,7 @@ func onboardingFrom(it objstore.Item) OnboardingRow {
 }
 
 // onboardingPut renders a whole row as the item that stores it: the single
-// renderer the legacy carry, the archive restore and the migration tool write
-// through. EVERY empty attribute is left OFF, `status` and `created` included:
+// renderer EVERY writer goes through. EVERY empty attribute is left OFF, `status` and `created` included:
 // byte for byte what resreg's own entity path writes for a string field
 // (resreg/entity.go itemFor).
 func onboardingPut(r OnboardingRow) (objstore.Write, error) {

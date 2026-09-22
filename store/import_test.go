@@ -1,9 +1,9 @@
 package store
 
-// The destination half of the data move (import.go), exercised on the entities
-// alone so the bodies run on BOTH engines — a migration that only works on the
-// engine it was written against is the drift the conformance suite exists to
-// catch (entities_test.go says why the subject is openEntities).
+// import.go, exercised on the entities alone so the bodies run on BOTH engines
+// — a writer that only works on the engine it was written against is the drift
+// the conformance suite exists to catch (entities_test.go says why the subject
+// is openEntities).
 
 import (
 	"strings"
@@ -115,7 +115,7 @@ func TestCheckOnbodSnapshotNamesEveryUnaddressableRow(t *testing.T) {
 	}
 }
 
-// A run that reports zero of an entity is the shape of a tool pointed at the
+// A run that reports zero of an entity is the shape of a fixture pointed at the
 // wrong database, and it is ALSO the correct answer for gates on every live
 // instance. Nothing here can tell the two apart, which is why the count is
 // reported rather than checked.

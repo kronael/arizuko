@@ -177,9 +177,10 @@ type Driver interface {
 }
 
 // EnsureEntitySet prepares exactly the entities NAMED, plus the owner's counters
-// and version marker. It is the migration tools' door: CreateEntity PROBES the
-// columns it needs, so a tool that asked for the whole owner's set would fail
-// on a table a DIFFERENT tool has not moved yet.
+// and version marker. It takes a set rather than an owner because CreateEntity
+// PROBES the columns it needs: a caller that asked for a whole owner's set
+// would fail on an entity it does not hold. PrepareOwner is the owner-shaped
+// door built on it.
 func EnsureEntitySet(ctx context.Context, d Driver, owner string, entities ...string) error {
 	for _, entity := range entities {
 		if err := d.CreateEntity(ctx, entity); err != nil {

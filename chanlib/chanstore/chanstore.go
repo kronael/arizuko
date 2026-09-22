@@ -44,8 +44,8 @@ const (
 
 // Entities is the set a driver must be able to serve before an adapter boots.
 // It is declared here, beside the code that reads them, and applied by whoever
-// holds the driver — chanlib's opener for a running adapter, the import tool for
-// the data move. One declaration, two readers; an engine with no DDL applies
+// holds the driver — chanlib's opener for a running adapter, import.go for a
+// test fixture. One declaration, two readers; an engine with no DDL applies
 // nothing and still answers every query below.
 var Entities = []string{OutboundDedup, InboundPending, FileURL}
 
@@ -57,8 +57,8 @@ var Entities = []string{OutboundDedup, InboundPending, FileURL}
 // declaring a width for them would be a claim about data that already exists:
 // the two live teled databases carry 28, 29 and 30-byte values across 110 rows,
 // written before core.TS was the layout (BUGS L97). A declaration there would
-// refuse the import of rows the old schema was happy to hold, for a guarantee
-// no read asks for.
+// refuse rows the live databases already hold, for a guarantee no read asks
+// for.
 func init() {
 	objstore.OrderedAttr(InboundPending, attrNextAttemptAt, tsWidth)
 	objstore.OrderedAttr(InboundPending, attrFirstSeenAt, tsWidth)

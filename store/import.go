@@ -46,7 +46,7 @@ type RedemptionRow struct {
 // OnbodCounts is what an import wrote, per entity, for the operator to check
 // against the source. A ZERO IS NOT AN ALL-CLEAR: `onboarding_gates` is empty
 // on all three live instances (2026-09-07), so no gates is correct there and
-// the FIRST symptom of a tool pointed at the wrong database anywhere else.
+// the FIRST symptom of a fixture pointed at the wrong database anywhere else.
 type OnbodCounts struct {
 	Admissions  int
 	Gates       int

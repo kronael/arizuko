@@ -109,7 +109,8 @@ func inviteFrom(it objstore.Item) (*Invite, error) {
 }
 
 // invitePut renders a whole invite as the item that stores it: the single
-// renderer the mint, the archive restore and the migration tool write through.
+// renderer EVERY writer goes through. Naming them here is what rots; the
+// guarantee is that there is one.
 // An int is always written, byte for byte what resreg's own entity path does
 // (resreg/entity.go itemFor).
 func invitePut(inv Invite) (objstore.Write, error) {

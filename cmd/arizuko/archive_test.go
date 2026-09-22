@@ -107,8 +107,8 @@ func TestArchive_RoundTrip_ConfigSecretsMessagesGroups(t *testing.T) {
 		}
 	}
 
-	// An invite is an item, so the fixture writes it through the import the
-	// migration tool uses rather than an INSERT the entity has no columns for.
+	// An invite is an item, so the fixture writes it through import.go rather
+	// than an INSERT the entity has no columns for.
 	if _, err := srcOnbod.ImportOnbod(t.Context(), store.OnbodSnapshot{
 		Invites: []store.ArchiveInviteRow{{
 			Ref: "ref1", TargetGlob: "atlas/*", IssuedBySub: "user:admin",
