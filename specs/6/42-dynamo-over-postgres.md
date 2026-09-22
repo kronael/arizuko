@@ -696,9 +696,11 @@ krons runs the object model on SQLite entity tables today; marinade and sloth
 do not. **An instance moves to the server only FROM the object model, never
 from the column schema**, because the copy of §7 is mechanical only when
 source and target share the item shape. So marinade and sloth first run the
-entity migration krons has run (`arizuko migrate-hot` and its siblings, once
-`L276` and `L277` are closed — both block an unattended run and are outside
-this spec), then the copy.
+entity migration krons has run (`arizuko migrate-hot` and its siblings, from
+the pre-deletion tag those instances still run — the deletion release removed
+the subcommands, and step 6 below states that an unmoved instance stays on that
+tag). `L276` and `L277` blocked an unattended run and are both fixed
+(`aae3c0cb`, 2026-09-13). Then the copy.
 
 `6/41` states the rule this spec inherits: "Two levers are never in one deploy
 window." The copy's lever is the previous image tag plus untouched SQLite
