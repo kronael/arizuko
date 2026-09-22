@@ -101,8 +101,14 @@ test-all: test integration play
 # -race and the target died on the panic instead of finishing, so the gate the
 # release procedure names could never run (BUGS L26). Measured 2026-08-29 on
 # this tree: store 856s, routd 612s, 0 races in either.
+#
+# objstore joined 2026-09-22: it is the storage layer every daemon writes
+# through — GuardedBatch and the conformance interleaves — and it was outside
+# the list. It costs 13s of the ~25 minutes, measured: objstore 1.0s, dynstore
+# 11.0s, dyntest 1.0s, 0 races. The list stays bounded by COST, not derived,
+# because -race over the whole tree is not a gate anyone would run.
 test-race:
-	go test -race -count=1 -timeout 30m ./runed/... ./timed/... ./routd/... ./store/... ./authd/...
+	go test -race -count=1 -timeout 30m ./runed/... ./timed/... ./routd/... ./store/... ./authd/... ./objstore/...
 .PHONY: test-race
 
 # test-e2e: release-only webd route-token E2E tests (TestE2E*, slow, ≤5 min).
