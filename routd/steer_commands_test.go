@@ -825,3 +825,69 @@ func TestStopLeavesTheBacklogRunning(t *testing.T) {
 		})
 	}
 }
+
+// Until BUGS L347 is settled, the ERROR log is the ONLY record that a person's
+// question was dropped. "first" named one row of N and no person, so an
+// operator could not tell whose message vanished or go find it. This pins the
+// ids and the senders — and pins that the CONTENT stays out, because a dropped
+// message is still the sender's.
+func TestTheLostRowsLogNamesWhoseTheyWere(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	// A runner that refuses admission drives the `busy` arm.
+	loop := NewLoop(db, runnerFn(func(context.Context, runedv1.RunRequest) (runedv1.RunOutcome, error) {
+		return runedv1.RunOutcome{Busy: true}, nil
+	}), LoopConfig{})
+	loop.StopQueue()
+	loop.deliver = &recDeliverer{}
+	if err := db.PutGroup(core.Group{Folder: "demo"}); err != nil {
+		t.Fatal(err)
+	}
+	doSetRoutes(t, db, []core.Route{{Seq: 0, Match: "chat_jid=tg:1", Target: "demo"}})
+
+	logs := captureInfoLog(t)
+	base := time.Now().UTC().Add(-time.Minute)
+	for i, m := range []struct{ id, sender, content string }{
+		{"q1", "telegram:user/7", "the secret question"},
+		{"s1", "telegram:user/7", "/ping"},
+	} {
+		if err := db.PutMessage(core.Message{
+			ID: m.id, ChatJID: "tg:1", Sender: m.sender, Content: m.content,
+			Timestamp: base.Add(time.Duration(i) * time.Second), Verb: "message",
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := loop.processGroupMessages("tg:1"); err != nil {
+		t.Fatalf("process: %v", err)
+	}
+
+	out := logs()
+	// The assertion has to read the LOSS line, not the whole capture: the
+	// dispatch INFO line names the trigger sender too, so a whole-log Contains
+	// passes even when the loss line names nobody.
+	var line string
+	for _, l := range strings.Split(out, "\n") {
+		if strings.Contains(l, "not re-fed") {
+			line = l
+			break
+		}
+	}
+	if line == "" {
+		t.Fatalf("the dropped rows were not reported at all:\n%s", out)
+	}
+	if !strings.Contains(line, "q1") {
+		t.Errorf("the loss line does not name the lost row, so it cannot be found "+
+			"again:\n%s", line)
+	}
+	if !strings.Contains(line, "telegram:user/7") {
+		t.Errorf("the loss line does not name whose message was lost:\n%s", line)
+	}
+	if strings.Contains(out, "the secret question") {
+		t.Errorf("the log copied the message CONTENT; a dropped message is still "+
+			"the sender's:\n%s", out)
+	}
+}

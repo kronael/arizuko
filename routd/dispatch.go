@@ -183,7 +183,8 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 			// passed the command, so these rows have no re-feed left.
 			if steerConsumed {
 				slog.Error("the rows a steer left behind did not reach runed; they are not re-fed",
-					"jid", chatJID, "rows", len(batch), "first", batch[0].ID, "err", derr)
+					"jid", chatJID, "rows", len(batch), "ids", lostIDs(batch),
+					"senders", lostSenders(batch), "err", derr)
 			}
 			return hadAny, derr
 		}
@@ -196,7 +197,8 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 			l.noteBusy(chatJID, steerMsg.ID)
 			if steerConsumed {
 				slog.Error("runed refused the rows a steer left behind; they are not re-fed",
-					"jid", chatJID, "rows", len(batch), "first", batch[0].ID)
+					"jid", chatJID, "rows", len(batch), "ids", lostIDs(batch),
+					"senders", lostSenders(batch))
 			}
 			return hadAny || steerConsumed, nil
 		}
@@ -221,6 +223,31 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 		}
 	}
 	return hadAny, nil
+}
+
+// lostIDs and lostSenders describe rows that will not be re-fed, for the two
+// sites above. "first" alone named one row of N and no person, so an operator
+// reading the line could not tell WHOSE question vanished or find it again —
+// and until BUGS L347 is settled, this log is the only record that it did.
+//
+// The ids and the senders, never the content: a dropped message is still the
+// sender's, and a log is the wrong place to copy it to.
+func lostIDs(batch []core.Message) []string {
+	out := make([]string, len(batch))
+	for i, m := range batch {
+		out[i] = m.ID
+	}
+	return out
+}
+
+func lostSenders(batch []core.Message) []string {
+	var out []string
+	for _, m := range batch {
+		if m.Sender != "" && !slices.Contains(out, m.Sender) {
+			out = append(out, m.Sender)
+		}
+	}
+	return out
 }
 
 // observedAdvance is one topic's pending observed watermark for this dispatch.
