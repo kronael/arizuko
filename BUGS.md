@@ -72,6 +72,11 @@ revoked — see its entry.)
 
 - `L189` — blocked on `L137`. Do not take it alone.
 
+**A rule that belongs in WISDOM, not here.**
+
+- `L352` — scratch `.go` under `tmp/` joins the module, so the local `make lint`
+  is not CI's. One sentence fixes it; the file is yours.
+
 **Dead code with a price.**
 
 - `L351` — six `import.go` files, 1120 lines, no production caller. They are
@@ -336,6 +341,51 @@ failure read as a quiet success.
 - **Status:** fixed. The sweep log reads `held`, and `pending` logs at ERROR
   before it answers empty. `pending says so when the ledger cannot be read`
   pins the second; removing the log fails it.
+## L352 — `tmp/` is gitignored but its Go files join the module, so the lint gate is not the gate CI runs (2026-09-22, open)
+
+`./tmp` is where scratch goes by convention (`~/.claude/CLAUDE.md`, Bash / Tool
+Execution) and it is gitignored. Its `.go` files are still part of the module:
+`go list ./...` named `tmp/astcheck`, `tmp/inject` and `tmp/isop` on
+2026-09-22, so `go build ./...`, `go vet ./...`, `make lint`, `deadcode ./...`
+and `make test` all compiled them.
+
+CI never sees those files, because they are gitignored. **So `make lint` is a
+different command locally than in CI**, and the local one is the one a person
+runs before committing.
+
+Three measured consequences, all from one day:
+
+- A stray scratch file BREAKS the gate for a reason that has nothing to do with
+  the change under test. `tmp/seed-original.go` — a one-line `git show` recovery
+  copy — failed `go build ./...` with eleven undefined-symbol errors.
+- `deadcode ./...` takes every scratch `main` as a ROOT, so anything they
+  reach reads as live. The `L351` census had to be taken with them removed.
+- `govulncheck` and `staticcheck` list them among the packages they cannot
+  analyse, which buries whatever they do report.
+
+**The fix is proven, not proposed.** The go tool ignores a directory whose name
+begins with `_` or `.`. Measured both ways: `tmp/_probe/main.go` gives
+`go list ./... | grep -c tmp/_probe` = 0, and `tmp/probe2/main.go` gives 1. So
+scratch Go under `tmp/_<name>/` is invisible to every go command while staying
+exactly where the convention puts it.
+
+The three scratch programs are deleted (`rm` by name, and their 54MB of
+binaries with them; the module went to 86 packages and `go vet ./...` stayed
+clean). That clears the symptom for today and not the cause: the next scratch
+program lands in `tmp/<name>/` and rejoins the module.
+
+- **Severity:** low (no runtime defect; the pre-commit gate differs from CI's
+  and can fail or pass for unrelated reasons)
+- **Scope:** `~/.claude/CLAUDE.md` § Bash / Tool Execution, or a `tmp/README`
+- **Affected:** anyone running `make lint`, `deadcode` or `go build ./...`
+  locally
+- **Source:** `go list ./...` before and after; the `tmp/_probe` vs
+  `tmp/probe2` measurement above
+- **Status:** open — it needs one sentence in WISDOM saying scratch Go lives in
+  `tmp/_<name>/`, and WISDOM is yours. Nothing in this repo can enforce it: the
+  files are gitignored, so no test in `tests/` can see them.
+- **Fix:**
+
 ## L351 — six `import.go` files, 1120 lines, zero production callers: the migration importers are now the test-seeding API (2026-09-22, open)
 
 `L348` deleted the routd and hot-tier importers. `deadcode ./...` with every
