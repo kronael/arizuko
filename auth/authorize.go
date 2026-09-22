@@ -260,9 +260,10 @@ func UserScopes(s *store.Store, sub string) ([]string, error) {
 
 // policyRows is the single read every evaluator here goes through: exact-match
 // rows for the expanded principal set, plus wildcard-principal rows that glob
-// onto it. One reader means one failure mode — the three callers cannot drift
-// on what "could not read the policy" means, and none of them can accidentally
-// evaluate half of it.
+// onto it. One reader means one failure mode — its callers cannot drift on what
+// "could not read the policy" means, and none of them can accidentally evaluate
+// half of it. Counting them here is what rots; the guarantee is that they share
+// this one.
 func policyRows(s *store.Store, expanded []string) ([]core.ACLRow, error) {
 	rows, err := s.ACLRowsFor(expanded)
 	if err != nil {

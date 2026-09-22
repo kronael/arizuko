@@ -26,9 +26,11 @@ import (
 	"github.com/kronael/arizuko/audit"
 )
 
-// auditFanoutTimeout bounds the whole fan-out. Three sequential daemon calls
-// on a page an operator opens while something is already going wrong; a dead
-// daemon must cost a banner, not a hung dashboard.
+// auditFanoutTimeout bounds the whole fan-out, not one call: every source in
+// auditSources is asked in turn under this one deadline, and onbod makes a
+// fourth when it is deployed. It is a page an operator opens while something is
+// already going wrong, so a dead daemon must cost a banner, not a hung
+// dashboard.
 const auditFanoutTimeout = 10 * time.Second
 
 // auditPageSize is the rendered window. Each source is asked for one more than
@@ -261,8 +263,8 @@ func nextAuditCursor(prev map[string]string, rendered []auditRow) string {
 
 // auditFilterForm renders the inline GET filter form. The category dropdown is
 // audit.AllCategories — the closed enum — rather than a SELECT DISTINCT: the
-// vocabulary is fixed, and asking three daemons for their distinct values would
-// be three more round-trips to answer a question the constant already answers.
+// vocabulary is fixed, and asking every daemon for its distinct values would be
+// a round-trip each to answer a question the constant already answers.
 func (d *dash) auditFilterForm(f auditFilters) string {
 	var opts strings.Builder
 	opts.WriteString(`<option value="">all categories</option>`)
