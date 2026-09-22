@@ -1005,7 +1005,7 @@ reasoning as prose. Repeating the instruction is not the lever.
   decide the same question from worse evidence.
 
 
-## L327 — an `#observe` route sorting above its answering twin makes a chat deaf to a direct mention (2026-09-20, open — operator data, and a missing check)
+## L327 — an `#observe` route sorting above its answering twin makes a chat deaf to a direct mention (2026-09-20, open — operator data; the check is done)
 
 MEASURED on sloth 2026-09-20. The operator asked why the agent does not attend
 to messages in Discord. The threads are fine — every threaded exchange answered
@@ -1046,12 +1046,18 @@ the route table, is what woke it.
      channels at a seq BELOW the observe rows, or renumber the observe rows
      above the guild mention route. NOT done: which channels should answer is
      the operator's call, and this entry does not guess it.
-  2. **The missing check** — `/eval` check 21 asks whether a chat answers its
-     humans and tells the reader to "read the route before calling it a fault",
-     but nothing tells the reader that the route ITSELF is inverted. A check
-     that finds an `#observe` route sorting at or above an answering route for
-     an overlapping room would have named this without anyone asking.
+  2. **The check — DONE.** `/eval` check 22 already described the shape and the
+     glob trap; what it lacked was a query that ANSWERS it instead of asking
+     the reader to spot the pair in a sorted list. It now carries one, proven
+     against sloth: it returns exactly the two inverted Discord rows and leaves
+     the correctly-ordered Slack pairs alone.
 
+     `router.Describe`'s `shadowed_by` cannot report this and should not be
+     asked to. It tests a synthetic message against earlier routes and collapses
+     a glob predicate to a filler token so it never over-claims a shadow — so an
+     earlier EXACT room intercepting a later glob is its designed blind spot.
+     Reporting the partial case needs a SEPARATE annotation ("narrowed_by"),
+     which is a new field on a REST/MCP view: a proposal, not this fix.
 ## L326 — the smoke liveness probe measures the queue, not liveness (2026-09-20, PARTLY FIXED 2026-09-20; the barrier needs sign-off)
 
 `rest-roundtrip` (`anteval/cases/anteval.toml:228-236`) is the ONLY `rest_reply` case

@@ -507,13 +507,38 @@ included**. An `#observe` row sitting at or above its answering twin therefore
 shadows it completely, and the chat is deaf even to a direct mention. It reads
 as configured-to-answer and answers nothing.
 
+This names the pairs instead of asking you to spot them. It reads the sort key
+as `<seq> <US> <target> <US> <match>`, and it covers the glob case, which is the
+one a human eye misses:
+
 ```bash
-sq routd.routes "select sk_s from e order by sk_s"
+sq routd.routes "
+, p as (select sk_s,
+         split_part(sk_s, chr(31), 1) as seq,
+         split_part(sk_s, chr(31), 2) as target,
+         split_part(sk_s, chr(31), 2) like '%#observe' as observe,
+         substring(split_part(sk_s, chr(31), 3) from 'room=([^ ]+)') as room
+       from e)
+select a.seq||' '||a.target as observes_first, a.room,
+       b.seq||' '||b.target as answering_below, b.room
+from p a join p b on a.sk_s < b.sk_s
+where a.observe and not b.observe
+  and a.room is not null and b.room is not null
+  and (a.room = b.room
+       or (b.room like '%/*' and a.room like rtrim(b.room,'*')||'%'))"
 ```
 
-Read the sort key as `<seq> <US> <target> <US> <match>`. For every target, the
-`verb=mention` row must sort BEFORE its `#observe` twin. The shipped shape is
-the pair at adjacent seqs, answer first:
+**Pass**: no rows. **Fail**: every row is a channel that reads as
+configured-to-answer and answers nothing.
+
+`router.Describe`'s own `shadowed_by` does NOT report this. It builds a
+synthetic message for each route and tests it against the earlier ones, and a
+glob predicate collapses to a filler token so the annotation never over-claims
+— which means an earlier EXACT room intercepting a later glob is precisely its
+blind spot. That is why the check lives here and not in the annotation.
+
+For every target, the `verb=mention` row must sort BEFORE its `#observe` twin.
+The shipped shape is the pair at adjacent seqs, answer first:
 
     seq 10  atlas/support          chat_jid=slack:… verb=mention
     seq 11  atlas/support#observe  chat_jid=slack:…
