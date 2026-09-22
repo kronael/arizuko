@@ -72,6 +72,11 @@ revoked — see its entry.)
 
 - `L189` — blocked on `L137`. Do not take it alone.
 
+**A pointer that resolves and lies.**
+
+- `L355` — 26 of 64 bare spec numbers cited in Go have named more than one
+  document; two confirmed wrong, both in the auth path. No test can catch it.
+
 **A rule that belongs in WISDOM, not here.**
 
 - `L352` — scratch `.go` under `tmp/` joins the module, so the local `make lint`
@@ -200,6 +205,56 @@ instance layout to drive.
   `TestTheSharedDefaultsAreNamedOnce` no longer compares a constant to its own
   literal; it asserts what the declaration is for, that `EnvOr` on an unset var
   resolves to the shared default.
+
+## L355 — a bare spec number that resolves can still name the wrong document, and two sit in the authorization path (2026-09-22, open)
+
+`specs/CLAUDE.md` states the hazard and says no test can catch it: "A bare
+`5/5` keeps resolving after a renumber and silently names a different spec —
+`5/5` was `uniform-mcp-rest` and is `worlds-agents-sessions` today. Neither
+`tests/specrefs` nor `tests/webdocs` can flag that, by construction: both ask
+whether the number resolves, never whether it names the same document."
+
+MEASURED 2026-09-22. Of the 64 bare spec numbers cited in tracked `.go`, **26
+have named more than one DOCUMENT** — not renames; `git log -M --diff-filter=A`
+with rename detection on. The worst:
+
+| number | documents it has named |
+| --- | --- |
+| `6/9` | acl-unified, crackbox-dashboard, crackbox-sandboxing, crackbox-standalone, positioning |
+| `5/5` | agent-media-awareness, tenant-self-service, uniform-mcp-rest, worlds-agents-sessions |
+| `5/6` | evangelist, extend-gateway-self, middleware-pipeline, proactive-interjection |
+| `5/A` | auth-consolidated, ipc-mcp-proxy, orthogonal-components, primitives-framing |
+| `5/33` | auth-landscape, paths-roles, proactive-interjection |
+
+**Two are confirmed wrong, both in the authorization path.** `6/9` today is
+`9-crackbox-sandboxing.md`, which holds ZERO occurrences of `acl`, `ACLRow` or
+`Membership`:
+
+- `auth/authorize.go:21` — "the room JID for channel-bot inbound (spec 6/9
+  §Membership)"
+- `core/types.go:265` — "ACLRow is one grant in the unified ACL (spec 6/9)"
+
+Both describe `6/9-acl-unified`, which is `specs/5/32-acl-unified.md` today —
+and that file carries the `## Membership — roles, JID claims, channels` section
+at line 117. A reader following either pointer lands on a sandboxing spec.
+
+`L354` widened `tests/specrefs` to read the code, and it passes all of these:
+`6/9` resolves. Resolution was never the question.
+
+- **Severity:** medium (no runtime defect; a reader of the auth model is sent
+  to the wrong document, and the guard says green)
+- **Scope:** the 26 reused numbers' citation sites in `.go`; `auth/authorize.go`,
+  `core/types.go` are the confirmed two
+- **Affected:** anyone following a spec pointer out of the code
+- **Source:** `git log --all -M --pretty=format: --name-only --diff-filter=A --
+  specs/<phase>/<id>-*.md` per cited number; the content check on
+  `specs/6/9-crackbox-sandboxing.md` and `specs/5/32-acl-unified.md`
+- **Status:** open — the two confirmed sites are a fix, not a decision. The
+  other 24 reused numbers need their citing SENTENCE read against the current
+  document, one at a time, which is the audit `specs/CLAUDE.md` says must be
+  done by reading: "Rewrite by reading each site's claim and choosing the spec
+  whose CURRENT text supports it."
+- **Fix:**
 
 ## L352 — `tmp/` is gitignored but its Go files join the module, so the lint gate is not the gate CI runs (2026-09-22, open)
 
