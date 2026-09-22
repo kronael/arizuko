@@ -381,6 +381,31 @@ this for litellm alone, by hand. `compose/README.md` states the rule ("no
 fragment may read the shared `.env`") with nothing mechanical behind it for
 a sourced package.
 
+**MEASURED 2026-09-22 against the shipped catalog, and the rule does not hold
+there.** Of 14 `template/services/*.yml`, SIX reference a `.env` key their own
+manifest does not declare:
+
+| fragment | undeclared `${…}` |
+| --- | --- |
+| `litellm` | `ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`, the three `OTEL_EXPORTER_OTLP_*` |
+| `discd` | `DISCORD_USER_TOKEN`, `RUNED_RUN_TIMEOUT` |
+| `bskyd` | `BLUESKY_IDENTIFIER`, `BLUESKY_PASSWORD` |
+| `teled` | `RUNED_RUN_TIMEOUT` |
+| `reditd` | `REDDIT_SUBREDDITS` |
+| `slakd` | `SLAKD_USERS_CACHE_TTL` |
+
+**litellm's omission is deliberate and written down**, which is the sharp part:
+its manifest says the model credential "is the instance's own need, not this
+package's, and is not declared here". So the proposal's "declare what you read"
+and the catalog's "do not declare what is not yours" are in direct tension, and
+the decision has to answer which wins — or exempt first-party fragments, which
+`compose/README.md`'s flat sentence ("no fragment may read the shared `.env`")
+currently does not.
+
+No guard shipped for this: a test of the proposed rule would fail on six
+first-party fragments today, and a guard that has to be born red is a guard
+nobody keeps.
+
 - **Severity:** medium (the same supply-chain reach as `L201`, one docker
   feature over)
 - **Scope:** package install + upgrade
