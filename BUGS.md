@@ -74,8 +74,9 @@ revoked — see its entry.)
 
 **Dead code with a price.**
 
-- `L351` — `store/import.go`'s onbod half has no production caller, but moving
-  its three seeds onto `SeedItem` costs four coordinate builders first.
+- `L351` — six `import.go` files, 1120 lines, no production caller. They are
+  the test-seeding API wearing a deleted tool's documentation; one decision
+  covers all six.
 
 **A spec whose status is a claim.**
 
@@ -335,7 +336,7 @@ failure read as a quiet success.
 - **Status:** fixed. The sweep log reads `held`, and `pending` logs at ERROR
   before it answers empty. `pending says so when the ledger cannot be read`
   pins the second; removing the log fails it.
-## L351 — `store/import.go`'s onbod half has no production caller either (2026-09-22, open)
+## L351 — six `import.go` files, 1120 lines, zero production callers: the migration importers are now the test-seeding API (2026-09-22, open)
 
 `L348` deleted the routd and hot-tier importers. `deadcode ./...` with every
 main package as root then named `store/import.go`, and `Store.Import` turned
@@ -363,17 +364,48 @@ eleven. `onbodWrites` addresses four the table does not name: `Onboarding`,
 transfer for free — it costs four coordinate builders wired into `keyFields`
 first, and then deleting three tests whose subject is the importer itself.
 
-- **Severity:** low (no runtime defect; 149 lines with no production caller)
-- **Scope:** `store/import.go`, `store/import_test.go`, the three seeds above
+**AND IT IS NOT ONE FILE — IT IS SIX.** Every reference below is from
+`gopls go_symbol_references`, not grep: six packages declare a symbol named
+`Import` and a type named `Snapshot`, so a bare-name grep answers about the
+wrong package. Measured 2026-09-22:
+
+| importer | lines | references other than its declaration |
+| --- | --- | --- |
+| `store/import.go` `Store.ImportOnbod` | 149 | 6, all tests |
+| `audit/import.go` `Import` | 128 | 8, all tests (6 packages seed audit rows through it) |
+| `authd/authstore/import.go` `Store.Import` | 235 | 5, all tests |
+| `runed/runstore/import.go` `Store.Import` | 293 | 3, all tests |
+| `chanlib/chanstore/import.go` `Store.Import` | 176 | 2, all tests |
+| `emaid/emaistore/import.go` `Store.Import` | 139 | 1, all tests |
+
+1120 lines, and not one production caller among them. Each header describes a
+two-half design — "the source half belongs to the tool that runs it" — where
+the tool is gone: `773cb5c5` deleted the last `migrate-*` subcommand on
+2026-09-13.
+
+**They survive because they are the only writer that can place a row at a
+chosen instant**, which is exactly what `L348` found for the routd pair. So
+this is not six dead regions; it is one undeclared seeding API that every store
+package grew independently, still wearing a migration tool's documentation.
+
+**`deadcode` alone does not find this** and the reason is worth keeping: it
+under-reports METHODS. It flagged `store.Store.Import` and missed
+`authstore.Store.Import`, which gopls shows has only test callers. The census
+above is gopls per symbol; `deadcode ./...` was only the way in.
+
+- **Severity:** low (no runtime defect; 1120 lines with no production caller)
+- **Scope:** the six `import.go` files above and the tests that seed through them
 - **Affected:** nothing at runtime
 - **Source:** `deadcode ./...`; `gopls go_symbol_references` on `Store.Import`
   and `Store.ImportOnbod` — grep is unreliable here, the package has
   same-named neighbours (`Snapshot`, `UseRow`, `importWrites` all exist in
   other packages)
-- **Status:** open — the same question `L348` answered, with a price attached:
-  add onbod's four coordinates to `keyFields` and delete this region, or keep
-  the importer because it is the only writer those three seeds have. Deciding
-  it is cheap; doing it is not free.
+- **Status:** open — one decision covers all six, and the cheap half is
+  available either way. Either (a) each store grows a `SeedItem` of its own and
+  the importers go — the `L348` move, six times, each costing that store's
+  coordinate builders; or (b) they ARE the seeding API, and then every header
+  should say so instead of describing a tool that was deleted. Taking (b) first
+  costs six comments and forecloses nothing.
 - **Fix:**
 
 ## L350 — spec `6/37` cites six artifacts that no longer exist, four of them the guards it rests on (2026-09-22, open)
