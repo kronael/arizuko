@@ -80,7 +80,11 @@ test:
 # (.github/workflows/ci.yml). This target is red today — BUGS L349 — and
 # wiring a red gate breaks every build, so it is fix first, wire second.
 integration:
-	go test ./tests/... -count=1 -timeout 120s
+	# 600s, not 120s: tests/ holds the container-turn cases and their own
+	# turnTimeout is 4 minutes, so a 120s package budget killed the binary
+	# before any test could report — the F37 signature above, a bare
+	# `FAIL <pkg> 124s` with no `--- FAIL:` line (BUGS L349).
+	go test ./tests/... -count=1 -timeout 600s
 	go test ./objstore/dynstore/... -count=1 -timeout 300s
 	go test ./tests/dynamo/... -count=1 -timeout 300s
 .PHONY: integration

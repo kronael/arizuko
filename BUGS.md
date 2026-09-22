@@ -334,7 +334,19 @@ rather than swallowing.
 
 The subtest sets the folder cap to 0 and expects the turn to run: `capCents > 0
 && SpentCents >= capCents` (`routd/budget.go:87`) means 0 is unlimited, so the
-budget gate is NOT the refusal. What stops the turn closing is unmeasured.
+budget gate is NOT the refusal.
+
+**MEASURED 2026-09-22 with a 550s budget.** The turn DOES run. The model answers
+400, ant reports `ok=false text="API Error: 400 fake says no"`, and the
+container exits 1. routd reads the exit code as a failed turn, retries three
+times, and ends with `run outcome error`. No bot row is ever written, so
+`countBotRows >= 2` never holds and the wait times out.
+
+So the defect is not the harness: **a model error the agent captured as its
+result is dropped instead of delivered.** The test asserts the opposite — that
+`API Error: 400` reaches the chat — which is the "fail loud, fail to the user"
+rule. A container exit code is being read as a transport failure when the turn
+in fact produced a reply.
 
 **The target's own timeout hides which test failed, and it is the F37 signature
 the Makefile warns about ten lines above.** `integration` runs
