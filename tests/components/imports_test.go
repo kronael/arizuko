@@ -25,7 +25,7 @@ const (
 // other — crackbox composes egress and sandbox, sandbox reuses egress's
 // allowlist matcher and declares a substrate.Profile — but nothing else
 // inside arizuko.
-var shippable = []string{"sandbox", "egress", "crackbox", "substrate"}
+var shippable = []string{"sandbox", "egress", "crackbox", "substrate", "mcpfw"}
 
 func deps(t *testing.T, pattern string) []string {
 	t.Helper()
