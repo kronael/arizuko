@@ -94,11 +94,9 @@ func TestTheFailedRunWindowIsARangeAndNotAFilter(t *testing.T) {
 		t.Fatal(err)
 	}
 	old := time.Now().Add(-48 * time.Hour)
-	if _, err := s.ImportHot(ctx, RoutdSnapshot{TaskRunLogs: []RoutdRow{{
-		Key:   []string{old.UTC().Format(time.RFC3339), "1"},
-		Attrs: map[string]string{"task_id": "t1", "status": "error"},
-	}}}); err != nil {
-		t.Fatalf("carry an older run: %v", err)
+	if err := s.SeedItem(ctx, TaskRunLogs, []string{old.UTC().Format(time.RFC3339), "1"},
+		map[string]string{"task_id": "t1", "status": "error"}); err != nil {
+		t.Fatalf("seed an older run: %v", err)
 	}
 
 	since := time.Now().Add(-24 * time.Hour)

@@ -36,8 +36,6 @@ line; none can be answered from the code.
   sender-scoped? No other command eats a row it did not author.
 - `L273`, `L249`, `L319`, `L159`, `L202`, `L283` — proposals, each costed in
   its entry.
-- `L348` — delete `store`'s unreached legacy-import region, or keep it as
-  `L249`'s finished import half and write the export side against it.
 - `L339`, `L167`, `L200` — proposals too. `L200` and `L133` were re-measured
   2026-09-21 and each came back narrower than filed.
 - `L133` — one question after that re-measure: `ext:` is a third namespace the
@@ -430,9 +428,9 @@ cause named (terminal) and the notice recorded.
   **Still open and NOT part of this fix:** CI does not run `make integration`.
   The target's comment no longer claims it does. Wiring it is a cost call —
   ~250s and docker — and belongs to the owner.
-## L348 — `store`'s legacy-import region has no production caller, and its header names two commands that do not exist (2026-09-22, open)
+## L348 — `store`'s import region is reached by nothing in production (2026-09-22, fixed `pending`)
 
-850 lines across `store/import_hot.go` (502) and `store/import_routd.go` (348)
+741 lines across `store/import_hot.go` (435) and `store/import_routd.go` (306)
 are reached by nothing outside tests. Measured at HEAD:
 
 | symbol | production callers |
@@ -465,18 +463,40 @@ chosen instant.
 So: DEAD in production, LOAD-BEARING in tests, and not the thing this entry
 hoped it was.
 
-- **Severity:** low (no runtime defect; 850 lines and a header that lies about
+- **Severity:** low (no runtime defect; 741 lines and a header that lies about
   who calls it)
-- **Scope:** `store/import_hot.go`, `store/import_routd.go`, `audit/import.go`
+- **Scope:** `store/import_hot.go`, `store/import_routd.go`
 - **Affected:** nothing at runtime
 - **Source:** grep for `.ImportRoutd(`, `.ImportHot(`, `HotEntities` over the
   tree; `./arizuko` usage
-- **Status:** open — and the question is now precise. Tests need an
-  unrestricted writer to build states the API forbids. Should that be these 850
-  lines of legacy-SQL importer, or a small test-only raw writer that takes an
-  entity, a key and attributes? The second deletes the region and keeps the
-  seeding power; it costs rewriting five test seeds, which is why it is not a
-  cleanup someone should do unasked.
+- **Status:** fixed `pending`. Both files are deleted. What survived is what a
+  caller still needs, in two files named for what they hold:
+  `store/coordinate.go` (every entity's coordinate builder, plus `SeedItem`)
+  and `store/instant.go` (`normaliseInstant`, which `invite_redemptions.go`
+  calls in production). The snapshot type, the check pass, the per-entity
+  stamp/drop/flag/cursor tables and both `Import*` methods are gone: all three
+  transforms only REMOVED or re-rendered attributes, never added one, so a seed
+  that states its own `core.TS` width writes the identical item.
+
+  `SeedItem(ctx, entity, key, attrs)` replaces the 741 lines for the one thing
+  tests used them for: placing an item the live API refuses to create, because
+  every production writer stamps its own instant. The coordinate still goes
+  through the entity's own key builder; only the attributes are unchecked.
+
+  Five seeds converted. Each was verified by making `SeedItem` a no-op: all
+  five tests FAIL without it, so no seed is decorative —
+  `TestTheExpirySweepMovesOnlyTheStaleRunningTurns`,
+  `TestTheFailedRunWindowIsARangeAndNotAFilter`, `TestSweepExpiredRunning`,
+  `TestExportApplyIsNoOpForNullStampedColumn`,
+  `TestArchive_RoundTrip_ConfigSecretsMessagesGroups`.
+
+  Two corrections to this entry's own claims, both measured: `audit/import.go`
+  carries NO stale reference (the scope line named it; it does not). And
+  `routdKeyFields`'s comment said "a test pins the two together" — no test did.
+  `store/coordinate_test.go` now pins what is testable: every table entry has a
+  switch case, and the declared arity is refused when wrong. Both guards were
+  proven by mutation (remove the `GitHubSources` case, remove `hotKey`'s length
+  check — each fails).
 
 ## L347 — rows behind a steered command are never re-fed (2026-09-21, open)
 
@@ -2236,14 +2256,12 @@ routd 0046 — the SQLite era — so it was re-checked at HEAD. The finding hold
 `archive export` walks resreg subsystems (`cmd/arizuko/archive.go`
 `ExportSnapshot`) and carries no runtime table.
 
-What the entry does not say is that `store.HotEntities` already names exactly
-that plane — `chats`, `sessions`, `chat_reply_state`, `turn_context`,
-`system_messages` and the rest — and `ImportHot` already writes it. So the
-missing piece is the EXPORT side alone, against a list and a writer that exist.
-
-That region has no production caller at all, which is its own question: `L348`.
-Deciding THIS entry decides that one, because keeping the region is exactly
-"write the export half against it".
+**And the import half is NOT already written**, which `L348` measured on
+2026-09-22 before deleting it: `RoutdSnapshot`/`RoutdRow` modelled legacy SQL
+rows, not the archive's resreg snapshot shape, so it could never have been this
+entry's import side. Both halves are still to write. What remains of that
+region — `store/coordinate.go` — gives an import side its coordinate builders
+for every runtime entity, which is the part that would otherwise be rewritten.
 
 - **Severity:** high (blocks `6/37` step 4 — the per-daemon export/import port)
 - **Scope:** `resreg/resources/`, `cmd/arizuko/archive.go`, `specs/6/37`

@@ -197,19 +197,19 @@ func TestARetryWriteGuardedOnAStaleCountIsRefused(t *testing.T) {
 func TestTheExpirySweepMovesOnlyTheStaleRunningTurns(t *testing.T) {
 	s := openEntities(t)
 	ctx := context.Background()
-	// The stale one is placed through the move that carries a legacy row, which
-	// is the only writer that can put `started_at` in the past.
-	if _, err := s.ImportHot(ctx, RoutdSnapshot{TurnContexts: []RoutdRow{
-		{Key: []string{"stale"}, Attrs: map[string]string{
-			"folder": "demo", "chat_jid": "tg:1", "state": TurnRunning,
-			"started_at": core.TS(time.Now().Add(-2 * time.Hour)),
-		}},
-		{Key: []string{"stale-but-done"}, Attrs: map[string]string{
-			"folder": "demo", "chat_jid": "tg:2", "state": TurnDone,
-			"started_at": core.TS(time.Now().Add(-2 * time.Hour)),
-		}},
-	}}); err != nil {
-		t.Fatalf("seed the stale turns: %v", err)
+	// SeedItem is the only writer that can put `started_at` in the past: the
+	// live one stamps the instant itself.
+	stale := core.TS(time.Now().Add(-2 * time.Hour))
+	for _, seed := range []struct{ turnID, jid, state string }{
+		{"stale", "tg:1", TurnRunning},
+		{"stale-but-done", "tg:2", TurnDone},
+	} {
+		if err := s.SeedItem(ctx, TurnContexts, []string{seed.turnID}, map[string]string{
+			"folder": "demo", "chat_jid": seed.jid, "state": seed.state,
+			"started_at": stale,
+		}); err != nil {
+			t.Fatalf("seed the stale turn %s: %v", seed.turnID, err)
+		}
 	}
 	if _, err := s.OpenTurnContext("fresh", "demo", "", "tg:3", "u1", ""); err != nil {
 		t.Fatal(err)

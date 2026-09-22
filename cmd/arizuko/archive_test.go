@@ -90,23 +90,21 @@ func TestArchive_RoundTrip_ConfigSecretsMessagesGroups(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// route_tokens (kind=route) + a pairing token that must NOT travel. Both are
-	// items, and `kind` is the resource's own row filter, so the fixture writes
-	// them through the import the migration tool uses — an INSERT has no columns
-	// to name and a raw item write would have to spell the coordinate twice.
-	if _, err := srcRoutd.ImportRoutd(t.Context(), store.RoutdSnapshot{
-		store.RouteTokens: {
-			{Key: []string{"aabbcc"}, Attrs: map[string]string{
-				"jid": "web:atlas", "owner_folder": "atlas",
-				"created_at": "2026-01-01T00:00:00Z", "kind": store.RouteTokenKindRoute,
-			}},
-			{Key: []string{"ddeeff"}, Attrs: map[string]string{
-				"jid": "telegram:user/1", "owner_folder": "atlas",
-				"created_at": "2026-01-01T00:00:00Z", "kind": store.RouteTokenKindPair,
-			}},
-		},
-	}); err != nil {
-		t.Fatal(err)
+	// route_tokens (kind=route) + a pairing token that must NOT travel. `kind`
+	// is the resource's own row filter, and the mint API picks the kind itself,
+	// so the fixture seeds both coordinates directly.
+	seededAt := core.TS(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
+	for _, tok := range []struct{ hash, jid, kind string }{
+		{"aabbcc", "web:atlas", store.RouteTokenKindRoute},
+		{"ddeeff", "telegram:user/1", store.RouteTokenKindPair},
+	} {
+		if err := srcRoutd.SeedItem(t.Context(), store.RouteTokens, []string{tok.hash},
+			map[string]string{
+				"jid": tok.jid, "owner_folder": "atlas",
+				"created_at": seededAt, "kind": tok.kind,
+			}); err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	// An invite is an item, so the fixture writes it through the import the

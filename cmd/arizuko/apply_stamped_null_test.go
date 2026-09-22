@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/objstore"
@@ -48,17 +49,14 @@ func TestExportApplyIsNoOpForNullStampedColumn(t *testing.T) {
 	_, stores := openInstance(t)
 	st := stores[resreg.SubsystemRoutd]
 
-	// A group carrying added_at and no updated_at. That is what a migrated
-	// instance holds — `arizuko migrate-routd` drops an attribute whose column
-	// was NULL — so the import is what puts the fixture in the real state
-	// rather than a hand-made one.
-	if _, err := st.ImportRoutd(context.Background(), store.RoutdSnapshot{
-		store.Groups: {{
-			Key:   []string{"acme"},
-			Attrs: map[string]string{"added_at": "2026-08-01T00:00:00Z", "product": "assistant"},
-		}},
-	}); err != nil {
-		t.Fatalf("seed the migrated group: %v", err)
+	// A group carrying added_at and no updated_at. No live writer makes one:
+	// every group-writing method stamps both, so the fixture is seeded.
+	if err := st.SeedItem(context.Background(), store.Groups, []string{"acme"},
+		map[string]string{
+			"added_at": core.TS(time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)),
+			"product":  "assistant",
+		}); err != nil {
+		t.Fatalf("seed the group: %v", err)
 	}
 	if _, ok := updatedAtOf(t, st, "acme"); ok {
 		t.Fatal("fixture is vacuous: the seeded group already carries an updated_at")
