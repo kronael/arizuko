@@ -72,6 +72,11 @@ revoked — see its entry.)
 
 - `L189` — blocked on `L137`. Do not take it alone.
 
+**A guard whose scope excluded the drift.**
+
+- `L354` — eight spec pointers in Go name specs that do not exist; `specrefs`
+  collects `.go` and then skips it. Four repoint themselves; five need you.
+
 **A rule that belongs in WISDOM, not here.**
 
 - `L352` — scratch `.go` under `tmp/` joins the module, so the local `make lint`
@@ -200,6 +205,58 @@ instance layout to drive.
   `TestTheSharedDefaultsAreNamedOnce` no longer compares a constant to its own
   literal; it asserts what the declaration is for, that `EnvOr` on an unset var
   resolves to the shared default.
+
+## L354 — eight spec pointers in Go name specs that do not exist, because `tests/specrefs` skips every file that is not markdown (2026-09-22, open)
+
+`tests/specrefs` has three checks and the third, `TestEveryBacktickSpecIDResolves`,
+exists for exactly this: "a prose ID can name a retired number while the build
+stays green". `sourceFiles` collects `.md`, `.go`, `.ts` and `.html` — and the
+loop's first line is `if filepath.Ext(f) != ".md" ... { continue }`. It gathers
+the code and then throws it away.
+
+Its pattern also requires backticks, and most code cites a spec as bare prose:
+`spec 6/8`, not `` `6/8` ``.
+
+Measured 2026-09-22 over every tracked `.go`, matching both forms. Eight ids are
+cited and cannot resolve, in a phase directory that DOES exist:
+
+| id | cited at | what happened to it |
+| --- | --- | --- |
+| `7/3` ×2 | `dashd/route_tokens.go:27`, `dashd/audit_mutations_test.go:106` | moved to `6/30` by `790411d0`'s 6/7 re-cut |
+| `6/8` ×2 | `timed/dash.go:16`, `timed/dash.go:121` | deleted by `6e3c1ce5` as superseded crackbox content |
+| `11/A` | `anteval/cmd/anteval/flexparse.go:4` | unresolved |
+| `6/D` | `chanreg/httpchan.go:493` | unresolved |
+| `6/2` | `proxyd/resource_test.go:282` | unresolved |
+| `5/U` | `runed/api/v1/types.go:3` | unresolved |
+| `4/R` | `store/seed.go:25` | unresolved |
+
+**The redirect that was supposed to catch this is gone.** `790411d0` moved six
+cockpit specs from phase 7 to phase 6 and says so in its own message: "The six
+moves are rows in `specs/RETIRED.md`, so `7/1` still resolves". `7d81cd78`
+dropped `specs/RETIRED.md`, and every old pointer became dangling with no test
+that could see it.
+
+**A better matcher already exists in this repo.** `tests/webdocs/links_test.go`
+carries a `specIDRe` that reads the unbackticked form, a colon separator and
+`&nbsp;`, written after `L43` let five dead IDs through on a public page. So the
+HTML guard is stricter than the source guard about the same fact, in two
+regexes.
+
+One false positive to expect when the scope widens: `tests/webdocs/links_test.go:42`
+writes `7/F` inside a comment ABOUT the pattern, not as a citation.
+
+- **Severity:** low (no runtime defect; eight pointers send a reader to a spec
+  nobody can open, two of them in `dashd` and `timed` production files)
+- **Scope:** the eight sites above; `tests/specrefs/refs_test.go`
+- **Affected:** anyone following a spec pointer out of the code
+- **Source:** every tracked `.go` matched against both citation forms, each id
+  resolved against `specs/<phase>/`; `git log` for `790411d0`, `6e3c1ce5`,
+  `7d81cd78`
+- **Status:** open — the repoint needs a decision per id for the five marked
+  unresolved, which is why this is recorded before it is fixed. `7/3` and `6/8`
+  are not decisions: `790411d0` states the mapping and `6/30` has both a
+  `### timed` and a `### webd / davd / ttsd` section.
+- **Fix:**
 
 ## L352 — `tmp/` is gitignored but its Go files join the module, so the lint gate is not the gate CI runs (2026-09-22, open)
 
