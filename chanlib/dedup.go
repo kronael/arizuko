@@ -52,11 +52,11 @@ func OpenAdapterStore(service string) (AdapterStore, error) {
 // ErrDeliveryUnresolved reports a redelivery whose earlier attempt never
 // settled: posting again may duplicate the message and skipping may drop it,
 // so the adapter reports the ambiguity and routd dead-letters the row for an
-// operator (spec 5/34).
+// operator (spec 5/34-channel-protocol).
 var ErrDeliveryUnresolved = errors.New("earlier delivery attempt never settled")
 
 // deliverOnce runs post exactly once per idempotency key — the single place
-// the outbound dedup contract is enforced (spec 5/E). The claim lands BEFORE
+// the outbound dedup contract is enforced (spec 5/E-routd). The claim lands BEFORE
 // the platform call: a lost response leaves the key inflight, and the next
 // attempt is refused (ErrDeliveryUnresolved) rather than duplicated — routd
 // dead-letters it, visible, not doubled (BUGS D5). A failure that proves

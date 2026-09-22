@@ -1,6 +1,6 @@
 // Package msgsearch is ranked message search: an in-memory BM25 index over the
 // content of the messages routd holds, built from the store at boot and fed by
-// the writes routd makes (spec 6/42 §8).
+// the writes routd makes (spec 6/42-dynamo-over-postgres §8).
 //
 // THE INDEX IS DERIVED AND THE STORE IS THE RECORD. Nothing here is ever the
 // only copy of anything: every document comes from an item in the `messages`

@@ -1,6 +1,6 @@
 package routd
 
-// grant_option is 5/33's WITH GRANT OPTION. grantACLTx omitted the column from
+// grant_option is 5/33-paths-roles's WITH GRANT OPTION. grantACLTx omitted the column from
 // its INSERT, so both live grant surfaces (add_acl and POST /v1/acl) left it at
 // the DEFAULT and re-delegation was reachable only through resreg.Apply. These
 // tests drive the real socket, so the Gate's auth.Delegate check and the

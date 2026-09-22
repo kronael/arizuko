@@ -368,7 +368,7 @@ func (s *server) handleRefresh(w http.ResponseWriter, r *http.Request) {
 }
 
 // refreshOutcome maps a Refresh error to a bounded metric outcome label
-// (spec 5/O arizuko_token_refreshes_total).
+// (spec 5/O-observability arizuko_token_refreshes_total).
 func refreshOutcome(err error) string {
 	switch {
 	case err == nil:

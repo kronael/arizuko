@@ -23,7 +23,7 @@ const (
 // Manager owns the execution plane's run lifecycle: per-folder serialization
 // (one live spawn per folder), the global concurrency cap, the
 // steer-into-running path, the circuit breaker and the Runtime envelope
-// (spec 5/P). Admission is a pure claim-or-reject decision off the DB; runed
+// (spec 5/P-runed). Admission is a pure claim-or-reject decision off the DB; runed
 // keeps NO internal admission queue, and a caller that cannot be admitted
 // gets a retryable busy outcome and routd re-feeds it. The only in-memory
 // state is steerFns, the live steer callbacks.
@@ -117,7 +117,7 @@ func kindOf(kind string) string {
 }
 
 // Run executes (or steers) one agent turn as a pure claim-or-reject executor;
-// routd owns all queueing (spec 5/P). Three exits: admitted (claim the slot,
+// routd owns all queueing (spec 5/P-runed). Three exits: admitted (claim the slot,
 // spawn, block until the run completes), steered (folder busy with a live
 // container: write the batch in and ack), or busy (folder busy with a dead
 // container, or the global cap is hit).
@@ -128,7 +128,7 @@ func (m *Manager) Run(ctx context.Context, req runedv1.RunRequest) (runedv1.RunO
 	}
 	folder := string(req.Folder)
 
-	// A new inbound resets the breaker (spec 5/P). Scoped to KindAgent: a
+	// A new inbound resets the breaker (spec 5/P-runed). Scoped to KindAgent: a
 	// hold is not an agent inbound. Done before admission so a retry after 3
 	// failures actually spawns.
 	if kind == KindAgent {
@@ -356,7 +356,7 @@ func (m *Manager) spawn(ctx context.Context, req runedv1.RunRequest, runID, sess
 		Terminal: res.Terminal,
 	}
 	// The run that pushes the folder to the threshold reports breaker_open on
-	// the response the caller awaits (spec 5/P § circuit breaker).
+	// the response the caller awaits (spec 5/P-runed § circuit breaker).
 	if breakerTripped {
 		out.BreakerOpen = true
 		if out.Error == "" {

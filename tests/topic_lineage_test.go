@@ -1,4 +1,4 @@
-// Integration tests for session-spanning features shipped in spec 5/F
+// Integration tests for session-spanning features shipped in spec 5/F-topic-lineage
 // (topic lineage + plain-cp fork + cross-folder ambient + per-group
 // observe-window) — MCP edge. Each test boots an in-memory store,
 // wires GatedFns the way gated does, binds an MCP socket, and drives
@@ -68,7 +68,7 @@ func newMCPHarness(t *testing.T, folder string) *mcpHarness {
 	db := ipc.StoreFns{
 		PutMessage:          s.PutMessage,
 		DefaultFolderForJID: s.DefaultFolderForJID,
-		// 5/33: authz is auth.Authorize on the ACTUAL target scope. The harness folder is
+		// 5/33-paths-roles: authz is auth.Authorize on the ACTUAL target scope. The harness folder is
 		// delegated admin over its OWN subtree (granted below), so it manages itself and
 		// descendants but nothing outside — the containment is the grant scope, not tier.
 		Authorize: func(scope, action string, params map[string]string) bool {
@@ -206,7 +206,7 @@ func TestSetObserveWindow_MCP_PersistsAndPreservesOmitted(t *testing.T) {
 	}
 }
 
-// TestSetGroupOpen_MCP_FlipsAndContains (5/33): a folder delegated management of its
+// TestSetGroupOpen_MCP_FlipsAndContains (5/33-paths-roles): a folder delegated management of its
 // subtree writes its own column; acting on a folder OUTSIDE that grant scope is
 // denied. Containment is the grant scope, not path depth (no tier).
 func TestSetGroupOpen_MCP_FlipsAndContains(t *testing.T) {

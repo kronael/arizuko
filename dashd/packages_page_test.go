@@ -49,7 +49,7 @@ func TestPackagesPageRows(t *testing.T) {
 
 // TestPackagesPageShowsScope: the record is keyed (folder, name) and both kinds
 // of row live in one table — an instance-wide package and a product blended into
-// one group (spec 5/28). Without the folder column an operator reads a group's
+// one group (spec 5/28-packages). Without the folder column an operator reads a group's
 // product as something that installed a sidecar instance-wide.
 func TestPackagesPageShowsScope(t *testing.T) {
 	db := packagesDB(t)

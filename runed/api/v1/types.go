@@ -2,7 +2,7 @@
 // for /v1/*. It imports only types/ — no arizuko-internal domain packages — so
 // routd can call runed without dragging in core (ARCHITECTURE.md § Daemon
 // conventions). The POST /v1/runs shapes are PINNED to the peer rendering in
-// specs/5/E and specs/5/P; any drift between this package and routd's call
+// specs/5/E-routd and specs/5/P-runed; any drift between this package and routd's call
 // site is a contract break.
 package v1
 
@@ -40,12 +40,12 @@ type RunRequest struct {
 	// mount). A normal spawn is never root; folder shape does not grant it.
 	Elevated bool `json:"elevated,omitempty"`
 	// ShareReadOnly/Egress/WebPublish are the container-capability DECISIONS routd
-	// resolved from the folder's acl grants (5/33: mounts/egress/web are grants, not
+	// resolved from the folder's acl grants (5/33-paths-roles: mounts/egress/web are grants, not
 	// tier). runed forwards them to container.Input so buildMounts downgrades the
 	// share to RO, appends "*" to the egress allowlist, and mounts the web surfaces —
 	// each only when its grant holds. EgressAllowlist is the resolved egress
 	// allowlist (network_rules ancestry); runed wires it into EgressConfig.AllowlistFn.
-	// routd is the authz plane; runed has no store (spec 5/E).
+	// routd is the authz plane; runed has no store (spec 5/E-routd).
 	ShareReadOnly bool `json:"share_read_only,omitempty"`
 	Egress        bool `json:"egress,omitempty"`
 	WebPublish    bool `json:"web_publish,omitempty"`

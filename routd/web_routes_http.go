@@ -87,7 +87,7 @@ func (s *Server) handleWebRouteOwner(w http.ResponseWriter, r *http.Request) {
 
 // handleWebPresence is the REST twin of the get_web_presence MCP tool: it
 // reports a folder's derived/aliased canonical host + always-works /pub path
-// (spec 5/V). Same renderer (s.webPresence), same folder containment as the
+// (spec 5/V-web-vhosts). Same renderer (s.webPresence), same folder containment as the
 // MCP tool — a scoped caller may only query its own subtree.
 func (s *Server) handleWebPresence(w http.ResponseWriter, r *http.Request) {
 	_, folder, ok := s.authz(w, r, "routes:read", "routes:read:own_group")

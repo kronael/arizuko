@@ -934,7 +934,7 @@ func TestPersonaAndSystemMdMissing(t *testing.T) {
 }
 
 // TestSeedSkillsPackageLayer: a package skill staged at <datadir>/skills/<name>/
-// is layered into every group's .claude/skills (spec 5/28 skills asset kind).
+// is layered into every group's .claude/skills (spec 5/28-packages skills asset kind).
 func TestSeedSkillsPackageLayer(t *testing.T) {
 	dataDir := t.TempDir()
 	appDir := t.TempDir()

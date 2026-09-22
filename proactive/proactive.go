@@ -1,5 +1,5 @@
 // Package proactive parses a group's CLAUDE.md `proactive:` frontmatter block
-// (spec 5/6). Mode is group business state in the file, not a DB column, so the
+// (spec 5/6-proactive-interjection). Mode is group business state in the file, not a DB column, so the
 // file is the single source and there is nothing to keep in sync.
 //
 // It lives outside routd because two daemons need the same answer: routd's

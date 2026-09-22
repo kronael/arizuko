@@ -95,7 +95,7 @@ func (d *dash) handleRoutes(w http.ResponseWriter, r *http.Request) {
 	pageClose(w, r)
 }
 
-// writeUnroutedSection renders the held set (spec 6/35): every chat routd drops
+// writeUnroutedSection renders the held set (spec 6/35-unrouted-traffic): every chat routd drops
 // today because no route, direct address or engagement window claims it, each
 // with a claim form that posts the existing add-route write. Operator-only — a
 // held chat belongs to no folder, so no folder-scoped caller has a claim to

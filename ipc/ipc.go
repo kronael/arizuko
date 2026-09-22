@@ -64,17 +64,17 @@ type GatedFns struct {
 	// SubmitStatus delivers a mid-turn progress notice immediately as an interim
 	// "⏳ ..." message without ending the turn. Nil = method unconfigured.
 	SubmitStatus func(folder, turnID, text string) error
-	// Per-group ambient controls (spec 5/F).
+	// Per-group ambient controls (spec 5/F-topic-lineage).
 	SetGroupOpen          func(folder string, open bool) error
 	SetGroupObserveWindow func(folder string, msgs, chars int) error
 	GroupObserveWindow    func(folder string) (msgs, chars int)
-	// observe_group cross-folder subscriptions (spec 5/F).
+	// observe_group cross-folder subscriptions (spec 5/F-topic-lineage).
 	AddGroupWatcher    func(observer, source string) error
 	RemoveGroupWatcher func(observer, source string) error
 	AcceptURLBase      string // base URL where /invite/<token> is served (e.g. https://app.example.com)
 	GroupsDir          string
 
-	// Web-presence discovery (spec 5/V get_web_presence). WebHost is the
+	// Web-presence discovery (spec 5/V-web-vhosts get_web_presence). WebHost is the
 	// instance's canonical host (WEB_HOST); HostingDomain derives per-world
 	// hosts as <folder>.<HostingDomain>; VhostAliases maps a host label that
 	// differs from the world to its folder (host→folder). All read-only.
@@ -82,14 +82,14 @@ type GatedFns struct {
 	HostingDomain string
 	VhostAliases  map[string]string
 
-	// Slack assistant-pane controls (spec 8/D). Both stage values on the
+	// Slack assistant-pane controls (spec 8/D-slack-agent-pane). Both stage values on the
 	// owning adapter; values fire after the next outbound into the pane.
 	// Adapters without pane semantics return chanlib.ErrUnsupported.
 	PaneSetPrompts func(jid string, prompts []core.PanePrompt) error
 	PaneSetTitle   func(jid, title string) error
 
 	// EngagementTTL is the window applied at write-time when a bot
-	// outbound bumps engaged_until. Spec 5/G. Zero disables the bump.
+	// outbound bumps engaged_until. Spec 5/G-engagement. Zero disables the bump.
 	EngagementTTL time.Duration
 
 	// Audit receives system events for mutating MCP tool calls. Nil = no-op.
@@ -130,8 +130,8 @@ type TurnResult struct {
 	Models map[string]ModelUsage `json:"models,omitempty"`
 
 	// CallerSub is the user_sub the turn ran on behalf of (empty for
-	// channel-scoped turns). Spec 11/19 uses this for per-user spend
-	// aggregation; spec 5/5 will replace it with full Caller shape.
+	// channel-scoped turns). Spec 11/19-cost-caps uses this for per-user spend
+	// aggregation; spec 5/17-openapi-mcp will replace it with full Caller shape.
 	CallerSub string `json:"caller_sub,omitempty"`
 }
 
@@ -188,11 +188,11 @@ type StoreFns struct {
 	GetLastReplyID func(jid, topic string) string
 	// SetLastReply upserts last_reply_id and engaged_folder for (jid,
 	// topic). Always called on outbound; BumpEngagement is the separate
-	// timed-aware bump. Spec 5/G.
+	// timed-aware bump. Spec 5/G-engagement.
 	SetLastReply func(jid, topic, replyID, folder string) error
 	// BumpEngagement upserts engaged_until + engaged_folder. Callers MUST
 	// skip the call when the triggering inbound sender is timed-* (spec
-	// 5/G: scheduled / autonomous turns do not extend engagement).
+	// 5/G-engagement: scheduled / autonomous turns do not extend engagement).
 	BumpEngagement      func(jid, topic, folder string, until time.Time) error
 	MessagesBefore      func(jid string, before time.Time, limit int) ([]core.Message, error)
 	MessagesByThread    func(jid, topic string, before time.Time, limit int) ([]core.Message, error)
@@ -205,7 +205,7 @@ type StoreFns struct {
 	GetSession          func(folder, topic string) (string, bool)
 	GetIdentityForSub   func(sub string) (Identity, []string, bool)
 
-	// Spec 5/G engagement primitives. SetEngagement is used by the
+	// Spec 5/G-engagement engagement primitives. SetEngagement is used by the
 	// engage/disengage MCP tools and by api.handleMessage (verb=mention).
 	// EngagedFolder powers the routing-miss fallback and the MCP authz
 	// check (caller folder must own the conversation).
@@ -214,7 +214,7 @@ type StoreFns struct {
 
 	// CurrentTriggerSender returns the sender of the inbound that
 	// triggered the active turn for `folder`, or "" if none. MCP
-	// recordOutbound consults this to honour the spec 5/G timed-* skip
+	// recordOutbound consults this to honour the spec 5/G-engagement timed-* skip
 	// for agent-side send/reply outbounds — same policy as the
 	// gateway-side bump sites.
 	CurrentTriggerSender func(folder string) string
@@ -261,7 +261,7 @@ type StoreFns struct {
 	// at most once, only on a 401. Nil disables the retry.
 	RefreshConnectorSecrets func(folder, tool string, required []string) (map[string]string, error)
 
-	// Authorize is the SOLE per-call authz check (5/33): may this turn call action
+	// Authorize is the SOLE per-call authz check (5/33-paths-roles): may this turn call action
 	// (e.g. "mcp:send") with params against `folder` as the SCOPE — the caller's own
 	// folder for magnitude, or the ACTUAL target folder for a management tool's
 	// containment (a delegated row scoped to a subtree covers it). Used by ServeMCP
@@ -517,7 +517,7 @@ func serveConn(ctx context.Context, c net.Conn, srv *server.MCPServer, gated Gat
 			continue
 		}
 
-		// mcp_tool span (spec 5/O): every tools/call funnels through
+		// mcp_tool span (spec 5/O-observability): every tools/call funnels through
 		// HandleMessage. Parse the tool name for the span attr; non-tool methods
 		// (initialize/tools/list) get no span — zero overhead when traces off.
 		mctx := ctx
@@ -771,7 +771,7 @@ func putOutboundRow(gated GatedFns, db StoreFns, jid, text, platformID, folder, 
 	if platformID != "" && db.SetLastReply != nil {
 		_ = db.SetLastReply(jid, topic, platformID, folder)
 	}
-	// Spec 5/G — engagement bump shares ONE policy across the three write sites.
+	// Spec 5/G-engagement — engagement bump shares ONE policy across the three write sites.
 	// timed-* triggers skip the bump; the trigger sender for the active turn is
 	// exposed via StoreFns.CurrentTriggerSender so MCP honours the same skip
 	// without plumbing per-call context through the socket.
@@ -865,7 +865,7 @@ type internalSendFile struct {
 	ThreadID  string
 }
 
-// WebPresence is a folder's public web presence (spec 5/V get_web_presence):
+// WebPresence is a folder's public web presence (spec 5/V-web-vhosts get_web_presence):
 // its derived/aliased canonical hostname plus the always-works /pub path and
 // the OAuth /priv base. One renderer, two sinks — the MCP tool and routd's
 // REST twin both call WebPresenceFor.
@@ -916,7 +916,7 @@ func WebPresenceFor(folder, webHost, hostingDomain string, aliases map[string]st
 	}
 }
 
-// authorizeJID is the MESSAGING containment (5/33: kept as route-ownership, separate
+// authorizeJID is the MESSAGING containment (5/33-paths-roles: kept as route-ownership, separate
 // from the acl magnitude gate). It prevents a sub-folder agent from dispatching to a
 // JID owned by a sibling: the jid's routing target must be the caller's folder or a
 // descendant (root bypasses). db.DefaultFolderForJID may be nil in tests.
@@ -1132,7 +1132,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 	}
 
 	// authzStructural is the per-target containment for the hand-authored management
-	// tools (5/33: one evaluator). It re-runs auth.Authorize with the ACTUAL target as
+	// tools (5/33-paths-roles: one evaluator). It re-runs auth.Authorize with the ACTUAL target as
 	// the scope, so a delegated row scoped to a subtree covers exactly that subtree.
 	// An empty target = the caller's own folder (magnitude-only tools). Root/elevated
 	// pass via db.Authorize's allow-all; a nil Authorize (container/tests) is open.
@@ -1650,7 +1650,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 			})
 		})
 
-	// Spec 5/G engagement primitives. Both MCP sockets are per-folder, so the
+	// Spec 5/G-engagement engagement primitives. Both MCP sockets are per-folder, so the
 	// agent passes (jid, topic) explicitly. The caller folder must own the
 	// conversation. Three authz arms:
 	//   1. EngagedFolder match — caller already owns the active engagement.
@@ -1696,7 +1696,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 			if db.SetEngagement == nil || gated.EngagementTTL <= 0 {
 				return toolErr("engage not configured")
 			}
-			// Spec 5/G fix 5: write engaged_folder = caller, so
+			// Spec 5/G-engagement fix 5: write engaged_folder = caller, so
 			// future inbounds steer here. Authz already validated
 			// the caller may claim this conversation.
 			if err := db.SetEngagement(jid, topic, identity.Folder, time.Now().Add(gated.EngagementTTL)); err != nil {
@@ -1747,7 +1747,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 			return toolOK()
 		})
 
-	// Per-group ambient controls (spec 5/F). Both default to the calling
+	// Per-group ambient controls (spec 5/F-topic-lineage). Both default to the calling
 	// folder; pass `folder` to edit a descendant. AuthorizeStructural
 	// gates cross-folder writes to the caller's own subtree.
 	granted("set_observe_window",
@@ -2086,7 +2086,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 		})
 
 	// invite_list/invite_revoke: the MCP twins of REST GET/DELETE /v1/invites
-	// (spec 5/5). invite_list is read-only + self-filtered (this folder's
+	// (spec 5/16-mcp-rest-unification). invite_list is read-only + self-filtered (this folder's
 	// invites only), so it carries no authzStructural — like list_routes. The
 	// folder scope is applied by the routd closure (issued_by="agent:"+folder),
 	// not from any caller arg.
@@ -2360,7 +2360,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 		return toolJSON(map[string]any{"content": string(data), "exists": true})
 	})
 
-	// set_work (memory checkpoint) is always-on (5/33: reads + memory need no grant).
+	// set_work (memory checkpoint) is always-on (5/33-paths-roles: reads + memory need no grant).
 	srv.AddTool(mcp.NewTool("set_work",
 		mcp.WithDescription("Overwrite this group's work.md with a fresh snapshot of current work, blockers, and next steps. Use at turn end to checkpoint state for the next session. This replaces the file — read with get_work first if merging."),
 		mcp.WithString("content", mcp.Required()),

@@ -3,7 +3,7 @@ package routd
 // audit_resource.go publishes routd's own audit_log on both faces. The
 // resource is registered ONCE and mounted by each daemon that owns an
 // audit_log, so `/v1/audit` means "THIS daemon's log" everywhere (BUGS F29).
-// A successful read writes no row (specs/5/I): one page-load must not append
+// A successful read writes no row (specs/5/I-tool-call-logging): one page-load must not append
 // to the log it is reading. `audit:read` is unreachable by any human bearer
 // (a user token's scopes are FOLDER GLOBS), so REST is service:dashd only;
 // the agent tool is default-deny behind `mcp:query_audit` at the agent's OWN

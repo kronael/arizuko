@@ -6,7 +6,7 @@ import (
 	"github.com/kronael/arizuko/audit"
 )
 
-// LogCLIAudit records a mutating CLI operation as one audit_log row (spec 5/I).
+// LogCLIAudit records a mutating CLI operation as one audit_log row (spec 5/I-tool-call-logging).
 // args is the space-joined argument list, redacted by the caller.
 func (s *Store) LogCLIAudit(osUser, command, args string) error {
 	_, err := audit.EmitTo(context.Background(), s.Obj(), audit.Event{

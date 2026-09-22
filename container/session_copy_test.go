@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// Spec 5/F: CopySession duplicates the parent Claude Code session jsonl
+// Spec 5/F-topic-lineage: CopySession duplicates the parent Claude Code session jsonl
 // to a fresh uuid under the same projects dir. Pure file op; the
 // container path layout (~/.claude/projects/-home-node/<uuid>.jsonl)
 // is enforced by the slug constant.

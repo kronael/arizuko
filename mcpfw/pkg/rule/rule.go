@@ -26,7 +26,7 @@ const (
 
 // Rule matches a tool name by glob. The shape stays flat and string-typed on
 // purpose: nothing here may become folder- or grant-shaped, or the component
-// stops standing alone (spec 6/12 "What it does NOT own").
+// stops standing alone (spec 6/12-mcp-firewall "What it does NOT own").
 type Rule struct {
 	Tool   string `json:"tool"`
 	Action Action `json:"action"`

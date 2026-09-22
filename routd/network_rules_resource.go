@@ -5,7 +5,7 @@ package routd
 // a target through the same grammar, so a rule added as *.example.com is
 // removable as example.com. allow/deny take an optional `folder` TARGET arg,
 // so a caller may open or close egress for any folder its grant scope covers;
-// containment is the Gate's single evaluator on the ARG folder (5/33), and
+// containment is the Gate's single evaluator on the ARG folder (5/33-paths-roles), and
 // egress management is default-deny, absent from role:member.
 
 import (
@@ -110,7 +110,7 @@ func (s *Server) networkRulesPostBuild(folder, callerSub string, authorize autho
 	res.Gate = func(x resreg.Execution, _ string, _ map[string]string) error {
 		name := networkMCPNames[x.Action]
 		// One evaluator on the TARGET folder: only an operator-delegated
-		// `mcp:<name>` scoped to cover it, or /root (5/33 decision 8).
+		// `mcp:<name>` scoped to cover it, or /root (5/33-paths-roles decision 8).
 		target := networkTargetFolder(x.Args, folder)
 		if !authorize(target, "mcp:"+name, nil) {
 			return resreg.Errorf(http.StatusForbidden, "%s on %s: not permitted", name, target)

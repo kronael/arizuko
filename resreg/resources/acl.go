@@ -10,7 +10,7 @@ import (
 // ACLRow mirrors the acl entity: the six-field grant is its coordinate and the
 // other three are its attributes. EVERY column: apply rebuilds acl wholesale
 // and a Put replaces the item's WHOLE attribute set, so a field this does not
-// name is a value gone. `grant_option` (spec 5/33) missing from the row type
+// name is a value gone. `grant_option` (spec 5/33-paths-roles) missing from the row type
 // dropped every holder's right to re-delegate on rebuild.
 type ACLRow struct {
 	Principal   string `db:"principal" yaml:"principal" json:"principal"`

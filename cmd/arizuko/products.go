@@ -1,6 +1,6 @@
 package main
 
-// products.go is spec 5/28's composition reader: a group's `products.toml` is
+// products.go is spec 5/28-packages's composition reader: a group's `products.toml` is
 // the ORDERED MIX of products blended into it. It is the group-scoped half of
 // the same lifecycle `packages install` runs instance-wide — same lock
 // (installed_packages, keyed `(folder, name)`), same source resolution, same
@@ -67,7 +67,7 @@ func resolveProductSource(cfg *core.Config, src string) (dir, revision string, c
 }
 
 // productName reads the mix entry's identity from its PRODUCT.md — the one
-// manifest a product ships (spec 5/28). No fallback to the directory name: the
+// manifest a product ships (spec 5/28-packages). No fallback to the directory name: the
 // name is the record key and the CLAUDE.md region id, so guessing it would key
 // the lock on where a clone happened to land.
 func productName(dir, src string) string {

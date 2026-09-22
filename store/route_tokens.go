@@ -83,7 +83,7 @@ const (
 	RouteTokenJIDKindHook = "hook" // jid prefix "hook:"
 )
 
-// The stored `kind` attribute (spec 5/31). Route delivery resolves only
+// The stored `kind` attribute (spec 5/31-identity-pairing). Route delivery resolves only
 // KindRoute rows and pairing redemption only KindPair rows, so neither
 // credential can be redeemed as the other.
 const (
@@ -267,7 +267,7 @@ func routeTokenItem(ctx context.Context, s objstore.Store, rawToken, kind string
 
 // LookupRouteToken resolves a raw DELIVERY bearer token to its row. (zero,
 // false) when the token is unknown or is not a route-kind row: a pairing token
-// (spec 5/31) never resolves here.
+// (spec 5/31-identity-pairing) never resolves here.
 func (s *Store) LookupRouteToken(rawToken string) (RouteToken, bool) {
 	it, ok, err := routeTokenItem(context.Background(), s.Obj(), rawToken, RouteTokenKindRoute)
 	if err != nil || !ok {
@@ -278,7 +278,7 @@ func (s *Store) LookupRouteToken(rawToken string) (RouteToken, bool) {
 
 // ListRouteTokens returns the DELIVERY tokens owned by ownerFolder, newest
 // first. Pairing rows are excluded: enumerating ten-minute bearer attempts is
-// surface nobody needs (spec 5/31 § Unpair).
+// surface nobody needs (spec 5/31-identity-pairing § Unpair).
 func (s *Store) ListRouteTokens(ownerFolder string) []RouteToken {
 	items, err := routeTokensOfKind(context.Background(), s.Obj(), RouteTokenKindRoute)
 	if err != nil {

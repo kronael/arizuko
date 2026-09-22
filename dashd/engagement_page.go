@@ -16,7 +16,7 @@ import (
 
 // handleEngagement renders GET /dash/engagement/ — which conversations the agent is
 // currently staying in without being addressed, and the control that ends one early
-// (spec 5/G item 6, BUGS F31).
+// (spec 5/G-engagement item 6, BUGS F31).
 //
 // It reads AND writes routd's /v1/engagement over HTTP rather than chat_reply_state
 // through dashd's own handle: routd owns those columns, applies the folder containment, and

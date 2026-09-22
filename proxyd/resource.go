@@ -319,7 +319,7 @@ func routesAuthz(_ resreg.Caller, _ resreg.Action, _ resreg.Args) (string, map[s
 }
 
 // routesResourceDecl is the resreg.Resource literal: REST endpoints,
-// MCP doc/args, authz, single handler. Per spec 5/5. proxyd_routes has
+// MCP doc/args, authz, single handler. Per spec 5/17-openapi-mcp. proxyd_routes has
 // The whole shape — Endpoints, MCPDoc, MCPArgs, RowType — comes from the
 // catalog via resreg.Mount, so this decl, webd's forwarder and the OpenAPI
 // emitter cannot drift. proxyd adds only behavior.
@@ -361,7 +361,7 @@ func channelTrusted(r *http.Request, ks *auth.KeySet) bool {
 // channel is proven by a trustedForwarders ES256 bearer; on that proof the stamped
 // X-User-* headers are trusted as the IDENTITY, never the bearer's own sub. Operator
 // detection is recorded into Claims["operator"]="1" so ACL row predicates can match
-// it (spec 5/32 §"Operator implicit").
+// it (spec 5/32-acl-unified §"Operator implicit").
 func callerFromHTTP(ks *auth.KeySet) resreg.CallerFromHTTPFunc {
 	return func(r *http.Request) (resreg.Caller, error) {
 		if !channelTrusted(r, ks) {

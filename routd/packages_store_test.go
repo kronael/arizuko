@@ -2,7 +2,7 @@ package routd
 
 import "testing"
 
-// TestInstalledPackageCRUD exercises the installed-package record (spec 5/28):
+// TestInstalledPackageCRUD exercises the installed-package record (spec 5/28-packages):
 // absent → put → get roundtrip (incl. JSON manifest + hashes) → upsert/upgrade
 // → list → delete. This is the lock P1+ install/upgrade/remove build on.
 func TestInstalledPackageCRUD(t *testing.T) {
@@ -65,7 +65,7 @@ func TestInstalledPackageCRUD(t *testing.T) {
 }
 
 // TestInstalledPackageFolderIsPartOfKey is why the folder LEADS the coordinate
-// (BUGS F30): spec 5/28's composition blends a product mix per GROUP, so two
+// (BUGS F30): spec 5/28-packages's composition blends a product mix per GROUP, so two
 // groups must be able to hold the SAME package name independently. A coordinate
 // of the name alone is one lock for two subjects — the second Put addresses the
 // first record. Falsified by dropping the folder from the key: the second Put

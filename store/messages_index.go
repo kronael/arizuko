@@ -2,7 +2,7 @@ package store
 
 // messages_index.go is the projection of `messages` that ranked search is built
 // from. THE INDEX ITSELF IS NOT HERE: it is derived, it is memory, and it
-// belongs to routd/msgsearch (spec 6/42 §8); the read is here because the
+// belongs to routd/msgsearch (spec 6/42-dynamo-over-postgres §8); the read is here because the
 // coordinate and the attribute names are this package's declaration. It is a
 // PROJECTION: `reply_to_text`, `attachments` and `link_context` run to
 // kilobytes, and a boot walk over 24,296 messages must not pull them.

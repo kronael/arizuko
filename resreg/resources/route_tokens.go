@@ -26,7 +26,7 @@ type RouteTokensRow struct {
 // the agent's token tools AND the operator REST face (spec 5/16). Token
 // DELIVERY is not a REST call: webd and proxyd resolve in-process. issue_pair
 // is MCPOnly: an operator REST twin would be a face for a caller who does not
-// exist (spec 5/31 § Rejected).
+// exist (spec 5/31-identity-pairing § Rejected).
 var RouteTokensEndpoints = []resreg.Endpoint{
 	{Verb: "POST", Path: "/v1/route_tokens/chat", Action: resreg.Action("issue_chat"), Status: 201},
 	{Verb: "POST", Path: "/v1/route_tokens/hook", Action: resreg.Action("issue_hook"), Status: 201},

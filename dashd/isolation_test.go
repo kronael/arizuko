@@ -30,7 +30,7 @@ const (
 	folderSre = "corp/eng/sre"
 	// alice manages the eng SUBTREE, so her grant says so. A bare `corp/eng`
 	// scope covers `corp/eng` and nothing under it — containment is the glob,
-	// never a prefix walk in the reader (5/33 decision 8).
+	// never a prefix walk in the reader (5/33-paths-roles decision 8).
 	folderEngTree = folderEng + "/**"
 	folderSales   = "corp/sales"
 )

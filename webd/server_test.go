@@ -129,7 +129,7 @@ func seedChatToken(t *testing.T, st *store.Store, folder string) string {
 
 // TestRequireFolderMatchesGrantGlobs — webd's folder gate answers exactly what
 // auth.MatchGroups answers, so a grant reaches the same folders on every
-// surface. The scope pattern IS the containment (5/33 decision 8): `atlas`
+// surface. The scope pattern IS the containment (5/33-paths-roles decision 8): `atlas`
 // covers `atlas` alone, `atlas/**` covers the subtree (BUGS L101).
 func TestRequireFolderMatchesGrantGlobs(t *testing.T) {
 	cases := []struct {

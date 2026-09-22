@@ -100,7 +100,7 @@ func (rl *anonShield) allow(key string) bool {
 // exactly the callers proxyd's tryAuth used to admit past the shield.
 //
 // This is a DoS shield, not metering: spend is governed by cost caps
-// (spec 11/19). The per-token ceiling in ratelimit.go is the orthogonal one —
+// (spec 11/19-cost-caps). The per-token ceiling in ratelimit.go is the orthogonal one —
 // it bounds a single chat's traffic, this bounds a single address's.
 func (s *server) shieldAnon(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

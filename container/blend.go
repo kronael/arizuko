@@ -1,6 +1,6 @@
 package container
 
-// blend.go is spec 5/28's composition layer: a group blends an ORDERED MIX of
+// blend.go is spec 5/28-packages's composition layer: a group blends an ORDERED MIX of
 // products. Two providers share no merge base, so blending is per PAYLOAD KIND and
 // never a content merge — each kind gets one rule from the spec's table, whose last
 // row is a catch-all: a payload no rule names is copied whole, first-provider-wins.
@@ -55,7 +55,7 @@ const settingsRel = ".claude/settings.json"
 // missing files, so a product's skill survives a same-named stock one).
 const skillsRel = ".claude/skills"
 
-// payload is the blend rule one file falls under (spec 5/28's table).
+// payload is the blend rule one file falls under (spec 5/28-packages's table).
 type payload int
 
 const (
@@ -276,7 +276,7 @@ func buildPlan(mix []Product) (*plan, error) {
 	return p, nil
 }
 
-// BlendProducts writes an ordered product mix into groupDir per spec 5/28's
+// BlendProducts writes an ordered product mix into groupDir per spec 5/28-packages's
 // blend table and reports what each product owns. prior maps a product name to
 // the AssetHashes its last apply recorded; a managed asset whose bytes moved
 // since then is reported dirty and left alone (no blind overwrite).

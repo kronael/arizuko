@@ -35,7 +35,7 @@ func TestMatchGroups(t *testing.T) {
 	}
 }
 
-// The containment contract of 5/33 decision 8: the scope glob IS the reach.
+// The containment contract of 5/33-paths-roles decision 8: the scope glob IS the reach.
 // A bare folder scope is ONE folder — no implicit parent→child inheritance,
 // because a path carries zero authorization (decision 2). Every surface that
 // answers "may P touch folder F" answers it here; this test is what breaks if
@@ -91,7 +91,7 @@ func TestMatchGroupsMalformedScopeDenies(t *testing.T) {
 }
 
 // MatchSlot: web-slot paths, where one folder's mount physically holds its
-// children's bytes (5/V). Distinct question from MatchGroups, one helper.
+// children's bytes (5/V-web-vhosts). Distinct question from MatchGroups, one helper.
 func TestMatchSlot(t *testing.T) {
 	cases := []struct {
 		name    string

@@ -304,7 +304,7 @@ func TestRemoveReversesOnlyRecordedRows(t *testing.T) {
 }
 
 // acl has no folder scope, so apply rebuilds it wholesale — every column the
-// manifest row type omits comes back as its DEFAULT. grant_option (spec 5/33)
+// manifest row type omits comes back as its DEFAULT. grant_option (spec 5/33-paths-roles)
 // was omitted, so routing the package install through apply would have quietly
 // revoked every holder's right to re-delegate. The row type carries all nine
 // columns now; this is the guard that keeps it that way.

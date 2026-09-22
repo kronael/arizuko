@@ -341,7 +341,7 @@ func TestProxydPubWebRouteNoMatchProxies(t *testing.T) {
 }
 
 // /priv/* requires a JWT — anonymous callers bounce to /auth/login.
-// Spec 5/V: web/priv/ is a JWT-gated parallel tree to web/pub/.
+// Spec 5/V-web-vhosts: web/priv/ is a JWT-gated parallel tree to web/pub/.
 func TestProxydPrivPathRequiresAuth(t *testing.T) {
 	s, up := testServerWithUpstream(t)
 	defer up.Close()
@@ -874,7 +874,7 @@ func TestProxydHandlerAuthProxiesToAuthd(t *testing.T) {
 
 // --- slink rate limiter ------------------------------------------------------
 
-// --- derived host → world redirect (spec 5/V) --------------------------------
+// --- derived host → world redirect (spec 5/V-web-vhosts) --------------------------------
 
 // vhostServer builds a route server with a fixed HOSTING_DOMAIN + optional
 // aliases. No upstream is needed — the world redirect is a 302, not a proxy.

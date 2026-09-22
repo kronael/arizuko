@@ -1,6 +1,6 @@
 package routd
 
-// issue_pairing_link (spec 5/31): the agent-MCP-only mint on the route_tokens
+// issue_pairing_link (spec 5/31-identity-pairing): the agent-MCP-only mint on the route_tokens
 // resource. Every test drives the REAL agent socket so the injected Gate, the
 // route-ownership containment and the kind='pair' write are all exercised.
 // Like the other token verbs, issue_pairing_link is NOT in the role:member floor
@@ -126,7 +126,7 @@ func TestPairingMint_UnroutedJIDRefused(t *testing.T) {
 }
 
 // Ingress surfaces are not identities: a web:/hook:/anon: JID is refused even
-// when it routes (spec 5/31 § Not in scope).
+// when it routes (spec 5/31-identity-pairing § Not in scope).
 func TestPairingMint_IngressSurfacesRefused(t *testing.T) {
 	db, sock := pairingFixture(t, "hq", "room=hq")
 

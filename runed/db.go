@@ -1,4 +1,4 @@
-// Package runed is the execution plane (spec 5/P): the per-spawn container
+// Package runed is the execution plane (spec 5/P-runed): the per-spawn container
 // lifecycle. It is a pure container-spawner: routd hosts the agent MCP socket
 // and is the sole message appender; authd is the sole token signer. runed
 // mounts the ipc dir into each spawn and manages spawn/steer/kill.

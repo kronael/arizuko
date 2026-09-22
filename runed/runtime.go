@@ -9,7 +9,7 @@ import (
 
 // RunSpec is one agent invocation as runed sees it: the rendered prompt, the
 // resume session id (empty = fresh) and the turn_id stamped onto every
-// callback. Mirrors the PINNED POST /v1/runs body (spec 5/P).
+// callback. Mirrors the PINNED POST /v1/runs body (spec 5/P-runed).
 type RunSpec struct {
 	RunID           string
 	Folder          string
@@ -28,10 +28,10 @@ type RunSpec struct {
 	Model           string            // per-group model override; empty = instance default
 	Effort          string            // reasoning depth for the harness CLI; empty = its own default
 	ContainerConfig map[string]any    // opaque GroupConfig forwarded from groups.container_config
-	ShareReadOnly   bool              // 5/33 grant decision → container.Input.ShareReadOnly (RO share mount)
-	Egress          bool              // 5/33 grant decision → container.Input.Egress (append "*" to allowlist)
-	WebPublish      bool              // 5/33 grant decision → container.Input.WebPublish (mount web surfaces)
-	GHWrite         bool              // 5/33 grant decision → container.Input.GHWrite (ant's gh gate)
+	ShareReadOnly   bool              // 5/33-paths-roles grant decision → container.Input.ShareReadOnly (RO share mount)
+	Egress          bool              // 5/33-paths-roles grant decision → container.Input.Egress (append "*" to allowlist)
+	WebPublish      bool              // 5/33-paths-roles grant decision → container.Input.WebPublish (mount web surfaces)
+	GHWrite         bool              // 5/33-paths-roles grant decision → container.Input.GHWrite (ant's gh gate)
 	EgressAllowlist []string          // routd-resolved egress allowlist → EgressConfig.AllowlistFn
 	Secrets         map[string]string // routd-resolved user env-profile keys (BYOA model creds) → container.Input.Secrets, injected as container env; capability creds are brokered, never here
 	// ModelGatewayKey is this turn's virtual key at the model gateway, minted
@@ -40,12 +40,12 @@ type RunSpec struct {
 
 	// RunTTL is the run ceiling. The Runtime enforces it as a kill-deadline
 	// FROM WITHIN the run path, so the kill is armed only once the run is
-	// underway and stops when the run returns (spec 5/P). Zero = no ceiling.
+	// underway and stops when the run returns (spec 5/P-runed). Zero = no ceiling.
 	RunTTL time.Duration
 
 	// RegisterSteer is the Manager's hook the Runtime calls ONCE the
 	// container + IPC dir are up, handing back a steer closure so a
-	// concurrent POST /v1/runs steers into this live spawn (spec 5/P). The
+	// concurrent POST /v1/runs steers into this live spawn (spec 5/P-runed). The
 	// closure returns false when the container has already exited.
 	RegisterSteer func(steer func(batch string) bool)
 }
@@ -64,7 +64,7 @@ type RunResult struct {
 	Terminal bool
 }
 
-// Runtime executes one agent turn end to end (spec 5/P § envelope):
+// Runtime executes one agent turn end to end (spec 5/P-runed § envelope):
 // production wraps container.DockerRunner; FakeRuntime backs tests without
 // docker. Frames arrive out-of-band via the agent's callbacks into routd.
 type Runtime interface {

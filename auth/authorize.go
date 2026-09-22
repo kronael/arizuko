@@ -12,15 +12,15 @@ import (
 
 // Caller is the bearer of a request. Principal is the JWT subject as authd minted it:
 // for a human that is the ACCOUNT's canonical provider sub, already resolved at mint
-// (spec 5/32). There is no resolve step here — Authorize evaluates the principal it
+// (spec 5/32-acl-unified). There is no resolve step here — Authorize evaluates the principal it
 // is handed, and `acl.principal` rows key on that same value.
 type Caller struct {
 	Principal string
 	Claims    map[string]string
 	// Extra principals to fold into the expansion set without a DB lookup,
-	// e.g. the room JID for channel-bot inbound (spec 6/9 §Membership).
+	// e.g. the room JID for channel-bot inbound (spec 5/32-acl-unified §Membership).
 	Extra []string
-	// Route is the ROUTE axis (spec 5/33 §"Two axes"): the folder the router
+	// Route is the ROUTE axis (spec 5/33-paths-roles §"Two axes"): the folder the router
 	// resolved this request TO. Empty on every single-axis caller — operator REST,
 	// dashd, UserScopes, IsOperator — and the evaluator is then bit-for-bit what it
 	// was. Non-empty folds `folder:<Route>` in as a principal of its own AND makes
@@ -35,11 +35,11 @@ func FolderPrincipal(folder string) string { return "folder:" + folder }
 
 // Authorize returns true iff caller is permitted to perform action on scope:
 // row-based grants over the caller's expanded principal set, deny-wins. It is the
-// SOLE runtime authorization evaluator (5/33): magnitude AND containment in one call
+// SOLE runtime authorization evaluator (5/33-paths-roles): magnitude AND containment in one call
 // — a delegated row scoped `acme/**` authorizes `mcp:<tool>` on any target under
 // acme. Management callsites pass the ACTUAL target as scope; a no-match is a deny.
 //
-// TWO AXES (5/33 §"Two axes"). When Caller.Route is set the expanded set carries two
+// TWO AXES (5/33-paths-roles §"Two axes"). When Caller.Route is set the expanded set carries two
 // kinds of principal, and they do NOT authorize alike:
 //
 //   - ROUTE — `folder:<Route>` and its role memberships. What reaching through this

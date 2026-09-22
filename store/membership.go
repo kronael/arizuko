@@ -222,7 +222,7 @@ func (s *Store) RemoveMembership(child, parent string) error {
 }
 
 // RoleMember is the seeded floor role (the messaging verbs, store.SeedRoutdFloor).
-// Every group is born a member of it (5/33): power above the floor is explicit
+// Every group is born a member of it (5/33-paths-roles): power above the floor is explicit
 // delegation, never derived from path depth.
 const RoleMember = "role:member"
 

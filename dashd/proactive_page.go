@@ -12,7 +12,7 @@ import (
 )
 
 // handleProactive renders GET /dash/proactive/ — which groups are allowed to
-// speak unprompted, and which chats already have (spec 5/6, BUGS F24).
+// speak unprompted, and which chats already have (spec 5/6-proactive-interjection, BUGS F24).
 //
 // Read-only on purpose. `mode:` is group business state in the group's
 // CLAUDE.md frontmatter, so the file is the single source and a dashboard

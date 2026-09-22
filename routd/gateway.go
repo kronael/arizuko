@@ -22,7 +22,7 @@ import (
 // person's as an internal user's, and refuses the request itself when either
 // is spent. routd mints ONE virtual key per turn, hands it to runed, then
 // deletes it; the master key never leaves this daemon. routd mints because the
-// coordinates are routd's rows and runed has no store (spec 5/E). Nothing
+// coordinates are routd's rows and runed has no store (spec 5/E-routd). Nothing
 // comes back to be written down: a turn's cost is the gateway's number.
 type modelGateway struct {
 	baseURL   string

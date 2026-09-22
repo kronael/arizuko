@@ -94,7 +94,7 @@ func gateKey(gate string) (objstore.Key, error) {
 
 // InsertOnboarding records that jid is unrouted and awaiting setup. It fires
 // from routd's route-MISS branch, once per inbound message no route claimed,
-// which makes it the re-greet trigger too (spec 5/31): an unset `prompted_at`
+// which makes it the re-greet trigger too (spec 5/31-identity-pairing): an unset `prompted_at`
 // was a permanent lockout, because the jid coordinate blocks a fresh item.
 // Clearing it here arms the next tick, bounded two ways: the caller MISSED,
 // and the last greeting is older than PairingTTL.

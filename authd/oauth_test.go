@@ -487,7 +487,7 @@ func jsonField(t *testing.T, body []byte, key string) string {
 // The post-login return path rides the SIGNED state, sourced from the
 // auth_return cookie proxyd drops when it bounces an unauthenticated caller
 // here. Without this the cookie was written and never read, so a bounced caller
-// landed on / — spec 5/31 needs the pairing URL to survive the round-trip.
+// landed on / — spec 5/31-identity-pairing needs the pairing URL to survive the round-trip.
 func TestOAuthRedirectCarriesAuthReturnCookie(t *testing.T) {
 	db := testDB(t)
 	a := newTestAuthd(t, db)

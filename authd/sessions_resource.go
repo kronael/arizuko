@@ -3,7 +3,7 @@ package main
 // sessions_resource.go publishes refresh-token FAMILIES at GET /v1/sessions and
 // kills one at DELETE /v1/sessions/{family_id}: admin-initiated revocation
 // (BUGS F15). The audit row lands in authd's audit_log, written by
-// resreg.invoke, and is readable because 5/I federates it into /dash/audit/.
+// resreg.invoke, and is readable because 5/I-tool-call-logging federates it into /dash/audit/.
 
 import (
 	"context"

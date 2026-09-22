@@ -2,7 +2,7 @@ package routd
 
 // search.go is routd's ranked message search: the in-memory index that
 // `find_messages` and `GET /v1/messages/find` answer from, the boot walk that
-// fills it, and the four writes that keep it in step (spec 6/42 §8). routd
+// fills it, and the four writes that keep it in step (spec 6/42-dynamo-over-postgres §8). routd
 // appends every message a channel produces, so the feed is one line beside
 // each of four writes on this type rather than a reader of its own, and each
 // runs AFTER the store's write has committed: the store is the record, the

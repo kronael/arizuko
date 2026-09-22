@@ -13,7 +13,7 @@ import (
 // a caller forge or erase the record of an act. ONE registration serves FOUR
 // daemons without violating "two daemons must NEVER register the same
 // resource name": that rule forbids two DIFFERENT tables sharing a wire name,
-// and here one table shape is deliberately replicated per owner (specs/5/I),
+// and here one table shape is deliberately replicated per owner (specs/5/I-tool-call-logging),
 // so `/v1/audit` means "THIS daemon's audit log". There is no GET
 // /v1/audit/{id}: an id is unique inside one daemon's log only.
 var AuditEndpoints = []resreg.Endpoint{
@@ -26,7 +26,7 @@ var AuditResponses = map[resreg.Action]reflect.Type{
 	resreg.ActionList: reflect.TypeFor[[]audit.Row](),
 }
 
-// AuditMCPNames maps the action to the flat agent tool name (specs/5/I).
+// AuditMCPNames maps the action to the flat agent tool name (specs/5/I-tool-call-logging).
 var AuditMCPNames = map[resreg.Action]string{
 	resreg.ActionList: "query_audit",
 }

@@ -1,6 +1,6 @@
 package routd
 
-// packages_store.go is the installed-package record (spec 5/28): one item per
+// packages_store.go is the installed-package record (spec 5/28-packages): one item per
 // installed package with its source + revision, the identities the install
 // owns, and a per-asset content hash — the basis for upgrade, remove and
 // dirty-detection. NOT per-row provenance. The coordinate and attribute names

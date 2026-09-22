@@ -1,6 +1,6 @@
 package resources
 
-// The catalog half of the spec 5/28 registration: the resource is registered, it
+// The catalog half of the spec 5/28-packages registration: the resource is registered, it
 // reaches /openapi.json, and the doc advertises exactly the read-only surface the
 // handler serves — no phantom write verb an operator would get a 404 from.
 

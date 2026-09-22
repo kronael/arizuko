@@ -102,7 +102,7 @@ func TestObservedTail_SameJIDAsTriggerSurfaces(t *testing.T) {
 	}
 }
 
-// Per spec 5/F: two topics in same folder must both see ambient
+// Per spec 5/F-topic-lineage: two topics in same folder must both see ambient
 // observed messages. Cursor on topic A doesn't starve topic B.
 func TestObservedSince_PerTopicCursorIsolation(t *testing.T) {
 	s, err := OpenMem()

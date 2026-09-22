@@ -192,7 +192,7 @@ func TestSessionsRefuseFolderClaim(t *testing.T) {
 // TestSessionsRevokeKillsTheFamilyAndAudits is the close of BUGS F15's
 // admin-revocation gap, end to end: the operator verb kills the lineage, the
 // killed session can no longer refresh, and the act is on the record in auth.db
-// — which /dash/audit/ federates since 5/I, the condition F15a named as owed
+// — which /dash/audit/ federates since 5/I-tool-call-logging, the condition F15a named as owed
 // before this endpoint could exist.
 func TestSessionsRevokeKillsTheFamilyAndAudits(t *testing.T) {
 	db, a := auditTestAuthd(t)

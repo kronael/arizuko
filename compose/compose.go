@@ -79,13 +79,13 @@ var commonKeys = []string{
 	// The daemon's service-token exchange principal, set per daemon by
 	// wireServiceKey; an adapter exchanges as this, not its CHANNEL_NAME.
 	"AUTHD_SERVICE_NAME",
-	// OTLP export (spec 5/O). Unset -> stock JSON handler, zero overhead.
+	// OTLP export (spec 5/O-observability). Unset -> stock JSON handler, zero overhead.
 	"ARIZUKO_INSTANCE",
 	"OTEL_EXPORTER_OTLP_ENDPOINT",
 	"OTEL_EXPORTER_OTLP_PROTOCOL",
 	"OTEL_EXPORTER_OTLP_HEADERS",
 	"OTEL_RESOURCE_ATTRIBUTES",
-	// The store server (spec 6/42): one endpoint for every daemon, the CA as
+	// The store server (spec 6/42-dynamo-over-postgres): one endpoint for every daemon, the CA as
 	// base64 because a container has no file of its own. The access key is
 	// per daemon (perDaemon), so a daemon signs as itself.
 	dynstore.EnvURL,
@@ -124,7 +124,7 @@ var daemonKeys = map[string][]string{
 		"ONBOARDING_ENABLED", "ONBOARDING_PLATFORMS",
 		"OBSERVE_WINDOW_MESSAGES", "OBSERVE_WINDOW_CHARS",
 		"SEND_DISABLED_CHANNELS", "SEND_DISABLED_GROUPS",
-		// get_web_presence reads the same vhost env proxyd does (spec 5/V).
+		// get_web_presence reads the same vhost env proxyd does (spec 5/V-web-vhosts).
 		"HOSTING_DOMAIN", "WEB_VHOST_ALIASES",
 		// routd OWNS secrets, so it needs the key to decrypt them.
 		"SECRETS_KEY",
@@ -245,7 +245,7 @@ var adapterDaemons = map[string]bool{
 
 // envFileName returns the env file a service reads: services outside
 // daemonKeys fall back to the shared .env, and `<adapter>-<label>` variants
-// share the base adapter's file (spec 5/R).
+// share the base adapter's file (spec 5/R-multi-account).
 func envFileName(name string) string {
 	if _, ok := daemonKeys[name]; ok {
 		return "env/" + name + ".env"
@@ -450,7 +450,7 @@ var coreProxydRoutes = []ProxydRoute{
 	// token is the credential.
 	{Path: "/chat/", Backend: "http://webd:8080", Auth: "optional"},
 	{Path: "/hook/", Backend: "http://webd:8080", Auth: "optional"},
-	// Identity pairing (spec 5/31). `user` so an anonymous visitor is bounced
+	// Identity pairing (spec 5/31-identity-pairing). `user` so an anonymous visitor is bounced
 	// through OAuth with the pairing URL as the return path.
 	{Path: "/pair/", Backend: "http://webd:8080", Auth: "user"},
 	// The user portal. `user`: every handler is behind webd's requireUser. Bare
@@ -696,7 +696,7 @@ func Generate(dataDir string) (string, []ProxydRoute, error) {
 	if flavor != "" && !identRE.MatchString(flavor) {
 		return "", nil, fmt.Errorf("invalid instance flavor %q (derived from data dir basename)", flavor)
 	}
-	// ARIZUKO_INSTANCE is the OTLP service.instance.id (spec 5/O).
+	// ARIZUKO_INSTANCE is the OTLP service.instance.id (spec 5/O-observability).
 	if _, ok := env["ARIZUKO_INSTANCE"]; !ok {
 		if flavor != "" {
 			env["ARIZUKO_INSTANCE"] = flavor
@@ -722,7 +722,7 @@ func Generate(dataDir string) (string, []ProxydRoute, error) {
 		}
 	}
 
-	// Service-key provisioning (spec 5/E + 5/P): each daemon authenticates to
+	// Service-key provisioning (spec 5/E-routd + 5/P-runed): each daemon authenticates to
 	// authd with its own AUTHD_SERVICE_KEY, which authd recognises via
 	// AUTHD_SERVICE_KEYS (hashed at compare time). Keys persist in the
 	// per-daemon env files so a redeploy keeps the same identity.
@@ -754,7 +754,7 @@ func Generate(dataDir string) (string, []ProxydRoute, error) {
 	if _, ok := env["AUTHD_URL"]; !ok {
 		env["AUTHD_URL"] = "http://authd:8080"
 	}
-	// routd federates /invite + /gate to onbod (spec 5/5); harmless when onbod
+	// routd federates /invite + /gate to onbod (spec 5/16-mcp-rest-unification); harmless when onbod
 	// does not run (nil client).
 	if _, ok := env["ONBOD_URL"]; !ok {
 		env["ONBOD_URL"] = "http://onbod:8080"
@@ -778,7 +778,7 @@ func Generate(dataDir string) (string, []ProxydRoute, error) {
 		env["AUTHD_SERVICE_KEYS"] = strings.Join(keyPairs, ",")
 	}
 
-	// Store credentials (spec 6/42): one access key per daemon, written by the
+	// Store credentials (spec 6/42-dynamo-over-postgres): one access key per daemon, written by the
 	// operator into that daemon's env file and carried forward on regenerate.
 	// It stays OUT of the shared .env. This runs after the service keys so it
 	// merges into their maps rather than standing where wireServiceKey tests
@@ -836,7 +836,7 @@ func Generate(dataDir string) (string, []ProxydRoute, error) {
 		}
 	}
 	b.WriteString("services:\n")
-	// authd + routd + runed are the only topology (spec 5/E + 5/P), so they
+	// authd + routd + runed are the only topology (spec 5/E-routd + 5/P-runed), so they
 	// carry no profile.
 	b.WriteString(authdService(app, flavor))
 	b.WriteString(routdService(app, flavor, dataDir, env))
@@ -1071,7 +1071,7 @@ func authdService(app, flavor string) string {
 	b.WriteString(envFileFor("authd"))
 	b.WriteString("    environment:\n")
 	// authd snapshots login/refresh scopes from routd's ACL owner; unset ->
-	// empty-scope sessions (spec 5/5).
+	// empty-scope sessions (spec 5/1-auth-standalone).
 	fmt.Fprintf(&b, "      GRANTS_URL: '%s'\n", routdURL)
 	b.WriteString(healthBlock)
 	b.WriteString("    restart: on-failure\n")

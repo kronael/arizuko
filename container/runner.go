@@ -96,7 +96,7 @@ type Input struct {
 	// only when the turn resolved to an operator elevation (steer.go cmdRoot).
 	// Drives root=Elevated: tier 0, the /var/lib/groups mount, ARIZUKO_IS_ROOT=1.
 	Elevated bool `json:"-"`
-	// ShareReadOnly/EgressOpen/WebPublish are the 5/33 container-capability grant
+	// ShareReadOnly/EgressOpen/WebPublish are the 5/33-paths-roles container-capability grant
 	// decisions routd resolved from the folder's acl rows (mounts/egress/web are
 	// grants, not tier). ShareReadOnly downgrades /var/lib/share to RO; EgressOpen
 	// appends "*" to the egress allowlist (unconstrained network); WebPublish mounts
@@ -134,7 +134,7 @@ type Input struct {
 	// corresponds to an open Slack assistant pane. Used by
 	// pickOutputStyle to map slack:<ws>/channel/<id> → slack-pane.
 	// Other platforms always pass nil or a func returning false.
-	// Spec 5/O.
+	// Spec 5/Y-output-styles-per-surface.
 	PaneLookup func(channelID string) bool `json:"-"`
 }
 
@@ -146,7 +146,7 @@ type Output struct {
 	HadOutput    bool   `json:"-"`
 	// ExitCode is the container's process exit code (0 = clean). MessageCount
 	// is the number of [ant] agent lines observed on stderr — a per-spawn
-	// activity count runed echoes into session_log (spec 5/P § envelope 6).
+	// activity count runed echoes into session_log (spec 5/P-runed § envelope 6).
 	ExitCode     int `json:"-"`
 	MessageCount int `json:"-"`
 	// Terminal reports a failure that a retry cannot repair: the docker
@@ -207,7 +207,7 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 			"arizuko-%s-%s-%d", cfg.Name, safe, time.Now().UnixMilli())
 	}
 
-	// 5/33: the `egress` grant (resolved by routd, /root or an operator delegation)
+	// 5/33-paths-roles: the `egress` grant (resolved by routd, /root or an operator delegation)
 	// appends "*" so the spawn's own proxy allows every host. No grant → the
 	// inherited allowlist only.
 	if in.EgressOpen && in.Egress.AllowlistFn != nil {
@@ -585,7 +585,7 @@ func buildMounts(
 	m = append(m, volumeMount{
 		Host:      hp(cfg, share),
 		Container: "/var/lib/share",
-		RO:        in.ShareReadOnly, // 5/33: a `share_mount(readonly=true)` grant downgrades to RO
+		RO:        in.ShareReadOnly, // 5/33-paths-roles: a `share_mount(readonly=true)` grant downgrades to RO
 	})
 
 	claudeDir := filepath.Join(groupDir, ".claude")
@@ -619,7 +619,7 @@ func buildMounts(
 	// are resolved by the docker daemon at spawn time.
 	//
 	// The group dir mounts UNCONDITIONALLY: it holds the rollouts `codex exec resume`
-	// reads (spec 5/P § "The container model"). Gating it on HostCodexDir
+	// reads (spec 5/P-runed § "The container model"). Gating it on HostCodexDir
 	// silently broke resume for anyone authenticating with OPENAI_API_KEY —
 	// codex wrote its rollout to a container-local path and every resume
 	// afterwards found nothing.
@@ -659,7 +659,7 @@ func buildMounts(
 	}
 
 	// specs/5/V-web-vhosts.md: a folder with the `web:publish` grant (resolved by
-	// routd, 5/33) gets RO access to the whole public web tree at /var/lib/www, plus
+	// routd, 5/33-paths-roles) gets RO access to the whole public web tree at /var/lib/www, plus
 	// per-group bind-mount slots for the writable web surfaces (~/public_html and
 	// ~/private_html). No grant → no writable web surface.
 	//
@@ -939,7 +939,7 @@ func seedSettings(
 	env["ARIZUKO_GROUP_NAME"] = groupfolder.NameOf(in.Folder)
 	env["ARIZUKO_GROUP_PARENT"] = groupfolder.ParentOf(in.Folder)
 	env["ARIZUKO_WORLD"] = worldOf(in.Folder, elevated)
-	// ARIZUKO_TIER (the depth rank the agent used to see) is dropped — 5/33 decision 10:
+	// ARIZUKO_TIER (the depth rank the agent used to see) is dropped — 5/33-paths-roles decision 10:
 	// identity is world + path + granted capabilities, never a rank. tierOf survives
 	// ONLY above for WEB_PREFIX (the vhost coordinate, not authz).
 	if in.QueryTimeoutMs > 0 {
@@ -996,7 +996,7 @@ func seedSettings(
 
 // pickOutputStyle resolves the agent's outputStyle setting for one turn: derives
 // <platform>-<surface> from the JID/topic/pane signal, falling back to <platform>
-// (spec 5/O). The agent image ships every per-surface file, and per-group operator
+// (spec 5/Y-output-styles-per-surface). The agent image ships every per-surface file, and per-group operator
 // overrides at the same path take precedence automatically. No host-side existence
 // check — name selection and file loading are separate concerns.
 func pickOutputStyle(
@@ -1081,7 +1081,7 @@ func SetupGroup(cfg *core.Config, folder, seedDir string) error {
 		}
 		// Fatal, unlike the copy warning below: a product shipping an asset no
 		// consumer reads is an authoring error, and seeding it reports success
-		// for a payload that then does nothing (spec 5/28).
+		// for a payload that then does nothing (spec 5/28-packages).
 		if err := CheckProductAssets(seedDir, seedDir); err != nil {
 			return err
 		}
@@ -1092,7 +1092,7 @@ func SetupGroup(cfg *core.Config, folder, seedDir string) error {
 	})
 }
 
-// ComposeGroup is SetupGroup for an ordered product MIX (spec 5/28
+// ComposeGroup is SetupGroup for an ordered product MIX (spec 5/28-packages
 // composition): the group dir is prepared identically, then blended per payload
 // kind instead of seeded from one verbatim tree. prior carries each product's
 // last recorded AssetHashes so a locally edited managed asset is left alone.
@@ -1133,7 +1133,7 @@ func setupGroup(cfg *core.Config, folder string, seed func(groupDir string) erro
 	// walks cfg.GroupsDir/<folder>, and these live under cfg.WebDir — a different
 	// tree no chown ever reached. A slot the container uid cannot write is
 	// read-only to the agent, which reports it as a broken mount (BUGS F62/F63).
-	// Spec 5/V.
+	// Spec 5/V-web-vhosts.
 	if cfg.WebDir != "" {
 		for _, slot := range []string{
 			filepath.Join(cfg.WebDir, "pub", folder),
@@ -1228,7 +1228,7 @@ func chownR(root string, uid, gid int) error {
 // PackageSkillsDir is the instance-wide tree `arizuko packages install` writes a
 // package's `skills/<name>/` into, and `remove` deletes from. Nothing else
 // writes it, which is what makes the tree upstream-managed rather than the
-// operator's (spec 5/28 skills asset kind).
+// operator's (spec 5/28-packages skills asset kind).
 func PackageSkillsDir(cfg *core.Config) string {
 	return filepath.Join(filepath.Dir(cfg.GroupsDir), "skills")
 }
@@ -1243,7 +1243,7 @@ func PackageSkillsDir(cfg *core.Config) string {
 // 3-way merges the next release against `.merge-base`, and cpDirFresh must not
 // clobber the edit. A package skill has no `.merge-base` entry and no operator
 // authoring path — the package owns the directory NAME and `remove` deletes the
-// whole dir — so it is upstream-managed (`5/28` `managed: sync`) and a fix in the
+// whole dir — so it is upstream-managed (spec 5/28-packages, `managed: sync`) and a fix in the
 // package has to reach the group. Before this it could not: seedSkills ran only
 // at group creation, and cpDirFresh skipped every file that already existed, so
 // a package's skill froze at whatever content existed when each group was made.
@@ -1399,7 +1399,7 @@ func MigrationVersion(path string) int {
 // at $HOME=/home/node — Claude Code slugifies that path identically
 // across folders. Pure file op: rename-after-write for atomicity.
 // Returns nil with WARN log when src is missing (caller gets a fresh
-// session, no parent context). Used by spec 5/F fork path.
+// session, no parent context). Used by spec 5/F-topic-lineage fork path.
 func CopySession(groupDir, srcUUID, dstUUID string) (bool, error) {
 	projDir := filepath.Join(groupDir, ".claude", "projects", "-home-node")
 	src := filepath.Join(projDir, srcUUID+".jsonl")

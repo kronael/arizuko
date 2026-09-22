@@ -165,7 +165,7 @@ func (s *Store) StartSpawn(ctx context.Context, runID, sessionID string) (starte
 // EndSpawn records the terminal state, outcome and exit code at teardown. A
 // 'killed' state is STICKY: the spawn goroutine returns after a deliberate
 // DELETE has already killed the container, and without the condition its
-// teardown would relabel an operator's kill as an error (spec 5/P § DELETE).
+// teardown would relabel an operator's kill as an error (spec 5/P-runed § DELETE).
 // A refusal is the intended outcome, not reported.
 func (s *Store) EndSpawn(ctx context.Context, runID, state, outcome string, exitCode int) error {
 	attrs := map[string]string{
@@ -194,7 +194,7 @@ func (s *Store) EndSpawn(ctx context.Context, runID, state, outcome string, exit
 // KillSpawn records state='killed' for a run that is STILL LIVE. The TOCTOU
 // between Kill's read and this write can let a run complete normally in
 // between, and the condition stops the kill overwriting an already-terminal
-// state (spec 5/P § DELETE). A refusal means the run finished first, not an
+// state (spec 5/P-runed § DELETE). A refusal means the run finished first, not an
 // error.
 func (s *Store) KillSpawn(ctx context.Context, runID string) error {
 	_, err := s.s.GuardedBatch(ctx, nil, []objstore.Write{{

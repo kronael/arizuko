@@ -71,7 +71,7 @@ func registerInspect(srv *server.MCPServer, db StoreFns, id auth.Identity, folde
 					}
 					// inspect_tasks is a read (always-on); the per-task detail keeps a
 					// self-or-descendant containment on the task owner so a folder can't
-					// read a sibling's run logs (5/33: reads unconditional, containment
+					// read a sibling's run logs (5/33-paths-roles: reads unconditional, containment
 					// inline — the messaging-verb pattern, not an acl grant).
 					if t.Owner != folder && !strings.HasPrefix(t.Owner, folder+"/") {
 						return toolErr("unauthorized: can only inspect own or descendant tasks")

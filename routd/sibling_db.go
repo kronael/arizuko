@@ -243,7 +243,7 @@ func (d *DB) Authorize(sub, folder, action string, params map[string]string) boo
 	return auth.Authorize(d.store(), caller, action, folder, params)
 }
 
-// AuthorizeTurn is the agent tool-call check on the two axes of 5/33:
+// AuthorizeTurn is the agent tool-call check on the two axes of 5/33-paths-roles:
 // turnFolder is the ROUTE and confers in full; senderSub is the attested sender
 // and adds only inside that folder's subtree; scope is the ACTUAL target. Two
 // fields, never one stacked string — that is how a confused deputy gets built.

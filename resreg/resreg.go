@@ -8,7 +8,7 @@
 //     resolver, not a captured Caller, so a shared MCP server cannot collapse
 //     every call to one principal at registration time.
 //   - Canonical ACL gate. Resource.Authz returns (scope, params) and the adapter
-//     calls auth.Authorize per specs/5/32. No parallel scope machinery.
+//     calls auth.Authorize per specs/5/32-acl-unified. No parallel scope machinery.
 //   - Batched audit. A state-changing action HANDS ITS WRITES OVER rather than
 //     performing them: the handler buffers them on Execution.Writes and the
 //     adapter sends them in one objstore batch with the audit_log row, so the

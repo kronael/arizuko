@@ -1,4 +1,4 @@
-// Command anteval runs the agent-capability eval (spec 5/9) against a live
+// Command anteval runs the agent-capability eval (spec 5/9-agent-capability-eval) against a live
 // arizuko instance and reports pass/fail per capability. See README.
 package main
 
@@ -86,7 +86,7 @@ func cmdRun(args []string) {
 	}
 
 	// --folder is required: without it the root-session baseline reset cannot
-	// run, and every case topic forks the folder's main session (specs/5/F) —
+	// run, and every case topic forks the folder's main session (specs/5/F-topic-lineage) —
 	// the run would silently score the chat's history instead of the agent.
 	if *folder == "" {
 		fatal(fmt.Errorf("--folder is required (the eval folder owning --chat); it anchors the root-session reset that keeps cases from inheriting prior history"))

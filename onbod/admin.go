@@ -9,7 +9,7 @@ import (
 
 // admin serves onbod's bearer-gated /v1/* surface: the invite + gate writers
 // that dashd, the host CLI, and routd's /invite + /gate commands reach instead
-// of touching onbod's tables directly (spec 5/5 § Daemon ownership). All
+// of touching onbod's tables directly (spec 5/16-mcp-rest-unification § One owner + federation). All
 // mutations go through onbod's OWN store using the same audited writers.
 type admin struct {
 	// st is every question this face asks of onbod's own tables, wherever they

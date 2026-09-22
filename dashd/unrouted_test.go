@@ -40,7 +40,7 @@ func routesPage(t *testing.T, d *dash, sub string) string {
 	return w.Body.String()
 }
 
-// The held set is the operator's view (spec 6/35): a chat no route claims shows
+// The held set is the operator's view (spec 6/35-unrouted-traffic): a chat no route claims shows
 // with a claim form fixed to its JID; a chat an explicit route claims does not.
 // The section is operator-only — a held chat belongs to no folder, so an admin
 // of one folder has no claim to see it — and the claim form posts the existing

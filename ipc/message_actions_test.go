@@ -7,7 +7,7 @@ import (
 	"github.com/kronael/arizuko/chanlib"
 )
 
-// Spec 5/Z — pin_message, unpin_message, unpin_all MCP tool integration.
+// Spec 5/Z-message-actions — pin_message, unpin_message, unpin_all MCP tool integration.
 // Tests verify the gateway wiring: tool calls dispatch to GatedFns.Pin/Unpin
 // and gracefully handle missing capabilities (nil funcs → error, not panic).
 

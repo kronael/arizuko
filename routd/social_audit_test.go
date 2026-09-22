@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// Message actions (spec 5/Z) mutate an already-delivered platform message and
+// Message actions (spec 5/Z-message-actions) mutate an already-delivered platform message and
 // append no messages row, so until now a delete or an edit left no trace
 // anywhere — the spec claimed an audit category `social` that has never existed
 // (the enum in audit/event.go is closed and has no such member) and no handler

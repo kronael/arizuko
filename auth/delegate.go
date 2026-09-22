@@ -1,6 +1,6 @@
 package auth
 
-// Delegation subset-check (spec 5/33). Replaces tier-masking: a principal may
+// Delegation subset-check (spec 5/33-paths-roles). Replaces tier-masking: a principal may
 // grant onward only a SUBSET of the acl rows it HOLDS, and only those it holds
 // WITH GRANT OPTION (grant_option=1). Postgres `GRANT … WITH GRANT OPTION`.
 //
@@ -11,7 +11,7 @@ package auth
 //
 // NOT used at spawn. A subagent shares its parent's SO_PEERCRED socket and so
 // holds the parent's grants exactly — a strict equal, not a subset. Downscoping
-// a spawn was decided against in `specs/5/5` R4 (2026-08-07); it would need a
+// a spawn was decided against in spec 5/5-worlds-agents-sessions R4 (2026-08-07); it would need a
 // second socket, which is the parallel path this codebase removes.
 
 import (

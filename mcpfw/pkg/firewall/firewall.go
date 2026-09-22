@@ -1,7 +1,7 @@
 // Package firewall is the JSON-RPC gate: it parses an MCP message, decides
 // tools/call against the ruleset, and filters tools/list so a denied tool is
 // not advertised. It knows nothing about folders, grants or arizuko — the
-// caller supplies a ruleset and an upstream (spec 6/12).
+// caller supplies a ruleset and an upstream (spec 6/12-mcp-firewall).
 package firewall
 
 import (

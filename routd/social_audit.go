@@ -7,7 +7,7 @@ import (
 	"github.com/kronael/arizuko/audit"
 )
 
-// The audit trail for message actions (spec 5/Z): like, dislike, edit,
+// The audit trail for message actions (spec 5/Z-message-actions): like, dislike, edit,
 // delete, pin, unpin. Every one of them calls auditSocial.
 
 // socialTool runs one Deliverer social verb on the agent socket and records

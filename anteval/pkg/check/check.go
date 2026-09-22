@@ -32,7 +32,7 @@ type Sink interface {
 }
 
 // Reader reads a target chat through the public REST and MCP surfaces (the two
-// faces of the uniform surface, spec 5/5).
+// faces of the uniform surface, spec 5/17-openapi-mcp).
 type Reader interface {
 	RestMessages(chat string) ([]Msg, error)
 	// McpMessages takes the TOPIC as well, because the MCP face reads by

@@ -2,7 +2,7 @@
 //
 // A transparent MCP tool-call filter: it parses JSON-RPC, decides tools/call
 // against a flat ruleset, and forwards what it allows. It runs with no arizuko
-// process and no data directory (spec 6/12).
+// process and no data directory (spec 6/12-mcp-firewall).
 package main
 
 import (

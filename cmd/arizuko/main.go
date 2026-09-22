@@ -89,8 +89,8 @@ func main() {
 		"pair":         cmdPair,
 		"network":      cmdNetwork,
 		"route":        cmdRoute,
-		"packages":     cmdPackages, // spec 5/27
-		"products":     cmdProducts, // spec 5/28 composition
+		"packages":     cmdPackages, // spec 5/27-compose-native-packaging
+		"products":     cmdProducts, // spec 5/28-packages composition
 		"secret":       cmdSecret,
 		"user-secret":  cmdUserSecret,
 		"budget":       cmdBudget,
@@ -551,7 +551,7 @@ func cmdGroup(args []string) {
 var errEmptyGrant = fmt.Errorf("sub and pattern must be non-empty")
 
 // mustOpenACL opens the *Store holding acl + acl_membership for the grant write
-// path. routd OWNS them (spec 5/5); the CLI reaches them through store's own
+// path. routd OWNS them (spec 5/16-mcp-rest-unification); the CLI reaches them through store's own
 // door, which answers the endpoint a served instance keeps them on and
 // otherwise the file under the data dir it mounts — same access discipline, no
 // token plumbing.
@@ -564,7 +564,7 @@ func mustOpenACL(dataDir string) *store.Store {
 }
 
 // mustOpenOnbod opens the *Store holding onbod's OWNED tables (invites +
-// onboarding_gates) for the invite/gate write path. onbod OWNS them (spec 5/5)
+// onboarding_gates) for the invite/gate write path. onbod OWNS them (spec 5/16-mcp-rest-unification)
 // and the CLI writes them the same way.
 func mustOpenOnbod(dataDir string) *store.Store {
 	s, err := mustOpenOwner(store.OwnerOnbod, dataDir)

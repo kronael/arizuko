@@ -1,6 +1,6 @@
 package routd
 
-// unrouted.go is the held set (spec 6/35): every chat whose latest inbound
+// unrouted.go is the held set (spec 6/35-unrouted-traffic): every chat whose latest inbound
 // message the loop drops today. Nothing here changes what the loop does with a
 // miss; this file names that set and serves it to the operator, who claims a
 // chat with the route write that already exists.

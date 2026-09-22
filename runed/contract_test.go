@@ -24,7 +24,7 @@ func newTestRuned(t *testing.T, rt Runtime) (*DB, *Server) {
 	return db, NewServer(mgr, db, nil)
 }
 
-// TestContractRun is the spec 5/P § Standalone-ready acceptance: accept a
+// TestContractRun is the spec 5/P-runed § Standalone-ready acceptance: accept a
 // POST /v1/runs, broker a (faked) token, run the (Fake)Runtime with the
 // brokered token + decoded RunRequest, and return {run_id, outcome:ok,
 // session_id}. routd owns the MCP socket in-process now — runed is a pure

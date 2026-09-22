@@ -1,6 +1,6 @@
 package main
 
-// Browser half of identity pairing (spec 5/31). The security properties, not
+// Browser half of identity pairing (spec 5/31-identity-pairing). The security properties, not
 // just the happy path: GET must not consume, one parent per identity, and
 // missing/expired/consumed tokens must be indistinguishable.
 
@@ -177,7 +177,7 @@ func TestPair_OneParentPerIdentity(t *testing.T) {
 }
 
 // Pairing writes the edge but does not route the JID, so a terminal success page
-// leaves the chat the user just linked silent (spec 5/31 "What step 6 broke",
+// leaves the chat the user just linked silent (spec 5/31-identity-pairing "What step 6 broke",
 // BUGS P1b blocker 4). The success page must offer the way on to /onboard, whose
 // step-6 branch does the routing — and ONLY the success page: an outcome where
 // no edge was written has nothing to continue to, and pointing a refused or

@@ -1,6 +1,6 @@
 package store
 
-// The pairing MINT (spec 5/31 § One mint, per-caller target resolver). Redemption
+// The pairing MINT (spec 5/31-identity-pairing § One mint, per-caller target resolver). Redemption
 // lives in pairing_test.go; this file covers the half onbod's greeting needed and
 // the NULL owner_folder that made it possible.
 

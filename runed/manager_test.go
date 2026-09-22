@@ -27,7 +27,7 @@ func newMgr(t *testing.T, rt Runtime, max int) (*DB, *Manager) {
 
 // TestSerializationNoConcurrentDoubleSpawn: many concurrent Run for ONE idle
 // folder never run two containers at once in the shared workspace — the
-// steer-check + spawn-row claim are one locked critical section (spec 5/P §
+// steer-check + spawn-row claim are one locked critical section (spec 5/P-runed §
 // per-folder serialization, folder-exclusivity). Without steer wired, the
 // losers are rejected busy (no internal queue); at most one runs at a time.
 func TestSerializationNoConcurrentDoubleSpawn(t *testing.T) {
@@ -131,7 +131,7 @@ func TestFreshRunSteerSeesResolvedSessionID(t *testing.T) {
 }
 
 // TestConcurrencyCap: with MaxConcurrent=2 and 3 distinct busy folders, at
-// most 2 containers run at once; the 3rd is rejected busy (spec 5/P §
+// most 2 containers run at once; the 3rd is rejected busy (spec 5/P-runed §
 // MAX_CONCURRENT cap — no wait, no internal queue).
 func TestConcurrencyCap(t *testing.T) {
 	var live, peak int32
@@ -181,7 +181,7 @@ func TestConcurrencyCap(t *testing.T) {
 
 // TestCircuitBreakerTripAndReset: 3 consecutive failures trip the breaker on
 // the 3rd run (which DID run); a new inbound resets and retries successfully
-// (spec 5/P § circuit breaker).
+// (spec 5/P-runed § circuit breaker).
 func TestCircuitBreakerTripAndReset(t *testing.T) {
 	var calls int32
 	failNext := atomic.Bool{}

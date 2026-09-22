@@ -542,7 +542,7 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 		// Visible is the tools/list view: a tool shows iff the turn holds it
 		// (turnVisible).
 		Visible: s.turnVisible(t),
-		// Spec 5/I layer A: every hand-authored mutation and authz denial lands
+		// Spec 5/I-tool-call-logging layer A: every hand-authored mutation and authz denial lands
 		// one audit_log row in routd.db; left nil, the agent MCP surface was the
 		// one path /dash/audit/ could not see (BUGS F70).
 		LogIPCAudit: s.db.store().LogIPCAudit,
@@ -550,7 +550,7 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 }
 
 // ServeTurnMCP binds the per-turn agent MCP socket in-process; expectedUID
-// gates peers. No grant bundle is computed (5/33): authz is auth.Authorize on
+// gates peers. No grant bundle is computed (5/33-paths-roles): authz is auth.Authorize on
 // the acl rows, visibility auth.EffectiveActions over the same rows; both
 // elevate under /root.
 func (s *Server) ServeTurnMCP(t turnMCP, ipcDir string) (func(), error) {

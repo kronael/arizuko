@@ -8,7 +8,7 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
-// TestNewGroupIsBornWithTheFloor pins the 5/33 floor as DATA on the one path
+// TestNewGroupIsBornWithTheFloor pins the 5/33-paths-roles floor as DATA on the one path
 // that writes it: PutGroup writes the role:member edge, so every folder holds
 // the twelve messaging verbs from the instant it exists.
 //

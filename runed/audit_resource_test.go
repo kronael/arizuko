@@ -154,7 +154,7 @@ func TestAuditFolderGlobIsNotAScope(t *testing.T) {
 }
 
 // TestAuditLimitIsClamped: a caller cannot drain the whole table in one call.
-// audit_log grows monotonically (retention is 5/I open question 3), so an
+// audit_log grows monotonically (retention is 5/I-tool-call-logging open question 3), so an
 // unclamped limit is a full-history download per request.
 func TestAuditLimitIsClamped(t *testing.T) {
 	db, err := OpenMem()

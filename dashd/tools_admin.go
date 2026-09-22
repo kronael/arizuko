@@ -27,7 +27,7 @@ func (d *dash) handleGroupTools(w http.ResponseWriter, r *http.Request) {
 		crumb{"", "Tools"},
 	)
 
-	// Tool visibility is auth.EffectiveActions over the folder's acl rows (5/33: the
+	// Tool visibility is auth.EffectiveActions over the folder's acl rows (5/33-paths-roles: the
 	// same view the agent socket uses — a tool shows iff the folder holds it, reads
 	// unconditional). No tier/DeriveRules.
 	s := d.routdStore()

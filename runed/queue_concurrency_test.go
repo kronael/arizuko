@@ -60,7 +60,7 @@ func TestDistinctFoldersRunConcurrently(t *testing.T) {
 // TestConcurrencyCapNoOverAdmit: with cap=K and N>K concurrent Runs on distinct
 // folders, exactly K are admitted and every other caller gets a retryable busy
 // outcome — never a block, never an over-admit. The atomic count-and-claim under
-// the lock is what holds the cap (spec 5/P § Run state — pure claim-or-reject,
+// the lock is what holds the cap (spec 5/P-runed § Run state — pure claim-or-reject,
 // no internal queue). This is the race-hard proof the queue removal is safe.
 func TestConcurrencyCapNoOverAdmit(t *testing.T) {
 	const cap, callers = 3, 12
@@ -134,7 +134,7 @@ func TestConcurrencyCapNoOverAdmit(t *testing.T) {
 
 // TestFolderBusySteerFailReturnsBusy: a second Run for a folder with a live
 // spawn but NO steer callback wired returns busy — not a block, not an error,
-// not a second spawn. Steer-fail is the retryable reject path (spec 5/P § Run
+// not a second spawn. Steer-fail is the retryable reject path (spec 5/P-runed § Run
 // state — steer or busy, never enqueue).
 func TestFolderBusySteerFailReturnsBusy(t *testing.T) {
 	started := make(chan struct{})

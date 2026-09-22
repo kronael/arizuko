@@ -1,6 +1,6 @@
 package routd
 
-// Tests for the spec 5/G engagement surface.
+// Tests for the spec 5/G-engagement engagement surface.
 //
 // The READ half: the deadline crossing the wire, and the list that lets a viewer
 // find engaged chats instead of only looking one up. Before this,
@@ -215,7 +215,7 @@ func TestDefaultEngagementTTL(t *testing.T) {
 	}
 }
 
-// ---- the WRITE face: POST /v1/engagement (spec 5/G item 6) ----
+// ---- the WRITE face: POST /v1/engagement (spec 5/G-engagement item 6) ----
 
 // postEngagement POSTs body to /v1/engagement through h and returns the code.
 func postEngagement(t *testing.T, h http.Handler, body apiv1.EngagementRequest) *httptest.ResponseRecorder {

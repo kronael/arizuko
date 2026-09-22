@@ -221,7 +221,7 @@ func inviteUsed(t *testing.T, db *store.Store, ref string) int {
 }
 
 // The greeting's credential is a PAIRING token in route_tokens, not a second
-// onboarding token of onbod's own (spec 5/31 § the three token mechanisms).
+// onboarding token of onbod's own (spec 5/31-identity-pairing § the three token mechanisms).
 // owner_folder is NULL: the greeting goes out before any human — and therefore
 // any folder — is known, which is the constraint blocker 2 relaxed.
 func TestPromptUnpromptedMintsPairingTokenWithNullOwner(t *testing.T) {
@@ -605,7 +605,7 @@ func TestUsernameValidation(t *testing.T) {
 }
 
 // admitJID writes NO membership edge — that is the whole point of the fold
-// (spec 5/31): RedeemPairing owns the edge, in routd's transaction, stamped
+// (spec 5/31-identity-pairing): RedeemPairing owns the edge, in routd's transaction, stamped
 // 'pairing' so unpair can reach it. A second writer here is what P1b existed to
 // remove, so the absence is asserted, not just the admission verdict.
 func TestAdmitJIDApprovesAndWritesNoEdge(t *testing.T) {
@@ -741,7 +741,7 @@ func TestObservePairingsIgnoresNonPairingEdges(t *testing.T) {
 	}
 }
 
-// An agent-minted pairing (spec 5/31's shipped path) has no onboarding row, so
+// An agent-minted pairing (spec 5/31-identity-pairing's shipped path) has no onboarding row, so
 // the observer never sees it. The scan is over `onboarding`, not over edges.
 func TestObservePairingsIgnoresAgentMintedPairings(t *testing.T) {
 	db := testDB(t)
@@ -2112,7 +2112,7 @@ func TestCSRFRejectedWhenFormMissing(t *testing.T) {
 
 // promptUnprompted still claims strictly on `prompted_at IS NULL`. The cooldown
 // that clears prompted_at lives in InsertOnboarding, where the inbound MISS that
-// justifies a second greeting is (spec 5/31 § Deleting "greet once, ever"); a
+// justifies a second greeting is (spec 5/31-identity-pairing § Deleting "greet once, ever"); a
 // plain time predicate here would re-greet every stale row every tick.
 func TestPromptUnprompted_DoesNotRegreetAPromptedRow(t *testing.T) {
 	db := testDB(t)
@@ -2204,7 +2204,7 @@ func TestKnownStatusesCoversEveryWriter(t *testing.T) {
 	if knownStatuses["pending"] {
 		t.Error("'pending' is not a status any writer produces; it must read as stranded")
 	}
-	// token_used went with the token it named (spec 5/31 § the fold). No writer
+	// token_used went with the token it named (spec 5/31-identity-pairing § the fold). No writer
 	// produces it, so a row still carrying it is stranded and must be shouted
 	// about — the same treatment 'pending' gets.
 	if knownStatuses["token_used"] {

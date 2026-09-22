@@ -3,8 +3,8 @@
 // are meant to be usable outside it, so the boundary is enforced by the import
 // graph rather than by module separation (root CLAUDE.md, "Canonical paths").
 //
-// specs/6/9 line 130 claims "zero arizuko-internal imports (component test, per
-// 6/16)". No such test existed — the invariant held by habit. It is the kind
+// specs/6/9-crackbox-sandboxing line 94 claims "zero arizuko-internal imports (component
+// test, per 6/16)". No such test existed — the invariant held by habit. It is the kind
 // that breaks silently: one convenient `import "arizuko/core"` for a config
 // struct, and the component stops shipping alone without a single failure.
 package components

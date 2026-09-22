@@ -336,7 +336,7 @@ func TestNoEngagementOnMentionIngress(t *testing.T) {
 // TestThreadParticipationPromotion: a reply landing in a thread the bot has
 // already spoken in is promoted to verb=mention even when the reply target is a
 // human message — so the agent re-attends a thread it joined instead of going
-// silent once its 5/G window closes (spec 5/L). A thread the bot never spoke in
+// silent once its 5/G-engagement window closes (spec 5/L). A thread the bot never spoke in
 // is not promoted; a no-topic reply to a topic-less message is not promoted.
 func TestThreadParticipationPromotion(t *testing.T) {
 	db, srv, _ := newTestRoutd(t)

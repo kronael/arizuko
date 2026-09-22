@@ -56,7 +56,7 @@ func TestHoldEligible_OnlyACallThatCouldRun(t *testing.T) {
 	srv.AddTool(mcp.NewTool("send"), noop)
 	srv.AddTool(mcp.NewTool("purge"), noop)
 
-	// The caller holds `send` and not `purge` — the tools/list view (5/33).
+	// The caller holds `send` and not `purge` — the tools/list view (5/33-paths-roles).
 	caller := StoreFns{Visible: func(name string) bool { return name == "send" }}
 
 	if !holdEligible(srv, caller, "send") {

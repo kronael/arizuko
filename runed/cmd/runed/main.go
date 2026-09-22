@@ -1,4 +1,4 @@
-// Command runed runs the runed daemon: the execution plane (spec 5/P) —
+// Command runed runs the runed daemon: the execution plane (spec 5/P-runed) —
 // the work queue and the per-spawn container lifecycle. runed never appends a
 // message (routd is the sole appender), holds no signing key, and mints no
 // token: it verifies its callers against authd's JWKs and spawns containers.
@@ -99,7 +99,7 @@ func main() {
 	}
 	defer db.Close()
 	// runed's audit sink is its OWN record — each daemon owns its own audit_log;
-	// correlation across them is turn_id, not a shared table (spec 5/I). Init
+	// correlation across them is turn_id, not a shared table (spec 5/I-tool-call-logging). Init
 	// takes whichever handle runed was opened over, so the sink follows.
 	audit.Init(db.Obj(), os.Getenv("ARIZUKO_INSTANCE"))
 	if n, err := db.ExpireOrphans(context.Background()); err != nil {
@@ -112,7 +112,7 @@ func main() {
 	defer cancel()
 
 	// Verifier: offline-verify callers (routd / operator / agent) against
-	// authd's JWKs. runed holds no signing key (spec 5/P § Auth).
+	// authd's JWKs. runed holds no signing key (spec 5/P-runed § Auth).
 	var verify runed.Verifier
 	// dashKeys arms the /dash/runed/ operator gate from the SAME keyset the /v1
 	// verifier uses; nil (no AUTHD_URL) leaves the dashboard open in local dev.
@@ -160,7 +160,7 @@ func main() {
 		}
 	}()
 
-	// Startup parity with the former gateway.Run (spec 5/P): fail fast if the
+	// Startup parity with the former gateway.Run (spec 5/P-runed): fail fast if the
 	// container runtime is unreachable, then stop any orphaned spawn containers
 	// left by a prior crash before we start accepting new runs.
 	if err := container.EnsureRunning(); err != nil {
@@ -194,7 +194,7 @@ func main() {
 	}()
 
 	<-stop
-	// Graceful shutdown (spec 5/P § Graceful shutdown): stop accepting new
+	// Graceful shutdown (spec 5/P-runed § Graceful shutdown): stop accepting new
 	// POST /v1/runs and wait up to RUNED_SHUTDOWN_GRACE for the handlers
 	// already running to finish.
 	//

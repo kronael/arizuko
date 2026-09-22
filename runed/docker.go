@@ -61,7 +61,7 @@ func dockerKill(name string) error {
 
 // Run spawns one container turn. Before spawning it registers the steer
 // closure so a concurrent POST /v1/runs writes into this live container
-// instead of spawning a second (spec 5/P § Steer-into-running-container).
+// instead of spawning a second (spec 5/P-runed § Steer-into-running-container).
 func (d *dockerRuntime) Run(ctx context.Context, spec RunSpec) RunResult {
 	if spec.RegisterSteer != nil {
 		ipcDir, _ := d.folders.IpcPath(spec.Folder)
@@ -211,7 +211,7 @@ func (d *dockerRuntime) steerInto(ipcDir, containerName string) func(batch strin
 	}
 }
 
-// Kill stops a live container by name (spec 5/P § DELETE /v1/runs/{id}).
+// Kill stops a live container by name (spec 5/P-runed § DELETE /v1/runs/{id}).
 // Idempotent.
 func (d *dockerRuntime) Kill(containerName string) error {
 	if containerName == "" {

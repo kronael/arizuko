@@ -81,7 +81,7 @@ func TestTelegramWidgetVerify(t *testing.T) {
 	}
 }
 
-// Identity (5/33: no tier, no world rank on the id)
+// Identity (5/33-paths-roles: no tier, no world rank on the id)
 
 func TestIdentityResolve(t *testing.T) {
 	// Only the empty "" folder resolves to root (the operator/service sentinel);

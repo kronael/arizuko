@@ -1,6 +1,6 @@
 package ipc
 
-// Spec 6/12: an agent never dials a third-party MCP server. Its whole MCP server
+// Spec 6/12-mcp-firewall: an agent never dials a third-party MCP server. Its whole MCP server
 // map is the per-turn gated socket (ant/src/mcp-servers.ts), so a connector's
 // remote tool reaches it as a LOCAL tool registered through granted() — and every
 // tools/call on it meets db.Authorize before ipc dials the upstream at all.

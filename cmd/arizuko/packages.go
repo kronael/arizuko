@@ -28,7 +28,7 @@ import (
 // The two non-resource keys of an installed-package record's manifest. Every
 // OTHER key is a resreg resource name whose value is the PK strings of the rows
 // this package owns, so `remove` reverses by resource without a per-kind table
-// here (spec 5/28, BUGS L44).
+// here (spec 5/28-packages, BUGS L44).
 const (
 	manifestFiles  = "compose_fragment"
 	manifestSkills = "skill"
@@ -181,7 +181,7 @@ func installPackage(dataDir, inst, name, srcDir string, files []string, hashes m
 	}
 	grants := installedGrants(frags)
 	// Folder is InstanceWide: install writes compose fragments, proxyd routes
-	// and host files, none of which belong to a group (spec 5/28).
+	// and host files, none of which belong to a group (spec 5/28-packages).
 	if err := rdb.PutInstalledPackage(routd.InstalledPackage{
 		Folder:      routd.InstanceWide,
 		Name:        name,
@@ -312,7 +312,7 @@ func readFragmentAssets(dir string) (files []string, hashes map[string]string) {
 
 // sha256hex returns the hex sha256 of b — the per-asset content hash the
 // installed-package record stores so a later upgrade can detect a locally
-// edited (dirty) asset (spec 5/28, P3).
+// edited (dirty) asset (spec 5/28-packages, P3).
 func sha256hex(b []byte) string {
 	h := sha256.Sum256(b)
 	return hex.EncodeToString(h[:])
@@ -334,7 +334,7 @@ func mustOpenRoutd() *routd.DB {
 // with no claims at all — so every non-empty predicate on such a row fails and
 // the grant is inert on the one surface it names. It fails closed, so this is a
 // silent no-op rather than a leak, and it gets the same answer as a product
-// declaring `mcpServers`: refuse the write (spec 5/5 §Open 2, BUGS F59).
+// declaring `mcpServers`: refuse the write (spec 5/5-worlds-agents-sessions §Open 2, BUGS F59).
 func checkGrantPredicate(row resources.ACLRow) error {
 	if row.Predicate == "" || !strings.HasPrefix(row.Principal, "folder:") {
 		return nil
@@ -349,7 +349,7 @@ func checkGrantPredicate(row resources.ACLRow) error {
 // `**` and `*` are refused whatever the operator named: operator-ness is emergent
 // from exactly such a row, so a package able to declare one hands itself the
 // instance. Every other scope must lie inside the folder(s) named at install —
-// subset-of-held, the delegation model 5/33 already applies to a person.
+// subset-of-held, the delegation model 5/33-paths-roles already applies to a person.
 func checkGrantScope(bound []string, row resources.ACLRow) error {
 	switch row.Scope {
 	case "**", "*":
@@ -376,7 +376,7 @@ func checkGrantScope(bound []string, row resources.ACLRow) error {
 // `bound`. auth.MatchGroups answers pattern-against-PATH and both sides here are
 // patterns, so the package's scope is turned into its witnesses — the paths
 // hardest for a bound to cover — and each is put through that one matcher.
-// Containment is still decided in exactly one place (5/33 decision 8).
+// Containment is still decided in exactly one place (5/33-paths-roles decision 8).
 func scopeWithin(bound []string, scope string) bool {
 	if slices.Contains(bound, scope) {
 		return true // what the operator wrote verbatim needs no witness
@@ -842,7 +842,7 @@ func copyTree(src, dst string) error {
 }
 
 // applyPackageSkills installs a package's `skills/<name>/` dirs into the
-// per-instance `<datadir>/skills/<name>/` (spec 5/28 skills asset kind), which
+// per-instance `<datadir>/skills/<name>/` (spec 5/28-packages skills asset kind), which
 // `generate` layers into every EXISTING group — not just the ones created after
 // this install, which was every group a package skill could reach before BUGS
 // L47. Returns the installed skill names for the record. Instance-wide by design
@@ -868,7 +868,7 @@ func applyPackageSkills(dataDir, dir string) []string {
 
 // dirtyAssets returns the record's file assets whose current on-disk content no
 // longer matches the install hash — the locally edited ones an upgrade must
-// refuse to overwrite (spec 5/28: no blind overwrite). A missing file is not
+// refuse to overwrite (spec 5/28-packages: no blind overwrite). A missing file is not
 // dirty (upgrade recreates it). Result is sorted for a stable message.
 func dirtyAssets(svcDir string, rec routd.InstalledPackage) []string {
 	var dirty []string
@@ -909,7 +909,7 @@ func driftReport(name string, drifted []string) string {
 
 // reapplyPackage re-fetches rec.Source, rewrites every file asset the record owns,
 // drops the ones the new revision no longer ships, and updates the record. It
-// writes NOTHING and returns Dirty when an asset diverged locally — spec 5/28's
+// writes NOTHING and returns Dirty when an asset diverged locally — spec 5/28-packages's
 // no-blind-overwrite rule. `upgrade` and `sync` are the two callers, so there is
 // ONE updater. Only the file half of the manifest is replaced: overwriting the
 // recorded row and skill identities would strand rows `remove` must delete.
@@ -1047,7 +1047,7 @@ func cmdPackages(args []string) {
 		installPackage(dataDir, args[0], name, tmplDir, files, hashes, bound, catalogOrigin, catalogOrigin, hostDir)
 		warnUnsatisfiedDeps(name, fragment, svcDir)
 	case "install":
-		// Spec 5/28: install a package from a source dir or git URL, recording
+		// Spec 5/28-packages: install a package from a source dir or git URL, recording
 		// exactly what was installed.
 		origin, bound := parseInstallFlags(args[2:], usage)
 		name := packageName(origin)
@@ -1060,7 +1060,7 @@ func cmdPackages(args []string) {
 		}
 		installPackage(dataDir, args[0], name, dir, files, hashes, bound, origin, revision, "")
 	case "upgrade":
-		// P3 (spec 5/28): re-install a package's assets from its recorded source,
+		// P3 (spec 5/28-packages): re-install a package's assets from its recorded source,
 		// but REFUSE to overwrite a locally edited (dirty) asset — emit which and
 		// stop, rather than clobber the operator's change.
 		need(args, 3, usage)
@@ -1095,7 +1095,7 @@ func cmdPackages(args []string) {
 		}
 		fmt.Printf("upgraded %s@%s — run `arizuko generate %s` to apply\n", name, res.Revision, args[0])
 	case "sync":
-		// Spec 5/28: re-apply every installed package's fragment from its recorded
+		// Spec 5/28-packages: re-apply every installed package's fragment from its recorded
 		// source. Idempotent, and `upgrade` over the whole record set rather than a
 		// second updater — both go through reapplyPackage, so dirty-refusal is
 		// identical. A dirty package is reported and SKIPPED rather than fatal, so one
@@ -1111,7 +1111,7 @@ func cmdPackages(args []string) {
 			return
 		}
 		// A group-scoped record is a product in that group's ordered mix (spec
-		// 5/28 composition), not a compose fragment — reapplyPackage would find
+		// 5/28-packages composition), not a compose fragment — reapplyPackage would find
 		// no `*.yml` and die. Re-apply those through the mix that owns them,
 		// once per folder, because union / last-wins are properties of the whole
 		// mix and not of one product.
@@ -1159,7 +1159,7 @@ func cmdPackages(args []string) {
 		mustPkgName(name)
 		rdb := mustOpenRoutd()
 		defer rdb.Close()
-		// Prefer the installed record (spec 5/28): delete exactly what the record
+		// Prefer the installed record (spec 5/28-packages): delete exactly what the record
 		// says this package owns, then drop the record. Fall back to the legacy
 		// `<name>.yml` deletion for a catalog `add` that left no record.
 		if rec, ok, _ := rdb.InstalledPackage(routd.InstanceWide, name); ok {

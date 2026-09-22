@@ -55,7 +55,7 @@ func (s *Store) OAuthIdentityForSub(sub string) (userID, name, createdAt string,
 // login and never rewritten: `acl.principal` rows key on it, so a canonical
 // that moved would silently strip an account of its grants. Do not add a
 // write that moves the item, and do not let an unlink remove the identity
-// whose provider:provider_sub equals the account's sub (spec 5/32 § Alias
+// whose provider:provider_sub equals the account's sub (spec 5/32-acl-unified § Alias
 // resolution). A link that targets an identity another account owns is
 // REFUSED, twice over: this read sees the other owner, and the identity's own
 // Put refuses to overwrite one that appeared since.

@@ -11,7 +11,7 @@ import (
 )
 
 // agent_gate.go holds the closures every cold-tier resource's agent-socket
-// postBuild shares (5/33): authorization is ONE evaluator (auth.Authorize on
+// postBuild shares (5/33-paths-roles): authorization is ONE evaluator (auth.Authorize on
 // the ACTUAL target scope), visibility one view (auth.EffectiveActions). One
 // source per concern stops the per-resource copies drifting — a past drift
 // opened a cross-tenant hole (web_routes delete).
@@ -23,7 +23,7 @@ import (
 // only as the audit actor, never as an authorization input.
 type authorizeFn func(folder, action string, params map[string]string) bool
 
-// turnAuthorize renders the check on the two axes of 5/33: the turn's folder
+// turnAuthorize renders the check on the two axes of 5/33-paths-roles: the turn's folder
 // confers, the attested sender adds inside that folder's subtree. An elevated
 // /root turn allows every call — the ONLY path by which a person's own
 // authority reaches outside the turn's subtree.
@@ -42,7 +42,7 @@ func (s *Server) turnAuthorize(t turnMCP) authorizeFn {
 func turnIdentity(folder string, elevated bool) auth.Identity {
 	id := auth.Resolve(folder)
 	if elevated {
-		id.IsRoot = true // /root elevation is root (spec 5/33 decision 1)
+		id.IsRoot = true // /root elevation is root (spec 5/33-paths-roles decision 1)
 	}
 	return id
 }

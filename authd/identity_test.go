@@ -31,7 +31,7 @@ func seedIdentity(t *testing.T, a *Authd, id, name string, subs ...string) {
 }
 
 // TestIdentityEndpoint_Resolves: GET /v1/identities/{sub} returns the canonical
-// identity + all claimed subs from auth.db (authd OWNS identity — spec 5/9),
+// identity + all claimed subs from auth.db (authd OWNS identity — spec 5/1-auth-standalone),
 // gated on identity:read (service:routd carries it).
 func TestIdentityEndpoint_Resolves(t *testing.T) {
 	db := testDB(t)

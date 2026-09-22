@@ -1,6 +1,6 @@
 package main
 
-// Identity pairing, browser half (spec 5/31). A pairing link binds a channel
+// Identity pairing, browser half (spec 5/31-identity-pairing). A pairing link binds a channel
 // identity (telegram:user/123) to the account of whoever redeems it, by writing
 // the acl_membership edge that makes the channel identity resolve to that human.
 //

@@ -1,6 +1,6 @@
 package store
 
-// InsertOnboarding is both the row's creator and, since the fold (spec 5/31
+// InsertOnboarding is both the row's creator and, since the fold (spec 5/31-identity-pairing
 // § Deleting "greet once, ever"), the re-greet trigger. It fires from routd's
 // route-MISS branch, so every call means "this chat spoke and still routes
 // nowhere" — the only fact that justifies handing out another link.

@@ -104,7 +104,7 @@ func Drive(cfg Config) ([]report.Result, error) {
 
 // ensurePristineRoot guarantees the eval folder's ROOT topic holds no session
 // before a case is injected. Each case runs in its own fresh topic, and the first
-// turn of any non-main topic forks main's session (specs/5/F) — so a root session
+// turn of any non-main topic forks main's session (specs/5/F-topic-lineage) — so a root session
 // means the case inherits every prior conversation in the chat (BUGS L54).
 //
 // The reset is `/new`: routd's steer consumes a bare /new before any turn, so the

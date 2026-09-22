@@ -1,6 +1,6 @@
 package obs
 
-// Tracing for the four span types in spec 5/O. StartSpan is a no-op when
+// Tracing for the four span types in spec 5/O-observability. StartSpan is a no-op when
 // OTEL_EXPORTER_OTLP_TRACES_ENDPOINT is unset: the TracerProvider is never
 // built, so StartSpan returns ctx unchanged and a no-op end func — zero
 // overhead. When set, spans export over OTLP http/protobuf and join the
@@ -90,7 +90,7 @@ func StartSpan(ctx context.Context, name string, attrs ...string) (context.Conte
 	}
 }
 
-// outcomeOf maps an error to a spec 5/O outcome value.
+// outcomeOf maps an error to a spec 5/O-observability outcome value.
 func outcomeOf(err error) string {
 	switch {
 	case err == nil:

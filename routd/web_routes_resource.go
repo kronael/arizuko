@@ -85,7 +85,7 @@ func (s *Server) webRoutesHandler(ctx context.Context, x resreg.Execution) (any,
 				return nil, resreg.Errorf(http.StatusBadRequest,
 					"redirect_to must point into this folder's own slot: /pub/%s/... or /priv/%s/...", folder, folder)
 			}
-			// Shadow constraint (spec 5/V §5): proxyd resolves /pub/* by LONGEST
+			// Shadow constraint (spec 5/V-web-vhosts §5): proxyd resolves /pub/* by LONGEST
 			// prefix, so a redirect above a group's slot answers for the whole
 			// slot. One `/pub/` row took publishing off four of five folders for
 			// three months (BUGS L314); the refusal names the folders it would take.
@@ -99,7 +99,7 @@ func (s *Server) webRoutesHandler(ctx context.Context, x resreg.Execution) (any,
 					p, strings.Join(shadowed, ", "), pubSlot(shadowed[0]))
 			}
 		}
-		// Path-claim (spec 5/V §4): the own slot is always allowed; another
+		// Path-claim (spec 5/V-web-vhosts §4): the own slot is always allowed; another
 		// prefix only if unclaimed by another folder.
 		inOwnSlot := strings.HasPrefix(p, pubSlot(folder)) ||
 			strings.HasPrefix(p, privSlot(folder))
@@ -138,7 +138,7 @@ func (s *Server) webRoutesHandler(ctx context.Context, x resreg.Execution) (any,
 }
 
 // pubSlot is the URL prefix a folder's `~/public_html/` is served at, privSlot
-// the OAuth-gated twin (spec 5/V §Agent web slots). One declaration for every
+// the OAuth-gated twin (spec 5/V-web-vhosts §Agent web slots). One declaration for every
 // reader in this file.
 func pubSlot(folder string) string  { return "/pub/" + folder + "/" }
 func privSlot(folder string) string { return "/priv/" + folder + "/" }

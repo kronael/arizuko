@@ -1,6 +1,6 @@
 package routd
 
-// Tests for routd's audit read (spec 5/I, BUGS F29): one handler, two faces,
+// Tests for routd's audit read (spec 5/I-tool-call-logging, BUGS F29): one handler, two faces,
 // two injected gates.
 //
 // The agent socket is where a genuinely non-operator caller exists, so it is

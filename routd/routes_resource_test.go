@@ -20,7 +20,7 @@ package routd
 //     TestRoutesMCP_DeleteSelfDefaultRefused fail if the guard is removed — a folder
 //     would orphan its own seq-0 default route.
 //
-// 5/33: no route tool is in the role:member floor, so every test delegates the ones
+// 5/33-paths-roles: no route tool is in the role:member floor, so every test delegates the ones
 // it drives with grantMCPTools (scope <folder>/**, which covers the folder and its
 // descendants — the cross-folder arms target a sibling/parent OUTSIDE that scope).
 
@@ -469,7 +469,7 @@ func TestRoutesMCP_AuditRowLands(t *testing.T) {
 // helpers, moved here from ipc when the route tools migrated to resreg (their only
 // callers moved with them).
 //
-// A route target is a BARE folder path. Spec 5/34 gives targets no prefix
+// A route target is a BARE folder path. Spec 5/34-channel-protocol gives targets no prefix
 // vocabulary and no writer emits one, so `folder:`/`daemon:`/`builtin:` are not
 // folders — the prefixed cases below pin that they are within nothing and are
 // nobody's self-default, rather than being silently stripped back into a folder

@@ -14,7 +14,7 @@ import (
 )
 
 // The endpoint and its trust bundle reach every daemon, because every daemon
-// reads its owner's tables from the same server (spec 6/42 §7).
+// reads its owner's tables from the same server (spec 6/42-dynamo-over-postgres §7).
 func TestStoreEndpointReachesEveryDaemon(t *testing.T) {
 	dir := seed(t, "APP=arizuko\nFLAVOR=test\n"+
 		dynstore.EnvURL+"=https://extenddb:18443\n"+

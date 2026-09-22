@@ -1,7 +1,7 @@
 // Command routd runs the routd daemon: the conversation state machine —
 // routing rules + the message/event store + the orchestration loop +
 // channel ingress/egress. routd is the SOLE appender of messages and a
-// token VERIFIER, not a signer (spec 5/E). It owns routd.db and calls
+// token VERIFIER, not a signer (spec 5/E-routd). It owns routd.db and calls
 // runed (POST /v1/runs) to execute turns.
 package main
 
@@ -87,7 +87,7 @@ func main() {
 	defer cancel()
 
 	// Verifier: offline-verify bearer tokens against authd's JWKs. routd
-	// holds no signing key (spec 5/E § Auth). Unset AUTHD_URL → no
+	// holds no signing key (spec 5/E-routd § Auth). Unset AUTHD_URL → no
 	// verifier (single-tenant / local-dev); the Server treats nil as open.
 	var verify routd.Verifier
 	// dashKeys arms the /dash/routd/ operator gate from the SAME keyset the /v1
@@ -116,12 +116,12 @@ func main() {
 	runedWait := runTimeout + 2*time.Minute
 	var runedClient *runedv1.Client
 	// identity resolves a sender sub → canonical identity at authd's
-	// GET /v1/identities/{sub} (authd OWNS identity — spec 5/9), reusing the same
+	// GET /v1/identities/{sub} (authd OWNS identity — spec 5/1-auth-standalone), reusing the same
 	// service:routd token source as the runed client. nil when authd/the service
 	// key is unwired → inspect_identity answers unclaimed (auth-only deployment).
 	var identity routd.IdentityResolver
 	// onbod federates the /invite + /gate slash commands (onbod OWNS invites +
-	// onboarding_gates — spec 5/5), reusing the same service:routd token source.
+	// onboarding_gates — spec 5/16-mcp-rest-unification), reusing the same service:routd token source.
 	// nil when ONBOD_URL or the service key is unwired → the commands report the
 	// federation gap, exactly as the pre-federation stubs did.
 	var onbod routd.OnbodClient
@@ -186,7 +186,7 @@ func main() {
 		InstanceName:          core.EnvOr("ASSISTANT_NAME", core.DefaultAssistantName),
 		ObserveWindowMessages: core.EnvInt("OBSERVE_WINDOW_MESSAGES", 10),
 		ObserveWindowChars:    core.EnvInt("OBSERVE_WINDOW_CHARS", 4000),
-		// Pre-spawn budget gate (spec 11/19, 6/39); default-on. Off clears the
+		// Pre-spawn budget gate (spec 11/19-cost-caps, 6/39); default-on. Off clears the
 		// gateway's budgets too, so the escape hatch reaches what enforces them.
 		CostCapsEnabled: core.EnvOr("COST_CAPS_ENABLED", "true") == "true",
 		// Model gateway (spec 6/23, 6/39). With a URL set, routd mints one
@@ -213,7 +213,7 @@ func main() {
 		// Turn retry on SIGKILL/OOM/timeout (spec 5/12). Default 3.
 		MaxTurnRetry: core.EnvInt("MAX_TURN_RETRY", 3),
 		// Transient delivery failures a pending bot row absorbs before the
-		// outbound sweep dead-letters it (spec 5/34). Default 10.
+		// outbound sweep dead-letters it (spec 5/34-channel-protocol). Default 10.
 		MaxOutboundRetry: core.EnvInt("MAX_OUTBOUND_RETRY", 10),
 		// Inbound media enrichment (download + Whisper transcription); unset
 		// MEDIA_ENABLED leaves it off. The MEDIA_* and WHISPER_MODEL defaults
@@ -233,7 +233,7 @@ func main() {
 	srv := routd.NewServer(db, loop, deliver, verify, core.DurOr("ENGAGEMENT_TTL", routd.DefaultEngagementTTL), webHost)
 	srv.SetDashKeySet(dashKeys)
 	srv.SetIdentityResolver(identity)
-	// session_log run history federated from runed (runed OWNS it — spec 5/P):
+	// session_log run history federated from runed (runed OWNS it — spec 5/P-runed):
 	// reuse routd's existing runed client, no new auth wiring. nil client →
 	// the new_session hint / inspect_session render "no prior session".
 	srv.SetSessionResolver(routd.NewSessionResolver(runedClient))
@@ -242,7 +242,7 @@ func main() {
 	loop.BindServer(srv)
 	srv.SetDirs(filepath.Join(dataDir, "groups"), filepath.Join(dataDir, "web"))
 	// Mirror proxyd's vhost config so get_web_presence can report a folder's
-	// derived (<folder>.<HOSTING_DOMAIN>) / aliased canonical host (spec 5/V).
+	// derived (<folder>.<HOSTING_DOMAIN>) / aliased canonical host (spec 5/V-web-vhosts).
 	srv.SetVhosts(
 		strings.ToLower(strings.TrimSuffix(os.Getenv("HOSTING_DOMAIN"), ".")),
 		groupfolder.ParseVhostAliases(os.Getenv("WEB_VHOST_ALIASES")),

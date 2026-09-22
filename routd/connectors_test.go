@@ -57,7 +57,7 @@ func fakeMCP(t *testing.T) string {
 
 // seedSecretsStore wraps routd's OWN routd.db handle as a keyring-matched
 // *store.Store for seeding encrypted secret rows the way the operator would —
-// routd OWNS the secrets table now (spec 5/5), so reads come from there, NOT a
+// routd OWNS the secrets table now (spec 5/16-mcp-rest-unification), so reads come from there, NOT a
 // sibling messages.db. Sets routd's decrypt keyring too so db.FolderSecrets
 // resolves them.
 func seedSecretsStore(t *testing.T, d *DB, key string) *store.Store {

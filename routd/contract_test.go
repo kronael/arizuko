@@ -20,7 +20,7 @@ import (
 
 // stubRunner records the POST /v1/runs body and, on Run, replies through
 // routd's append-and-deliver (the sole appender) then returns
-// {outcome:ok, session_id:stub}. Mirrors the spec 5/E standalone acceptance
+// {outcome:ok, session_id:stub}. Mirrors the spec 5/E-routd standalone acceptance
 // stub runed.
 type stubRunner struct {
 	srv      *Server
@@ -63,7 +63,7 @@ func newTestRoutd(t *testing.T) (*DB, *Server, *stubRunner) {
 	return db, srv, runner
 }
 
-// TestContractRoundTrip is the spec 5/E § Standalone-ready acceptance:
+// TestContractRoundTrip is the spec 5/E-routd § Standalone-ready acceptance:
 // ingest → route → loop dispatches a stub run → callback reply appends one
 // bot row → submit_turn recorded in turn_results, duplicate dropped.
 func TestContractRoundTrip(t *testing.T) {
@@ -122,7 +122,7 @@ func TestContractRoundTrip(t *testing.T) {
 // batch is re-fed next poll), NOT surface an error (so the queue breaker never
 // trips — busy ≠ failure), and leave turn_context 'running' (so the re-dispatch
 // is live). Once capacity frees, the SAME turn_id re-dispatches and completes.
-// Spec 5/E § routd↔runed interface — busy is retryable, not a route-miss and
+// Spec 5/E-routd § routd↔runed interface — busy is retryable, not a route-miss and
 // not a delivery failure.
 func TestBusyOutcomeRetriesWithoutAdvanceOrBreaker(t *testing.T) {
 	db, srv, runner := newTestRoutd(t)

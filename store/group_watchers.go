@@ -48,7 +48,7 @@ func watcherCoord(sortKey string) (observer, source string, err error) {
 }
 
 // AddGroupWatcher subscribes observer to source's inbound messages as ambient
-// context (spec 5/F). Asking twice is asking for the same state.
+// context (spec 5/F-topic-lineage). Asking twice is asking for the same state.
 func (s *Store) AddGroupWatcher(observer, source string) error {
 	key, err := watcherKey(observer, source)
 	if err != nil {

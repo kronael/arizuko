@@ -5,7 +5,7 @@ import (
 	"net/http"
 )
 
-// handlePackages lists the instance's installed packages (spec 5/28): the
+// handlePackages lists the instance's installed packages (spec 5/28-packages): the
 // installed_packages record, read from routd.db. Read-only, and so is the
 // resource behind it (`GET /v1/installed_packages`, routd/packages_resource.go)
 // — install / upgrade / remove is the `arizuko packages` CLI, because it also

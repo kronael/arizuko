@@ -59,7 +59,7 @@ func (s *server) handleMCP(w http.ResponseWriter, r *http.Request) {
 //
 // Containment: the grant set is built from the ROW, never from a request param, so
 // auth.MatchGroups can only ever admit row.Folder(). Its glob is segment-wise, so
-// `atlas` admits `atlas` alone — a token never reaches a subfolder (5/33 dec 8).
+// `atlas` admits `atlas` alone — a token never reaches a subfolder (5/33-paths-roles dec 8).
 func (s *server) handleChatTokenMCP(w http.ResponseWriter, r *http.Request) {
 	row, ok := s.lookupRouteToken(w, r, r.PathValue("token"))
 	if !ok {
@@ -84,7 +84,7 @@ func (s *server) handleChatTokenMCP(w http.ResponseWriter, r *http.Request) {
 func (s *server) buildWebMCP(sub, name string, grants []string, pin *chatPin) *mcpserver.MCPServer {
 	srv := mcpserver.NewMCPServer("arizuko-web", "1.0")
 
-	// Operator-only resource tools (spec 5/5). Invisible to non-operators, so a
+	// Operator-only resource tools (spec 5/17-openapi-mcp). Invisible to non-operators, so a
 	// one-element grant set never sees them.
 	registerRoutesMCP(srv, s.proxyd, sub, name, grants)
 

@@ -53,7 +53,7 @@ func mixInstance(t *testing.T, files map[string]map[string]string, order []strin
 	return dataDir, base
 }
 
-// TestProductsApplyWritesGroupScopedRecord is spec 5/28's one unbuilt item: a
+// TestProductsApplyWritesGroupScopedRecord is spec 5/28-packages's one unbuilt item: a
 // reader for products.toml AND the only writer of a non-empty
 // installed_packages.folder. A record under InstanceWide would mean composition
 // still shares the instance's key and `packages remove` could reach a group's

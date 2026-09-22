@@ -169,7 +169,7 @@ func TestChatTokenMCP_GetHistoryCrossFolderRefused(t *testing.T) {
 // SECURITY: auth.MatchGroups is segment-wise, so the one-element grant `main`
 // admits `main` alone. A token never descends into a subfolder — that subfolder is
 // a different chat with its own JID, which this token's recorded JID cannot address
-// (5/33 decision 8, the same rule requireFolder answers with).
+// (5/33-paths-roles decision 8, the same rule requireFolder answers with).
 func TestChatTokenMCP_SendSubfolderRefused(t *testing.T) {
 	_, mr, srv, st := newChatTokenMCPServer(t)
 	seedGroup(t, st, "main", "Main")

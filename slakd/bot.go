@@ -698,7 +698,7 @@ func (b *bot) handleJoin(teamID string, raw json.RawMessage) {
 	b.lastInboundAt.Store(time.Now().Unix())
 }
 
-// ===== assistant pane (specs/8/D) =====
+// ===== assistant pane (specs/8/D-slack-agent-pane) =====
 
 // defaultPanePrompts is the suggested-prompt set shown when a pane
 // opens. Operator-overridable later via PERSONA.md (deferred).
@@ -1444,7 +1444,7 @@ func (b *bot) Typing(jid string, on bool) {
 }
 
 // paneWrite POSTs one pane mutation to routd's POST /v1/pane (routd OWNS
-// pane_sessions in the split topology — spec 5/5), authed with slakd's
+// pane_sessions in the split topology — spec 5/16-mcp-rest-unification), authed with slakd's
 // registered channel token. op is "open" (UpsertPane) or "context"
 // (SetPaneContext). routd routes the write to routd.db; slakd never opens
 // messages.db for pane writes.

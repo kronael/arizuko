@@ -251,7 +251,7 @@ func TestProxydRoutesAssembled(t *testing.T) {
 		// anonymously with the transit proof (specs/6/22 step 1).
 		"/chat/": {Path: "/chat/", Backend: "http://webd:8080", Auth: "optional"},
 		"/dash/": {Path: "/dash/", Backend: "http://dashd:8080", Auth: "user"},
-		// Pairing (spec 5/31): auth `user` so an anonymous visitor is bounced
+		// Pairing (spec 5/31-identity-pairing): auth `user` so an anonymous visitor is bounced
 		// through OAuth before the confirm page renders.
 		"/pair/": {Path: "/pair/", Backend: "http://webd:8080", Auth: "user"},
 	}
@@ -273,7 +273,7 @@ func TestProxydRoutesAssembled(t *testing.T) {
 	}
 }
 
-// The /me user portal (webd/me.go, 13 handlers) shipped unreachable: spec 5/V
+// The /me user portal (webd/me.go, 13 handlers) shipped unreachable: spec 5/V-web-vhosts
 // lists /me among the globally-served reserved prefixes, but coreProxydRoutes
 // never declared it, so proxyd's MatchRoute missed and the final catch-all
 // turned every /me/* request into a /pub/me/* redirect. Assert the exact

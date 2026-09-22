@@ -6,7 +6,7 @@ package routd
 // test drives the REAL unix socket end-to-end (not the handler directly) so the
 // seam + injected Gate + Visible predicate are all exercised.
 //
-// 5/33 decision 8: containment is the grant's scope, not a tier depth cap —
+// 5/33-paths-roles decision 8: containment is the grant's scope, not a tier depth cap —
 // egress management is a delegable scoped grant (TestNetworkRulesMCP_ScopedGrantAllowsInScope).
 
 import (
@@ -20,7 +20,7 @@ import (
 
 // grantMCPTools delegates folder's agent-socket principal (folder:<folder>) the
 // named mcp tools, scoped to its own subtree (folder/**, which covers the folder
-// itself and every descendant). 5/33: management is explicit delegation, not a tier
+// itself and every descendant). 5/33-paths-roles: management is explicit delegation, not a tier
 // default — a test that exercises a management tool grants it here. Shared across
 // the resource-parity tests.
 func grantMCPTools(t *testing.T, db *DB, folder string, tools ...string) {
@@ -207,7 +207,7 @@ func TestNetworkRulesMCP_Tier1SubtreeContainment(t *testing.T) {
 		_ = db.PutGroup(core.Group{Folder: f})
 	}
 	// Operator delegates world/a egress management over its own subtree (world/a/**):
-	// covers the folder itself and every descendant, denies siblings/parent — 5/33
+	// covers the folder itself and every descendant, denies siblings/parent — 5/33-paths-roles
 	// containment is the grant scope.
 	if err := addACLRow(db, core.ACLRow{
 		Principal: "folder:world/a", Action: "mcp:network_allow",
@@ -246,7 +246,7 @@ func TestNetworkRulesMCP_Tier1SubtreeContainment(t *testing.T) {
 	}
 }
 
-// TestNetworkRulesMCP_ScopedGrantAllowsInScope pins the 5/33 (B) model (spec 5/33
+// TestNetworkRulesMCP_ScopedGrantAllowsInScope pins the 5/33-paths-roles (B) model (spec 5/33-paths-roles
 // decision 8, "containment = grant scope"): egress management is a DELEGABLE
 // scoped grant, not a hard tier cap. A folder the OPERATOR explicitly grants
 // network_allow (scoped to its own subtree) MAY manage egress there — and is

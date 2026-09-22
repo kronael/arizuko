@@ -10,7 +10,7 @@ import (
 )
 
 // A pairing token is not a delivery credential: routd's own resolve/list/revoke
-// surfaces are scoped to kind='route' (spec 5/31).
+// surfaces are scoped to kind='route' (spec 5/31-identity-pairing).
 func TestRouteTokenResolve_RejectsPairingKind(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {

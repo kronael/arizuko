@@ -63,7 +63,7 @@ func req(t *testing.T, h http.Handler, method, path string) *httptest.ResponseRe
 }
 
 // TestKillRequiresScope: DELETE /v1/runs/{id} demands runs:kill — a token
-// without it is 403 (spec 5/P § DELETE; bugs.md should-fix server.go:43).
+// without it is 403 (spec 5/P-runed § DELETE; bugs.md should-fix server.go:43).
 func TestKillRequiresScope(t *testing.T) {
 	rec := &killRecorder{}
 	db, srv := serverWith(t, rec, fakeVerifier{scope: []string{"sessions:read"}}) // wrong scope

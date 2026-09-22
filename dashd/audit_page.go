@@ -1,7 +1,7 @@
 package main
 
 // GET /dash/audit/ — the operator audit log, FEDERATED across the daemons that own one
-// (spec 5/I, BUGS F29).
+// (spec 5/I-tool-call-logging, BUGS F29).
 //
 // audit_log is per-daemon by design: each daemon owns and migrates its own DB and its
 // own audit table, and correlation across them is the turn_id. This page used to read

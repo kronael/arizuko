@@ -95,7 +95,7 @@ func seedTask(t *testing.T, d *DB, id, owner, jid, prompt string) {
 
 // stubIdentity is a fixed IdentityResolver standing in for authd's
 // GET /v1/identities/{sub} in the inspect_identity tests — routd snapshots
-// identity over HTTP now (authd OWNS it, spec 5/9), never the sibling
+// identity over HTTP now (authd OWNS it, spec 5/1-auth-standalone), never the sibling
 // messages.db.
 type stubIdentity struct {
 	idn  ipc.Identity

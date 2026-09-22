@@ -36,7 +36,7 @@ func (b *blockingRunner) Run(_ *core.Config, _ *groupfolder.Resolver, in contain
 // registers the steer closure (IPC write + SIGUSR1) before spawning, so a
 // concurrent POST /v1/runs for the busy folder steers into the live
 // container (steered:true) instead of a fresh spawn. The docker `kill`
-// SIGUSR1 is faked; the IPC write hits a real tmp dir (spec 5/P § steer).
+// SIGUSR1 is faked; the IPC write hits a real tmp dir (spec 5/P-runed § steer).
 func TestProdSteerPath(t *testing.T) {
 	ipcDir := t.TempDir()
 	folders := &groupfolder.Resolver{GroupsDir: t.TempDir(), IpcDir: ipcDir}

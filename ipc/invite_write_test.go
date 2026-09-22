@@ -6,7 +6,7 @@ import (
 )
 
 // invite_create/invite_list/invite_revoke are the MCP twins of REST
-// POST/GET/DELETE /v1/invites (spec 5/5). A tier-0 (operator) caller drives all
+// POST/GET/DELETE /v1/invites (spec 5/16-mcp-rest-unification). A tier-0 (operator) caller drives all
 // three; the closures funnel to onbod (faked here as the GatedFns funcs).
 func TestServeMCP_InviteWrite_Tier0(t *testing.T) {
 	dir := t.TempDir()
@@ -82,7 +82,7 @@ func TestServeMCP_InviteWrite_Tier0(t *testing.T) {
 }
 
 // A folder that holds NO invite_create/invite_revoke grant is denied by the injected
-// Authorize (5/33: invite management is a delegated grant, not a floor tool); invite_list
+// Authorize (5/33-paths-roles: invite management is a delegated grant, not a floor tool); invite_list
 // (read-only, self-filtered) is granted here and stays allowed.
 func TestServeMCP_InviteWrite_Denied(t *testing.T) {
 	dir := t.TempDir()

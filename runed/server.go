@@ -13,7 +13,7 @@ import (
 )
 
 // Verifier offline-verifies inbound bearer tokens against authd's keys. runed
-// is a verifier, not a signer (spec 5/P § Auth). nil = open (local-dev).
+// is a verifier, not a signer (spec 5/P-runed § Auth). nil = open (local-dev).
 type Verifier interface {
 	Verify(r *http.Request) (sub string, scope []string, folder string, err error)
 }
@@ -101,7 +101,7 @@ func ownsFolder(tokenFolder, target string) bool {
 
 // handleRun is the routd→runed contract (POST /v1/runs), gated on runs:run: a
 // scope check, not a bare bearer, so a stray agent/user token that reaches
-// this internal service cannot start arbitrary runs (spec 5/P § Auth).
+// this internal service cannot start arbitrary runs (spec 5/P-runed § Auth).
 func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 	_, folder, ok := s.authz(w, r, "runs:run")
 	if !ok {
@@ -280,7 +280,7 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, out)
 }
 
-// handleRecentSessions is the routd→runed federation read (spec 5/P): the n
+// handleRecentSessions is the routd→runed federation read (spec 5/P-runed): the n
 // newest session_log rows for a folder, since routd never opens runed's store.
 // Folder is bound by the token's arz/folder claim when present; routd's
 // service token honors ?folder=.

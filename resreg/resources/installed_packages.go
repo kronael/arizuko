@@ -8,7 +8,7 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
-// InstalledPackagesRow mirrors installed_packages (spec 5/28). manifest +
+// InstalledPackagesRow mirrors installed_packages (spec 5/28-packages). manifest +
 // asset_hashes are Go maps, so each DECLARES its encoding (resreg/codec.go).
 // The PK is composite (folder, name): composition blends a product mix per
 // GROUP, so the lock names which group (BUGS F30). Folder "" is instance-wide.

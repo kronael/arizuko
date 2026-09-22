@@ -45,7 +45,7 @@ func testResourceMux(t *testing.T, callerBuild resreg.CallerFromHTTPFunc) (*http
 	t.Helper()
 	st := testutils.NewRoutdStore(t)
 	// Seed ACL so the operator (predicate operator=1) admits everywhere.
-	// Spec 5/32 — operator is emergent from the `**` row, not a role.
+	// Spec 5/32-acl-unified — operator is emergent from the `**` row, not a role.
 	if err := st.AddACLRow(core.ACLRow{
 		Principal: "**", Action: "*", Scope: "**",
 		Effect: "allow", Predicate: "operator=1",
@@ -304,8 +304,8 @@ func TestRoutesResource_Durable(t *testing.T) {
 }
 
 // One Handler, two adapters: the handler used by REST is the exact same
-// function value the MCP tool dispatches to. Spec 5/5 §"One renderer,
-// many sinks" — structurally proves no duplication.
+// function value the MCP tool dispatches to. Spec 5/17-openapi-mcp — one handler,
+// two faces, and the MCP face is derived from it.
 func TestRoutesResource_SingleHandler(t *testing.T) {
 	st := testutils.NewRoutdStore(t)
 	rr := newRoutesResource(st, nil)

@@ -67,7 +67,7 @@ func TestDependsOnParse(t *testing.T) {
 	}
 }
 
-// TestPackagesInstallRemove is the P1 install→record→remove flow (spec 5/28):
+// TestPackagesInstallRemove is the P1 install→record→remove flow (spec 5/28-packages):
 // install a source dir's fragment assets, write the installed-package record,
 // then remove exactly what the record says was installed.
 func TestPackagesInstallRemove(t *testing.T) {
@@ -124,7 +124,7 @@ func TestPackagesInstallRemove(t *testing.T) {
 	}
 }
 
-// TestDirtyAssets is P3's safety core (spec 5/28): a recorded asset whose
+// TestDirtyAssets is P3's safety core (spec 5/28-packages): a recorded asset whose
 // on-disk content still matches its install hash is clean; an operator edit
 // makes it dirty, so upgrade will refuse to overwrite it.
 func TestDirtyAssets(t *testing.T) {
@@ -379,7 +379,7 @@ func gitInit(t *testing.T, dir string) {
 	}
 }
 
-// TestPackagesInstallGit is P1b (spec 5/28): install from a git source resolves
+// TestPackagesInstallGit is P1b (spec 5/28-packages): install from a git source resolves
 // an immutable revision (not "local") and records it, cloning via file:// URL.
 func TestPackagesInstallGit(t *testing.T) {
 	t.Cleanup(func() { dropInstance(t) })
@@ -418,7 +418,7 @@ func TestPackagesInstallGit(t *testing.T) {
 	}
 }
 
-// TestPackagesInstallRoutesHotApply is P2 (spec 5/28, fixes 5/27 C2): install
+// TestPackagesInstallRoutesHotApply is P2 (spec 5/28-packages, fixes 5/27-compose-native-packaging C2): install
 // writes a package manifest's route straight into the live proxyd_routes table
 // and records its PK; remove deletes it. proxyd reads that table per request, so
 // the route is live without a restart.
@@ -482,7 +482,7 @@ func routePresent(t *testing.T, rdb *routd.DB, path string) bool {
 	return false
 }
 
-// TestPackagesInstallGrants: the acl asset kind (spec 5/28) — install applies a
+// TestPackagesInstallGrants: the acl asset kind (spec 5/28-packages) — install applies a
 // package manifest's acl block and records the rows; remove reverses exactly.
 func TestPackagesInstallGrants(t *testing.T) {
 	t.Cleanup(func() { dropInstance(t) })
@@ -544,7 +544,7 @@ func TestPackagesInstallGrants(t *testing.T) {
 	}
 }
 
-// TestPackagesInstallSkills: the skills asset kind (spec 5/28) — install copies
+// TestPackagesInstallSkills: the skills asset kind (spec 5/28-packages) — install copies
 // a package's skills/<name>/ into <datadir>/skills/<name>/ (seedSkills layers it
 // into every group), records the names; remove deletes them.
 func TestPackagesInstallSkills(t *testing.T) {
@@ -590,7 +590,7 @@ func TestPackagesInstallSkills(t *testing.T) {
 
 // A package grant carrying a predicate on a folder: principal is refused: the
 // agent socket is the only caller such a row can match and it passes no JWT
-// claims, so the grant would install and then never fire (spec 5/5 Open 2,
+// claims, so the grant would install and then never fire (spec 5/5-worlds-agents-sessions Open 2,
 // BUGS F59). A user: principal keeps its predicate — the HTTP gates do populate
 // claims.
 func TestCheckGrantPredicate(t *testing.T) {

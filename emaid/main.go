@@ -17,7 +17,7 @@ var caps = map[string]bool{"send_text": true, "fetch_history": true}
 
 func main() {
 	cfg := loadConfig()
-	// Spec 11/17 tier-3 DKIM is pre-wired but unimplemented. Surface the
+	// Spec 11/17-emaid-auth tier-3 DKIM is pre-wired but unimplemented. Surface the
 	// gap loudly so an operator who set EMAIL_VERIFY_DKIM=true knows
 	// they got A-R parsing only, not cryptographic re-verification.
 	if cfg.Auth.VerifyDKIM {

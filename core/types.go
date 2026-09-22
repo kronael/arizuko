@@ -113,7 +113,7 @@ type Route struct {
 	ObserveWindowChars    int    `json:"observe_window_chars,omitempty"`
 }
 
-// TopicLineage is the per-topic state introduced by spec 5/F. ParentTopic is *string
+// TopicLineage is the per-topic state introduced by spec 5/F-topic-lineage. ParentTopic is *string
 // so "fork from main" is distinguishable from "no parent". Empty ObservedCursor means
 // no cursor recorded yet. All timestamps are core.TSLayout UTC.
 type TopicLineage struct {
@@ -259,10 +259,10 @@ func NewSessionID() string {
 }
 
 // ErrTopicExists signals a fork attempted to overwrite an existing
-// (folder, topic) without force=true. Spec 5/F.
+// (folder, topic) without force=true. Spec 5/F-topic-lineage.
 var ErrTopicExists = fmt.Errorf("topic exists")
 
-// ACLRow is one grant in the unified ACL (spec 6/9). Effect is "allow"
+// ACLRow is one grant in the unified ACL (spec 5/32-acl-unified). Effect is "allow"
 // or "deny" (deny wins). Params/predicate are empty strings when absent.
 type ACLRow struct {
 	Principal string
@@ -273,7 +273,7 @@ type ACLRow struct {
 	Predicate string
 	GrantedBy string
 	GrantedAt string
-	// GrantOption is Postgres WITH GRANT OPTION (spec 5/33): when true the holder
+	// GrantOption is Postgres WITH GRANT OPTION (spec 5/33-paths-roles): when true the holder
 	// may re-delegate this row (or a subset) onward. The delegation axis,
 	// orthogonal to the action lattice's read/write coverage.
 	GrantOption bool

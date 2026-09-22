@@ -77,7 +77,7 @@ func TestForkTopic_ForceOverwrites(t *testing.T) {
 	}
 }
 
-// Spec 5/F: EnsureTopicLineage returns inserted=true exactly on the
+// Spec 5/F-topic-lineage: EnsureTopicLineage returns inserted=true exactly on the
 // row-creating call. The gateway uses that signal to decide whether
 // to cp the parent session file.
 func TestEnsureTopicLineage_InsertedFlag(t *testing.T) {

@@ -4,7 +4,7 @@ package main
 // primitive shipped, no caller". The engine-owned primitive is
 // resreg.Resource.Retarget; this is the recipe over the two existing verbs
 // (export somewhere, apply here) the spec asks for, NOT a new copy-folder
-// mechanism. Its named consumers are 5/28's seed-once package group and
+// mechanism. Its named consumers are 5/28-packages's seed-once package group and
 // cross-instance folder migration.
 
 import (

@@ -24,7 +24,7 @@ func getUnrouted(t *testing.T, h http.Handler) (int, apiv1.UnroutedChatsResponse
 	return rec.Code, out
 }
 
-// TestUnroutedChats_HeldIsListedRoutedIsNot pins spec 6/35's rule from both
+// TestUnroutedChats_HeldIsListedRoutedIsNot pins spec 6/35-unrouted-traffic's rule from both
 // sides. A chat no route claims is held: no turn, and it is listed. A chat an
 // explicit route claims is absent from the list AND still dispatches to its
 // folder — an instance with routes today keeps routing exactly as it does now.

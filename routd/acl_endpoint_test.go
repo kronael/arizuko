@@ -128,7 +128,7 @@ func TestACLEndpointMissingFields(t *testing.T) {
 // row) if aclRESTGate's ownsFolder is dropped — the REST twin of
 // TestACLMCP_ContainmentDenied.
 //
-// 5/33 changed the ALLOWED arm: containment is the caller's SUBTREE, not its world.
+// 5/33-paths-roles changed the ALLOWED arm: containment is the caller's SUBTREE, not its world.
 // Pre-5/33 a tier-1 caller at world/a could grant on its sibling world/b; now it
 // cannot, so the allowed arm targets world/a/team.
 func TestACLRESTContainmentDenied(t *testing.T) {

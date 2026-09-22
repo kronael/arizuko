@@ -11,7 +11,7 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
-// TestAtomicAppendRouteTurn checks the spec 5/E invariant: append inbound →
+// TestAtomicAppendRouteTurn checks the spec 5/E-routd invariant: append inbound →
 // resolve route → start turn is one ordered view; the agent_cursor advances
 // only after the turn closes, the turn_context is bound at dispatch, and a
 // duplicate submit_turn dedups on (folder, turn_id).
@@ -55,7 +55,7 @@ func TestAtomicAppendRouteTurn(t *testing.T) {
 }
 
 // TestRouteMissDrops checks an unroutable chat advances the cursor and fires
-// no turn (route miss → drop, spec 5/E § pollOnce).
+// no turn (route miss → drop, spec 5/E-routd § pollOnce).
 func TestRouteMissDrops(t *testing.T) {
 	db, srv, runner := newTestRoutd(t)
 	// no group, no route → miss.
@@ -353,7 +353,7 @@ func TestRouteMissOnboardingFailureSurfaces(t *testing.T) {
 }
 
 // TestTransportFailureNoAdvance checks a transport failure leaves the
-// cursor un-advanced (re-fed next poll; spec 5/E § Transport failure).
+// cursor un-advanced (re-fed next poll; spec 5/E-routd § Transport failure).
 func TestTransportFailureNoAdvance(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {

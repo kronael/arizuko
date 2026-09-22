@@ -736,7 +736,7 @@ func (l *Loop) sessionIdleExpired(chatJID string) bool {
 // root session: a broken session is poison, and the next inbound gets a clean
 // spawn. The chat-visible notice is runTurn's; this is the prune+reset half.
 func (l *Loop) onCircuitBreakerOpen(chatJID, folder string) {
-	obs.SetCircuitBreakerState(folder, 2) // 2=open (spec 5/O)
+	obs.SetCircuitBreakerState(folder, 2) // 2=open (spec 5/O-observability)
 	if err := l.db.DeleteErroredMessages(chatJID); err != nil {
 		slog.Warn("prune errored messages failed", "jid", chatJID, "err", err)
 	}

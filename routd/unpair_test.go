@@ -1,6 +1,6 @@
 package routd
 
-// Unpair (spec 5/31 § Unpair): one action on acl_membership, scoped to
+// Unpair (spec 5/31-identity-pairing § Unpair): one action on acl_membership, scoped to
 // added_by='pairing'. Two faces, two endpoint proofs — the agent handling the
 // chat (MCP) and the account holder (REST) — and neither can reach a role
 // membership row.

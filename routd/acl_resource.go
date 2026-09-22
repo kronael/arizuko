@@ -2,7 +2,7 @@ package routd
 
 // acl_resource.go — the acl tools on one resreg.Resource plus the injected
 // Gate (spec 5/16); routd owns the auth POLICY. Three semantics the shared
-// handler preserves: scope-containment (the Gate runs the 5/33 evaluator on
+// handler preserves: scope-containment (the Gate runs the 5/33-paths-roles evaluator on
 // the `scope` arg, then auth.Delegate subset-of-held for a non-root add, so
 // "**" is reachable only from an operator/root grant); the operator-role
 // overload (scope "**" with the action OMITTED writes an acl_membership edge,
@@ -146,7 +146,7 @@ func (s *Server) aclPostBuild(folder, callerSub string, authorize authorizeFn, v
 		if !authorize(target, "mcp:"+name, nil) {
 			return resreg.Errorf(http.StatusForbidden, "%s on %s: not permitted", name, target)
 		}
-		// 5/33 delegation: a NON-root writer may only grant a row it HOLDS with
+		// 5/33-paths-roles delegation: a NON-root writer may only grant a row it HOLDS with
 		// the grant option (auth.Delegate). Root delegates anything.
 		if x.Action == resreg.Action("add") && !callerID.IsRoot {
 			// The candidate MUST be the row grantACLInto will WRITE — same builder,
@@ -176,7 +176,7 @@ func (s *Server) nonCanonicalWarning(principal string) string {
 }
 
 // NonCanonicalWarning reports whether `principal` is a KNOWN alias of another
-// account and returns the operator-facing warning (BUGS N2): 5/32 resolves a
+// account and returns the operator-facing warning (BUGS N2): 5/32-acl-unified resolves a
 // linked login to the canonical sub at MINT and grants key on the exact
 // string, so a grant against an alias can NEVER match. It is the ONE renderer
 // for every surface that writes an acl row — dashd writes grants straight to
@@ -232,8 +232,8 @@ func aclOperatorShape(r core.ACLRow) bool {
 
 // grantACLInto buffers the grant so the mutation + audit row ride one batch.
 // It takes the ROW so the candidate the Gate hands auth.Delegate and the row
-// this writes are one value. `params` is the `name=glob` narrowing (spec 5/32);
-// `grant_option` is 5/33's WITH GRANT OPTION, kept honest by the Gate: a
+// this writes are one value. `params` is the `name=glob` narrowing (spec 5/32-acl-unified);
+// `grant_option` is 5/33-paths-roles's WITH GRANT OPTION, kept honest by the Gate: a
 // non-root writer passes auth.Delegate, whose grantableRows holds only rows the
 // caller itself holds WITH the option.
 func (d *DB) grantACLInto(ctx context.Context, ws *store.WriteSet, row core.ACLRow) error {

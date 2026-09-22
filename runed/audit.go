@@ -8,12 +8,12 @@ import (
 	"github.com/kronael/arizuko/auth"
 )
 
-// The audit trail for runed's run-slot calls (spec 5/I): WHO claimed or freed
+// The audit trail for runed's run-slot calls (spec 5/I-tool-call-logging): WHO claimed or freed
 // a folder's run slot, not what ran in it. The spawns row already carries the
 // turn; what it cannot answer is who asked, and a kill leaves a spawns row
 // indistinguishable from a clean stop while a busy hold leaves none at all.
 // Denied calls are NOT recorded here: they are category `authz`, an open gap
-// in specs/5/I.
+// in specs/5/I-tool-call-logging.
 
 // Audit actions runed emits (category `agent`). Named for the run slot, not
 // the container: a hold spawns nothing.

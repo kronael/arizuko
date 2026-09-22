@@ -55,7 +55,7 @@ func walkFiles(t *testing.T, root string) map[string]string {
 // TestProductSeedIsVerbatim locks today's seed: SetupGroup copies a product tree into
 // the group folder byte-for-byte, every file, no filter.
 //
-// This is the regression bar for spec 5/28's composition blend. The blend table names
+// This is the regression bar for spec 5/28-packages's composition blend. The blend table names
 // eight payloads, but the shipped corpus also ships PRODUCT.md (11/11), SOUL.md (6/11)
 // and BRANDING.md (3/11). A table-strict blend treating the table as a whitelist would
 // silently DROP those.
@@ -255,7 +255,7 @@ func TestBothSeedersPlaceAlike(t *testing.T) {
 }
 
 // TestProductCorpusPayloadKinds pins the payload kinds the shipped corpus
-// actually uses, so spec 5/28's blend table can be checked against reality
+// actually uses, so spec 5/28-packages's blend table can be checked against reality
 // rather than against an earlier agent's recollection. Counts are asserted, not
 // described: if a product adds SOUL.md the count moves and the spec must too.
 func TestProductCorpusPayloadKinds(t *testing.T) {
@@ -381,8 +381,8 @@ func TestProductCatalogMatchesCorpus(t *testing.T) {
 	}
 }
 
-// TestEveryProductShipsEvalCases locks the other half of `5/9`'s "a product carries its
-// own cases": the harness takes `--cases <dir>`, and for a while exactly one of eleven
+// TestEveryProductShipsEvalCases locks the other half of spec 5/9-agent-capability-eval, "a product carries
+// its own cases": the harness takes `--cases <dir>`, and for a while exactly one of eleven
 // used it. A product with no cases regresses invisibly — every daemon healthy, all 34
 // platform cases green, and the persona quietly answering the way it must not.
 //

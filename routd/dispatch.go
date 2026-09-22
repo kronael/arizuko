@@ -281,7 +281,7 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 		}
 	}
 	// The trace id derives from the turn id so every daemon handling this turn
-	// shares one trace (spec 5/O).
+	// shares one trace (spec 5/O-observability).
 	ctx := obs.WithTurn(context.Background(), l.instanceName, turnID)
 	ctx, endSpan := obs.StartSpan(ctx, "turn",
 		"folder", folder, "jid", chatJID, "turn_id", turnID)
@@ -770,7 +770,7 @@ func (l *Loop) dispatchRun(ctx context.Context, folder, topic, chatJID, turnID, 
 	// CLI the agent drives has no tool call to broker.
 	shellEnv := l.db.ShellEnvSecrets(folder, string(caller))
 	maps.Copy(secrets, shellEnv)
-	// mounts/egress/web are GRANTS, not tier (5/33): runed consumes a decision,
+	// mounts/egress/web are GRANTS, not tier (5/33-paths-roles): runed consumes a decision,
 	// not a rule bundle. An elevated turn holds `*`; role:member grants none.
 	sub := "folder:" + folder
 	shareRO := !elevated && l.db.Authorize(sub, folder, "mcp:share_mount", map[string]string{"readonly": "true"})

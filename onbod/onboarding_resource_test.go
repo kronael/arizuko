@@ -1,7 +1,7 @@
 package main
 
 // Z3 coverage: the onboarding bearer never appears in a read projection. Since
-// onbod 0006 there is no column for it to appear in either — the 5/31 fold left
+// onbod 0006 there is no column for it to appear in either — the 5/31-identity-pairing fold left
 // token_ref/token_expires inert and they were dropped (BUGS F40) — so what is
 // pinned here is that the projection stays token-free and that a row written
 // before the reshape still survives the migrate chain.

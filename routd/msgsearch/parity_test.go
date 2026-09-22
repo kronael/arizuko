@@ -1,6 +1,6 @@
 package msgsearch
 
-// parity_test.go is the measurement spec 6/42 §12 item 4 asks for, on a corpus
+// parity_test.go is the measurement spec 6/42-dynamo-over-postgres §12 item 4 asks for, on a corpus
 // the size of the instance that runs it: how long the boot walk takes and what
 // the index costs in memory.
 //
@@ -72,7 +72,7 @@ func seedCorpus() *corpus {
 }
 
 // TestTheWalkAndTheIndexAreAffordable reports the two numbers the reopen
-// trigger of spec 6/42 §8 is written against: above one second of boot or a
+// trigger of spec 6/42-dynamo-over-postgres §8 is written against: above one second of boot or a
 // hundred megabytes of index, ranked search leaves routd's process.
 //
 // The walk's number is wall clock, so it is a measurement of the machine as

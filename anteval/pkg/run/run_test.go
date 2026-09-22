@@ -237,7 +237,7 @@ func (r *rootedTarget) Session(_, topic string) (string, error) {
 }
 
 // TestDriveResetsDirtyRootBeforeCases: the fork fix (BUGS L54) made every
-// case topic's first turn inherit the folder's MAIN session (specs/5/F), so a
+// case topic's first turn inherit the folder's MAIN session (specs/5/F-topic-lineage), so a
 // root session left by prior runs put 167 KB of history in front of every
 // case. Drive must clear it — send /new to the ROOT topic and hold case
 // injection until the root session is observably gone — before any case runs.

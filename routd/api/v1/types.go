@@ -1,6 +1,6 @@
 // Package v1 is routd's published contract: the wire types of the ingress
 // /v1/messages endpoint, the daemon-facing /v1/outbound, the route/token CRUD
-// and the turn result submit_turn carries. Imports only types/ (spec 5/E §
+// and the turn result submit_turn carries. Imports only types/ (spec 5/E-routd §
 // api/v1 surface) so a caller never drags in core.
 package v1
 
@@ -17,7 +17,7 @@ type Message struct {
 	ReplyTo       string `json:"reply_to"`
 	ReplyToText   string `json:"reply_to_text"`
 	ReplyToSender string `json:"reply_to_sender"`
-	ForwardedFrom string `json:"forwarded_from"` // delegation return-address (spec 5/E § delegation)
+	ForwardedFrom string `json:"forwarded_from"` // delegation return-address (spec 5/E-routd § delegation)
 	Topic         string `json:"topic"`
 	Verb          string `json:"verb"`     // default message; like|dislike|edit|delete|...
 	Reaction      string `json:"reaction"` // emoji for verb=like
@@ -194,7 +194,7 @@ type ErroredChatsResponse struct {
 
 // UnroutedChat is one row of GET /v1/routing/unrouted: a chat whose latest
 // inbound message no route, direct address or engagement window claims (spec
-// 6/35). Held, not delivered — the operator claims it by writing a route.
+// 6/35-unrouted-traffic). Held, not delivered — the operator claims it by writing a route.
 type UnroutedChat struct {
 	ChatJID    string `json:"chat_jid"`
 	Platform   string `json:"platform"`

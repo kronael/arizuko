@@ -44,7 +44,7 @@ func blendInto(t *testing.T, groupDir string, mix []Product, prior map[string]ma
 	return out
 }
 
-// TestBlendCatchAllCopiesUnnamedPayload locks spec 5/28's last table row: a
+// TestBlendCatchAllCopiesUnnamedPayload locks spec 5/28-packages's last table row: a
 // payload no rule names is copied whole, FIRST provider wins. Without it a
 // table-strict blend drops PRODUCT.md (10/10 of the corpus) and BRANDING.md.
 func TestBlendCatchAllCopiesUnnamedPayload(t *testing.T) {
@@ -283,7 +283,7 @@ func TestBlendUnionKindsMerge(t *testing.T) {
 	}
 }
 
-// TestBlendRefusesProductMigrations locks spec 5/28 §"Running a product's
+// TestBlendRefusesProductMigrations locks spec 5/28-packages §"Running a product's
 // migrations/": no runner exists, so seeding the payload would report success
 // for an asset that never executes — the settings.json mcpServers no-op again.
 func TestBlendRefusesProductMigrations(t *testing.T) {
@@ -311,7 +311,7 @@ func TestBlendRefusesProductMigrations(t *testing.T) {
 // not seeded. Nothing ever read it — no parser, no schema, no seeder — while
 // 5/21 told authors it seeded scheduled tasks, so the file landed in the group
 // and no task was created. Third payload of the same class, third refusal
-// (mcpServers J15, migrations/ 5/28).
+// (mcpServers J15, migrations/ 5/28-packages).
 func TestBlendRefusesProductTasks(t *testing.T) {
 	root := t.TempDir()
 	a := mkProduct(t, root, "a", map[string]string{

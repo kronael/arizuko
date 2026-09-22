@@ -1,6 +1,6 @@
 package obs
 
-// Prometheus metrics for the families in spec 5/O. Recording is always
+// Prometheus metrics for the families in spec 5/O-observability. Recording is always
 // safe: when METRICS_ENABLED is unset the collectors still exist but nothing
 // scrapes them, so Record* calls are cheap atomic adds with no exporter cost.
 // MetricsHandler returns the promhttp endpoint when enabled, a 404 stub when
@@ -15,7 +15,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
-// Bucket sets from spec 5/O § Histogram buckets.
+// Bucket sets from spec 5/O-observability § Histogram buckets.
 var (
 	bucketsTurn = []float64{0.1, 0.5, 1, 5, 10, 30, 60, 120, 300, 600}
 	bucketsHTTP = []float64{0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 5}

@@ -1,6 +1,6 @@
 package store
 
-// Identity pairing (spec 5/31): redeeming a kind='pair' route token writes the
+// Identity pairing (spec 5/31-identity-pairing): redeeming a kind='pair' route token writes the
 // acl_membership edge that makes an anonymous channel identity resolve to a
 // verified account. A channel identity holds no grants ever; the edge is the
 // only bridge, and the only way to write one is for the account owner to
@@ -28,7 +28,7 @@ import (
 
 // PairingTTL bounds redemption, measured from the token's created_at. Short,
 // but it is not the defence: a minter can mint again on demand. Consent at the
-// browser step is (spec 5/31 § Consent is the security boundary).
+// browser step is (spec 5/31-identity-pairing § Consent is the security boundary).
 const PairingTTL = 10 * time.Minute
 
 // PairingAddedBy stamps acl_membership.added_by on every edge pairing writes.
@@ -128,7 +128,7 @@ func (s *Store) pairingItem(ctx context.Context, rawToken string) (objstore.Item
 // RedeemPairing binds the channel identity named by rawToken to parentSub and
 // consumes the token, in one batch: resolve + age check, reject a different
 // non-role parent, insert the edge, delete the token. Returns the paired JID.
-// The new authority is live on the identity's next tool call (spec 5/32 § No
+// The new authority is live on the identity's next tool call (spec 5/32-acl-unified § No
 // caching).
 //
 // The consume is CONDITIONAL on the token still being there, so two redeemers
@@ -180,7 +180,7 @@ func (s *Store) RedeemPairing(rawToken, parentSub string) (string, error) {
 // UnpairInto buffers the deletion of ONE acl_membership edge on the caller's
 // write set, scoped to added_by = PairingAddedBy so it can never reach role
 // membership or a manifest-applied row. Takes effect on the identity's next
-// tool call (spec 5/32 § No caching). `added_by` is an attribute rather than
+// tool call (spec 5/32-acl-unified § No caching). `added_by` is an attribute rather than
 // part of the coordinate, so it is the write's CONDITION; refused is the "no
 // such edge" that refusal means.
 func (s *Store) UnpairInto(ws *WriteSet, child, parent string, refused error) error {

@@ -356,7 +356,7 @@ func TestMembership_CycleRejected(t *testing.T) {
 }
 
 // TestMembership_PairingRowsExcludedFromChecksumAndRebuild: added_by='pairing'
-// edges (spec 5/31's consented pairing links, added outside the manifest
+// edges (spec 5/31-identity-pairing's consented pairing links, added outside the manifest
 // apply path) never enter acl_membership's content-hash checksum, its
 // DELETE+INSERT rebuild, or a later Export — spec 5/8 CRITICAL finding
 // ("Cross-subsystem apply"): a pre-image rollback built from Export must

@@ -180,7 +180,7 @@ func stubRoutd(t *testing.T, db objstore.Store) string {
 		writeStubJSON(w, out)
 	})
 
-	// The held set (spec 6/35): chats with inbound rows that the route table
+	// The held set (spec 6/35-unrouted-traffic): chats with inbound rows that the route table
 	// does not claim and that address no folder directly. The verdict is
 	// router.ResolveRoute over the chat's last inbound row — the evaluator
 	// routd's loop calls at its route-table step — so the stub cannot list a

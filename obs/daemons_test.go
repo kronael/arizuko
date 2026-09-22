@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// Root CLAUDE.md ("### Observability") and specs/5/O §Surface both state the
+// Root CLAUDE.md ("### Observability") and specs/5/O-observability §Surface both state the
 // invariant as universal — "every daemon calls defer obs.Setup(...)" — and
 // nothing enforced it, so ttsd shipped without the call and the drift was only
 // found by reading every main() by hand. This test is the enforcement.

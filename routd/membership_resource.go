@@ -1,6 +1,6 @@
 package routd
 
-// Unpair (spec 5/31): acl_membership gains exactly ONE action — delete —
+// Unpair (spec 5/31-identity-pairing): acl_membership gains exactly ONE action — delete —
 // scoped to added_by='pairing' so it cannot reach role membership. Either
 // endpoint of the edge may call it, each face proving it IS that endpoint:
 // the AGENT is authorized against the folder the child JID routes to, the

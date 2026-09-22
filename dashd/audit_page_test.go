@@ -23,7 +23,7 @@ import (
 // with the page by construction.
 
 // auditDB is a migrated routd.db standing in for any audit_log owner: the four
-// tables are one shape, replicated per owner DB (spec 5/I), so routd's chain is
+// tables are one shape, replicated per owner DB (spec 5/I-tool-call-logging), so routd's chain is
 // the honest source for all of them.
 func auditDB(t *testing.T) objstore.Store { return routdDB(t) }
 

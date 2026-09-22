@@ -464,7 +464,7 @@ func (d *DB) SetEngagementAudited(ctx context.Context, jid, topic, folder string
 	return d.store().BumpEngagementWith(ctx, jid, topic, folder, time.Now().Add(ttl), rec)
 }
 
-// Engagement is one LIVE engagement window (spec 5/G). An alias, not a struct:
+// Engagement is one LIVE engagement window (spec 5/G-engagement). An alias, not a struct:
 // a second copy of the four fields is a second place for the shape to drift.
 type Engagement = store.Engagement
 

@@ -107,7 +107,7 @@ func TestOnboardingReachesThePage(t *testing.T) {
 
 // TestOnbodRefusesAnonymousWithoutRedirecting pins the loop out of reach by
 // construction. proxyd owns the login bounce and the auth_return cookie it
-// resumes from (spec 5/31); an onbod that bounced too would loop again the
+// resumes from (spec 5/31-identity-pairing); an onbod that bounced too would loop again the
 // moment its transit proof stopped verifying, with the caller already signed
 // in. Reaching onbod unidentified is a broken gate, so say so and stop.
 func TestOnbodRefusesAnonymousWithoutRedirecting(t *testing.T) {

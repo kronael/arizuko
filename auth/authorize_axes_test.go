@@ -7,7 +7,7 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
-// The two-axis tests (spec 5/33 §"Two axes"). Caller.Route carries what reaching
+// The two-axis tests (spec 5/33-paths-roles §"Two axes"). Caller.Route carries what reaching
 // through a destination confers; Caller.Principal carries what the attested sender
 // holds, confined to Route's subtree with the lattice refused.
 

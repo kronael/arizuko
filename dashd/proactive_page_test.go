@@ -117,7 +117,7 @@ func TestProactivePageRendersModes(t *testing.T) {
 	}
 }
 
-// TestProactivePageSeparatesBrokenFromSilent pins the distinction spec 5/6
+// TestProactivePageSeparatesBrokenFromSilent pins the distinction spec 5/6-proactive-interjection
 // refuses to collapse: a typo must not read as a deliberate off switch.
 func TestProactivePageSeparatesBrokenFromSilent(t *testing.T) {
 	db := proactiveDB(t)

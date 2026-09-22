@@ -22,7 +22,7 @@ import (
 
 // registerRoutesMCP attaches the five `routes.*` MCP tools to srv — a thin operator
 // surface over proxyd's /v1/proxyd_routes REST API. One handler in proxyd, two
-// adapters: REST on proxyd's own mux and MCP here (spec 5/5).
+// adapters: REST on proxyd's own mux and MCP here (spec 5/17-openapi-mcp).
 //
 // Authorization is enforced by proxyd: webd signs identity headers from the operator's
 // session and proxyd's gate runs auth.Authorize. webd's role is identity bridging —

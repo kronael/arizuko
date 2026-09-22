@@ -11,7 +11,7 @@ package main
 // — the single source the /openapi.json doc also reads, so served routes and doc
 // cannot drift. No credential appears in any projection here: OnboardingRow
 // omitted token_ref outright (Z3), and onbod 0006 dropped the column with its
-// expiry twin once the 5/31 fold left nothing writing them (BUGS F40).
+// expiry twin once the 5/31-identity-pairing fold left nothing writing them (BUGS F40).
 
 import (
 	"context"

@@ -225,7 +225,7 @@ func (r *RouterClient) Deregister() error {
 }
 
 // SendMessage delivers one inbound to routd. With RetainInbound wired, a
-// transient failure is ALSO retained for the sweep (spec 5/34, BUGS L25). The
+// transient failure is ALSO retained for the sweep (spec 5/34-channel-protocol, BUGS L25). The
 // error still returns: an adapter that gates a platform cursor on delivery
 // must keep seeing the failure.
 func (r *RouterClient) SendMessage(msg InboundMsg) error {

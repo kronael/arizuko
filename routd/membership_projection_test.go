@@ -63,7 +63,7 @@ func TestMembership_UnattributedEdgeStaysInTheProjection(t *testing.T) {
 }
 
 // The other half of the same predicate, and the reason it exists: a pairing edge
-// is consented runtime state and never enters the projection (spec 5/31).
+// is consented runtime state and never enters the projection (spec 5/31-identity-pairing).
 func TestMembership_PairingEdgeStaysOutOfTheProjection(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {

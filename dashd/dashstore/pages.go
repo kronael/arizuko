@@ -8,7 +8,7 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
-// InstalledPackage is one installed_packages row (spec 5/28). Folder is empty
+// InstalledPackage is one installed_packages row (spec 5/28-packages). Folder is empty
 // for an instance-wide install and names the group a product was blended into
 // otherwise; without the column the two read as the same fact and a product
 // looks like it installed a sidecar.

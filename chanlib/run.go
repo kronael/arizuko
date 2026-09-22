@@ -40,7 +40,7 @@ func Run(opts RunOpts) {
 	// unsigned call, so a missing key must fail loudly, not silently 401 every
 	// outbound (a krons telegram outage, 2026-06-07). The exchange principal is
 	// the DAEMON name (AUTHD_SERVICE_NAME, e.g. teled), NOT opts.Name (the
-	// CHANNEL_NAME); multi-account variants share the base principal (spec 5/R).
+	// CHANNEL_NAME); multi-account variants share the base principal (spec 5/R-multi-account).
 	authdURL, svcKey := os.Getenv("AUTHD_URL"), os.Getenv("AUTHD_SERVICE_KEY")
 	if authdURL == "" || svcKey == "" {
 		slog.Error("AUTHD_URL + AUTHD_SERVICE_KEY required", "daemon", opts.Name)

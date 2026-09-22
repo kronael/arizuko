@@ -6,7 +6,7 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
-// The turn-side half of spec 5/33 §"Two axes": that the attested sender actually
+// The turn-side half of spec 5/33-paths-roles §"Two axes": that the attested sender actually
 // REACHES the evaluator, and that turnAuthorize is the one place a turn's principals
 // are bound. auth/authorize_axes_test.go covers the evaluator's own rules.
 

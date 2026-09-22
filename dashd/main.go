@@ -354,13 +354,13 @@ func upstreamErr(daemon string, status int, body []byte) string {
 type dash struct {
 	// routd is the handle onto routd's tables — dashd's ONLY message/config
 	// store. routd OWNS acl/groups/routes/route_tokens/secrets/audit_log AND the
-	// live messages/chats/sessions/user_profiles tables (spec 5/5); dashd
+	// live messages/chats/sessions/user_profiles tables (spec 5/16-mcp-rest-unification); dashd
 	// reads+writes them here. A handle rather than a pool, so the same handlers
-	// run on an instance served from a DynamoDB endpoint (spec 6/42 §7). nil in
+	// run on an instance served from a DynamoDB endpoint (spec 6/42-dynamo-over-postgres §7). nil in
 	// read-only tests.
 	routd objstore.Store
 	// onbod is the handle onto onbod's tables. onbod OWNS invites/onboarding_gates
-	// in the split topology (spec 5/5); dashd's invites page reads+writes them
+	// in the split topology (spec 5/16-mcp-rest-unification); dashd's invites page reads+writes them
 	// here. nil when that optional profile is off.
 	onbod     objstore.Store
 	groupsDir string
@@ -385,7 +385,7 @@ type dash struct {
 	// onbodURL is onbod's /v1 face. dashd IS FS-mounted on onbod.db, but the audit read
 	// still goes over HTTP: /dash/audit/ is a fan-out of ONE path across four owners,
 	// and a direct-DB fourth source would be a second mechanism that drifts from the
-	// other three (spec 5/I, BUGS F35).
+	// other three (spec 5/I-tool-call-logging, BUGS F35).
 	onbodURL string
 	// secretKeyring is the SECRETS_KEY material handed to secretStore so user-secret
 	// writes seal at rest under the same key routd reads with. Empty → plaintext.
@@ -432,7 +432,7 @@ func (d *dash) onbodStore() *store.Store {
 func (d *dash) ds() *dashstore.Store { return dashstore.New(d.routd) }
 
 // openSiblingOwner opens another daemon's owner store through store.OpenOwner.
-// That door is the only place the dial is written (spec 6/42 §7), so dashd asks
+// That door is the only place the dial is written (spec 6/42-dynamo-over-postgres §7), so dashd asks
 // it rather than deciding for itself what it is talking to.
 //
 // A store that will not open means that daemon's profile is off — an optional

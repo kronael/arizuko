@@ -93,7 +93,7 @@ func TestSocialActionsRegistered(t *testing.T) {
 		},
 		GroupsDir: "/tmp/groups",
 	}
-	// 5/33: visibility is db.Visible (nil → all shown); this test only checks the
+	// 5/33-paths-roles: visibility is db.Visible (nil → all shown); this test only checks the
 	// server builds. Root here (all tools).
 	srv := buildMCPServer(gated, StoreFns{}, "world", true, "")
 	if srv == nil {
@@ -490,7 +490,7 @@ func TestServeMCP_PeerCredRejectsWrongUID(t *testing.T) {
 	}
 }
 
-// Spec 5/G — engage/disengage roundtrip with authz. Caller folder
+// Spec 5/G-engagement — engage/disengage roundtrip with authz. Caller folder
 // must own the conversation (EngagedFolder match OR JID default route).
 func TestServeMCP_Engagement_Authz(t *testing.T) {
 	dir := t.TempDir()
@@ -574,7 +574,7 @@ func TestServeMCP_Engagement_Authz(t *testing.T) {
 	}
 }
 
-// Spec 5/G fix 5 — fresh chat (no current engagement, no default route) is
+// Spec 5/G-engagement fix 5 — fresh chat (no current engagement, no default route) is
 // engageable by any caller. Lets autonomous turns bootstrap conversations
 // without a pre-existing route.
 func TestServeMCP_Engagement_FreshChatAuthz(t *testing.T) {
@@ -611,7 +611,7 @@ func TestServeMCP_Engagement_FreshChatAuthz(t *testing.T) {
 	}
 }
 
-// Spec 5/G fix 2 — recordOutbound writes last_reply for every conversational
+// Spec 5/G-engagement fix 2 — recordOutbound writes last_reply for every conversational
 // outbound but skips the engagement bump when the turn's trigger sender is
 // timed-* (scheduled / autonomous broadcasts must not extend engagement).
 func TestRecordOutbound_TimedSkipsEngagement(t *testing.T) {

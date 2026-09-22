@@ -1,6 +1,6 @@
 package routd
 
-// Tests for the spec 5/28 installed_packages resreg registration: one handler,
+// Tests for the spec 5/28-packages installed_packages resreg registration: one handler,
 // two faces, one evaluator. The surface is deliberately READ-ONLY (list + get) —
 // see packages_resource.go — so what these prove is that both faces reach the
 // same record and that the instance-wide containment holds on each.

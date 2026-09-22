@@ -45,7 +45,7 @@ func seedParentSession(t *testing.T, l *Loop, db *DB, folder, parentTopic, uuid 
 	return projDir
 }
 
-// Spec 5/F (G7): fork_topic copies the parent's Claude Code session jsonl so
+// Spec 5/F-topic-lineage (G7): fork_topic copies the parent's Claude Code session jsonl so
 // the child resumes with full history. routd's ForkTopic MCP fn wraps
 // db.ForkTopic with the cp step (mirrors gateway.forkTopic).
 func TestForkTopic_CopiesParentSession(t *testing.T) {

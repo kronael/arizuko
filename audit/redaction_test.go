@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// The pinned answers to specs/5/I open question 1: which keys redact, and how
+// The pinned answers to specs/5/I-tool-call-logging open question 1: which keys redact, and how
 // an oversized field is encoded.
 
 // TestRedactRE_PinnedKeySet walks the whole vocabulary in both directions. The

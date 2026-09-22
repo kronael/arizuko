@@ -67,7 +67,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Two handles (spec 5/5): obdb is onbod's OWNED tables
+	// Two handles (spec 5/16-mcp-rest-unification): obdb is onbod's OWNED tables
 	// (onboarding/invites/onboarding_gates); xdb is the CROSS tables
 	// (acl/acl_membership/groups/user_profiles/routes), all routd-OWNED. Split is the
 	// only topology — onbod owns its tables and cross-reads routd's, and opens NO
@@ -177,7 +177,7 @@ func newOnbodMux(xdb, obdb *store.Store, cfg config, ks *auth.KeySet) *http.Serv
 	//
 	// What is left after the strip is a caller proxyd could not name, and every
 	// handler below answers 401 to one. proxyd owns the login bounce and the
-	// auth_return cookie authd resumes from (spec 5/31); a second bounce here
+	// auth_return cookie authd resumes from (spec 5/31-identity-pairing); a second bounce here
 	// sends an already-signed-in caller back to a login that returns them just
 	// as anonymous, which is the loop that made onboarding unreachable on every
 	// instance (BUGS L99). Refusing keeps the failure where its cause is.
@@ -197,7 +197,7 @@ func newOnbodMux(xdb, obdb *store.Store, cfg config, ks *auth.KeySet) *http.Serv
 		handleInvite(w, r, xdb, obdb)
 	}))
 
-	// Bearer-gated admin surface (spec 5/5 § Daemon ownership). onbod OWNS
+	// Bearer-gated admin surface (spec 5/16-mcp-rest-unification § One owner + federation). onbod OWNS
 	// invites + onboarding_gates; the writers (dashd, CLI, routd's /invite +
 	// /gate) reach them here instead of writing the DB directly in the split.
 	// Verified against authd's JWKS (ks); nil ks (AUTHD_URL unset / monolith) =
@@ -206,7 +206,7 @@ func newOnbodMux(xdb, obdb *store.Store, cfg config, ks *auth.KeySet) *http.Serv
 	adm.mountOnboarding(mux) // /v1/onboarding via the shared resreg handler (spec 5/16)
 	adm.mountInvites(mux)    // /v1/invites via the shared resreg handler (spec 5/16)
 	adm.mountGates(mux)      // /v1/gates via the shared resreg handler (spec 5/16)
-	adm.mountAudit(mux)      // /v1/audit — onbod is the fourth audit_log owner (spec 5/I)
+	adm.mountAudit(mux)      // /v1/audit — onbod is the fourth audit_log owner (spec 5/I-tool-call-logging)
 
 	// Operator dashboard (spec 5/16): the proxyd transit proof (stripUnsigned)
 	// admits the proxyd-stamped end-user identity; handleDash then gates on
@@ -347,7 +347,7 @@ func emailDomain(sub string) string {
 // insert, so the user can never onboard from that chat again. Two such rows exist
 // in production (BUGS O1).
 //
-// `token_used` is gone with the token it named (spec 5/31): redemption moved to
+// `token_used` is gone with the token it named (spec 5/31-identity-pairing): redemption moved to
 // webd's /pair/{token}. `refused` replaces its silent dead-end role, loudly.
 var knownStatuses = map[string]bool{
 	"awaiting_message": true,
@@ -358,7 +358,7 @@ var knownStatuses = map[string]bool{
 
 // knownStatusList renders knownStatuses for the operator who has to repair a
 // stranded row. It is DERIVED, because the hand-written copy it replaces named
-// `token_used` — gone with the token (spec 5/31) — and omitted `refused`, so
+// `token_used` — gone with the token (spec 5/31-identity-pairing) — and omitted `refused`, so
 // the error told the operator to write a status the pipeline cannot advance.
 func knownStatusList() string {
 	return strings.Join(slices.Sorted(maps.Keys(knownStatuses)), "/")
@@ -394,7 +394,7 @@ func warnStrandedRows(db *store.Store) {
 }
 
 // promptUnprompted greets every unrouted chat that has no live link, with a
-// PAIRING link (spec 5/31) rather than an onboarding token of its own. onbod mints
+// PAIRING link (spec 5/31-identity-pairing) rather than an onboarding token of its own. onbod mints
 // no second credential and writes no second acl_membership edge.
 //
 // The mint's owner_folder is the constant "" → NULL. InsertOnboarding only ever
@@ -453,7 +453,7 @@ func promptUnprompted(xdb, obdb *store.Store, cfg config) {
 	}
 }
 
-// observePairings is the admission trigger after the fold (spec 5/31).
+// observePairings is the admission trigger after the fold (spec 5/31-identity-pairing).
 // RedeemPairing writes the edge in webd and knows nothing about gates; this tick
 // discovers the edge and runs the admission half over data that write committed.
 //
@@ -559,7 +559,7 @@ func auditAdmission(jid, userSub, action, gateKey string) {
 // handleOnboard and the flow below take two handles: db is the CROSS-table DB and
 // obdb is onbod's OWNED-table DB. Owned-table queries route through obdb;
 // cross-table queries stay on db.
-// /onboard carries no token of its own since the fold (spec 5/31): the greeting
+// /onboard carries no token of its own since the fold (spec 5/31-identity-pairing): the greeting
 // link redeems at webd's /pair/{token}, which writes the edge and sends the user
 // here. This page reads the edge and asks where the chat should go.
 func handleOnboard(w http.ResponseWriter, r *http.Request, db, obdb *store.Store, cfg config) {

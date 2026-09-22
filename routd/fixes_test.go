@@ -41,7 +41,7 @@ type recDeliverer struct {
 	permIdem string
 	pid      string
 	// viaChannels records the explicit adapter pin of every SendVia call
-	// (spec 5/34 outbound resolution step 1).
+	// (spec 5/34-channel-protocol outbound resolution step 1).
 	viaChannels []string
 	// roundDones records every RoundDone call's chat JID (the SSE subscriber
 	// key, verbatim), to assert publishRoundDone passes it underived.
@@ -178,7 +178,7 @@ func (e errSendT) Error() string { return string(e) }
 // TestEarlySubmitTurnKeepsCallbacksLive is the [blocker] fix: an early
 // submit_turn flips state→done, but the trailing frames the still-live run
 // emits stay valid until POST /v1/runs returns (run_returned). Only after the
-// run-response is a late frame dropped (spec 5/E § Post-terminal callbacks).
+// run-response is a late frame dropped (spec 5/E-routd § Post-terminal callbacks).
 func TestEarlySubmitTurnKeepsCallbacksLive(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
@@ -360,7 +360,7 @@ func TestStatusRowDoesNotSuppressReply(t *testing.T) {
 
 // TestSubmitTurnSessionWinsOverRunResponse is the session_id-clobber fix: when
 // submit_turn already recorded a session, the run-response's session_id does
-// NOT overwrite it (spec 5/E § Completion reconciliation).
+// NOT overwrite it (spec 5/E-routd § Completion reconciliation).
 func TestSubmitTurnSessionWinsOverRunResponse(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
@@ -463,7 +463,7 @@ func TestDispatchShipsUserSecrets(t *testing.T) {
 
 // TestRunErrorMarksAndNotifies is the outcome:error fix: a clean
 // outcome:error advances past the batch, marks the chat errored, and sends a
-// failure notice — not a silent success (spec 5/E § outcome).
+// failure notice — not a silent success (spec 5/E-routd § outcome).
 func TestRunErrorMarksAndNotifies(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
@@ -765,7 +765,7 @@ func TestDeleteGroup_CascadesRoutes(t *testing.T) {
 
 // TestIngressIdempotencyKey is the POST /v1/messages key fix: a stable id +
 // X-Idempotency-Key is ambiguous (400); a key with no id mints
-// <adapter>-<key> (spec 5/E § POST /v1/messages key rules).
+// <adapter>-<key> (spec 5/E-routd § POST /v1/messages key rules).
 func TestIngressIdempotencyKey(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
@@ -805,7 +805,7 @@ func TestIngressIdempotencyKey(t *testing.T) {
 
 // TestReactionTopicInheritance is the reaction topic-inheritance fix: a
 // reaction/reply with no topic inherits the parent's topic so it routes to the
-// parent's thread (spec 5/E § Channel ingress).
+// parent's thread (spec 5/E-routd § Channel ingress).
 func TestReactionTopicInheritance(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
@@ -928,7 +928,7 @@ func TestOutboundRetryFailureKeepsRowPendingAndContinues(t *testing.T) {
 // TestSweepExpiredRunning is the expired-sweep fix: a stale state='running'
 // turn older than the run timeout flips to the DISTINCT 'expired' (not
 // 'done'), so it stops being re-fed by crash recovery yet does not trip the
-// done-guard against a legitimate re-dispatch (spec 5/E § turn lifecycle).
+// done-guard against a legitimate re-dispatch (spec 5/E-routd § turn lifecycle).
 func TestSweepExpiredRunning(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
@@ -1075,7 +1075,7 @@ func statusOf(t *testing.T, db *DB, id string) string {
 
 // TestRoutesReplaceScopedToSubtree: a folder-scoped caller replacing its own
 // routes must NOT wipe a sibling folder's routes. Before the fix
-// handleRoutesReplace ran a global DELETE FROM routes (spec 5/E § route
+// handleRoutesReplace ran a global DELETE FROM routes (spec 5/E-routd § route
 // ownership): folder A's PUT erased folder B.
 func TestRoutesReplaceScopedToSubtree(t *testing.T) {
 	db, h := authSrv(t, fakeVerifier{sub: "user:a", scope: []string{"routes:write:own_group"}, folder: "a"})

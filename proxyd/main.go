@@ -1106,7 +1106,7 @@ func main() {
 	cfg.authSecret = coreCfg.AuthSecret
 
 	// routd.db owns proxyd_routes/acl/user_profiles/route_tokens in the split
-	// topology (spec 5/5), plus audit_log (routd migration 0016). proxyd reads
+	// topology (spec 5/16-mcp-rest-unification), plus audit_log (routd migration 0016). proxyd reads
 	// those for scope resolution (verified sub → scopes) + route resolution, and
 	// writes its audit rows here too (audit.Init below) — one store, no
 	// messages.db straddle.

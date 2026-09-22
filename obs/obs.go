@@ -1,4 +1,4 @@
-// Package obs wires OTLP export over the slog stream. Spec: 5/O.
+// Package obs wires OTLP export over the slog stream. Spec: 5/O-observability.
 //
 // Setup is called once per daemon in main(). When OTEL_EXPORTER_OTLP_ENDPOINT
 // is unset, slog gets a stock JSON handler and Setup returns a no-op

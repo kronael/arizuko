@@ -8,10 +8,10 @@ import (
 
 // MatchGroups reports whether any scope pattern in `allowed` covers `folder`.
 //
-// The pattern IS the containment (5/33 decision 8): `atlas` covers exactly
+// The pattern IS the containment (5/33-paths-roles decision 8): `atlas` covers exactly
 // `atlas`, `atlas/*` its direct children, `atlas/**` the whole subtree, `**`
 // everything. A parent scope does NOT reach a child by position — a path
-// carries zero authorization (5/33 decision 2), so an operator who wants
+// carries zero authorization (5/33-paths-roles decision 2), so an operator who wants
 // subtree reach writes `atlas/**` and one who wants a single folder writes
 // `atlas`. Empty = no access.
 //
@@ -40,7 +40,7 @@ func MatchGroups(allowed []string, folder string) bool {
 // `atlas/search`'s slot and every file below it. Any path prefix a scope
 // covers therefore admits the whole path under it.
 //
-// This is 5/V filesystem containment, not grant inheritance: it applies only
+// This is 5/V-web-vhosts filesystem containment, not grant inheritance: it applies only
 // where one folder's mount already holds another's bytes. Folder decisions use
 // MatchGroups, which crosses no segment the glob did not ask for.
 func MatchSlot(allowed []string, slotPath string) bool {

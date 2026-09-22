@@ -135,7 +135,7 @@ func (o *oauth) redirect(provider string) http.HandlerFunc {
 }
 
 // authReturnCookie is the same-origin hand-off proxyd writes before bouncing a
-// caller to /auth/login. proxyd's requireAuth is its ONLY writer (spec 5/31):
+// caller to /auth/login. proxyd's requireAuth is its ONLY writer (spec 5/31-identity-pairing):
 // a backend that wrote one too would bounce a caller proxyd had already let
 // through.
 const authReturnCookie = "auth_return"
@@ -290,7 +290,7 @@ func (o *oauth) telegram(w http.ResponseWriter, r *http.Request) {
 
 // dispatch resolves the provider identity to a canonical authd user (creating
 // or linking as needed) and issues an ES256 session. Alias resolution happens
-// HERE, at mint (spec 5/32): `acl.principal` keys on provider subs, so a
+// HERE, at mint (spec 5/32-acl-unified): `acl.principal` keys on provider subs, so a
 // linked alias must mint the ACCOUNT's canonical sub or it is a principal
 // with none of the account's grants; nothing downstream resolves. The three
 // cases of spec 5/1 § Account linking, in order: explicit link, returning
