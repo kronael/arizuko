@@ -75,7 +75,10 @@ test:
 
 # integration: pure integration tests in tests/ (no -short; hits real DBs,
 # real HTTP between daemons). Excluded from `make test` due to setup cost.
-# CI runs: `make test && make integration`.
+#
+# CI does NOT run this. It runs lint, test and test-e2e
+# (.github/workflows/ci.yml). This target is red today — BUGS L349 — and
+# wiring a red gate breaks every build, so it is fix first, wire second.
 integration:
 	go test ./tests/... -count=1 -timeout 120s
 	go test ./objstore/dynstore/... -count=1 -timeout 300s

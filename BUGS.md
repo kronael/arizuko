@@ -38,6 +38,8 @@ line; none can be answered from the code.
   its entry.
 - `L348` — delete `store`'s unreached legacy-import region, or keep it as
   `L249`'s finished import half and write the export side against it.
+- `L349` — should `make integration` join CI once it is green, or should its
+  comment stop saying it already has? It is red today and CI never runs it.
 - `L339`, `L167`, `L200` — proposals too. `L200` and `L133` were re-measured
   2026-09-21 and each came back narrower than filed.
 - `L133` — one question after that re-measure: `ext:` is a third namespace the
@@ -312,6 +314,42 @@ failure read as a quiet success.
 - **Status:** fixed. The sweep log reads `held`, and `pending` logs at ERROR
   before it answers empty. `pending says so when the ledger cannot be read`
   pins the second; removing the log fails it.
+## L349 — `make integration` is red, and the comment saying CI runs it is false (2026-09-22, open)
+
+`make integration` fails. `tests/TestE2ETurn_CostAccounting`'s subtest
+"model failure moves the meter only by what it served" times out after 4
+minutes waiting for the turn to close (`tests/e2e_turn_test.go:429`), so the
+whole target exits non-zero after ~250s.
+
+**NOT a regression from the 2026-09-21/22 campaign.** Reproduced identically at
+`b0998e91`, the commit before it, in a detached worktree. It has been failing
+for at least that long.
+
+**Nothing would have caught it.** The `integration` target's own comment says
+"CI runs: `make test && make integration`". CI runs `make lint`, `make test`
+and `make test-e2e` — `.github/workflows/ci.yml` lines 45, 48, 65 — and never
+`make integration`. So the target is documented as a gate, is not wired as one,
+and is red. That is the `gate_cannot_fail` shape with the gate simply absent
+rather than swallowing.
+
+The subtest sets the folder cap to 0 and expects the turn to run: `capCents > 0
+&& SpentCents >= capCents` (`routd/budget.go:87`) means 0 is unlimited, so the
+budget gate is NOT the refusal. What stops the turn closing is unmeasured.
+
+- **Severity:** medium (a documented gate that no one runs and that does not
+  pass; the failing case covers cost accounting for a refused model call)
+- **Scope:** `tests/e2e_turn_test.go`, `Makefile` `integration`,
+  `.github/workflows/ci.yml`
+- **Affected:** nothing at runtime — the failure is in the harness or in what
+  it asserts, and which is unmeasured
+- **Source:** `make integration` at HEAD and at `b0998e91`; CI workflow
+- **Status:** open — two questions, and the second is the owner's. (1) Why does
+  the turn never close? Unmeasured; it needs the run inspected rather than
+  guessed at. (2) Should `integration` join CI, or should its comment stop
+  claiming it has? Wiring a red gate breaks every build, so the order is fix
+  then wire — but whether it belongs in CI at all is a cost call, because the
+  target takes ~250s on this host and needs docker.
+
 ## L348 — `store`'s legacy-import region has no production caller, and its header names two commands that do not exist (2026-09-22, open)
 
 850 lines across `store/import_hot.go` (502) and `store/import_routd.go` (348)
