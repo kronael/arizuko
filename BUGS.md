@@ -73,6 +73,11 @@ revoked — see its entry.)
 
 - `L189` — blocked on `L137`. Do not take it alone.
 
+**The gate itself.**
+
+- `L357` — `.golangci.yml` is v1, golangci-lint is v2, and it refuses to load.
+  Pin the action to v1, or migrate and face 81 findings.
+
 **A pointer that resolves and lies.**
 
 
@@ -202,6 +207,64 @@ instance layout to drive.
   `TestTheSharedDefaultsAreNamedOnce` no longer compares a constant to its own
   literal; it asserts what the declaration is for, that `EnvOr` on an unset var
   resolves to the shared default.
+
+## L357 — `.golangci.yml` is a v1 config and `golangci-lint` is v2, so the one gate CI enforces cannot load it (2026-09-22, open)
+
+`.golangci.yml`'s own header calls itself "the one gate CI enforces". It has no
+`version:` key, which makes it a v1 config. golangci-lint **2.13.2** — what
+`version: latest` resolves to today — refuses it outright:
+
+```
+Error: can't load config: unsupported version of the configuration: ""
+```
+
+`make lint` exits 3 on that, so the errcheck/nilerr half of the gate does not
+run. `.github/workflows/ci.yml:39-45` installs the linter with
+`golangci/golangci-lint-action@v6` and `version: latest`, precisely so "its
+half of that gate is real in CI rather than a skipped notice".
+
+**Measured locally 2026-09-22**, by installing the linter this box was missing
+(`static_analysis_unusable` recorded its absence; `staticcheck` and
+`govulncheck` still cannot read this toolchain, but golangci-lint 2.13.2 builds
+against go1.27rc2 and runs).
+
+**What it reports once it loads**, with the config migrated: 81 issues —
+errcheck 47, staticcheck 20, nilerr 7, unused 4, ineffassign 3. Under v2's
+default linter set, which is wider than v1's, so this is not 81 regressions.
+
+**The seven `nilerr` hits are the class this config exists for** and most are
+sanctioned. `webd/mcp.go:193` returns an MCP tool-error inside the result,
+which is the protocol convention. `compose/fragments.go:161` and
+`container/runner.go:1265` carry comments saying absence is not an error.
+`compose/compose.go:346` treats an unparseable URL as the operator's own
+endpoint, which the comment above it states. `mcpfw/pkg/firewall/firewall.go:109`
+passes a reply that is not a tools list through unfiltered, which is what a
+transparent proxy does.
+
+`container/runner.go:1218` is the one worth reading: `chownR`'s doc says it
+records the first failure "rather than discarding it", and the WalkDir callback
+returns nil on a per-entry error, so a directory it cannot read is discarded
+while `Lchown` errors are kept.
+
+**`golangci-lint migrate` is not safe to run blind.** On this config it dropped
+the header explaining why the gate exists, dropped `errcheck` from the explicit
+enable list, and ADDED four exclusion presets that were never there —
+`comments`, `common-false-positives`, `legacy` and `std-error-handling`. The
+last one excludes the shape this gate was built to catch.
+
+- **Severity:** medium (the gate that guards the swallow class does not load;
+  whether CI is red today depends on what `action@v6` resolves `latest` to,
+  which cannot be checked from this box)
+- **Scope:** `.golangci.yml`, `.github/workflows/ci.yml`
+- **Affected:** every lint run
+- **Source:** `golangci-lint --version` → 2.13.2; `make lint` → exit 3;
+  `golangci-lint migrate` then `make lint` → 81 issues
+- **Status:** open — two ways out and they cost differently. Pin the action to
+  a v1 release and the gate keeps working with no code change. Or migrate the
+  config, restore the header and the explicit `errcheck`, drop the presets the
+  migrator invented, and work through what v2's wider default set reports.
+  Choosing is yours; I restored the v1 config and changed nothing.
+- **Fix:**
 
 ## L355 — a bare spec number that resolves can still name the wrong document, and two sit in the authorization path (2026-09-22, open)
 
