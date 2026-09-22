@@ -1,8 +1,7 @@
 package store
 
-// coordinate.go holds every entity's coordinate builder in one place —
-// routd's thirteen and the hot tier's eleven — and the one writer that uses
-// them raw.
+// coordinate.go holds every entity's coordinate builder in one place, and the
+// one writer that uses them raw.
 //
 // SeedItem is FOR TESTS. Every production write goes through the entity's own
 // method, which stamps its own instant, so a turn already two hours old or a
@@ -24,7 +23,7 @@ import (
 // SeedItem writes one item: the coordinate rendered from key, the attributes
 // verbatim.
 func (s *Store) SeedItem(ctx context.Context, entity string, key []string, attrs map[string]string) error {
-	k, err := seedKey(entity, key)
+	k, err := entityKey(entity, key)
 	if err != nil {
 		return err
 	}
@@ -33,21 +32,12 @@ func (s *Store) SeedItem(ctx context.Context, entity string, key []string, attrs
 	})
 }
 
-// seedKey asks both coordinate maps: routd's thirteen entities and the hot
-// tier's eleven declare theirs separately.
-func seedKey(entity string, key []string) (objstore.Key, error) {
-	if _, ok := routdKeyFields[entity]; ok {
-		return routdKey(entity, key)
-	}
-	if _, ok := hotKeyFields[entity]; ok {
-		return hotKey(entity, key)
-	}
-	return objstore.Key{}, fmt.Errorf("%s has no coordinate builder", entity)
-}
-
-// routdKeyFields names each entity's coordinate, in the order its key builder
-// joins the fields. A test pins every entry to a builder, and pins the arity.
-var routdKeyFields = map[string][]string{
+// keyFields names each entity's coordinate, in the order its key builder joins
+// the fields. `system_messages` and `task_run_logs` name one field more than
+// their coordinate has: the row number that keeps two rows written in one
+// nanosecond in the order they had. A test pins every entry to a builder, and
+// pins the arity.
+var keyFields = map[string][]string{
 	Groups:            {"folder"},
 	ACL:               {"principal", "action", "scope", "params", "predicate", "effect"},
 	ACLMembership:     {"child", "parent"},
@@ -61,14 +51,27 @@ var routdKeyFields = map[string][]string{
 	WebRoutes:         {"path_prefix"},
 	InstalledPackages: {"folder", "name"},
 	GitHubSources:     {"source"},
+	Chats:             {"jid"},
+	Sessions:          {"group_folder", "topic"},
+	ChatReplyState:    {"jid", "topic"},
+	ChatProactive:     {"jid"},
+	SystemMessages:    {"folder", "created", "id"},
+	UserProfiles:      {"sub"},
+	TurnResults:       {"folder", "turn_id"},
+	GroupWatchers:     {"observer", "source"},
+	TaskRunLogs:       {"run_at", "id"},
+	TurnContexts:      {"turn_id"},
+	// The position is two columns: the instant and the id that keeps two
+	// messages of one instant apart (245 pairs share one on krons).
+	Messages: {"chat_jid", "timestamp", "id"},
 }
 
-// routdKey renders a coordinate through the SAME builder the entity's own
-// daemon writer calls.
-func routdKey(entity string, key []string) (objstore.Key, error) {
-	want := routdKeyFields[entity]
+// entityKey renders a coordinate through the SAME builder the entity's own
+// writer calls.
+func entityKey(entity string, key []string) (objstore.Key, error) {
+	want := keyFields[entity]
 	if len(want) == 0 {
-		return objstore.Key{}, fmt.Errorf("%s is not one of routd's thirteen entities", entity)
+		return objstore.Key{}, fmt.Errorf("%s declares no coordinate", entity)
 	}
 	if len(key) != len(want) {
 		return objstore.Key{}, fmt.Errorf("%s row carries %d coordinate fields and its "+
@@ -112,58 +115,6 @@ func routdKey(entity string, key []string) (objstore.Key, error) {
 		return InstalledPackageKey(key[0], key[1])
 	case GitHubSources:
 		return githubSourceKey(key[0])
-	}
-	return objstore.Key{}, fmt.Errorf("%s has no coordinate builder", entity)
-}
-
-// hotKeyFields names each entity's coordinate fields, in order.
-// `system_messages` and `task_run_logs` name one field more than their
-// coordinate has: the row number that keeps two rows written in one nanosecond
-// in the order they had.
-var hotKeyFields = map[string][]string{
-	Chats:          {"jid"},
-	Sessions:       {"group_folder", "topic"},
-	ChatReplyState: {"jid", "topic"},
-	ChatProactive:  {"jid"},
-	SystemMessages: {"folder", "created", "id"},
-	UserProfiles:   {"sub"},
-	TurnResults:    {"folder", "turn_id"},
-	GroupWatchers:  {"observer", "source"},
-	TaskRunLogs:    {"run_at", "id"},
-	TurnContexts:   {"turn_id"},
-	// The position is two columns: the instant and the id that keeps two
-	// messages of one instant apart (245 pairs share one on krons).
-	Messages: {"chat_jid", "timestamp", "id"},
-}
-
-// runLogKeyAt builds a run's position out of the instant it ran and the row
-// number that breaks a tie: `run_at` is second-precision on every live
-// instance.
-func runLogKeyAt(runAt, id string) (objstore.Key, error) {
-	at, err := normaliseInstant(TaskRunLogs, "run_at", runAt)
-	if err != nil {
-		return objstore.Key{}, err
-	}
-	n, err := strconv.ParseInt(id, 10, 64)
-	if err != nil || n < 0 {
-		return objstore.Key{}, fmt.Errorf("task run log id %q is not a row number, and it is "+
-			"what keeps two runs recorded in one second apart", id)
-	}
-	return runLogKey(RunStamp(at, fmt.Sprintf("%08x", n)))
-}
-
-// hotKey renders a coordinate through the SAME builder the entity's own writer
-// calls.
-func hotKey(entity string, key []string) (objstore.Key, error) {
-	want := hotKeyFields[entity]
-	if len(want) == 0 {
-		return objstore.Key{}, fmt.Errorf("%s is not one of the hot tier's entities", entity)
-	}
-	if len(key) != len(want) {
-		return objstore.Key{}, fmt.Errorf("%s row carries %d coordinate fields and its "+
-			"coordinate (%s) has %d", entity, len(key), strings.Join(want, ","), len(want))
-	}
-	switch entity {
 	case Chats:
 		return chatKey(key[0])
 	case Sessions:
@@ -203,4 +154,20 @@ func hotKey(entity string, key []string) (objstore.Key, error) {
 		return sysMsgKey(key[0], SysStamp(at, fmt.Sprintf("%08x", id)))
 	}
 	return objstore.Key{}, fmt.Errorf("%s has no coordinate builder", entity)
+}
+
+// runLogKeyAt builds a run's position out of the instant it ran and the row
+// number that breaks a tie: `run_at` is second-precision on every live
+// instance.
+func runLogKeyAt(runAt, id string) (objstore.Key, error) {
+	at, err := normaliseInstant(TaskRunLogs, "run_at", runAt)
+	if err != nil {
+		return objstore.Key{}, err
+	}
+	n, err := strconv.ParseInt(id, 10, 64)
+	if err != nil || n < 0 {
+		return objstore.Key{}, fmt.Errorf("task run log id %q is not a row number, and it is "+
+			"what keeps two runs recorded in one second apart", id)
+	}
+	return runLogKey(RunStamp(at, fmt.Sprintf("%08x", n)))
 }
