@@ -198,3 +198,67 @@ func TestEveryProseSpecIDResolves(t *testing.T) {
 	}
 	t.Logf("resolved %d prose spec IDs", checked)
 }
+
+// sectionRe matches a quoted section pointer — `spec 5/8 §"Surface"` and
+// `spec 6/26-personal-mode § "The mechanics"`. BOTH spacings, because the tree
+// writes both and two earlier sweeps each covered one: three stale pointers sat
+// in the gap between them (BUGS L356).
+var sectionRe = regexp.MustCompile(`spec[s]? ([1-9][0-9]?)/([0-9A-Z][0-9A-Za-z-]*) § ?"([^"]+)"`)
+
+// despan strips markdown backticks so a heading written “ ## Read-path: `/v1`
+// only “ matches a citation that quotes it without them. Leaving them in
+// reported six correct pointers as dead.
+func despan(s string) string { return strings.ReplaceAll(s, "`", "") }
+
+// unwrap joins a citation that spans two comment lines. A quoted section long
+// enough to wrap carries "\n// " inside the capture, which matches no spec.
+var unwrapRe = regexp.MustCompile(`\s*\n\s*(//|\*)?\s*`)
+
+func unwrap(s string) string { return strings.TrimSpace(unwrapRe.ReplaceAllString(s, " ")) }
+
+// TestEverySectionCitationResolves is the half no guard read. The other tests
+// stop at the number, so a pointer could name a live spec and a section that
+// spec dropped — 30 of them did, 13 in `5/8` alone, the most-cited spec in the
+// tree.
+//
+// It asserts the quoted text appears ANYWHERE in the spec, not that it is a
+// heading: a citation may quote a bold phrase, and demanding `^## ` would fail
+// honest pointers. The claim checked is "a reader who searches for this string
+// finds it".
+func TestEverySectionCitationResolves(t *testing.T) {
+	checked := 0
+	for _, f := range sourceFiles(t) {
+		if isHistory(rel(f)) || discussesTheForm(rel(f)) {
+			continue
+		}
+		body, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatalf("read %s: %v", f, err)
+		}
+		for _, m := range sectionRe.FindAllStringSubmatch(string(body), -1) {
+			phase, id, section := m[1], m[2], m[3]
+			hits, gerr := filepath.Glob(filepath.Join(root, "specs", phase, id+"*.md"))
+			if gerr != nil {
+				t.Fatal(gerr)
+			}
+			if len(hits) == 0 {
+				continue // the number itself is TestEveryProseSpecIDResolves's job
+			}
+			spec, rerr := os.ReadFile(hits[0])
+			if rerr != nil {
+				t.Fatalf("read %s: %v", hits[0], rerr)
+			}
+			checked++
+			if !strings.Contains(strings.ToLower(despan(unwrap(string(spec)))),
+				strings.ToLower(despan(unwrap(section)))) {
+				t.Errorf("%s: cites %s/%s §%q, and that text is nowhere in %s",
+					rel(f), phase, id, unwrap(section), filepath.Base(hits[0]))
+			}
+		}
+	}
+	if checked == 0 {
+		t.Fatal("no section citations found — the pattern stopped matching the corpus, " +
+			"and an empty set is a guard that cannot fail")
+	}
+	t.Logf("resolved %d section citations", checked)
+}
