@@ -1211,17 +1211,32 @@ func warnChown(root string) {
 // chownR walks root and gives every entry to uid:gid. It returns the first
 // failure rather than discarding it: runed runs as uid 1000, so an Lchown of a
 // root-owned path returns EPERM and the tree silently stays unwritable.
+//
+// A WALK error is a failure too, and the louder one: it means a directory runed
+// cannot read, so the whole subtree under it is skipped with no Lchown even
+// attempted. Discarding it left F62's exact silence one level up.
+//
+// Both keep walking and return nil, so one unreadable corner does not stop the
+// rest of the tree being chowned; the first error still reaches the caller.
 func chownR(root string, uid, gid int) error {
 	var firstErr error
-	filepath.WalkDir(root, func(p string, _ os.DirEntry, err error) error {
-		if err != nil {
-			return nil
-		}
-		if e := os.Lchown(p, uid, gid); e != nil && firstErr == nil {
+	keep := func(e error) {
+		if firstErr == nil {
 			firstErr = e
 		}
+	}
+	if err := filepath.WalkDir(root, func(p string, _ os.DirEntry, err error) error {
+		if err != nil {
+			keep(err)
+			return nil
+		}
+		if e := os.Lchown(p, uid, gid); e != nil {
+			keep(e)
+		}
 		return nil
-	})
+	}); err != nil {
+		keep(err)
+	}
 	return firstErr
 }
 

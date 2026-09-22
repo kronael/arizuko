@@ -2,6 +2,8 @@ package container
 
 import (
 	"bytes"
+	"errors"
+	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -369,6 +371,39 @@ func TestChownR_ReportsFailure(t *testing.T) {
 	dir := t.TempDir()
 	if err := chownR(dir, containerUID, containerUID); err == nil {
 		t.Fatal("chownR discarded the Lchown failure (want the EPERM returned)")
+	}
+}
+
+// TestChownR_ReportsAnUnreadableDirectory is F62's other half. The Lchown
+// error came back after that fix; a WALK error did not, and it is the worse
+// one — a directory runed cannot read means its whole subtree is skipped with
+// no Lchown attempted, so chownR answered success over a tree it never
+// touched. That is the silence F62 is named for, one level up.
+func TestChownR_ReportsAnUnreadableDirectory(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads every directory; the walk error is unreachable here")
+	}
+	root := t.TempDir()
+	closed := filepath.Join(root, "closed")
+	if err := os.Mkdir(closed, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// A file INSIDE it, so a walk that could descend would find work to do.
+	if err := os.WriteFile(filepath.Join(closed, "f"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(closed, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(closed, 0o755) })
+
+	err := chownR(root, os.Getuid(), os.Getgid())
+	if err == nil {
+		t.Fatal("chownR answered success over a directory it could not read; " +
+			"the subtree stays unchowned and nothing says so")
+	}
+	if !errors.Is(err, fs.ErrPermission) {
+		t.Errorf("chownR returned %v, want the permission error from the walk", err)
 	}
 }
 
