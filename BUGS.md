@@ -312,12 +312,19 @@ above is gopls per symbol; `deadcode ./...` was only the way in.
   and `Store.ImportOnbod` — grep is unreliable here, the package has
   same-named neighbours (`Snapshot`, `UseRow`, `importWrites` all exist in
   other packages)
-- **Status:** open — one decision covers all six, and the cheap half is
-  available either way. Either (a) each store grows a `SeedItem` of its own and
-  the importers go — the `L348` move, six times, each costing that store's
-  coordinate builders; or (b) they ARE the seeding API, and then every header
-  should say so instead of describing a tool that was deleted. Taking (b) first
-  costs six comments and forecloses nothing.
+**OPTION (b) IS SHIPPED 2026-09-22** (`a12413d5`, `6ee11aa2`). All six headers
+now name the live writers they work around and say that nothing in production
+calls them. A tree-wide sweep then found twelve more references to the deleted
+tool, in eight files, and they are gone too — including two enumerations
+(`invitePut`, `onboardingPut`) that listed the writers going through them. A
+list of callers is what rots, so they state the invariant instead: there is ONE
+renderer. Comments only, proven both by `go/printer` strip-and-diff and by
+`git diff -U0`.
+
+- **Status:** open on (a) alone. Either each store grows a `SeedItem` of its own
+  and the importers go — the `L348` move, six times, each costing that store's
+  coordinate builders — or they stay as the seeding API they now admit to
+  being. Nothing is foreclosed either way.
 - **Fix:**
 
 ## L350 — spec `6/37` cites six artifacts that no longer exist, four of them the guards it rests on (2026-09-22, open)
