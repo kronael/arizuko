@@ -1465,6 +1465,15 @@ steered at all, and it reached the agent as plain text killing nothing. `/stop`
 now fires reliably, and every older row still dispatches. The entry got worse,
 not stale.
 
+**The table is pinned in code 2026-09-22.**
+`TestStopLeavesTheBacklogRunning` (`routd/steer_commands_test.go`) drives all
+three batches through `processGroupMessages` with the `stopRunner`, and it
+asserts the DEFECT on purpose. It passes at HEAD, so the table above survived
+the `dispatch.go` changes of 2026-09-21 — the route/steer split especially —
+and the decision below rests on measured behaviour rather than on a table
+somebody typed once. Whichever way the contract is settled, that test is what
+has to change, which is how the change announces itself.
+
 **The fix as originally written would re-open `L104`.** "Advances the cursor
 past the whole batch it steered from" was written when the steered row was the
 NEWEST row, where "the whole batch" and "everything older" were the same set.

@@ -2,6 +2,8 @@ package routd
 
 import (
 	"context"
+	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -750,5 +752,76 @@ func TestBudgetGateDisabledBypasses(t *testing.T) {
 	}
 	if runner.req.TurnID == "" {
 		t.Fatal("disabled gate still refused the turn")
+	}
+}
+
+// TestStopLeavesTheBacklogRunning is BUGS L317's measurement, held in code so
+// the decision it waits on rests on what the loop does TODAY and not on a table
+// somebody typed once. It asserts the DEFECT, deliberately: `/stop` kills the
+// container and a question typed just before it still dispatches. Whichever way
+// the contract is settled, this test is what has to change, which is the point.
+//
+// Row 3 is the part L336 made worse: the steered row is now the OLDEST command,
+// so `do Y` — typed deliberately AFTER the cancel — sits above the cursor and
+// is owed a turn, while `do X` still runs.
+func TestStopLeavesTheBacklogRunning(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		contents []string
+		wantRuns []string
+	}{
+		{"a question then the cancel", []string{"do X", "/stop"}, []string{"do X"}},
+		{"the cancel then a question", []string{"/stop", "do Y"}, nil},
+		{"a question either side", []string{"do X", "/stop", "do Y"}, []string{"do X"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db, err := OpenMem()
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { db.Close() })
+			sr := &stopRunner{resp: runedv1.StopRunResponse{Killed: true, RunID: "run_x"}}
+			loop := NewLoop(db, sr, LoopConfig{})
+			loop.StopQueue()
+			loop.deliver = &recDeliverer{}
+			if err := db.PutGroup(core.Group{Folder: "demo"}); err != nil {
+				t.Fatal(err)
+			}
+			doSetRoutes(t, db, []core.Route{{Seq: 0, Match: "chat_jid=tg:1", Target: "demo"}})
+
+			base := time.Now().UTC().Add(-time.Minute)
+			for i, content := range tc.contents {
+				if err := db.PutMessage(core.Message{
+					ID: fmt.Sprintf("m%d", i), ChatJID: "tg:1", Sender: "u",
+					Content: content, Timestamp: base.Add(time.Duration(i) * time.Second),
+					Verb: "message",
+				}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, err := loop.processGroupMessages("tg:1"); err != nil {
+				t.Fatalf("process: %v", err)
+			}
+
+			if sr.folder != "demo" {
+				t.Errorf("/stop did not reach runed: folder=%q", sr.folder)
+			}
+			// The batch is the RENDERED prompt, so the question is which
+			// contents reached a turn at all.
+			var got []string
+			for _, want := range []string{"do X", "do Y"} {
+				for _, run := range sr.runs {
+					if strings.Contains(run.batch, want) {
+						got = append(got, want)
+						break
+					}
+				}
+			}
+			if !slices.Equal(got, tc.wantRuns) {
+				t.Errorf("dispatched %v, want %v (turns=%d) — if this changed, BUGS "+
+					"L317's table is stale and the decision it waits on rests on it",
+					got, tc.wantRuns, len(sr.runs))
+			}
+		})
 	}
 }
