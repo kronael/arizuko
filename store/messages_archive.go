@@ -229,24 +229,6 @@ func (s *Store) ImportMessagesJSONL(ctx context.Context, r io.Reader, batchSize 
 	return imported, chatJIDs, refused, berr
 }
 
-// importMessageRows writes archived rows straight, for `arizuko migrate-hot`,
-// which reads the legacy table rather than a stream. Same writer, so a moved
-// instance and a restored one carry the same items.
-func (s *Store) importMessageRows(ctx context.Context, rows []ArchiveMessageRow) error {
-	for start := 0; start < len(rows); start += defaultImportBatch {
-		chunk := rows[start:min(start+defaultImportBatch, len(rows))]
-		_, refused, err := s.importMessageBatch(ctx, chunk)
-		if err != nil {
-			return err
-		}
-		if len(refused) > 0 {
-			return fmt.Errorf("%d message rows carry a timestamp no position can be built "+
-				"from, starting with %s (%q)", len(refused), refused[0].ID, refused[0].Timestamp)
-		}
-	}
-	return nil
-}
-
 // importMessageBatch renders one batch and writes it, answering how many landed
 // and which rows it refused.
 //
