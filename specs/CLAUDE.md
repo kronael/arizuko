@@ -72,6 +72,22 @@ Ship is complete only when ALL hold. Miss one and the surfaces drift.
 8. **13yo test** — a smart novice can find and understand it, in both the
    web docs and the dashboard. Jargon a 13yo can't read is a doc bug.
 
+## When a bug contradicts a shipped spec
+
+A spec is a claim. When an open bug says the claim is false, the frontmatter
+says so too: `status: defected` plus `defects: [L199, L200]`, and the phase
+index row matches. It goes back to `shipped` when the bug closes — `649016d9`
+did exactly that for `6/40` when `L252` was fixed.
+
+`defected` and `partial` are different axes and both can carry `defects:`.
+`partial` means not fully built; `defected` means built and contradicted. So
+`6/43` is `partial` with `defects: [L319]`: the enrolment path was never built,
+and `L319` is what blocks it.
+
+This is not a style note. 22 of 50 phase-5 specs were marked this way on
+2026-08-09, and the day closed at 9 defected — a status is a claim, so a spec
+nobody re-read is a claim nobody checked.
+
 ## Ship order
 
 spec-first → code + tests → repo docs → tier placement → web docs →
