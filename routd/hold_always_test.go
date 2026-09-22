@@ -189,8 +189,8 @@ func TestAlways_UnnarrowedRuleSaysSo(t *testing.T) {
 
 // `never` does not ship. Undoing it means deleting the tool deny it also
 // writes, and acl rows carry no verdict identity, so a revoke cannot tell that
-// deny from standing policy that predates it (spec 6/26 § "Revocation needs
-// provenance"). No surface may offer it until that is designed.
+// deny from standing policy that predates it (spec 6/26-personal-mode §"The
+// mechanics behind `always`"). No surface may offer it until that is designed.
 func TestNever_IsNotOffered(t *testing.T) {
 	_, _, dl, id := holdOnce(t, "delete", map[string]any{"target": "prod"})
 	if notice := dl.sends[0].text; strings.Contains(notice, "/never") {

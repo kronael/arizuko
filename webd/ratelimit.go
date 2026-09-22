@@ -6,7 +6,9 @@ import (
 	"time"
 )
 
-// Per-token in-memory rate limiter (spec 5/W § "Rate limits, body limits").
+// Per-token in-memory rate limiter (spec 5/W-webhook-routes §"The group is
+// the auth boundary": the ceiling is chosen by JID prefix, `hook:` above
+// `web:`, and the body limit is 1 MiB).
 // Refill-based token bucket keyed by the resolved JID. Capacity equals the
 // per-minute ceiling; tokens refill continuously at rate/minute so a steady
 // caller at or below the ceiling never trips. Ceiling is chosen by JID prefix:

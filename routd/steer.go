@@ -563,7 +563,7 @@ func (l *Loop) delegateViaMessage(targetFolder, prompt, originJID string) error 
 // dispatcher. Who may answer is decided inside resolveHoldInto, the SAME core
 // the REST face runs. `standing` is /always: `yes` plus the skip-approval
 // rule, one batch. There is no /never: acl rows carry no verdict identity
-// (spec 6/26 § "Revocation needs provenance").
+// (spec 6/26-personal-mode §"The mechanics behind `always`").
 func (l *Loop) cmdResolveHold(chatJID, folder, arg, sender, verdict string, standing bool) {
 	id, note, _ := strings.Cut(strings.TrimSpace(arg), " ")
 	if id == "" {
