@@ -427,5 +427,6 @@ func ProxyFile(w http.ResponseWriter, src *http.Response, max int64) {
 	if ct := src.Header.Get("Content-Type"); ct != "" {
 		w.Header().Set("Content-Type", ct)
 	}
-	io.Copy(w, io.LimitReader(src.Body, max))
+	// client disconnect mid-download; the header is already committed
+	_, _ = io.Copy(w, io.LimitReader(src.Body, max))
 }
