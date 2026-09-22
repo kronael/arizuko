@@ -201,203 +201,6 @@ instance layout to drive.
   literal; it asserts what the declaration is for, that `EnvOr` on an unset var
   resolves to the shared default.
 
-## L342 — `make test` runs every daemon's suite twice, the second time long (2026-09-21, fixed `pending`)
-
-`make test` is `go test ./... -count=1 -short` and then
-`make -C <d> test` for all 20 daemons and 2 components. The root line already
-covers every package in the module, and each sub-make is `go test ./...
--count=1` with NO `-short`. So each daemon runs twice, and the second run is
-the LONG suite that `-short` exists to skip.
-
-CLAUDE.md and INSTALL.md both describe `make test` as the fast unit target.
-It is not: it is the fast target followed by the slow one.
-
-- **Severity:** low (wasted time, and a wrong claim in two docs)
-- **Scope:** the dev loop
-- **Affected:** every daemon
-- **Source:** `Makefile` `test:`; `routd/Makefile` and 21 siblings
-- **Status:** fixed. `test:` is the root `-short` line alone; the module is
-  one module, so `./...` already covers every daemon and component. The long
-  run lives in `integration`, which `test-all` composes, as both docs say. The
-  sub-makes keep their own `test` target as a hand tool.
-## L343 — a failed group rollback is silent (2026-09-21, fixed `pending`)
-
-`routd/mcp.go` `_, _, _ = s.db.DeleteGroup(g.Folder)` undoes a group create
-whose `AddRoute` failed. The AddRoute error reaches the caller, so the user is
-told the create failed — but if the rollback ALSO fails, the folder keeps a
-`groups` row with no route, and nothing says so. The next create of the same
-folder then finds `existed == true` and skips the rollback entirely.
-
-- **Severity:** low (a group row nothing routes to; the operator sees a failed
-  create and a folder that exists)
-- **Scope:** group creation over MCP
-- **Affected:** routd
-- **Source:** `routd/mcp.go` (the `!existed` branch)
-- **Status:** fixed. A rollback that fails returns BOTH errors, so the caller
-  can tell a clean refusal from a group row left without a route.
-## L344 — `describeGrant` hides a row's predicate, so two rows print alike (2026-09-21, fixed `pending`)
-
-`cmd/arizuko/packages.go` `describeGrant`'s doc says the line "names every
-field of the coordinate", and it prints no `Predicate`. A manifest row may
-carry one (`checkGrantPredicate` reads it), so two grants that differ only in
-their predicate render as one line during install review — which is the
-review the line exists for.
-
-- **Severity:** low (an install review that cannot distinguish two grants)
-- **Scope:** package install
-- **Affected:** the CLI
-- **Source:** `cmd/arizuko/packages.go` `describeGrant`
-- **Status:** fixed. The line renders `when <predicate>`.
-  `TestDescribeGrantNamesThePredicate` pins that two rows differing only by
-  predicate render differently; removing the clause fails it.
-## L345 — the acl defaults are declared three times (2026-09-21, fixed `pending`)
-
-`store/acl.go` declares the default EFFECT, `routd/acl_resource.go` declares
-action + effect and its comment calls itself "the ONE place", and
-`cmd/arizuko/main.go` `grantDefaults` declares action + effect again. Three
-readers, three declarations — the ASSISTANT_NAME class exactly (`L340`), where
-the drift stayed invisible because each reader agreed with itself.
-
-- **Severity:** medium (a default changed in one and not the others grants or
-  refuses differently depending on which surface wrote the row)
-- **Scope:** grants
-- **Affected:** store, routd, cmd/arizuko
-- **Source:** the three sites above
-**MEASURED 2026-09-22, and the three do NOT declare the same thing.**
-
-| site | action | effect | other |
-| --- | --- | --- | --- |
-| `store/acl.go aclDefaults` | **not set** | `EffectAllow` | `GrantedAt` |
-| `routd/acl_resource.go aclDefaults` | `admin` | `allow` | — |
-| `cmd/arizuko/main.go grantDefaults` | `admin` | `store.EffectAllow` | — |
-
-They AGREE on the values they both set. The gap is that store's sets no action,
-so a row reaching `store.AddACLRow` with an empty action stays empty —
-`onbod/main.go`, `dashd/grants_admin.go` and `cmd/arizuko/main.go` all call it.
-Collapsing onto store's therefore makes an empty action default to `admin`,
-which WIDENS those three. That is the decision, and it is why this is not the
-`L340` fix it resembles.
-
-**TWO OF THE THREE ARE COLLAPSED 2026-09-22, and no decision was needed for
-it.** routd's `aclDefaults` and the CLI's `grantDefaults` were byte-identical —
-both fill `action=admin, effect=allow` before a GRANT row reaches the store.
-They are `store.GrantDefaults` now, read by both, so a grant and its matching
-ungrant cannot address different coordinates (`L138`).
-
-What is left is TWO declarations that are genuinely two things:
-`store.GrantDefaults` (the grant writer's) and `store.aclDefaults` (the row
-writer's, which fills the effect and not the action).
-`TestGrantDefaultsFillsTheActionAndTheRowWriterDoesNot` pins that difference,
-and the mutation it catches is the exact silent widening this entry is about.
-
-Shipped earlier, behaviour-preserving: routd's copy used the literal
-`"allow"` beside `store.EffectAllow`, under a comment calling itself "the ONE
-place they are declared" — which was false and is the sentence that would stop
-the next reader looking. It now uses the constant and names the other two.
-
-Not done, and deliberately: there is no `ActionAdmin` constant and `"admin"`
-appears at 12 sites across six packages. Naming it is behaviour-preserving but
-it is a wider change than this entry describes.
-
-**THE LAST QUESTION IS ANSWERED BY MEASUREMENT 2026-09-22: no.** It was filed
-as a decision because this entry said a row reaching `AddACLRow` with an empty
-action "stays empty". It does not. `aclKey` (`store/acl.go:52`) REFUSES it —
-"a grant with an empty one of those names nothing" — and `AddACLRow` builds its
-key through that function. `auth.actionCovers` agrees: an empty row action
-falls through every case and covers nothing, so the refusal is the right answer
-and the row would grant nothing anyway.
-
-So collapsing `aclDefaults` onto `GrantDefaults` would not widen a stored row;
-it would turn a LOUD REFUSAL into a silent `admin` grant for three live
-callers. That contradicts both "Strict, not magical" and "Fail loud", so it is
-not a preference to settle — it is already decided by the rules this project
-states. The two functions stay two.
-
-`TestAGrantWithNoActionIsRefused` pins the refusal, and reading the code was
-not taken as proof: removing the `r.Action == ""` clause from `aclKey` makes it
-fail. The comment above `TestGrantDefaultsFillsTheActionAndTheRowWriterDoesNot`
-said the row "keeps an empty action" and is corrected to say it is refused.
-
-- **Status:** fixed `pending`. Nothing is outstanding. The `ActionAdmin`
-  constant remains deliberately out of scope: `"admin"` appears at 12 sites
-  across six packages, which is a wider change than this entry describes.
-## L346 — whapd's sweep reports a hold it does not have (2026-09-21, fixed `pending`)
-
-`whapd/src/main.ts` logs "the sweep holds the message" on a path where
-`held` is false, so a retain that FAILED reads in the log as a retain that
-worked. Separately, `retain.ts` `pending()` answers `[]` when `readdir`
-fails and logs nothing, so a disk fault after the constructor's `mkdir`
-reports zero work to do rather than a fault.
-
-Both are the same class: the inbound ledger exists so a message is never
-acknowledged to WhatsApp before it is durable, and both of these make a
-failure read as a quiet success.
-
-- **Severity:** medium (a dropped inbound message the log calls held)
-- **Scope:** whapd inbound
-- **Affected:** whapd
-- **Source:** `whapd/src/main.ts` (the sweep log), `whapd/src/retain.ts`
-  `pending`
-- **Status:** fixed. The sweep log reads `held`, and `pending` logs at ERROR
-  before it answers empty. `pending says so when the ledger cannot be read`
-  pins the second; removing the log fails it.
-## L353 — two guards named their own scope: `timed` kept `L127`'s window and `mcpfw` was unguarded (2026-09-22, fixed `pending`)
-
-`tests/shutdown` exists to stop exactly one defect: a daemon that arms
-`signal.Notify` AFTER its listener accepts, where a SIGTERM takes Go's default
-disposition and the `Shutdown` below never runs. `L127` found that in six of
-nine daemons and closed it.
-
-**The guard held a hand-written list of nine files, and `timed/split.go` was
-not one.** timed's server lives in `split.go`, the list never followed, and the
-guard reported nine green while timed started its listener on line 86 and
-called `signal.Notify` on line 92. Deploys are `systemctl restart`, so that
-window is entered on every deploy of every instance.
-
-`mcpfw/cmd/mcpfw/main.go` had no signal handling at all — it served through
-`http.ListenAndServe` directly, with no `Shutdown` anywhere. It is not in any
-compose fragment, so nothing deployed was affected, but it ships as a sibling
-component and the root rule is "ALWAYS handle graceful shutdown on
-SIGINT/SIGTERM".
-
-**The cause fix is the guard, not the two daemons.** It now walks the tree for
-every `main` package that starts a listener, instead of naming them: the same
-nine plus `timed` and `mcpfw`, with `refs/` and `third_party/` skipped as other
-people's code. An empty result is a hard failure — which immediately caught a
-bug in my own walk, since it starts at `"../.."` and that name begins with a
-dot, so the root was skipped and the guard found nothing.
-
-Proven by mutation three ways: revert timed's ordering, drop mcpfw's
-`signal.Notify`, break the walk. Each fails, each with the sentence that names
-the file.
-
-- **Severity:** medium (every `timed` deploy entered an unhandled-SIGTERM
-  window; the guard that should have said so could not see the file)
-- **Scope:** `timed/split.go`, `mcpfw/cmd/mcpfw/main.go`, `tests/shutdown`
-- **Affected:** every instance, on every deploy
-- **Source:** a source scan of every `package main` holding `ListenAndServe`,
-  compared against the guard's hardcoded list
-**A SECOND GUARD HAD THE SAME HOLE, found by sweeping for the shape.**
-`tests/components` enforces that a shippable sibling imports nothing
-arizuko-internal, and its header says the invariant "held by habit" before the
-test existed. Its list held four — `sandbox`, `egress`, `crackbox`,
-`substrate` — and root `CLAUDE.md` names `mcpfw` a shippable sibling as well.
-So mcpfw's standalone-ness held by habit, guarded by nothing. It passes
-today (mcpfw imports only its own subpackages) and is in the list now, proven
-by adding `core` to `mcpfw/pkg/rule`, which fails it by name. `gateway/`, the
-other sibling CLAUDE.md names, does not exist yet.
-
-Unlike the shutdown set, this list cannot be derived: which components must
-stand alone is a declaration of intent, not a fact about the tree. What it can
-do is match the declaration it comes from.
-
-- **Status:** fixed `pending`. The same shape as `L342`'s and `L349`'s lesson,
-  and `gate_cannot_fail`: a gate whose scope is hand-maintained stops covering
-  what moves, and reports green the whole time. Two guards, one day, found by
-  looking for the shape rather than for a symptom.
-- **Fix:** shipped in `80b641fa` (the two daemons), `4bb4ef9d` (the shutdown
-  guard derives its set) and `2d704c0a` (the components guard gains mcpfw).
-
 ## L352 — `tmp/` is gitignored but its Go files join the module, so the lint gate is not the gate CI runs (2026-09-22, open)
 
 `./tmp` is where scratch goes by convention (`~/.claude/CLAUDE.md`, Bash / Tool
@@ -675,75 +478,6 @@ cause named (terminal) and the notice recorded.
   **Still open and NOT part of this fix:** CI does not run `make integration`.
   The target's comment no longer claims it does. Wiring it is a cost call —
   ~250s and docker — and belongs to the owner.
-## L348 — `store`'s import region is reached by nothing in production (2026-09-22, fixed `pending`)
-
-741 lines across `store/import_hot.go` (435) and `store/import_routd.go` (306)
-are reached by nothing outside tests. Measured at HEAD:
-
-| symbol | production callers |
-| --- | --- |
-| `ImportRoutd`, `CheckRoutdSnapshot` | none — 2 test files |
-| `ImportHot`, `CheckHotSnapshot`, `HotEntities` | none — 1 test file |
-
-`import_routd.go`'s header names its callers outright: "Two tools reach this:
-the in-place move on an already-split instance, and `arizuko migrate-split`".
-Neither `migrate-split` nor `migrate-routd` is a subcommand — `./arizuko` lists
-neither and no Go file registers them. `audit/import.go` carries the same stale
-reference.
-
-**INVESTIGATED 2026-09-22, and both of this entry's guesses were wrong.**
-
-It is NOT `L249`'s import half. `git log` shows `import_hot.go` arrived with
-"the hot tier's five tables are entities" (6/37 step 7, the SQL→objstore move)
-and `import_routd.go` alongside `cmd/arizuko/migrate_routd.go`. Both
-subcommands were DELETED on 2026-09-13 (`773cb5c5`), leaving the import halves
-behind. And `RoutdSnapshot`/`RoutdRow` model LEGACY SQL ROWS, not the archive's
-resreg snapshot format, so it was never reusable for `L249` anyway.
-
-It is also not simply dead. Five test files write through it, and
-`store/turn_context_test.go` says why in its own comment: it is "the only
-writer that can put `started_at` in the past". `ImportHot` takes raw
-attributes, so it is the escape hatch tests use to construct states the
-production API refuses to create — a stale RUNNING turn, a task run log with a
-chosen instant.
-
-So: DEAD in production, LOAD-BEARING in tests, and not the thing this entry
-hoped it was.
-
-- **Severity:** low (no runtime defect; 741 lines and a header that lies about
-  who calls it)
-- **Scope:** `store/import_hot.go`, `store/import_routd.go`
-- **Affected:** nothing at runtime
-- **Source:** grep for `.ImportRoutd(`, `.ImportHot(`, `HotEntities` over the
-  tree; `./arizuko` usage
-- **Status:** fixed `pending`. Both files are deleted. What survived is what a
-  caller still needs, in two files named for what they hold:
-  `store/coordinate.go` (every entity's coordinate builder, plus `SeedItem`)
-  and `store/instant.go` (`normaliseInstant`, which `invite_redemptions.go`
-  calls in production). The snapshot type, the check pass, the per-entity
-  stamp/drop/flag/cursor tables and both `Import*` methods are gone: all three
-  transforms only REMOVED or re-rendered attributes, never added one, so a seed
-  that states its own `core.TS` width writes the identical item.
-
-  `SeedItem(ctx, entity, key, attrs)` replaces the 741 lines for the one thing
-  tests used them for: placing an item the live API refuses to create, because
-  every production writer stamps its own instant. The coordinate still goes
-  through the entity's own key builder; only the attributes are unchecked.
-
-  Five seeds converted. Each was verified by making `SeedItem` a no-op: all
-  five tests FAIL without it, so no seed is decorative —
-  `TestTheExpirySweepMovesOnlyTheStaleRunningTurns`,
-  `TestTheFailedRunWindowIsARangeAndNotAFilter`, `TestSweepExpiredRunning`,
-  `TestExportApplyIsNoOpForNullStampedColumn`,
-  `TestArchive_RoundTrip_ConfigSecretsMessagesGroups`.
-
-  Two corrections to this entry's own claims, both measured: `audit/import.go`
-  carries NO stale reference (the scope line named it; it does not). And
-  `routdKeyFields`'s comment said "a test pins the two together" — no test did.
-  `store/coordinate_test.go` now pins what is testable: every table entry has a
-  switch case, and the declared arity is refused when wrong. Both guards were
-  proven by mutation (remove the `GitHubSources` case, remove `hotKey`'s length
-  check — each fails).
 
 ## L347 — rows behind a steered command are never re-fed (2026-09-21, open)
 
@@ -772,38 +506,6 @@ That changes no behaviour and settles nothing: the rows are still not re-fed.
 - **Status:** open. The cause fix is to leave the cursor where it was when the
   turn does not run, so the next poll re-reads the batch — which is a change to
   the consume contract (`L104`) and needs sign-off.
-
-## L341 — no store call is bounded, on any daemon (2026-09-21, fixed `pending`)
-
-Filed as "every inbound attachment's store write has no deadline", with a fix
-of "four call sites, each passing what its loop already holds". Both halves
-were wrong, and measuring them found a larger fault.
-
-The call sites cannot pass a context: `discd`'s is a `discordgo` callback and
-`FetchHistory` is a `chanlib.BotHandler` method, so neither signature admits
-one, and `slakd` reaches `Put` three frames below `dispatch`. More to the
-point, the daemons hold **1109** `context.Background()` call sites, so
-threading three of them would have bounded three writes and left the rest.
-
-The cause is one declaration lower. `dynstore.Dial` built an HTTP client only
-when the endpoint carried its own CA, and the SDK's default client bounds the
-dial (5s) and the TLS handshake (10s) and **nothing after them** — no client
-timeout, no response-header timeout, and the read timeout is opt-in. A store
-server that accepts a connection and then goes silent therefore held its caller
-forever, from any context that never cancels, which is how a daemon reaches the
-store nearly everywhere.
-
-- **Severity:** medium (one silent store server hangs every daemon that talks
-  to it, with no error and no log)
-- **Scope:** every store call on every daemon
-- **Affected:** all
-- **Source:** `objstore/dynstore/dynstore.go` `Dial`
-- **Status:** fixed. `Dial` always builds the client and bounds one attempt at
-  `requestTimeout` (30s); the SDK retries, so a transient timeout still
-  completes the call. `TestSilentServerFailsInsteadOfHolding` stands up a
-  listener that accepts and never replies and asserts the call returns —
-  removing the bound makes it hang and fail at 20s.
-
 
 ## L339 — a sourced fragment can interpolate any `.env` key, so the `L201` bound stops at the mount (2026-09-21, open — proposal, needs sign-off)
 
@@ -1332,47 +1034,6 @@ This was armed, not theoretical: the streak was at 2 of 3 when it was found.
 - **Status:** fixed (operator data; no code change)
 - **Fix:** the directory
 
-## L332 — the release broadcast pipes a human banner into `jq` (2026-09-21, fixed)
-
-`ant/skills/migrate/SKILL.md:293` captures a tool result and parses it as JSON:
-
-```sh
-routes=$(mcpc @s tools-call inspect_routing) || { ...; exit 1; }
-tagged=$(printf '%s' "$routes" | jq '[.routes[] | select(.announce == true)] | length')
-```
-
-Measured against the `mcpc` the ant image installs today (0.6.0): plain
-`tools-call` prints a human-readable banner, and only `--json` emits JSON. So
-`jq` is handed text it cannot parse. No site in `ant/skills/` passes `--json`
-(`grep -rn 'tools-call.*--json' ant/skills/` finds nothing).
-
-The `||` guard does not catch it: `mcpc` EXITS 0 and prints the banner, so the
-failure lands in `jq` on the next line, and the script continues past a
-"route discovery failed" check that never fired.
-
-This is the same command chain as `M1` and was found while fixing it, but it is
-a different defect — `M1` was the connect grammar, this is the output format —
-so it gets its own entry.
-
-- **Severity:** medium (the release broadcast is the consumer; a release that
-  should announce may announce nothing, and say nothing about why)
-- **Scope:** `ant/skills/migrate/SKILL.md` and any skill parsing a tool result
-- **Affected:** the `#announce` broadcast path
-- **Source:** `ant/skills/migrate/SKILL.md:293,296,299`; measured on mcpc 0.6.0
-- **Status:** fixed — and the fix this entry PRESCRIBED would not have worked.
-  `--json` alone is not enough: mcpc prints `JSON.stringify(result)` where
-  `result` is the MCP `CallToolResult`, and ipc's `toolJSON` answers
-  `NewToolResultText`, so the payload is a JSON STRING in `.content[0].text`
-  with no `structuredContent`. `jq '.routes[]'` over the envelope reads null,
-  `tagged` is empty, and the script exits 0 with "no #announce route" — the
-  same silent non-announcement, one layer over. The site now reads
-  `--json … | jq '.content[0].text | fromjson'` and then proves `has("routes")`
-  before it may conclude there are none. `@apify/mcpc` is pinned to 0.6.0.
-  `ant/src/skill-tool-parse.test.ts` fails on any CAPTURED `tools-call` that
-  does not pass `--json` and open the envelope — keyed on the capture, because
-  the defect put its `jq` two lines below the assignment.
-
-
 ## ✅ FIXED 2026-09-21 L331 — the `/onboard/` route row points at a 404 (2026-09-21, open)
 
 `compose.coreProxydRoutes` declares both spellings
@@ -1626,6 +1287,7 @@ the route table, is what woke it.
      earlier EXACT room intercepting a later glob is its designed blind spot.
      Reporting the partial case needs a SEPARATE annotation ("narrowed_by"),
      which is a new field on a REST/MCP view: a proposal, not this fix.
+
 ## L326 — the smoke liveness probe measures the queue, not liveness (2026-09-20, PARTLY FIXED 2026-09-20; the barrier needs sign-off)
 
 `rest-roundtrip` (`anteval/cases/anteval.toml:228-236`) is the ONLY `rest_reply` case
@@ -3360,141 +3022,6 @@ and one half was bounded after all.**
   delivery) and the `<messages>` echo (fix 2). Both change a contract spanning
   routd and ant.
 
-## L148 — 22 ad-hoc JID⇄folder conversions in 16 files; collapse them to three named seams so `"web:"` appears twice in the tree (2026-08-30, fixed 2026-09-22)
-
-The operator's requirement: *"remove special treatment of JIDs — that should all
-only be specced in routing, or not there at all."* This is the minimal way to
-match that to the current design. It changes no schema, no queue, no routing, and
-no behaviour; it removes duplication.
-
-**Measured.** `"web:"`/`"hook:"` prefix construction or parsing appears at 22
-sites in 16 files: `webd/me.go` ×3, `webd/mcp.go` ×2, `store/route_tokens.go` ×2,
-`store/messages.go` ×2, `routd/server.go` ×2, `routd/dispatch.go` ×2,
-`cmd/arizuko/token.go` ×2, and one each in `webd/ratelimit.go`,
-`webd/channel.go`, `webd/api.go`, `store/routes.go`, `routd/route_tokens_resource.go`,
-`ipc/ipc.go`, `groupfolder/folder.go`, `dashd/authz.go`, `cmd/arizuko/send.go`.
-
-**Only `store/routes.go` is legitimately routing.** Every other site is doing one
-of two things, ad hoc:
-
-- **folder → JID**: `"web:" + folder` (`store/messages.go:285,314`, …)
-- **JID → folder**: `strings.CutPrefix(jid, "web:")` (`ipc/ipc.go:849`,
-  `dashd/authz.go:123`, `groupfolder/folder.go:111`, …)
-
-**The three seams every site must use instead:**
-
-1. **Constructing a web JID → `groupfolder.WebJID(folder)`** (net-new, ~3 lines).
-   The only place the literal `"web:"` is written.
-2. **Holding a token row → `row.Folder()`**, which READS `target_folder`
-   (`store/route_tokens.go`). Never parse a suffixed `web:t/sfx` or a `hook:` JID
-   — `target_folder` exists precisely because that string cannot be parsed back,
-   and `L139`'s implementation caught a live instance of exactly that bug.
-3. **Holding a bare unsuffixed web JID and no row → `groupfolder.JidFolder(jid)`**,
-   which already exists and is already documented as prefix-grammar-only.
-
-After this, `"web:"` appears twice in the tree — once in `WebJID`, once in
-`JidFolder` — and every other file deals in folders. That is as close to "JIDs
-only in routing" as the current schema allows, because the remaining JID is not a
-routing address at all: it is the queue's serialization key (`Enqueue(chatJID)`,
-`busyWait sync.Map // chatJID → busyState`, `publishRoundDone(chatJID, turnID)`).
-
-**Why this is the right minimal step, not a half-measure.** Removing `web:`
-entirely means re-keying `messages.chat_jid` and the queue onto `(folder, topic)`
-— a schema change touching every consumer. After this consolidation that becomes
-a change at THREE seams instead of 22, and the bug class it causes
-(`identity_derived_not_read`: three traced failures, including the SSE
-`round_done` key bug which landed twice) is fenced meanwhile.
-
-**Ordering note.** `groupfolder.JidFolder` is itself named in
-`identity_derived_not_read` as a smell — parsing rather than reading. It is SOUND
-for unsuffixed web JIDs (1:1 with the folder, `ROUTING.md:29-38`) and UNSOUND for
-suffixed and `hook:` ones. Seam 2 exists to take those; seam 3 must be documented
-as the unsuffixed-web case only.
-
-- **Severity:** low (no runtime defect today; it is the substrate of a class that
-  has produced three)
-- **Scope:** JID⇄folder conversion, repo-wide
-- **Affected:** the 16 files above
-- **Status:** fixed 2026-09-22, and the count was wrong in both directions.
-  Of 46 literal lines in tracked non-test Go outside `groupfolder/`, 30 are
-  comments, prose or the ACL action `"web:publish"`; 16 are code; **2 were
-  genuine conversions** — the hook JID mints at `cmd/arizuko/token.go` and
-  `routd/route_tokens_resource.go`. The three the entry called remaining
-  already used `WebJID`.
-
-  The gap was a FOURTH seam, not a missed adoption: none of the three could
-  produce a hook JID, so `groupfolder.HookJID(folder, source)` ships as the
-  write half of the grammar `JidFolder` already reads.
-
-  `groupfolder/scheme_literal_test.go` is the guard the entry asked for, and it
-  parses with `go/parser` rather than grepping, so a comment can never trip it.
-  It fails on a literal at an unlisted site AND on a keeper naming a site that
-  spells no literal any more — both proven by mutation. Twelve keepers, each
-  with its reason on the line: five scheme tests ("which surface?", never
-  "which folder?"), `store/routes.go:MatchesWebJID` (a route PATTERN, not a
-  JID), the two guarded `L4` last resorts that must stay `web:`-only,
-  `webd/route_token.go:hookSender` (the source segment), and webd's two
-  declarations of the scheme it serves.
-
-  The schema change the entry defers — re-keying onto `(folder, topic)` — is
-  now a change at four seams instead of 22.
-
-
-- **Related:** `L147` (the principle), `L146` (deferred), `identity_derived_not_read`
-
-- **RE-MEASURED 2026-09-20. The entry undercounts, and the seam it asks for did
-  not exist.** 40 `"web:`/`"hook:` literal lines in non-test Go across 22 files;
-  **24 are genuine conversions in 15 files** — 12 constructions and 12 parses.
-  Of the three seams the entry names, `RouteToken.Folder()`
-  (`store/route_tokens.go:78`) and `groupfolder.JidFolder`
-  (`groupfolder/folder.go`) existed; **`groupfolder.WebJID` did not**, so the
-  write half had no renderer at all and seven call sites spelled it themselves
-  across four packages.
-- **The write seam ships 2026-09-20.** `groupfolder.WebJID(folder)` sits beside
-  `JidFolder`, which is its inverse — one package owns both directions of one
-  grammar. `store/messages.go`'s private `webChatJID` now delegates to it rather
-  than being a second private spelling.
-
-  Adopted: `store/messages.go`, `webd/api.go`, `webd/me.go` (both sites),
-  `webd/mcp.go`. **Two hand-spellings remain** — `cmd/arizuko/token.go:78,80`,
-  `cmd/arizuko/send.go:164` and `routd/route_tokens_resource.go:258` — left
-  because other work holds those files today, not because they should stay.
-
-  PROVEN BY MUTATION: change the scheme, or make `WebJID` strip a nested folder,
-  and the inverse test fails. The inverse is asserted over four folder shapes
-  including `acme/eng/sre/oncall` and the suffixed `main/widget`, because this
-  grammar has drifted before — a `"web:"+folder` rebuild on the read side sent a
-  suffixed chat's frames to a hub key nobody held (`L30`).
-- **The 12 parses are a separate pass** and mostly already have a seam to adopt.
-
-- **The PARSE half was re-read site by site on 2026-09-20, and it should NOT be
-  collapsed. The count conflates two different operations and one deliberate
-  compromise.**
-
-  **Scheme tests, which are not folder extractions at all** — `webd/ratelimit.go:37`
-  picks a rate cap by prefix, `dashd/authz.go:103` decides whether a token lookup
-  is worth doing, `routd/dispatch.go:114` groups by topic on the web path,
-  `store/routes.go:487` asks whether a pattern is a web pattern, and
-  `webd/route_token.go:306` extracts the hook SENDER (the LAST segment), which is
-  `JidFolder`'s complement, not `JidFolder`. Routing these through a folder seam
-  would be wrong: they ask "which scheme is this", and the seam answers "which
-  folder is this".
-
-  **The two genuine extractions must stay narrow.** `routd/server.go:450` and
-  `ipc/ipc.go:893` both do `CutPrefix(jid, "web:")` as a LAST RESORT after the
-  recorded mint target comes back empty, and both carry the same comment saying
-  why: "`web:T/S` is byte-identical to a plain token at a folder named `T/S`, so
-  the grammar hands ownership to a descendant (BUGS `L4`)". `groupfolder.JidFolder`
-  resolves `hook:` as well as `web:`, so adopting it at these two sites would
-  WIDEN a fallback whose own comment calls it a compromise. That is the opposite
-  of the fix.
-
-  So the parse side is not 12 sites of duplication. It is five sites of a
-  different question and two sites of a guarded compromise, and the honest
-  remaining work is the 12 CONSTRUCTIONS — three of which are already adopted.
-- **Status:** the write seam shipped; the parse half is REFUSED as filed, and the
-  entry now says why so the next pass does not re-derive it.
-
 ## 📋 RECORD L147 — principle: the channel attests, the router resolves, the ACL authorizes — and `web:` JIDs exist only to satisfy a storage column (2026-08-30, principle — records a design fault, no work item)
 
 The operator's formulation, at the end of the session that produced `L139`,
@@ -3862,6 +3389,7 @@ Bearer header, and a browser navigation carries a cookie.
 
   Unverified as before: no live instance was driven. `arizuko generate` on each
   instance is still required for the route change to reach proxyd.
+
 ## ✅ FIXED 2026-09-21 L106 — the agent's `reply`/`send` sends one idempotency key and the retry sweep sends a different one, so the whole dedup contract is off for every MCP message (2026-08-26, FIXED 2026-09-21; the "crosses the ipc↔routd contract" scope claim is REFUTED)
 
 `routd/mcp.go:259` delivers with a throwaway key:
@@ -3957,6 +3485,7 @@ live evidence stand exactly as written above.
   both the row id and the retry's key must equal the first send's key. Against
   the old code it prints `row id="mcp-1789982117543437938" but the send claimed
   "mcp-be1f5085bb961060"` — the entry's live krons evidence, reproduced.
+
 ## L120 — `/openapi.json` fabricated response schemas from a verb convention, so 22 mounted REST operations were documented wrongly (2026-08-26, LIE REMOVED 2026-09-21; typing the remaining 22 bodies is a proposal)
 
 `resreg/openapi.go:283` `endpointOp` INVENTS the response — list → `array<RowType>`,
@@ -7097,6 +6626,7 @@ Severity drops from high to low, scope from "all dashd pages" to these two.
   `dashstore.MessageActivityByFolder` has no `/v1` twin, so this is 6/28's
   "failing that, add a minimal daemon-owned read endpoint" — a new endpoint on
   routd, which is an addition to a public surface rather than a swap.
+
 ## ✅ CLOSED-STALE 2026-09-21 chat: loadChatSessions limits before filtering; nondeterministic continue links (2026-06-18)
 
 Subsystem gone. `dashd/chat.go` was deleted at `f98f2f33` (2026-08-15, "V2 delete
@@ -7173,6 +6703,7 @@ corrected in the same pass.
   and is decoded twice. Either mistake reports an empty or mis-attributed
   history, which in a parity check reads as "MCP does not have it".
   `anteval/README.md`'s known-gap paragraph is replaced by what it does now.
+
 ## ✅ FIXED 2026-09-21 krons: `/hook/` proxyd route missing — webhook surface dead; route table not hot-reloaded (2026-07-11)
 
 Found by anteval's `webhook-in` live case. `POST /hook/<token>` on krons falls through to the
