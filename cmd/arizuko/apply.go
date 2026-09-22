@@ -322,7 +322,7 @@ func cmdApply(args []string) {
 		die("Failed: %s references folders that are not groups; add the groups rows or fix the names", file)
 	}
 	// Plan first (non-mutating) so the operator sees the delta the apply
-	// commits — spec 5/8 §"Apply lifecycle" step 5 (print plan + ok).
+	// commits. No spec requires it; 5/8 lists `plan` as its own verb.
 	for _, d := range docs {
 		if deltas, dperr := resreg.Plan(resreg.On(stores[d.subsystem].Obj()), d.subsystem, d.manifest); dperr == nil {
 			fmt.Printf("--- %s ---\n", d.subsystem)

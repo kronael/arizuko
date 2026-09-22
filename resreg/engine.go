@@ -375,8 +375,8 @@ func (r *Resource) DropRows(base any, pks []string) (any, error) {
 }
 
 // ParseRows decodes a YAML node (sequence of mappings) into a `[]RowType`.
-// Strict (spec 5/8 §"Apply lifecycle" step 1): an unknown row field rejects,
-// so an operator typo errors instead of silently dropping.
+// Strict: an unknown row field rejects, so an operator typo errors instead of
+// silently dropping. No spec states this; the tests are the declaration.
 func (r *Resource) ParseRows(node *yaml.Node) (any, error) {
 	if r.meta == nil {
 		return nil, fmt.Errorf("resreg: %s has no schema (RowType unset)", r.Name)

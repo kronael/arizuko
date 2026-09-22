@@ -309,7 +309,8 @@ func TestPlan_MatchesApply(t *testing.T) {
 
 // TestStrictParse_CLIPath: the parse step cmdApply/cmdPlan run (ParseYAML
 // over the real resource registry) rejects a typo'd resource key AND a
-// bogus row field before any DB write (spec 5/8 §"Apply lifecycle" step 1).
+// bogus row field before any DB write. The rule lives here and in
+// ParseRows, not in a spec.
 func TestStrictParse_CLIPath(t *testing.T) {
 	typoKey := []byte(`
 checksum: "sha256:0"

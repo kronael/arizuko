@@ -114,7 +114,8 @@ credential, and a stamped sub only decides message attribution.
 operator ACL row like `(google:op, '*', '**')`. The `**` marker in
 X-User-Groups is recorded into `Claims["operator"]="1"` for predicate
 matching. Non-operators have no matching row and no mcp:\* tier fallback,
-so the call is denied (spec 5/17, spec 5/32 §"Operator implicit").
+so the call is denied (spec 5/17, spec 5/32-acl-unified §"Evaluation": no
+match is deny, and there is no fallback).
 
 ## Forward auth (`GET /auth/forward`)
 

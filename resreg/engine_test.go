@@ -3,7 +3,7 @@ package resreg
 // Engine isolation tests — no arizuko-specific resource. A synthetic `TestRow`
 // struct over an in-memory database exercises the manifest lifecycle: scan,
 // parse, emit, plan, diff, retarget, and the content-hash CAS an apply turns
-// on. Per spec 5/8 §"Testability".
+// on.
 //
 // The fixture is ENTITY-shaped, because that is the shape Apply and
 // ExportSnapshot serve (requireEntities, entity.go) and the shape every
@@ -213,7 +213,7 @@ func TestParseRows_RoundTrip(t *testing.T) {
 }
 
 // TestParseYAML_StrictRejectsUnknownKey: a typo'd top-level resource key
-// rejects before the DB is touched (spec 5/8 §"Apply lifecycle" step 1).
+// rejects before the DB is touched.
 func TestParseYAML_StrictRejectsUnknownKey(t *testing.T) {
 	freshEngine(t)
 	manifest := []byte(`
