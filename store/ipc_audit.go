@@ -7,17 +7,11 @@ import (
 	"github.com/kronael/arizuko/audit"
 )
 
-// LogIPCAudit records a mutating MCP tool call as one audit_log row.
-// params is JSON-encoded; secret values must be redacted by the
-// caller before encoding. outcome maps onto the audit_log outcome
-// enum: ok | error: <msg> | authz_denied. Spec 5/I + audit/PLAN.md.
-//
-// The legacy ipc_audit table is not written to; existing rows remain
-// for backfill. A new caller carries the record in the mutation's own
-// GuardedBatch — audit.WriteFor renders the write — so the row commits
-// with the mutation or not at all (spec 6/40). This function cannot: an
-// MCP tool's mutation is whatever the tool did, so the row is a separate
-// write and a lost one is a silent gap.
+// LogIPCAudit records a mutating MCP tool call as one audit_log row (spec 5/I).
+// params is JSON, redacted by the caller; outcome is ok | error: <msg> |
+// authz_denied. The row is a separate write, not part of the mutation's batch
+// (spec 6/40): an MCP tool's mutation is whatever the tool did, so a lost row
+// is a silent gap.
 func (s *Store) LogIPCAudit(folder, sub, tool, params, outcome string) error {
 	out, errMsg := mapIPCAuditOutcome(outcome)
 	var paramsMap map[string]any
@@ -39,8 +33,8 @@ func (s *Store) LogIPCAudit(folder, sub, tool, params, outcome string) error {
 	return err
 }
 
-// mapIPCAuditOutcome translates the legacy ipc_audit outcome string
-// into the audit_log outcome enum + optional error message.
+// mapIPCAuditOutcome translates the ipc outcome string into the audit_log
+// outcome enum plus an optional error message.
 func mapIPCAuditOutcome(in string) (string, string) {
 	switch in {
 	case "ok":

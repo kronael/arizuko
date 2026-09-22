@@ -4,46 +4,19 @@ package store
 // turn routd has dispatched, carrying where the turn came from, where its answer
 // goes, what state it is in, and the hash of the gateway key that metered it.
 //
-// THE PARTITION IS OwnerRoutd AND THE SORT KEY IS THE TURN ID. Eleven of the
-// fifteen operations name one turn — three point reads and eight point writes —
-// and that is the whole callback surface: a late frame arrives carrying a turn id
-// and nothing else, which is why the id has to be the coordinate rather than a
-// field beside one.
+// The partition is OwnerRoutd and the sort key the turn id: a late frame
+// arrives carrying a turn id and nothing else. A turn has a folder and it still
+// cannot be the partition: the typing-owner read, crash recovery, the expiry
+// sweep and the proactive scan carry none. Those four filter the partition,
+// the one hot-tier entity with no drainage and a per-turn arrival (2,954 items
+// on krons, about thirty a day, 2,846 of them `done`).
 //
-// A TURN HAS A FOLDER AND IT STILL CANNOT BE THE PARTITION. Four operations name
-// no turn: the typing-owner read names a run id, crash recovery names a state,
-// the expiry sweep names a state and an instant, and the proactive scan names a
-// chat. None of the four carries a folder, and a query without a partition is
-// refused by every driver.
-//
-// WHAT THE CONSTANT COSTS IS THOSE FOUR, and each was already a scan on the
-// engine this replaces (EXPLAIN QUERY PLAN, krons' routd.db, 2026-09-09):
-// `WHERE run_id=?`, `WHERE state IN (…)`, the sweep's UPDATE and `WHERE
-// chat_jid=? AND state='running'` all answer SCAN, because the table has no
-// index but its turn_id autoindex. Three of the four narrow at the driver now —
-// a filter is a conjunction and each of those predicates is one — where the
-// statements they replace examined every row and dropped it in the engine.
-//
-// THIS IS THE ONE ENTITY IN THE HOT TIER WITH NO DRAINAGE AND A PER-TURN
-// ARRIVAL, and that is the honest cost. Nothing deletes a turn context; a group
-// delete keeps it (folder_scope.go: a re-created folder mints new turn ids). The
-// partition is 2,954 items on krons, 2,607 on sloth and 1,089 on marinade
-// (2026-09-09), about thirty a day, and 2,846 of krons' are `done` — which is
-// what the state filters drop first.
-//
-// started_at IS THE ONE ORDERED ATTRIBUTE. The expiry sweep compares it against
-// `core.TS(now - timeout)` with `<`, and the live rows carry FOUR widths (27 to
-// 30 bytes on all three instances), so byte order disagrees with time order at
-// every pair inside one second of the cutoff — a stale turn that survives its
-// own sweep and is re-fed by crash recovery until the next one. The declaration
-// refuses a short value at write time and `arizuko migrate-hot` re-renders the
-// ones on disk (BUGS L97).
-//
-// gateway_key_hash IS A POINTER AND THE ONLY ONE. arizuko stores WHICH key
-// metered a turn and never the number, so `GET /v1/cost?turn_id=` resolves this
-// hash and asks the gateway (spec 6/39) — and anteval reads that endpoint as the
-// settle barrier between eval cases. Losing the attribute makes every turn's cost
-// unreadable and every barrier a timeout.
+// started_at IS THE ONE ORDERED ATTRIBUTE: the expiry sweep compares it with
+// `<`, and the live rows carried FOUR widths, so a stale turn survived its own
+// sweep (BUGS L97). gateway_key_hash IS A POINTER AND THE ONLY ONE: arizuko
+// stores WHICH key metered a turn and never the number; `GET /v1/cost?turn_id=`
+// resolves it at the gateway (spec 6/39), and anteval reads that endpoint as
+// its settle barrier.
 
 import (
 	"context"
@@ -55,8 +28,7 @@ import (
 	"github.com/kronael/arizuko/objstore"
 )
 
-// The attributes a turn item carries. `turn_id` is not among them: it is the
-// coordinate, and storing it twice is two facts that can disagree.
+// The attributes a turn item carries. `turn_id` is the coordinate.
 const (
 	attrTurnFolder      = "folder"
 	attrTurnTopic       = "topic"
@@ -69,9 +41,9 @@ const (
 	attrTurnRunReturned = "run_returned"
 	attrTurnRetryCount  = "retry_count"
 	attrTurnGatewayKey  = "gateway_key_hash"
-	// AttrTurnStartedAt is when the turn was dispatched, and the only attribute
-	// here compared by order. It is exported because the move that carries these
-	// rows has to name the instant it re-renders.
+	// AttrTurnStartedAt is when the turn was dispatched, the only attribute
+	// here compared by order. Exported because the move that carries these
+	// rows names the instant it re-renders.
 	AttrTurnStartedAt = "started_at"
 )
 
@@ -130,25 +102,17 @@ func turnFrom(it objstore.Item) TurnContext {
 }
 
 // OpenTurnContext binds a turn to the (folder, topic, chat) it came from, so a
-// late callback carrying only a turn id can resolve its target. returnTo is the
-// delegation return address: when set, the callback surface delivers there
-// instead of to the child folder's JID.
+// late callback carrying only a turn id can resolve its target. returnTo is
+// the delegation return address: when set, the callback surface delivers
+// there instead of to the child folder's JID.
 //
-// IT ANSWERS live=false WHEN THE TURN IS ALREADY DONE, and that answer is the
-// duplicate-output guard: when an earlier batch finishes and a later batch in
-// the same poll steers, the cursor does not advance and the next poll re-feeds
-// the completed batch. Re-dispatching it would replay finished output into the
-// chat.
-//
-// THE DECISION IS THE WRITE'S OWN CONDITION and not a read. Two shapes because
-// the interface has two: the create commits when nothing has bound this turn,
-// and its REFUSAL sends the caller to the update, whose condition is the whole
-// operation. A read and then a write is two decisions with the turn's state free
-// to move between them.
-//
-// `started_at` is written ONCE, by the create. A re-dispatch of a live turn
-// leaves it where it was, so the expiry sweep still measures from the turn's
-// first attempt.
+// It answers live=false WHEN THE TURN IS ALREADY DONE, the duplicate-output
+// guard: when an earlier batch finishes and a later batch in the same poll
+// steers, the cursor does not advance and the next poll re-feeds the
+// completed batch. The decision is the write's own condition, not a read: the
+// create commits when nothing has bound this turn, and its REFUSAL sends the
+// caller to the conditional update. `started_at` is written ONCE, by the
+// create, so the expiry sweep measures from the turn's first attempt.
 func (s *Store) OpenTurnContext(turnID, folder, topic, chatJID, trigger, returnTo string) (bool, error) {
 	key, err := turnKey(turnID)
 	if err != nil {
@@ -176,12 +140,10 @@ func (s *Store) OpenTurnContext(turnID, folder, topic, chatJID, trigger, returnT
 	if opened {
 		return true, nil
 	}
-	// A re-dispatch REPLACES the binding and clears the run-returned flag, and
-	// the two must land together: a turn re-opened with the previous attempt's
-	// flag still set answers every late callback with turn_done.
-	//
-	// The empty fields of `bound` are removed rather than left, because absent is
-	// the only null this model has and a stale return address would deliver the
+	// A re-dispatch REPLACES the binding and clears the run-returned flag in
+	// one write: a turn re-opened with the previous attempt's flag still set
+	// answers every late callback with turn_done. The empty fields of `bound`
+	// are removed rather than left: a stale return address would deliver the
 	// next answer to the previous delegator.
 	live, err := s.TryWriteEntities(ctx, nil, objstore.Write{
 		Op: objstore.Update, Entity: TurnContexts, Key: key, Attrs: bound,
@@ -224,14 +186,13 @@ func (s *Store) TurnContextOf(turnID string) (TurnContext, bool) {
 }
 
 // setTurnAttrs merges attributes into a bound turn. An Update against a turn
-// nobody bound writes nothing, which is what the statements this replaces did by
-// matching no row.
+// nobody bound writes nothing, and that is not an error.
 func (s *Store) setTurnAttrs(turnID string, attrs map[string]string) error {
 	key, err := turnKey(turnID)
 	if err != nil {
 		return err
 	}
-	// A refusal is a turn nobody bound, which the doc above allows.
+	// A refusal is a turn nobody bound.
 	if _, err := s.TryWriteEntities(context.Background(), nil, objstore.Write{
 		Op: objstore.Update, Entity: TurnContexts, Key: key, Attrs: attrs,
 	}); err != nil {
@@ -241,7 +202,7 @@ func (s *Store) setTurnAttrs(turnID string, attrs map[string]string) error {
 }
 
 // SetTurnTriggerMsg records the platform id of the message that triggered a
-// turn — the message a threaded reply roots a new platform thread on.
+// turn: the message a threaded reply roots a new platform thread on.
 func (s *Store) SetTurnTriggerMsg(turnID, msgID string) error {
 	return s.setTurnAttrs(turnID, map[string]string{attrTurnTriggerMsg: msgID})
 }
@@ -265,15 +226,14 @@ func (s *Store) SetTurnRunID(turnID, runID string) error {
 }
 
 // SetTurnGatewayKey records the sha256 of the key the gateway minted for this
-// turn. The gateway names a key in its spend log by that hash and never by the
-// key itself, so this is the handle that resolves a turn to its own numbers —
-// the pointer arizuko keeps in place of a copy of them (spec 6/39).
+// turn: the handle that resolves a turn to its own numbers, the pointer
+// arizuko keeps in place of a copy of them (spec 6/39).
 func (s *Store) SetTurnGatewayKey(turnID, keyHash string) error {
 	return s.setTurnAttrs(turnID, map[string]string{attrTurnGatewayKey: keyHash})
 }
 
 // TurnGatewayKey answers the key hash that metered a turn. Empty means the turn
-// ran with no gateway, so no meter holds a number for it — which the cost
+// ran with no gateway, so no meter holds a number for it, which the cost
 // endpoint reports as a 404 rather than a zero.
 func (s *Store) TurnGatewayKey(turnID string) (string, error) {
 	key, err := turnKey(turnID)
@@ -288,19 +248,15 @@ func (s *Store) TurnGatewayKey(turnID string) (string, error) {
 }
 
 // retryRounds bounds RecordRetryAttempt's compare-and-swap. A refusal is a lost
-// race and nothing else — the condition is the count this call read one round
-// trip ago — so it is the transient class that may be retried.
+// race and nothing else, so it is the transient class that may be retried.
 const retryRounds = 8
 
 // RecordRetryAttempt moves a turn to its next attempt and answers which attempt
-// that is.
-//
-// THE COUNT AND THE STATE ARE ONE WRITE, and that is the invariant: a turn whose
-// count moved but whose state stayed `running` has burned an attempt and is
-// still fed to crash recovery as live. objstore.Increment cannot carry them
-// together — a batch holds one action per item and the state belongs to the
-// counter's own item — so the compare-and-swap is written here, guarded on the
-// count this call read.
+// that is. THE COUNT AND THE STATE ARE ONE WRITE: a turn whose count moved but
+// whose state stayed `running` has burned an attempt and is still fed to crash
+// recovery as live. objstore.Increment cannot carry them together (a batch
+// holds one action per item), so the compare-and-swap is written here, guarded
+// on the count this call read.
 func (s *Store) RecordRetryAttempt(turnID string) (int, error) {
 	key, err := turnKey(turnID)
 	if err != nil {
@@ -346,16 +302,11 @@ func (s *Store) RecordRetryAttempt(turnID string) (int, error) {
 }
 
 // TypingJIDsForRun answers the chats whose typing indicator a run owns: one per
-// turn recorded against the run, resolved the way dispatch picks the indicator's
-// chat.
-//
-// A follow-up that arrives mid-run is STEERED into the live container, and
-// steering is by folder, so the steered turn's chat is not always the running
-// turn's chat. Its indicator was handed to a submit_turn that never fires when
-// the run dies at the timeout wall (BUGS T1).
-//
-// The run id is an attribute, so the read narrows on it at the driver and the
-// duplicates are dropped here.
+// turn recorded against the run, resolved the way dispatch picks the
+// indicator's chat. A follow-up that arrives mid-run is STEERED into the live
+// container by folder, so the steered turn's chat is not always the running
+// turn's chat, and its indicator was handed to a submit_turn that never fires
+// when the run dies at the timeout wall (BUGS T1).
 func (s *Store) TypingJIDsForRun(runID string) []string {
 	if runID == "" {
 		return nil
@@ -384,13 +335,10 @@ func (s *Store) TypingJIDsForRun(runID string) []string {
 }
 
 // RunningTurns lists the turns crash recovery re-feeds: the ones still running
-// or waiting for a retry.
-//
-// The driver drops the terminal majority — 2,846 of krons' 2,954 items are
-// `done` — and the exact set is named HERE, because a filter is a conjunction
-// and "one of these two states" is not one. Naming the set rather than testing
-// for "not terminal" is what keeps a state added later out of the crash-recovery
-// feed until someone decides it belongs there.
+// or waiting for a retry. The exact set is named HERE, because a filter is a
+// conjunction and "one of these two states" is not one; naming the set rather
+// than testing for "not terminal" keeps a state added later out of the
+// crash-recovery feed until someone decides it belongs there.
 func (s *Store) RunningTurns() ([]TurnContext, error) {
 	items, err := s.Obj().Query(context.Background(), objstore.Query{
 		Entity: TurnContexts, Partition: OwnerRoutd,
@@ -410,14 +358,9 @@ func (s *Store) RunningTurns() ([]TurnContext, error) {
 }
 
 // TurnsSince answers every turn dispatched at or after `since`, whatever state
-// it reached. It is the operator's outcome read: the states these rows carry are
-// what says whether turns are finishing or expiring.
-//
-// It narrows on started_at, which is the one ordered attribute here, so the
-// answer is bounded by the window rather than by the partition. The READ is not:
-// a filter is not an index, so the driver still examines the partition — 2,954
-// items on krons — and the header above says why that is the cost of this
-// entity's coordinate. A window is an operator's read, not a hot path.
+// it reached: the operator's outcome read. The filter narrows on started_at,
+// but a filter is not an index, so the driver still examines the partition; a
+// window is an operator's read, not a hot path.
 func (s *Store) TurnsSince(since time.Time) ([]TurnContext, error) {
 	items, err := s.Obj().Query(context.Background(), objstore.Query{
 		Entity: TurnContexts, Partition: OwnerRoutd,
@@ -435,16 +378,12 @@ func (s *Store) TurnsSince(since time.Time) ([]TurnContext, error) {
 	return out, nil
 }
 
-// SweepExpiredRunning moves every turn that has been running longer than the run
-// timeout to `expired`, and answers how many moved.
-//
-// `expired` is DISTINCT from `done` on purpose: it stops crash recovery re-feeding
-// the turn without tripping the done-guard against a legitimate re-dispatch.
-//
-// The read narrows on both terms at the driver — a state and an ordered instant
-// are a conjunction — and each write carries the state it read as its own
-// condition, so a turn that finished between the read and the write is left
-// alone instead of being expired on top of its own answer.
+// SweepExpiredRunning moves every turn that has been running longer than the
+// run timeout to `expired`, and answers how many moved. `expired` is DISTINCT
+// from `done` on purpose: it stops crash recovery re-feeding the turn without
+// tripping the done-guard against a legitimate re-dispatch. Each write carries
+// the state it read as its own condition, so a turn that finished between the
+// read and the write is left alone.
 func (s *Store) SweepExpiredRunning(timeout time.Duration) (int64, error) {
 	ctx := context.Background()
 	cutoff := core.TS(time.Now().Add(-timeout))
@@ -477,7 +416,7 @@ func (s *Store) SweepExpiredRunning(timeout time.Duration) (int64, error) {
 	return swept, nil
 }
 
-// ChatHasRunningTurn reports whether a chat has a turn still running — the
+// ChatHasRunningTurn reports whether a chat has a turn still running: the
 // proactive scan skips such a chat, because the per-folder queue serialises and
 // a proactive inbound never steers a live turn.
 func (s *Store) ChatHasRunningTurn(jid string) bool {

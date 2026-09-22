@@ -1,30 +1,16 @@
 package store
 
-// seed.go is the floor a routd.db is BORN with: the root grant the operator
-// delegates from, the member role every folder is bound to, and the two egress
-// rules without which no spawned agent reaches a model.
+// seed.go writes the floor a fresh routd store is born with: the operator's
+// root grant, the member role, and the egress rules a spawned agent needs to
+// reach a model.
 //
-// WHY IT IS CODE AND NOT A MIGRATION. A seed is a row, and a row an entity
-// holds goes in through that entity's own writer — the driver makes the entity
-// after the chain has run, so a statement in the chain has no table to put one
-// in. That is the whole reason this file exists rather than the INSERTs that
-// used to sit in routd/migrations 0005, 0022 and 0023.
-//
-// WHY "WHEN THE ENTITY IS EMPTY" AND NOT "IF ABSENT ON EVERY OPEN". Once-ness
-// is what the chain gave, and it is load-bearing: an operator whose manifest
-// deliberately leaves a floor grant out must not have it written back under
-// them at the next restart, or `arizuko plan` shows the same diff forever and
-// the seeder and the manifest fight. An EMPTY entity is the one state that
-// cannot be an operator's intent — a routd.db with no acl row at all grants
-// nothing to anyone, including the operator — so it is the condition, and it is
-// exactly "a database nobody has written yet".
-//
-// The write is still create-if-absent under that condition, because two owner
-// daemons can boot against the same fresh endpoint at once.
-//
-// THE INSTANTS ARE FIXED, not now(). A fresh instance's config checksum has to
-// be the same value on every machine, or `arizuko export | apply` on a
-// just-created instance reports a change nobody made.
+// It is code, not a migration: an entity's rows go in through its writer,
+// after the driver makes the entity. It runs when the entity is EMPTY, never
+// "if absent on every open": an operator who deliberately leaves a floor grant
+// out of the manifest must not get it back on restart, or `arizuko plan` shows
+// the same diff forever. The write is still create-if-absent, because two
+// owner daemons can boot against one fresh endpoint at once. The instants are
+// fixed so a fresh instance's config checksum is the same on every machine.
 
 import (
 	"context"
@@ -37,14 +23,12 @@ import (
 )
 
 // RoleOperator is the delegation root (spec 4/R, 5/33): it holds (*, **) WITH
-// GRANT OPTION, so it may delegate anything. Every other grant starts without
-// the option and gains it only when explicitly granted.
+// GRANT OPTION. Every other grant starts without the option.
 const RoleOperator = "role:operator"
 
-// memberVerbs are the twelve messaging verbs role:member confers — the floor,
-// at scope **, because containment is authorizeJID route-ownership at runtime
-// and not the acl scope. The floor is NOT re-delegable: every child is born a
-// member directly, so these carry no grant option.
+// memberVerbs are the messaging verbs role:member confers, at scope ** because
+// containment is route ownership at runtime, not the acl scope. No grant
+// option: every child is born a member directly.
 var memberVerbs = []string{
 	"mcp:reply", "mcp:send", "mcp:send_file", "mcp:send_voice",
 	"mcp:post", "mcp:forward", "mcp:quote", "mcp:repost",
@@ -52,30 +36,20 @@ var memberVerbs = []string{
 }
 
 // alwaysMountedTools are the READS every turn mounts, plus the memory
-// checkpoint — the class spec 5/33 exempts from grants entirely. They get no
-// ALLOW row because they need none; what they need is the skip row below, or a
-// folder holding a blanket hold would wait for a human before it could read its
-// own notes or the message it is answering.
-//
-// The list is the READS and only the reads. A write that happens to mount
-// unconditionally — invite_create, pin_message, reset_session — stays held: the
-// whole point of the blanket hold is that a person sees those.
-// routd's TestWorld_HoldsOnlyWhatAPersonShouldSee walks the mounted set and
-// fails if a new tool lands on the wrong side of this line.
+// checkpoint, the class spec 5/33 exempts from grants. They need the skip row
+// below, or a folder holding a blanket hold would wait for a human before it
+// could read its own notes. Reads only: a write that mounts unconditionally
+// (invite_create, pin_message, reset_session) stays held. routd's
+// TestWorld_HoldsOnlyWhatAPersonShouldSee guards the line.
 var alwaysMountedTools = []string{
 	"mcp:inspect_routing", "mcp:inspect_tasks", "mcp:inspect_session",
 	"mcp:inspect_identity", "mcp:inspect_messages", "mcp:find_messages",
 	"mcp:get_thread", "mcp:fetch_history", "mcp:get_work", "mcp:set_work",
 }
 
-// skipApprovalFloor names every tool role:member answers WITHOUT a human. It is
-// the other half of the inversion a world folder is granted (onbod writeWorld):
-// the world holds `hold:mcp:*`, so EVERY call it makes waits for its owner
-// unless a narrower rule says otherwise, and these are that rule.
-//
-// Deny on a `hold:` action means SKIP APPROVAL — it denies the hold, never the
-// tool (spec 6/26 § Decision 5). Deny-wins is absolute, so this floor beats the
-// world's wildcard however the world was granted.
+// skipApprovalFloor names every tool role:member answers WITHOUT a human. A
+// world folder holds `hold:mcp:*`, and deny on a `hold:` action means SKIP
+// APPROVAL (spec 6/26 § Decision 5); deny-wins beats the world's wildcard.
 func skipApprovalFloor() []string {
 	out := make([]string, 0, len(memberVerbs)+len(alwaysMountedTools))
 	out = append(out, memberVerbs...)
@@ -83,7 +57,7 @@ func skipApprovalFloor() []string {
 }
 
 // baseAllowlist is the instance-wide egress every folder inherits
-// (folderAncestry). Without it a spawned container reaches no model at all.
+// (folderAncestry). Without it a spawned container reaches no model.
 var baseAllowlist = []string{"anthropic.com", "api.anthropic.com"}
 
 // The instants the floor carries. Fixed, so two fresh instances agree.
@@ -94,11 +68,8 @@ var (
 	skipFloorGrantedAt = time.Date(2026, 9, 12, 0, 0, 0, 0, time.UTC)
 )
 
-// SeedRoutdFloor writes the floor into a routd.db that holds none of it.
-//
-// It runs where EnsureEntities does, so every opener of routd.db reaches it:
-// `arizuko create`, the split cutover, and every test database. An instance
-// that already carries grants or egress rules is left exactly as it is.
+// SeedRoutdFloor writes the floor into a routd store that holds none of it. An
+// instance that already carries grants or egress rules is left as it is.
 func SeedRoutdFloor(ctx context.Context, d objstore.Store) error {
 	empty, err := entityIsEmpty(ctx, d, ACL)
 	if err != nil {
@@ -158,19 +129,13 @@ func SeedRoutdFloor(ctx context.Context, d objstore.Store) error {
 	return nil
 }
 
-// DefaultFolder is the group a new instance is born with. It is a configured
-// name, the same on every instance, so a reader never derives it from a path.
+// DefaultFolder is the group a new instance is born with: configured, never
+// derived from a path.
 const DefaultFolder = "main"
 
-// SeedDefaultGroup writes the group a new instance is born with, and its default
-// scheduled tasks, into a store that holds no group at all.
-//
-// It runs beside SeedRoutdFloor at routd's boot, because the rows belong to
-// routd and routd is the daemon that makes them: `arizuko create` makes the
-// instance's FILES — the directory, the `.env`, the compose and the group's own
-// tree — and writes the operator's product choice into the environment routd
-// reads it back from. An instance that already carries a group is left exactly
-// as it is.
+// SeedDefaultGroup writes the group a new instance is born with, and its
+// default scheduled tasks, into a store that holds no group. It runs at routd's
+// boot because routd makes the rows; `arizuko create` makes only files.
 func SeedDefaultGroup(ctx context.Context, d objstore.Store, product string) error {
 	empty, err := entityIsEmpty(ctx, d, Groups)
 	if err != nil {
@@ -192,8 +157,7 @@ func SeedDefaultGroup(ctx context.Context, d objstore.Store, product string) err
 }
 
 // entityIsEmpty reports whether one entity holds no item at all in the routd
-// partition. The read is capped at one, because "is there anything" is the
-// whole question.
+// partition.
 func entityIsEmpty(ctx context.Context, s objstore.Store, entity string) (bool, error) {
 	items, err := s.Query(ctx, objstore.Query{
 		Entity: entity, Partition: OwnerRoutd, Limit: 1,

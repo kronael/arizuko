@@ -2,19 +2,13 @@ package store
 
 // messages_archive.go is `messages`' second reader: the whole history, which no
 // manifest carries, exported and imported by `arizuko archive` (spec 5/8
-// "Message history").
+// "Message history"). The cursor derivation is in chats.go because it is the
+// second half of ONE operation: an import that did not park the poller makes
+// the agent answer every restored message.
 //
-// IT IS A SECOND READER OF ONE ENTITY, not a second store. The cursor derivation
-// is in chats.go rather than here because it is the second half of ONE
-// operation: an import that did not park the poller makes the agent answer every
-// restored message.
-//
-// THE CHATS ENTITY IS THE PARTITION LIST. An entity read names one partition, so
-// "every message" is every chat, and `chats` is what holds them — 136 items on
-// krons against 24,013 messages. `PutMessage` opens a chat item before it writes
-// the first message of a chat precisely so that list can never be short; the
-// poll loop rests on the same guarantee, and a chat missing from it would be a
-// chat nothing ever feeds.
+// `chats` IS THE PARTITION LIST: an entity read names one partition, so "every
+// message" is every chat. `PutMessage` opens a chat item before the first
+// message of a chat precisely so that list can never be short.
 
 import (
 	"context"
@@ -29,10 +23,9 @@ import (
 	"github.com/kronael/arizuko/objstore"
 )
 
-// ArchiveMessageRow is the FULL shape of one archived message: every attribute
-// the item carries, its coordinate, and the delivery status that is stored as
-// the ABSENCE of a delivery item. The archive is a backup rather than a filtered
-// view, so it carries all of them verbatim.
+// ArchiveMessageRow is the FULL shape of one archived message: every attribute,
+// its coordinate, and the delivery status that is stored as the ABSENCE of a
+// delivery item. The archive is a backup, not a filtered view.
 type ArchiveMessageRow struct {
 	ID            string `json:"id"`
 	ChatJID       string `json:"chat_jid"`
@@ -59,24 +52,20 @@ type ArchiveMessageRow struct {
 	Errored       bool   `json:"errored"`
 	LinkContext   string `json:"link_context,omitempty"`
 
-	// DeliveryAttempts is how many sends this row has already cost. It belongs
-	// to the delivery item rather than the message, and it is what the operator's
-	// dead-letter page reports, so an archive that dropped it would restore a
-	// queue whose every row claims never to have been tried.
+	// DeliveryAttempts belongs to the delivery item, and it is what the
+	// operator's dead-letter page reports: an archive that dropped it would
+	// restore a queue whose every row claims never to have been tried.
 	DeliveryAttempts int `json:"delivery_attempts,omitempty"`
 }
 
-// naiveDatetime is the layout of a hand-written timestamp with no zone. Two krons
-// rows carry one (`2026-04-02 12:38:47`), inserted by hand in April.
+// naiveDatetime is the layout of a hand-written timestamp with no zone. Two
+// krons rows carry one (`2026-04-02 12:38:47`).
 const naiveDatetime = "2006-01-02 15:04:05"
 
 // ReadMessageInstant parses a stored or archived timestamp into the instant a
-// message position is built from.
-//
-// A NAIVE DATETIME IS READ AS UTC. An item has no position without an instant, so
-// the choice for the two krons rows that carry one is to read them or to drop two
-// messages. The instance writes UTC and has always written UTC, so the zone is
-// not invented, it is the one the row was recorded in.
+// message position is built from. A NAIVE DATETIME IS READ AS UTC: the choice
+// for the two krons rows is to read them or drop two messages, and the instance
+// has always written UTC.
 func ReadMessageInstant(raw string) (time.Time, error) {
 	for _, layout := range []string{time.RFC3339Nano, naiveDatetime} {
 		if t, err := time.Parse(layout, raw); err == nil {
@@ -87,23 +76,21 @@ func ReadMessageInstant(raw string) (time.Time, error) {
 		"from, so the row has no place in its chat's order", raw)
 }
 
-// defaultImportBatch bounds how many messages ride one import transaction — a
-// multi-hour transfer must not hold the database's write lock for its whole
-// duration (spec 5/8 "Message history").
+// defaultImportBatch bounds how many messages ride one import batch (spec 5/8
+// "Message history").
 const defaultImportBatch = 500
 
 // UnorderableMessage names one archived row this import refused: its timestamp
-// is not an instant, so there is no core.TS rendering of it and it cannot be
-// ordered against a cursor. The id and the value as the archive carried it are
-// both reported, because fixing the archive by hand is the operator's way back
-// in.
+// is not an instant, so it cannot be ordered against a cursor. The id and the
+// value as the archive carried it are both reported, because fixing the
+// archive by hand is the operator's way back in.
 type UnorderableMessage struct {
 	ID        string
 	Timestamp string
 }
 
-// undelivered is one row's delivery state: the status stored as the ABSENCE of a
-// `sent` item, and the attempts already spent on it.
+// undelivered is one row's delivery state: the status stored as the ABSENCE of
+// a `sent` item, and the attempts already spent on it.
 type undelivered struct {
 	status   string
 	attempts int
@@ -131,9 +118,9 @@ func (s *Store) undeliveredStatus(ctx context.Context) (map[string]undelivered, 
 	return out, nil
 }
 
-// ExportMessagesJSONL streams every message to w as JSONL (repo convention: .jl,
-// one JSON object per line), chat by chat and in position order inside each, so
-// an unchanged database exports the same bytes twice. It answers the row count.
+// ExportMessagesJSONL streams every message to w as JSONL (repo convention:
+// .jl), chat by chat and in position order inside each, so an unchanged
+// database exports the same bytes twice. It answers the row count.
 func (s *Store) ExportMessagesJSONL(ctx context.Context, w io.Writer) (int, error) {
 	status, err := s.undeliveredStatus(ctx)
 	if err != nil {
@@ -196,25 +183,18 @@ func archiveRowFrom(it objstore.Item) ArchiveMessageRow {
 	}
 }
 
-// ImportMessagesJSONL reads JSONL from r and appends every row, keyed on its own
-// coordinate (spec 5/8 "Message history": "idempotent bulk append, not rebuild"
-// — re-running the same archive, or restoring onto a target that already holds
-// some of the same history, leaves the rows that are already there). It answers
-// the number of rows read, the chats it touched for the caller to derive
-// agent_cursor from, and the rows it refused.
+// ImportMessagesJSONL reads JSONL from r and appends every row, keyed on its
+// own coordinate: an idempotent bulk append, not a rebuild (spec 5/8 "Message
+// history"). It answers the rows read, the chats touched (for the caller to
+// derive agent_cursor from), and the rows it refused.
 //
-// EVERY TIMESTAMP IS RE-RENDERED THROUGH core.TS on the way in. An archive is the
-// one place a foreign string reaches a message's position, whose guarantee is
-// that its string order is its time order, so this is where the value is brought
-// into the layout rather than trusted (BUGS L219, L97).
-//
-// A row whose timestamp is not an instant is REFUSED — never written — and
-// returned for the caller to report. Per row, not per archive: a restore is a
-// sequence of committed phases over a streaming tar, so failing here cannot roll
-// back the config and secrets already applied, and the stream is unbounded and
-// batched, so it cannot be checked up front either. The import is idempotent, so
-// correcting a named row and re-running completes the archive without
-// duplicating what already landed.
+// EVERY TIMESTAMP IS RE-RENDERED THROUGH core.TS on the way in: an archive is
+// the one place a foreign string reaches a message's position (BUGS L219,
+// L97). A row whose timestamp is not an instant is REFUSED, never written, and
+// returned per row: a restore is a sequence of committed phases over a
+// streaming tar, so failing here can neither roll back the config already
+// applied nor check the stream up front. Correcting a named row and re-running
+// completes the archive without duplicates.
 func (s *Store) ImportMessagesJSONL(ctx context.Context, r io.Reader, batchSize int) (
 	imported int, chatJIDs map[string]bool, refused []UnorderableMessage, err error) {
 	if batchSize <= 0 {
@@ -249,10 +229,9 @@ func (s *Store) ImportMessagesJSONL(ctx context.Context, r io.Reader, batchSize 
 	return imported, chatJIDs, refused, berr
 }
 
-// ImportMessageRows writes archived rows straight, for the caller that already
-// holds them: `arizuko migrate-hot` reads the legacy table rather than a stream.
-// It is the same writer, so a moved instance and a restored one carry the same
-// items.
+// importMessageRows writes archived rows straight, for `arizuko migrate-hot`,
+// which reads the legacy table rather than a stream. Same writer, so a moved
+// instance and a restored one carry the same items.
 func (s *Store) importMessageRows(ctx context.Context, rows []ArchiveMessageRow) error {
 	for start := 0; start < len(rows); start += defaultImportBatch {
 		chunk := rows[start:min(start+defaultImportBatch, len(rows))]
@@ -271,18 +250,12 @@ func (s *Store) importMessageRows(ctx context.Context, rows []ArchiveMessageRow)
 // importMessageBatch renders one batch and writes it, answering how many landed
 // and which rows it refused.
 //
-// IT READS WHAT IS ALREADY THERE FIRST, and that is what makes the import
-// idempotent. A message write is a create-if-absent, a batch is all-or-nothing,
-// and a refusal takes the whole chunk with it — so a re-run of the same archive,
-// or a restore onto a target that already holds some of the same history, would
-// fail on its first present row rather than skipping it. The rows already in the
-// chat are read once per chat and the batch carries only what is new.
-//
-// The read and the write are two steps, and nothing can appear between them: a
-// restore runs with the daemon that appends messages stopped. A live writer would
-// make a present row reach the write as an unconditional Put of the same archived
-// bytes, which is why the survivors keep no condition — the condition would turn
-// one raced row into a lost batch of five hundred.
+// IT READS WHAT IS ALREADY THERE FIRST, which is what makes the import
+// idempotent: a message write is create-if-absent and a batch is
+// all-or-nothing, so a re-run would otherwise fail on its first present row.
+// Nothing can appear between the read and the write, because a restore runs
+// with routd stopped; that is why the survivors keep no condition, where one
+// raced row would lose a batch of five hundred.
 func (s *Store) importMessageBatch(ctx context.Context, rows []ArchiveMessageRow) (
 	int, []UnorderableMessage, error) {
 	var refused []UnorderableMessage
@@ -299,10 +272,9 @@ func (s *Store) importMessageBatch(ctx context.Context, rows []ArchiveMessageRow
 	if len(rendered) == 0 {
 		return 0, refused, nil
 	}
-	// The chat item is opened BEFORE the messages, because `chats` is the
-	// partition list every whole-history reader walks: an import that filled the
-	// messages and left the list short would restore a history the poll loop
-	// never feeds and the next export cannot see.
+	// The chat item is opened BEFORE the messages: `chats` is the partition
+	// list, and a history the list does not name is one the poll loop never
+	// feeds and the next export cannot see.
 	held, err := s.openChatsFor(ctx, chats)
 	if err != nil {
 		return 0, refused, err
@@ -339,10 +311,8 @@ func (s *Store) importMessageBatch(ctx context.Context, rows []ArchiveMessageRow
 	if _, err := s.applyInChunks(ctx, "import messages", writes); err != nil {
 		return 0, refused, err
 	}
-	// The counts move ONCE per folder rather than once per row. A move and a
-	// restore are not the live path — nothing else writes while they run — so the
-	// number that matters is the one the whole batch leaves, and an Increment per
-	// row would be one round trip per message for the same answer.
+	// The counts move ONCE per folder: nothing else writes while a restore
+	// runs, so the number that matters is the one the whole batch leaves.
 	for folder, n := range folders {
 		if err := s.countFolderMessageBy(ctx, folder, n, nil); err != nil {
 			return staged, refused, err
@@ -352,10 +322,7 @@ func (s *Store) importMessageBatch(ctx context.Context, rows []ArchiveMessageRow
 }
 
 // openChatsFor opens a chat item for every chat the batch names and answers the
-// message positions each already holds.
-//
-// The positions are what the skip above rests on, and they are read per chat
-// rather than per row: one query answers a whole chat.
+// message positions each already holds, read once per chat.
 func (s *Store) openChatsFor(ctx context.Context, chats map[string]bool) (
 	map[string]map[string]bool, error) {
 	held := make(map[string]map[string]bool, len(chats))
@@ -369,8 +336,8 @@ func (s *Store) openChatsFor(ctx context.Context, chats map[string]bool) (
 		if err != nil {
 			return nil, err
 		}
-		// A refusal is a chat that is already open, which is the outcome this
-		// wants; it must not take the messages with it, so it rides its own batch.
+		// A refusal is a chat that is already open; it must not take the
+		// messages with it, so it rides its own batch.
 		if _, err := s.TryWriteEntities(ctx, nil, objstore.Write{
 			Op: objstore.Put, Entity: Chats, Key: key, Attrs: map[string]string{},
 			Cond: objstore.Cond{Item: objstore.ItemAbsent},
@@ -393,14 +360,10 @@ func (s *Store) openChatsFor(ctx context.Context, chats map[string]bool) (
 }
 
 // importedMessageWrites renders one archived row as the items it becomes, or
-// refuses it.
-//
-// It rebuilds every index the live writer would have written — the activity
-// feed, the folder feed, and a delivery item for a row the archive says is not
-// sent — because an import that carried only the messages would leave a restored
-// instance whose ambient window, activity page and retry feed are empty while
-// the history is whole. The folder COUNT is moved once per folder by the caller,
-// which is the one thing a batch of Puts cannot carry.
+// refuses it. It rebuilds every index the live writer would have written: an
+// import that carried only the messages would leave a restored instance whose
+// ambient window, activity page and retry feed are empty while the history is
+// whole. The folder COUNT is moved once per folder by the caller.
 func importedMessageWrites(m ArchiveMessageRow) ([]objstore.Write, error) {
 	t, err := ReadMessageInstant(m.Timestamp)
 	if err != nil {
@@ -434,9 +397,8 @@ func importedMessageWrites(m ArchiveMessageRow) ([]objstore.Write, error) {
 		if m.IsObserved {
 			feed.Attrs[attrFeedObserved] = flagSet
 		}
-		// The archive is appended onto whatever is already there, so the feed
-		// entry takes the message's own condition rather than its own: a row the
-		// target already holds must not double-count its folder.
+		// The feed entry takes the message's own condition rather than its
+		// own: a row the target already holds must not double-count its folder.
 		writes = append(writes, feed)
 	}
 	if w, owes := deliveryWrite(key, msg, m.Status, m.DeliveryAttempts); owes {

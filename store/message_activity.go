@@ -1,32 +1,18 @@
 package store
 
 // message_activity.go holds the activity feed: the newest messages across every
-// chat, which is the one read that has no coordinate at all.
+// chat, the one read that has no coordinate at all.
 //
-// ONE CONSTANT PARTITION, sorted by the message's own position. `handleActivity`
-// serves the newest thousand rows across all 136 chats; answering that from the
-// chats themselves means reading 136 partitions and merging — 10,525 items
-// transferred on krons to show 1,000 — so the read gets an entity shaped like
-// the question instead.
+// ONE CONSTANT PARTITION, sorted by the message's own position: answering from
+// the chats themselves transferred 10,525 items on krons to show 1,000. It
+// carries the PROJECTION, not a pointer, because this page renders a thousand
+// rows; the fields are exactly what the HTTP surface serves, and
+// `EnrichMessage` rewrites the preview with the body.
 //
-// IT CARRIES THE PROJECTION, NOT A POINTER, and that is the one place this
-// differs from the folder feed. The difference is the size of the answer: the
-// ambient window renders at most a few dozen messages, so dereferencing a
-// pointer costs a few dozen reads, and this page renders a thousand. The five
-// fields below are exactly what the HTTP surface serves, the preview is already
-// truncated by the owner at 80 characters, and `EnrichMessage` rewrites the
-// preview with the body — so the two cannot drift apart.
-//
-// RETENTION IS THIRTY DAYS, and the number is here because an index with no
-// drainage is the mistake `turn_context` already records.
-//
-// Thirty is what the traffic says. krons takes 510 messages in its last seven
-// days, sloth 421 and marinade 200, so thirty days holds about 2,200 items on
-// the busiest instance — two full pages of the thousand this feed serves, with
-// room. The alternative bound is the instance's whole life, which is 24,013 rows
-// on krons and grows for ever, and the page has never asked for a message older
-// than its second page. A shorter window would make the `before` pager run off
-// the end of a week; a longer one buys a page nobody has opened.
+// RETENTION IS THIRTY DAYS: an index with no drainage is the mistake
+// `turn_context` records. Thirty holds about 2,200 items on the busiest
+// instance, two full pages of the thousand this feed serves, and the page has
+// never asked for a message older than its second page.
 
 import (
 	"context"
@@ -40,7 +26,7 @@ import (
 )
 
 // The attributes an activity item carries: what the feed renders, and nothing
-// else. The chat is a field the page shows rather than a pointer it follows.
+// else.
 const (
 	attrActChatJID = "chat_jid"
 	attrActSender  = "sender"
@@ -50,17 +36,14 @@ const (
 	attrActBot     = "is_bot_message"
 )
 
-// activityPartition is the one partition the feed lives in. There is exactly one
-// activity feed per instance, so the name is a constant rather than a value.
+// activityPartition is the one partition the feed lives in.
 const activityPartition = OwnerRoutd
 
-// ActivityRetention is how far back the feed keeps a message. The file header
-// says why it is thirty days.
+// ActivityRetention is how far back the feed keeps a message (file header).
 const ActivityRetention = 30 * 24 * time.Hour
 
-// activityPreviewChars is how much of a body the feed carries. It is the bound
-// the HTTP surface already applies, moved to the write so the read cannot widen
-// it.
+// activityPreviewChars is the bound the HTTP surface applies, moved to the
+// write so the read cannot widen it.
 const activityPreviewChars = 80
 
 // The feed is read newest-first, so its key carries the same ordered lead.
@@ -76,9 +59,8 @@ type ActivityRow struct {
 	Preview   string
 }
 
-// activityWrite renders the feed entry every message takes. There is no
-// condition on it: it rides the message's own create-if-absent, so a duplicate
-// message never reaches this write.
+// activityWrite renders the feed entry every message takes. No condition: it
+// rides the message's own create-if-absent.
 func activityWrite(msgKey objstore.Key, m core.Message) objstore.Write {
 	attrs := map[string]string{attrActChatJID: m.ChatJID}
 	setAttr(attrs, attrActSender, m.Sender)
@@ -106,8 +88,8 @@ func (s *Store) RecentActivity(ctx context.Context, before string, limit int) ([
 	}
 	key := objstore.KeyPredicate{}
 	if before != "" {
-		// The pager names an INSTANT, and a bare instant sorts below every key
-		// at it, so this is the same `timestamp < before` the statement asked.
+		// A bare instant sorts below every key at it, so this is
+		// `timestamp < before`.
 		key = objstore.KeyPredicate{Op: objstore.LtKey, Value: before}
 	}
 	items, err := s.Obj().Query(ctx, objstore.Query{
@@ -133,11 +115,9 @@ func (s *Store) RecentActivity(ctx context.Context, before string, limit int) ([
 }
 
 // DailyVolume answers how many human messages each of the last `days` days
-// carried, newest day first — the usage page's histogram.
-//
-// It reads the feed rather than the chats, so the window is a key range instead
-// of a read of every partition. The bot rows are excluded HERE, by the owner, so
-// no caller can widen the count to include the agent's own output.
+// carried, newest day first: the usage page's histogram. It reads the feed so
+// the window is a key range; bot rows are excluded HERE, by the owner, so no
+// caller can widen the count to the agent's own output.
 func (s *Store) DailyVolume(ctx context.Context, days int) (map[string]int, error) {
 	if days <= 0 {
 		days = 7
@@ -163,13 +143,9 @@ func (s *Store) DailyVolume(ctx context.Context, days int) (map[string]int, erro
 	return out, nil
 }
 
-// SweepActivity removes feed entries older than the retention window and answers
-// how many went.
-//
-// It runs on the hourly housekeeping tick beside the stale-turn sweep, because
-// an index that only grows is the thing the header refuses. A delete names one
-// item, so the sweep reads the range it will remove and then removes it, which
-// is also what makes the count honest.
+// SweepActivity removes feed entries older than the retention window and
+// answers how many went. It runs on the hourly housekeeping tick; a delete
+// names one item, so the sweep reads the range and then removes it.
 func (s *Store) SweepActivity(ctx context.Context, now time.Time) (int, error) {
 	cutoff := now.Add(-ActivityRetention)
 	items, err := s.Obj().Query(ctx, objstore.Query{
@@ -193,7 +169,7 @@ func (s *Store) SweepActivity(ctx context.Context, now time.Time) (int, error) {
 }
 
 // sortItemsDescending puts items in newest-first key order, for a reader that
-// merged two partitions and has to apply one bound across both.
+// merged two partitions.
 func sortItemsDescending(items []objstore.Item) {
 	sort.Slice(items, func(i, j int) bool { return items[i].Key.Sort > items[j].Key.Sort })
 }
@@ -210,9 +186,9 @@ func parseCount(v string) (int, error) {
 	return n, nil
 }
 
-// indexDeletes names the index entries one message item owns, so a delete of the
-// message takes them with it. A pointer left behind is a feed entry whose
-// message is gone, and the reader would drop it silently on every read for ever.
+// indexDeletes names the index entries one message item owns, so a delete of
+// the message takes them with it: a pointer left behind is a feed entry the
+// reader would drop silently on every read for ever.
 func indexDeletes(msg objstore.Item) []objstore.Write {
 	out := []objstore.Write{{
 		Op: objstore.Delete, Entity: MessageActivity, Key: activityKey(msg.Key),

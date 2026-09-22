@@ -3,26 +3,12 @@ package store
 // network.go holds every read and write of `network_rules`: one item per egress
 // allowlist entry, addressed by (folder, target).
 //
-// THE PARTITION IS OwnerRoutd AND IT IS NOT A CHOICE THIS FILE MAKES.
-// network_rules is a registered resreg resource, and an entity-backed
-// resource's items live at its owner subsystem (resreg.SubsystemRoutd, which IS
-// store.OwnerRoutd). A second spelling would put this file's items in one
-// partition and the engine's read in another, and the failure is silent: a
-// query on a partition nobody wrote to is a legal query that selects nothing.
-//
-// THE FOLDER LEADS THE COORDINATE, and that is what makes a subtree readable.
-// `folder` is also the resource's purge scope, and a key predicate reaches a
-// LEADING fragment of the key and nothing else — so every read below that
-// selects one folder is a begins_with on `folder + KeySep`, exact because no
-// value may carry the separator. Choosing `target` first would make each of
-// them a whole-partition scan with a filter.
-//
-// THE STORED INSTANT IS core.TS, at 30 bytes. That is the width resreg's own
-// entity path stamps a StampedField at (resreg/entity.go itemFor), and the two
-// writers of these items have to agree byte for byte — an apply that stamped 30
-// where this file wrote 20 would put two widths in one attribute, and a
-// comparison over TEXT answers by byte order (BUGS L97). `arizuko migrate-routd`
-// normalises the RFC3339 values the column path left behind.
+// The partition is OwnerRoutd because resreg's entity path writes these items
+// too (resreg.SubsystemRoutd IS store.OwnerRoutd); a second spelling selects
+// nothing, silently. The folder leads the coordinate: it is also the purge
+// scope, and every one-folder read is a begins_with on `folder + KeySep`.
+// `created_at` is core.TS at 30 bytes, the width resreg's entity path stamps
+// (BUGS L97).
 
 import (
 	"context"
@@ -37,8 +23,8 @@ import (
 	"github.com/kronael/arizuko/objstore"
 )
 
-// The attributes a rule item carries. `folder` and `target` are NOT among them:
-// they are the coordinate, and storing it twice is two facts that can disagree.
+// The attributes a rule item carries. `folder` and `target` are the
+// coordinate.
 const (
 	attrNetCreatedAt = "created_at"
 	attrNetCreatedBy = "created_by"
@@ -52,9 +38,7 @@ type NetworkRule struct {
 }
 
 // networkRuleKey is the coordinate of one rule. The instance-wide rule spells
-// its folder "" — the sentinel migration 0037 seeded — and that is a legal
-// coordinate: the separator still divides the two parts, so the read splits it
-// back the same way.
+// its folder "", a legal coordinate: the separator still divides the parts.
 func networkRuleKey(folder, target string) (objstore.Key, error) {
 	if target == "" {
 		return objstore.Key{}, fmt.Errorf("network rule for %q carries no target, "+
@@ -69,8 +53,8 @@ func networkRuleKey(folder, target string) (objstore.Key, error) {
 	return objstore.Key{Partition: OwnerRoutd, Sort: folder + KeySep + target}, nil
 }
 
-// networkRuleFrom reads one item back. A key that does not split into two parts
-// is a LOUD fault rather than a half-filled rule: it names a row nobody wrote.
+// networkRuleFrom reads one item back. A key that does not split into two is a
+// LOUD fault: it names a row nobody wrote.
 func networkRuleFrom(it objstore.Item) (NetworkRule, error) {
 	folder, target, ok := strings.Cut(it.Key.Sort, KeySep)
 	if !ok {
@@ -108,18 +92,13 @@ func collectNetworkRules(items []objstore.Item) ([]NetworkRule, error) {
 	return out, nil
 }
 
-// AddNetworkRule validates target where the operator writes it — a rule that
+// AddNetworkRule validates target where the operator writes it: a rule that
 // can never match (a URL, a host:port, an IP) is refused with the reason, not
-// stored to read as protection (spec 6/25 1b). `*` is the one non-host row: a
-// folder's allow-all marker, which the spawn path translates into the egress
-// binary's explicit --allow-all mode. Writing it opens all egress, so it is
-// the operator CLI's to write; the agent's network_allow rejects it before
-// reaching the store. Targets are stored normalized (lowercase, `*.` glob
-// folded onto its apex), so a rule added as *.example.com is removed as
-// example.com.
-//
-// The write is create-if-absent, which is what `INSERT OR IGNORE` said: adding
-// a rule that is already there must not restamp who added it or when.
+// stored to read as protection (spec 6/25 1b). `*` is a folder's allow-all
+// marker, the operator CLI's to write; the agent's network_allow rejects it.
+// Targets are stored normalized (lowercase, `*.` folded onto its apex), so a
+// rule added as *.example.com is removed as example.com. The write is
+// create-if-absent: re-adding a rule must not restamp who added it or when.
 func (s *Store) AddNetworkRule(folder, target, by string) error {
 	if target != "*" {
 		if err := match.ValidEntry(target); err != nil {
@@ -134,8 +113,8 @@ func (s *Store) AddNetworkRule(folder, target, by string) error {
 	attrs := map[string]string{attrNetCreatedAt: core.NowTS()}
 	setAttr(attrs, attrNetCreatedBy, by)
 	_, err = s.tryWriteAudited(func() ([]objstore.Write, audit.Event, error) {
-		// A refusal is the host already being allowed, which is the state the caller
-		// asked for, and keeps the instant and the author of the first grant.
+		// A refusal is the host already being allowed, which is the state the
+		// caller asked for.
 		w := objstore.Write{
 			Op: objstore.Put, Entity: NetworkRules, Key: key, Attrs: attrs,
 			Cond: objstore.Cond{Item: objstore.ItemAbsent},
@@ -203,13 +182,9 @@ func (s *Store) AllNetworkRules() ([]NetworkRule, error) {
 }
 
 // ResolveAllowlist is every host folder may reach: its own rules and those of
-// every ancestor, including the instance-wide "" folder.
-//
-// One read per ancestor rather than one read of the whole entity: a folder is
-// at most a handful deep, each read is an exact begins_with on the coordinate,
-// and a whole-partition read would examine every folder's rules to answer about
-// one. The union is de-duplicated and sorted here, which is what `SELECT
-// DISTINCT … ORDER BY target` did.
+// every ancestor, including the instance-wide "" folder. One read per ancestor
+// rather than one of the whole entity; the union is de-duplicated and sorted
+// here.
 func (s *Store) ResolveAllowlist(folder string) ([]string, error) {
 	ctx := context.Background()
 	seen := map[string]bool{}
@@ -250,19 +225,11 @@ func folderAncestry(folder string) []string {
 
 // AddNetworkRuleInto buffers one rule on the caller's write set, for routd's
 // agent-facing `network_allow`: the rule rides the batch that carries
-// resreg.invoke's single audit_log row, and AddNetworkRule would send a batch of
-// its own and record the act twice.
-//
-// Every attribute is an Init, which states the idempotence in the write: a host
-// already allowed keeps the instant and the author of the FIRST grant. It is a
-// Merge rather than a guarded Put so it has nothing to refuse — allowing a host
-// twice is the state the caller asked for, not a race, and a write that refused
-// would take the audit row beside it down as well.
-//
-// It validates and normalizes through the same match grammar AddNetworkRule
-// does, so a rule reaching the table through either writer is the same string:
-// one added as *.example.com is removable as example.com whichever surface wrote
-// it.
+// resreg.invoke's single audit_log row. Every attribute is Init and it is a
+// Merge rather than a guarded Put, so it has nothing to refuse: allowing a host
+// twice is the state the caller asked for, and a refusal would take the audit
+// row down with it. It validates and normalizes through the same match grammar
+// as AddNetworkRule, so either writer stores the same string.
 func (s *Store) AddNetworkRuleInto(ws *WriteSet, folder, target, by string) error {
 	if target != "*" {
 		if err := match.ValidEntry(target); err != nil {
@@ -283,8 +250,8 @@ func (s *Store) AddNetworkRuleInto(ws *WriteSet, folder, target, by string) erro
 }
 
 // RemoveNetworkRuleInto buffers one rule's removal on the caller's write set. A
-// rule that is not there is not an error — closing egress that is already closed
-// is the outcome the caller asked for.
+// rule that is not there is not an error: closing egress that is already
+// closed is the outcome the caller asked for.
 func (s *Store) RemoveNetworkRuleInto(ws *WriteSet, folder, target string) error {
 	if target != "*" {
 		target = match.NormalizeEntry(target)

@@ -3,32 +3,17 @@ package store
 // message_delivery.go holds the mutable half of an outbound row: whether it
 // still owes a delivery, and how many attempts it has spent.
 //
-// `sent` IS THE ABSENCE OF AN ITEM. The first shape of this entity partitioned
-// the status and let the queue drain, and the rows say it does not: 98.4% of
-// krons' messages are `sent` (23,625 of 24,013), `pending` holds zero, and
-// nothing in the tree ever deletes a sent or a failed row — so a `sent`
-// partition is the whole table under another name, and it never sheds one. The
-// live schema already knew: `idx_messages_status` is partial, `WHERE status !=
-// 'sent'`. So an item exists only while the row is NOT sent, which is objstore's
-// "absent is the only null" applied to a status.
-//
-// THE PARTITION IS THE STATUS AND THE SORT KEY IS THE MESSAGE'S OWN. `pending`
-// is the retry feed and genuinely drains — a delivery either lands, which
-// removes the item, or dies, which moves it. `failed` is the dead-letter set,
-// 388 items on krons, 81 on marinade and 920 on sloth, and it drains when an
+// `sent` IS THE ABSENCE OF AN ITEM: 98.4% of krons' messages are sent and
+// nothing ever deletes a sent row, so a `sent` partition is the whole table
+// under another name. The partition is the status and the sort key the
+// message's own: `pending` is the retry feed and drains; `failed` is the
+// dead-letter set (388 items on krons, 920 on sloth) and drains when an
 // operator replays one.
 //
-// IT CARRIES A POINTER, like the folder feed and for the same reason: the
-// message's body lives in `messages` and a second copy is a second thing
-// `EnrichMessage` would have to rewrite. The item holds the chat and the attempt
-// count, which is what the sweep reads before it decides.
-//
-// platform_id IS NOT HERE. It is written once, by one statement, when the
-// adapter confirms delivery, and no non-bot row on any instance carries one — so
-// it is the platform's identity for the row rather than state that changes.
-// Moving it would also cost a live read: `MessageByID` resolves a reply's parent
-// by platform id inside one chat partition, and a status partition turns that
-// into a scan of every message ever sent.
+// It carries a POINTER, like the folder feed: a second copy of the body is a
+// second thing `EnrichMessage` would rewrite. platform_id is NOT here: it is
+// written once when the adapter confirms delivery, and `MessageByID` resolves
+// a reply's parent by it inside one chat partition.
 
 import (
 	"context"
@@ -80,13 +65,10 @@ type PendingMessage struct {
 	Attempts int
 }
 
-// PutOutbound appends one outbound row and the delivery state it owes.
-//
-// It is a door of its own rather than a status field on PutMessage, because the
-// two are different intents: every other writer appends a row that is already
-// delivered, and this one appends a row that still owes one. A status this does
-// not recognise is refused rather than stored, so a typo cannot park a row in a
-// partition no sweep reads.
+// PutOutbound appends one outbound row and the delivery state it owes. A door
+// of its own because every other writer appends a row that is already
+// delivered. An unknown status is refused rather than stored, so a typo cannot
+// park a row in a partition no sweep reads.
 func (s *Store) PutOutbound(ctx context.Context, m core.Message, status string) error {
 	switch status {
 	case core.MessageStatusSent, core.MessageStatusPending, core.MessageStatusFailed:
@@ -100,7 +82,7 @@ func (s *Store) PutOutbound(ctx context.Context, m core.Message, status string) 
 }
 
 // PendingOutbound answers the bot rows still owed a delivery whose position is
-// at or before a cutoff, oldest first — the outbound retry feed.
+// at or before a cutoff, oldest first: the outbound retry feed.
 func (s *Store) PendingOutbound(ctx context.Context, cutoff time.Time,
 	limit int) ([]PendingMessage, error) {
 	if limit <= 0 {
@@ -138,8 +120,8 @@ func (s *Store) pendingFrom(ctx context.Context, items []objstore.Item) ([]Pendi
 }
 
 // messageBehindDelivery fetches the message one delivery item points at. A
-// pointer with no message is a row the circuit breaker pruned, and it drops out
-// of the feed rather than failing it.
+// pointer with no message is a row the circuit breaker pruned, and it drops
+// out of the feed rather than failing it.
 func (s *Store) messageBehindDelivery(ctx context.Context,
 	it objstore.Item) (core.Message, bool, error) {
 	chatJID := it.Attrs[attrDelChatJID]
@@ -174,9 +156,9 @@ func (s *Store) MarkDelivered(ctx context.Context, m core.Message, platformID st
 	return s.WriteEntities(ctx, nil, writes...)
 }
 
-// DeadLetter moves a row from the retry feed to the dead-letter set. It is the
-// terminal state: no sweep sends it again, and the row keeps its content so the
-// operator can read what was lost.
+// DeadLetter moves a row from the retry feed to the dead-letter set: the
+// terminal state, where no sweep sends it again and the row keeps its content
+// so the operator can read what was lost.
 func (s *Store) DeadLetter(ctx context.Context, m core.Message, attempts int) error {
 	key, err := messageKeyOf(m)
 	if err != nil {
@@ -186,8 +168,8 @@ func (s *Store) DeadLetter(ctx context.Context, m core.Message, attempts int) er
 	if attempts > 0 {
 		attrs[attrDelAttempts] = strconv.Itoa(attempts)
 	}
-	// The two writes name two items, so they ride one batch: a row that left
-	// `pending` without arriving in `failed` would be a message nothing owns.
+	// Two items, one batch: a row that left `pending` without arriving in
+	// `failed` would be a message nothing owns.
 	return s.WriteEntities(ctx, nil,
 		objstore.Write{Op: objstore.Delete, Entity: MessageDelivery,
 			Key: deliveryKey(core.MessageStatusPending, key)},
@@ -197,13 +179,9 @@ func (s *Store) DeadLetter(ctx context.Context, m core.Message, attempts int) er
 
 // RecordDeliveryFailure counts one transient delivery failure and dead-letters
 // the row when the count reaches maxAttempts. It answers the new count and
-// whether the row died.
-//
-// THE COUNT IS objstore.Increment, which is the read-modify-write the statement
-// it replaces did with `delivery_attempts = delivery_attempts + 1 … RETURNING`:
-// the engine decides the winner and the caller gets the new value without a
-// second read. A missing item is a row another sweep already resolved, which is
-// not a failure to count.
+// whether the row died. THE COUNT IS objstore.Increment: the engine decides
+// the winner and the caller gets the new value without a second read. A
+// missing item is a row another sweep already resolved, not a failure to count.
 func (s *Store) RecordDeliveryFailure(ctx context.Context, m core.Message,
 	maxAttempts int) (int, bool, error) {
 	key, err := messageKeyOf(m)
@@ -211,9 +189,8 @@ func (s *Store) RecordDeliveryFailure(ctx context.Context, m core.Message,
 		return 0, false, err
 	}
 	item := deliveryKey(core.MessageStatusPending, key)
-	// The attempt count is absent until the first failure, because a row that has
-	// not been retried carries no count — so the first failure seeds it rather
-	// than incrementing nothing.
+	// The attempt count is absent until the first failure, so the first
+	// failure seeds it rather than incrementing nothing.
 	if _, err := s.TryWriteEntities(ctx, nil, objstore.Write{
 		Op: objstore.Update, Entity: MessageDelivery, Key: item,
 		Attrs: map[string]string{attrDelAttempts: "0"},
@@ -235,17 +212,12 @@ func (s *Store) RecordDeliveryFailure(ctx context.Context, m core.Message,
 }
 
 // DeadLetters answers the outbound rows routd gave up on, newest first,
-// optionally narrowed to a folder subtree.
-//
-// THE FOLDER FILTER IS THE READER'S. The dead-letter set is one partition of a
-// few hundred items — 388 on krons, 920 on sloth — so narrowing it here costs a
-// walk of that set rather than an index. A subtree is a prefix on a path and a
-// grant on `acme` covers `acme/support`, which groupfolder.Contains decides; the
-// predicate is never LIKE, because `_` and `%` are legal in a folder name and
-// LIKE hands one folder's failed messages to a neighbour's grant (BUGS L252).
-//
-// folder=="" is every folder, which is the operator-wide read; the caller's gate
-// decides whether it may ask for that.
+// optionally narrowed to a folder subtree. THE FOLDER FILTER IS THE READER'S:
+// the set is a few hundred items. A subtree is a prefix on a path
+// (groupfolder.Contains), never LIKE: `_` and `%` are legal in a folder name,
+// and LIKE hands one folder's failed messages to a neighbour's grant (BUGS
+// L252). folder=="" is every folder; the caller's gate decides whether it may
+// ask for that.
 func (s *Store) DeadLetters(ctx context.Context, folder string, limit int) ([]PendingMessage, error) {
 	if limit <= 0 || limit > 200 {
 		limit = 50
@@ -281,12 +253,9 @@ func (s *Store) DeadLetters(ctx context.Context, folder string, limit int) ([]Pe
 }
 
 // DeadLetterByID answers one dead-lettered row, for the containment check a
-// replay needs before it touches anything.
-//
-// IT WALKS THE DEAD-LETTER SET rather than resolving an id to a coordinate,
-// because that set IS the list the operator's surface rendered to get the id.
-// Building an id-to-coordinate index for a caller that is already holding the
-// answer is the index that earns nothing.
+// replay needs. It walks the dead-letter set rather than resolving an id to a
+// coordinate: that set IS the list the operator's surface rendered to get the
+// id.
 func (s *Store) DeadLetterByID(ctx context.Context, id string) (core.Message, bool) {
 	if id == "" {
 		return core.Message{}, false
@@ -311,12 +280,9 @@ func (s *Store) DeadLetterByID(ctx context.Context, id string) (core.Message, bo
 }
 
 // ReplayDeadLetter puts one dead-lettered row back on the retry feed with a
-// fresh attempt budget, which is exactly what PendingOutbound selects, so
-// routd's EXISTING outbound sweep sends it. No second delivery path exists.
-//
-// It reports whether a row moved. A row that is not dead-lettered — already
-// sent, or replayed a moment ago by someone else — matches nothing, and the
-// batch's refusal is what says so rather than a count of zero read as success.
+// fresh attempt budget, which is exactly what PendingOutbound selects: no
+// second delivery path exists. A row that is not dead-lettered matches nothing,
+// and the batch's refusal says so rather than a count of zero read as success.
 func (s *Store) ReplayDeadLetter(ctx context.Context, m core.Message) (bool, error) {
 	key, err := messageKeyOf(m)
 	if err != nil {
@@ -331,7 +297,7 @@ func (s *Store) ReplayDeadLetter(ctx context.Context, m core.Message) (bool, err
 			Attrs: map[string]string{attrDelChatJID: m.ChatJID}})
 }
 
-// CountPendingOutbound answers how many rows still owe a delivery — the /status
+// CountPendingOutbound answers how many rows still owe a delivery: the /status
 // surface's number.
 func (s *Store) CountPendingOutbound(ctx context.Context) (int, error) {
 	items, err := s.Obj().Query(ctx, objstore.Query{

@@ -3,45 +3,29 @@ package store
 // messages.go holds every read and write of `messages`: one item per message
 // routd has ever appended, inbound and outbound alike.
 //
-// THE PARTITION IS THE CHAT AND THE SORT KEY IS core.TS + KeySep + THE ID.
-// Twenty-five reads filter on the chat and range on the time, and the four sort
-// key inequalities on the interface were admitted for four of them. The largest
-// chat partition measured is 10,688 rows on krons (2026-09-12), against 24,013
-// in the table, so the partition is what keeps a history read off the other
-// 55 chats.
+// The partition is the chat and the sort key `core.TS + KeySep + id`; the
+// largest chat partition is 10,688 rows on krons against 24,013 in the table.
+// The id is in the key because the instant is not unique: 245 pairs share one
+// instant inside one chat on krons, and a time-only key would put two messages
+// on one item. The fixed-width instant decides the order and the id breaks the
+// tie (objstore.OrderedLead).
 //
-// THE ID IS IN THE KEY BECAUSE THE INSTANT IS NOT UNIQUE. On krons 1,195 pairs
-// carry an identical timestamp string and 245 of those pairs sit in ONE chat, so
-// a time-only key would put two messages on one item and the second Put would
-// erase the first. 10,488 pairs share a second inside one chat, which is what
-// the key's fixed-width lead answers: the instant decides the order and the id
-// only breaks a tie (objstore.OrderedLead).
+// THE CURSOR IS A WHOLE KEY: a bare instant sorts BELOW every message at it,
+// so `> cursor` would feed a message at exactly the cursor instant once per
+// poll, for ever. `arizuko migrate-hot` derives it as the greatest key at or
+// before the stored instant (messages_migrate_test.go).
 //
-// THE CURSOR IS A WHOLE KEY NOW. `chats.agent_cursor` held a bare 30-byte
-// instant compared `> timestamp`, and under a composite key a bare instant sorts
-// BELOW every message at it — so a message at exactly the cursor instant would
-// be fed a second time, once per poll, for ever. The cursor holds the whole sort
-// key and the poll loop reads `> cursor`, which is the same position it always
-// meant. `arizuko migrate-hot` derives it as the greatest key at or before the
-// stored instant, and that derivation is proven per chat against all three
-// snapshots (messages_migrate_test.go).
+// THE LOG IS APPEND-ORDERED: a live append takes the chat's next position,
+// never one at or below the row the chat already ends on (appendInstant). The
+// archive's restore writes items directly and is NOT this door.
 //
-// AND THE LOG IS APPEND-ORDERED. A live append takes the chat's next position,
-// never one at or below the row the chat already ends on — appendInstant states
-// why, and what it cost. The archive's restore writes items directly and is NOT
-// this door, so a history import still lands at the instants it carries.
+// platform_id stays here, because MessageByID resolves a reply's parent BY it
+// inside this partition. `status` and `delivery_attempts` are the mutable half
+// and live in message_delivery.go.
 //
-// platform_id STAYS HERE and is not delivery state. One writer stamps it, once,
-// when the adapter confirms delivery; no non-bot row on any of the three
-// instances carries one; and MessageByID resolves a reply's parent BY it inside
-// this partition. `status` and `delivery_attempts` are the mutable half and live
-// in message_delivery.go, where `sent` is the absence of an item.
-//
-// ONE WRITE FANS OUT. PutMessage writes this item and the three read-shaped
-// indexes in ONE batch, so an index can never hold a message the table does not
-// or the other way round. The fan-out lives here, with the entity that owns the
-// row, rather than in each index file: three writers would be three things that
-// can forget.
+// ONE WRITE FANS OUT: PutMessage writes this item and the three read-shaped
+// indexes in ONE batch, so an index can never hold a message the table does
+// not. The fan-out lives with the entity that owns the row.
 
 import (
 	"context"
@@ -57,8 +41,7 @@ import (
 )
 
 // The attributes a message item carries. The chat, the instant and the id are
-// the coordinate and are not among them: storing one twice is two facts that can
-// disagree.
+// the coordinate and are not among them.
 const (
 	attrMsgSender        = "sender"
 	attrMsgSenderName    = "sender_name"
@@ -79,19 +62,17 @@ const (
 	attrMsgChatName      = "chat_name"
 	attrMsgErrored       = "errored"
 	attrMsgLinkContext   = "link_context"
-	// AttrMsgPlatformID is the platform's own id for a delivered row. It is
-	// exported because the delivery sweep stamps it and the archive carries it.
+	// AttrMsgPlatformID is the platform's own id for a delivered row. Exported
+	// because the delivery sweep stamps it and the archive carries it.
 	AttrMsgPlatformID = "platform_id"
 )
 
 // The ordered declaration is what makes a message key a position: every driver
-// refuses a key whose instant is short, so it cannot sort by width before it
-// sorts by time (BUGS L97).
+// refuses a key whose instant is short (BUGS L97).
 func init() { objstore.OrderedLead(Messages, "", tsWidth) }
 
-// MsgStamp assembles a message's position from a rendered instant and its id, so
-// the live writer, the three indexes and the move that carries an existing row
-// all build one shape.
+// MsgStamp assembles a message's position from a rendered instant and its id,
+// so every writer of one builds one shape.
 func MsgStamp(ts, id string) string { return ts + KeySep + id }
 
 // MsgCoord splits a position back into the instant and the id. A key that does
@@ -101,12 +82,9 @@ func MsgCoord(sortKey string) (ts, id string, ok bool) {
 }
 
 // requireMessageCursor refuses a cursor that is not a whole message position.
-//
 // objstore's ordered LEAD accepts a value of exactly the instant's width on
-// purpose — a query BOUND is one, and `MessagesBefore` compares against a bare
-// instant — so the entity is what has to refuse one as a stored CURSOR. A bare
-// instant sorts BELOW every message at that instant, so `> cursor` hands the
-// whole second back on every poll, for ever.
+// purpose (a query BOUND is one), so the entity is what refuses a bare instant
+// as a stored CURSOR.
 func requireMessageCursor(cursor string) error {
 	if len(cursor) <= tsWidth || cursor[tsWidth] != KeySep[0] {
 		return fmt.Errorf("%q is not a message position: a cursor carries the instant, the "+
@@ -116,13 +94,12 @@ func requireMessageCursor(cursor string) error {
 	return nil
 }
 
-// MessageCursor is the position a consumer records after it has taken a message:
-// the message's own key. A cursor that held only the instant would sort below
-// every message at that instant and hand the whole second back on the next read.
+// MessageCursor is the position a consumer records after it has taken a
+// message: the message's own key.
 func MessageCursor(m core.Message) string { return MsgStamp(core.TS(m.Timestamp), m.ID) }
 
-// CursorInstant reads the instant out of a cursor, for the readers that ask when
-// rather than where — the new-day notice and the idle-session check.
+// CursorInstant reads the instant out of a cursor, for the readers that ask
+// when rather than where.
 func CursorInstant(cursor string) (time.Time, bool) {
 	ts, _, ok := MsgCoord(cursor)
 	if !ok {
@@ -133,25 +110,17 @@ func CursorInstant(cursor string) (time.Time, bool) {
 }
 
 // msgStampAt is the bound that sorts at the START of an instant: below every
-// message key at it, because every key carries the separator and an id after the
-// instant. `timestamp < t` and `timestamp >= t` compare against this.
+// message key at it. `timestamp < t` and `timestamp >= t` compare against it.
 func msgStampAt(t time.Time) string { return core.TS(t) }
 
-// msgStampPast is the bound that sorts just PAST an instant: above every message
-// key at it, because the byte after KeySep is greater than KeySep. `timestamp >
-// t` and `timestamp <= t` compare against this.
-//
-// It is derived from KeySep rather than written out, so the two cannot drift
-// into a bound that includes or excludes a whole instant by one byte.
+// msgStampPast is the bound that sorts just PAST an instant: above every
+// message key at it. `timestamp > t` and `timestamp <= t` compare against it.
+// Derived from KeySep so the two cannot drift by one byte.
 func msgStampPast(t time.Time) string { return core.TS(t) + string(KeySep[0]+1) }
 
 // MessageKey is the coordinate of one message, built from the values a caller
-// holds rather than from an id alone.
-//
-// A caller that has only an id has no coordinate, and every such caller in the
-// tree holds the chat too — the reply parent is in the chat being replied to,
-// the retry sweep holds the row it read, and an operator's dead-letter replay
-// passes what the list it read rendered.
+// holds rather than from an id alone; every caller in the tree holds the chat
+// too.
 func MessageKey(chatJID, ts, id string) (objstore.Key, error) {
 	if chatJID == "" {
 		return objstore.Key{}, fmt.Errorf("message %q carries no chat, which is its "+
@@ -179,8 +148,7 @@ func messageKeyOf(m core.Message) (objstore.Key, error) {
 }
 
 // messageAttrs renders one message as the attributes its item carries. An empty
-// value is LEFT OFF: absent is the only null this model has, so a reader that
-// tests for a field's presence must not find an empty one.
+// value is LEFT OFF: absent is the only null this model has.
 func messageAttrs(m core.Message) map[string]string {
 	attrs := map[string]string{}
 	setAttr(attrs, attrMsgSender, m.Sender)
@@ -205,11 +173,9 @@ func messageAttrs(m core.Message) map[string]string {
 	return attrs
 }
 
-// messageFrom reads one item back into the shape every caller renders.
-//
-// The instant comes out of the COORDINATE, because that is where it is stored.
-// A key this cannot split still yields a message — the attributes are the truth
-// and a zero time is visible — rather than dropping a row out of a feed.
+// messageFrom reads one item back. The instant comes out of the COORDINATE. A
+// key this cannot split still yields a message with a visible zero time,
+// rather than dropping a row out of a feed.
 func messageFrom(it objstore.Item) core.Message {
 	ts, id, _ := MsgCoord(it.Key.Sort)
 	m := core.Message{
@@ -248,9 +214,8 @@ func messagesFrom(items []objstore.Item) []core.Message {
 	return out
 }
 
-// setFlag records a true flag and leaves a false one OFF the item, because
-// absent is the only null this model has and a stored "0" is a flag every reader
-// finds set.
+// setFlag records a true flag and leaves a false one OFF the item: a stored
+// "0" is a flag every reader finds set.
 func setFlag(attrs map[string]string, name string, on bool) {
 	if on {
 		attrs[name] = flagSet
@@ -266,47 +231,33 @@ func defaultVerb(v string) string {
 }
 
 // PutMessage appends one message and the index entries it belongs in, in ONE
-// batch. routd is the only writer.
-//
-// A DUPLICATE ID IS A NO-OP, which is what the `INSERT OR IGNORE` it replaces
-// meant: the first row written is authoritative and the log is append-only. The
-// condition is on the message item, and a refusal takes the indexes with it, so
-// a re-delivered message cannot double-count a folder.
+// batch. routd is the only writer. A DUPLICATE ID IS A NO-OP: the first row is
+// authoritative. The condition is on the message item, and a refusal takes the
+// indexes with it, so a re-delivered message cannot double-count a folder.
 func (s *Store) PutMessage(m core.Message) error {
 	_, err := s.AppendMessage(m)
 	return err
 }
 
-// AppendMessage is PutMessage answering the row AS STORED, which is what a
-// caller that indexes, addresses or reports the row afterwards has to hold: the
-// instant it carries is the one the append actually took, and appendInstant
-// moves that instant when the caller's own would bury the row.
+// AppendMessage is PutMessage answering the row AS STORED: appendInstant moves
+// the instant when the caller's own would bury the row, and a caller that
+// addresses the row afterwards has to hold the one the append took.
 func (s *Store) AppendMessage(m core.Message) (core.Message, error) {
 	return s.putMessage(context.Background(), m, core.MessageStatusSent)
 }
 
-// putMessage is PutMessage's body, answering the row as stored. The status is a
-// parameter rather than a field of the message because it is not stored on the
-// message: it decides whether a delivery item exists at all
-// (message_delivery.go).
-//
-// `also` rides the message's own batch, so a caller whose write BELONGS with the
-// append gets it atomically without a transaction — FireProactive's cooldown is
-// the one caller, and the atomicity is what makes a crash before dispatch cost
-// one missed turn rather than a double fire.
+// putMessage is PutMessage's body. The status is a parameter because it is not
+// stored on the message: it decides whether a delivery item exists at all.
+// `also` rides the message's own batch (FireProactive's cooldown).
 func (s *Store) putMessage(ctx context.Context, m core.Message, status string,
 	also ...objstore.Write) (core.Message, error) {
 	if m.Timestamp.IsZero() {
-		// A stamped-here instant would be the caller's SILENTLY: the coordinate
-		// is built from the message, so the caller would walk away holding a
-		// message whose position does not exist, and every later address of it —
-		// the enrich, the errored flag, the delivery stamp — would miss without
-		// saying so. The writer stamps the instant; this refuses to invent one.
+		// The writer stamps the instant; this refuses to invent one, or the
+		// caller walks away holding a message whose position does not exist.
 		return m, fmt.Errorf("message %s in %s carries no instant, and the instant is half its "+
 			"position", m.ID, m.ChatJID)
 	}
-	// THE READ IS FOR THE STICKY PIN, and nothing else: an untopiced message
-	// inherits the chat's pin, which is an attribute only a read answers.
+	// THE READ IS FOR THE STICKY PIN, and nothing else.
 	chat, _, err := s.chatItemVia(ctx, m.ChatJID)
 	if err != nil {
 		return m, err
@@ -318,8 +269,6 @@ func (s *Store) putMessage(ctx context.Context, m core.Message, status string,
 	if err != nil {
 		return m, err
 	}
-	// THE APPEND TAKES THE CHAT'S NEXT POSITION, never one at or below the row
-	// it already ends on.
 	m.Timestamp, err = s.appendInstant(ctx, m)
 	if err != nil {
 		return m, err
@@ -328,19 +277,10 @@ func (s *Store) putMessage(ctx context.Context, m core.Message, status string,
 	if err != nil {
 		return m, err
 	}
-	// ONE WRITE OPENS THE CHAT AND FLAGS IT. `chats` is the partition list the
-	// poll loop and the archive both walk, so a message in a chat it does not
-	// name would be a message nothing ever feeds and nothing ever exports; and a
-	// real inbound makes the chat eligible for a proactive turn, which is a
-	// property of the CHAT rather than a scan of its messages.
-	//
-	// A Merge is what makes them ONE and lets them ride the batch below. The pair
-	// this replaces was a create-if-absent and a conditional Update on the SAME
-	// item, so neither could join it — a batch may name an item once, and a
-	// create-if-absent REFUSES on the chat's second message, which would take the
-	// whole batch with it.
-	// A chat that carries no real inbound is OPENED and nothing more: the item's
-	// existence is the whole fact there.
+	// ONE Merge opens the chat and flags it: `chats` is the partition list the
+	// poll loop and the archive walk, and a real inbound makes the chat
+	// proactive-eligible. A Merge, because a create-if-absent REFUSES on the
+	// chat's second message and would take the whole batch with it.
 	chatFlags := map[string]string{}
 	if isRealInbound(m) {
 		chatFlags[attrChatHasInbound] = flagSet
@@ -361,8 +301,7 @@ func (s *Store) putMessage(ctx context.Context, m core.Message, status string,
 	}
 	writes = append(writes, also...)
 	if !counted {
-		// No routed_to, so no folder feed entry and no counter to move: the
-		// batch is the message and the feeds that take every row.
+		// No routed_to: no folder feed entry and no counter to move.
 		_, err := s.TryWriteEntities(ctx, nil, writes...)
 		return m, err
 	}
@@ -370,36 +309,18 @@ func (s *Store) putMessage(ctx context.Context, m core.Message, status string,
 }
 
 // appendInstant answers the instant a live append takes: the writer's own, or
-// one nanosecond past the chat's newest row when the writer's own would put the
-// new row at or below it.
+// one nanosecond past the chat's newest row when the writer's own would put
+// the new row at or below it.
 //
-// THE DISPATCH CURSOR IS A HIGH-WATER MARK, so a row written BELOW it is a row
-// no feed ever returns: NewMessagesForChat reads `> cursor` and the cursor only
-// moves forward. That made three separate bugs out of one mistake. Adapters
-// stamp a message with the platform's whole second (routd's ingest truncates
-// `time.Unix(sec, 0)`), and the re-injection a steer command writes carries the
-// HOST clock — so a platform second three ahead of the host buried every
-// `/root <cmd>`, `/new <text>` and `#topic <text>` re-injection behind the
-// cursor the command itself had just set, with no ack and a leaked elevation
-// (BUGS L102). And two rows of one second are ordered by their ids, which is
-// arrival order for nothing: a row landing while the previous turn ran, at the
-// same second as the batch tail but with a lesser id, sorted below the cursor
-// the turn then set and was never fed again — one Telegram upload lost eleven of
-// twelve documents (BUGS L103).
-//
-// ONE FLOOR ANSWERS BOTH, and it is the chat's own newest position rather than
-// its cursor, because the cursor has not moved yet when a steer re-injects.
-// The instant is the key's fixed-width LEAD, so one nanosecond past it sorts
-// above every row at the floor whatever id follows.
-//
-// THE COST IS ONE KEY-ONLY READ of the partition this write already opens, and
-// what is left is the window between that read and the write: two appends to one
-// chat can still interleave. That window is microseconds against L103's, which
-// was the whole duration of a turn.
-//
-// A CLAMPED ROW IS STILL THE CALLER'S ROW. Nothing is dropped and nothing is
-// renamed — the id, the sender and the text are untouched and the instant moves
-// by a nanosecond from a value the platform had already rounded to a second.
+// THE DISPATCH CURSOR IS A HIGH-WATER MARK, so a row written BELOW it is never
+// fed. A steer re-injection carrying the host clock landed behind a platform
+// second three ahead, with no ack and a leaked elevation (BUGS L102); a row of
+// the same second as the batch tail with a lesser id lost eleven of twelve
+// documents (BUGS L103). One floor answers both, the chat's newest position
+// rather than its cursor, because the cursor has not moved when a steer
+// re-injects. The cost is one key-only read; the window left is microseconds.
+// A clamped row is still the caller's row: only the instant moves, by a
+// nanosecond from a value the platform had already rounded to a second.
 func (s *Store) appendInstant(ctx context.Context, m core.Message) (time.Time, error) {
 	own := MsgStamp(core.TS(m.Timestamp), m.ID)
 	floor, err := s.newestMessageKey(ctx, m.ChatJID)
@@ -409,12 +330,10 @@ func (s *Store) appendInstant(ctx context.Context, m core.Message) (time.Time, e
 	if floor == "" || own > floor {
 		return m.Timestamp, nil
 	}
-	// A RE-DELIVERY IS NOT A LATE ARRIVAL. The append-only log dedups on the
-	// message ITEM: the same id at the same instant is the same position, and the
-	// Put's ItemAbsent condition turns the second one into a no-op. Moving that
-	// row to a free position would defeat the only dedup ingest has and append the
-	// message twice. The extra read costs nothing on the ordinary path, which
-	// returned above.
+	// A RE-DELIVERY IS NOT A LATE ARRIVAL: the same id at the same instant is
+	// the same position, and the Put's ItemAbsent condition makes the second
+	// one a no-op. Moving it to a free position would append the message
+	// twice.
 	held, err := s.Obj().Query(ctx, objstore.Query{
 		Entity: Messages, Partition: m.ChatJID, Project: []string{},
 		Key: objstore.KeyPredicate{Op: objstore.ExactKey, Value: own},
@@ -439,54 +358,42 @@ func (s *Store) appendInstant(ctx context.Context, m core.Message) (time.Time, e
 }
 
 // ProactiveSelfSender is the synthetic inbound's sender. Rows from it never
-// reset the silence clock and never count as recent activity, because the
-// trigger must not feed itself. It is declared here because the message writer
-// is what decides a row is not real traffic, and routd's scan reads the same
-// name.
+// reset the silence clock and never count as recent activity: the trigger must
+// not feed itself. routd's scan reads the same name.
 const ProactiveSelfSender = "timed-proactive"
 
 // The senders arizuko writes on its own behalf. A person's sender is always
-// platform-qualified (`telegram:user/7`, `slack:user/U1`, `email:address/…`);
-// these four are the platform addressing itself.
+// platform-qualified; these are the platform addressing itself.
 const (
 	// SystemSender writes the auto-migrate prompt (routd/loop.go).
 	SystemSender = "system"
-	// EscalateSender and DelegateSender write the agent-to-agent hand-offs
-	// (ipc/ipc.go, routd/steer.go).
+	// EscalateSender and DelegateSender write the agent-to-agent hand-offs.
 	EscalateSender = "escalate"
 	DelegateSender = "delegate"
 )
 
-// SyntheticSenders is the whole set of them, declared once beside the writer
-// because the message writer is what decides a row is not a person's traffic.
-//
-// The answering read (routd/answering.go) is its reader: a chat whose newest
-// unanswered row came from one of these has arizuko waiting on arizuko, and
-// reporting that as a person waiting is what turns a migration storm — 55
-// folders take one `system` prompt apiece — into 55 false alarms.
+// SyntheticSenders is the whole set, declared once beside the writer. The
+// answering read (routd/answering.go) is its reader: a migration storm's 55
+// `system` prompts would otherwise be 55 people waiting.
 var SyntheticSenders = []string{
 	ProactiveSelfSender, SystemSender, EscalateSender, DelegateSender,
 }
 
-// isRealInbound reports whether a message is traffic a person sent. A bot row is
-// the agent's own output and the proactive row is the trigger's.
+// isRealInbound reports whether a message is traffic a person sent.
 func isRealInbound(m core.Message) bool {
 	return !m.BotMsg && m.Sender != ProactiveSelfSender
 }
 
 // EnrichMessage replaces a message's content with the media-enriched body and
-// clears its attachments, so the observed-context render on later turns sees the
-// transcript rather than the raw refs.
-//
-// It takes the MESSAGE rather than an id, because an item is addressed by its
-// coordinate and every caller holds the row it enriched.
+// clears its attachments, so the observed-context render on later turns sees
+// the transcript rather than the raw refs.
 func (s *Store) EnrichMessage(m core.Message, content string) error {
 	key, err := messageKeyOf(m)
 	if err != nil {
 		return err
 	}
-	// A message nobody appended is nothing to enrich, and the Update says so by
-	// refusing rather than creating a half-built row.
+	// A message nobody appended is nothing to enrich: the Update refuses
+	// rather than creating a half-built row.
 	_, err = s.TryWriteEntities(context.Background(), nil, objstore.Write{
 		Op: objstore.Update, Entity: Messages, Key: key,
 		Attrs:  map[string]string{attrMsgContent: content},
@@ -499,11 +406,8 @@ func (s *Store) EnrichMessage(m core.Message, content string) error {
 }
 
 // NewMessagesForChat answers a chat's messages after its own watermark, oldest
-// first — the poll loop's feed.
-//
-// THE CURSOR IS A WHOLE MESSAGE KEY and the read is `> cursor`, so a message at
-// exactly the cursor instant is consumed once. An empty cursor feeds the chat
-// from the start, which is what a chat no turn has ever run on means.
+// first: the poll loop's feed. The cursor is a whole message key and the read
+// is `> cursor`. An empty cursor feeds the chat from the start.
 func (s *Store) NewMessagesForChat(ctx context.Context, jid, cursor string,
 	limit int) ([]core.Message, error) {
 	key := objstore.KeyPredicate{}
@@ -533,8 +437,7 @@ func (s *Store) MessagesSince(jid string, since time.Time) ([]core.Message, erro
 }
 
 // MessagesBefore answers one chat's messages older than an instant, oldest
-// first. The read is newest-first and the caller wants the other order, so the
-// page is taken from the end and then reversed.
+// first: the page is read newest-first from the end and then reversed.
 func (s *Store) MessagesBefore(jid string, before time.Time, limit int) ([]core.Message, error) {
 	if limit <= 0 || limit > 200 {
 		limit = 100
@@ -554,7 +457,7 @@ func (s *Store) MessagesBefore(jid string, before time.Time, limit int) ([]core.
 }
 
 // MessagesByThread answers one (chat, topic)'s messages older than an instant,
-// NEWEST first — the order the web transcript pages backwards in.
+// NEWEST first: the order the web transcript pages backwards in.
 func (s *Store) MessagesByThread(jid, topic string, before time.Time,
 	limit int) ([]core.Message, error) {
 	if limit <= 0 || limit > 100 {
@@ -604,7 +507,7 @@ func (s *Store) MessagesSinceTopic(jid, topic string, after time.Time,
 }
 
 // BotRepliesSince answers the agent's outbound rows on a chat after an instant,
-// oldest first — the inverse of the inbound feed, for `arizuko send`.
+// oldest first, for `arizuko send`.
 func (s *Store) BotRepliesSince(jid string, since time.Time, limit int) ([]core.Message, error) {
 	if limit <= 0 || limit > 100 {
 		limit = 100
@@ -644,12 +547,8 @@ const topicPreviewChars = 80
 // maxTopics bounds the topic list.
 const maxTopics = 100
 
-// Topics answers a folder's web-chat threads, most recently active first.
-//
-// THE GROUPING IS THE READER'S, and that is the partition doing its job: the
-// statement this replaces was a GROUP BY over the same chat's rows, so the rows
-// examined are identical and only the place they are folded has moved. A web
-// chat is one chat, which bounds it.
+// Topics answers a folder's web-chat threads, most recently active first. The
+// grouping is the reader's; a web chat is one chat, which bounds it.
 func (s *Store) Topics(folder string) ([]TopicSummary, error) {
 	items, err := s.Obj().Query(context.Background(), objstore.Query{
 		Entity: Messages, Partition: webChatJID(folder),
@@ -669,10 +568,8 @@ func (s *Store) Topics(folder string) ([]TopicSummary, error) {
 			byTopic[topic] = t
 		}
 		t.MessageCount++
-		// The preview is the alphabetically first content, which is what
-		// MIN(content) answered, and the instant is the newest, which is what
-		// MAX(timestamp) answered. The read arrives in key order, so the last
-		// row of the partition is the newest.
+		// The preview is the alphabetically first content; the read arrives in
+		// key order, so the last row of the partition is the newest.
 		if body := it.Attrs[attrMsgContent]; !seen || body < t.Preview {
 			t.Preview = body
 		}
@@ -692,8 +589,7 @@ func (s *Store) Topics(folder string) ([]TopicSummary, error) {
 	return out, nil
 }
 
-// truncateRunes cuts a string to n characters, which is what SQLite's substr
-// counts.
+// truncateRunes cuts a string to n characters.
 func truncateRunes(s string, n int) string {
 	r := []rune(s)
 	if len(r) <= n {
@@ -702,12 +598,9 @@ func truncateRunes(s string, n int) string {
 	return string(r[:n])
 }
 
-// messageAt reads one message of a chat by its id.
-//
-// THE ID IS THE TAIL OF THE KEY, so this is a partition read with the id
-// compared in the reader rather than a point read. The statement it replaces was
-// the same shape — `WHERE id=? AND chat_jid=?` has no index past the chat, so
-// both examine the chat's rows — and the chat bounds it at 10,688 on krons.
+// messageAt reads one message of a chat by its id. The id is the TAIL of the
+// key, so this is a partition read with the id compared in the reader; the
+// chat bounds it at 10,688 on krons.
 func (s *Store) messageAt(ctx context.Context, jid, id string) (objstore.Item, bool, error) {
 	if jid == "" || id == "" {
 		return objstore.Item{}, false, nil
@@ -725,12 +618,10 @@ func (s *Store) messageAt(ctx context.Context, jid, id string) (objstore.Item, b
 }
 
 // MessageByID answers one message of a chat named by its OWN id or by the
-// platform's id for it.
-//
-// THE CHAT BOUND IS NOT OPTIONAL. `platform_id` is a per-platform value, so an
-// unscoped lookup resolves a reply id to a row in another chat and another
-// folder, and the caller then copies that row's sender, text and topic into this
-// message. The partition is what makes that impossible rather than checked.
+// platform's id for it. THE CHAT BOUND IS NOT OPTIONAL: `platform_id` is a
+// per-platform value, so an unscoped lookup resolves a reply id to a row in
+// another folder and the caller copies that row's sender, text and topic. The
+// partition makes that impossible rather than checked.
 func (s *Store) MessageByID(chatJID, id string) (core.Message, bool) {
 	if chatJID == "" || id == "" {
 		return core.Message{}, false
@@ -774,13 +665,10 @@ func (s *Store) MessageTimestampByID(id, jid string) (time.Time, bool) {
 	return t, err == nil
 }
 
-// RoutedToByMessageID answers the folder one message of a chat was routed to, so
-// a reply to a bot row goes back to the child that authored it.
-//
-// IT IS CHAT-SCOPED, and the reply path is why that is not a narrowing: a reply
-// names a message in the chat it is sent to, so the parent is in this partition
-// by construction. The statement it replaces searched every chat, which is the
-// cross-chat resolution MessageByID's own comment warns about.
+// RoutedToByMessageID answers the folder one message of a chat was routed to,
+// so a reply to a bot row goes back to the child that authored it. Chat-scoped:
+// a reply names a message in the chat it is sent to, so the parent is in this
+// partition by construction (MessageByID says what an unscoped read costs).
 func (s *Store) RoutedToByMessageID(chatJID, id string) string {
 	m, ok := s.MessageByID(chatJID, id)
 	if !ok {
@@ -792,9 +680,6 @@ func (s *Store) RoutedToByMessageID(chatJID, id string) string {
 // MarkMessagesErrored flags a failed run's trigger rows so the circuit breaker
 // can prune them. The rows stay visible to a later successful run until it
 // trips.
-//
-// It takes the MESSAGES rather than ids, for MessageKey's reason: the caller
-// holds the rows it dispatched.
 func (s *Store) MarkMessagesErrored(ctx context.Context, msgs []core.Message) error {
 	writes := make([]objstore.Write, 0, len(msgs))
 	for _, m := range msgs {
@@ -827,12 +712,9 @@ func (s *Store) erroredItems(ctx context.Context, chatJID string) ([]objstore.It
 }
 
 // ClearErrored un-flags a chat's errored rows so the dispatch loop feeds them
-// again — the operator's "retry this chat". It answers how many rows moved, so a
-// caller can refuse to report success on zero.
-//
-// AN ENTITY HAS NO PREDICATE UPDATE, so the rows are read and then written one
-// each. That is stricter than the statement it replaces, which could clear a row
-// flagged after the decision to clear was made.
+// again: the operator's "retry this chat". It answers how many rows moved, so
+// a caller can refuse to report success on zero. An entity has no predicate
+// update, so the rows are read and then written one each.
 func (s *Store) ClearErrored(ctx context.Context, chatJID string) (int64, error) {
 	items, err := s.erroredItems(ctx, chatJID)
 	if err != nil {
@@ -852,13 +734,10 @@ func (s *Store) ClearErrored(ctx context.Context, chatJID string) (int64, error)
 	return int64(n), err
 }
 
-// DeleteErroredMessages drops a chat's errored rows, and the index entries that
-// point at them, so the next inbound starts the chat from a clean batch.
-//
-// It answers the positions it deleted, because a caller holding an index
-// DERIVED from these rows has no other way to learn they are gone: the rows the
-// flag selects are read in here, and a deleted message that goes on answering
-// searches reports content nobody can read back (routd/msgsearch).
+// DeleteErroredMessages drops a chat's errored rows and the index entries that
+// point at them, so the next inbound starts the chat from a clean batch. It
+// answers the positions it deleted, because a caller holding an index DERIVED
+// from these rows has no other way to learn they are gone (routd/msgsearch).
 func (s *Store) DeleteErroredMessages(ctx context.Context, chatJID string) ([]string, error) {
 	items, err := s.erroredItems(ctx, chatJID)
 	if err != nil {
@@ -881,17 +760,10 @@ func (s *Store) DeleteErroredMessages(ctx context.Context, chatJID string) ([]st
 }
 
 // TurnFrames answers the bot rows one turn stamped, oldest first, paged by the
-// message a caller last saw.
-//
-// PAGING IS A KEY RANGE NOW. The statement it replaces read the page anchor's
-// timestamp and then compared `(timestamp > ? OR (timestamp = ? AND id > ?))`,
-// which is the composite key written out by hand; the key IS that comparison, so
-// the second statement goes. An anchor this chat does not hold feeds from the
-// start, which is what a caller catching up wants.
-//
-// chatJID binds the turn to its chat: a turn id alone is guessable and is not
-// proof of ownership, so containment is the partition rather than a check in
-// each caller.
+// message a caller last saw: the key IS the (timestamp, id) comparison. An
+// anchor this chat does not hold feeds from the start. chatJID binds the turn
+// to its chat: a turn id alone is guessable and is not proof of ownership, so
+// containment is the partition rather than a check in each caller.
 func (s *Store) TurnFrames(chatJID, turnID, afterID string, limit int) ([]core.Message, error) {
 	if limit <= 0 || limit > 200 {
 		limit = 200
@@ -922,8 +794,8 @@ func (s *Store) TurnFrames(chatJID, turnID, afterID string, limit int) ([]core.M
 
 // TurnHasBotReply reports whether the agent already delivered a bot row for one
 // turn, so the result path does not send its prose a second time. Interim
-// verb="status" rows are excluded: an auto-status must never count as the reply,
-// or the agent's real answer is swallowed (spec 5/24).
+// verb="status" rows are excluded: an auto-status must never count as the
+// reply, or the agent's real answer is swallowed (spec 5/24).
 func (s *Store) TurnHasBotReply(chatJID, turnID string) bool {
 	items, err := s.Obj().Query(context.Background(), objstore.Query{
 		Entity: Messages, Partition: chatJID,
@@ -965,10 +837,9 @@ func (s *Store) ThreadHasBotMessage(chatJID, topic string) bool {
 	if topic == "" {
 		return false
 	}
-	// The statement this replaces matched `topic=? OR turn_id=?`, because a
-	// thread is named by either on the platforms that thread off a turn. A Cmp
-	// list is a conjunction, so the disjunction is two reads and the first hit
-	// answers.
+	// A thread is named by its topic OR its turn_id on the platforms that
+	// thread off a turn. A Cmp list is a conjunction, so the disjunction is
+	// two reads and the first hit answers.
 	for _, c := range []objstore.Cmp{
 		{Attr: attrMsgTopic, Op: objstore.Eq, Value: topic},
 		{Attr: attrMsgTurnID, Op: objstore.Eq, Value: topic},
@@ -1013,10 +884,8 @@ func (s *Store) JIDRoutableToFolder(jid, folder string) bool {
 }
 
 // newestMessageKey answers the position of the newest message a chat holds, or
-// empty when it holds none.
-//
-// It is the `messages` half of chats.go's DeriveAgentCursors, and it answers a
-// KEY rather than an instant because that is what the cursor holds now.
+// empty when it holds none. A KEY rather than an instant, because that is what
+// the cursor holds.
 func (s *Store) newestMessageKey(ctx context.Context, jid string) (string, error) {
 	items, err := s.Obj().Query(ctx, objstore.Query{
 		Entity: Messages, Partition: jid, Descending: true, Limit: 1, Project: []string{},
@@ -1031,13 +900,10 @@ func (s *Store) newestMessageKey(ctx context.Context, jid string) (string, error
 }
 
 // CursorAtOrBefore answers the greatest message key of a chat at or before an
-// instant, which is the cursor a stored instant becomes.
-//
-// IT IS THE MIGRATION'S DERIVATION AND IT IS EXACT. Every key at or before the
-// instant is at or below this one, and every key after it is above, so the set
-// the poll loop feeds is unchanged — proven per chat against all three snapshots
-// (messages_migrate_test.go). An empty answer is a cursor with no message at or
-// before it, which means the same as no cursor: feed from the start.
+// instant, which is the cursor a stored instant becomes. It is the migration's
+// derivation and it is exact: the set the poll loop feeds is unchanged, proven
+// per chat against all three snapshots (messages_migrate_test.go). An empty
+// answer means the same as no cursor: feed from the start.
 func (s *Store) CursorAtOrBefore(ctx context.Context, jid, instant string) (string, error) {
 	if instant == "" {
 		return "", nil
@@ -1058,9 +924,8 @@ func (s *Store) CursorAtOrBefore(ctx context.Context, jid, instant string) (stri
 
 // --- the proactive scan's per-chat reads (spec 5/26) ---------------------
 //
-// Each is a bounded read of ONE chat, because the scan already holds the chat it
-// is deciding about: it walks the eligible chats from `chats` and then asks these
-// about each in turn. The statements they replace were the same shape.
+// Each is a bounded read of ONE chat, because the scan already holds the chat
+// it is deciding about.
 
 // LastInboundAt answers when a chat last carried a real inbound message, or the
 // zero time when it never has. It is the silence-debounce clock.
@@ -1078,8 +943,8 @@ func (s *Store) LastInboundAt(ctx context.Context, jid string) time.Time {
 	return t
 }
 
-// LastInbound answers the newest real inbound row of a chat — its body and its
-// instant — which the positive signals read. ok=false when the chat has none.
+// LastInbound answers the newest real inbound row of a chat, its body and its
+// instant, which the positive signals read. ok=false when the chat has none.
 func (s *Store) LastInbound(ctx context.Context, jid string) (string, time.Time, bool) {
 	items, err := s.Obj().Query(ctx, objstore.Query{
 		Entity: Messages, Partition: jid,
@@ -1093,9 +958,9 @@ func (s *Store) LastInbound(ctx context.Context, jid string) (string, time.Time,
 	return m.Content, m.Timestamp, true
 }
 
-// LatestSource answers which adapter delivered the newest sourced inbound row of
-// a chat, so the Deliverer sends an outbound back the way the conversation came
-// in. Empty when the chat has none.
+// LatestSource answers which adapter delivered the newest sourced inbound row
+// of a chat, so the Deliverer sends an outbound back the way the conversation
+// came in. Empty when the chat has none.
 func (s *Store) LatestSource(ctx context.Context, jid string) string {
 	items, err := s.Obj().Query(ctx, objstore.Query{
 		Entity: Messages, Partition: jid,
@@ -1111,8 +976,8 @@ func (s *Store) LatestSource(ctx context.Context, jid string) string {
 	return items[0].Attrs[attrMsgSource]
 }
 
-// BotSpokeSince reports whether a chat carries a bot row at or after an instant
-// — the BotQuiet veto.
+// BotSpokeSince reports whether a chat carries a bot row at or after an
+// instant: the BotQuiet veto.
 func (s *Store) BotSpokeSince(ctx context.Context, jid string, since time.Time) bool {
 	items, err := s.Obj().Query(ctx, objstore.Query{
 		Entity: Messages, Partition: jid,
@@ -1124,7 +989,7 @@ func (s *Store) BotSpokeSince(ctx context.Context, jid string, since time.Time) 
 	return err == nil && len(items) > 0
 }
 
-// InboundCountSince counts a chat's real inbound rows at or after an instant —
+// InboundCountSince counts a chat's real inbound rows at or after an instant:
 // the RecentActivity floor.
 func (s *Store) InboundCountSince(ctx context.Context, jid string, since time.Time) int {
 	items, err := s.Obj().Query(ctx, objstore.Query{
@@ -1139,9 +1004,8 @@ func (s *Store) InboundCountSince(ctx context.Context, jid string, since time.Ti
 	return len(items)
 }
 
-// realInboundFilter is the "traffic a person sent" predicate, written once
-// because four reads ask it and a fifth that spelled it differently would
-// disagree about what the scan is looking at.
+// realInboundFilter is the "traffic a person sent" predicate, written once so
+// the four reads that ask it cannot disagree.
 func realInboundFilter() []objstore.Cmp {
 	return []objstore.Cmp{
 		{Attr: attrMsgBot, Op: objstore.Absent},
@@ -1150,12 +1014,9 @@ func realInboundFilter() []objstore.Cmp {
 }
 
 // FireProactive appends the synthetic inbound row AND sets the chat's proactive
-// cooldown in one batch, then answers the row's id — which is the turn id.
-//
-// The caller dispatches the run only after this commits, so a crash before
-// dispatch leaves the cooldown set: at worst one missed turn, never a
-// double-fire. The cooldown rides the message's own batch, which is
-// all-or-nothing, so the pair needs no transaction to be one commit.
+// cooldown in one batch, then answers the row's id, which is the turn id. The
+// caller dispatches only after this commits, so a crash before dispatch leaves
+// the cooldown set: at worst one missed turn, never a double fire.
 func (s *Store) FireProactive(ctx context.Context, jid, id string) error {
 	firedAt := time.Now()
 	cooldown, err := proactiveFireWrite(jid, firedAt)
@@ -1173,8 +1034,7 @@ func (s *Store) FireProactive(ctx context.Context, jid, id string) error {
 }
 
 // CountMessages answers how many messages every chat holds. `arizuko
-// migrate-hot` reads it back to check that every row travelled, which is the one
-// caller that wants a number over the whole history.
+// migrate-hot` reads it back to check that every row travelled.
 func (s *Store) CountMessages(ctx context.Context) (int, error) {
 	jids, err := s.ChatJIDs(ctx)
 	if err != nil {
@@ -1194,11 +1054,8 @@ func (s *Store) CountMessages(ctx context.Context) (int, error) {
 }
 
 // ChatActivity answers how many inbound rows a chat holds and when its newest
-// row of any kind landed — the two numbers an errored-chat listing shows beside
+// row of any kind landed: the two numbers an errored-chat listing shows beside
 // each chat.
-//
-// It is one partition read where the statement it replaces was two correlated
-// subqueries over the same rows.
 func (s *Store) ChatActivity(ctx context.Context, jid string) (int, time.Time, error) {
 	items, err := s.Obj().Query(ctx, objstore.Query{
 		Entity: Messages, Partition: jid, Project: []string{attrMsgFromMe},
@@ -1221,12 +1078,8 @@ func (s *Store) ChatActivity(ctx context.Context, jid string) (int, time.Time, e
 }
 
 // InboundChatSummary answers every chat's inbound human traffic: how many rows,
-// and the first and last instant. It is the held-set page's candidate list.
-//
-// IT WALKS THE PARTITION LIST, which is `chats` — 136 items on krons — and reads
-// each chat in turn. The statement it replaces was one GROUP BY over the whole
-// table, so the rows examined are the same and only the place they are folded
-// has moved.
+// and the first and last instant. It is the held-set page's candidate list, and
+// it walks the partition list, `chats` (136 items on krons).
 func (s *Store) InboundChatSummary(ctx context.Context) ([]ChatSummary, error) {
 	jids, err := s.ChatJIDs(ctx)
 	if err != nil {
@@ -1268,11 +1121,9 @@ type ChatSummary struct {
 }
 
 // lastMessageWhere answers a chat's newest row matching `where`, and whether
-// there is one. `what` names the row for the error a fault carries.
-//
-// It is ONE read for the three questions below, because they differ only in the
-// predicate: the descending-limit-1 shape and the "no row is not a fault"
-// contract are the same answer to all three and would drift if written thrice.
+// there is one; `what` names the row for the error a fault carries. ONE read
+// for the three questions below, so the "no row is not a fault" contract
+// cannot drift.
 func (s *Store) lastMessageWhere(ctx context.Context, jid, what string,
 	where []objstore.Cmp) (core.Message, bool, error) {
 	items, err := s.Obj().Query(ctx, objstore.Query{
@@ -1289,7 +1140,7 @@ func (s *Store) lastMessageWhere(ctx context.Context, jid, what string,
 }
 
 // inboundWhere selects the rows neither the agent nor the operator's own device
-// wrote — the traffic the loop resolves.
+// wrote: the traffic the loop resolves.
 func inboundWhere() []objstore.Cmp {
 	return []objstore.Cmp{
 		{Attr: attrMsgFromMe, Op: objstore.Absent},
@@ -1297,20 +1148,17 @@ func inboundWhere() []objstore.Cmp {
 	}
 }
 
-// LastInboundMessage answers a chat's newest inbound human row — the message the
+// LastInboundMessage answers a chat's newest inbound human row: the message the
 // loop resolved last, and the one a held-set reader asks resolve about again.
 func (s *Store) LastInboundMessage(ctx context.Context, jid string) (core.Message, bool, error) {
 	return s.lastMessageWhere(ctx, jid, "inbound", inboundWhere())
 }
 
-// LastHumanMessage answers a chat's newest row a PERSON wrote: inbound, and from
-// none of the senders arizuko writes on its own behalf.
-//
-// It is narrower than LastInboundMessage on purpose. The held set asks which
-// message the loop resolved, and a `system` auto-migrate prompt is one; the
-// answering read asks who is waiting, and that prompt is arizuko waiting on
-// itself. The two questions want different rows, so they are two reads rather
-// than one read with a flag.
+// LastHumanMessage answers a chat's newest row a PERSON wrote: inbound, and
+// from none of the senders arizuko writes on its own behalf. Narrower than
+// LastInboundMessage on purpose: the held set asks which message the loop
+// resolved, and a `system` auto-migrate prompt is one; the answering read asks
+// who is waiting, and that prompt is arizuko waiting on itself.
 func (s *Store) LastHumanMessage(ctx context.Context, jid string) (core.Message, bool, error) {
 	where := inboundWhere()
 	for _, sender := range SyntheticSenders {
@@ -1319,9 +1167,9 @@ func (s *Store) LastHumanMessage(ctx context.Context, jid string) (core.Message,
 	return s.lastMessageWhere(ctx, jid, "human", where)
 }
 
-// LastBotMessage answers a chat's newest row the agent wrote — the reply a
-// waiting person is waiting for. Absent means this chat has never been answered,
-// which is a different fact from an answer that arrived before the question.
+// LastBotMessage answers a chat's newest row the agent wrote: the reply a
+// waiting person is waiting for. Absent means this chat has never been
+// answered, a different fact from an answer that arrived before the question.
 func (s *Store) LastBotMessage(ctx context.Context, jid string) (core.Message, bool, error) {
 	return s.lastMessageWhere(ctx, jid, "bot",
 		[]objstore.Cmp{{Attr: attrMsgBot, Op: objstore.Present}})

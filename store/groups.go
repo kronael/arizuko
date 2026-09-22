@@ -3,29 +3,17 @@ package store
 // groups.go holds every read and write of `groups`: one item per group,
 // addressed by its folder.
 //
-// THE PARTITION IS OwnerRoutd AND IT IS NOT A CHOICE THIS FILE MAKES. `groups`
-// is a registered resreg resource, and an entity-backed resource's items live
-// at its owner subsystem (resreg.SubsystemRoutd, which IS store.OwnerRoutd).
+// The partition is OwnerRoutd because resreg's entity path writes these items
+// too (resreg.SubsystemRoutd IS store.OwnerRoutd). The folder is the
+// coordinate, so a subtree is one begins_with; the containment is `substr` and
+// never `LIKE`, because `_` and `%` are LIKE wildcards and sqlite folds ASCII
+// case on top (BUGS L122, L252).
 //
-// THE FOLDER IS THE COORDINATE, which is what makes a subtree a key predicate:
-// SiblingFolders reads `parent` and everything under `parent/` as one
-// begins_with, exactly the containment `groupfolder.SQLSubtree` renders in SQL
-// and for the same reason it is `substr` and never `LIKE` — `_` and `%` are
-// LIKE wildcards on both engines, and sqlite folds ASCII case on top (BUGS
-// L122, L252).
-//
-// TWO JSON DOCUMENTS LIVE IN ATTRIBUTES, and the names are not what they look
-// like. `container_config` carries core.Group.Config — the spawn shape, mounts
-// and timeout. `config` carries the per-group SETTINGS an operator flips:
-// model, open, the two observe windows, thread_replies. Nothing but the
-// settings' own writers touches the second, which is what makes an upsert of
-// the first safe.
-//
-// AN UPSERT IS TWO WRITES, because a Put carries the item's WHOLE attribute
-// set: one unconditional Put would erase the settings document and the cost cap
-// beside it. The create-if-absent lands the whole row, and its refusal — the
-// group is already there — selects the Update that merges only the three fields
-// an upsert owns. That is the shape store/onboarding.go already uses.
+// Two JSON documents live in attributes: `container_config` is
+// core.Group.Config (the spawn shape), and `config` is the operator SETTINGS
+// (model, open, the two observe windows, thread_replies). Only the settings'
+// own writers touch the second, which is what makes an upsert of the first
+// safe.
 
 import (
 	"context"
@@ -55,10 +43,8 @@ const (
 	attrGrpCostCap         = "cost_cap_cents_per_day"
 )
 
-// The keys inside the settings document. They are the operator-facing names
-// `arizuko group set` and the dashboard write, and every reader below reads
-// them through these constants so a typo cannot make one writer's key
-// invisible to its reader.
+// The keys inside the settings document: the operator-facing names
+// `arizuko group set` and the dashboard write.
 const (
 	cfgModel          = "model"
 	cfgOpen           = "open"
@@ -76,8 +62,7 @@ func groupKey(folder string) (objstore.Key, error) {
 }
 
 // settingsOf parses one item's settings document. An absent or unparseable one
-// is the EMPTY document, which is what `json_extract` over a NULL column
-// answered: every reader below has its own default for a key that is not there.
+// is the EMPTY document; every reader has its own default for a missing key.
 func settingsOf(it objstore.Item) map[string]any {
 	out := map[string]any{}
 	if raw := it.Attrs[attrGrpConfig]; raw != "" {
@@ -88,9 +73,8 @@ func settingsOf(it objstore.Item) map[string]any {
 	return out
 }
 
-// settingNum reads one numeric setting. JSON numbers decode as float64, and a
-// key holding JSON null is the same answer as a key that is not there — which
-// is what `json_extract` gave, and what SetGroupObserveWindow writes to clear.
+// settingNum reads one numeric setting. A key holding JSON null is the same
+// answer as a missing key, which is what SetGroupObserveWindow writes to clear.
 func settingNum(cfg map[string]any, key string) (int, bool) {
 	v, ok := cfg[key]
 	if !ok || v == nil {
@@ -120,8 +104,7 @@ func groupFrom(it objstore.Item) core.Group {
 		g.Model = model
 	}
 	// Defaults match IsGroupOpen and GroupObserveWindow exactly: absent `open`
-	// means OPEN, and an unset window is -1 (no per-group cap) rather than 0,
-	// which would read as a cap of nothing.
+	// means OPEN, and an unset window is -1, not 0 (a cap of nothing).
 	open, ok := settingNum(cfg, cfgOpen)
 	g.Open = !ok || open != 0
 	g.ObserveWindowMessages, g.ObserveWindowChars = -1, -1
@@ -139,9 +122,7 @@ func (s *Store) groupItem(ctx context.Context, folder string) (objstore.Item, bo
 	return s.groupItemVia(ctx, folder)
 }
 
-// groupItemVia is groupItem through a transaction the caller owns, for the
-// upsert that reads the settings document it is about to merge into
-// (scopes.go reads).
+// groupItemVia reads one group's item by its folder.
 func (s *Store) groupItemVia(ctx context.Context, folder string) (objstore.Item, bool, error) {
 	key, err := groupKey(folder)
 	if err != nil {
@@ -161,19 +142,9 @@ func (s *Store) groupItemVia(ctx context.Context, folder string) (objstore.Item,
 }
 
 // groupAttrs renders what an upsert STATES about a group: the three fields it
-// owns, and the settings document when the caller named a model.
-//
-// THE MODEL IS THE ONE SETTING AN UPSERT STATES: register_group carries it, and
-// dispatchRun reads it back to tell runed which model to spawn. It is folded
-// INTO `settings` rather than replacing them, because `config` holds ONE
-// document and the open flag and the two observe windows live in the same one —
-// so the caller hands over the settings the group has today, and a folder with
-// none hands over nothing.
-//
-// An EMPTY model states nothing and clears nothing. SetGroupModel("") is the
-// explicit clear, and a caller that names a group without naming a model — the
-// CLI's `group add`, register_group's two arguments — is not asking for the
-// override to go.
+// owns, and the settings document when the caller named a model. The model is
+// folded INTO the settings, because `config` is ONE document. An EMPTY model
+// states nothing and clears nothing: SetGroupModel("") is the explicit clear.
 func groupAttrs(g core.Group, settings map[string]any) (map[string]string, error) {
 	cfgJSON, err := json.Marshal(g.Config)
 	if err != nil {
@@ -221,13 +192,9 @@ func groupCreate(g core.Group) (objstore.Write, error) {
 	}, nil
 }
 
-// groupUpsert renders the ONE write an upsert is: merge the fields it owns into
-// the item, create the item when the folder is new, and stamp `added_at` only on
-// that create.
-//
-// `added_at` is Init because it is the instant the folder APPEARED. A merge that
-// restated it would overwrite that fact with the instant of the newest upsert,
-// and every caller but the CLI's `group add` passes time.Now().
+// groupUpsert renders the ONE write an upsert is. `added_at` is Init because it
+// is the instant the folder APPEARED, and every caller but the CLI's
+// `group add` passes time.Now().
 func groupUpsert(g core.Group, settings map[string]any) (objstore.Write, error) {
 	key, err := groupKey(g.Folder)
 	if err != nil {
@@ -243,14 +210,9 @@ func groupUpsert(g core.Group, settings map[string]any) (objstore.Write, error) 
 	}, nil
 }
 
-// groupUpsertWrite reads what the upsert needs and renders it, for both sinks
-// that write one: the caller's transaction and the audited batch.
-//
-// ONE WRITE, and the read ahead of it happens only when the caller named a
-// model: the settings document is what a model override is folded into, and
-// nothing else here needs the item. The pair this replaces decided which of two
-// writes landed by the first one's REFUSAL, which is what made the upsert two
-// actions on one item and therefore a transaction (spec 6/40 §"Merge").
+// groupUpsertWrite reads what the upsert needs and renders it. The read happens
+// only when the caller named a model: the settings document is what the
+// override is folded into.
 func (s *Store) groupUpsertWrite(ctx context.Context, g core.Group) (objstore.Write, error) {
 	var settings map[string]any
 	if g.Model != "" {
@@ -290,15 +252,10 @@ func (s *Store) PutGroup(g core.Group) error {
 	})
 }
 
-// PutGroupRow upserts a group identity row WITHOUT emitting an audit_log row —
-// the audit-free twin of PutGroup, for the CLI `group add`, which records the
-// act itself with auditCLI; a second row would double-count one creation.
-//
-// A groups row implies the member edge, in the SAME batch as the row (BUGS
-// L119): a folder with no edge expands to nothing, matches zero allow rows and
-// comes up with no messaging tools at all. The batch carries the cycle walk's
-// marker compare-and-swap as well, which the transaction this replaces gave up
-// (membership.go AddEdgeWith).
+// PutGroupRow is the audit-free twin of PutGroup, for the CLI `group add`,
+// which records the act itself. A groups row implies the member edge, in the
+// SAME batch (BUGS L119): a folder with no edge expands to nothing and comes
+// up with no messaging tools at all.
 func (s *Store) PutGroupRow(g core.Group) error {
 	ctx := context.Background()
 	var settings map[string]any
@@ -315,8 +272,8 @@ func (s *Store) PutGroupRow(g core.Group) error {
 	if err != nil {
 		return err
 	}
-	// The upsert is a Merge and the edge is create-if-absent, so nothing in this
-	// batch can refuse and the verdict says only that it ran.
+	// The upsert is a Merge and the edge is create-if-absent, so nothing in
+	// this batch can refuse and the verdict says only that it ran.
 	if _, err := SeedMemberRole(ctx, s, g.Folder, row); err != nil {
 		return err
 	}
@@ -324,38 +281,26 @@ func (s *Store) PutGroupRow(g core.Group) error {
 }
 
 // DeleteGroup removes the folder's subtree and every row that confers on it or
-// routes into it, and returns how many groups rows went. It is the ONE delete:
-// the operator's `arizuko group rm`, dashd's delete page and routd's
-// registration rollback all land here. What it removes is declared once in
-// folderScopePurge.
+// routes into it: the ONE delete behind `arizuko group rm`, dashd's delete page
+// and routd's registration rollback, with the scope declared once in
+// folder_scope.go.
 //
-// The purge is the whole point, and it has to be total. A bare delete of the
-// groups item leaves routes aimed at a folder that no longer resolves,
-// engagement state pinned to it, and scheduled_tasks that timed keeps firing
-// forever — sloth ran `Coach-mem-0..4` nightly from 2026-05-05 without one of
-// them ever executing, and each firing reached onbod, which read the unroutable
-// jid as a new account to onboard (BUGS L66, L67). Worse, an acl row scoped
-// under the folder makes whoever administered it administer the next tenant of
-// the same path (BUGS L198).
+// The purge has to be total. A bare delete of the groups item left tasks timed
+// fired forever, each firing read by onbod as a new account to onboard (BUGS
+// L66, L67), and an acl row under the path administering the next tenant
+// (BUGS L198). The subtree, not the row: a child left behind is an orphan
+// holding grants of its own.
 //
-// The subtree, not the row: a child folder left behind is an orphan holding
-// grants of its own, and a child's acl rows sit under the parent's path.
-//
-// A folder whose subtree holds nothing at all returns 0 and records no audit
-// row; an orphan sweep with no groups row records one, because rows went.
-// It returns the `groups` rows deleted AND the orphan rows swept with them.
-// A folder whose groups row is already gone still has acl, secret, task and
-// route rows under it, and deleting those is work the caller has to be able to
-// report — counting only the first made a sweep read as "no group at X" (BUGS
-// L323).
+// It returns the `groups` rows deleted AND the orphan rows swept with them;
+// counting only the first made a sweep read as "no group at X" (BUGS L323). A
+// subtree holding nothing records no audit row.
 func (s *Store) DeleteGroup(folder string) (int, int, error) {
 	ctx := context.Background()
-	// The purge removes more rows than one batch holds, so it runs as a sweep.
-	// `groups` goes first, which is what makes the folder unreachable: a failure
+	// `groups` goes first, which makes the folder unreachable: a failure
 	// part-way leaves rows nothing can find, and the next run collects them.
 	removed, swept, err := s.purgeFolder(ctx, folder)
-	// The error comes FIRST. Testing the count first reported a failed query as
-	// an empty folder, because a purge that fails removes nothing.
+	// The error comes FIRST: testing the count first reported a failed query
+	// as an empty folder.
 	if err != nil {
 		return 0, 0, err
 	}
@@ -380,15 +325,10 @@ func (s *Store) DeleteGroup(folder string) (int, int, error) {
 	return removed, swept, nil
 }
 
-// GroupFolders lists every group's folder in path order, capped at limit — 0 is
-// uncapped. The folder IS the coordinate, so the read arrives in that order with
-// no sort of its own, which is what `ORDER BY folder` gave.
-//
-// It answers with an ERROR where AllGroups answers with a nil map, because its
-// three callers count on the difference: dashd's portal dot renders "at least
-// this many" and must not print 0 for a store it could not reach, and onbod's
-// world picker must not offer a caller an empty list of worlds it merely failed
-// to read.
+// GroupFolders lists every group's folder in path order, capped at limit (0 is
+// uncapped). It answers with an ERROR where AllGroups answers with a nil map:
+// dashd's portal dot must not print 0 for a store it could not reach, and
+// onbod's world picker must not offer an empty list it merely failed to read.
 func (s *Store) GroupFolders(limit int) ([]string, error) {
 	items, err := s.Obj().Query(context.Background(), objstore.Query{
 		Entity: Groups, Partition: OwnerRoutd, Limit: limit,
@@ -403,19 +343,11 @@ func (s *Store) GroupFolders(limit int) ([]string, error) {
 	return out, nil
 }
 
-// GroupCreateWrite hands the groups CREATE to the two daemons that assemble a
-// folder creation's whole batch themselves: dashd's operator page and onbod's
-// world creation each land the row, the member edge and an admin grant together
-// — a group row with no edge expands to nothing (BUGS L119) and a group row with
-// no grant is a folder nobody can open.
-//
-// It hands over the WRITE and not the shape, so this package stays the one place
-// a groups item is rendered.
-//
-// It is create-if-absent and it is the ONLY guarded write in either batch, so a
-// refused batch is the folder ALREADY BEING THERE — the answer both callers
-// refuse on, rather than taking over a world they did not make. PutGroup is an
-// upsert and would hand it over silently.
+// GroupCreateWrite hands the groups CREATE to the daemons that assemble a
+// folder creation's whole batch themselves (dashd, onbod): the row, the member
+// edge and an admin grant land together (BUGS L119). It is create-if-absent
+// and the ONLY guarded write in either batch, so a refused batch is the folder
+// ALREADY BEING THERE; PutGroup is an upsert and would hand it over silently.
 func GroupCreateWrite(g core.Group) (objstore.Write, error) { return groupCreate(g) }
 
 func (s *Store) AllGroups() map[string]core.Group {
@@ -460,15 +392,10 @@ func (s *Store) IsGroupOpen(folder string) bool {
 	return !set || open != 0
 }
 
-// setSetting rewrites one key of the settings document, leaving the rest of it
-// and every other attribute alone. A nil value writes JSON null, which is what
-// clearing a setting means to every reader; remove takes the key out entirely.
-//
-// The read and the write are two calls, and the group is the unit of both: a
-// second setting written in between would be overwritten. That is what
-// `json_set` on one statement gave and this does not, and it is the cost of a
-// document attribute. Two operators editing one group's settings in the same
-// instant is the collision; the last writer wins.
+// setSetting rewrites one key of the settings document, leaving the rest
+// alone. A nil value writes JSON null (a clear); remove takes the key out. The
+// read and the write are two calls, so two operators editing one group in the
+// same instant collide: the last writer wins.
 func (s *Store) setSetting(folder, key string, value any, remove bool) error {
 	ctx := context.Background()
 	it, ok, err := s.groupItem(ctx, folder)
@@ -495,15 +422,14 @@ func (s *Store) setSetting(folder, key string, value any, remove bool) error {
 	return err
 }
 
-// SetGroupOpen flips the visibility bit. The group must exist (groups are
-// created via SetupGroup/PutGroup before any caller can flip the flag).
+// SetGroupOpen flips the visibility bit. The group must exist.
 func (s *Store) SetGroupOpen(folder string, open bool) error {
 	return s.setSetting(folder, cfgOpen, btoi(open), false)
 }
 
-// GroupObserveWindow returns the per-group observe-window caps. (-1,-1)
-// means "not set; fall back to env defaults". Per-route caps still win
-// over per-group; per-group still wins over env. Spec 5/F.
+// GroupObserveWindow returns the per-group observe-window caps. (-1,-1) means
+// "not set; fall back to env defaults". Per-route caps win over per-group,
+// per-group over env. Spec 5/F.
 func (s *Store) GroupObserveWindow(folder string) (msgs, chars int) {
 	msgs, chars = -1, -1
 	it, ok, err := s.groupItem(context.Background(), folder)
@@ -520,10 +446,8 @@ func (s *Store) GroupObserveWindow(folder string) (msgs, chars int) {
 	return msgs, chars
 }
 
-// SetGroupObserveWindow writes per-group caps; pass -1 to clear (the gateway
-// then falls back to the env default for that field). A cleared field is set to
-// JSON null, which every reader answers the same way it answers a key that is
-// not there.
+// SetGroupObserveWindow writes per-group caps; pass -1 to clear a field, which
+// is stored as JSON null.
 func (s *Store) SetGroupObserveWindow(folder string, msgs, chars int) error {
 	ctx := context.Background()
 	it, ok, err := s.groupItem(ctx, folder)
@@ -553,9 +477,9 @@ func (s *Store) SetGroupObserveWindow(folder string, msgs, chars int) error {
 	return err
 }
 
-// SetThreadReplies sets the per-group thread_replies preference. nil = reset to
-// the default (group chats thread, DMs do not). true = always thread. false =
-// never thread (replies land inline regardless of chat kind).
+// SetThreadReplies sets the per-group thread_replies preference. nil resets to
+// the default (group chats thread, DMs do not); true always threads; false
+// never threads.
 func (s *Store) SetThreadReplies(folder string, on *bool) error {
 	if on == nil {
 		return s.setSetting(folder, cfgThreadReplies, nil, true)
@@ -563,8 +487,7 @@ func (s *Store) SetThreadReplies(folder string, on *bool) error {
 	return s.setSetting(folder, cfgThreadReplies, btoi(*on), false)
 }
 
-// SetGroupModel sets the per-group model override. Empty string clears it
-// (gateway then falls back to instance default).
+// SetGroupModel sets the per-group model override. Empty string clears it.
 func (s *Store) SetGroupModel(folder, model string) error {
 	if model == "" {
 		return s.setSetting(folder, cfgModel, nil, true)
@@ -573,18 +496,16 @@ func (s *Store) SetGroupModel(folder, model string) error {
 }
 
 // SiblingFolders returns folders that share folder's immediate parent,
-// excluding folder itself and any closed sibling. Root folders (no parent) have
-// no siblings — returns nil. Spec 5/F ambient join.
+// excluding folder itself and any closed sibling. Root folders have no
+// siblings. Spec 5/F ambient join.
 func (s *Store) SiblingFolders(folder string) []string {
 	parent := groupfolder.ParentOf(folder)
 	if parent == "" {
 		return nil
 	}
-	// begins_with on the coordinate, with "/" as the subtree separator: it
-	// matches `parent` itself and everything under `parent/`, and nothing else.
-	// That exactness is why the SQL half is substr and never LIKE — `_` and `%`
-	// are legal in a folder name and are LIKE wildcards, and sqlite folds ASCII
-	// case on top, so LIKE lists a stranger's folder as a sibling (BUGS L252).
+	// begins_with on the coordinate with "/" as the subtree separator: it
+	// matches `parent` and everything under `parent/`, nothing else. That
+	// exactness is why the SQL half is substr and never LIKE (BUGS L252).
 	items, err := s.Obj().Query(context.Background(), objstore.Query{
 		Entity: Groups, Partition: OwnerRoutd,
 		Key: objstore.KeyPredicate{Op: objstore.PrefixKey, Value: parent, Sep: "/"},
@@ -598,7 +519,7 @@ func (s *Store) SiblingFolders(folder string) []string {
 		if f == folder || f == parent {
 			continue
 		}
-		// Direct children only — exclude grandchildren like "parent/x/y".
+		// Direct children only.
 		if groupfolder.ParentOf(f) != parent {
 			continue
 		}
@@ -622,11 +543,9 @@ func costCapOf(it objstore.Item) int {
 
 // GroupConfig answers the two fields a spawn forwards to runed: the per-group
 // model override, and `container_config` as the opaque document it is on the
-// wire. It stays a map rather than core.GroupConfig because runed round-trips it
-// verbatim, and a struct would silently drop a key it does not declare.
-//
-// An unknown group answers ("", nil), which the caller reads as "use the
-// instance defaults".
+// wire. A map rather than core.GroupConfig, because runed round-trips it
+// verbatim and a struct would silently drop a key it does not declare. An
+// unknown group answers ("", nil): the instance defaults.
 func (s *Store) GroupConfig(folder string) (model string, cfg map[string]any) {
 	it, ok, err := s.groupItem(context.Background(), folder)
 	if err != nil || !ok {
@@ -643,10 +562,8 @@ func (s *Store) GroupConfig(folder string) (model string, cfg map[string]any) {
 	return model, cfg
 }
 
-// ThreadReplies reads the group's thread_replies preference — the read twin of
-// SetThreadReplies. A key that is not there (and an unknown group) yields dflt,
-// which the caller sets from the chat's own kind: group chats thread by default,
-// DMs do not.
+// ThreadReplies reads the group's thread_replies preference. A missing key (and
+// an unknown group) yields dflt, which the caller sets from the chat's kind.
 func (s *Store) ThreadReplies(folder string, dflt bool) bool {
 	it, ok, err := s.groupItem(context.Background(), folder)
 	if err != nil || !ok {
@@ -660,9 +577,8 @@ func (s *Store) ThreadReplies(folder string, dflt bool) bool {
 }
 
 // FolderCap returns the folder's per-day spend cap in cents. Zero means
-// uncapped, which is also what an unknown group answers — the budget gate treats
-// both as "no cap", and inventing one for a group that does not exist would stop
-// turns nobody capped.
+// uncapped, also for an unknown group: inventing a cap would stop turns nobody
+// capped.
 func (s *Store) FolderCap(folder string) (int, error) {
 	it, ok, err := s.groupItem(context.Background(), folder)
 	if err != nil || !ok {
@@ -671,19 +587,12 @@ func (s *Store) FolderCap(folder string) (int, error) {
 	return costCapOf(it), nil
 }
 
-// SetFolderCap writes the folder's per-day spend cap. Zero is uncapped and it is
-// WRITTEN as "0" rather than taken away.
-//
-// That is the exception to "absent is the only null", and it is not this file's
-// choice: a Go int has no unset, so resreg's own writer of these items renders
-// every int field always (resreg/entity.go itemFor), and the two writers of one
-// item have to agree byte for byte. An `arizuko apply` of a manifest naming no
-// cap would otherwise store "0" where this writer stored nothing, and a later
-// diff of the two would report a change neither made.
-//
-// An Update writes nothing when the group is missing, and that refusal is an
-// ERROR here: `arizuko budget set` names a folder, and a folder nobody created
-// must not print success over a cap that was never stored.
+// SetFolderCap writes the folder's per-day spend cap. Zero is WRITTEN as "0"
+// rather than taken away: the exception to "absent is the only null", because
+// resreg's writer of these items renders every int field always
+// (resreg/entity.go itemFor) and the two writers must agree byte for byte. A
+// missing group is an ERROR: `arizuko budget set` must not print success over
+// a cap that was never stored.
 func (s *Store) SetFolderCap(folder string, cents int) error {
 	key, err := groupKey(folder)
 	if err != nil {

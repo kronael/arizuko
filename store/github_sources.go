@@ -3,31 +3,16 @@ package store
 // github_sources.go holds every read and write of `github_sources`: one item per
 // webhook delivery source, addressed by its source key.
 //
-// THE PARTITION IS OwnerRoutd AND IT IS NOT A CHOICE THIS FILE MAKES.
-// `github_sources` is a registered resreg resource, and an entity-backed
-// resource's items live at its owner subsystem (resreg.SubsystemRoutd, which IS
-// store.OwnerRoutd). A second spelling would put this file's items in one
-// partition and the engine's read in another, and the failure is silent: a query
-// on a partition nobody wrote to is a legal query that selects nothing.
+// The partition is OwnerRoutd because resreg's entity path writes these items
+// too (resreg.SubsystemRoutd IS store.OwnerRoutd). The source key,
+// "<kind>/<name>", is the string gitd resolves an inbound delivery by, so the
+// verification read is one exact key. ListGitHubSources scans the partition:
+// `owner_folder` is an attribute. Coordinate order IS `ORDER BY source`.
 //
-// THE SOURCE KEY IS THE COORDINATE — "<kind>/<name>", the same string gitd
-// resolves an inbound delivery by, so the verification read is one exact key.
-// GitHubSourceKey validates it before it becomes one.
-//
-// LISTING BY OWNER IS A PARTITION SCAN. `owner_folder` is an attribute, and an
-// attribute is not a leading fragment of the key, so ListGitHubSources reads the
-// partition and filters; the read comes back in coordinate order, which IS
-// `ORDER BY source`.
-//
-// `secret` IS AN ATTRIBUTE THE RowType DOES NOT DECLARE
-// (routd/resource_columns_test.go rowTypeGaps), so this file is its only writer:
-// the sealed webhook credential must never reach the export an operator reads.
-// It seals through the same storeValue/open keyring a secret does.
-//
-// `created_at` IS core.TS, at 30 bytes. That is the width resreg's own entity
-// path stamps a StampedField at (resreg/entity.go itemFor), and the two writers
-// of these items have to agree byte for byte — a comparison over TEXT answers by
-// byte order (BUGS L97).
+// `secret` is absent from the RowType (routd/resource_columns_test.go
+// rowTypeGaps), so this file is its only writer: the sealed credential never
+// reaches the export an operator reads. `created_at` is core.TS at 30 bytes,
+// the width resreg's entity path stamps (BUGS L97).
 
 import (
 	"context"
@@ -42,8 +27,7 @@ import (
 	"github.com/kronael/arizuko/objstore"
 )
 
-// The attributes a source item carries. `source` is NOT among them: it is the
-// coordinate.
+// The attributes a source item carries. `source` is the coordinate.
 const (
 	attrGHSecret      = "secret"
 	attrGHOwnerFolder = "owner_folder"
@@ -176,17 +160,12 @@ func GitHubSourceRoutes(key, folder string) ([]core.Route, error) {
 var ErrGitHubSourceExists = errors.New("github source already registered")
 
 // AddGitHubSourceInto mints the secret, seals it, and buffers the source item
-// and the route rows to target on the caller's write set. The raw secret is
-// returned exactly once, and it is GENERATED here — never read back out of the
-// sealed attribute, which could not answer it.
-//
-// The source item is the one write that may refuse, so refused is
-// ErrGitHubSourceExists' place. The seeded RULES cannot refuse: each is a Merge
-// that leaves a rule already there exactly as it is — what a registration has
-// always tolerated — and that is what lets them ride beside the guarded item.
-//
-// EVERY ROUTE ID IS MINTED BEFORE ANYTHING IS BUFFERED, from the counter's own
-// compare-and-swap (entities.go nextNumber).
+// and the route rows on the caller's write set. The raw secret is returned
+// exactly once and is GENERATED here, never read back out of the sealed
+// attribute. The source item is the one write that may refuse (refused is
+// ErrGitHubSourceExists' place); the seeded rules are Merges that tolerate a
+// rule already there. Every route id is minted before anything is buffered
+// (nextNumber).
 func (s *Store) AddGitHubSourceInto(ctx context.Context, ws *WriteSet, src GitHubSource,
 	target string, refused error) (string, error) {
 	if _, _, err := ParseGitHubSourceKey(src.Source); err != nil {
@@ -219,10 +198,8 @@ func (s *Store) AddGitHubSourceInto(ctx context.Context, ws *WriteSet, src GitHu
 	if err != nil {
 		return "", err
 	}
-	// Create-if-absent, which is what `INSERT OR IGNORE` plus the zero-rows check
-	// said: registering a source that is already there is REFUSED rather than
-	// re-minting its secret, which would break every delivery GitHub is already
-	// signing with the first one.
+	// Create-if-absent: re-registering a source is REFUSED rather than
+	// re-minting the secret GitHub is already signing with.
 	if err := ws.AddGuarded(refused, objstore.Write{
 		Op: objstore.Put, Entity: GitHubSources, Key: key,
 		Attrs: map[string]string{
@@ -245,19 +222,15 @@ func (s *Store) AddGitHubSourceInto(ctx context.Context, ws *WriteSet, src GitHu
 }
 
 // RemoveGitHubSourceInto buffers the deletion of the source owned by ownerFolder
-// and of the route rows its registration seeded. A cross-folder key matches zero
-// rows, and the answer comes from the READ — no buffered write has a verdict yet.
-//
-// Every write is unconditional, so the batch cannot refuse: a rule the operator
-// has since edited away is simply not among the items the read returned.
+// and of the route rows its registration seeded. A cross-folder key matches
+// zero rows, and the answer comes from the READ; every write is unconditional,
+// so the batch cannot refuse.
 func (s *Store) RemoveGitHubSourceInto(ctx context.Context, ws *WriteSet, key, ownerFolder string) (bool, error) {
 	it, ok, err := s.githubSourceItem(ctx, key)
 	if err != nil {
 		return false, err
 	}
-	// The owner is part of the predicate and not of the coordinate, so it is
-	// compared here: a cross-folder key names an item this caller may not delete,
-	// and the answer is the same "no such row" the statement gave.
+	// The owner is part of the predicate and not of the coordinate.
 	if !ok || it.Attrs[attrGHOwnerFolder] != ownerFolder {
 		return false, nil
 	}
@@ -266,10 +239,8 @@ func (s *Store) RemoveGitHubSourceInto(ctx context.Context, ws *WriteSet, key, o
 	if err != nil {
 		return false, err
 	}
-	// The seeded rules are deleted by MATCH, which is the third field of a
-	// route's coordinate rather than a leading fragment, so this reads the routes
-	// partition and compares. It is 58 rules on the largest live instance, and a
-	// revoke is an operator action.
+	// Deleted by MATCH, the third field of a route's coordinate, so this reads
+	// the routes partition: 58 rules on the largest live instance.
 	if err := s.deleteRoutesMatchingInto(ctx, ws, routes); err != nil {
 		return false, err
 	}
@@ -277,11 +248,8 @@ func (s *Store) RemoveGitHubSourceInto(ctx context.Context, ws *WriteSet, key, o
 }
 
 // deleteRoutesMatchingInto buffers the removal of every route rule whose `match`
-// is one of the rules a registration seeded. A rule the operator has since edited
-// away is simply not there, which is what the statement's zero matched rows said.
-//
-// It is nine rules at most — GitHubSourceRoutes renders seven or nine per source
-// — so the set it adds is bounded by the grammar, not by the caller.
+// is one a registration seeded. A rule the operator has since edited away is
+// simply not there.
 func (s *Store) deleteRoutesMatchingInto(ctx context.Context, ws *WriteSet, seeded []core.Route) error {
 	wanted := make(map[string]bool, len(seeded))
 	for _, r := range seeded {
@@ -320,11 +288,9 @@ func (s *Store) githubSourceEvent(action, key, owner string) audit.Event {
 	}
 }
 
-// AddGitHubSource registers a source and the rules that route it (the CLI path).
-//
-// The source, its rules and the row that records them go in ONE batch, so a
-// source is never reachable by fewer rules than it asked for. Each rule
-// tolerates one already there.
+// AddGitHubSource registers a source and the rules that route it (the CLI
+// path), in ONE batch with the row that records them: a source is never
+// reachable by fewer rules than it asked for.
 func (s *Store) AddGitHubSource(src GitHubSource, target string) (string, error) {
 	ctx := context.Background()
 	ws := &WriteSet{}
@@ -340,9 +306,8 @@ func (s *Store) AddGitHubSource(src GitHubSource, target string) (string, error)
 	return secret, nil
 }
 
-// RemoveGitHubSource removes a source and the rules that routed it, in ONE batch
-// with the row that records it: the source's deliveries and the rules that
-// carried them stop together.
+// RemoveGitHubSource removes a source and the rules that routed it, in ONE
+// batch with the row that records it.
 func (s *Store) RemoveGitHubSource(key, ownerFolder string) (bool, error) {
 	ctx := context.Background()
 	ws := &WriteSet{}
@@ -357,8 +322,7 @@ func (s *Store) RemoveGitHubSource(key, ownerFolder string) (bool, error) {
 	return true, nil
 }
 
-// ListGitHubSources returns the sources owned by ownerFolder; "" lists all. The
-// read comes back in coordinate order, which IS `ORDER BY source`.
+// ListGitHubSources returns the sources owned by ownerFolder; "" lists all.
 func (s *Store) ListGitHubSources(ownerFolder string) ([]GitHubSource, error) {
 	items, err := s.Obj().Query(context.Background(), objstore.Query{
 		Entity: GitHubSources, Partition: OwnerRoutd,

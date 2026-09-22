@@ -1,29 +1,19 @@
 package store
 
 // import_routd.go is the target half of the move that carries routd's thirteen
-// tables onto the entities they are now (spec 6/37 step 7).
+// tables onto entities (spec 6/37 step 7). NOTHING REACHES IT NOW: neither
+// migration tool is a subcommand any more and no production caller remains
+// (BUGS L348).
 //
-// IT OWNS THE ITEM SHAPE AND NOTHING ELSE. It was written as the one target two
-// migration tools wrote through, so the two could not disagree about what a row
-// becomes. NOTHING REACHES IT NOW: neither tool is a subcommand any more and no
-// production caller remains (BUGS L348, which asks whether this region is the
-// residue of a finished migration or the written half of L249).
+// A row is its coordinate and an attribute map, NOT a Go struct: six of the
+// thirteen carry columns no struct in the tree names (the sealed secret and its
+// four OAuth fields, a GitHub source's webhook secret, a token's `kind`), and a
+// struct-shaped migration drops exactly those, silently (BUGS L265).
 //
-// A ROW IS ITS COORDINATE AND ITS ATTRIBUTES, NOT A Go STRUCT. Every other
-// import in this package takes typed rows; this one does not, and the reason is
-// the failure it prevents. Six of the thirteen deliberately carry columns no Go
-// struct in the tree names — the sealed secret and its four OAuth fields, a
-// GitHub source's webhook secret, a token's `kind` — and a struct-shaped
-// migration drops exactly those, silently, which is the shape of BUGS L265. A
-// column list and an attribute map carry every one of them without naming any.
-//
-// WHAT IT DOES DECIDE is the two things a column cannot state: the COORDINATE,
-// rendered by the same builder the daemon's own writer calls, and the WIDTH of
-// every stamped instant. The column path wrote time.RFC3339 at 20 bytes and the
-// object path writes core.TS at 30, and a stored instant is compared as TEXT —
-// so a table carried over unchanged would hold two widths in one attribute and
-// every comparison over it would answer by byte order rather than by time
-// (BUGS L97). Normalising is this file's job, not the daemon's.
+// It decides the COORDINATE, through the same builder the daemon's own writer
+// calls, and the WIDTH of every stamped instant: the column path wrote
+// time.RFC3339 at 20 bytes and the object path writes core.TS at 30, and a
+// stored instant is compared as TEXT (BUGS L97).
 
 import (
 	"context"
@@ -38,12 +28,10 @@ import (
 )
 
 // RoutdRow is one legacy row: the coordinate's fields in the resource's own
-// order, and every other column as the attribute it becomes.
-//
-// An empty attribute VALUE is dropped rather than written, because absent is the
-// only null this model has — a NULL column and an empty one are the same fact on
-// the other side. A coordinate field may be empty (network_rules spells an
-// instance-wide rule folder=""); the whole coordinate may not.
+// order, and every other column as the attribute it becomes. An empty
+// attribute VALUE is dropped, because absent is the only null this model has.
+// A coordinate field may be empty (network_rules spells an instance-wide rule
+// folder=""); the whole coordinate may not.
 type RoutdRow struct {
 	Key   []string
 	Attrs map[string]string
@@ -53,8 +41,7 @@ type RoutdRow struct {
 type RoutdSnapshot map[string][]RoutdRow
 
 // RoutdEntities is the order the thirteen are read, reported and written in.
-// groups leads because an operator reads the report that way; nothing else
-// depends on it, because an entity has no foreign key to satisfy.
+// Nothing depends on it: an entity has no foreign key to satisfy.
 var RoutdEntities = []string{
 	Groups, ACL, ACLMembership, Routes, RouteTokens, ScheduledTasks,
 	Secrets, PendingActions, NetworkRules, ProxydRoutes, WebRoutes,
@@ -63,7 +50,7 @@ var RoutdEntities = []string{
 
 // routdKeyFields names each entity's coordinate, in order, so the source half
 // can build its SELECT and this half can say which column was short. It is the
-// SAME order the key builders below join in, and a test pins the two together.
+// SAME order the key builders join in, and a test pins the two together.
 var routdKeyFields = map[string][]string{
 	Groups:            {"folder"},
 	ACL:               {"principal", "action", "scope", "params", "predicate", "effect"},
@@ -80,14 +67,11 @@ var routdKeyFields = map[string][]string{
 	GitHubSources:     {"source"},
 }
 
-// routdStamped names, per entity, the attributes whose width this move
-// normalises to core.TS. They are exactly the resources' StampedFields — the
-// instants the object path writes itself — so a value the column path left at
-// 20 bytes would otherwise be compared against one this daemon writes at 30.
-//
-// An instant the resource does NOT stamp keeps the layout its own writer chose
-// and is not in this list: scheduled_tasks.next_run is RFC3339 in the operator's
-// timezone and is compared as a parsed instant, never as bytes.
+// routdStamped names, per entity, the attributes this move normalises to
+// core.TS: exactly the resources' StampedFields. An instant the resource does
+// NOT stamp keeps its own writer's layout and is not here:
+// scheduled_tasks.next_run is RFC3339 in the operator's timezone and is
+// compared as a parsed instant, never as bytes.
 var routdStamped = map[string][]string{
 	Groups:            {"added_at", "updated_at"},
 	ACL:               {"granted_at"},
@@ -106,8 +90,7 @@ type RoutdCounts map[string]int
 
 // routdKey renders one row's coordinate through the SAME builder the entity's
 // own daemon writer calls, so a migrated item lands where a live write would
-// put it. A dispatch, not a second declaration: each case calls the one key
-// function that entity already has.
+// put it.
 func routdKey(entity string, key []string) (objstore.Key, error) {
 	want := routdKeyFields[entity]
 	if len(want) == 0 {
@@ -133,7 +116,7 @@ func routdKey(entity string, key []string) (objstore.Key, error) {
 		return routeKey(core.Route{Seq: seq, Target: key[1], Match: key[2]})
 	case RouteTokens:
 		// The digest arrives already hex-encoded: the column is a BLOB and the
-		// coordinate is text, so the reader encodes it where it reads it.
+		// coordinate is text.
 		if key[0] == "" {
 			return objstore.Key{}, fmt.Errorf("route token row carries no token_hash, " +
 				"which is its coordinate")
@@ -160,31 +143,20 @@ func routdKey(entity string, key []string) (objstore.Key, error) {
 }
 
 // sqliteDatetime is the layout `datetime('now')` writes: UTC, a space where
-// RFC3339 has a T, and no zone at all. Several migrations and one writer used
-// it, so it is on disk on every live instance.
+// RFC3339 has a T, and no zone. It is on disk on every live instance.
 const sqliteDatetime = "2006-01-02 15:04:05"
 
 // instantLayouts is every shape these columns hold, MEASURED on all three live
-// instances 2026-09-09 rather than assumed:
-//
-//	20 bytes ending Z   time.RFC3339           every instance, every column
-//	19 bytes with a space  datetime('now')     acl.granted_at, acl_membership.added_at,
-//	                                           groups.added_at, network_rules.created_at,
-//	                                           web_routes.created_at
-//	28-30 bytes ending Z  RFC3339Nano/core.TS  groups.added_at, route_tokens.created_at,
-//	                                           acl.granted_at, web_routes.created_at
-//
-// FOUR WIDTHS IN ONE COLUMN is what a TEXT comparison over it was answering
-// against, which is BUGS L97 read off live data rather than argued: 19 sorts
-// before 20 sorts before 28, so `granted_at <` ordered by width first and by
-// time second. Normalising is why this move exists at all.
+// instances 2026-09-09: 20-byte RFC3339 in every column; 19-byte
+// datetime('now') in acl, acl_membership, groups, network_rules and
+// web_routes; 28-30 byte RFC3339Nano/core.TS in groups, route_tokens, acl and
+// web_routes. Four widths in one column: 19 sorts before 20 before 28, so
+// `granted_at <` ordered by width first (BUGS L97).
 var instantLayouts = []string{core.TSLayout, time.RFC3339Nano, time.RFC3339, sqliteDatetime}
 
-// normaliseInstant re-renders one stored instant at core.TS's width.
-//
-// A value already at the target width passes through its own parse unchanged.
-// Anything none of the layouts reads is a LOUD fault: an instant nobody can read
-// is one this move would carry into a comparison that answers by byte order.
+// normaliseInstant re-renders one stored instant at core.TS's width. Anything
+// none of the layouts reads is a LOUD fault: an instant nobody can read is one
+// this move would carry into a comparison that answers by byte order.
 func normaliseInstant(entity, attr, raw string) (string, error) {
 	if raw == "" {
 		return "", nil
@@ -227,12 +199,9 @@ func routdWrite(entity string, r RoutdRow) (objstore.Write, error) {
 }
 
 // CheckRoutdSnapshot renders every row and reports what would be written,
-// WITHOUT writing. It runs on a real run too, so a row the coordinate cannot
-// address is named before the run that would stop half way through.
-//
-// A coordinate two rows share is a fault here rather than a silent overwrite:
-// the last write would win and the row the operator still sees in the old table
-// would be gone with no error to read.
+// WITHOUT writing, so a row the coordinate cannot address is named before the
+// run that would stop half way through. A coordinate two rows share is a
+// fault, never a silent overwrite.
 func CheckRoutdSnapshot(snap RoutdSnapshot) (RoutdCounts, error) {
 	counts := RoutdCounts{}
 	for _, entity := range RoutdEntities {
@@ -261,18 +230,12 @@ func CheckRoutdSnapshot(snap RoutdSnapshot) (RoutdCounts, error) {
 	return counts, nil
 }
 
-// ImportRoutd writes the snapshot as items, and answers how many landed per
-// entity.
-//
-// The write is an unconditional Put: this runs against a database whose old
-// tables have just been set aside, so every coordinate is this row's own. It is
-// chunked because a batch carries at most MaxBatchActions and one entity's rows
-// can exceed it; each chunk commits on its own, so a run that dies leaves work a
-// re-run finishes rather than a half-applied transaction.
-//
-// The route-id counter is set to the largest id carried over. Without it the
-// next add_route would mint 1 and hand a live rule's handle to a second rule,
-// after which delete_route(id) names both.
+// ImportRoutd writes the snapshot as items and answers how many landed per
+// entity. The write is an unconditional Put against a database whose old
+// tables have just been set aside; each chunk commits on its own, so a run
+// that dies leaves work a re-run finishes. The route-id counter is set to the
+// largest id carried over, or the next add_route would hand a live rule's
+// handle to a second rule.
 func (s *Store) ImportRoutd(ctx context.Context, snap RoutdSnapshot) (RoutdCounts, error) {
 	counts, err := CheckRoutdSnapshot(snap)
 	if err != nil {
@@ -298,12 +261,8 @@ func (s *Store) ImportRoutd(ctx context.Context, snap RoutdSnapshot) (RoutdCount
 }
 
 // carryRouteIDs moves the route-id counter past every id the snapshot carries.
-//
-// The counter is seeded at zero when the entity is created (ensureCounters), and
-// a migrated table's ids start at 1 — so without this the mint hands out a
-// handle a live rule already holds. It is an Increment rather than a Put,
-// because Increment is the one write this package has for a counter and it
-// carries the compare-and-swap that makes two callers safe.
+// An Increment rather than a Put, because Increment is the one counter write
+// this package has and it carries the compare-and-swap.
 func (s *Store) carryRouteIDs(ctx context.Context, rows []RoutdRow) error {
 	largest := 0
 	for _, r := range rows {

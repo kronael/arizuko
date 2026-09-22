@@ -3,28 +3,17 @@ package store
 // route_tokens.go holds every read and write of `route_tokens`: one item per
 // ingress credential, addressed by hex(sha256(token)).
 //
-// THE PARTITION IS OwnerRoutd AND IT IS NOT A CHOICE THIS FILE MAKES.
-// `route_tokens` is a registered resreg resource, and an entity-backed
-// resource's items live at its owner subsystem (resreg.SubsystemRoutd, which IS
-// store.OwnerRoutd).
+// The partition is OwnerRoutd because resreg's entity path writes these items
+// too (resreg.SubsystemRoutd IS store.OwnerRoutd). The digest is the only
+// field that can be the coordinate: krons carries 43 rows over 27 distinct
+// jids, so a key on the jid would collide 16 live credentials onto one item
+// (BUGS L260). Every read that is not a resolution scans the partition (43
+// items); the two hot-path reads, LookupRouteToken and PeekPairing, are exact
+// key reads.
 //
-// THE DIGEST IS THE COORDINATE, and it is the only field that can be: krons
-// carries 43 rows over 27 distinct jids, so a key on the jid would collide 16
-// live ingress credentials onto one item and the last mint would win (BUGS
-// L260). The raw bearer is shown once and never stored; the digest is what
-// every resolution already looks the row up by.
-//
-// EVERY READ THAT IS NOT A RESOLUTION IS A SCAN, and that is measured. `jid`,
-// `owner_folder` and `kind` are attributes, and an attribute is not a leading
-// fragment of the key, so listing a folder's tokens or resolving a jid's target
-// reads the partition and filters. It is 43 items on the largest live instance,
-// and the two reads on the hot path — LookupRouteToken and PeekPairing — are
-// exact key reads that touch one item.
-//
-// `kind` IS ALWAYS WRITTEN. It is the resource's own row filter (`kind =
-// 'route'`), so an ABSENT attribute answers no comparison and a row that left
-// it off would fall out of its own manifest-visible projection: invisible to
-// export, and untouched by the apply that should replace it.
+// `kind` IS ALWAYS WRITTEN: it is the resource's own row filter (`kind =
+// 'route'`), and an ABSENT attribute answers no comparison, so a row that left
+// it off would be invisible to export and untouched by apply.
 
 import (
 	"context"
@@ -43,8 +32,7 @@ import (
 	"github.com/kronael/arizuko/objstore"
 )
 
-// The attributes a token item carries. `token_hash` is NOT among them: it is
-// the coordinate.
+// The attributes a token item carries. `token_hash` is the coordinate.
 const (
 	attrTokJID          = "jid"
 	attrTokOwnerFolder  = "owner_folder"
@@ -54,26 +42,27 @@ const (
 	attrTokKind         = "kind"
 )
 
-// RouteToken maps a bearer token to a single inbound JID + admin folder (spec 5/W).
-// JID kind is encoded in the prefix: `web:<folder>[/<suffix>]` for anonymous web chat,
-// `hook:<folder>/<source>[...]` for labeled webhook ingest. owner_folder bounds
-// revocation and may diverge from the folder embedded in the JID.
+// RouteToken maps a bearer token to a single inbound JID + admin folder (spec
+// 5/W). JID kind is encoded in the prefix: `web:<folder>[/<suffix>]` for
+// anonymous web chat, `hook:<folder>/<source>[...]` for labeled webhook ingest.
+// owner_folder bounds revocation and may diverge from the folder embedded in
+// the JID.
 type RouteToken struct {
 	JID         string
 	OwnerFolder string
 	CreatedAt   time.Time
 	// Context is the optional issuer-authored per-link processing
-	// instructions (spec 5/W § link context). Empty = none.
+	// instructions (spec 5/W § link context).
 	Context string
 	// TargetFolder is the folder the token DELIVERS to, recorded by the mint.
-	// Empty for a token minted before the mint recorded it; Folder falls back to
-	// the JID grammar for those.
+	// Empty for a token minted before the mint recorded it; Folder falls back
+	// to the JID grammar for those.
 	TargetFolder string
 }
 
 // Folder returns the folder the token delivers to. The mint records the target
 // (spec 5/W); the JID grammar answers only for a token whose mint did not,
-// because a suffixed JID is ambiguous — `web:t/sfx` reads as folder `t/sfx`,
+// because a suffixed JID is ambiguous: `web:t/sfx` reads as folder `t/sfx`,
 // and `hook:a/b/c` reads as folder `a/b`.
 func (t RouteToken) Folder() string {
 	if t.TargetFolder != "" {
@@ -84,13 +73,11 @@ func (t RouteToken) Folder() string {
 
 // ErrRouteTokenTargetTaken reports a mint whose JID already delivers to a
 // different folder. A JID names ONE chat, so two folders must never mint the
-// same JID: resolution reads target_folder back by JID and could not choose
-// between the two answers.
+// same JID: resolution reads target_folder back by JID and could not choose.
 var ErrRouteTokenTargetTaken = errors.New("jid already delivers to a different folder")
 
 // The JID-derived kind of a route token: which inbound surface its JID names.
-// Distinct from the stored `kind` attribute below — that one says whether the
-// row is a delivery bearer at all.
+// Distinct from the stored `kind` attribute below.
 const (
 	RouteTokenJIDKindChat = "chat" // jid prefix "web:"
 	RouteTokenJIDKindHook = "hook" // jid prefix "hook:"
@@ -124,8 +111,8 @@ func routeTokenFrom(it objstore.Item) RouteToken {
 	return t
 }
 
-// routeTokensOfKind reads every token of one kind. It is the ONE scan the four
-// attribute reads below share, so they cannot disagree about which rows count.
+// routeTokensOfKind reads every token of one kind: the ONE scan the attribute
+// reads share, so they cannot disagree about which rows count.
 func routeTokensOfKind(ctx context.Context, q EntityQuerier, kind string) ([]objstore.Item, error) {
 	items, err := q.Query(ctx, objstore.Query{
 		Entity: RouteTokens, Partition: OwnerRoutd,
@@ -137,9 +124,8 @@ func routeTokensOfKind(ctx context.Context, q EntityQuerier, kind string) ([]obj
 	return items, nil
 }
 
-// GenRouteToken returns a 256-bit base64url-encoded random token.
-// The raw token is returned to the caller exactly once; only the
-// sha256 hash is persisted.
+// GenRouteToken returns a 256-bit base64url-encoded random token. The raw token
+// is returned to the caller exactly once; only the sha256 hash is persisted.
 func GenRouteToken() string {
 	var b [32]byte
 	if _, err := rand.Read(b[:]); err != nil {
@@ -163,10 +149,7 @@ func RouteTokenJIDKind(jid string) string {
 
 // CheckRouteTokenTarget rejects a mint that would bind an existing JID to a
 // second delivery folder. A row whose mint recorded no target never conflicts.
-//
-// Both mint paths call it — store.InsertRouteToken and routd's own resreg face
-// — so one function holds the rule. It takes the object store rather than a
-// handle because an item read needs no transaction.
+// Both mint paths call it, so one function holds the rule.
 func CheckRouteTokenTarget(ctx context.Context, s objstore.Store, jid, target string) error {
 	items, err := routeTokensOfKind(ctx, s, RouteTokenKindRoute)
 	if err != nil {
@@ -182,11 +165,10 @@ func CheckRouteTokenTarget(ctx context.Context, s objstore.Store, jid, target st
 }
 
 // RouteTokenTargetByJID returns the folder a web:/hook: JID delivers to, or ""
-// when no token records one. Callers fall back to groupfolder.JidFolder for "".
-//
-// This is the single reader every folder-from-JID path goes through, so the
-// grammar's ambiguity is answered in one place. CheckRouteTokenTarget keeps a
-// JID bound to ONE folder, so the first answer is the whole answer.
+// when no token records one; callers fall back to groupfolder.JidFolder. It is
+// the single reader every folder-from-JID path goes through, and
+// CheckRouteTokenTarget keeps a JID bound to ONE folder, so the first answer
+// is the whole answer.
 func RouteTokenTargetByJID(ctx context.Context, s objstore.Store, jid string) (string, error) {
 	items, err := routeTokensOfKind(ctx, s, RouteTokenKindRoute)
 	if err != nil {
@@ -221,14 +203,11 @@ func routeTokenPut(rawToken string, t RouteToken, kind string) (objstore.Write, 
 	return objstore.Write{Op: objstore.Put, Entity: RouteTokens, Key: key, Attrs: attrs}, nil
 }
 
-// InsertRouteToken persists a new token. Caller chooses the raw token
-// (via GenRouteToken) and is responsible for returning it to the user;
-// the store only retains sha256(raw).
-//
-// Every mint MUST set TargetFolder — it is the folder the token delivers to,
-// and only the mint knows it. An empty TargetFolder writes no such attribute,
-// and a token carrying none reads back through the ambiguous JID grammar
-// (spec 5/W § Resolution).
+// InsertRouteToken persists a new token. The caller chooses the raw token (via
+// GenRouteToken) and returns it to the user; the store retains only
+// sha256(raw). Every mint MUST set TargetFolder: only the mint knows it, and a
+// token carrying none reads back through the ambiguous JID grammar (spec 5/W
+// § Resolution).
 func (s *Store) InsertRouteToken(rawToken string, t RouteToken) error {
 	if rawToken == "" {
 		return fmt.Errorf("empty token")
@@ -286,9 +265,9 @@ func routeTokenItem(ctx context.Context, s objstore.Store, rawToken, kind string
 	return items[0], true, nil
 }
 
-// LookupRouteToken resolves a raw DELIVERY bearer token to its row. Returns
-// (zero, false) when the token is unknown or is not a route-kind row — a
-// pairing token (spec 5/31) never resolves here.
+// LookupRouteToken resolves a raw DELIVERY bearer token to its row. (zero,
+// false) when the token is unknown or is not a route-kind row: a pairing token
+// (spec 5/31) never resolves here.
 func (s *Store) LookupRouteToken(rawToken string) (RouteToken, bool) {
 	it, ok, err := routeTokenItem(context.Background(), s.Obj(), rawToken, RouteTokenKindRoute)
 	if err != nil || !ok {
@@ -317,11 +296,9 @@ func (s *Store) ListRouteTokens(ownerFolder string) []RouteToken {
 }
 
 // RouteTokenOwner returns the owner_folder of the DELIVERY token with this jid.
-//
-// The owner is an ATTRIBUTE of the row, not something to parse back out of the
-// JID: `token issue chat <folder> <suffix>` mints `web:<folder>/<suffix>`, so a
-// JID parse yields `<folder>/<suffix>`, which is not a folder and matches no row
-// (BUGS L52).
+// The owner is an ATTRIBUTE of the row, never parsed back out of the JID:
+// `web:<folder>/<suffix>` parses to `<folder>/<suffix>`, which is not a folder
+// and matches no row (BUGS L52).
 func (s *Store) RouteTokenOwner(jid string) (string, bool) {
 	items, err := routeTokensOfKind(context.Background(), s.Obj(), RouteTokenKindRoute)
 	if err != nil {
@@ -337,7 +314,7 @@ func (s *Store) RouteTokenOwner(jid string) (string, bool) {
 
 // RevokeRouteToken deletes DELIVERY tokens with the given jid owned by
 // ownerFolder. Returns (true, nil) if at least one went, (false, nil) when no
-// matching row existed. ACL scope: the caller's `owner_folder` MUST match —
+// matching row existed. ACL scope: the caller's `owner_folder` MUST match;
 // agents in folder A cannot revoke folder B's tokens.
 func (s *Store) RevokeRouteToken(jid, ownerFolder string) (bool, error) {
 	ctx := context.Background()
@@ -357,9 +334,8 @@ func (s *Store) RevokeRouteToken(jid, ownerFolder string) (bool, error) {
 	if len(writes) == 0 {
 		return false, nil
 	}
-	// Every mint of this jid adds a row, so the revoke is a sweep rather than one
-	// batch. A row that survives a part-way failure is still revocable by the
-	// next run, and the token it names stays unusable while any row is gone.
+	// Every mint of this jid adds a row, so the revoke is a sweep: a row that
+	// survives a part-way failure is still revocable by the next run.
 	if _, err := applyChunks(ctx, "revoke "+jid, writes,
 		func(ctx context.Context, chunk []objstore.Write) (bool, error) {
 			return s.TryWriteEntities(ctx, nil, chunk...)
@@ -386,19 +362,14 @@ func (s *Store) RevokeRouteToken(jid, ownerFolder string) (bool, error) {
 // --- the archive lane (spec 5/8 "Secret and token values") ----------------
 //
 // The archive carries a route token's VALUE, which the config manifest never
-// does, so the three functions below are this table's second reader and they
-// live beside its first. `secrets` already had its pair here
-// (ExportSecretRows / ValidateAndImportSecrets); route_tokens', invites' and
-// onboarding's sat in resreg instead, which made a generic engine the owner of
-// four tables it does not know anything else about.
+// does, so the functions below are this table's second reader, beside its
+// first.
 
 // ArchiveRouteTokenRow is one row of the archive's route_tokens document:
 // RouteTokensRow's shape (resreg/resources/route_tokens.go) plus TokenHash, the
-// verifier the config manifest never carries.
-// Restricted to kind='route' at read time — pairing tokens (kind='pair')
-// are excluded entirely, the same RowFilter the config-manifest resource
-// already applies (10-minute single-use credentials, no archival value,
-// reviving one actively harmful).
+// verifier the config manifest never carries. Restricted to kind='route' at
+// read time: a pairing token has no archival value, and reviving one is
+// actively harmful.
 type ArchiveRouteTokenRow struct {
 	TokenHash    string `yaml:"token_hash"`
 	JID          string `yaml:"jid"`
@@ -408,9 +379,8 @@ type ArchiveRouteTokenRow struct {
 	Context      string `yaml:"context,omitempty"`
 }
 
-// ExportRouteTokens reads every kind='route' row (jid delivery bearers —
-// never kind='pair' pairing links) with its token_hash verifier, which IS the
-// item's coordinate: hex(sha256(token)), already in the form YAML carries.
+// ExportRouteTokens reads every kind='route' row with its token_hash verifier,
+// which IS the item's coordinate, already in the form YAML carries.
 func (s *Store) ExportRouteTokens(ctx context.Context) ([]ArchiveRouteTokenRow, error) {
 	items, err := routeTokensOfKind(ctx, s.Obj(), RouteTokenKindRoute)
 	if err != nil {
@@ -432,20 +402,13 @@ func (s *Store) ExportRouteTokens(ctx context.Context) ([]ArchiveRouteTokenRow, 
 	return out, nil
 }
 
-// ImportRouteTokens writes each row create-if-absent by token_hash, which is the
-// coordinate — a route token's content never legitimately changes once minted.
-// Every imported row's kind is forced to 'route': this function never writes a
-// pairing token (rows carrying one were never exported in the first place, but
-// the write side stays explicit rather than trusting the archive's own claim).
-//
-// Performs NO gating — the off-by-default / --force / proven-empty-target
-// policy (spec 5/8 "Secret and token values" (2)) is `archive apply`
-// orchestration in cmd/arizuko, not this primitive's job.
-//
-// The rows already there are read FIRST and left out of the batch, which is
-// what makes a re-import a no-op instead of an error: a batch is all-or-nothing,
-// so one create-if-absent whose item exists refuses every other write riding
-// with it. That is the shape ImportInvites and ImportOnboarding already have.
+// ImportRouteTokens writes each row create-if-absent by token_hash: a route
+// token's content never legitimately changes once minted. Every imported row's
+// kind is forced to 'route'; this function never writes a pairing token. It
+// performs NO gating (spec 5/8 "Secret and token values" (2)): that is
+// `archive apply` orchestration in cmd/arizuko. The rows already there are read
+// FIRST and left out of the batch: a batch is all-or-nothing, so one
+// create-if-absent whose item exists would refuse every other write.
 func (s *Store) ImportRouteTokens(ctx context.Context, rows []ArchiveRouteTokenRow) (int, error) {
 	if len(rows) == 0 {
 		return 0, nil
@@ -488,9 +451,9 @@ func (s *Store) ImportRouteTokens(ctx context.Context, rows []ArchiveRouteTokenR
 	return len(rows), nil
 }
 
-// CountRouteTokens counts EVERY item (both kind='route' and kind='pair') —
-// the proven-empty-target gate (spec 5/8 "Secret and token values" (2))
-// wants a genuinely fresh table, not merely zero route-kind rows.
+// CountRouteTokens counts EVERY item, kind='route' and kind='pair' alike: the
+// proven-empty-target gate (spec 5/8 "Secret and token values" (2)) wants a
+// genuinely fresh table, not merely zero route-kind rows.
 func (s *Store) CountRouteTokens(ctx context.Context) (int, error) {
 	items, err := s.Obj().Query(ctx, objstore.Query{Entity: RouteTokens, Partition: OwnerRoutd})
 	if err != nil {
@@ -500,23 +463,13 @@ func (s *Store) CountRouteTokens(ctx context.Context) (int, error) {
 }
 
 // MintRouteTokenInto mints a DELIVERY token for jid, buffers the write on the
-// caller's write set and returns the raw bearer ONCE — only its digest is
-// stored, which is the item's coordinate. It is routd's `/v1/route_tokens`
-// minter: the row rides the batch that carries resreg.invoke's single audit_log
-// row, and InsertRouteToken would send a batch of its own and record the mint
-// twice.
-//
-// THE BEARER IS GENERATED HERE and handed back before anything is written, so
-// the value the caller returns to the wire is never read out of the item — it
-// could not be, since the digest is what the item carries.
-//
-// It is IssuePairingLink's delivery twin, and both render through routeTokenPut,
-// so the two kinds of credential differ only in the `kind` attribute that keeps
-// each from resolving as the other.
-//
-// target is the folder the token DELIVERS to. The JID grammar cannot recover it
-// once a suffix is present (spec 5/W), so the mint is the only place it is known,
-// and CheckRouteTokenTarget refuses a JID that already delivers somewhere else.
+// caller's write set and returns the raw bearer ONCE; only its digest is
+// stored. It is routd's `/v1/route_tokens` minter, where InsertRouteToken
+// would record the mint twice. The bearer is generated here and handed back
+// before anything is written. It is IssuePairingLink's delivery twin; both
+// render through routeTokenPut. target is the folder the token DELIVERS to:
+// the JID grammar cannot recover it once a suffix is present (spec 5/W), so
+// the mint is the only place it is known.
 func (s *Store) MintRouteTokenInto(ctx context.Context, ws *WriteSet, jid, ownerFolder,
 	targetFolder, linkContext string) (string, error) {
 	if jid == "" {
@@ -541,20 +494,16 @@ func (s *Store) MintRouteTokenInto(ctx context.Context, ws *WriteSet, jid, owner
 }
 
 // RevokeRouteTokenInto buffers the deletion of every DELIVERY token for jid
-// owned by ownerFolder and reports whether any was there. The owner_folder match
-// IS the containment: a JID owned by another folder selects no item, so a
-// cross-folder revoke answers false rather than removing somebody else's bearer.
+// owned by ownerFolder and reports whether any was there. The owner_folder
+// match IS the containment: a cross-folder revoke answers false rather than
+// removing somebody else's bearer. The answer comes from the READ, before one
+// write is sent.
 //
-// The answer comes from the READ, before one write is sent, which is what lets
-// the caller return it without waiting for the batch.
-//
-// ONE JID MAY HOLD SEVERAL TOKENS, so this is a buffered write set whose SIZE
-// the caller decides. It goes in WHOLE rather than in chunks: a revoke that
-// stopped part-way would leave live bearers behind under an audit row saying the
-// jid was revoked. Past objstore.MaxBatchActions the batch is refused, naming
-// the count — a loud answer the operator can act on, where a chunked sweep is a
-// quiet half-revocation. The fleet's largest instance holds 43 route tokens over
-// 27 jids (2026-09-07), so the bound is not a live limit.
+// ONE JID MAY HOLD SEVERAL TOKENS, and the set goes in WHOLE rather than in
+// chunks: a revoke that stopped part-way would leave live bearers behind under
+// an audit row saying the jid was revoked. Past objstore.MaxBatchActions the
+// batch is refused naming the count, a loud answer; the largest live instance
+// holds 43 route tokens over 27 jids (2026-09-07).
 func (s *Store) RevokeRouteTokenInto(ctx context.Context, ws *WriteSet,
 	jid, ownerFolder string) (bool, error) {
 	items, err := routeTokensOfKind(ctx, s.Obj(), RouteTokenKindRoute)

@@ -4,31 +4,13 @@ package store
 // per (tool call × resolved key), written by the broker middleware and never
 // touched again (spec 5/13 § Audit).
 //
-// THE PARTITION IS A CONSTANT AND THE SORT KEY IS THE INSTANT, which is
-// audit_log's shape and it is here for audit_log's reason. This entity is
-// append-only history with a single writer, and the only thing that will ever
-// read it back is a window of it in time order — the forensic page 5/13
-// sketches. An operator answers the question today from this write's
-// `audit_log` twin, which carries every field below and is served on both
-// faces (`GET /v1/audit?category=secret` and `query_audit`); `secret.read`
-// is written from here and nowhere else, so it isolates uses from
-// `secret.set`. Time IS the sort key, so ordering, paging and a limit are
-// one range and the read is one query.
-//
-// NO READ DECIDED IT, because there is no reader: nothing in the tree calls
-// this file for anything but the write, on any instance. That is worth stating
-// rather than hiding, because it is the only honest argument available — a
-// folder partition would be chosen for a folder read that does not exist, and a
-// coordinate picked for an imagined caller is the mistake 6/37 step 3 wrote up
-// for authd. When the read arrives it is a page of history, and the shape it
-// wants is the one already here.
-//
-// WHAT THE CONSTANT COSTS is one item collection per database that grows
-// without bound and has no drainage. Measured 2026-09-07 on all three live
-// snapshots: zero rows on every one of them — the broker writes a row only when
-// a container tool resolves a secret, and the fleet has one secret. `folder` is
-// an attribute rather than a coordinate for the same reason it is on audit_log:
-// a folder-bound read filters, and containment has no operator on an attribute.
+// The partition is a constant and the sort key the instant: audit_log's shape,
+// for audit_log's reason. It is append-only history with a single writer and
+// NO READER in the tree: an operator reads the `audit_log` twin (`secret.read`)
+// instead, and a coordinate picked for an imagined caller is the mistake 6/37
+// step 3 wrote up for authd. The collection grows without bound and has no
+// drainage (zero rows fleet-wide, 2026-09-07). `folder` is an attribute, as on
+// audit_log: containment has no operator on an attribute.
 
 import (
 	"context"
@@ -43,8 +25,7 @@ import (
 	"github.com/kronael/arizuko/objstore"
 )
 
-// secretUsePartition is the one partition every use lives in. The file header
-// says why it is a constant and what that costs.
+// secretUsePartition is the one partition every use lives in.
 const secretUsePartition = "secret_use"
 
 // SecretUseIDWidth is the width of one use's id, which is the sort key:
@@ -52,19 +33,17 @@ const secretUsePartition = "secret_use"
 const SecretUseIDWidth = tsWidth + 1 + secretUseSuffixHex
 
 // secretUseSuffixHex is how many hex digits separate two uses that share an
-// instant. A turn resolves several keys in a loop (routd/mcp.go:541), so two
-// items landing in one nanosecond is the ordinary case rather than a collision
-// to be surprised by, and a Put that refuses rather than overwrites is what
-// makes a genuine one loud instead of a lost row.
+// instant. A turn resolves several keys in a loop (routd/mcp.go), so two
+// items in one nanosecond is the ordinary case; a Put that refuses rather than
+// overwrites makes a genuine collision loud instead of a lost row.
 const secretUseSuffixHex = 8
 
-// The ordered declaration is the whole reason a string id can be a time cursor:
-// every driver refuses a key of another width, so a short one cannot sort into
-// the wrong place (BUGS L97).
+// The ordered declaration is the whole reason a string id can be a time
+// cursor: every driver refuses a key of another width (BUGS L97).
 func init() { objstore.OrderedSort(SecretUseLog, SecretUseIDWidth) }
 
 // The attributes an item carries. `ts` is NOT among them: the id IS the
-// instant, and storing the time twice is two facts that can disagree.
+// instant.
 const (
 	attrUseSpawnID   = "spawn_id"
 	attrUseCallerSub = "caller_sub"
@@ -76,8 +55,8 @@ const (
 	attrUseLatency   = "latency_ms"
 )
 
-// SecretUseRow is one use as the broker middleware reports it. Spec 5/13.
-// Persists as one item AND one audit_log row (category=secret,
+// SecretUseRow is one use as the broker middleware reports it (spec 5/13). It
+// persists as one item AND one audit_log row (category=secret,
 // action=secret.read) per call.
 type SecretUseRow struct {
 	TS        time.Time
@@ -96,9 +75,9 @@ func secretUseKey(id string) objstore.Key {
 	return objstore.Key{Partition: secretUsePartition, Sort: id}
 }
 
-// newSecretUseID is one use's identity and its position in time: the instant it
-// happened, at core.TS's fixed width so byte order is time order, plus the
-// suffix that makes two uses in one nanosecond two items.
+// newSecretUseID is one use's identity and its position in time: the instant
+// at core.TS's fixed width, plus the suffix that makes two uses in one
+// nanosecond two items.
 func newSecretUseID(at time.Time) string {
 	var b [secretUseSuffixHex / 2]byte
 	if _, err := rand.Read(b[:]); err != nil {
@@ -107,9 +86,8 @@ func newSecretUseID(at time.Time) string {
 	return core.TS(at) + "-" + hex.EncodeToString(b[:])
 }
 
-// secretUseWrite renders one use as the write that records it. It is the single
-// renderer: whether the item rides in the live batch or in the import, it is
-// built here and nowhere else.
+// secretUseWrite renders one use as the write that records it: the single
+// renderer for the live batch and the import.
 func secretUseWrite(id string, r SecretUseRow) objstore.Write {
 	attrs := map[string]string{
 		attrUseTool:   r.Tool,
@@ -130,18 +108,10 @@ func secretUseWrite(id string, r SecretUseRow) objstore.Write {
 }
 
 // LogSecretUse records one resolved secret and the audit_log row that reports
-// it, in ONE write.
-//
-// The two commit together or not at all, which is the guarantee one batch gives
-// through a transaction and this gives through the batch itself (spec 6/40
-// §"The audited write commits in a GuardedBatch"). Both items are entities in
-// one database, so a transaction is no longer what carries the pair — the batch
-// is, and it is the shape every engine has.
-//
-// A refusal is a FAULT here rather than a race: both ids carry eight hex digits
-// of randomness on top of the instant, so the only way a condition fails is a
-// genuine collision, and a secret read that silently recorded nothing is the
-// one outcome spec 5/13 exists to prevent.
+// it, in ONE write (spec 6/40). A refusal is a FAULT rather than a race: both
+// ids carry eight hex digits of randomness on top of the instant, and a secret
+// read that silently recorded nothing is the one outcome spec 5/13 exists to
+// prevent.
 func (s *Store) LogSecretUse(r SecretUseRow) error {
 	if r.TS.IsZero() {
 		r.TS = time.Now().UTC()
@@ -158,11 +128,9 @@ func (s *Store) LogSecretUse(r SecretUseRow) error {
 		Action:   "secret.read",
 		Actor:    r.CallerSub,
 		ActorSub: r.CallerSub,
-		// The one production writer is routd's MCP broker middleware,
-		// `ResolveConnectorSecrets` (`routd/mcp.go:530`), so the surface a secret
-		// read happened on is `mcp`. Stamping `crackbox` named a sandbox that is
-		// not on this path and made every broker read unfindable by surface
-		// (BUGS L53).
+		// The one production writer is routd's MCP broker middleware, so the
+		// surface is `mcp`; stamping `crackbox` made every broker read
+		// unfindable by surface (BUGS L53).
 		Surface:    audit.SurfaceMCP,
 		Resource:   "secrets/" + r.Scope + "/" + r.Folder + "/" + r.Key,
 		Scope:      r.Scope,

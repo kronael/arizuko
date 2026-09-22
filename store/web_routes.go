@@ -3,30 +3,18 @@ package store
 // web_routes.go holds `web_routes`: one item per web access rule, addressed by
 // its path prefix.
 //
-// THE PARTITION IS OwnerRoutd AND IT IS NOT A CHOICE THIS FILE MAKES.
-// `web_routes` is a registered resreg resource, and an entity-backed resource's
-// items live at its owner subsystem (resreg.SubsystemRoutd, which IS
-// store.OwnerRoutd). A second spelling would put a writer's items in one
-// partition and the engine's read in another, and the failure is silent: a query
-// on a partition nobody wrote to is a legal query that selects nothing.
+// The partition is OwnerRoutd because resreg's entity path writes these items
+// too (resreg.SubsystemRoutd IS store.OwnerRoutd); a second spelling selects
+// nothing, silently. The path prefix is the coordinate, so the read comes back
+// in `ORDER BY path_prefix`; proxyd snapshots it and longest-prefix-matches in
+// Go.
 //
-// THE PATH PREFIX IS THE COORDINATE, so the whole read comes back in
-// `ORDER BY path_prefix` with no sort of its own: proxyd snapshots the
-// inventory and longest-prefix-matches it in Go (`proxyd/main.go:159`).
-//
-// THE COORDINATE AND THE ATTRIBUTE NAMES ARE DECLARED HERE AND WRITTEN BY routd.
-// This package serves the one read proxyd needs; routd owns every write
-// (`web_routes_resource.go`, on resreg's transaction). That is one declaration
-// with two readers at different TIMES rather than two formats — the names are
-// EXPORTED for exactly that reason, and the exported half is the marker that the
-// writer lives in another package. There is deliberately no writer and no
-// matcher here: a second writer is how `created_at` came to mean two different
-// things.
-//
-// `created_at` IS core.TS, at 30 bytes. That is the width resreg's own entity
-// path stamps a StampedField at (resreg/entity.go itemFor), and every writer of
-// these items has to agree byte for byte — a comparison over TEXT answers by
-// byte order (BUGS L97).
+// The coordinate and the attribute names are declared here and WRITTEN BY
+// routd (`web_routes_resource.go`): one declaration with two readers, which is
+// why the names are EXPORTED. There is deliberately no writer and no matcher
+// here: a second writer is how `created_at` came to mean two different things.
+// `created_at` is core.TS at 30 bytes, the width resreg's entity path stamps
+// (BUGS L97).
 
 import (
 	"context"
@@ -37,8 +25,7 @@ import (
 	"github.com/kronael/arizuko/objstore"
 )
 
-// The attributes a web route item carries. `path_prefix` is NOT among them: it
-// is the coordinate, and storing it twice is two facts that can disagree.
+// The attributes a web route item carries. `path_prefix` is the coordinate.
 const (
 	AttrWebAccess     = "access"
 	AttrWebRedirectTo = "redirect_to"
@@ -62,9 +49,8 @@ func WebRouteKey(pathPrefix string) (objstore.Key, error) {
 	return objstore.Key{Partition: OwnerRoutd, Sort: pathPrefix}, nil
 }
 
-// WebRouteFrom reads one item back. An absent `redirect_to` is the empty string,
-// which is the only null this model has and exactly what `COALESCE(…,”)`
-// answered.
+// WebRouteFrom reads one item back. An absent `redirect_to` is the empty
+// string.
 func WebRouteFrom(it objstore.Item) WebRoute {
 	wr := WebRoute{
 		PathPrefix: it.Key.Sort,
@@ -76,7 +62,7 @@ func WebRouteFrom(it objstore.Item) WebRoute {
 	return wr
 }
 
-// AllWebRoutes returns every web_route, ordered by prefix. proxyd's snapshot.
+// AllWebRoutes returns every web_route, ordered by prefix: proxyd's snapshot.
 func (s *Store) AllWebRoutes() ([]WebRoute, error) {
 	items, err := s.Obj().Query(context.Background(), objstore.Query{
 		Entity: WebRoutes, Partition: OwnerRoutd,

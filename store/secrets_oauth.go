@@ -1,21 +1,12 @@
 package store
 
 // secrets_oauth.go is the surrogate-OAuth half of the `secrets` entity (spec
-// 5/15): the four attributes `provider`, `refresh_val`, `expires_at` and
-// `scope_list`. value + refresh_val seal through the SAME storeValue/open
-// AES-256-GCM keyring as a pasted PAT — only these methods know a row came from
-// OAuth. A PAT row carries none of the four and never touches this file.
-//
-// IT WRITES THROUGH secrets.go's HELPERS and declares no coordinate of its own.
-// One key builder, one attribute-name set: a second spelling of either would put
-// this file's items where the other's read does not look, and the two halves of
-// one credential would live at two coordinates.
-//
-// `provider` IS WHAT TELLS THE TWO APART, so every read here filters on its
-// PRESENCE rather than on a value — absent is the only null this model has, and
-// setAttr never writes an empty one, so an item that carries the attribute is an
-// OAuth row and one that does not is a PAT. That is exactly what
-// `provider IS NOT NULL AND provider <> ''` said.
+// 5/15): `provider`, `refresh_val`, `expires_at` and `scope_list`. value and
+// refresh_val seal through the SAME storeValue/open keyring as a pasted PAT.
+// It writes through secrets.go's helpers and declares no coordinate of its
+// own, or the two halves of one credential would live at two coordinates.
+// `provider` is what tells the two apart, so every read here filters on its
+// PRESENCE: absent is the only null this model has, and a PAT row carries none.
 
 import (
 	"context"
@@ -38,15 +29,11 @@ type OAuthSecret struct {
 	Scope     string
 }
 
-// PutOAuthSecret upserts a user-scoped OAuth credential row: value + refresh
-// sealed under the keyring (same seal as value), plus provider/expiry/scope
-// metadata. The dashd Connect-dance write path. No audit row (FS-mounted daemon
-// writes are audit-free, like PutSecretRow).
-//
-// A zero expiry writes NO `expires_at` attribute — a non-expiring credential —
-// and an empty scope no `scope_list`, because absent is the only null this model
-// has. The upsert owns all six attributes, so a PAT that this call replaces
-// becomes an OAuth row whole.
+// PutOAuthSecret upserts a user-scoped OAuth credential row: the dashd
+// Connect-dance write path, with no audit row (FS-mounted daemon writes are
+// audit-free, like PutSecretRow). A zero expiry writes NO `expires_at` and an
+// empty scope no `scope_list`. The upsert owns all six attributes, so a PAT
+// this call replaces becomes an OAuth row whole.
 func (s *Store) PutOAuthSecret(userSub, key, value, provider, refresh string, expiresAt time.Time, scope string) error {
 	if err := validateScope(ScopeUser, userSub, key); err != nil {
 		return err
@@ -61,15 +48,10 @@ func (s *Store) PutOAuthSecret(userSub, key, value, provider, refresh string, ex
 }
 
 // UpdateOAuthSecret reseals value+refresh and updates expiry/scope for an
-// existing user OAuth row — the broker's near-expiry refresh writeback. Returns
-// ErrSecretNotFound when there is no such row, which is what the statement's
-// zero matched rows said: an Update always requires the item to exist, and a
-// refused batch is that answer.
-//
-// A zero expiry or an empty scope TAKES THE ATTRIBUTE AWAY rather than writing
-// an empty one, so a refresh that returns no expiry leaves the same shape a mint
-// with none does. `created_at` is NOT touched: it is when the connection was
-// made, and a refresh is not a new connection.
+// existing user OAuth row: the broker's near-expiry refresh writeback.
+// ErrSecretNotFound when there is no such row. A zero expiry or an empty scope
+// TAKES THE ATTRIBUTE AWAY rather than writing an empty one. `created_at` is
+// NOT touched: a refresh is not a new connection.
 func (s *Store) UpdateOAuthSecret(userSub, key, value, refresh string, expiresAt time.Time, scope string) error {
 	k, err := secretKey(ScopeUser, userSub, key)
 	if err != nil {
@@ -96,16 +78,10 @@ func (s *Store) UpdateOAuthSecret(userSub, key, value, refresh string, expiresAt
 }
 
 // ClearOAuthSecret takes `expires_at` and `refresh_val` away from a user OAuth
-// row (refresh rejected → reconnect required). value + provider stay so the
-// connections page can show a stale link that needs reconnecting.
-//
-// The two go in ONE write, because a reset that left one behind is a row the
-// broker still reads as refreshable. Taking them away is the only way to make
-// them missing: writing "" leaves an attribute a presence test still finds.
-//
-// A row that is not there is an ERROR: the refresh path read it a moment ago, so
-// a refusal is the row having gone under the clear, not a clear with nothing to
-// do.
+// row (refresh rejected, reconnect required); value + provider stay so the
+// connections page can show a stale link. ONE write: a reset that left one
+// behind is a row the broker still reads as refreshable. A row that is not
+// there is an ERROR: the refresh path read it a moment ago.
 func (s *Store) ClearOAuthSecret(userSub, key string) error {
 	k, err := secretKey(ScopeUser, userSub, key)
 	if err != nil {
@@ -128,16 +104,15 @@ func (s *Store) UserOAuthSecrets(userSub string, keys []string) ([]OAuthSecret, 
 }
 
 // ListUserConnections returns every user-scoped OAuth row for the connections
-// page, in key order. Values decrypted (the page shows only key/provider/expiry,
-// never token).
+// page, in key order. Values decrypted; the page shows only key, provider and
+// expiry, never the token.
 func (s *Store) ListUserConnections(userSub string) ([]OAuthSecret, error) {
 	return s.oauthSecrets(userSub, func(string) bool { return true })
 }
 
-// oauthSecrets is the ONE read both callers above share, so they cannot disagree
-// about which rows count as OAuth. The scope is a leading fragment of the
-// coordinate, so it is a begins_with; `key` is the coordinate's last field, so
-// the read comes back in key order.
+// oauthSecrets is the ONE read both callers above share, so they cannot
+// disagree about which rows count as OAuth. A begins_with on the scope, in key
+// order.
 func (s *Store) oauthSecrets(userSub string, want func(key string) bool) ([]OAuthSecret, error) {
 	items, err := s.secretsIn(context.Background(), ScopeUser, userSub)
 	if err != nil {
@@ -194,8 +169,8 @@ func (s *Store) oauthAttrs(value, refresh string, expiresAt time.Time, scope str
 	return attrs, nil
 }
 
-// parseTime accepts the RFC3339 form an expiry is written in, tolerating a bare
-// SQLite datetime ("2006-01-02 15:04:05") for hand-set test rows.
+// parseTime accepts the RFC3339 form an expiry is written in, tolerating a
+// bare SQLite datetime for hand-set test rows.
 func parseTime(s string) time.Time {
 	for _, layout := range []string{time.RFC3339Nano, time.RFC3339, "2006-01-02 15:04:05"} {
 		if t, err := time.Parse(layout, strings.TrimSpace(s)); err == nil {

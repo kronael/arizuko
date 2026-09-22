@@ -3,35 +3,16 @@ package store
 // acl.go holds every read and write of `acl`: one item per grant, addressed by
 // the six fields that ARE the grant.
 //
-// THE PARTITION IS OwnerRoutd AND IT IS NOT A CHOICE THIS FILE MAKES. `acl` is
-// a registered resreg resource, and an entity-backed resource's items live at
-// its owner subsystem (resreg.SubsystemRoutd, which IS store.OwnerRoutd). A
-// second spelling would put this file's items in one partition and the engine's
-// read in another, and the failure is silent: a query on a partition nobody
-// wrote to is a legal query that selects nothing.
+// The partition is OwnerRoutd because resreg's entity path writes these items
+// too (resreg.SubsystemRoutd IS store.OwnerRoutd); a second spelling selects
+// nothing, silently. All six fields are in the coordinate because each changes
+// what the row PERMITS. The principal leads, because the evaluator's hot read
+// is one begins_with per principal. ListACLByScope and ACLWildcardRows read the
+// partition and filter in Go: it is 42 rows on krons, and no index answers a
+// substring.
 //
-// THE COORDINATE IS THE WHOLE GRANT — principal, action, scope, params,
-// predicate, effect — because every one of the six changes what the row
-// PERMITS. Two rows differing only in `effect` are an allow and a deny of the
-// same call, and `params` and `predicate` each narrow a row to a subset of it.
-// The principal LEADS, because that is what the evaluator selects on: the hot
-// read is "every row for these principals", which is one begins_with per
-// principal and never a scan.
-//
-// THE OTHER TWO READS ARE SCANS AND THAT IS MEASURED, not overlooked. A scope
-// is the third field of the key and a wildcard principal is a substring of the
-// first, and neither is a leading fragment — so ListACLByScope and
-// ACLWildcardRows read the partition and filter in Go. The whole partition is
-// 42 rows on krons, 23 on sloth and 16 on marinade, and the second of the two
-// is on the authorize path, where it was already `LIKE '%*%'` — a table scan
-// under another name.
-//
-// A READ FAILURE IS AN ERROR, NEVER AN EMPTY POLICY (BUGS A4). These readers
-// once returned a bare nil on a query error and SKIPPED individual scan
-// failures, so a broken table and a folder with no grants were the same value —
-// the evaluator denied either way, but a management surface answered 200 with
-// `[]`, and a partial scan could drop a DENY row while keeping the allows above
-// it. One unreadable item fails the whole read.
+// A READ FAILURE IS AN ERROR, NEVER AN EMPTY POLICY (BUGS A4): a partial scan
+// could drop a DENY row while keeping the allows above it.
 
 import (
 	"context"
@@ -45,8 +26,7 @@ import (
 )
 
 // The attributes a grant item carries. The six coordinate fields are NOT among
-// them: they are the key, and storing the coordinate twice is two facts that
-// can disagree.
+// them: storing the coordinate twice is two facts that can disagree.
 const (
 	attrACLGrantedBy   = "granted_by"
 	attrACLGrantedAt   = "granted_at"
@@ -56,16 +36,10 @@ const (
 // aclKeyFields is the coordinate, in order, for the error a refusal prints.
 const aclKeyFields = "principal,action,scope,params,predicate,effect"
 
-// aclKey is the coordinate of one grant.
-//
-// A value carrying the separator is REFUSED rather than joined: two different
-// grants would address one item, the last write would win, and the read that
-// splits the key back apart would answer a grant neither of them states. That
-// is the same refusal resreg's own entity path makes over the same six fields
-// (resreg/entity.go sortKeyFor), because both of them write these items.
-//
-// An EMPTY part is allowed — `params` and `predicate` are empty on almost every
-// live row — because the separator count is fixed, so the parts still separate.
+// aclKey is the coordinate of one grant. A value carrying the separator is
+// REFUSED: two grants would address one item (resreg/entity.go sortKeyFor
+// makes the same refusal). An EMPTY part is allowed, because the separator
+// count is fixed.
 func aclKey(r core.ACLRow) (objstore.Key, error) {
 	parts := []string{r.Principal, r.Action, r.Scope, r.Params, r.Predicate, r.Effect}
 	for i, v := range parts {
@@ -82,10 +56,8 @@ func aclKey(r core.ACLRow) (objstore.Key, error) {
 	return objstore.Key{Partition: OwnerRoutd, Sort: strings.Join(parts, KeySep)}, nil
 }
 
-// aclRowFrom reads one item back. A key that does not split into six parts is a
-// LOUD fault rather than a half-filled grant: half a coordinate names a row
-// nobody wrote, and an evaluator reading it would answer about a call nobody
-// granted.
+// aclRowFrom reads one item back. A key that does not split into six is a LOUD
+// fault: an evaluator reading it would answer about a call nobody granted.
 func aclRowFrom(it objstore.Item) (core.ACLRow, error) {
 	parts := strings.Split(it.Key.Sort, KeySep)
 	if len(parts) != 6 {
@@ -105,17 +77,10 @@ func aclRowFrom(it objstore.Item) (core.ACLRow, error) {
 	}, nil
 }
 
-// aclAttrs renders the three attributes a grant item carries.
-//
-// `grant_option` is ALWAYS written, as "0" or "1". A Go bool has no unset, so
-// false is a value the row states rather than one it omits — and it is the
-// exact text resreg's declared bool encoding renders (resreg/codec.go), because
-// the two writers of these items have to agree byte for byte.
-//
-// `granted_at` is core.TS, at 30 bytes: that is the width resreg's entity path
-// stamps a StampedField at, and a comparison over TEXT answers by byte order
-// (BUGS L97). `arizuko migrate-routd` normalises the RFC3339 values the column
-// path left behind.
+// aclAttrs renders the three attributes a grant item carries. `grant_option` is
+// ALWAYS written, as "0" or "1": the text resreg's bool encoding renders
+// (resreg/codec.go), because both writers must agree byte for byte.
+// `granted_at` is core.TS at 30 bytes, for the same reason (BUGS L97).
 func aclAttrs(r core.ACLRow) map[string]string {
 	attrs := map[string]string{attrACLGrantOption: "0"}
 	if r.GrantOption {
@@ -126,22 +91,21 @@ func aclAttrs(r core.ACLRow) map[string]string {
 	return attrs
 }
 
-// The two effect spellings an acl row may carry. This is the ONE declaration:
-// the evaluator reads the same pair through auth, so a row can never hold a
-// third value that one side reads and the other does not.
+// The two effect spellings an acl row may carry. ONE declaration: auth reads
+// the same pair.
 const (
 	EffectAllow = "allow"
 	EffectDeny  = "deny"
 )
 
 // HoldPrefix opens the namespace a hold rule's action lives in: `hold:mcp:reply`
-// answers "must a call to `reply` wait for a human?", never "may it run". The
-// declaration is here because the acl ROW is store's and the seed floor writes
-// these actions; auth reads the same constant to evaluate them.
+// answers "must a call to `reply` wait for a human?", never "may it run". It is
+// here because the seed floor writes these actions; auth reads the same
+// constant.
 const HoldPrefix = "hold:mcp:"
 
 // ShellEnvPrefix names the grant that puts a folder secret into the agent's
-// shell. It lives here for HoldPrefix's reason, and auth aliases it.
+// shell. Here for HoldPrefix's reason; auth aliases it.
 const ShellEnvPrefix = "shell:env:"
 
 // EffectAllowed reports whether `effect` is a spelling every evaluator reads.
@@ -149,33 +113,21 @@ func EffectAllowed(effect string) bool {
 	return effect == EffectAllow || effect == EffectDeny
 }
 
-// aclPut renders the create-if-absent write both acl writers issue.
+// aclPut renders the create-if-absent write both acl writers issue: a re-grant
+// must not restamp who granted a row or clear a grant option it holds.
 //
-// Create-if-absent is what `INSERT OR IGNORE` said, and it matters: granting a
-// row that is already there must not restamp who granted it or when, and must
-// not silently clear a grant option the holder already has.
-//
-// THE EFFECT IS VALIDATED HERE, at the write, because every door into the acl
-// entity renders through this function. The evaluator reads every effect that
-// is not exactly EffectDeny as a grant, so a face that passes its argument
-// straight through turns `denny` into an allow — a refusal an operator reads in
-// the table and an evaluator never applies (BUGS L272). A guard in one face is
-// a guard the next face forgets.
+// The effect is validated HERE because every door renders through this
+// function: the evaluator reads anything but EffectDeny as a grant, so `denny`
+// became an allow (BUGS L272).
 func aclPut(r core.ACLRow) (objstore.Write, error) {
 	if !EffectAllowed(r.Effect) {
 		return objstore.Write{}, fmt.Errorf(
 			"acl: effect %q on action %q is not a spelling any evaluator reads; "+
 				"use %q or %q", r.Effect, r.Action, EffectAllow, EffectDeny)
 	}
-	// A PREDICATE ON A shell:env: ROW CAN ONLY EVER MEAN "NEVER", so writing one
-	// is refused here rather than discovered later. `ShellEnvKeys`
-	// (auth/authorize.go) resolves once per dispatch keyed on the FOLDER and
-	// builds its caller with no Claims, and `predicateMatches` answers true only
-	// for an EMPTY predicate — so `predicate=platform=telegram`, which reads like
-	// "only in Telegram", matches nothing on every channel and the key silently
-	// stops appearing in the agent's shell. Nothing logs a denial because nothing
-	// was denied (BUGS L134). It is refused at the write for the reason the
-	// effect is, above.
+	// A predicate on a shell:env: row can only mean "never": ShellEnvKeys
+	// (auth/authorize.go) resolves per folder with no Claims, so the key
+	// silently stops appearing and nothing logs a denial (BUGS L134).
 	if r.Predicate != "" && strings.HasPrefix(r.Action, ShellEnvPrefix) {
 		return objstore.Write{}, fmt.Errorf(
 			"acl: a predicate on %q can never match — the shell-secret resolver is "+
@@ -187,29 +139,23 @@ func aclPut(r core.ACLRow) (objstore.Write, error) {
 	if err != nil {
 		return objstore.Write{}, err
 	}
-	// Every attribute is Init, which states the idempotence in the write: a
-	// re-grant leaves the row exactly as it is rather than restamping who granted
-	// it or when. It is a Merge rather than a guarded Put so it has NOTHING TO
-	// REFUSE, which is what lets a folder creation's admin grant ride in the same
-	// batch as the edge and the groups row it belongs with.
+	// Every attribute is Init, and the op is a Merge rather than a guarded Put
+	// so it has NOTHING TO REFUSE: a folder creation's admin grant rides the
+	// same batch as the edge and the groups row.
 	return objstore.Write{
 		Op: objstore.Merge, Entity: ACL, Key: key, Init: aclAttrs(r),
 	}, nil
 }
 
 // ACLGrantWrite is aclPut for the daemons that assemble a folder creation's
-// whole batch themselves, and it fills the defaults a caller may leave out, as
-// every other door into aclPut does.
+// whole batch themselves, with the defaults every other door fills.
 func ACLGrantWrite(row core.ACLRow) (objstore.Write, error) { return aclPut(aclDefaults(row)) }
 
 // AdminGrantWrite renders the grant that makes `principal` the admin of a
-// folder it has just created. It exists because the scope is the part a caller
-// gets wrong: `matchSegments` (auth/acl.go) walks the glob segment by segment
-// and ends on `len(in) == 0`, so a bare `eng` covers `eng` and REFUSES
-// `eng/sre`, while `eng/**` covers both — `**` with nothing after it answers
-// true whatever input is left. Two folder creators wrote two different scopes
-// and the bare one left its creator unable to administer a child of their own
-// folder (BUGS L206). One renderer, so there is no second shape to drift.
+// folder it has just created. The scope is `folder/**`: matchSegments
+// (auth/acl.go) ends on `len(in) == 0`, so a bare `eng` covers `eng` and
+// REFUSES `eng/sre`, which left a creator unable to administer a child of its
+// own folder (BUGS L206). One renderer, so no second shape drifts.
 func AdminGrantWrite(principal, folder, grantedBy string) (objstore.Write, error) {
 	return ACLGrantWrite(core.ACLRow{
 		Principal: principal, Action: "admin", Scope: folder + "/**",
@@ -217,8 +163,7 @@ func AdminGrantWrite(principal, folder, grantedBy string) (objstore.Write, error
 	})
 }
 
-// aclDefaults fills what a caller may leave out: the effect every grant has
-// unless it says otherwise, and the instant it was granted.
+// aclDefaults fills what a caller may leave out: the effect and the instant.
 func aclDefaults(r core.ACLRow) core.ACLRow {
 	if r.Effect == "" {
 		r.Effect = EffectAllow
@@ -229,19 +174,13 @@ func aclDefaults(r core.ACLRow) core.ACLRow {
 	return r
 }
 
-// GrantDefaults applies the defaults a GRANT WRITER fills in before its row
-// reaches the store: action `admin`, effect `allow`. routd's acl resource and
-// the `arizuko group grant`/`ungrant` pair both write through it, so the row a
-// grant creates is the row the matching ungrant addresses — two default sets
-// would put the revoke at a coordinate the grant never wrote (aclKey), which is
-// the silent no-op of BUGS L138. A gate must validate the row the WRITE
-// produces, so a default only one writer knew about is a row auth.Delegate
-// judges as something else (BUGS L93).
+// GrantDefaults applies the defaults a GRANT WRITER fills in: action `admin`,
+// effect `allow`. routd's acl resource and `arizuko group grant`/`ungrant`
+// share it, so the revoke addresses the coordinate the grant wrote (BUGS L138)
+// and auth.Delegate judges the row the write produces (BUGS L93).
 //
-// It is NOT aclDefaults below, and the difference is the open half of BUGS
-// L345: aclDefaults fills the effect and NOT the action, so a row reaching
-// AddACLRow directly keeps an empty action. Making these one function would
-// default that to `admin` and widen three callers, which is a decision.
+// It is NOT aclDefaults: that one fills no action, and merging them would
+// default it to `admin` for three callers, which is a decision (BUGS L345).
 func GrantDefaults(row core.ACLRow) core.ACLRow {
 	if row.Action == "" {
 		row.Action = "admin"
@@ -259,12 +198,10 @@ func (s *Store) AddACLRow(row core.ACLRow) error {
 	if err != nil {
 		return err
 	}
-	// A refusal is the grant already being there, which is what aclPut's
-	// create-if-absent asks for: a re-grant must not restamp who granted it,
-	// and it records nothing because nothing was granted.
+	// A refusal is the grant already being there, and it records nothing.
 	_, err = s.tryWriteAudited(func() ([]objstore.Write, audit.Event, error) {
-		// GrantedBy is the grantor recorded in the row itself; it stands in as the
-		// actor for callers that never set AsUser (the CLI, onbod invite-accept).
+		// GrantedBy stands in as the actor for callers that never set AsUser
+		// (the CLI, onbod invite-accept).
 		actor, actorSub, surface := s.auditIdentity()
 		if s.auditSub == "" && row.GrantedBy != "" {
 			actor, actorSub = row.GrantedBy, row.GrantedBy
@@ -284,9 +221,8 @@ func (s *Store) AddACLRow(row core.ACLRow) error {
 				"scope":     row.Scope,
 				"effect":    row.Effect,
 				"predicate": row.Predicate,
-				// The grantor the row itself records. Distinguishes a grant an
-				// operator typed from one a package install brought in, which the
-				// actor alone cannot show — both are the same person at a terminal.
+				// Distinguishes a grant an operator typed from one a package
+				// install brought in; the actor alone cannot.
 				"granted_by": row.GrantedBy,
 			},
 		}, nil
@@ -324,8 +260,8 @@ func (s *Store) RemoveACLRow(row core.ACLRow) error {
 	})
 }
 
-// PutACLRow grants a row idempotently WITHOUT emitting an audit_log row — the
-// audit-free twin of AddACLRow, for a caller with no audit context of its own.
+// PutACLRow is the audit-free twin of AddACLRow, for a caller with no audit
+// context of its own.
 func (s *Store) PutACLRow(row core.ACLRow) error {
 	w, err := aclPut(aclDefaults(row))
 	if err != nil {
@@ -336,12 +272,9 @@ func (s *Store) PutACLRow(row core.ACLRow) error {
 	return err
 }
 
-// aclItems reads one selection of the partition and turns it into rows.
-//
-// It is the ONE place a policy read materialises, so the "a partial policy is
-// never returned" rule holds for every reader at once: an unreadable item
-// aborts, it does not skip. A dropped DENY row with its allows intact is an
-// escalation, not a degradation.
+// aclItems reads one selection of the partition and turns it into rows. It is
+// the ONE place a policy read materialises: an unreadable item aborts, never
+// skips. A dropped DENY row with its allows intact is an escalation.
 func (s *Store) aclItems(who string, q objstore.Query) ([]core.ACLRow, error) {
 	items, err := s.Obj().Query(context.Background(), q)
 	if err != nil {
@@ -364,12 +297,9 @@ func (s *Store) aclAll(who string) ([]core.ACLRow, error) {
 }
 
 // ACLRowsFor returns rows whose principal EXACTLY matches any element of
-// principals. Wildcard-bearing stored principals are fetched separately
-// via ACLWildcardRows.
-//
-// One begins_with per principal, because the principal is the leading field of
-// the coordinate: the separator ends it, so `folder:a` cannot reach
-// `folder:ab`. That is the exactness `principal IN (…)` had.
+// principals; wildcard-bearing principals come from ACLWildcardRows. One
+// begins_with per principal, and the separator ends it, so `folder:a` cannot
+// reach `folder:ab`.
 func (s *Store) ACLRowsFor(principals []string) ([]core.ACLRow, error) {
 	if len(principals) == 0 {
 		return nil, nil
@@ -385,20 +315,19 @@ func (s *Store) ACLRowsFor(principals []string) ([]core.ACLRow, error) {
 		}
 		out = append(out, rows...)
 	}
-	// Sorted, because the answer is assembled from several reads and each one
-	// only orders inside itself. A policy read that returned a different order
-	// per call would make an evaluator's first-match answer depend on the order
-	// the caller happened to list its principals in.
+	// Sorted, because the answer is assembled from several reads: an
+	// evaluator's first-match answer must not depend on the order the caller
+	// listed its principals in.
 	aclOrder(out)
 	return out, nil
 }
 
-// UserScopes lives in auth (auth.UserScopes) — it is a projection of the rows
-// auth.Authorize evaluates, not a query of its own. Reading `acl` here with a
-// second read is what let it miss wildcard-principal grants.
+// UserScopes lives in auth (auth.UserScopes): a projection of the rows
+// auth.Authorize evaluates. A second read here missed wildcard-principal
+// grants.
 
 // ListACLByScope returns all acl rows whose scope exactly matches scope.
-// Errors, never an empty list, on a read failure — see the file header.
+// Errors, never an empty list, on a read failure (file header).
 func (s *Store) ListACLByScope(scope string) ([]core.ACLRow, error) {
 	all, err := s.aclAll("read rows for scope " + scope)
 	if err != nil {
@@ -414,7 +343,6 @@ func (s *Store) ListACLByScope(scope string) ([]core.ACLRow, error) {
 }
 
 // ListACL returns every acl row, optionally filtered by principal.
-// Empty principal returns all rows.
 func (s *Store) ListACL(principal string) ([]core.ACLRow, error) {
 	if principal != "" {
 		return s.ACLRowsFor([]string{principal})
@@ -422,13 +350,9 @@ func (s *Store) ListACL(principal string) ([]core.ACLRow, error) {
 	return s.aclAll("list rows")
 }
 
-// ACLWildcardRows returns rows whose stored principal contains a glob
-// segment (`*`). Evaluated by Authorize as a second pass against the
-// expanded principal set.
-//
-// A substring is not a leading fragment of a key, so this reads the partition
-// and filters — which is what `LIKE '%*%'` was, a table scan under a predicate
-// no index answers.
+// ACLWildcardRows returns rows whose stored principal contains a glob segment
+// (`*`); Authorize evaluates them as a second pass against the expanded
+// principal set.
 func (s *Store) ACLWildcardRows() ([]core.ACLRow, error) {
 	all, err := s.aclAll("read wildcard rows")
 	if err != nil {
@@ -443,8 +367,7 @@ func (s *Store) ACLWildcardRows() ([]core.ACLRow, error) {
 	return out, nil
 }
 
-// aclOrder sorts rows the way the coordinate does, for a caller holding a set
-// it assembled from several reads.
+// aclOrder sorts rows the way the coordinate does.
 func aclOrder(rows []core.ACLRow) {
 	slices.SortFunc(rows, func(a, b core.ACLRow) int {
 		return strings.Compare(
@@ -453,18 +376,10 @@ func aclOrder(rows []core.ACLRow) {
 	})
 }
 
-// PutACLRowInto buffers a grant on the caller's write set, for routd's `/v1/acl`
-// face: the grant rides the batch that carries resreg.invoke's single audit_log
-// row, and AddACLRow would send a batch of its own and record the act twice.
-//
-// It renders through aclPut, so the row this writes carries the same coordinate
-// and the same three attributes the audited writer does. A grant with no
-// `granted_at` is stamped here rather than left off — the one omission an
-// operator surface reads as "nobody granted this".
-//
-// aclPut is a Merge, so re-granting a row that is already there leaves it
-// exactly as it is and REFUSES NOTHING — which is what lets the grant ride
-// beside a write whose own refusal is an answer.
+// PutACLRowInto buffers a grant on the caller's write set, for routd's
+// `/v1/acl` face: the grant rides the batch that carries resreg.invoke's one
+// audit_log row, and AddACLRow would record the act twice. aclPut is a Merge,
+// so it REFUSES NOTHING and can ride beside a write whose refusal is an answer.
 func (s *Store) PutACLRowInto(ws *WriteSet, row core.ACLRow) error {
 	w, err := aclPut(aclDefaults(row))
 	if err != nil {
@@ -475,13 +390,9 @@ func (s *Store) PutACLRowInto(ws *WriteSet, row core.ACLRow) error {
 }
 
 // RemoveACLRowInto buffers the revocation of ONE row on the caller's write set,
-// with the error its refusal means.
-//
-// The answer is load-bearing: a revoke is the one operation where "did nothing"
-// must never read as success, so the delete is conditioned on the item being
-// there and the refusal IS the not-found answer. The six coordinate fields
-// address the row exactly, `params` and `predicate` included — a revoke that
-// matched on fewer would remove a wider grant than the caller named (BUGS L79).
+// with the error its refusal means: a revoke that did nothing must never read
+// as success. All six coordinate fields address the row; a revoke that matched
+// on fewer removed a wider grant than the caller named (BUGS L79).
 func (s *Store) RemoveACLRowInto(ws *WriteSet, row core.ACLRow, refused error) error {
 	key, err := aclKey(aclDefaults(row))
 	if err != nil {

@@ -7,9 +7,8 @@ import (
 	"github.com/kronael/arizuko/objstore"
 )
 
-// writeAudited sends a mutation and the row that records it as ONE batch, so
-// either both land or neither does. build answers the writes it wants and the
-// event describing them, and may read before it decides.
+// writeAudited sends a mutation and the row that records it as ONE batch.
+// build may read before it decides.
 func (s *Store) writeAudited(build func() ([]objstore.Write, audit.Event, error)) error {
 	writes, ev, err := build()
 	if err != nil {
@@ -22,9 +21,8 @@ func (s *Store) writeAudited(build func() ([]objstore.Write, audit.Event, error)
 	return s.WriteEntities(context.Background(), nil, append(writes, rec)...)
 }
 
-// tryWriteAudited is writeAudited where a refused condition is an ANSWER rather
-// than a fault. The record rides the same batch, so a refused mutation records
-// nothing — there was nothing to record.
+// tryWriteAudited is writeAudited where a refused condition is an ANSWER. The
+// record rides the same batch, so a refused mutation records nothing.
 func (s *Store) tryWriteAudited(build func() ([]objstore.Write, audit.Event, error)) (bool, error) {
 	writes, ev, err := build()
 	if err != nil {

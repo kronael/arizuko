@@ -1,16 +1,9 @@
 package store
 
-// entities.go names the tables this package has moved onto objstore, and
-// prepares a database to serve them (spec 6/37 step 7).
-//
-// It is the declaration every reader shares: `migrate` applies it to the
-// database it opens, and `arizuko migrate-store` applies it to the database it
-// moves. One declaration, two readers — a loop copied into each would be two
-// places for the set to drift, which is what BUGS F29 cost when a database
-// booted healthy and dropped every audit row.
-//
-// Every table this package serves reads through objstore (`Store.Obj`). There
-// is one implementation per table, no fallback and no dual read.
+// entities.go declares the entities this package serves and prepares a
+// database to hold them (spec 6/37 step 7). One declaration for every opener:
+// a copied loop drifted once and a database booted healthy while dropping
+// every audit row (BUGS F29). One read path per table, no fallback.
 
 import (
 	"context"
@@ -19,9 +12,8 @@ import (
 	"github.com/kronael/arizuko/objstore"
 )
 
-// The entities this package reads. An entity is a name a driver resolves; what
-// it costs to reach an item inside one is the (partition, sort) coordinate each
-// file documents.
+// The entities this package reads. The (partition, sort) coordinate of each is
+// documented in its own file.
 const (
 	// PaneSessions holds one item per Slack assistant pane, addressed by the
 	// (team, user, thread) triple that opened it.
@@ -41,11 +33,8 @@ const (
 	// by the person who followed it and the instant they did.
 	InviteRedemptions = "invite_redemptions"
 
-	// routd's thirteen registered resources. Each one's coordinate is argued
-	// against the live rows in resreg/resources/<name>.go, because the
-	// coordinate is what an apply addresses a row BY and a wrong one collides
-	// two rows onto one item (BUGS L260). The separator six of them join on is
-	// KeySep below.
+	// routd's thirteen registered resources. A wrong coordinate collides two
+	// rows onto one item (BUGS L260); six of them join on KeySep.
 
 	// ACL holds one grant, addressed by the six fields that ARE the grant:
 	// principal, action, scope, params, predicate and effect.
@@ -58,7 +47,7 @@ const (
 	// is padded so the read comes back in precedence order.
 	Routes = "routes"
 	// RouteTokens holds one delivery or pairing credential, addressed by
-	// hex(sha256(token)) — the digest is the key, and the jid is not unique.
+	// hex(sha256(token)); the jid is not unique.
 	RouteTokens = "route_tokens"
 	// ScheduledTasks holds one scheduled prompt, addressed by its id.
 	ScheduledTasks = "scheduled_tasks"
@@ -78,17 +67,14 @@ const (
 	// GitHubSources holds one webhook source, addressed by its source key.
 	GitHubSources = "github_sources"
 
-	// The hot tier's five, which no resreg resource projects: they are runtime
-	// state rather than configuration, so nothing exports them and no version
-	// marker moves with them (scopes.go).
+	// The hot tier: runtime state no resreg resource projects, so nothing
+	// exports it and no version marker moves with it (scopes.go).
 
 	// Chats holds one item per chat routd has seen, addressed by its jid, and
-	// carries `agent_cursor` — the dispatch watermark that decides whether a
-	// message has already been fed to an agent.
+	// carries `agent_cursor`, the dispatch watermark.
 	Chats = "chats"
 	// Sessions holds one topic's continuity, addressed by (group_folder, topic),
-	// and carries `observed_cursor` — the other watermark, over the ambient
-	// window a prompt is built from.
+	// and carries `observed_cursor`, the ambient-window watermark.
 	Sessions = "sessions"
 	// ChatReplyState holds whether a reply is still owed on (jid, topic) and
 	// which folder holds the conversation.
@@ -100,8 +86,7 @@ const (
 	// is queued for and the instant it was queued.
 	SystemMessages = "system_messages"
 	// UserProfiles holds one item per person the instance knows a name for,
-	// addressed by their sub, and carries the username their folder is named
-	// after and their per-day spend cap.
+	// addressed by their sub.
 	UserProfiles = "user_profiles"
 	// TurnResults holds one item per (folder, turn) the agent has reported an
 	// outcome for. Its create-if-absent is the claim that makes one report one
@@ -111,18 +96,15 @@ const (
 	// attributes at all: the pair IS the fact.
 	GroupWatchers = "group_watchers"
 	// TaskRunLogs holds one item per execution of a scheduled task, addressed by
-	// the instant it ran — which IS its identity, so no separate `run_at`.
+	// the instant it ran, which IS its identity.
 	TaskRunLogs = "task_run_logs"
 	// TurnContexts holds one item per turn routd has dispatched, addressed by
-	// its turn id — the only handle a late callback carries. The name is plural
-	// where the table it replaces is singular, because the singular one is the
-	// struct a caller reads back.
+	// its turn id, the only handle a late callback carries.
 	TurnContexts = "turn_context"
 
 	// Messages holds one item per message routd has appended, addressed by the
-	// chat it is in and by `core.TS(timestamp) + KeySep + id` inside it. The id
-	// is in the key because 245 pairs share one instant inside one chat on
-	// krons, so a time-only key would put two messages on one item.
+	// chat and by `core.TS(timestamp) + KeySep + id` inside it. The id is in the
+	// key because 245 pairs share one instant inside one chat on krons.
 	Messages = "messages"
 	// MessageFolders is the folder feed: one pointer per message that carries a
 	// `routed_to`, addressed by that folder and by the message's own position.
@@ -139,75 +121,40 @@ const (
 	MessageDelivery = "message_delivery"
 
 	// Counters holds one item per server-minted number, addressed by the name
-	// of what it numbers, with the count in `n`.
-	//
-	// There is exactly one today and it is routes.id: AUTOINCREMENT is a SQL
-	// facility, an item has no server-minted identity, and two concurrent
-	// add_route calls reading `max(id) + 1` would mint the same handle for two
-	// rules — after which delete_route(id) names both. objstore.Increment over
-	// this item is the compare-and-swap that makes the mint one winner
-	// (protocol.go). The apply path mints differently and correctly, because it
-	// sees the whole row set at once (resreg/entity.go mintNumbers).
+	// of what it numbers, with the count in `n`. An item has no server-minted
+	// identity, so objstore.Increment over it is the compare-and-swap that
+	// makes a mint one winner; the apply path mints from the whole row set
+	// instead (resreg/entity.go mintNumbers).
 	Counters = "counters"
 )
 
-// KeySep joins the fields of a composite coordinate, and it is declared HERE
-// because both readers of it are downstream of this package: the writers in
-// this file's neighbours, and the resource declarations in resreg/resources,
-// which reach it the way they already reach OwnerRoutd. Two spellings would put
-// one writer's items at a coordinate the other's read never names.
-//
-// Six of routd's thirteen resources join on it: acl is the six-field grant,
-// acl_membership is (child, parent), network_rules is (folder, target),
-// installed_packages is (folder, name), secrets is (scope_kind, scope_id, key)
-// and routes is (seq, target, match). No value of any of those fields may carry
-// it, and a write that does is REFUSED rather than splitting the key somewhere
-// the read would not put it back together.
-//
-// WHY THIS BYTE. The obvious candidates are all in the data: "/" separates a
-// folder from its children and a topic from its folder, ":" a principal's kind
-// from its name, "=" and "," the pairs inside an acl row's `params`, "#" a
-// topic inside a route target. Measured over every one of those fields on all
-// three live instances 2026-09-08, the whole character set is space,
-// `#*,-./0-9:=@_`, the letters, and one emoji. ASCII 0x1F is the unit
-// separator — the byte whose only job is this — and it is what
-// store/pane_sessions and the engine's own composite fixtures already use.
-//
-// Measuring today's rows is not the guarantee and is not meant to be. The
-// guarantee is the refusal.
+// KeySep joins the fields of a composite coordinate. It is declared here
+// because resreg/resources joins on it too; two spellings would put one
+// writer's items where the other's read never looks. No joined field may carry
+// it: a write that does is REFUSED. 0x1F is the ASCII unit separator, the one
+// byte absent from every live value measured 2026-09-08; the refusal, not the
+// measurement, is the guarantee.
 const KeySep = "\x1f"
 
 // The counters this package mints, and the attribute each is held in.
 const (
 	// CounterRouteID is the largest route id handed out.
 	CounterRouteID = "routes.id"
-	// counterAttr holds the count. One name, because one protocol reads it.
+	// counterAttr holds the count.
 	counterAttr = "n"
 )
 
 // EntitiesByOwner is the set a driver must be able to serve before this package
-// answers, KEYED BY THE DATABASE THAT HOLDS IT.
-//
-// It is keyed by owner rather than being one flat list because an entity lives
-// in exactly one database and a caller that asked for the whole set would grow
-// tables its own readers know nothing about — routd.db carrying onbod's three,
-// so that the next person reading `.tables` on it has to work out which daemon
-// owns which. One subsystem is one owner database (spec 5/8), and nothing would
-// have failed: the drift is silent by construction.
-//
-// It is still ONE declaration, because store is what reads and writes all five;
-// what the owner key decides is the SET a caller asks for, not who declares it.
+// answers, KEYED BY THE DATABASE THAT HOLDS IT: an entity lives in exactly one
+// database, and a flat list would grow routd's tables with onbod's three.
 //
 // audit_log is NOT here: four owner databases carry it, `audit` owns the
 // declaration, and every opener reaches it through audit.EnsureEntities.
 //
-// `invite_redemptions` carries a coordinate this package INVENTED, because an
-// item has no server-minted identity and its two operations needed one: "the
-// caller's most recent unspent redemption" and "spend exactly that one"
-// (onbod/main.go). The person is the partition and the instant is the sort key,
-// so the first is a descending range of one item and the second a point delete
-// whose refusal IS the claim. Its write joins the transaction the invite's
-// counter moves in, through WriteEntitiesInTx.
+// `invite_redemptions` carries a coordinate this package invented: the person
+// is the partition and the instant the sort key, so "the caller's most recent
+// unspent redemption" is a descending range of one and "spend exactly that one"
+// a point delete whose refusal IS the claim (onbod/main.go).
 var EntitiesByOwner = map[string][]string{
 	OwnerRoutd: {
 		PaneSessions, SecretUseLog, Counters,
@@ -221,36 +168,22 @@ var EntitiesByOwner = map[string][]string{
 	OwnerOnbod: {Onboarding, OnboardingGates, Invites, InviteRedemptions},
 }
 
-// Driver is what preparing this package's entities takes: an engine that
-// declares them, and the store that writes through them.
-//
-// CreateEntity is not on objstore.Store because schema is driver-local and an
-// engine with no DDL implements it as a no-op (spec 6/40). It is joined to the
-// store here because one of the things prepared is not a table but an ITEM —
-// the version marker every scoped write moves, which has to be there before the
-// first of them (scopes.go).
+// Driver is what preparing this package's entities takes. CreateEntity is not
+// on objstore.Store because schema is driver-local and an engine with no DDL
+// implements it as a no-op (spec 6/40).
 type Driver interface {
 	objstore.Store
 	CreateEntity(ctx context.Context, entity string) error
 }
 
 // EnsureEntities prepares ONE owner's database to hold the entities this
-// package reads there. Four openers reach it — routd's, onbod's, store's own
-// migrate and the migration tools — and a loop copied into each is four places
-// for the set to drift. Asking twice is a no-op.
+// package reads there. Asking twice is a no-op.
 //
-// The owner is a parameter rather than something derived from the handle: a
-// handle does not know whose partition it addresses, and guessing identity from
-// a path is the derivation this repo has an outage on record for (CLAUDE.md).
-// An owner with no entities declared is a caller mistake and fails loudly — a
-// silent no-op there is a store that boots healthy and drops every write.
-//
-// audit's entity is NOT created here even though every database that holds
-// these also holds one. audit owns that declaration, four owners share it, and
-// `arizuko migrate-audit` moves all four in one run — so a caller that needs
-// both calls both, the way runed/db.go does. Bundling them made this package's
-// migration tool refuse to run until audit's had, on a database where the two
-// moves are independent.
+// The owner is a parameter, never derived from the handle (CLAUDE.md), and an
+// owner with no entities declared fails loudly: a silent no-op there is a store
+// that boots healthy and drops every write. audit's entity is NOT created here;
+// audit owns that declaration and `arizuko migrate-audit` moves all four owners
+// in one run, so a caller that needs both calls both (runed/db.go).
 func EnsureEntities(ctx context.Context, d Driver, owner string) error {
 	entities, ok := EntitiesByOwner[owner]
 	if !ok {
@@ -260,16 +193,9 @@ func EnsureEntities(ctx context.Context, d Driver, owner string) error {
 }
 
 // EnsureEntitySet prepares exactly the entities NAMED, plus the owner's counters
-// and version marker. It is the migration tools' door, and it exists because
-// CreateEntity PROBES the three columns it needs: a tool that asked for the
-// whole owner's set would fail on a table a DIFFERENT tool has not moved yet,
-// and both tools would refuse each other forever.
-//
-// `arizuko migrate-store` names the two tables it moves and `migrate-routd` the
-// thirteen it moves, so either may run first. An opener still asks for the whole
-// set through EnsureEntities, which is where the set is declared — this takes a
-// list because a migration is the one caller that knows a subset is all it may
-// touch.
+// and version marker. It is the migration tools' door: CreateEntity PROBES the
+// columns it needs, so a tool that asked for the whole owner's set would fail
+// on a table a DIFFERENT tool has not moved yet.
 func EnsureEntitySet(ctx context.Context, d Driver, owner string, entities ...string) error {
 	for _, entity := range entities {
 		if err := d.CreateEntity(ctx, entity); err != nil {
@@ -283,25 +209,18 @@ func EnsureEntitySet(ctx context.Context, d Driver, owner string, entities ...st
 }
 
 // countersByOwner names the counters each owner mints. A counter has to EXIST
-// before the first increment: Increment reads the item and refuses one that is
-// not there, because "a counter with no zero is a modelling gap rather than a
-// value to invent" (objstore.Increment).
+// before the first increment: objstore.Increment refuses a missing item.
 var countersByOwner = map[string][]string{OwnerRoutd: {CounterRouteID}}
 
-// ensureCounters seeds each of one owner's counters at zero, once.
-//
-// It leaves an existing counter alone — the Put is conditioned on the item
-// being absent — so an opener calls it on every boot and a migration that set
-// the counter to the largest id it carried over keeps that value.
+// ensureCounters seeds each of one owner's counters at zero, once. An existing
+// counter is left alone, so a value a migration carried over survives.
 func ensureCounters(ctx context.Context, d Driver, owner string) error {
 	names := countersByOwner[owner]
 	if len(names) == 0 {
 		return nil
 	}
-	// The entity its own seeding needs, created here for the reason ensureScopes
-	// creates the marker's: a caller naming a SUBSET of the owner's entities — a
-	// migration tool — has no reason to name this one, and the seed below writes
-	// into it.
+	// A caller naming a SUBSET of the owner's entities has no reason to name
+	// this one, and the seed below writes into it.
 	if err := d.CreateEntity(ctx, Counters); err != nil {
 		return err
 	}
@@ -319,12 +238,9 @@ func ensureCounters(ctx context.Context, d Driver, owner string) error {
 	return nil
 }
 
-// nextNumber hands out the next value of one counter, or fails.
-//
-// It is the object path's AUTOINCREMENT for a single imperative write, where
-// resreg/entity.go's mintNumbers is the apply's: that one sees the whole row
-// set and can take one past its largest, and this one has a set of one, so the
-// serialisation has to come from the counter itself.
+// nextNumber hands out the next value of one counter, or fails. It is the
+// AUTOINCREMENT of a single imperative write; the apply path mints from the
+// whole row set instead (resreg/entity.go mintNumbers).
 func (s *Store) nextNumber(ctx context.Context, owner, name string) (int, error) {
 	n, committed, err := s.incrementEntity(ctx, Counters,
 		objstore.Key{Partition: owner, Sort: name}, counterAttr, 1, nil, nil)
@@ -337,14 +253,12 @@ func (s *Store) nextNumber(ctx context.Context, owner, name string) (int, error)
 	return n, nil
 }
 
-// tsWidth is core.TS's width. A test checks it against core.TS itself, because
-// a constant that drifted from the layout would refuse every write instead of
-// guarding one.
+// tsWidth is core.TS's width. A test checks it against core.TS itself.
 const tsWidth = 30
 
 // setAttr records one optional attribute, leaving it off the item when the
 // caller does not carry it. Absent is the only null this model has, so an empty
-// string must never be written where a reader tests for the field's presence.
+// string must never be written where a reader tests for presence.
 func setAttr(attrs map[string]string, name, value string) {
 	if value != "" {
 		attrs[name] = value
@@ -352,12 +266,8 @@ func setAttr(attrs map[string]string, name, value string) {
 }
 
 // applyInChunks sends writes a batch at a time and answers how many landed.
-//
-// MaxBatchActions is the weakest engine's transaction bound, so a sweep that
-// touches more items than one transaction may carry respects it too. Each chunk
-// commits on its own: the writes are independent, so a chunk that lands and a
-// chunk that does not leave work a re-run finishes rather than a half-applied
-// transaction.
+// Each chunk commits on its own: the writes are independent, so a partial run
+// leaves work a re-run finishes.
 func (s *Store) applyInChunks(ctx context.Context, what string,
 	writes []objstore.Write) (int, error) {
 	return applyChunks(ctx, what, writes, func(ctx context.Context, chunk []objstore.Write) (bool, error) {
@@ -365,13 +275,9 @@ func (s *Store) applyInChunks(ctx context.Context, what string,
 	})
 }
 
-// applyChunks is the body of the sweep, taking the commit as a parameter so a
-// caller that owns a transaction runs the identical chunking rather than a
-// second loop beside it.
-//
-// A chunk is one action short of the bound, because every commit here carries
-// the version marker its writes move as one more action (scopes.go) and a chunk
-// filled to MaxBatchActions would be refused with it.
+// applyChunks is the body of the sweep, taking the commit as a parameter. A
+// chunk is one action short of MaxBatchActions because the version marker's
+// Bump rides every commit (scopes.go).
 func applyChunks(ctx context.Context, what string, writes []objstore.Write,
 	commit func(context.Context, []objstore.Write) (bool, error)) (int, error) {
 	done := 0

@@ -4,36 +4,20 @@ package store
 // entities carry a cursor and a cursor that moves the other way re-feeds
 // consumed messages.
 //
-// IT IS A GUARDED WRITE AND NOT A READ-THEN-WRITE (spec 6/40 §2). The SQL it
-// replaces made the decision a condition on the row the decision came from —
-// `WHERE observed_cursor IS NULL OR observed_cursor < ?` — so the engine picked
-// the winner and no caller held a lock across a read. That property is the whole
-// point, so this keeps it: every attempt below is one conditional write whose
-// row count the engine decides.
+// It is a guarded write and not a read-then-write (spec 6/40 §2): the engine
+// picks the winner and no caller holds a lock across a read. It is THREE
+// attempts because the predicate "behind OR absent OR no item" is a
+// disjunction and a Cond is a conjunction: (1) the item is there and behind,
+// the steady state; (2) the item has never carried a cursor, because
+// PutSession writes a session id and no cursor; (3) there is no item, because
+// buildAgentPrompt advances the cursor BEFORE PutSession creates the row.
+// Three refusals mean the cursor is already at or past the target, or a
+// writer created the item between attempts; the read tells them apart.
 //
-// IT IS THREE ATTEMPTS BECAUSE THE PREDICATE IS A DISJUNCTION AND A Cond IS A
-// CONJUNCTION. The one statement says "the cursor is behind OR there is no
-// cursor", and the row may not exist at all, so the three shapes are:
-//
-//  1. the item is there and its cursor is behind — the steady state, one write;
-//  2. the item is there and has never carried one — a topic whose row was
-//     created by PutSession, which writes a session id and no cursor;
-//  3. there is no item — the first turn of a topic, which is why the statement
-//     this replaces was an UPSERT rather than an UPDATE: buildAgentPrompt
-//     advances the cursor BEFORE PutSession creates the row, and a plain UPDATE
-//     matched nothing and re-included the whole observed window.
-//
-// The first that commits is the answer and the rest never run, so the steady
-// state costs one write. Three refusals mean either the cursor is already at or
-// past the target — the idempotent re-call, and the read below is what tells
-// them apart — or a writer created the item between attempts 1 and 3, which the
-// next round takes.
-//
-// WHAT IT NEVER DOES IS MOVE THE CURSOR BACK. cursor_test.go proves that by
-// breaking it: with the condition dropped the same interleave walks the cursor
-// backwards and the test goes red. The interleave is FORCED with
-// conformance.SlipAt rather than raced, because three concurrency tests in this
-// project stayed green against deliberately broken code.
+// cursor_test.go proves it never moves back by dropping the condition. The
+// interleave is FORCED with conformance.SlipAt rather than raced, because
+// three raced concurrency tests in this project stayed green against broken
+// code.
 
 import (
 	"context"
@@ -44,16 +28,14 @@ import (
 )
 
 // cursorRounds bounds the retry. A round only repeats when another writer
-// created the item under this one, so two are enough for any interleave and the
-// fourth is there to make an infinite loop impossible rather than to be used.
+// created the item under this one, so two are enough for any interleave; the
+// bound makes an infinite loop impossible.
 const cursorRounds = 4
 
-// advanceCursor moves one item's ordered attribute to `to` and only forward, and
-// reports whether this call is what moved it.
-//
-// seed is what the item carries when this call is the one that creates it. The
-// cursor itself is added here, so a caller cannot seed a row with a cursor of
-// one value and then guard on another.
+// advanceCursor moves one item's ordered attribute to `to` and only forward,
+// and reports whether this call is what moved it. seed is what the item
+// carries when this call creates it; the cursor itself is added here, so a
+// caller cannot seed one value and guard on another.
 func (s *Store) advanceCursor(ctx context.Context, entity string, key objstore.Key,
 	attr, to string, seed map[string]string) (bool, error) {
 	if to == "" {
@@ -83,10 +65,9 @@ func (s *Store) advanceCursor(ctx context.Context, entity string, key objstore.K
 				return true, nil
 			}
 		}
-		// Every shape refused, so the read decides between the two states that
-		// produce that: a cursor already at or past the target, which is the
-		// idempotent re-call and is done; or an item that appeared under the
-		// attempts, which the next round takes.
+		// Every shape refused: a cursor already at or past the target is the
+		// idempotent re-call and is done; an item that appeared under the
+		// attempts is what the next round takes.
 		it, ok, err := s.itemAt(ctx, entity, key)
 		if err != nil {
 			return false, err
@@ -101,10 +82,6 @@ func (s *Store) advanceCursor(ctx context.Context, entity string, key objstore.K
 }
 
 // itemAt reads one item by its whole coordinate.
-//
-// It is here rather than in each entity file because the retry above is the one
-// body that needs a point read it cannot name an entity for: the caller passes
-// the entity, so the read has to take it too.
 func (s *Store) itemAt(ctx context.Context, entity string, key objstore.Key) (objstore.Item, bool, error) {
 	items, err := s.Obj().Query(ctx, objstore.Query{
 		Entity: entity, Partition: key.Partition,

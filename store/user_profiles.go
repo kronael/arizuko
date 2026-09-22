@@ -4,43 +4,17 @@ package store
 // person the instance knows a name for, carrying the username their folder is
 // named after and the per-day spend cap their turns are metered against.
 //
-// THE PARTITION IS OwnerRoutd AND THE SORT KEY IS THE SUB. Five of the six
-// operations name one sub — the cap read and its operator write, the username
-// read and the write world creation makes, and the create — and each is a point
-// read or a single write on one item. A sub is the identifier every caller
-// already holds: it arrives in `X-User-Sub` off proxyd's trust stamp, and no
-// operation looks a person up by anything else.
+// The partition is OwnerRoutd and the sort key the sub, the identifier every
+// caller holds off proxyd's `X-User-Sub` stamp. A person has no folder and
+// outlives every folder they create. The principals datalist reads the whole
+// partition (0 to 3 items on the live fleet). Nothing here is compared by
+// order. The cap lives beside the principal it bounds, never in the ledger;
+// routd owns the spend arithmetic.
 //
-// A PERSON HAS NO FOLDER, which is why the partition is the constant and not a
-// tenancy coordinate: folder_scope.go says the same thing as a verdict ("a
-// person, not a folder"), and a person outlives every folder they create. The
-// sixth operation names no sub at all — the principals datalist reads the whole
-// set — and under any other partition it would have none to name.
-//
-// WHAT THE CONSTANT COSTS is that one read, and it was already a scan on the
-// projection: the sub and the name, nothing else.
-// answers `SCAN user_profiles USING COVERING INDEX` (EXPLAIN QUERY PLAN, krons'
-// routd.db, 2026-09-09). What bounds the partition is the number of people who
-// have ever been given a profile, and the live fleet holds 0 on krons, 2 on
-// marinade and 3 on sloth (2026-09-09).
-//
-// THE CAP LIVES BESIDE THE PRINCIPAL IT BOUNDS — a group's on the groups item,
-// a person's here — and never in the ledger, so reading one costs no aggregate.
-// routd owns the ledger and the spend arithmetic and reaches this through
-// routd/sibling_db.go.
-//
-// NOTHING HERE IS COMPARED BY ORDER, so no attribute carries a width
-// declaration. `created_at` is written once and read by nothing; the cap is
-// scanned as a number and compared in Go. A declaration is a promise about
-// every value in the entity, and this entity has nothing resting on one.
-//
-// THE UNIQUE USERNAME IS THE READER'S WORK NOW. An entity has one uniqueness
-// and it is the coordinate, so the second unique index the column table carried
-// has no structural equivalent — and it is load-bearing: a world created under
-// a parent is `parent + "/" + username`, so the folder collision the caller
-// checks first does not fire when two people under different parents pick one
-// name, and the index was what refused them. The check runs here instead, on
-// the caller's own transaction, over a partition of at most a few items.
+// THE UNIQUE USERNAME IS THE READER'S WORK: an entity's one uniqueness is the
+// coordinate, and the check is load-bearing because a world created under a
+// parent is `parent + "/" + username`, so two people under different parents
+// picking one name is not a folder collision.
 
 import (
 	"context"
@@ -53,13 +27,12 @@ import (
 	"github.com/kronael/arizuko/objstore"
 )
 
-// The attributes a profile item carries. `sub` is not among them: it is the
-// coordinate, and storing it twice is two facts that can disagree.
+// The attributes a profile item carries. `sub` is the coordinate.
 const (
 	attrProfUsername = "username"
 	attrProfCreated  = "created_at"
 	attrProfCostCap  = "cost_cap_cents_per_day"
-	// AttrProfileName is the display name. It is exported because the principals
+	// AttrProfileName is the display name. Exported because the principals
 	// datalist reads it off every item in the partition.
 	AttrProfileName = "name"
 )
@@ -73,11 +46,8 @@ func profileKey(sub string) (objstore.Key, error) {
 }
 
 // CreateUserProfile records a person: the username their folder is named after
-// and the display name an operator surface labels them with.
-//
-// It REFUSES an existing sub, which is what the coordinate's own uniqueness
-// says, and it refuses a username another sub already holds — see the file
-// header for why the second one cannot be structural.
+// and the display name an operator surface labels them with. It REFUSES an
+// existing sub and a username another sub already holds (file header).
 func (s *Store) CreateUserProfile(sub, username, name string) error {
 	key, err := profileKey(sub)
 	if err != nil {
@@ -87,8 +57,7 @@ func (s *Store) CreateUserProfile(sub, username, name string) error {
 	if err := s.refuseTakenUsername(ctx, sub, username); err != nil {
 		return err
 	}
-	// core.TS, not time.Now().Format: a stored instant is fixed-width and UTC, so
-	// two hosts agree and a comparison against it is a string comparison
+	// core.TS, not time.Now().Format: fixed-width UTC, so two hosts agree
 	// (BUGS L97 is what a local-time stamp costs).
 	attrs := map[string]string{attrProfCreated: core.TS(time.Now())}
 	setAttr(attrs, attrProfUsername, username)
@@ -107,25 +76,20 @@ func (s *Store) CreateUserProfile(sub, username, name string) error {
 }
 
 // ErrProfileExists is CreateUserProfile's refusal: the sub already has a
-// profile. It is a sentinel because RecordPerson decides on it, and deciding on
-// an error's text is a decision that breaks when the text is reworded.
+// profile. A sentinel because RecordPerson decides on it.
 var ErrProfileExists = errors.New("the sub already has a profile")
 
-// RecordPerson is the door the admission path takes: it creates the profile when
-// the instance has never seen this sub, and renames an existing one otherwise.
-//
-// It exists because NOTHING created a profile — every caller of
-// CreateUserProfile was a test — so `SetUsername` was an Update against an item
-// that was never there, and its refusal had to be tolerated for the admission to
-// work at all (BUGS L269). A person admitted today stayed nameless, and every
-// operator surface that labels people read an empty partition.
+// RecordPerson is the door the admission path takes: it creates the profile
+// when the instance has never seen this sub, and renames an existing one
+// otherwise. It exists because NOTHING created a profile, so SetUsername was
+// an Update against an item that was never there and every admitted person
+// stayed nameless (BUGS L269).
 func (s *Store) RecordPerson(ctx context.Context, sub, username, name string) error {
 	err := s.CreateUserProfile(sub, username, name)
 	if err == nil {
 		return nil
 	}
-	// The sub already has a profile — the person is coming back, and the name
-	// they chose this time is the one that stands.
+	// The person is coming back, and the name they chose this time stands.
 	if errors.Is(err, ErrProfileExists) {
 		return s.SetUsername(ctx, sub, username)
 	}
@@ -133,9 +97,9 @@ func (s *Store) RecordPerson(ctx context.Context, sub, username, name string) er
 }
 
 // Username answers the name a person's folder is named after, and whether the
-// instance knows the person at all. The two are separated from a read FAILURE,
-// because a page that cannot read the partition must not tell an existing user
-// they do not exist.
+// instance knows the person at all. The two are separated from a read FAILURE:
+// a page that cannot read the partition must not tell an existing user they do
+// not exist.
 func (s *Store) Username(sub string) (string, bool, error) {
 	key, err := profileKey(sub)
 	if err != nil {
@@ -148,24 +112,16 @@ func (s *Store) Username(sub string) (string, bool, error) {
 	return it.Attrs[attrProfUsername], true, nil
 }
 
-// SetUsername names a person.
+// SetUsername names a person. It is THE LAST WRITE OF A WORLD CREATION, and
+// deliberately not part of its batch: a caller who loses the race for a folder
+// must not be left renamed. It writes the ATTRIBUTE ONLY, onto a profile that
+// has to be there already.
 //
-// IT IS THE LAST WRITE OF A WORLD CREATION, and deliberately not part of its
-// batch. A caller who loses the race for a folder must not be left renamed, and
-// onbod gets that by naming the person only after the batch that won the folder
-// committed — where the transaction this replaces got it by rolling both back.
-//
-// It writes the ATTRIBUTE ONLY, onto a profile that has to be there already: an
-// Update against a missing item writes nothing, and that tolerated refusal is
-// the other reason it cannot ride in an all-or-nothing batch.
-//
-// THAT REFUSAL IS TOLERATED AND IT IS NOT CORRECT. Nothing in production creates
-// a user_profiles item — CreateUserProfile has callers in tests only, and so did
-// the CreateAuthUser it replaced — so a sub the instance has never recorded is
-// renamed silently and stays nameless. Raising it HERE would answer create_world
-// 500 for that person and roll their whole world back, which blocks a signup
-// instead of fixing the missing writer. The writer is the fix and it is a
-// decision, not an edit.
+// THE REFUSAL FOR A MISSING ITEM IS TOLERATED AND IT IS NOT CORRECT: a sub the
+// instance never recorded is renamed silently and stays nameless. Raising it
+// HERE would answer create_world 500 and roll the whole world back, which
+// blocks a signup instead of fixing the missing writer; the writer is the fix,
+// and it is a decision.
 func (s *Store) SetUsername(ctx context.Context, sub, username string) error {
 	key, err := profileKey(sub)
 	if err != nil {
@@ -174,7 +130,7 @@ func (s *Store) SetUsername(ctx context.Context, sub, username string) error {
 	if err := s.refuseTakenUsername(ctx, sub, username); err != nil {
 		return err
 	}
-	// A refusal is the missing item the doc above measures.
+	// A refusal is the missing item the doc above tolerates.
 	if _, err := s.TryWriteEntities(ctx, nil, objstore.Write{
 		Op: objstore.Update, Entity: UserProfiles, Key: key,
 		Attrs: map[string]string{attrProfUsername: username},
@@ -185,11 +141,6 @@ func (s *Store) SetUsername(ctx context.Context, sub, username string) error {
 }
 
 // refuseTakenUsername fails when another sub already holds username.
-//
-// It reads through the CALLER'S transaction when there is one, so the read and
-// the write it guards see one state: reading through the pool instead would be
-// a torn read, and on SQLite in shared-cache memory it waits for the write lock
-// the same transaction holds.
 func (s *Store) refuseTakenUsername(ctx context.Context, sub, username string) error {
 	if username == "" {
 		return nil
@@ -211,12 +162,8 @@ func (s *Store) refuseTakenUsername(ctx context.Context, sub, username string) e
 }
 
 // ProfileNames answers every sub the instance knows a profile for and the
-// display name it holds, which is the principals datalist an operator's grant
-// form offers.
-//
-// The whole partition is read because the question names nobody. The file
-// header says what that costs and that the statement it replaces read the same
-// rows.
+// display name it holds: the principals datalist an operator's grant form
+// offers. The whole partition, because the question names nobody.
 func (s *Store) ProfileNames(ctx context.Context) (map[string]string, error) {
 	items, err := s.Obj().Query(ctx, objstore.Query{
 		Entity: UserProfiles, Partition: OwnerRoutd,
@@ -258,9 +205,8 @@ func (s *Store) UserCap(userSub string) (int, error) {
 }
 
 // SetUserCap writes the per-day cap for one person. Zero is uncapped, and it
-// TAKES THE ATTRIBUTE AWAY rather than storing "0": absent is the only null this
-// model has, and the read above already answers zero for an item that carries
-// none.
+// TAKES THE ATTRIBUTE AWAY rather than storing "0": the read above answers
+// zero for an item that carries none.
 func (s *Store) SetUserCap(userSub string, cents int) error {
 	key, err := profileKey(userSub)
 	if err != nil {

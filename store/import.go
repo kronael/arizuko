@@ -1,30 +1,15 @@
 package store
 
-// import.go is the destination half of the data move: the source reads a
-// database's old tables and hands the rows here, and this file owns the item
-// shape so the tool that reads the tables does not have to (spec 6/37 step 7).
-// The source halves are cmd/arizuko's `migrate-store` and `migrate-onbod`.
+// import.go is the destination half of the data move (spec 6/37 step 7): the
+// source halves, cmd/arizuko's `migrate-store` and `migrate-onbod`, read the
+// old tables and hand plain values here, and this file owns the item shape.
 //
-// The split is what keeps the model declared once. The tool knows the old
-// schema and nothing about items; this file knows items and nothing about the
-// old schema; a Snapshot of plain values is the only thing that crosses.
-//
-// TWO MOVES, AND THEY TREAT A TIMESTAMP DIFFERENTLY, because the live data does.
-//
-// `pane_sessions.opened_at` is REWRITTEN through core.TS. 8 of marinade's 81
-// rows store a fraction whose trailing zero was stripped — 29 bytes against the
-// other 73's 30 — so byte order and time order already disagree there (BUGS
-// L97), every driver refuses the short value, and re-rendering the same instant
-// at the declared width is exactly what routd migration 0044 did for the three
-// columns it reached. It did not reach this one.
-//
-// onbod's four instants are COPIED. Every `created`, `prompted_at` and
-// `issued_at` value in the fleet is already exactly 20 bytes (45 admissions and
-// 4 invites, measured across all three snapshots 2026-09-07), because one
-// writer produced them all; `queued_at` and `admitted_at` hold no value
-// anywhere. Widening them would move every checksum and break the archive
-// round-trip for nothing. What a wrong width gets instead is a REFUSAL — the
-// driver's own validator runs over each write before any of them land.
+// `pane_sessions.opened_at` is REWRITTEN through core.TS: 8 of marinade's 81
+// rows are 29 bytes against the other 73's 30, so byte order and time order
+// already disagree there (BUGS L97). onbod's four instants are COPIED: every
+// value in the fleet is exactly 20 bytes (measured 2026-09-07), and widening
+// them would move every checksum for nothing. A wrong width is REFUSED by the
+// driver's own validator before any write lands.
 
 import (
 	"context"
@@ -37,8 +22,8 @@ import (
 )
 
 // PaneRow is one legacy `pane_sessions` row as the source reads it. A NULL
-// column arrives as the empty string, which is what an absent attribute means
-// on the other side.
+// column arrives as the empty string, which is an absent attribute on the
+// other side.
 type PaneRow struct {
 	TeamID     string
 	UserID     string
@@ -49,7 +34,7 @@ type PaneRow struct {
 }
 
 // UseRow is one legacy `secret_use_log` row, carrying the rowid its new id is
-// built from. The table declared no primary key, so the rowid is the only thing
+// built from: the table declared no primary key, so the rowid is the only thing
 // that separated two uses recorded in one instant.
 type UseRow struct {
 	RowID     int64
@@ -77,14 +62,10 @@ type Counts struct {
 	Uses  int
 }
 
-// Import writes snap into the entities and answers what landed.
-//
-// The writes are UNCONDITIONAL, which is the one place this package drops the
-// create-if-absent a live write carries. A migration is re-runnable by design,
-// and every key it builds is a function of the source row, so re-importing a
-// source writes the same item with the same content. Refusing there would make
-// a retry a failure; the condition that protects a RUNNING system stays on the
-// live writers.
+// Import writes snap into the entities and answers what landed. The writes are
+// UNCONDITIONAL: a migration is re-runnable by design and every key is a
+// function of the source row, so a re-import writes the same item; the
+// create-if-absent that protects a RUNNING system stays on the live writers.
 func (s *Store) Import(ctx context.Context, snap Snapshot) (Counts, error) {
 	writes, counts, err := importWrites(snap)
 	if err != nil {
@@ -97,10 +78,7 @@ func (s *Store) Import(ctx context.Context, snap Snapshot) (Counts, error) {
 }
 
 // importWrites turns a snapshot into the writes that represent it, or names why
-// it cannot be represented.
-//
-// Every refusal is collected and reported at once: an operator deciding what to
-// do about the data needs the whole picture, not the first row the loop met.
+// it cannot be represented. Every refusal is collected and reported at once.
 func importWrites(snap Snapshot) ([]objstore.Write, Counts, error) {
 	var (
 		writes  []objstore.Write
@@ -125,8 +103,7 @@ func importWrites(snap Snapshot) ([]objstore.Write, Counts, error) {
 		}
 		if opened == "" {
 			// The channel read picks the newest by it, so a pane with no
-			// opened_at would lose every comparison and could never be the pane
-			// its channel is showing.
+			// opened_at could never be the pane its channel is showing.
 			refused = append(refused, "pane "+key.Sort+" has no opened_at, and the channel "+
 				"read picks the newest by it")
 			continue
@@ -178,12 +155,9 @@ func importWrites(snap Snapshot) ([]objstore.Write, Counts, error) {
 }
 
 // LegacyUseID is the id one legacy `secret_use_log` row becomes: the instant it
-// recorded, at core.TS's width, and the row's own rowid as the suffix.
-//
-// THE ROWID RATHER THAN RANDOMNESS, for two reasons. It makes the import
-// RE-RUNNABLE — the same source row builds the same item every time — and it is
-// what carries the order through a column the broker writes several times per
-// turn, where the rowid was the only thing separating two uses in one instant.
+// recorded, at core.TS's width, and the row's own rowid as the suffix. The
+// rowid rather than randomness makes the import RE-RUNNABLE and carries the
+// order of two uses recorded in one instant.
 func LegacyUseID(r UseRow) (string, error) {
 	at, err := time.Parse(time.RFC3339Nano, r.TS)
 	if err != nil {
@@ -195,8 +169,7 @@ func LegacyUseID(r UseRow) (string, error) {
 	return core.TS(at) + "-" + fmt.Sprintf("%0*x", secretUseSuffixHex, r.RowID), nil
 }
 
-// normalizeTS re-renders a stored instant at core.TS's width, so a column
-// written at several widths becomes one that compares by time. An empty value
+// normalizeTS re-renders a stored instant at core.TS's width. An empty value
 // stays empty: absent is the only null, and the caller decides whether it may
 // be.
 func normalizeTS(what, value string) (string, error) {
@@ -213,8 +186,7 @@ func normalizeTS(what, value string) (string, error) {
 // --- onbod's three tables ------------------------------------------------
 
 // OnbodSnapshot is the legacy `onboarding`, `onboarding_gates` and `invites`
-// tables as the source reads them. The row types are this package's own plain
-// values, so the tool that reads the columns never learns the item shape.
+// tables as the source reads them, as this package's own plain values.
 type OnbodSnapshot struct {
 	Admissions  []OnboardingRow
 	Gates       []OnboardingGate
@@ -223,8 +195,7 @@ type OnbodSnapshot struct {
 }
 
 // RedemptionRow is one legacy `invite_redemptions` row, carrying the rowid its
-// position's suffix is built from. Two redemptions of one second kept the order
-// the id gave them, and no two can collide, because an id is unique.
+// position's suffix is built from.
 type RedemptionRow struct {
 	RowID      int64
 	UserSub    string
@@ -233,14 +204,9 @@ type RedemptionRow struct {
 }
 
 // OnbodCounts is what an import wrote, per entity, for the operator to check
-// against the source.
-//
-// A ZERO IS NOT AN ALL-CLEAR. `onboarding_gates` is empty on all three live
-// instances (measured 2026-09-07: 45 admissions, 4 invites, 0 gates), so a run
-// reporting no gates is correct there and would be the FIRST symptom of a tool
-// pointed at the wrong database anywhere else. The operator compares these
-// against a count taken from the source, which is the only reading that
-// distinguishes the two.
+// against the source. A ZERO IS NOT AN ALL-CLEAR: `onboarding_gates` is empty
+// on all three live instances (2026-09-07), so no gates is correct there and
+// the FIRST symptom of a tool pointed at the wrong database anywhere else.
 type OnbodCounts struct {
 	Admissions  int
 	Gates       int
@@ -249,22 +215,17 @@ type OnbodCounts struct {
 }
 
 // CheckOnbodSnapshot reports whether the entities can represent snap, writing
-// nothing — the rehearsal, so a row the store cannot address is named before
-// the run that would stop half way through.
+// nothing: a row the store cannot address is named before the run that would
+// stop half way through.
 func CheckOnbodSnapshot(snap OnbodSnapshot) (OnbodCounts, error) {
 	_, counts, err := onbodWrites(snap)
 	return counts, err
 }
 
-// ImportOnbod writes snap into the entities and answers what landed.
-//
-// The writes are UNCONDITIONAL, for store.Import's reason: a migration is
-// re-runnable by design and every key it builds is a function of the source
-// row, so re-importing a source writes the same item with the same content.
-// That is what separates it from ImportOnboarding and ImportInvites, whose
-// archive lane deliberately does NOT overwrite — a jid the target already holds
-// is a live admission a restore must not walk backwards, where here it is the
-// same row arriving twice.
+// ImportOnbod writes snap into the entities and answers what landed. The
+// writes are UNCONDITIONAL, for Import's reason. ImportOnboarding and
+// ImportInvites, the archive lane, deliberately do NOT overwrite: a jid the
+// target already holds is a live admission a restore must not walk backwards.
 func (s *Store) ImportOnbod(ctx context.Context, snap OnbodSnapshot) (OnbodCounts, error) {
 	writes, counts, err := onbodWrites(snap)
 	if err != nil {
@@ -277,17 +238,14 @@ func (s *Store) ImportOnbod(ctx context.Context, snap OnbodSnapshot) (OnbodCount
 }
 
 // onbodWrites turns a snapshot into the writes that represent it, or names why
-// it cannot be represented. Every refusal is collected and reported at once: an
-// operator deciding what to do about the data needs the whole picture, not the
-// first row the loop met.
+// it cannot be represented. Every refusal is collected and reported at once.
 func onbodWrites(snap OnbodSnapshot) ([]objstore.Write, OnbodCounts, error) {
 	var (
 		writes  []objstore.Write
 		counts  OnbodCounts
 		refused []string
 	)
-	// One claimed-coordinate set per entity, because the three share a partition
-	// and a jid that happens to equal a gate key is not a collision.
+	// One claimed-coordinate set per entity: the three share a partition.
 	claimed := map[string]map[string]bool{
 		Onboarding: {}, OnboardingGates: {}, Invites: {}, InviteRedemptions: {},
 	}
@@ -304,10 +262,8 @@ func onbodWrites(snap OnbodSnapshot) ([]objstore.Write, OnbodCounts, error) {
 			refused = append(refused, err.Error())
 			return false
 		}
-		// The width rule is the DRIVER's, so it is checked with the driver's own
-		// validator rather than a second copy of the widths here: a declared
-		// ordered attribute at another width is a value that sorts into the
-		// wrong place instead of failing (BUGS L97, objstore/ordered.go).
+		// The width rule is the DRIVER's, so it is checked with the driver's
+		// own validator rather than a second copy of the widths (BUGS L97).
 		if err := objstore.ValidateBatch(nil, []objstore.Write{w}); err != nil {
 			refused = append(refused, err.Error())
 			return false
@@ -345,8 +301,8 @@ func onbodWrites(snap OnbodSnapshot) ([]objstore.Write, OnbodCounts, error) {
 			refused = append(refused, err.Error())
 			continue
 		}
-		// The person is the PARTITION here, so two people may hold one position
-		// and only a repeat inside one partition is a collision.
+		// The person is the PARTITION, so only a repeat inside one partition
+		// is a collision.
 		if !take(InviteRedemptions, w.Key.Partition+KeySep+w.Key.Sort, "redemption") {
 			continue
 		}

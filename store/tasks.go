@@ -3,41 +3,20 @@ package store
 // tasks.go holds every read and write of `scheduled_tasks`: one item per
 // scheduled prompt, addressed by its id.
 //
-// THE PARTITION IS OwnerRoutd AND IT IS NOT A CHOICE THIS FILE MAKES.
-// `scheduled_tasks` is a registered resreg resource, and an entity-backed
-// resource's items live at its owner subsystem (resreg.SubsystemRoutd, which IS
-// store.OwnerRoutd). A second spelling would put this file's items in one
-// partition and the engine's read in another, and the failure is silent: a
-// query on a partition nobody wrote to is a legal query that selects nothing.
+// The partition is OwnerRoutd because resreg's entity path writes these items
+// too (resreg.SubsystemRoutd IS store.OwnerRoutd); a second spelling selects
+// nothing, silently. The id is the coordinate, the handle every other surface
+// holds; every other read scans the partition and filters (the same shape as
+// route_tokens, 43 items on the largest live instance).
 //
-// THE ID IS THE COORDINATE, and it is the handle every other surface already
-// holds: pause_task, resume_task, cancel_task and PATCH /v1/tasks/{taskId} all
-// name a task by it, and task_run_logs.task_id refers to it from a table that
-// has not moved.
+// TWO INSTANTS, TWO LAYOUTS. `created_at` is a StampedField, core.TS at 30
+// bytes, the width resreg's entity path stamps. `next_run` is NOT stamped: it
+// is RFC3339 text in the operator's own timezone, stored verbatim, and the due
+// comparison is made on the PARSED instant, never on the bytes.
 //
-// EVERY OTHER READ IS A PARTITION SCAN, and that is measured rather than
-// overlooked. `owner`, `status` and `next_run` are attributes, and an attribute
-// is not a leading fragment of the key, so listing a folder's tasks, counting
-// the active ones and claiming the due ones each read the partition and filter.
-// It is the same shape as `route_tokens`, whose partition is 43 items on the
-// largest live instance, and the fire loop runs once a tick.
-//
-// TWO INSTANTS, TWO LAYOUTS, AND THE SPLIT IS NOT AN ACCIDENT. `created_at` is
-// a StampedField, so it is core.TS at 30 bytes — the width resreg's own entity
-// path stamps one at (resreg/entity.go itemFor), and the two writers of these
-// items have to agree byte for byte. `next_run` is NOT stamped: it is the instant
-// core.NextRun reads out of the task's cron, written here as RFC3339 text in the
-// operator's own timezone, and handed to RescheduleTask the same way by timed's
-// fire loop, stored verbatim. So the read parses it as RFC3339, which accepts
-// both that and the fixed-width form, and the due comparison is made on the
-// PARSED instant — never on the bytes. That is what `datetime()` gave: a non-UTC
-// offset still orders right.
-//
-// A CLAIM IS ONE WRITE PER TASK, because a batch is all-or-nothing. `UPDATE …
-// SET status='firing' WHERE status='active'` skipped exactly the rows a
-// concurrent poller had already taken; a batch of N conditional claims would
-// instead be REFUSED whole the moment one of them was taken, and this poller
-// would fire nothing. One conditional write each keeps the per-task answer.
+// A CLAIM IS ONE WRITE PER TASK: a batch of N conditional claims would be
+// REFUSED whole the moment a concurrent poller took one, and this poller would
+// fire nothing.
 
 import (
 	"context"
@@ -51,8 +30,7 @@ import (
 	"github.com/kronael/arizuko/objstore"
 )
 
-// The attributes a task item carries. `id` is NOT among them: it is the
-// coordinate, and storing it twice is two facts that can disagree.
+// The attributes a task item carries. `id` is the coordinate.
 const (
 	attrTaskOwner       = "owner"
 	attrTaskChatJID     = "chat_jid"
@@ -65,10 +43,9 @@ const (
 )
 
 // TaskContextGroup is the context_mode a task runs under unless it says
-// otherwise. It is the default resreg's own BeforeInsert hook fills
-// (resreg/resources/scheduled_tasks.go), and the two writers have to choose the
-// same one: a task with no mode is not one of the two answers the fire loop
-// reads.
+// otherwise: the default resreg's own BeforeInsert hook fills
+// (resreg/resources/scheduled_tasks.go), so the two writers choose the same
+// one.
 const TaskContextGroup = "group"
 
 // TaskStatusFiring marks a task one poller has claimed. It is a transient
@@ -89,8 +66,8 @@ func taskKey(id string) (objstore.Key, error) {
 	return objstore.Key{Partition: OwnerRoutd, Sort: id}, nil
 }
 
-// taskFrom reads one item back. context_mode falls back to the same default the
-// insert fills, so a row written before the field existed still names one of the
+// taskFrom reads one item back. context_mode falls back to the insert's
+// default, so a row written before the field existed still names one of the
 // two modes the fire loop reads.
 func taskFrom(it objstore.Item) core.Task {
 	t := core.Task{
@@ -112,10 +89,9 @@ func taskFrom(it objstore.Item) core.Task {
 	return t
 }
 
-// taskNextRun parses `next_run`, and answers false for a task that carries none
-// — a one-shot that has fired. RFC3339 is the layout because timed writes it
-// (see the file header); it also reads the fixed-width form, so one parse serves
-// both writers.
+// taskNextRun parses `next_run`, and answers false for a task that carries
+// none: a one-shot that has fired. RFC3339 also reads the fixed-width form, so
+// one parse serves both writers.
 func taskNextRun(it objstore.Item) (time.Time, bool) {
 	raw := it.Attrs[attrTaskNextRun]
 	if raw == "" {
@@ -128,15 +104,10 @@ func taskNextRun(it objstore.Item) (time.Time, bool) {
 	return run, true
 }
 
-// taskAttrs renders the attributes one task carries.
-//
-// EVERY EMPTY STRING IS LEFT OFF, which is what resreg's own entity path does
-// with one (resreg/entity.go itemFor) and therefore what the two writers of
-// these items have to agree on. Absent is the only null this model has, and it
-// is exactly what the nullable `cron` and `next_run` columns held for a one-shot
-// task and for one that has fired. `context_mode` is the exception because the
-// resource's own BeforeInsert hook fills it, so both writers store the default
-// rather than nothing.
+// taskAttrs renders the attributes one task carries. EVERY EMPTY STRING IS
+// LEFT OFF, what resreg's own entity path does (resreg/entity.go itemFor).
+// `context_mode` is the exception: the resource's BeforeInsert hook fills it,
+// so both writers store the default rather than nothing.
 func taskAttrs(t core.Task) map[string]string {
 	created := t.Created
 	if created.IsZero() {
@@ -172,16 +143,11 @@ func (s *Store) allTasks(ctx context.Context) ([]objstore.Item, error) {
 	return items, nil
 }
 
-// CreateTask inserts one scheduled task. It is the ONE insert store owns.
-// Audit belongs to the writer that a person or an agent actually reaches —
-// dashd's form and routd's `/v1` resource each emit their own row on their own
-// transaction — so this path emits none rather than a second, different record
-// of one act.
-//
-// The write is create-if-absent and a refusal is an ERROR, because the id is a
-// caller-chosen handle: `arizuko task add` and the agent's create both name it,
-// and a create that silently replaced one would take over a live schedule's
-// prompt and cron under the operator who owns it.
+// CreateTask inserts one scheduled task: the ONE insert store owns. It emits
+// no audit row, because dashd's form and routd's `/v1` resource each emit
+// their own. A refusal is an ERROR: the id is a caller-chosen handle, and a
+// create that silently replaced one would take over a live schedule's prompt
+// and cron under the operator who owns it.
 func (s *Store) CreateTask(t core.Task) error {
 	w, err := taskCreate(t)
 	if err != nil {
@@ -206,8 +172,7 @@ func taskCreate(t core.Task) (objstore.Write, error) {
 	}, nil
 }
 
-// taskCreateRefusal names what a refused create means: the id is taken. It is
-// the only thing that can refuse a create-if-absent.
+// taskCreateRefusal names what a refused create means: the id is taken.
 func taskCreateRefusal(committed bool, id string) error {
 	if committed {
 		return nil
@@ -215,14 +180,10 @@ func taskCreateRefusal(committed bool, id string) error {
 	return fmt.Errorf("scheduled task %q already exists", id)
 }
 
-// SetTaskStatus updates one task's status. The agent's pause and resume reach
-// routd's `/v1` resource, not this; what this exists for is the status half of
-// the DueTasks contract — a paused task must leave the due set and a resumed
-// one must return to it — which is asserted against DueTasks, the live reader.
-//
-// An Update writes nothing when the task is missing, and that refusal is an
-// ERROR: the caller names a task by id, and a task that is not there has not
-// been paused.
+// SetTaskStatus updates one task's status. It exists for the status half of
+// the DueTasks contract (a paused task leaves the due set, a resumed one
+// returns); the agent's pause and resume reach routd's `/v1` resource. A
+// missing task is an ERROR: it has not been paused.
 func (s *Store) SetTaskStatus(id, status string) error {
 	key, err := taskKey(id)
 	if err != nil {
@@ -235,12 +196,10 @@ func (s *Store) SetTaskStatus(id, status string) error {
 	return err
 }
 
-// RescheduleTask sets a fired task's next_run + status WITHOUT emitting an
-// audit_log row — the audit-free path behind POST /v1/tasks/{id}/reschedule,
-// the write half of timed's fire loop. An empty nextRun TAKES THE ATTRIBUTE
-// AWAY (one-shot completion), because absent is the only null this model has and
-// an empty string is a value a presence test still finds; a non-empty value is
-// stored verbatim.
+// RescheduleTask sets a fired task's next_run + status WITHOUT an audit_log
+// row: the write half of timed's fire loop, behind POST
+// /v1/tasks/{id}/reschedule. An empty nextRun TAKES THE ATTRIBUTE AWAY
+// (one-shot completion); a non-empty value is stored verbatim.
 func (s *Store) RescheduleTask(id, nextRun, status string) error {
 	key, err := taskKey(id)
 	if err != nil {
@@ -260,9 +219,9 @@ func (s *Store) RescheduleTask(id, nextRun, status string) error {
 }
 
 // attrIs compares one attribute against the value a caller READ off the item.
-// An empty value is ABSENT and not the empty string, because absent is the only
-// null this model has: an attribute a writer left off answers no Eq, so a guard
-// spelled Eq "" would refuse every row it was meant to let through.
+// An empty value is ABSENT and not the empty string: an attribute a writer left
+// off answers no Eq, so a guard spelled Eq "" would refuse every row it was
+// meant to let through.
 func attrIs(name, value string) objstore.Cmp {
 	if value == "" {
 		return objstore.Cmp{Attr: name, Op: objstore.Absent}
@@ -270,27 +229,17 @@ func attrIs(name, value string) objstore.Cmp {
 	return objstore.Cmp{Attr: name, Op: objstore.Eq, Value: value}
 }
 
-// MoveTaskInto buffers the move of one task into `to` on the caller's write set
-// — the three state transitions dashd's operator pages make, each riding one
-// batch with its own audit row.
+// MoveTaskInto buffers the move of one task into `to` on the caller's write
+// set: the three state transitions dashd's operator pages make, each riding
+// one batch with its own audit row.
 //
-// `t` is the task the caller READ, and the write is CONDITIONED on the two
-// fields that decision rests on still holding: the status the transition starts
-// from, and the cron a next_run was computed from. The first is what `UPDATE …
-// WHERE id = ? AND status = 'active'` gave — a task another surface moved in
-// between answers false rather than being moved twice. The second is the
-// guarantee dashd's resume asked its transaction for: a task cannot resume
-// against a cron line that changed underneath it.
-//
-// nextRun is nil for a move that does not touch the fire time. A non-nil empty
-// one TAKES THE ATTRIBUTE AWAY, the way RescheduleTask does, because an empty
-// string is a value a presence test still finds.
-//
-// Which statuses a task may move FROM is the caller's state machine and not
-// this method's: dashd refuses the transition before it asks, so the operator
-// is told "invalid state transition" rather than "somebody else moved it".
-// refused is what the CONDITION failing means — the task moved under the caller
-// between the read and the write.
+// `t` is the task the caller READ, and the write is CONDITIONED on the status
+// the transition starts from and the cron a next_run was computed from: a task
+// another surface moved in between answers false rather than being moved
+// twice, and a task cannot resume against a cron line that changed underneath
+// it. nextRun nil leaves the fire time alone; a non-nil empty one TAKES THE
+// ATTRIBUTE AWAY. Which statuses a task may move FROM is the caller's state
+// machine; refused is what the CONDITION failing means.
 func (s *Store) MoveTaskInto(ws *WriteSet, t core.Task, to string,
 	nextRun *string, refused error) error {
 	key, err := taskKey(t.ID)
@@ -315,12 +264,11 @@ func (s *Store) MoveTaskInto(ws *WriteSet, t core.Task, to string,
 	return ws.AddGuarded(refused, w)
 }
 
-// RecoverFiringTasks re-arms tasks stranded in 'firing' by a crash/restart
-// between claim and reschedule — the poll only claims 'active' rows, so a stuck
-// task never fires again (stranded main/trading's daily compaction for days
+// RecoverFiringTasks re-arms tasks stranded in 'firing' by a crash between
+// claim and reschedule: the poll only claims 'active' rows, so a stuck task
+// never fires again (main/trading's daily compaction stayed stranded for days
 // after a restart storm). Call ONLY at startup: nothing is legitimately
-// mid-fire then, which is what makes the unconditional write safe. Returns the
-// count recovered.
+// mid-fire then, which is what makes the unconditional write safe.
 func (s *Store) RecoverFiringTasks() (int64, error) {
 	ctx := context.Background()
 	items, err := s.Obj().Query(ctx, objstore.Query{
@@ -344,14 +292,11 @@ func (s *Store) RecoverFiringTasks() (int64, error) {
 	return int64(n), err
 }
 
-// DueTasks claims active tasks whose next_run has passed, marking them 'firing'
-// so concurrent pollers skip them, and returns them — the read half of timed's
-// fire loop, behind GET /v1/tasks/due.
-//
-// The claim is per task and CONDITIONAL on the status still being 'active', so
-// a task another poller took between this read and this write is dropped from
-// the answer rather than fired twice. See the file header on why that is not one
-// batch.
+// DueTasks claims active tasks whose next_run has passed, marking them
+// 'firing' so concurrent pollers skip them, and returns them: the read half of
+// timed's fire loop, behind GET /v1/tasks/due. The claim is per task and
+// CONDITIONAL on the status still being 'active', so a task another poller
+// took in between is dropped from the answer rather than fired twice.
 func (s *Store) DueTasks(now time.Time) ([]core.Task, error) {
 	ctx := context.Background()
 	items, err := s.Obj().Query(ctx, objstore.Query{
@@ -396,9 +341,8 @@ func (s *Store) GetTask(id string) (core.Task, bool) {
 }
 
 // TaskByID answers the task one id names, and SEPARATES "no such task" from
-// "the partition could not be read" — the distinction dashd's transitions gate
-// on, because an operator told "no such task" about one that still fires goes
-// and creates a second.
+// "the partition could not be read": an operator told "no such task" about
+// one that still fires goes and creates a second.
 func (s *Store) TaskByID(id string) (core.Task, bool, error) {
 	key, err := taskKey(id)
 	if err != nil {
@@ -418,9 +362,8 @@ func (s *Store) TaskByID(id string) (core.Task, bool, error) {
 }
 
 // ListTasks returns one owner's tasks, newest first, or every task for a root
-// caller. `owner` is an attribute, so this reads the partition and filters —
-// and the order is `created_at` DESC, applied after the read because the
-// coordinate is the id.
+// caller. `owner` is an attribute, so this reads the partition and filters;
+// `created_at` DESC is applied after the read.
 func (s *Store) ListTasks(folder string, isRoot bool) []core.Task {
 	owner := folder
 	if isRoot {
@@ -437,8 +380,7 @@ func (s *Store) ListTasks(folder string, isRoot bool) []core.Task {
 		}
 		out = append(out, taskFrom(it))
 	}
-	// Stable, so two tasks stamped in the same instant keep coordinate order
-	// rather than an order that changes between reads of one unchanged table.
+	// Stable, so two tasks stamped in the same instant keep coordinate order.
 	slices.SortStableFunc(out, func(a, b core.Task) int { return b.Created.Compare(a.Created) })
 	return out
 }
@@ -516,22 +458,19 @@ var defaultTasks = [...]struct{ prompt, cron string }{
 }
 
 // SeedDefaultTasks inserts the 5 compact-memories tasks for a new group.
-// Idempotent — each write is create-if-absent, so re-seeding a group leaves the
-// task an operator has since edited alone. New groups skip ant migration 055.
-//
-// One write per task rather than one batch of five: a batch is all-or-nothing,
-// so a single task that is already there would refuse the four that are not,
-// which is not what `INSERT OR IGNORE` per row said.
+// Idempotent: each write is create-if-absent, so a task an operator has since
+// edited survives a re-seed. One write per task rather than one batch: a batch
+// is all-or-nothing, so a single task already there would refuse the four that
+// are not.
 func (s *Store) SeedDefaultTasks(folder, chatJID string) error {
 	ctx := context.Background()
 	now := time.Now()
 	tz := core.Timezone()
 	for i, t := range defaultTasks {
 		id := folder + "-mem-" + strconv.Itoa(i)
-		// The first run is the first instant the task's OWN cron names. Seeding
-		// it at `now` left five tasks already due, so timed's next sweep fired
-		// all five and a brand-new group paid five LLM turns on its root topic
-		// before anyone sent it a message (BUGS L312).
+		// The first run is the first instant the task's OWN cron names: seeding
+		// it at `now` left five tasks due, and a brand-new group paid five LLM
+		// turns before anyone sent it a message (BUGS L312).
 		next, err := core.NextRun(t.cron, tz)
 		if err != nil {
 			return fmt.Errorf("seed task %s: cron %q: %w", id, t.cron, err)
@@ -551,8 +490,8 @@ func (s *Store) SeedDefaultTasks(folder, chatJID string) error {
 		if err != nil {
 			return err
 		}
-		// A refusal is the task already being seeded, which is what a seed means:
-		// the operator's own edits to it must survive the next start.
+		// A refusal is the task already being seeded: the operator's own edits
+		// to it must survive the next start.
 		if _, err := s.TryWriteEntities(ctx, nil, objstore.Write{
 			Op: objstore.Put, Entity: ScheduledTasks, Key: key, Attrs: taskAttrs(task),
 			Cond: objstore.Cond{Item: objstore.ItemAbsent},
@@ -565,11 +504,10 @@ func (s *Store) SeedDefaultTasks(folder, chatJID string) error {
 
 // The four writers below buffer their mutation on the caller's write set, for
 // routd's `/v1/tasks` face: the mutation and the one audit_log row that records
-// it ride ONE batch. Calling the audited twins there would send a batch of their
-// own and record one act twice.
+// it ride ONE batch, where the audited twins would record one act twice.
 
-// CreateTaskInto buffers one scheduled task's creation. It is CreateTask's
-// write-set twin and refuses a taken id for the same reason.
+// CreateTaskInto buffers one scheduled task's creation: CreateTask's write-set
+// twin, refusing a taken id for the same reason.
 func (s *Store) CreateTaskInto(ws *WriteSet, t core.Task, refused error) error {
 	w, err := taskCreate(t)
 	if err != nil {
@@ -578,9 +516,9 @@ func (s *Store) CreateTaskInto(ws *WriteSet, t core.Task, refused error) error {
 	return ws.AddGuarded(refused, w)
 }
 
-// SetTaskStatusInto buffers one task's status flip — pause and resume. An Update
-// writes nothing when the task is missing, and refused is what that means:
-// `/v1/tasks/{id}` names a task the caller believes in.
+// SetTaskStatusInto buffers one task's status flip (pause and resume). An
+// Update writes nothing when the task is missing, and refused is what that
+// means.
 func (s *Store) SetTaskStatusInto(ws *WriteSet, id, status string, refused error) error {
 	key, err := taskKey(id)
 	if err != nil {
@@ -593,9 +531,9 @@ func (s *Store) SetTaskStatusInto(ws *WriteSet, id, status string, refused error
 }
 
 // PatchTaskInto buffers the REST PATCH partial update: status and/or next_run,
-// at least one non-empty. `next_run` is stored VERBATIM, because this package
-// does not decide its layout — the operator hands it in and the read parses it
-// as RFC3339 (see the file header). A patch naming no field buffers nothing.
+// at least one non-empty. `next_run` is stored VERBATIM; the operator hands it
+// in and the read parses it as RFC3339 (file header). A patch naming no field
+// buffers nothing.
 func (s *Store) PatchTaskInto(ws *WriteSet, id, status, nextRun string, refused error) error {
 	key, err := taskKey(id)
 	if err != nil {
@@ -612,8 +550,8 @@ func (s *Store) PatchTaskInto(ws *WriteSet, id, status, nextRun string, refused 
 	})
 }
 
-// DeleteTaskInto buffers one task's removal — cancel. Unconditional, which is
-// what a delete means: asking twice is the same answer.
+// DeleteTaskInto buffers one task's removal (cancel). Unconditional: asking
+// twice is the same answer.
 func (s *Store) DeleteTaskInto(ws *WriteSet, id string) error {
 	key, err := taskKey(id)
 	if err != nil {

@@ -3,27 +3,16 @@ package store
 // proxyd_routes.go holds every read and write of `proxyd_routes`: one item per
 // reverse-proxy route, addressed by its path.
 //
-// THE PARTITION IS OwnerRoutd AND IT IS NOT A CHOICE THIS FILE MAKES.
-// `proxyd_routes` is a registered resreg resource, and an entity-backed
-// resource's items live at its owner subsystem (resreg.SubsystemRoutd, which IS
-// store.OwnerRoutd). A second spelling would put this file's items in one
-// partition and the engine's read in another, and the failure is silent: a query
-// on a partition nobody wrote to is a legal query that selects nothing.
+// The partition is OwnerRoutd because resreg's entity path writes these items
+// too (resreg.SubsystemRoutd IS store.OwnerRoutd); a second spelling selects
+// nothing, silently. The path is the coordinate, so the whole read comes back
+// in `ORDER BY path`; proxyd snapshots it and longest-prefix-matches in Go.
 //
-// THE PATH IS THE COORDINATE, which is what makes the whole read come back in
-// `ORDER BY path` with no sort of its own: proxyd snapshots the table once and
-// longest-prefix-matches in Go, so the order it arrives in is the order it
-// serves.
-//
-// TWO ATTRIBUTES ARE NOT TEXT AND EACH DECLARES ITS RENDERING.
-// `preserve_headers` is a []string written as its JSON text and `strip_prefix` a
-// bool written as "0" or "1" — the exact encodings the resource declares in its
-// `db:` tags (resreg/codec.go), because the two writers of these items have to
-// agree byte for byte. Both are ALWAYS written, empty included: a Go slice and a
-// Go bool have no unset, so the zero value renders as its own text ("[]", "0")
-// rather than as an absent attribute a reader would have to guess at. A nil
-// slice is normalised to the empty one first, so it renders `[]` and never
-// `null`.
+// `preserve_headers` is a []string written as JSON text and `strip_prefix` a
+// bool written as "0" or "1": the encodings the resource's `db:` tags declare
+// (resreg/codec.go), because both writers must agree byte for byte. Both are
+// ALWAYS written, empty included: a Go slice and a Go bool have no unset. A
+// nil slice renders `[]`, never `null`.
 
 import (
 	"context"
@@ -34,8 +23,7 @@ import (
 	"github.com/kronael/arizuko/objstore"
 )
 
-// The attributes a route item carries. `path` is NOT among them: it is the
-// coordinate.
+// The attributes a route item carries. `path` is the coordinate.
 const (
 	attrPxBackend    = "backend"
 	attrPxAuth       = "auth"
@@ -54,9 +42,9 @@ func proxydRouteKey(path string) (objstore.Key, error) {
 	return objstore.Key{Partition: OwnerRoutd, Sort: path}, nil
 }
 
-// proxydRouteFrom reads one item back. A `preserve_headers` that is not the JSON
-// document it claims to be is a LOUD fault: a route read wrong is a header
-// stripped from every request it proxies.
+// proxydRouteFrom reads one item back. A `preserve_headers` that is not the
+// JSON document it claims to be is a LOUD fault: a route read wrong is a
+// header stripped from every request it proxies.
 func proxydRouteFrom(it objstore.Item) (ProxydRoute, error) {
 	r := ProxydRoute{
 		Path:        it.Key.Sort,
@@ -109,18 +97,12 @@ func (s *Store) allProxydRouteItems(ctx context.Context) ([]objstore.Item, error
 	return items, nil
 }
 
-// Route ownership (BUGS L45, L46). Every proxyd_routes row is written by one of
-// three authorities, and `owner` records which:
-//
-//	RouteOwnerArizuko  — `arizuko generate` derived it from the release's core
-//	                     route table; generate rewrites these on every run.
-//	RouteOwnerPackage  — `package:<name>` declared it in its own manifest;
-//	                     generate rewrites these too.
-//	RouteOwnerOperator — declared through proxyd's /v1/proxyd_routes surface.
-//	                     Generate never touches it.
-//
-// Editing an arizuko- or package-owned row is not an override — the next generate
-// rewrites it. Taking a path over is DELETE then POST on /v1/proxyd_routes.
+// Route ownership (BUGS L45, L46). `owner` records which of three authorities
+// wrote the row: RouteOwnerArizuko (`arizuko generate`, rewritten on every
+// run), `package:<name>` (its own manifest, rewritten too), or
+// RouteOwnerOperator (declared through /v1/proxyd_routes; generate never
+// touches it). Editing an arizuko- or package-owned row is not an override;
+// taking a path over is DELETE then POST.
 const (
 	RouteOwnerArizuko       = "arizuko"
 	RouteOwnerOperator      = "operator"
@@ -129,21 +111,19 @@ const (
 
 // RouteOwnerPackage is the owner value for a row an installed package declared.
 // A package may never write `arizuko` or `operator` itself (BUGS L46): the
-// first would let it pass as core-shipped, the second would opt it out of every
-// later generate, so an upgraded package could not correct its own route.
+// first would pass as core-shipped, the second would opt out of every later
+// generate.
 func RouteOwnerPackage(name string) string { return RouteOwnerPackagePrefix + name }
 
 // RouteSurvivesGenerate reports whether a row with this owner is left alone by
-// SyncProxydRoutes. Exactly one owner is: `operator`.
-//
-// It is one predicate because it was two. The keep loop allowlisted `operator`
-// while the PATCH guard denylisted `arizuko`, so a package row passed the guard
-// with 200 and was silently overwritten at the next deploy (BUGS L45, L81).
+// SyncProxydRoutes. Exactly one owner is: `operator`. One predicate, because
+// two drifted: the keep loop allowlisted `operator` while the PATCH guard
+// denylisted `arizuko`, so a package row was silently overwritten at the next
+// deploy (BUGS L45, L81).
 func RouteSurvivesGenerate(owner string) bool { return owner == RouteOwnerOperator }
 
-// ProxydRoute mirrors proxyd's `Route` shape for persistence. Kept here
-// without importing proxyd so the store stays a leaf. proxyd converts
-// between the two with a one-line copy.
+// ProxydRoute mirrors proxyd's `Route` shape for persistence, without importing
+// proxyd so the store stays a leaf.
 type ProxydRoute struct {
 	Path            string   `json:"path"`
 	Backend         string   `json:"backend"`
@@ -172,14 +152,11 @@ func (s *Store) AllProxydRoutes() ([]ProxydRoute, error) {
 	return out, nil
 }
 
-// CreateProxydRoute writes ONE route and reports whether it landed — proxyd's
-// dashboard form, which has no second write to hold it with.
-//
-// created=false is the PATH ALREADY BEING TAKEN, and it has to be an answer
-// rather than an overwrite: the path is the coordinate, so an unconditional Put
-// would silently hand an arizuko- or package-owned route to the operator and
-// exempt it from every later generate (BUGS L45, L46). Taking a path over is
-// DELETE then POST, which is what the surface tells the caller.
+// CreateProxydRoute writes ONE route and reports whether it landed, for
+// proxyd's dashboard form. created=false is the PATH ALREADY BEING TAKEN, an
+// answer rather than an overwrite: an unconditional Put would silently hand an
+// arizuko- or package-owned route to the operator and exempt it from every
+// later generate (BUGS L45, L46).
 func (s *Store) CreateProxydRoute(ctx context.Context, r ProxydRoute) (bool, error) {
 	w, err := proxydRouteCreateWrite(r)
 	if err != nil {
@@ -188,9 +165,8 @@ func (s *Store) CreateProxydRoute(ctx context.Context, r ProxydRoute) (bool, err
 	return s.TryWriteEntities(ctx, nil, w)
 }
 
-// CreateProxydRouteInto buffers the same create on the caller's write set —
-// proxyd's `/v1/proxyd_routes` POST, whose row rides one batch with
-// resreg.invoke's single audit row. refused is what a taken path means.
+// CreateProxydRouteInto buffers the same create on the caller's write set, for
+// proxyd's `/v1/proxyd_routes` POST. refused is what a taken path means.
 func (s *Store) CreateProxydRouteInto(ws *WriteSet, r ProxydRoute, refused error) error {
 	w, err := proxydRouteCreateWrite(r)
 	if err != nil {
@@ -216,17 +192,12 @@ func proxydRouteCreateWrite(r ProxydRoute) (objstore.Write, error) {
 }
 
 // UpdateProxydRouteInto buffers the rewrite of one route's mutable half on the
-// caller's write set; refused is what "no route at that path" means.
-//
-// `owner` is NOT among the fields it writes: ownership is stamped by whoever
-// created the row, so an update can never change who may rewrite it. That is
-// also why this is an Update and not a Put — a Put carries the item's whole
-// attribute set and would take the owner with it.
-//
-// A field the caller clears is REMOVED rather than set to the empty string,
-// because absent is the only null this model has: an empty `gated_by` left
-// behind still answers a presence test, and the gate would keep applying to a
-// route the operator opened.
+// caller's write set; refused is what "no route at that path" means. `owner`
+// is NOT among the fields it writes: ownership is stamped by whoever created
+// the row, which is why this is an Update and not a Put. A field the caller
+// clears is REMOVED rather than set to "": an empty `gated_by` still answers a
+// presence test, and the gate would keep applying to a route the operator
+// opened.
 func (s *Store) UpdateProxydRouteInto(ws *WriteSet, r ProxydRoute, refused error) error {
 	key, err := proxydRouteKey(r.Path)
 	if err != nil {
@@ -249,9 +220,9 @@ func (s *Store) UpdateProxydRouteInto(ws *WriteSet, r ProxydRoute, refused error
 	})
 }
 
-// DeleteProxydRoute removes one route and reports whether one went — proxyd's
-// dashboard form. The answer is load-bearing: the operator is told "no route at
-// that path" rather than redirected as if the route were gone.
+// DeleteProxydRoute removes one route and reports whether one went, for
+// proxyd's dashboard form: the operator is told "no route at that path" rather
+// than redirected as if the route were gone.
 func (s *Store) DeleteProxydRoute(ctx context.Context, path string) (bool, error) {
 	w, err := proxydRouteDeleteWrite(path)
 	if err != nil {
@@ -260,13 +231,9 @@ func (s *Store) DeleteProxydRoute(ctx context.Context, path string) (bool, error
 	return s.TryWriteEntities(ctx, nil, w)
 }
 
-// DeleteProxydRouteInto buffers the removal on the caller's write set —
-// proxyd's `/v1` face, whose delete rides one batch with resreg.invoke's audit
-// row.
-//
-// IT CARRIES NO CONDITION, and that is the difference from the door above: `/v1`
-// declares DELETE idempotent (a second delete of one path answers 204), so there
-// is no not-found for a condition to report — and a write that refused would
+// DeleteProxydRouteInto buffers the removal on the caller's write set, for
+// proxyd's `/v1` face. It carries NO condition: `/v1` declares DELETE
+// idempotent (a second delete answers 204), and a write that refused would
 // take the audit row beside it down with nothing said.
 func (s *Store) DeleteProxydRouteInto(ws *WriteSet, path string) error {
 	key, err := proxydRouteKey(path)
@@ -290,23 +257,17 @@ func proxydRouteDeleteWrite(path string) (objstore.Write, error) {
 	}, nil
 }
 
-// SyncProxydRoutes writes the release's route table into proxyd_routes and reports
-// how many rows it wrote and how many paths it handed to the operator. proxyd reads
-// the table live per request, so a route added to a release takes effect on the
-// next generate with no restart and no seed-once window (BUGS L45).
+// SyncProxydRoutes writes the release's route table into proxyd_routes and
+// reports how many rows it wrote and how many paths it left to the operator.
+// proxyd reads the table live, so a route added to a release takes effect on
+// the next generate with no restart (BUGS L45).
 //
-// Two rules are the whole contract: a path whose row is RouteOwnerOperator is
-// SKIPPED whatever it points at, and every other shipped path is overwritten
-// keeping the owner the caller stamped.
-//
-// A package route falls on the ARIZUKO side of that split: it is re-derived from
-// the package's own manifest on every generate, so leaving it alone would freeze
-// an upgraded package at its first backend. Only the operator's row has no
-// upstream to be re-derived from (BUGS L46).
-//
-// It writes only paths it ships, and never deletes: a route that stops being
-// shipped stays until the operator removes it. Audited once for the whole set —
-// 18 near-identical rows per generate would bury the mutation that matters.
+// Two rules: a path whose row is RouteOwnerOperator is SKIPPED whatever it
+// points at, and every other shipped path is overwritten keeping the owner the
+// caller stamped. A package route is re-derived from its manifest on every
+// generate, so leaving it alone would freeze an upgraded package at its first
+// backend (BUGS L46). It never deletes, and it is audited once for the whole
+// set.
 func (s *Store) SyncProxydRoutes(routes []ProxydRoute) (written, kept int, err error) {
 	ctx := context.Background()
 	actor, actorSub, surface := s.auditIdentity()
@@ -315,10 +276,9 @@ func (s *Store) SyncProxydRoutes(routes []ProxydRoute) (written, kept int, err e
 		if err != nil {
 			return err
 		}
-		// One write per shipped route, which the caller decides, so the set goes
-		// in chunks rather than one batch. Each path is its own item and the
-		// operator-owned ones are left alone either way, so a part-way failure
-		// leaves the rest exactly as generate found them.
+		// Chunked: each path is its own item and the operator-owned ones are
+		// left alone either way, so a part-way failure leaves the rest exactly
+		// as generate found them.
 		written, kept = 0, 0
 		var writes []objstore.Write
 		for _, r := range routes {
@@ -366,10 +326,8 @@ func (s *Store) SyncProxydRoutes(routes []ProxydRoute) (written, kept int, err e
 	return written, kept, err
 }
 
-// proxydRouteOwners reads path→owner for every existing route. It reads through
-// the store's own driver rather than the caller's transaction, because an item
-// read needs no transaction and the answer it gives — which paths the operator
-// has taken over — is a decision made BEFORE the first write of the sweep.
+// proxydRouteOwners reads path→owner for every existing route: which paths the
+// operator has taken over is decided BEFORE the first write of the sweep.
 func (s *Store) proxydRouteOwners(ctx context.Context) (map[string]string, error) {
 	items, err := s.allProxydRouteItems(ctx)
 	if err != nil {

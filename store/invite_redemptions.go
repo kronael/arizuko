@@ -4,38 +4,19 @@ package store
 // item per subgroup invite a person has followed and not yet spent, carrying the
 // parent subtree the operator invited them into.
 //
-// IT IS THE AUTHORITY handleCreateWorld DERIVES A PARENT FOLDER FROM, and that
-// is why it exists at all: an item the redemption writes is not forgeable by the
-// redeemer, where a `pending_target` cookie was — `Cookie:
-// pending_target=victim/` created victim/<name> and took admin over it for any
-// authenticated caller holding no grant anywhere (BUGS F50).
+// It is the authority handleCreateWorld derives a parent folder from: an item
+// the redemption writes is not forgeable by the redeemer, where a
+// `pending_target` cookie was (BUGS F50).
 //
-// THE PARTITION IS THE PERSON AND THE SORT KEY IS THE INSTANT. Every one of the
-// three operations names the sub — the write, the "my most recent unspent one"
-// read, and the delete that spends it — so the person is the tenancy coordinate
-// rule 1 asks for, and with the instant sorting inside it the read is a
-// descending range of ONE item rather than a scan with a maximum taken in the
-// reader. It is the one entity in this package whose partition is not an owner,
-// for the reason runed's session log's is a folder: the question is always asked
-// about one of them.
-//
-// THE INSTANT IS THE IDENTITY, which is rule 4. The statement this replaces read
-// `ORDER BY id DESC LIMIT 1` over an AUTOINCREMENT id, and no document store
-// mints one — and the id never left the process: `latestRedemption` produced it
-// and `spendRedemption` consumed it, so nothing outside that pair could name a
-// row. The position is core.TS at its fixed width plus the suffix that keeps two
+// The partition is the person and the sort key the instant: every operation
+// names the sub, so "my most recent unspent one" is a descending range of ONE
+// item. The instant IS the identity, core.TS plus a suffix that keeps two
 // redemptions at one nanosecond apart, and `redeemed_at` is not stored again.
+// core.TS rather than onbod's twenty-byte instants because this one is
+// COMPARED (BUGS L97).
 //
-// It is core.TS rather than the twenty-byte instant onbod's other entities carry
-// because this one is COMPARED: those are read back and rendered, this one
-// decides which of a person's redemptions is the most recent, and a comparison
-// on a stored instant is a byte comparison (BUGS L97).
-//
-// SPENDING IS A CLAIM. The delete's own refusal is the answer, so two
-// create-world posts that read one redemption cannot both spend it — one invite
-// redemption is one world. That is what `RowsAffected` said, and it is the whole
-// concurrency control on a path where the read and the delete are forty lines
-// apart.
+// Spending is a claim: the delete's own refusal is the answer, so two
+// create-world posts that read one redemption cannot both spend it.
 
 import (
 	"context"
@@ -48,21 +29,18 @@ import (
 )
 
 // attrRedemptionGlob is the parent subtree the operator invited this person
-// into. It is the only attribute an item carries.
+// into: the only attribute an item carries.
 const attrRedemptionGlob = "target_glob"
 
 // redemptionSuffixHex is how many hex digits separate two redemptions recorded
-// in the same nanosecond. Four bytes of randomness, for audit_log's reason.
+// in the same nanosecond.
 const redemptionSuffixHex = 8
 
-// RedemptionStampWidth is the width of a redemption's position: core.TS's thirty
-// bytes, a separator, and the suffix. It is exported because the move that
-// carries these rows builds one from a legacy row's id.
+// RedemptionStampWidth is the width of a redemption's position. Exported
+// because the move that carries these rows builds one from a legacy row's id.
 const RedemptionStampWidth = tsWidth + 1 + redemptionSuffixHex
 
-// Redemption is one unspent subgroup-invite redemption.
-//
-// `at` is unexported for the reason a queued system event's position is: a
+// Redemption is one unspent subgroup-invite redemption. `at` is unexported: a
 // caller that could name one could spend a redemption it never read, and the
 // spend is the authority a world is created under.
 type Redemption struct {
@@ -71,7 +49,7 @@ type Redemption struct {
 }
 
 // RedemptionStamp assembles a position from a rendered instant and a suffix, so
-// the live writer and the move that carries an existing row build one shape.
+// the live writer and the move build one shape.
 func RedemptionStamp(ts, suffix string) string { return ts + "-" + suffix }
 
 // redemptionNowStamp is the position a redemption recorded now takes.
@@ -99,13 +77,9 @@ func redemptionKey(userSub, at string) (objstore.Key, error) {
 }
 
 // LatestRedemption answers a person's most recent unspent subgroup-invite
-// redemption, and whether they hold one.
-//
-// Most recent because a caller holding two is answering the invite they just
-// followed; each is spent on its own, so two invites still yield two worlds.
-//
-// It FAILS CLOSED: an unreadable partition is no authority, so the caller is
-// told there is no redemption rather than being handed one it could not check.
+// redemption, and whether they hold one. Most recent, because a caller holding
+// two is answering the invite they just followed. It FAILS CLOSED: an
+// unreadable partition is no authority.
 func (s *Store) LatestRedemption(ctx context.Context, userSub string) (Redemption, bool, error) {
 	if userSub == "" {
 		return Redemption{}, false, nil
@@ -127,11 +101,8 @@ func (s *Store) LatestRedemption(ctx context.Context, userSub string) (Redemptio
 }
 
 // SpendRedemption consumes the redemption a read produced, and answers whether
-// THIS call is the one that spent it.
-//
-// The delete's own refusal is the answer, so a replay of the same redemption — a
-// resubmitted form, a second tab — finds nothing to derive a parent from and
-// creates no second world.
+// THIS call is the one that spent it: a replay (a resubmitted form, a second
+// tab) finds nothing to derive a parent from and creates no second world.
 func (s *Store) SpendRedemption(ctx context.Context, userSub string, r Redemption) (bool, error) {
 	key, err := redemptionKey(userSub, r.at)
 	if err != nil {
@@ -159,10 +130,9 @@ func (s *Store) CountRedemptions(ctx context.Context, userSub string) (int, erro
 	return len(items), nil
 }
 
-// redemptionRowPut renders one legacy row as the item it becomes. The position
-// is the instant it was redeemed at plus the row number that broke a tie:
-// `redeemed_at` is second-precision, so the id is what keeps two redemptions of
-// one second in the order the read answered them in.
+// redemptionRowPut renders one legacy row as the item it becomes. `redeemed_at`
+// is second-precision, so the row number is what keeps two redemptions of one
+// second in order.
 func redemptionRowPut(r RedemptionRow) (objstore.Write, error) {
 	at, err := normaliseInstant(InviteRedemptions, "redeemed_at", r.RedeemedAt)
 	if err != nil {
@@ -177,7 +147,7 @@ func redemptionRowPut(r RedemptionRow) (objstore.Write, error) {
 }
 
 // redemptionWrite renders the item a consumed subgroup invite records, so the
-// live path and the move that carries an existing row build one shape.
+// live path and the move build one shape.
 func redemptionWrite(userSub, at, targetGlob string) (objstore.Write, error) {
 	key, err := redemptionKey(userSub, at)
 	if err != nil {

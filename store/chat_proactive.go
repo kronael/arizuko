@@ -3,27 +3,11 @@ package store
 // chat_proactive.go holds every read and write of `chat_proactive`: one item per
 // chat that has ever spoken unprompted, carrying the instant it last did.
 //
-// THE PARTITION IS OwnerRoutd AND THE SORT KEY IS THE JID, for the reason
-// chats.go gives and with the same measurements behind it: the cooldown is read
-// per candidate chat by jid on the proactive scan, written by jid, and belongs
-// to a chat rather than to a folder. There is exactly one read that names no jid
-// — dashd's cooldown panel, which asks for the most recent fifty — and it has no
-// partition to name under any other choice.
-//
-// IT IS A SEPARATE ENTITY FROM `chats` and it stays one. The two are keyed
-// alike, and folding them would look like a simplification: one item per chat,
-// one fewer table. It is not. `chats` is written on the hot path — every inbound
-// message advances a cursor — and this is written once a day at most, by the one
-// path that fires a turn nobody asked for. Folding them puts the cooldown's
-// write in contention with the cursor's, and puts a field the proactive scan
-// reads into the item the dispatch loop rewrites. Separate items contend
-// nowhere, which is the property a document model buys.
-//
-// proactive_last_fired_at IS ORDERED. dashd's panel reads the most recently
-// fired chats first, so the width rule applies for the same reason it applies to
-// the two cursors (BUGS L97). The table holds no rows on any of the three live
-// instances (2026-09-09), so the declaration is what keeps it right rather than
-// what fixes it.
+// The partition is OwnerRoutd and the sort key the jid (chats.go's reason). It
+// is a SEPARATE entity from `chats` and stays one: `chats` is written on the
+// hot path and this once a day at most, so folding them would put the
+// cooldown's write in contention with the cursor's. proactive_last_fired_at IS
+// ORDERED: dashd's panel reads the most recently fired first (BUGS L97).
 
 import (
 	"context"
@@ -35,8 +19,8 @@ import (
 	"github.com/kronael/arizuko/objstore"
 )
 
-// AttrProactiveFiredAt is when a chat last spoke unprompted. It is exported
-// because the move that carries these rows names the instant it re-renders.
+// AttrProactiveFiredAt is when a chat last spoke unprompted. Exported because
+// the move that carries these rows names the instant it re-renders.
 const AttrProactiveFiredAt = "proactive_last_fired_at"
 
 // The ordered declaration is what makes the cooldown panel an ordered read.
@@ -75,13 +59,9 @@ func (s *Store) ProactiveLastFired(jid string) time.Time {
 	return t
 }
 
-// proactiveFireWrite renders the ONE write a cooldown stamp is: merge the
-// instant into the chat's item, creating it when the chat has never fired.
-//
-// A bare Put would be a whole-item replace: it costs nothing while the item
-// carries one attribute and drops the second one the day this entity grows a
-// field. A Merge has no such trap, and — because it is ONE action on ONE item —
-// it can ride in the batch that appends the synthetic row it belongs with.
+// proactiveFireWrite renders the ONE write a cooldown stamp is. A Merge, not a
+// Put: a Put drops the second attribute the day this entity grows one, and one
+// action on one item can ride the batch that appends the synthetic row.
 func proactiveFireWrite(jid string, at time.Time) (objstore.Write, error) {
 	key, err := proactiveKey(jid)
 	if err != nil {
@@ -93,12 +73,10 @@ func proactiveFireWrite(jid string, at time.Time) (objstore.Write, error) {
 	}, nil
 }
 
-// RecordProactiveFire stamps a chat's cooldown.
-//
-// FireProactive does NOT call it: the stamp and the synthetic inbound row go in
-// one batch there, so a crash before the run is dispatched leaves the cooldown
-// SET — at worst one missed turn, never a double fire. This is the door for a
-// caller stamping a cooldown alone.
+// RecordProactiveFire stamps a chat's cooldown alone. FireProactive does NOT
+// call it: the stamp and the synthetic inbound row go in one batch there, so a
+// crash before dispatch leaves the cooldown SET; at worst one missed turn,
+// never a double fire.
 func (s *Store) RecordProactiveFire(ctx context.Context, jid string, at time.Time) error {
 	w, err := proactiveFireWrite(jid, at)
 	if err != nil {
@@ -110,9 +88,8 @@ func (s *Store) RecordProactiveFire(ctx context.Context, jid string, at time.Tim
 	return nil
 }
 
-// CountProactiveChats answers how many chats carry a cooldown at all, whether or
-// not it has ever fired. `arizuko migrate-hot` reads it back to check that every
-// row travelled.
+// CountProactiveChats answers how many chats carry a cooldown at all.
+// `arizuko migrate-hot` reads it back to check that every row travelled.
 func (s *Store) CountProactiveChats(ctx context.Context) (int, error) {
 	items, err := s.Obj().Query(ctx, objstore.Query{
 		Entity: ChatProactive, Partition: OwnerRoutd,
@@ -124,11 +101,7 @@ func (s *Store) CountProactiveChats(ctx context.Context) (int, error) {
 }
 
 // ProactiveCooldowns answers the chats that have spoken unprompted, most recent
-// first, up to limit.
-//
-// The order runs HERE because a query orders on the sort key and the sort key is
-// the jid. The statement it replaces sorted in the engine over a column with no
-// index, so the rows were already all read.
+// first, up to limit. The order runs here because the sort key is the jid.
 func (s *Store) ProactiveCooldowns(limit int) ([]ChatCooldown, error) {
 	items, err := s.Obj().Query(context.Background(), objstore.Query{
 		Entity: ChatProactive, Partition: OwnerRoutd,

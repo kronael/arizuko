@@ -4,36 +4,17 @@ package store
 // `onboarding_gates`: one item per unrouted chat waiting to be let in, and one
 // item per admission gate.
 //
-// THE PARTITION IS store.OwnerOnbod — the literal "onbod" — AND IT IS NOT A
-// CHOICE THIS FILE MAKES. Both tables are registered resreg resources
-// (resreg/resources/onboarding.go, onboarding_gates.go), and an entity-backed
-// resource's items live at its owner subsystem: resreg.SubsystemOnbod, which IS
-// store.OwnerOnbod (resreg/resreg.go). A second spelling here would put this
-// file's items in one partition and the engine's read in another, and the
-// failure is silent — `arizuko export` comes back with an empty document and
-// nothing to say why, because a query with a partition nobody wrote to is a
-// legal query that selects nothing.
+// The partition is store.OwnerOnbod because both tables are registered resreg
+// resources and resreg.SubsystemOnbod IS store.OwnerOnbod; a second spelling
+// would empty `arizuko export` without any read failing. Every read examines
+// the whole collection (45 admission rows fleet-wide, 2026-09-07; no drainage
+// but DenyOnboarding), because eight of the ten reads select by an attribute.
 //
-// WHAT THE CONSTANT COSTS is that every read below examines the whole
-// collection. Measured on all three live snapshots 2026-09-07: 45 admission
-// rows fleet-wide (krons 16, marinade 8, sloth 21) and ZERO gates. There is no
-// drainage — DenyOnboarding is the only delete and it is an operator verb — so
-// the bound is the number of distinct chats that ever messaged an instance
-// unrouted. A jid is not the partition because eight of the ten reads select by
-// something else (a status, a user_sub, a gate), and a query without a
-// partition is refused by every driver.
-//
-// THE TIMESTAMPS ARE 20 BYTES AND THAT IS DECLARED, not re-rendered. Every
-// `created` and `prompted_at` value in the fleet is exactly 20 bytes — 45 of 45
-// — because one writer produces them all: time.RFC3339 of a .UTC() time, which
-// truncates the fraction and ends in `Z`. `queued_at` and `admitted_at` hold no
-// value at all anywhere. So the width is what the data already is, and widening
-// it to core.TS would move every checksum and break the archive round-trip for
-// nothing. The declaration is what makes the comparisons mean what they say:
-// `prompted_at < now-PairingTTL` re-greets, `queued_at <` counts the queue
-// ahead of you and `admitted_at >=` bounds today's quota, and all three are
-// BYTE comparisons — a short value sorts into the wrong place instead of
-// failing (BUGS L97).
+// THE TIMESTAMPS ARE 20 BYTES AND THAT IS DECLARED, not re-rendered: every
+// live value is time.RFC3339 of a UTC time, and widening them would move every
+// checksum for nothing. The declaration is what makes `prompted_at <`,
+// `queued_at <` and `admitted_at >=` time comparisons, because they are BYTE
+// comparisons (BUGS L97).
 
 import (
 	"context"
@@ -49,20 +30,15 @@ import (
 )
 
 // onbodTSWidth is the width of every stored instant in these two entities and
-// in invites: time.RFC3339 of a UTC time. A test pins it against the layout,
-// because a constant that drifted from the format would refuse every write
-// instead of guarding one.
+// in invites: time.RFC3339 of a UTC time. A test pins it against the layout.
 const onbodTSWidth = 20
 
-// onbodTS renders one instant at the declared width. It is the only place these
-// entities format a time, so the width and the layout cannot disagree.
+// onbodTS renders one instant at the declared width: the only place these
+// entities format a time.
 func onbodTS(at time.Time) string { return at.UTC().Format(time.RFC3339) }
 
-// The attributes an admission item carries. `jid` is NOT among them: it IS the
-// sort key, and storing the coordinate twice is two facts that can disagree.
-// The five optional ones are ABSENT when they have no value — absent is the
-// only null this model has — which is what the five COALESCE-on-read /
-// nil-on-write hook pairs on the resource used to buy.
+// The attributes an admission item carries. `jid` IS the sort key. The five
+// optional ones are ABSENT when they have no value.
 const (
 	attrOnbStatus     = "status"
 	attrOnbUserSub    = "user_sub"
@@ -74,16 +50,15 @@ const (
 )
 
 // The attributes a gate item carries; `gate` is the sort key. `enabled` is an
-// int rendered by strconv, which is what resreg's own entity path writes for an
-// int field (resreg/entity.go itemFor) — the two readers of these items have to
-// agree byte for byte.
+// int rendered by strconv, what resreg's own entity path writes for an int
+// field (resreg/entity.go itemFor).
 const (
 	attrGateLimitPerDay = "limit_per_day"
 	attrGateEnabled     = "enabled"
 )
 
 // The statuses this package writes. onbod's knownStatuses is the reader's
-// complete set; these are the four transitions the storage layer performs.
+// complete set.
 const (
 	statusAwaitingMessage = "awaiting_message"
 	statusQueued          = "queued"
@@ -92,7 +67,7 @@ const (
 )
 
 // Every attribute a read COMPARES is declared, so every driver refuses a value
-// of another width. The file header says why 20 and what the comparisons are.
+// of another width.
 func init() {
 	objstore.OrderedAttr(Onboarding, attrOnbCreated, onbodTSWidth)
 	objstore.OrderedAttr(Onboarding, attrOnbPromptedAt, onbodTSWidth)
@@ -100,9 +75,8 @@ func init() {
 	objstore.OrderedAttr(Onboarding, attrOnbAdmittedAt, onbodTSWidth)
 }
 
-// onboardingKey is the coordinate of one admission. An empty jid is refused
-// rather than written: every such row would address one item and the last write
-// would win.
+// onboardingKey is the coordinate of one admission. An empty jid is refused:
+// every such row would address one item.
 func onboardingKey(jid string) (objstore.Key, error) {
 	if jid == "" {
 		return objstore.Key{}, errors.New("onboarding row carries no jid, which is its coordinate")
@@ -118,23 +92,16 @@ func gateKey(gate string) (objstore.Key, error) {
 	return objstore.Key{Partition: OwnerOnbod, Sort: gate}, nil
 }
 
-// InsertOnboarding records that jid is unrouted and awaiting setup. It fires from
-// routd's route-MISS branch, so it runs once per inbound message a route table did
-// not claim.
+// InsertOnboarding records that jid is unrouted and awaiting setup. It fires
+// from routd's route-MISS branch, once per inbound message no route claimed,
+// which makes it the re-greet trigger too (spec 5/31): an unset `prompted_at`
+// was a permanent lockout, because the jid coordinate blocks a fresh item.
+// Clearing it here arms the next tick, bounded two ways: the caller MISSED,
+// and the last greeting is older than PairingTTL.
 //
-// That makes it the re-greet trigger too (spec 5/31). `prompted_at` unset used to
-// be a permanent lockout: the jid coordinate blocks a fresh item, so a user whose
-// link died could never get another. Clearing prompted_at here arms the next tick,
-// bounded two ways — the caller must have MISSED, and the last greeting must be
-// older than PairingTTL. A plain time cooldown in the poll query has neither bound
-// and would re-greet every stale row forever.
-//
-// TWO WRITES BECAUSE THE INTERFACE HAS TWO SHAPES. A Put carries the item's whole
-// attribute set, so writing one unconditionally would erase the admission verdict
-// on a row that already exists. The create-if-absent goes first and its REFUSAL —
-// the chat is already known — is what selects the conditional reset. A refusal of
-// that second write is equally normal: the row is not due a re-greet, which is
-// every call but the one that is.
+// Two writes: a Put would erase the admission verdict on an existing row, so
+// the create-if-absent goes first and its REFUSAL selects the conditional
+// reset, whose own refusal is normal (the row is not due a re-greet).
 func (s *Store) InsertOnboarding(jid string) error {
 	key, err := onboardingKey(jid)
 	if err != nil {
@@ -156,11 +123,9 @@ func (s *Store) InsertOnboarding(jid string) error {
 	if created {
 		return nil
 	}
-	// A comparison against an attribute the item does not carry is not TRUE on
-	// either engine, so `prompted_at <` already excludes a row that was never
-	// greeted; it needs no Present term of its own. A refusal is that guard
-	// holding — the row is greeted and still inside its cooldown — which is the
-	// answer this asks for.
+	// `prompted_at <` already excludes a row that was never greeted: a
+	// comparison against an absent attribute is not TRUE on either engine. A
+	// refusal is that guard holding.
 	if _, err := s.TryWriteEntities(ctx, nil, objstore.Write{
 		Op: objstore.Update, Entity: Onboarding, Key: key,
 		Remove: []string{attrOnbPromptedAt},
@@ -180,8 +145,7 @@ type OnboardingGate struct {
 	Enabled     bool
 }
 
-// gateFrom renders one stored item as the gate a caller reads. The key comes
-// back out of the coordinate, which is where it was written.
+// gateFrom renders one stored item as the gate a caller reads.
 func gateFrom(it objstore.Item) (OnboardingGate, error) {
 	limit, err := intAttr(OnboardingGates, it, attrGateLimitPerDay)
 	if err != nil {
@@ -195,7 +159,7 @@ func gateFrom(it objstore.Item) (OnboardingGate, error) {
 }
 
 // intAttr reads a numeric attribute. A value that is not a number is an ERROR
-// rather than a zero: a gate whose limit read as 0 would admit nobody and a
+// rather than a zero: a gate whose limit read as 0 would admit nobody, and a
 // max_uses that read as 0 would refuse every redemption, both silently.
 func intAttr(entity string, it objstore.Item, attr string) (int, error) {
 	text, ok := it.Attrs[attr]
@@ -210,8 +174,7 @@ func intAttr(entity string, it objstore.Item, attr string) (int, error) {
 	return n, nil
 }
 
-// ListGates reads every gate, in key order — which is the driver's own order,
-// so nothing sorts here.
+// ListGates reads every gate, in key order.
 func (s *Store) ListGates() ([]OnboardingGate, error) {
 	items, err := s.Obj().Query(context.Background(), objstore.Query{
 		Entity: OnboardingGates, Partition: OwnerOnbod,
@@ -230,9 +193,8 @@ func (s *Store) ListGates() ([]OnboardingGate, error) {
 	return out, nil
 }
 
-// EnabledGates reads the gates that admit — the set onbod's admission tick and
-// its first-world verdict both ask for. The filter is the engine's, so a
-// disabled gate never reaches this process.
+// EnabledGates reads the gates that admit: the set onbod's admission tick and
+// its first-world verdict both ask for.
 func (s *Store) EnabledGates() ([]OnboardingGate, error) {
 	items, err := s.Obj().Query(context.Background(), objstore.Query{
 		Entity: OnboardingGates, Partition: OwnerOnbod,
@@ -276,22 +238,16 @@ func (s *Store) Gate(gate string) (OnboardingGate, bool, error) {
 	return g, true, nil
 }
 
-// SetGateInto buffers ONE gate change on the caller's write set, so the change
-// and the audit row that records it ride one batch.
+// SetGateInto buffers ONE gate change on the caller's write set: a batch may
+// name each item once, and both halves address the same gate. limitPerDay 0
+// leaves the limit alone and enabled nil leaves enablement alone, the
+// tri-state `PUT /v1/gates/<gate>` carries.
 //
-// It is ONE write because a batch may name each item once
-// (objstore.ValidateBatch) and both halves of this call address the same gate.
-// limitPerDay 0 leaves the limit alone and enabled nil leaves enablement alone,
-// which is the tri-state `PUT /v1/gates/<gate>` carries: a body may set either,
-// both or neither.
-//
-// The SHAPE follows from what the caller named. A call that sets the limit
-// CREATES the gate, so it is a Merge and refuses nothing — `enabled` is an Init
-// there, the flag a gate is BORN with, because a caller that came to set the
-// limit must not re-enable a gate the operator disabled. A call that only flips
-// the flag must find the gate, so it is an Update, and refused is the "no such
-// gate" that refusal means: dropping it answered `PUT /v1/gates/<gate>` 200
-// {"ok":true} over zero rows (BUGS L268).
+// A call that sets the limit CREATES the gate, so it is a Merge and refuses
+// nothing; `enabled` is an Init there, because a caller that came to set the
+// limit must not re-enable a gate the operator disabled. A call that only
+// flips the flag must FIND the gate, so it is an Update, and refused is the
+// "no such gate": dropping it answered 200 over zero rows (BUGS L268).
 func (s *Store) SetGateInto(ws *WriteSet, gate string, limitPerDay int, enabled *bool,
 	refused error) error {
 	if limitPerDay <= 0 {
@@ -309,8 +265,8 @@ func (s *Store) SetGateInto(ws *WriteSet, gate string, limitPerDay int, enabled 
 		return err
 	}
 	if enabled != nil {
-		// An attribute has ONE writer per write (objstore.validateMerge), so the
-		// flag the caller named takes the place of the one the gate is born with.
+		// An attribute has ONE writer per write (objstore.validateMerge), so
+		// the flag the caller named takes the place of the born-with one.
 		flip, ferr := gateEnableWrite(gate, *enabled)
 		if ferr != nil {
 			return ferr
@@ -322,15 +278,9 @@ func (s *Store) SetGateInto(ws *WriteSet, gate string, limitPerDay int, enabled 
 	return nil
 }
 
-// gateUpsert renders "this gate exists and its limit is that" as ONE write, for
-// both sinks that write it: the caller's write set and the audited batch.
-//
-// `enabled` is an Init because it is the flag a gate is BORN with — a caller
-// that came to set the limit must not re-enable a gate the operator disabled,
-// which is why a Put is wrong here. A Merge is create-or-merge, so the pair this
-// replaces — a create-if-absent whose refusal selected an update — is one action
-// on one item again, and a pair on one item is what needed a transaction to run
-// it (objstore.Merge).
+// gateUpsert renders "this gate exists and its limit is that" as ONE write.
+// `enabled` is an Init because it is the flag a gate is BORN with; a Put would
+// re-enable a gate the operator disabled.
 func gateUpsert(gate string, limitPerDay int) (objstore.Write, error) {
 	key, err := gateKey(gate)
 	if err != nil {
@@ -343,9 +293,9 @@ func gateUpsert(gate string, limitPerDay int) (objstore.Write, error) {
 	}, nil
 }
 
-// gateEnableWrite renders one flip of the flag, for both sinks that flip it. The
-// Update is the must-exist half: a gate that is not there refuses, and that
-// refusal is the 404 (BUGS L268).
+// gateEnableWrite renders one flip of the flag. The Update is the must-exist
+// half: a gate that is not there refuses, and that refusal is the 404 (BUGS
+// L268).
 func gateEnableWrite(gate string, enabled bool) (objstore.Write, error) {
 	key, err := gateKey(gate)
 	if err != nil {
@@ -358,7 +308,7 @@ func gateEnableWrite(gate string, enabled bool) (objstore.Write, error) {
 }
 
 // DeleteGateInto buffers one gate's removal on the caller's write set.
-// Unconditional, which is what a delete means: asking twice is the same answer.
+// Unconditional: asking twice is the same answer.
 func (s *Store) DeleteGateInto(ws *WriteSet, gate string) error {
 	w, err := gateDeleteWrite(gate)
 	if err != nil {
@@ -368,7 +318,7 @@ func (s *Store) DeleteGateInto(ws *WriteSet, gate string) error {
 	return nil
 }
 
-// gateDeleteWrite renders one gate's removal, for both sinks that remove one.
+// gateDeleteWrite renders one gate's removal.
 func gateDeleteWrite(gate string) (objstore.Write, error) {
 	key, err := gateKey(gate)
 	if err != nil {
@@ -377,8 +327,8 @@ func gateDeleteWrite(gate string) (objstore.Write, error) {
 	return objstore.Write{Op: objstore.Delete, Entity: OnboardingGates, Key: key}, nil
 }
 
-// PutGate is PutGateTx with a transaction and an audit row of its own, for the
-// CLI and the chat command, which hold neither.
+// PutGate is gateUpsert with an audit row of its own, for the CLI and the chat
+// command.
 func (s *Store) PutGate(gate string, limitPerDay int) error {
 	return s.writeAudited(func() ([]objstore.Write, audit.Event, error) {
 		w, err := gateUpsert(gate, limitPerDay)
@@ -400,7 +350,7 @@ func (s *Store) PutGate(gate string, limitPerDay int) error {
 	})
 }
 
-// DeleteGate is DeleteGateTx with its own transaction and audit row.
+// DeleteGate is gateDeleteWrite with an audit row of its own.
 func (s *Store) DeleteGate(gate string) error {
 	return s.writeAudited(func() ([]objstore.Write, audit.Event, error) {
 		w, err := gateDeleteWrite(gate)
@@ -418,7 +368,7 @@ func (s *Store) DeleteGate(gate string) error {
 	})
 }
 
-// EnableGate is EnableGateTx with its own transaction and audit row.
+// EnableGate is gateEnableWrite with an audit row of its own.
 func (s *Store) EnableGate(gate string, enabled bool) error {
 	return s.writeAudited(func() ([]objstore.Write, audit.Event, error) {
 		w, err := gateEnableWrite(gate, enabled)
@@ -451,9 +401,8 @@ type OnboardingRow struct {
 	AdmittedAt string `json:"admitted_at,omitempty"`
 }
 
-// onboardingFrom renders one stored item as the row every read surface sees.
-// The jid comes back out of the sort key, and an attribute the item does not
-// carry leaves its field empty, which is what absent means.
+// onboardingFrom renders one stored item as the row every read surface sees;
+// an absent attribute leaves its field empty.
 func onboardingFrom(it objstore.Item) OnboardingRow {
 	return OnboardingRow{
 		JID:        it.Key.Sort,
@@ -467,15 +416,11 @@ func onboardingFrom(it objstore.Item) OnboardingRow {
 	}
 }
 
-// onboardingPut renders a whole row as the item that stores it — the single
-// renderer the legacy carry, the archive restore and the migration tool all
-// write through, so three sources cannot disagree about the encoding.
-//
-// EVERY empty attribute is left OFF, `status` and `created` included, even
-// though their columns were NOT NULL. Absent is the only null this model has,
-// and this is byte for byte what resreg's own entity path writes for a string
-// field (resreg/entity.go itemFor) — the two readers of these items have to
-// agree, and "" is the one value they could have disagreed about.
+// onboardingPut renders a whole row as the item that stores it: the single
+// renderer the legacy carry, the archive restore and the migration tool write
+// through. EVERY empty attribute is left OFF, `status` and `created` included:
+// byte for byte what resreg's own entity path writes for a string field
+// (resreg/entity.go itemFor).
 func onboardingPut(r OnboardingRow) (objstore.Write, error) {
 	key, err := onboardingKey(r.JID)
 	if err != nil {
@@ -495,8 +440,7 @@ func onboardingPut(r OnboardingRow) (objstore.Write, error) {
 }
 
 // gatePut renders a whole gate as the item that stores it, for the migration
-// tool — the live writers move one attribute at a time and never replace the
-// document (PutGateTx, EnableGateTx).
+// tool; the live writers move one attribute at a time.
 func gatePut(g OnboardingGate) (objstore.Write, error) {
 	key, err := gateKey(g.Gate)
 	if err != nil {
@@ -511,9 +455,9 @@ func gatePut(g OnboardingGate) (objstore.Write, error) {
 	}, nil
 }
 
-// readOnboarding is the one read behind every admission query below, so "which
-// admissions match this" cannot mean one thing to a page and another to a
-// counter. The filter is the engine's; the ORDER is the coordinate's.
+// readOnboarding is the one read behind every admission query below, so
+// "which admissions match this" cannot mean one thing to a page and another to
+// a counter.
 func (s *Store) readOnboarding(ctx context.Context, where ...objstore.Cmp) ([]OnboardingRow, error) {
 	items, err := s.Obj().Query(ctx, objstore.Query{
 		Entity: Onboarding, Partition: OwnerOnbod, Where: where,
@@ -528,17 +472,11 @@ func (s *Store) readOnboarding(ctx context.Context, where ...objstore.Cmp) ([]On
 	return out, nil
 }
 
-// ListOnboarding returns onboarding rows, optionally filtered by status. Empty
-// statusFilter returns all rows. Ordered by created DESC. The setup link is not
-// in this projection and has no attribute left to be in: the bearer lives solely
-// in the link the user was sent (Z3), and token_ref/token_expires were dropped
-// by onbod 0006 once the 5/31 fold left nothing writing them (BUGS F40).
-//
-// The order is an ATTRIBUTE's, not the coordinate's, so it is applied here over
-// a whole-collection read — the file header bounds what that costs. A stable
-// sort over the driver's jid order makes two rows created in the same second
-// come back in a fixed order, which the `ORDER BY created DESC` it replaces did
-// not promise.
+// ListOnboarding returns onboarding rows, optionally filtered by status,
+// ordered by created DESC (an attribute's order, applied here). The setup
+// link is not in this projection: the bearer lives solely in the link the
+// user was sent (Z3, BUGS F40). A stable sort makes two rows created in one
+// second come back in a fixed order.
 func (s *Store) ListOnboarding(statusFilter string) ([]OnboardingRow, error) {
 	var where []objstore.Cmp
 	if statusFilter != "" {
@@ -552,7 +490,7 @@ func (s *Store) ListOnboarding(statusFilter string) ([]OnboardingRow, error) {
 	return out, nil
 }
 
-// UnpromptedJIDs names every chat that is waiting and has never been greeted —
+// UnpromptedJIDs names every chat that is waiting and has never been greeted:
 // the poll tick's work list.
 func (s *Store) UnpromptedJIDs() ([]string, error) {
 	rows, err := s.readOnboarding(context.Background(),
@@ -565,7 +503,7 @@ func (s *Store) UnpromptedJIDs() ([]string, error) {
 }
 
 // UnadmittedJIDs names every chat that is waiting and carries no admission
-// verdict — the pairing observer's work list. `user_sub` absent is the dedup:
+// verdict: the pairing observer's work list. `user_sub` absent is the dedup:
 // a row is admitted once, and an agent-minted pairing is invisible here.
 func (s *Store) UnadmittedJIDs() ([]string, error) {
 	rows, err := s.readOnboarding(context.Background(),
@@ -578,7 +516,7 @@ func (s *Store) UnadmittedJIDs() ([]string, error) {
 }
 
 // QueuedJIDs names the chats queued behind one gate, oldest first, at most
-// limit of them — the batch a gate's remaining daily quota admits.
+// limit of them: the batch a gate's remaining daily quota admits.
 func (s *Store) QueuedJIDs(gate string, limit int) ([]string, error) {
 	if limit <= 0 {
 		return nil, nil
@@ -589,8 +527,8 @@ func (s *Store) QueuedJIDs(gate string, limit int) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	// Oldest first, by an attribute rather than the coordinate, so the order and
-	// the limit are applied here — a Limit on the query would have cut by jid.
+	// Oldest first by an attribute, so the order and the limit are applied
+	// here: a Limit on the query would have cut by jid.
 	sort.SliceStable(rows, func(i, j int) bool { return rows[i].QueuedAt < rows[j].QueuedAt })
 	return onboardingJIDs(rows[:min(limit, len(rows))]), nil
 }
@@ -616,7 +554,7 @@ func (s *Store) QueuedAdmission(userSub string) (OnboardingRow, bool, error) {
 	return rows[0], true, nil
 }
 
-// ApprovedAdmissions counts a user's approved admissions — the second authority
+// ApprovedAdmissions counts a user's approved admissions: the second authority
 // an admitted stranger holds to create a first world (spec 5/18 step 8).
 func (s *Store) ApprovedAdmissions(userSub string) (int, error) {
 	rows, err := s.readOnboarding(context.Background(),
@@ -625,10 +563,9 @@ func (s *Store) ApprovedAdmissions(userSub string) (int, error) {
 	return len(rows), err
 }
 
-// QueuePosition counts the chats queued behind one gate AHEAD of queuedAt — the
-// number the queue page turns into a position and an ETA. The comparison is a
-// byte comparison on a declared 20-byte attribute, which is what makes it a
-// time comparison (file header).
+// QueuePosition counts the chats queued behind one gate AHEAD of queuedAt: the
+// number the queue page turns into a position and an ETA. A byte comparison
+// on a declared 20-byte attribute (file header).
 func (s *Store) QueuePosition(gate, queuedAt string) (int, error) {
 	rows, err := s.readOnboarding(context.Background(),
 		objstore.Cmp{Attr: attrOnbStatus, Op: objstore.Eq, Value: statusQueued},
@@ -638,7 +575,7 @@ func (s *Store) QueuePosition(gate, queuedAt string) (int, error) {
 }
 
 // AdmittedInWindow counts one gate's admissions inside a half-open instant
-// range — today's quota, so a backlog queued on a prior day does not evade it.
+// range: today's quota, so a backlog queued on a prior day does not evade it.
 func (s *Store) AdmittedInWindow(gate, from, to string) (int, error) {
 	rows, err := s.readOnboarding(context.Background(),
 		objstore.Cmp{Attr: attrOnbGate, Op: objstore.Eq, Value: gate},
@@ -650,10 +587,8 @@ func (s *Store) AdmittedInWindow(gate, from, to string) (int, error) {
 
 // ClaimOnboardingPrompt stamps the instant a chat was greeted, and only when it
 // has not been. The condition IS the claim: two overlapping poll ticks cannot
-// both win one jid, and only the tick this returns true for sends the link.
-//
-// The instant is rendered here rather than passed in, so the declared width and
-// the layout that satisfies it stay in one place.
+// both win one jid. The instant is rendered here rather than passed in, so the
+// declared width and the layout stay in one place.
 func (s *Store) ClaimOnboardingPrompt(jid string) (bool, error) {
 	key, err := onboardingKey(jid)
 	if err != nil {
@@ -692,11 +627,9 @@ func (s *Store) RefuseOnboarding(jid, userSub string) error {
 }
 
 // AdmitOnboarding records the admission of a paired chat on an instance with no
-// gate configured, where every paired identity is let straight in.
-//
-// It is not ApproveOnboarding: that one is the OPERATOR's fast-path and must
-// leave user_sub alone, because the operator approving a row says nothing about
-// who the chat belongs to.
+// gate configured. It is not ApproveOnboarding: that one is the OPERATOR's
+// fast-path and must leave user_sub alone, because the operator approving a
+// row says nothing about who the chat belongs to.
 func (s *Store) AdmitOnboarding(jid, userSub string) error {
 	return s.setOnboarding(jid, "admit", map[string]string{
 		attrOnbStatus:     statusApproved,
@@ -706,16 +639,14 @@ func (s *Store) AdmitOnboarding(jid, userSub string) error {
 }
 
 // setOnboarding merges one verdict into an admission row. A row that is not
-// there is NOT an error — the UPDATEs these replace affected no rows and said
-// nothing — because the observer reads the work list one tick before it writes,
-// and an operator may deny a jid in between.
+// there is NOT an error: the observer reads the work list one tick before it
+// writes, and an operator may deny a jid in between.
 func (s *Store) setOnboarding(jid, what string, attrs map[string]string) error {
 	key, err := onboardingKey(jid)
 	if err != nil {
 		return err
 	}
-	// A refusal is the jid no longer being there, which the doc above allows: the
-	// observer reads the work list one tick before it writes.
+	// A refusal is the jid no longer being there.
 	if _, err := s.TryWriteEntities(context.Background(), nil, objstore.Write{
 		Op: objstore.Update, Entity: Onboarding, Key: key, Attrs: attrs,
 	}); err != nil {
@@ -725,15 +656,10 @@ func (s *Store) setOnboarding(jid, what string, attrs map[string]string) error {
 }
 
 // AdmitQueued approves a gate's batch from the queue and answers how many
-// landed. The caller records one audit event per admitted jid, so it needs the
-// count rather than a bare error.
-//
-// The batch is CHUNKED, which is the one thing the transaction it replaces did
-// differently: a whole gate's admissions rode one SQL transaction and rolled
-// back together, where MaxBatchActions is the weakest engine's bound and a gate
-// whose daily limit exceeds it now commits in pieces. That is safe because the
-// pieces are independent and the next tick re-reads the queue — a partial run
-// leaves work a re-run finishes, not a half-applied transaction.
+// landed, because the caller records one audit event per admitted jid. It is
+// CHUNKED: a gate whose daily limit exceeds MaxBatchActions commits in pieces,
+// which is safe because the pieces are independent and the next tick re-reads
+// the queue.
 func (s *Store) AdmitQueued(jids []string) (int, error) {
 	now := onbodTS(time.Now())
 	writes := make([]objstore.Write, 0, len(jids))
@@ -753,10 +679,9 @@ func (s *Store) AdmitQueued(jids []string) (int, error) {
 	return s.applyInChunks(context.Background(), "admit the queued chats", writes)
 }
 
-// ApproveOnboarding sets a row to approved immediately (operator fast-path,
-// bypassing the gate's daily limit). Returns an error if the row does not exist
-// — the refusal an Update reports for a missing item IS that answer, and it is
-// the same one the RowsAffected check it replaces gave.
+// ApproveOnboarding sets a row to approved immediately: the operator fast-path,
+// bypassing the gate's daily limit. An error when the row does not exist: the
+// refusal an Update reports for a missing item IS that answer.
 func (s *Store) ApproveOnboarding(jid string) error {
 	approved, err := s.tryWriteAudited(func() ([]objstore.Write, audit.Event, error) {
 		key, err := onboardingKey(jid)
@@ -801,19 +726,14 @@ func (s *Store) DenyOnboarding(jid string) error {
 	})
 }
 
-// RepromptOnboarding resets an onboarding row to awaiting_message so the next poll
-// tick greets it again. A FULL reset, admission verdict included: after the fold
-// the observer only advances a row with no user_sub, so leaving the old verdict's
-// user_sub behind would re-greet the chat and then never admit it again (BUGS O1).
-// The pairing edge is untouched — it is the user's consent, not admission state.
-//
-// ONE WRITE, and that is the guarantee rather than a tidiness. Attrs and Remove
-// are the two halves of a single document expression (objstore.Write), so the
-// five attributes go together or none of them do; five writes could leave one
-// behind, which is exactly the state O1 describes.
-//
-// It is the operator's cooldown BYPASS, for a chat that is not messaging again on
-// its own.
+// RepromptOnboarding resets an onboarding row to awaiting_message so the next
+// poll tick greets it again: the operator's cooldown BYPASS. A FULL reset,
+// admission verdict included: the observer only advances a row with no
+// user_sub, so a leftover verdict would re-greet the chat and never admit it
+// (BUGS O1). ONE write: Attrs and Remove are one document expression, so the
+// five attributes go together; five writes could leave one behind, which is
+// O1. The pairing edge is untouched: it is the user's consent, not admission
+// state.
 func (s *Store) RepromptOnboarding(jid string) error {
 	key, err := onboardingKey(jid)
 	if err != nil {
@@ -834,26 +754,16 @@ func (s *Store) RepromptOnboarding(jid string) error {
 
 // --- the archive lane (spec 5/8 "Message history", Z3) --------------------
 
-// ArchiveOnboardingRow is one row of the archive's onboarding document — the
-// same shape OnboardingRow (resreg/resources/onboarding.go) publishes. It used
-// to carry token_ref/token_expires too, the hash-at-rest verifier and its
-// expiry; onbod 0006 dropped both columns once the 5/31 fold left nothing
-// writing them (BUGS F40), so there is no longer a credential in this document.
+// ArchiveOnboardingRow is one row of the archive's onboarding document, the
+// same shape OnboardingRow publishes; it carries no credential (BUGS F40).
 //
-// Admissions still need this archive-only lane because they cannot ride the
-// config lane and cannot be rederived. `onboarding` is SkipApplyRebuild —
-// admissions are runtime state driven by chat traffic and the gate limiter,
-// never declared in a manifest — so `arizuko apply` never writes the table at
-// all. And rederiving is impossible: routeMiss advances agent_cursor past a
-// route-missed message whether or not the admission insert succeeded (a
-// deliberate fail-forward — a re-fed miss would replay forever), and import
-// reproduces that by setting agent_cursor, so a pending admission not
-// independently in the archive is gone for good: the person is neither in the
-// queue nor going to message again.
-//
-// It keeps riding the same off-by-default gate as route_tokens and invites.
-// The reason is no longer a verifier but the verdicts: importing admission
-// decisions onto a live instance is a merge, not a restore.
+// Admissions need this archive-only lane: `onboarding` is SkipApplyRebuild
+// (runtime state, never declared in a manifest), and rederiving is
+// impossible, because routeMiss advances agent_cursor past a route-missed
+// message whether or not the admission insert succeeded (a deliberate
+// fail-forward). It rides the same off-by-default gate as route_tokens and
+// invites: importing admission verdicts onto a live instance is a merge, not a
+// restore.
 type ArchiveOnboardingRow struct {
 	JID        string `yaml:"jid"`
 	Status     string `yaml:"status"`
@@ -865,8 +775,7 @@ type ArchiveOnboardingRow struct {
 	AdmittedAt string `yaml:"admitted_at,omitempty"`
 }
 
-// ExportOnboarding reads every admission row, ordered by jid for deterministic
-// output — which is the coordinate's own order, so the driver supplies it.
+// ExportOnboarding reads every admission row, in jid order (the coordinate's).
 func (s *Store) ExportOnboarding(ctx context.Context) ([]ArchiveOnboardingRow, error) {
 	rows, err := s.readOnboarding(ctx)
 	if err != nil {
@@ -879,21 +788,13 @@ func (s *Store) ExportOnboarding(ctx context.Context) ([]ArchiveOnboardingRow, e
 	return out, nil
 }
 
-// ImportOnboarding writes by jid (the coordinate) and never replaces — matching
-// ImportRouteTokens/ImportInvites. Ignore-if-present is the right shape: an
-// admission's history (created, prompted_at, queued_at, admitted_at) is
-// append-only in practice, and a jid already present on the target is a live
-// admission this restore must not walk backwards.
-//
-// The already-present set is READ first, because a batch is all-or-nothing: a
-// create-if-absent that lost would refuse every other row riding with it, where
-// the INSERT OR IGNORE this replaces skipped one row and carried on. What stays
-// conditional is the write itself, so a jid that appears between the read and
-// the write is a loud refusal rather than a silent overwrite.
-//
-// Performs NO gating — the off-by-default / --force / proven-empty-target
-// policy is `archive apply` orchestration in cmd/arizuko, not this
-// primitive's job.
+// ImportOnboarding writes by jid and never replaces: an admission's history is
+// append-only, and a jid already present on the target is a live admission
+// this restore must not walk backwards. The present set is READ first,
+// because a batch is all-or-nothing and one lost create-if-absent would refuse
+// every other row; the write itself stays conditional, so a jid that appears
+// in between is a loud refusal. NO gating: that is `archive apply`
+// orchestration in cmd/arizuko.
 func (s *Store) ImportOnboarding(ctx context.Context, rows []ArchiveOnboardingRow) (int, error) {
 	if len(rows) == 0 {
 		return 0, nil
@@ -925,8 +826,8 @@ func (s *Store) ImportOnboarding(ctx context.Context, rows []ArchiveOnboardingRo
 	return len(rows), nil
 }
 
-// CountOnboarding counts every admission row — the proven-empty-target gate's
-// third twin, alongside CountRouteTokens and CountInvites.
+// CountOnboarding counts every admission row: the proven-empty-target gate's
+// third twin, beside CountRouteTokens and CountInvites.
 func (s *Store) CountOnboarding(ctx context.Context) (int, error) {
 	rows, err := s.readOnboarding(ctx)
 	return len(rows), err

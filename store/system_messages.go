@@ -4,29 +4,13 @@ package store
 // per system event queued for a folder's next agent prompt, appended by the
 // producer and drained by the prompt build.
 //
-// THE PARTITION IS OwnerRoutd AND THE FOLDER LEADS THE SORT KEY, with the queue
-// position after it. Every operation names a folder — the append, the read and
-// the drain, and there is no fourth — so rule 1's tenancy coordinate is what the
-// reads ask for. It is not the PARTITION for the reason sessions.go gives: a
-// group delete purges a folder SUBTREE, a query must name one partition, and
-// enumerating partitions is not an operation the interface has. With the folder
-// leading the sort key the same read is a begins_with, so it costs less than the
-// statement it replaces — `WHERE folder = ?` answered `SCAN system_messages` on
-// krons, because the table has no index but its rowid (EXPLAIN QUERY PLAN,
-// 2026-09-09).
-//
-// THE QUEUE POSITION IS AN INSTANT AND NOT A SEQUENCE, which is rule 4. The
-// statement this replaces read `ORDER BY id ASC` over an AUTOINCREMENT id, and
-// no document store mints one. The position is core.TS at its fixed width plus
-// the suffix that makes two events queued in the same nanosecond two items —
-// audit_log's shape, and for the same reason: several processes write into this
-// database and a Put that refuses rather than overwrites is what makes a
-// collision loud instead of a lost event.
-//
-// THE DRAIN DELETES WHAT IT READ, not what matches the folder. An entity has no
-// predicate delete, so the items are queried and removed one write each — and
-// that is stricter than the statement it replaces, which deleted by folder and
-// so could take an event that arrived after the read and was never rendered.
+// The partition is OwnerRoutd and the folder leads the sort key, with the queue
+// position after it: every operation names a folder, and a group delete purges
+// a subtree, so the folder cannot be the partition (sessions.go's reason). The
+// queue position is an instant, not a sequence: core.TS plus a suffix that
+// makes two events queued in one nanosecond two items, and a Put that refuses
+// makes a collision loud. THE DRAIN DELETES WHAT IT READ, not what matches the
+// folder: an event that arrived after the read is never deleted unrendered.
 
 import (
 	"context"
@@ -40,7 +24,7 @@ import (
 )
 
 // The attributes a queued event carries. The folder and the instant are the
-// coordinate and are not among them.
+// coordinate.
 const (
 	attrSysSource = "source"
 	attrSysKind   = "kind"
@@ -48,19 +32,16 @@ const (
 )
 
 // sysSuffixHex is how many hex digits separate two events queued in the same
-// nanosecond. Four bytes of randomness, for audit_log's reason.
+// nanosecond.
 const sysSuffixHex = 8
 
-// SysStampWidth is the width of the queue position: core.TS's thirty bytes, a
-// separator, and the suffix. It is exported because the move that carries these
-// rows builds one from a legacy row's id and has to render the same width.
+// SysStampWidth is the width of the queue position. Exported because the move
+// that carries these rows builds one from a legacy row's id.
 const SysStampWidth = tsWidth + 1 + sysSuffixHex
 
-// SystemMessage is one queued event, and the position it was queued at.
-//
-// The position is unexported: it is the item's coordinate, and a caller that
-// could name one could delete an event it never rendered. Drain takes the values
-// this read produced, which is what makes "delete what was rendered" exact.
+// SystemMessage is one queued event, and the position it was queued at. The
+// position is unexported: a caller that could name one could delete an event
+// it never rendered, and Drain takes the values this read produced.
 type SystemMessage struct {
 	Source string
 	Kind   string
@@ -69,7 +50,7 @@ type SystemMessage struct {
 }
 
 // SysStamp assembles a queue position from a rendered instant and a suffix, so
-// the live writer and the move that carries an existing row build one shape.
+// the live writer and the move build one shape.
 func SysStamp(ts, suffix string) string { return ts + "-" + suffix }
 
 // sysNowStamp is the position an event queued now takes.
@@ -99,8 +80,8 @@ func sysMsgKey(folder, at string) (objstore.Key, error) {
 	return objstore.Key{Partition: OwnerRoutd, Sort: folder + KeySep + at}, nil
 }
 
-// SysMsgFolder reads the folder out of one item's coordinate. It is exported
-// because folder_scope.go decides a purge from it.
+// SysMsgFolder reads the folder out of one item's coordinate. Exported because
+// folder_scope.go decides a purge from it.
 func SysMsgFolder(sortKey string) (string, bool) {
 	folder, _, ok := strings.Cut(sortKey, KeySep)
 	return folder, ok
@@ -147,9 +128,7 @@ func (s *Store) CountSystemMessages(ctx context.Context) (int, error) {
 	return len(items), nil
 }
 
-// QueuedSystemMessagesTx reads a folder's queue in the order it was written, on
-// a transaction the CALLER owns — the same transaction the drain runs in, so no
-// event is rendered by one flush and deleted by another.
+// QueuedSystemMessages reads a folder's queue in the order it was written.
 func (s *Store) QueuedSystemMessages(ctx context.Context, folder string) ([]SystemMessage, error) {
 	if folder == "" {
 		return nil, nil
@@ -182,9 +161,7 @@ func (s *Store) QueuedSystemMessages(ctx context.Context, folder string) ([]Syst
 }
 
 // DrainSystemMessages removes exactly the events a read produced, and reports
-// whether it got them all. It replaces the
-// caller's transaction. Delivery is at most once, so the drain commits with the
-// prompt that carried them.
+// whether it got them all. Delivery is at most once.
 func (s *Store) DrainSystemMessages(ctx context.Context,
 	folder string, msgs []SystemMessage) (bool, error) {
 	writes := make([]objstore.Write, 0, len(msgs))
@@ -193,9 +170,9 @@ func (s *Store) DrainSystemMessages(ctx context.Context,
 		if err != nil {
 			return false, err
 		}
-		// The delete IS the claim: an event another flush already took is gone,
-		// the condition refuses, and the whole set stays queued for a reader that
-		// can name it. No event reaches two prompts and none is lost.
+		// The delete IS the claim: an event another flush already took refuses,
+		// and the whole set stays queued for a reader that can name it. No
+		// event reaches two prompts and none is lost.
 		writes = append(writes, objstore.Write{
 			Op: objstore.Delete, Entity: SystemMessages, Key: key,
 			Cond: objstore.Cond{Item: objstore.ItemPresent},

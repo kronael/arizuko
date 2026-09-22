@@ -4,35 +4,14 @@ package store
 // (observer, source) subscription, which is what makes a source folder's inbound
 // messages arrive in the observer's prompt as ambient context.
 //
-// THE PARTITION IS OwnerRoutd AND THE OBSERVER LEADS THE SORT KEY. Both writes
-// name the whole pair — subscribe and cancel — and the one read names the
-// observer alone, so with the observer leading it is a begins_with over a
-// leading fragment of the key. Putting the source first would make that read a
-// whole-partition scan with a filter.
+// The partition is OwnerRoutd and the observer leads the sort key: the one read
+// names the observer alone, so it is a begins_with. The item carries NO
+// attributes: the pair IS the fact. Neither folder can be the partition,
+// because a group delete purges by observer AND by source, and enumerating
+// partitions is not an operation the interface has.
 //
-// THE ITEM CARRIES NO ATTRIBUTES. The pair IS the fact; there is nothing else to
-// record about a subscription, and a stamp nobody reads would be a second thing
-// to keep true.
-//
-// NEITHER FOLDER CAN BE THE PARTITION, and this entity is the one where that is
-// obvious: a group delete purges by observer AND by source, so whichever half
-// were the partition, the other half's purge would have no partition to name —
-// and enumerating partitions is not an operation the interface has. Under the
-// constant BOTH purges are a whole-partition read with the containment test done
-// here, which is what every other entity's purge already does
-// (folder_scope.go). The table holds no rows on any of the three live instances
-// (2026-09-09); what bounds it is the number of live observe_group
-// subscriptions.
-//
-// NOTHING HERE IS COMPARED BY ORDER. There is no timestamp and no counter, and
-// both fields are folder paths compared by equality and by containment. A
-// containment test is a prefix, not an ordering, so no attribute carries a width
-// declaration.
-//
-// SUBSCRIBING IS IDEMPOTENT AND NOT A CLAIM. No caller reads whether the write
-// was the first: the agent's `observe_group` tool asks for the subscription to
-// exist, and it does. So a refused create is success here, where in
-// turn_results.go the identical shape is the whole answer.
+// Subscribing is idempotent and not a claim: a refused create is success here,
+// where in turn_results.go the identical shape is the whole answer.
 
 import (
 	"context"
@@ -69,15 +48,14 @@ func watcherCoord(sortKey string) (observer, source string, err error) {
 }
 
 // AddGroupWatcher subscribes observer to source's inbound messages as ambient
-// context (spec 5/F). Asking twice is asking for the same state, so a create the
-// item's own presence refuses is success and not an error.
+// context (spec 5/F). Asking twice is asking for the same state.
 func (s *Store) AddGroupWatcher(observer, source string) error {
 	key, err := watcherKey(observer, source)
 	if err != nil {
 		return err
 	}
-	// A refusal is the subscription already being there, which is the state the
-	// caller asked for.
+	// A refusal is the subscription already being there, which is the state
+	// the caller asked for.
 	if _, err := s.TryWriteEntities(context.Background(), nil, objstore.Write{
 		Op: objstore.Put, Entity: GroupWatchers, Key: key, Attrs: map[string]string{},
 		Cond: objstore.Cond{Item: objstore.ItemAbsent},
@@ -88,7 +66,7 @@ func (s *Store) AddGroupWatcher(observer, source string) error {
 }
 
 // RemoveGroupWatcher cancels the subscription. Cancelling one that is not there
-// is not an error: the caller asks for the subscription to be gone, and it is.
+// is not an error.
 func (s *Store) RemoveGroupWatcher(observer, source string) error {
 	key, err := watcherKey(observer, source)
 	if err != nil {
@@ -102,11 +80,8 @@ func (s *Store) RemoveGroupWatcher(observer, source string) error {
 	return nil
 }
 
-// WatchedSources answers the source folders observer is subscribed to, which the
-// prompt build splices into its ambient window as a second `messages` read.
-//
-// The read is a begins_with on the observer, so it costs the subscriptions this
-// observer holds and no others.
+// WatchedSources answers the source folders observer is subscribed to, which
+// the prompt build splices into its ambient window as a second `messages` read.
 func (s *Store) WatchedSources(observer string) []string {
 	sources, err := s.watchedSources(context.Background(), observer)
 	if err != nil {

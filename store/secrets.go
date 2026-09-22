@@ -3,34 +3,17 @@ package store
 // secrets.go holds every read and write of `secrets`: one item per sealed
 // value, addressed by (scope_kind, scope_id, key).
 //
-// THE PARTITION IS OwnerRoutd AND IT IS NOT A CHOICE THIS FILE MAKES. `secrets`
-// is a registered resreg resource, and an entity-backed resource's items live at
-// its owner subsystem (resreg.SubsystemRoutd, which IS store.OwnerRoutd). A
-// second spelling would put this file's items in one partition and the engine's
-// read in another, and the failure is silent: a query on a partition nobody
-// wrote to is a legal query that selects nothing.
+// The partition is OwnerRoutd because resreg's entity path writes these items
+// too (resreg.SubsystemRoutd IS store.OwnerRoutd); a second spelling selects
+// nothing, silently. The scope leads the coordinate, so one scope's secrets are
+// a begins_with; `key` is the last field, so that read IS `ORDER BY key`.
 //
-// THE SCOPE LEADS THE COORDINATE, which is what makes every resolution a key
-// predicate. `scope_kind + KeySep + scope_id + KeySep` is a leading fragment, so
-// reading one folder's or one user's secrets is a begins_with that touches
-// nothing else — exact, because no value of the three may carry the separator.
-// Ordering by that read IS `ORDER BY key`, because key is the last field.
-//
-// THIS FILE IS THE ONLY WRITER OF THE SEALED HALF. `value` holds the blob,
-// `provider`, `refresh_val`, `expires_at` and `scope_list` the surrogate-OAuth
-// state, and the resource's RowType deliberately names none of the five
-// (routd/resource_columns_test.go rowTypeGaps): a manifest that carried them
-// would carry a live credential into the export an operator reads. That is also
-// why every upsert here is a MERGE — a Put replaces the item's whole attribute
-// set, so one unconditional Put of the metadata would erase the OAuth state
-// beside it, and the conformance body AMergeKeepsWhatTheWriterDidNotName is
-// what says which credential went.
-//
-// `created_at` IS core.TS, at 30 bytes. That is the width resreg's own entity
-// path stamps a StampedField at (resreg/entity.go itemFor), and the two writers
-// of these items have to agree byte for byte — an apply that stamped 30 where
-// this file wrote 20 would put two widths in one attribute, and a comparison
-// over TEXT answers by byte order (BUGS L97).
+// `value` and the four surrogate-OAuth attributes are written only here and
+// are absent from the resource's RowType (routd/resource_columns_test.go
+// rowTypeGaps): a manifest that carried them would carry a live credential.
+// Every upsert is a MERGE, because a Put would erase the OAuth state beside the
+// blob. `created_at` is core.TS at 30 bytes, the width resreg's entity path
+// stamps (BUGS L97).
 
 import (
 	"context"
@@ -50,12 +33,9 @@ import (
 )
 
 // The attributes a secret item carries. The three coordinate fields are NOT
-// among them: they are the key, and storing the coordinate twice is two facts
-// that can disagree.
-//
-// The last four belong to the surrogate-OAuth half (spec 5/15) and only
-// secrets_oauth.go writes them; a pasted PAT carries none of them, which is what
-// tells the two apart.
+// among them: storing the coordinate twice is two facts that can disagree. The
+// last four are the surrogate-OAuth half (spec 5/15), written only by
+// secrets_oauth.go; a pasted PAT carries none of them.
 const (
 	attrSecValue      = "value"
 	attrSecCreatedAt  = "created_at"
@@ -65,13 +45,9 @@ const (
 	attrSecScopeList  = "scope_list"
 )
 
-// secretKey is the coordinate of one secret.
-//
-// A value carrying the separator is REFUSED rather than joined: two different
-// secrets would address one item, the last write would win, and the read that
-// splits the key back apart would name a scope neither of them holds. That is
-// the same refusal resreg's own entity path makes over the same three fields
-// (resreg/entity.go sortKeyFor), because both of them write these items.
+// secretKey is the coordinate of one secret. A value carrying the separator is
+// REFUSED: two secrets would address one item. resreg/entity.go sortKeyFor
+// makes the same refusal over the same three fields.
 func secretKey(scope SecretScope, scopeID, key string) (objstore.Key, error) {
 	parts := []string{string(scope), scopeID, key}
 	for i, v := range parts {
@@ -88,15 +64,14 @@ func secretKey(scope SecretScope, scopeID, key string) (objstore.Key, error) {
 }
 
 // secretScopePrefix is the leading fragment every one-scope read selects on.
-// The trailing separator is what keeps folder `a` from reaching folder `ab`.
+// The trailing separator keeps folder `a` from reaching folder `ab`.
 func secretScopePrefix(scope SecretScope, scopeID string) string {
 	return string(scope) + KeySep + scopeID + KeySep
 }
 
 // secretKeyOf reads the `key` back out of one item's coordinate. A coordinate
-// that does not split into three parts is a LOUD fault: half a coordinate names
-// a secret nobody wrote, and a resolution reading it would hand a container the
-// wrong credential.
+// that does not split into three is a LOUD fault: a resolution reading it would
+// hand a container the wrong credential.
 func secretKeyOf(it objstore.Item) (string, error) {
 	parts := strings.Split(it.Key.Sort, KeySep)
 	if len(parts) != 3 {
@@ -106,8 +81,7 @@ func secretKeyOf(it objstore.Item) (string, error) {
 	return parts[2], nil
 }
 
-// secretsIn reads ONE scope's secrets, in key order — which IS the coordinate's
-// order, because `key` is its last field.
+// secretsIn reads ONE scope's secrets, in key order.
 func (s *Store) secretsIn(ctx context.Context, scope SecretScope, scopeID string) ([]objstore.Item, error) {
 	items, err := s.Obj().Query(ctx, objstore.Query{
 		Entity: Secrets, Partition: OwnerRoutd,
@@ -119,9 +93,8 @@ func (s *Store) secretsIn(ctx context.Context, scope SecretScope, scopeID string
 	return items, nil
 }
 
-// secretUpsert renders the ONE write a metadata upsert is: merge the fields the
-// caller owns into the item, creating it when the secret is new. See the file
-// header on why a single Put would be data loss.
+// secretUpsert renders the Merge a metadata upsert is (the file header says
+// why not a Put).
 func secretUpsert(scope SecretScope, scopeID, key string,
 	owned map[string]string) (objstore.Write, error) {
 	k, err := secretKey(scope, scopeID, key)
@@ -150,10 +123,8 @@ func (s *Store) sealedAttrs(value string) (map[string]string, error) {
 	return map[string]string{attrSecValue: stored, attrSecCreatedAt: core.NowTS()}, nil
 }
 
-// secretDelete renders the write that removes one secret. The condition is what
-// counts the batch: a delete of a missing item is otherwise idempotent and says
-// nothing, and `RowsAffected() == 0` is the ErrSecretNotFound the HTTP layer 404s
-// on.
+// secretDelete renders the write that removes one secret. The ItemPresent
+// condition is what turns a missing item into ErrSecretNotFound.
 func secretDelete(scope SecretScope, scopeID, key string) (objstore.Write, error) {
 	k, err := secretKey(scope, scopeID, key)
 	if err != nil {
@@ -183,11 +154,9 @@ func (s *Store) deleteSecret(ctx context.Context, scope SecretScope, scopeID, ke
 	return nil
 }
 
-// secretV2Prefix marks an AES-256-GCM-encrypted secret value (spec 5/14
-// "Encryption at rest"). Stored form: "v2:" + base64(nonce||ciphertext).
-// A value without this prefix is a legacy plaintext row (v1) that a build
-// before BUGS S2 wrote. The read path still opens it. No write path creates
-// one.
+// secretV2Prefix marks an AES-256-GCM value: "v2:" + base64(nonce||ciphertext)
+// (spec 5/14). A value without it is legacy plaintext from before BUGS S2: the
+// read path opens it, no write path creates one.
 const secretV2Prefix = "v2:"
 
 // seal encrypts plaintext under the active key (secretKeys[0]). Only valid when
@@ -205,9 +174,8 @@ func (s *Store) seal(plaintext string) (string, error) {
 	return secretV2Prefix + base64.StdEncoding.EncodeToString(ct), nil
 }
 
-// open decrypts a "v2:" value, trying each keyring key until one authenticates
-// (so a value sealed under a now-retired key still reads during rotation).
-// Legacy plaintext (no prefix) is returned as-is.
+// open decrypts a "v2:" value, trying each keyring key so a value sealed under
+// a retired key still reads. Legacy plaintext is returned as-is.
 func (s *Store) open(stored string) (string, error) {
 	if len(s.secretKeys) == 0 || !strings.HasPrefix(stored, secretV2Prefix) {
 		return stored, nil
@@ -243,11 +211,9 @@ func (s *Store) gcm(key [32]byte) (cipher.AEAD, error) {
 // operator configured SECRETS_KEY.
 var ErrNoSecretsKey = errors.New("SECRETS_KEY is not configured: refusing to write a secret in plaintext")
 
-// storeValue returns the at-rest form of plaintext. Every write path in this
-// package calls it, so it is the one place that enforces encryption at rest.
-// An empty keyring returns ErrNoSecretsKey. It MUST NOT return the plaintext:
-// that fallback made an un-keyed daemon persist every secret readable on disk,
-// and each healthcheck still reported the daemon healthy (BUGS S2).
+// storeValue returns the at-rest form of plaintext; every write path calls it.
+// It MUST NOT return the plaintext on an empty keyring: that fallback persisted
+// every secret readable on disk while healthchecks stayed green (BUGS S2).
 func (s *Store) storeValue(plaintext string) (string, error) {
 	if len(s.secretKeys) == 0 {
 		return "", ErrNoSecretsKey
@@ -256,43 +222,33 @@ func (s *Store) storeValue(plaintext string) (string, error) {
 }
 
 // SecretScope is the kind of scope a secret is bound to: a folder path glob
-// or an auth user sub. See specs/5/14-credentials.md.
+// or an auth user sub (specs/5/14-credentials.md).
 type SecretScope string
 
-// SecretScopeFolder is the `scope_kind` value of a folder-scoped secret,
-// spelled as the plain text the coordinate carries. It is declared as a string
-// rather than a SecretScope because the readers that need it hold a key
-// fragment and not a typed scope: folder_scope.go splits an item's coordinate
-// to decide whether a group delete takes the secret with it.
+// SecretScopeFolder is the `scope_kind` of a folder-scoped secret, as a plain
+// string because folder_scope.go holds a key fragment, not a typed scope.
 const SecretScopeFolder = "folder"
 
 const (
 	ScopeFolder SecretScope = SecretScopeFolder
 	ScopeUser   SecretScope = "user"
 
-	// ScopeMissing is AUDIT-ONLY: it never names a stored row (SetSecret still
-	// admits only folder/user), it is the third member of the `secret_use_log`
-	// scope_kind vocabulary — the tool asked for a key that resolved to nothing
-	// (spec 5/13 § Audit: scope_kind ∈ {user, folder, missing}).
+	// ScopeMissing is AUDIT-ONLY: it never names a stored row; it is the third
+	// `secret_use_log` scope_kind (spec 5/13 § Audit).
 	ScopeMissing SecretScope = "missing"
 
-	// Folder path "root" is the catch-all parent walked to last by
-	// FolderSecretsResolved. Concrete folders override it.
+	// rootFolder is the catch-all parent FolderSecretsResolved walks to last.
 	rootFolder = "root"
 )
 
 var ErrSecretNotFound = errors.New("secret not found")
 
 // EnvProfileKeys are the AI model credential names that belong to users only,
-// never folders. The operator platform fallback lives in host .env via
-// container/runner.go:readSecrets(). Folder-scope rows for these keys are
-// rejected at the store layer so the distinction is enforced uniformly.
+// never folders; folder rows are rejected here so the rule is enforced once.
 var EnvProfileKeys = map[string]struct{}{
 	"ANTHROPIC_API_KEY": {},
-	// Two names, two readers, one credential. claude reads
-	// CLAUDE_CODE_OAUTH_TOKEN; pi reads ANTHROPIC_OAUTH_TOKEN and prefers it
-	// over the API key. A name absent from this map never reaches a container,
-	// so pi had no credential at all on an instance that holds one.
+	// claude reads CLAUDE_CODE_OAUTH_TOKEN; pi reads ANTHROPIC_OAUTH_TOKEN. A
+	// name absent from this map never reaches a container.
 	"CLAUDE_CODE_OAUTH_TOKEN": {},
 	"ANTHROPIC_OAUTH_TOKEN":   {},
 	"OPENAI_API_KEY":          {},
@@ -301,8 +257,8 @@ var EnvProfileKeys = map[string]struct{}{
 
 var secretKeyRE = regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`)
 
-// ValidSecretKey accepts uppercase ENV-style identifiers only — the one rule
-// the CLI and dashd's /dash/me pages both apply to a secret's name.
+// ValidSecretKey accepts uppercase ENV-style identifiers only, the one rule the
+// CLI and dashd's /dash/me pages both apply.
 func ValidSecretKey(key string) bool { return secretKeyRE.MatchString(key) }
 
 type Secret struct {
@@ -331,13 +287,7 @@ func validateScope(scope SecretScope, scopeID, key string) error {
 	return nil
 }
 
-// SetSecret seals one secret and records the act, in ONE batch.
-//
-// The mutation and its audit row commit together or neither does, which is what
-// the transaction here gave: no write without its record, no record without its
-// write. The batch gives it without one, because the upsert is a single Merge
-// and a batch may name each item once (spec 6/40 §"The audited write commits in
-// a GuardedBatch").
+// SetSecret seals one secret and records the act, in ONE batch (spec 6/40).
 func (s *Store) SetSecret(scope SecretScope, scopeID, key, value string) error {
 	if err := validateScope(scope, scopeID, key); err != nil {
 		return err
@@ -354,9 +304,7 @@ func (s *Store) SetSecret(scope SecretScope, scopeID, key, value string) error {
 	if scope == ScopeFolder {
 		folder = scopeID
 	}
-	// The row names the secret and whether it sealed. It MUST NOT carry the value:
-	// an audit trail an operator reads is not a place to put the thing the trail
-	// exists to protect.
+	// The row MUST NOT carry the value.
 	actor, actorSub, surface := s.auditIdentity()
 	_, rec := audit.WriteFor(audit.Event{
 		Category: audit.CategorySecret,
@@ -375,12 +323,8 @@ func (s *Store) SetSecret(scope SecretScope, scopeID, key, value string) error {
 	return s.WriteEntities(context.Background(), nil, w, rec)
 }
 
-// PutSecretRow seals and upserts one secret WITHOUT emitting an audit_log row —
-// the audit-free twin of SetSecret used by the FS-mounted daemons that write
-// secrets into routd.db directly (dashd's per-user env/secret pages, the CLI).
-// The at-rest encoding is identical to SetSecret (storeValue → "v2:" seal when a
-// keyring is set), so reads through FolderSecretsResolved decrypt the same way.
-// routd itself uses the audited SetSecret.
+// PutSecretRow is the audit-free twin of SetSecret, for the FS-mounted writers
+// (dashd, the CLI). Same at-rest encoding.
 func (s *Store) PutSecretRow(scope SecretScope, scopeID, key, value string) error {
 	if err := validateScope(scope, scopeID, key); err != nil {
 		return err
@@ -392,10 +336,8 @@ func (s *Store) PutSecretRow(scope SecretScope, scopeID, key, value string) erro
 	return s.putSecret(context.Background(), scope, scopeID, key, owned)
 }
 
-// DeleteSecretRow removes one secret WITHOUT emitting an audit_log row — the
-// audit-free twin of DeleteSecret used by the FS-mounted daemons that delete
-// secrets from routd.db directly (dashd, the CLI). Returns ErrSecretNotFound when
-// no row matched so the HTTP layer can 404. routd itself uses DeleteSecret.
+// DeleteSecretRow is the audit-free twin of DeleteSecret. ErrSecretNotFound
+// lets the HTTP layer 404.
 func (s *Store) DeleteSecretRow(scope SecretScope, scopeID, key string) error {
 	if err := validateScope(scope, scopeID, key); err != nil {
 		return err
@@ -457,22 +399,15 @@ func (s *Store) ListSecrets(scope SecretScope, scopeID string) ([]Secret, error)
 	return out, nil
 }
 
-// SecretKeyRow names one stored secret WITHOUT its value: the key, and the
-// instant it landed as its writer stamped it (core.TS).
+// SecretKeyRow names one stored secret WITHOUT its value.
 type SecretKeyRow struct {
 	Key       string
 	CreatedAt string
 }
 
-// SecretKeysIn lists the key names one scope holds, in key order, and the value
-// NEVER LEAVES THE ENGINE: `value` is not in the projection, so the sealed blob
-// is not read, not decrypted and not put on the wire. That is authority the
-// pages asking this question have no use for — /dash/me mirrors GitHub SSH keys,
-// names visible and secrets opaque — and projecting after the read would hand it
-// to them anyway (objstore Query.Project).
-//
-// The order is the coordinate's, because `key` is the last of its three fields,
-// which is what `ORDER BY key` gave.
+// SecretKeysIn lists the key names one scope holds, in key order. `value` is
+// not in the projection, so the blob is never read or decrypted: authority the
+// pages asking this question have no use for.
 func (s *Store) SecretKeysIn(scope SecretScope, scopeID string) ([]SecretKeyRow, error) {
 	if scope != ScopeFolder && scope != ScopeUser {
 		return nil, fmt.Errorf("invalid scope_kind: %q", scope)
@@ -499,8 +434,7 @@ func (s *Store) SecretKeysIn(scope SecretScope, scopeID string) ([]SecretKeyRow,
 	return out, nil
 }
 
-// DeleteSecret removes one secret and records the act, in ONE batch — the twin
-// of SetSecret, and atomic for the same reason.
+// DeleteSecret removes one secret and records the act, in ONE batch.
 func (s *Store) DeleteSecret(scope SecretScope, scopeID, key string) error {
 	if err := validateScope(scope, scopeID, key); err != nil {
 		return err
@@ -524,9 +458,8 @@ func (s *Store) DeleteSecret(scope SecretScope, scopeID, key string) error {
 	return s.deleteSecret(context.Background(), scope, scopeID, key, rec)
 }
 
-// plaintextSecrets reads every item whose blob is NOT sealed. The prefix test is
-// on the attribute's TEXT, so it reads the partition and compares — which is
-// what `value NOT LIKE 'v2:%'` was: an unindexed predicate over one table.
+// plaintextSecrets reads every item whose blob is NOT sealed: a partition read
+// and a filter, because no index answers a prefix test on attribute text.
 func (s *Store) plaintextSecrets(ctx context.Context) ([]objstore.Item, error) {
 	items, err := s.Obj().Query(ctx, objstore.Query{Entity: Secrets, Partition: OwnerRoutd})
 	if err != nil {
@@ -542,8 +475,7 @@ func (s *Store) plaintextSecrets(ctx context.Context) ([]objstore.Item, error) {
 }
 
 // CountPlaintextSecrets counts the legacy rows EncryptPlaintextSecrets would
-// seal. It backs `arizuko secret seal-legacy --dry-run`, so the operator sees
-// the blast radius BEFORE rewriting the attribute every credential lives in.
+// seal; it backs `arizuko secret seal-legacy --dry-run`.
 func (s *Store) CountPlaintextSecrets(ctx context.Context) (int, error) {
 	items, err := s.plaintextSecrets(ctx)
 	if err != nil {
@@ -552,19 +484,10 @@ func (s *Store) CountPlaintextSecrets(ctx context.Context) (int, error) {
 	return len(items), nil
 }
 
-// EncryptPlaintextSecrets encrypts every legacy-plaintext row in place under the
-// configured key (spec 5/14) and returns how many it sealed. Idempotent. Never
-// deletes — its whole job is to seal.
-//
-// Refuses without a key rather than reporting a silent success. It ran nowhere
-// at all until 2026-08-15 (BUGS L16) — a caller that cannot tell "sealed
-// nothing, there was nothing to seal" from "sealed nothing, there was no key" is
-// how a migration goes unnoticed for months.
-//
-// The sweep commits a CHUNK at a time rather than all at once, because a batch
-// carries at most MaxBatchActions and one instance holds more secrets than that.
-// A chunk that lands and a chunk that does not leave work a re-run finishes: a
-// sealed value is already prefixed, so the next run does not see it.
+// EncryptPlaintextSecrets seals every legacy-plaintext row in place (spec 5/14)
+// and returns how many it sealed. Idempotent, chunked, never deletes. It
+// refuses without a key rather than reporting zero: a silent zero hid that it
+// ran nowhere until 2026-08-15 (BUGS L16).
 func (s *Store) EncryptPlaintextSecrets(ctx context.Context) (int, error) {
 	if len(s.secretKeys) == 0 {
 		return 0, ErrNoSecretsKey
@@ -591,11 +514,8 @@ func (s *Store) EncryptPlaintextSecrets(ctx context.Context) (int, error) {
 }
 
 // ArchiveSecretRow is one row of the archive's routd.secrets.yaml document
-// (spec 5/8 "Secret and token values"): SecretsRow's shape
-// (resreg/resources/secrets.go) plus Value — the encrypted-at-rest blob the
-// config manifest deliberately omits. Value travels exactly as stored
-// ("v2:"+base64(nonce||ciphertext), or legacy plaintext) — never decrypted
-// for transport.
+// (spec 5/8): SecretsRow's shape plus Value, which travels exactly as stored,
+// never decrypted.
 type ArchiveSecretRow struct {
 	ScopeKind string `yaml:"scope_kind"`
 	ScopeID   string `yaml:"scope_id"`
@@ -604,13 +524,9 @@ type ArchiveSecretRow struct {
 	CreatedAt string `yaml:"created_at,omitempty"`
 }
 
-// ExportSecretRows reads every secrets row, blob included, for the archive's
-// routd.secrets.yaml document. Unlike ListSecrets/GetSecret it does NOT
-// decrypt — the blob travels as-is (spec 5/8: "encrypted secret blobs travel
-// as-is. SECRETS_KEY never enters the archive").
-//
-// The partition read comes back in coordinate order, which IS
-// `ORDER BY scope_kind, scope_id, key`.
+// ExportSecretRows reads every secrets row, blob included, for the archive. It
+// does NOT decrypt (spec 5/8: SECRETS_KEY never enters the archive). The
+// coordinate order IS `ORDER BY scope_kind, scope_id, key`.
 func (s *Store) ExportSecretRows(ctx context.Context) ([]ArchiveSecretRow, error) {
 	items, err := s.Obj().Query(ctx, objstore.Query{Entity: Secrets, Partition: OwnerRoutd})
 	if err != nil {
@@ -634,16 +550,11 @@ func (s *Store) ExportSecretRows(ctx context.Context) ([]ArchiveSecretRow, error
 	return out, nil
 }
 
-// ValidateAndImportSecrets validates EVERY row's blob against the configured
-// keyring BEFORE writing any of them, then UPSERTs by (scope_kind, scope_id, key)
-// — never DELETE+INSERT, matching secrets' SkipApplyRebuild discipline: one DB can
-// hold blobs sealed under different retired keys, so a single probe row proves
-// nothing about the rest. Refuses the WHOLE batch on the first failure, naming the
-// failing key without echoing the value. The plaintext open() yields is discarded
-// immediately.
-//
-// The write carries the archive's own created_at rather than stamping a new one,
-// because the instant the secret was set is part of what the archive restores.
+// ValidateAndImportSecrets validates EVERY row's blob against the keyring
+// BEFORE writing any, then upserts: never delete+insert, because one DB can
+// hold blobs sealed under different retired keys (SkipApplyRebuild). The first
+// failure refuses the whole batch, naming the key and not the value. The
+// archive's own created_at is kept.
 func (s *Store) ValidateAndImportSecrets(ctx context.Context, rows []ArchiveSecretRow) (int, error) {
 	for _, r := range rows {
 		if _, err := s.open(r.Value); err != nil {
@@ -660,8 +571,8 @@ func (s *Store) ValidateAndImportSecrets(ctx context.Context, rows []ArchiveSecr
 	return len(rows), nil
 }
 
-// folderAncestors returns folder paths for resolution, deepest first, ending with "root".
-// e.g. "atlas/eng/sre" → ["atlas/eng/sre", "atlas/eng", "atlas", "root"].
+// folderAncestors returns folder paths for resolution, deepest first, ending
+// with "root".
 func folderAncestors(folder string) []string {
 	folder = strings.Trim(folder, "/")
 	if folder == "" || folder == rootFolder {
@@ -676,19 +587,14 @@ func folderAncestors(folder string) []string {
 	return out
 }
 
-// FolderSecretsResolved walks `folder` up through each parent to the "root"
-// catch-all and returns key=value with deepest-wins precedence.
-//
-// One read per ancestor rather than one read of the whole entity: a folder is at
-// most a handful deep, each read is an exact begins_with on the coordinate, and
-// a whole-partition read would examine every user's credentials to answer about
-// one folder. That is the shape ResolveAllowlist already uses.
+// FolderSecretsResolved walks `folder` up to the "root" catch-all and returns
+// key=value, deepest wins. One read per ancestor: a whole-partition read would
+// examine every user's credentials to answer about one folder.
 func (s *Store) FolderSecretsResolved(folder string) (map[string]string, error) {
 	ctx := context.Background()
 	paths := folderAncestors(folder)
 	out := map[string]string{}
-	// paths is deep→shallow, so the FIRST answer for a key is the deepest one
-	// and every shallower row for it is skipped.
+	// paths is deep→shallow, so the FIRST answer for a key is the deepest.
 	for _, p := range paths {
 		items, err := s.secretsIn(ctx, ScopeFolder, p)
 		if err != nil {
@@ -712,14 +618,11 @@ func (s *Store) FolderSecretsResolved(folder string) (map[string]string, error) 
 	return out, nil
 }
 
-// FolderSecretsResolvedForUser resolves the folder-ancestry secret set then
-// overlays the caller's user-scoped secrets: a user's own key WINS. This is the
-// BYOA override. Empty userSub returns the folder set unchanged.
-//
-// The second return names the SCOPE each key came from. This is the ONLY point
-// where user-vs-folder provenance exists — the overlay collapses both into one map
-// — so secret_use_log gets it from here rather than from a second lookup that
-// could disagree (spec 5/13 § Audit).
+// FolderSecretsResolvedForUser overlays the caller's user-scoped secrets on
+// FolderSecretsResolved: a user's own key WINS (the BYOA override). Empty
+// userSub returns the folder set unchanged. The second return names the scope
+// each key came from; it is the ONLY point where that provenance exists, so
+// secret_use_log takes it from here (spec 5/13 § Audit).
 func (s *Store) FolderSecretsResolvedForUser(folder, userSub string) (map[string]string, map[string]SecretScope, error) {
 	out, err := s.FolderSecretsResolved(folder)
 	if err != nil {
