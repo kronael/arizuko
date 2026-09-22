@@ -10,6 +10,7 @@ import (
 
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/objstore/dynstore"
+	"github.com/kronael/arizuko/store"
 )
 
 // The endpoint and its trust bundle reach every daemon, because every daemon
@@ -265,5 +266,46 @@ func TestNoOnboardSubtreeRouteWithoutASubtreeHandler(t *testing.T) {
 	}
 	if subtree {
 		t.Error("a /onboard/ row is back; it matches the subtree, and onbod serves none of it")
+	}
+}
+
+// An enrolment that stopped half way is the L45 class: the daemons without a
+// key fail at their first store call while the instance looks healthy. NONE
+// enrolled is a fresh `arizuko create` and must stay silent, or the warning
+// fires on every new instance and nobody reads it again (BUGS L319).
+func TestPartialStoreEnrolmentIsLoudAndAFreshInstanceIsNot(t *testing.T) {
+	var need []string
+	for daemon, owners := range store.StoreReach {
+		if len(owners) > 0 {
+			need = append(need, daemon)
+		}
+	}
+	if len(need) < 2 {
+		t.Fatalf("StoreReach names %d daemons needing a key; this test needs at least 2", len(need))
+	}
+
+	logs := captureComposeErrors(t)
+	warnPartialEnrolment(nil)
+	if got := logs.String(); got != "" {
+		t.Errorf("a fresh instance warned: %q", got)
+	}
+
+	logs = captureComposeErrors(t)
+	warnPartialEnrolment(need)
+	if got := logs.String(); got != "" {
+		t.Errorf("a complete enrolment warned: %q", got)
+	}
+
+	logs = captureComposeErrors(t)
+	warnPartialEnrolment(need[:1])
+	got := logs.String()
+	if !strings.Contains(got, "partial") {
+		t.Fatalf("a half-finished enrolment was silent: %q", got)
+	}
+	if !strings.Contains(got, need[1]) {
+		t.Errorf("the error does not name a daemon that is missing its key: %q", got)
+	}
+	if strings.Contains(got, "timed") || strings.Contains(got, "ttsd") {
+		t.Errorf("the error names a daemon that needs NO store key: %q", got)
 	}
 }

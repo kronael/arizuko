@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"syscall"
@@ -1045,6 +1046,7 @@ func writeEnv(b *strings.Builder, env map[string]string) {
 // turns a config error here into an auth failure on that daemon's first store
 // call, far from the file that caused it.
 func mergeStoreCredentials(dataDir string, perDaemon map[string]map[string]string) {
+	var enrolled []string
 	for daemon := range daemonKeys {
 		file := filepath.Join(dataDir, "env", daemon+".env")
 		keyID := readEnvFileKey(file, dynstore.EnvKeyID)
@@ -1066,7 +1068,41 @@ func mergeStoreCredentials(dataDir string, perDaemon map[string]map[string]strin
 		}
 		perDaemon[daemon][dynstore.EnvKeyID] = keyID
 		perDaemon[daemon][dynstore.EnvSecret] = secret
+		enrolled = append(enrolled, daemon)
 	}
+	warnPartialEnrolment(enrolled)
+}
+
+// warnPartialEnrolment reports an enrolment that stopped half way: some daemons
+// that need a store key hold one and others do not. `store.StoreReach` declares
+// which daemons need one — `timed` and `ttsd` need none — so this is that
+// declaration's second reader rather than a list to drift (BUGS L319).
+//
+// NONE enrolled is silent, because that is a fresh `arizuko create` before the
+// operator has enrolled anything, and a warning there would fire on every new
+// instance. ALL enrolled is silent because it is done. Only the middle is a
+// fault, and it is the `L45` class: a generated value that silently stops
+// applying while the instance looks healthy.
+func warnPartialEnrolment(enrolled []string) {
+	var need []string
+	for daemon, owners := range store.StoreReach {
+		if len(owners) > 0 {
+			need = append(need, daemon)
+		}
+	}
+	var missing []string
+	for _, daemon := range need {
+		if !slices.Contains(enrolled, daemon) {
+			missing = append(missing, daemon)
+		}
+	}
+	if len(missing) == 0 || len(missing) == len(need) {
+		return
+	}
+	slices.Sort(missing)
+	slog.Error("store enrolment is partial: these daemons reach the store and hold "+
+		"no key, so each fails at its first store call while the instance looks healthy",
+		"missing", missing, "enrolled", len(enrolled), "need", len(need))
 }
 
 // seedSharedDefaults fills the env keys whose default is DECLARED in core, for
