@@ -129,23 +129,38 @@ func TestEveryDependsEntryResolves(t *testing.T) {
 // reads frontmatter, so a prose ID can name a retired number while the build
 // stays green. One retirement on 2026-09-05 left 25 such pointers across eight
 // files.
-var specIDRe = regexp.MustCompile("`(?:specs/)?([1-9][0-9]?)/([0-9]{1,2}|[A-Z])`")
+var specIDRe = regexp.MustCompile(
+	"`(?:specs/)?([1-9][0-9]?)/([0-9]{1,2}|[A-Z])`" +
+		"|\\bspecs? ([1-9][0-9]?)/([0-9]{1,2}|[A-Z])\\b")
+
+// discussesTheForm names a file that writes spec IDs as EXAMPLES of a pattern
+// rather than as citations. Its own matcher is the subject, so a retired ID in
+// it is the point. There is one, and a second entry needs the same argument.
+func discussesTheForm(rel string) bool {
+	return rel == "tests/webdocs/links_test.go"
+}
 
 // historyFiles record what was true when they were written, so a retired ID in
 // them is correct and must stay. Everything else states the present.
 func isHistory(rel string) bool {
-	return rel == "BUGS.md" || rel == "CHANGELOG.md" ||
+	return rel == "BUGS.md" || rel == "bugs.md" || rel == "CHANGELOG.md" ||
 		strings.Contains(rel, "/migrations/") || strings.HasPrefix(rel, ".diary/")
 }
 
-// TestEveryBacktickSpecIDResolves is the guard for prose pointers. A phase
+// TestEveryProseSpecIDResolves is the guard for prose pointers. A phase
 // directory that does not exist is not an error — phases are planned before
 // they are written — but a phase that exists and does not hold the ID is: that
 // is a reader sent to a spec nobody can open.
-func TestEveryBacktickSpecIDResolves(t *testing.T) {
+//
+// IT READS THE CODE TOO. sourceFiles collects .md, .go, .ts and .html, and this
+// loop skipped everything that was not .md — so eight ids in Go named specs
+// nobody could open, two of them in dashd and timed production files (BUGS
+// L354). The pattern reads the unbackticked prose form for the same reason:
+// that is how code cites a spec, and requiring backticks hid every one.
+func TestEveryProseSpecIDResolves(t *testing.T) {
 	checked := 0
 	for _, f := range sourceFiles(t) {
-		if filepath.Ext(f) != ".md" || isHistory(rel(f)) {
+		if isHistory(rel(f)) || discussesTheForm(rel(f)) {
 			continue
 		}
 		body, err := os.ReadFile(f)
@@ -153,7 +168,12 @@ func TestEveryBacktickSpecIDResolves(t *testing.T) {
 			t.Fatalf("read %s: %v", f, err)
 		}
 		for _, m := range specIDRe.FindAllStringSubmatch(string(body), -1) {
+			// One alternation, two shapes: the backtick groups or the prose
+			// groups carry the match, never both.
 			phase, id := m[1], m[2]
+			if phase == "" {
+				phase, id = m[3], m[4]
+			}
 			phaseDir := filepath.Join(root, "specs", phase)
 			if _, err := os.Stat(phaseDir); err != nil {
 				continue
@@ -164,13 +184,17 @@ func TestEveryBacktickSpecIDResolves(t *testing.T) {
 				t.Fatal(err)
 			}
 			if len(hits) == 0 {
+				// A letter spec can be `A-name.md` with no second dash.
+				if bare, gerr := filepath.Glob(filepath.Join(phaseDir, id+".md")); gerr == nil && len(bare) > 0 {
+					continue
+				}
 				t.Errorf("%s: cites %s, and specs/%s holds no %s-*.md",
 					rel(f), m[0], phase, id)
 			}
 		}
 	}
 	if checked == 0 {
-		t.Fatal("no backtick spec IDs found — the pattern stopped matching the corpus")
+		t.Fatal("no spec IDs found — the pattern stopped matching the corpus")
 	}
-	t.Logf("resolved %d backtick spec IDs", checked)
+	t.Logf("resolved %d prose spec IDs", checked)
 }

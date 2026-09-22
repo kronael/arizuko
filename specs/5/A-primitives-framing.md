@@ -49,7 +49,8 @@ spec each primitive links to — this file must not restate it.
    on the `new_session` system message routd already injects
    (`routd/dispatch.go:163`). Naming it a primitive would imply a
    workflow engine that does not exist. <!-- UNVERIFIED: the former
-   spec 5/X is gone (its modality half landed in 5/Y); the shipped
+   the session-workflows spec is gone (its modality half landed in
+   `5/Y-output-styles-per-surface`); the shipped
    surface is concepts/workflows.html and no spec owns the discipline. -->
 
 6. **The core runs standalone; the seam is REST/MCP** (user-locked
