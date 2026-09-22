@@ -38,8 +38,9 @@ line; none can be answered from the code.
   2026-09-21 and each came back narrower than filed.
 - `L133` — one question after that re-measure: `ext:` is a third namespace the
   proposal would break.
-- `L152` — the proposal was REFUTED 2026-09-20, so it needs a new record before
-  it needs a decision.
+- `L152` — the record is written: the reconciler has no oracle, because arizuko
+  keeps no durable list of principals that have presented themselves. Building
+  one is a new hot-path write, so it is a decision.
 - `L338` — the restart loop is stopped; where Slack lives is the open decision.
 - `F41` — an open question, unanswered by design: the re-greet cooldown is a
   rate and not a cap, sharpened to a three-way choice with costs.
@@ -2647,7 +2648,7 @@ or may be a real finding in our own corpus.
   Noticed in passing, NOT fixed (different concern): `p5js/references/` is
   shipped twice, once under `create/art/`.
 
-## L152 — an `acl` grant can name a principal nobody will ever present, and no surface says so (2026-09-02, open — proposal REFUTED 2026-09-20, needs a new record + sign-off)
+## L152 — an `acl` grant can name a principal nobody will ever present, and no surface says so (2026-09-02, open — the separable half SHIPPED 2026-09-22; the reconciler needs sign-off)
 
 `acl_membership` on krons grants `role:operator` to
 `telegram:user/1183985669`. That id has sent **zero** messages on the instance,
