@@ -99,7 +99,9 @@ func TestTheWalkAndTheIndexAreAffordable(t *testing.T) {
 
 	// The corpus goes, so what is measured is the index and the message bodies
 	// it keeps for the snippet — which on a live instance is the only copy.
-	src = nil
+	// The assignment IS the effect: it drops the last reference so the GC below
+	// can take the corpus before the heap is read.
+	src = nil //nolint:ineffassign // dropping the reference is the point
 	runtime.GC()
 	runtime.ReadMemStats(&loaded)
 	heap := float64(loaded.HeapAlloc-base.HeapAlloc) / (1 << 20)

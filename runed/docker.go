@@ -79,7 +79,9 @@ func (d *dockerRuntime) Run(ctx context.Context, spec RunSpec) RunResult {
 	// The span joins the turn trace via ctx (routd injected traceparent over
 	// POST /v1/runs).
 	folder := string(spec.Folder)
-	ctx, endSpan := obs.StartSpan(ctx, "container_spawn",
+	// The span's own context is dropped, not forgotten: runner.Run takes none,
+	// so container_spawn is one flat span with no children to parent.
+	_, endSpan := obs.StartSpan(ctx, "container_spawn",
 		"folder", folder, "image", d.cfg.Image)
 	obs.ContainerActiveInc()
 	start := time.Now()

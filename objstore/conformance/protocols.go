@@ -126,7 +126,6 @@ func AVersionedReplaceIsFencedByItsMarker(t *testing.T, newStore Factory) {
 	// The FENCE. A claim taken away part-way stops every write that follows,
 	// because each batch carries a check on the marker. Nothing takes a claim
 	// today; this is what a sweeper would do to an abandoned one.
-	err = nil
 	_, err = objstore.Replace(ctx, s, sc, "", work("the document"), func(ctx context.Context, r *objstore.Replacer) error {
 		if _, werr := r.Write(ctx, puts(scopeRows("kept", 1))...); werr != nil {
 			return werr
