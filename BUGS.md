@@ -2493,14 +2493,23 @@ need sign-off"). Until then the three write surfaces stay as they are, and
 `nonCanonicalWarning`'s alias check remains the only real signal: it is sound
 because it fires only when authd says the string IS an alias of another account.
 
-**Three write surfaces, one guard — and only one surface reads it.** Re-measured
-2026-09-20 and unchanged in substance: `cmd/arizuko/main.go` `checkGrantRow`
-refuses an EMPTY principal and nothing more, `dashd/grants_admin.go:199` refuses
-an empty principal and action and nothing more, and `nonCanonicalWarning` is
-wired into `add_acl` alone. Not one of the three asks whether the string
-corresponds to an account. Extending the alias guard to the other two is sound
-work with no false positives, and it is a separate, smaller entry than the
-reconciler above.
+**Three write surfaces, one guard — ALL THREE READ IT NOW (2026-09-22).** The
+2026-09-20 measurement said `add_acl` alone; dashd was wired after it
+(`dashd/grants_admin.go:246`), and the CLI is wired today. The CLI is mounted,
+so it reads authd's store directly per the split write-discipline, through the
+same `authstore.OAuthIdentityForSub` that authd's `GET /v1/identities/{sub}` is
+a thin wrapper over — one answer, two readers, no second resolution rule.
+Fail-open on all three: an unreachable authd does not refuse a grant.
+
+`TestGrantAsksAboutThePrincipal` pins that the CLI ASKS, separately from the
+renderer's own tests. A test that calls the renderer passes whether or not the
+write path reaches it, which is exactly how this surface stayed unwired while
+the other two did not.
+
+That was the separable half this entry named as "sound work with no false
+positives". What remains is the reconciler, and it is unchanged: arizuko keeps
+no durable record of which principals have presented themselves, so "never
+seen" has no oracle.
 
 **How this entry was first written wrong.** The first version claimed krons'
 Telegram operator had been unreachable since 2026-07-19. That came from a
