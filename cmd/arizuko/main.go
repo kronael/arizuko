@@ -638,20 +638,6 @@ func parseGrantArgs(verb string, args []string) (core.ACLRow, error) {
 	}, nil
 }
 
-// grantDefaults applies the defaults BOTH verbs share, so the row a grant
-// writes is the row the matching ungrant addresses. The pair is the whole
-// point: two default sets would put the revoke at a coordinate the grant never
-// wrote (store/acl.go aclKey), which is the silent no-op of L138.
-func grantDefaults(row core.ACLRow) core.ACLRow {
-	if row.Action == "" {
-		row.Action = "admin"
-	}
-	if row.Effect == "" {
-		row.Effect = store.EffectAllow
-	}
-	return row
-}
-
 // checkGrantRow refuses a row no evaluator would read the way the operator
 // typed it. The effect check is here and not only in store.aclPut because
 // RemoveACLRow does NOT validate: a delete of a coordinate nobody wrote
@@ -688,7 +674,7 @@ func operatorRow(row core.ACLRow) bool {
 // through dashd and MCP. Granting authority is the mutation an audit trail
 // exists for.
 func runGrant(s *store.Store, row core.ACLRow, w io.Writer) error {
-	row = grantDefaults(row)
+	row = store.GrantDefaults(row)
 	if err := checkGrantRow(row); err != nil {
 		return err
 	}
@@ -709,7 +695,7 @@ func runGrant(s *store.Store, row core.ACLRow, w io.Writer) error {
 }
 
 func runUngrant(s *store.Store, row core.ACLRow, w io.Writer) error {
-	row = grantDefaults(row)
+	row = store.GrantDefaults(row)
 	if err := checkGrantRow(row); err != nil {
 		return err
 	}

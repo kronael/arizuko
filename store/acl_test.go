@@ -220,3 +220,35 @@ func TestACLAllowsAPredicateOnAHoldGrant(t *testing.T) {
 		t.Fatalf("a hold: predicate was refused, but its evaluator reads claims: %v", err)
 	}
 }
+
+// The grant writer's defaults and the store writer's are two functions on
+// purpose, and the difference is load-bearing: GrantDefaults fills the ACTION,
+// aclDefaults does not. A row reaching AddACLRow directly therefore keeps an
+// empty action, and making them one would default that to `admin` and widen
+// every caller of AddACLRow (BUGS L345, the open half).
+//
+// This pins the difference so neither drifts into the other by accident — the
+// widening would be silent, because an empty action and `admin` write rows that
+// both look reasonable in the table.
+func TestGrantDefaultsFillsTheActionAndTheRowWriterDoesNot(t *testing.T) {
+	bare := core.ACLRow{Principal: "github:bob", Scope: "main/**"}
+
+	granted := GrantDefaults(bare)
+	if granted.Action != "admin" {
+		t.Errorf("GrantDefaults left the action %q; the grant and its ungrant would "+
+			"address different coordinates (BUGS L138)", granted.Action)
+	}
+	if granted.Effect != EffectAllow {
+		t.Errorf("GrantDefaults effect = %q, want %q", granted.Effect, EffectAllow)
+	}
+
+	stored := aclDefaults(bare)
+	if stored.Action != "" {
+		t.Errorf("aclDefaults filled the action with %q — that widens every caller "+
+			"of AddACLRow, and BUGS L345 is open precisely because it is a decision",
+			stored.Action)
+	}
+	if stored.Effect != EffectAllow {
+		t.Errorf("aclDefaults effect = %q, want %q", stored.Effect, EffectAllow)
+	}
+}

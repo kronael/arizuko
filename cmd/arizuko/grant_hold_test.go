@@ -242,7 +242,7 @@ func TestParseGrantArgsReadsTheWholeCoordinate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parseGrantArgs two positionals: %v", err)
 	}
-	if got := grantDefaults(row); got.Action != "admin" || got.Effect != store.EffectAllow {
+	if got := store.GrantDefaults(row); got.Action != "admin" || got.Effect != store.EffectAllow {
 		t.Errorf("defaults = %+v, want action=admin effect=allow", got)
 	}
 

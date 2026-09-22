@@ -178,7 +178,7 @@ func (s *Server) aclPostBuild(folder, callerSub string, authorize authorizeFn, v
 			// a requested deny (BUGS L93); the same drift on `params` would let a
 			// caller holding only `mcp:t(repo=mine/*)` write the unnarrowed
 			// `mcp:t`, since auth.paramsCover reads an empty spec as no constraint.
-			want := aclDefaults(aclArgsRow(x.Args))
+			want := store.GrantDefaults(aclArgsRow(x.Args))
 			if err := auth.Delegate(s.db.store(), callerSub, []core.ACLRow{want}); err != nil {
 				return resreg.Errorf(http.StatusForbidden, "%v", err)
 			}
@@ -258,27 +258,6 @@ func aclArgsRow(args resreg.Args) core.ACLRow {
 	}
 }
 
-// aclDefaults applies this writer's defaults — action `admin`, effect `allow`.
-// The Gate must validate the row the WRITE produces, so a default only the
-// writer knew about is a row auth.Delegate judged as something else (the shape
-// of BUGS L93).
-//
-// It is NOT the only declaration, whatever an earlier comment here claimed.
-// `cmd/arizuko` grantDefaults sets the same two, and `store.aclDefaults` sets
-// the effect and NOT the action — so an empty action reaching store directly
-// stays empty. The three agree on the values today; collapsing them is BUGS
-// L345, and it is a decision because store's would have to start defaulting an
-// empty action to `admin`, which widens three live callers.
-func aclDefaults(r core.ACLRow) core.ACLRow {
-	if r.Action == "" {
-		r.Action = "admin"
-	}
-	if r.Effect == "" {
-		r.Effect = store.EffectAllow
-	}
-	return r
-}
-
 // aclOperatorShape reports whether a row is the operator-role overload rather
 // than an ordinary acl row: scope "**", the action OMITTED (or spelled "*"),
 // and no narrowing. Tested on the RAW row, BEFORE aclDefaults, because the
@@ -320,7 +299,7 @@ func (d *DB) grantACLInto(ctx context.Context, ws *store.WriteSet, row core.ACLR
 		// runs here too — store.PutMembershipInto is that walk plus the write.
 		return d.store().PutMembershipInto(ctx, ws, row.Principal, "role:operator", grantedBy)
 	}
-	row = aclDefaults(row)
+	row = store.GrantDefaults(row)
 	row.GrantedBy = grantedBy
 	return d.store().PutACLRowInto(ws, row)
 }
@@ -346,5 +325,5 @@ func (d *DB) revokeACLInto(ws *store.WriteSet, row core.ACLRow, refused error) e
 	// empty string on every row this face can write. The delete conditions on the
 	// item being there, so its refusal IS the "no matching grant" answer the
 	// caller must not read as success.
-	return d.store().RemoveACLRowInto(ws, aclDefaults(row), refused)
+	return d.store().RemoveACLRowInto(ws, store.GrantDefaults(row), refused)
 }

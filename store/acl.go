@@ -229,6 +229,29 @@ func aclDefaults(r core.ACLRow) core.ACLRow {
 	return r
 }
 
+// GrantDefaults applies the defaults a GRANT WRITER fills in before its row
+// reaches the store: action `admin`, effect `allow`. routd's acl resource and
+// the `arizuko group grant`/`ungrant` pair both write through it, so the row a
+// grant creates is the row the matching ungrant addresses — two default sets
+// would put the revoke at a coordinate the grant never wrote (aclKey), which is
+// the silent no-op of BUGS L138. A gate must validate the row the WRITE
+// produces, so a default only one writer knew about is a row auth.Delegate
+// judges as something else (BUGS L93).
+//
+// It is NOT aclDefaults below, and the difference is the open half of BUGS
+// L345: aclDefaults fills the effect and NOT the action, so a row reaching
+// AddACLRow directly keeps an empty action. Making these one function would
+// default that to `admin` and widen three callers, which is a decision.
+func GrantDefaults(row core.ACLRow) core.ACLRow {
+	if row.Action == "" {
+		row.Action = "admin"
+	}
+	if row.Effect == "" {
+		row.Effect = EffectAllow
+	}
+	return row
+}
+
 // AddACLRow grants a row idempotently and records it.
 func (s *Store) AddACLRow(row core.ACLRow) error {
 	row = aclDefaults(row)
