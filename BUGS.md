@@ -362,6 +362,31 @@ close, AND `integration`'s per-package budget is shorter than the test it runs.
 `make test-turns` runs the same test with `-timeout 600s` and a vacuous-pass
 guard, so it would show the real failure. It is not in CI either.
 
+**The retry rule and a pinned test disagree, and that is the decision here
+(measured 2026-09-22).** `ClaudeTurn` marks a failure `terminal` only when the
+ACCOUNT was rejected (`claude.ts`, BUGS L175). A model `API Error: 400` is
+therefore retryable, so routd spawns the container three more times to receive
+the same 400, and only then delivers a notice.
+
+Root `CLAUDE.md` says: "Retry ONLY transient errors — remote/network calls and
+DB busy/locked. Everything else … throws immediately: no retry." A 4xx other
+than 429 is the caller's own request — a bad model name, a malformed body, a
+dead credential — and re-sending it cannot change the answer. By that rule the
+current behaviour is wrong and costs three container spawns per occurrence.
+
+But `claude.test.ts` "ClaudeTurn marks an is_error result as a failure"
+asserts `r.terminal` is UNDEFINED for exactly this input, so retryable is a
+PINNED contract, not an oversight nobody noticed. I implemented the change
+(a `permanentAPIError` helper reading the SDK's `API Error: <code>` line,
+4xx-except-429 → terminal) and reverted it rather than flip a pinned contract
+unasked.
+
+**And it would not be enough on its own.** A failure notice goes out through
+`chanDeliverer.send`, which calls the channel directly and writes NO message
+row — so the user sees the notice and `messages` has no record of it. The test
+asserts a MESSAGE containing "API Error: 400", which needs both halves: the
+cause named (terminal) and the notice recorded.
+
 - **Severity:** medium (a documented gate that no one runs and that does not
   pass; the failing case covers cost accounting for a refused model call)
 - **Scope:** `tests/e2e_turn_test.go`, `Makefile` `integration` (the 120s
@@ -369,7 +394,10 @@ guard, so it would show the real failure. It is not in CI either.
 - **Affected:** nothing at runtime — the failure is in the harness or in what
   it asserts, and which is unmeasured
 - **Source:** `make integration` at HEAD and at `b0998e91`; CI workflow
-- **Status:** open — three, and the last is the owner's. (1) Why does the turn
+- **Status:** open — four now, and two are the owner's. (0) Is a 4xx model
+  error terminal? The retry rule says yes, the pinned test says no. Flipping it
+  also decides whether a platform failure notice becomes a `messages` row, or
+  stays a delivery the transcript never records. (1) Why does the turn
   never close? Unmeasured; it needs the run inspected rather than guessed at.
   (2) `integration`'s `-timeout 120s` is shorter than the test it runs and must
   grow, or that package moves to `test-turns` alone — otherwise every failure
