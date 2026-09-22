@@ -15,7 +15,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
-// Bucket sets from spec 5/O-observability § Histogram buckets.
+// Bucket sets. 5/O-observability §"Surface" declines to restate them: the
+// code is the reference.
 var (
 	bucketsTurn = []float64{0.1, 0.5, 1, 5, 10, 30, 60, 120, 300, 600}
 	bucketsHTTP = []float64{0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 5}

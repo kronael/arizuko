@@ -284,7 +284,7 @@ func TestHTTPRefreshExpiredRejected(t *testing.T) {
 // but the user's grants have since been revoked down. On refresh authd
 // re-snapshots grants, so the new access token carries the NARROWED current
 // grants — a revoked grant must NOT survive via the stored refresh-row scope
-// (spec 5/1 § refresh re-snapshots grants). The standalone fakeGrants tests
+// (spec 5/1-auth-standalone §"Login-time scope snapshot"). The standalone fakeGrants tests
 // cover the fetcher; this drives the full Refresh narrowing path.
 func TestRefreshNarrowsOnShrunkGrants(t *testing.T) {
 	db := testDB(t)

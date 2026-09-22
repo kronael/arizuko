@@ -72,6 +72,25 @@ Ship is complete only when ALL hold. Miss one and the surfaces drift.
 8. **13yo test** — a smart novice can find and understand it, in both the
    web docs and the dashboard. Jargon a 13yo can't read is a doc bug.
 
+## Quote the section you cite
+
+`spec 5/8-yaml-manifests §"Round-trip honesty"`, not `spec 5/8 § round-trip
+honesty`. The quotes are not style: they are the only delimiter a checker has.
+
+`tests/specrefs` `TestEverySectionCitationResolves` reads the quoted form and
+fails when the text is nowhere in the spec. The unquoted form has no end — the
+tree holds `§ JWK rotation mechanics states.` and `§ Decision 5 names as the
+way to undo an`, where the section name runs into the sentence — so no checker
+can tell the pointer from the prose after it.
+
+MEASURED 2026-09-22: 83 quoted citations, all resolving and all guarded,
+against 146 unquoted ones that nothing can check. Five of the unquoted named a
+section that did not exist, including two in `5/1` about refresh behaviour and
+one in `5/P` about steering a live container.
+
+The same rule as the filename form above, one level down: prefer the shape that
+fails loudly when it stops being true.
+
 ## When a bug contradicts a shipped spec
 
 A spec is a claim. When an open bug says the claim is false, the frontmatter

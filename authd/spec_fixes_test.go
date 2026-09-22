@@ -344,7 +344,7 @@ func TestRefreshReusesStoredScopeWhenUnwired(t *testing.T) {
 }
 
 // A grants backend that is DOWN fails the refresh CLOSED — no token minted with
-// stale scope (spec 5/1 § refresh fail-closed).
+// stale scope (spec 5/1-auth-standalone §"Login-time scope snapshot").
 func TestRefreshFailsClosedWhenGrantsDown(t *testing.T) {
 	db := testDB(t)
 	a := newTestAuthd(t, db)

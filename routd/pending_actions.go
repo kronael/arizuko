@@ -554,7 +554,7 @@ func stringArgs(args map[string]any) map[string]string {
 // notifyHeld tells the chat a call is waiting; delivery failure is logged, the
 // row is already recorded. The deep link names WHICH decision while the page's
 // operator gate names WHO — deliberately not a bearer, because the notice
-// lands in a chat every reader shares (spec 6/26 § Gap 3).
+// lands in a chat every reader shares (spec 6/26-personal-mode §"Decision 6").
 func (s *Server) notifyHeld(t turnMCP, p PendingAction) {
 	text := fmt.Sprintf("⏸ %s held for approval (id %s)\n/approve %s   /reject %s"+
 		"\nor react ✅ / ❌ to this message",

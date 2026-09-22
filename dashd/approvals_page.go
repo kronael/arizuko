@@ -103,7 +103,7 @@ func (d *dash) renderApprovals(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// ?id=<id> is the deep link routd puts in the held notice (spec 6/26 § Gap 3).
+	// ?id=<id> is the deep link routd puts in the held notice (spec 6/26-personal-mode §"Decision 6").
 	// It names WHICH decision; the `reviewer` filter above names WHO. An id that
 	// no longer waits — or that this reader may not answer — is reported, never
 	// silently ignored: the operator followed a link and must learn why the row

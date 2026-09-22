@@ -241,7 +241,7 @@ func TestPortalCountsHeldApprovals(t *testing.T) {
 	}
 }
 
-// The deep link routd puts in the held notice (spec 6/26 § Gap 3) names WHICH
+// The deep link routd puts in the held notice (spec 6/26-personal-mode §"Decision 6") names WHICH
 // call. The page moves it to the top of the queue and marks it, so the operator
 // does not read a table to find the row they were sent to.
 func TestApprovalsPage_DeepLinkFocusesRow(t *testing.T) {
