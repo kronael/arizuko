@@ -229,6 +229,13 @@ round that finds nothing commits nothing.
   applying and looks healthy (BUGS `L45`: 7 of 18 shipped proxyd routes
   never reached krons). Cross-daemon reach is federation: each daemon owns
   its table and serves it on its own `/v1`; nobody reads another's env.
+- **Scratch Go lives in `tmp/_<name>/`.** `./tmp` is gitignored and its `.go`
+  files still join the module: `go list ./...` names them, so `make lint` and
+  `deadcode ./...` run against scratch that CI never sees, and one stray file
+  fails `go build ./...` for a reason unrelated to the change. The go tool
+  ignores a directory whose name starts with `_`. Measured both ways:
+  `tmp/_probe/main.go` gives `go list ./... | grep -c tmp/_probe` = 0, a plain
+  dir gives 1.
 - **Adding a channel adapter**: a `template/services/<daemon>.yml` compose
   fragment + a `<daemon>.yaml` manifest if it needs inbound web paths; no
   edit to `proxyd/main.go` or `compose/compose.go` (`EXTENDING.md` §Adding
