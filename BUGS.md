@@ -74,8 +74,8 @@ revoked — see its entry.)
 
 **A pointer that resolves and lies.**
 
-- `L356` — 27 citations name a section their spec no longer has; 13 of them in
-  `5/8`, the most-cited spec in the tree. No guard reads past the `§`.
+- `L356` — 19 repointed; six sites claim something no spec states any more,
+  which needs the spec to gain it or the comment to drop it.
 
 - `L355` — the comment audit shipped; what is left is 31 citations inside Go
   string literals (three pinned by tests) and four stale § names.
@@ -322,10 +322,33 @@ supports it, exactly as `specs/CLAUDE.md` says.
 - **Affected:** anyone following a spec pointer out of the code
 - **Source:** every `§"..."` and `item|fix|decision N` citation in tracked
   `.go`, grepped against the spec its number names
-- **Status:** open — per-site reading, the same shape as `L355`'s audit.
-  Nothing here is a decision; the work is finding which current section carries
-  the claim.
-- **Fix:**
+**19 REPOINTED 2026-09-22** (`03544c39`), each to a heading verified present.
+The `5/8` cluster moved to `§"Surface"`, `§"Round-trip honesty"` (`:925`) and
+`§"Path retargeting"` (`:267`); the one-audit-row claims moved to
+`5/17-openapi-mcp §"Audit contract"` (`:254`), which owns them; `5/G`'s
+`item 6` and `fix 2`/`fix 5` became the sections that carry those rules.
+
+**Six are left because no spec states the claim any more**, and naming a
+section that merely sounds close would look checked and be wrong: "print plan
++ ok before the commit" (`5/8` lists `plan` as its own verb and never requires
+it), "an unknown row field rejects before any DB write" (four sites; no spec
+says it — `grep` for `unknown field|KnownFields|strict pars` over `specs/`
+returns nothing), `§"Testability"`, and `5/O §"Histogram buckets"` where
+`5/O:53` declines to hold the values.
+
+**TWO OF THIS ENTRY'S OWN CLAIMS WERE WRONG.** `5/P:229 §"Standalone-ready
+acceptance"` describes RUNED's contract test, which `runed/contract_test.go:27`
+already cites; `5/E:392` names `routd/contract_test.go` by path, so routd's is
+a section repoint, not a document one. And `6/28 §"Read-path: /v1 only, no
+direct DB"` is NOT absent — the heading carries markdown backticks around
+`/v1`, which the sweep did not strip, so six correct citations read as dead.
+The same strip bug made `6/37 §"How \`messages\` leaves"` look dead; it is a
+correct prefix of `:615`.
+
+- **Status:** open on the six unsupported sites. Each needs the spec to gain
+  the sentence, or the comment to stop claiming it — a spec change either way,
+  so it is not a repoint.
+- **Fix:** `03544c39` (the 19).
 
 ## L352 — `tmp/` is gitignored but its Go files join the module, so the lint gate is not the gate CI runs (2026-09-22, open)
 
