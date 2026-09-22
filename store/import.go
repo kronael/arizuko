@@ -1,7 +1,16 @@
 package store
 
-// import.go places onbod's three tables as items from plain values, and owns
-// the item shape.
+// import.go writes onbod's four entities — Onboarding, OnboardingGates,
+// Invites, InviteRedemptions — as items from plain values, and owns the item
+// shape.
+//
+// NOTHING IN PRODUCTION CALLS IT. Every live writer stamps its own instant:
+// InsertOnboarding opens an admission at now, and redemptionNowStamp positions
+// a redemption at now with a random suffix. A queued admission dated last
+// August, or two redemptions that share one second in a known order, is a state
+// no live method reaches, so a test that needs one writes it here. SeedItem in
+// coordinate.go is the same door for the entities keyFields names, and it names
+// none of these four.
 //
 // onbod's four instants are COPIED rather than re-rendered: every value in the
 // fleet is exactly 20 bytes (measured 2026-09-07), and widening them would move

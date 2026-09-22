@@ -1,13 +1,12 @@
 package chanstore
 
-// import.go writes a whole adapter database into the entities this package
-// reads. It is the destination half of the one-way data move (spec 6/37 step 7);
-// the source half — reading the legacy tables — belongs to the tool that runs
-// it, because this package holds no SQL.
+// import.go writes an adapter's delivery claims and held inbound messages as
+// items from plain values, and owns the item shape.
 //
-// The split is what keeps the model declared once. The tool knows the old
-// schema and nothing about items; this file knows items and nothing about the
-// old schema; a Snapshot of plain values is the only thing that crosses.
+// NOTHING IN PRODUCTION CALLS IT. ClaimDelivery opens a claim at now and
+// RecordDelivered settles it at now, so a claim already sent, at the instant a
+// test chooses, is a state no live method reaches. A test writes one here and
+// reads it back through the methods the adapter itself calls.
 
 import (
 	"context"

@@ -1,8 +1,12 @@
 package audit
 
-// import.go is the destination half of the data move: the source reads a
-// database's audit_log table and hands the rows here, and this file owns the
-// item shape (spec 6/37 step 7).
+// import.go writes audit rows from plain values, and owns the item shape.
+//
+// NOTHING IN PRODUCTION CALLS IT. Emit stamps now and ends the id with a
+// random suffix, so a trail at instants a test chooses, in an order it fixes,
+// is a state Emit cannot build — and dashd's page orders several owners on
+// created_at, so a now-stamped fixture makes that order a race. Six packages
+// seed their audit fixtures through here.
 
 import (
 	"context"

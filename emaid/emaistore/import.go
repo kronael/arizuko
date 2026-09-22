@@ -1,13 +1,12 @@
 package emaistore
 
-// import.go writes a whole emaid.db into the entities this package reads. It is
-// the destination half of the one-way data move (spec 6/37 step 7); the source
-// half — reading the legacy tables — belongs to the tool that runs it, because
-// this package holds no SQL.
+// import.go writes emaid's threads and its Message-ID index as items from plain
+// values, and owns the item shape.
 //
-// The split is what keeps the model declared once. The tool knows the old
-// schema and nothing about items; this file knows items and nothing about the
-// old schema; a Snapshot of plain values is the only thing that crosses.
+// NOTHING IN PRODUCTION CALLS IT. LinkMessageToThread writes the thread and the
+// index row that names it in ONE batch, which is 6/37's third rule, so an index
+// row naming a thread that has no row — the dangling case Counts reports — is a
+// state no live method reaches. A test writes one here.
 
 import (
 	"fmt"

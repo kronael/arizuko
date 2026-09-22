@@ -1,13 +1,18 @@
 package runstore
 
-// import.go writes a whole runed.db into the entities this package reads: the
-// destination half of the one-way data move (spec 6/37 step 7). The tool
-// knows the old schema and nothing about items; this file knows items and
-// nothing about the old schema; a Snapshot of plain values is all that
-// crosses. Two things are rewritten rather than copied: EVERY TIMESTAMP goes
-// through core.TS, because the sweep compares created_at by byte order (BUGS
-// L97), and THE SESSION LOG'S IDENTITY becomes its sort key, with the old id
-// as the suffix so order survives.
+// import.go writes runed's spawns, session log and circuit breakers as items
+// from plain values, and owns the item shape.
+//
+// NOTHING IN PRODUCTION CALLS IT. CreateSpawn, StartSpawn and EndSpawn each
+// stamp core.NowTS and walk one run forward one state at a time, so a spawn
+// that is already exited and dated before the sweep's cutoff — what the sweep
+// test drops — is a state no live method reaches.
+//
+// Two fields are rewritten rather than copied: EVERY TIMESTAMP goes through
+// core.TS, because the sweep compares created_at by byte order (BUGS L97), and
+// THE SESSION LOG'S IDENTITY becomes its sort key, with the sequence number the
+// Snapshot carries as the suffix, so sessions that share one second keep their
+// order.
 
 import (
 	"context"

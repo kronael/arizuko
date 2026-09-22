@@ -1,10 +1,13 @@
 package authstore
 
-// import.go writes a whole auth.db into the entities this package reads: the
-// destination half of the one-way data move (spec 6/37 step 7). The tool that
-// runs it knows the old schema and nothing about items; this file knows items
-// and nothing about the old schema; a Snapshot of plain values is all that
-// crosses. A FAMILY IS DERIVED, not read: the old table has no family row.
+// import.go writes authd's signing keys, users, identities and refresh tokens
+// as items from plain values, and owns the item shape.
+//
+// NOTHING IN PRODUCTION CALLS IT. StartRefreshFamily issues at now and
+// ClaimAndRotateRefresh spends the token it rotates, so a family issued in
+// June, rotated twice and already expired — what the sessions page is read
+// against — is a state no live method reaches. A FAMILY IS DERIVED from the
+// tokens that carry its id, never given: a Snapshot holds no family row.
 
 import (
 	"fmt"
