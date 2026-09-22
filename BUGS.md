@@ -305,6 +305,36 @@ merged declarations, capitalised error strings).
 
 Unexamined: 47 `errcheck` and two unused test helpers.
 
+**THE MIGRATION IS PREPARED AND TESTED**, so the decision is "apply this", not
+"work out the migration". Exact file, verified in place:
+
+```yaml
+version: "2"
+linters:
+  enable: [errcheck, nilerr]
+  settings:
+    errcheck: {check-blank: false, check-type-assertions: false}
+  exclusions:
+    generated: lax
+    presets: [comments, common-false-positives, legacy, std-error-handling]
+    rules:
+      - {linters: [errcheck], path: _test\.go}
+    paths: [third_party$, builtin$, examples$]
+```
+
+plus the existing header, kept verbatim with two sentences added saying why
+`version` and the presets are there. It reports **70 issues** in the tree
+today: errcheck 44, nilerr 6, staticcheck 20.
+
+70, not 81, and the gap is exactly the eleven this session fixed — 4 `unused`,
+3 `ineffassign`, 3 `errcheck`, 1 `nilerr`. That is the check that the config is
+equivalent to the migrator's rather than quietly looser.
+
+The remaining 70 are the cost of taking this route, and none is a swallow: the
+6 `nilerr` are the sanctioned ones read above, the 44 `errcheck` are Close /
+Write / Remove, and the 20 `staticcheck` are style plus the `proxyd` `Director`
+deprecation.
+
 - **Status:** open — two ways out and they cost differently. Pin the action to
   a v1 release and the gate keeps working with no code change. Or migrate the
   config, restore the header and the explicit `errcheck`, drop the presets the
