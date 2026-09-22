@@ -229,8 +229,21 @@ half of that gate is real in CI rather than a skipped notice".
 against go1.27rc2 and runs).
 
 **What it reports once it loads**, with the config migrated: 81 issues —
-errcheck 47, staticcheck 20, nilerr 7, unused 4, ineffassign 3. Under v2's
-default linter set, which is wider than v1's, so this is not 81 regressions.
+errcheck 47, staticcheck 20, nilerr 7, unused 4, ineffassign 3.
+
+**CORRECTION 2026-09-22: I first wrote that this is v2's wider default set, and
+it is not.** v1 and v2 enable essentially the same defaults; `gosimple` merged
+into `staticcheck`, and that is the whole difference. Nor do the migrator's
+exclusion presets account for it: running the same config WITHOUT them changes
+errcheck from 47 to 50, not from 47 to 5.
+
+So a working v1 gate would have reported roughly these 81 too. Either CI's lint
+step has been failing, or these findings are newer than its last green run, or
+`action@v6` resolves `latest` to a version where this config still loads and
+the gate has been reporting them all along. **Which of those is true cannot be
+checked from this box**, and it decides how urgent this entry is: a gate that
+silently stopped failing is worse than one that cannot load, because the second
+announces itself.
 
 **The seven `nilerr` hits are the class this config exists for** and most are
 sanctioned. `webd/mcp.go:193` returns an MCP tool-error inside the result,
@@ -246,11 +259,13 @@ records the first failure "rather than discarding it", and the WalkDir callback
 returns nil on a per-entry error, so a directory it cannot read is discarded
 while `Lchown` errors are kept.
 
-**`golangci-lint migrate` is not safe to run blind.** On this config it dropped
-the header explaining why the gate exists, dropped `errcheck` from the explicit
-enable list, and ADDED four exclusion presets that were never there —
-`comments`, `common-false-positives`, `legacy` and `std-error-handling`. The
-last one excludes the shape this gate was built to catch.
+**`golangci-lint migrate` still needs reading before it is kept.** On this
+config it dropped the header explaining why the gate exists and dropped
+`errcheck` from the explicit enable list — both worth restoring by hand. It
+also ADDED four exclusion presets (`comments`, `common-false-positives`,
+`legacy`, `std-error-handling`). I first read those as weakening the gate; they
+are v1's own default exclusions made explicit, and measured they move errcheck
+by three. So the presets are defensible and the dropped header is not.
 
 - **Severity:** medium (the gate that guards the swallow class does not load;
   whether CI is red today depends on what `action@v6` resolves `latest` to,
