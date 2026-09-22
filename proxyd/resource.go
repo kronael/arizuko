@@ -361,7 +361,7 @@ func channelTrusted(r *http.Request, ks *auth.KeySet) bool {
 // channel is proven by a trustedForwarders ES256 bearer; on that proof the stamped
 // X-User-* headers are trusted as the IDENTITY, never the bearer's own sub. Operator
 // detection is recorded into Claims["operator"]="1" so ACL row predicates can match
-// it (spec 5/32-acl-unified §"Operator implicit").
+// it (spec 5/32-acl-unified §"The row").
 func callerFromHTTP(ks *auth.KeySet) resreg.CallerFromHTTPFunc {
 	return func(r *http.Request) (resreg.Caller, error) {
 		if !channelTrusted(r, ks) {

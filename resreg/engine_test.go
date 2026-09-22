@@ -545,8 +545,8 @@ func TestApply_Force(t *testing.T) {
 
 // TestApply_UnknownSubsystem: a manifestRows key naming a resource from a
 // DIFFERENT subsystem than the one Apply was called against rejects before
-// touching the DB — spec 5/8 §"Document schema": a document meant for one
-// owner DB must not carry another subsystem's rows.
+// touching the DB — spec 5/8 §"Surface": a document meant for one owner DB
+// must not carry another subsystem's rows.
 func TestApply_UnknownSubsystem(t *testing.T) {
 	be, _ := freshEngine(t)
 	reset()
@@ -574,7 +574,7 @@ func TestApply_UnknownSubsystem(t *testing.T) {
 // TestDiff_AddUpdateRemove exercises the non-mutating plan diff: a row
 // only in the manifest is an add, a row only in the DB is a remove, a
 // PK in both with a differing payload is an update, identical is
-// unchanged. Per spec 5/8 §"Apply lifecycle" step 3.
+// unchanged. Per spec 5/8 §"Surface".
 func TestDiff_AddUpdateRemove(t *testing.T) {
 	be, r := freshEngine(t)
 	insertRaw(t, be,
@@ -662,7 +662,7 @@ func TestPlan_NoChangeAfterApply(t *testing.T) {
 
 // TestGetResource_RoundTrip: GetResource emits a fragment whose parsed
 // rows equal the live rows, so re-applying it is a no-op. Per spec 5/8
-// §"arizuko get round-trip".
+// §"Round-trip honesty".
 func TestGetResource_RoundTrip(t *testing.T) {
 	be, _ := freshEngine(t)
 	insertRaw(t, be,
@@ -702,7 +702,7 @@ func TestGetResource_RoundTrip(t *testing.T) {
 
 // TestRetarget_RewritesScopeFieldOnly: Retarget rewrites the declared
 // Scope.Field column and nothing else, on a COPY (the input slice is
-// untouched) — spec 5/8 §"Path-retargeting apply".
+// untouched) — spec 5/8 §"Path retargeting: primitive shipped, no caller".
 func TestRetarget_RewritesScopeFieldOnly(t *testing.T) {
 	_, r := freshEngine(t)
 	rows := []TestRow{

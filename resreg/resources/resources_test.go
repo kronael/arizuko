@@ -414,7 +414,7 @@ func TestMembership_PairingRowsExcludedFromChecksumAndRebuild(t *testing.T) {
 
 // TestApply_ScopedLeavesOutOfScopeRow: a partial manifest mentioning only
 // folder "atlas" must NOT delete a live network_rules row for folder
-// "ops" — scoped DELETE+INSERT (spec 5/8 §"Atomicity model"). Before the
+// "ops" — scoped DELETE+INSERT (spec 5/8 §"Surface"). Before the
 // scoped-apply fix this was a wholesale DeleteAll that wiped "ops".
 func TestApply_ScopedLeavesOutOfScopeRow(t *testing.T) {
 	db := openMem(t)
@@ -559,7 +559,7 @@ func TestSecretsOpenAPIWriteOnly(t *testing.T) {
 
 // TestApply_WritesOneAuditRow: an apply with ApplyOpts writes exactly one
 // audit_log summary row (actor + manifest digest + final checksum), not one
-// per resource (spec 5/8 §"CAS implementation" (3)).
+// per resource (spec 5/17-openapi-mcp §"Audit contract").
 func TestApply_WritesOneAuditRow(t *testing.T) {
 	db := openMem(t)
 	c0 := routdChecksum(t, db)

@@ -13,9 +13,9 @@ import (
 
 // A package apply mutates many rows at once, so it needs a verdict of its own:
 // ONE audit row for the bundle, or N for the grants? It is now ONE — install
-// goes through `arizuko apply`, whose contract is one row per apply (spec 5/8
-// §"CAS implementation" (3)), and a second per-row trail beside it would be the
-// parallel path BUGS L44 exists to delete.
+// goes through `arizuko apply`, whose contract is one row per apply (spec
+// 5/17-openapi-mcp §"Audit contract"), and a second per-row trail beside it
+// would be the parallel path BUGS L44 exists to delete.
 //
 // That only stays honest if the one row NAMES what it wrote. BUGS.md Q5 refused
 // a bundle row because it would say "installed grantpkg" and hide that the

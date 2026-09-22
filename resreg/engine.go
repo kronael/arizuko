@@ -413,7 +413,7 @@ func decodeStrict(node *yaml.Node, out any) error {
 }
 
 // EmitRows marshals a `[]RowType` to a YAML node, sorted by PK string
-// for deterministic output (spec 5/8 §"Canonical key order").
+// for deterministic output (spec 5/8 §"Round-trip honesty").
 func (r *Resource) EmitRows(rows any) (*yaml.Node, error) {
 	if r.meta == nil {
 		return nil, fmt.Errorf("resreg: %s has no schema (RowType unset)", r.Name)
@@ -535,8 +535,8 @@ func ValidateFolderRefs(subsystem string, manifest map[string]any, known map[str
 }
 
 // ApplyOpts carries the optional audit context for an apply. When non-nil,
-// Apply writes exactly ONE audit_log row (spec 5/8 §"CAS implementation"
-// (3)); nil writes none.
+// Apply writes exactly ONE audit_log row (spec 5/17-openapi-mcp §"Audit
+// contract"); nil writes none.
 type ApplyOpts struct {
 	Actor          string // who ran the apply (CLI sub, "system", …)
 	ManifestDigest string // sha256 of the manifest bytes, for forensic correlation
@@ -692,8 +692,8 @@ func applyCounts(rd reader, subsystem string, manifestRows map[string]any) (map[
 	return counts, nil
 }
 
-// applyEvent builds the single per-apply summary row (spec 5/8 §"CAS
-// implementation" (3)). It commits as the last fenced write of the replace,
+// applyEvent builds the single per-apply summary row (spec 5/17-openapi-mcp
+// §"Audit contract"). It commits as the last fenced write of the replace,
 // which makes the row and the projection one act.
 func applyEvent(opts *ApplyOpts, counts map[string]any, newChecksum string) audit.Event {
 	params := map[string]any{}
@@ -861,8 +861,7 @@ func (r *Resource) rowScope(v reflect.Value) string {
 
 // payloadEqual compares two rows for Diff, treating server-stamped fields as
 // equal regardless of value, so a hand-written manifest that leaves them
-// empty does not diff as a phantom update (spec 5/8 §"Apply lifecycle" step
-// 3).
+// empty does not diff as a phantom update (spec 5/8 §"Round-trip honesty").
 func (r *Resource) payloadEqual(a, b reflect.Value) bool {
 	if len(r.meta.stampedIdx) == 0 {
 		return equalIgnoringEmpty(a, b)

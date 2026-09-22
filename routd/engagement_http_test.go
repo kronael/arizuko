@@ -215,7 +215,8 @@ func TestDefaultEngagementTTL(t *testing.T) {
 	}
 }
 
-// ---- the WRITE face: POST /v1/engagement (spec 5/G-engagement item 6) ----
+// ---- spec 5/G-engagement §"The operator surface": the WRITE face,
+// POST /v1/engagement ----
 
 // postEngagement POSTs body to /v1/engagement through h and returns the code.
 func postEngagement(t *testing.T, h http.Handler, body apiv1.EngagementRequest) *httptest.ResponseRecorder {

@@ -574,9 +574,9 @@ func TestServeMCP_Engagement_Authz(t *testing.T) {
 	}
 }
 
-// Spec 5/G-engagement fix 5 — fresh chat (no current engagement, no default route) is
-// engageable by any caller. Lets autonomous turns bootstrap conversations
-// without a pre-existing route.
+// Spec 5/G-engagement §"MCP tools" arm 3 — fresh chat (no current engagement,
+// no default route) is engageable by any caller. Lets autonomous turns
+// bootstrap conversations without a pre-existing route.
 func TestServeMCP_Engagement_FreshChatAuthz(t *testing.T) {
 	dir := t.TempDir()
 	sock := dir + "/gated.sock"
@@ -611,9 +611,10 @@ func TestServeMCP_Engagement_FreshChatAuthz(t *testing.T) {
 	}
 }
 
-// Spec 5/G-engagement fix 2 — recordOutbound writes last_reply for every conversational
-// outbound but skips the engagement bump when the turn's trigger sender is
-// timed-* (scheduled / autonomous broadcasts must not extend engagement).
+// Spec 5/G-engagement §"Write sites — one policy, two calls" — recordOutbound
+// writes last_reply for every conversational outbound but skips the engagement
+// bump when the turn's trigger sender is timed-* (scheduled / autonomous
+// broadcasts must not extend engagement).
 func TestRecordOutbound_TimedSkipsEngagement(t *testing.T) {
 	var lastReplyWrites, bumps int
 	var triggerLookup string

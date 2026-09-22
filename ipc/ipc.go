@@ -1696,8 +1696,8 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 			if db.SetEngagement == nil || gated.EngagementTTL <= 0 {
 				return toolErr("engage not configured")
 			}
-			// Spec 5/G-engagement fix 5: write engaged_folder = caller, so
-			// future inbounds steer here. Authz already validated
+			// Spec 5/G-engagement §"The primitive": write engaged_folder =
+			// caller, so future inbounds steer here. Authz already validated
 			// the caller may claim this conversation.
 			if err := db.SetEngagement(jid, topic, identity.Folder, time.Now().Add(gated.EngagementTTL)); err != nil {
 				return toolErr(err.Error())

@@ -331,8 +331,9 @@ func cmdApply(args []string) {
 	}
 	digest := sha256.Sum256(data)
 	// Apply writes its own single audit_log summary row in-tx (actor +
-	// manifest digest + per-resource counts + final checksum), spec 5/8
-	// §"CAS implementation" (3). No separate auditCLI — one row per apply.
+	// manifest digest + per-resource counts + final checksum), spec
+	// 5/17-openapi-mcp §"Audit contract". No separate auditCLI — one row per
+	// apply.
 	report, aerr := applyDocs(context.Background(), stores, docs, applyRun{
 		force: force, takeOver: takeOver, actor: cliActor(),
 		digest: hex.EncodeToString(digest[:]),
@@ -401,10 +402,9 @@ func cmdExport(args []string) {
 	os.Stdout.Write(out)
 }
 
-// cmdPlan: non-mutating diff of a manifest vs live DB (spec 5/8
-// §"Apply lifecycle" step 3). Parses + validates, prints the per-resource
-// add/update/unchanged/remove delta per subsystem document, never opens a
-// write tx.
+// cmdPlan: non-mutating diff of a manifest vs live DB (spec 5/8 §"Surface").
+// Parses + validates, prints the per-resource add/update/unchanged/remove
+// delta per subsystem document, never opens a write tx.
 func cmdPlan(args []string) {
 	if len(args) < 2 {
 		fmt.Println("usage: arizuko plan <instance> <manifest.yaml>")
@@ -496,7 +496,7 @@ func printPlan(deltas []resreg.ResourceDelta) {
 }
 
 // cmdGet: emit a live-DB manifest fragment for one resource (spec 5/8
-// §"arizuko get round-trip"). The fragment re-applies to a no-op — same
+// §"Round-trip honesty"). The fragment re-applies to a no-op — same
 // shape `apply` accepts. Secret rows emit metadata only (the engine's
 // SELECT omits the enc_value blob, which isn't in SecretsRow). Opens only
 // the resource's OWN owner subsystem — resreg.Resource.DB says which.

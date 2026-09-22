@@ -295,7 +295,7 @@ type Resource struct {
 	// StampedFields names the Go struct fields the STORAGE LAYER owns
 	// (created_at, granted_at, …). Diff ignores them when comparing payloads,
 	// so a hand-written manifest that omits them reads as `unchanged` (spec
-	// 5/8 §"Apply lifecycle" step 3). A row that leaves one empty gets one
+	// 5/8 §"Round-trip honesty"). A row that leaves one empty gets one
 	// invented.
 	StampedFields []string
 

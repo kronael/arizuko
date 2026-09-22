@@ -20,8 +20,8 @@ import (
 
 // stubRunner records the POST /v1/runs body and, on Run, replies through
 // routd's append-and-deliver (the sole appender) then returns
-// {outcome:ok, session_id:stub}. Mirrors the spec 5/E-routd standalone acceptance
-// stub runed.
+// {outcome:ok, session_id:stub}. Mirrors the stub runed of spec 5/E-routd
+// §"Code pointers", the standalone-readiness bar.
 type stubRunner struct {
 	srv      *Server
 	gotBatch string
@@ -63,9 +63,10 @@ func newTestRoutd(t *testing.T) (*DB, *Server, *stubRunner) {
 	return db, srv, runner
 }
 
-// TestContractRoundTrip is the spec 5/E-routd § Standalone-ready acceptance:
-// ingest → route → loop dispatches a stub run → callback reply appends one
-// bot row → submit_turn recorded in turn_results, duplicate dropped.
+// TestContractRoundTrip is the standalone-readiness bar of spec 5/E-routd
+// §"Code pointers": ingest → route → loop dispatches a stub run → callback
+// reply appends one bot row → submit_turn recorded in turn_results, duplicate
+// dropped.
 func TestContractRoundTrip(t *testing.T) {
 	db, srv, runner := newTestRoutd(t)
 	h := srv.Handler()
