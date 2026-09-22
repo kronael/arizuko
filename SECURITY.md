@@ -60,6 +60,22 @@ structurally. The agent runs with `bypassPermissions` inside its own
 container by design — the boundary is the mount set and the network
 namespace, not what the agent decides to do with its shell.
 
+**What that boundary does NOT include today.** The turn container runs with
+docker's default capability set: `container/runner.go` passes `--rm`, `--name`
+and `--shm-size`, and no `--cap-drop`, `--security-opt`, `--read-only`,
+`--pids-limit` or `--memory`. The egress sidecar beside it already runs
+`--cap-drop ALL --read-only`, so the hardening sits on the process that proxies
+traffic and not on the one that runs what the model produced. `runed` also
+mounts the docker socket, so the daemon that spawns turns holds
+root-equivalent access to the host.
+
+None of that crosses the mount-set or network-namespace boundary above, which
+is what separates group A from group B. It does mean the kernel is shared and
+the turn is not confined within it, so read the structural claim as "separate
+mounts, separate networks, separate store views" and not as "confined
+process". Closing it is BUGS `L283`: the flag set is a new contract for every
+spawn, so it waits on the operator rather than arriving silently.
+
 Per-turn freshness solves a different problem: a compromised turn
 affecting the next turn in the **same** group. The container is
 already per-turn fresh — each turn runs a `docker run --rm` container

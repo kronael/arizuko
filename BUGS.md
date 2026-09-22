@@ -1963,6 +1963,13 @@ capability set on a shared kernel.
 `runed` also mounts `/var/run/docker.sock` (`compose/compose.go:1004-1009`), so
 the daemon that spawns turns holds root-equivalent access to the host.
 
+**The gap is written into the threat model 2026-09-22.** `SECURITY.md` was
+honest about WHERE the boundary is — "the mount set and the network namespace"
+— and said nothing about the turn holding docker's default capability set on a
+shared kernel. A reader of the threat model is exactly who needs that, so the
+section now states it and points here. No behaviour changed and no decision is
+pre-empted; the claim just stopped being stronger than the code.
+
 - **Severity:** high — the isolation boundary is weaker than the threat model states
 - **Scope:** `container/runner.go`, `compose/compose.go`
 - **Affected:** krons, marinade, sloth — every turn on every instance
