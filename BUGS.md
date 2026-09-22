@@ -8519,6 +8519,24 @@ lines of glob matching), which `sandbox/` imports and which `routd` and
 already machine-checks the outbound half of this boundary (it passes), so the
 graph above is an enforced invariant, not a snapshot.
 
+**RE-MEASURED 2026-09-22: the cost is TWO packages, not one.** The size holds —
+`sandbox/` is 1356 non-test lines against the 1342 filed, and `egress/match` is
+138 against the 144. What changed is the table's `sandbox/` row, which says its
+only outbound edge is `egress/match`. `sandbox/sandbox.go` now imports
+`substrate` as well, to declare its `substrate.Profile`.
+
+`substrate` cannot travel with the leaving repo: `container/egress.go` and four
+`runed/` files import it, so it stays in arizuko exactly as `egress/match`
+does. Option B's severance cost is therefore `egress/match` (138) plus
+`substrate` (65) — 203 lines across two packages to extract, vendor or copy.
+
+The guard did not catch the new edge because it never checked for it: its own
+header says "sandbox reuses egress's allowlist matcher and declares a
+substrate.Profile", and `substrate` is inside its `shippable` set
+(`tests/components/imports_test.go:28`). It enforces that `substrate` imports
+nothing arizuko-internal, not what imports `substrate`. So the table above was
+a snapshot after all, on the one row that decides option B's price.
+
 Options, and what each costs:
 
 - **A — keep as is.** Cost: 1756 lines (`sandbox` + `crackbox`) with no
