@@ -8,17 +8,10 @@ import (
 )
 
 // ACLRow mirrors the acl entity: the six-field grant is its coordinate and the
-// other three are its attributes. `granted_by` needs no null handling — an
-// attribute an item does not carry is absent, and absent is the only null this
-// model has.
-//
-// EVERY column, not just the interesting ones. acl has no folder scope, so
-// apply rebuilds it wholesale — and under an entity a Put replaces the item's
-// WHOLE attribute set, so a field this does not name is a value gone rather
-// than one reset to a DDL default. `grant_option` (spec 5/33, WITH GRANT
-// OPTION) was that column: absent from the row type, so a rebuild dropped every
-// holder's right to re-delegate. It is a bool and every attribute value is
-// text, so it declares its own encoding (resreg/codec.go — "0"/"1").
+// other three are its attributes. EVERY column: apply rebuilds acl wholesale
+// and a Put replaces the item's WHOLE attribute set, so a field this does not
+// name is a value gone. `grant_option` (spec 5/33) missing from the row type
+// dropped every holder's right to re-delegate on rebuild.
 type ACLRow struct {
 	Principal   string `db:"principal" yaml:"principal" json:"principal"`
 	Action      string `db:"action"    yaml:"action"    json:"action"`
@@ -31,24 +24,18 @@ type ACLRow struct {
 	GrantedAt   string `db:"granted_at" yaml:"granted_at,omitempty" json:"granted_at,omitempty"`
 }
 
-// ACLEndpoints is the single owner of the acl endpoint set: routd's mountACL
-// mounts it verbatim, deriveMCPTools reads it for the agent's acl tools, and
-// openapi.go emits one operation per non-MCPOnly entry. add is a POST and remove
-// a body-addressed DELETE on the collection (principal/scope in the body, no
-// {pk} path), so the real faces diverge from the composite-PK-CRUD convention.
-//
-// list is MCPOnly: list_acl is agent-only and nothing mounts a REST twin. It
-// carried Verb+Path while mountACL trimmed Endpoints to add/remove, so routd's
-// /openapi.json advertised a GET /v1/acl that 404s (BUGS F27, the F21 class).
+// ACLEndpoints is the single owner of the acl endpoint set. remove is a
+// body-addressed DELETE (principal/scope in the body). list is MCPOnly:
+// nothing mounts a REST twin, and declaring a Verb+Path for it advertised a
+// GET /v1/acl that 404s (BUGS F27).
 var ACLEndpoints = []resreg.Endpoint{
 	{Verb: "POST", Path: "/v1/acl", Action: resreg.Action("add")},
 	{Verb: "DELETE", Path: "/v1/acl", Action: resreg.Action("remove")},
 	{Action: resreg.ActionList, MCPOnly: true},
 }
 
-// ACLMCPNames maps each action to the flat tool name the live agent already calls;
-// routd's acl_resource.go references it (agent socket derivation) and ipc.ListTools
-// reads it via the registry walk. Spec 5/16.
+// ACLMCPNames maps each action to the flat tool name the live agent calls
+// (spec 5/16).
 var ACLMCPNames = map[resreg.Action]string{
 	resreg.Action("add"):    "add_acl",
 	resreg.Action("remove"): "remove_acl",
@@ -69,9 +56,7 @@ var ACLMCPDoc = map[resreg.Action]string{
 	resreg.ActionList: "List acl rows for a folder (scope matches the folder). Audit what's permitted before changing.",
 }
 
-// ACLMCPArgs is the explicit per-action arg list. The agent face carries the exact
-// wire shapes (principal/scope/action/effect; folder for list), NOT the RowType-
-// reflected columns, so this overrides RowType reflection for the derived tools.
+// ACLMCPArgs is the agent face's wire shape, overriding RowType reflection.
 var ACLMCPArgs = map[resreg.Action][]resreg.MCPArg{
 	resreg.Action("add"): {
 		{Name: "principal", Type: "string", Required: true},
@@ -103,19 +88,17 @@ func init() {
 		DB:       resreg.SubsystemRoutd,
 		RowType:  reflect.TypeFor[ACLRow](),
 		PKFields: []string{"Principal", "Action", "Scope", "Params", "Predicate", "Effect"},
-		// The identity IS the coordinate here, which is not the general rule
-		// (route_tokens' is not its PK). All six are needed: two rows differing
-		// only in `effect` are a grant and a denial of the same call, and
-		// `params` and `predicate` each narrow a row to a subset of it.
+		// All six are needed: two rows differing only in `effect` are a grant
+		// and a denial of the same call, and `params` and `predicate` each
+		// narrow a row to a subset of it.
 		EntitySortKey: []string{"Principal", "Action", "Scope", "Params", "Predicate", "Effect"},
 		EntityKeySep:  store.KeySep,
 		Endpoints:     ACLEndpoints,
 		MCPDoc:        ACLMCPDoc,
 		MCPArgs:       ACLMCPArgs,
 		MCPNames:      ACLMCPNames,
-		// No folder scope: acl.scope is a glob (`atlas/`, `**`), not column-
-		// equal to a folder (spec 5/8 §"Schema-driven CRUD"/"FK posture").
-		// Apply rebuilds acl wholesale; per-glob scoped delete is not v1.
+		// No folder scope: acl.scope is a glob, not column-equal to a folder
+		// (spec 5/8 §"FK posture"), so apply rebuilds acl wholesale.
 		StampedFields: []string{"GrantedAt"},
 		Hooks: resreg.Hooks{
 			BeforeInsert: func(row any) error {

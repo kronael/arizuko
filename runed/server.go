@@ -12,29 +12,27 @@ import (
 	"github.com/kronael/arizuko/substrate"
 )
 
-// Verifier offline-verifies inbound bearer tokens (routd service / operator
-// / agent) against authd's keys. runed is a verifier, not a signer (spec
-// 5/P § Auth). nil = open (single-tenant / local-dev).
+// Verifier offline-verifies inbound bearer tokens against authd's keys. runed
+// is a verifier, not a signer (spec 5/P § Auth). nil = open (local-dev).
 type Verifier interface {
 	Verify(r *http.Request) (sub string, scope []string, folder string, err error)
 }
 
-// Server is runed's HTTP face: POST /v1/runs (the routd↔runed contract) plus run
-// status/kill and spawn-session history. The Manager owns the run lifecycle.
-//
-// The history reads live under `spawn_sessions`, NOT `sessions`: a resource's name is
-// its wire identity and `sessions` is authd's (BUGS F46).
+// Server is runed's HTTP face: POST /v1/runs (the routd↔runed contract) plus
+// run status/kill and spawn-session history. The history reads live under
+// `spawn_sessions`, NOT `sessions`: a resource's name is its wire identity
+// and `sessions` is authd's (BUGS F46).
 type Server struct {
 	mgr    *Manager
 	db     *DB
 	verify Verifier
-	// dashKeys gates GET /dash/runed/ (spec 6/28 auth layer 2). Separate from
-	// verify, which gates /v1 on a BEARER: the dashboard trusts the
-	// proxyd-verified end-user identity instead. nil → local dev, gate open.
+	// dashKeys gates GET /dash/runed/ (spec 6/28): the dashboard trusts the
+	// proxyd-verified end-user identity, not a bearer. nil: local dev, gate
+	// open.
 	dashKeys *auth.KeySet
 	// sub is what the substrate delivers on this configuration, shown on the
-	// dashboard so an operator reads a downgrade where they look, not in the
-	// source (spec 6/25 §3). The zero value renders nothing.
+	// dashboard so an operator reads a downgrade where they look (spec 6/25
+	// §3). The zero value renders nothing.
 	sub substrate.Effective
 }
 
@@ -46,13 +44,12 @@ func NewServer(mgr *Manager, db *DB, verify Verifier) *Server {
 // SetSubstrate hands the dashboard the value main computed with Substrate.
 func (s *Server) SetSubstrate(sub substrate.Effective) { s.sub = sub }
 
-// SetDashKeySet wires the operator gate for GET /dash/runed/. Called by main
-// when AUTHD_URL is set; nil in local dev and tests, where it falls open.
+// SetDashKeySet wires the operator gate for GET /dash/runed/; nil falls open.
 func (s *Server) SetDashKeySet(ks *auth.KeySet) { s.dashKeys = ks }
 
 // Handler builds the routed mux. GET /health is public; everything else is
-// bearer-gated. /openapi.json is NOT here — the binary adds it in newRunedMux
-// (runed/cmd/runed), alongside the resource list it advertises.
+// bearer-gated. /openapi.json is NOT here: the binary adds it in newRunedMux
+// alongside the resource list it advertises.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, 200, map[string]any{"ok": true}) })
@@ -64,17 +61,15 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/spawn_sessions", s.handleSessions)
 	mux.HandleFunc("GET /v1/spawn_sessions/recent", s.handleRecentSessions)
 	s.mountAudit(mux)
-	// The operator dashboard (spec 6/28): runed's own /dash/ namespace, gated
-	// by the proxyd-stamped operator identity rather than the /v1 bearer.
+	// The operator dashboard (spec 6/28).
 	mux.HandleFunc("GET /dash/runed/", s.handleDash)
 	mux.HandleFunc("POST /dash/runed/kill", s.handleDashKill)
 	return mux
 }
 
-// authz verifies the bearer token and, when a scope is required, checks the token
-// carries it. Returns the token's subject + arz/folder claim + ok. The sub is what
-// the run-slot audit rows attribute to; every caller takes it so no handler can
-// record a kill as anonymous. verify==nil is open (local-dev).
+// authz verifies the bearer token and, when a scope is required, checks the
+// token carries it. Every caller takes the sub so no handler can record a
+// kill as anonymous. verify==nil is open (local-dev).
 func (s *Server) authz(w http.ResponseWriter, r *http.Request, needScope string) (sub, folder string, ok bool) {
 	if s.verify == nil {
 		return "", "", true
@@ -95,9 +90,8 @@ func (s *Server) authz(w http.ResponseWriter, r *http.Request, needScope string)
 }
 
 // ownsFolder reports whether a token scoped to tokenFolder may act on a run in
-// target's folder. Empty tokenFolder (root / service:routd, which drives every
-// run) owns everything; a folder-scoped token is confined to its own subtree —
-// it cannot inspect or kill another folder's run. Mirrors routd.ownsFolder.
+// target's folder. Empty tokenFolder (root, service:routd) owns everything; a
+// folder-scoped token is confined to its own subtree. Mirrors routd.ownsFolder.
 func ownsFolder(tokenFolder, target string) bool {
 	if tokenFolder == "" || target == "" {
 		return true
@@ -105,11 +99,9 @@ func ownsFolder(tokenFolder, target string) bool {
 	return groupfolder.Contains(tokenFolder, target)
 }
 
-// handleRun is the routd→runed contract (POST /v1/runs). Gated on the runs:run
-// scope: routd's service token carries it, and an operator may be granted it
-// for manual runs. runed is an internal docker-network service, but a scope
-// check (not a bare bearer) is the gate so a stray agent/user token that
-// reaches it cannot start arbitrary runs (spec 5/P § Auth).
+// handleRun is the routd→runed contract (POST /v1/runs), gated on runs:run: a
+// scope check, not a bare bearer, so a stray agent/user token that reaches
+// this internal service cannot start arbitrary runs (spec 5/P § Auth).
 func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 	_, folder, ok := s.authz(w, r, "runs:run")
 	if !ok {
@@ -124,10 +116,9 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "missing_field", "folder required")
 		return
 	}
-	// Bind the spawn to the caller's folder — same containment as stop/status/kill
-	// (a folder-scoped runs:run holder must not spawn in another tenant's folder,
-	// which would run the agent with that folder's secrets + network). service:routd
-	// carries folder="" (root) so dispatch is unaffected.
+	// Bind the spawn to the caller's folder: a folder-scoped runs:run holder
+	// must not spawn in another tenant's folder, which would run the agent
+	// with that folder's secrets + network.
 	if !ownsFolder(folder, string(req.Folder)) {
 		writeErr(w, 403, "forbidden", "folder outside caller subtree: "+string(req.Folder))
 		return
@@ -141,10 +132,9 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, out)
 }
 
-// handleHold claims a folder's run slot for an external, folder-exclusive job (spec
-// 5/8) and returns the handle immediately. Gated exactly like POST /v1/runs: a hold
-// IS a run, so it takes the same runs:run scope and folder containment. Releasing
-// goes through the existing DELETE /v1/runs/{run_id}, not a second route.
+// handleHold claims a folder's run slot for an external, folder-exclusive job
+// (spec 5/8). A hold IS a run, so it takes the same runs:run scope and folder
+// containment; releasing goes through DELETE /v1/runs/{run_id}.
 func (s *Server) handleHold(w http.ResponseWriter, r *http.Request) {
 	sub, folder, ok := s.authz(w, r, "runs:run")
 	if !ok {
@@ -174,8 +164,7 @@ func (s *Server) handleHold(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleRunStop is the operator-kill path (routd's /stop): map a folder to its
-// live spawn and kill it. Gated on runs:kill (same scope as DELETE-by-run_id).
-// killed=false is the no-active-container case; routd renders gated's text.
+// live spawn and kill it. killed=false is the no-active-container case.
 func (s *Server) handleRunStop(w http.ResponseWriter, r *http.Request) {
 	sub, folder, ok := s.authz(w, r, "runs:kill")
 	if !ok {
@@ -234,10 +223,9 @@ func (s *Server) handleRunKill(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	runID := r.PathValue("run_id")
-	// Resolve the run first, for two reasons: a folder-scoped token may only kill
-	// its own subtree, and the audit row records WHICH folder's slot this freed.
-	// Unconditional — root and service:routd used to skip it, but then the path
-	// that drives every operator kill was the one whose row had no folder.
+	// Resolve the run first, unconditionally: a folder-scoped token may only
+	// kill its own subtree, and the audit row records WHICH folder's slot
+	// this freed, root and service:routd included.
 	sp, err := s.db.SpawnByRunID(r.Context(), runID)
 	if err == ErrNotFound {
 		writeErr(w, 404, "unknown_run", "no such run")
@@ -251,9 +239,8 @@ func (s *Server) handleRunKill(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 404, "unknown_run", "no such run") // don't leak other folders' runs
 		return
 	}
-	// A kill only stops something when the run is still live; an already-terminal
-	// run is an idempotent no-op 200 (Manager.Kill) and leaves the spawns row
-	// untouched, so killed=false is the fact the row has to carry itself.
+	// An already-terminal run is a no-op 200 that leaves the spawns row
+	// untouched, so killed=false is a fact only the audit row carries.
 	killed := sp.State == "running" || sp.State == "queued"
 	err = s.mgr.Kill(r.Context(), runID)
 	s.auditRunSlot(r.Context(), sub, actionRunKill, sp.Folder, runID, killParams(killed && err == nil), err)
@@ -273,9 +260,8 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	// Folder is bound by the token's arz/folder claim, not the ?folder=
-	// query param — a token cannot read another folder's history. Open mode
-	// (verify==nil, folder="") honors the query param for local-dev.
+	// Folder is bound by the token's arz/folder claim, not ?folder=: a token
+	// cannot read another folder's history. Open mode honors the query param.
 	if folder == "" {
 		folder = r.URL.Query().Get("folder")
 	}
@@ -294,10 +280,10 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, out)
 }
 
-// handleRecentSessions is the routd→runed federation read (spec 5/P): the n newest
-// session_log rows for a folder, backing routd's continuity hint and inspect_session
-// tool, since split ownership means routd never opens runed.db. Folder is bound by
-// the token's arz/folder claim when present; routd's service token honors ?folder=.
+// handleRecentSessions is the routd→runed federation read (spec 5/P): the n
+// newest session_log rows for a folder, since routd never opens runed's store.
+// Folder is bound by the token's arz/folder claim when present; routd's
+// service token honors ?folder=.
 func (s *Server) handleRecentSessions(w http.ResponseWriter, r *http.Request) {
 	_, folder, ok := s.authz(w, r, "sessions:read")
 	if !ok {

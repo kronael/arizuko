@@ -1,9 +1,8 @@
 package audit
 
 // import.go is the destination half of the data move: the source reads a
-// database's old audit_log table and hands the rows here, and this file owns the
-// item shape so the tool that reads the table does not have to (spec 6/37 step
-// 7). The source half is cmd/arizuko/migrate_audit.go.
+// database's audit_log table and hands the rows here, and this file owns the
+// item shape (spec 6/37 step 7).
 
 import (
 	"context"
@@ -41,14 +40,11 @@ type LegacyRow struct {
 // Snapshot is everything one database's audit_log holds.
 type Snapshot struct{ Rows []LegacyRow }
 
-// importBatch is how many items one write carries. objstore bounds a batch at
-// MaxBatchActions because DynamoDB's transaction does, and a history import is
-// the one caller that would otherwise send a hundred thousand.
+// importBatch is how many items one write carries.
 const importBatch = objstore.MaxBatchActions
 
 // CheckSnapshot reports how many rows the entity can address and refuses the
-// whole snapshot on the first one it cannot, so a row that would stop a run
-// half way is named BEFORE the run.
+// whole snapshot on the first one it cannot, BEFORE the run.
 func CheckSnapshot(snap Snapshot) (int, error) {
 	seen := make(map[string]int64, len(snap.Rows))
 	for _, r := range snap.Rows {
@@ -64,15 +60,10 @@ func CheckSnapshot(snap Snapshot) (int, error) {
 	return len(snap.Rows), nil
 }
 
-// LegacyID is the id one legacy row becomes: the instant it recorded, at
-// core.TS's width, and the row's own sequence number as the suffix.
-//
-// THE SUFFIX IS THE OLD id, not a random value, and that is what carries the
-// order across. `created_at` alone is not unique — 59 of krons' 163,750 rows
-// share an instant with another — and the old id is what separated them.
-// Measured on all twelve live audit_log tables: `created_at` never disagrees
-// with `id` about order, so the assembled key sorts every row exactly where the
-// sequence had it.
+// LegacyID is the id one legacy row becomes: the instant it recorded at
+// core.TS's width, and the row's own sequence number as the suffix. THE SUFFIX
+// IS THE OLD id, not a random value: `created_at` alone is not unique (59 of
+// krons' 163,750 rows share an instant) and the old id is what separated them.
 func LegacyID(r LegacyRow) (string, error) {
 	at, err := time.Parse(time.RFC3339Nano, r.CreatedAt)
 	if err != nil {
@@ -84,15 +75,10 @@ func LegacyID(r LegacyRow) (string, error) {
 	return idAt(core.TS(at), fmt.Sprintf("%0*x", suffixHex, r.ID)), nil
 }
 
-// Import writes every row of snap as an item and answers how many landed.
-//
-// The writes are UNCONDITIONAL, which is the one place this package drops the
-// create-if-absent a live emit carries. An import is re-runnable by design — an
-// operator retries a migration against the same source — and an id is the
-// instant plus the row's own sequence number, so re-importing writes the same
-// item with the same content. Refusing there would make a retry a failure; the
-// condition that protects a RUNNING system stays on writeFor, where a live emit
-// uses it.
+// Import writes every row of snap as an item and answers how many landed. The
+// writes are UNCONDITIONAL: an import is re-runnable and an id is the instant
+// plus the row's own sequence number, so re-importing writes the same item.
+// The create-if-absent that protects a RUNNING system stays on writeFor.
 func Import(ctx context.Context, s objstore.Store, snap Snapshot) (int, error) {
 	written := 0
 	for start := 0; start < len(snap.Rows); start += importBatch {
@@ -119,12 +105,8 @@ func Import(ctx context.Context, s objstore.Store, snap Snapshot) (int, error) {
 	return written, nil
 }
 
-// eventOf renders a legacy row as the event writeFor stores, so the import
-// builds its items through the same renderer a live emit does.
-//
-// ParamsSummary is not on the event: it arrives already redacted and already
-// encoded, so writeFor takes it beside the event rather than through the map a
-// live caller fills in.
+// eventOf renders a legacy row as the event writeFor stores. ParamsSummary
+// arrives already redacted and encoded, so writeFor takes it beside the event.
 func eventOf(r LegacyRow) Event {
 	return Event{
 		Category:   r.Category,

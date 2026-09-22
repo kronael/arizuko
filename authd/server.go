@@ -24,10 +24,8 @@ var errReuse = errors.New("refresh token reuse detected")
 // key still inside its serving window, and persists keys/refresh state through
 // authstore.
 type Authd struct {
-	// st is every question authd asks its store, and it holds no SQL (spec 6/37
-	// step 5). obj is the same store one level down, kept because audit.Init and
-	// audit.Query take the driver rather than the questions — the ownership half
-	// of the seam, tracked as BUGS L251.
+	// st is every question authd asks its store. obj is the same store one
+	// level down, because audit.Init and audit.Query take the driver.
 	st           *authstore.Store
 	obj          objstore.Store
 	accessTTL    time.Duration // short access JWT lifetime (~15m)
@@ -35,8 +33,7 @@ type Authd struct {
 	maxAccessTTL time.Duration // longest access TTL ever minted; bounds a retired key's serving window
 
 	// grants, when wired, re-snapshots the bare sub's scope ceiling on every
-	// refresh (spec 5/1 § refresh: "re-runs the snapshot so a refreshed token
-	// reflects current grants"). nil = reuse the stored refresh-row scope.
+	// refresh (spec 5/1); nil reuses the stored refresh-row scope.
 	grants GrantsFetcher
 
 	mu      sync.RWMutex
@@ -83,10 +80,9 @@ func (a *Authd) reload() error {
 }
 
 // Rotate generates a new active key, retiring the old one as of now (it keeps
-// verifying within its TTL window). Emergency revoke is RevokeAllNow. Retire and
-// install run in ONE guarded batch, conditioned on the key the new one replaces,
-// so two concurrent Rotate() calls elect one winner and the trust root never
-// splits into two signers; the loser gets authstore.ErrRotationLost.
+// verifying within its TTL window); emergency revoke is RevokeAllNow. Retire
+// and install run in ONE guarded batch, so two concurrent Rotate() calls elect
+// one winner; the loser gets authstore.ErrRotationLost.
 func (a *Authd) Rotate() error {
 	k, err := auth.NewSigningKey(genKid(time.Now()))
 	if err != nil {
@@ -98,9 +94,9 @@ func (a *Authd) Rotate() error {
 	return a.reload()
 }
 
-// genKid returns the spec kid scheme: "<created-unix>-<8 hex rand>", sortable
-// by creation time and collision-resistant. Replaces the unsortable uuid so a
-// verifier can derive a key's creation order from the kid alone.
+// genKid returns the kid scheme "<created-unix>-<8 hex rand>": sortable by
+// creation time, so a verifier can derive a key's creation order from the kid
+// alone.
 func genKid(created time.Time) string {
 	b := make([]byte, 4)
 	_, _ = rand.Read(b)
@@ -162,9 +158,8 @@ func (a *Authd) activeKey() (*auth.SigningKey, error) {
 }
 
 // MintForSubject signs an authoritative access token for sub, scope bounded by
-// the target's grants snapshot. The minted claim carries the prefixed subject
-// (e.g. "user:123", "service:timed"); sub is passed already prefixed. typ is
-// the JWT `typ` claim ("user" | "service").
+// the target's grants snapshot. sub is passed already prefixed ("user:123",
+// "service:timed"); typ is the JWT `typ` claim.
 func (a *Authd) MintForSubject(sub, typ string, requested, targetGrants []string, aud string) (string, error) {
 	k, err := a.activeKey()
 	if err != nil {
@@ -194,10 +189,9 @@ func folderExtra(folder string) map[string]string {
 }
 
 // signMinted signs c and returns the echo-back values. ttl<=0 falls back to
-// accessTTL, and any ttl is clamped to maxAccessTTL — this is the ONE mint site, so
-// the field's contract holds by construction. Without it an issuer mint could name
-// its own lifetime: access tokens verify offline against no revocation list, so an
-// uncapped one is an unbounded revocation hole.
+// accessTTL, and any ttl is clamped to maxAccessTTL; this is the ONE mint
+// site. Access tokens verify offline against no revocation list, so an
+// uncapped ttl is an unbounded revocation hole.
 func (a *Authd) signMinted(c auth.TokenClaims, folder string, ttl time.Duration) (minted, error) {
 	k, err := a.activeKey()
 	if err != nil {
@@ -219,10 +213,9 @@ func (a *Authd) signMinted(c auth.TokenClaims, folder string, ttl time.Duration)
 	return minted{token: tok, jti: c.Jti, expiresAt: time.Now().Add(ttl)}, nil
 }
 
-// Downscope mints a "downscoped" token for the SAME sub as the parent: requested
-// scope must be ⊆ parent scope, folder ⊆ parent folder, ttl ≤ parent remaining.
-// parent_jti links it to the parent (spec 5/1 § POST /v1/tokens downscope mode).
-// runed/broker.go is the live caller.
+// Downscope mints a "downscoped" token for the SAME sub as the parent:
+// requested scope ⊆ parent scope, folder ⊆ parent folder, ttl ≤ parent
+// remaining. parent_jti links it to the parent (spec 5/1 § POST /v1/tokens).
 func (a *Authd) Downscope(parent auth.Subject, requested []string, folder string, ttl time.Duration) (minted, error) {
 	for _, want := range requested {
 		if !auth.HasScopeCoveredBy(parent.Scope, want) {
@@ -247,9 +240,8 @@ func (a *Authd) Downscope(parent auth.Subject, requested []string, folder string
 }
 
 // IssuerMint mints a fresh user/service token for a (possibly different) sub,
-// scope bounded by the TARGET sub's grants snapshot — NOT the caller's scope
-// (spec 5/1 § POST /v1/tokens issuer mint). targetGrants/folder come from the
-// grants snapshot the caller fetched.
+// scope bounded by the TARGET sub's grants snapshot, NOT the caller's scope
+// (spec 5/1 § POST /v1/tokens).
 func (a *Authd) IssuerMint(sub, typ string, requested, targetGrants []string, folder, aud string, ttl time.Duration) (minted, error) {
 	for _, want := range requested {
 		if !auth.HasScopeCoveredBy(targetGrants, want) {
@@ -281,9 +273,8 @@ func (a *Authd) IssueRefresh(sub string, scope []string, aud string) (string, er
 
 // Refresh rotates a refresh token: verifies it is live and unused, mints a new
 // access + successor refresh, and tombstones the old one. Presenting an
-// already-used token is reuse — the whole family is revoked and errReuse
-// returned. ctx bounds the grants re-snapshot so an abandoned HTTP request
-// (client gone) doesn't hold a goroutine for the full FetchGrants timeout.
+// already-used token is reuse: the whole family is revoked and errReuse
+// returned. ctx bounds the grants re-snapshot.
 func (a *Authd) Refresh(ctx context.Context, raw string) (access, newRefresh string, err error) {
 	r, ok := a.st.RefreshTokenBySecret(raw)
 	if !ok {
@@ -293,10 +284,9 @@ func (a *Authd) Refresh(ctx context.Context, raw string) (access, newRefresh str
 		return "", "", auth.ErrInvalidToken
 	}
 	if r.Used {
-		// Reuse of a spent token: revoke the lineage. A failure here is the one
-		// that matters — the token is known-stolen and the family stays live —
-		// so it is logged loud rather than dropped. The caller still gets
-		// errReuse: this request is refused either way.
+		// Reuse of a spent token: revoke the lineage. A failure here leaves a
+		// known-stolen token's family live, so it is logged loud; the caller
+		// still gets errReuse.
 		if _, err := a.st.RevokeFamily(r.Family); err != nil {
 			slog.Error("refresh-token family NOT revoked after reuse detection; a stolen token may still mint",
 				"family", r.Family, "sub", r.Sub, "err", err)
@@ -306,25 +296,16 @@ func (a *Authd) Refresh(ctx context.Context, raw string) (access, newRefresh str
 	if time.Now().After(r.Expires) {
 		return "", "", auth.ErrExpiredToken
 	}
-	// Re-snapshot grants on refresh so a revoked user does not keep scope up to the
-	// refresh TTL. With no fetcher wired the stored scope is the ceiling; with one, a
-	// backend outage fails CLOSED rather than reusing stale scope.
-	//
-	// This runs BEFORE the claim, and the order is load-bearing for BUGS F36: the claim
-	// and the successor's INSERT share one transaction, and a remote HTTP call cannot
-	// sit inside it — SQLite has a single writer, so holding the write lock across a
-	// FetchGrants round trip would stall every other write in auth.db.
-	//
-	// Two accepted consequences: a grants outage no longer burns the presented token,
-	// and the window in which two redeems both pass the used_at check widens to one RTT
-	// — so simultaneous redeems are more likely to be seen as the reuse they are.
+	// Re-snapshot grants on refresh so a revoked user does not keep scope up
+	// to the refresh TTL; a backend outage fails CLOSED. This runs BEFORE the
+	// claim (BUGS F36): the claim and the successor's write share one batch,
+	// and a remote HTTP call cannot sit inside it. A grants outage therefore
+	// does not burn the presented token.
 	scope := r.Scope
 	if a.grants != nil {
-		// r.Sub is ALREADY the bare canonical sub (issueSession stores it bare,
-		// spec 5/1 "sub prefix rule"). For an OAuth sub the canonical form IS
-		// "google:<id>" (9-acl-unified.md), so re-stripping at ":" would query
-		// the wrong principal "<id>" → empty scope. Query r.Sub as-is, matching
-		// the login snapshot.
+		// r.Sub is ALREADY the bare canonical sub, and for an OAuth sub the
+		// canonical form IS "google:<id>", so re-stripping at ":" would query
+		// the wrong principal. Query r.Sub as-is.
 		snap, gerr := a.grants.FetchGrants(ctx, r.Sub)
 		switch {
 		case gerr == nil:
@@ -335,10 +316,10 @@ func (a *Authd) Refresh(ctx context.Context, raw string) (access, newRefresh str
 			return "", "", errGrantsUnavailable
 		}
 	}
-	// Atomic compare-and-set plus the successor's INSERT in ONE transaction: only the
-	// caller that flips used_at NULL->now wins the right to rotate, and no family kill
-	// can land between its win and its insert. A lost race means concurrent redeem of a
-	// one-time token, which is reuse — revoke the family and fail.
+	// Compare-and-set plus the successor's write in ONE batch: only the caller
+	// that sets used_at wins the right to rotate, and no family kill can land
+	// between its win and its write. A lost race is reuse: revoke the family
+	// and fail.
 	newRefresh, won, err := a.st.ClaimAndRotateRefresh(raw, r.Family, r.Sub, scope, r.Aud, a.refreshTTL)
 	if err != nil {
 		return "", "", err

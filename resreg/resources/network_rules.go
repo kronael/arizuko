@@ -8,7 +8,7 @@ import (
 )
 
 // NetworkRulesRow mirrors network_rules: composite (folder, target) PK.
-// Global rules use folder="" (seeded by migration 0037).
+// Global rules use folder="".
 type NetworkRulesRow struct {
 	Folder    string `db:"folder"     yaml:"folder"     json:"folder"`
 	Target    string `db:"target"     yaml:"target"     json:"target"`
@@ -16,15 +16,9 @@ type NetworkRulesRow struct {
 	CreatedBy string `db:"created_by" yaml:"created_by,omitempty" json:"created_by,omitempty"`
 }
 
-// NetworkRulesEndpoints is the single owner of the network_rules endpoint set
-// that drives the agent's egress tools (routd network_rules_resource.go
-// references it).
-//
+// NetworkRulesEndpoints is the single owner of the network_rules endpoint set.
 // All three are MCPOnly: network_rules is reached ONLY through the agent's
-// network_allow/network_deny/network_list tools — no daemon mounts a REST face
-// for it and none advertises it. They carried Verb+Path that nothing served,
-// which is the F21/F27 class one step further along (declared, unmounted,
-// unadvertised); MCPOnly is how spec 5/17 says to spell "no REST twin".
+// tools, and no daemon mounts or advertises a REST face (spec 5/17).
 var NetworkRulesEndpoints = []resreg.Endpoint{
 	{Action: resreg.Action("allow"), MCPOnly: true},
 	{Action: resreg.Action("deny"), MCPOnly: true},
@@ -32,8 +26,7 @@ var NetworkRulesEndpoints = []resreg.Endpoint{
 }
 
 // NetworkRulesMCPNames maps each action to the flat tool name the live agent
-// already calls; routd's network_rules_resource.go references it (agent socket
-// derivation) and ipc.ListTools reads it via the registry walk. Spec 5/16.
+// calls (spec 5/16).
 var NetworkRulesMCPNames = map[resreg.Action]string{
 	resreg.Action("allow"): "network_allow",
 	resreg.Action("deny"):  "network_deny",
@@ -55,9 +48,8 @@ var NetworkRulesMCPDoc = map[resreg.Action]string{
 		"(its own rules plus those inherited from ancestors and the instance base); `own` is only the rules set on this folder itself.",
 }
 
-// NetworkRulesMCPArgs is the explicit per-action arg list. The agent face carries
-// {host, folder}, NOT the RowType-reflected columns, so this overrides RowType
-// reflection for the derived agent/browser tools.
+// NetworkRulesMCPArgs is the agent face's wire shape, overriding RowType
+// reflection.
 var NetworkRulesMCPArgs = map[resreg.Action][]resreg.MCPArg{
 	resreg.Action("allow"): {{Name: "host", Type: "string", Required: true}, {Name: "folder", Type: "string"}},
 	resreg.Action("deny"):  {{Name: "host", Type: "string", Required: true}, {Name: "folder", Type: "string"}},
@@ -70,11 +62,9 @@ func init() {
 		DB:       resreg.SubsystemRoutd,
 		RowType:  reflect.TypeFor[NetworkRulesRow](),
 		PKFields: []string{"Folder", "Target"},
-		// The folder leads, because it is also the SCOPE: a key predicate
-		// reaches a leading fragment, so a folder purge is a begins_with on
-		// `folder + separator` and nothing else can select it (resreg/entity.go
-		// entityScopeOf). `target` alone is not unique — 15 rows over 10 targets
-		// on krons.
+		// The folder leads because it is also the SCOPE: a key predicate reaches
+		// a leading fragment, so a folder purge is a begins_with on `folder +
+		// separator` (entityScopeOf). `target` alone is not unique.
 		EntitySortKey: []string{"Folder", "Target"},
 		EntityKeySep:  store.KeySep,
 		Endpoints:     NetworkRulesEndpoints,

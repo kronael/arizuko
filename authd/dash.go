@@ -1,12 +1,8 @@
 package main
 
 // dash.go is authd's operator dashboard at GET /dash/authd/ (spec 6/28, 6/30).
-//
-// dashd's copy already read through authd's /v1 face rather than a direct DB
-// handle, so this move fixes no read-path defect — it puts the page in the
-// daemon that owns the data, which is what 6/28 asks for, and drops an HTTP hop
-// on every render: the handlers here call the SAME authstore methods the /v1
-// resources call, in process.
+// The handlers call the SAME authstore methods the /v1 resources call, in
+// process.
 
 import (
 	"fmt"
@@ -22,8 +18,7 @@ import (
 	"github.com/kronael/arizuko/theme"
 )
 
-// sessionsShown caps the login table. One row per refresh FAMILY, so this is
-// logins and not requests, but a long-lived deployment still accumulates them.
+// sessionsShown caps the login table: one row per refresh FAMILY.
 const sessionsShown = 50
 
 // handleDash renders the signing keys and who is signed in.
@@ -75,8 +70,7 @@ func (s *server) handleDashRevoke(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Killing nothing is not success: an operator mistyping an id during an
-	// incident must not be told the session is dead (the /v1 face 404s for the
-	// same reason).
+	// incident must not be told the session is dead.
 	if !killed {
 		auth.Forbidden(w, "authd", "No live session "+family+".")
 		return
@@ -85,10 +79,8 @@ func (s *server) handleDashRevoke(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/dash/authd/", http.StatusSeeOther)
 }
 
-// signingKeyTable renders key METADATA. There is no key-material column to
-// leak here — the /v1 row type omits the private half by construction — but the
-// page still shows only what that row carries, so the two faces cannot diverge
-// into one showing more than the other.
+// signingKeyTable renders key METADATA: only what the /v1 row carries, so the
+// two faces cannot diverge.
 func signingKeyTable(rows []resources.SigningKeysRow) string {
 	var b strings.Builder
 	b.WriteString(`<h2>Signing keys</h2>`)
@@ -109,8 +101,7 @@ func signingKeyTable(rows []resources.SigningKeysRow) string {
 	return b.String()
 }
 
-// sessionTable renders one row per refresh family — a login and everything it
-// rotated into, not one row per token.
+// sessionTable renders one row per refresh family, not one row per token.
 func sessionTable(rows []resources.SessionsRow) string {
 	var b strings.Builder
 	b.WriteString(`<h2>Who is signed in</h2>`)
@@ -132,9 +123,8 @@ func sessionTable(rows []resources.SessionsRow) string {
 	return b.String()
 }
 
-// revokeForm renders the sign-out button for a live family only. A revoked
-// family has nothing left to kill, and the writer reports killed=false for one,
-// so offering the button would invite a press that answers "no live session".
+// revokeForm renders the sign-out button for a live family only; the writer
+// reports killed=false for a revoked one.
 func revokeForm(s resources.SessionsRow) string {
 	if s.Status != "active" {
 		return ""

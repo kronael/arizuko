@@ -1,25 +1,13 @@
 package runstore
 
-// import.go writes a whole runed.db into the entities this package reads. It is
-// the destination half of the one-way data move (spec 6/37 step 7); the source
-// half — reading the legacy tables — belongs to the tool that runs it, because
-// this package holds no SQL.
-//
-// The split is what keeps the model declared once. The tool knows the old
-// schema and nothing about items; this file knows items and nothing about the
-// old schema; a Snapshot of plain values is the only thing that crosses.
-//
-// TWO THINGS ARE REWRITTEN RATHER THAN COPIED, and both are the move's whole
-// point:
-//
-//   - EVERY TIMESTAMP goes through core.TS. The tables stored RFC3339 at second
-//     resolution — twenty bytes on all 30,858 live rows — and the sweep compares
-//     created_at by byte order, so a mixed-width column is BUGS L97 waiting on
-//     the first row a nanosecond writer adds.
-//   - THE SESSION LOG'S IDENTITY becomes its sort key, because AUTOINCREMENT is
-//     the sequence 6/37 rule 4 says a document store does not have. The old id
-//     is not thrown away: it becomes the suffix, so two sessions that shared a
-//     second stay two items AND keep the order the sequence gave them.
+// import.go writes a whole runed.db into the entities this package reads: the
+// destination half of the one-way data move (spec 6/37 step 7). The tool
+// knows the old schema and nothing about items; this file knows items and
+// nothing about the old schema; a Snapshot of plain values is all that
+// crosses. Two things are rewritten rather than copied: EVERY TIMESTAMP goes
+// through core.TS, because the sweep compares created_at by byte order (BUGS
+// L97), and THE SESSION LOG'S IDENTITY becomes its sort key, with the old id
+// as the suffix so order survives.
 
 import (
 	"context"
@@ -71,8 +59,7 @@ type SessionRow struct {
 	MessageCount int
 }
 
-// BreakerRow is one legacy `circuit_breaker` row. last_failure is not here: the
-// entity does not carry it and circuit_breaker.go says why.
+// BreakerRow is one legacy `circuit_breaker` row.
 type BreakerRow struct {
 	Folder   string
 	Failures int
@@ -86,15 +73,11 @@ type Counts struct {
 	Breakers int
 }
 
-// LegacySessionID is the id a migrated session gets: the instant it started, at
+// LegacySessionID is the id a migrated session gets: the instant it started at
 // core.TS's fixed width, plus the row's own sequence number as the suffix.
-//
-// The sequence number rather than randomness, for two reasons. It makes the
-// import RE-RUNNABLE — the same source row builds the same item every time — and
-// it is what carries the ORDER through a second-resolution column: 760 krons
-// rows share a (folder, second) with another and 39 share one instant, so
-// without a tiebreak that ascends with time the newest-first page would come
-// back shuffled inside every busy second.
+// The sequence number rather than randomness makes the import RE-RUNNABLE and
+// carries the ORDER through a second-resolution column (760 krons rows share
+// a (folder, second) with another).
 func LegacySessionID(r SessionRow) (string, error) {
 	at, err := time.Parse(time.RFC3339Nano, r.StartedAt)
 	if err != nil {
@@ -107,14 +90,10 @@ func LegacySessionID(r SessionRow) (string, error) {
 	return sessionIDAt(core.TS(at), fmt.Sprintf("%0*x", sessionSuffixHex, r.ID)), nil
 }
 
-// Import writes snap into the entities and answers what landed.
-//
-// The writes are UNCONDITIONAL, which is the one place this package drops the
-// create-if-absent a live write carries. A migration is re-runnable by design,
-// and every id it builds is a function of the source row, so re-importing a
-// source writes the same item with the same content. Refusing there would make
-// a retry a failure; the condition that protects a RUNNING system stays on the
-// live writers.
+// Import writes snap into the entities and answers what landed. The writes are
+// UNCONDITIONAL: a migration is re-runnable and every id is a function of the
+// source row, so re-importing writes the same item. The create-if-absent that
+// protects a RUNNING system stays on the live writers.
 func (s *Store) Import(ctx context.Context, snap Snapshot) (Counts, error) {
 	writes, counts, err := importWrites(snap)
 	if err != nil {
@@ -127,18 +106,15 @@ func (s *Store) Import(ctx context.Context, snap Snapshot) (Counts, error) {
 }
 
 // CheckSnapshot reports whether the entities can represent snap, writing
-// nothing. It is what a rehearsal runs: a row the store cannot address should be
-// named before the run that would stop half way through, not during it.
+// nothing: a row the store cannot address is named BEFORE the run.
 func CheckSnapshot(snap Snapshot) (Counts, error) {
 	_, counts, err := importWrites(snap)
 	return counts, err
 }
 
-// importWrites turns a snapshot into the writes that represent it, or names why
-// it cannot be represented.
-//
-// Every refusal is collected and reported at once: an operator deciding what to
-// do about the data needs the whole picture, not the first row the loop met.
+// importWrites turns a snapshot into the writes that represent it, or names
+// why it cannot be represented. Every refusal is reported at once: an operator
+// deciding what to do about the data needs the whole picture.
 func importWrites(snap Snapshot) ([]objstore.Write, Counts, error) {
 	var (
 		writes  []objstore.Write
@@ -146,8 +122,7 @@ func importWrites(snap Snapshot) ([]objstore.Write, Counts, error) {
 		refused []string
 	)
 	// sessionKeys maps a legacy sequence number to the (folder, id) a spawn's
-	// session_log_id now has to name. It is built first because the spawn writes
-	// resolve through it.
+	// session_log_id has to name; the spawn writes resolve through it.
 	sessionKeys := map[int64]sessionRef{}
 	for _, r := range snap.Sessions {
 		if r.GroupFolder == "" {
@@ -290,8 +265,7 @@ func importWrites(snap Snapshot) ([]objstore.Write, Counts, error) {
 	return writes, counts, nil
 }
 
-// sessionRef is where a migrated session landed: the id a spawn's link now
-// names, and the folder partition it names it inside.
+// sessionRef is where a migrated session landed: its id and folder partition.
 type sessionRef struct {
 	id     string
 	folder string
@@ -310,8 +284,7 @@ func normalizeTS(what, value string) (string, error) {
 	return core.TS(at), nil
 }
 
-// firstError answers the first non-nil of two, so one refusal message carries
-// whichever of a pair failed.
+// firstError answers the first non-nil of two.
 func firstError(a, b error) error {
 	if a != nil {
 		return a

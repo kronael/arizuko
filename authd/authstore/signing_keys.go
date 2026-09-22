@@ -2,19 +2,11 @@ package authstore
 
 // signing_keys.go holds every read and write of the trust root: one key signs,
 // and each retired key keeps verifying until its window closes.
-//
-// TWO entities, and the second one is the invariant. `signing_keys` holds the
-// keypairs, sorted by kid — the kid is `<unix>-<hex>`, so key order IS creation
-// order and the metadata read needs no sort of its own. `signing_key_slot`
-// holds ONE item, at sort key `active`, naming the kid that signs.
-//
-// A key carries no `active` attribute, and that is deliberate. "Exactly one
-// active key" was a partial-unique index on a column, which no key-value engine
-// has; as a slot it is a property of the coordinate instead, so two active keys
-// are not a state this store can represent. Rotation moves the slot under a
-// compare-and-set on the kid it is replacing, which is what makes two racing
-// rotations elect one winner on every engine rather than on the one with the
-// index.
+// `signing_keys` holds the keypairs, sorted by kid (`<unix>-<hex>`, so key
+// order IS creation order). `signing_key_slot` holds ONE item, at sort key
+// `active`, naming the kid that signs: a key carries no `active` attribute, so
+// two active keys are not a state this store can represent. Rotation moves
+// the slot under a compare-and-set on the kid it replaces.
 
 import (
 	"crypto/ecdsa"
@@ -33,9 +25,7 @@ import (
 const activeSlot = "active"
 
 // ErrRotationLost is what a rotation reports when another rotation moved the
-// slot first. It is a REFUSAL, not a fault — the loser must not sign — and it
-// is an error because that is what the caller has always seen: the unique index
-// failed its INSERT the same way.
+// slot first. It is a REFUSAL, not a fault: the loser must not sign.
 var ErrRotationLost = errors.New("another rotation moved the active signing key first")
 
 // StoredKey is a signing key as stored, with its parsed private key.
@@ -45,13 +35,9 @@ type StoredKey struct {
 	RetiredAt *time.Time
 }
 
-// SigningKeysWithMaterial reads every signing key WITH its private half and
-// parses each PEM. It is the only reader in the tree that takes priv_pem, and
-// it feeds the in-process signer; SigningKeyMetadata answers the operator's
-// question without ever naming the attribute.
-//
-// It applies no serving window: the caller holds maxAccessTTL and decides which
-// of these keys still verify.
+// SigningKeysWithMaterial reads every signing key WITH its private half. It is
+// the only reader that takes priv_pem, and it feeds the in-process signer. It
+// applies no serving window: the caller holds maxAccessTTL.
 func (s *Store) SigningKeysWithMaterial() ([]StoredKey, error) {
 	active, err := s.activeKid()
 	if err != nil {
@@ -79,10 +65,9 @@ func (s *Store) SigningKeysWithMaterial() ([]StoredKey, error) {
 	return out, nil
 }
 
-// RotateActiveKey retires the key holding the slot as of `at` and installs k in
-// it, in ONE batch. Two concurrent rotations cannot both land: the slot write
-// is conditioned on the kid it is replacing, so the loser's batch is refused
-// whole — its new key is never written and the trust root never splits into two
+// RotateActiveKey retires the key holding the slot as of `at` and installs k,
+// in ONE batch. The slot write is conditioned on the kid it replaces, so the
+// loser's batch is refused whole and the trust root never splits into two
 // signers.
 func (s *Store) RotateActiveKey(k *auth.SigningKey, at time.Time) error {
 	privPEM, pubPEM, err := EncodeKey(k.Priv)
@@ -102,9 +87,8 @@ func (s *Store) RotateActiveKey(k *auth.SigningKey, at time.Time) error {
 	}}
 	if old == "" {
 		// No key holds the slot: a first boot, or the window an emergency
-		// revoke opens between RetireActiveKeys and the rotation that follows
-		// it. ItemAbsent is what elects one winner there, and it is the engine's
-		// own uniqueness rather than a read this package performed.
+		// revoke opens before the rotation that follows it. ItemAbsent elects
+		// one winner there.
 		writes = append(writes, objstore.Write{
 			Op: objstore.Put, Entity: SigningKeySlot, Key: key(activeSlot),
 			Attrs: map[string]string{"kid": k.Kid},
@@ -135,14 +119,11 @@ func (s *Store) RotateActiveKey(k *auth.SigningKey, at time.Time) error {
 	return nil
 }
 
-// RetireActiveKeys marks the key holding the slot retired as of `at` and empties
-// the slot. Used by emergency revoke (at backdated, window closes immediately);
-// normal rotation retires in-batch via RotateActiveKey.
-//
-// An empty slot is not a failure: there is nothing to retire, which is the
-// answer the set-wide UPDATE this replaces also gave by touching no row. Nor is
-// a refused batch — it means another caller emptied the slot in between, and
-// the key it named is retired either way.
+// RetireActiveKeys marks the key holding the slot retired as of `at` and
+// empties the slot, for emergency revoke (at backdated); normal rotation
+// retires in-batch via RotateActiveKey. An empty slot is not a failure, nor is
+// a refused batch: another caller emptied the slot, and the key is retired
+// either way.
 func (s *Store) RetireActiveKeys(at time.Time) error {
 	kid, err := s.activeKid()
 	if err != nil || kid == "" {
@@ -165,20 +146,11 @@ func (s *Store) RetireActiveKeys(at time.Time) error {
 }
 
 // SigningKeyMetadata reads the non-secret attributes of every signing key and
-// derives each key's serving state.
-//
-// The PROJECTION is the security boundary of this read. `priv_pem` is not in
-// it, `pub_pem` is not in it, and there is no argument, filter or action that
-// can add one — the list is a constant, and the driver never fetches what it
-// does not project, so the private half does not leave the engine.
-// SigningKeysWithMaterial is the only reader that takes it, and it is
-// in-process and feeds the signer.
-//
-// Status is the time-based window spec 5/1 pins, computed once here rather than
-// left for each reader to re-derive: a key serves while it holds the slot, OR
-// while now < retired_at + maxAccessTTL. `retiring` is a retired key whose
-// already-issued tokens still verify; `retired` no longer verifies anything and
-// is waiting on GC.
+// derives each key's serving state. The PROJECTION is the security boundary:
+// `priv_pem` and `pub_pem` are not in it and nothing can add them, so the
+// private half never leaves the engine. Status is spec 5/1's window: a key
+// serves while it holds the slot, OR while now < retired_at + maxAccessTTL;
+// `retiring` still verifies already-issued tokens, `retired` verifies nothing.
 func (s *Store) SigningKeyMetadata(maxAccessTTL time.Duration, at time.Time) ([]resources.SigningKeysRow, error) {
 	active, err := s.activeKid()
 	if err != nil {
@@ -228,8 +200,7 @@ func (s *Store) activeKid() (string, error) {
 }
 
 // parseTS reads a stored timestamp. An absent attribute and an unparseable one
-// are the same answer to every caller here — "this key has no retirement" —
-// which is what the nullable column said too.
+// both mean "this key has no retirement".
 func parseTS(v string) (time.Time, bool) {
 	if v == "" {
 		return time.Time{}, false
@@ -239,8 +210,7 @@ func parseTS(v string) (time.Time, bool) {
 }
 
 // EncodeKey renders a private key into the two PEM attributes a signing key
-// stores, which is this layer's serialization of a key rather than the
-// signer's.
+// stores.
 func EncodeKey(priv *ecdsa.PrivateKey) (privPEM, pubPEM string, err error) {
 	der, err := x509.MarshalPKCS8PrivateKey(priv)
 	if err != nil {

@@ -7,9 +7,8 @@ import (
 	"github.com/kronael/arizuko/types"
 )
 
-// RunSpec is one agent invocation as runed sees it: the rendered prompt,
-// the resume session id (empty = fresh), the brokered capability token the
-// agent uses to call back into routd, and the turn_id stamped onto every
+// RunSpec is one agent invocation as runed sees it: the rendered prompt, the
+// resume session id (empty = fresh) and the turn_id stamped onto every
 // callback. Mirrors the PINNED POST /v1/runs body (spec 5/P).
 type RunSpec struct {
 	RunID           string
@@ -36,28 +35,23 @@ type RunSpec struct {
 	EgressAllowlist []string          // routd-resolved egress allowlist → EgressConfig.AllowlistFn
 	Secrets         map[string]string // routd-resolved user env-profile keys (BYOA model creds) → container.Input.Secrets, injected as container env; capability creds are brokered, never here
 	// ModelGatewayKey is this turn's virtual key at the model gateway, minted
-	// by routd (spec 6/23) → container.Input.ModelGatewayKey → the spawn's
-	// MODEL_GATEWAY_KEY. Empty means no gateway on this instance.
+	// by routd (spec 6/23). Empty means no gateway on this instance.
 	ModelGatewayKey string
 
-	// RunTTL is the run ceiling (the brokered token's TTL). The Runtime
-	// enforces it as a kill-deadline FROM WITHIN the run path so the kill is
-	// armed only once the run is underway and stops deterministically when the
-	// run returns — no detached manager timer racing container creation
-	// (spec 5/P § The queue + container model). Zero = no ceiling.
+	// RunTTL is the run ceiling. The Runtime enforces it as a kill-deadline
+	// FROM WITHIN the run path, so the kill is armed only once the run is
+	// underway and stops when the run returns (spec 5/P). Zero = no ceiling.
 	RunTTL time.Duration
 
 	// RegisterSteer is the Manager's hook the Runtime calls ONCE the
-	// container + IPC dir are up, handing back a steer closure (IPC write +
-	// SIGUSR1) so a concurrent POST /v1/runs steers into this live spawn
-	// (spec 5/P § Steer-into-running-container). The closure returns false
-	// when the container has already exited (the documented steer race).
+	// container + IPC dir are up, handing back a steer closure so a
+	// concurrent POST /v1/runs steers into this live spawn (spec 5/P). The
+	// closure returns false when the container has already exited.
 	RegisterSteer func(steer func(batch string) bool)
 }
 
-// RunResult is the harness outcome at the turn boundary. NewSessionID is
-// the session id the harness ran/produced (echoed onto spawns + the
-// POST /v1/runs backstop). Outcome ∈ ok|error|silent.
+// RunResult is the harness outcome at the turn boundary. NewSessionID is the
+// session id the harness ran/produced. Outcome ∈ ok|error|silent.
 type RunResult struct {
 	Outcome      string // ok|error|silent
 	NewSessionID string
@@ -70,16 +64,12 @@ type RunResult struct {
 	Terminal bool
 }
 
-// Runtime executes one agent turn end to end (the execution-session
-// envelope, spec 5/P § envelope). It is the ContainerRuntime seam:
-// production wraps container.DockerRunner + the ipc MCP host;
-// LocalRuntime/FakeRuntime back CI + unit tests without docker. The
-// envelope (socket, token, spawn, stream, teardown) is owned by Runtime;
-// frames arrive out-of-band via the agent's callbacks into routd.
+// Runtime executes one agent turn end to end (spec 5/P § envelope):
+// production wraps container.DockerRunner; FakeRuntime backs tests without
+// docker. Frames arrive out-of-band via the agent's callbacks into routd.
 type Runtime interface {
 	Run(ctx context.Context, spec RunSpec) RunResult
-	// Kill stops a live container by name (DELETE /v1/runs/{id}): stop,
-	// then docker kill, then rm -f (spec 5/P § DELETE). A no-op for runtimes
-	// with no container (FakeRuntime/LocalRuntime return nil).
+	// Kill stops a live container by name (DELETE /v1/runs/{id}). A no-op for
+	// runtimes with no container.
 	Kill(containerName string) error
 }

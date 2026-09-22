@@ -3,36 +3,15 @@ package runstore
 // session_log.go holds every read and write of `session_log`: one item per
 // agent session, opened when a run starts and closed when it exits.
 //
-// THE PARTITION IS THE FOLDER AND THE SORT KEY IS THE INSTANT IT STARTED, which
-// is what 6/37 rules 4 and 5 ask for and the one entity here where the rule
-// landed exactly. Every read is the same shape — "the n newest sessions in this
-// folder" — so the folder is the coordinate the caller filters on and the time
-// is the order, the page and the identity all at once. The two readers are
-// routd's continuity hint and its inspect_session tool, both per folder, both
-// per turn.
-//
-// A FOLDER, NOT A CONSTANT, because this entity has no drainage: nothing sweeps
-// it and it grows one item per agent turn forever. Measured 2026-09-07: 15,008
-// items on krons, 12,381 on sloth. A constant partition would put every folder's
-// history into one collection that a per-turn read walks — authd's mistake
-// (6/37 step 3) with no bound to excuse it. Concentration is real and it is
-// still the right side of the trade: one krons folder holds 11,993 of those
-// 15,008, and the read that touches it is `Descending` with a `Limit`, so the
-// driver answers it as a range and never as a scan.
-//
-// THE ID IS THE SORT KEY AND THERE IS NO SEQUENCE. The table's id was
-// AUTOINCREMENT, which is what 6/37 rule 4 forbids ordering by and what no
-// document store has, so the id is now the instant plus a suffix — a fixed
-// width, so byte order is time order (BUGS L97). What that costs every caller
-// is that the id compares as text: the wire field, `core.SessionRecord.ID` and
-// every test that asserted on a number all take a string, which is the same
-// price `audit.Row.ID` already paid.
-//
-// TWO WRITES TO ONE KEY, and it stays that way. Closing is not a second item:
-// nothing else ever writes the row, no invariant spans it, and a
-// read-modify-write of content never happens — Close sets fields Open left
-// absent. That is history a second engine carries as easily as the first
-// (6/37 rule 5, "History is not always one write").
+// THE PARTITION IS THE FOLDER AND THE SORT KEY IS THE INSTANT IT STARTED
+// (6/37 rules 4 and 5): every read is "the n newest sessions in this folder",
+// so the time is the order, the page and the identity at once. A folder, not
+// a constant, because this entity has no drainage and grows one item per turn
+// forever; the read that touches the largest folder is `Descending` with a
+// `Limit`, so the driver answers it as a range. The id is the instant plus a
+// suffix at a fixed width, so byte order is time order (BUGS L97), and it
+// compares as text. Open and Close are TWO WRITES TO ONE KEY: Close sets
+// fields Open left absent, and nothing else writes the row.
 
 import (
 	"context"
@@ -51,19 +30,15 @@ import (
 const SessionIDWidth = tsWidth + 1 + sessionSuffixHex
 
 // sessionSuffixHex is how many hex digits separate two sessions that start in
-// one instant. They are not hypothetical: the stored started_at was
-// second-resolution and 760 krons rows share a (folder, second) with another,
-// 39 of them at once.
+// one instant; 760 krons rows share a (folder, second) with another.
 const sessionSuffixHex = 8
 
-// The ordered declaration is the whole reason a string id can be a time cursor:
-// every driver refuses a key of another width, so a short one cannot sort into
-// the wrong place (BUGS L97).
+// The ordered declaration is what lets a string id be a time cursor: every
+// driver refuses a key of another width (BUGS L97).
 func init() { objstore.OrderedSort(SessionLog, SessionIDWidth) }
 
 // The attributes an item carries. started_at is NOT among them: the id IS the
-// instant, and storing the time twice is two facts that can disagree — the
-// ordering guarantee rests on the key rather than on an attribute beside it.
+// instant, and storing the time twice is two facts that can disagree.
 const (
 	attrSessSessionID = "session_id"
 	attrSessEndedAt   = "ended_at"
@@ -73,14 +48,12 @@ const (
 )
 
 // defaultSessionPage is how many sessions a read answers when the caller names
-// no limit. It was the reader's silent default and it stays one.
+// no limit.
 const defaultSessionPage = 20
 
-// Session is one session_log item as a caller reads it. It is the WHOLE record:
-// the dashboard's page and routd's federated read are two projections of one
-// question, and answering them from one reader is what stops the two field
-// lists drifting (the two statements this replaces already differed by
-// group_folder and error).
+// Session is one session_log item as a caller reads it. It is the WHOLE
+// record: the dashboard's page and routd's federated read are two projections
+// of one question, so one reader stops the two field lists drifting.
 type Session struct {
 	ID           string
 	GroupFolder  string
@@ -97,13 +70,12 @@ func sessionKey(folder, id string) objstore.Key {
 	return objstore.Key{Partition: folder, Sort: id}
 }
 
-// newSessionID is one session's identity and its position in time: the instant
-// it started, at core.TS's fixed width, plus the suffix that makes two sessions
-// in one instant two items.
+// newSessionID is one session's identity and its position in time: the
+// instant at core.TS's fixed width, plus a suffix that makes two sessions in
+// one instant two items.
 func newSessionID(at time.Time) string { return sessionIDAt(core.TS(at), randomSessionSuffix()) }
 
-// sessionIDAt assembles an id from a rendered instant and a suffix, so the live
-// writer and the import that carries an existing row build the same shape.
+// sessionIDAt assembles an id from a rendered instant and a suffix.
 func sessionIDAt(ts, suffix string) string { return ts + "-" + suffix }
 
 // randomSessionSuffix answers eight hex digits. rand.Read on crypto/rand cannot
@@ -125,12 +97,8 @@ func startedAtOf(id string) string {
 }
 
 // OpenSession records that a run started in folder and answers the id that
-// closes it.
-//
-// The Put carries ItemAbsent, so a suffix collision refuses rather than
-// replacing a session already on file. A refusal is a fault: the suffix is four
-// bytes of randomness inside one instant, so a collision means something is
-// minting ids that are not random.
+// closes it. The Put carries ItemAbsent: a suffix collision is a fault, since
+// it means something is minting ids that are not random.
 func (s *Store) OpenSession(ctx context.Context, folder, sessionID string) (string, error) {
 	id := newSessionID(time.Now())
 	attrs := map[string]string{}
@@ -149,13 +117,10 @@ func (s *Store) OpenSession(ctx context.Context, folder, sessionID string) (stri
 }
 
 // CloseSession records how a run ended on the item OpenSession created.
-//
-// newSessionID is the id the HARNESS emitted, which is not always the one the
-// run was started with, and an empty one leaves the opened id alone — the
-// COALESCE the statement carried, spelled as "do not write the attribute".
-//
-// A refusal means there is no such session, which is a caller fault rather than
-// a race: only the run that opened the item ever closes it, and it holds the id.
+// newSessionID is the id the HARNESS emitted, not always the one the run
+// started with; an empty one leaves the opened id alone. A refusal means no
+// such session: a caller fault, since only the run that opened the item
+// closes it.
 func (s *Store) CloseSession(ctx context.Context, folder, id, newSessionID, result, errMsg string,
 	msgs int) error {
 	attrs := map[string]string{
@@ -177,11 +142,8 @@ func (s *Store) CloseSession(ctx context.Context, folder, id, newSessionID, resu
 	return nil
 }
 
-// RecentSessions answers the n newest sessions a folder ran, newest first.
-//
-// Ordering, paging and the limit are one indexed range because the sort key is
-// the instant the session started: the driver reads the key backwards and stops
-// at the limit, so a folder holding twelve thousand items still answers a page.
+// RecentSessions answers the n newest sessions a folder ran, newest first: one
+// indexed range, since the sort key is the instant.
 func (s *Store) RecentSessions(ctx context.Context, folder string, limit int) ([]Session, error) {
 	if limit <= 0 {
 		limit = defaultSessionPage

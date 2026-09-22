@@ -7,12 +7,9 @@ import (
 	"github.com/kronael/arizuko/resreg"
 )
 
-// GroupsRow mirrors groups. Per-group behavioral settings (model,
-// thread_replies, observe_window_*, open) live inside the `config` JSON
-// blob; `container_config` carries spawn shape. Both are modeled as raw
-// JSON strings rather than typed structs because they are operator-opaque
-// and the engine's job is shape, not semantics — decoding happens in the
-// imperative store path, not on the manifest round-trip.
+// GroupsRow mirrors groups. `config` and `container_config` are raw JSON
+// strings, not typed structs: they are operator-opaque, and decoding happens
+// in the imperative store path, not on the manifest round-trip.
 type GroupsRow struct {
 	Folder             string `db:"folder"           yaml:"folder"           json:"folder"`
 	AddedAt            string `db:"added_at"         yaml:"added_at,omitempty"     json:"added_at,omitempty"`
@@ -23,26 +20,18 @@ type GroupsRow struct {
 	CostCapCentsPerDay int    `db:"cost_cap_cents_per_day" yaml:"cost_cap_cents_per_day,omitempty" json:"cost_cap_cents_per_day,omitempty"`
 }
 
-// GroupsAgentEndpoints is the single owner of the groups endpoint set: routd's
-// mountGroups mounts it verbatim, deriveMCPTools reads it for register_group +
-// refresh_groups, and openapi.go emits one operation per non-MCPOnly entry.
-//
-// register is MCPOnly: it is a custom verb with FS side-effects (a group row, a
-// room route, and a git-init'd group dir) that routd mounts as a FORWARDER for the
-// agent only — group CREATION stays dashd's SetupGroup, so no daemon serves
-// POST /v1/groups. It carried Verb+Path while mountGroups trimmed Endpoints to the
-// GET, which is the same override that left GET /v1/acl advertised and unmounted
-// (BUGS F27, the F21 class); `groups` was kept out of routd's OpenAPIResources to
-// paper over it. Declaring the truth here is what lets it be advertised.
+// GroupsAgentEndpoints is the single owner of the groups endpoint set.
+// register is MCPOnly: a custom verb with FS side-effects that routd mounts
+// as a FORWARDER for the agent only; group CREATION stays dashd's SetupGroup,
+// so no daemon serves POST /v1/groups (BUGS F27).
 var GroupsAgentEndpoints = []resreg.Endpoint{
 	{Action: resreg.Action("register"), MCPOnly: true},
 	{Verb: "GET", Path: "/v1/groups", Action: resreg.ActionList},
 }
 
 // GroupsFolderRef is what the list answers with: the folder and nothing else.
-// A registered group carries six more columns and GroupsRow declares all of
-// them, so documenting the list off the row promised a container config, a
-// product and a cost cap that no caller ever receives (BUGS L120).
+// Documenting the list off the row promised columns no caller receives (BUGS
+// L120).
 type GroupsFolderRef struct {
 	Folder string `json:"folder"`
 }
@@ -52,10 +41,8 @@ var GroupsResponses = map[resreg.Action]reflect.Type{
 	resreg.ActionList: reflect.TypeFor[[]GroupsFolderRef](),
 }
 
-// GroupsMCPNames maps each agent action to the flat tool name the live agent already
-// calls; routd's groups_resource.go references it (agent socket derivation) and
-// ipc.ListTools reads it via the registry walk (MCPNames is the facade-tool
-// discriminator, so setting it here is what surfaces groups in the browser). Spec 5/16.
+// GroupsMCPNames maps each agent action to the flat tool name the live agent
+// calls (spec 5/16).
 var GroupsMCPNames = map[resreg.Action]string{
 	resreg.Action("register"): "register_group",
 	resreg.ActionList:         "refresh_groups",
@@ -68,9 +55,7 @@ var GroupsMCPDoc = map[resreg.Action]string{
 	resreg.ActionList:         "Return folder for every registered group. Use to discover delegation targets or audit the group tree. Not for routing details (inspect_routing) or per-group tasks (inspect_tasks).",
 }
 
-// GroupsMCPArgs is the explicit per-action arg list for the agent face — register's
-// {jid, folder} shape, NOT the RowType columns, so it overrides RowType reflection
-// for the derived tool. refresh_groups (list) takes no args.
+// GroupsMCPArgs is the agent face's wire shape, overriding RowType reflection.
 var GroupsMCPArgs = map[resreg.Action][]resreg.MCPArg{
 	resreg.Action("register"): {
 		{Name: "folder", Type: "string", Required: true},
@@ -89,13 +74,10 @@ func init() {
 		Scope:         resreg.ScopeSpec{Field: "Folder"},
 		StampedFields: []string{"AddedAt", "UpdatedAt"},
 		// `updated_at` is server-OWNED and never server-INVENTED: a group nobody
-		// has changed legitimately carries none, and stamping one makes the first
-		// `export | apply` move a checksum the operator did not cause (BUGS F49).
-		// `added_at` is the converse — a manifest that omits it still gets one.
+		// has changed carries none, and stamping one moves a checksum the
+		// operator did not cause (BUGS F49).
 		AbsentStamps: []string{"UpdatedAt"},
-		// Agent-face metadata (spec 5/16): drives deriveMCPTools for register_group +
-		// refresh_groups. The manifest CRUD path uses RowType/Table only; these are
-		// inert to it (Apply/Export ignore Endpoints/MCP*).
+		// Agent-face metadata (spec 5/16); Apply/Export ignore it.
 		Endpoints: GroupsAgentEndpoints,
 		Responses: GroupsResponses,
 		MCPDoc:    GroupsMCPDoc,
@@ -107,8 +89,7 @@ func init() {
 				if r.Product == "" {
 					r.Product = "assistant"
 				}
-				// Normalize the JSON blobs for deterministic emit: parse →
-				// re-marshal so key order is canonical. Cheap; runs only on apply.
+				// Canonical key order, for deterministic emit.
 				r.ContainerConfig = canonJSON(r.ContainerConfig)
 				r.Config = canonJSON(r.Config)
 				return nil
@@ -117,9 +98,8 @@ func init() {
 	})
 }
 
-// canonJSON re-marshals a JSON object string so its key order is canonical,
-// for deterministic manifest emit. Empty or unparseable input passes through
-// unchanged (legacy/empty rows stay as-is).
+// canonJSON re-marshals a JSON object string so its key order is canonical.
+// Empty or unparseable input passes through unchanged.
 func canonJSON(s string) string {
 	if s == "" {
 		return s

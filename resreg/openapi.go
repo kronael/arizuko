@@ -1,20 +1,12 @@
 package resreg
 
-// OpenAPI emission — spec 5/8 §"OpenAPI emission".
-//
-// The same `RowType` reflection that drives YAML/JSON/SQL also yields an OpenAPI
-// 3.1 document: one walk over the registry, served from every daemon's
-// `/openapi.json`. No huma, no swag, no codegen.
-//
-// Schemas cannot drift — handler and doc read the same struct. A response body
-// is the one thing reflection cannot see, because a Handler returns `any`; so
-// the resource DECLARES the answering type (Resource.Responses) and an action
-// that declares none documents no body schema at all. Paths cannot
-// drift either, and for a stronger reason: the advertised set is READ OFF THE MUX
-// (MountedResources), so a daemon documents exactly the faces RegisterREST put on
-// its routing table. Each daemon used to hand OpenAPIHandler a list of resource
-// names with no reference to its mux, the cause under every drift found (BUGS
-// F33, F21, F27, F32).
+// OpenAPI emission (spec 5/8 §"OpenAPI emission"): one walk over the registry
+// yields an OpenAPI 3.1 document, served from every daemon's `/openapi.json`.
+// No huma, no swag, no codegen. Schemas cannot drift: handler and doc read the
+// same struct, and a response body, which reflection cannot see, is DECLARED
+// (Resource.Responses). Paths cannot drift: the advertised set is READ OFF THE
+// MUX (MountedResources), so a daemon documents exactly the faces RegisterREST
+// mounted (BUGS F33, F21, F27, F32).
 
 import (
 	"encoding/json"
@@ -33,18 +25,10 @@ import (
 
 // OpenAPI emits an OpenAPI 3.1 JSON document for rs, each resource already
 // trimmed to the endpoints it serves. Production callers get rs from
-// MountedResources(mux) via OpenAPIHandler and never assemble it by hand — that
-// hand-assembly WAS BUGS F33.
-//
-// The document is deterministic: schema and path keys sort as encoding/json sorts
-// map keys. Resources without RowType contribute nothing.
-//
-// One operation per Endpoint — its real mounted verb+path. There is no second
-// renderer: a PK-CRUD convention fallback used to sit beside this, so a resource
-// could be DOCUMENTED at `/v1/<name>` while being SERVED somewhere else.
-//
-// Standard error responses are referenced from `components.responses` so per-path
-// bloat stays small.
+// MountedResources(mux) and never assemble it by hand (BUGS F33). One
+// operation per Endpoint, its real mounted verb+path; there is no convention
+// fallback that could document a resource somewhere it is not served.
+// Deterministic; resources without RowType contribute nothing.
 func OpenAPI(daemon, baseURL string, rs []*Resource) ([]byte, error) {
 	if baseURL == "" {
 		baseURL = "/"
@@ -90,13 +74,10 @@ func OpenAPI(daemon, baseURL string, rs []*Resource) ([]byte, error) {
 	return marshalDeterministic(doc)
 }
 
-// MountedResources returns the registry resources mux ACTUALLY serves, each copied
-// down to just the endpoints RegisterREST mounted on it. A daemon can no longer
-// name what it documents, so it can no longer name something it does not serve.
-//
-// Derivation is by mount IDENTITY, not by path. Asking only "does something answer
-// here?" would be a new lie in place of the old one — proxyd's `/` catch-all
-// answers every probe. Registration order is preserved so output stays stable.
+// MountedResources returns the registry resources mux ACTUALLY serves, each
+// copied down to the endpoints RegisterREST mounted on it. Derivation is by
+// mount IDENTITY, not by path: proxyd's `/` catch-all answers every probe.
+// Registration order is preserved.
 func MountedResources(mux *http.ServeMux) []*Resource {
 	if mux == nil {
 		return nil
@@ -123,9 +104,8 @@ func MountedResources(mux *http.ServeMux) []*Resource {
 }
 
 // serves reports whether mux routes e to the mount RegisterREST made for
-// resource. Every field is compared because each one is a drift shape seen in
-// the wild: a different Path is a re-path, a different Verb or Action is a
-// look-alike face, and a non-*restMount is a hand-rolled or catch-all mount.
+// resource. Every field is compared because each is a drift shape seen in the
+// wild: a re-path, a look-alike face, a hand-rolled or catch-all mount.
 func serves(mux *http.ServeMux, resource string, e Endpoint) bool {
 	h, _ := mux.Handler(&http.Request{
 		Method: e.Verb,
@@ -141,15 +121,13 @@ func serves(mux *http.ServeMux, resource string, e Endpoint) bool {
 // {path...}.
 var pathPlaceholder = regexp.MustCompile(`\{[^}]+\}`)
 
-// ConcretePath substitutes every {placeholder} in a mux pattern with a literal
-// so the pattern can be looked up as a request path. "x" cannot collide with a
-// sibling literal route (/v1/tasks/due, /v1/routing/resolve, …) that a daemon
-// registers by hand.
+// ConcretePath substitutes every {placeholder} in a mux pattern with "x" so
+// the pattern can be looked up as a request path; "x" collides with no
+// hand-registered sibling literal route.
 func ConcretePath(p string) string { return pathPlaceholder.ReplaceAllString(p, "x") }
 
-// rowSchema reflects a RowType into an OpenAPI 3.1 schema object.
-// `json:` tags drive property names; Go kinds → JSON Schema types via
-// kindToSchema. Unsupported kinds fall back to a generic object.
+// rowSchema reflects a RowType into an OpenAPI 3.1 schema object; `json:`
+// tags drive property names.
 func rowSchema(rt reflect.Type) (map[string]any, error) {
 	if rt.Kind() == reflect.Pointer {
 		rt = rt.Elem()
@@ -162,11 +140,9 @@ func rowSchema(rt reflect.Type) (map[string]any, error) {
 	for i := 0; i < rt.NumField(); i++ {
 		sf := rt.Field(i)
 		if embedded, ok := embeddedStruct(sf); ok {
-			// encoding/json PROMOTES an untagged embedded struct's fields into the
-			// outer object, so the schema has to inline them. Left to the field walk
-			// below they render as one member named after the type, and the document
-			// then describes an object the wire never carries: router.RouteView
-			// embeds core.Route, which is where every route field lives.
+			// encoding/json PROMOTES an untagged embedded struct's fields into
+			// the outer object, so the schema inlines them (router.RouteView
+			// embeds core.Route).
 			sub, err := rowSchema(embedded)
 			if err != nil {
 				return nil, err
@@ -198,8 +174,7 @@ func rowSchema(rt reflect.Type) (map[string]any, error) {
 }
 
 // embeddedStruct reports the struct type whose fields sf promotes into its
-// outer object — an anonymous field with no name of its own. A TAGGED embedded
-// field is a named member like any other, so it is not one of these.
+// outer object. A TAGGED embedded field is a named member, not one of these.
 func embeddedStruct(sf reflect.StructField) (reflect.Type, bool) {
 	if !sf.Anonymous || sf.Tag.Get("json") != "" || sf.Tag.Get("yaml") != "" {
 		return nil, false
@@ -240,8 +215,6 @@ func parseJSONTag(sf reflect.StructField) (string, bool) {
 }
 
 // kindToSchema maps a Go reflect.Type to a JSON Schema type fragment.
-// Slices/arrays render as `{type:"array", items:…}`; maps render as
-// `{type:"object", additionalProperties:true}`; pointers unwrap.
 func kindToSchema(t reflect.Type) map[string]any {
 	for t.Kind() == reflect.Pointer {
 		t = t.Elem()
@@ -268,10 +241,9 @@ func kindToSchema(t reflect.Type) map[string]any {
 }
 
 // responseRefs reflects a resource's declared response types into schemas and
-// returns the per-action JSON-Schema fragment naming each. A type is registered
-// under its Go NAME, so two resources answering with one type share the
-// component; two different types under one name is refused rather than letting
-// the later walk overwrite the earlier resource's schema.
+// returns the per-action fragment naming each. A type is registered under its
+// Go NAME; two different types under one name is refused rather than letting
+// the later walk overwrite the earlier schema.
 func responseRefs(r *Resource, schemas map[string]any) (map[Action]map[string]any, error) {
 	if len(r.Responses) == 0 {
 		return nil, nil
@@ -290,10 +262,10 @@ func responseRefs(r *Resource, schemas map[string]any) (map[Action]map[string]an
 	return out, nil
 }
 
-// responseFragment renders one declared response type, registering every named
-// struct it reaches in schemas. A slice is the collection shape; anything that
-// is not a struct or a slice of one has no schema to reflect and is refused at
-// emission — a doc that cannot be built is louder than one that guesses.
+// responseFragment renders one declared response type, registering every
+// named struct it reaches in schemas. Anything that is not a struct or a
+// slice of one is refused at emission: a doc that cannot be built is louder
+// than one that guesses.
 func responseFragment(r *Resource, rt reflect.Type, schemas map[string]any) (map[string]any, error) {
 	for rt.Kind() == reflect.Pointer {
 		rt = rt.Elem()
@@ -308,9 +280,7 @@ func responseFragment(r *Resource, rt reflect.Type, schemas map[string]any) (map
 	if rt.Kind() != reflect.Struct {
 		return nil, fmt.Errorf("want a struct or a slice of one, got %s", rt.Kind())
 	}
-	// Answering with the row itself is the common case, and it reuses the
-	// resource's own component: a second one under the Go type name would put
-	// the same schema in the document twice under two names.
+	// Answering with the row itself reuses the resource's own component.
 	name := rt.Name()
 	if rt == r.RowType {
 		name = schemaName(r.Name)
@@ -329,18 +299,14 @@ func responseFragment(r *Resource, rt reflect.Type, schemas map[string]any) (map
 	return map[string]any{"$ref": "#/components/schemas/" + name}, nil
 }
 
-// endpointPaths renders one operation per declared Endpoint — the doc mirrors
-// what RegisterREST mounts, so the two cannot drift. The path key + parameters
-// come from the stdlib-mux Path (placeholders {id}/{path...} → OpenAPI {param});
-// the request shape comes from the verb, the response shape ONLY from
-// Resource.Responses. withMCPDoc adds the agent-facing x-mcp-when per operation
-// when the resource carries an MCPDoc entry.
+// endpointPaths renders one operation per declared Endpoint: the path key +
+// parameters from the mux Path, the request shape from the verb, the response
+// shape ONLY from Resource.Responses.
 func endpointPaths(r *Resource, responses map[Action]map[string]any) map[string]map[string]any {
 	schemaRef := map[string]any{"$ref": "#/components/schemas/" + schemaName(r.Name)}
 	out := map[string]map[string]any{}
 	for _, e := range r.Endpoints {
-		// MCP-only actions have no REST face to document; RegisterREST skips
-		// them too, so doc and mount stay in step.
+		// RegisterREST skips MCP-only actions too, so doc and mount stay in step.
 		if e.MCPOnly {
 			continue
 		}
@@ -359,10 +325,8 @@ func endpointPaths(r *Resource, responses map[Action]map[string]any) map[string]
 }
 
 // endpointOp builds one operation for an Endpoint. Mutations carry a request
-// body (a body-addressed DELETE — one with no path placeholder — also reads the
-// target from the JSON body); the success status is Endpoint.Status when set,
-// else 200 (matching restHandler). The success BODY is whatever the resource
-// declared for this action and nothing otherwise — see successResponse.
+// body, a body-addressed DELETE (no path placeholder) included; the success
+// status is Endpoint.Status when set, else 200 (matching restHandler).
 func endpointOp(r *Resource, e Endpoint, schemaRef map[string]any, hasPathParam bool, resp map[string]any) map[string]any {
 	status := e.Status
 	if status == 0 {
@@ -387,10 +351,8 @@ func endpointOp(r *Resource, e Endpoint, schemaRef map[string]any, hasPathParam 
 	return withMCPDoc(r, e.Action, op)
 }
 
-// successResponse renders the success entry. A DECLARED response type is the
-// only thing that puts a body schema in the document: an action without one
-// documents "OK" and says nothing about the body, because the emitter cannot
-// see what a Handler returns and a guess is worse than a gap (BUGS L120).
+// successResponse renders the success entry. Only a DECLARED response type
+// puts a body schema in the document; a guess is worse than a gap (BUGS L120).
 func successResponse(status int, resp map[string]any) map[string]any {
 	if status == http.StatusNoContent {
 		return map[string]any{"description": "No Content"}
@@ -405,8 +367,7 @@ func successResponse(status int, resp map[string]any) map[string]any {
 }
 
 // openAPIPath converts a stdlib-mux path to an OpenAPI path key plus its path
-// parameters. Placeholders {id} and the catch-all {path...} both become {name}
-// in the key (OpenAPI has no catch-all syntax) plus one string path parameter.
+// parameters.
 func openAPIPath(p string) (string, []any) {
 	var params []any
 	for _, seg := range strings.Split(p, "/") {
@@ -423,16 +384,11 @@ func openAPIPath(p string) (string, []any) {
 	return OpenAPIPathKey(p), params
 }
 
-// OpenAPIPathKey renders a stdlib-mux path as its OpenAPI path key. The one
-// rule it encodes: OpenAPI 3.1 has no multi-segment template syntax, so the
-// wildcard `{path...}` documents as `{path}` — the document CANNOT express the
-// arity, which is why losing it is translation and not drift.
-//
-// Exported because resreg/resregtest compares an advertised path against the
-// mux pattern serving it, and must apply the SAME rule. A second copy of it
-// there would make the doc-vs-mux guard disagree with the document it guards:
-// proxyd mounts `/v1/proxyd_routes/{path...}` (its route keys contain slashes)
-// and the guard read that as an advertised endpoint that 404s.
+// OpenAPIPathKey renders a stdlib-mux path as its OpenAPI path key: OpenAPI
+// 3.1 has no multi-segment template, so `{path...}` documents as `{path}`.
+// Exported because resregtest compares an advertised path against the mux
+// pattern serving it and must apply the SAME rule, or the guard reads
+// proxyd's `/v1/proxyd_routes/{path...}` as an endpoint that 404s.
 func OpenAPIPathKey(p string) string {
 	segs := strings.Split(p, "/")
 	for i, seg := range segs {
@@ -452,8 +408,7 @@ func requestBody(schemaRef map[string]any) map[string]any {
 	}
 }
 
-// titleAction capitalizes an action verb for an operation summary
-// ("add" → "Add").
+// titleAction capitalizes an action verb for an operation summary.
 func titleAction(a Action) string {
 	s := string(a)
 	if s == "" {
@@ -462,13 +417,10 @@ func titleAction(a Action) string {
 	return strings.ToUpper(s[:1]) + s[1:]
 }
 
-// withMCPDoc folds a resource's per-action agent-facing one-liner
-// (Resource.MCPDoc[action]) into an OpenAPI operation — as both the
-// operation `description` (so any OpenAPI reader sees when-to-use text)
-// and a machine-findable `x-mcp-when` vendor extension (so an agent can
-// pick REST operations straight from the published doc without a
-// separate MCP tool list). No entry → operation unchanged. Additive:
-// the operation's existing summary/params/responses are untouched.
+// withMCPDoc folds Resource.MCPDoc[action] into an operation as both its
+// `description` and a machine-findable `x-mcp-when` extension, so an agent
+// can pick REST operations straight from the published doc. No entry →
+// operation unchanged.
 func withMCPDoc(r *Resource, action Action, op map[string]any) map[string]any {
 	doc, ok := r.MCPDoc[action]
 	if !ok {
@@ -479,9 +431,8 @@ func withMCPDoc(r *Resource, action Action, op map[string]any) map[string]any {
 	return op
 }
 
-// mergeResponses returns the per-operation responses map with the
-// standard error refs merged in. Each error response is a $ref into
-// components.responses so per-path JSON stays compact.
+// mergeResponses returns the per-operation responses map with the standard
+// error refs merged in.
 func mergeResponses(success map[string]any) map[string]any {
 	out := map[string]any{}
 	maps.Copy(out, success)
@@ -491,9 +442,8 @@ func mergeResponses(success map[string]any) map[string]any {
 	return out
 }
 
-// stdResponses returns the standard error responses block referenced
-// by every operation. Definitions are kept tiny — Error schema is one
-// `{code, message}` object.
+// stdResponses returns the standard error responses block referenced by every
+// operation.
 func stdResponses() map[string]any {
 	errRef := map[string]any{
 		"content": map[string]any{
@@ -517,8 +467,7 @@ func stdResponses() map[string]any {
 	}
 }
 
-// errorSchema is the canonical error envelope shared across all daemons.
-// Matches the `{"error": "<msg>"}` shape `resreg.writeREST` already emits.
+// errorSchema is the `{"error": "<msg>"}` envelope writeREST emits.
 func errorSchema() map[string]any {
 	return map[string]any{
 		"type": "object",
@@ -529,9 +478,8 @@ func errorSchema() map[string]any {
 	}
 }
 
-// schemaName picks the components/schemas key for a resource. Snake-
-// case resource names (`acl_membership`, `proxyd_routes`) convert to
-// PascalCase so the generated SDK names look natural.
+// schemaName picks the components/schemas key for a resource: snake_case to
+// PascalCase.
 func schemaName(resource string) string {
 	parts := strings.Split(resource, "_")
 	for i, p := range parts {
@@ -543,27 +491,17 @@ func schemaName(resource string) string {
 	return strings.Join(parts, "")
 }
 
-// marshalDeterministic JSON-encodes v with sorted object keys + 2-space
-// indent. encoding/json already sorts map keys; the indent makes the
-// output reviewable as a regular text file.
+// marshalDeterministic JSON-encodes v with sorted object keys + 2-space indent.
 func marshalDeterministic(v any) ([]byte, error) {
 	return json.MarshalIndent(v, "", "  ")
 }
 
 // OpenAPIHandler returns an http.HandlerFunc serving the OpenAPI spec for
-// whatever mux serves, at relative baseURL "/". The mux is the ONLY input
-// besides the daemon name: there is no resource list to keep in step, which is
-// what makes advertised-vs-mounted drift unrepresentable rather than merely
-// tested for (BUGS F33).
-//
-// The document is built on FIRST REQUEST, not at construction, so this may be
-// mounted on the same mux it documents — every other mount is in place by the
-// time anyone asks. It is then cached for the process lifetime; reflection and
-// route resolution are one-time, steady-state requests are byte-copies.
-//
-// Endpoint is public per spec 5/8 §"OpenAPI emission" — schemas
-// describe API surface, not data. Mount BEFORE any auth middleware so
-// `/openapi.json` is reachable without credentials.
+// whatever mux serves. The mux is the ONLY input besides the daemon name,
+// which makes advertised-vs-mounted drift unrepresentable (BUGS F33). The
+// document is built on FIRST REQUEST, so this may be mounted on the same mux
+// it documents, and is then cached for the process lifetime. Public: mount
+// BEFORE any auth middleware (spec 5/8 §"OpenAPI emission").
 func OpenAPIHandler(daemon string, mux *http.ServeMux) http.HandlerFunc {
 	var (
 		mu     sync.Mutex

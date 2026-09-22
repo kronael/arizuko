@@ -8,19 +8,11 @@ import (
 )
 
 // RouteTokensRow mirrors route_tokens. TargetFolder is the folder the token
-// DELIVERS to; owner_folder only bounds revocation and may differ, and is empty
-// on a token minted before the mint recorded it.
-//
-// TOKEN_HASH IS THE IDENTITY — the coordinate AND the PK. It is
-// hex(sha256(token)) — the raw bearer is shown once at issue time and never
-// persisted (spec 5/W) — and it is the one field that is unique: krons carries
-// 43 rows over 27 distinct jids and `web:eval` alone carries 16, so a jid names
-// 16 live ingress credentials at once and Diff's PK index keeps one of them
-// (BUGS L260). `invites` declares its `ref` both ways for the same reason.
-//
-// `yaml:"-"` keeps the digest out of `arizuko export` and `json:"-"` out of
-// every read surface, the way invites' `ref` is kept out of the export. Apply
-// never rebuilds this resource, so nothing writes it from a manifest either.
+// DELIVERS to; owner_folder only bounds revocation and may differ. TOKEN_HASH
+// IS THE IDENTITY, the coordinate AND the PK: hex(sha256(token)), the raw
+// bearer never persisted (spec 5/W), and the one unique field, since one jid
+// names many live ingress credentials (BUGS L260). `yaml:"-"` keeps the
+// digest out of `arizuko export` and `json:"-"` out of every read surface.
 type RouteTokensRow struct {
 	TokenHash    string `db:"token_hash"    yaml:"-"            json:"-"`
 	JID          string `db:"jid"           yaml:"jid"          json:"jid"`
@@ -30,14 +22,10 @@ type RouteTokensRow struct {
 	Context      string `db:"context"       yaml:"context,omitempty"    json:"context,omitempty"`
 }
 
-// RouteTokensEndpoints is the single owner of the endpoint set driving BOTH the agent's
-// token tools AND the operator REST face (spec 5/16 fold). issue_chat/issue_hook are
-// custom POST verbs and revoke is a jid-addressed DELETE, so the real faces diverge
-// from the PK-CRUD convention.
-//
-// This list is EXHAUSTIVE for /v1/route_tokens: token DELIVERY is not a REST call at
-// all — webd and proxyd are FS-mounted on routd.db and resolve in-process. issue_pair
-// is MCPOnly: an operator REST twin would be a second face for a caller who does not
+// RouteTokensEndpoints is the single owner of the endpoint set driving BOTH
+// the agent's token tools AND the operator REST face (spec 5/16). Token
+// DELIVERY is not a REST call: webd and proxyd resolve in-process. issue_pair
+// is MCPOnly: an operator REST twin would be a face for a caller who does not
 // exist (spec 5/31 § Rejected).
 var RouteTokensEndpoints = []resreg.Endpoint{
 	{Verb: "POST", Path: "/v1/route_tokens/chat", Action: resreg.Action("issue_chat"), Status: 201},
@@ -48,8 +36,7 @@ var RouteTokensEndpoints = []resreg.Endpoint{
 }
 
 // RouteTokensMCPNames maps each action to the flat tool name the live agent
-// already calls; routd's route_tokens_resource.go references it (agent socket
-// derivation) and ipc.ListTools reads it via the registry walk. Spec 5/16.
+// calls (spec 5/16).
 var RouteTokensMCPNames = map[resreg.Action]string{
 	resreg.Action("issue_chat"): "issue_chat_link",
 	resreg.Action("issue_hook"): "issue_webhook",
@@ -89,9 +76,8 @@ var RouteTokensMCPDoc = map[resreg.Action]string{
 		"returns 404 immediately — no grace period. Spec 5/W.",
 }
 
-// RouteTokensMCPArgs is the explicit per-action arg list — the agent face carries
-// custom mint args ({target_folder, jid_suffix, source_label} / {jid}), NOT the
-// RowType columns, so this overrides RowType reflection for the derived tools.
+// RouteTokensMCPArgs is the agent face's wire shape, overriding RowType
+// reflection.
 var RouteTokensMCPArgs = map[resreg.Action][]resreg.MCPArg{
 	resreg.Action("issue_chat"): {
 		{Name: "target_folder", Type: "string",
@@ -134,13 +120,12 @@ func init() {
 		MCPArgs:       RouteTokensMCPArgs,
 		MCPNames:      RouteTokensMCPNames,
 		// token_hash is minted imperatively and never round-trips through a
-		// manifest — Apply must never DELETE+INSERT this table (mirrors secrets).
+		// manifest; Apply must never rebuild this table.
 		StampedFields:    []string{"CreatedAt"},
 		SkipApplyRebuild: true,
-		// kind='pair' pairing links are 10-minute single-use credentials with no
-		// archival value, and reviving one is actively harmful (spec 5/8) — exclude them
-		// from every manifest-visible read so they never appear in a YAML document.
-		// kind='route' delivery bearers are unaffected.
+		// kind='pair' pairing links are 10-minute single-use credentials, and
+		// reviving one is actively harmful (spec 5/8): keep them out of every
+		// manifest-visible read.
 		RowFilter: []objstore.Cmp{{Attr: "kind", Op: objstore.Eq, Value: "route"}},
 	})
 }

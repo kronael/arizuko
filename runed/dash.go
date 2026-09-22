@@ -1,12 +1,8 @@
 package runed
 
-// dash.go is runed's operator dashboard at GET /dash/runed/ (spec 6/28, 6/30).
-// Same shape as routd's: one handler in the daemon that owns the data, gated by
-// auth.RequireOperator, reading the in-process readers its /v1 handlers read.
-//
-// dashd rendered this page from a direct handle on runed.db and killed runs by
-// POSTing to runed's own /v1 — so the read crossed a DB boundary the write
-// already respected. Both live here now.
+// dash.go is runed's operator dashboard at GET /dash/runed/ (spec 6/28, 6/30):
+// one handler in the daemon that owns the data, gated by auth.RequireOperator,
+// reading the in-process readers its /v1 handlers read.
 
 import (
 	"fmt"
@@ -21,8 +17,7 @@ import (
 	"github.com/kronael/arizuko/theme"
 )
 
-// runsShown caps the run table. A busy instance accumulates thousands of
-// spawns; the overview is the recent window, not the archive.
+// runsShown caps the run table: the recent window, not the archive.
 const runsShown = 40
 
 // handleDash renders capacity plus the recent run table.
@@ -74,8 +69,7 @@ func (s *Server) handleDashKill(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "run_id required", http.StatusBadRequest)
 		return
 	}
-	// Kill is idempotent by design — killing an exited run is a 200 no-op — so
-	// this reports what it did rather than implying the container was running.
+	// Kill is idempotent: killing an exited run is a 200 no-op.
 	if err := s.mgr.Kill(r.Context(), runID); err != nil {
 		slog.Error("dash kill", "run_id", runID, "err", err)
 		http.Error(w, "kill failed", http.StatusInternalServerError)
@@ -103,9 +97,8 @@ func runedTile(b *strings.Builder, label string, n int) {
 		n, html.EscapeString(label))
 }
 
-// runStates are the filter links. Listed rather than derived from the rows on
-// screen: a state with no current runs must still be selectable, or the filter
-// disappears exactly when an operator wants it.
+// runStates are the filter links, listed rather than derived from the rows on
+// screen: a state with no current runs must still be selectable.
 var runStates = []string{"", "queued", "running", "exited", "killed"}
 
 func stateFilter(current string) string {
@@ -127,8 +120,8 @@ func stateFilter(current string) string {
 	return b.String()
 }
 
-// isLive reports whether a run can still be killed. Only these two states hold
-// a container and a folder's slot — the same test Manager.Kill applies.
+// isLive reports whether a run can still be killed; the same test Manager.Kill
+// applies.
 func isLive(state string) bool { return state == "running" || state == "queued" }
 
 // runTable renders the recent runs, with a kill button on the live ones only.

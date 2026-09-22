@@ -7,19 +7,10 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
-// SecretsRow mirrors secrets metadata. The encrypted value blob is
-// imperatively managed via `arizuko secret set …` — manifests carry
-// the (scope_kind, scope_id, key) triple ONLY. Per spec 5/8 §"Secret
-// safety", the blob never appears in YAML, plan output, or error
-// messages.
-//
-// Apply path: SkipApplyRebuild=true, so Apply never DELETE+INSERTs this
-// table. The resource is export-only — `arizuko export` emits the
-// metadata triples (the engine's SELECT omits the `enc_value` BLOB
-// because it's not in this struct), but apply leaves the rows untouched.
-// secrets is also excluded from the `config_meta` count (spec §"CAS
-// implementation"), so out-of-band blob rotation doesn't invalidate a
-// pending manifest apply.
+// SecretsRow mirrors secrets metadata: the (scope_kind, scope_id, key) triple
+// ONLY. The encrypted blob is set imperatively and never appears in YAML,
+// plan output or error messages (spec 5/8 §"Secret safety"); it is not in
+// this struct, so no read reaches it.
 type SecretsRow struct {
 	ScopeKind string `db:"scope_kind" yaml:"scope_kind" json:"scope_kind"`
 	ScopeID   string `db:"scope_id"   yaml:"scope_id"   json:"scope_id"`
@@ -27,14 +18,9 @@ type SecretsRow struct {
 	CreatedAt string `db:"created_at" yaml:"created_at,omitempty" json:"created_at,omitempty"`
 }
 
-// SecretsEndpoints is the single owner of the secret REST endpoint set: routd's
-// mountSecrets (secrets_resource.go) references it, and OpenAPI emits exactly
-// these two operations. WRITE-ONLY by construction — create (seal + upsert) and
-// a key-addressed delete, NO list/get. A secret's sealed value must never appear
-// in any read surface (spec 5/8 §"Secret safety"); declaring these explicit
-// Endpoints keeps OpenAPI on endpointPaths, so the convention's phantom GET read
-// op can never surface. No MCPDoc entry → deriveMCPTools surfaces no agent tool
-// (the agent never sets secrets).
+// SecretsEndpoints is WRITE-ONLY by construction: create and a key-addressed
+// delete, NO list/get, since a sealed value must never appear in any read
+// surface (spec 5/8 §"Secret safety"). No MCPDoc entry, so no agent tool.
 var SecretsEndpoints = []resreg.Endpoint{
 	{Verb: "POST", Path: "/v1/secrets", Action: resreg.ActionCreate},
 	{Verb: "DELETE", Path: "/v1/secrets/{key}", Action: resreg.ActionDelete},
@@ -50,9 +36,8 @@ func init() {
 		PKFields:      []string{"ScopeKind", "ScopeID", "Key"},
 		EntitySortKey: []string{"ScopeKind", "ScopeID", "Key"},
 		EntityKeySep:  store.KeySep,
-		// No folder scope: scope_id is polymorphic by scope_kind (folder OR
-		// user, spec 5/8 §"FK posture"). Moot for apply anyway —
-		// SkipApplyRebuild means apply never DELETE+INSERTs this table.
+		// No folder scope: scope_id is polymorphic by scope_kind (spec 5/8
+		// §"FK posture").
 		StampedFields:    []string{"CreatedAt"},
 		SkipApplyRebuild: true, // enc_value blobs are set imperatively, never via apply
 	})

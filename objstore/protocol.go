@@ -1,66 +1,28 @@
 package objstore
 
-// protocol.go holds what the two primitives compose into. A protocol is a
-// package-level function over Query and GuardedBatch, written once and shared
-// by every driver — never a third method some engine cannot carry (spec 6/40
-// §"The seam is TWO primitives").
-
 import (
 	"context"
 	"fmt"
 	"strconv"
 )
 
-// maxCASAttempts bounds Increment's retry.
-//
-// A refusal here is a LOST RACE and nothing else — the condition is the value
-// this call itself read one round trip ago — so it is the transient class that
-// may be retried. Anything that is not a lost race (a missing item, a value
-// that is not a number, a caller condition that does not hold) returns on the
-// first answer with no retry at all.
+// maxCASAttempts bounds Increment's retry. Only a LOST RACE is retried; a
+// missing item, a non-number or a failed caller condition returns on the first
+// answer.
 const maxCASAttempts = 8
 
 // Increment adds delta to a counted attribute and returns the new value.
 //
-// It is a PROTOCOL, not an interface operation, and the reason is the one
-// modelling rule: every attribute value is a string. DynamoDB's in-place
-// increment is `SET Price = Price + :p`, and the page says what it needs —
-// "You can also use SET to add or subtract from an attribute that is of type
-// Number" — as does ADD: "The ADD action supports only number and set data
-// types."
-// https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/Expressions.UpdateExpressions.html
-//
-// So an atomic in-place increment does not exist for a string attribute on the
-// engine the interface is measured against. Putting one on the interface would
-// mean either a typed attribute model — the comparison grammar per driver that
-// 6/37 refuses — or an operation only the SQL driver can honour, which is the
-// exact drift the conformance suite exists to catch.
-//
-// What it costs to be a protocol instead is one extra round trip and a retry,
-// and what it buys back is the RETURNING half for free: the caller computed the
-// new value, so it does not need the engine to hand it back. store/invites.go's
-// `used_count = used_count + 1 … RETURNING` gets both halves here.
-//
-// cond is the caller's own guard and rides on the same write, so a read
-// separate from the increment cannot go stale between them — invite redemption
-// conditions on `used_count < max_uses`, and that term is evaluated by the
-// engine against the row this write changes.
-//
-// also carries the companion actions that must land WITH the counter. A
-// redemption is not a counter: store/invites.go:265 increments `used_count` and
-// writes the redemption, ACL and audit state in the SAME transaction, and a
-// helper that committed only the counter would burn an invite with no grant —
-// which is the failure store.RestoreInvite exists to compensate for across two
-// databases. They ride in this protocol's own batch, so the whole set commits
-// or none of it does; the batch bounds apply to them (MaxBatchActions counts
-// the counter's write too, and no companion may name the counter's own item).
-// A retry re-sends them, which is safe because a refused batch wrote nothing.
+// It is a PROTOCOL, not an interface operation: every attribute value is a
+// string, and DynamoDB's in-place increment needs a Number. cond is the
+// caller's own guard and rides on the same write. also carries the companion
+// actions that must land WITH the counter — an invite redemption that
+// committed only the counter would burn an invite with no grant. A retry
+// re-sends them, which is safe because a refused batch wrote nothing.
 func Increment(ctx context.Context, s Store, entity string, key Key, attr string, delta int,
 	cond []Cmp, also []Write) (value int, committed bool, err error) {
-	// A counter that is declared ordered keeps its declared layout, and only a
-	// WHOLE-value declaration is a layout a number renders into: a lead rule says
-	// the value starts with an ordered field and carries a tiebreak after it,
-	// which a count does not.
+	// Only a WHOLE-value declaration is a layout a number renders into; a lead
+	// rule carries a tiebreak a count does not have.
 	r, declared := orderedRule(entity, attr)
 	fixed := declared && !r.lead
 	width := r.width
@@ -96,9 +58,7 @@ func Increment(ctx context.Context, s Store, entity string, key Key, attr string
 			return 0, false, err
 		}
 		next := n + delta
-		// The width the value was WRITTEN at is the width it is compared at, so a
-		// counter that is ordered keeps its declared layout and one that is not
-		// keeps whatever its writer chose.
+		// The width the value was WRITTEN at is the width it is compared at.
 		text := strconv.Itoa(next)
 		if fixed {
 			text = fmt.Sprintf("%0*d", width, next)
@@ -118,15 +78,10 @@ func Increment(ctx context.Context, s Store, entity string, key Key, attr string
 		if ok {
 			return next, true, nil
 		}
-		// A refused batch is a lost race only if the counter MOVED. Anything
-		// else — the caller's own cond, a companion write's condition — refused
-		// on a counter this call still holds the value of, and re-reading is how
-		// this protocol tells the two apart now that a refusal is one bit.
-		//
-		// The re-read is outside the refused transaction, so a third caller
-		// incrementing in the gap makes a caller-refusal look like a lost race.
-		// That costs one more attempt and then answers correctly, because every
-		// attempt re-evaluates both the counter and the conditions.
+		// A refused batch is a lost race only if the counter MOVED; otherwise
+		// the caller's own condition refused. The re-read is outside the refused
+		// transaction, so a third caller in the gap costs one more attempt and
+		// then answers correctly.
 		again, n, err := read()
 		if err != nil {
 			return 0, false, err

@@ -17,34 +17,28 @@ import (
 	"github.com/kronael/arizuko/resreg"
 )
 
-// maxBodyBytes caps request bodies on the token endpoints. Both carry only a
-// short secret/token; a larger body is malformed or hostile, so we refuse to
-// buffer it (memory/CPU DoS guard — specs/5/1 unbounded-body finding).
+// maxBodyBytes caps request bodies on the token endpoints; both carry only a
+// short secret, so a larger body is malformed or hostile (specs/5/1).
 const maxBodyBytes = 4 << 10
 
-// serviceGrants maps a service principal to the scopes it may obtain at boot.
-// Daemon-initiated work carries one of these (specs/5/1 "Service identity").
-// Declared here, mechanical — no per-deployment DB state.
+// serviceGrants maps a service principal to the scopes it may obtain at boot
+// (specs/5/1 "Service identity"). Declared here, mechanical: no
+// per-deployment DB state.
 var serviceGrants = map[string][]string{
-	// authd self-mints service:authd to call the grants backend at boot/login/
-	// refresh (spec 5/1 § Login-time scope snapshot: "scope grants:read"). It
-	// needs grants:read, not keys:read — /v1/keys is public.
+	// authd self-mints service:authd for the grants backend; it needs
+	// grants:read, not keys:read (/v1/keys is public).
 	"service:authd": {"grants:read"},
 	"service:timed": {"messages:write", "tasks:read", "tasks:write"},
 	"service:onbod": {"messages:write", "groups:write"},
-	// service:routd dispatches runs (runs:run → runed), resolves identities at
-	// authd's identity endpoint (identity:read → GET /v1/identities/{sub}), and
-	// federates the /invite + /gate slash commands to onbod (invites:write +
-	// gates:write → onbod's /v1/invites + /v1/gates; onbod OWNS those tables).
+	// service:routd dispatches runs, resolves identities at authd, and
+	// federates /invite + /gate to onbod, which OWNS those tables.
 	"service:routd": {"runs:run", "identity:read", "invites:write", "gates:write"},
 	// service:runed holds no grant: runed mints nothing and only VERIFIES its
-	// callers against authd's JWKs. The broker ceiling that used to sit here died
-	// with the per-spawn capability token (BUGS B1/L8) — the turn is credentialed by
-	// routd's SO_PEERCRED socket.
-	// Channel adapters post inbound to routd's /v1/messages. Each exchanges its
-	// AUTHD_SERVICE_KEY for a service:<adapter> JWT (spec 5/1); a missing entry means
-	// empty scope and every inbound 401/403s. Multi-account variants share the base
-	// principal.
+	// callers; the turn is credentialed by routd's SO_PEERCRED socket (BUGS
+	// B1/L8).
+	// Channel adapters post inbound to routd's /v1/messages; a missing entry
+	// means empty scope and every inbound 401/403s. Multi-account variants
+	// share the base principal.
 	"service:teled":  {"messages:write"},
 	"service:whapd":  {"messages:write"},
 	"service:discd":  {"messages:write"},
@@ -55,58 +49,18 @@ var serviceGrants = map[string][]string{
 	"service:twitd":  {"messages:write"},
 	"service:linkd":  {"messages:write"},
 	"service:gitd":   {"messages:write"},
-	// webd is web ingress, not a channel adapter, but it posts the same way:
-	// route-token /chat + /hook submissions land in routd's /v1/messages. Without
-	// this entry every form/widget submission 403s ("router unavailable" 502 to
-	// the user) — the strengths form was dead because webd had no scope.
+	// webd is web ingress, not a channel adapter, but it posts the same way;
+	// without this entry every form/widget submission 403s.
 	"service:webd": {"messages:write"},
-	// dashd is the operator UI. It proxies rather than touching other daemons'
-	// tables, and a missing entry means empty scope, so the control 403s silently
-	// (BUGS F15a). The eleven scopes and what each buys:
-	//
-	//   - runs:kill — POST /v1/runs/stop, the /dash/runed/ kill button.
-	//   - routes:read/write — /dash/engagement/'s view and its force-disengage
-	//     control. Both are a subset of reach dashd already holds through its FS
-	//     mount on routd.db; what they buy is moving a page off the direct-DB read.
-	//     routes:read's widest read (ListRouteTokens) never selects the token value.
-	//   - audit:read — /dash/audit/ federating routd's, runed's and authd's trails
-	//     (spec 5/I). NOT a subset: dashd is mounted on neither runed.db nor
-	//     auth.db, so this is new authority on the token authority. What bounds it
-	//     is that audit.Query names audit_log and no other table, and authd's DSN is
-	//     redacted at the writer and scrubbed from history (authd migration 0007).
-	//   - signing_keys:read — SigningKeysRow. priv_pem and pub_pem are in no SELECT
-	//     list, no Row struct and no db: tag, and the query is a constant. It reads
-	//     the rotation, never the key.
-	//   - sessions:read — SessionsRow carries no credential column: authd persists
-	//     only a sha256, and token_hash is unnamed in the projection.
-	//   - sessions:write — exactly DELETE /v1/sessions/{family_id}, one UPDATE
-	//     setting revoked_at. A kill verb on the token authority, taken because the
-	//     audit row lands inside the mutation's own transaction (a failed audit
-	//     write rolls the revoke back) and 5/I made that row readable. A leaked
-	//     dashd key can END sessions, never create or extend one; retiring the
-	//     active key has no wire face at all (spec 5/1 § JWK rotation mechanics).
-	//   - pending_actions:read/write — /dash/approvals/ (spec 5/19). The read shows
-	//     the tool name and the arguments the agent chose; the write is one guarded
-	//     UPDATE on a `held` row and cannot create a hold or delete a decision.
-	//   - dead_letters:read/write — /dash/routd/'s dead-letter section (BUGS L23).
-	//     Their own pair rather than messages:read/write, which is the point:
-	//     messages:write is "speak as a channel", and requeueing one already-composed
-	//     row is strictly smaller. The write is one guarded 'failed'→'pending'.
-	//
-	// None is reachable by a human bearer: a user token's scope list holds folder
-	// globs and auth.scopeMatches rejects a held value without a colon. signing_keys
-	// and sessions also REFUSE a folder-claimed caller outright (instanceWideGate) —
-	// neither table has a folder column to narrow by.
-	//
-	// The ceiling is exactly these eleven. dashd does not originate work (runs:run),
-	// speak as a channel (messages:write), or read credentials (secrets:read,
-	// grants:read). authd/service_dashd_test.go pins both the set and the count.
-	// tasks:read and messages:read are reads dashd ALREADY performed by another
-	// route: its tasks, activity and usage pages ran arbitrary SQL against
-	// routd.db. 6/28's read path moves them to GET /v1/tasks and routd's message
-	// reads, so the scopes confer no new visibility — they REDUCE reach, from a
-	// file handle to two endpoints the owner gates. Both read-only: the cockpit
-	// mints and mutates nothing (BUGS L142).
+	// dashd is the operator UI; a missing entry means empty scope and the
+	// control 403s silently (BUGS F15a). None of these is reachable by a human
+	// bearer (a user token's scope list holds folder globs), and the ceiling
+	// is exactly this set: dashd does not originate work (runs:run), speak as
+	// a channel (messages:write) or read credentials (secrets:read,
+	// grants:read); authd/service_dashd_test.go pins the set. sessions:write
+	// can END sessions, never create or extend one; routes:read's widest read
+	// never selects the token value; tasks:read and messages:read are
+	// read-only (BUGS L142).
 	"service:dashd": {
 		"runs:kill", "routes:read", "routes:write", "audit:read",
 		"signing_keys:read", "sessions:read", "sessions:write",
@@ -117,11 +71,11 @@ var serviceGrants = map[string][]string{
 }
 
 // GrantsFetcher resolves the scope ceiling for an issuer-mint target. authd is
-// not the grants authority (routd is — spec 5/1 § Login-time scope snapshot);
-// GRANTS_URL unset → nil, and issuer-mint fails closed (503 grants_unavailable).
+// not the grants authority (routd is; spec 5/1); nil means issuer-mint fails
+// closed (503 grants_unavailable).
 type GrantsFetcher interface {
 	// FetchGrants returns the BARE sub's scope ceiling + folder subtree.
-	// ErrNoGrants → the sub has no grant rows; any other error → backend down.
+	// ErrNoGrants: the sub has no grant rows; any other error: backend down.
 	FetchGrants(ctx context.Context, bareSub string) (GrantsSnapshot, error)
 }
 
@@ -139,19 +93,18 @@ type server struct {
 	serviceSecrets map[string]string // bootstrap key -> service principal (sub)
 	grants         GrantsFetcher     // nil when GRANTS_URL is unset
 	secureCookies  bool              // mark refresh cookies Secure (https deployment)
-	// dashKeys gates GET /dash/authd/ (spec 6/28 auth layer 2): the dashboard
-	// trusts the proxyd-verified end-user identity, not a bearer. authd verifies
-	// its OWN tokens, so this is its local keyset; nil → local dev, gate open.
+	// dashKeys gates GET /dash/authd/ (spec 6/28): the dashboard trusts the
+	// proxyd-verified end-user identity, not a bearer. nil: local dev, gate
+	// open.
 	dashKeys *auth.KeySet
 }
 
-// mux builds authd's COMPLETE served surface — including /openapi.json, /auth/*
-// and /metrics, which main used to register afterwards. An /openapi.json mounted
-// outside it forces every test to re-supply the resource list by hand (BUGS F40).
-// cfg nil leaves /auth/* unmounted.
+// mux builds authd's COMPLETE served surface, /openapi.json included: one
+// mounted outside it forces every test to re-supply the resource list by hand
+// (BUGS F40). cfg nil leaves /auth/* unmounted.
 func (s *server) mux(cfg *core.Config) *http.ServeMux {
 	m := http.NewServeMux()
-	// /v1/keys is public and mounts before any auth — backends fetch it to
+	// /v1/keys is public and mounts before any auth; backends fetch it to
 	// verify offline.
 	m.HandleFunc("GET /v1/keys", s.handleKeys)
 	m.HandleFunc("POST /v1/tokens", s.handleTokens)
@@ -162,12 +115,10 @@ func (s *server) mux(cfg *core.Config) *http.ServeMux {
 	s.mountAudit(m)
 	s.mountSigningKeys(m)
 	s.mountSessions(m)
-	// The operator dashboard (spec 6/28): authd's own /dash/ namespace, gated
-	// by the proxyd-stamped operator identity rather than a bearer.
+	// The operator dashboard (spec 6/28).
 	m.HandleFunc("GET /dash/authd/", s.handleDash)
 	m.HandleFunc("POST /dash/authd/revoke", s.handleDashRevoke)
-	// OAuth /auth/* (spec 5/1): authd is the OAuth provider, minting ES256.
-	// Mounted only when provider config is present (AUTH_BASE_URL + a client id).
+	// OAuth /auth/* (spec 5/1), mounted only when provider config is present.
 	if cfg != nil {
 		s.secureCookies = strings.HasPrefix(auth.AuthBaseURL(cfg), "https://")
 		s.registerOAuth(m, cfg)
@@ -180,9 +131,8 @@ func (s *server) mux(cfg *core.Config) *http.ServeMux {
 }
 
 func (s *server) handleHealth(w http.ResponseWriter, _ *http.Request) {
-	// The health of authd is whether its STORE answers, which is a question
-	// authstore asks — a reachable pool is not the same claim, and on an
-	// instance served from an endpoint there is no pool to ask.
+	// Health is whether the STORE answers; a reachable pool is not the same
+	// claim.
 	if err := s.a.st.Reachable(); err != nil {
 		http.Error(w, "store unreachable", http.StatusServiceUnavailable)
 		return
@@ -212,11 +162,9 @@ func (s *server) servingKeys() []*auth.SigningKey {
 }
 
 // handleServiceToken exchanges a daemon's bootstrap secret for a short service
-// JWT whose sub is that daemon's principal and whose scope is the principal's
-// declared grants. A leaked secret buys only that daemon's scoped token, never a
-// signing capability. The secret rides the Authorization header, kept out of
-// body-logging; the presented value is matched by a constant-time SHA-256
-// compare, so neither a wrong daemon name nor a wrong secret leaks timing.
+// JWT whose scope is the principal's declared grants; a leaked secret buys
+// only that daemon's scoped token. The secret rides the Authorization header,
+// kept out of body-logging, and is matched in constant time.
 func (s *server) handleServiceToken(w http.ResponseWriter, r *http.Request) {
 	secret := bearer(r)
 	var req struct {
@@ -246,16 +194,14 @@ func (s *server) handleServiceToken(w http.ResponseWriter, r *http.Request) {
 }
 
 // matchServiceSecret resolves (daemon, presented secret) to a service principal
-// using a constant-time SHA-256 hash compare. The daemon name selects the
-// expected principal ("service:<daemon>"); the secret must hash-match the one
-// configured for it. Returns the principal on success.
+// in constant time.
 func (s *server) matchServiceSecret(daemon, secret string) (string, bool) {
 	want := "service:" + daemon
 	presented := sha256.Sum256([]byte(secret))
 	matched := false
 	principal := ""
-	// Walk every configured secret so timing does not reveal which daemon names
-	// are known; the daemon-name check is folded into the constant-time result.
+	// Walk every configured secret so timing does not reveal which daemon
+	// names are known.
 	for key, prin := range s.serviceSecrets {
 		stored := sha256.Sum256([]byte(key))
 		hashEq := subtle.ConstantTimeCompare(presented[:], stored[:]) == 1
@@ -269,9 +215,8 @@ func (s *server) matchServiceSecret(daemon, secret string) (string, bool) {
 }
 
 // handleTokens is POST /v1/tokens: issuer-mint OR downscope, picked by the
-// requested typ + whether the (verified) caller holds tokens:mint. Both modes
-// require a valid bearer; the body declares the request (spec 5/1 § POST
-// /v1/tokens).
+// requested typ + whether the verified caller holds tokens:mint (spec 5/1
+// § POST /v1/tokens).
 func (s *server) handleTokens(w http.ResponseWriter, r *http.Request) {
 	caller, err := auth.VerifyHTTP(r, s.a.LocalKeySet())
 	if err != nil {
@@ -299,12 +244,9 @@ func (s *server) handleTokens(w http.ResponseWriter, r *http.Request) {
 	}
 	ttl := time.Duration(req.TTLSecs) * time.Second
 
-	// Mode selection. An explicit typ="downscoped" is always a downscope (the
-	// runed broker declares it). Otherwise issuer-mint when the caller holds
-	// tokens:mint and targets a DIFFERENT sub; everything else downscopes.
-	// Downscope forces the minted sub to the caller's (spec 5/1: "the sub field
-	// is forced to the caller's") — a service principal cannot mint a token
-	// bearing an arbitrary user's sub via this path (no impersonation).
+	// An explicit typ="downscoped" is always a downscope. Otherwise issuer-mint
+	// when the caller holds tokens:mint and targets a DIFFERENT sub; everything
+	// else downscopes, which forces the sub to the caller's (no impersonation).
 	issuer := req.Typ != "downscoped" &&
 		auth.HasScope(caller.Scope, "tokens", "mint") && req.Sub != "" && req.Sub != caller.Sub
 	var m minted
@@ -342,14 +284,11 @@ func (s *server) handleTokens(w http.ResponseWriter, r *http.Request) {
 var errGrantsUnavailable = errors.New("grants backend unavailable")
 
 // issuerMint fetches the target's grants snapshot and mints against it. With no
-// grants fetcher wired (the additive-step default) it fails closed — authd
-// cannot evaluate the required ceiling, so it must not mint (spec 5/1: issuer
-// mint is bounded by the target's grants, never the caller's scope).
+// grants fetcher wired it fails closed: issuer mint is bounded by the target's
+// grants, never the caller's scope (spec 5/1).
 func (s *server) issuerMint(ctx context.Context, sub string, requested []string, aud string, ttl time.Duration) (minted, error) {
-	// Invites mint USER tokens only — never service (spec 5/1 § POST /v1/tokens:
-	// "An invite mints user, never service. Delegation, never escalation").
-	// typ is forced here, ignoring the caller's body, to close the
-	// privilege-escalation hole where a caller asks for typ="service".
+	// Invites mint USER tokens only, never service (spec 5/1: "Delegation,
+	// never escalation"); typ is forced, ignoring the caller's body.
 	const typ = "user"
 	if s.grants == nil {
 		return minted{}, errGrantsUnavailable
@@ -443,9 +382,9 @@ func refreshOutcome(err error) string {
 	}
 }
 
-// refreshFromRequest pulls the refresh token off the cookie (browser channel,
-// preferred) or the JSON body. browser reports which channel won — it decides
-// where the successor is delivered (Set-Cookie vs body).
+// refreshFromRequest pulls the refresh token off the cookie (preferred) or the
+// JSON body. browser reports which channel won and so where the successor is
+// delivered.
 func refreshFromRequest(w http.ResponseWriter, r *http.Request) (raw string, browser bool) {
 	if c, err := r.Cookie("refresh_token"); err == nil && c.Value != "" {
 		return c.Value, true
@@ -460,11 +399,9 @@ func refreshFromRequest(w http.ResponseWriter, r *http.Request) (raw string, bro
 	return req.RefreshToken, false
 }
 
-// handleIdentity resolves a sub to its canonical user and every sub that user has
-// linked, reading auth.db's auth_users + oauth_identities. It previously read
-// identities/identity_claims, which had this read surface but no writer, so the
-// endpoint always answered "unclaimed" (BUGS P2). An unclaimed sub returns
-// {"identity":null,"subs":[]} with 200, not 404, so the tool renders that shape.
+// handleIdentity resolves a sub to its canonical user and every sub that user
+// has linked. An unclaimed sub returns {"identity":null,"subs":[]} with 200,
+// not 404, so the tool renders that shape.
 func (s *server) handleIdentity(w http.ResponseWriter, r *http.Request) {
 	caller, err := auth.VerifyHTTP(r, s.a.LocalKeySet())
 	if err != nil {

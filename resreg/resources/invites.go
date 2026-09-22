@@ -6,24 +6,13 @@ import (
 	"github.com/kronael/arizuko/resreg"
 )
 
-// InvitesRow mirrors the invites entity (store/invites.go), whose sort key is
-// Ref and whose every other db:-tagged field is one attribute.
-// used_count and max_uses are INTEGER. Kept as plain scalars for uniform engine
-// handling — this row drives the /openapi.json schema only (onbod's handler
-// does its own read via store.ListInvites).
-//
-// EXPIRES_AT NEEDS NO NULL HANDLING, and that is what the item shape gives. An
-// invite minted with no --expires simply does not carry the attribute, and
-// absent is the only null an item has (objstore.Item). A nullable value that
-// needs a COALESCE on read is what crashed `arizuko export`/`get`/`plan` on
-// onbod for every instance holding one (found by the 5/8 archive round-trip
-// test).
-//
-// `ref` (store.TokenRef = hex(sha256(token))) IS the DB primary key (I1) —
-// the raw bearer is never persisted, so there is no token field to leak here
-// even by omission-bug. `yaml:"-"` keeps ref out of `arizuko export` (it's
-// runtime-minted, not manifest state, like route_tokens' token_hash); `json:"ref"`
-// is what every read surface hands out and the DELETE path takes.
+// InvitesRow mirrors the invites entity (store/invites.go): sort key Ref,
+// every other db:-tagged field one attribute. This row drives the
+// /openapi.json schema only; onbod's handler reads via store.ListInvites.
+// `ref` is hex(sha256(token)): the raw bearer is never persisted, so there is
+// no token field to leak. `yaml:"-"` keeps ref out of `arizuko export` (it is
+// runtime-minted, not manifest state); `json:"ref"` is what every read
+// surface hands out and the DELETE path takes.
 type InvitesRow struct {
 	Ref         string `db:"ref"           yaml:"-"                      json:"ref"`
 	TargetGlob  string `db:"target_glob"   yaml:"target_glob"            json:"target_glob"`
@@ -34,14 +23,9 @@ type InvitesRow struct {
 	UsedCount   int    `db:"used_count"    yaml:"used_count"             json:"used_count"`
 }
 
-// InvitesEndpoints mirrors onbod's hand-rolled invite REST face
-// (onbod/admin.go handleInvite{Create,List,Revoke}): served at /v1/invites
-// (POST create, GET list, DELETE by {ref}), NOT the PK-CRUD convention path
-// /v1/invites/{token} for create. The DELETE key is the ref, not the bearer:
-// putting a live token in a URL leaks it to request and proxy logs. onbod
-// mounts these via the shared resreg handler (onbod/invites_resource.go); this
-// list is the single declaration the /openapi.json doc also reads, so served
-// routes and doc cannot drift.
+// InvitesEndpoints is the single declaration onbod's mounted handler and the
+// /openapi.json doc both read. The DELETE key is the ref, not the bearer:
+// a live token in a URL leaks to request and proxy logs.
 var InvitesEndpoints = []resreg.Endpoint{
 	{Verb: "POST", Path: "/v1/invites", Action: resreg.ActionCreate},
 	{Verb: "GET", Path: "/v1/invites", Action: resreg.ActionList},
@@ -57,10 +41,9 @@ func init() {
 		PKFields:      []string{"Ref"},
 		EntitySortKey: []string{"Ref"},
 		Endpoints:     InvitesEndpoints,
-		// Invite tokens are minted imperatively (invite_create / POST /v1/invites)
-		// and never round-trip through a manifest — Apply must never DELETE+INSERT
-		// this table, or an apply would revoke every live invite (mirrors
-		// route_tokens and secrets).
+		// Invite tokens are minted imperatively and never round-trip through a
+		// manifest; an apply that rebuilt this table would revoke every live
+		// invite.
 		SkipApplyRebuild: true,
 	})
 }

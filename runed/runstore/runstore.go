@@ -1,30 +1,11 @@
-// Package runstore is runed's storage layer: the daemon asks it what a run, a
-// session or a folder's failure streak needs and it answers, so a second driver
-// reimplements this package and no handler changes (spec 6/37 step 1).
-// runed holds no storage outside this package, and there is no SQL driver for
-// a statement to run against.
-//
-// It holds no SQL and no DDL. Every method below is objstore's two primitives —
-// Query and GuardedBatch — and the driver is chosen by whoever opens runed.db,
-// never in here (spec 6/37 step 5). An entity is a name a driver resolves
-// however it must, so there is no migration chain: preparing the storage is
-// asking the driver for the entities this package declares, and asking twice is
-// a no-op.
-//
-// THREE ENTITIES, THREE PARTITION CHOICES, and they disagree on purpose. 6/37
-// rule 5 separates history from state and the coordinates follow it:
-//
-//   - `spawns` is mutable state addressed by run id, so it takes ONE partition
-//     and the run id as its sort key (spawns.go says what that costs and what
-//     bounds it).
-//   - `session_log` is history read a folder at a time, so the FOLDER is the
-//     partition and a time key is the sort key (session_log.go).
-//   - `circuit_breaker` is one flag per folder under a compare-and-swap, so the
-//     FOLDER is the whole coordinate (circuit_breaker.go).
-//
-// authd took one constant for a whole daemon and 6/37 step 3 writes that up as
-// a mistake. Three entities that answer three different questions get three
-// answers.
+// Package runstore is runed's storage layer. It holds no SQL and no DDL: every
+// method is objstore's two primitives, and the driver is chosen by whoever
+// opens runed's store (spec 6/37). Three entities, three partition choices,
+// and they disagree on purpose (6/37 rule 5): `spawns` is mutable state
+// addressed by run id, so it takes ONE partition and the run id as its sort
+// key; `session_log` is history read a folder at a time, so the FOLDER is the
+// partition and a time key the sort key; `circuit_breaker` is one flag per
+// folder under a compare-and-swap, so the FOLDER is the whole coordinate.
 package runstore
 
 import (
@@ -35,9 +16,7 @@ import (
 	"github.com/kronael/arizuko/objstore"
 )
 
-// The entities runed reads. An entity is a name a driver resolves; what it
-// costs to reach an item inside one is the (partition, sort) coordinate each
-// file documents.
+// The entities runed reads.
 const (
 	// Spawns holds one item per container spawn, addressed by its run id.
 	Spawns = "spawns"
@@ -48,11 +27,8 @@ const (
 	CircuitBreaker = "circuit_breaker"
 )
 
-// Entities is the set a driver must be able to serve before runed boots. It is
-// declared here, beside the code that reads them, and applied by whoever holds
-// the driver — runed's own opener for the running daemon, the import tool for
-// the data move. One declaration, two readers; an engine with no DDL applies
-// nothing and still answers every query below.
+// Entities is the set a driver must serve before runed boots, applied by
+// whoever holds the driver (runed's opener, the import tool).
 var Entities = []string{Spawns, SessionLog, CircuitBreaker}
 
 // EntityMaker is a driver that needs its entities declared before they answer.
@@ -62,9 +38,8 @@ type EntityMaker interface {
 	CreateEntity(ctx context.Context, entity string) error
 }
 
-// EnsureEntities prepares a database to hold runed's state. Two openers reach
-// it — runed's own and the import tool's — and a loop copied into each is two
-// places for the set to drift. Asking twice is a no-op.
+// EnsureEntities prepares a database to hold runed's state; the ONLY applier.
+// Asking twice is a no-op.
 func EnsureEntities(ctx context.Context, m EntityMaker) error {
 	for _, entity := range Entities {
 		if err := m.CreateEntity(ctx, entity); err != nil {
@@ -74,9 +49,7 @@ func EnsureEntities(ctx context.Context, m EntityMaker) error {
 	return nil
 }
 
-// tsWidth is core.TS's width. A test checks it against core.TS itself, because
-// a constant that drifted from the layout would refuse every write instead of
-// guarding one.
+// tsWidth is core.TS's width; a test checks it against core.TS itself.
 const tsWidth = 30
 
 // ErrNotFound is the absent item, which runed's HTTP layer answers 404 to.
@@ -86,8 +59,7 @@ var ErrNotFound = errors.New("not found")
 // handed.
 type Store struct{ s objstore.Store }
 
-// New wraps a driver. Whoever opens runed.db picks which one; this package
-// never names it, which is the whole point of the seam (spec 6/37).
+// New wraps a driver.
 func New(s objstore.Store) *Store { return &Store{s: s} }
 
 // point is the read that addresses ONE item and applies no predicate. It
@@ -115,11 +87,8 @@ func set(attrs map[string]string, name, value string) {
 }
 
 // applyInChunks sends writes a batch at a time and answers how many landed.
-//
-// MaxBatchActions is the weakest engine's transaction bound, so a sweep that
-// touches a thousand items respects it too. Each chunk commits on its own: the
-// writes are independent, so a chunk that lands and a chunk that does not leave
-// work a re-run finishes rather than a half-applied transaction.
+// Each chunk commits on its own: the writes are independent, so a chunk that
+// lands and a chunk that does not leave work a re-run finishes.
 func (s *Store) applyInChunks(ctx context.Context, what string, writes []objstore.Write) (int, error) {
 	done := 0
 	for len(writes) > 0 {

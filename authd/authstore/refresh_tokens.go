@@ -1,26 +1,13 @@
 package authstore
 
 // refresh_tokens.go holds every read and write of a login's rotation lineage.
-//
-// TWO entities, and the second one is what the port ADDS. `refresh_tokens`
-// holds one item per issued token, sorted by its hash, carrying the `used_at`
-// tombstone that makes a rotation one-time. `refresh_families` holds ONE item
-// per lineage, sorted by the family id, carrying `revoked_at` — the tombstone
-// that makes a family killable — plus the two numbers a session listing needs.
-//
-// A FAMILY IS A THING. Revocation used to be a conditional UPDATE across every
-// row a login ever rotated through: an unbounded set-wide write, which is the
-// shape no key-value engine carries and the one operation on this table that
-// did not port (spec 6/40 §"What authd asks", item 2). As one field on one item
-// it is a single guarded write, and it is the model arizuko would want under
-// SQL too — `revoked_at` on 1 item instead of on the 72 rows one live login has
-// rotated through.
-//
-// It also makes BUGS F36's worst outcome unrepresentable rather than merely
-// prevented. A successor minted into a family that was killed in the gap used
-// to be a row with `revoked_at` NULL, live for 30 days; now a successor is a
-// member of the family it belongs to, and a dead family has no live member to
-// leak — there is no second place for the revoked state to be missing from.
+// `refresh_tokens` holds one item per issued token, sorted by its hash, with
+// the `used_at` tombstone that makes a rotation one-time. `refresh_families`
+// holds ONE item per lineage, sorted by the family id, with `revoked_at` — the
+// tombstone that makes a family killable — plus the two numbers a session
+// listing needs. A family is one item, so revocation is a single guarded
+// write (spec 6/40 §"What authd asks"), and a successor is a member of its
+// family, so a dead family has no live member to leak (BUGS F36).
 
 import (
 	"crypto/rand"
@@ -38,19 +25,17 @@ import (
 	"github.com/kronael/arizuko/resreg/resources"
 )
 
-// The three ways a refresh write reports a store that cannot answer. None of
-// them is a lost race: a race is committed=false, which the caller reads as
-// won=false and never as a fault.
+// The three ways a refresh write reports a store that cannot answer. None is a
+// lost race: a race is committed=false, which the caller reads as won=false.
 var (
 	errStartRefused = errors.New("a fresh refresh family collided with an existing one")
 	errNoFamily     = errors.New("the refresh family has no item; nothing can rotate into it")
 	errBadRotations = errors.New("the refresh family's rotation count is not a number")
 )
 
-// RefreshToken is one refresh token as the daemon reads it: the lineage it
-// belongs to, what it may mint, and the two tombstones. Used and Revoked are
-// reported rather than filtered — the caller distinguishes reuse from a dead
-// family, and they are different answers.
+// RefreshToken is one refresh token as the daemon reads it. Used and Revoked
+// are reported rather than filtered: reuse and a dead family are different
+// answers.
 type RefreshToken struct {
 	Family  string
 	Sub     string
@@ -95,15 +80,10 @@ func (s *Store) StartRefreshFamily(sub string, scope []string, aud string, ttl t
 }
 
 // RefreshTokenBySecret reads the token a presented secret addresses, plus the
-// family it belongs to. It applies no liveness predicate at all — an expired,
-// spent or revoked token comes back with its tombstones set, because refusing
-// to find one would make reuse indistinguishable from a token that never
-// existed.
-//
-// A token whose family item is missing is reported REVOKED and logged loud. It
-// is a state nothing writes — every token is inserted in the same batch as its
-// family — so it means the store is damaged, and the safe reading of a
-// credential whose lineage cannot be found is that it does not mint.
+// family it belongs to. It applies no liveness predicate: refusing to find a
+// spent token would make reuse indistinguishable from a token that never
+// existed. A token whose family item is missing is a state nothing writes, so
+// it is reported REVOKED and logged loud.
 func (s *Store) RefreshTokenBySecret(raw string) (RefreshToken, bool) {
 	it, ok, err := s.point(RefreshTokens, HashToken(raw))
 	if err != nil {
@@ -142,18 +122,10 @@ func (s *Store) RefreshTokenBySecret(raw string) (RefreshToken, bool) {
 }
 
 // ClaimRefreshToken atomically claims a refresh token: exactly one of N
-// concurrent redeems wins. Losers see won=false and must NOT rotate — a second
-// live successor would fork the family and reuse-detection would never fire.
-//
-// The guard still has TWO conjuncts, each closing a different half of BUGS F36,
-// and the family entity is what moved one of them from a column to a Check:
-// `used_at` Absent on the TOKEN picks the single winner, and `revoked_at`
-// Absent on the FAMILY refuses a token whose family died between the caller's
-// lookup and this write. Without the second, a logout committing in that gap is
-// not seen and a successor is minted into a family the user just killed — a
-// revoke that commits BEFORE the batch opens is not an interleave, so the claim
-// itself has to look. A Check is precisely a condition on an item the batch does
-// not modify, and the driver takes the same lock for it that the write would.
+// concurrent redeems wins. Losers see won=false and must NOT rotate. The guard
+// has TWO conjuncts (BUGS F36): `used_at` Absent on the TOKEN picks the single
+// winner, and `revoked_at` Absent on the FAMILY refuses a token whose family
+// died between the caller's lookup and this write.
 func (s *Store) ClaimRefreshToken(raw string) (won bool, err error) {
 	hash := HashToken(raw)
 	it, ok, err := s.point(RefreshTokens, hash, "family_id")
@@ -166,20 +138,10 @@ func (s *Store) ClaimRefreshToken(raw string) (won bool, err error) {
 }
 
 // ClaimAndRotateRefresh claims raw and, on a win, writes its successor and the
-// family's new counters in the SAME batch — the ordering fix for BUGS F36.
-//
-// Separate writes with the grants re-snapshot between them let a competing
-// redeem's family revoke commit in the gap: it revoked the rows that existed at
-// that moment, the winner then inserted a successor with no tombstone, and a
-// family killed for reuse walked away with a live 30-day credential.
-//
-// One batch makes that interleave inexpressible. The family's own write carries
-// both conditions — `revoked_at` Absent and the rotation count it read — so a
-// revoke that landed first refuses the whole batch, and the successor is never
-// written rather than written and then orphaned.
-//
-// won=false means "someone else claimed it, or the family is already dead";
-// both are reuse from the caller's side, and both leave the store untouched.
+// family's new counters in the SAME batch (BUGS F36): a revoke that landed
+// first refuses the whole batch, so the successor is never written rather
+// than written and then orphaned. won=false means someone else claimed it or
+// the family is already dead; both are reuse from the caller's side.
 func (s *Store) ClaimAndRotateRefresh(raw, fam, sub string, scope []string, aud string, ttl time.Duration) (newRaw string, won bool, err error) {
 	newRaw, err = genRefresh()
 	if err != nil {
@@ -214,16 +176,9 @@ func (s *Store) ClaimAndRotateRefresh(raw, fam, sub string, scope []string, aud 
 }
 
 // RevokeFamily kills a refresh family: reuse detection, logout, the REST face
-// and the dashboard all take this one writer, so no second write can drift from
-// its `revoked_at` Absent guard.
-//
-// It reports whether it KILLED something, not how many rows it touched. The row
-// count never was the answer to "did this work" — re-revoking a dead family
-// legitimately changed zero rows — and now there is one item to change, so a
-// count could only ever be 0 or 1. killed=false is the honest answer every
-// caller already needed: the /v1 face 404s on it and the dashboard says "no
-// live session", because an operator mistyping an id during an incident must
-// not be told the session is dead.
+// and the dashboard all take this one writer. It reports whether it KILLED
+// something; the /v1 face 404s on killed=false, because an operator mistyping
+// an id during an incident must not be told the session is dead.
 func (s *Store) RevokeFamily(familyID string) (killed bool, err error) {
 	return s.s.GuardedBatch(ctx(), nil, []objstore.Write{{
 		Op: objstore.Update, Entity: RefreshFamilies, Key: key(familyID),
@@ -237,24 +192,12 @@ func (s *Store) RevokeFamily(familyID string) (killed bool, err error) {
 // maxSessionsLimit caps one page, matching audit's own ceiling.
 const maxSessionsLimit = 200
 
-// SessionsByFamily lists one row per family — a login and everything it rotated
-// into, not one row per token. An empty sub means every family.
-//
-// It reads the FAMILY entity, which is what makes the two numbers answerable at
-// all. They used to be correlated subqueries over every row sharing a family id
-// — `COUNT(*)` for the rotations and `MIN(issued_at)` for the start — and no
-// key-value engine answers a subquery. Both are known at write time by the
-// rotation that already writes the successor, so they are attributes the
-// rotation sets in the batch it was making anyway; the denormalisation costs
-// nothing (spec 6/40 §"What authd asks", item 1).
-//
-// The order is applied here rather than by the engine. The sort key is the
-// family id, because revocation addresses one family by that id; a family's
-// POSITION in this listing changes on every rotation while its identity does
-// not, so a key that carried the order would have to move the item on each
-// refresh. Reading the partition and ordering the parsed instants is what that
-// buys, and it is bounded by the number of logins an instance has ever made —
-// 7 families across three live instances, measured 2026-09-07.
+// SessionsByFamily lists one row per family — a login and everything it
+// rotated into. An empty sub means every family. The two numbers are
+// attributes the rotation sets in the batch it was making anyway (spec 6/40
+// §"What authd asks", item 1). The order is applied here: the sort key is the
+// family id because revocation addresses one, and a family's POSITION changes
+// on every rotation while its identity does not.
 func (s *Store) SessionsByFamily(sub string, limit int, at time.Time) ([]resources.SessionsRow, error) {
 	if limit <= 0 || limit > maxSessionsLimit {
 		limit = 50
@@ -292,9 +235,8 @@ func (s *Store) SessionsByFamily(sub string, limit int, at time.Time) ([]resourc
 	return out, nil
 }
 
-// renewedAt reads a row's renewal instant. An unparseable one sorts last rather
-// than at the top, so a damaged attribute cannot push a row to the front of the
-// operator's page.
+// renewedAt reads a row's renewal instant. An unparseable one sorts last, so a
+// damaged attribute cannot push a row to the front of the operator's page.
 func renewedAt(r resources.SessionsRow) time.Time {
 	t, err := time.Parse(time.RFC3339, r.RenewedAt)
 	if err != nil {
@@ -356,9 +298,7 @@ func refreshTokenPut(hash, fam, sub string, scope []string, aud, issued, expires
 }
 
 // sessionStatus collapses the tombstones plus the clock into one word. Revoked
-// outranks expired: how a session ended is what an incident review asks, and a
-// family killed a day before its natural expiry must not be reported as having
-// merely timed out.
+// outranks expired: how a session ended is what an incident review asks.
 func sessionStatus(revoked bool, expiresAt string, at time.Time) string {
 	if revoked {
 		return "revoked"

@@ -1,19 +1,9 @@
 package main
 
-// audit_resource.go publishes authd's own audit_log at GET /v1/audit.
-//
-// authd writes exactly two kinds of row into auth.db: `daemon.start` and `login` —
-// the latter the ONLY place that still knows which provider identity was presented
-// before everything downstream collapses to the canonical sub. Neither could be
-// read without sqlite3 on the host (BUGS F29).
-//
-// authd is the sole ES256 signer, so a new read surface earns a column-by-column
-// audit. `params_summary` had ONE writer, daemon.start's {dsn, serving_keys,
-// service_subs}; the counts are len() values, and the DSN is now redacted at the
-// writer with migration 0007 scrubbing earlier rows. No handler here touches a
-// signing key, refresh token or service secret — audit.Query selects from
-// audit_log and nothing else. The bearer-plus-scope gate is the one
-// /v1/identities/{sub} already uses, not a second invention.
+// audit_resource.go publishes authd's own audit_log at GET /v1/audit. `login`
+// rows are the ONLY place that knows which provider identity was presented
+// before everything downstream collapses to the canonical sub (BUGS F29). No
+// handler here touches a signing key, refresh token or service secret.
 
 import (
 	"context"
@@ -27,9 +17,7 @@ import (
 )
 
 // auditResource is authd's mounted decl of the shared catalog resource
-// (resreg/resources/audit.go). Store is non-nil only because a nil Store marks
-// a forwarder and resreg.invoke skips authorization for those; list does not
-// mutate, so no transaction is ever opened on it.
+// (resreg/resources/audit.go).
 func (s *server) auditResource() resreg.Resource {
 	r := resreg.Mount(resources.AuditName)
 	r.Authz = func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error) {
@@ -41,11 +29,9 @@ func (s *server) auditResource() resreg.Resource {
 	return r
 }
 
-// auditStore is the non-forwarder marker every authd resource passes as Store.
-// resreg.invoke treats a nil Store as a forwarder and SKIPS authorization
-// entirely, so it must be non-nil even on read-only resources; none of them
-// mutates, so no transaction is ever opened on it. One helper because the
-// reason is the same three times and is easy to get wrong once.
+// auditStore is the non-forwarder marker every authd resource passes as Store:
+// resreg.invoke treats a nil Store as a forwarder and SKIPS authorization, so
+// it must be non-nil even on read-only resources.
 func (s *server) auditStore() *store.Store { return store.NewOver(s.a.obj) }
 
 // mountAudit wires GET /v1/audit onto authd's mux.
@@ -53,10 +39,9 @@ func (s *server) mountAudit(m *http.ServeMux) {
 	resreg.RegisterREST(m, s.auditResource(), s.auditCaller)
 }
 
-// auditCaller verifies the bearer against authd's own in-process key set —
-// the same LocalKeySet handleTokens and handleIdentity verify against, no JWKS
-// fetch, because authd holds the private keys. The scope rides in Claims so
-// the Gate can answer 403; a builder can only fail 401.
+// auditCaller verifies the bearer against authd's own in-process key set; no
+// JWKS fetch, because authd holds the private keys. The scope rides in Claims
+// so the Gate can answer 403; a builder can only fail 401.
 func (s *server) auditCaller(r *http.Request) (resreg.Caller, error) {
 	caller, err := auth.VerifyHTTP(r, s.a.LocalKeySet())
 	if err != nil {
@@ -70,16 +55,10 @@ func (s *server) auditCaller(r *http.Request) (resreg.Caller, error) {
 }
 
 // scopeGate is the operator-only check every authd resource injects: a literal
-// resource:verb scope, matching handleIdentity's identity:read.
-//
-// Such a scope is unreachable by any human bearer, and that is the mechanism
-// rather than a convention: a user token's scope list holds FOLDER GLOBS and
-// auth.scopeMatches rejects every held value without a colon, so `acme/**` fails
-// and so does an operator's `**`. The single holder of `audit:read` is
-// service:dashd, whose page is requireOperator-gated.
-//
-// There is no local-dev open branch, unlike runed's gate: authd always has a key
-// set, so there is no verifier-absent state to fall through.
+// resource:verb scope. Such a scope is unreachable by any human bearer, and
+// that is the mechanism: a user token's scope list holds FOLDER GLOBS and
+// auth.scopeMatches rejects every held value without a colon. There is no
+// local-dev open branch: authd always has a key set.
 func scopeGate(resource, verb string) func(resreg.Execution, string, map[string]string) error {
 	return func(x resreg.Execution, _ string, _ map[string]string) error {
 		if !auth.HasScope(x.Caller.Scopes(), resource, verb) {
@@ -89,15 +68,10 @@ func scopeGate(resource, verb string) func(resreg.Execution, string, map[string]
 	}
 }
 
-// instanceWideGate is scopeGate plus a refusal of any folder-claimed caller. It
-// guards the two resources that have NOTHING to narrow by: audit_log has a `folder`
-// column, but signing_keys and refresh_tokens do not — a key is instance-global and
-// a session is keyed by `sub`, so no predicate could contain a folder-scoped caller.
-// be the "strict, not magical" violation. So the answer is 403, stated.
-//
-// This is defence in depth, not the primary control — a bearer holding
-// `sessions:write` at all has already proven it is not a human token. It costs
-// one comparison and removes the need to reason about the interaction.
+// instanceWideGate is scopeGate plus a refusal of any folder-claimed caller,
+// for the resources that have NOTHING to narrow by: a signing key is
+// instance-global and a session is keyed by `sub`. Defence in depth: a bearer
+// holding `sessions:write` has already proven it is not a human token.
 func instanceWideGate(resource, verb string) func(resreg.Execution, string, map[string]string) error {
 	scoped := scopeGate(resource, verb)
 	return func(x resreg.Execution, scope string, params map[string]string) error {
@@ -112,16 +86,12 @@ func instanceWideGate(resource, verb string) func(resreg.Execution, string, map[
 	}
 }
 
-// auditHandler serves the read off auth.db through audit.Query — the same
-// renderer routd and runed serve theirs through.
-//
-// A token carrying a folder claim is pinned to that subtree and its `folder`
-// argument cannot widen it. The converse — no claim means instance-wide — is
-// safe here ONLY because the Gate already proved audit:read. An absent folder
-// claim is not evidence of operator authority on its own: routd stamps a
-// folder only when the sub holds exactly one scope, so a two-grant tenant is
-// equally claimless, and keying a list-all on that is the recorded
-// cross-tenant leak. The claim narrows an authorized call; it never grants one.
+// auditHandler serves the read through audit.Query, the same renderer routd
+// and runed use. A token carrying a folder claim is pinned to that subtree and
+// its `folder` argument cannot widen it. No claim means instance-wide ONLY
+// because the Gate already proved audit:read; an absent folder claim is not
+// evidence of operator authority, since a two-grant tenant is equally
+// claimless (the recorded cross-tenant leak).
 func (s *server) auditHandler(ctx context.Context, x resreg.Execution) (any, error) {
 	if x.Action != resreg.ActionList {
 		return nil, resreg.Errorf(http.StatusBadRequest, "unknown action %q", x.Action)

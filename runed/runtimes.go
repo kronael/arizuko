@@ -1,9 +1,5 @@
 package runed
 
-// runtimes.go holds the test seam: FakeRuntime backs unit tests of the run
-// envelope without spawning anything. The production docker lifecycle lives
-// in docker.go.
-
 import (
 	"context"
 
@@ -11,8 +7,7 @@ import (
 )
 
 // FakeRuntime backs the contract test + standalone acceptance: it invokes a
-// caller-supplied function with the RunSpec and returns its outcome. No
-// docker, no socket (spec 5/P § acceptance).
+// caller-supplied function with the RunSpec and returns its outcome.
 type FakeRuntime struct {
 	Fn func(ctx context.Context, spec RunSpec) RunResult
 }

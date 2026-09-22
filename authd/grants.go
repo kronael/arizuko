@@ -1,18 +1,15 @@
 package main
 
-// HTTP GrantsFetcher: authd is not the grants authority (routd is — it owns
-// the acl tables + runs the gate; spec 5/1 § Login-time scope snapshot). At session issuance / issuer-mint / refresh,
-// authd fetches the target's scope ceiling over one HTTP call:
+// HTTP GrantsFetcher: authd is not the grants authority (routd is; spec 5/1
+// § Login-time scope snapshot). At session issuance, issuer-mint and refresh,
+// authd fetches the target's scope ceiling:
 //
 //   GET <GRANTS_URL>/v1/users/{bareSub}/scopes   Authorization: Bearer <service:authd>
 //   → 200 {"scope":[...],"folder":"..."}   → 404 {"error":"no_grants"}
 //
-// authd authenticates with its own self-minted service:authd token (scope
-// grants:read). It holds the signing key, so it signs that token locally per
-// call (a local ES256 sign, no network hop, no service_keys seed row — spec
-// 5/1: "authd is the one daemon that needs no bootstrap to obtain a service
-// identity"). When GRANTS_URL is unset the fetcher is nil and behavior is
-// unchanged (every session empty-scope; suitable for an auth-only deployment).
+// authd signs the service:authd bearer locally per call: it holds the signing
+// key, so it needs no bootstrap. When GRANTS_URL is unset the fetcher is nil
+// and every session is empty-scope (an auth-only deployment).
 
 import (
 	"context"
@@ -33,8 +30,7 @@ type httpGrants struct {
 	c   *http.Client
 }
 
-// newHTTPGrants builds a fetcher against grantsURL, or nil when grantsURL is
-// empty (leave grants unwired — current empty-scope behavior).
+// newHTTPGrants builds a fetcher against grantsURL, or nil when it is empty.
 func newHTTPGrants(a *Authd, grantsURL string) *httpGrants {
 	if grantsURL == "" {
 		return nil

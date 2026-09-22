@@ -3,37 +3,15 @@ package runstore
 // spawns.go holds every read and write of `spawns`: one item per container
 // spawn, the execution-session envelope routd claims a folder's run slot with.
 //
-// THE PARTITION IS A CONSTANT AND THE SORT KEY IS THE RUN ID, which is not what
-// spec 6/37 rule 1 predicted when it modelled this table. That rule counted the
-// READS — `WHERE folder=?` and `WHERE folder=? AND state IN (…)` — and told
-// this entity to partition by folder. It missed the WRITES. Six operations
-// address a spawn by its run id and hold no folder at all:
-//
-//   - `GET /v1/runs/{run_id}` and `DELETE /v1/runs/{run_id}` are handed one path
-//     value, and Manager.Kill is the thing that RESOLVES a run to its folder, so
-//     it cannot be given one.
-//   - Three of them carry an invariant — Start, End and Kill are guarded
-//     transitions — and a guarded write names ONE item. Under a folder partition
-//     the guard would have to run after a scan that found the row, which is the
-//     read-then-write the condition exists to replace.
-//
-// WHAT THE CONSTANT COSTS is that the folder reads are whole-partition reads
-// with an attribute filter, and that the newest-first order is applied by the
-// reader rather than by the sort key.
-//
-// WHAT MAKES THAT AFFORDABLE IS DRAINAGE, the same excuse chanstore's
-// `inbound_pending` has: DropSpawnsBefore deletes everything older than the
-// retention runed's hourly sweep passes it (seven days), so the partition is a
-// window and not an archive. Measured 2026-09-07 on all three live snapshots:
-// 232 items on the busiest (krons) over 53 folders, 144 on sloth, 102 on
-// marinade. The unbounded table in this database is `session_log`, and that one
-// partitions by folder.
-//
-// Folder containment could not have ridden on an attribute anyway: a prefix
-// predicate runs on the SORT KEY and there is no substring comparison on the
-// interface, so RecentSpawns applies groupfolder.Contains itself — which is also
-// how it stops being `LIKE`, whose `_`/`%` wildcards and ASCII case folding are
-// BUGS L122 and L252. A live `Coach`/`coach` pair is on sloth today.
+// THE PARTITION IS A CONSTANT AND THE SORT KEY IS THE RUN ID, not the folder
+// 6/37 rule 1 predicted: six operations address a spawn by its run id and
+// hold no folder at all, and Start, End and Kill are guarded transitions,
+// which name ONE item. The cost is that folder reads are whole-partition
+// reads with an attribute filter and newest-first order is applied by the
+// reader. What makes that affordable is DRAINAGE: DropSpawnsBefore keeps the
+// partition a window (seven days), not an archive. Folder containment is
+// applied by RecentSpawns through groupfolder.Contains, never LIKE (BUGS
+// L122, L252).
 
 import (
 	"context"
@@ -47,8 +25,7 @@ import (
 	"github.com/kronael/arizuko/objstore"
 )
 
-// spawnPartition is the one partition every spawn lives in. The file header
-// says why it is a constant and what that costs.
+// spawnPartition is the one partition every spawn lives in.
 const spawnPartition = "spawn"
 
 // The attributes an item carries.
@@ -68,24 +45,16 @@ const (
 	attrEndedAt      = "ended_at"
 )
 
-// KindAgent is the kind a spawn takes when its caller names none. It is the
-// default the column carried, so a row written before kinds existed and a
-// caller that still does not name one mean the same thing.
+// KindAgent is the kind a spawn takes when its caller names none.
 const KindAgent = "agent"
 
-// created_at is the only attribute here a query COMPARES by order — the sweep
-// asks for everything before a cutoff — so it is the only one declared. A
-// declaration is a promise about every value in the entity, and the other two
-// timestamps are read back and rendered, never ordered.
+// created_at is the only attribute a query COMPARES by order (the sweep's
+// cutoff), so it is the only one declared.
 func init() { objstore.OrderedAttr(Spawns, attrCreatedAt, tsWidth) }
 
 // Spawn is one container spawn. Kind selects the Manager.Run post-claim
-// executor ('agent' | 'hold' | …, spec 5/8 "Filesystem restore claims the
-// folder's run slot").
-//
-// SessionLogID is a string because the session log's identity is a string: it
-// is that row's sort key, the instant it started plus a suffix, and there is no
-// sequence to name it by (6/37 rule 4).
+// executor (spec 5/8). SessionLogID is a string because the session log's
+// identity is its sort key (6/37 rule 4).
 type Spawn struct {
 	RunID         string
 	Folder        string
@@ -114,28 +83,15 @@ func spawnKey(runID string) objstore.Key {
 	return objstore.Key{Partition: spawnPartition, Sort: runID}
 }
 
-// terminalStates are the states a spawn does not come back from. The vocabulary
-// is closed and small: dash.go's filter lists queued, running, exited and
-// killed, and EndSpawn writes error.
+// terminalStates are the states a spawn does not come back from.
 var terminalStates = []string{"exited", "error", "killed"}
 
-// live is the predicate for "this run still holds its folder's slot", and it is
-// the ONE place that question is expressed — the read that admits a turn, the
-// two counts, the orphan sweep and the kill's own guard all take it from here,
-// so none of them can drift from the others.
-//
-// The table said `state IN ('queued','running')` and the interface carries no
-// IN and no disjunction, so it is stated as the complement: not any of the three
-// terminal states. Three conjuncts where SQL had one list.
-//
-// `ended_at IS NULL` would have been ONE term and it is not used, which is worth
-// writing down because it looks better than it is. It agrees with the state on
-// every row of every live database (measured 2026-09-07: 478 rows, zero
-// disagreements in either direction) — but only because the three writers that
-// set a terminal state also set ended_at, which nothing enforces. It is a second
-// fact about liveness beside the column that declares it, and TestExpireOrphans
-// is what proved they can come apart: a row born terminal has no ended_at and
-// read as live.
+// live is the predicate for "this run still holds its folder's slot", the ONE
+// place that question is expressed, stated as the complement of the terminal
+// states because the interface carries no IN. `ended_at IS NULL` is NOT used:
+// nothing enforces that a terminal state also sets ended_at, and
+// TestExpireOrphans proved they come apart (a row born terminal has no
+// ended_at).
 func live() []objstore.Cmp {
 	out := make([]objstore.Cmp, 0, len(terminalStates))
 	for _, st := range terminalStates {
@@ -144,12 +100,9 @@ func live() []objstore.Cmp {
 	return out
 }
 
-// CreateSpawn writes the row that CLAIMS a folder's run slot.
-//
-// The Put carries ItemAbsent, so a run id that already exists refuses the write
-// rather than replacing the row under it — which for a claim means the folder's
-// live run would be silently overwritten by a colliding id. A refusal is
-// therefore a fault and is reported as one.
+// CreateSpawn writes the row that CLAIMS a folder's run slot. The Put carries
+// ItemAbsent: a colliding run id would silently overwrite the folder's live
+// run, so a refusal is a fault.
 func (s *Store) CreateSpawn(ctx context.Context, sp Spawn) error {
 	kind := sp.Kind
 	if kind == "" {
@@ -179,8 +132,7 @@ func (s *Store) CreateSpawn(ctx context.Context, sp Spawn) error {
 	return nil
 }
 
-// SpawnByRunID answers which spawn a run id names. ErrNotFound when there is
-// none — the 404 both /v1/runs/{run_id} routes answer.
+// SpawnByRunID answers which spawn a run id names; ErrNotFound when none.
 func (s *Store) SpawnByRunID(ctx context.Context, runID string) (Spawn, error) {
 	it, ok, err := s.point(ctx, Spawns, spawnKey(runID))
 	if err != nil {
@@ -193,14 +145,10 @@ func (s *Store) SpawnByRunID(ctx context.Context, runID string) (Spawn, error) {
 }
 
 // StartSpawn flips a spawn to running with its resolved session id and reports
-// whether the claim was still there to take.
-//
-// GUARDED ON state='queued', and the guard is the whole point: without it a
-// DELETE landing between CreateSpawn and here would be undone — a terminal row
-// resurrected and the folder held until RunTTL. started=false means that DELETE
-// won and the caller MUST NOT launch, because the folder then reads free while
-// a launch nobody can see proceeds, which puts a second container on one
-// folder's mount.
+// whether the claim was still there to take. GUARDED ON state='queued':
+// without it a DELETE landing between CreateSpawn and here would be undone, a
+// terminal row resurrected and the folder held until RunTTL. started=false
+// means that DELETE won and the caller MUST NOT launch.
 func (s *Store) StartSpawn(ctx context.Context, runID, sessionID string) (started bool, err error) {
 	attrs := map[string]string{attrState: "running", attrStartedAt: core.NowTS()}
 	set(attrs, attrSessionID, sessionID)
@@ -214,15 +162,11 @@ func (s *Store) StartSpawn(ctx context.Context, runID, sessionID string) (starte
 	return committed, nil
 }
 
-// EndSpawn records the terminal state, outcome and exit code at teardown.
-//
-// A 'killed' state is STICKY, and that is the invariant this write carries: the
-// spawn goroutine returns after a deliberate DELETE has already killed the
-// container, and without the condition its teardown would relabel an operator's
-// kill as an error (spec 5/P § DELETE). A refusal is therefore the intended
-// outcome rather than a fault — the row is already the one the operator asked
-// for — so it is not reported as an error, exactly as the guarded UPDATE it
-// replaces affected no rows and said nothing.
+// EndSpawn records the terminal state, outcome and exit code at teardown. A
+// 'killed' state is STICKY: the spawn goroutine returns after a deliberate
+// DELETE has already killed the container, and without the condition its
+// teardown would relabel an operator's kill as an error (spec 5/P § DELETE).
+// A refusal is the intended outcome, not reported.
 func (s *Store) EndSpawn(ctx context.Context, runID, state, outcome string, exitCode int) error {
 	attrs := map[string]string{
 		attrState:    state,
@@ -232,9 +176,8 @@ func (s *Store) EndSpawn(ctx context.Context, runID, state, outcome string, exit
 	set(attrs, attrOutcome, outcome)
 	remove := []string{}
 	if outcome == "" {
-		// The row may already carry an outcome from an earlier write, and an
-		// empty one has to be ABSENT rather than an empty string, or a reader
-		// testing for its presence finds a value that is not there.
+		// An empty outcome has to be ABSENT, not an empty string a reader
+		// testing for presence would find.
 		remove = append(remove, attrOutcome)
 	}
 	_, err := s.s.GuardedBatch(ctx, nil, []objstore.Write{{
@@ -248,15 +191,11 @@ func (s *Store) EndSpawn(ctx context.Context, runID, state, outcome string, exit
 	return nil
 }
 
-// KillSpawn records state='killed' for a run that is STILL LIVE.
-//
-// The TOCTOU between Kill's read and this write can let a run complete normally
-// in between, and the condition is what stops the kill overwriting an
-// already-terminal state (spec 5/P § DELETE). It is `live()` rather than the
-// table's `state IN ('queued','running')` for the reason live() states.
-//
-// A refusal means the run finished first, which is the case the guard is for
-// and not an error.
+// KillSpawn records state='killed' for a run that is STILL LIVE. The TOCTOU
+// between Kill's read and this write can let a run complete normally in
+// between, and the condition stops the kill overwriting an already-terminal
+// state (spec 5/P § DELETE). A refusal means the run finished first, not an
+// error.
 func (s *Store) KillSpawn(ctx context.Context, runID string) error {
 	_, err := s.s.GuardedBatch(ctx, nil, []objstore.Write{{
 		Op: objstore.Update, Entity: Spawns, Key: spawnKey(runID),
@@ -288,18 +227,10 @@ func (s *Store) MarkSteered(ctx context.Context, runID string) error {
 	return nil
 }
 
-// LinkSessionLog records which session-log item a run opened.
-//
-// This is 6/37 rule 3's duplicated key rather than an embed: the session log is
-// read on its OWN, a folder at a time, by the continuity hint and the
-// inspect_session tool, and nothing ever reads it through the spawn. What the
-// copy buys is the other direction — a run that opened no session (an isolated
-// turn, or any non-agent kind) is the one carrying no link at all.
-//
-// The id is a sort key inside the spawn's OWN folder partition, because
-// OpenSession is called with the folder the spawn claimed. Measured across all
-// three live databases 2026-09-07: 211 spawns carry a session_log_id, every one
-// resolves, and not one names a session in another folder.
+// LinkSessionLog records which session-log item a run opened: 6/37 rule 3's
+// duplicated key rather than an embed, because the session log is read on its
+// OWN, a folder at a time, and nothing reads it through the spawn. The id is
+// a sort key inside the spawn's OWN folder partition.
 func (s *Store) LinkSessionLog(ctx context.Context, runID, logID string) error {
 	_, err := s.s.GuardedBatch(ctx, nil, []objstore.Write{{
 		Op: objstore.Update, Entity: Spawns, Key: spawnKey(runID),
@@ -312,17 +243,10 @@ func (s *Store) LinkSessionLog(ctx context.Context, runID, logID string) error {
 }
 
 // RecentSpawns answers the operator dashboard's question: the newest spawns,
-// narrowed by state and by folder subtree.
-//
-// It is named for the window rather than for the table because the window IS
-// the answer — an empty state matches every state, an empty folder every
-// folder, and the limit is clamped to a page (a limit outside [1,500] means the
-// default 50, which is what the old reader did with an unhelpfully silent
-// `limit <= 0 || limit > 500`).
-//
-// The ORDER is applied here, not by the driver, because the sort key is the run
-// id and a run id is an identity rather than a clock. The file header says what
-// bounds the read that costs.
+// narrowed by state and by folder subtree. An empty state matches every
+// state, an empty folder every folder, and a limit outside [1,500] means 50.
+// The ORDER is applied here: the sort key is the run id, an identity rather
+// than a clock.
 func (s *Store) RecentSpawns(ctx context.Context, state, folder string, limit int) ([]Spawn, error) {
 	if limit <= 0 || limit > 500 {
 		limit = 50
@@ -345,8 +269,8 @@ func (s *Store) RecentSpawns(ctx context.Context, state, folder string, limit in
 		}
 		out = append(out, sp)
 	}
-	// created_at is core.TS, so its byte order is time order; the run id breaks
-	// a tie the way the rowid did, deterministically rather than by arrival.
+	// created_at is core.TS, so its byte order is time order; the run id
+	// breaks a tie deterministically rather than by arrival.
 	sort.SliceStable(out, func(i, j int) bool {
 		if out[i].CreatedAt != out[j].CreatedAt {
 			return out[i].CreatedAt > out[j].CreatedAt
@@ -360,13 +284,9 @@ func (s *Store) RecentSpawns(ctx context.Context, state, folder string, limit in
 }
 
 // LiveSpawnInFolder answers whether a folder's run slot is taken, and by which
-// run. nil means the folder is free.
-//
-// Manager holds no in-memory spawn state; this read IS the liveness authority,
-// and admit() looks the steer callback up by the run id it returns.
-//
-// The folder match is EXACT, not a subtree: the slot belongs to one folder, and
-// a parent holding a child's slot would serialize a whole tenant onto one run.
+// run; nil means free. This read IS the liveness authority. The folder match
+// is EXACT, not a subtree: a parent holding a child's slot would serialize a
+// whole tenant onto one run.
 func (s *Store) LiveSpawnInFolder(ctx context.Context, folder string) (*ActiveSpawn, error) {
 	items, err := s.s.Query(ctx, objstore.Query{
 		Entity: Spawns, Partition: spawnPartition,
@@ -388,24 +308,20 @@ func (s *Store) LiveSpawnInFolder(ctx context.Context, folder string) (*ActiveSp
 	return &ActiveSpawn{RunID: newest.Key.Sort, SessionID: newest.Attrs[attrSessionID]}, nil
 }
 
-// LiveSpawnCount answers how many spawns of EVERY kind still hold a slot — the
-// true in-flight count, which shutdown logging reports.
+// LiveSpawnCount answers how many spawns of EVERY kind still hold a slot.
 func (s *Store) LiveSpawnCount(ctx context.Context) (int, error) {
 	return s.countLive(ctx, nil)
 }
 
-// LiveAgentSpawnCount answers how many AGENT spawns hold a slot, which is the
-// global concurrency cap's actual budget (spec 5/8). A containerless kind
-// consumes no docker resource comparable to a container and must not compete
-// with agent turns for the cap, in either direction.
+// LiveAgentSpawnCount answers how many AGENT spawns hold a slot, the global
+// concurrency cap's budget (spec 5/8): a containerless kind must not compete
+// with agent turns for the cap.
 func (s *Store) LiveAgentSpawnCount(ctx context.Context) (int, error) {
 	return s.countLive(ctx, []objstore.Cmp{{Attr: attrKind, Op: objstore.Eq, Value: KindAgent}})
 }
 
-// countLive is the one read behind both counts, so a change to what "live"
-// means cannot land on one of them and miss the other. It projects one small
-// attribute: the answer is the number of items, and a cap check must not pull
-// every spawn's document through the driver to count them.
+// countLive is the one read behind both counts. It projects one small
+// attribute: a cap check must not pull every spawn's document to count them.
 func (s *Store) countLive(ctx context.Context, extra []objstore.Cmp) (int, error) {
 	items, err := s.s.Query(ctx, objstore.Query{
 		Entity: Spawns, Partition: spawnPartition,
@@ -418,13 +334,11 @@ func (s *Store) countLive(ctx context.Context, extra []objstore.Cmp) (int, error
 	return len(items), nil
 }
 
-// ExpireOrphans ends every spawn left holding a slot and answers how many.
-//
-// runed was killed while containers were live, so those rows count toward the
-// concurrency cap and block the folder forever. It runs at STARTUP, before the
-// mux is served and before any executor exists, which is why a refused write is
-// reported rather than skipped: at that moment nothing else writes these rows,
-// so a condition that did not hold means a second process is on this database.
+// ExpireOrphans ends every spawn left holding a slot after runed was killed
+// with containers live, and answers how many. It runs at STARTUP before any
+// executor exists, so a refused write is reported: nothing else writes these
+// rows then, and a condition that did not hold means a second process is on
+// this database.
 func (s *Store) ExpireOrphans(ctx context.Context) (int, error) {
 	items, err := s.s.Query(ctx, objstore.Query{
 		Entity: Spawns, Partition: spawnPartition, Where: live(), Project: []string{attrState},
@@ -447,12 +361,9 @@ func (s *Store) ExpireOrphans(ctx context.Context) (int, error) {
 }
 
 // DropSpawnsBefore deletes every spawn created before cutoff and answers how
-// many. It is what bounds this entity's one partition, so the header's "the
-// partition is a window and not an archive" rests on it running.
-//
-// The CUTOFF is the caller's, not a retention this package computes: the clock
-// belongs to the sweep that owns the policy, and a test that has to wait seven
-// days to observe the behaviour is one nobody runs.
+// many; it is what keeps the partition a window. The CUTOFF is the caller's,
+// not a retention this package computes: a test that waits seven days is one
+// nobody runs.
 func (s *Store) DropSpawnsBefore(ctx context.Context, cutoff time.Time) (int, error) {
 	items, err := s.s.Query(ctx, objstore.Query{
 		Entity: Spawns, Partition: spawnPartition,
@@ -470,9 +381,7 @@ func (s *Store) DropSpawnsBefore(ctx context.Context, cutoff time.Time) (int, er
 }
 
 // spawnFrom renders one stored item as the spawn a caller reads. Every absent
-// attribute becomes its zero value: the reader's job is to render, and a
-// three-valued field crossing an HTTP boundary buys nothing but null-checks in
-// every consumer.
+// attribute becomes its zero value.
 func spawnFrom(it objstore.Item) Spawn {
 	a := it.Attrs
 	exit, _ := strconv.Atoi(a[attrExitCode])

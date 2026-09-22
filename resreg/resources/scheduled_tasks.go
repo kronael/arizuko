@@ -7,9 +7,8 @@ import (
 	"github.com/kronael/arizuko/resreg"
 )
 
-// ScheduledTasksRow mirrors scheduled_tasks. cron and next_run are
-// nullable TEXT in DB; the Go field stays string with empty=NULL via
-// ColumnOverride. context_mode has default 'group' enforced in hook.
+// ScheduledTasksRow mirrors scheduled_tasks; BeforeInsert defaults status and
+// context_mode.
 type ScheduledTasksRow struct {
 	ID          string `db:"id"           yaml:"id"           json:"id"`
 	Owner       string `db:"owner"        yaml:"owner"        json:"owner"`
@@ -22,35 +21,20 @@ type ScheduledTasksRow struct {
 	ContextMode string `db:"context_mode" yaml:"context_mode,omitempty" json:"context_mode,omitempty"`
 }
 
-// ScheduledTasksResponses declares what each mounted REST face ANSWERS with.
-// core.Task carries NO json tags, so the wire names are the GO field names —
-// ID, ChatJID, NextRun — and timed/dash.go decodes exactly those. Documented
-// off ScheduledTasksRow the doc promised snake_case for every one of them
-// (BUGS L120). cancel answers {"ok"}, which has no Go type to name.
+// ScheduledTasksResponses: core.Task carries NO json tags, so the wire names
+// are the GO field names, and documenting off ScheduledTasksRow promised
+// snake_case (BUGS L120). cancel answers {"ok"} and declares nothing.
 var ScheduledTasksResponses = map[resreg.Action]reflect.Type{
 	resreg.ActionList:      reflect.TypeFor[[]core.Task](),
 	resreg.ActionGet:       reflect.TypeFor[core.Task](),
 	resreg.Action("patch"): reflect.TypeFor[core.Task](),
 }
 
-// ScheduledTasksEndpoints is the single owner of the scheduled_tasks endpoint
-// set: routd's mountTasks mounts it verbatim, deriveMCPTools reads it for the
-// agent's task tools, and openapi.go emits one operation per non-MCPOnly entry.
-// One slice, three consumers — routd must never override it (BUGS F21: an inline
-// literal in mountTasks mounted /v1/tasks* while this said /v1/scheduled_tasks*,
-// so /openapi.json advertised four endpoints nothing served and hid four it did).
-//
-// The REST path is /v1/tasks, NOT /v1/<name>. timed calls GET /v1/tasks
-// (timed/dash.go) and the hand-rolled fire loop shares the prefix
-// (/v1/tasks/due, /runlog, /{id}/reschedule — timed/split.go), both across the
-// container boundary; renaming half of one control surface is the drift, not
-// the fix. The name still IS the wire identity everywhere else: the MCP tool
-// prefix and every emitted operationId carry `scheduled_tasks`.
-//
-// schedule/pause/resume are MCPOnly: the agent has a tool, the operator drives
-// them through PATCH {status} and dashd's create form, so no REST face exists.
-// RegisterREST and openapi.go both skip MCPOnly; deriveMCPTools does not.
-// get/patch are the mirror case — REST-only, no MCPDoc entry, hence no tool.
+// ScheduledTasksEndpoints is the single owner of the endpoint set; routd must
+// never override it (BUGS F21). The REST path is /v1/tasks, NOT /v1/<name>:
+// timed calls it across the container boundary and its fire loop shares the
+// prefix. schedule/pause/resume are MCPOnly (the operator drives them through
+// PATCH {status}); get/patch are REST-only with no MCPDoc entry, hence no tool.
 var ScheduledTasksEndpoints = []resreg.Endpoint{
 	{Action: resreg.Action("schedule"), MCPOnly: true},
 	{Action: resreg.Action("pause"), MCPOnly: true},
@@ -62,9 +46,7 @@ var ScheduledTasksEndpoints = []resreg.Endpoint{
 }
 
 // ScheduledTasksMCPNames maps each action to the flat tool name the live agent
-// already calls; routd's scheduled_tasks_resource.go references it (agent socket
-// derivation) and ipc.ListTools reads it via the registry walk. The REST-only
-// `patch` verb has no entry here (no agent tool). Spec 5/16.
+// calls (spec 5/16); the REST-only `patch` verb has no entry.
 var ScheduledTasksMCPNames = map[resreg.Action]string{
 	resreg.Action("schedule"): "schedule_task",
 	resreg.Action("pause"):    "pause_task",
@@ -83,9 +65,8 @@ var ScheduledTasksMCPDoc = map[resreg.Action]string{
 	resreg.ActionList:         "Return scheduled tasks visible to this group. Use for a plain task dump; prefer inspect_tasks when you also want task_run_logs or per-task history.",
 }
 
-// ScheduledTasksMCPArgs is the explicit per-action arg list. The agent face carries
-// {targetJid, prompt, cron, contextMode} / {taskId}, NOT the RowType-reflected
-// columns, so this overrides RowType reflection for the derived agent/browser tools.
+// ScheduledTasksMCPArgs is the agent face's wire shape, overriding RowType
+// reflection.
 var ScheduledTasksMCPArgs = map[resreg.Action][]resreg.MCPArg{
 	resreg.Action("schedule"): {
 		{Name: "targetJid", Type: "string", Required: true},
@@ -111,9 +92,8 @@ func init() {
 		MCPDoc:        ScheduledTasksMCPDoc,
 		MCPArgs:       ScheduledTasksMCPArgs,
 		MCPNames:      ScheduledTasksMCPNames,
-		// No folder scope: owner is system/user:sub and chat_jid is
-		// polymorphic (folder OR typed JID, spec 5/8 §"FK posture") —
-		// neither is column-equal to a folder. Apply rebuilds wholesale.
+		// No folder scope: chat_jid is polymorphic (folder OR typed JID, spec
+		// 5/8 §"FK posture"), so Apply rebuilds wholesale.
 		StampedFields: []string{"Created"},
 		Hooks: resreg.Hooks{
 			BeforeInsert: func(row any) error {

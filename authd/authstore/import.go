@@ -1,19 +1,10 @@
 package authstore
 
-// import.go writes a whole auth.db into the entities this package reads. It is
-// the destination half of the one-way data move (spec 6/37 step 7); the source
-// half — reading the legacy tables — belongs to the tool that runs it, because
-// this package holds no SQL.
-//
-// The split is what keeps the model declared once. The tool knows the old
-// schema and nothing about items; this file knows items and nothing about the
-// old schema; a Snapshot of plain values is the only thing that crosses.
-//
-// A FAMILY IS DERIVED, not read. The old table had no family row, so the two
-// numbers a session listing needs — how many tokens a login has issued and when
-// it started — exist only as an aggregate over the tokens. Import computes them
-// once, here, which is the same computation the correlated subqueries used to
-// run on every listing.
+// import.go writes a whole auth.db into the entities this package reads: the
+// destination half of the one-way data move (spec 6/37 step 7). The tool that
+// runs it knows the old schema and nothing about items; this file knows items
+// and nothing about the old schema; a Snapshot of plain values is all that
+// crosses. A FAMILY IS DERIVED, not read: the old table has no family row.
 
 import (
 	"fmt"
@@ -58,8 +49,7 @@ type IdentityRow struct {
 }
 
 // TokenRow is one issued refresh token with both of its old tombstones.
-// RevokedAt was per token and becomes per family, which is the whole point of
-// the move.
+// RevokedAt is per token here and per family on the other side.
 type TokenRow struct {
 	TokenHash string
 	FamilyID  string
@@ -84,22 +74,17 @@ type Counts struct {
 }
 
 // Import writes snap into the entities. It is idempotent — every write replaces
-// the item at its coordinate — so a run that failed part way is re-runnable.
-// Run it with the daemon stopped: it rewrites what it is given, and a token the
-// daemon issued after the snapshot was read is not in the snapshot.
-//
-// It refuses a snapshot it cannot represent rather than guessing. Two signing
-// keys claiming to be active, or a family without exactly one unspent token,
-// are states the entities cannot hold, and inventing an answer for either would
-// put a second signer or a second live credential into the store.
+// the item at its coordinate — so a failed run is re-runnable. Run it with the
+// daemon stopped. It refuses a snapshot it cannot represent: two active signing
+// keys, or a family without exactly one unspent token, would put a second
+// signer or a second live credential into the store.
 func (s *Store) Import(snap Snapshot) (Counts, error) {
 	writes, counts, err := importWrites(snap)
 	if err != nil {
 		return Counts{}, err
 	}
-	// MaxBatchActions is the weakest engine's transaction bound, so the import
-	// respects it too. The writes are independent replacements, so a chunk that
-	// lands and a chunk that does not leave a partial import a re-run finishes.
+	// The writes are independent replacements, so a chunk that lands and a
+	// chunk that does not leave a partial import a re-run finishes.
 	for len(writes) > 0 {
 		n := min(len(writes), objstore.MaxBatchActions)
 		committed, err := s.s.GuardedBatch(ctx(), nil, writes[:n])
@@ -211,13 +196,10 @@ func refreshWrites(rows []TokenRow) (tokens, families []objstore.Write, err erro
 	return tokens, families, nil
 }
 
-// familyWrite derives one family item from the tokens that carry its id.
-//
-// The CURRENT token is the one with no `used_at`, and there is exactly one per
-// family by construction: a family starts with a single unspent token, and each
-// rotation spends the presented one while writing a single unspent successor.
-// Anything else is a lineage that forked or died mid-rotation, and this refuses
-// it by name rather than choosing which credential to call live.
+// familyWrite derives one family item from the tokens that carry its id. The
+// CURRENT token is the one with no `used_at`, exactly one per family by
+// construction; anything else is a lineage that forked or died mid-rotation,
+// refused by name rather than choosing which credential to call live.
 func familyWrite(fam string, rows []TokenRow) (objstore.Write, error) {
 	var current []TokenRow
 	started, revoked := "", ""

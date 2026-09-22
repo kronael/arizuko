@@ -27,13 +27,10 @@ type PendingActionsRow struct {
 	NoticeID string `db:"notice_id" yaml:"notice_id,omitempty" json:"notice_id,omitempty"`
 }
 
-// PendingActionsEndpoints — the operator reviews held calls over REST and the
-// dashboard; `approve` and `reject` are the two verdicts, and both funnel to the
-// same handler as the chat `/approve` command.
-//
-// There is deliberately no create/delete: a row is written by the gate at hold
-// time and never by a caller, and deleting one would erase the record of a
-// decision someone made.
+// PendingActionsEndpoints: `approve` and `reject` are the two verdicts and
+// funnel to the same handler as the chat `/approve` command. No create or
+// delete: a row is written by the gate at hold time, and deleting one would
+// erase the record of a decision.
 var PendingActionsEndpoints = []resreg.Endpoint{
 	{Action: resreg.ActionList, Verb: "GET", Path: "/v1/pending_actions"},
 	{Action: resreg.Action("approve"), Verb: "POST", Path: "/v1/pending_actions/{id}/approve"},

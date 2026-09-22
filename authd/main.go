@@ -32,8 +32,8 @@ func main() {
 		listenAddr = ":8080"
 	}
 
-	// store.OwnerDriver is the door: it dials authd's tables on the instance's
-	// store server, so authd holds no pool at all.
+	// store.OwnerDriver dials authd's tables on the instance's store server, so
+	// authd holds no pool.
 	d, closeStore, err := store.OwnerDriver(store.OwnerAuthd)
 	if err != nil {
 		slog.Error("open authd's store", "err", err)
@@ -52,12 +52,11 @@ func main() {
 	}
 
 	// authd verifies its OWN tokens, so the dashboard gate uses its local
-	// keyset — there is no authd to fetch from, it IS authd.
+	// keyset.
 	srv := &server{a: a, serviceSecrets: loadServiceSecrets(), dashKeys: a.LocalKeySet()}
 
-	// Wire the grants fetcher onto BOTH the daemon (refresh re-snapshot) and the
-	// server (login snapshot + issuer-mint ceiling). GRANTS_URL unset → grants
-	// stays nil (every session empty-scope; current behavior).
+	// The grants fetcher serves BOTH the daemon (refresh re-snapshot) and the
+	// server (login snapshot + issuer-mint ceiling).
 	if grantsURL := os.Getenv("GRANTS_URL"); grantsURL != "" {
 		g := newHTTPGrants(a, grantsURL)
 		srv.grants = g
@@ -94,9 +93,8 @@ func main() {
 
 	slog.Info("authd started", "store", dynstore.URL(), "addr", listenAddr, "serving_keys", len(a.PublicKeys()))
 
-	// cfg carries the OAuth provider config into mux(); nil means /auth/* stays
-	// unmounted and human login 404s while health stays green, so the load
-	// failure is surfaced here rather than swallowed.
+	// A nil cfg leaves /auth/* unmounted: human login 404s while health stays
+	// green, so the load failure is logged loud here.
 	cfg, cerr := core.LoadConfig()
 	if cerr != nil {
 		slog.Error("oauth /auth/* not mounted: config load failed; human login will 404 while health stays green", "err", cerr)
@@ -105,8 +103,7 @@ func main() {
 	httpd := &http.Server{Addr: listenAddr, Handler: obs.HTTPMiddleware("authd")(srv.mux(cfg))}
 
 	// Register the signal handler BEFORE the listener accepts: a SIGTERM in
-	// between takes Go's default disposition and kills the process, so the
-	// Shutdown below never runs (BUGS L127).
+	// between kills the process before Shutdown runs (BUGS L127).
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 

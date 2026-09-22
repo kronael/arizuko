@@ -15,10 +15,8 @@ import (
 	"uuid"
 )
 
-// envOr / envInt: audit's own env readers. audit must not depend on the
-// channel-adapter library (chanlib) for trivial env parsing — that edge created
-// an auth→audit→chanlib import cycle once chanlib started exchanging service
-// tokens via the auth package (spec 5/1).
+// envOr / envInt are audit's own env readers: importing chanlib for them makes
+// an auth→audit→chanlib import cycle (spec 5/1).
 func envOr(k, fallback string) string {
 	if v := os.Getenv(k); v != "" {
 		return v

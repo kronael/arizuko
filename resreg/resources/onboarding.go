@@ -6,27 +6,11 @@ import (
 	"github.com/kronael/arizuko/resreg"
 )
 
-// OnboardingRow mirrors the onboarding entity (store/onboarding.go), whose sort
-// key is JID and whose every other db:-tagged field is one attribute. It is the
-// projection every read surface sees, and since onbod 0006 it is also the whole
-// row: the credential columns it deliberately omitted are gone from the schema
-// too.
-//
-// FIVE OF THE EIGHT FIELDS ARE OPTIONAL AND NEED NO NULL HANDLING, which is
-// what the item shape gives. store.InsertOnboarding writes only jid, status and
-// created, so an item carries none of the other five until a verdict lands —
-// and absent is the only null an item has (objstore.Item). A nullable value that
-// needs a COALESCE on read is what made the first pending admission on an
-// instance fail ScanAll outright, taking Export, Checksum and therefore `arizuko
-// export`/`plan`/`apply`/`archive export` for the whole onbod subsystem with it
-// (BUGS F42).
-//
-// token_ref was absent here rather than hidden with `yaml:"-"`, because the engine
-// derives Insert's column list purely from the `db:` tags, so a field that does not
-// exist cannot be exported, rendered or logged by a later edit. token_expires DID
-// appear — a timestamp, not a credential — but the 5/31 fold left nothing writing
-// either, so onbod 0006 dropped both (BUGS F40). The live link is a route_tokens row
-// now, and that is where its lifetime is read.
+// OnboardingRow mirrors the onboarding entity (store/onboarding.go): sort key
+// JID, every other db:-tagged field one attribute, and the whole row. Five of
+// the eight fields are optional and need no null handling: an item carries
+// none of them until a verdict lands (BUGS F42). It carries no credential
+// column; the live setup link is a route_tokens row (BUGS F40).
 type OnboardingRow struct {
 	JID        string `db:"jid"         yaml:"jid"                   json:"jid"`
 	Status     string `db:"status"      yaml:"status"                json:"status"`
@@ -38,12 +22,9 @@ type OnboardingRow struct {
 	AdmittedAt string `db:"admitted_at" yaml:"admitted_at,omitempty" json:"admitted_at,omitempty"`
 }
 
-// OnboardingEndpoints mounts at the REAL served paths (onbod/main.go), not the
-// PK-CRUD convention: approve and reprompt are state-machine transitions, not
-// an `update` of arbitrary columns, so each gets its own named action rather
-// than one overloaded PUT. This list is the single declaration the
-// /openapi.json doc and onbod's mounted handler both read, so served routes and
-// doc cannot drift.
+// OnboardingEndpoints: approve and reprompt are state-machine transitions,
+// not an `update` of arbitrary columns, so each is its own named action. The
+// single declaration the /openapi.json doc and onbod's handler both read.
 var OnboardingEndpoints = []resreg.Endpoint{
 	{Verb: "POST", Path: "/v1/onboarding", Action: resreg.ActionCreate},
 	{Verb: "GET", Path: "/v1/onboarding", Action: resreg.ActionList},
@@ -52,9 +33,8 @@ var OnboardingEndpoints = []resreg.Endpoint{
 	{Verb: "DELETE", Path: "/v1/onboarding/{jid}", Action: resreg.ActionDelete},
 }
 
-// OnboardingMCPDoc gives the agent face its one-liners. Every action an
-// operator can drive over REST is reachable over MCP too (5/17): the two faces
-// are the same handler behind two injected gates.
+// OnboardingMCPDoc gives the agent face its one-liners; every REST action is
+// reachable over MCP too (5/17).
 var OnboardingMCPDoc = map[resreg.Action]string{
 	resreg.ActionList:         "List pending and admitted onboarding rows — who is waiting to be let in, which gate queued them, and when each was greeted, queued and admitted. Filter with status= (awaiting_message, token_used, queued, approved). Never returns the setup link itself.",
 	resreg.ActionCreate:       "Record an unrouted chat jid as awaiting onboarding, so the next poll tick sends it a setup link. Idempotent — re-recording a known jid changes nothing.",
@@ -63,8 +43,7 @@ var OnboardingMCPDoc = map[resreg.Action]string{
 	resreg.ActionDelete:       "Deny a jid and drop its onboarding row entirely. The jid can start over by messaging again.",
 }
 
-// OnboardingMCPArgs: jid is the PK for the per-row verbs; list takes an
-// optional status filter. Create takes the jid to enqueue.
+// OnboardingMCPArgs is the explicit per-action arg list.
 var OnboardingMCPArgs = map[resreg.Action][]resreg.MCPArg{
 	resreg.ActionList: {
 		{Name: "status", Type: "string", Description: "Only rows in this status (awaiting_message, token_used, queued, approved). Omit for all."},
@@ -94,11 +73,9 @@ func init() {
 		Endpoints:     OnboardingEndpoints,
 		MCPDoc:        OnboardingMCPDoc,
 		MCPArgs:       OnboardingMCPArgs,
-		// Admissions are runtime state driven by chat traffic and the gate
-		// limiter, never declared in a manifest. Without this, any apply
-		// mentioning onboarding would DELETE+INSERT the whole table from a
-		// RowType that has no token_ref — nulling every live setup link
-		// instance-wide (Z3). Mirrors route_tokens / invites / secrets.
+		// Admissions are runtime state driven by chat traffic, never declared
+		// in a manifest; an apply that rebuilt the table would null every live
+		// setup link instance-wide (BUGS Z3).
 		SkipApplyRebuild: true,
 	})
 }

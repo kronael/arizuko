@@ -7,11 +7,8 @@ import (
 	"github.com/kronael/arizuko/resreg"
 )
 
-// ProxydRoutesRow mirrors proxyd_routes. PreserveHeaders is a []string and
-// StripPrefix a bool, and every stored value is text, so both DECLARE the
-// encoding that renders them (resreg/codec.go). One renderer, so the text is
-// the same text whichever shape holds it — where the shadow column and its
-// BeforeInsert/AfterScan pair were a rendering only this file could read.
+// ProxydRoutesRow mirrors proxyd_routes. PreserveHeaders and StripPrefix
+// DECLARE the encoding that renders them (resreg/codec.go).
 type ProxydRoutesRow struct {
 	Path       string `db:"path"             yaml:"path"             json:"path"`
 	Backend    string `db:"backend"          yaml:"backend"          json:"backend"`
@@ -26,10 +23,9 @@ type ProxydRoutesRow struct {
 	StripPrefix     bool     `db:"strip_prefix,bool"     yaml:"strip_prefix,omitempty"     json:"strip_prefix,omitempty"`
 }
 
-// ProxydRoutesMCPDoc is the single owner of proxyd_routes' per-action agent-facing
-// one-liners. Three decls consume it: this catalog registration, proxyd's dispatch
-// decl, and webd's forwarder decl. Exporting it here keeps the operator surface from
-// drifting across the three package-main copies.
+// ProxydRoutesMCPDoc is the single owner of proxyd_routes' agent-facing
+// one-liners, read by this catalog, proxyd's dispatch decl and webd's
+// forwarder decl.
 var ProxydRoutesMCPDoc = map[resreg.Action]string{
 	resreg.ActionList:   "List proxyd's runtime route table.",
 	resreg.ActionGet:    "Read one proxyd route by path.",
@@ -38,11 +34,8 @@ var ProxydRoutesMCPDoc = map[resreg.Action]string{
 	resreg.ActionDelete: "Delete a proxyd route. Idempotent.",
 }
 
-// ProxydRoutesMCPArgs is the explicit per-action arg list, overriding RowType
-// reflection: the wire args carry descriptions and an `auth` requirement no struct tag
-// can express. Registered here so all three decls read it — until resreg.Mount it lived
-// only at the two mount sites, and the catalog reflected a different arg list under the
-// same tool name.
+// ProxydRoutesMCPArgs overrides RowType reflection: the wire args carry
+// descriptions and an `auth` requirement no struct tag can express.
 var ProxydRoutesMCPArgs = map[resreg.Action][]resreg.MCPArg{
 	resreg.ActionGet: {{Name: "path", Type: "string", Required: true}},
 	resreg.ActionCreate: {
@@ -75,10 +68,8 @@ var ProxydRoutesResponses = map[resreg.Action]reflect.Type{
 	resreg.ActionUpdate: reflect.TypeFor[ProxydRoutesRow](),
 }
 
-// ProxydRoutesEndpoints is the single owner of the REST endpoint set for
-// proxyd_routes. proxyd's live dispatch decl and webd's forwarder decl both
-// reference this so the mounted routes + the derived MCP action set never
-// drift (the last drift-able copy after MCPDoc/MCPArgs were single-sourced).
+// ProxydRoutesEndpoints is the single owner of the REST endpoint set, read by
+// proxyd's dispatch decl and webd's forwarder decl.
 var ProxydRoutesEndpoints = []resreg.Endpoint{
 	{Verb: "GET", Path: "/v1/proxyd_routes", Action: resreg.ActionList, Status: http.StatusOK},
 	{Verb: "GET", Path: "/v1/proxyd_routes/{path...}", Action: resreg.ActionGet, Status: http.StatusOK},

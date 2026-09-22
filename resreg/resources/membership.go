@@ -11,10 +11,9 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
-// ACLMembershipRow mirrors acl_membership: composite (child, parent)
-// PK + added_by, which every writer sets. ValidateRows runs the same cycle walk
-// the imperative AddMembership runs, over the manifest's own edges, so a
-// manifest cannot introduce a cycle silently.
+// ACLMembershipRow mirrors acl_membership: composite (child, parent) PK.
+// ValidateRows runs the same cycle walk the imperative AddMembership runs, so
+// a manifest cannot introduce a cycle silently.
 type ACLMembershipRow struct {
 	Child   string `db:"child"    yaml:"child"    json:"child"`
 	Parent  string `db:"parent"   yaml:"parent"   json:"parent"`
@@ -25,16 +24,14 @@ type ACLMembershipRow struct {
 var ErrMembershipCycle = errors.New("acl_membership: cycle")
 var ErrMembershipSelf = errors.New("acl_membership: self")
 
-// The resource carries exactly ONE action (spec 5/31 § Unpair): delete, scoped
-// to added_by='pairing' so it can never reach role membership. Adding an edge
-// stays a consented redemption or a manifest apply — there is no add face here.
-// The DELETE is body-addressed because the PK is composite (child, parent).
+// The resource carries exactly ONE action (spec 5/31 § Unpair): delete,
+// scoped to added_by='pairing' so it can never reach role membership. There
+// is no add face. The DELETE is body-addressed because the PK is composite.
 var ACLMembershipEndpoints = []resreg.Endpoint{
 	{Verb: "DELETE", Path: "/v1/acl_membership", Action: resreg.ActionDelete},
 }
 
-// ACLMembershipMCPNames keeps the agent-facing verb flat and honest: `unpair` is
-// what it does, and it is the exact inverse of issue_pairing_link.
+// ACLMembershipMCPNames: `unpair` is the exact inverse of issue_pairing_link.
 var ACLMembershipMCPNames = map[resreg.Action]string{
 	resreg.ActionDelete: "unpair",
 }
@@ -72,38 +69,22 @@ func init() {
 		MCPArgs:       ACLMembershipMCPArgs,
 		MCPNames:      ACLMembershipMCPNames,
 		// CRITICAL (spec 5/8 §"Cross-subsystem apply"): pairing edges are
-		// consented runtime state made and undone through
-		// issue_pairing_link/unpair (spec 5/31), never declarative operator
-		// intent — they must stay OUT of every manifest-visible read AND
-		// write: the content-hash checksum, the CAS-scoped rebuild, and
-		// (once built) the pre-image/rollback set. Without this,
-		// rollback re-applying a pre-image taken before a caller unpaired
-		// would silently resurrect authority they deliberately revoked.
-		//
-		// The predicate is `added_by <> 'pairing'` and not `IS NULL OR <>`,
-		// because the same declaration has to narrow the read AND both deletes,
-		// and a filter is a conjunction of attribute comparisons with no OR
-		// (objstore.Query.Where). The two forms answer
-		// alike for every row that carries a value; `added_by` is NOT NULL from
-		// routd migration 0047, so every row does.
+		// consented runtime state (spec 5/31), never operator intent, and must
+		// stay OUT of every manifest-visible read AND write, or a rollback
+		// would silently resurrect authority a caller deliberately revoked.
+		// Ne, not `IS NULL OR <>`: a filter has no OR, and every row carries
+		// added_by.
 		RowFilter: []objstore.Cmp{{Attr: "added_by", Op: objstore.Ne, Value: "pairing"}},
 		Hooks:     resreg.Hooks{ValidateRows: noMembershipCycle},
 	})
 }
 
 // noMembershipCycle refuses a manifest whose edges make a principal its own
-// ancestor. It is the same walk store.AddMembership runs (objstore.Reachable),
-// over the graph the apply is about to make this resource EQUAL TO.
-//
-// The graph is the MANIFEST's and nothing else, because an apply wipes the
-// resource's whole manifest-visible projection before it writes: after the wipe
-// the only edges are the ones below. The rows the RowFilter excludes — the
-// pairing edges — survive that wipe and are outside this graph by the same
-// declaration that keeps them out of every export, so an apply cannot reason
-// about them and does not pretend to (spec 5/31).
-//
-// It runs BEFORE the wipe, which is what makes a refused manifest leave the
-// subsystem untouched. An apply has no rollback.
+// ancestor: the same walk store.AddMembership runs (objstore.Reachable), over
+// the MANIFEST's graph alone, since an apply wipes the projection before it
+// writes. The pairing edges the RowFilter excludes are outside this graph by
+// the same declaration (spec 5/31). It runs BEFORE the wipe; an apply has no
+// rollback.
 func noMembershipCycle(ctx context.Context, rows any) error {
 	edges, ok := rows.([]ACLMembershipRow)
 	if !ok {

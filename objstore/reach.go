@@ -2,27 +2,16 @@ package objstore
 
 // reach.go is the reachability guard: a graph read decides a write, and the
 // write is guarded on the graph not having moved since the read (spec 6/40
-// §"Three is not enough" and §"The seam is TWO primitives").
+// §"Three is not enough").
 //
-// WHY IT IS NOT A Check. store.AddMembership walks the ancestor closure with
-// `WITH RECURSIVE up(p)` and refuses the edge if the child is already in it,
-// INSIDE the transaction that adds the edge (store/membership.go:36). A Check
-// binds an ITEM — this key, this condition — and a cycle test is a condition on
-// a graph frontier, which is not an item. Two concurrent inserts closing a
-// cycle from opposite ends each walk a graph without the other's edge, both
-// pass, and both commit. SQLite's single writer hides it; Postgres at READ
-// COMMITTED does not, and neither does a key-value engine. That is BUGS L256.
+// It is not a Check: a cycle test is a condition on a graph frontier, not an
+// item. Two concurrent inserts closing a cycle from opposite ends each walk a
+// graph without the other's edge and both commit (BUGS L256). The version
+// marker serialises them: both compare-and-swap it in the batch that writes
+// the edge, one wins, the loser walks again.
 //
-// The version marker is what serialises them. Both walkers read the same
-// version, both compare-and-swap it in the batch that writes the edge, exactly
-// one wins, and the loser walks again — over the graph the winner left, where
-// the cycle is now visible. It is the Increment shape (protocol.go) with a
-// graph read where the counter's point read is.
-//
-// LATENT, NOT LIVE. specs/15/h measured the graph on all three live instances:
-// 58 edges on krons pointing at exactly two parents, `role:operator` and
-// `role:member`, and no parent is ever itself a child, so the recursion never
-// recurses. It stops being latent the moment a folder is made a member of
+// LATENT, NOT LIVE: on every live instance no parent is itself a child
+// (specs/15/h). It stops being latent the moment a folder is made a member of
 // something.
 
 import (
@@ -32,42 +21,22 @@ import (
 )
 
 // ErrCycle is the answer for an edge that would make a node its own ancestor.
-// Both copies of the walk already answer with a sentinel of their own
-// (store.ErrCycle, resources.ErrMembershipCycle), so an adopter maps rather
-// than restructures.
 var ErrCycle = errors.New("the edge would close a cycle")
 
-// maxWalkNodes bounds one walk.
-//
-// The walk terminates on its own — a visited set makes a cyclic graph finite —
-// so this bounds SIZE, not looping. It is here because the same walk is on the
-// authorize path (auth/authorize.go:134, :308) where an unbounded read is a
-// request that never answers. The live graphs measured in specs/15/h are 58
-// edges, so any real graph is four orders of magnitude inside it and a walk
-// that hits this bound has found a graph nobody designed.
+// maxWalkNodes bounds SIZE, not looping (a visited set makes a cyclic graph
+// finite): the same walk is on the authorize path, where an unbounded read is
+// a request that never answers. Live graphs are 58 edges (specs/15/h).
 const maxWalkNodes = 10000
 
-// ParentsFunc answers "which nodes sit directly above this one".
-//
-// It is a callback and not a coordinate convention because the edge layout
-// belongs to the caller: acl_membership's item is keyed by the pair, and a
-// second graph would key its own. The callback IS a Query the caller shapes, so
-// this protocol still stands on the two primitives and knows nothing about how
-// an edge is stored.
+// ParentsFunc answers "which nodes sit directly above this one". It is a
+// callback because the edge layout belongs to the caller; the callback IS a
+// Query the caller shapes.
 type ParentsFunc func(ctx context.Context, node string) ([]string, error)
 
-// Reachable reports whether `to` sits at or above `from`.
-//
-// It INCLUDES from itself, which is the `SELECT ?` seed of the recursive CTE
-// both copies run, so an edge from a node to itself is a cycle of length one
-// and needs no separate test. A caller that answers a self edge in its own
-// terms — store.AddMembership returns ErrSelfMembership — keeps its own check
-// ahead of this one, because the answer here is ErrCycle.
-//
-// This is the half a caller adopts when it does not own the write:
-// resreg/resources/membership.go:88 is a ValidateRow hook and resreg's engine
-// issues the insert, so the hook can take the walk and the engine takes the
-// guard.
+// Reachable reports whether `to` sits at or above `from`. It INCLUDES from
+// itself, so a self edge is a cycle of length one; a caller that answers a
+// self edge in its own terms keeps its check ahead of this one. This is the
+// half a caller adopts when it does not own the write (a ValidateRow hook).
 func Reachable(ctx context.Context, parents ParentsFunc, from, to string) (bool, error) {
 	seen := map[string]bool{from: true}
 	frontier := []string{from}
@@ -96,24 +65,14 @@ func Reachable(ctx context.Context, parents ParentsFunc, from, to string) (bool,
 	return false, nil
 }
 
-// AddEdge writes an edge, and the companions that must land with it, unless the
-// edge would close a cycle.
+// AddEdge writes an edge, and the companions that must land with it, unless
+// the edge would close a cycle. parent sits above child; the walk starts at
+// parent and asks whether child is already at or above it.
 //
-// child and parent are the edge: parent sits above child. The walk starts at
-// parent and asks whether child is already at or above it, which is what
-// `WITH RECURSIVE up(p) … SELECT COUNT(*) FROM up WHERE p = child` asks.
-//
-// writes are the caller's own, so the edge item's shape stays the caller's. The
-// marker's compare-and-swap rides in the same batch, which is what makes the
-// walk and the write one decision: a batch is all-or-nothing, so an edge cannot
-// land on a graph that moved after it was walked. The version is the whole
-// condition — a replace moves it in the same write that takes the scope, so an
-// edge cannot slip past a claim either.
-//
-// committed=false is the CALLER'S OWN condition refusing, reported the way
-// GuardedBatch reports it — a folder already created, a pairing token already
-// spent. A lost race on the marker is retried here and never returned, because
-// the answer to a lost race is another walk.
+// The marker's compare-and-swap rides in the caller's batch, so an edge cannot
+// land on a graph that moved after it was walked, nor slip past a replace's
+// claim. committed=false is the CALLER'S OWN condition refusing; a lost race
+// on the marker is retried here and never returned.
 func AddEdge(ctx context.Context, s Store, sc Scope, parents ParentsFunc,
 	child, parent string, writes []Write) (bool, error) {
 	if len(writes) == 0 {
@@ -153,9 +112,8 @@ func AddEdge(ctx context.Context, s Store, sc Scope, parents ParentsFunc,
 		if committed {
 			return true, nil
 		}
-		// A refusal is one bit, so this re-reads the marker to tell a lost race
-		// — which is answered by walking again — from the caller's own condition,
-		// which is the caller's answer to give.
+		// A refusal is one bit: re-read the marker to tell a lost race (walk
+		// again) from the caller's own condition (the caller's answer).
 		now, err := readMarker(ctx, s, sc)
 		if err != nil {
 			return false, err

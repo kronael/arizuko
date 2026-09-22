@@ -22,18 +22,16 @@ var WebRoutesResponses = map[resreg.Action]reflect.Type{
 }
 
 // WebRoutesEndpoints is the single owner of the web_routes REST endpoint set:
-// routd's web_route tools (web_routes_resource.go) reference it. create is a PUT
-// upsert on the collection and delete addresses the row by `path` in the body
-// (no {pk} path), so the real faces diverge from the PK-CRUD convention.
+// create is a PUT upsert on the collection and delete addresses the row by
+// `path` in the body.
 var WebRoutesEndpoints = []resreg.Endpoint{
 	{Verb: "PUT", Path: "/v1/web_routes", Action: resreg.ActionCreate},
 	{Verb: "DELETE", Path: "/v1/web_routes", Action: resreg.ActionDelete},
 	{Verb: "GET", Path: "/v1/web_routes", Action: resreg.ActionList},
 }
 
-// WebRoutesMCPNames maps each action to the flat tool name the live agent already
-// calls; routd's web_routes_resource.go references it (agent socket derivation)
-// and ipc.ListTools reads it via the registry walk. Spec 5/16.
+// WebRoutesMCPNames maps each action to the flat tool name the live agent
+// calls (spec 5/16).
 var WebRoutesMCPNames = map[resreg.Action]string{
 	resreg.ActionCreate: "set_web_route",
 	resreg.ActionDelete: "del_web_route",
@@ -54,9 +52,8 @@ var WebRoutesMCPDoc = map[resreg.Action]string{
 	resreg.ActionList:   "List all web routes owned by this folder. Returns a JSON array of {path_prefix, access, redirect_to, folder, created_at}.",
 }
 
-// WebRoutesMCPArgs is the explicit per-action arg list. The agent face carries
-// {path, access, redirect_to}, NOT the RowType-reflected columns, so this overrides
-// RowType reflection for the derived agent/browser tools.
+// WebRoutesMCPArgs is the agent face's wire shape, overriding RowType
+// reflection.
 var WebRoutesMCPArgs = map[resreg.Action][]resreg.MCPArg{
 	resreg.ActionCreate: {
 		{Name: "path", Type: "string", Required: true},

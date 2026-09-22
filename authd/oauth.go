@@ -1,9 +1,9 @@
 package main
 
-// OAuth / login surface (/auth/*), owned by authd (spec 5/1). The provider dance is
-// reused from the auth library's pure wrappers; only issuance differs — authd mints
-// an ES256 access token (~15m) and a rotating refresh in its own refresh_tokens
-// store. proxyd mounts no /auth/* routes; it 302s unauthenticated callers here.
+// OAuth / login surface (/auth/*), owned by authd (spec 5/1): the provider
+// dance is the auth library's pure wrappers, and authd mints an ES256 access
+// token plus a rotating refresh. proxyd mounts no /auth/* routes; it 302s
+// unauthenticated callers here.
 
 import (
 	"context"
@@ -25,9 +25,7 @@ import (
 	"github.com/kronael/arizuko/theme"
 )
 
-// oauth carries everything the /auth/* handlers need: the signer (authd), the
-// provider config, the CSRF-state HMAC key, and the optional grants fetcher for
-// the login-time scope snapshot.
+// oauth carries everything the /auth/* handlers need.
 type oauth struct {
 	a      *Authd
 	cfg    *core.Config
@@ -40,9 +38,8 @@ type oauth struct {
 	dex   *oidc.Provider
 }
 
-// registerOAuth mounts /auth/* on mux, conditionally per configured provider
-// (spec 5/1 § OAuth routes). Mounted only when AUTH_BASE_URL is set (the
-// callback URL authd registers with each IdP).
+// registerOAuth mounts /auth/* on mux, per configured provider (spec 5/1
+// § OAuth routes), and only when AUTH_BASE_URL is set.
 func (s *server) registerOAuth(mux *http.ServeMux, cfg *core.Config) {
 	if cfg == nil || cfg.AuthBaseURL == "" {
 		return
@@ -102,13 +99,11 @@ func (o *oauth) loginPage(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, theme.Page("Sign in", template.HTML(b.String())))
 }
 
-// redirect builds the provider authorize URL, writes the CSRF state + PKCE cookies,
-// and 302s. ?intent=link carries the current sub for account linking.
-//
-// The return path rides ONE carrier: the signed StateIntent.Return, sourced from
-// ?return= or the auth_return cookie proxyd drops when it bounces a caller here. The
-// cookie was written and never read before, so a bounced caller landed on /. It is
-// validated by SafeReturn before entering the SIGNED state and cleared on consume.
+// redirect builds the provider authorize URL, writes the CSRF state + PKCE
+// cookies, and 302s. ?intent=link carries the current sub for account linking.
+// The return path rides ONE carrier, the signed StateIntent.Return, sourced
+// from ?return= or the auth_return cookie proxyd drops; SafeReturn validates
+// it before it enters the SIGNED state.
 func (o *oauth) redirect(provider string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		base, err := o.authorizeURL(provider)
@@ -140,9 +135,9 @@ func (o *oauth) redirect(provider string) http.HandlerFunc {
 }
 
 // authReturnCookie is the same-origin hand-off proxyd writes before bouncing a
-// caller to /auth/login. proxyd's requireAuth is its only writer (spec 5/31): a
-// backend that wrote one too would be bouncing a caller proxyd had already let
-// through, and the two cookies disagreed on lifetime.
+// caller to /auth/login. proxyd's requireAuth is its ONLY writer (spec 5/31):
+// a backend that wrote one too would bounce a caller proxyd had already let
+// through.
 const authReturnCookie = "auth_return"
 
 // consumeReturn reads the post-login destination — ?return= wins, else the
@@ -293,15 +288,12 @@ func (o *oauth) telegram(w http.ResponseWriter, r *http.Request) {
 	o.dispatch(w, r, "telegram", r.FormValue("id"), name, auth.StateIntent{})
 }
 
-// dispatch resolves the provider identity to a canonical authd user (creating or
-// linking as needed) and issues an ES256 session.
-//
-// **Alias resolution happens here, at mint** (spec 5/32). `acl.principal` keys on
-// provider subs, so a returning login that is a LINKED ALIAS must mint the ACCOUNT's
-// canonical sub or it is a principal with none of the account's grants. Nothing
-// downstream resolves: auth.Authorize evaluates the subject it is handed.
-//
-// The three cases of spec 5/1 § Account linking, in order: explicit link, returning
+// dispatch resolves the provider identity to a canonical authd user (creating
+// or linking as needed) and issues an ES256 session. Alias resolution happens
+// HERE, at mint (spec 5/32): `acl.principal` keys on provider subs, so a
+// linked alias must mint the ACCOUNT's canonical sub or it is a principal
+// with none of the account's grants; nothing downstream resolves. The three
+// cases of spec 5/1 § Account linking, in order: explicit link, returning
 // login, first login.
 func (o *oauth) dispatch(w http.ResponseWriter, r *http.Request, provider, providerSub, name string, intent auth.StateIntent) {
 	if providerSub == "" {
@@ -316,8 +308,8 @@ func (o *oauth) dispatch(w http.ResponseWriter, r *http.Request, provider, provi
 		canonical = owner
 	}
 	if err := o.a.st.LinkOAuthIdentity(canonical, name, provider, providerSub); err != nil {
-		// UNIQUE(provider, provider_sub) fires when a link targets an identity
-		// another account already owns — the hard fail of spec 5/1, not a merge.
+		// A link that targets an identity another account owns is refused: the
+		// hard fail of spec 5/1, not a merge.
 		slog.Error("oauth upsert user", "user", canonical, "login", login, "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
@@ -325,10 +317,10 @@ func (o *oauth) dispatch(w http.ResponseWriter, r *http.Request, provider, provi
 	o.issueSession(w, r, canonical, login, intent.Return)
 }
 
-// issueSession is the ES256 counterpart of auth/web.go issueSession: snapshot scope
-// from grants, mint the access JWT, create a refresh_tokens row, deliver per Accept.
-// sub is the account's canonical sub; login is the provider identity actually
-// presented. They differ whenever a linked alias signs in.
+// issueSession snapshots scope from grants, mints the access JWT, starts a
+// refresh family and delivers per Accept. sub is the account's canonical sub;
+// login is the provider identity presented. They differ whenever a linked
+// alias signs in.
 func (o *oauth) issueSession(w http.ResponseWriter, r *http.Request, sub, login, returnTo string) {
 	scope, folder, ok := o.snapshot(r.Context(), sub)
 	if !ok {
@@ -336,8 +328,7 @@ func (o *oauth) issueSession(w http.ResponseWriter, r *http.Request, sub, login,
 		return
 	}
 	claimSub := "user:" + sub
-	// One mint path, mirroring IssuerMint: signMinted stamps a single jti, the
-	// arz/folder claim, and typ="user" in one Sign — no mint-then-discard.
+	// One mint path: a single jti, the arz/folder claim and typ in one Sign.
 	m, err := o.a.signMinted(auth.TokenClaims{Sub: claimSub, Typ: "user", Scope: scope}, folder, o.a.accessTTL)
 	if err != nil {
 		slog.Error("mint access", "sub", sub, "err", err)
@@ -345,9 +336,9 @@ func (o *oauth) issueSession(w http.ResponseWriter, r *http.Request, sub, login,
 		return
 	}
 	access := m.token
-	// Store the BARE canonical sub in refresh_tokens (spec 5/1 § JWT claim set
-	// "sub prefix rule": the user:/service: prefix lives ONLY in the JWT sub
-	// claim, never in DB columns). Refresh re-adds the prefix when it mints.
+	// Store the BARE canonical sub (spec 5/1 "sub prefix rule": the
+	// user:/service: prefix lives ONLY in the JWT sub claim). Refresh re-adds
+	// the prefix when it mints.
 	refresh, err := o.a.IssueRefresh(sub, scope, "")
 	if err != nil {
 		slog.Error("issue refresh", "sub", sub, "err", err)
@@ -356,10 +347,10 @@ func (o *oauth) issueSession(w http.ResponseWriter, r *http.Request, sub, login,
 	}
 	exp := time.Now().Add(o.a.accessTTL).UTC().Format(time.RFC3339)
 
-	// The subject is the ACCOUNT's canonical sub, so from here on nothing can tell
-	// which provider login was presented. Record it at the one point that still
-	// knows both. Not a JWT claim: refresh_tokens stores only the canonical sub, so
-	// a login claim would vanish on the first refresh.
+	// The subject is the ACCOUNT's canonical sub, so from here on nothing can
+	// tell which provider login was presented; record it at the one point
+	// that still knows both. Not a JWT claim: it would vanish on the first
+	// refresh.
 	audit.Emit(r.Context(), audit.Event{
 		Category: audit.CategoryAuthN,
 		Action:   "login",
@@ -395,10 +386,9 @@ func (o *oauth) issueSession(w http.ResponseWriter, r *http.Request, sub, login,
 		auth.JSSafe(accessJS), auth.JSSafe(destJS))
 }
 
-// snapshot resolves the login-time scope ceiling (spec 5/1 § Login-time scope
-// snapshot): empty-scope when no grants fetcher is wired or the sub has no
-// grants (authenticated-but-unauthorized → /onboard); fail-closed (ok=false)
-// only when the grants backend is down.
+// snapshot resolves the login-time scope ceiling (spec 5/1): empty-scope when
+// no grants fetcher is wired or the sub has no grants (→ /onboard);
+// fail-closed (ok=false) only when the grants backend is down.
 func (o *oauth) snapshot(ctx context.Context, bareSub string) (scope []string, folder string, ok bool) {
 	if o.grants == nil {
 		return nil, "", true
@@ -417,9 +407,8 @@ func (o *oauth) snapshot(ctx context.Context, bareSub string) (scope []string, f
 func (o *oauth) logout(w http.ResponseWriter, r *http.Request) {
 	if c, err := r.Cookie("refresh_token"); err == nil && c.Value != "" {
 		if row, found := o.a.st.RefreshTokenBySecret(c.Value); found {
-			// The user asked to be logged out. If the family survives, they are
-			// not — say so in the log; the cookie is cleared regardless, so the
-			// browser cannot tell the difference on its own.
+			// The cookie is cleared regardless, so if the family survives only
+			// the log says so.
 			if _, err := o.a.st.RevokeFamily(row.Family); err != nil {
 				slog.Error("logout did not revoke the refresh-token family; the session may still refresh",
 					"family", row.Family, "err", err)
@@ -448,10 +437,9 @@ func (o *oauth) me(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// bearerSub returns the verified BARE sub of the request's bearer. Bare, not the raw
-// claim: its one consumer lands in auth_users.user_id, which stores the sub without
-// the "user:" prefix. Returning the raw claim forked the account instead of linking
-// to it, and the next mint double-prefixed it to "user:user:google:alice".
+// bearerSub returns the verified BARE sub of the request's bearer: its one
+// consumer lands in auth_users, which stores the sub without the "user:"
+// prefix. The raw claim forked the account and double-prefixed the next mint.
 func (o *oauth) bearerSub(r *http.Request) string {
 	if sub, err := auth.VerifyHTTP(r, o.a.LocalKeySet()); err == nil {
 		return bareSub(sub.Sub)

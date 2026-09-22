@@ -1,18 +1,12 @@
-// Package runed is the execution plane carved out of gated (spec 5/P): the work queue
-// and the per-spawn container lifecycle. It is a pure container-spawner — routd hosts
-// the agent MCP socket in-process and is the sole message appender; authd is the sole
-// token signer. runed mounts the ipc dir into each spawn and manages spawn/steer/kill.
+// Package runed is the execution plane (spec 5/P): the per-spawn container
+// lifecycle. It is a pure container-spawner: routd hosts the agent MCP socket
+// and is the sole message appender; authd is the sole token signer. runed
+// mounts the ipc dir into each spawn and manages spawn/steer/kill.
 package runed
 
-// db.go is where runed picks its storage driver and makes sure the store can
-// answer. It is the composition root and the only file in the daemon that names
-// a driver: runed/runstore holds every read and write, so a second engine is a
-// second driver and one line here (spec 6/37 step 5).
-//
-// There is no migration set and no DDL. An entity is a name the driver resolves
-// however it must — a table on SQL, nothing at all on an engine with no schema —
-// so creating the storage is asking the driver for the entities runstore and
-// audit declare, and asking twice is a no-op.
+// db.go is runed's composition root: the only file in the daemon that names a
+// storage driver (spec 6/37 step 5). There is no migration set and no DDL;
+// asking the driver for the entities twice is a no-op.
 
 import (
 	"context"
@@ -22,13 +16,10 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
-// ErrNotFound signals an absent item to the HTTP layer (404). It is runstore's,
-// named here so a handler comparing against it needs no second import.
+// ErrNotFound signals an absent item to the HTTP layer (404).
 var ErrNotFound = runstore.ErrNotFound
 
-// The shapes runed's handlers pass around are runstore's, so the daemon and its
-// storage layer name one type each rather than two that have to be copied
-// between.
+// The shapes runed's handlers pass around are runstore's.
 type (
 	// Spawn is one container spawn (the execution-session envelope).
 	Spawn = runstore.Spawn
@@ -39,14 +30,13 @@ type (
 	Session = runstore.Session
 )
 
-// DB owns runed's tables: execution runtime state with no home in routd. Every
-// read and write is runstore's, embedded so a handler calls it directly and this
+// DB owns runed's tables. Every read and write is runstore's, embedded so this
 // file holds no pass-through method to drift.
 type DB struct {
 	*runstore.Store
 
-	// obj is the handle this database is served from. audit records through it,
-	// so runed's audit sink reaches the same endpoint every read does.
+	// obj is the handle this database is served from; audit records through
+	// it.
 	obj objstore.Store
 
 	// release drops the private namespace OpenMem reserved. A runed opened
@@ -54,10 +44,9 @@ type DB struct {
 	release func() error
 }
 
-// Open dials the endpoint runed's tables live on and makes them. runed is their
-// OWNER, so it is the daemon that makes them: a reader dials and makes nothing
-// (store.OpenOwner). runstore declares the set and store adds the record every
-// audited write lands in.
+// Open dials the endpoint runed's tables live on and makes them: runed is
+// their OWNER, so it is the daemon that makes them; a reader dials and makes
+// nothing (store.OpenOwner).
 func Open() (*DB, error) {
 	h, err := store.Handle(store.OwnerRuned)
 	if err != nil {

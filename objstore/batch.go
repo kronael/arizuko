@@ -5,9 +5,6 @@ import (
 	"fmt"
 )
 
-// batch.go holds the write shape: what a caller names when it asks a driver to
-// change items together or not at all.
-
 // ItemCond requires an item to exist, or to not exist, before a batch commits.
 type ItemCond uint8
 
@@ -22,23 +19,12 @@ const (
 )
 
 // Cond is what one item must look like for the batch to commit. The zero value
-// asks nothing.
+// asks nothing. Where's terms are conjuncts, each closing a different hole: a
+// refresh claim that dropped its `revoked_at` Absent let a killed family keep
+// a live credential (BUGS F36).
 //
-// Where's terms are conjuncts, and each one closes a different hole. authd's
-// refresh claim needs both of its two: `used_at` Absent picks a single winner
-// out of N concurrent redeems, and `revoked_at` Absent refuses a token whose
-// family died between the caller's lookup and this write. Dropping the second
-// let a logout that committed in that gap go unseen, and a family killed for
-// reuse walked away with a live 30-day credential (BUGS F36).
-//
-// A Put is the exception and carries at most ItemAbsent. DynamoDB's
-// transactional Put does take a full condition expression, and a Put under one
-// is a whole-item REPLACE of the item it conditions on — but arizuko writes no
-// such replace. Every conditional put in production is create-if-absent
-// (authd/authstore signing_keys.go, auth_users.go, refresh_tokens.go), and the
-// replace shape existed only in a conformance body (6/40 §"What gets on the
-// surface"). validateWrite refuses it rather than leaving a second way to
-// express a compare-and-swap that Update already carries.
+// A Put carries at most ItemAbsent. A compare-and-swap is an Update, and
+// validateWrite refuses a second spelling of it.
 type Cond struct {
 	Item  ItemCond
 	Where []Cmp
@@ -49,51 +35,30 @@ type WriteOp uint8
 
 const (
 	// Put stores Attrs as the item's whole attribute set, replacing whatever
-	// was there. With no Cond it is an upsert; with ItemAbsent it is the
-	// create-if-absent every engine has, decided by the engine's own uniqueness.
+	// was there. With no Cond it is an upsert; with ItemAbsent it is
+	// create-if-absent.
 	Put WriteOp = iota
 	// Update merges Attrs into the item's existing attributes and takes the
-	// attributes named in Remove away, leaving the rest alone. It writes
-	// nothing when the item is missing, which its Cond reports as a refusal.
-	//
-	// Must-exist is the POINT: the refusal is the compare-and-swap every
-	// conditional caller here depends on. Create-or-merge is Merge.
+	// attributes named in Remove away. It writes nothing when the item is
+	// missing, which its Cond reports as a refusal — that refusal is the
+	// compare-and-swap conditional callers depend on. Create-or-merge is Merge.
 	Update
-	// Merge is Update without must-exist: it merges Attrs into the item, takes
-	// Remove away, writes Init only if it CREATES the item, and never refuses.
-	// It is DynamoDB's UpdateItem, whose default is to create the item the
-	// expression addresses, with Init as its `if_not_exists(attr, :v)` half.
+	// Merge is Update without must-exist: it merges Attrs, takes Remove away,
+	// writes Init only if it CREATES the item, and never refuses (DynamoDB's
+	// UpdateItem with `if_not_exists`). Because it never refuses, it can ride
+	// as a companion write in someone else's batch (spec 6/40 §"Merge").
 	//
-	// It exists because create-or-merge had no spelling, so five call sites
-	// wrote it as two actions on ONE item — which ValidateBatch refuses, so each
-	// of them held a transaction to run the pair (spec 6/40 §"Merge, the write
-	// op both engines have and the surface had no name for"). What it makes
-	// impossible is a half-upserted item, and transitively it is what lets an
-	// edge write ride in someone else's batch: a batch may name each item once,
-	// so a create-if-absent that REFUSES cannot be a companion write.
-	//
-	// NOT A Put. A Put is a whole-item replace, so an unconditional one erases
-	// every attribute the writer did not name — and a secrets item carries six
-	// of which surrogate OAuth owns two, none of them the metadata writer's.
-	// Merge is the op that has no such trap.
+	// NOT a Put: an unconditional Put erases every attribute the writer did not
+	// name, and a secrets item carries attributes surrogate OAuth owns.
 	Merge
 	// Delete removes the item. Attrs, Init and Remove are ignored.
 	Delete
 )
 
-// Write is one mutation, with the condition it must satisfy.
-//
-// Attrs and Remove are the two halves of an Update, and DynamoDB writes them as
-// one expression: "If you want to modify an attribute's value and completely
-// remove another attribute, you could use a SET and a REMOVE action in a single
-// statement."
-// https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/Expressions.UpdateExpressions.html
-//
-// One statement is the point. store.RepromptOnboarding clears five attributes
-// together and its comment says why: after the fold the observer only advances a
-// row with `user_sub IS NULL`, so a reset that left one of the five behind would
-// re-greet the chat forever and never admit it (BUGS O1). Five writes cannot
-// give that; one can.
+// Write is one mutation, with the condition it must satisfy. Attrs and Remove
+// are one statement on every engine; store.RepromptOnboarding clears five
+// attributes together because a reset that left one behind would re-greet the
+// chat forever (BUGS O1).
 type Write struct {
 	Op     WriteOp
 	Entity string
@@ -102,61 +67,36 @@ type Write struct {
 	// attribute set.
 	Attrs map[string]string
 	// Init are the attributes an item is BORN with: written when this write
-	// creates the item, and never written when it merges into one that is
-	// already there. Only a Merge has them.
-	//
-	// It is what separates the two halves of an upsert that today needs two
-	// writes: a group's `added_at` is the instant the folder appeared and an
-	// edge's `added_by` is who first drew it, so a merge that restated either
-	// would overwrite a fact with the instant of the latest write. DynamoDB
-	// spells it `if_not_exists(added_at, :t)` in the same update expression.
-	//
-	// A Merge carrying ONLY Init is create-if-absent that does not refuse —
-	// `INSERT ... ON CONFLICT DO NOTHING`, which is what `INSERT OR IGNORE`
-	// said before a guarded Put made its row count an answer.
+	// creates the item, never when it merges into an existing one, so a
+	// `added_at` is not overwritten by the latest write's instant. Only a
+	// Merge has them. A Merge carrying ONLY Init is create-if-absent that does
+	// not refuse.
 	Init map[string]string
-	// Remove names attributes to take away, and an Update or a Merge has them.
-	//
-	// Taking an attribute AWAY is the only way to make it missing, because
-	// absent is the only null: writing "" leaves an attribute that Present
-	// still finds and that a tombstone test still reads as set. DynamoDB's
-	// REMOVE is the same operation and it is equally forgiving of a name the
-	// item does not carry — "if the attributes don't exist, nothing happens".
+	// Remove names attributes to take away; an Update or a Merge has them.
+	// Absent is the only null, so this is the only way to make an attribute
+	// missing: writing "" leaves one that Present still finds. A name the item
+	// does not carry is a no-op.
 	Remove []string
 	Cond   Cond
 }
 
-// Check is a condition on an item the batch DOES NOT modify. It is the shape
-// that lets a claim on one item gate a write to another — one pairing token's
-// state deciding whether a membership edge is written — without the batch
-// touching the item it read.
+// Check is a condition on an item the batch DOES NOT modify: a claim on one
+// item gating a write to another.
 type Check struct {
 	Entity string
 	Key    Key
 	Cond   Cond
 }
 
-// MaxBatchActions is how many checks and writes one batch may carry.
-//
-// It is a portability bound, not a SQL one. DynamoDB's TransactWriteItems takes
-// at most 100 actions, so a SQL driver that accepted a thousand would let a
-// caller write a batch only one engine can run — the drift the conformance
-// suite exists to catch (spec 6/40). The bound is declared here, with the
-// interface, so a driver cannot hold its own opinion of it.
+// MaxBatchActions is how many checks and writes one batch may carry: DynamoDB's
+// TransactWriteItems bound, declared with the interface so no driver holds its
+// own opinion of it.
 const MaxBatchActions = 100
 
-// ValidateBatch refuses a batch no driver may accept. Every driver calls it
-// before it touches an engine, so the two rules below are enforced once rather
-// than per driver.
-//
-// The one-action-per-item rule is DynamoDB's ("Transactions cannot contain more
-// than one operation per item") and it is the reason a Check is described as a
-// condition on an item the batch may NOT modify. A SQL driver could happily
-// check an item and then update it in the same transaction; a caller that did
-// so would break on the engine nobody tested.
-//
-// A batch with no writes is a caller mistake rather than a read: reads go
-// through Query, which needs no transaction and takes no locks.
+// ValidateBatch refuses a batch no driver may accept; every driver calls it
+// before it touches an engine. One action per item is DynamoDB's rule, and the
+// reason a Check is on an item the batch may NOT modify. A batch with no
+// writes is a caller mistake: reads go through Query.
 func ValidateBatch(checks []Check, writes []Write) error {
 	if len(writes) == 0 {
 		return errors.New("a batch with no writes: read through Query, which takes no locks")
@@ -185,8 +125,7 @@ func ValidateBatch(checks []Check, writes []Write) error {
 	return nil
 }
 
-// itemClaims records the items one transaction has already acted on, so the
-// one-action-per-item rule has a single implementation whatever asks it.
+// itemClaims records the items one transaction has already acted on.
 type itemClaims map[[3]string]bool
 
 // claim records one action on one item and refuses a second.
@@ -201,9 +140,8 @@ func (c itemClaims) claim(entity string, k Key) error {
 }
 
 // oneActionPerItem refuses a write set that names an item twice, ahead of any
-// batching. The versioned replace splits its writes across transactions, so
-// which of them share one is not the caller's to see — a set that would collide
-// in one batch has to be refused whatever the split turns out to be.
+// batching: the versioned replace splits its writes across transactions, so a
+// set that would collide in one batch is refused whatever the split.
 func oneActionPerItem(writes []Write) error {
 	seen := make(itemClaims, len(writes))
 	for _, w := range writes {
@@ -214,8 +152,7 @@ func oneActionPerItem(writes []Write) error {
 	return nil
 }
 
-// validateWrite refuses one mutation no driver may accept, so the rules hold on
-// every engine rather than wherever a driver happened to notice.
+// validateWrite refuses one mutation no driver may accept.
 func validateWrite(w Write) error {
 	if err := checkOrderedSort(w.Entity, w.Key.Sort); err != nil {
 		return err
@@ -253,21 +190,16 @@ func validateWrite(w Write) error {
 				"the item it merges into", w.Entity, w.Key.Sort, attr)
 		}
 		if _, both := w.Attrs[attr]; both {
-			// DynamoDB refuses the overlap outright: "Two document paths overlap
-			// with each other". Setting and removing one attribute in one write
-			// has no answer that is obviously right, so neither engine guesses.
+			// DynamoDB refuses the overlap outright ("Two document paths overlap
+			// with each other"), so neither engine guesses.
 			return fmt.Errorf("update on %s/%s both sets and removes %q", w.Entity, w.Key.Sort, attr)
 		}
 	}
 	return nil
 }
 
-// validateMerge holds the rules Init and Merge carry, so a driver meets a write
-// it can generate rather than a shape it has to reject halfway.
-//
-// A Merge NEVER REFUSES, which is what makes it usable as a companion write in
-// someone else's batch, so it takes no condition at all: a conditional
-// create-or-merge is an Update, whose refusal is its answer.
+// validateMerge holds the rules Init and Merge carry. A Merge NEVER REFUSES, so
+// it takes no condition at all; a conditional create-or-merge is an Update.
 func validateMerge(w Write) error {
 	for attr, value := range w.Init {
 		if err := checkOrderedAttr(w.Entity, attr, value); err != nil {
@@ -290,17 +222,14 @@ func validateMerge(w Write) error {
 		return fmt.Errorf("merge on %s/%s carries a condition; a Merge never refuses, and a "+
 			"create-or-merge that must be able to refuse is an Update", w.Entity, w.Key.Sort)
 	}
-	// A Merge naming NO attribute is not the mistake the same shape is on an
-	// Update, which would write nothing at all: it creates the item and leaves an
-	// existing one alone, and the item's EXISTENCE is the whole fact where the
-	// entity is a list — store.putMessage opens a chat that way, because `chats`
-	// is the partition list the poll loop and the archive walk.
+	// A Merge naming NO attribute is valid: it creates the item and leaves an
+	// existing one alone, and EXISTENCE is the whole fact where the entity is
+	// a list (store.putMessage opens a chat that way).
 	return nil
 }
 
-// validateCond width-checks the values a condition compares against. A read
-// that compares the wrong width is BUGS L97 on the guard rather than on the
-// cursor, and it fails the same silent way.
+// validateCond width-checks the values a condition compares against; a wrong
+// width on a guard fails as silently as it did on the cursor (BUGS L97).
 func validateCond(entity string, c Cond) error {
 	for _, cmp := range c.Where {
 		if cmp.Op == Absent || cmp.Op == Present {

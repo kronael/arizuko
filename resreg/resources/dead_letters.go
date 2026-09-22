@@ -8,15 +8,10 @@ import (
 )
 
 // DeadLetterRow is one outbound message routd gave up on: `messages` with
-// status='failed' AND is_bot_message=1. There is no dead-letter TABLE and this
-// resource does not add one — 'failed' IS the dead-letter state (core/types.go),
-// the row keeps its content, and `delivery_attempts` tells the two causes apart:
+// status='failed' AND is_bot_message=1. There is no dead-letter TABLE;
+// 'failed' IS the state, and `delivery_attempts` tells the two causes apart:
 // 0 means the platform refused it permanently, the cap means the retries ran
-// out.
-//
-// Before this resource an operator could see THAT delivery failed —
-// dashd's routd page renders a `dead-lettered` COUNT — and not WHAT was lost,
-// to whom, or with what error. A count is not a recovery path (BUGS L23).
+// out (BUGS L23).
 type DeadLetterRow struct {
 	ID               string `db:"id"                json:"id"`
 	ChatJID          string `db:"chat_jid"          json:"chat_jid"`
@@ -29,21 +24,16 @@ type DeadLetterRow struct {
 	DeliveryAttempts int    `db:"delivery_attempts" json:"delivery_attempts"`
 }
 
-// DeadLettersResponses: the list handler PROJECTS core.Message onto the row
-// before answering, which is what makes the declared schema true. replay
-// answers {"ok","id","status"} and declares nothing.
+// DeadLettersResponses: the list handler PROJECTS core.Message onto the row;
+// replay answers an ad-hoc map and declares nothing.
 var DeadLettersResponses = map[resreg.Action]reflect.Type{
 	resreg.ActionList: reflect.TypeFor[[]DeadLetterRow](),
 }
 
-// DeadLettersEndpoints — read the lost messages, and put one back on the wire.
-//
-// There is deliberately no create/update/delete. The row is written by the
-// delivery sweep and is the record that a message was lost; a caller editing or
-// erasing it would destroy the only evidence. `replay` is the ONE mutation, and
-// it is not a second delivery mechanism: it flips the row back to 'pending' and
-// zeroes delivery_attempts, so routd's existing outbound sweep picks it up on
-// its next pass.
+// DeadLettersEndpoints: no create/update/delete, since the row is the only
+// evidence a message was lost. `replay` is the ONE mutation and not a second
+// delivery mechanism: it flips the row back to 'pending' for routd's existing
+// outbound sweep.
 var DeadLettersEndpoints = []resreg.Endpoint{
 	{Action: resreg.ActionList, Verb: "GET", Path: "/v1/dead_letters", Status: http.StatusOK},
 	{Action: resreg.Action("replay"), Verb: "POST", Path: "/v1/dead_letters/{id}/replay", Status: http.StatusOK},
@@ -92,12 +82,9 @@ func init() {
 		MCPDoc:    DeadLettersMCPDoc,
 		MCPArgs:   DeadLettersMCPArgs,
 		MCPNames:  DeadLettersMCPNames,
-		// DB is deliberately EMPTY, for the same reason audit's is: BySubsystem
-		// never returns this resource, so Export/Plan/Apply never touch it. A
-		// dead letter is EVIDENCE that a message was lost, not declarative
-		// config — round-tripping it through a manifest would let `arizuko
-		// apply` rewrite or erase the record. It is also a VIEW of `messages`,
-		// which no manifest owns.
+		// DB is deliberately EMPTY, as audit's is: a dead letter is EVIDENCE,
+		// not declarative config, and a VIEW of `messages`, which no manifest
+		// owns.
 		DB: "",
 	})
 }
