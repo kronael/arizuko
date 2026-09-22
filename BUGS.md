@@ -6935,6 +6935,12 @@ Still live:
   `egress/match`, folder-scoped host allowlists). Giving the field teeth means a
   new contract joining provider config to that egress point. Until then it is a
   false guarantee in a config file — deleting the field is the other honest option.
+  **Said out loud 2026-09-22.** The decision waits, but an operator reading
+  `providers/*.toml` should not be relying on the line meanwhile. The struct
+  field and both shipped TOMLs now state that nothing reads it and that egress
+  is bounded by the folder's host allowlist. No behaviour changed and neither
+  option is pre-empted; the config just stopped implying a bound it does not
+  place.
 
 - **Severity:** medium (F6 blocks a documented REST face for humans; F12 is a
   false security guarantee)
