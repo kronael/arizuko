@@ -13,6 +13,50 @@
 > work items are their own entries. A record has nothing to fix and never will,
 > so counting one as open overstates the queue.
 
+## What needs you
+
+Every entry below this section that is still `Status: open` waits on a person,
+not on work. Grouped by what it waits FOR, so the queue can be unblocked
+without reading 5,000 lines. `TestOpenEntriesAreListedHere`
+(`tests/bugsindex`) fails when this list and the open set disagree, so it
+cannot quietly rot.
+
+**A contract or design decision.** Each names the question in its own Status
+line; none can be answered from the code.
+
+- `L345` — may an empty action default to `admin` inside `store`? Collapsing
+  the three declarations widens three live callers.
+- `L347` — may the cursor stay put when a steered turn does not run? Changes
+  the consume contract (`L104`).
+- `L317` — may `/stop` drop the backlog older than itself, and is that drop
+  sender-scoped? No other command eats a row it did not author.
+- `L273`, `L254`, `L249`, `L319`, `L159`, `L202`, `L283` — proposals, each
+  costed in its entry.
+- `V2` — may `acl_membership` grow a LIST action? It publishes who holds
+  authority over whom, on REST and on MCP.
+- `L326` — the honest liveness fix needs a barrier nobody has signed off.
+
+**An operator action on live data.** The platform side is done in each.
+(`L334` is closed and carries one too: the third party's `**` on sloth is not
+revoked — see its entry.)
+
+- `L318` — the 19 per-daemon store keys. The resource list is declared and
+  checked; the ROLLOUT is the live-key rotation.
+- `L327` — which Discord channels should answer. The inversion CHECK shipped
+  (`/eval` 22); which rows to renumber is your call.
+- `L308`, `L181`, `L131`, `L188`.
+
+**Outside this repo.**
+
+- `L40` — the edge must set `X-Forwarded-For` before `TRUSTED_PROXIES` may
+  widen. Adding the gateway without that buys nothing.
+- `L136` — the `--internal` network does not seal UDP/53; the decision is what
+  is outstanding, the docs are already true.
+
+**Blocked on another entry.**
+
+- `L189` — blocked on `L137`. Do not take it alone.
+
 ## ✅ FIXED 2026-09-21 L333 — an operator-only slash command refuses without naming the principal it tested, and the refusal leaves no trace
 
 sloth's operator typed `/root <request>` in the Telegram DM on 2026-09-17 and
