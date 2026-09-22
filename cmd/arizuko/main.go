@@ -678,12 +678,17 @@ func runGrant(s *store.Store, row core.ACLRow, w io.Writer) error {
 	if err := checkGrantRow(row); err != nil {
 		return err
 	}
+	// The third write surface reads the same alias warning add_acl and dashd's
+	// form do. A row written against a linked alias looks applied and never
+	// fires, and the denial afterwards reads as policy (BUGS L152).
+	warn := func(m string) { fmt.Fprintln(w, "warning: "+m) }
 	if operatorRow(row) {
 		// Operator grant: add to role:operator instead of a per-folder row.
 		if err := s.AddMembership(row.Principal, "role:operator", "arizuko grant"); err != nil {
 			return err
 		}
 		fmt.Fprintf(w, "granted %s -> role:operator\n", row.Principal)
+		grantPrincipalWarn(row.Principal, warn)
 		return nil
 	}
 	row.GrantedBy = "arizuko grant"
@@ -691,6 +696,7 @@ func runGrant(s *store.Store, row core.ACLRow, w io.Writer) error {
 		return err
 	}
 	fmt.Fprintln(w, "granted "+describeGrant(row))
+	grantPrincipalWarn(row.Principal, warn)
 	return nil
 }
 

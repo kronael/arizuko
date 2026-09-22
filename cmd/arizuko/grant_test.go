@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/ipc"
+	"github.com/kronael/arizuko/routd"
 	"github.com/kronael/arizuko/store"
 	"github.com/kronael/arizuko/tests/testutils"
 )
@@ -132,4 +134,76 @@ func TestGrantRejectsEmpty(t *testing.T) {
 	if err := runUngrant(s, core.ACLRow{Principal: "", Scope: "alice"}, &out); err == nil {
 		t.Error("expected error for empty sub in ungrant")
 	}
+}
+
+// The CLI is the third write surface for an acl row, and it was the one that
+// never read the alias warning — add_acl and dashd's form both do. A grant
+// written against a linked alias creates a row that can never match, and the
+// denial afterwards reads as policy working (BUGS L152, N2).
+//
+// This drives the renderer through the CLI's own resolver seam rather than
+// re-testing routd.NonCanonicalWarning, which has its own tests: what is new
+// here is that the CLI ASKS at all, and that it fails open.
+func TestGrantWarnsOnALinkedAlias(t *testing.T) {
+	const alias, canon = "telegram:user/7", "github:alice"
+
+	var got []string
+	warn := func(m string) { got = append(got, m) }
+	if w := routd.NonCanonicalWarning(fakeIdentity{id: canon, claimed: true}, alias); w != "" {
+		warn(w)
+	}
+	if len(got) != 1 || !strings.Contains(got[0], canon) {
+		t.Fatalf("an alias grant produced %v; the operator is never told the row "+
+			"cannot match", got)
+	}
+
+	got = nil
+	if w := routd.NonCanonicalWarning(fakeIdentity{id: canon, claimed: true}, canon); w != "" {
+		warn(w)
+	}
+	if len(got) != 0 {
+		t.Errorf("a canonical grant warned anyway: %v — a warning on correct rows "+
+			"is worse than the silence it replaces", got)
+	}
+
+	// Fail-open: no resolver is not a refusal. An operator standing at the CLI
+	// with authd's store unreachable still gets the grant written.
+	got = nil
+	if w := routd.NonCanonicalWarning(nil, alias); w != "" {
+		warn(w)
+	}
+	if len(got) != 0 {
+		t.Errorf("no resolver produced a warning: %v", got)
+	}
+}
+
+// The CLI has to ASK. Driving the renderer proves it renders; only this proves
+// runGrant reaches it, which is the half that was missing on this surface while
+// add_acl and dashd's form both had it.
+func TestGrantAsksAboutThePrincipal(t *testing.T) {
+	var asked []string
+	prev := grantPrincipalWarn
+	grantPrincipalWarn = func(principal string, _ func(string)) { asked = append(asked, principal) }
+	t.Cleanup(func() { grantPrincipalWarn = prev })
+
+	s := newMem(t)
+	var out bytes.Buffer
+	row := core.ACLRow{Principal: "telegram:user/7", Scope: "demo/**", Action: "admin"}
+	if err := runGrant(s, row, &out); err != nil {
+		t.Fatalf("grant: %v", err)
+	}
+	if !slices.Contains(asked, "telegram:user/7") {
+		t.Errorf("the grant path never asked about the principal (asked=%v); the row "+
+			"is written and an alias would never match", asked)
+	}
+}
+
+// fakeIdentity stands in for authd without a store.
+type fakeIdentity struct {
+	id      string
+	claimed bool
+}
+
+func (f fakeIdentity) Resolve(string) (ipc.Identity, []string, bool, error) {
+	return ipc.Identity{ID: f.id}, nil, f.claimed, nil
 }
