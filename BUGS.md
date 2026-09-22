@@ -2713,7 +2713,7 @@ and one half was bounded after all.**
   delivery) and the `<messages>` echo (fix 2). Both change a contract spanning
   routd and ant.
 
-## L148 — 22 ad-hoc JID⇄folder conversions in 16 files; collapse them to three named seams so `"web:"` appears twice in the tree (2026-08-30, open — minimal, no schema change; PARTLY FIXED 2026-09-20)
+## L148 — 22 ad-hoc JID⇄folder conversions in 16 files; collapse them to three named seams so `"web:"` appears twice in the tree (2026-08-30, fixed 2026-09-22)
 
 The operator's requirement: *"remove special treatment of JIDs — that should all
 only be specced in routing, or not there at all."* This is the minimal way to
@@ -2768,9 +2768,31 @@ as the unsuffixed-web case only.
   has produced three)
 - **Scope:** JID⇄folder conversion, repo-wide
 - **Affected:** the 16 files above
-- **Status:** open — minimal, mechanical, no schema change
-- **Fix:** add `groupfolder.WebJID`, route all 22 sites through the three seams,
-  add a test that fails if `"web:"` appears as a literal outside `groupfolder/`
+- **Status:** fixed 2026-09-22, and the count was wrong in both directions.
+  Of 46 literal lines in tracked non-test Go outside `groupfolder/`, 30 are
+  comments, prose or the ACL action `"web:publish"`; 16 are code; **2 were
+  genuine conversions** — the hook JID mints at `cmd/arizuko/token.go` and
+  `routd/route_tokens_resource.go`. The three the entry called remaining
+  already used `WebJID`.
+
+  The gap was a FOURTH seam, not a missed adoption: none of the three could
+  produce a hook JID, so `groupfolder.HookJID(folder, source)` ships as the
+  write half of the grammar `JidFolder` already reads.
+
+  `groupfolder/scheme_literal_test.go` is the guard the entry asked for, and it
+  parses with `go/parser` rather than grepping, so a comment can never trip it.
+  It fails on a literal at an unlisted site AND on a keeper naming a site that
+  spells no literal any more — both proven by mutation. Twelve keepers, each
+  with its reason on the line: five scheme tests ("which surface?", never
+  "which folder?"), `store/routes.go:MatchesWebJID` (a route PATTERN, not a
+  JID), the two guarded `L4` last resorts that must stay `web:`-only,
+  `webd/route_token.go:hookSender` (the source segment), and webd's two
+  declarations of the scheme it serves.
+
+  The schema change the entry defers — re-keying onto `(folder, topic)` — is
+  now a change at four seams instead of 22.
+
+
 - **Related:** `L147` (the principle), `L146` (deferred), `identity_derived_not_read`
 
 - **RE-MEASURED 2026-09-20. The entry undercounts, and the seam it asks for did
