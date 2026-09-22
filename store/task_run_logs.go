@@ -207,8 +207,7 @@ func runFloor(at time.Time) string {
 	return RunStamp(core.TS(at), strings.Repeat("0", runSuffixHex))
 }
 
-// CountTaskRunLogs answers how many runs are recorded. `arizuko migrate-hot`
-// reads it back to check that every row travelled.
+// CountTaskRunLogs answers how many runs are recorded.
 func (s *Store) CountTaskRunLogs(ctx context.Context) (int, error) {
 	items, err := s.Obj().Query(ctx, objstore.Query{
 		Entity: TaskRunLogs, Partition: OwnerRoutd,

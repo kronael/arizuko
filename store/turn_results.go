@@ -123,8 +123,7 @@ func (s *Store) TurnResultRecorded(folder, turnID string) (bool, error) {
 	return ok, err
 }
 
-// CountTurnResults answers how many turns hold an outcome. `arizuko migrate-hot`
-// reads it back to check that every row travelled.
+// CountTurnResults answers how many turns hold an outcome.
 func (s *Store) CountTurnResults(ctx context.Context) (int, error) {
 	items, err := s.Obj().Query(ctx, objstore.Query{
 		Entity: TurnResults, Partition: OwnerRoutd,

@@ -12,8 +12,8 @@ package store
 //
 // THE CURSOR IS A WHOLE KEY: a bare instant sorts BELOW every message at it,
 // so `> cursor` would feed a message at exactly the cursor instant once per
-// poll, for ever. `arizuko migrate-hot` derives it as the greatest key at or
-// before the stored instant (messages_migrate_test.go).
+// poll, for ever. CursorAtOrBefore builds one from an instant as the greatest
+// key at or before it (messages_migrate_test.go).
 //
 // THE LOG IS APPEND-ORDERED: a live append takes the chat's next position,
 // never one at or below the row the chat already ends on (appendInstant). The
@@ -1033,8 +1033,7 @@ func (s *Store) FireProactive(ctx context.Context, jid, id string) error {
 	return nil
 }
 
-// CountMessages answers how many messages every chat holds. `arizuko
-// migrate-hot` reads it back to check that every row travelled.
+// CountMessages answers how many messages every chat holds.
 func (s *Store) CountMessages(ctx context.Context) (int, error) {
 	jids, err := s.ChatJIDs(ctx)
 	if err != nil {

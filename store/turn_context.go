@@ -437,8 +437,7 @@ func (s *Store) ChatHasRunningTurn(jid string) bool {
 	return len(items) > 0
 }
 
-// CountTurnContexts answers how many turns are bound. `arizuko migrate-hot`
-// reads it back to check that every row travelled.
+// CountTurnContexts answers how many turns are bound.
 func (s *Store) CountTurnContexts(ctx context.Context) (int, error) {
 	items, err := s.Obj().Query(ctx, objstore.Query{
 		Entity: TurnContexts, Partition: OwnerRoutd,

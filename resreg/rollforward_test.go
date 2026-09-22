@@ -22,9 +22,9 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
-// halfMigrated is freshEntity with the audit entity DELIBERATELY absent: the
-// state a database is in between `migrate-routd` and `migrate-audit`, and the
-// state L267 was reproduced from.
+// halfMigrated is freshEntity with the audit entity DELIBERATELY absent: a
+// database where one subsystem's entity exists and another's does not, which is
+// the state L267 was reproduced from.
 func halfMigrated(t *testing.T) (Backend, *Resource, *dynstore.Store) {
 	t.Helper()
 	reset()

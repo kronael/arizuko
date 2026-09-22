@@ -117,7 +117,6 @@ func (s *Store) EnqueueSystemMessage(folder, source, kind, body string) error {
 }
 
 // CountSystemMessages answers how many events are queued across every folder.
-// `arizuko migrate-hot` reads it back to check that every row travelled.
 func (s *Store) CountSystemMessages(ctx context.Context) (int, error) {
 	items, err := s.Obj().Query(ctx, objstore.Query{
 		Entity: SystemMessages, Partition: OwnerRoutd,

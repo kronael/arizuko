@@ -158,8 +158,7 @@ func (s *Store) ProactiveChats(ctx context.Context) ([]string, error) {
 	return out, nil
 }
 
-// CountChats answers how many chats the partition holds. `arizuko migrate-hot`
-// reads it back to check that every row travelled.
+// CountChats answers how many chats the partition holds.
 func (s *Store) CountChats(ctx context.Context) (int, error) {
 	items, err := s.allChats(ctx)
 	return len(items), err

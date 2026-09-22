@@ -224,8 +224,7 @@ func (s *Store) SetUserCap(userSub string, cents int) error {
 	return nil
 }
 
-// CountUserProfiles answers how many people the instance knows. `arizuko
-// migrate-hot` reads it back to check that every row travelled.
+// CountUserProfiles answers how many people the instance knows.
 func (s *Store) CountUserProfiles(ctx context.Context) (int, error) {
 	items, err := s.Obj().Query(ctx, objstore.Query{
 		Entity: UserProfiles, Partition: OwnerRoutd,

@@ -266,8 +266,7 @@ func (s *Store) TopicsPerFolder() (map[string]int, error) {
 	return out, nil
 }
 
-// CountTopics answers how many topics hold a session. `arizuko migrate-hot`
-// reads it back to check that every row travelled.
+// CountTopics answers how many topics hold a session.
 func (s *Store) CountTopics(ctx context.Context) (int, error) {
 	items, err := s.Obj().Query(ctx, objstore.Query{Entity: Sessions, Partition: OwnerRoutd})
 	if err != nil {

@@ -112,8 +112,7 @@ func (s *Store) watchedSources(ctx context.Context, observer string) ([]string, 
 	return out, nil
 }
 
-// CountGroupWatchers answers how many subscriptions exist. `arizuko migrate-hot`
-// reads it back to check that every row travelled.
+// CountGroupWatchers answers how many subscriptions exist.
 func (s *Store) CountGroupWatchers(ctx context.Context) (int, error) {
 	items, err := s.Obj().Query(ctx, objstore.Query{
 		Entity: GroupWatchers, Partition: OwnerRoutd,

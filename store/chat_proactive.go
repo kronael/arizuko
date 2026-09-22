@@ -89,7 +89,6 @@ func (s *Store) RecordProactiveFire(ctx context.Context, jid string, at time.Tim
 }
 
 // CountProactiveChats answers how many chats carry a cooldown at all.
-// `arizuko migrate-hot` reads it back to check that every row travelled.
 func (s *Store) CountProactiveChats(ctx context.Context) (int, error) {
 	items, err := s.Obj().Query(ctx, objstore.Query{
 		Entity: ChatProactive, Partition: OwnerRoutd,

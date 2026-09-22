@@ -81,9 +81,8 @@ func TestThePerTaskHistoryNamesOneTaskAndHonoursItsLimit(t *testing.T) {
 // portal's dot read it through one method so they cannot disagree about which
 // runs they mean.
 //
-// The old run below is placed through the move that carries a legacy row, which
-// is the only writer that can put one in the past — and that is the same builder
-// `arizuko migrate-hot` uses, so this drives it too.
+// The old run below is seeded: SeedItem is the only writer that can put a run
+// in the past, because RecordTaskRun stamps the instant itself.
 func TestTheFailedRunWindowIsARangeAndNotAFilter(t *testing.T) {
 	s := openEntities(t)
 	ctx := context.Background()

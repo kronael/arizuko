@@ -11,8 +11,8 @@ package store
 // and subtree tests here (310 items on krons; it drains with the chat).
 //
 // engaged_until IS ORDERED: the list reads newest deadline first, and the live
-// rows carried three widths (BUGS L97). `arizuko migrate-hot` re-renders them;
-// the declaration keeps them one width afterwards.
+// rows carried three widths (BUGS L97). The declaration keeps every value one
+// width, so the order is the order of the deadlines.
 
 import (
 	"context"
@@ -116,7 +116,6 @@ func (s *Store) SetLastReply(jid, topic, replyID, folder string) error {
 }
 
 // CountReplyStates answers how many (jid, topic) pairs hold reply state.
-// `arizuko migrate-hot` reads it back to check that every row travelled.
 func (s *Store) CountReplyStates(ctx context.Context) (int, error) {
 	items, err := s.Obj().Query(ctx, objstore.Query{
 		Entity: ChatReplyState, Partition: OwnerRoutd,
