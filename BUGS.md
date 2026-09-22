@@ -15,11 +15,15 @@
 
 ## What needs you
 
-Every entry below this section that is still `Status: open` waits on a person,
-not on work. Grouped by what it waits FOR, so the queue can be unblocked
-without reading 5,000 lines. `TestOpenEntriesAreListedHere`
-(`tests/bugsindex`) fails when this list and the open set disagree, so it
-cannot quietly rot.
+Every open entry waits on a person, not on work. Grouped by what it waits FOR,
+so the queue can be unblocked without reading 5,000 lines.
+`TestOpenEntriesAreListedHere` (`tests/bugsindex`) fails when this list and the
+open set disagree, so it cannot quietly rot.
+
+It reads the HEADING, because that is what a reader sees and it is the only
+marker every entry carries. Ten entries said open in the heading and carried no
+`- **Status:** open` line, so a Status-only count answered 22 for a queue of
+32 — this section shipped with those ten missing.
 
 **A contract or design decision.** Each names the question in its own Status
 line; none can be answered from the code.
@@ -32,6 +36,15 @@ line; none can be answered from the code.
   sender-scoped? No other command eats a row it did not author.
 - `L273`, `L254`, `L249`, `L319`, `L159`, `L202`, `L283` — proposals, each
   costed in its entry.
+- `L339`, `L167`, `L200` — proposals too. `L200` and `L133` were re-measured
+  2026-09-21 and each came back narrower than filed.
+- `L133` — one question after that re-measure: `ext:` is a third namespace the
+  proposal would break.
+- `L152` — the proposal was REFUTED 2026-09-20, so it needs a new record before
+  it needs a decision.
+- `L338` — the restart loop is stopped; where Slack lives is the open decision.
+- `F41` — an open question, unanswered by design: the re-greet cooldown is a
+  rate and not a cap, sharpened to a three-way choice with costs.
 - `V2` — may `acl_membership` grow a LIST action? It publishes who holds
   authority over whom, on REST and on MCP.
 - `L326` — the honest liveness fix needs a barrier nobody has signed off.
@@ -45,6 +58,10 @@ revoked — see its entry.)
 - `L327` — which Discord channels should answer. The inversion CHECK shipped
   (`/eval` 22); which rows to renumber is your call.
 - `L308`, `L181`, `L131`, `L188`.
+- `L307` — seven Slack chats carry traffic and match no route, live on sloth.
+  Which route rows to write is yours.
+- `L62` — marinade's emaid IMAP login fails.
+- `L63` — krons whapd wants a phone re-pair; the recipe is in the entry.
 
 **Outside this repo.**
 

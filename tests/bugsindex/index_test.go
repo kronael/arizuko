@@ -29,6 +29,17 @@ var idInHeading = regexp.MustCompile(`^## (?:✅ FIXED [0-9-]+ |📋 RECORD )?([
 var idInIndex = regexp.MustCompile("(?m)^- ((?:`[A-Z]+[0-9]+[a-z]?`(?:, )?)+)")
 var idInBullet = regexp.MustCompile("`([A-Z]+[0-9]+[a-z]?)`")
 
+// headingSaysOpen reads the parenthesised marker a heading ends with. "fixed
+// `pending`" and "one of two fixed" both contain no bare `open`, and
+// "open question" and "open — needs sign-off" both do.
+func headingSaysOpen(heading string) bool {
+	i := strings.LastIndex(heading, "(")
+	if i < 0 {
+		return false
+	}
+	return regexp.MustCompile(`\bopen\b`).MatchString(heading[i:])
+}
+
 func TestOpenEntriesAreListedHere(t *testing.T) {
 	raw, err := os.ReadFile(bugsPath)
 	if err != nil {
@@ -54,24 +65,35 @@ func TestOpenEntriesAreListedHere(t *testing.T) {
 		}
 	}
 
-	// An entry is open when its heading is followed by a `Status: open` line
-	// before the next heading.
+	// An entry is open when its HEADING says so. The heading is what a reader
+	// sees, and it is the only marker every entry carries — ten entries had a
+	// heading saying open and no `Status: open` line at all, so a Status-only
+	// reading counted 22 when the queue held 32. A `Status: open` line without
+	// an open heading counts too, so neither spelling can hide an entry.
 	var open []string
 	var id string
+	inBody := map[string]bool{}
 	for _, line := range strings.Split(body, "\n") {
 		if strings.HasPrefix(line, "## ") {
-			if m := idInHeading.FindStringSubmatch(line); m != nil {
-				id = m[1]
-			} else {
-				id = ""
+			id = ""
+			if strings.Contains(line, "✅ FIXED") || strings.Contains(line, "📋 RECORD") {
+				continue
+			}
+			m := idInHeading.FindStringSubmatch(line)
+			if m == nil {
+				continue
+			}
+			id = m[1]
+			if headingSaysOpen(line) && !slices.Contains(open, id) {
+				open = append(open, id)
 			}
 			continue
 		}
 		if id != "" && strings.HasPrefix(line, "- **Status:** open") {
+			inBody[id] = true
 			if !slices.Contains(open, id) {
 				open = append(open, id)
 			}
-			id = ""
 		}
 	}
 	if len(open) == 0 {
