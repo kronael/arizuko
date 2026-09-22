@@ -35,19 +35,12 @@ func Run(opts RunOpts) {
 	defer cancel()
 
 	rc := NewRouterClient(opts.RouterURL)
-	// Split (spec 5/1) is the only topology: exchange AUTHD_SERVICE_KEY for a
-	// service:<adapter> JWT and present it on EVERY routd call — registration,
-	// /v1/messages, /v1/pane (HMAC retire step 5; no CHANNEL_SECRET remains).
-	//
-	// AUTHD_URL + AUTHD_SERVICE_KEY are required — compose always emits them, and
-	// local-dev brings up authd through the same tooling. No fallback: routd's
-	// verifier rejects an unsigned call, so a missing key must fail loudly, not
-	// silently 401 every outbound (cost a krons telegram outage 2026-06-07).
-	//
-	// The exchange principal is the DAEMON name (AUTHD_SERVICE_NAME, set by compose
-	// to the base daemon — e.g. teled), NOT opts.Name (the CHANNEL_NAME, e.g.
-	// telegram / telegram-rhias). authd seeds + grants service:<daemon>;
-	// multi-account variants share the base principal (spec 5/R).
+	// Exchange AUTHD_SERVICE_KEY for a service:<adapter> JWT and present it on
+	// EVERY routd call (spec 5/1). No fallback: routd's verifier rejects an
+	// unsigned call, so a missing key must fail loudly, not silently 401 every
+	// outbound (a krons telegram outage, 2026-06-07). The exchange principal is
+	// the DAEMON name (AUTHD_SERVICE_NAME, e.g. teled), NOT opts.Name (the
+	// CHANNEL_NAME); multi-account variants share the base principal (spec 5/R).
 	authdURL, svcKey := os.Getenv("AUTHD_URL"), os.Getenv("AUTHD_SERVICE_KEY")
 	if authdURL == "" || svcKey == "" {
 		slog.Error("AUTHD_URL + AUTHD_SERVICE_KEY required", "daemon", opts.Name)

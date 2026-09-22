@@ -7,26 +7,19 @@ import (
 	"log/slog"
 )
 
-// budgetGate is the pre-spawn cost check, and the point where arizuko's cap
-// policy reaches the thing that enforces it (spec 6/39).
-//
-// One GET /team/info per turn does three jobs at once: it creates the folder's
-// team when the gateway has none — which every model call needs, not just a
-// capped one — it moves the team's budget onto the cap the operator now holds,
-// and it reads the spend this refusal decides on. That is why the reconcile
-// lives here rather than beside SetFolderCap: routd is the only holder of the
-// master key, and the gate is the serialization point the cap already crosses.
-//
-// It returns a non-empty refusal message when the gateway's meter is at or over
-// a cap, else "". A non-nil error is a gateway that did not answer: the caller
-// must NOT spawn, because a turn dispatched against a blind meter is exactly
-// the second ledger this spec removes.
+// budgetGate is the pre-spawn cost check, where arizuko's cap policy reaches
+// the thing that enforces it (spec 6/39). One GET /team/info per turn creates
+// the folder's team when the gateway has none (every model call needs it),
+// moves the team's budget onto the operator's cap, and reads the spend the
+// refusal decides on; the gate is the serialization point the cap already
+// crosses. Non-empty refusal when a cap is spent, else "". A non-nil error is
+// a gateway that did not answer: the caller must NOT spawn — a turn against a
+// blind meter is the second ledger this spec removes.
 func (l *Loop) budgetGate(ctx context.Context, folder, userSub string) (string, error) {
 	folderCap, userCap := l.caps(folder, userSub)
 	if l.gateway == nil {
-		// No meter. A cap the operator set is enforced by nothing, and a cap that
-		// silently does nothing is worse than no cap, so it is named here rather
-		// than left to be discovered on an invoice.
+		// No meter: a cap that silently does nothing is worse than no cap, so
+		// name it here rather than on an invoice.
 		if folderCap > 0 || userCap > 0 {
 			slog.Error("cost cap set but this instance has no model gateway; nothing enforces it",
 				"folder", folder, "folder_cap_cents", folderCap, "user_cap_cents", userCap)
@@ -42,9 +35,8 @@ func (l *Loop) budgetGate(ctx context.Context, folder, userSub string) (string, 
 }
 
 // caps reads the two ceilings the operator set. COST_CAPS_ENABLED off reports
-// both as uncapped, which is what clears them at the gateway too — the escape
-// hatch has to reach the thing doing the enforcing, or turning it off would
-// leave the gateway refusing turns arizuko no longer caps.
+// both as uncapped, which clears them at the gateway too — or turning it off
+// would leave the gateway refusing turns arizuko does not cap.
 func (l *Loop) caps(folder, userSub string) (folderCap, userCap int) {
 	if !l.costCapsEnabled {
 		return 0, 0
@@ -69,8 +61,8 @@ func (l *Loop) caps(folder, userSub string) (folderCap, userCap int) {
 func (l *Loop) folderMeter(ctx context.Context, folder string, capCents int) (string, error) {
 	b, err := l.gateway.teamBudget(ctx, folder)
 	if errors.Is(err, errGatewayNotFound) {
-		// First turn this folder has ever run against this gateway. It starts at
-		// zero spend, so it is created and allowed in the same breath.
+		// First turn against this gateway: zero spend, so created and allowed
+		// in one breath.
 		if err := l.gateway.createTeam(ctx, folder, capCents); err != nil {
 			return "", fmt.Errorf("model gateway create team %s: %w", folder, err)
 		}
@@ -92,10 +84,9 @@ func (l *Loop) folderMeter(ctx context.Context, folder string, capCents int) (st
 	return "", nil
 }
 
-// userMeter reconciles one person's cap and reads what the gateway has charged
-// them today. An uncapped caller costs no call at all: the gateway meters them
-// through the key's user_id whether or not it holds a row for them, and a row
-// exists only to carry a budget.
+// userMeter reconciles one person's cap and reads today's charge. An uncapped
+// caller costs no call: the gateway meters through the key's user_id whether
+// or not it holds a row, and a row exists only to carry a budget.
 func (l *Loop) userMeter(ctx context.Context, userSub string, capCents int) (string, error) {
 	if userSub == "" || capCents == 0 {
 		return "", nil

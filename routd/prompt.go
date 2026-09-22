@@ -15,24 +15,14 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// buildAgentPrompt assembles the prompt for a single agent turn. Order: sysMsgs
-// + autocalls + persona + <observed> rule + envelope(<topic>+paneHints) + the
-// trigger feed and observed block via router.FormatMessages.
-//
-// Per-topic observed cursor: each (folder, topic) tracks its own watermark over
-// is_observed=1 messages, so two topics in the same folder both see ambient
-// observed context without one consuming it for the other.
-//
-// The watermark is RETURNED, never written here (BUGS L58). Writing it at render
-// time made the read at-most-once: the prompt is built before the container
-// spawns, and every failure after that point re-feeds the batch — a transport
-// failure, the busy backoff, runed refusing admission at capacity. The re-fed
-// turn rebuilt its prompt against a watermark the first attempt had already
-// consumed, so the ambient context was read once and lost. The caller advances
-// it on the same success path that advances the message cursor, which makes it
-// genuinely at-least-once: a crash before that point re-shows an observed
-// message, which is benign because the <rule> below tells the agent not to act
-// on observed context.
+// buildAgentPrompt assembles one turn's prompt: sysMsgs + autocalls + persona
+// + <observed> rule + envelope + the feed via router.FormatMessages. Each
+// (folder, topic) tracks its own observed watermark. The watermark is
+// RETURNED, never written here: the prompt is built before the container
+// spawns and every failure after that re-feeds the batch, so writing it at
+// render time read the ambient context once and lost it (BUGS L58). The
+// caller advances it on the same success path as the message cursor —
+// at-least-once, benign because the <rule> tells the agent not to act on it.
 func (l *Loop) buildAgentPrompt(folder, topic string, trigger []core.Message) (string, string) {
 	sysMsgs := l.db.FlushSysMsgs(folder)
 	maxN, maxC := l.observeWindow(folder)
@@ -62,9 +52,7 @@ func (l *Loop) buildAgentPrompt(folder, topic string, trigger []core.Message) (s
 
 // paneHints emits <surface>slack-pane</surface> and an optional
 // <pane-context jid="..."/> when the trigger originated in an open Slack
-// assistant pane. Hash-keyed on the chat_jid's DM channel id (slack: prefix
-// only); other surfaces yield empty. slakd writes pane_sessions via POST
-// /v1/pane.
+// assistant pane, keyed on the chat_jid's DM channel id.
 func (l *Loop) paneHints(trigger []core.Message) string {
 	if l.db == nil || len(trigger) == 0 {
 		return ""
@@ -90,11 +78,9 @@ func (l *Loop) paneHints(trigger []core.Message) string {
 	return out
 }
 
-// linkContextBlock emits <link-context>…</link-context> when the newest
-// trigger message carries a route token's ingest-snapshotted context (spec
-// 5/W § link context): the issuer's per-link processing instructions.
-// Newest-wins because a batch on one JID may span tokens with different
-// contexts; the turn answers the latest message. No context anywhere → "".
+// linkContextBlock emits the issuer's per-link instructions a route token
+// snapshotted at ingest (spec 5/W § link context). Newest-wins: a batch on one
+// JID may span tokens with different contexts.
 func linkContextBlock(trigger []core.Message) string {
 	for _, t := range slices.Backward(trigger) {
 		if c := t.LinkContext; c != "" {
@@ -106,10 +92,9 @@ func linkContextBlock(trigger []core.Message) string {
 
 var personaFrontmatterRE = regexp.MustCompile(`(?s)^---\s*\n(.*?)\n---\s*\n`)
 
-// personaBlock reads <groupsDir>/<folder>/PERSONA.md, parses YAML frontmatter,
-// and returns a <persona> XML block carrying the `summary` field. Strict: a
-// missing file, no frontmatter, or no `summary` returns "" — no fallback to
-// body text.
+// personaBlock renders <groupsDir>/<folder>/PERSONA.md's frontmatter
+// `summary`. Strict: a missing file, no frontmatter, or no `summary` returns
+// "" — no fallback to body text.
 func (l *Loop) personaBlock(folder string) string {
 	if folder == "" || l.groupsDir == "" {
 		return ""
@@ -140,8 +125,8 @@ func (l *Loop) personaBlock(folder string) string {
 		name, strings.TrimSpace(meta.Summary))
 }
 
-// autocallCtx carries the facts an autocall resolves at prompt-build time.
-// Resolved synchronously — no I/O, no locks.
+// autocallCtx carries the facts an autocall resolves at prompt-build time,
+// synchronously — no I/O, no locks.
 type autocallCtx struct {
 	Instance  string
 	Folder    string
@@ -167,8 +152,7 @@ var autocalls = []autocall{
 	}},
 }
 
-// autocallsBlock renders the <autocalls> block (instance/folder/session/
-// now) for (folder, topic).
+// autocallsBlock renders the <autocalls> block for (folder, topic).
 func (l *Loop) autocallsBlock(folder, topic string) string {
 	return renderAutocalls(autocallCtx{
 		Instance:  l.instanceName,
@@ -195,9 +179,9 @@ func renderAutocalls(ctx autocallCtx) string {
 	return b.String()
 }
 
-// observeWindow resolves the observed-context window for folder: cfg defaults,
-// overridden by the group's stored window, then by the first route targeting
-// the folder that carries an override.
+// observeWindow resolves the observed-context window for folder: cfg
+// defaults, overridden by the group's stored window, then by the first route
+// targeting the folder that carries an override.
 func (l *Loop) observeWindow(folder string) (int, int) {
 	maxN := l.observeMessages
 	maxC := l.observeChars
@@ -228,12 +212,10 @@ func (l *Loop) observeWindow(folder string) (int, int) {
 	return maxN, maxC
 }
 
-// emitSystemEvents enqueues new_day / new_session system messages for (folder,
-// chatJID) before the prompt is built; FlushSysMsgs renders them into the next
-// turn's envelope. new_day fires when the chat's cursor crossed midnight;
-// new_session fires when no live session_id is recorded and carries the prior
-// session's tail. Run BEFORE buildAgentPrompt so the flush picks the rows up the
-// same turn.
+// emitSystemEvents enqueues new_day / new_session system messages BEFORE the
+// prompt is built, so FlushSysMsgs renders them this turn. new_day fires when
+// the chat's cursor crossed midnight; new_session when no live session_id is
+// recorded, carrying the prior session's tail.
 func (l *Loop) emitSystemEvents(folder, chatJID string) {
 	today := time.Now().Format("2006-01-02")
 
@@ -253,8 +235,7 @@ func (l *Loop) emitSystemEvents(folder, chatJID string) {
 }
 
 // previousSessionXML renders the most recent session_log row as a
-// <previous_session> tag for the new_session continuity hint. Empty input → ""
-// (no prior run on file).
+// <previous_session> tag; empty input → "".
 func previousSessionXML(sessions []core.SessionRecord) string {
 	if len(sessions) == 0 {
 		return ""

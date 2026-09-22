@@ -20,9 +20,9 @@ import (
 	"github.com/kronael/arizuko/types"
 )
 
-// processGroupMessages is the queue's per-folder-serialized worker. It
-// renders the batch and dispatches one run to runed, recording the
-// outcome. Returns (hadOutput, err) per the queue's processMessagesFn.
+// processGroupMessages is the queue's per-folder-serialized worker: it renders
+// the batch, dispatches one run to runed and records the outcome. Returns
+// (hadOutput, err) per the queue's processMessagesFn.
 func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 	cursor := l.db.GetAgentCursor(chatJID)
 	msgs, err := l.db.NewMessagesForChat(chatJID, cursor, pollBatch)
@@ -33,30 +33,15 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 		return false, nil
 	}
 	last := msgs[len(msgs)-1]
-	// routeIdx and steerIdx answer DIFFERENT questions and must not share a row.
-	// The route and the busy key want the NEWEST user row: a `verb=mention`
-	// route matches on the message's verb and a bot reply carries no mention, so
-	// resolving on a bot row turns the user's @mention into a route miss and
-	// archives it as context, silently, on the shipped mention-only
-	// Slack/Discord config (BUGS L56 is the steer half of the same mistake). The
-	// steer offer wants the oldest slash command (L336); feeding that row to
-	// resolve made a `/root` followed by an @mention miss a mention-only route
-	// and drop the whole batch at routeMiss. An all-bot batch routes nothing.
+	// The route and the busy key take the NEWEST user row; the steer offer takes
+	// the oldest slash command. Sharing one row made a `/root` followed by an
+	// @mention miss a mention-only route and drop the batch (BUGS L56, L336).
 	routeIdx := newestUserIdx(msgs)
 	if routeIdx < 0 {
-		// An all-bot batch is normally an agent's own output, correctly ignored.
-		// It is NOT when another folder wrote it: agent-to-agent delegation
-		// reaches the child as a `send`, and every agent-authored row is stamped
-		// BotMsg, so the delegation is dropped here and the child never runs.
-		// The drop is silent by design, which is why that went unnoticed since
-		// August (BUGS L2) — so the CROSS-FOLDER case says so.
-		//
-		// The chat's folder is READ, never parsed out of the JID. The grammar is
-		// ambiguous — `web:t/sfx` reads as folder `t/sfx` while its mint recorded
-		// `t`, `hook:a/b/c` reads as `a/b` — so parsing made a folder's OWN reply
-		// into its own route-token chat compare unequal and log this alarm once
-		// per reply, forever. directFolder is the reader that consults the mint
-		// record first (BUGS L4, L1).
+		// An all-bot batch is normally an agent's own output. When another folder
+		// wrote it, it is a delegation that woke nothing (BUGS L2), so say so. The
+		// chat's folder is READ from the mint record, never parsed from the JID —
+		// the grammar is ambiguous (BUGS L4, L1).
 		if author := l.directFolder(chatJID); author != "" && last.Sender != "" && last.Sender != author {
 			slog.Warn("delegation woke nothing: the chat holds only bot rows, so no turn ran",
 				"chat_jid", chatJID, "wrote_by", last.Sender, "chat_folder", author,
@@ -66,13 +51,8 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 		return false, nil
 	}
 	routeMsg := msgs[routeIdx]
-	// A batch runed refused as Busy retries on a growing backoff, not on
-	// every 2s poll: the re-feed below this line is the expensive part
-	// (capability resolve, MCP socket, prompt build). The key is the newest
-	// USER row, so a person's next message clears the backoff at once and the
-	// RUNNING turn's own bot rows do not: a cron turn that writes progress
-	// cleared its own backoff on every row and re-dispatched itself fifteen
-	// times for one fire (BUGS L298, and L55 for the cost of one attempt).
+	// The busy key is the newest USER row: a person's next message clears the
+	// backoff, the running turn's own bot rows do not (BUGS L298, L55).
 	if l.busyDeferred(chatJID, routeMsg.ID) {
 		return false, nil
 	}
@@ -82,41 +62,24 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 		return false, nil
 	}
 	folder := r.Folder
-	// Steering (sticky-nav / slash commands / @child delegation) consumes the latest
-	// message BEFORE it reaches a turn. It MUST run here, on the one path every
-	// trigger converges to: adapter ingest enqueues straight into this worker, so
-	// when steering lived only in the pollOnce backstop it raced the queue and lost —
-	// a Slack "/root mint …" reached the agent as plain unelevated text (marinade
-	// atlas, 2026-07-16).
-	//
-	// Advance past the steered row only — anything newer has not been consumed,
-	// and anything older takes the turn below.
-	//
-	// steerConsumed is the OUTER one: this batch held a steer command. The loop
-	// further down declares its own `steered`, which is runTurn saying an
-	// in-flight run absorbed the batch — a different fact about a different row.
+	// Steering consumes the latest message BEFORE it reaches a turn, on the one
+	// path every trigger converges to; in the pollOnce backstop alone it raced
+	// the queue and lost. steerConsumed says this batch held a command; runTurn's
+	// `steered` is a different fact about a different row.
 	steerConsumed := false
 	steerIdx := steerRowIdx(msgs)
 	steerMsg := msgs[steerIdx]
 	if l.steer(chatJID, steerMsg, folder) {
-		// The steered row is consumed HERE and exactly once, before anything
-		// else can fail: the handlers clear a session, pin a route, delegate to a
-		// child or re-inject an operator's elevated instruction, and none of that
-		// may run a second time because a later dispatch was refused.
+		// Consumed HERE, exactly once, before anything else can fail: no steer
+		// handler may run a second time because a later dispatch was refused.
 		l.advance(chatJID, steerMsg)
-		// A STEER CONSUMES ITS OWN ROW AND NO OTHER. Returning here advanced the
-		// cursor over every OLDER row in the batch too — ordinary messages
-		// nothing had dispatched, steered or observed. The user asks for
-		// something, waits, gets impatient and types /status; both land in one
-		// batch, the command is acked and the question is skipped for good (BUGS
-		// L104). The rest of this function is the turn those rows were owed, and
-		// `last` stays at the steered row so the advance that closes it does not
-		// walk the cursor back over the command.
+		// A steer consumes its own row and no other: the older rows still get the
+		// turn below (BUGS L104), and `last` stays at the steered row so the
+		// closing advance does not walk the cursor back over the command.
 		steerConsumed = true
 		msgs, last = msgs[:steerIdx], steerMsg
 	}
-	// Strip bot rows from the trigger batch (don't feed the agent its own
-	// output) but keep them in the rendered context.
+	// Bot rows stay out of the trigger but in the rendered context.
 	var trigger []core.Message
 	for _, m := range msgs {
 		if !m.BotMsg {
@@ -128,16 +91,8 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 		return steerConsumed, nil
 	}
 
-	// turnTopic answers the topic one row's turn dispatches under. It is DECLARED
-	// ONCE because the grouping key below and the loop body both read it, and a
-	// group whose rows disagree about their destination has no destination of
-	// its own.
-	//
-	// Both overrides — a set sticky #topic and a route-pinned topic — are
-	// properties of the CHAT, so they resolve ONCE, here. The key function runs
-	// for every row and pollBatch is 200, so reading the sticky pin inside it
-	// would be hundreds of chat reads for one fact. effectiveTopic on an empty
-	// topic IS that pin, which keeps the rule declared in one place.
+	// Both topic overrides are properties of the CHAT, resolved once: the key
+	// function below runs per row and pollBatch is 200.
 	web := strings.HasPrefix(chatJID, "web:")
 	pin := l.effectiveTopic(chatJID, "")
 	if !web && r.Topic != "" {
@@ -150,15 +105,9 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 		return m.Topic
 	}
 
-	// web: chats dispatch one turn per topic in first-seen order; everyone else
-	// batches per distinct sender AND destination topic, one turn each.
-	//
-	// The topic half of that key is not decoration. Grouping by sender alone put
-	// two of one person's Discord threads in one batch, and the turn took the
-	// topic of the group's LAST row — so the older thread's @mention was answered
-	// inside the newer thread and its own thread went silent for three weeks
-	// (BUGS L305, measured on sloth). A sticky or route-pinned topic collapses
-	// the key back to one value, so a pinned chat still dispatches one turn.
+	// web: chats dispatch one turn per topic; everyone else per sender AND
+	// topic. Keying on sender alone answered an older Discord thread inside a
+	// newer one (BUGS L305).
 	var groups [][]core.Message
 	if web {
 		groups = groupByTopic(trigger)
@@ -169,18 +118,16 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 	}
 
 	hadAny := false
-	// Pending per-topic observed watermarks, applied only if this dispatch
-	// reaches the advance below (BUGS L58).
+	// Applied only if this dispatch reaches the advance below (BUGS L58).
 	var marks []observedAdvance
 	for _, batch := range groups {
 		bl := batch[len(batch)-1]
 		topic := turnTopic(bl)
 		had, steered, busy, mark, derr := l.runTurn(folder, topic, chatJID, bl.ID, batch)
 		if derr != nil {
-			// Transport failure: do NOT advance — re-fed next poll
-			// (at-least-once; turn_results dedups). State stays running. A
-			// steered batch is the exception and says so: its cursor already
-			// passed the command, so these rows have no re-feed left.
+			// Transport failure: do NOT advance — re-fed next poll (at-least-once;
+			// turn_results dedups). A steered batch has no re-feed left: its cursor
+			// already passed the command.
 			if steerConsumed {
 				slog.Error("the rows a steer left behind did not reach runed; they are not re-fed",
 					"jid", chatJID, "rows", len(batch), "ids", lostIDs(batch),
@@ -189,11 +136,8 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 			return hadAny, derr
 		}
 		if busy {
-			// The batch was not consumed: runed refused admission (it keeps no
-			// internal queue), or the run failed and owes a retry. Neither is an
-			// error: do NOT advance the cursor and do NOT return an err, which would
-			// trip the queue breaker. The batch is re-fed after a growing per-chat
-			// backoff, and the turn is non-terminal so the re-dispatch is live.
+			// Not consumed: do NOT advance and do NOT return an err (it would trip
+			// the queue breaker); the batch re-feeds after the busy backoff.
 			l.noteBusy(chatJID, steerMsg.ID)
 			if steerConsumed {
 				slog.Error("runed refused the rows a steer left behind; they are not re-fed",
@@ -213,9 +157,8 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 	}
 	l.advance(chatJID, last)
 	hadAny = hadAny || steerConsumed
-	// The observed watermark rides the SAME success path as the message cursor
-	// (BUGS L58). Every early return above re-feeds the batch, and a re-fed turn
-	// must still see the ambient context the failed attempt was shown.
+	// The observed watermark rides the SAME success path as the message cursor:
+	// a re-fed turn must still see the context the failed attempt saw (BUGS L58).
 	for _, m := range marks {
 		if err := l.db.AdvanceObservedCursor(folder, m.topic, m.ts); err != nil {
 			slog.Error("observed cursor advance failed — the topic re-sees this window next turn",
@@ -225,13 +168,8 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 	return hadAny, nil
 }
 
-// lostIDs and lostSenders describe rows that will not be re-fed, for the two
-// sites above. "first" alone named one row of N and no person, so an operator
-// reading the line could not tell WHOSE question vanished or find it again —
-// and until BUGS L347 is settled, this log is the only record that it did.
-//
-// The ids and the senders, never the content: a dropped message is still the
-// sender's, and a log is the wrong place to copy it to.
+// lostIDs and lostSenders identify rows that will not be re-fed: the ids and
+// the senders, never the content — a dropped message is still the sender's.
 func lostIDs(batch []core.Message) []string {
 	out := make([]string, len(batch))
 	for i, m := range batch {
@@ -253,20 +191,11 @@ func lostSenders(batch []core.Message) []string {
 // observedAdvance is one topic's pending observed watermark for this dispatch.
 type observedAdvance struct{ topic, ts string }
 
-// steerRowIdx picks the row `steer` is offered. It is the OLDEST slash command
-// in the batch when there is one, and otherwise the newest non-bot row.
-//
-// The whole batch, not just its newest row. A command with any non-bot row
-// after it — a second human message, another person in a group chat, a `timed`
-// cron row — otherwise stayed in the trigger batch and reached the agent as
-// plain text, so `/root` ran unelevated, which reads as the platform ignoring
-// the command (BUGS L336).
-//
-// The OLDEST, not the newest, and that is what keeps the consume contract. The
-// steered row is consumed and the cursor advances to IT, so rows behind it get
-// the turn they are owed and rows after it stay above the cursor for the next
-// poll — nothing is skipped in either direction (BUGS L104). Picking the newest
-// command would advance past an older one and lose it.
+// steerRowIdx picks the row `steer` is offered: the OLDEST slash command in
+// the batch, else the newest non-bot row. Scanning the newest row only let a
+// `/root` with any row after it reach the agent as plain text (BUGS L336); the
+// oldest keeps the consume contract — rows behind it get their turn, rows
+// after it stay above the cursor (BUGS L104).
 func steerRowIdx(msgs []core.Message) int {
 	for i, m := range msgs {
 		if IsSteerCommand(m) {
@@ -276,10 +205,9 @@ func steerRowIdx(msgs []core.Message) int {
 	return newestUserIdx(msgs)
 }
 
-// newestUserIdx returns the position of the newest non-bot message in a batch,
-// or -1 when the batch is all bot rows, which nothing may steer on. It answers
-// the INDEX rather than the row because the rows BEHIND it are the other half of
-// the answer: a steer consumes this one and leaves those to a turn (BUGS L104).
+// newestUserIdx returns the position of the newest non-bot message, or -1 for
+// an all-bot batch. The index, not the row: the rows behind it are the other
+// half of the answer (BUGS L104).
 func newestUserIdx(msgs []core.Message) int {
 	for i := len(msgs) - 1; i >= 0; i-- {
 		if !msgs[i].BotMsg {
@@ -289,11 +217,9 @@ func newestUserIdx(msgs []core.Message) int {
 	return -1
 }
 
-// Busy re-dispatch backoff: base delay for the first refused attempt,
-// doubling per consecutive refusal of the same batch, capped. At the cap a
-// starved chat probes runed once a minute instead of once per 2s poll — a
-// restart's migrate wave on krons burned 4,704 dispatches (each with a full
-// MCP-socket + prompt setup) for 18 spawns in 15 minutes (BUGS L55).
+// Busy re-dispatch backoff: doubles per consecutive refusal of the same batch,
+// capped so a starved chat probes runed once a minute, not once per poll
+// (BUGS L55).
 const (
 	busyBackoffBase = 4 * time.Second
 	busyBackoffCap  = 60 * time.Second
@@ -301,19 +227,16 @@ const (
 
 // busyState is one chat's re-dispatch backoff after a runed Busy refusal.
 type busyState struct {
-	// until defers the next dispatch attempt.
 	until time.Time
-	// delay is the backoff applied at the last refusal; the next one doubles it.
 	delay time.Duration
-	// lastMsgID is the chat's newest message id at refusal time. A different
-	// newest id means fresh inbound activity: the backoff no longer applies.
+	// A different newest id means fresh inbound activity: the backoff no
+	// longer applies.
 	lastMsgID string
 }
 
 // busyDeferred reports whether the chat's batch is inside its busy backoff
-// window and should not be re-dispatched this poll. A changed newest-message
-// id clears the backoff (new activity retries immediately); an expired window
-// lets the attempt through and keeps the entry so a repeat refusal doubles.
+// window. A changed newest-message id clears the backoff; an expired window
+// keeps the entry so a repeat refusal doubles.
 func (l *Loop) busyDeferred(chatJID, lastMsgID string) bool {
 	v, ok := l.busyWait.Load(chatJID)
 	if !ok {
@@ -327,8 +250,8 @@ func (l *Loop) busyDeferred(chatJID, lastMsgID string) bool {
 	return time.Now().Before(st.until)
 }
 
-// noteBusy records a runed Busy refusal for the chat's current batch,
-// doubling the backoff on a consecutive refusal of the same batch.
+// noteBusy records a runed Busy refusal for the chat's current batch, doubling
+// the backoff on a consecutive refusal of the same batch.
 func (l *Loop) noteBusy(chatJID, lastMsgID string) {
 	delay := busyBackoffBase
 	if v, ok := l.busyWait.Load(chatJID); ok {
@@ -343,27 +266,22 @@ func (l *Loop) noteBusy(chatJID, lastMsgID string) {
 	})
 }
 
-// runTurn dispatches ONE turn for a trigger batch (already bot-stripped),
-// records its outcome, and returns (hadOutput, steered, busy, observedMark, err).
-// It does NOT advance the agent_cursor — processGroupMessages advances once
-// past the whole batch after all per-sender/per-topic turns close. busy=true means the
-// batch was not consumed — runed rejected admission, or the run failed and owes
-// a retry — so the caller must re-feed it, not advance.
+// runTurn dispatches ONE turn for a bot-stripped trigger batch and records its
+// outcome. It never advances the agent_cursor; busy=true means the batch was
+// not consumed and the caller must re-feed it, not advance.
 func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Message) (hadOutput, steered, busy bool, observedMark string, rerr error) {
 	last := trigger[len(trigger)-1]
-	// Elevation: a message cmdRoot registered in pendingElevation (operator-gated,
-	// unforgeable) raises THIS turn to root. One-shot — consumed here so a re-fed
-	// batch never re-elevates. Scan the whole batch (not just last) so batching
-	// with a sibling can't drop the signal.
+	// Elevation is one-shot and consumed here, so a re-fed batch never
+	// re-elevates; the whole batch is scanned so batching with a sibling cannot
+	// drop the signal.
 	elevated := false
 	for i := range trigger {
 		if _, ok := l.pendingElevation.LoadAndDelete(trigger[i].ID); ok {
 			elevated = true
 		}
 	}
-	// turn span + duration/count metric (spec 5/O). Trace ID derives from the
-	// turn ID so every daemon handling this turn shares one trace; the span ctx
-	// flows into dispatchRun so container_spawn/cross_daemon nest under it.
+	// The trace id derives from the turn id so every daemon handling this turn
+	// shares one trace (spec 5/O).
 	ctx := obs.WithTurn(context.Background(), l.instanceName, turnID)
 	ctx, endSpan := obs.StartSpan(ctx, "turn",
 		"folder", folder, "jid", chatJID, "turn_id", turnID)
@@ -376,10 +294,8 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 		obs.RecordTurn(folder, outcome, time.Since(start).Seconds())
 		endSpan(rerr)
 	}()
-	// Ghost-group guard. A route/engagement/sticky rule can point at a folder with no
-	// registered group row, whose home may be mis-owned, so the agent spawns
-	// config-less and silently never replies. Refuse loud, tell the chat, and consume
-	// the batch. Observe/web/hook targets never reach here.
+	// A rule can point at a folder with no group row, and a config-less spawn
+	// never replies: refuse loud, tell the chat, consume the batch.
 	if !l.db.GroupExists(folder) {
 		slog.Error("dispatch refused: unregistered group", "folder", folder, "jid", chatJID, "turn_id", turnID)
 		if l.deliver != nil {
@@ -387,11 +303,8 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 		}
 		return true, false, false, "", nil
 	}
-	// Pre-spawn budget gate. It reconciles the folder's team at the gateway —
-	// which the mint below needs to exist — and asks the meter whether either
-	// cap is spent. A gateway that will not answer fails the turn as a
-	// dependency outage: the batch re-feeds and the folder's breaker streak is
-	// left alone, the same shape as an unreachable runed. Spawning anyway would
+	// A gateway that will not answer fails the turn as a dependency outage (the
+	// batch re-feeds, the breaker streak is untouched); spawning anyway would
 	// run a turn no cap can stop.
 	msg, gerr := l.budgetGate(ctx, folder, turnCallerSub(last.Sender))
 	if gerr != nil {
@@ -400,30 +313,24 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 		return false, false, false, "", fmt.Errorf("%w: model gateway budget gate: %w",
 			queue.ErrDependencyDown, gerr)
 	}
-	// If a cap is spent, deliver a channel-visible refusal (no run dispatched)
-	// and consume the batch — return hadOutput=true so processGroupMessages
-	// advances the cursor past it.
+	// A spent cap delivers a refusal and consumes the batch.
 	if msg != "" {
 		if l.deliver != nil {
 			_, _ = l.deliver.Send(chatJID, msg, "", topic, "", "budget-"+turnID)
 		}
 		return true, false, false, "", nil
 	}
-	// Enqueue new_day / new_session system messages BEFORE building the prompt
-	// so buildAgentPrompt's FlushSysMsgs renders them this turn.
+	// BEFORE the prompt build, so FlushSysMsgs renders them this turn.
 	l.emitSystemEvents(folder, chatJID)
-	// The first turn in a previously-unseen topic auto-forks lineage from the
-	// topic of the message it replies to, falling back to "" (main). Copies the
-	// parent topic's Claude session so the child resumes from its tail.
+	// The first turn in a new topic forks lineage from the topic of the message
+	// it replies to; "" is main.
 	parent := ""
 	if last.ReplyToID != "" {
 		parent = l.db.TopicByID(last.ChatJID, last.ReplyToID)
 	}
 	l.ensureTopicWithFork(folder, topic, parent)
-	// Download inbound media + transcribe voice/video into the trigger before the
-	// prompt is built. Rewrites each row's content + persists via EnrichMessage so
-	// later turns' observed context sees the transcript too. No-op when
-	// MEDIA_ENABLED is off.
+	// Enrichment rewrites the trigger rows and persists them, so later turns'
+	// observed context sees the transcript too.
 	if l.media.Enabled {
 		ctx := context.Background()
 		for i := range trigger {
@@ -431,40 +338,33 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 		}
 	}
 	rendered, observedMark := l.buildAgentPrompt(folder, topic, trigger)
-	// A proactive turn carries one ephemeral <proactive_reason> block ahead of
-	// the feed, dropped after it is consumed so a re-fed turn does not re-attach
-	// a stale reason.
+	// Dropped once consumed, so a re-fed turn does not re-attach a stale reason.
 	if v, ok := l.pendingReason.LoadAndDelete(turnID); ok {
 		pr := v.(proactiveResult)
 		rendered = proactiveReasonBlock(pr.check, pr.reason) + rendered
 	}
-	// Inject retry note when this is a retry attempt (spec 5/12). The turn_context
-	// row exists from the failed prior attempt; read its retry_count.
+	// The turn_context row is the failed prior attempt's (spec 5/12).
 	if tc, ok := l.db.GetTurnContext(turnID); ok && tc.RetryCount > 0 {
 		rendered = retryNoteBlock(tc.RetryCount, l.maxTurnRetry) + rendered
 	}
 
-	// A delegated trigger carries forwarded_from = the origin chat JID; persist
-	// it as the turn's return address so reply/send/document deliver back to the
-	// origin, not the child folder JID the run addresses.
+	// forwarded_from is the turn's return address: reply/send/document deliver
+	// to the origin chat, not the child folder JID the run addresses.
 	live, err := l.db.PutTurnContext(turnID, folder, topic, chatJID, last.Sender, last.ForwardedFrom)
 	if err != nil {
 		return false, false, false, "", err
 	}
 	if !live {
-		// The turn already completed (a re-fed batch whose run is done). Skip
-		// re-dispatch so a sibling batch's steer doesn't replay finished output;
-		// report no-output/not-steered so the loop advances past it.
+		// A re-fed batch whose run is done: skip, so a sibling batch's steer
+		// does not replay finished output.
 		return false, false, false, "", nil
 	}
-	// Record the trigger message id so a threaded reply can root a new
-	// platform thread on it (replyThreadRoot).
+	// A threaded reply roots its platform thread on the trigger (replyThreadRoot).
 	_ = l.db.SetTurnTriggerMsg(turnID, last.ID)
 	_ = l.db.SetLastReply(chatJID, topic, last.ID, folder)
 
-	// Stand up the per-turn agent MCP socket in-process; stop() removes it when
-	// runTurn returns (dispatchRun is synchronous, so the socket lives for the
-	// whole run). routd and runed agree on the path via folders.IpcPath.
+	// The socket lives for the whole synchronous run; routd and runed agree on
+	// the path via folders.IpcPath.
 	if l.srv != nil {
 		if ipcDir, ierr := l.folders.IpcPath(folder); ierr == nil {
 			if stop, serr := l.srv.ServeTurnMCP(turnMCP{
@@ -477,21 +377,16 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 		}
 	}
 
-	// Write the per-spawn snapshots the in-container agent reads (current_tasks /
-	// available_groups JSON) right before dispatch. The all-groups/all-tasks view
-	// is a root privilege, so it tracks elevation — NOT folder shape (a top-level
-	// tenant is not root). A non-elevated turn sees only its own tasks and no
-	// groups list. Skip when no ipc dir is configured (REST/unit tests) so the
-	// write doesn't resolve to a relative path under cwd.
+	// The all-groups/all-tasks view is a root privilege: it tracks elevation,
+	// NOT folder shape. With no ipc dir (REST/unit tests) the write would
+	// resolve relative to cwd, so skip it.
 	if l.folders != nil && l.folders.IpcDir != "" {
 		container.WriteTasksSnapshot(l.folders, folder, elevated, l.db.Tasks(folder, elevated))
 		container.WriteGroupsSnapshot(l.folders, folder, elevated, slices.Collect(maps.Values(l.db.AllGroups())))
 	}
 
-	// Reset a long-idle session before the spawn reads it: a folder whose chat
-	// cursor is older than the idle threshold resumes from a stale Claude session
-	// the agent has long forgotten, so start fresh instead. Isolated (timed) runs
-	// carry no session lineage, so skip them.
+	// A chat idle past the threshold would resume a session the agent has long
+	// forgotten. Isolated runs carry no session lineage.
 	if !core.IsIsolatedSender(last.Sender) {
 		if sid := l.db.SessionID(folder, topic); sid != "" && l.sessionIdleExpired(chatJID) {
 			slog.Info("session: resetting on idle expiry",
@@ -500,18 +395,11 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 		}
 	}
 
-	// This turn's own virtual key at the model gateway (spec 6/23). It carries
-	// the run ceiling as a TTL and the two coordinates the meter attributes by —
-	// the folder as its team, the caller as its user — so the container holds a
-	// credential that buys this turn and nothing after it, charged to the folder
-	// whose cap the gate just reconciled. Revoking it is the deferred delete
-	// below. The alias ends in random hex because a retry re-dispatches the SAME
-	// turn_id and the gateway would otherwise be asked for a key it already has.
-	//
-	// A gateway that will not mint fails the turn as a dependency outage: the
-	// batch re-feeds and the folder's breaker streak is left alone (the same
-	// shape as an unreachable runed). Spawning anyway would put a container on
-	// the network with no model credential at all.
+	// The turn's own virtual key at the model gateway (spec 6/23): TTL = the run
+	// ceiling, attributed to the folder and the caller, revoked by the deferred
+	// delete. The alias ends in random hex because a retry re-dispatches the
+	// SAME turn_id. A gateway that will not mint is a dependency outage: the
+	// batch re-feeds, the breaker streak is untouched.
 	var gwKey turnKey
 	if l.gateway != nil {
 		k, gerr := l.gateway.mint(ctx, "arizuko-"+turnID+"-"+randHex(4),
@@ -523,10 +411,8 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 				queue.ErrDependencyDown, gerr)
 		}
 		gwKey = k
-		// Which key metered the turn is the turn's own identity, and it is the
-		// handle GET /v1/cost?turn_id= resolves to ask the gateway what this turn
-		// cost. Recorded before the spawn: a routd that dies mid-run must still
-		// leave the turn pointing at the key that was spending for it.
+		// GET /v1/cost?turn_id= resolves this. Recorded before the spawn: a routd
+		// that dies mid-run must still leave the turn pointing at its key.
 		if err := l.db.SetTurnGatewayKey(turnID, gwKey.Hash); err != nil {
 			slog.Error("turn's gateway key not recorded; its cost becomes unreadable",
 				"folder", folder, "turn_id", turnID, "err", err)
@@ -541,9 +427,7 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 
 	slog.Info("dispatch run", "folder", folder, "topic", topic, "turn_id", turnID,
 		"chat_jid", chatJID, "trigger", last.Sender)
-	// Type on the chat that RECEIVES the reply: for a delegated/forwarded turn
-	// that's the origin (ForwardedFrom), not the child folder JID the run
-	// addresses (which usually has no presence channel).
+	// Type on the chat that RECEIVES the reply: the origin for a forwarded turn.
 	typingJID := chatJID
 	if last.ForwardedFrom != "" {
 		typingJID = last.ForwardedFrom
@@ -552,12 +436,9 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 		_ = l.deliver.Typing(typingJID, true)
 	}
 	out, derr := l.dispatchRun(ctx, folder, topic, chatJID, turnID, last.Sender, rendered, elevated, gwKey.Key)
-	// For steered turns the container is still processing — appendAndDeliver clears
-	// typing when content lands. Otherwise clear now, for EVERY chat this run owns.
-	// A turn steered into this run handed its indicator to a submit_turn that never
-	// arrives when the run dies at the timeout wall, and steering is by FOLDER, so
-	// that turn's chat is not always this one — the twenty-minute "typing…" a user
-	// reported (BUGS T1).
+	// A steered turn's indicator is appendAndDeliver's. Otherwise clear it for
+	// EVERY chat this run owns: steering is by FOLDER, so a steered turn's chat
+	// is not always this one (BUGS T1).
 	if l.deliver != nil && !out.Steered {
 		for _, jid := range l.chatsOwnedBy(typingJID, out.RunID) {
 			_ = l.deliver.Typing(jid, false)
@@ -566,31 +447,25 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 	if derr != nil {
 		slog.Warn("dispatch run transport failure", "folder", folder, "turn_id", turnID, "err", derr)
 		if runedUnreachable(derr) {
-			// runed never answered, so nothing ran and this folder failed at
-			// nothing. Tag it so the queue's breaker leaves the group's streak
-			// alone (BUGS C9); the batch re-feeds next poll either way.
+			// Nothing ran: the queue's breaker leaves the folder's streak alone
+			// (BUGS C9); the batch re-feeds next poll either way.
 			derr = fmt.Errorf("%w: %w", queue.ErrDependencyDown, derr)
 		}
 		return false, false, false, "", derr
 	}
 	if out.Busy {
-		// runed rejected admission and keeps no internal queue. Neither an error nor
-		// a run: leave turn_context 'running' and the cursor un-advanced so the poll
-		// loop re-dispatches, bounded by the poll interval and NOT counted toward the
-		// breaker.
+		// runed keeps no internal queue: leave turn_context running and the
+		// cursor un-advanced, not counted toward the breaker.
 		slog.Debug("dispatch run busy — runed at capacity, retry next poll", "folder", folder, "turn_id", turnID)
 		return false, false, true, "", nil
 	}
-	// Persist the runed-assigned run_id for reconciliation (turn_context.run_id).
 	if out.RunID != "" {
 		_ = l.db.SetTurnRunID(turnID, out.RunID)
 	}
 	if out.Steered {
-		// The batch was written into the folder's already-live container; the
-		// original run owns it and will submit_turn under ITS turn_id. Mark THIS
-		// turn_context done so a re-fed poll (or recoverPending after a restart)
-		// sees it terminal and skips re-dispatch — else it re-runs as a fresh
-		// spawn and duplicates the output.
+		// The original run owns the batch and submits under ITS turn_id. THIS
+		// turn is done, or a re-fed poll / recoverPending re-spawns it and
+		// duplicates the output.
 		if err := l.db.SetTurnState(turnID, "done"); err != nil {
 			slog.Error("processGroupMessages: SetTurnState(done) failed on steer; turn may appear stuck and be re-dispatched, duplicating output",
 				"turn_id", turnID, "err", err)
@@ -598,15 +473,12 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 		_ = l.db.SetRunReturned(turnID)
 		return true, true, false, "", nil
 	}
-	// POST /v1/runs has returned: close the callback surface so a late frame
-	// 409s, even if an early submit_turn already flipped state→done.
+	// Close the callback surface so a late frame 409s, even if an early
+	// submit_turn already flipped state→done.
 	_ = l.db.SetRunReturned(turnID)
 	if out.Outcome == runedv1.OutcomeError {
-		// The run failed. Check if we can retry: a turn that died without
-		// delivering a reply (SIGKILL/OOM/timeout) gets rescheduled up to
-		// maxTurnRetry times before we give up and notify the user. A failure
-		// runed marked Terminal is never retried — a retry cannot repair a
-		// misconfiguration and only burns spawns (spec 5/12).
+		// A turn that died without a reply retries up to maxTurnRetry. A Terminal
+		// failure never retries: it cannot repair a misconfiguration (spec 5/12).
 		tc, _ := l.db.GetTurnContext(turnID)
 		hasBotReply := l.db.TurnHasBotReply(tc.ChatJID, turnID)
 		if !out.Terminal && !hasBotReply && tc.RetryCount < l.maxTurnRetry {
@@ -614,40 +486,30 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 			if err == nil {
 				slog.Warn("turn failed without reply, scheduling retry",
 					"folder", folder, "turn_id", turnID, "retry", newCount, "max", l.maxTurnRetry)
-				// The re-feed IS the retry: busy=true holds the cursor on this
-				// batch, the next poll re-dispatches it on the busy backoff, and
-				// the re-bind puts the turn back in flight. The no-op shape
-				// advanced the cursor first, so every retry the fleet logged woke
-				// a poll with nothing left to retry (BUGS L75a).
+				// The re-feed IS the retry: busy=true holds the cursor on this batch.
+				// Advancing first woke a poll with nothing left to retry (BUGS L75a).
 				return false, false, true, "", nil
 			}
 		}
-		// Final failure: all retries exhausted or agent did reply (partial is OK).
+		// Final failure: retries exhausted, or a partial reply exists.
 		slog.Warn("run outcome error", "folder", folder, "turn_id", turnID, "err", out.Error,
 			"retry_count", tc.RetryCount)
 		_ = l.db.MarkChatErrored(chatJID)
 		_ = l.db.MarkMessagesErrored(trigger)
 		if l.deliver != nil {
 			notice := runFailureNotice
-			// Use retry-exhausted notice only when retries were actually attempted.
 			if !hasBotReply && tc.RetryCount > 0 && tc.RetryCount >= l.maxTurnRetry {
 				notice = retryExhaustedNotice(l.maxTurnRetry)
 			}
-			// A terminal failure names the real cause: the generic text
-			// hides a misconfiguration an operator must fix (spec 5/12).
+			// A terminal failure names the real cause (spec 5/12).
 			if out.Terminal {
 				notice = terminalFailureNotice(out.Error)
 			}
-			// Every chat this run owed an answer to, not just this turn's. A
-			// follow-up steered into the live container was marked done and
-			// returned long before the run died, so its chat waits on a
-			// submit_turn that never comes: the message was accepted and
-			// produced neither a reply nor an error (BUGS T2). Same fan-out the
-			// typing clear uses. Only the primary carries the topic — a thread
-			// id is local to its own chat, so the rest land in the chat's main
-			// thread instead of an unrelated thread there. The idempotency key
-			// is per destination or the adapter dedups the fan-out into one
-			// delivery.
+			// Every chat this run owed an answer to: a follow-up steered into the
+			// live container was marked done long before the run died (BUGS T2).
+			// Only the primary carries the topic — a thread id is local to its
+			// chat. The idempotency key is per destination, or the adapter dedups
+			// the fan-out into one delivery.
 			for _, jid := range l.chatsOwnedBy(chatJID, out.RunID) {
 				thread := ""
 				if jid == chatJID {
@@ -660,23 +522,17 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 			slog.Error("processGroupMessages: SetTurnState(done) failed on terminal failure; turn may appear stuck in-progress",
 				"turn_id", turnID, "err", err)
 		}
-		// The breaker rides only on the run that trips it (runed reports
-		// BreakerOpen on that run's outcome). When set, prune the chat's errored
-		// rows + clear the folder session.
+		// The breaker rides only on the run that trips it.
 		if out.BreakerOpen {
 			l.onCircuitBreakerOpen(chatJID, folder)
 		}
 		return false, false, false, "", nil
 	}
-	// Clean turn-boundary outcome.
 	recorded := l.db.TurnResultRecorded(folder, turnID)
 	l.persistSessionBackstop(folder, topic, turnID, last.Sender, out, recorded)
-	// Silent turn: a clean run that recorded neither a result nor a bot reply
-	// delivered nothing — the user saw typing then silence. Deliberate silence
-	// still records a result (ant calls deliverTurn on every result event,
-	// think-only included), so this fires only on a real malfunction: a 0-result
-	// SDK run, a config-less spawn, a swallowed submit_turn. Not transient — never
-	// retry; surface it loud AND to the chat so it can never be invisible again.
+	// Deliberate silence still records a result, so this fires only on a
+	// malfunction: a 0-result SDK run, a config-less spawn, a swallowed
+	// submit_turn. Not transient — never retry; tell the chat.
 	if out.Outcome == runedv1.OutcomeOK && !recorded && !l.db.TurnHasBotReply(chatJID, turnID) {
 		slog.Error("silent turn: clean run delivered nothing",
 			"folder", folder, "turn_id", turnID, "jid", chatJID)
@@ -686,9 +542,8 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 		}
 	}
 	obs.SetCircuitBreakerState(folder, 0) // 0=closed: a clean run clears the breaker
-	// A clean run clears the chat's errored flag too: the flag is a claim about
-	// NOW, and without the dual it is monotonic for the life of the instance
-	// (BUGS L304). Not the cursor advance — the failure path takes that as well.
+	// The errored flag is a claim about NOW; without this dual it is monotonic
+	// for the life of the instance (BUGS L304).
 	_ = l.db.ClearChatErrored(chatJID)
 	if err := l.db.SetTurnState(turnID, "done"); err != nil {
 		slog.Error("processGroupMessages: SetTurnState(done) failed on clean completion; turn may appear stuck in-progress",
@@ -698,9 +553,8 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 }
 
 // ensureTopicWithFork ensures (folder, topic) has a sessions row and, when
-// newly inserted, copies the parent topic's Claude Code session file so the
-// child resumes from the parent's tail. Failures are logged but never block the
-// turn — the child simply starts fresh. parent="" forks from main.
+// newly inserted, copies the parent topic's session so the child resumes from
+// its tail. Failures never block the turn; parent="" forks from main.
 func (l *Loop) ensureTopicWithFork(folder, topic, parent string) {
 	childUUID := core.NewSessionID()
 	inserted, err := l.db.EnsureTopicLineage(folder, topic, parent, childUUID)
@@ -715,14 +569,10 @@ func (l *Loop) ensureTopicWithFork(folder, topic, parent string) {
 	l.inheritParentSession(folder, parent, topic, childUUID)
 }
 
-// inheritParentSession gives a freshly-forked topic its context: it copies the
-// parent's Claude Code transcript under childUUID and, when it cannot, clears the
-// child's observed cursor.
-//
-// Both halves are one rule. A fork stamps observed_cursor=now so the child reads
-// only post-fork context, which is right ONLY while the transcript carries the
-// rest. With no transcript that stamp left the child blind on both axes (BUGS
-// L54). Every fork path goes through here so the rule cannot drift.
+// inheritParentSession copies the parent's transcript under childUUID or, when
+// it cannot, clears the child's observed cursor. Both halves are one rule: the
+// fork's observed_cursor=now stamp is right ONLY while a transcript carries
+// the rest (BUGS L54). Every fork path goes through here.
 func (l *Loop) inheritParentSession(folder, parent, childTopic, childUUID string) {
 	if l.copyParentSession(folder, parent, childUUID) {
 		return
@@ -733,11 +583,8 @@ func (l *Loop) inheritParentSession(folder, parent, childTopic, childUUID string
 	}
 }
 
-// copyParentSession looks up the parent topic's session_id and copies its
-// Claude Code session jsonl to childUUID. Reports whether the child now owns a
-// resumable transcript: false when the parent has no session yet (cold-start
-// main) or the copy failed. Failures log WARN and proceed — inheritParentSession
-// restores the child's observed window instead.
+// copyParentSession reports whether the child now owns a resumable transcript:
+// false when the parent has no session yet or the copy failed.
 func (l *Loop) copyParentSession(folder, parent, childUUID string) bool {
 	parentUUID, ok := l.db.GetSession(folder, parent)
 	if !ok || parentUUID == "" {
@@ -758,12 +605,10 @@ func (l *Loop) copyParentSession(folder, parent, childUUID string) bool {
 	return copied
 }
 
-// persistSessionBackstop records the session runed reported as the topic's
-// session, so the next turn resumes it. Two cases skip the write: submit_turn
-// already recorded one (the agent's value wins), and an isolated run — which
-// resumes nothing and so becomes nothing. runed mints a throwaway session for an
-// isolated spawn, and installing that would hand the chat the transcript a cron
-// ran in (BUGS L54). recordTurnResult applies the same rule on its own path.
+// persistSessionBackstop records the session runed reported as the topic's,
+// unless submit_turn already recorded one or the run was isolated: runed mints
+// a throwaway session for an isolated spawn, and installing it hands the chat
+// a cron's transcript (BUGS L54). recordTurnResult applies the same rule.
 func (l *Loop) persistSessionBackstop(
 	folder, topic, turnID, trigger string, out runedv1.RunOutcome, recorded bool,
 ) {
@@ -776,10 +621,8 @@ func (l *Loop) persistSessionBackstop(
 	}
 }
 
-// consecutiveRuns splits msgs into consecutive same-key runs, preserving causal
-// order: A,B,A yields [A],[B],[A], not [A,A],[B]. Regrouping the whole slice by
-// key would reorder a conversation's turns — across senders for a group chat,
-// across topics for the web: per-topic dispatch.
+// consecutiveRuns splits msgs into consecutive same-key runs: A,B,A yields
+// [A],[B],[A]. Regrouping the whole slice by key would reorder the conversation.
 func consecutiveRuns(msgs []core.Message, key func(core.Message) string) [][]core.Message {
 	if len(msgs) == 0 {
 		return nil
@@ -798,12 +641,9 @@ func groupByTopic(msgs []core.Message) [][]core.Message {
 	return consecutiveRuns(msgs, func(m core.Message) string { return m.Topic })
 }
 
-// chatsOwnedBy lists the chats a finished run owed something to: primary (this
-// turn's, resolved before the run so it holds even when the run reported no id)
-// plus every chat of a turn recorded against runID. Duplicates are dropped so
-// an adapter is not told twice. Two consumers read it — the run-end typing
-// clear and the failure notice — and they must agree, or the half that goes
-// quiet is the half that tells the user something.
+// chatsOwnedBy lists the chats a finished run owed something to: primary plus
+// every chat of a turn recorded against runID, deduplicated. The typing clear
+// and the failure notice both read it and must agree.
 func (l *Loop) chatsOwnedBy(primary, runID string) []string {
 	jids := []string{primary}
 	if runID == "" {
@@ -817,33 +657,26 @@ func (l *Loop) chatsOwnedBy(primary, runID string) []string {
 	return jids
 }
 
-// runFailureNotice is sent to the chat when a run returns outcome:error and
-// produced no usable output, so the user isn't left silent.
+// runFailureNotice is sent when a run returns outcome:error with no usable output.
 const runFailureNotice = "Failed: agent error on that message. Try rephrasing or send a different message."
 
-// retryExhaustedNotice is sent when all retry attempts are exhausted without a
-// reply (spec 5/12 turn-retry). The count comes from the SAME value that
-// governs the retries (MAX_TURN_RETRY); it was a literal "3" and told an
-// operator running MAX_TURN_RETRY=2 that the agent had tried three times.
+// retryExhaustedNotice is sent when every retry ended without a reply (spec
+// 5/12). The count is the value that governs the retries, never a literal.
 func retryExhaustedNotice(attempts int) string {
 	return fmt.Sprintf("⚠️ Agent couldn't complete this request after %d attempts.", attempts)
 }
 
-// terminalFailureNotice is sent when runed marks a failure terminal
-// (RunOutcome.Terminal): a retry cannot repair it, so the notice carries
-// runed's error text and names the real cause — for example a bad agent
-// image — instead of the generic failure text (spec 5/12, BUGS F73).
+// terminalFailureNotice carries runed's error text: a retry cannot repair a
+// terminal failure, so the notice names the cause (spec 5/12, BUGS F73).
 func terminalFailureNotice(cause string) string {
 	return "⚠️ Agent run failed and a retry cannot fix it: " + cause
 }
 
-// silentTurnNotice is sent when a clean run delivered nothing — no turn result,
-// no bot reply. A malfunction (config-less spawn, 0-result run), not deliberate
-// silence (which records a result). See runTurn's clean-outcome epilogue.
+// silentTurnNotice is sent when a clean run delivered nothing — a malfunction,
+// not deliberate silence, which records a result.
 const silentTurnNotice = "⚠️ I couldn't produce a reply to that — please re-send."
 
-// ghostGroupNotice is sent when a chat routes to a folder with no registered
-// group row (a ghost route). See runTurn's ghost-group guard.
+// ghostGroupNotice is sent when a chat routes to a folder with no group row.
 const ghostGroupNotice = "⚠️ This chat routes to a group that isn't set up — an operator needs to register it."
 
 // retryNoteBlock renders the system note injected on retry attempts.
@@ -853,9 +686,8 @@ func retryNoteBlock(attempt, max int) string {
 		"Be conservative with resource usage.</system-note>\n", attempt+1, max)
 }
 
-// jidScheme returns the JID scheme (telegram|slack|discord|web) — the
-// per-surface output-style selector — or "" for a bare folder / scheme-less JID
-// (operator/timed/auto-migrate), which must map to the default style.
+// jidScheme returns the JID scheme — the per-surface output-style selector —
+// or "" for a scheme-less JID, which maps to the default style.
 func jidScheme(jid string) string {
 	if s, _, ok := strings.Cut(jid, ":"); ok {
 		return s
@@ -863,51 +695,42 @@ func jidScheme(jid string) string {
 	return ""
 }
 
-// dispatchRun renders the run request and calls runed POST /v1/runs. The agent's
-// conversation frames arrive out-of-band during the run via the callbacks; this
-// returns the turn-boundary outcome. turnCallerSub renders "who is this turn
-// acting on behalf of" from its trigger — the ONE rule, so spawn-time secret
-// resolution, per-tool-call connector secrets, the budget gate and cost
-// attribution cannot diverge. A timed or system trigger resolves to routd itself.
-//
-// Every other sender passes through VERBATIM. An allowlist of authd schemes used
-// to stand here and emptied `user_sub` in all 7188 cost_log rows the fleet had
-// ever written (BUGS L69). Only the CAP lookup needs a user_profiles row, and a
-// missing row already means uncapped.
-//
-// This is deliberately NOT the tool-call authorization principal: that asks "what
-// may be done HERE", answered by folder:<path> (BUGS B2).
+// turnCallerSub is the ONE rule for "who is this turn acting on behalf of":
+// spawn-time secrets, connector secrets, the budget gate and cost attribution
+// all read it. A timed or system trigger resolves to routd itself; every other
+// sender passes VERBATIM — filtering by scheme empties `user_sub` in cost_log
+// (BUGS L69). It is NOT the tool-call authorization principal, which is
+// folder:<path> (BUGS B2).
 func turnCallerSub(trigger string) string {
-	// `timed` is matched EXACTLY as well as by prefix: timed/split.go sends a
-	// plain "timed" for a group-context task and "timed-isolated:<id>" for an
-	// isolated one, and "timed" does not carry the "timed-" prefix.
+	// timed/split.go sends a plain "timed" for a group-context task, which does
+	// not carry the "timed-" prefix.
 	if trigger == "" || trigger == "timed" || strings.HasPrefix(trigger, "timed-") || strings.HasPrefix(trigger, "system") {
 		return "service:routd"
 	}
 	return trigger
 }
 
-// runedUnreachable reports whether err means routd never reached runed at all:
-// the connect phase failed, so no run happened. That is compose boot order or a
-// runed restart, not a verdict on the folder.
-//
-// A *runedv1.APIError is excluded explicitly — runed took the request and answered
-// with a refusal, which IS attributable. Deliberately narrow: a mid-run context
-// deadline also surfaces as a bare error, but the run DID start.
+// runedUnreachable reports whether routd never reached runed: nothing ran, so
+// the failure is boot order or a restart, not a verdict on the folder. An
+// APIError is a refusal runed answered, which IS attributable; a mid-run
+// deadline is also a bare error but the run DID start, so this stays narrow.
 func runedUnreachable(err error) bool {
 	var apiErr *runedv1.APIError
 	if errors.As(err, &apiErr) {
 		return false
 	}
-	// The service name has no A record yet (compose brings runed up after routd).
+	// No A record yet: compose brings runed up after routd.
 	var dnsErr *net.DNSError
 	if errors.As(err, &dnsErr) {
 		return true
 	}
-	// The name resolves but nothing is listening on :8080 yet.
+	// The name resolves but nothing listens on :8080 yet.
 	return errors.Is(err, syscall.ECONNREFUSED)
 }
 
+// dispatchRun renders the run request and calls runed POST /v1/runs. The
+// conversation frames arrive out-of-band via the callbacks; this returns the
+// turn-boundary outcome.
 func (l *Loop) dispatchRun(ctx context.Context, folder, topic, chatJID, turnID, trigger, batch string, elevated bool, gatewayKey string) (runedv1.RunOutcome, error) {
 	var cancel context.CancelFunc
 	if l.runTimeout > 0 {
@@ -915,12 +738,9 @@ func (l *Loop) dispatchRun(ctx context.Context, folder, topic, chatJID, turnID, 
 		defer cancel()
 	}
 	caller := types.UserSub(turnCallerSub(trigger))
-	// An isolated scheduled task runs with NO `--resume` (specs/4/8
-	// §"Implemented beyond base spec"). Passing the group's session id anyway
-	// resumed the chat transcript and then appended the task's whole tool-heavy
-	// run to it, so a folder's crons wrote themselves into the conversation the
-	// people in that chat were having, and Claude Code compacted the humans out
-	// first. sloth's #trading transcript was 8 cron turns to 4 human ones.
+	// An isolated scheduled task runs with NO `--resume` (specs/4/8): resuming
+	// the chat session appends the cron's tool-heavy run to the humans'
+	// conversation, and compaction drops the humans first.
 	isolated := core.IsIsolatedSender(trigger)
 	sessionID := ""
 	if !isolated {
@@ -930,40 +750,29 @@ func (l *Loop) dispatchRun(ctx context.Context, folder, topic, chatJID, turnID, 
 	if model == "" {
 		model = l.defaultModel
 	}
-	// Resolve the per-folder grant rules + egress allowlist HERE (routd is the
-	// authz plane; runed has neither store) and ship them so runed can attach the
-	// spawn to its own egress network + honor share_mount. nil allowlist on error
-	// is fine — runed treats empty as no-extra-constraint.
+	// routd is the authz plane; runed has neither store. nil allowlist on error
+	// is fine — runed treats empty as no extra constraint.
 	allowlist, _ := l.db.ResolveAllowlist(folder)
-	// Container env carries the trigger user's OWN model credentials (BYOA) and
-	// the capability credentials a grant names below: a web-chat user's
-	// ANTHROPIC_API_KEY shadows the operator anchor for their spawn. An UNGRANTED
-	// folder credential does not ride along — it reaches a tool only through the MCP
-	// broker, per call, narrowed to the connector's declared secrets= list (spec 5/13
-	// §Trust model). routd decrypts here (it holds SECRETS_KEY); runed injects.
+	// Container env carries the caller's OWN model credentials (BYOA). An
+	// UNGRANTED folder credential reaches a tool only through the MCP broker,
+	// per call (spec 5/13 §Trust model). routd decrypts (it holds SECRETS_KEY);
+	// runed injects.
 	secrets := l.db.EnvProfileSecrets(string(caller))
-	// The third tier (5/13 §Trust model): a folder capability credential an explicit
-	// `shell:env:<KEY>` grant makes readable from the agent's own shell, because a CLI
-	// the agent drives itself has no tool call to broker. No grant row adds nothing,
-	// so every folder starts where it did before this line existed.
+	// The third tier (5/13 §Trust model): an explicit `shell:env:<KEY>` grant
+	// makes a folder credential readable from the agent's own shell, because a
+	// CLI the agent drives has no tool call to broker.
 	shellEnv := l.db.ShellEnvSecrets(folder, string(caller))
 	maps.Copy(secrets, shellEnv)
-	// 5/33: mounts/egress/web are GRANTS, not tier. routd resolves the three
-	// container-capability booleans from the folder's acl rows and ships them typed,
-	// so runed consumes a decision, not a rule bundle. An elevated /root turn holds
-	// `*`; role:member grants none, so a plain folder runs with a writable share,
-	// constrained egress, and no web surface until an operator delegates.
+	// mounts/egress/web are GRANTS, not tier (5/33): runed consumes a decision,
+	// not a rule bundle. An elevated turn holds `*`; role:member grants none.
 	sub := "folder:" + folder
 	shareRO := !elevated && l.db.Authorize(sub, folder, "mcp:share_mount", map[string]string{"readonly": "true"})
 	egress := elevated || l.db.Authorize(sub, folder, "egress", nil)
 	webPublish := elevated || l.db.Authorize(sub, folder, "web:publish", nil)
 	ghWrite := elevated || l.db.Authorize(sub, folder, "gh:write", nil)
-	// A denied capability is otherwise unattributable: web:publish=false makes
-	// container/runner skip both web bind mounts, so the agent finds no
-	// ~/public_html and reports a broken mount. An agent in rhias/nemo spent a
-	// session on that misdiagnosis and filed it four times because the host had
-	// nothing to grep. This line IS the signal — one per spawn, with the folder
-	// and every decision, so an absent surface points at its missing grant.
+	// This line IS the signal for a denied capability: web:publish=false makes
+	// the runner skip the web mounts and the agent reports a broken mount;
+	// without it the host has nothing to grep.
 	slog.Info("dispatch capabilities resolved",
 		"folder", folder, "turn_id", turnID, "elevated", elevated,
 		"egress", egress, "share_readonly", shareRO, "web_publish", webPublish,
@@ -973,12 +782,9 @@ func (l *Loop) dispatchRun(ctx context.Context, folder, topic, chatJID, turnID, 
 		Folder:  types.Folder(folder),
 		Topic:   topic,
 		ChatJID: chatJID,
-		// Channel = the JID scheme (telegram|slack|discord|web) so the container
-		// picks the per-surface output style. gated derived this; the split dropped
-		// it → every channel got default formatting (markdown unrendered on
-		// Telegram, etc.). A bare-folder/operator/timed JID (no scheme) yields ""
-		// → default style; SplitN would wrongly return the whole folder path as a
-		// bogus style name, so use jidScheme.
+		// The JID scheme picks the per-surface output style; a scheme-less JID
+		// yields "" → default. SplitN would hand back the folder path as a
+		// style name, so jidScheme.
 		Channel:       jidScheme(chatJID),
 		SessionID:     sessionID,
 		MessageBatch:  batch,
@@ -986,8 +792,7 @@ func (l *Loop) dispatchRun(ctx context.Context, folder, topic, chatJID, turnID, 
 		CallerSub:     caller,
 		TurnID:        turnID,
 		Model:         model,
-		// Reasoning depth is instance-wide: no per-group override exists, and an
-		// empty value leaves the harness CLI's own default (high) in place.
+		// Instance-wide; empty leaves the harness CLI's own default (high).
 		Effort:          l.defaultEffort,
 		ContainerConfig: containerCfg,
 		Isolated:        isolated,
@@ -998,8 +803,7 @@ func (l *Loop) dispatchRun(ctx context.Context, folder, topic, chatJID, turnID, 
 		GHWrite:         ghWrite,
 		EgressAllowlist: allowlist,
 		Secrets:         secrets,
-		// The turn's own gateway credential, resolved here for the same reason
-		// Secrets is: routd holds what mints it, runed injects what it is given.
+		// routd holds what mints it; runed injects what it is given.
 		ModelGatewayKey: gatewayKey,
 	})
 }

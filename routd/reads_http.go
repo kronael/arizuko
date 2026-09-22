@@ -12,26 +12,17 @@ import (
 	"github.com/kronael/arizuko/routd/msgsearch"
 )
 
-// reads_http.go is routd's REST read/manage surface (message reads + routing +
-// cost; engagement has its own file, engagement_http.go) — the REST twin of the agent's in-process MCP StoreFns
-// (routd/mcp.go), for humans / external tools. NOT turn-scoped; authz bounds
-// reads to the bearer token's folder claim.
+// reads_http.go is routd's REST read/manage surface — the REST twin of the
+// agent's in-process MCP StoreFns (routd/mcp.go), for humans / external tools.
+// NOT turn-scoped; authz bounds reads to the bearer token's folder claim.
 
-// scopeRoutesRead/Write match the route-CRUD scopes; engagement is a
-// routing-state write owned by the caller's folder.
 var (
-	// scopeRead gates the message reads: the agent (own_group) scope plus the
-	// broader operator/service scopes that also grant it (any-of match).
 	scopeRead        = []string{"chats:read:own_group", "chats:read", "messages:read"}
 	scopeRoutesRead  = []string{"routes:read", "routes:read:own_group"}
 	scopeRoutesWrite = []string{"routes:write", "routes:write:own_group"}
-	// External-cost accounting is its own capability — NOT messages:send (codex
-	// review: don't couple cost-write to outbound conversation). Agents log cost
-	// this REST path is for service
-	// callers that hold cost:write.
-	scopeCost = []string{"cost:write", "cost:write:own_group"}
-	// Reading a turn's spend is the read half of the same capability (anteval's
-	// token budgets, operator cost tooling) — cost:read, not messages:read.
+	// Cost accounting is its own capability, NOT messages:send: cost-write is
+	// never coupled to outbound conversation.
+	scopeCost     = []string{"cost:write", "cost:write:own_group"}
 	scopeCostRead = []string{"cost:read", "cost:read:own_group"}
 )
 
@@ -111,8 +102,8 @@ func (s *Server) handleFindMessages(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "bad_request", "query required")
 		return
 	}
-	// Confine a folder-scoped caller to its subtree: empty scope defaults to the
-	// token folder; an explicit scope (chat jid or folder subtree) must be owned.
+	// A folder-scoped caller is confined to its subtree: an empty scope
+	// defaults to the token folder; an explicit one must be owned.
 	scope := r.URL.Query().Get("scope")
 	if folder != "" {
 		switch {
@@ -134,9 +125,7 @@ func (s *Server) handleFindMessages(w http.ResponseWriter, r *http.Request) {
 	hits, err := s.db.FindMessages(q, scope,
 		r.URL.Query().Get("sender"), r.URL.Query().Get("since"), limit)
 	if err != nil {
-		// A warming index is a wait, not a fault: the caller may retry and the
-		// answer will be complete, so it reads as unavailable rather than as a
-		// store that broke.
+		// A warming index is a wait, not a fault: unavailable, not broken.
 		if errors.Is(err, msgsearch.ErrWarming) {
 			writeErr(w, 503, "index_warming", err.Error())
 			return
@@ -224,18 +213,10 @@ func (s *Server) handleSessionGet(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleCostSummary answers GET /v1/cost/summary?folder=&since= — what the
-// model gateway metered per folder over a window (spec 6/39). arizuko keeps no
-// spend of its own, so this is a proxied read: the gateway is the ledger and
-// this is the one place every operator surface reaches it, which is what stops
-// the dashboard and the CLI showing two different numbers.
-//
-// An instance with no gateway has no meter, and the reply says so rather than
-// reporting a zero that reads like "nothing was spent".
-//
-// The token's folder claim narrows the result the same way every other read
-// here does: an empty claim (root / service) sees everything, a folder-scoped
-// token sees only its own subtree, and a caller asking for a folder outside its
-// claim is refused rather than silently narrowed.
+// gateway metered per folder over a window (spec 6/39), the one place every
+// operator surface reaches the ledger. An instance with no gateway says so
+// rather than reporting a zero that reads like "nothing was spent". The folder
+// claim narrows the result as every other read here does.
 func (s *Server) handleCostSummary(w http.ResponseWriter, r *http.Request) {
 	_, tokenFolder, ok := s.authz(w, r, scopeCostRead...)
 	if !ok {
@@ -251,8 +232,7 @@ func (s *Server) handleCostSummary(w http.ResponseWriter, r *http.Request) {
 	}
 	since := r.URL.Query().Get("since")
 	if since == "" {
-		// A summary with no window would report a lifetime total as if it were
-		// current.
+		// A summary with no window would report a lifetime total as current.
 		writeErr(w, 400, "bad_request", "since required (RFC3339)")
 		return
 	}
@@ -288,12 +268,9 @@ func gatewayDay(ts string) string {
 }
 
 // handleCostGet answers GET /v1/cost?turn_id= — what the gateway charged the
-// key that ran one turn. arizuko stores which key metered the turn, never the
-// number, so this resolves the pointer and asks (spec 6/39). anteval reads it
-// as the settle barrier between cases and as the max_tokens budget.
-//
-// 404 means no meter holds a number for this turn: it ran with no gateway, or
-// the gateway has not flushed its usage rows yet.
+// key that ran one turn; arizuko stores the pointer, never the number (spec
+// 6/39). 404: the turn ran with no gateway, or the gateway has not flushed its
+// usage rows yet.
 func (s *Server) handleCostGet(w http.ResponseWriter, r *http.Request) {
 	_, tokenFolder, ok := s.authz(w, r, scopeCostRead...)
 	if !ok {

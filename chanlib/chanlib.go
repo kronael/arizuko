@@ -25,12 +25,9 @@ import (
 // maxRouterResponseBytes caps decoded router responses to guard against OOM.
 const maxRouterResponseBytes = 10 << 20
 
-// UserAgent is sent on outbound requests. Reddit requires one; Mastodon and
-// Bluesky use it for rate-limit attribution.
-// UserAgent names arizuko to a third party. It carries NO version: the number
-// here froze at 0.54.0 while fourteen releases shipped, so it told GitHub
-// something false, and a second copy of the version is a second thing to keep in
-// step with the one in the docs.
+// UserAgent names arizuko to a third party (Reddit requires one). It carries
+// NO version: a frozen number told GitHub something false, and a second copy
+// of the version is a second thing to keep in step.
 const UserAgent = "arizuko (+https://github.com/kronael/arizuko)"
 
 // MaxAdapterJSONBody caps inbound JSON bodies at adapters.
@@ -59,34 +56,22 @@ type InboundMsg struct {
 	// Reaction carries the source emoji when Verb is "like" or "dislike"
 	// triggered by an inbound reaction event. Empty for content messages.
 	Reaction string `json:"reaction,omitempty"`
-	// IsGroup classifies the chat: true for group chats / channels /
-	// public threads, false for DMs / 1:1 threads / chat. The router
-	// upserts it onto chats.is_group, where routd reads it to pick the
-	// reply shape — a group gets its answer on a platform thread rooted
-	// at the trigger, a DM does not. Adapters set this on every inbound
-	// — the latest classification wins.
-	//
-	// IT GOES ON THE WIRE EVEN WHEN FALSE. An adapter OBSERVES its chat, so its
-	// false is the answer "a DM", and that answer has to be able to take a
-	// wrong `true` back off a chat routd once saw misclassified. Omitting it
-	// would spell a DM the same way a caller with no classification spells
-	// silence, and routd tells the two apart (routd/api/v1 § Message.IsGroup).
+	// IsGroup classifies the chat: true for group chats / channels / public
+	// threads, false for DMs; routd upserts it onto chats.is_group to pick the
+	// reply shape. IT GOES ON THE WIRE EVEN WHEN FALSE: an adapter's false is
+	// the answer "a DM", which has to take a wrong `true` back off a chat, and
+	// omitting it would spell a DM the way silence is spelled (routd/api/v1
+	// § Message.IsGroup).
 	IsGroup bool `json:"is_group"`
-	// ChatName is the human-readable name of the source channel or group
-	// (e.g. "#general" on Discord, "My Group" on Telegram). Empty for DMs.
-	// Stored on the message so the agent can identify the channel without
-	// a separate tool call.
+	// ChatName is the human-readable name of the source channel or group;
+	// empty for DMs.
 	ChatName string `json:"chat_name,omitempty"`
-	// Source is the adapter's channel name (CHANNEL_NAME — e.g. "telegram" or
-	// "telegram-rhias"). routd persists it on the row so a reply resolves back to
-	// the ORIGINATING bot/account: multi-account adapters share one
-	// service:<daemon> JWT, so auth alone can't disambiguate them. Stamped from
-	// the registered channel name in SendMessage.
+	// Source is the adapter's CHANNEL_NAME; routd persists it so a reply
+	// resolves back to the ORIGINATING account — multi-account adapters share
+	// one service:<daemon> JWT, so auth alone cannot disambiguate them.
 	Source string `json:"source,omitempty"`
 	// LinkContext is the route token's context snapshotted at ingest by webd
-	// (spec 5/W § link context): the issuer's per-link processing instructions.
-	// routd persists it on the row and prompt-build renders it as
-	// <link-context>. Empty for non-token inbound or a context-less token.
+	// (spec 5/W § link context); prompt-build renders it as <link-context>.
 	LinkContext string `json:"link_context,omitempty"`
 }
 
@@ -94,22 +79,18 @@ type RouterClient struct {
 	url, token string
 	client     *http.Client
 
-	// svcToken is the adapter's service:<daemon> ES256 JWT source
-	// (auth.TokenSource.Token). It is the credential for EVERY authenticated routd
-	// call — registration, /v1/messages, /v1/pane. nil → local dev (no
-	// AUTHD_URL); calls go out with no bearer and routd's no-JWKS gate is open.
+	// svcToken is the adapter's service:<daemon> ES256 JWT source, the
+	// credential for EVERY authenticated routd call; nil → local dev, no bearer.
 	svcToken func(context.Context) (string, error)
 
-	// Saved for transparent re-register on 401 (router dropped channel while adapter was down).
+	// Saved for transparent re-register on 401.
 	regName     string
 	regURL      string
 	regPrefixes []string
 	regCaps     map[string]bool
 	regMu       sync.Mutex
 
-	// pending is the adapter's own storage holding the retained inbound. nil
-	// until RetainInbound wires it, which only the adapters that consume a
-	// platform event on arrival do (inbound.go).
+	// pending holds the retained inbound; nil until RetainInbound wires it.
 	pending *chanstore.Store
 }
 
@@ -117,19 +98,17 @@ func NewRouterClient(url string) *RouterClient {
 	return &RouterClient{url: url, client: &http.Client{Timeout: 10 * time.Second}}
 }
 
-// SetServiceToken installs the adapter's service-token source (spec 5/1). Once
-// set, every authenticated routd call presents this token. Pass nil (or never
-// call) for the local-dev path (no bearer; routd's no-JWKS gate is open).
+// SetServiceToken installs the adapter's service-token source (spec 5/1);
+// nil is the local-dev path.
 func (r *RouterClient) SetServiceToken(src func(context.Context) (string, error)) {
 	r.regMu.Lock()
 	r.svcToken = src
 	r.regMu.Unlock()
 }
 
-// bearer returns the credential for authenticated routd calls: the service token
-// when a source is wired, else "" (local dev, no AUTHD_URL → routd's no-JWKS gate
-// is open). A service-token exchange error returns "" so the call surfaces a 401
-// rather than silently presenting a stale/empty secret.
+// bearer returns the service token when a source is wired, else "". An
+// exchange error returns "" so the call surfaces a 401 rather than silently
+// presenting a stale secret.
 func (r *RouterClient) bearer() string {
 	r.regMu.Lock()
 	src := r.svcToken
@@ -158,9 +137,7 @@ func (r *RouterClient) getToken() string {
 }
 
 // Token returns the bearer adapters present on JWT-gated side calls to routd
-// beyond message delivery (e.g. slakd's pane writes to POST /v1/pane): the
-// service:<daemon> JWT when wired (split), else the registration token
-// (monolith). Empty until Register/SetToken or SetServiceToken runs.
+// beyond message delivery (slakd's POST /v1/pane).
 func (r *RouterClient) Token() string { return r.bearer() }
 
 func (r *RouterClient) Register(name, url string, prefixes []string, caps map[string]bool) (string, error) {
@@ -213,15 +190,12 @@ func (r *RouterClient) reregister() error {
 // heartbeatEvery paces the registration refresh.
 const heartbeatEvery = 3 * time.Minute
 
-// Heartbeat re-registers with the saved parameters until ctx ends. EVERY daemon
-// that registers a channel must run one: routd auto-deregisters after 3
-// consecutive failed health probes (`chanreg/health.go`), and under split
-// topology JWT auth and channel registration are decoupled — so a deregistered
-// adapter keeps receiving inbound while its OUTBOUND silently fails, until the
-// process restarts. webd registered once and ran no heartbeat, which is how
-// the `web` channel disappeared for a whole daemon lifetime.
-//
-// Register must have run first; with no saved registration it does nothing.
+// Heartbeat re-registers with the saved parameters until ctx ends. EVERY
+// daemon that registers a channel must run one: routd auto-deregisters after
+// 3 failed health probes, and JWT auth and registration are decoupled, so a
+// deregistered adapter keeps receiving inbound while its OUTBOUND silently
+// fails — how the `web` channel disappeared for a whole daemon lifetime. With
+// no saved registration it does nothing.
 func (r *RouterClient) Heartbeat(ctx context.Context) {
 	r.heartbeat(ctx, heartbeatEvery)
 }
@@ -250,11 +224,10 @@ func (r *RouterClient) Deregister() error {
 	return r.Post("/v1/channels/deregister", nil, r.getToken(), &resp)
 }
 
-// SendMessage delivers one inbound to routd. When the adapter wired
-// RetainInbound, a transient failure is ALSO written to the adapter's own
-// retained inbound before the error returns, so the sweep re-delivers it
-// (spec 5/34, BUGS L25). The error still returns either way: an adapter that
-// gates a platform cursor on delivery must keep seeing the failure.
+// SendMessage delivers one inbound to routd. With RetainInbound wired, a
+// transient failure is ALSO retained for the sweep (spec 5/34, BUGS L25). The
+// error still returns: an adapter that gates a platform cursor on delivery
+// must keep seeing the failure.
 func (r *RouterClient) SendMessage(msg InboundMsg) error {
 	err := r.postInbound(msg)
 	if err != nil {
@@ -264,12 +237,9 @@ func (r *RouterClient) SendMessage(msg InboundMsg) error {
 }
 
 // postInbound is the bare delivery: two attempts, re-registering once on a
-// monolith 401. It is the ONLY place an InboundMsg goes on the wire — both the
-// live path and the retention sweep call it, so neither can drift from the
-// other's auth or retry behaviour.
+// monolith 401. It is the ONLY place an InboundMsg goes on the wire — the live
+// path and the retention sweep both call it, so neither can drift.
 func (r *RouterClient) postInbound(msg InboundMsg) error {
-	// Stamp the originating channel name so routd can route the reply back to the
-	// correct bot/account (multi-account: both share one service:<daemon> JWT).
 	if msg.Source == "" {
 		r.regMu.Lock()
 		msg.Source = r.regName
@@ -279,11 +249,9 @@ func (r *RouterClient) postInbound(msg InboundMsg) error {
 	for attempt := range 2 {
 		if attempt > 0 {
 			slog.Warn("send retry", "err", last)
-			// 401 on the monolith path = router has no record of our registration
-			// token; re-register before retry. With a service-token source the
-			// JWT auth is independent of channel registration (the token
-			// auto-refreshes), so re-registering would not fix a 401 — just back
-			// off. On any non-auth error, back off and retry.
+			// A 401 on the monolith path means routd lost our registration token.
+			// With a service-token source the JWT is independent of registration,
+			// so re-registering would not fix it — just back off.
 			if isAuthErr(last) && !r.usingServiceToken() {
 				if rerr := r.reregister(); rerr != nil {
 					slog.Error("re-register failed", "err", rerr)
@@ -320,10 +288,9 @@ func (r *RouterClient) usingServiceToken() bool {
 	return r.svcToken != nil
 }
 
-// StatusError is a non-200 answer from routd. It carries the code so callers
-// classify by number instead of by matching the message text: inbound
-// retention (inbound.go) must tell a routd that is restarting from a routd
-// that rejected the payload, and a substring test cannot.
+// StatusError is a non-200 answer from routd, carrying the code so callers
+// classify by number: retention must tell a restarting routd from one that
+// rejected the payload, and a substring test cannot.
 type StatusError struct {
 	Path string
 	Code int

@@ -5,29 +5,16 @@ import (
 	"time"
 )
 
-// DefaultTypingMaxTTL is the backstop that stops typing when the normal
-// terminator — routd's Typing(off) at turn end (turns.go, dispatch.go) — never
-// arrives.
-//
-// It is derived from the run wall, not fixed, and it MUST land strictly below
-// it. At a flat 20m it equalled the RUNED_RUN_TIMEOUT default, so it fired no
-// earlier than the container's own SIGKILL: a stalled turn showed "typing" for
-// the full twenty minutes and then went silent with no reply, which is what a
-// user reported as "the typing indication again" (BUGS T1). A backstop that
-// only fires when the thing it guards is already dead is not a backstop.
-//
-// 90% of the wall. That still cuts a healthy turn's indicator ~2m short of the
-// agent's own query timeout (the wall minus 30s), which is the deliberate
-// trade: an indicator that stops early is honest about not knowing, one that
-// runs to the wall is a twenty-minute lie.
-//
-// RUNED_RUN_TIMEOUT is read here from the adapter's own env — the same var and
-// the same 20m default runed and routd use — so an instance that widens the
-// wall widens the backstop with it.
+// DefaultTypingMaxTTL is the backstop that stops typing when routd's
+// Typing(off) at turn end never arrives. It is 90% of the run wall, read from
+// the adapter's own RUNED_RUN_TIMEOUT, and MUST land strictly below it: a
+// backstop equal to the wall fires no earlier than the container's own
+// SIGKILL, so a stalled turn showed "typing" for twenty minutes and then went
+// silent (BUGS T1). An indicator that stops early is honest about not knowing.
 var DefaultTypingMaxTTL = typingMaxTTL(EnvDur("RUNED_RUN_TIMEOUT", 20*time.Minute))
 
-// minTypingMaxTTL floors the derivation so a tiny or absurd RUNED_RUN_TIMEOUT
-// cannot produce a backstop that kills the indicator before the first refresh.
+// minTypingMaxTTL floors the derivation so an absurd RUNED_RUN_TIMEOUT cannot
+// kill the indicator before the first refresh.
 const minTypingMaxTTL = time.Minute
 
 func typingMaxTTL(runTTL time.Duration) time.Duration {
@@ -47,9 +34,8 @@ type TypingRefresher struct {
 
 	mu     sync.Mutex
 	active map[string]chan struct{}
-	// wg counts the live loops. Stop WAITS on it: closing the stop channel only
-	// asks, and a loop mid-send keeps sending after Stop returns — an outbound
-	// call that outlives the shutdown that was supposed to end it (BUGS L168).
+	// Stop WAITS on wg: closing the stop channel only asks, and a loop mid-send
+	// would keep sending after Stop returns (BUGS L168).
 	wg sync.WaitGroup
 }
 
@@ -122,9 +108,7 @@ func (r *TypingRefresher) loop(jid string, stop chan struct{}) {
 	}
 }
 
-// Stop ends every live indicator and WAITS for its loop to return. The wait is
-// the point: closing the stop channel only asks, and a loop already inside send
-// keeps calling the platform after Stop returns.
+// Stop ends every live indicator and WAITS for its loop to return.
 func (r *TypingRefresher) Stop() {
 	r.mu.Lock()
 	for jid, stop := range r.active {

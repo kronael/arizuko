@@ -1,24 +1,13 @@
 package chanlib
 
 // Durable inbound for adapters that cannot ask the platform for the message a
-// second time.
-//
-// slakd answers Slack `200 OK` BEFORE it calls routd, because Slack requires
-// the ack inside 3 seconds and redelivers on non-2xx — deferring the ack until
-// routd accepts would turn one slow routd into several copies of the message.
-// discd's gateway hands each event over exactly once. For both, a routd that is
-// restarting (the documented `systemctl restart arizuko_<instance>` deploy
-// restarts routd and the adapters together) used to lose the message with one
-// ERROR line as the only trace (BUGS L25).
-//
-// teled, bskyd, reditd, linkd and emaid already hold the guarantee the other
-// way round: each advances its platform cursor ONLY after routd accepts, so the
-// platform IS their queue. They must NOT wire this — a second queue beside a
-// working one is a second thing to drift.
-//
-// The retained row carries the adapter's own stable message id, which is the
-// `messages` primary key routd stores, so re-delivering a row routd already
-// took is an INSERT OR IGNORE no-op rather than a duplicate.
+// second time (slakd acks Slack BEFORE calling routd, discd's gateway hands
+// each event over exactly once), so a routd restart does not lose it (BUGS
+// L25). teled, bskyd, reditd, linkd and emaid advance their platform cursor
+// ONLY after routd accepts, so the platform IS their queue — they must NOT
+// wire this. The retained row carries the adapter's own stable message id,
+// the `messages` primary key, so a re-delivery of a row routd already took
+// is a no-op rather than a duplicate.
 
 import (
 	"context"
@@ -33,23 +22,19 @@ import (
 )
 
 const (
-	// inboundSweepEvery is how often the sweep looks for due rows. Short
-	// relative to the backoff below: the sweep is the clock, not the schedule.
+	// The sweep is the clock, not the schedule: short relative to the backoff.
 	inboundSweepEvery = 15 * time.Second
-	// inboundSweepBatch bounds one sweep pass so a long outage does not turn
-	// the first tick after recovery into a thousand serial HTTP calls.
+	// Bounds one pass so the first tick after a long outage is not a thousand
+	// serial HTTP calls.
 	inboundSweepBatch = 50
-	// inboundBackoffBase/Max bound the per-row wait: 30s doubling to 15m.
+	// The per-row wait: 30s doubling to 15m.
 	inboundBackoffBase = 30 * time.Second
 	inboundBackoffMax  = 15 * time.Minute
 )
 
 // RetainInbound makes this client's inbound durable and starts the re-delivery
-// sweep, which runs until ctx is done. st is the adapter's OWN storage (the one
-// OpenAdapterStore returns); chanlib ships the entities, the adapter owns them.
-//
-// Wire it ONLY from an adapter that consumes its platform event on arrival —
-// see the file comment for why the cursor-gated adapters must not.
+// sweep, which runs until ctx is done. st is the adapter's OWN storage. Wire it
+// ONLY from an adapter that consumes its platform event on arrival.
 func (r *RouterClient) RetainInbound(ctx context.Context, st *chanstore.Store) {
 	if st == nil {
 		panic("chanlib.RetainInbound: the store must not be nil")
@@ -67,10 +52,9 @@ func (r *RouterClient) pendingStore() *chanstore.Store {
 }
 
 // PermanentIngress reports a routd answer no retry can repair: routd read the
-// payload and refused it (400 malformed / missing field / jid-prefix or
-// sender-scheme mismatch, 403 forbidden, 413 too large, 422 unprocessable).
-// Everything else — a dial failure, a 401 while authd is restarting, a 5xx, a
-// 429 — is the daemon being unavailable, which is exactly what retention is for.
+// payload and refused it (400, 403, 413, 422). Everything else — a dial
+// failure, a 401 while authd restarts, a 5xx, a 429 — is the daemon being
+// unavailable, which is what retention is for.
 func PermanentIngress(err error) bool {
 	var se *StatusError
 	if !errors.As(err, &se) {
@@ -84,9 +68,9 @@ func PermanentIngress(err error) bool {
 	return false
 }
 
-// retainInbound holds msg so the sweep can re-deliver it. A permanent refusal is
-// NOT retained — replaying it would fail identically forever — but it is logged
-// at ERROR, because that message is now lost and an operator has to know.
+// retainInbound holds msg so the sweep can re-deliver it. A permanent refusal
+// is NOT retained — replaying it would fail identically forever — but logged
+// at ERROR, because that message is now lost.
 func (r *RouterClient) retainInbound(msg InboundMsg, cause error) {
 	st := r.pendingStore()
 	if st == nil {
@@ -98,11 +82,8 @@ func (r *RouterClient) retainInbound(msg InboundMsg, cause error) {
 		return
 	}
 	if msg.ID == "" {
-		// Retention keys on the id routd stores. Without one, routd mints a
-		// random id per attempt and a re-delivery would post the message twice,
-		// so refusing to retain is the honest answer — and it is a wiring bug,
-		// not a runtime condition: every adapter that calls RetainInbound sets
-		// an id on every inbound.
+		// Retention keys on the id routd stores; without one a re-delivery
+		// would post the message twice. A wiring bug, not a runtime condition.
 		slog.Error("inbound has no id and cannot be retained; a re-delivery would duplicate it",
 			"chat_jid", msg.ChatJID, "err", cause)
 		return
@@ -113,9 +94,8 @@ func (r *RouterClient) retainInbound(msg InboundMsg, cause error) {
 		return
 	}
 	now := time.Now().UTC()
-	// Retain leaves a message already held exactly as it is, so a platform that
-	// re-delivers the same id (Slack retries a non-2xx ack) does not reset the
-	// clock — the row keeps its attempt count and its backoff.
+	// Retain leaves a message already held as it is, so a platform that
+	// re-delivers the same id does not reset the attempt count or the backoff.
 	if err := st.Retain(context.Background(), msg.ID, string(payload),
 		rfc(now), rfc(now.Add(inboundBackoffBase)), cause.Error()); err != nil {
 		slog.Error("inbound retain failed; the message is lost",
@@ -127,8 +107,7 @@ func (r *RouterClient) retainInbound(msg InboundMsg, cause error) {
 
 func rfc(t time.Time) string { return core.TS(t) }
 
-// inboundBackoff is the wait after `attempts` consecutive failures: 30s
-// doubling to a 15m ceiling.
+// inboundBackoff is the wait after `attempts` consecutive failures.
 func inboundBackoff(attempts int) time.Duration {
 	d := inboundBackoffBase
 	for range attempts {
@@ -153,8 +132,8 @@ func (r *RouterClient) sweepInbound(ctx context.Context) {
 	}
 }
 
-// SweepInboundOnce re-delivers every due message once. Exported so a test drives
-// the sweep instead of waiting on the ticker.
+// SweepInboundOnce re-delivers every due message once. Exported so a test
+// drives the sweep instead of waiting on the ticker.
 func (r *RouterClient) SweepInboundOnce(ctx context.Context) {
 	st := r.pendingStore()
 	if st == nil {
@@ -171,8 +150,7 @@ func (r *RouterClient) SweepInboundOnce(ctx context.Context) {
 		}
 		var msg InboundMsg
 		if err := json.Unmarshal([]byte(d.Payload), &msg); err != nil {
-			// A held message we cannot decode can never be delivered; keeping it
-			// would re-fail every 15s forever.
+			// Undecodable can never be delivered; keeping it would re-fail forever.
 			slog.Error("inbound sweep: undecodable row dropped", "id", d.ID, "err", err)
 			r.dropPending(ctx, st, d.ID)
 			continue
@@ -206,8 +184,8 @@ func (r *RouterClient) dropPending(ctx context.Context, st *chanstore.Store, id 
 }
 
 // PendingInboundCount reports how many inbound messages the adapter is holding
-// undelivered. /health reports it so the backlog is visible where an operator
-// already looks, rather than only in a WARN line nobody reads.
+// undelivered; /health reports it so the backlog is visible where an operator
+// already looks.
 func PendingInboundCount(ctx context.Context, st *chanstore.Store) (int, error) {
 	if st == nil {
 		return 0, nil

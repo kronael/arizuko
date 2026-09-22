@@ -1,32 +1,13 @@
 package routd
 
 // dead_letters_resource.go publishes routd's dead-lettered outbound on both
-// faces: the operator REST face at GET /v1/dead_letters plus
-// POST /v1/dead_letters/{id}/replay, and the agent socket's
-// `list_dead_letters` / `replay_dead_letter`.
-//
-// Why a resource at all: dashd's routd page rendered a `dead-lettered` COUNT
-// and nothing else, so an operator could see THAT delivery failed and not what
-// was lost, to whom, or with what error — and had no way to send it again
-// (BUGS L23). A count is a symptom readout, not a recovery path.
-//
-// It adds NO state. 'failed' is already the dead-letter state (core/types.go):
-// the row stays in `messages` with its content, and `delivery_attempts`
-// separates the two causes — 0 means the platform refused it permanently, the
-// cap means the retries ran out. Replay flips the row back to 'pending' with a
-// fresh budget, which is precisely what PendingOutbound selects, so routd's
-// EXISTING outbound sweep does the sending. There is no second delivery path.
-//
-// Containment is by `routed_to`, the folder the message was routed to, and it
-// is resolved in the handler rather than either Gate because it bounds ROWS,
-// not the call: a folder-claimed caller is pinned to its own subtree and the
-// `folder` argument cannot widen it. On the agent socket a missing folder is
-// refused outright — the socket folder is supposed to be the agent's group, and
-// an empty one means containment is unknown, which is the last state in which
-// to hand over other tenants' undelivered messages. REST keeps the opposite
-// default because its Gate already proved instance-wide authority through a
-// scope no folder-bound principal can hold, the same reading the audit face
-// uses.
+// faces (BUGS L23). It adds NO state: 'failed' is the dead-letter state, the
+// row stays in `messages`, and `delivery_attempts` separates the causes (0:
+// refused; the cap: retries ran out). Replay flips the row back to 'pending',
+// which PendingOutbound selects, so the EXISTING sweep sends it — no second
+// delivery path. Containment is by `routed_to`, resolved in the handler
+// because it bounds ROWS, not the call; on the agent socket a missing folder
+// is refused outright, on REST the Gate already proved instance-wide authority.
 
 import (
 	"context"
@@ -43,8 +24,7 @@ import (
 
 const actionReplay = resreg.Action("replay")
 
-// deadLettersMCPNames is the action→flat-tool-name map, single-sourced in
-// resreg/resources. Aliased here for the Gate's action→policy-name lookup.
+// deadLettersMCPNames is single-sourced in resreg/resources.
 var deadLettersMCPNames = resources.DeadLettersMCPNames
 
 // deadLettersResource is the single renderer for both faces. Store is non-nil
@@ -56,28 +36,19 @@ func (s *Server) deadLettersResource() resreg.Resource {
 	return r
 }
 
-// mountDeadLetters wires the REST face onto the same handler the agent tools
-// use.
+// mountDeadLetters wires the REST face onto the same handler the agent tools use.
 func (s *Server) mountDeadLetters(mux *http.ServeMux) {
 	res := s.deadLettersResource()
 	res.Gate = s.deadLettersRESTGate
 	resreg.RegisterREST(mux, res, s.restCaller(nil))
 }
 
-// deadLettersRESTGate requires dead_letters:read to look and
-// dead_letters:write to replay.
-//
-// Its OWN scope pair, not messages:read/messages:write. The rows live in
-// `messages`, but messages:write is "speak as a channel" — it authorizes
-// posting arbitrary inbound at POST /v1/messages — and the operator UI that
-// needs this surface is explicitly denied that (authd serviceGrants, the
-// service:dashd ceiling). Requeueing one already-composed row is a far smaller
-// authority than composing any row, and the scope has to say so. Same shape as
-// pending_actions:read/write.
-//
-// Like those, neither is reachable by a human bearer: a user token's scope list
-// holds FOLDER GLOBS and auth.scopeMatches rejects a held value without a
-// colon, so `acme/**` and an operator's own `**` both fail.
+// deadLettersRESTGate requires dead_letters:read to look and dead_letters:write
+// to replay. Its OWN scope pair, not messages:write: that is "speak as a
+// channel", denied to the operator UI (the service:dashd ceiling), and
+// requeueing one composed row is a far smaller authority. Neither is reachable
+// by a human bearer: a user token's scope list holds FOLDER GLOBS, and
+// auth.scopeMatches rejects a held value without a colon.
 func (s *Server) deadLettersRESTGate(x resreg.Execution, _ string, _ map[string]string) error {
 	if s.verify == nil {
 		return nil // local-dev open mode, mirrors s.authz
@@ -93,8 +64,7 @@ func (s *Server) deadLettersRESTGate(x resreg.Execution, _ string, _ map[string]
 }
 
 // deadLettersPostBuild mounts the agent tools. The authorization target is the
-// agent's OWN folder: an agent asking which of its replies never landed is
-// asking about its own folder, and replaying one re-sends its own message.
+// agent's OWN folder: replaying one re-sends its own message.
 func (s *Server) deadLettersPostBuild(folder, callerSub string, authorize authorizeFn, visible func(string) bool) func(*mcpserver.MCPServer) {
 	res := s.deadLettersResource()
 	res.Gate = func(x resreg.Execution, _ string, _ map[string]string) error {
@@ -123,10 +93,8 @@ func (s *Server) deadLettersHandler(_ context.Context, x resreg.Execution) (any,
 		if err != nil {
 			return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
 		}
-		// Project to the declared RowType. core.Message carries no json tags,
-		// so returning it directly ships Go field names in a body whose
-		// /openapi.json schema is reflected off DeadLetterRow — the two
-		// declarations would disagree on every field name.
+		// Project to the declared RowType: core.Message carries no json tags,
+		// and the /openapi.json schema is reflected off DeadLetterRow.
 		rows := make([]resources.DeadLetterRow, len(msgs))
 		for i, m := range msgs {
 			rows[i] = resources.DeadLetterRow{
@@ -142,9 +110,8 @@ func (s *Server) deadLettersHandler(_ context.Context, x resreg.Execution) (any,
 		if id == "" {
 			return nil, resreg.Errorf(http.StatusBadRequest, "id required")
 		}
-		// Containment before mutation: a caller bound to a folder may only
-		// replay a message routed INTO that subtree. Without this the id alone
-		// would let one tenant re-send another's message.
+		// Containment before mutation: the id alone would let one tenant
+		// re-send another's message.
 		msg, ok := s.db.DeadLetterByID(id)
 		if !ok {
 			return nil, resreg.Errorf(http.StatusNotFound, "no dead-lettered message %s", id)
@@ -158,9 +125,8 @@ func (s *Server) deadLettersHandler(_ context.Context, x resreg.Execution) (any,
 			return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
 		}
 		if !moved {
-			// Someone replayed it between the read and the write, or the sweep
-			// already moved it. Saying "ok" would claim a queueing that this
-			// call did not do.
+			// Replayed by someone else between the read and the write, or the
+			// sweep moved it; "ok" would claim a queueing this call did not do.
 			return nil, resreg.Errorf(http.StatusConflict,
 				"message %s is no longer dead-lettered", id)
 		}

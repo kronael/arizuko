@@ -15,11 +15,10 @@ import (
 	"github.com/kronael/arizuko/ipc"
 )
 
-// connectorConfig is one [[connector]] block — the ONE declaration shape for an
-// external tool source (spec 6/19). `transport` picks the dispatch path and
+// connectorConfig is one [[connector]] block — the ONE declaration shape for
+// an external tool source (spec 6/19). `transport` picks the dispatch path and
 // nothing else: `mcp` discovers its own catalogue and reads Headers only;
-// `rest` declares its tools and may use all three credential sinks. A field is
-// ABSENT for a transport, never the same field meaning two things.
+// `rest` declares its tools and may use all three credential sinks.
 type connectorConfig struct {
 	Name      string `toml:"name"`
 	Transport string `toml:"transport"`
@@ -27,13 +26,11 @@ type connectorConfig struct {
 	// Secrets names the keys the broker resolves for this connector.
 	Secrets []string `toml:"secrets"`
 	// Headers, Query and Body carry "{secret:KEY}" placeholders, rendered per
-	// call. Three sinks, one vocabulary — which is what replaced the
-	// method/secret/secret2/header/header2/param enum and its ceiling of two.
+	// call. Three sinks, one vocabulary.
 	Headers map[string]string `toml:"headers"`
 	Query   map[string]string `toml:"query"`
 	Body    map[string]string `toml:"body"`
-	// Tools is the rest transport's catalogue; an mcp connector discovers its
-	// own and leaves this empty.
+	// Tools is the rest transport's catalogue; an mcp connector leaves it empty.
 	Tools []extToolConfig `toml:"tool"`
 }
 
@@ -46,9 +43,9 @@ type extToolConfig struct {
 	Params      []extParamConfig `toml:"param"`
 }
 
-// extParamConfig is an optional [[ext.tool.param]] entry declaring a body/query
-// argument. Path placeholders ({zone_id}) are schema'd automatically; this is
-// for the extra fields a descriptor wants to surface to the agent as typed.
+// extParamConfig is an optional [[ext.tool.param]] entry declaring a
+// body/query argument; path placeholders ({zone_id}) are schema'd
+// automatically.
 type extParamConfig struct {
 	Name        string `toml:"name"`
 	Type        string `toml:"type"`
@@ -58,12 +55,10 @@ type extParamConfig struct {
 
 var extPathParam = regexp.MustCompile(`\{([^}]+)\}`)
 
-// extInputSchema builds the MCP input schema for one ext tool. Path
-// placeholders become required string properties (the URL can't render without
-// them); declared params add typed fields. additionalProperties stays true so
-// the agent may still pass body fields the descriptor doesn't enumerate — which
-// is how CallExtTool forwards remaining args. Flat by design: nested tool
-// schemas degrade LLM tool-calling (see reference_tool_schema_bias).
+// extInputSchema builds the MCP input schema for one ext tool: path
+// placeholders become required strings, declared params add typed fields, and
+// additionalProperties stays true so CallExtTool can forward remaining args.
+// Flat by design: nested tool schemas degrade LLM tool-calling.
 func extInputSchema(path string, params []extParamConfig) json.RawMessage {
 	props := map[string]any{}
 	var required []string
@@ -108,15 +103,14 @@ type extFile struct {
 
 // extSource is one entry in the loader's ordered source list (spec 6/19). The
 // embedded set is ONE source: it ships as a unit and its file order is an
-// accident of names, so nothing in it can claim to come "later" than the rest.
-// The operator file is the second source and shadows it.
+// accident of names. The operator file is the second source and shadows it.
 type extSource struct {
 	name       string
 	connectors []connectorConfig
 }
 
-// extSlot records where a LocalName landed in the output and which source put
-// it there, so a shadow can name both sides and a repeat inside one source is
+// extSlot records where a LocalName landed and which source put it there, so
+// a shadow can name both sides and a repeat inside one source is
 // distinguishable from an ordered override.
 type extSlot struct {
 	pos    int
@@ -164,12 +158,10 @@ func extSources(dir string) ([]extSource, error) {
 }
 
 // LoadExtProviders builds the REST tool catalogue from the ordered sources.
-// LocalName is the agent's wire identity for a tool, so it is the key the
-// loader indexes on: a later source replaces an earlier one under that name and
-// logs the shadow at WARN, and two declarations of one name inside a single
-// source are refused, because no ordering can pick between them.
-//
-// Returns nil, nil when no ext blocks exist.
+// LocalName is the agent's wire identity, so it is the key: a later source
+// replaces an earlier one and logs the shadow at WARN; two declarations of one
+// name inside a single source are refused, because no ordering can pick
+// between them. Returns nil, nil when no ext blocks exist.
 func LoadExtProviders(_ context.Context, dir string) ([]ipc.ExtTool, error) {
 	sources, err := extSources(dir)
 	if err != nil {

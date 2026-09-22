@@ -12,8 +12,7 @@ import (
 )
 
 // sourcedFragment is the slice of a compose fragment through which a service
-// reaches the host, the instance tree or another service. Everything else in
-// the file is the package's own business.
+// reaches the host, the instance tree or another service.
 type sourcedFragment struct {
 	Include  any                       `yaml:"include"`
 	Services map[string]sourcedService `yaml:"services"`
@@ -42,14 +41,11 @@ type sourcedService struct {
 var volumeNameRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*$`)
 
 // CheckSourcedFragment refuses a compose fragment that reaches outside the
-// package named. The release's own catalog is exempt — its fragments are
-// tested at build — and this bounds everything `packages install` takes from
-// a source, before the first write and again at every upgrade: a service
-// carries the package's name, binds only `${DATA_DIR}/store/<name>` or a named
-// volume, reads no env file, and escapes no namespace. `docker compose` refuses
-// none of it, so a package could quietly mount an owner's store, `.env` or the
-// docker socket (BUGS L201), and generate writes no scoped env file for a
-// package outside the release, so an `env_file` fails the whole instance at
+// package named; the release's own catalog is exempt. A service carries the
+// package's name, binds only `${DATA_DIR}/store/<name>` or a named volume,
+// reads no env file, and escapes no namespace. `docker compose` refuses none
+// of it, so a package could quietly mount an owner's store, `.env` or the
+// docker socket (BUGS L201), and an `env_file` fails the whole instance at
 // `up` instead of the one install (BUGS L200).
 func CheckSourcedFragment(name, file string, body []byte) error {
 	var f sourcedFragment

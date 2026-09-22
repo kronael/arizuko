@@ -1,13 +1,9 @@
 package chanlib
 
-// Adapter-side auth gate for the routd→adapter path (HMAC→ES256 retire).
-//
-// routd calls the adapter's /send, /send-file, /send-voice, /files, /v1/pane,
-// /v1/history, … presenting its service:routd ES256 JWT (auth.ServiceToken).
-// Auth verifies that token offline against authd's JWKS and pins the caller to
-// service:routd — routd is the only principal that drives an adapter. When
-// AUTHD_URL is unset (local dev) there is no JWKS to verify against, so the gate
-// is open — no shared secret remains.
+// Adapter-side auth gate for the routd→adapter path: routd presents its
+// service:routd ES256 JWT, Auth verifies it offline against authd's JWKS and
+// pins the caller to service:routd — the only principal that drives an
+// adapter. With AUTHD_URL unset (local dev) the gate is open.
 
 import (
 	"context"
@@ -19,19 +15,14 @@ import (
 	"github.com/kronael/arizuko/auth"
 )
 
-// CallerRoutd is the service principal routd exchanges its AUTHD_SERVICE_KEY
-// for (compose sets AUTHD_SERVICE_NAME=routd → service:routd). The adapter gate
-// admits only this caller — routd is the sole driver of an adapter's egress.
+// CallerRoutd is the service principal the adapter gate admits — the sole
+// driver of an adapter's egress.
 const CallerRoutd = "service:routd"
 
-// AuthdKeys lazily builds (once) this process's JWKS-backed verifier against
-// authd. It answers BOTH questions a daemon in front of authd has: is this
-// caller routd's service token (Auth, below), and did proxyd stamp these
-// X-User-* headers (auth.RequireOperator on the dashboards). One keyset, because
-// it is one authd. nil → AUTHD_URL unset → local dev, and every gate that reads
-// it falls open exactly as the core daemons' nil-KeySet form does. Built lazily
-// so a daemon needs no wiring change: the first gated request constructs it from
-// the process env.
+// AuthdKeys lazily builds this process's JWKS-backed verifier. One keyset
+// answers BOTH questions: is this caller routd's service token (Auth), and did
+// proxyd stamp these X-User-* headers (auth.RequireOperator). nil → AUTHD_URL
+// unset → every gate that reads it falls open.
 var (
 	ksOnce sync.Once
 	ksVal  *auth.KeySet
@@ -43,10 +34,8 @@ func AuthdKeys() *auth.KeySet {
 		if authdURL == "" {
 			return // local dev: ksVal stays nil → gate open
 		}
-		// AUTHD_URL set ⇒ ES256 is mandatory; a build failure must fail CLOSED.
-		// FetchKeys is lazy (no network here) and only errors on a malformed URL,
-		// so this is a config fault — exit so it surfaces at boot, like chanlib.Run
-		// does for the service-token source.
+		// AUTHD_URL set ⇒ ES256 is mandatory; a build failure fails CLOSED.
+		// FetchKeys errors only on a malformed URL, so this is a config fault.
 		ks, err := auth.FetchKeys(context.Background(), authdURL)
 		if err != nil {
 			slog.Error("adapter auth: fetch authd keys (AUTHD_URL set ⇒ ES256 required)", "authd", authdURL, "err", err)
@@ -58,16 +47,13 @@ func AuthdKeys() *auth.KeySet {
 	return ksVal
 }
 
-// Auth gates a handler on the routd→adapter call. With a JWKS verifier wired
-// (AUTHD_URL set) it admits only a valid service:routd ES256 token; with no
-// verifier (local dev) the handler is open — no shared secret remains.
+// Auth gates a handler on the routd→adapter call: a valid service:routd ES256
+// token, or open with no verifier (local dev).
 func Auth(next http.HandlerFunc) http.HandlerFunc {
 	return authGate(AuthdKeys(), next)
 }
 
-// authGate is Auth with an explicit keyset (injected for tests; production
-// passes the lazy env-built AuthdKeys). ks!=nil → ES256 service:routd pin;
-// ks==nil → open (local dev).
+// authGate is Auth with an explicit keyset, injected for tests.
 func authGate(ks *auth.KeySet, next http.HandlerFunc) http.HandlerFunc {
 	if ks == nil {
 		return next

@@ -21,10 +21,9 @@ type Manifest struct {
 	Env    map[string]resreg.EnvNeed
 }
 
-// ReadManifest reads one package manifest. A missing file is not an error.
+// ReadManifest reads one package manifest; a missing file is not an error.
 // Parsing goes through resreg.ParseManifest, the decoder `packages install`
-// uses, so a typo rejects identically on both readers instead of silently
-// emitting a valid-looking but wrong route.
+// uses, so a typo rejects identically on both readers.
 func ReadManifest(path string) (Manifest, error) {
 	var m Manifest
 	b, err := os.ReadFile(path)
@@ -78,9 +77,8 @@ func ManifestRoutes(path string) ([]ProxydRoute, error) {
 }
 
 // CatalogDir returns the package catalog this process can READ: the checkout
-// named by HOST_APP_DIR when it is visible from here, else the copy the
-// Dockerfile bakes into arizuko:latest — the release's own. Never the process's
-// own directory (CLAUDE.md "identity is configured, never derived").
+// named by HOST_APP_DIR when visible from here, else the copy baked into the
+// image. Never the process's own directory.
 func CatalogDir(hostAppDir string) string {
 	if hostAppDir != "" {
 		if dir := filepath.Join(hostAppDir, "template", "services"); isDir(dir) {
@@ -96,11 +94,9 @@ func isDir(path string) bool {
 }
 
 // manifestPath is where generate reads a package's manifest. A catalog link is
-// dangling where the deploy unit runs generate — the container mounts the data
-// dir, not the checkout — and a dangling link reads as "no manifest", so every
-// route and env need of a linked package silently vanished. A linked sidecar is
-// therefore read from the readable catalog: the same file the link names, or
-// the release's baked copy of it.
+// dangling where the deploy unit runs generate (the container mounts the data
+// dir, not the checkout), and a dangling link reads as "no manifest", so a
+// linked sidecar is read from the readable catalog instead.
 func manifestPath(servicesDir, catalogDir, name string) string {
 	local := filepath.Join(servicesDir, name+".yaml")
 	if isSymlink(local) {
@@ -110,12 +106,11 @@ func manifestPath(servicesDir, catalogDir, name string) string {
 }
 
 // ProvisionPackageEnv resolves one package's `env` declarations against the
-// instance .env — the one place a value comes from. A key the operator set wins
-// whatever the manifest says; `generate` mints a token once and appends it to
-// .env, where it is the operator's from then on; `default` fills env for this
-// run only; `required` refuses, naming the key and the file. env is updated in
-// place so every later reader of the run — the per-daemon env files, the route
-// gates — sees the resolved values. Returns the keys minted this run.
+// instance .env. A key the operator set wins; `generate` mints a token once
+// and appends it to .env, where it is the operator's from then on; `default`
+// fills env for this run only; `required` refuses, naming the key and the
+// file. env is updated in place so every later reader of the run sees the
+// resolved values. Returns the keys minted this run.
 func ProvisionPackageEnv(dataDir, manifestPath, name string, env map[string]string) ([]string, error) {
 	m, err := ReadManifest(manifestPath)
 	if err != nil {
@@ -147,10 +142,9 @@ func ProvisionPackageEnv(dataDir, manifestPath, name string, env map[string]stri
 	return slices.Sorted(maps.Keys(minted)), nil
 }
 
-// appendEnvKeys adds KEY=VALUE lines to the operator part of <dataDir>/.env,
-// above the compose-managed block so the file keeps its shape. A key already
-// present — even empty — is refused rather than rewritten: an operator line is
-// never edited by the platform, and an empty value is theirs to fix or delete.
+// appendEnvKeys adds KEY=VALUE lines above the compose-managed block of .env.
+// A key already present — even empty — is refused rather than rewritten: an
+// operator line is never edited by the platform.
 func appendEnvKeys(dataDir string, kv map[string]string) error {
 	path := filepath.Join(dataDir, ".env")
 	prev, err := os.ReadFile(path)
@@ -181,10 +175,8 @@ func appendEnvKeys(dataDir string, kv map[string]string) error {
 	return writeEnvAtomic(dataDir, path, strings.Join(lines, "\n")+"\n")
 }
 
-// writeEnvAtomic writes one of the instance's env files via a temp file in
-// dataDir plus rename, 0600: .env holds AUTH_SECRET, SECRETS_KEY and operator
-// tokens, and env/operator.env holds the store key that reaches every owner's
-// tables.
+// writeEnvAtomic writes one of the instance's env files via temp file plus
+// rename, 0600: both hold secrets.
 func writeEnvAtomic(dataDir, path, body string) error {
 	tmp, err := os.CreateTemp(dataDir, ".env.*")
 	if err != nil {
@@ -211,10 +203,9 @@ func writeEnvAtomic(dataDir, path, body string) error {
 	return nil
 }
 
-// bundledName returns name when the arizuko release's own catalog ships a
-// manifest for it, else "". It is the test ReservedRouteClaim's `/dash/`
-// exception rests on: only a daemon in this release may serve its own console
-// path, and nothing a package installs can write into the catalog.
+// bundledName returns name when the release's own catalog ships a manifest for
+// it, else "" — the test ReservedRouteClaim's `/dash/` exception rests on:
+// nothing a package installs can write into the catalog.
 func bundledName(catalogDir, name string) string {
 	if catalogDir == "" {
 		return ""

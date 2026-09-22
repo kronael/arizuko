@@ -18,17 +18,12 @@ import (
 )
 
 // The model gateway's admin surface (spec 6/23, 6/39). LiteLLM is the ledger:
-// it meters every call, it holds the folder's cap as a team budget and the
-// person's as an internal user's, and it refuses the request itself when either
-// is spent. routd mints ONE virtual key per turn, hands it to runed for the
-// container, then deletes it. The master key authorises those calls and never
-// leaves this daemon: the container holds a credential scoped to its own turn,
-// and revoking it is a delete that needs no cooperation from a running spawn.
-//
-// routd mints because the coordinates the key carries are routd's rows — which
-// folder the turn runs in and who asked for it — and runed has no store (spec
-// 5/E). Nothing comes back to be written down: what a turn cost is the
-// gateway's number, read from the gateway when an operator asks for it.
+// it meters every call, holds the folder's cap as a team budget and the
+// person's as an internal user's, and refuses the request itself when either
+// is spent. routd mints ONE virtual key per turn, hands it to runed, then
+// deletes it; the master key never leaves this daemon. routd mints because the
+// coordinates are routd's rows and runed has no store (spec 5/E). Nothing
+// comes back to be written down: a turn's cost is the gateway's number.
 type modelGateway struct {
 	baseURL   string
 	masterKey string
@@ -36,26 +31,22 @@ type modelGateway struct {
 }
 
 const (
-	// gatewayCallTimeout bounds one admin call. The gateway is a compose
-	// neighbour, so a call that takes longer than this is not slow, it is gone.
+	// The gateway is a compose neighbour: a call slower than this is not slow,
+	// it is gone.
 	gatewayCallTimeout = 15 * time.Second
-	// gatewayMaxBody caps an admin response read.
-	gatewayMaxBody = 1 << 20
-	// gatewayDailyBudget resets every budget arizuko sets at 00:00 UTC, which
-	// is the window `cost_cap_cents_per_day` is denominated in and the reset
-	// the refusal text quotes.
+	gatewayMaxBody     = 1 << 20
+	// Every budget resets at 00:00 UTC, the window `cost_cap_cents_per_day` is
+	// denominated in and the reset the refusal text quotes.
 	gatewayDailyBudget = "1d"
 )
 
-// errGatewayNotFound is what a read reports for a team or user the gateway does
-// not have. It is a distinct condition rather than an error to log, because the
-// absence is exactly what tells the gate to create one.
+// errGatewayNotFound is a distinct condition, not an error to log: the absence
+// is exactly what tells the gate to create the entity.
 var errGatewayNotFound = errors.New("gateway: no such entity")
 
-// newGatewayIfConfigured builds the client when the instance names a gateway,
-// and returns nil when it does not. The URL alone decides: a URL with no
-// master key mints nothing, which is why routd refuses to boot on that pair
-// (cmd/routd) rather than discovering it one failed turn at a time.
+// newGatewayIfConfigured returns nil when the instance names no gateway. The
+// URL alone decides: a URL with no master key mints nothing, which is why
+// cmd/routd refuses to boot on that pair.
 func newGatewayIfConfigured(baseURL, masterKey string) *modelGateway {
 	if baseURL == "" {
 		return nil
@@ -71,32 +62,25 @@ func newModelGateway(baseURL, masterKey string) *modelGateway {
 	}
 }
 
-// turnKey is one turn's virtual credential. Key is what the container
-// presents to the gateway; Hash is sha256(Key), which is how the gateway's
-// spend log names the key that paid for a request.
+// turnKey is one turn's virtual credential: Key is what the container
+// presents; Hash is sha256(Key), how the gateway's spend log names it.
 type turnKey struct {
 	Key  string
 	Hash string
 }
 
-// budget is what the gateway is metering for one folder or one person: what it
-// has charged in the current window and the ceiling it is enforcing, both in
-// cents. Cap 0 means the gateway holds no ceiling for this entity.
+// budget is what the gateway is metering for one folder or person, in cents.
+// Cap 0 means the gateway holds no ceiling for this entity.
 type budget struct {
 	SpentCents int
 	CapCents   int
 }
 
-// mint asks the gateway for this turn's key. The key carries the two
-// coordinates the meter attributes by: team is the folder, user is the caller.
-// It carries no budget of its own — the folder's cap is the team's and the
-// person's is the user's, so a ceiling invented per turn would be a third
-// policy the operator never set. ttl 0 leaves the key alive until revoke
-// deletes it.
-//
-// A key naming a team the gateway does not have is minted happily and then
-// fails EVERY model call with 404, so the caller ensures the team first
-// (spec 6/39 § The team must exist before the turn runs).
+// mint asks the gateway for this turn's key, carrying team = the folder and
+// user = the caller and no budget of its own — a per-turn ceiling would be a
+// third policy the operator never set. ttl 0 leaves the key alive until revoke.
+// A key naming a team the gateway lacks is minted happily and then 404s EVERY
+// model call, so the caller ensures the team first (spec 6/39).
 func (g *modelGateway) mint(
 	ctx context.Context, alias, folder, turnID, userSub string, ttl time.Duration,
 ) (turnKey, error) {
@@ -105,8 +89,7 @@ func (g *modelGateway) mint(
 		"team_id":   folder,
 		"metadata":  map[string]string{"folder": folder, "turn_id": turnID},
 	}
-	// An empty user_id would be a key attributed to nobody; the field is left
-	// off so the gateway records the turn against its team alone.
+	// An empty user_id would be a key attributed to nobody.
 	if userSub != "" {
 		body["user_id"] = userSub
 	}
@@ -126,15 +109,13 @@ func (g *modelGateway) mint(
 	return turnKey{Key: out.Key, Hash: hex.EncodeToString(sum[:])}, nil
 }
 
-// revoke deletes the key. The TTL is the backstop for a routd that dies
-// mid-turn; this is the normal end of a key's life.
+// revoke deletes the key; the TTL is the backstop for a routd that dies mid-turn.
 func (g *modelGateway) revoke(ctx context.Context, key string) error {
 	return g.call(ctx, http.MethodPost, "/key/delete", map[string]any{"keys": []string{key}}, nil)
 }
 
-// teamBudget reads what the gateway has charged a folder in the current window
-// and the cap it is enforcing. errGatewayNotFound means the folder has no team
-// yet, which is the gate's signal to create one.
+// teamBudget reads a folder's charged spend and cap. errGatewayNotFound means
+// the folder has no team yet — the gate's signal to create one.
 func (g *modelGateway) teamBudget(ctx context.Context, folder string) (budget, error) {
 	var out struct {
 		Info struct {
@@ -153,8 +134,7 @@ func (g *modelGateway) teamBudget(ctx context.Context, folder string) (budget, e
 }
 
 // createTeam gives a folder its team, carrying the operator's cap. The team id
-// IS the folder (spec 6/39 § The mapping), so nothing has to be stored to find
-// it again, and the alias carries the folder into the gateway's own UI.
+// IS the folder (spec 6/39), so nothing has to be stored to find it again.
 func (g *modelGateway) createTeam(ctx context.Context, folder string, capCents int) error {
 	body := map[string]any{
 		"team_id":    folder,
@@ -165,17 +145,16 @@ func (g *modelGateway) createTeam(ctx context.Context, folder string, capCents i
 	return g.call(ctx, http.MethodPost, "/team/new", body, nil)
 }
 
-// updateTeam moves a folder's team onto the cap the operator now holds. The
-// gate calls it only when the two disagree, so an unchanged cap costs no write.
+// updateTeam moves a folder's team onto the cap the operator now holds; the
+// gate calls it only when the two disagree.
 func (g *modelGateway) updateTeam(ctx context.Context, folder string, capCents int) error {
 	body := map[string]any{"team_id": folder}
 	applyBudget(body, capCents)
 	return g.call(ctx, http.MethodPost, "/team/update", body, nil)
 }
 
-// userBudget reads what the gateway has charged one person in the current
-// window and the cap it is enforcing. errGatewayNotFound means the gateway has
-// no row for them, which for an uncapped caller is the normal state.
+// userBudget reads one person's charged spend and cap. errGatewayNotFound is
+// the normal state for an uncapped caller.
 func (g *modelGateway) userBudget(ctx context.Context, userSub string) (budget, error) {
 	var out struct {
 		Info struct {
@@ -193,9 +172,9 @@ func (g *modelGateway) userBudget(ctx context.Context, userSub string) (budget, 
 	}, nil
 }
 
-// createUser gives a person their internal-user row carrying their cap. A key
-// minted with a user_id the gateway does not know is accepted and metered, so
-// this is needed only to hold a budget — never to make the turn work.
+// createUser holds a person's cap. A key minted with an unknown user_id is
+// accepted and metered, so this is needed only for a budget, never for the
+// turn to work.
 func (g *modelGateway) createUser(ctx context.Context, userSub string, capCents int) error {
 	body := map[string]any{"user_id": userSub}
 	applyBudget(body, capCents)
@@ -209,9 +188,8 @@ func (g *modelGateway) updateUser(ctx context.Context, userSub string, capCents 
 	return g.call(ctx, http.MethodPost, "/user/update", body, nil)
 }
 
-// keyUsage is what the gateway charged one key. Requests is how many calls it
-// found, which is what separates "this turn spent nothing" from "the gateway
-// has no rows for it yet" — the flush is on a timer, so an empty read right
+// keyUsage is what the gateway charged one key. Requests separates "spent
+// nothing" from "no rows yet": the flush is on a timer, so an empty read right
 // after a turn is expected rather than an answer.
 type keyUsage struct {
 	InputTokens  int
@@ -220,10 +198,9 @@ type keyUsage struct {
 	Requests     int
 }
 
-// keySpend reads what the gateway charged one turn's key. The key hash is what
-// /spend/logs matches on (litellm stores the sha256, never the key), and passing
-// the hash keeps the credential itself out of a query string every access log
-// records verbatim.
+// keySpend reads what the gateway charged one turn's key, by its hash: litellm
+// stores the sha256, never the key, and the hash keeps the credential out of a
+// query string every access log records verbatim.
 func (g *modelGateway) keySpend(ctx context.Context, keyHash string) (keyUsage, error) {
 	var rows []struct {
 		Spend            float64 `json:"spend"`
@@ -241,29 +218,24 @@ func (g *modelGateway) keySpend(ctx context.Context, keyHash string) (keyUsage, 
 		out.OutputTokens += r.CompletionTokens
 		dollars += r.Spend
 	}
-	// Round the TOTAL once rather than every request: a turn of many sub-cent
-	// calls then reports what it cost rather than a column of zeroes.
+	// Round the TOTAL once: a turn of sub-cent calls then reports what it cost
+	// rather than a column of zeroes.
 	out.CostCents = dollarsToCents(dollars)
 	return out, nil
 }
 
-// folderSpend is one folder's metered usage over the window an operator asked
-// about. It is the gateway's number, rendered in the units arizuko's surfaces
-// already speak.
+// folderSpend is one folder's metered usage over an operator's window, in the
+// units arizuko's surfaces already speak.
 type folderSpend struct {
 	Folder    string `json:"folder"`
 	Tokens    int    `json:"tokens"`
 	CostCents int    `json:"cost_cents"`
 }
 
-// spendByFolder reads what the gateway metered per folder between two dates
-// (YYYY-MM-DD, inclusive). /team/daily/activity reports a row per day with each
-// team's share under breakdown.entities, so the days are summed here into the
-// per-folder totals the operator surfaces show.
-//
-// This is the ONLY read behind every operator spend surface: the dashboard, the
-// REST face and the CLI all reach the meter through it, so none of them can
-// show a number another one does not (spec 6/39).
+// spendByFolder sums /team/daily/activity's per-day rows into per-folder totals
+// for [start, end] (YYYY-MM-DD, inclusive). It is the ONLY read behind every
+// operator spend surface — dashboard, REST, CLI — so none can show a number
+// another one does not (spec 6/39).
 func (g *modelGateway) spendByFolder(ctx context.Context, start, end string) ([]folderSpend, error) {
 	var out struct {
 		Results []struct {
@@ -278,8 +250,7 @@ func (g *modelGateway) spendByFolder(ctx context.Context, start, end string) ([]
 			} `json:"breakdown"`
 		} `json:"results"`
 	}
-	// page_size bounds ROWS, and a row is a day, so a window's worth of days
-	// always fits in one page.
+	// page_size bounds ROWS and a row is a day, so a window always fits one page.
 	path := fmt.Sprintf("/team/daily/activity?start_date=%s&end_date=%s&page_size=%d",
 		url.QueryEscape(start), url.QueryEscape(end), gatewayDailyPageSize)
 	if err := g.call(ctx, http.MethodGet, path, nil, &out); err != nil {
@@ -295,8 +266,7 @@ func (g *modelGateway) spendByFolder(ctx context.Context, start, end string) ([]
 	}
 	rows := make([]folderSpend, 0, len(tokens))
 	for folder, tok := range tokens {
-		// Round each folder's TOTAL once rather than every day: a folder of many
-		// sub-cent days then reports what it cost rather than a column of zeroes.
+		// Round each folder's TOTAL once, not every day.
 		rows = append(rows, folderSpend{
 			Folder: folder, Tokens: tok, CostCents: dollarsToCents(dollars[folder]),
 		})
@@ -305,14 +275,14 @@ func (g *modelGateway) spendByFolder(ctx context.Context, start, end string) ([]
 	return rows, nil
 }
 
-// gatewayDailyPageSize bounds the days one spendByFolder read returns. The
-// operator windows are weeks, so this is slack rather than a limit.
+// gatewayDailyPageSize bounds the days one spendByFolder read returns; the
+// operator windows are weeks, so this is slack.
 const gatewayDailyPageSize = 400
 
-// applyBudget writes a cents cap onto a team or user body. Zero is uncapped and
-// is sent as an explicit null, because the operator clearing a cap has to CLEAR
-// the gateway's — omitting the field would leave the old ceiling enforcing a
-// policy arizuko no longer holds.
+// applyBudget writes a cents cap onto a team or user body. Zero is uncapped
+// and is sent as an explicit null: clearing a cap has to CLEAR the gateway's,
+// and omitting the field would leave the old ceiling enforcing a policy
+// arizuko does not hold.
 func applyBudget(body map[string]any, capCents int) {
 	if capCents > 0 {
 		body["max_budget"] = float64(capCents) / 100
@@ -333,11 +303,9 @@ func deref(f *float64) float64 {
 	return *f
 }
 
-// call is the one request shape every admin verb shares. A non-200 is an error
-// carrying the gateway's own body: a mint refused for a duplicate alias and a
-// mint refused because the database is down are the same status here and
-// different problems for whoever reads the log. A 404 is reported as
-// errGatewayNotFound so a caller can tell "no such team" from "no gateway".
+// call is the one request shape every admin verb shares. A non-200 is an
+// error carrying the gateway's own body; a 404 is errGatewayNotFound so a
+// caller can tell "no such team" from "no gateway".
 func (g *modelGateway) call(ctx context.Context, method, path string, body, out any) error {
 	var reader io.Reader
 	if body != nil {

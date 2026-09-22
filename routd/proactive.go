@@ -13,15 +13,12 @@ import (
 	"github.com/kronael/arizuko/proactive"
 )
 
-// Proactive interjection. routd's orchestration loop drives a silence-triggered
-// scan: after each loop iteration, when now ≥ next scan, one pass over eligible
-// chats runs the ordered checks and, on a pass, appends a synthetic inbound that
-// fires a normal turn. Default off (PROACTIVE_ENABLED unset → no scanner). Mode
-// is per-group business state read from the group's CLAUDE.md frontmatter;
-// tuning is instance env.
+// Proactive interjection: a silence-triggered scan the orchestration loop
+// drives; on a pass it appends a synthetic inbound that fires a normal turn.
+// Default off (PROACTIVE_ENABLED). Mode is per-group state in the group's
+// CLAUDE.md frontmatter; tuning is instance env.
 
-// ProactiveConfig is the instance-wide infra tuning. Loaded once from
-// PROACTIVE_* env; identical across folders.
+// ProactiveConfig is the instance-wide tuning, loaded once from PROACTIVE_* env.
 type ProactiveConfig struct {
 	Enabled           bool
 	ScanInterval      time.Duration
@@ -32,8 +29,8 @@ type ProactiveConfig struct {
 	RecentActivityMin int
 }
 
-// LoadProactiveConfig reads PROACTIVE_* from the environment, applying the
-// defaults. Enabled is the kill switch (unset/false → no scanner).
+// LoadProactiveConfig reads PROACTIVE_* from the environment with defaults;
+// Enabled is the kill switch.
 func LoadProactiveConfig(getenv func(string) string) ProactiveConfig {
 	return ProactiveConfig{
 		Enabled:           boolEnv(getenv("PROACTIVE_ENABLED")),
@@ -69,8 +66,8 @@ func intEnv(v string, def int) int {
 	return def
 }
 
-// modeCache caches per-group proactive modes parsed from CLAUDE.md. routd's
-// loop never re-parses per tick — entries are invalidated by mtime change.
+// modeCache caches per-group proactive modes parsed from CLAUDE.md; entries
+// are invalidated by mtime change, never re-parsed per tick.
 type modeCache struct {
 	mu        sync.Mutex
 	groupsDir string
@@ -86,8 +83,7 @@ func newModeCache(groupsDir string) *modeCache {
 	return &modeCache{groupsDir: groupsDir, entries: map[string]modeCacheEntry{}}
 }
 
-// get returns the group's proactive mode, parsing CLAUDE.md only when the
-// file's mtime changed since the cached entry (or on first read).
+// get returns the group's proactive mode, parsing CLAUDE.md only on mtime change.
 func (c *modeCache) get(folder string) proactive.Mode {
 	path := filepath.Join(c.groupsDir, folder, "CLAUDE.md")
 	var mtime time.Time
@@ -104,17 +100,15 @@ func (c *modeCache) get(folder string) proactive.Mode {
 	return m
 }
 
-// proactiveResult is one chat's scan verdict: the firing check (when fired)
-// or the vetoing check (on a skip). reason is the renderer text.
+// proactiveResult is one chat's scan verdict; reason is the renderer text.
 type proactiveResult struct {
 	fired  bool
 	check  string // firing check on a fire; vetoing check on a skip
 	reason string
 }
 
-// evalProactive runs the ordered checks for one chat against the loop's view of
-// routd.db. It does NOT mutate state — the caller fires (the atomic tx) only on
-// fired=true. now is injected for deterministic tests.
+// evalProactive runs the ordered checks for one chat. It does NOT mutate
+// state — the caller fires only on fired=true. now is injected for tests.
 func evalProactive(db *DB, cfg ProactiveConfig, mode proactive.Mode, jid string, now time.Time) proactiveResult {
 	// A chat with a live turn is skipped (the per-folder queue serializes).
 	if db.ChatHasRunningTurn(jid) {
@@ -169,15 +163,13 @@ func truncate(s string, n int) string {
 }
 
 // proactiveReasonBlock renders the per-turn ephemeral <proactive_reason> block.
-// check is the only structured field; the body is freeform renderer text.
 func proactiveReasonBlock(check, reason string) string {
 	return fmt.Sprintf("<proactive_reason check=%q>\n%s\n</proactive_reason>\n", check, reason)
 }
 
-// scanProactive runs one proactive sweep over eligible chats. For each chat
-// whose group mode is lurk, it evaluates the ordered checks and, on a pass, fires
-// (the atomic tx) then enqueues the chat — the synthetic inbound drives a normal
-// turn. Misconfigured groups log a config error and fire nothing.
+// scanProactive runs one sweep over eligible chats: for each chat whose group
+// mode is lurk, evaluate the checks and, on a pass, fire (the atomic tx) then
+// enqueue. Misconfigured groups log a config error and fire nothing.
 func (l *Loop) scanProactive(now time.Time) {
 	chats, err := l.db.ProactiveChats()
 	if err != nil {

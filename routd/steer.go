@@ -14,11 +14,10 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
-// steer consumes the latest message of a routed chat BEFORE it reaches a turn.
-// It applies, in order: sticky navigation (@group / #topic), routd-serviceable
-// slash commands, and @child delegation / the external-route prefix layer.
-// Returns true when the message was consumed — the caller then advances the
-// cursor and skips the turn.
+// steer consumes the latest message of a routed chat BEFORE it reaches a turn:
+// sticky navigation (@group / #topic), then slash commands, then @child
+// delegation / the external-route prefix layer. True means consumed — the
+// caller advances the cursor and skips the turn.
 func (l *Loop) steer(chatJID string, last core.Message, folder string) bool {
 	if l.handleStickyCommand(chatJID, last) {
 		return true
@@ -29,8 +28,7 @@ func (l *Loop) steer(chatJID string, last core.Message, folder string) bool {
 	return l.tryExternalRoute(chatJID, last, folder)
 }
 
-// ack sends a steering acknowledgement to the chat (routing reset, topic
-// changed, …) via the Deliverer. No-op without a Deliverer (pure REST tests).
+// ack sends a steering acknowledgement to the chat; no-op without a Deliverer.
 func (l *Loop) ack(chatJID, text string) {
 	if l.deliver != nil {
 		_, _ = l.deliver.Send(chatJID, text, "", "", "", "ack-"+core.MsgID(""))
@@ -46,9 +44,8 @@ func isStickyCommand(content string) bool {
 }
 
 // handleStickyCommand pins (or resets) the chat's @group / #topic navigation.
-// A bare @ or # resets; @<known-folder> / #<topic> pins. An @ to an unknown
-// folder is NOT consumed — passed through to the agent (a bare @ at message
-// start has too many meanings to swallow).
+// An @ to an unknown folder is NOT consumed: a bare @ at message start has too
+// many meanings to swallow.
 func (l *Loop) handleStickyCommand(chatJID string, msg core.Message) bool {
 	if msg.BotMsg || strings.HasPrefix(msg.Sender, "timed-") {
 		return false
@@ -85,9 +82,7 @@ func (l *Loop) handleStickyCommand(chatJID string, msg core.Message) bool {
 }
 
 // Slash-command output text is fixed — operators rely on the exact responses.
-// /invite and /gate need onbod-owned tables (invites + onboarding_gates); routd
-// federates them to onbod over HTTP (the OnbodClient). nil client (ONBOD_URL
-// unset) → they report the federation gap.
+// /invite and /gate federate to onbod over HTTP; a nil client reports the gap.
 
 func cmdText(raw string) string {
 	t := strings.TrimSpace(raw)
@@ -124,11 +119,9 @@ func lookupCommand(raw string) (head, arg string) {
 // steerCommand runs one slash command. arg is the text after the head.
 type steerCommand func(l *Loop, chatJID, folder, arg, sender string)
 
-// steerCommands is the set of slash commands and what each one does. It is a
-// map rather than a switch so a SECOND reader can ask "is this row a command?"
-// without running it: dispatch must find the command in a batch before it
-// decides which row to steer, and it may not execute one to find out (BUGS
-// L336). One declaration, so a command cannot be runnable and unfindable.
+// steerCommands is a map, not a switch, so a SECOND reader can ask "is this
+// row a command?" without running it: dispatch must find the command in a
+// batch before it decides which row to steer (BUGS L336).
 var steerCommands = map[string]steerCommand{
 	"/new":    func(l *Loop, chat, folder, arg, _ string) { l.cmdNew(chat, folder, arg) },
 	"/chatid": func(l *Loop, chat, _, _, _ string) { l.ack(chat, chat) },
@@ -150,9 +143,8 @@ var steerCommands = map[string]steerCommand{
 }
 
 // IsSteerCommand reports whether this row is a slash command handleCommand
-// would run. PURE — it parses content and reads the two sender guards, touches
-// no store and sends nothing, which is what lets dispatch call it on every row
-// of a batch.
+// would run. PURE — no store, no send — which lets dispatch call it on every
+// row of a batch.
 func IsSteerCommand(msg core.Message) bool {
 	if msg.BotMsg || strings.HasPrefix(msg.Sender, "timed-") {
 		return false
@@ -170,10 +162,8 @@ func (l *Loop) handleCommand(chatJID string, msg core.Message, folder string) bo
 	return true
 }
 
-// cmdPing reports the resolved folder, its session prefix, the count of live
-// runs in routd's queue, and the registered-group count. "active containers" is
-// routd's in-flight run count (the container runs in runed, but the queue's
-// active count is the equivalent live-run gauge).
+// cmdPing reports the resolved folder, its session prefix, the queue's
+// in-flight run count ("active containers") and the registered-group count.
 func (l *Loop) cmdPing(chatJID, folder string) {
 	sessID, _ := l.db.GetSession(folder, "")
 	nGroups := len(l.db.AllGroups())
@@ -187,9 +177,7 @@ func (l *Loop) cmdPing(chatJID, folder string) {
 		folder, sess, active, nGroups))
 }
 
-// cmdStop kills the resolved folder's live run. The container is owned by runed,
-// so routd asks runed to map the folder to its live spawn and kill it (POST
-// /v1/runs/stop).
+// cmdStop asks runed to map the folder to its live spawn and kill it.
 func (l *Loop) cmdStop(chatJID, folder string) {
 	stopper, ok := l.runner.(RunStopper)
 	if !ok {
@@ -209,23 +197,13 @@ func (l *Loop) cmdStop(chatJID, folder string) {
 	}
 }
 
-// denyNonOperator is the ONE gate the operator-only slash commands share, and
-// the one place their refusal is worded. It reports true when the command was
-// refused (the caller returns).
-//
-// The ack NAMES the principal the gate tested. A chat identity is not the
-// identity a grant was written against, and the person typing cannot see either:
-// `IsOperator` reads the sender string verbatim (auth.Authorize resolves nothing,
-// auth/authorize.go), so an operator whose grant row names a different platform
-// id reads a bare "operator only" as the platform refusing everybody. Naming the
-// string turns the denial into the acl lookup that answers it. On sloth eight
-// Telegram `/root` attempts since 2026-04-02 were refused against a
-// `role:operator` edge holding ANOTHER person's Telegram id, and nothing the
-// operator could see said so (BUGS L333, L334).
-//
-// The WARN is the operator-side half of the same fact. A steer denial writes no
-// message row (an ack goes straight to the platform), and IsOperator writes no
-// audit row, so without this line the refusal leaves NO trace on the instance.
+// denyNonOperator is the ONE gate the operator-only slash commands share and
+// the one place their refusal is worded; true means refused. The ack NAMES the
+// principal tested: IsOperator reads the sender string verbatim, so an operator
+// whose grant row names a different platform id reads a bare "operator only"
+// as the platform refusing everybody (BUGS L333, L334). The WARN is the
+// operator-side half: a steer denial writes no message row and no audit row,
+// so without it the refusal leaves NO trace on the instance.
 func (l *Loop) denyNonOperator(chatJID, sender, cmd string) bool {
 	if l.db.IsOperator(sender) {
 		return false
@@ -237,10 +215,9 @@ func (l *Loop) denyNonOperator(chatJID, sender, cmd string) bool {
 	return true
 }
 
-// cmdStatus reports instance-wide counts. It is operator-only — instance-wide
-// visibility is a `**` (operator) privilege, not a folder position (a top-level
-// world is a tenant like any other). Channels come from the channel registry (held
-// by the Server); errored chats + active tasks from routd.db.
+// cmdStatus reports instance-wide counts, operator-only: instance-wide
+// visibility is a `**` privilege, not a folder position (a top-level world is a
+// tenant like any other).
 func (l *Loop) cmdStatus(chatJID, folder, sender string) {
 	if l.denyNonOperator(chatJID, sender, "/status") {
 		return
@@ -258,12 +235,10 @@ func (l *Loop) cmdStatus(chatJID, folder, sender string) {
 		nChannels, nGroups, active, errored, tasks))
 }
 
-// cmdRoot raises the caller's message to a root-privileged turn — the ONLY path
-// to root. It is gated on the caller carrying the operator `**` grant, NOT on
-// folder shape: a bare top-level world is a tenant, so a folder-shape test is
-// the wrong gate. A non-operator gets a clear denial (no silent downgrade). On
-// success the arg is re-injected in-place and its message id is registered in
-// pendingElevation, so runTurn spawns it with Elevated=true.
+// cmdRoot raises the caller's message to a root turn — the ONLY path to root,
+// gated on the operator `**` grant, NOT on folder shape (a top-level world is
+// a tenant). The arg is re-injected in place and registered in
+// pendingElevation, so runTurn spawns it Elevated; the reply lands back here.
 func (l *Loop) cmdRoot(chatJID, folder, arg, sender string) {
 	if l.denyNonOperator(chatJID, sender, "/root") {
 		return
@@ -272,10 +247,7 @@ func (l *Loop) cmdRoot(chatJID, folder, arg, sender string) {
 		l.ack(chatJID, "Usage: /root <message>")
 		return
 	}
-	// Re-inject the instruction as a fresh inbound in THIS chat (routes to the
-	// same folder) and mark it elevated. The turn runs root-privileged in place;
-	// the reply lands back here, no cross-folder delegation. Elevation is one-shot
-	// (this message only) — the transient, operator-gated root the model wants.
+	// Elevation is one-shot: this message only.
 	msg := core.Message{
 		ID:        core.MsgID("root-" + folder),
 		ChatJID:   chatJID,
@@ -293,10 +265,8 @@ func (l *Loop) cmdRoot(chatJID, folder, arg, sender string) {
 	l.Enqueue(chatJID)
 }
 
-// cmdInvite mints an invite for the caller's folder subtree. It is operator-only
-// (`**`), then validates the arg shape and calls onbod's POST /v1/invites. nil
-// onbod client (ONBOD_URL unset) → the federation-gap notice. The minted invite
-// targets the folder + "/" so the redeemer picks a username under it.
+// cmdInvite mints an invite via onbod's POST /v1/invites, operator-only. The
+// target is the folder + "/" so the redeemer picks a username under it.
 func (l *Loop) cmdInvite(chatJID, folder, arg, sender string) {
 	if l.denyNonOperator(chatJID, sender, "/invite") {
 		return
@@ -323,9 +293,7 @@ func (l *Loop) cmdInvite(chatJID, folder, arg, sender string) {
 	l.ack(chatJID, "Invite link token: "+token)
 }
 
-// cmdGate manages the onboarding gates. It is operator-only (`**`), then
-// validates the subcommand shape and calls onbod's /v1/gates endpoints. nil
-// onbod client → the federation-gap notice.
+// cmdGate manages the onboarding gates via onbod's /v1/gates, operator-only.
 func (l *Loop) cmdGate(chatJID, folder, arg, sender string) {
 	if l.denyNonOperator(chatJID, sender, "/gate") {
 		return
@@ -335,8 +303,8 @@ func (l *Loop) cmdGate(chatJID, folder, arg, sender string) {
 	if len(parts) > 0 {
 		action = parts[0]
 	}
-	// Validate the subcommand shape BEFORE touching onbod, so an unknown
-	// subcommand always gets the usage line (even with no onbod wired).
+	// Validate the shape BEFORE touching onbod, so an unknown subcommand gets
+	// the usage line even with no onbod wired.
 	switch action {
 	case "", "list", "add", "rm", "enable", "disable":
 	default:
@@ -405,11 +373,10 @@ func (l *Loop) cmdGate(chatJID, folder, arg, sender string) {
 	}
 }
 
-// cmdNew clears the resolved folder's session (root or #topic) AND reinjects any
-// trailing text as a fresh inbound so `/new look into X` clears the session then
-// processes "look into X"; a bare `/new` just clears. The synthetic inbound is
-// enqueued; the consumed /new row advances the cursor, so the followup runs on a
-// clean session next poll.
+// cmdNew clears the folder's session (root or #topic) AND re-injects trailing
+// text as a fresh inbound, so `/new look into X` clears then processes "look
+// into X". The consumed /new row advances the cursor, so the follow-up runs on
+// a clean session next poll.
 func (l *Loop) cmdNew(chatJID, folder, arg string) {
 	label := "Session cleared."
 	followup := ""
@@ -439,8 +406,8 @@ func (l *Loop) cmdNew(chatJID, folder, arg string) {
 	l.ack(chatJID, label+" Processing your message...")
 }
 
-// Navigation prefixes must sit at the very start of the message (optional
-// leading whitespace). Mid-content @mentions / #tags are references, not nav.
+// Navigation prefixes sit at the very start of the message; mid-content
+// @mentions / #tags are references, not nav.
 var rePrefixAt = regexp.MustCompile(`^\s*@(\w[\w-]*)`)
 var rePrefixHash = regexp.MustCompile(`^\s*#(\w[\w-]*)`)
 
@@ -457,7 +424,6 @@ func parsePrefix(text string) (name, rest string, ok bool) {
 
 // tryExternalRoute delegates the message to a child group when an explicit
 // @child / #topic prefix or a routing rule points outside the current folder.
-// Returns true when the message was delegated/forked (consumed).
 func (l *Loop) tryExternalRoute(chatJID string, msg core.Message, folder string) bool {
 	if l.handlePrefixLayer(chatJID, msg, folder) {
 		return true
@@ -470,9 +436,9 @@ func (l *Loop) tryExternalRoute(chatJID string, msg core.Message, folder string)
 	return false
 }
 
-// handlePrefixLayer routes an explicit @child / #topic prefix. @child
+// handlePrefixLayer routes an explicit @child / #topic prefix: @child
 // delegates to folder/child; #topic re-appends the stripped message under
-// topic="#name". An unknown child is NOT swallowed (defence in depth).
+// topic="#name". An unknown child is NOT swallowed.
 func (l *Loop) handlePrefixLayer(chatJID string, msg core.Message, folder string) bool {
 	if msg.BotMsg || strings.HasPrefix(msg.Sender, "timed-") {
 		return false
@@ -514,7 +480,7 @@ func (l *Loop) handlePrefixLayer(chatJID string, msg core.Message, folder string
 
 // resolveTarget picks a delegation target distinct from selfFolder: a reply to
 // a bot row routed elsewhere, then the chat's sticky group, then the route
-// table. Returns "" when the target is self or none applies.
+// table. "" when the target is self or none applies.
 func (l *Loop) resolveTarget(chatJID string, msg core.Message, selfFolder string) string {
 	if msg.ReplyToID != "" {
 		if routed := l.db.RoutedToByMessageID(chatJID, msg.ReplyToID); routed != "" {
@@ -542,13 +508,11 @@ func (l *Loop) resolveTarget(chatJID string, msg core.Message, selfFolder string
 }
 
 // escOriginRe extracts the escalation origin (folder + jid) from a delegated
-// prompt's <escalation_origin/> tag. When present, the child's reply routes back
-// to that worker jid instead of the original chat.
+// prompt's <escalation_origin/> tag; the child's reply routes back to it.
 var escOriginRe = regexp.MustCompile(`<escalation_origin\s[^/]*folder="([^"]+)"[^/]*jid="([^"]+)"[^/]*/>`)
 
-// escalationWorker returns the escalation-origin return address carried in a
-// delegated prompt, or "" when the prompt is a plain delegation. Returns m[1],
-// the folder capture group (not jid).
+// escalationWorker returns the escalation-origin folder carried in a delegated
+// prompt, or "" for a plain delegation.
 func escalationWorker(prompt string) string {
 	m := escOriginRe.FindStringSubmatch(prompt)
 	if m == nil {
@@ -557,9 +521,9 @@ func escalationWorker(prompt string) string {
 	return m[1]
 }
 
-// delegate writes a delegation message to the target group's folder JID and
-// enqueues it. A missing target is reported back into the originating chat —
-// routing consumes the message, so a silent drop would swallow it.
+// delegate writes a delegation message to the target group's folder JID. A
+// missing target is reported back into the originating chat — routing consumes
+// the message, so a silent drop would swallow it.
 func (l *Loop) delegate(targetFolder, prompt, originJID string) {
 	if err := l.delegateViaMessage(targetFolder, prompt, originJID); err != nil {
 		slog.Warn("delegate failed", "target", targetFolder, "err", err)
@@ -567,11 +531,10 @@ func (l *Loop) delegate(targetFolder, prompt, originJID string) {
 	}
 }
 
-// delegateViaMessage writes the delegation row and triggers the target's queue.
-// ForwardedFrom carries the origin chat as the return address so the child's
-// reply-to-bot routes back — overridden to the escalation worker jid when the
-// prompt carries an <escalation_origin/> tag. Groups are never created here: an
-// unknown target is an error naming the folder and the tool that creates it.
+// delegateViaMessage writes the delegation row and triggers the target's
+// queue. ForwardedFrom is the return address (the escalation worker jid when
+// the prompt carries an <escalation_origin/> tag). Groups are never created
+// here: an unknown target is an error naming the tool that creates it.
 func (l *Loop) delegateViaMessage(targetFolder, prompt, originJID string) error {
 	fwdFrom := originJID
 	if worker := escalationWorker(prompt); worker != "" {
@@ -594,21 +557,12 @@ func (l *Loop) delegateViaMessage(targetFolder, prompt, originJID string) error 
 	return nil
 }
 
-// cmdResolveHold records a human's verdict on a held tool call (spec 5/19). The
-// agent's call is suspended on the row right now, so the verdict IS the answer:
-// the waiter reads it and runs or refuses the call inside that turn. There is no
-// out-of-turn dispatcher — the agent MCP server is per-turn, and a second path
-// would have to re-implement ipc's grant and audit discipline.
-//
-// Who may answer is decided inside resolveHoldInto, on the held row's folder —
-// the SAME core the REST face runs, so there is one gate rather than two
-// readers of "operator". A button press and a typed command converge here, and
-// the verdict commits together with the resolution message that triggers the
-// re-issue.
-//
-// `standing` is /always: `yes` plus the skip-approval rule, one batch.
-// There is no /never — it would ALSO write a tool deny, and acl rows carry no
-// verdict identity, so nothing could later tell that deny from standing policy
+// cmdResolveHold records a human's verdict on a held tool call (spec 5/19).
+// The agent's call is suspended on the row, so the verdict IS the answer: the
+// waiter runs or refuses the call inside that turn; there is no out-of-turn
+// dispatcher. Who may answer is decided inside resolveHoldInto, the SAME core
+// the REST face runs. `standing` is /always: `yes` plus the skip-approval
+// rule, one batch. There is no /never: acl rows carry no verdict identity
 // (spec 6/26 § "Revocation needs provenance").
 func (l *Loop) cmdResolveHold(chatJID, folder, arg, sender, verdict string, standing bool) {
 	id, note, _ := strings.Cut(strings.TrimSpace(arg), " ")
@@ -634,17 +588,16 @@ func (l *Loop) cmdResolveHold(chatJID, folder, arg, sender, verdict string, stan
 	}
 	msg := fmt.Sprintf("approved %s (%s) — the agent runs it now", id, p.Tool)
 	if standing {
-		// Name the rule that was written AND how to undo it: revoking an
-		// `always` is removing this row, and no other row means the same thing.
+		// Name the rule AND how to undo it: removing this row is the only revocation.
 		msg += "\n" + standingWritten(p)
 	}
 	l.ack(chatJID, msg)
 }
 
-// standingWritten reports the skip-approval row an /always just wrote, spelled
-// as the remove_acl call that undoes it. Deny-wins is absolute, so a narrower
-// hold cannot restore the approval: removing this row is the ONLY revocation,
-// and the operator has to be told which row that is (spec 6/26 gap 2.1).
+// standingWritten spells the skip-approval row an /always wrote as the
+// remove_acl call that undoes it: deny-wins is absolute, so a narrower hold
+// cannot restore the approval and removing this row is the ONLY revocation
+// (spec 6/26 gap 2.1).
 func standingWritten(p PendingAction) string {
 	r := skipApprovalRow(p, "")
 	return fmt.Sprintf(

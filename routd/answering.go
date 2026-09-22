@@ -2,25 +2,13 @@ package routd
 
 // answering.go answers one operator question: are agents ANSWERING people?
 // `turns` is what the dispatcher did, `waiting` is what the people got, and
-// neither implies the other because a turn only runs when a route says so. The
-// wire shapes, and what each field claims, live in routd/api/v1/types.go.
-//
-// A PLAIN /v1 READ, NOT A RESREG RESOURCE, for the reason dash_reads_http.go
-// records: registering it would hand every agent a cross-folder tool for
-// reading who is waiting on whom. It is an AGGREGATE — counts, timestamps and a
-// verdict, never message content — so the surface cannot become a way to read
-// another folder's conversations.
-//
-// WHAT IT DOES NOT CLAIM. A reply is a bot row routd stored, not a message a
-// person received: delivery failures are bot rows too (dead_letters_db.go is a
-// view of `messages` on status='failed'). So this answers "did the agent produce
-// an answer", and a fleet whose adapter cannot send looks answered here. That
-// half belongs to `/v1/routing/errored` and the dead-letter surface, and the
-// two are read together.
-//
-// The verdict is routd's own resolve over the chat's newest human message — the
-// same call the loop makes — so this reader cannot disagree with the behaviour
-// it describes. Nothing here changes that behaviour.
+// neither implies the other. A PLAIN /v1 READ, NOT A RESREG RESOURCE: a
+// resource would hand every agent a cross-folder tool; it is an AGGREGATE,
+// never message content. A reply is a bot row routd stored, not a message a
+// person received — a fleet whose adapter cannot send looks answered here;
+// that half is `/v1/routing/errored` and the dead-letter surface. The verdict
+// is routd's own resolve, the same call the loop makes, so this reader cannot
+// disagree with the behaviour it describes.
 
 import (
 	"fmt"
@@ -33,10 +21,8 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
-// answeringWindow is the window a caller that names none gets. It is the week
-// the eval's check 21 asks by hand, so the served answer and the hand query
-// describe the same period. The response echoes it, so the window a row was
-// judged against is always on the wire.
+// answeringWindow is the default window: the week the eval's check 21 asks by
+// hand. The response echoes it.
 const answeringWindow = 7 * 24 * time.Hour
 
 // WaitingChat is one chat where a person wrote and nothing answered.
@@ -52,23 +38,13 @@ type WaitingChat struct {
 }
 
 // WaitingChats lists the chats a person is waiting on, newest question first.
-//
-// A chat qualifies on the OUTCOME, not on the routing: it is listed when its
-// newest human message falls in the window and no agent reply is newer. That is
-// deliberately wider than the held set (unrouted.go), which lists only chats the
-// loop drops. A chat with a working route that simply stopped answering is
-// invisible to the held set and is exactly the failure this read is for.
-//
-// The route table is read once up front so a store fault reaches the caller:
-// resolve treats that fault as a route miss, which here would label every chat
-// `held` and read as "the instance has no routes".
-//
-// IT WALKS THE CHAT LIST — 136 partitions on krons — and reads each chat's
-// newest human row, which is the same shape and cost as the held set's
-// InboundChatSummary. The second read, for the reply, is made only for a chat
-// that asked something inside the window, so the expensive half is bounded by
-// the window rather than by the instance. This is an operator's read, not a hot
-// path; nothing on the message path calls it.
+// A chat qualifies on the OUTCOME, not the routing: newest human message in
+// the window and no newer agent reply — wider than the held set (unrouted.go),
+// which lists only chats the loop drops; a route that simply stopped answering
+// is exactly the failure this read is for. The route table is read up front so
+// a store fault reaches the caller: resolve treats it as a miss, which would
+// label every chat `held`. It walks the chat list, and the second read is
+// bounded by the window; an operator's read, not a hot path.
 func (l *Loop) WaitingChats(since time.Time) ([]WaitingChat, error) {
 	if _, err := l.db.Routes(); err != nil {
 		return nil, err
@@ -83,8 +59,7 @@ func (l *Loop) WaitingChats(since time.Time) ([]WaitingChat, error) {
 		if err != nil {
 			return nil, err
 		}
-		// The window is applied to the QUESTION. A chat whose newest human
-		// message predates it is not waiting now, whatever its reply state.
+		// The window is applied to the QUESTION.
 		if !asked || human.Timestamp.Before(since) {
 			continue
 		}
@@ -122,8 +97,8 @@ func answeringVerdict(r resolution) (verdict, folder string) {
 	}
 }
 
-// countTurn folds one turn's state into the window's counts. Anything the four
-// names miss lands in Other, so they always sum (apiv1.TurnOutcomes).
+// countTurn folds one turn's state into the window's counts; anything the
+// four names miss lands in Other, so they always sum.
 func countTurn(out *apiv1.TurnOutcomes, state string) {
 	switch state {
 	case store.TurnDone:
@@ -139,15 +114,10 @@ func countTurn(out *apiv1.TurnOutcomes, state string) {
 	}
 }
 
-// visibleTo reports whether a bearer whose claim is tokenFolder may see a row
-// belonging to rowFolder.
-//
-// It is descendant(), NOT ownsFolder(). ownsFolder counts an EMPTY target as
-// owned by anyone, which is right for a resource no folder binds and wrong here:
-// a held chat's folder is empty, so ownsFolder would hand every folder-scoped
-// bearer every unclaimed chat on the instance. An empty claim is the root or a
-// service token and sees everything; a scoped one sees its own subtree and no
-// unclaimed rows.
+// visibleTo reports whether a bearer claiming tokenFolder may see a row of
+// rowFolder. descendant(), NOT ownsFolder(): ownsFolder counts an EMPTY target
+// as owned by anyone, and a held chat's folder is empty, so it would hand every
+// scoped bearer every unclaimed chat. An empty claim sees everything.
 func visibleTo(tokenFolder, rowFolder string) bool {
 	if tokenFolder == "" {
 		return true
@@ -155,10 +125,9 @@ func visibleTo(tokenFolder, rowFolder string) bool {
 	return rowFolder != "" && descendant(rowFolder, tokenFolder)
 }
 
-// answeringSince reads the window bound. An absent bound is the default week,
-// which the response then echoes; an unparseable one is refused rather than
-// silently replaced, because a window nobody chose would report the wrong period
-// under a timestamp that looks deliberate.
+// answeringSince reads the window bound: absent is the default week, and an
+// unparseable one is refused — a window nobody chose would report the wrong
+// period under a timestamp that looks deliberate.
 func answeringSince(q string) (time.Time, error) {
 	if q == "" {
 		return time.Now().UTC().Add(-answeringWindow), nil
@@ -181,9 +150,7 @@ func (s *Server) handleAnswering(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "bad_request", err.Error())
 		return
 	}
-	// The verdict is the loop's own resolve, so without a loop there is no
-	// verdict to report — and a waiting list with no verdicts is the ambiguity
-	// this read exists to remove. 503, not a partial answer.
+	// No loop, no verdict: 503, not a partial answer.
 	if s.loop == nil {
 		writeErr(w, 503, "unavailable", "routing loop not running")
 		return

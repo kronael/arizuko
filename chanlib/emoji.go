@@ -1,9 +1,8 @@
 package chanlib
 
-// ClassifyEmoji returns "like" or "dislike" based on the emoji's
-// approximate sentiment. Unknown emojis default to "like" — the
-// adapter is signaling "someone reacted, here's what they used"; the
-// agent gets the actual emoji string in InboundMsg.Reaction for nuance.
+// ClassifyEmoji returns "like" or "dislike" by approximate sentiment; unknown
+// emojis default to "like", and the agent gets the actual emoji in
+// InboundMsg.Reaction.
 func ClassifyEmoji(emoji string) string {
 	if negativeEmoji[emoji] {
 		return "dislike"

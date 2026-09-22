@@ -2,9 +2,8 @@ package routd
 
 // unrouted.go is the held set (spec 6/35): every chat whose latest inbound
 // message the loop drops today. Nothing here changes what the loop does with a
-// miss — the messages already sit in `messages` with routed_to='' and the
-// cursor already moved past them. This file names that set and serves it to
-// the operator, who claims a chat with the route write that already exists.
+// miss; this file names that set and serves it to the operator, who claims a
+// chat with the route write that already exists.
 
 import (
 	"context"
@@ -27,14 +26,11 @@ type UnroutedChat struct {
 	LastSender string
 }
 
-// UnroutedChats lists the held chats, most recent activity first.
-//
-// The verdict per chat is the loop's own resolve over the chat's latest
-// inbound message — the call pollOnce makes — so this reader cannot disagree
-// with the drop it describes: a chat leaves the set the moment a route,
-// a direct address or an engagement window claims it. The route table is read
-// once up front so a store fault is an error to the caller; resolve treats that
-// fault as a miss, which here would render as "everything is unrouted".
+// UnroutedChats lists the held chats, most recent activity first. The verdict
+// is the loop's own resolve over the chat's latest inbound — the call pollOnce
+// makes — so this reader cannot disagree with the drop it describes. The route
+// table is read up front so a store fault is an error to the caller: resolve
+// treats it as a miss, which would render as "everything is unrouted".
 func (l *Loop) UnroutedChats() ([]UnroutedChat, error) {
 	if _, err := l.db.Routes(); err != nil {
 		return nil, err
@@ -62,9 +58,8 @@ func (l *Loop) UnroutedChats() ([]UnroutedChat, error) {
 	return out, nil
 }
 
-// inboundChatSummary aggregates every chat's inbound human rows: count, first
-// and last timestamp. Bot rows and the operator's own phone (is_from_me) are
-// not traffic that needs a route.
+// inboundChatSummary aggregates every chat's inbound human rows; bot rows and
+// the operator's own phone (is_from_me) are not traffic that needs a route.
 func (d *DB) inboundChatSummary() ([]UnroutedChat, error) {
 	rows, err := d.store().InboundChatSummary(context.Background())
 	if err != nil {
@@ -80,18 +75,16 @@ func (d *DB) inboundChatSummary() ([]UnroutedChat, error) {
 }
 
 // lastInboundMessage is the chat's newest inbound human row — the message the
-// loop resolved last, and the one resolve is asked about again here.
+// loop resolved last.
 func (d *DB) lastInboundMessage(chatJID string) (core.Message, bool, error) {
 	return d.store().LastInboundMessage(context.Background(), chatJID)
 }
 
-// handleUnroutedChats serves GET /v1/routing/unrouted.
-//
-// A plain read beside /v1/routing/errored, not a resreg resource, for the
-// reason dash_reads_http.go records: it must not become an agent tool. A held
-// chat belongs to no folder, so only an unscoped (root / service) bearer may
-// list them — a folder-scoped token owns none of these chats and is refused,
-// rather than answered with an empty list that reads as "nothing is arriving".
+// handleUnroutedChats serves GET /v1/routing/unrouted — a plain read, not a
+// resreg resource: it must not become an agent tool. A held chat belongs to no
+// folder, so only an unscoped bearer may list them; a folder-scoped token is
+// refused rather than answered with an empty list that reads as "nothing is
+// arriving".
 func (s *Server) handleUnroutedChats(w http.ResponseWriter, r *http.Request) {
 	_, folder, ok := s.authz(w, r, scopeRoutesRead...)
 	if !ok {

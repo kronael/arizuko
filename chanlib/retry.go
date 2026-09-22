@@ -9,14 +9,12 @@ import (
 	"time"
 )
 
-// retryBackoffs lists base sleeps between attempts for 5xx responses and
-// network errors. Length determines max total attempts = len+1. Exposed
-// as a var so tests can shrink it.
+// retryBackoffs lists base sleeps between attempts; max total attempts is
+// len+1. A var so tests can shrink it.
 var retryBackoffs = []time.Duration{300 * time.Millisecond, 800 * time.Millisecond}
 
-// retryMaxRetryAfter caps Retry-After wait so a misbehaving upstream
-// can't stall a caller for long. Values larger than this cause the
-// retry loop to give up and return the response as-is.
+// retryMaxRetryAfter caps the Retry-After wait so a misbehaving upstream
+// cannot stall a caller; a larger value falls back to the backoff table.
 var retryMaxRetryAfter = 30 * time.Second
 
 // RetryPolicy says which failures a request may be retried on.
@@ -39,11 +37,9 @@ func DoWithRetry(client *http.Client, req *http.Request) (*http.Response, error)
 	return DoWithPolicy(client, req, RetryTransient)
 }
 
-// DoWithPolicy retries per policy with jittered backoff, max
-// len(retryBackoffs)+1 total attempts.
-// On 429, respects Retry-After header (seconds or HTTP-date) if present and <= 30s.
-// On 5xx, uses jittered exponential backoff: ~300ms, ~800ms.
-// Returns the final response or final error. Caller still closes Body.
+// DoWithPolicy retries per policy with jittered backoff. On 429 it honours
+// Retry-After (seconds or HTTP-date) when <= retryMaxRetryAfter. Returns the
+// final response or error; the caller still closes Body.
 func DoWithPolicy(client *http.Client, req *http.Request, policy RetryPolicy) (*http.Response, error) {
 	if req.Body != nil && req.GetBody == nil {
 		b, err := io.ReadAll(req.Body)

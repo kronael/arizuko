@@ -1,36 +1,12 @@
 package routd
 
-// packages_resource.go registers the installed-package record (spec 5/28) as a
-// resreg.Resource, closing the review-blocker root CLAUDE.md names: every
-// cold-tier management entity is a resreg resource, so one handler wears the
-// operator's REST face and the agent's derived MCP face.
-//
-// THE SURFACE IS READ-ONLY, and that is the design, not a stub. Install /
-// upgrade / remove is a phased, side-effecting lifecycle — git-clone at a pinned
-// revision, compose fragments and skills written onto the HOST filesystem, acl +
-// proxyd_routes rows applied, then `arizuko generate` and a compose restart
-// (cmd/arizuko/packages.go). A write face here would have to reimplement that
-// pipeline (a second path that drifts from the CLI — forbidden) or write a
-// record for assets nobody installed. So `installed_packages` publishes exactly
-// what it can serve honestly: list + get, on both faces. The reason F1 was filed
-// was that an agent could not SEE what an operator installed; that is what this
-// fixes. What it does not do, it does not advertise.
-//
-// CONTAINMENT: the record is keyed (folder, name) since 0031, but that key is
-// the LOCK's — it is not a per-tenant slice, and authorization did not move with
-// it. Every package the CLI installs is instance-wide (folder ""), `list` reads
-// across all folders, and the record carries cross-folder data regardless (the
-// acl grants an install applied, every public route path it opened). Both faces
-// therefore still bind the same target, the whole tree
-// (installedPackagesScope), and run the ONE evaluator on it: a caller whose
-// grant covers only its own subtree does not match `**` and is denied. Two
-// identity sources (JWT sub vs socket principal), two injected gates, one
-// decision procedure — CLAUDE.md "auth is a uniform middleware". Narrowing this
-// to a per-folder read is composition's call (spec 5/28), not the re-key's.
-//
-// No action mutates, so resreg opens no tx and writes no audit_log mutation row;
-// denials and errors still land there (resreg.emitAudit), which is the whole
-// forensic value a read surface has.
+// packages_resource.go registers the installed-package record (spec 5/28) as
+// a resreg.Resource. READ-ONLY by design: install/upgrade/remove is a
+// side-effecting lifecycle on the HOST (cmd/arizuko/packages.go), and a write
+// face here would be a second path that drifts from the CLI. The record is
+// keyed (folder, name), but that key is the LOCK's, not a per-tenant slice —
+// it carries cross-folder data — so both faces bind the whole tree
+// (installedPackagesScope): a grant covering only a subtree does not match `**`.
 
 import (
 	"context"
@@ -43,21 +19,17 @@ import (
 	"github.com/kronael/arizuko/resreg/resources"
 )
 
-// installedPackagesScope is the target BOTH faces authorize against. The record
-// is instance-global, so the only scope that contains it is the whole tree —
-// the same "**" the operator role holds (DB.IsOperator). A folder-scoped grant
-// (`acme/**`) does not glob-match it, which is the containment.
+// installedPackagesScope is the target BOTH faces authorize against: the
+// record is instance-global, so the only scope that contains it is the whole
+// tree, and a folder-scoped grant (`acme/**`) does not glob-match it.
 const installedPackagesScope = "**"
 
-// installedPackagesMCPNames is the action→flat-tool-name map, single-sourced in
-// resreg/resources. Aliased here for the Gate's action→policy-name lookup.
+// installedPackagesMCPNames is single-sourced in resreg/resources.
 var installedPackagesMCPNames = resources.InstalledPackagesMCPNames
 
-// installedPackagesResource is the single renderer for both faces. Endpoints,
-// MCPDoc and MCPNames all come from resreg/resources so the catalog decl (which
-// feeds /openapi.json and ipc's tool browser) and this mounted decl cannot
-// disagree about the action set. Store is non-nil so resreg runs the Gate at all
-// — a nil Store marks a forwarder, and invoke skips authorization for those.
+// installedPackagesResource is the single renderer for both faces. Store is
+// non-nil so resreg runs the Gate at all — a nil Store marks a forwarder, and
+// invoke skips authorization for those.
 func (s *Server) installedPackagesResource() resreg.Resource {
 	r := resreg.Mount(resources.InstalledPackagesName)
 	r.Handler = s.installedPackagesHandler
@@ -65,19 +37,17 @@ func (s *Server) installedPackagesResource() resreg.Resource {
 	return r
 }
 
-// mountInstalledPackages wires GET /v1/installed_packages[/{name}] onto the same
-// handler the agent's list_packages/get_package tools use.
+// mountInstalledPackages wires GET /v1/installed_packages[/{name}] onto the
+// same handler the agent's list_packages/get_package tools use.
 func (s *Server) mountInstalledPackages(mux *http.ServeMux) {
 	res := s.installedPackagesResource()
 	res.Gate = s.installedPackagesRESTGate
 	resreg.RegisterREST(mux, res, s.restCaller(nil))
 }
 
-// installedPackagesRESTGate is the operator/human twin of the agent Gate below:
-// the same evaluator, on the same instance-wide target, keyed by the REST action
-// name. Only a grant covering `**` (the operator role, or an explicit
-// installed_packages:<action> row at that scope) passes; a tenant token bound to
-// its own subtree does not.
+// installedPackagesRESTGate is the REST twin of the agent Gate: the same
+// evaluator on the same instance-wide target, keyed by the REST action name.
+// A tenant token bound to its own subtree does not pass.
 func (s *Server) installedPackagesRESTGate(x resreg.Execution, _ string, _ map[string]string) error {
 	if s.verify == nil {
 		return nil // local-dev open mode, mirrors s.authz
@@ -90,10 +60,9 @@ func (s *Server) installedPackagesRESTGate(x resreg.Execution, _ string, _ map[s
 	return nil
 }
 
-// installedPackagesPostBuild mounts the package tools on the agent socket with
-// the db.Authorize Gate + the turn's visibility view injected. The target is the
-// whole tree, so the record is default-deny for a folder agent: only /root or an
-// operator grant scoped `**` reaches it.
+// installedPackagesPostBuild mounts the package tools on the agent socket. The
+// target is the whole tree, so only /root or an operator grant scoped `**`
+// reaches it.
 func (s *Server) installedPackagesPostBuild(folder, callerSub string, authorize authorizeFn, visible func(string) bool) func(*mcpserver.MCPServer) {
 	res := s.installedPackagesResource()
 	res.Gate = func(x resreg.Execution, _ string, _ map[string]string) error {
@@ -107,9 +76,8 @@ func (s *Server) installedPackagesPostBuild(folder, callerSub string, authorize 
 	return mountAgentResource(res, callerSub, folder, visible)
 }
 
-// installedPackagesHandler serves list/get off routd.db's installed-package
-// record. Both actions render through installedPackageRow, so the JSON an agent
-// and an operator receive IS the struct /openapi.json documents.
+// installedPackagesHandler serves list/get; both render through
+// installedPackageRow, so the JSON IS the struct /openapi.json documents.
 func (s *Server) installedPackagesHandler(_ context.Context, x resreg.Execution) (any, error) {
 	switch x.Action {
 	case resreg.ActionList:
@@ -128,8 +96,7 @@ func (s *Server) installedPackagesHandler(_ context.Context, x resreg.Execution)
 		if name == "" {
 			return nil, resreg.Errorf(http.StatusBadRequest, "name required")
 		}
-		// The record is keyed (folder, name); an omitted folder asks for the
-		// instance-wide row, which is every row the CLI writes.
+		// An omitted folder asks for the instance-wide row.
 		folder := strings.TrimSpace(argString(x.Args, "folder"))
 		rec, ok, err := s.db.InstalledPackage(folder, name)
 		if err != nil {
@@ -149,9 +116,9 @@ func (s *Server) installedPackagesHandler(_ context.Context, x resreg.Execution)
 }
 
 // installedPackageRow maps the store DTO onto the catalog Row — the one struct
-// /openapi.json emits a schema from — so the wire body and the doc cannot drift.
-// The raw JSON shadow columns stay empty: they exist for the engine's ScanAll,
-// and both are json:"-".
+// /openapi.json emits a schema from — so the wire body and the doc cannot
+// drift. The raw JSON shadow columns stay empty: they exist for the engine's
+// ScanAll, and both are json:"-".
 func installedPackageRow(p InstalledPackage) resources.InstalledPackagesRow {
 	return resources.InstalledPackagesRow{
 		Folder:      p.Folder,

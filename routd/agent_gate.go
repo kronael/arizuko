@@ -11,29 +11,22 @@ import (
 )
 
 // agent_gate.go holds the closures every cold-tier resource's agent-socket
-// postBuild shares. 5/33: authorization is ONE evaluator (auth.Authorize on the
-// ACTUAL target scope); visibility is one view (auth.EffectiveActions over the acl
-// rows). Keeping ONE source per concern stops the per-resource copies from drifting
-// (a past drift opened a cross-tenant hole — see web_routes delete).
+// postBuild shares (5/33): authorization is ONE evaluator (auth.Authorize on
+// the ACTUAL target scope), visibility one view (auth.EffectiveActions). One
+// source per concern stops the per-resource copies drifting — a past drift
+// opened a cross-tenant hole (web_routes delete).
 
-// authorizeFn is the per-call row-ACL check the agent socket runs. `folder` is the
-// SCOPE matched against the grant globs (the caller's own folder for magnitude, the
-// target folder for containment). ServeTurnMCP injects it per turn via turnAuthorize.
-//
-// It takes NO principal. A turn's principals are a property of the turn — the folder
-// it was routed to and the sender it was triggered by — so turnAuthorize closes over
-// both and no call site can supply a third. That is structural: the two notions of
-// "who" that used to reach this call (the socket's folder principal and the trigger
-// sender) are now reconciled in ONE place, and the folder principal survives only as
-// the audit actor, never as an authorization input.
+// authorizeFn is the per-call row-ACL check the agent socket runs; `folder`
+// is the SCOPE matched against the grant globs. It takes NO principal: a
+// turn's principals are a property of the turn, so turnAuthorize closes over
+// both and no call site can supply a third; the folder principal survives
+// only as the audit actor, never as an authorization input.
 type authorizeFn func(folder, action string, params map[string]string) bool
 
-// turnAuthorize renders the per-call row-ACL check for one turn's agent socket, on
-// the two axes of 5/33: the turn's folder confers (role:member floor +
-// operator/delegated grants), the attested sender adds inside that folder's subtree.
-// An elevated (operator /root) turn allows every call — the operator holds
-// role:operator (`*`, WITH GRANT OPTION), so /root is unrestricted, and it is the
-// ONLY path by which a person's own authority reaches outside the turn's subtree.
+// turnAuthorize renders the check on the two axes of 5/33: the turn's folder
+// confers, the attested sender adds inside that folder's subtree. An elevated
+// /root turn allows every call — the ONLY path by which a person's own
+// authority reaches outside the turn's subtree.
 func (s *Server) turnAuthorize(t turnMCP) authorizeFn {
 	if t.elevated {
 		return func(string, string, map[string]string) bool { return true }
@@ -44,9 +37,8 @@ func (s *Server) turnAuthorize(t turnMCP) authorizeFn {
 	}
 }
 
-// turnIdentity is the turn's effective identity for the agent-socket gates: the
-// socket folder normally, root under an operator /root elevation (cmdRoot gates
-// /root on IsOperator, so this is reachable only by a verified operator).
+// turnIdentity is the turn's effective identity for the agent-socket gates:
+// the socket folder, or root under an operator /root elevation.
 func turnIdentity(folder string, elevated bool) auth.Identity {
 	id := auth.Resolve(folder)
 	if elevated {
@@ -55,15 +47,10 @@ func turnIdentity(folder string, elevated bool) auth.Identity {
 	return id
 }
 
-// turnVisible builds the tools/list visibility predicate for one turn: an elevated
-// /root turn sees everything; else a tool shows iff the turn holds its `mcp:<tool>`
-// grant at any scope (auth.EffectiveActions). Reads are advertised unconditionally by
-// their own registration, never through this predicate.
-//
-// It reads the SAME two-axis Caller turnAuthorize evaluates, so a tool the sender
-// holds is registered and its gate then runs. A tool listed here is not a tool
-// authorized: the gate is per-target and confines the sender's half to the turn's
-// subtree.
+// turnVisible builds the tools/list predicate: an elevated turn sees
+// everything; else a tool shows iff the turn holds its `mcp:<tool>` grant at
+// any scope, on the SAME two-axis Caller turnAuthorize evaluates. Listed is
+// not authorized: the gate is per-target and confines the sender's half.
 func (s *Server) turnVisible(t turnMCP) func(name string) bool {
 	if t.elevated {
 		return func(string) bool { return true }
@@ -73,11 +60,9 @@ func (s *Server) turnVisible(t turnMCP) func(name string) bool {
 	return func(name string) bool { return held("mcp:" + name) }
 }
 
-// agentAllowGate is the no-op resreg Gate the non-forwarder agent resources set so
-// resreg's operator defaultGate (a `<resource>:<action>` scope check the agent
-// principal never holds) does NOT run on the agent socket. The real authorization —
-// one evaluator, auth.Authorize on the ACTUAL target — rides each handler's `contain`
-// seam, which resolves the target from the args/id before any write.
+// agentAllowGate is the no-op Gate the non-forwarder agent resources set so
+// resreg's operator defaultGate (a scope the agent principal never holds) does
+// NOT run; the real authorization rides each handler's `contain` seam.
 func agentAllowGate(resreg.Execution, string, map[string]string) error { return nil }
 
 // agentCallerFor is the Caller resolver every agent-socket resource uses: the
@@ -88,8 +73,7 @@ func agentCallerFor(callerSub, folder string) func(context.Context, mcp.CallTool
 	}
 }
 
-// mountAgentResource is the ServeMCP seam every agent postBuild returns: mount res's
-// tools on the agent socket with the socket's own Caller + the turn's visibility view.
+// mountAgentResource is the ServeMCP seam every agent postBuild returns.
 func mountAgentResource(res resreg.Resource, callerSub, folder string, visible func(string) bool) func(*mcpserver.MCPServer) {
 	return func(srv *mcpserver.MCPServer) {
 		resreg.MCPTools(srv, res, agentCallerFor(callerSub, folder), visible)

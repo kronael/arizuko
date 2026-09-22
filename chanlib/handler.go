@@ -22,28 +22,22 @@ type SendRequest struct {
 	Content  string `json:"content"`
 	ReplyTo  string `json:"reply_to"`
 	ThreadID string `json:"thread_id"`
-	// ThreadRoot is the platform id of the message to root a NEW thread on
-	// when no thread exists yet (ThreadID empty). Slack posts with
-	// thread_ts=ThreadRoot; Discord starts a thread from that message and
-	// posts into it. Adapters without threading ignore it.
+	// ThreadRoot roots a NEW thread on that platform message when ThreadID is
+	// empty; adapters without threading ignore it.
 	ThreadRoot string `json:"thread_root"`
-	// IdempotencyKey is routd's stable id for this delivery (the outbound
-	// message row). routd re-sends a row that stays `pending`, so the SAME key
-	// arrives more than once by design and the adapter must not post twice.
-	// The mux enforces that (dedup.go); adapters read it only when the
-	// platform takes a key of its own. Empty = no dedup (SendVia, local dev).
+	// IdempotencyKey is routd's stable id for this delivery. routd re-sends a
+	// `pending` row, so the SAME key arrives more than once by design; the mux
+	// enforces the dedup (dedup.go). Empty = no dedup (SendVia, local dev).
 	IdempotencyKey string `json:"idempotency_key"`
-	// Options are the answers a reader can pick without typing. Only an adapter
-	// with the `buttons` capability receives them; chanreg folds them into the
-	// text for every other adapter (spec 5/19).
+	// Options are pickable answers; only an adapter with the `buttons`
+	// capability receives them, chanreg folds them into the text otherwise.
 	Options []Option `json:"options,omitempty"`
 }
 
-// Option is one pickable answer. Data is what a press SENDS: the adapter puts
-// Send() on the button verbatim and delivers the press as an ordinary
-// InboundMsg whose Content is that string, from the presser's own id. A press
-// and a typed command are then one inbound path under one gate (spec 5/19);
-// an adapter never interprets an option.
+// Option is one pickable answer. Data is what a press SENDS: the adapter
+// delivers the press as an ordinary InboundMsg whose Content is that string,
+// so a press and a typed command are one inbound path under one gate (spec
+// 5/19); an adapter never interprets an option.
 type Option struct {
 	Label string `json:"label"`
 	Data  string `json:"data"`
@@ -137,29 +131,23 @@ type UnpinRequest struct {
 // ErrUnsupported marks a social action not implemented on this platform (maps to 501).
 var ErrUnsupported = errors.New("unsupported")
 
-// ErrInvalidRequest marks a caller-input error — a bad emoji name, a missing
-// target, a malformed id (maps to 400). Wrap it so the agent learns its input
-// was wrong instead of seeing a 502 "upstream failed" (a Slack `invalid_name`
-// reaction reached the agent as a transport error before this).
+// ErrInvalidRequest marks a caller-input error (400), so the agent learns its
+// input was wrong instead of seeing a 502 "upstream failed".
 var ErrInvalidRequest = errors.New("invalid request")
 
-// ErrPermanent marks a delivery failure that a retry cannot repair — a bad
-// request, a deleted chat, a rejected emoji. routd dead-letters such a row
-// immediately; only a transient failure gets the retry budget. chanreg's
-// classifyStatus wraps it for a 4xx adapter response; it lives here so the
-// MCP wall (ipc) classifies by the SAME sentinel without importing chanreg.
+// ErrPermanent marks a delivery failure a retry cannot repair; routd
+// dead-letters the row at once. It lives here so the MCP wall (ipc)
+// classifies by the SAME sentinel without importing chanreg.
 var ErrPermanent = errors.New("permanent")
 
-// ErrNotDelivered marks a TRANSIENT failure that PROVES the platform accepted nothing
-// — a 429, an application-level `ok:false`, a refusal on the first chunk. deliverOnce
-// releases the dedup claim on it, since a retry cannot double-post what was never
-// posted. Without this class every adapter-side rate limit left the claim `inflight`,
-// so a plain 429 became a guaranteed dead-letter.
+// ErrNotDelivered marks a TRANSIENT failure that PROVES the platform accepted
+// nothing (a 429, an `ok:false`). deliverOnce releases the dedup claim on it:
+// without this class every adapter-side rate limit left the claim `inflight`,
+// a guaranteed dead-letter.
 var ErrNotDelivered = errors.New("not delivered")
 
-// UnsupportedError is the structured form. The HTTP layer encodes Tool/Platform/Hint
-// so the agent receives a concrete alternative. Is(ErrUnsupported) returns true so
-// errors.Is checks keep working across the stack.
+// UnsupportedError is the structured form; the HTTP layer encodes
+// Tool/Platform/Hint so the agent receives a concrete alternative.
 type UnsupportedError struct {
 	Tool     string `json:"tool"`
 	Platform string `json:"platform"`
@@ -196,21 +184,19 @@ func (NoSocial) Edit(EditRequest) error                 { return ErrUnsupported 
 func (NoSocial) Pin(PinRequest) error                   { return ErrUnsupported }
 func (NoSocial) Unpin(UnpinRequest) error               { return ErrUnsupported }
 
-// gatedVerbProbes maps each capability key that chanreg gates on to a probe
-// that invokes the corresponding verb. The cap key is the one the consumer
-// (chanreg/httpchan.go) checks — note `fwd` gates Forward and `pin` gates
-// both Pin and Unpin. `like`/`post` are NOT gated, so they're omitted.
+// gatedVerbProbes maps each capability key chanreg gates on to a probe of the
+// verb; `fwd` gates Forward and `pin` gates both Pin and Unpin. `like`/`post`
+// are NOT gated, so they are omitted.
 var gatedVerbProbes = map[string]func(BotHandler) error{
-	// Use a .png name so adapters that only accept image blobs (bskyd) take
-	// their real branch instead of an extension-default Unsupported.
+	// A .png name so adapters that only accept image blobs (bskyd) take their
+	// real branch instead of an extension-default Unsupported.
 	"send_file":  func(b BotHandler) error { _, e := b.SendFile("", "x.png", "x.png", "", "", ""); return e },
 	"send_voice": func(b BotHandler) error { _, e := b.SendVoice("", "", "", ""); return e },
 	"delete":     func(b BotHandler) error { return b.Delete(DeleteRequest{}) },
 	"edit":       func(b BotHandler) error { return b.Edit(EditRequest{}) },
 	"pin":        func(b BotHandler) error { return b.Pin(PinRequest{}) },
-	// Non-empty, plausibly-formatted ids so adapters that validate input shape
-	// (teled forward needs "<jid>|<id>") take their real branch, not an
-	// input-shape Unsupported that would look like a stub.
+	// Plausibly-formatted ids so adapters that validate input shape (teled
+	// forward needs "<jid>|<id>") take their real branch, not a stub-like refusal.
 	"fwd": func(b BotHandler) error {
 		_, e := b.Forward(ForwardRequest{SourceMsgID: "x|1", TargetJID: "x"})
 		return e
@@ -230,10 +216,9 @@ func probeHistory(b BotHandler) error {
 	return e
 }
 
-// isStubVerb reports whether a verb is an unconditional Unsupported stub.
-// Stubs return ErrUnsupported as their first statement (no field deref); real
-// impls deref platform clients and panic on a zero-value handler. We treat a
-// panic or any non-Unsupported error as "real impl".
+// isStubVerb reports whether a verb is an unconditional Unsupported stub: a
+// stub returns ErrUnsupported without a field deref, a real impl derefs a
+// platform client and panics on a zero-value handler.
 func isStubVerb(b BotHandler, probe func(BotHandler) error) (stub bool) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -243,10 +228,9 @@ func isStubVerb(b BotHandler, probe func(BotHandler) error) (stub bool) {
 	return errors.Is(probe(b), ErrUnsupported)
 }
 
-// CapImplReport returns human-readable drift between an adapter's advertised
-// capability map and its actual verb implementations. Only gated caps are checked.
-// Call with a zero-value handler; real impls are detected by their panic/error on nil
-// platform clients. Empty slice means consistent.
+// CapImplReport returns the drift between an adapter's advertised capability
+// map and its verb implementations, probed on a zero-value handler. Empty
+// means consistent.
 func CapImplReport(b BotHandler, caps map[string]bool) []string {
 	var out []string
 	for cap, probe := range gatedVerbProbes {
@@ -262,9 +246,7 @@ func CapImplReport(b BotHandler, caps map[string]bool) []string {
 	return out
 }
 
-// NoPinSupport is a mixin for adapters whose platform lacks message
-// pinning. Embed alongside the BotHandler implementation when the
-// adapter implements other social verbs but not pin/unpin.
+// NoPinSupport is a mixin for adapters whose platform lacks message pinning.
 type NoPinSupport struct{}
 
 func (NoPinSupport) Pin(PinRequest) error     { return ErrUnsupported }
@@ -328,12 +310,10 @@ func NewAdapterMux(name string, prefixes []string, bot BotHandler, isConnected f
 	mux.HandleFunc("POST /pin", Auth(handlePin(bot)))
 	mux.HandleFunc("POST /unpin", Auth(handleUnpin(bot)))
 	mux.HandleFunc("GET /health", handleHealth(name, prefixes, isConnected, lastInboundAt, st))
-	// The operator dashboard (spec 6/31), mounted here so every Go adapter gets
-	// it from the mux it already builds — one renderer, no per-adapter edit.
-	// Routed by DAEMON name: the 5/8 manifest publishes /dash/teled/, while
-	// `name` is the platform ("telegram"). compose sets AUTHD_SERVICE_NAME per
-	// daemon, so the path is read from config rather than derived from the
-	// platform — deriving it made every adapter dashboard 404 at its own URL.
+	// The operator dashboard (spec 6/31), routed by DAEMON name: the manifest
+	// publishes /dash/teled/ while `name` is the platform, so the path is read
+	// from AUTHD_SERVICE_NAME, never derived — deriving it made every adapter
+	// dashboard 404 at its own URL.
 	mux.HandleFunc("GET /dash/"+EnvOr("AUTHD_SERVICE_NAME", name)+"/",
 		handleAdapterDash(name, prefixes, bot, isConnected, lastInboundAt, AuthdKeys()))
 	if hp, ok := bot.(HistoryProvider); ok {
@@ -376,11 +356,9 @@ func handleHistory(hp HistoryProvider) http.HandlerFunc {
 	}
 }
 
-// jsonVerb is the one shape the simple verb handlers share: cap the body, decode,
-// validate, call the bot, write the result. It was written out ten times, and ten
-// copies is ten chances for one to forget MaxBytesReader. A decode failure and a
-// missing field answer with the SAME 400, which was the existing behavior and is
-// worth keeping: the caller's fix is identical either way.
+// jsonVerb is the one shape the simple verb handlers share: cap the body,
+// decode, validate, call, write. A decode failure and a missing field answer
+// with the SAME 400: the caller's fix is identical either way.
 func jsonVerb[T any](msg string, valid func(T) bool, call func(T) (string, error)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		r.Body = http.MaxBytesReader(w, r.Body, MaxAdapterJSONBody)
@@ -410,10 +388,9 @@ func handleSend(bot BotHandler, st *chanstore.Store) http.HandlerFunc {
 		})
 }
 
-// receiveUpload parses a multipart upload, sanitizes the filename, writes to a temp
-// dir, and returns (jid, localPath, name, caption, cleanup). On any error it writes
-// the HTTP response and returns ok=false. `name` is attacker-controlled, so
-// filepath.Clean + Base prevents path traversal out of the temp dir.
+// receiveUpload parses a multipart upload into a temp dir; on any error it
+// writes the HTTP response and returns ok=false. `name` is
+// attacker-controlled, so filepath.Clean + Base prevents path traversal.
 func receiveUpload(w http.ResponseWriter, r *http.Request, tmpPrefix string) (jid, localPath, name, caption string, cleanup func(), ok bool) {
 	if r.ParseMultipartForm(50<<20) != nil {
 		WriteErr(w, 400, "invalid multipart")
@@ -620,13 +597,10 @@ var staleThresholds = map[string]time.Duration{
 	"reddit": 60 * time.Minute,
 }
 
-// Stale inbound is informational only: a quiet-but-connected channel is normal,
-// so /health stays 200 and only sets status=stale. Real platform-link death is
-// signalled through isConnected() (503), which each adapter drives from its own
-// honest liveness probe — slakd flips it off via auth.test, not via silence. An
-// earlier slack-only "strict stale → 503" existed to catch a dead Events-API
-// subscription while auth.test still passed (2026-06-05 outage), but that is now
-// the watchdog's auth.test-gated os.Exit job; a quiet workspace must not 503.
+// Stale inbound is informational only: a quiet-but-connected channel is
+// normal, so /health stays 200 with status=stale. Platform-link death is
+// isConnected() (503), which each adapter drives from its own liveness probe
+// — slakd via auth.test, not silence; a quiet workspace must not 503.
 const defaultStaleThreshold = 5 * time.Minute
 
 func handleHealth(name string, prefixes []string, isConnected func() bool, lastInboundAt func() int64, st *chanstore.Store) http.HandlerFunc {
@@ -668,15 +642,10 @@ func handleHealth(name string, prefixes []string, isConnected func() bool, lastI
 }
 
 // FileProxyOpts wires a /files/<id> handler that resolves an opaque id to a
-// CDN URL and streams the upstream response back through ProxyFile. Used by
-// slakd, discd and reditd where Resolve = URLCache.Get; slakd
-// passes Decorate to add the `Authorization: Bearer xoxb` header required
-// by the Slack file CDN, reditd passes Validate as its SSRF allowlist.
-//
-// Resolve takes the request's context and may fail, because the mapping lives
-// in the adapter's store rather than in memory alone (BUGS L163): "the store
-// would not answer" is not "no such file", and reporting 404 for it would tell
-// routd's enrich the sender attached nothing.
+// CDN URL and streams it back through ProxyFile. Resolve takes a context and
+// may fail, because the mapping lives in the adapter's store (BUGS L163):
+// "the store would not answer" is not "no such file", and a 404 for it would
+// tell routd's enrich the sender attached nothing.
 type FileProxyOpts struct {
 	Resolve  func(ctx context.Context, id string) (string, bool, error)
 	Validate func(url string) bool // optional: reject a resolved URL before the fetch

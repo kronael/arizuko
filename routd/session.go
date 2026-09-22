@@ -16,15 +16,12 @@ type SessionResolver interface {
 	RecentSessions(folder string, n int) []core.SessionRecord
 }
 
-// httpSessions backs SessionResolver with routd's existing runed client (the
-// one already used for POST /v1/runs) — same service:routd bearer, same base
-// URL. No new auth wiring.
+// httpSessions backs SessionResolver with routd's runed client.
 type httpSessions struct {
 	c *runedv1.Client
 }
 
-// NewSessionResolver wraps the runed client. nil client → nil resolver (the
-// caller then renders "no prior session").
+// NewSessionResolver wraps the runed client; nil client → nil resolver.
 func NewSessionResolver(c *runedv1.Client) SessionResolver {
 	if c == nil {
 		return nil
@@ -32,9 +29,8 @@ func NewSessionResolver(c *runedv1.Client) SessionResolver {
 	return &httpSessions{c: c}
 }
 
-// RecentSessions issues GET /v1/spawn_sessions/recent and maps the wire rows to
-// core.SessionRecord. Any transport/auth error or non-200 returns nil —
-// advisory only, never an error path.
+// RecentSessions issues GET /v1/spawn_sessions/recent. Any error returns nil
+// — advisory only, never an error path.
 func (h *httpSessions) RecentSessions(folder string, n int) []core.SessionRecord {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

@@ -1,22 +1,11 @@
 package routd
 
-// packages_store.go is the installed-package record (spec 5/28): CRUD over
-// `installed_packages`. It generalises 5/20's products.lock — one item per
-// installed package holding the source + resolved revision, the manifest of
-// identities the install owns, and a per-asset content hash. The `packages
-// install|remove` machinery reads/writes it; it is the basis for upgrade
-// (diff new vs recorded manifest), remove (delete recorded identities), and
-// dirty-detection (current hash vs recorded hash). NOT per-row provenance.
-//
-// THE COORDINATE AND THE ATTRIBUTE NAMES ARE store's (store/installed_packages.go)
-// AND THE WRITES ARE routd's. That file declares the shape because a group delete
-// reads the folder out of the coordinate; this file writes it because the install
-// machinery lives here. One declaration, two readers — never two spellings, which
-// would put an install where the purge does not look.
-//
-// The writes go through *store.Store rather than the driver, because a write that
-// reached objstore itself would move no version marker and be invisible to every
-// `arizuko export` of routd's projection (BUGS L264).
+// packages_store.go is the installed-package record (spec 5/28): one item per
+// installed package with its source + revision, the identities the install
+// owns, and a per-asset content hash — the basis for upgrade, remove and
+// dirty-detection. NOT per-row provenance. The coordinate and attribute names
+// are store's (a group delete reads the folder off the coordinate); the
+// writes are routd's, through *store.Store, never the driver (BUGS L264).
 
 import (
 	"context"
@@ -27,16 +16,11 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
-// InstalledPackage is one installed_packages record. Manifest maps an asset kind
-// (skills / compose_fragment / proxyd_route / acl / group_seed) to the
-// identities this install owns; AssetHashes maps an asset id to the content
-// hash written, so upgrade can detect a locally-edited (dirty) asset.
-//
-// Folder is the half of the key spec 5/28's composition needs: a group blends an
-// ordered product mix, so the lock has to name WHICH group. InstanceWide ("") is
-// the sentinel for a package installed against the whole instance — every record
-// the CLI writes today, and the same convention network_rules uses for a global
-// egress rule.
+// InstalledPackage is one installed_packages record. Manifest maps an asset
+// kind to the identities this install owns; AssetHashes maps an asset id to
+// the content hash written, so upgrade detects a dirty asset. Folder is the
+// half of the key composition needs (a group blends an ordered product mix);
+// InstanceWide ("") is a package installed against the whole instance.
 type InstalledPackage struct {
 	Folder      string
 	Name        string
@@ -47,23 +31,15 @@ type InstalledPackage struct {
 	InstalledAt string
 }
 
-// InstanceWide is installed_packages' folder for a package that belongs to the
-// instance rather than to one group. `arizuko packages install` writes compose
-// fragments, proxyd routes and host files — none of which belong to a group — so
-// it is the only value the CLI produces.
+// InstanceWide is the folder of a package that belongs to the instance rather
+// than to one group — the only value the CLI produces.
 const InstanceWide = ""
 
-// PutInstalledPackage upserts a package's record (install and upgrade).
-//
-// It is an unconditional Put: the coordinate is (folder, name) and every other
-// field is the install's own answer, so a re-install replaces the whole record
-// rather than merging into the one it supersedes.
-//
-// Manifest and AssetHashes are DOCUMENTS — their JSON text, with a nil map
-// normalised to the empty one, which is the encoding the resource declares in
-// its `db:` tags (resreg/codec.go) and therefore what resreg's own writer of
-// these items renders. A null where a document belongs is a record `remove`
-// cannot reverse.
+// PutInstalledPackage upserts a record. An unconditional Put: the coordinate
+// is (folder, name) and every other field is the install's own answer.
+// Manifest and AssetHashes are DOCUMENTS — JSON text, nil normalised to `{}`,
+// the encoding the resource's `db:` tags declare (resreg/codec.go); a null
+// where a document belongs is a record `remove` cannot reverse.
 func (d *DB) PutInstalledPackage(p InstalledPackage) error {
 	key, err := store.InstalledPackageKey(p.Folder, p.Name)
 	if err != nil {
@@ -90,18 +66,15 @@ func (d *DB) PutInstalledPackage(p InstalledPackage) error {
 	return err
 }
 
-// setPkgAttr records one optional attribute, leaving it off the item when the
-// install does not carry it. Absent is the only null this model has, so an empty
-// string must never be written where a reader tests for the field's presence —
-// the same rule resreg's own writer of these items follows (resreg/entity.go
-// itemFor).
+// setPkgAttr leaves an empty value OFF the item: absent is the only null, the
+// same rule resreg's own writer follows (resreg/entity.go itemFor).
 func setPkgAttr(attrs map[string]string, name, value string) {
 	if value != "" {
 		attrs[name] = value
 	}
 }
 
-// jsonDoc renders a map as the JSON text the item stores, with nil normalised to
+// jsonDoc renders a map as the JSON text the item stores, nil normalised to
 // the empty document so `{}` lands and never `null`.
 func jsonDoc(v any) (string, error) {
 	switch m := v.(type) {
@@ -165,9 +138,9 @@ func (d *DB) InstalledPackages() ([]InstalledPackage, error) {
 	return out, nil
 }
 
-// DeleteInstalledPackage removes a record (remove). ok=false when absent — the
-// delete conditions on the item being there, so the refusal IS the not-found
-// answer and `remove` never reports having reversed an install nobody made.
+// DeleteInstalledPackage removes a record; ok=false when absent. The delete
+// conditions on the item being there, so `remove` never reports having
+// reversed an install nobody made.
 func (d *DB) DeleteInstalledPackage(folder, name string) (bool, error) {
 	key, err := store.InstalledPackageKey(folder, name)
 	if err != nil {
@@ -180,7 +153,7 @@ func (d *DB) DeleteInstalledPackage(folder, name string) (bool, error) {
 }
 
 // installedPackageFrom reads one item back. A key that does not split into
-// (folder, name) is a LOUD fault rather than half a record: it names an install
+// (folder, name) is a LOUD fault, not half a record: it names an install
 // nobody ran, and `remove` reading it would reverse identities another package
 // owns.
 func installedPackageFrom(it objstore.Item) (InstalledPackage, error) {
@@ -204,9 +177,9 @@ func installedPackageFrom(it objstore.Item) (InstalledPackage, error) {
 	return p, nil
 }
 
-// readDoc parses a document attribute. Absent is the empty document, which is
-// what the column's `{}` default held; anything else that is not the document it
-// claims to be is a fault, because a record read wrong is one `remove` acts on.
+// readDoc parses a document attribute; absent is the empty document. Anything
+// else that is not the document it claims to be is a fault, because a record
+// read wrong is one `remove` acts on.
 func readDoc(raw string, into any) error {
 	if raw == "" {
 		return nil

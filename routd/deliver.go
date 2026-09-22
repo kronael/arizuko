@@ -11,24 +11,17 @@ import (
 	"github.com/kronael/arizuko/core"
 )
 
-// chanDeliverer is routd's production Deliverer: it resolves the owning adapter
-// for a jid through the channel registry and fans the outbound call out over
-// chanreg.HTTPChannel.
-//
-// The Deliverer caches no channel. An HTTPChannel holds only the registry entry,
-// the bearer getter, and an http.Client with a nil Transport. A nil Transport
-// selects http.DefaultTransport, which pools connections for every channel. A
-// channel built for one send therefore opens no extra connection, and it always
-// reads the CURRENT entry: Registry.Register REPLACES the Entry value, so a
-// cached channel would keep the old URL.
+// chanDeliverer is routd's production Deliverer: it resolves the owning
+// adapter through the channel registry and fans out over chanreg.HTTPChannel.
+// It caches no channel: a nil Transport pools connections already, and
+// Registry.Register REPLACES the Entry value, so a cached channel would keep
+// the old URL.
 type chanDeliverer struct {
 	reg           *chanreg.Registry
 	disabledChans []string // SEND_DISABLED_CHANNELS jid-prefixes (the part before ':')
 
-	// lookupSource maps a jid to the adapter name that delivered its newest
-	// inbound (DB.LatestSource). Held as a func so the Deliverer doesn't import
-	// the DB type — the cmd injects it. nil in tests that register adapters
-	// directly: resolution falls through to ForJID.
+	// Held as a func so the Deliverer does not import the DB type; nil in
+	// tests falls through to ForJID.
 	lookupSource func(jid string) string
 }
 
@@ -40,18 +33,14 @@ func newChanDeliverer(reg *chanreg.Registry, disabled []string, lookupSource fun
 	}
 }
 
-// NewChannelDeliverer is the cmd entry point: it builds the production
-// chanreg-backed Deliverer. The caller passes it to NewServer and
-// LoopConfig.Deliver. lookupSource is DB.LatestSource (the inbound-source
-// resolver).
+// NewChannelDeliverer is the cmd entry point; lookupSource is DB.LatestSource.
 func NewChannelDeliverer(reg *chanreg.Registry, disabled []string, lookupSource func(string) string) Deliverer {
 	return newChanDeliverer(reg, disabled, lookupSource)
 }
 
-// resolve picks the channel for jid in the order spec 5/34 § "Outbound and
-// adapter resolution" fixes: an explicit pin (only POST /v1/outbound carries
-// one) → the latest inbound source for the jid → the registry's prefix owner.
-// Returns nil when no adapter owns the jid.
+// resolve picks the channel for jid in the order spec 5/34 fixes: an explicit
+// pin (only POST /v1/outbound carries one) → the latest inbound source for the
+// jid → the registry's prefix owner. nil when no adapter owns the jid.
 func (d *chanDeliverer) resolve(channel, jid string) *chanreg.HTTPChannel {
 	name := channel
 	if name == "" {
@@ -71,8 +60,8 @@ func (d *chanDeliverer) latestSource(jid string) string {
 	return d.lookupSource(jid)
 }
 
-// disabled reports whether jid's channel prefix is in SEND_DISABLED_CHANNELS.
-// A disabled send is a silent no-op success.
+// disabled reports whether jid's channel prefix is in SEND_DISABLED_CHANNELS;
+// a disabled send is a silent no-op success.
 func (d *chanDeliverer) disabled(jid string) bool {
 	prefix, _, _ := strings.Cut(jid, ":")
 	for _, x := range d.disabledChans {
@@ -95,8 +84,8 @@ func (d *chanDeliverer) SendOptions(jid, text string, options []chanlib.Option, 
 	return d.send("", jid, text, options, "", threadID, "", idempotencyKey)
 }
 
-// send is the one text-egress body; Send, SendVia and SendOptions differ only in
-// the pin and the options.
+// send is the one text-egress body; Send, SendVia and SendOptions differ only
+// in the pin and the options.
 func (d *chanDeliverer) send(channel, jid, text string, options []chanlib.Option,
 	replyToID, threadID, threadRoot, idempotencyKey string) (string, error) {
 	if d.disabled(jid) {
@@ -241,10 +230,8 @@ func (d *chanDeliverer) SetName(jid, title string) error {
 	return ch.SetName(context.Background(), jid, title)
 }
 
-// FetchHistory resolves the owning adapter for jid and proxies to its GET
-// /v1/history (the fetch_history platform-truth source). No adapter / no
-// fetch_history cap → error; the caller (Server.fetchPlatformHistory) then
-// falls back to the local DB.
+// FetchHistory proxies to the owning adapter's GET /v1/history; no adapter or
+// no fetch_history cap → error, and the caller falls back to the local DB.
 func (d *chanDeliverer) FetchHistory(jid string, before time.Time, limit int) ([]byte, error) {
 	ch := d.resolve("", jid)
 	if ch == nil {
@@ -255,11 +242,10 @@ func (d *chanDeliverer) FetchHistory(jid string, before time.Time, limit int) ([
 	return ch.FetchHistory(ctx, jid, before, limit)
 }
 
-// RoundDone posts the turn-closed notice to the adapter owning chatJID so the
-// /chat SSE client stops waiting. The JID travels verbatim — webd's hub keys
-// on it as-is (BUGS L30). A chat whose adapter lacks /v1/round_done (every
-// platform adapter) is a no-op via PostRoundDone's 404 rule; a chat with no
-// adapter at all is a silent no-op here.
+// RoundDone posts the turn-closed notice to the adapter owning chatJID. The
+// JID travels verbatim — webd's hub keys on it as-is (BUGS L30). An adapter
+// without /v1/round_done is a no-op via PostRoundDone's 404 rule; a chat with
+// no adapter is a silent no-op here.
 func (d *chanDeliverer) RoundDone(chatJID, turnID, status, errMsg string) error {
 	ch := d.resolve("", chatJID)
 	if ch == nil {

@@ -11,11 +11,10 @@ import (
 	"github.com/kronael/arizuko/resreg"
 )
 
-// mountGroups mounts resources.GroupsAgentEndpoints verbatim: register is MCPOnly
-// there, so RegisterREST and openapi.go both skip it and only the shared read
-// endpoint is served. NEVER reintroduce an inline Endpoints literal here — the
-// trimmed copy that used to live in this function is why `groups` had to be held
-// out of OpenAPIResources (BUGS F27); endpoints_source_test.go probes this mux.
+// mountGroups mounts resources.GroupsAgentEndpoints verbatim: register is
+// MCPOnly, so only the shared read endpoint is served. NEVER an inline
+// Endpoints literal here — a trimmed copy held `groups` out of
+// OpenAPIResources (BUGS F27); endpoints_source_test.go probes this mux.
 func (s *Server) mountGroups(mux *http.ServeMux) {
 	resreg.RegisterREST(mux, s.groupsResource(s.groupsRESTAuthz), s.restCaller(nil))
 }

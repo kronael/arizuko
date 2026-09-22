@@ -12,16 +12,12 @@ import (
 	"github.com/kronael/arizuko/ipc"
 )
 
-// IdentityResolver resolves a platform sender sub to its canonical identity and
-// the full set of subs that identity claims. authd OWNS identity and serves GET
-// /v1/identities/{sub}; routd snapshots it over HTTP.
-//
+// IdentityResolver resolves a platform sender sub to its canonical identity
+// and the subs it claims; authd OWNS identity, routd snapshots it over HTTP.
 // Three outcomes, all distinguishable (BUGS N2): claimed (`true, nil`),
-// genuinely unclaimed (`false, nil`), and COULD NOT ANSWER (`false, err` —
-// authd unreachable, 401, undecodable). The third used to fold into the second,
-// which is fine for an advisory tool but not for a caller that wants to act on
-// the answer: "this sub is its own canonical" and "authd did not reply" are
-// opposite facts and must not share a return value.
+// genuinely unclaimed (`false, nil`), and COULD NOT ANSWER (`false, err`) —
+// "this sub is its own canonical" and "authd did not reply" are opposite facts
+// and must not share a return value.
 type IdentityResolver interface {
 	Resolve(sub string) (ipc.Identity, []string, bool, error)
 }
@@ -33,9 +29,7 @@ type httpIdentity struct {
 	c     *http.Client
 }
 
-// NewIdentityResolver builds a resolver against authdURL, authenticating with
-// token (routd's service-token source). Empty authdURL → nil (no resolver;
-// inspect_identity then answers unclaimed).
+// NewIdentityResolver builds a resolver against authdURL; empty → nil.
 func NewIdentityResolver(authdURL string, token func(context.Context) (string, error)) IdentityResolver {
 	if authdURL == "" {
 		return nil
@@ -47,10 +41,9 @@ func NewIdentityResolver(authdURL string, token func(context.Context) (string, e
 	}
 }
 
-// Resolve issues GET /v1/identities/{sub}. A claimed sub returns its identity +
-// linked subs and a nil error; a 404 is a genuine "unclaimed" (false, nil).
-// Anything that stops authd answering — token, transport, other non-200, decode
-// — returns an error, so a caller can tell a real answer from no answer.
+// Resolve issues GET /v1/identities/{sub}: a 404 is a genuine "unclaimed";
+// anything that stops authd answering — token, transport, other non-200,
+// decode — is an error, so a caller can tell a real answer from no answer.
 func (g *httpIdentity) Resolve(sub string) (ipc.Identity, []string, bool, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

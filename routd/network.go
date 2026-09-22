@@ -1,10 +1,8 @@
 package routd
 
-// network.go is routd's read face onto `network_rules`. The rules are objstore
-// items whose coordinate is (folder, target) and whose reads live in
-// store/network.go, so both bodies below are one call each: a second reader here
-// would be a second spelling of a format store owns, and the two would disagree
-// about what a folder inherits.
+// network.go is routd's read face onto `network_rules`. The reads live in
+// store/network.go: a second reader here would be a second spelling of a
+// format store owns, and the two would disagree about what a folder inherits.
 
 // NetworkRule is one explicit egress allowlist row. JSON tags match the shape
 // network_list's `own` array returns to the agent.
@@ -28,11 +26,9 @@ func (d *DB) ListNetworkRules(folder string) ([]NetworkRule, error) {
 	return out, nil
 }
 
-// ResolveAllowlist returns the egress allowlist for folder: every network_rules
-// target for the folder and all its ancestors (the folder="" base inherited by
-// all), de-duplicated and sorted. routd resolves this at dispatch and ships it to
-// runed in RunRequest.EgressAllowlist, which runed bakes into this spawn's own
-// proxy.
+// ResolveAllowlist returns the egress allowlist for folder: every target for
+// the folder and all its ancestors (the folder="" base), de-duplicated and
+// sorted. Shipped to runed in RunRequest.EgressAllowlist at dispatch.
 func (d *DB) ResolveAllowlist(folder string) ([]string, error) {
 	return d.store().ResolveAllowlist(folder)
 }

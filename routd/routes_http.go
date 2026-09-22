@@ -13,17 +13,14 @@ import (
 	apiv1 "github.com/kronael/arizuko/routd/api/v1"
 )
 
-// buildMessageRow maps the ingress wire Message to a core.Message row.
 // replyExcerptChars bounds the parent text a reply carries: enough to identify
 // the message the user answered, not a second copy of a long bot reply.
 const replyExcerptChars = 200
 
 func buildMessageRow(m apiv1.Message, ts time.Time, verb string) core.Message {
-	// whapd sends a single attachment via the flat fields (its only shape); fold
-	// it into the array so the stored `attachments` column is always valid JSON
-	// that enrich.go can unmarshal. gated did this (api.go:271); the split dropped
-	// it → the raw base64 landed in the column, json.Unmarshal failed, and 100% of
-	// WhatsApp media was silently lost (never downloaded/transcribed).
+	// whapd sends a single attachment via the flat fields; fold it into the
+	// array so the stored `attachments` column is always valid JSON — raw
+	// base64 in the column silently lost 100% of WhatsApp media.
 	if m.Attachment != "" {
 		m.Attachments = append([]apiv1.Attachment{{
 			Mime: m.AttachmentMime, Filename: m.AttachmentName, Data: m.Attachment,
@@ -41,8 +38,8 @@ func buildMessageRow(m apiv1.Message, ts time.Time, verb string) core.Message {
 		ReplyToText: m.ReplyToText, ReplyToSender: m.ReplyToSender,
 		ForwardedFrom: m.ForwardedFrom,
 		Topic:         m.Topic, Verb: verb, Attachments: atts, ChatName: m.ChatName,
-		// Source = the originating adapter/account; LatestSource(jid) reads it so a
-		// reply resolves back to the bot that received it (multi-account routing).
+		// The originating adapter/account; LatestSource(jid) reads it so a reply
+		// resolves back to the bot that received it (multi-account routing).
 		Source:      m.Source,
 		LinkContext: m.LinkContext,
 	}
@@ -55,16 +52,13 @@ func toWireRoute(r core.Route) apiv1.Route {
 	}
 }
 
-// mountRoutes wires the /v1/routes operator REST face onto the SAME routesResource
-// handler the agent's four routing tools use (spec 5/16 fold): add/set/list/delete
-// ride resreg.RegisterREST with a REST caller + gate injected; get-one stays a thin
-// read (handleRouteGet — no agent twin, its own folder scoping).
+// mountRoutes wires the /v1/routes operator REST face onto the SAME
+// routesResource handler the agent's tools use; get-one stays a thin read
+// (no agent twin).
 func (s *Server) mountRoutes(mux *http.ServeMux) {
-	// Operator/human REST face: per-target containment is ownsFolder on the caller's
-	// JWT folder (own-or-descendant) — its own rule, not the agent face's grant-scope
-	// check. This is what confines a top-level tenant to its own subtree and lets an
-	// operator manage its whole subtree. The route's own-folder / self-default
-	// invariants stay in the handler.
+	// Per-target containment is ownsFolder on the JWT folder — its own rule,
+	// not the agent face's grant-scope check; the self-default invariants stay
+	// in the handler.
 	contain := func(c resreg.Caller, _ resreg.Action, target string) error {
 		if routeTargetOwned(c.Folder, target) {
 			return nil
@@ -77,10 +71,9 @@ func (s *Server) mountRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/routes/{id}", s.handleRouteGet)
 }
 
-// routesRESTGate is the operator/human REST twin of the agent socket's grant Gate:
-// an any-of scope check (routes:read for GET, routes:write for mutations). Per-target
-// ownsFolder containment now lives in the handler's injected contain seam (mountRoutes),
-// so this gate carries only the scope decision. A nil Verifier is open.
+// routesRESTGate is the REST twin of the agent socket's grant Gate: an any-of
+// scope check only; containment lives in the contain seam. A nil Verifier is
+// open.
 func (s *Server) routesRESTGate(x resreg.Execution, _ string, _ map[string]string) error {
 	if s.verify == nil {
 		return nil
@@ -96,21 +89,16 @@ func (s *Server) routesRESTGate(x resreg.Execution, _ string, _ map[string]strin
 	return nil
 }
 
-// routeTargetOwned reports whether an operator whose JWT folder is jwtFolder may
-// manage a route pointing at target. Empty jwtFolder (root / service token) owns
-// everything; otherwise the target folder must be jwtFolder or a descendant.
-//
-// The `#observe`/`#announce` fragment comes off first: a target has no PREFIX
-// vocabulary but it does carry a fragment, and comparing the raw string hid a
-// folder's own `<folder>#observe` rows from it (BUGS L82).
+// routeTargetOwned reports whether an operator whose JWT folder is jwtFolder
+// may manage a route at target: empty owns everything, else own-or-descendant.
+// The `#observe`/`#announce` fragment comes off first; comparing the raw
+// string hid a folder's own `<folder>#observe` rows from it (BUGS L82).
 func routeTargetOwned(jwtFolder, target string) bool {
 	return ownsFolder(jwtFolder, core.ParseRouteTarget(target).Folder)
 }
 
-// handleRouteGet is the thin get-one REST read (GET /v1/routes/{id}); it has no
-// agent twin, so it stays hand-rolled with its own routes:read scope + folder
-// containment (a scoped caller can't read a route outside its subtree — 404, no
-// existence leak).
+// handleRouteGet is the thin get-one read (GET /v1/routes/{id}); a scoped
+// caller cannot read a route outside its subtree — 404, no existence leak.
 func (s *Server) handleRouteGet(w http.ResponseWriter, r *http.Request) {
 	_, folder, ok := s.authz(w, r, "routes:read", "routes:read:own_group")
 	if !ok {
@@ -131,7 +119,7 @@ func (s *Server) handleRouteGet(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, "store_error", err.Error())
 		return
 	}
-	if !ownsFolder(folder, rt.Target) { // scoped caller can't GET a route outside its subtree
+	if !ownsFolder(folder, rt.Target) {
 		writeErr(w, 404, "not_found", "route not found")
 		return
 	}

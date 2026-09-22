@@ -7,46 +7,29 @@ import (
 	"github.com/kronael/arizuko/audit"
 )
 
-// The audit trail for message actions (spec 5/Z): like, dislike, edit, delete,
-// pin, unpin. They reach the platform over the agent's MCP socket
-// (routd/mcp.go buildGatedFns), and every one of them calls auditSocial.
+// The audit trail for message actions (spec 5/Z): like, dislike, edit,
+// delete, pin, unpin. Every one of them calls auditSocial.
 
-// socialTool runs one Deliverer social verb on the agent socket and records it.
-// The verb and its audit row are one step: a new social tool cannot reach the
-// Deliverer without going through a call that writes the row.
+// socialTool runs one Deliverer social verb on the agent socket and records
+// it: a new social tool cannot reach the Deliverer without writing the row.
 func (s *Server) socialTool(t turnMCP, action, jid, targetID string, params map[string]any, call func() error) error {
 	err := call()
 	s.auditSocial(action, t.folder, t.turnID, jid, targetID, audit.SurfaceMCP, params, err)
 	return err
 }
 
-// turnPrincipal renders the agent principal for a turn's folder. Same
-// `folder:<path>` subject ServeTurnMCP hands ipc's row-ACL evaluator, so an
-// audit row joins to the acl rows that authorized it.
+// turnPrincipal renders the agent principal for a turn's folder — the same
+// `folder:<path>` subject ServeTurnMCP hands ipc, so an audit row joins to the
+// acl rows that authorized it.
 func turnPrincipal(folder string) string { return "folder:" + folder }
 
-// auditSocial records one message action in audit_log.
-//
-// These verbs mutate an ALREADY-DELIVERED platform message and append no
-// messages row, so this row is the only durable trace they leave: the "the
-// messages row IS the record" reason audit/PLAN.md § SKIP gives for not
-// auditing reply/send does not reach them, and a deleted or edited message
-// otherwise vanishes with nothing recording that it ever existed.
-//
-// Category `agent`, not `mutation`. PLAN.md's taxonomy scopes `mutation` to
-// state change on a registry resource — every one of its actions is CRUD on an
-// arizuko table (routes, tasks, groups, gates), the trail an operator reads to
-// answer "what changed in my config". `agent` is the per-turn band (container
-// lifecycle, turn boundaries, state-changing tool calls), which is what these
-// are and where per-turn volume already lives. There is no `social` category
-// and this does not add one: the enum is closed (audit/event.go).
-//
-// EmitTo, not EmitInTx: the mutation lands on a REMOTE platform, so no local
-// transaction exists for the row to ride. EmitTo rather than Emit so the write
-// goes to routd's own store and does not depend on audit.Init's package state.
-//
-// A failed write is logged, not returned: the platform message is already
-// changed, and answering 500 would make the agent retry and mutate it twice.
+// auditSocial records one message action in audit_log. These verbs mutate an
+// ALREADY-DELIVERED platform message and append no messages row, so this row
+// is the only durable trace. Category `agent`, not `mutation`: `mutation` is
+// CRUD on an arizuko table, and the enum is closed (audit/event.go). EmitTo,
+// not EmitInTx: the mutation lands on a REMOTE platform, so no local
+// transaction exists. A failed write is logged, not returned: the platform
+// message is already changed, and a 500 would make the agent mutate it twice.
 func (s *Server) auditSocial(action, folder, turnID, jid, targetID, surface string, params map[string]any, err error) {
 	if s.deliver == nil {
 		return // no adapter wired: nothing was mutated, so there is nothing to record
@@ -75,10 +58,9 @@ func (s *Server) auditSocial(action, folder, turnID, jid, targetID, surface stri
 	}
 }
 
-// reactionParams and unpinParams render the one distinguishing fact each verb's
-// row carries beyond action + resource. nil when the fact is absent: an
-// {"all":false} on a delete row would be a field that endpoint has no concept
-// of, and an empty reaction says nothing.
+// reactionParams and unpinParams render the one distinguishing fact each
+// verb's row carries; nil when the fact is absent, so a delete row never
+// carries an {"all":false} it has no concept of.
 func reactionParams(reaction string) map[string]any {
 	if reaction == "" {
 		return nil

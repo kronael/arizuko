@@ -1,32 +1,14 @@
 package routd
 
-// secrets_resource.go — 5/16 REST-face fold of the operator secret write surface
-// (POST /v1/secrets set/seal, DELETE /v1/secrets/{key}) onto one resreg.Resource,
-// the write-only twin of the acl/tasks folds. There is NO agent MCP tool and NO
-// read/list face: the agent never sets secrets, and a secret's sealed value must
-// never appear in any read surface (spec 5/8 §"Secret safety"). So the resource
-// carries exactly two write Endpoints and no MCPDoc — deriveMCPTools surfaces
-// nothing.
-//
-// FORWARDER, not batch-backed (Store nil). Every other cold-tier fold sets Store
-// non-nil so resreg sends the mutation+audit batch. secrets does NOT, for one
-// reason: resreg.invoke copies ALL call args into the audit_log params_summary,
-// and the audit redaction regex (audit/event.go) matches `key`/`token`/`secret`
-// but NOT a bare `value` — so routing the write through resreg's own audit would
-// write the plaintext secret into audit_log on every path (success, deny, error).
-// As a forwarder resreg writes no audit row and sends no batch; the handler calls
-// the EXISTING s.db.SetSecret/DeleteSecret, which seal at rest under SECRETS_KEY,
-// run store.validateScope (env-profile key rejection), and emit the value-SAFE
-// secret.set/secret.delete audit rows themselves (params = {encrypted}, never the
-// value). No nested tx, no deadlock, one audit row, zero plaintext on disk.
-//
-// Because resreg skips the injected Gate for forwarders, the operator auth —
-// secrets:write scope + folder/scope containment — rides Authz, the one gate hook
-// invoke runs for a forwarder. It denies BEFORE the handler, so a rejected write
-// never reaches SetSecret and never logs a value. This also closes the pre-fold
-// hole where handleSecretSet gated on the secrets:write bearer scope ALONE and
-// never bound the target scope to the caller's folder (the acl fold closed the
-// identical hole).
+// secrets_resource.go — the operator secret write surface on one
+// resreg.Resource. NO agent MCP tool and NO read face: a sealed value must
+// never appear in any read surface (spec 5/8). FORWARDER (Store nil), unlike
+// every other cold-tier fold: resreg.invoke copies ALL call args into
+// audit_log, and the redaction regex matches `key`/`token`/`secret` but NOT a
+// bare `value`, so resreg's own audit would write the plaintext. The handler
+// calls the sealing s.db.SetSecret/DeleteSecret, which emit the value-SAFE
+// audit rows themselves. resreg skips the Gate for forwarders, so the
+// operator auth rides Authz and denies BEFORE the handler logs anything.
 
 import (
 	"context"
@@ -39,17 +21,13 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
-// mountSecrets wires the operator/human REST face (POST create + DELETE delete)
-// onto the shared secretsHandler via resreg.RegisterREST. Write-only: no read
-// twin, no agent MCP tool.
+// mountSecrets wires the write-only REST face (POST create + DELETE delete).
 func (s *Server) mountSecrets(mux *http.ServeMux) {
 	resreg.RegisterREST(mux, s.secretsResource(), s.restCaller(nil))
 }
 
-// secretsResource is the single renderer for the secret write surface. Store is
-// nil (forwarder — see file header): the handler calls the audited, sealing
-// s.db.SetSecret/DeleteSecret, and resreg neither opens a tx nor writes an audit
-// row. Authz carries the operator gate (forwarders skip Resource.Gate).
+// secretsResource is the single renderer for the secret write surface; Store
+// is nil (forwarder), Authz carries the operator gate.
 func (s *Server) secretsResource() resreg.Resource {
 	r := resreg.Mount(resources.SecretsName)
 	r.Authz = s.secretsAuthz
@@ -57,13 +35,11 @@ func (s *Server) secretsResource() resreg.Resource {
 	return r
 }
 
-// secretsAuthz is the operator gate (forwarders skip Resource.Gate, so the policy
-// lives here — the hook invoke always runs). It requires the secrets:write scope,
-// then binds the target scope to the caller's authority: a folder secret must sit
-// in the caller's folder subtree (ownsFolder); a user secret must be the caller's
-// own sub (root — an empty JWT folder — is unconstrained). scope_kind validation +
-// the env-profile-key rejection stay in store.validateScope (a 400 from the
-// handler). A nil Verifier is open.
+// secretsAuthz requires the secrets:write scope, then binds the target scope
+// to the caller's authority: a folder secret must sit in the caller's subtree
+// (ownsFolder); a user secret must be the caller's own sub (an empty JWT
+// folder is root, unconstrained). scope_kind validation + the env-profile-key
+// rejection stay in store.validateScope. A nil Verifier is open.
 func (s *Server) secretsAuthz(c resreg.Caller, _ resreg.Action, args resreg.Args) (string, map[string]string, error) {
 	if s.verify == nil {
 		return "", nil, nil
@@ -85,11 +61,8 @@ func (s *Server) secretsAuthz(c resreg.Caller, _ resreg.Action, args resreg.Args
 	return "", nil, nil
 }
 
-// secretsHandler runs the two write actions against routd's OWN routd.db via the
-// EXISTING audited, sealing store methods (see file header for why it buffers none):
-// create seals + upserts under SECRETS_KEY; delete removes and 404s when absent.
-// resreg writes no audit row for this forwarder — s.db.SetSecret/DeleteSecret emit
-// the value-safe secret.set/secret.delete rows themselves.
+// secretsHandler runs the two writes through the audited, sealing store
+// methods: create seals + upserts; delete 404s when absent.
 func (s *Server) secretsHandler(_ context.Context, x resreg.Execution) (any, error) {
 	scope := store.SecretScope(argString(x.Args, "scope"))
 	scopeID := argString(x.Args, "scope_id")

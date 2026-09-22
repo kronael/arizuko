@@ -22,48 +22,36 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
-// Deliverer fans an outbound message out to the owning platform adapter
-// (the adapter's POST /v1/send). routd writes the messages row first
-// (append-then-deliver); the Deliverer is the egress half. Production
-// resolves the adapter by jid prefix; tests inject a fake.
+// Deliverer is the egress half: routd writes the messages row first, then the
+// Deliverer fans out to the owning adapter's POST /v1/send. Tests inject a fake.
 type Deliverer interface {
-	// Send delivers text to jid threaded under replyToID/threadID, using
-	// idempotencyKey (the bot row's stable message_id) so the adapter
-	// dedups platform-side. threadRoot, when set and threadID empty, asks
-	// the adapter to root a NEW thread on that message id (Slack thread_ts,
-	// Discord start-thread-from-message). Returns the platform-native id.
+	// Send delivers text threaded under replyToID/threadID; idempotencyKey is
+	// the bot row's stable message_id so the adapter dedups. threadRoot, with
+	// threadID empty, roots a NEW thread on that message id.
 	Send(jid, text, replyToID, threadID, threadRoot, idempotencyKey string) (platformID string, err error)
-	// SendOptions is Send carrying pickable answers (chanlib.Option); chanreg
-	// folds them into the text for a channel without buttons.
+	// SendOptions is Send carrying pickable answers; chanreg folds them into
+	// the text for a channel without buttons.
 	SendOptions(jid, text string, options []chanlib.Option, threadID, idempotencyKey string) (platformID string, err error)
 	// SendVia is Send pinned to a named adapter — step 1 of the outbound
-	// resolution order (spec 5/34 § "Outbound and adapter resolution"). Only
-	// POST /v1/outbound carries a pin, and only because a JID prefix can be
-	// owned by two adapter accounts (primary `telegram` plus a second bot),
-	// where the unpinned fallbacks are ambiguous: ForJID's iteration order is
-	// non-deterministic. Empty channel is exactly Send with no threading.
+	// resolution order (spec 5/34). Only POST /v1/outbound carries a pin: a JID
+	// prefix can be owned by two adapter accounts, and ForJID's iteration order
+	// is non-deterministic. Empty channel is exactly Send with no threading.
 	SendVia(channel, jid, text string) (platformID string, err error)
-	// React/Edit/Delete/Pin/Unpin mutate an existing platform message.
 	React(jid, platformID, reaction string) error
 	Edit(jid, platformID, content string) error
 	Delete(jid, platformID string) error
 	Pin(jid, platformID string) error
 	Unpin(jid, platformID string, all bool) error
-	// Typing toggles the platform "typing…" presence while the agent works the
-	// turn (best-effort; web / no-presence channels are no-ops).
+	// Typing is best-effort; web / no-presence channels are no-ops.
 	Typing(jid string, on bool) error
-	// Document delivers a file at path, threaded under replyToID/threadID.
-	// The file lives on the shared group volume both routd and the adapter
-	// mount.
+	// Document delivers a file at path on the shared group volume both routd
+	// and the adapter mount.
 	Document(jid, path, name, caption, replyToID, threadID, idempotencyKey string) (platformID string, err error)
-	// SendVoice delivers a synthesized audio file (Opus/Ogg) as a voice note,
-	// threaded under threadID. routd synthesizes via TTS first (tts.go), then
-	// hands the cached audio path here for the owning adapter to upload.
+	// SendVoice delivers a synthesized voice note (Opus/Ogg); routd synthesizes
+	// via TTS first (tts.go).
 	SendVoice(jid, audioPath, caption, threadID string) (platformID string, err error)
-	// Extended verbs — the social/feed surface. Post authors a fresh top-level
-	// post; Forward/Quote/Repost relay or
-	// amplify an existing message; Dislike is the native-downvote reaction;
-	// SetSuggestions/SetName stage Slack assistant-pane controls.
+	// The social/feed surface; SetSuggestions/SetName stage Slack assistant-pane
+	// controls.
 	Post(jid, content string, mediaPaths []string) (platformID string, err error)
 	Forward(sourceMsgID, targetJID, comment string) (platformID string, err error)
 	Quote(jid, sourceMsgID, comment string) (platformID string, err error)
@@ -71,26 +59,22 @@ type Deliverer interface {
 	Dislike(jid, platformID string) error
 	SetSuggestions(jid string, prompts []core.PanePrompt) error
 	SetName(jid, title string) error
-	// RoundDone notifies the web SSE channel that a turn closed, so a /chat
-	// client stops waiting. chatJID is the turn's chat JID VERBATIM — webd's
-	// hub keys on it as-is, no prefix stripping on either end (BUGS L30).
+	// RoundDone tells the web SSE channel a turn closed. chatJID is the turn's
+	// chat JID VERBATIM — webd's hub keys on it as-is (BUGS L30).
 	RoundDone(chatJID, turnID, status, errMsg string) error
-	// FetchHistory proxies to the owning adapter's GET /v1/history (the
-	// fetch_history MCP tool's platform-truth source). Returns the raw JSON
-	// HistoryResponse bytes; any error (no adapter owns the jid, it lacks the
-	// cap, transport) makes the caller fall back to the local DB.
+	// FetchHistory proxies to the owning adapter's GET /v1/history; any error
+	// makes the caller fall back to the local DB.
 	FetchHistory(jid string, before time.Time, limit int) ([]byte, error)
 }
 
-// Verifier offline-verifies inbound bearer tokens (agent capability / adapter
-// service tokens) against authd's keys. routd is a verifier, not a signer.
+// Verifier offline-verifies inbound bearer tokens against authd's keys. routd
+// is a verifier, not a signer.
 type Verifier interface {
 	Verify(r *http.Request) (sub string, scope []string, folder string, err error)
 }
 
 // Server is routd's HTTP face: ingress + route/web-route/route-token CRUD +
-// outbound passthrough. It holds the runed client to dispatch runs and hosts
-// the per-turn agent MCP socket (mcp.go).
+// outbound passthrough. It hosts the per-turn agent MCP socket (mcp.go).
 type Server struct {
 	db          *DB
 	loop        *Loop
@@ -99,68 +83,50 @@ type Server struct {
 	engagementT time.Duration
 	webHost     string
 
-	// hostingDomain + vhostAliases mirror proxyd's vhost config so the
-	// get_web_presence MCP tool + /v1/web_presence REST twin can report a
-	// folder's derived/aliased canonical host (spec 5/V). Set via SetVhosts.
+	// Mirror proxyd's vhost config so get_web_presence reports a folder's
+	// canonical host (spec 5/V).
 	hostingDomain string
 	vhostAliases  map[string]string
 
-	// identity resolves a sender sub → canonical identity via authd's
-	// GET /v1/identities/{sub}. Backs the inspect_identity MCP tool; nil → the
-	// tool answers unclaimed. Set via SetIdentityResolver.
+	// nil → inspect_identity answers unclaimed.
 	identity IdentityResolver
 
-	// dashKeys gates GET /dash/routd/ (spec 6/28 auth layer 2). Separate from
-	// `verify`, which gates /v1 on a BEARER: the dashboard trusts the
-	// proxyd-verified end-user identity instead. nil → local dev, gate open.
+	// dashKeys gates GET /dash/routd/ on the proxyd-verified end-user identity,
+	// not the /v1 bearer (spec 6/28); nil → local dev, gate open.
 	dashKeys *auth.KeySet
 
-	// sessions federates the session_log run history via runed's
-	// GET /v1/spawn_sessions/recent. Backs the inspect_session MCP tool's recent rows;
-	// nil → no prior sessions. Set via SetSessionResolver.
+	// nil → no prior sessions.
 	sessions SessionResolver
 
-	// disabledGroups is SEND_DISABLED_GROUPS: muted folders whose outbound is
-	// persisted (the row lands status=sent) but NOT delivered to the platform.
-	// SEND_DISABLED_CHANNELS (jid-prefix mute) stays in the Deliverer; this is the
-	// group-folder mute. Set via SetDisabledGroups.
+	// SEND_DISABLED_GROUPS: muted folders whose outbound persists (status=sent)
+	// but is NOT delivered. SEND_DISABLED_CHANNELS stays in the Deliverer.
 	disabledGroups []string
 
-	// groupsDir/webDir back the file-path agent tools (send_file, vhosts) the
-	// in-process MCP socket exposes; set via SetDirs from the cfg dirs.
+	// Back the file-path agent tools (send_file, vhosts).
 	groupsDir string
 	webDir    string
 
-	// tts carries the send_voice synthesis config (TTS_* env). Zero-value
-	// (Enabled=false) leaves the send_voice MCP tool returning the
-	// not-configured/unsupported error. Set via SetTTS from the cmd layer.
+	// Zero value leaves send_voice returning not-configured.
 	tts ttsConfig
 
-	// audit receives system events for mutating MCP tool calls. It appends to
-	// routd's own audit-system.jl in DATA_DIR — observability only. nil → slog-only
-	// (the audit.noop value EmitSystem treats as disabled). Set via SetAudit.
+	// Observability only (audit-system.jl in DATA_DIR); nil → slog-only.
 	audit *audit.Audit
 
-	// connectors is the discovered MCP-connector tool catalog (connectors.toml),
-	// loaded once at boot and registered through every per-turn MCP socket.
-	// nil/empty leaves the connector path off. Set via SetConnectors.
+	// Loaded once at boot, registered through every per-turn MCP socket;
+	// nil/empty leaves the connector path off.
 	connectors []ipc.ConnectorSpec
 
-	// extTools is the REST-descriptor tool catalog (builtin providers +
-	// operator [[ext]] blocks), registered per-turn. Set via SetExtTools.
+	// REST-descriptor tool catalog, registered per turn.
 	extTools []ipc.ExtTool
 
-	// Channel-registration surface. reg==nil leaves the /v1/channels endpoints
-	// unmounted (pure REST tests).
+	// reg==nil leaves the /v1/channels endpoints unmounted (pure REST tests).
 	reg *chanreg.Registry
 }
 
 // DefaultEngagementTTL is the stay-in-conversation window (spec 5/G) when
 // ENGAGEMENT_TTL is unset. Sole owner of the number: cmd/routd passes it to
 // NewServer and NewServer re-applies it on a zero, so the operator docs have
-// one value to cite. It used to be spelled three times — twice here and once
-// in the deleted core.Config field, whose 20m seeded three wrong doc pages
-// (BUGS F12).
+// one value to cite (BUGS F12).
 const DefaultEngagementTTL = 30 * time.Minute
 
 // NewServer wires the HTTP server. loop may be nil for pure REST tests.
@@ -172,32 +138,29 @@ func NewServer(db *DB, loop *Loop, deliver Deliverer, verify Verifier, engagemen
 }
 
 // SetDirs supplies the group + web roots the in-process MCP file-path tools
-// (send_file, vhosts) resolve against. Set post-construction in main wiring.
+// (send_file, vhosts) resolve against.
 func (s *Server) SetDirs(groupsDir, webDir string) {
 	s.groupsDir = groupsDir
 	s.webDir = webDir
 }
 
-// SetVhosts supplies HOSTING_DOMAIN + the WEB_VHOST_ALIASES host→folder map so
-// get_web_presence can report a folder's derived/aliased canonical host. These
-// mirror proxyd's vhost config; routd never serves vhosts, it only reports them.
+// SetVhosts supplies HOSTING_DOMAIN + the WEB_VHOST_ALIASES host→folder map.
+// routd never serves vhosts, it only reports them.
 func (s *Server) SetVhosts(hostingDomain string, aliases map[string]string) {
 	s.hostingDomain = hostingDomain
 	s.vhostAliases = aliases
 }
 
-// webPresence is the single renderer feeding both the get_web_presence MCP tool
-// (via buildGatedFns) and the /v1/web_presence REST twin.
+// webPresence is the single renderer feeding both the get_web_presence MCP
+// tool and the /v1/web_presence REST twin.
 func (s *Server) webPresence(folder string) ipc.WebPresence {
 	return ipc.WebPresenceFor(folder, s.webHost, s.hostingDomain, s.vhostAliases)
 }
 
-// SetDisabledGroups supplies SEND_DISABLED_GROUPS: muted folders whose outbound
-// persists but is not delivered. Set post-construction.
+// SetDisabledGroups supplies SEND_DISABLED_GROUPS.
 func (s *Server) SetDisabledGroups(folders []string) { s.disabledGroups = folders }
 
-// mutedGroup reports whether folder is in SEND_DISABLED_GROUPS — outbound for it
-// persists (the row lands status=sent) but is never delivered to the platform.
+// mutedGroup reports whether folder is in SEND_DISABLED_GROUPS.
 func (s *Server) mutedGroup(folder string) bool {
 	for _, f := range s.disabledGroups {
 		if strings.EqualFold(f, folder) {
@@ -207,33 +170,27 @@ func (s *Server) mutedGroup(folder string) bool {
 	return false
 }
 
-// SetTTS supplies the send_voice synthesis config. Set post-construction in
-// main wiring; the zero value leaves voice off.
+// SetTTS supplies the send_voice synthesis config; the zero value leaves voice off.
 func (s *Server) SetTTS(c ttsConfig) { s.tts = c }
 
 // SetAudit injects the audit writer so mutating MCP tool calls emit
-// audit-system.jl events. routd's audit is observability (slog + .jl webhook
-// stream).
+// audit-system.jl events.
 func (s *Server) SetAudit(a *audit.Audit) { s.audit = a }
 
-// SetConnectors supplies the configured connector specs (LoadConnectors). Every
-// per-turn MCP socket discovers each one's catalog with the folder's credential;
-// nil/empty leaves the path off.
+// SetConnectors supplies the configured connector specs (LoadConnectors); every
+// per-turn MCP socket discovers each one's catalog with the folder's credential.
 func (s *Server) SetConnectors(c []ipc.ConnectorSpec) { s.connectors = c }
 
 // SetExtTools supplies the REST-descriptor tool catalog (LoadExtProviders).
-// Every per-turn MCP socket registers it; nil/empty leaves the path off.
 func (s *Server) SetExtTools(t []ipc.ExtTool) { s.extTools = t }
 
 // SetIdentityResolver wires the authd identity client backing inspect_identity.
-// nil → the tool answers unclaimed. Set post-construction in main wiring.
 func (s *Server) SetIdentityResolver(r IdentityResolver) { s.identity = r }
 
-// resolveIdentity is the StoreFns.GetIdentityForSub backing: it delegates to the
-// authd resolver. A nil resolver returns the unclaimed shape. inspect_identity
-// is advisory, so a resolver error still renders as unclaimed — but it is logged
-// rather than swallowed, because "authd did not answer" and "nobody claims this
-// sub" read identically in the tool's output (BUGS N2).
+// resolveIdentity backs StoreFns.GetIdentityForSub. inspect_identity is
+// advisory, so a resolver error renders unclaimed — but logged, because "authd
+// did not answer" and "nobody claims this sub" read identically in the tool's
+// output (BUGS N2).
 func (s *Server) resolveIdentity(sub string) (ipc.Identity, []string, bool) {
 	if s.identity == nil {
 		return ipc.Identity{}, nil, false
@@ -248,11 +205,10 @@ func (s *Server) resolveIdentity(sub string) (ipc.Identity, []string, bool) {
 }
 
 // SetSessionResolver wires the runed session client backing inspect_session.
-// nil → no prior sessions. Set post-construction in main wiring.
 func (s *Server) SetSessionResolver(r SessionResolver) { s.sessions = r }
 
-// recentSessions is the StoreFns.RecentSessions backing: it federates to runed's
-// GET /v1/spawn_sessions/recent. A nil resolver returns nil.
+// recentSessions backs StoreFns.RecentSessions via runed's
+// GET /v1/spawn_sessions/recent; a nil resolver returns nil.
 func (s *Server) recentSessions(folder string, n int) []core.SessionRecord {
 	if s.sessions == nil {
 		return nil
@@ -260,9 +216,8 @@ func (s *Server) recentSessions(folder string, n int) []core.SessionRecord {
 	return s.sessions.RecentSessions(folder, n)
 }
 
-// SetDashKeySet wires the operator gate for GET /dash/routd/. Called by main
-// when AUTHD_URL is set; left nil in local dev and tests, where the gate falls
-// open exactly as every /v1 gate does.
+// SetDashKeySet wires the operator gate for GET /dash/routd/; nil in local dev
+// and tests, where the gate falls open exactly as every /v1 gate does.
 func (s *Server) SetDashKeySet(ks *auth.KeySet) { s.dashKeys = ks }
 
 // Handler builds the routed mux. GET /health and /openapi.json are public;
@@ -277,18 +232,14 @@ func (s *Server) Handler() http.Handler {
 	s.mountRouteTokens(mux)
 	s.mountGitHubSources(mux)
 	s.mountGroups(mux)
-	// /v1/installed_packages read face (spec 5/28). Read-only by design — the
-	// install/upgrade/remove lifecycle writes host files and restarts sidecars,
-	// so it stays the `arizuko packages` CLI (packages_resource.go header).
+	// Read-only by design: install/upgrade/remove writes host files and
+	// restarts sidecars, so it stays the `arizuko packages` CLI (spec 5/28).
 	s.mountInstalledPackages(mux)
 	s.mountAudit(mux)
 	s.mountDeadLetters(mux)
-	// /v1/pending_actions list + approve/reject — spec 5/19's REST resolution
-	// face (pending_actions_http.go). Verdicts funnel to the same core the chat
-	// /approve command runs.
+	// Verdicts funnel to the same core the chat /approve command runs (spec 5/19).
 	s.mountPendingActions(mux)
-	// REST read/manage surface — the twin of routd's in-process MCP StoreFns
-	// (the agent reaches the same data over the socket, humans/tools over HTTP)
+	// The REST twin of routd's in-process MCP StoreFns.
 	mux.HandleFunc("GET /v1/messages/inspect", s.handleInspectMessages)
 	mux.HandleFunc("GET /v1/messages/thread", s.handleThreadMessages)
 	mux.HandleFunc("GET /v1/messages/find", s.handleFindMessages)
@@ -298,33 +249,27 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/routing/answering", s.handleAnswering)
 	mux.HandleFunc("GET /v1/engagement", s.handleEngagementGet)
 	mux.HandleFunc("POST /v1/engagement", s.handleEngagementSet)
-	// topic_sessions, NOT sessions: `sessions` is authd's wire identity (the
-	// refresh-token families resource). routd's own `sessions` table is the
-	// (group_folder, topic) → Claude-session-id map, so the path says topic
+	// topic_sessions, NOT sessions: `sessions` is authd's wire identity
 	// (BUGS F46, spec 5/5 § Tier 3).
 	mux.HandleFunc("GET /v1/topic_sessions", s.handleSessionGet)
-	// Operator-cockpit aggregates (6/28 read path, BUGS L142). REST-only on
-	// purpose: as resreg resources these would become agent MCP tools.
+	// Operator-cockpit aggregates (6/28, BUGS L142). REST-only on purpose: as
+	// resreg resources these would become agent MCP tools.
 	mux.HandleFunc("GET /v1/sessions/counts", s.handleSessionCounts)
 	mux.HandleFunc("GET /v1/messages/volume", s.handleMessageVolume)
 	mux.HandleFunc("GET /v1/messages/activity", s.handleActivity)
 	mux.HandleFunc("GET /v1/principals", s.handlePrincipals)
 	mux.HandleFunc("GET /v1/users/{sub}/scopes", s.handleUserScopes)
 	s.mountACL(mux)
-	// /v1/acl_membership DELETE — the account side of unpair (spec 5/31). The
-	// caller's verified sub must BE the edge's parent.
+	// The account side of unpair (spec 5/31): the caller's verified sub must
+	// BE the edge's parent.
 	s.mountMembership(mux)
-	// /v1/secrets write surface (POST set/seal + key-DELETE) rides the shared
-	// secretsHandler via resreg — the 5/16 REST fold (secrets_resource.go). Forwarder
-	// (no resreg tx/audit) so the plaintext value never lands in audit_log; the
-	// existing sealing, audited s.db.SetSecret/DeleteSecret own the write. NO read
-	// twin — a sealed value must never appear in any read surface.
+	// /v1/secrets is a forwarder (no resreg tx/audit) so the plaintext never
+	// lands in audit_log; the sealing s.db.SetSecret/DeleteSecret own the
+	// write. NO read twin — a sealed value must never appear in any read surface.
 	s.mountSecrets(mux)
 	mux.HandleFunc("POST /v1/pane", s.handlePaneSet)
-	// /v1/tasks CRUD (list/get/patch/delete) rides the shared scheduled_tasks
-	// handler via resreg — the 5/16 REST fold (mountTasks, tasks_http.go). The
-	// fire-loop control plane (due/runlog/reschedule) + run-log readers stay
-	// hand-rolled: they serve timed, not resource CRUD.
+	// The fire-loop control plane (due/runlog/reschedule) + run-log readers
+	// stay hand-rolled: they serve timed, not resource CRUD.
 	s.mountTasks(mux)
 	mux.HandleFunc("GET /v1/tasks/runs", s.handleAllRunLogs)
 	mux.HandleFunc("GET /v1/tasks/due", s.handleTasksDue)
@@ -334,20 +279,18 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/cost", s.handleCostGet)
 	mux.HandleFunc("GET /v1/cost/summary", s.handleCostSummary)
 	s.mountChannels(mux)
-	// The operator dashboard (spec 6/28): routd's own /dash/ namespace, gated
-	// by the proxyd-stamped operator identity rather than the /v1 bearer.
+	// The operator dashboard (spec 6/28): gated by the proxyd-stamped operator
+	// identity, not the /v1 bearer.
 	mux.HandleFunc("GET /dash/routd/", s.handleDash)
 	mux.HandleFunc("POST /dash/routd/retry", s.handleDashRetry)
 	mux.HandleFunc("POST /dash/routd/replay", s.handleDashReplay)
 	return mux
 }
 
-// authz verifies the bearer token and, when scopes are required, checks the
-// token carries one of them (any-of). Returns the token's sub + arz/folder
-// claim. verify==nil is open (single-tenant / local-dev): ok=true, empty
-// sub/folder. Fails CLOSED — a verify error or a missing scope is denied.
-// Service subs (service:<daemon>) carry the daemon's broad scopes like any
-// other token; there is no implicit bypass.
+// authz verifies the bearer and, when scopes are required, that it carries one
+// (any-of). verify==nil is open (local-dev): ok=true, empty sub/folder. Fails
+// CLOSED. Service subs carry the daemon's scopes like any other token; there
+// is no implicit bypass.
 func (s *Server) authz(w http.ResponseWriter, r *http.Request, anyScope ...string) (sub, folder string, ok bool) {
 	if s.verify == nil {
 		return "", "", true // tests / local-dev without a verifier
@@ -364,10 +307,9 @@ func (s *Server) authz(w http.ResponseWriter, r *http.Request, anyScope ...strin
 	return sub, folder, true
 }
 
-// hasAnyScope reports whether held grants any of the wanted "resource:verb"
-// scopes. A held "resource:*" covers any verb on that resource (auth.HasScope);
-// an exact string also matches (covers the "resource:verb:own_group" form the
-// spec uses for folder-bound agent scopes, where the folder claim is the bound).
+// hasAnyScope reports whether held grants any wanted "resource:verb" scope. A
+// held "resource:*" covers any verb (auth.HasScope); an exact string also
+// matches, which covers the "resource:verb:own_group" form.
 func hasAnyScope(held, wanted []string) bool {
 	for _, w := range wanted {
 		if i := strings.IndexByte(w, ':'); i > 0 {
@@ -383,9 +325,8 @@ func hasAnyScope(held, wanted []string) bool {
 }
 
 // restCaller builds the REST Caller for a shared resource handler: identity
-// via the Verifier, Folder from target (the JWT folder itself when target is
-// nil), the held scopes and the JWT folder in Claims for the gate. A nil
-// Verifier is open (local-dev), mirroring s.authz.
+// via the Verifier, Folder from target (the JWT folder when target is nil),
+// held scopes and the JWT folder in Claims. A nil Verifier is open, as s.authz.
 func (s *Server) restCaller(target func(r *http.Request, jwtFolder string) string) resreg.CallerFromHTTPFunc {
 	return func(r *http.Request) (resreg.Caller, error) {
 		var sub, jwtFolder string
@@ -414,8 +355,7 @@ func (s *Server) restCaller(target func(r *http.Request, jwtFolder string) strin
 
 // ownsFolder reports whether the token's folder claim owns target (equal or
 // ancestor). An empty token folder (open mode) owns everything; an empty
-// target is owned by anyone (no folder-bound resource). Fails CLOSED for a
-// scoped token acting outside its subtree.
+// target is owned by anyone. Fails CLOSED outside the token's subtree.
 func ownsFolder(tokenFolder, target string) bool {
 	if tokenFolder == "" || target == "" {
 		return true
@@ -428,22 +368,18 @@ func (s *Server) authed(w http.ResponseWriter, r *http.Request, anyScope ...stri
 	return ok
 }
 
-// ownsJID reports whether a token scoped to tokenFolder may act on jid's chat.
-// It mirrors ipc.authorizeJID's resolution EXACTLY so the REST and MCP faces
-// gate identically (CLAUDE.md "auth is a uniform middleware"): resolve the jid's
-// routing target, fall back to the web:<folder> 1:1 binding when no route row,
-// allow when that target is in the token's subtree OR (verb-agnostic) the token's
-// folder is itself a route target for jid (mention-only subfolder). Empty token
-// folder (root / service token) owns everything.
+// ownsJID mirrors ipc.authorizeJID's resolution EXACTLY so the REST and MCP
+// faces gate identically: the jid's routing target, else the web:<folder>
+// binding; allow when that target is in the token's subtree OR the token's
+// folder is itself a route target for jid. Empty token folder owns everything.
 func (s *Server) ownsJID(tokenFolder, jid string) bool {
 	if tokenFolder == "" {
 		return true
 	}
 	target := s.db.DefaultFolderForJID(jid)
-	// No route row: read the folder the MINT recorded, never the JID grammar.
-	// `web:T/S` is byte-identical to a plain token at a folder named `T/S`, so
-	// the grammar hands ownership to a descendant (BUGS L4). The grammar stays
-	// the last resort, for a token minted before the mint recorded it.
+	// No route row: read the folder the MINT recorded, never the JID grammar —
+	// `web:T/S` is byte-identical to a plain token at a folder named `T/S`
+	// (BUGS L4). The grammar is the last resort.
 	if target == "" {
 		target = s.db.RouteTokenTarget(jid)
 	}
@@ -458,8 +394,7 @@ func (s *Server) ownsJID(tokenFolder, jid string) bool {
 	return s.db.JIDRoutableToFolder(jid, tokenFolder)
 }
 
-// denyCrossFolder writes the 403 a scoped token gets when it targets a chat/
-// folder outside its subtree — the REST twin of ipc.authorizeJID's error.
+// denyCrossFolder is the REST twin of ipc.authorizeJID's error.
 func denyCrossFolder(w http.ResponseWriter, jid string) {
 	writeErr(w, 403, "forbidden", "chat "+jid+" is outside your folder")
 }
@@ -469,9 +404,8 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	// adapter name for the minted id is the verified caller (service:<adapter>
-	// → <adapter>); "adapter" when unverified (local-dev). Reuses the authz
-	// Verify above instead of a second Verify call.
+	// The minted id's adapter name is the verified caller (service:<adapter>);
+	// "adapter" when unverified.
 	adapter := strings.TrimPrefix(sub, "service:")
 	if adapter == "" {
 		adapter = "adapter"
@@ -485,11 +419,9 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "missing_field", "chat_jid and content required")
 		return
 	}
-	// Ingress JID-ownership: a platform-scheme inbound must land under a registered
-	// channel's prefixes, so a caller cannot inject JIDs no adapter owns. Internal
-	// schemes (web:/hook:/bare-folder) carry no channel prefix and are exempt.
-	// Non-adapter internal services have no registry entry and are allowed through.
-	// When unverified (local dev), falls back to any registered adapter owning it.
+	// A platform-scheme inbound must land under a registered channel's
+	// prefixes. Internal schemes (web:/hook:/bare-folder) are exempt; unverified
+	// (local dev) falls back to any registered owner.
 	if s.reg != nil && isChannelJID(m.ChatJID) {
 		if sub != "" {
 			entry := s.reg.ByPrincipal(sub)
@@ -502,21 +434,13 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	// Sender ownership. Deliberately NOT nested in the branch above: web:/hook:/
-	// bare-folder ChatJIDs skip that block, so an adapter could post
-	// chat_jid="web:main" with another platform's sender and meet no check at all.
-	// Sender is authorization-bearing — steer.go feeds it to IsOperator → Authorize —
-	// so asserting another platform's user is an escalation.
-	//
-	// The test is the platform scheme, not the full prefix: registered JIDPrefixes
-	// are CHAT prefixes while senders are "telegram:user/<id>", so Owns() would
-	// reject legitimate traffic.
-	// Only QUALIFIED senders are constrained. A bare, scheme-less sender cannot
-	// collide with an OAuth sub, which is always "<provider>:<id>".
-	// "anon:" is exempt for the same reason: route tokens mint anon:<hash> for public
-	// chat, it can never be an OAuth sub and it holds no grant. webd DOES hold a
-	// registry entry, so without this the guard rejected webd's own route-token
-	// senders and took the whole web-chat surface down on krons (2026-08-05).
+	// Sender ownership, NOT nested in the branch above: a web:/hook: ChatJID
+	// skips it, and Sender is authorization-bearing (steer.go feeds it to
+	// Authorize), so asserting another platform's user is an escalation. The
+	// test is the scheme, not the full prefix: senders are "telegram:user/<id>",
+	// not chat prefixes. Only QUALIFIED senders: a bare one cannot collide with
+	// an OAuth sub. "anon:" is exempt for the same reason — webd holds a
+	// registry entry, and the guard took web chat down on krons (2026-08-05).
 	if s.reg != nil && sub != "" && strings.Contains(m.Sender, ":") && !strings.HasPrefix(m.Sender, "anon:") {
 		if entry := s.reg.ByPrincipal(sub); entry != nil && !entry.OwnsScheme(m.Sender) {
 			writeErr(w, 400, "sender_scheme_mismatch",
@@ -524,10 +448,8 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	// Idempotency for the append-only log keys on the message id (the PK).
 	// X-Idempotency-Key is honored ONLY when id is absent: routd mints
-	// id=<adapter>-<key> so the two keys collapse. A stable id AND a key together
-	// is ambiguous.
+	// id=<adapter>-<key> so the two keys collapse. Both together is ambiguous.
 	idemKey := r.Header.Get("X-Idempotency-Key")
 	switch {
 	case m.ID != "" && idemKey != "":
@@ -546,12 +468,10 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 	if verb == "" {
 		verb = "message"
 	}
-	// The parent of a reply/reaction settles three things at once: a reply
-	// with no topic of its own inherits the parent's topic so it routes to the
-	// parent's thread (resolved BEFORE promotion so the thread-participation
-	// check sees it); a reply whose adapter sent no excerpt gets the parent's
-	// sender and text, which is what the agent reads under <reply-to>; and a
-	// reply to a bot row is a mention.
+	// The parent settles three things: a reply with no topic inherits the
+	// parent's (BEFORE promotion, so the thread-participation check sees it); a
+	// reply with no excerpt gets the parent's sender and text; a reply to a bot
+	// row is a mention.
 	var parent core.Message
 	hasParent := false
 	if m.ReplyTo != "" {
@@ -567,37 +487,30 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	m.ReplyToText = truncate(m.ReplyToText, replyExcerptChars)
-	// Mention promotion: an inbound that replies to a bot row, OR lands in a
-	// thread the bot started/participated in (spec 5/L), is promoted to
-	// verb=mention so routing sees a uniform trigger and the agent re-attends the
-	// thread instead of going silent after its 5/G engagement window closes.
-	// An untrusted sender (emaid marks unverified senders verb=untrusted, spec
-	// 11/17) must NOT escalate to a mention this way — that would let a spoofed
-	// inbound drive an agent turn. gated guarded this; the split had dropped it.
+	// Mention promotion: a reply to a bot row, or a thread the bot took part in
+	// (spec 5/L), becomes verb=mention so the agent re-attends after its
+	// engagement window closes. An untrusted sender (verb=untrusted, spec 11/17)
+	// must NOT escalate this way — a spoofed inbound would drive a turn.
 	if verb != "untrusted" &&
 		((hasParent && parent.BotMsg) || s.db.ThreadHasBotMessage(m.ChatJID, m.Topic)) {
 		verb = "mention"
 	}
-	// A green/red reaction on a held notice IS the verdict, spelled in the one
-	// answer surface every platform has. Rewriting it into the command it stands
-	// for is the move the buttons already make: one parser, one operator gate,
-	// no second resolution path. It has to happen HERE and not in steer, which
-	// runs after route resolution — a reaction on a mention-only channel never
-	// gets that far.
+	// A ✅/❌ reaction on a held notice IS the verdict: rewrite it into the
+	// command it stands for — one parser, one operator gate. HERE, not in steer,
+	// which runs after route resolution: a reaction on a mention-only channel
+	// never gets that far.
 	if cmd := s.db.VerdictForReaction(m.ChatJID, m.ReplyTo, m.Content); cmd != "" {
 		m.Content, verb = cmd, "mention"
 	}
 	row := buildMessageRow(m, ts, verb)
-	// Engagement is NOT committed at ingress: the owning folder isn't known until
-	// route resolution. routd defers the engagement claim to dispatch time
-	// (appendAndDeliver bumps it with the resolved folder). A pre-PutMessage claim
-	// with an empty folder would make Engaged return ("", true) and misroute.
+	// Engagement is NOT committed at ingress: the folder is unknown until route
+	// resolution. A pre-PutMessage claim with an empty folder would make
+	// Engaged return ("", true) and misroute.
 	if err := s.db.PutMessage(row); err != nil {
 		writeErr(w, 500, "store_error", err.Error())
 		return
 	}
-	// A classification is written only by a caller that gave one. PutMessage above
-	// has already opened the chat item, so silence costs nothing here (api/v1
+	// A classification is written only by a caller that gave one (api/v1
 	// § Message.IsGroup).
 	if m.IsGroup != nil {
 		// the chat is stored and routed either way; a flag write that fails is
@@ -625,10 +538,9 @@ func (s *Server) handleOutbound(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Step 1 of the outbound resolution order (spec 5/34): an explicit channel
-	// wins over the latest inbound source and over chanreg.ForJID. "if
-	// registered" is checked HERE and refused loudly — Registry.Resolve falls
-	// back to ForJID for an unknown name, which would silently deliver through
-	// the very adapter the caller pinned away from.
+	// wins. "if registered" is checked HERE and refused loudly — Registry.Resolve
+	// falls back to ForJID for an unknown name and would silently deliver
+	// through the adapter the caller pinned away from.
 	if req.Channel != "" {
 		if s.reg == nil || s.reg.Get(req.Channel) == nil {
 			writeErr(w, 400, "unknown_channel",
@@ -638,9 +550,8 @@ func (s *Server) handleOutbound(w http.ResponseWriter, r *http.Request) {
 	}
 	// A daemon's message is a messages row like the agent's: routd is the sole
 	// appender, and a send with no row is invisible to find_messages, the
-	// transcript and the dead_letters surface — onbod's greetings left no trace.
-	// A refused send lands `failed`, the dead-letter state; delivery_attempts=0
-	// says the platform refused it, and the pending sweep never retries it.
+	// transcript and dead_letters. A refused send lands `failed` with
+	// delivery_attempts=0, so the pending sweep never retries it.
 	row := core.Message{
 		ID: "out-" + randHex(8), ChatJID: req.JID, Sender: sub, Content: req.Text,
 		Timestamp: time.Now().UTC(), BotMsg: true, FromMe: true,
@@ -652,9 +563,8 @@ func (s *Server) handleOutbound(w http.ResponseWriter, r *http.Request) {
 	} else {
 		row.PlatformID = pid
 	}
-	// A store failure after a successful send is logged, not returned: the
-	// message already reached the platform, and a 5xx makes the caller send it
-	// twice.
+	// A store failure after a successful send is logged, not returned: a 5xx
+	// makes the caller send it twice.
 	if err := s.db.PutOutbound(row, status); err != nil {
 		slog.Error("outbound row not stored", "jid", req.JID, "sender", sub, "status", status, "err", err)
 	}
@@ -666,10 +576,8 @@ func (s *Server) handleOutbound(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleUserScopes serves the login-time scope snapshot authd pulls at session
-// issuance. It evaluates {sub}'s scopes against routd's acl rows
-// (membership-expanded). 200 {"scope":[...],"folder":"..."} when the sub holds
-// grants; 404 {"error":"no_grants"} when it holds none. Bearer-gated by
-// grants:read.
+// issuance: 200 {"scope":[...],"folder":"..."} when the sub holds grants, 404
+// no_grants when it holds none.
 func (s *Server) handleUserScopes(w http.ResponseWriter, r *http.Request) {
 	if !s.authed(w, r, "grants:read") {
 		return
@@ -677,8 +585,8 @@ func (s *Server) handleUserScopes(w http.ResponseWriter, r *http.Request) {
 	sub := r.PathValue("sub")
 	scope, err := s.db.UserScopes(sub)
 	if err != nil {
-		// NOT 404 no_grants: authd would snapshot "this user holds nothing" from a
-		// broken read and mint a scopeless session (BUGS A4).
+		// NOT 404 no_grants: authd would snapshot "this user holds nothing" from
+		// a broken read and mint a scopeless session (BUGS A4).
 		writeErr(w, 500, "db_error", err.Error())
 		return
 	}
@@ -687,7 +595,7 @@ func (s *Server) handleUserScopes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// folder is the single-subtree bound for the minted token: the lone scope
-	// when the sub holds exactly one, else empty (no single bound to claim).
+	// when the sub holds exactly one, else empty.
 	folder := ""
 	if len(scope) == 1 {
 		folder = scope[0]
@@ -695,13 +603,9 @@ func (s *Server) handleUserScopes(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"scope": scope, "folder": folder})
 }
 
-// paneSetBody is the POST /v1/pane payload: slakd's three Slack-pane writes. op
-// selects the write:
-//   - "open": UpsertPane(team,user,thread,channel) — creates/refreshes the row.
-//   - "context": SetPaneContext(team,user,thread, jid) — updates the workspace
-//     channel the user is viewing (empty jid clears it).
-//   - "" (default): SetPaneContextByChannel(channel, jid) — the by-channel
-//     context update.
+// paneSetBody is the POST /v1/pane payload: slakd's three Slack-pane writes.
+// op "open" upserts the row; "context" sets the (team,user,thread) context
+// (empty jid clears it); "" sets the context by channel.
 type paneSetBody struct {
 	Op        string `json:"op"`
 	TeamID    string `json:"team_id"`
@@ -711,8 +615,7 @@ type paneSetBody struct {
 	JID       string `json:"jid"`
 }
 
-// handlePaneSet performs slakd's pane write. Bearer-gated by messages:write (the
-// scope slakd's adapter token carries).
+// handlePaneSet performs slakd's pane write.
 func (s *Server) handlePaneSet(w http.ResponseWriter, r *http.Request) {
 	if !s.authed(w, r, "messages:write") {
 		return
@@ -750,8 +653,8 @@ func (s *Server) handlePaneSet(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, apiv1.OK{OK: true})
 }
 
-// dueTask is the GET /v1/tasks/due row: exactly the fields timed's fire loop
-// needs to enqueue a message + reschedule.
+// dueTask is the GET /v1/tasks/due row: exactly what timed's fire loop needs
+// to enqueue a message + reschedule.
 type dueTask struct {
 	ID          string `json:"id"`
 	ChatJID     string `json:"chat_jid"`
@@ -759,18 +662,14 @@ type dueTask struct {
 	Cron        string `json:"cron"`
 	ContextMode string `json:"context_mode"`
 	// NextRun is the scheduled time this claim FIRES FOR, unchanged by the
-	// claim itself. It is the fire's identity: timed keys the enqueued message
-	// id on it, so a retry after a lost POST /v1/messages response mints the
-	// SAME id and routd's id-PK dedup collapses the two attempts into one
-	// message. Without it a one-shot whose response was lost fired twice
-	// (BUGS L33). RFC3339 in UTC so the round-trip through
-	// POST /v1/tasks/{id}/reschedule is byte-stable.
+	// claim: timed keys the message id on it, so a retry after a lost response
+	// mints the SAME id and the id-PK dedups (BUGS L33). RFC3339 UTC so the
+	// round-trip through reschedule is byte-stable.
 	NextRun string `json:"next_run"`
 }
 
 // handleTasksDue atomically claims (marks 'firing') and returns the tasks whose
-// next_run has passed — the read half of timed's fire loop. Bearer-gated by
-// tasks:read.
+// next_run has passed — the read half of timed's fire loop.
 func (s *Server) handleTasksDue(w http.ResponseWriter, r *http.Request) {
 	if !s.authed(w, r, "tasks:read") {
 		return
@@ -792,8 +691,8 @@ func (s *Server) handleTasksDue(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"tasks": out})
 }
 
-// taskRunLogBody is the POST /v1/tasks/runlog payload: timed records one task
-// run (success or error) after firing. duration_ms is the fire latency.
+// taskRunLogBody is the POST /v1/tasks/runlog payload; duration_ms is the fire
+// latency.
 type taskRunLogBody struct {
 	TaskID     string `json:"task_id"`
 	Status     string `json:"status"`
@@ -802,7 +701,7 @@ type taskRunLogBody struct {
 }
 
 // handleTaskRunLog appends one task_run_logs row — the write half of timed's
-// fire loop. Bearer-gated by tasks:write.
+// fire loop.
 func (s *Server) handleTaskRunLog(w http.ResponseWriter, r *http.Request) {
 	if !s.authed(w, r, "tasks:write") {
 		return
@@ -825,17 +724,16 @@ func (s *Server) handleTaskRunLog(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, apiv1.OK{OK: true})
 }
 
-// rescheduleBody is the POST /v1/tasks/{id}/reschedule payload: timed sends the
-// next_run it computed client-side + the target status (active for recurring,
-// completed for one-shot). An empty next_run clears it (one-shot completion).
+// rescheduleBody is the POST /v1/tasks/{id}/reschedule payload: the next_run
+// timed computed + the target status. An empty next_run clears it (one-shot
+// completion).
 type rescheduleBody struct {
 	NextRun string `json:"next_run"`
 	Status  string `json:"status"`
 }
 
-// handleTaskReschedule sets a fired task's next_run + status — the reschedule
-// half of timed's fire loop. Bearer-gated by tasks:write. timed computes next_run
-// (cron/interval) and passes status so routd stays a boring writer: recurring →
+// handleTaskReschedule sets a fired task's next_run + status. timed computes
+// next_run and passes status so routd stays a boring writer: recurring →
 // active, one-shot → completed.
 func (s *Server) handleTaskReschedule(w http.ResponseWriter, r *http.Request) {
 	if !s.authed(w, r, "tasks:write") {
@@ -868,10 +766,9 @@ func randHex(n int) string {
 	return hex.EncodeToString(b)
 }
 
-// isChannelJID reports whether jid is a platform-channel JID (subject to the
-// ingress ownership check) vs an internal scheme. web:/hook:/bare-folder JIDs
-// address groups directly (web chat, timed, onbod) and carry no channel prefix,
-// so they're exempt; everything with a "platform:" prefix is a channel JID.
+// isChannelJID reports whether jid is a platform-channel JID, subject to the
+// ingress ownership check. web:/hook:/bare-folder JIDs address groups directly
+// and carry no channel prefix, so they are exempt.
 func isChannelJID(jid string) bool {
 	if strings.HasPrefix(jid, "web:") || strings.HasPrefix(jid, "hook:") {
 		return false

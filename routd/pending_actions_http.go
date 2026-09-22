@@ -2,18 +2,12 @@ package routd
 
 // pending_actions_http.go mounts the REST half of spec 5/19's resolution
 // contract — GET /v1/pending_actions plus POST /v1/pending_actions/{id}/
-// approve|reject — closing the "declared but not mounted" gap BUGS F66
-// records. Both verdicts funnel through resolveHoldInto, the same core the chat
-// /approve command runs, inside the tx resreg opens: verdict, standing rule and
-// audit row commit as one unit.
-//
-// Nothing is dispatched from here. The agent is suspended on the held call, so
-// the verdict reaching the row IS the delivery: the waiter reads it within a
-// poll and runs or refuses the call inside the turn that asked.
-//
-// The agent-socket MCP face stays unmounted: approve on the held agent's own
-// socket would let it approve its own call, so that half of F66 waits for an
-// operator-socket design rather than shipping as a hole.
+// approve|reject. Both verdicts funnel through resolveHoldInto, the same core
+// the chat /approve command runs, inside the tx resreg opens. Nothing is
+// dispatched from here: the agent is suspended on the held call, so the
+// verdict reaching the row IS the delivery. The agent-socket MCP face stays
+// unmounted: approve on the held agent's own socket would let it approve its
+// own call (BUGS F66).
 
 import (
 	"context"
@@ -30,9 +24,8 @@ const (
 	actionReject  = resreg.Action("reject")
 )
 
-// pendingActionsResource is the mounted face of the catalog registration in
-// resreg/resources/pending_actions.go. Store is non-nil so resreg runs the
-// Gate and opens the verdict tx.
+// pendingActionsResource is the mounted face of the catalog registration.
+// Store is non-nil so resreg runs the Gate and opens the verdict tx.
 func (s *Server) pendingActionsResource() resreg.Resource {
 	r := resreg.Mount(resources.PendingActionsName)
 	r.Handler = s.pendingActionsHandler
@@ -43,18 +36,15 @@ func (s *Server) pendingActionsResource() resreg.Resource {
 func (s *Server) mountPendingActions(mux *http.ServeMux) {
 	res := s.pendingActionsResource()
 	res.Gate = s.pendingActionsRESTGate
-	// Same verified-bearer Caller builder the audit face uses: sub + scopes +
-	// folder claim off the token, open when no Verifier (local dev).
 	resreg.RegisterREST(mux, res, s.restCaller(nil))
 }
 
-// pendingActionsRESTGate requires pending_actions:read for the list and
-// pending_actions:write for a verdict. Like audit:read, both scopes are
-// unreachable by any human bearer (a user token's scope list holds folder
-// globs); the sole holder is service:dashd, which forwards the proxyd-verified
-// human as `reviewer`. This gate decides only that the TRANSPORT may speak for
-// a human; which folders that human may read and answer is resolveHoldInto's one
-// admin gate, applied per row.
+// pendingActionsRESTGate requires pending_actions:read for the list and :write
+// for a verdict; both are unreachable by a human bearer (a user token's scope
+// list holds folder globs), so the sole holder is service:dashd, which
+// forwards the proxyd-verified human as `reviewer`. This gate decides only
+// that the TRANSPORT may speak for a human; which folders that human may
+// answer is resolveHoldInto's admin gate, per row.
 func (s *Server) pendingActionsRESTGate(x resreg.Execution, _ string, _ map[string]string) error {
 	if s.verify == nil {
 		return nil // local-dev open mode, mirrors s.authz
@@ -73,9 +63,8 @@ func (s *Server) pendingActionsHandler(ctx context.Context, x resreg.Execution) 
 	switch x.Action {
 	case resreg.ActionList:
 		folder := x.Args.Str("folder")
-		// A folder-claimed caller is pinned to its own folder; the argument
-		// cannot widen it. An empty claim (service:dashd) reads every folder,
-		// and `reviewer` is what narrows it back down.
+		// A folder-claimed caller is pinned to its folder; an empty claim
+		// (service:dashd) reads every folder, and `reviewer` narrows it back.
 		if x.Caller.Folder != "" {
 			folder = x.Caller.Folder
 		}
@@ -93,25 +82,21 @@ func (s *Server) pendingActionsHandler(ctx context.Context, x resreg.Execution) 
 		if x.Action == actionReject {
 			verdict = PendingRejected
 		}
-		// reviewed_by records the HUMAN, not the transport: dashd calls with its
-		// service bearer and forwards the proxyd-verified sub as `reviewer`.
-		// Trusting the argument is bounded by the scope gate — the only
-		// pending_actions:write holder is service:dashd — and by resolveHoldInto,
-		// which authorizes this exact string on the held row's folder, so a
-		// forwarded sub buys no authority the human does not hold. Absent (curl,
+		// reviewed_by records the HUMAN, not the transport: dashd forwards the
+		// proxyd-verified sub as `reviewer`. Trusting it is bounded by the scope
+		// gate (only service:dashd holds :write) and by resolveHoldInto, which
+		// authorizes this exact string on the held row's folder. Absent (curl,
 		// local dev), the bearer's sub stands.
 		reviewer := x.Args.Str("reviewer")
 		if reviewer == "" {
 			reviewer = x.Caller.Sub
 		}
-		// `standing` is the `always` verdict — approve plus the skip-approval
-		// rule, in this tx. It is an ARGUMENT of approve rather than a third
-		// action because pending_actions has no third status: the standing
-		// answer lives in acl (spec 6/26 § Decision 5). Meaningless on reject,
-		// and there is no standing reject — see resolveHoldInto.
+		// `standing` is the `always` verdict, an ARGUMENT of approve rather than
+		// a third action: pending_actions has no third status (spec 6/26
+		// § Decision 5). There is no standing reject — see resolveHoldInto.
 		standing := x.Action == actionApprove && x.Args.Bool("standing")
-		// A verdict another reviewer landed first refuses the write, and the loser
-		// learns it from the batch — so the 409 travels with the write.
+		// A verdict another reviewer landed first refuses the write; the 409
+		// travels with it.
 		lost := resreg.Errorf(http.StatusConflict,
 			"pending action %q %v (by someone else)", id, ErrPendingResolved)
 		p, err := s.db.resolveHoldInto(ctx, x.Writes, id, verdict, reviewer,
@@ -131,13 +116,10 @@ func (s *Server) pendingActionsHandler(ctx context.Context, x resreg.Execution) 
 	return nil, resreg.Errorf(http.StatusBadRequest, "unknown action %q", x.Action)
 }
 
-// reviewable keeps the rows `reviewer` may actually answer — the SAME
+// reviewable keeps the rows `reviewer` may answer — the SAME
 // admin-on-the-held-folder question resolveHoldInto asks, so the queue a human
-// reads and the verdicts that human can give are one decision rather than two.
-// Listing a folder the reader cannot act on is an invitation to a 403.
-//
-// An empty reviewer is the unfiltered read (curl with the service bearer, local
-// dev): the scope gate above is the whole containment there, unchanged.
+// reads and the verdicts they can give are one decision, not two. An empty
+// reviewer is the unfiltered read (the service bearer, local dev).
 func (s *Server) reviewable(reviewer string, rows []PendingAction) []PendingAction {
 	if reviewer == "" {
 		return rows

@@ -1,20 +1,11 @@
 package routd
 
-// dash.go is routd's operator dashboard at GET /dash/routd/ (spec 6/28, 6/30).
-//
-// It is the FIRST per-daemon dashboard outside onbod and timed, so it is the
-// shape the other six copy: one handler in the daemon that owns the data,
-// gated by auth.RequireOperator, rendered with theme, reading the same
-// in-process readers routd's own /v1 handlers read. No direct read of another
-// daemon's DB, and no fourth surface — this is a third face on the handler set
-// 5/17 already established.
-//
-// 6/30 lists six pages for routd (overview, queue, channels, errored, routes,
-// cost) and the /v1 additions four of them need. This file ships the overview,
-// which needs none: every figure on it comes from a reader routd already has.
-// The remaining five are listed in 6/30 and stay unbuilt rather than stubbed —
-// a page that renders an empty table is worse than a missing link, because the
-// hub tile goes green either way.
+// dash.go is routd's operator dashboard at GET /dash/routd/ (spec 6/28, 6/30):
+// one handler in the daemon that owns the data, gated by auth.RequireOperator,
+// reading the same in-process readers routd's /v1 handlers read — a third face
+// on the handler set, never a read of another daemon's DB. Only the overview
+// is built; the other five pages 6/30 lists stay unbuilt rather than stubbed,
+// because a page that renders an empty table turns the hub tile green anyway.
 
 import (
 	"fmt"
@@ -32,14 +23,12 @@ import (
 	"github.com/kronael/arizuko/theme"
 )
 
-// erroredPreview caps the errored-chat table. An instance with a broken adapter
-// can carry hundreds of errored chats and the overview is a summary, not the
-// errored page 6/30 specifies.
+// erroredPreview caps the errored-chat table: the overview is a summary, not
+// the errored page 6/30 specifies.
 const erroredPreview = 15
 
-// dashSnapshot is everything the overview renders. Built in one place so the
-// template has no logic and a missing reader is a compile error, not a blank
-// panel.
+// dashSnapshot is everything the overview renders, built in one place so the
+// template has no logic and a missing reader is a compile error.
 type dashSnapshot struct {
 	Groups   int
 	Routes   int
@@ -49,17 +38,15 @@ type dashSnapshot struct {
 	Instance string
 }
 
-// snapshot reads routd's own state for the overview. Every field comes from a
-// reader that already backs a /v1 handler, so the page cannot drift from the
-// API: there is one reader per figure, not a dashboard copy of it.
+// snapshot reads routd's own state; every field comes from a reader that
+// already backs a /v1 handler, so the page cannot drift from the API.
 func (s *Server) snapshot() dashSnapshot {
 	snap := dashSnapshot{Instance: s.instanceName()}
 	snap.Groups = len(s.db.AllGroups())
 	if routes, err := s.db.Routes(); err == nil {
 		snap.Routes = len(routes)
 	}
-	// isRoot: the dashboard is operator-only, so the unscoped read is the
-	// correct one — the gate above decided the caller may see every folder.
+	// The dashboard is operator-only, so the unscoped read is the correct one.
 	if errored, err := s.db.ErroredChats("", true); err == nil {
 		snap.Errored = errored
 	}
@@ -75,8 +62,8 @@ func (s *Server) snapshot() dashSnapshot {
 	return snap
 }
 
-// instanceName is the deployment's name for the breadcrumb. Identity is
-// configured, never derived from a path (CLAUDE.md).
+// instanceName is the deployment's name for the breadcrumb; identity is
+// configured, never derived from a path.
 func (s *Server) instanceName() string {
 	if s.webHost != "" {
 		return s.webHost
@@ -125,8 +112,7 @@ func (s *Server) handleDashRetry(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "write failed", http.StatusInternalServerError)
 		return
 	}
-	// A retry that cleared nothing is not a retry — say so rather than
-	// redirecting to a page that looks unchanged for no stated reason.
+	// A retry that cleared nothing is not a retry — say so.
 	if n == 0 {
 		auth.Forbidden(w, "routd", "No errored rows for "+chatJID+".")
 		return
@@ -165,8 +151,8 @@ func (s *Server) handleDashReplay(w http.ResponseWriter, r *http.Request) {
 }
 
 // deadLetterTable renders the dead-lettered outbound queue with a replay
-// button per row. These are messages that failed delivery past every retry, so
-// the operator's action is the only thing that moves them.
+// button per row: past every retry, the operator's action is the only thing
+// that moves them.
 func deadLetterTable(rows []core.Message) string {
 	if len(rows) == 0 {
 		return `<p class="ok">No dead-lettered outbound.</p>`
@@ -201,9 +187,8 @@ func tile(b *strings.Builder, label string, n int, state string) {
 		html.EscapeString(state), n, html.EscapeString(label))
 }
 
-// erroredTable renders the errored-chat preview, newest first. Errored chats
-// are the one figure an operator acts on from the overview, so they get rows
-// rather than only a count.
+// erroredTable renders the errored-chat preview, newest first — the one
+// figure an operator acts on from the overview, so it gets rows, not a count.
 func erroredTable(rows []ErroredChat) string {
 	if len(rows) == 0 {
 		return `<p class="ok">No errored chats.</p>`

@@ -16,17 +16,13 @@ import (
 const nearExpiryWindow = 60 * time.Second
 
 // refreshOAuth refreshes user-scoped surrogate-OAuth rows among `required`,
-// writing the fresh token into `out` and the DB. Returns a non-nil "reconnect"
-// error naming the keys whose refresh_token the provider rejected (their oauth
-// columns are nulled and the key dropped from out); a transient failure keeps
-// the stale token and reports no error.
-//
-// force=false is the PROACTIVE half (spec 5/15): refresh only a row within
-// nearExpiryWindow of expiry; a non-expiring row (expires_at NULL) is left as
-// is. force=true is the REACTIVE half behind a 401 — it refreshes every OAuth
-// row regardless of expires_at, which is the whole point: the reactive path
-// exists for providers whose expires_in is optimistic, so the stored expiry
-// still looks healthy while the token is already dead.
+// writing the fresh token into `out` and the DB. A "reconnect" error names the
+// keys whose refresh_token the provider rejected (row nulled, key dropped); a
+// transient failure keeps the stale token. force=false is the PROACTIVE half
+// (spec 5/15): only a row within nearExpiryWindow of expiry. force=true is the
+// REACTIVE half behind a 401: every OAuth row regardless of expires_at, because
+// an optimistic expires_in leaves the stored expiry looking healthy while the
+// token is already dead.
 func (d *DB) refreshOAuth(userSub string, required []string, out map[string]string, force bool) error {
 	rows, err := d.secretStore().UserOAuthSecrets(userSub, required)
 	if err != nil {
@@ -50,10 +46,9 @@ func (d *DB) refreshOAuth(userSub string, required []string, out map[string]stri
 				continue
 			}
 			if errors.Is(rerr, surrogate.ErrNotConfigured) {
-				// Permanent: the provider left the registry or lost its operator
-				// client creds. Retrying cannot clear it, so it must not read as a
-				// network blip. The credential still works until it expires, so keep
-				// the stale token — only an operator edit fixes this.
+				// Permanent: the provider left the registry or lost its client creds;
+				// a retry cannot clear it, so it must not read as a network blip. The
+				// credential works until it expires, so keep it.
 				slog.Error("surrogate: provider misconfigured; refresh can never succeed until an operator fixes it",
 					"sub", userSub, "key", oa.Key, "provider", oa.Provider, "err", rerr)
 				continue

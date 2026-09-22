@@ -9,16 +9,12 @@ import (
 )
 
 // tokens.go is routd's read face onto `route_tokens` and `web_routes`. Route
-// tokens are the /chat/ /hook/ widget bearer tokens routd owns outright — a
-// distinct credential family from authd capability tokens.
-//
-// Both tables are objstore entities whose reads live in store, so each body here
-// is one call and a projection: the raw bearer is never stored, only its digest,
-// which is the item's coordinate.
+// tokens are the /chat/ /hook/ widget bearers routd owns outright, a distinct
+// credential family from authd capability tokens; the raw bearer is never
+// stored, only its digest, which is the item's coordinate.
 
 // RouteTokenTarget returns the folder the delivery tokens for jid route to, or
-// "" when no token records one. store.RouteTokenTargetByJID is the single
-// reader; this wraps it for the loop's call site.
+// "" when no token records one.
 func (d *DB) RouteTokenTarget(jid string) string {
 	target, err := store.RouteTokenTargetByJID(context.Background(), d.Obj(), jid)
 	if err != nil {
@@ -63,9 +59,8 @@ type WebRouteRow struct {
 	CreatedAt  string
 }
 
-// WebRoutes lists routes for a folder (or all when folder is empty), in
-// path-prefix order — the coordinate's own order, which is the order proxyd
-// snapshots and longest-prefix-matches.
+// WebRoutes lists routes for a folder (or all when empty) in path-prefix
+// order — the coordinate's own order, which proxyd longest-prefix-matches.
 func (d *DB) WebRoutes(folder string) ([]WebRouteRow, error) {
 	routes, err := d.store().AllWebRoutes()
 	if err != nil {

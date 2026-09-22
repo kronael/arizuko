@@ -1,22 +1,12 @@
 package routd
 
-// Unpair (spec 5/31 § Unpair). acl_membership already existed as a resreg
-// resource but declared no Endpoints and no MCPNames, so an edge was removable
-// only through `arizuko apply`. It gains exactly ONE action — delete — scoped
-// to added_by='pairing' so it cannot reach role membership.
-//
-// Either endpoint of the edge may call it, and each face proves it IS that
-// endpoint through its own injected seam:
-//
-//   - AGENT (MCP `unpair`): the channel side. contain authorizes the caller
-//     against the folder the child JID routes to — the same route-ownership rule
-//     the mint and outbound `send` apply.
-//   - OPERATOR REST (DELETE /v1/acl_membership): the account side. The caller's
-//     JWT sub must BE the parent. There is no operator override: an operator
-//     already reaches the row through manifests, and a third path would drift.
-//
-// Both directions are de-escalation — there is no inverse verb here, because
-// adding an edge requires the account owner's consent at the browser step.
+// Unpair (spec 5/31): acl_membership gains exactly ONE action — delete —
+// scoped to added_by='pairing' so it cannot reach role membership. Either
+// endpoint of the edge may call it, each face proving it IS that endpoint:
+// the AGENT is authorized against the folder the child JID routes to, the
+// REST caller's JWT sub must BE the parent, with no operator override. Both
+// directions are de-escalation; adding an edge needs the account owner's
+// consent at the browser step.
 
 import (
 	"context"
@@ -32,9 +22,9 @@ import (
 	"github.com/kronael/arizuko/resreg/resources"
 )
 
-// membershipResource is the single renderer for both unpair faces. contain is
-// the per-face endpoint proof (see header); it receives the resolved target —
-// the child's routing folder for the agent, the row's parent for REST.
+// membershipResource is the single renderer for both unpair faces. contain
+// receives the resolved target — the child's routing folder for the agent,
+// the row's parent for REST.
 func (s *Server) membershipResource(contain containFn) resreg.Resource {
 	r := resreg.Mount(resources.ACLMembershipName)
 	r.Store = s.db.store()
@@ -55,9 +45,8 @@ func (s *Server) membershipHandler(ctx context.Context, x resreg.Execution, cont
 	}
 	target := parent
 	if x.Surface != audit.SurfaceREST {
-		// Agent face: the caller proves it handles the chat, not that it owns the
-		// account. Resolving the child's routing folder is the same read the mint
-		// gate does, so the two faces of a pairing are bounded identically.
+		// Agent face: the caller proves it handles the chat, not that it owns
+		// the account — the same read the mint gate does.
 		var err error
 		if target, err = pairingTargetFolder(s.db, child); err != nil {
 			return nil, err
@@ -66,11 +55,9 @@ func (s *Server) membershipHandler(ctx context.Context, x resreg.Execution, cont
 	if err := contain(x.Caller, x.Action, target); err != nil {
 		return nil, err
 	}
-	// added_by='pairing' is the whole scope: a role membership row (or any
-	// manifest-applied edge) matches zero rows and is reported as not-found.
-	// The delete conditions on the edge being pairing's, so its refusal IS the
-	// not-found answer — declared here because it reaches the caller from the
-	// batch rather than from this call.
+	// added_by='pairing' is the whole scope: a role or manifest edge matches
+	// zero rows. The delete conditions on the edge being pairing's, so its
+	// refusal IS the not-found answer, reached from the batch.
 	if err := s.db.store().UnpairInto(x.Writes, child, parent,
 		resreg.Errorf(http.StatusNotFound,
 			"no pairing between %s and %s to remove", child, parent)); err != nil {
@@ -80,9 +67,8 @@ func (s *Server) membershipHandler(ctx context.Context, x resreg.Execution, cont
 	return map[string]any{"removed": true, "child": child, "parent": parent}, nil
 }
 
-// membershipPostBuild mounts `unpair` on the agent socket. contain authorizes
-// the caller against the folder the child JID routes to — one evaluator,
-// magnitude and containment in one call.
+// membershipPostBuild mounts `unpair` on the agent socket; contain authorizes
+// the caller against the folder the child JID routes to.
 func (s *Server) membershipPostBuild(folder, callerSub string, authorize authorizeFn, visible func(string) bool) func(*mcpserver.MCPServer) {
 	contain := func(_ resreg.Caller, a resreg.Action, target string) error {
 		name := resources.ACLMembershipMCPNames[a]
@@ -96,18 +82,16 @@ func (s *Server) membershipPostBuild(folder, callerSub string, authorize authori
 	return mountAgentResource(res, callerSub, folder, visible)
 }
 
-// mountMembership wires DELETE /v1/acl_membership onto the SAME handler. The
-// contain seam here is the account-side proof: the caller's verified sub must be
-// the edge's parent, so a signed-in human can drop their own pairings and
-// nobody else's.
+// mountMembership wires DELETE /v1/acl_membership onto the SAME handler; the
+// contain seam is the account-side proof: the caller's verified sub must be
+// the edge's parent, so a signed-in human drops only their own pairings.
 func (s *Server) mountMembership(mux *http.ServeMux) {
 	contain := func(c resreg.Caller, _ resreg.Action, target string) error {
 		if s.verify == nil {
 			return nil
 		}
-		// c.Sub arrives with the JWT "user:" prefix; target is the stored
-		// parent, which is bare (5/1's sub prefix rule). Comparing them raw
-		// never matches — the same mismatch that made pairing itself inert.
+		// c.Sub carries the JWT "user:" prefix; the stored parent is bare (5/1's
+		// sub prefix rule). Comparing them raw never matches.
 		if c.Sub == "" || auth.BareSub(c.Sub) != target {
 			return resreg.Errorf(http.StatusForbidden,
 				"only the linked account may unpair it")
@@ -115,18 +99,16 @@ func (s *Server) mountMembership(mux *http.ServeMux) {
 		return nil
 	}
 	res := s.membershipResource(contain)
-	// No scope gate: the caller is an ordinary signed-in human dropping their own
-	// pairing, not an operator. Being the edge's parent IS the authorization, and
-	// that check needs the row's parent arg, so it rides contain in the handler.
-	// resreg's operator defaultGate would demand an acl_membership:delete scope
-	// nobody holds.
+	// No scope gate: being the edge's parent IS the authorization, and that
+	// check needs the row's parent arg, so it rides contain. resreg's
+	// defaultGate would demand an acl_membership:delete scope nobody holds.
 	res.Gate = agentAllowGate
 	resreg.RegisterREST(mux, res, s.membershipRESTCaller)
 }
 
-// membershipRESTCaller carries the verified sub; Folder stays empty because the
-// REST face is bound to the account, not to a folder subtree. A nil Verifier is
-// open (local dev), mirroring the other REST callers.
+// membershipRESTCaller carries the verified sub; Folder stays empty because
+// the REST face is bound to the account, not a folder subtree. A nil Verifier
+// is open.
 func (s *Server) membershipRESTCaller(r *http.Request) (resreg.Caller, error) {
 	var sub string
 	if s.verify != nil {

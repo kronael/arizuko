@@ -11,22 +11,20 @@ import (
 	"github.com/kronael/arizuko/chanreg"
 )
 
-// The channel-registration surface. Adapters register their egress URL + owned
-// jid prefixes here (POST /v1/channels/register); routd's Deliverer resolves
-// them on the way out. The registry is in-memory: adapters re-register on routd
-// restart (chanlib retries on 401).
+// The channel-registration surface: adapters register their egress URL +
+// owned jid prefixes, and routd's Deliverer resolves them on the way out. The
+// registry is in-memory, so adapters re-register on routd restart (chanlib
+// retries on 401).
 
-// SetChannelRegistry wires the channel registry the Deliverer resolves against.
-// Call it before Handler(). reg==nil leaves the channel endpoints unmounted
-// (pure REST tests / no adapters).
+// SetChannelRegistry wires the registry; call it before Handler(). nil leaves
+// the channel endpoints unmounted.
 func (s *Server) SetChannelRegistry(reg *chanreg.Registry) {
 	s.reg = reg
 }
 
-// mountChannels adds the channel-registration routes when a registry is wired.
-// Register/list are gated on the adapter's ES256 service:<adapter> token
-// (spec 5/1); deregister carries the adapter's own session token. With no
-// Verifier (local dev) the gate is open — no shared secret remains.
+// mountChannels adds the channel-registration routes. Register/list are gated
+// on the adapter's ES256 service:<adapter> token (spec 5/1); deregister
+// carries the adapter's own session token.
 func (s *Server) mountChannels(mux *http.ServeMux) {
 	if s.reg == nil {
 		return
@@ -36,20 +34,13 @@ func (s *Server) mountChannels(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/channels", s.channelAuth(s.handleChannelList))
 }
 
-// channelAuth admits a caller presenting a valid ES256 service token (the
-// adapter's service:<adapter>, verified via the Verifier's JWKS). The "service:"
-// sub prefix is authd's marker for typ=service principals (authd never mints it
-// for users), so the prefix check is the typ gate; a non-service sub or a verify
-// failure is 401. With no Verifier (local dev, s.verify==nil) the gate is open.
-//
-// Trust note: the gate admits ANY seeded service principal, not one bound to
-// req.Name. The registration `name` is the CHANNEL_NAME (telegram, telegram-rhias),
-// while the token sub is the daemon principal (service:teled) — multi-account
-// variants share one principal across many names, so name↔sub can't be pinned.
-// The origin pin (handleChannelRegister) locks a name to its FIRST (originIP,
-// principal) pair, blocking later hijack; first-claim squatting by a valid
-// service principal is accepted — ES256 narrows the caller set to seeded
-// principals. With no Verifier (local dev, AUTHD_URL unset) the gate is open.
+// channelAuth admits a caller presenting a valid ES256 service token; the
+// "service:" sub prefix is authd's marker for typ=service, so it is the typ
+// gate. It admits ANY seeded service principal, not one bound to req.Name:
+// the registration `name` is the CHANNEL_NAME while the token sub is the
+// daemon principal, and multi-account variants share one. The origin pin
+// locks a name to its FIRST (originIP, principal) pair; first-claim squatting
+// by a seeded principal is accepted.
 func (s *Server) channelAuth(next http.HandlerFunc) http.HandlerFunc {
 	if s.verify == nil {
 		return next // local dev: no JWKS to verify against
@@ -81,12 +72,10 @@ func (s *Server) handleChannelRegister(w http.ResponseWriter, r *http.Request) {
 		chanlib.WriteErr(w, http.StatusBadRequest, "name, url, jid_prefixes required")
 		return
 	}
-	// Origin pin: future re-registrations of this name must come from the same
-	// source IP + same caller identity (blocks adapter-name hijack). Under ES256
-	// the bearer is a service token that rotates ~hourly, so pin on the verified
-	// service principal (stable per adapter), NOT the rotating token — pinning the
-	// raw JWT would reject every legitimate re-register after a refresh. Local dev
-	// (no Verifier) has no credential to pin → the empty Authorization, harmless.
+	// Origin pin: re-registrations of this name must come from the same source
+	// IP + caller identity. Under ES256 the bearer rotates ~hourly, so pin on
+	// the verified service principal, NOT the token, or every legitimate
+	// re-register after a refresh is rejected. Local dev has nothing to pin.
 	originIP := clientIP(r)
 	pinID := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 	if s.verify != nil {

@@ -19,8 +19,7 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
-// turnMCP is the per-turn binding the in-process fns close over: which folder/
-// topic/chat/turn the socket serves and what triggered it. It mirrors the
+// turnMCP is the per-turn binding the in-process fns close over: the
 // turn_context routd stores, narrowed to what the MCP fns read.
 type turnMCP struct {
 	folder   string
@@ -31,9 +30,8 @@ type turnMCP struct {
 	elevated bool // operator /root turn: the socket authorizes every call
 }
 
-// buildGatedFns wires the write-side agent tools (reply/send/social/group
-// controls/route-tokens/submit_turn) to routd's Deliverer; execution-plane
-// tools stay nil. ipc.ServeMCP registers only the non-nil ones.
+// buildGatedFns wires the write-side agent tools to routd's Deliverer;
+// execution-plane tools stay nil and ipc.ServeMCP registers only the non-nil.
 func (s *Server) buildGatedFns(t turnMCP) ipc.GatedFns {
 	return ipc.GatedFns{
 		AcceptURLBase:        s.webHost,
@@ -100,9 +98,8 @@ func (s *Server) buildGatedFns(t turnMCP) ipc.GatedFns {
 			if err := s.db.ForkTopic(folder, parent, child, childUUID, force); err != nil {
 				return err
 			}
-			// Give the child the parent's tail instead of a cold start — the
-			// transcript when there is one, its ambient window when there is
-			// not. loop is nil in pure REST tests — skip then.
+			// The child gets the parent's tail — the transcript, else its ambient
+			// window. loop is nil in pure REST tests.
 			if s.loop != nil {
 				s.loop.inheritParentSession(folder, parent, child, childUUID)
 			}
@@ -119,8 +116,7 @@ func (s *Server) buildGatedFns(t turnMCP) ipc.GatedFns {
 				ID: id, ChatJID: jid, Sender: sender, Name: senderName,
 				Content: content, Timestamp: time.Now().UTC(), Verb: "message",
 			})
-			// No explicit EnqueueMessageCheck: routd's loop polls new messages
-			// by timestamp, so the injected row is picked up on the next tick.
+			// No explicit enqueue: the loop polls new messages by timestamp.
 			return id, err
 		},
 		SubmitTurn: s.mcpSubmitTurn,
@@ -158,9 +154,8 @@ func (s *Server) buildGatedFns(t turnMCP) ipc.GatedFns {
 			if oc == nil {
 				return fmt.Errorf("invites unavailable: onbod not wired (ONBOD_URL unset)")
 			}
-			// Ownership gate: onbod's DELETE is ref-only, so confirm the ref is
-			// among THIS folder's invites before revoking — an agent must not
-			// revoke another folder's invite even though the wire call would.
+			// onbod's DELETE is ref-only, so confirm the ref is among THIS
+			// folder's invites: an agent must not revoke another folder's.
 			owned, err := oc.ListInvites("agent:" + t.folder)
 			if err != nil {
 				return err
@@ -180,8 +175,7 @@ func (s *Server) buildGatedFns(t turnMCP) ipc.GatedFns {
 	}
 }
 
-// onbodClient reaches the onbod federation handle (the same client /invite +
-// /gate slash commands use). nil → onbod not wired (ONBOD_URL unset).
+// onbodClient reaches the onbod federation handle; nil → onbod not wired.
 func (s *Server) onbodClient() OnbodClient {
 	if s.loop == nil {
 		return nil
@@ -189,8 +183,8 @@ func (s *Server) onbodClient() OnbodClient {
 	return s.loop.onbod
 }
 
-// toInviteInfo maps a routd-local Invite (decoded from onbod's JSON) to the ipc
-// layer's InviteInfo so the MCP tools never import store.
+// toInviteInfo maps a routd-local Invite to the ipc layer's InviteInfo so the
+// MCP tools never import store.
 func toInviteInfo(inv Invite) ipc.InviteInfo {
 	return ipc.InviteInfo{
 		Ref:         inv.Ref,
@@ -204,16 +198,13 @@ func toInviteInfo(inv Invite) ipc.InviteInfo {
 	}
 }
 
-// registerGroup is the manual register_group path (the groups resource handler
-// calls it): it persists the group, adds a room-matched default route (rolling
-// the group row back if the route insert fails so a route-less, unreachable
-// orphan is never left behind), then git-inits the group dir.
-// The jid supplies the route's room literal.
+// registerGroup persists the group, adds a room-matched default route (rolling
+// the group row back on a failed insert so a route-less orphan is never left),
+// then git-inits the group dir. The jid supplies the route's room literal.
 func (s *Server) registerGroup(jid string, g core.Group) error {
-	// Whether the folder was ALREADY there decides what a rollback may undo.
-	// PutGroup upserts, so a failed route insert on a pre-existing folder used to
-	// roll back rows this call never created — and the purge is a subtree delete,
-	// so it took the folder's children with it (BUGS L245).
+	// Whether the folder was ALREADY there decides what a rollback may undo:
+	// PutGroup upserts, and the purge is a subtree delete that takes the
+	// folder's children with it (BUGS L245).
 	existed := s.db.GroupExists(g.Folder)
 	if err := s.db.PutGroup(g); err != nil {
 		return err
@@ -221,11 +212,9 @@ func (s *Server) registerGroup(jid string, g core.Group) error {
 	match := "room=" + core.JidRoom(jid)
 	if _, err := s.db.AddRoute(core.Route{Seq: 0, Match: match, Target: g.Folder}); err != nil {
 		if !existed {
-			// A rollback that ALSO fails leaves the route-less orphan this
-			// rollback exists to prevent, and the next register of the same
-			// folder sees existed==true and will not try again. The caller gets
-			// both facts or it cannot tell a clean refusal from a half-made
-			// group (BUGS L343).
+			// A rollback that ALSO fails leaves the orphan this rollback exists
+			// to prevent, and the next register sees existed==true; the caller
+			// gets both facts (BUGS L343).
 			if _, _, rerr := s.db.DeleteGroup(g.Folder); rerr != nil {
 				return fmt.Errorf("add route for %s: %w; the group row is still there: %w",
 					g.Folder, err, rerr)
@@ -254,17 +243,12 @@ func ensureGroupGitRepo(groupDir string) {
 	os.WriteFile(gitignore, []byte(strings.Join(lines, "\n")+"\n"), 0o644)
 }
 
-// mcpDeliver is the in-process reply/send: it ONLY delivers via the Deliverer. The ipc
-// tool layer's recordOutbound persists the bot row, threads and bumps engagement, so
-// this must NOT do any of that or the row double-persists. returnTarget redirects
-// delegated turns to the origin; threaded marks the REPLY verb, which may root a new
-// platform thread on the trigger message.
-//
-// It returns that root, because the ipc layer writes the row and cannot see it.
-// Without it the row carried the turn's topic — "" for a parent-channel turn —
-// so an MCP reply that rooted a thread recorded no thread: 4 of 9 `mcp-` rows in
-// one sloth thread had an empty topic while the REST rows beside them said where
-// they landed (BUGS L166). msgID is the caller's, per ipc.GatedFns.
+// mcpDeliver is the in-process reply/send: it ONLY delivers. The ipc tool
+// layer's recordOutbound persists the row, threads and bumps engagement, so
+// this must NOT, or the row double-persists. returnTarget redirects a delegated
+// turn to the origin; threaded marks the REPLY verb. It returns the thread root
+// because the ipc layer writes the row and cannot see it — without it an MCP
+// reply that rooted a thread recorded no thread (BUGS L166).
 func (s *Server) mcpDeliver(turnID, jid, text, replyTo, msgID string, threaded bool) (string, string, error) {
 	if s.deliver == nil {
 		return "", "", nil
@@ -284,10 +268,9 @@ func (s *Server) mcpDeliver(turnID, jid, text, replyTo, msgID string, threaded b
 	return pid, threadRoot, err
 }
 
-// mcpAppendDoc is the in-process send_file: deliver-only (the ipc tool layer's
-// recordOutbound persists the row, keyed on the returned platform id so a later
-// human reply re-promotes). An empty threadID falls back to the turn's topic so
-// files land in the active thread like text replies (mirrors mcpSendVoice).
+// mcpAppendDoc is the in-process send_file: deliver-only (recordOutbound
+// persists the row, keyed on the platform id so a later human reply
+// re-promotes). An empty threadID falls back to the turn's topic.
 func (s *Server) mcpAppendDoc(turnID, jid, path, name, caption, replyTo, threadID, msgID string) (string, error) {
 	if s.deliver == nil {
 		return "", nil
@@ -305,10 +288,9 @@ func (s *Server) mcpAppendDoc(turnID, jid, path, name, caption, replyTo, threadI
 	return pid, err
 }
 
-// mcpSendVoice is the in-process send_voice: synthesize text → Opus via the
-// TTS service (tts.go) and deliver as a voice note. deliver-only (the ipc tool
-// layer's recordOutbound persists the bot row). Redirects a delegated turn to
-// its origin chat, mirroring mcpDeliver.
+// mcpSendVoice is the in-process send_voice: synthesize via TTS (tts.go) and
+// deliver as a voice note. Deliver-only, and a delegated turn is redirected to
+// its origin, as in mcpDeliver.
 func (s *Server) mcpSendVoice(turnID, jid, text, voice, folder, threadID string) (string, error) {
 	if tc, ok := s.db.GetTurnContext(turnID); ok {
 		jid = returnTarget(tc, jid)
@@ -322,10 +304,6 @@ func (s *Server) mcpSendVoice(turnID, jid, text, voice, folder, threadID string)
 	}
 	return pid, err
 }
-
-// Route-token issuance/list/revocation live in routd/route_tokens_resource.go
-// (spec 5/16, agent-MCP fold); the REST twin rides the same resource, mounted in
-// tokens_http.go, where only the REST-only resolve stays hand-rolled.
 
 // mcpSubmitTurn maps the ipc.TurnResult agent payload onto routd's apiv1
 // shape and records it through recordTurnResult (turns.go).
@@ -344,10 +322,9 @@ func (s *Server) mcpSubmitTurn(_ string, t ipc.TurnResult) error {
 	return err
 }
 
-// mcpSubmitStatus delivers a mid-turn <status> notice immediately as an
-// interim "⏳ ..." message, without ending the turn or threading it as the
-// reply. Serialized per turn_id like the other turn writes; a closed turn is a
-// no-op (a trailing status after the run returned has nothing to add).
+// mcpSubmitStatus delivers a mid-turn <status> notice as an interim "⏳ ..."
+// message without ending the turn. Serialized per turn_id like the other turn
+// writes; a closed turn is a no-op.
 func (s *Server) mcpSubmitStatus(turnID, text string) error {
 	text = strings.TrimSpace(text)
 	if text == "" {
@@ -363,11 +340,10 @@ func (s *Server) mcpSubmitStatus(turnID, text string) error {
 		return nil
 	}
 	jid := returnTarget(tc, tc.ChatJID)
-	// Edit the turn's live ⏳ message in place if one already landed — its id is the
-	// last persisted verb=status row (no in-memory map). Only SEND a fresh notice on
-	// the first status of the turn or when the adapter can't edit (email/WhatsApp/
-	// Reddit → ErrUnsupported). A real edit failure (401/500/timeout) surfaces — it
-	// is never silently re-posted as a duplicate (spec 5/24).
+	// Edit the turn's live ⏳ message in place (its id is the last persisted
+	// verb=status row). SEND a fresh notice only on the first status or when
+	// the adapter cannot edit (ErrUnsupported). A real edit failure surfaces,
+	// never silently re-posted as a duplicate (spec 5/24).
 	if id := s.db.LastStatusPlatformID(tc.ChatJID, turnID); id != "" && s.deliver != nil {
 		err := s.deliver.Edit(jid, id, "⏳ "+text)
 		if err == nil {
@@ -381,16 +357,11 @@ func (s *Server) mcpSubmitStatus(turnID, text string) error {
 	return nil
 }
 
-// fetchPlatformHistory backs the fetch_history MCP tool: proxy to the adapter
-// owning jid (Deliverer.FetchHistory → GET /v1/history), decode the
-// HistoryResponse and return the decoded messages. On no-adapter/decode
-// failure it returns source:"cache"/"cache-only" with whatever the local DB
-// holds.
-//
-// The rows are rendered, never stored: `messages` is the inbound log the poll
-// loop dispatches from, and a platform row written there is a user message
-// with no bot flag — sloth fed 630 of its own posts back to its agent as
-// <observed>, and 1609 rows fleet-wide sat dead behind the cursor.
+// fetchPlatformHistory backs the fetch_history MCP tool: proxy to the owning
+// adapter, else source:"cache"/"cache-only" from the local DB. The rows are
+// rendered, never stored: `messages` is the inbound log the poll loop
+// dispatches from, and a platform row there is a user message with no bot flag
+// — sloth fed 630 of its own posts back to its agent as <observed>.
 func (s *Server) fetchPlatformHistory(jid string, before time.Time, limit int) (ipc.PlatformHistory, error) {
 	fallback := func(source string) (ipc.PlatformHistory, error) {
 		msgs, err := s.db.MessagesBefore(jid, beforeStr(before), limit)
@@ -421,8 +392,8 @@ func (s *Server) fetchPlatformHistory(jid string, before time.Time, limit int) (
 	return out, nil
 }
 
-// beforeStr renders an ipc time bound as the stored-timestamp string routd's read
-// methods expect; a zero time is the empty string (no bound → now).
+// beforeStr renders an ipc time bound as the stored-timestamp string routd's
+// read methods expect; a zero time is the empty string (no bound → now).
 func beforeStr(t time.Time) string {
 	if t.IsZero() {
 		return ""
@@ -430,11 +401,10 @@ func beforeStr(t time.Time) string {
 	return core.TS(t)
 }
 
-// scopeRoutes wraps an unscoped route-table reader with the same folder-
-// visibility filter store.Store.ListRoutes applies (target equals the folder,
-// or nests under it via `folder#...`/`folder/...`), and root sees every row.
-// Mirrors store/routes.go:214's WHERE clause since routd.DB's `routes` table
-// has no scoped query of its own (BUGS A3).
+// scopeRoutes applies store.Store.ListRoutes's folder-visibility filter
+// (target equals the folder or nests under `folder#`/`folder/`; root sees every
+// row) to an unscoped reader, since routd.DB's `routes` has no scoped query of
+// its own (BUGS A3).
 func scopeRoutes(all func() ([]core.Route, error)) func(folder string, isRoot bool) ([]core.Route, error) {
 	return func(folder string, isRoot bool) ([]core.Route, error) {
 		routes, err := all()
@@ -456,37 +426,30 @@ func scopeRoutes(all func() ([]core.Route, error)) func(folder string, isRoot bo
 
 // buildStoreFns wires the read/manage agent tools to routd.DB. Read tools whose
 // state lives elsewhere federate over HTTP (identity → authd, session_log →
-// runed's GET /v1/spawn_sessions/recent; graceful-absent → empty).
+// runed); graceful-absent → empty.
 func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
-	// Set and Bump engagement are the same write — one closure, two names the
-	// tool layer distinguishes (extend vs. start a window) but the store doesn't.
+	// Set and Bump engagement are the same write; the tool layer distinguishes
+	// the names, the store does not.
 	setEngagement := func(jid, topic, folder string, until time.Time) error {
 		return s.db.SetEngagement(jid, topic, folder, time.Until(until))
 	}
 	return ipc.StoreFns{
-		// Spec 5/19. An elevated /root turn is the operator acting directly —
-		// holding their own call for their own approval is a deadlock, not a
-		// safeguard — so the gate is wired only for a normal folder turn.
+		// An elevated /root turn is the operator acting directly — holding their
+		// own call for their own approval is a deadlock (spec 5/19).
 		CheckHold: s.holdGate(t),
-		// Task reads for inspect_tasks; the write tools (schedule/pause/resume/
-		// cancel/list) live on the scheduled_tasks resreg seam — spec 5/16.
+		// The task write tools live on the scheduled_tasks resreg seam (spec 5/16).
 		ListTasks: s.db.Tasks,
 		GetTask:   s.db.GetTask,
 		TaskRunLogs: func(taskID string, limit int) []ipc.TaskRunLog {
 			return s.db.TaskRunLogs(taskID, limit)
 		},
-		// Session reads: current session_id from routd.db; recent session_log rows
-		// federated from runed's GET /v1/spawn_sessions/recent.
-		GetSession:     s.db.GetSession,
-		RecentSessions: s.recentSessions,
-		// Identity reads: authd's GET /v1/identities/{sub}, snapshotted over HTTP.
-		// nil resolver → unclaimed shape.
+		GetSession:        s.db.GetSession,
+		RecentSessions:    s.recentSessions,
 		GetIdentityForSub: s.resolveIdentity,
-		// The route CRUD tools live on the routes resreg seam (spec 5/16); ListRoutes
-		// stays because inspect_routing still reads it. s.db.Routes() returns the WHOLE
-		// table unscoped, so scope it here to folder visibility and propagate the DB
-		// error instead of swallowing it — an unscoped, truncated table let inspect see
-		// unrelated groups' routes and hid a real DB error as an empty list (BUGS A3).
+		// The route CRUD tools live on the routes resreg seam. s.db.Routes() is
+		// the WHOLE table, so scope it and propagate the error: unscoped let
+		// inspect see other groups' routes and hid a DB error as an empty list
+		// (BUGS A3).
 		ListRoutes:          scopeRoutes(func() ([]core.Route, error) { return s.db.Routes() }),
 		DefaultFolderForJID: s.db.DefaultFolderForJID,
 		RouteTokenTarget:    s.db.RouteTokenTarget,
@@ -534,23 +497,19 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 		CurrentTriggerSender: func(_ string) string { return t.trigger },
 		CurrentTopic:         func(_ string) string { return t.topic },
 		CurrentTurnID:        func(_ string) string { return t.turnID },
-		// MCP connectors: the discovered catalog + the per-call secret resolver.
-		// ResolveConnectorSecrets reads folder/user secrets, decrypts via
-		// SECRETS_KEY, and narrows to the connector's declared secrets= list — so
-		// CallConnectorTool both injects them into the subprocess env AND scrubs
-		// their values from the result (a nil resolver leaves it unscrubbed).
+		// ResolveConnectorSecrets narrows to the connector's declared secrets=
+		// list, so CallConnectorTool both injects them AND scrubs their values
+		// from the result (a nil resolver leaves it unscrubbed).
 		Connectors: s.connectors,
 		ExtTools:   s.extTools,
-		// Capture the trigger sender so ConnectorSecrets resolves the triggering
-		// user's BYOA secrets (FolderSecretsForUser), not folder scope only.
+		// The trigger sender resolves the triggering user's BYOA secrets, not
+		// folder scope only.
 		ResolveConnectorSecrets: func(folder, tool string, required []string) (map[string]string, error) {
 			callerSub := turnCallerSub(t.trigger)
 			res, scopes, err := s.db.ConnectorSecrets(folder, callerSub, required)
-			// secret_use_log writer (spec 5/13 §Audit): one row per resolved key — records
-			// THAT a broker secret was read, never the value. Log-failure is non-fatal: an
-			// audit miss must not fail the tool call. scope and tool come from the resolution
-			// and the call site, because the table exists to answer "who used which
-			// credential, from where".
+			// secret_use_log (spec 5/13 §Audit): one row per resolved key — THAT a
+			// broker secret was read, never the value. A log failure must not fail
+			// the tool call.
 			status := "ok"
 			if err != nil {
 				status = "err"
@@ -570,41 +529,35 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 			}
 			return res, err
 		},
-		// The reactive half of spec 5/15: ipc.CallExtTool calls this at most once,
-		// only on a 401, and re-sends only if the values actually changed. No
-		// secret_use_log row — see RefreshConnectorSecrets.
+		// The reactive half of spec 5/15: called at most once, only on a 401.
+		// No secret_use_log row — see RefreshConnectorSecrets.
 		RefreshConnectorSecrets: func(folder, _ string, required []string) (map[string]string, error) {
 			return s.db.RefreshConnectorSecrets(folder, turnCallerSub(t.trigger), required)
 		},
-		// Authorize is the per-call row-ACL check (magnitude + containment in one) that
-		// ServeMCP runs when callerSub is set. nil-safe. Elevated (/root) turns allow-all
-		// — see turnAuthorize. The hand-authored ipc gates pass the ACTUAL target as the
-		// folder/scope so a delegated row scoped to a subtree bounds containment. Both
-		// axes ride the closure: the turn's folder and its attested sender.
+		// Authorize is the per-call row-ACL check (magnitude + containment in
+		// one); elevated turns allow-all (turnAuthorize). The hand-authored gates
+		// pass the ACTUAL target as the scope so a delegated row scoped to a
+		// subtree bounds containment.
 		Authorize: s.turnAuthorize(t),
-		// Visible is the tools/list view: a tool shows iff the turn holds it (any
-		// scope), on the same two axes. Elevated turns see everything (turnVisible).
+		// Visible is the tools/list view: a tool shows iff the turn holds it
+		// (turnVisible).
 		Visible: s.turnVisible(t),
-		// Spec 5/I layer A: the hand-authored tools' mutations and every authz
-		// denial land one audit_log row in routd.db — the table migration 0016
-		// creates and cmd/routd's audit.Init points at. It was left nil behind a
-		// comment claiming routd has no such table (BUGS F70), so the agent MCP
-		// surface was the one caller path /dash/audit/ could not see.
+		// Spec 5/I layer A: every hand-authored mutation and authz denial lands
+		// one audit_log row in routd.db; left nil, the agent MCP surface was the
+		// one path /dash/audit/ could not see (BUGS F70).
 		LogIPCAudit: s.db.store().LogIPCAudit,
 	}
 }
 
-// ServeTurnMCP binds the per-turn agent MCP socket in-process, wiring ipc.ServeMCP to
-// routd's own DB + Deliverer. expectedUID gates peers. Returns the stop func. 5/33: no
-// grant bundle is computed — authz is auth.Authorize on the acl rows, visibility is
-// auth.EffectiveActions over the same rows; both elevate under /root.
+// ServeTurnMCP binds the per-turn agent MCP socket in-process; expectedUID
+// gates peers. No grant bundle is computed (5/33): authz is auth.Authorize on
+// the acl rows, visibility auth.EffectiveActions over the same rows; both
+// elevate under /root.
 func (s *Server) ServeTurnMCP(t turnMCP, ipcDir string) (func(), error) {
 	authorize := s.turnAuthorize(t)
 	callerID := turnIdentity(t.folder, t.elevated)
-	// routd binds the socket BEFORE runed spawns the container, so the per-folder
-	// ipc dir may not exist yet. ServeMCP only os.Removes the stale sock + Listens
-	// — never mkdirs — so create the parent here or net.Listen fails on a fresh
-	// folder's first turn.
+	// routd binds the socket BEFORE runed spawns the container, and ServeMCP
+	// never mkdirs, so the per-folder ipc dir is created here.
 	if err := os.MkdirAll(ipcDir, 0o755); err != nil {
 		return nil, err
 	}
@@ -613,15 +566,13 @@ func (s *Server) ServeTurnMCP(t turnMCP, ipcDir string) (func(), error) {
 	if uid := os.Getuid(); uid > 0 && uid != 1000 {
 		expectedUID = uid
 	}
-	// The socket's own principal: folder:<path>, the AGENT's identity. It is the audit
-	// actor and the resreg Caller, and its non-emptiness switches ipc's row-based authz
-	// on. It is no longer an authorization input — the gate's principals come from
-	// turnAuthorize (route + attested sender), so this cannot be stacked onto them.
+	// callerSub is the socket's own principal, folder:<path> — the audit actor
+	// and the resreg Caller; its non-emptiness switches ipc's row-based authz
+	// on. It is NOT an authorization input: the gate's principals come from
+	// turnAuthorize (route + attested sender).
 	callerSub := turnPrincipal(t.folder)
 	visible := s.turnVisible(t)
-	// spec 5/16: mount the agent's management tools via resreg (shared handler +
-	// tx/audit) with the agent's injected Gate (auth.Authorize on the target) +
-	// EffectiveActions visibility. One postBuild seam per migrated resource; ServeMCP
+	// spec 5/16: one postBuild seam per resreg-mounted resource; ServeMCP
 	// applies them all.
 	webRoutes := s.webRoutesPostBuild(t.folder, callerSub, authorize, visible)
 	networkRules := s.networkRulesPostBuild(t.folder, callerSub, authorize, visible)

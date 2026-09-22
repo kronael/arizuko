@@ -21,8 +21,8 @@ import (
 )
 
 // mediaConfig is routd's slice of the media/transcription env. Audio AND video
-// transcription both fire under VoiceEnabled && WhisperURL != "". VideoEnabled
-// mirrors the env field but the enrich path doesn't read it.
+// transcription fire under VoiceEnabled && WhisperURL != ""; the enrich path
+// does not read VideoEnabled.
 type mediaConfig struct {
 	Enabled      bool
 	MaxBytes     int64
@@ -30,14 +30,12 @@ type mediaConfig struct {
 	WhisperModel string
 	VoiceEnabled bool
 	VideoEnabled bool
-	// Bearer yields routd's service:routd ES256 token, presented on the
-	// adapter /files download (the adapter gates it via chanlib.Auth). nil →
-	// local dev (no AUTHD_URL); the download goes out unauthenticated.
+	// Bearer yields routd's service token for the adapter /files download;
+	// nil → local dev, unauthenticated.
 	Bearer func(context.Context) (string, error)
 }
 
-// MediaConfig builds the inbound enrichment config for the cmd layer (the
-// struct is unexported; the cmd reads the env and passes it to LoopConfig).
+// MediaConfig builds the inbound enrichment config for the cmd layer.
 func MediaConfig(enabled bool, maxBytes int64, whisperURL, whisperModel string,
 	voiceEnabled, videoEnabled bool, bearer func(context.Context) (string, error)) mediaConfig {
 	return mediaConfig{
@@ -46,12 +44,10 @@ func MediaConfig(enabled bool, maxBytes int64, whisperURL, whisperModel string,
 	}
 }
 
-// enrichAttachments downloads a message's inbound attachments into the group's
-// dated media dir, transcribes voice/video via Whisper, and rewrites msg.Content
-// with <attachment .../> blocks (persisting the rewrite via EnrichMessage so
-// later turns' observed context sees it too). No-op when media is disabled or the
-// message has no attachments. Failures log WARN and skip the offending
-// attachment; the turn proceeds.
+// enrichAttachments downloads inbound attachments into the group's dated media
+// dir, transcribes voice/video via Whisper, and rewrites msg.Content with
+// <attachment .../> blocks, persisted via EnrichMessage. Failures log WARN and
+// skip the attachment; the turn proceeds.
 func (l *Loop) enrichAttachments(ctx context.Context, msg *core.Message, folder string) {
 	if !l.media.Enabled || msg.Attachments == "" {
 		return
@@ -89,9 +85,8 @@ func (l *Loop) enrichAttachments(ctx context.Context, msg *core.Message, folder 
 
 		if att.URL == "" {
 			if att.Data == "" {
-				// Neither a download URL nor inline base64 → nothing to fetch. An
-				// empty URL means the adapter built the attachment without a
-				// reachable file ref (e.g. teled with LISTEN_URL unset).
+				// Neither a URL nor inline base64: the adapter built the attachment
+				// without a reachable file ref (teled with LISTEN_URL unset).
 				slog.Warn("enrich: attachment has no URL or data", "id", msg.ID, "mime", att.Mime, "filename", att.Filename)
 				extra.WriteString(unavailableAttachment(att, "the adapter sent no file reference"))
 				continue
@@ -151,13 +146,9 @@ func (l *Loop) enrichAttachments(ctx context.Context, msg *core.Message, folder 
 	}
 }
 
-// unavailableAttachment renders the element a turn gets when a file the sender
-// attached did not arrive. The agent is TOLD, which is the whole point: an
-// attachment that writes nothing at all leaves the turn running on a message
-// that names a file it never received, and neither the agent nor the user can
-// see that anything is missing (BUGS L163).
-//
-// ONE renderer for the four failure sites, so they cannot drift.
+// unavailableAttachment is the ONE renderer for a file that did not arrive:
+// the agent is TOLD, otherwise the turn runs on a message that names a file it
+// never received and nobody can see anything is missing (BUGS L163).
 func unavailableAttachment(att chanlib.InboundAttachment, why string) string {
 	name := att.Filename
 	if name == "" {
@@ -302,10 +293,9 @@ func sanitizeFilename(name string) string {
 	return s
 }
 
-// preferredExts pins canonical extensions so agents see file types Claude's
-// Read tool recognizes. Without this, mime.ExtensionsByType("image/jpeg")
-// picks .jfif or .jpe depending on the host's /etc/mime.types, and Claude
-// can't natively load those.
+// preferredExts pins canonical extensions the agent's Read tool recognizes:
+// mime.ExtensionsByType("image/jpeg") picks .jfif or .jpe depending on the
+// host's /etc/mime.types, and Claude cannot load those.
 var preferredExts = map[string]string{
 	"image/jpeg": ".jpg",
 	"image/png":  ".png",

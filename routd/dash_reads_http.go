@@ -1,16 +1,10 @@
 package routd
 
 // dash_reads_http.go — the aggregate reads the operator cockpit needs, served
-// by the daemon that OWNS the rows (spec 6/28 §"Read-path"). BUGS L142.
-//
-// These are plain handlers, not resreg resources, and that is the whole design
-// choice: resreg gives REST and MCP from one declaration, so registering these
-// as resources would hand every agent a tool for reading message aggregates and
-// session counts across folders. The cockpit needs them; an agent does not.
-// `handleUserScopes` is the same shape — a REST-only read on routd's own /v1.
-//
-// Each is an AGGREGATE, never a row dump: counts and last-seen timestamps, so
-// the surface cannot become a way to read other folders' message content.
+// by the daemon that OWNS the rows (spec 6/28 §"Read-path", BUGS L142). Plain
+// handlers, not resreg resources: a resource would hand every agent a
+// cross-folder tool for these aggregates. Each is an AGGREGATE, never a row
+// dump, so the surface cannot become a way to read other folders' content.
 
 import (
 	"net/http"
@@ -29,8 +23,7 @@ type sessionCount struct {
 	Count  int    `json:"count"`
 }
 
-// handleSessionCounts serves GET /v1/sessions/counts — the Status page's
-// per-folder session tally, in folder order.
+// handleSessionCounts serves GET /v1/sessions/counts, in folder order.
 func (s *Server) handleSessionCounts(w http.ResponseWriter, r *http.Request) {
 	if !s.authed(w, r, "sessions:read", "chats:read", "messages:read") {
 		return
@@ -58,7 +51,7 @@ type dailyVolume struct {
 	Count int    `json:"count"`
 }
 
-// handleMessageVolume serves GET /v1/messages/volume — the usage page's 7-day
+// handleMessageVolume serves GET /v1/messages/volume, the usage page's 7-day
 // human-message histogram. is_bot_message=0 is applied HERE, by the owner, so
 // the caller cannot widen it to include the agent's own output.
 func (s *Server) handleMessageVolume(w http.ResponseWriter, r *http.Request) {
@@ -81,9 +74,9 @@ func (s *Server) handleMessageVolume(w http.ResponseWriter, r *http.Request) {
 // volumeDays is the histogram's window.
 const volumeDays = 7
 
-// activityRow is one line of the cockpit's cross-folder activity feed. Content
-// is truncated by the OWNER at 80 characters: the page shows a preview, and a
-// preview is all this surface will ever serve.
+// activityRow is one line of the cross-folder activity feed. Content is
+// truncated by the OWNER at 80 characters: a preview is all this surface will
+// ever serve.
 type activityRow struct {
 	Timestamp string `json:"timestamp"`
 	Source    string `json:"source"`
@@ -93,17 +86,11 @@ type activityRow struct {
 	Preview   string `json:"preview"`
 }
 
-// handleActivity serves GET /v1/messages/activity?before=&limit= — the newest
-// messages across every chat.
-//
-// It reads the activity feed, which is the entity shaped like this question: one
-// partition, newest first, swept at its own retention. Answering it from the
-// chats would mean reading all 136 partitions and merging, which on krons
-// transfers 10,525 items to show 1,000.
-//
-// The caller cannot widen the preview or the page: `limit` is clamped here and
-// the preview is the writer's. dashd applies its own per-row folder visibility on
-// top, so this is the outer bound rather than the authorization.
+// handleActivity serves GET /v1/messages/activity?before=&limit=. It reads
+// the activity feed — one partition, newest first, its own retention;
+// answering from the chats would read all 136 partitions and merge (10,525
+// items to show 1,000 on krons). `limit` is clamped here; dashd applies its
+// own per-row folder visibility on top, so this is the outer bound.
 func (s *Server) handleActivity(w http.ResponseWriter, r *http.Request) {
 	if !s.authed(w, r, "messages:read", "chats:read") {
 		return
@@ -134,16 +121,10 @@ type principal struct {
 }
 
 // handlePrincipals serves GET /v1/principals — the subs a grant may name, from
-// `user_profiles` plus the non-role children of `acl_membership`. It exists so
-// the grants form and the profile page stop reading routd.db directly.
-//
-// It is TWO reads and a merge, because the two halves are two entities and an
-// entity has no join. A sub named by both is listed once, and the profile's own
-// name wins — an edge carries no name, so taking the edge's would blank a label
-// the form has.
-//
-// Names and subs only. No email, no tokens, no profile body: the form needs a
-// label and an identifier, so that is the whole projection.
+// `user_profiles` plus the non-role children of `acl_membership`. TWO reads
+// and a merge, because an entity has no join: a sub in both is listed once and
+// the profile's name wins. Names and subs only — no email, no tokens, no
+// profile body.
 func (s *Server) handlePrincipals(w http.ResponseWriter, r *http.Request) {
 	if !s.authed(w, r, "grants:read", "messages:read") {
 		return
@@ -153,9 +134,8 @@ func (s *Server) handlePrincipals(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, "db_error", err.Error())
 		return
 	}
-	// The child leads an edge's coordinate, so every child is read off the key.
-	// A `role:` child is a role, not a person, and naming one in a grant would
-	// hand the form a principal no token ever carries.
+	// The child leads an edge's coordinate. A `role:` child is a role, not a
+	// person, and no token ever carries one.
 	items, err := s.db.Obj().Query(r.Context(), objstore.Query{
 		Entity: store.ACLMembership, Partition: store.OwnerRoutd,
 	})

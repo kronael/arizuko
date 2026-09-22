@@ -1,32 +1,14 @@
 package routd
 
-// pending_actions.go — spec 5/19's one genuinely new entity: a tool call suspended
-// until a human approves it. The hold RULE lives in `acl` as a `hold:mcp:<tool>` row
-// evaluated by auth.CheckHold; this file is only the suspended CALL's state.
-//
-// A held call BLOCKS the agent's turn. The waiter that suspended the call is the
-// one that runs it on approval, inline, as the ORIGINAL agent — same container,
-// session, grants and secrets — so the agent reports the real result and there is
-// no second path around ipc's discipline. Returning the call as "held" and
-// letting the agent carry on let it report an action it had not taken, which is
-// why blocking became the only mode (spec 5/19, 2026-09-02).
-//
-// THE COORDINATE AND THE ATTRIBUTE NAMES ARE store's (store/pending_actions.go)
-// AND THE WRITES ARE routd's. That file declares the shape because a group delete
-// reads the folder off the item; this file writes it because the suspended call is
-// routd's. One declaration, two readers — never two spellings, which would leave a
-// deleted folder holding held calls the next tenant of the path answers.
-//
-// THE ID IS THE COORDINATE and every other selection is on an attribute, so
-// listing a folder's calls, the reaction lookup and the release match each read
-// the partition and filter. The writes go through *store.Store rather than the
-// driver, because a write that reached objstore itself would move no version
-// marker and be invisible to every `arizuko export` of routd's projection
-// (BUGS L264).
-//
-// `created_at`, `reviewed_at` and `expires_at` are NOT stamped fields — the
-// resource declares none — so this file decides their layout and it is RFC3339,
-// which is what applyExpiry parses and what every stored row carries.
+// pending_actions.go — a tool call suspended until a human approves it (spec
+// 5/19); the hold RULE lives in `acl` (auth.CheckHold), this file is only the
+// suspended CALL's state. A held call BLOCKS the agent's turn, and the waiter
+// that suspended it runs it on approval, inline, as the ORIGINAL agent, so the
+// agent reports the real result: returning "held" and letting the agent carry
+// on let it report an action it had not taken. The coordinate and attribute
+// names are store's; the writes are routd's, through *store.Store, never the
+// driver (BUGS L264). THE ID IS THE COORDINATE; every other selection reads
+// the partition and filters. The three timestamps are RFC3339.
 
 import (
 	"context"
@@ -61,23 +43,18 @@ type PendingAction struct {
 	ReviewedAt   string `json:"reviewed_at"`
 	ReviewerNote string `json:"reviewer_note"`
 	ExpiresAt    string `json:"expires_at"`
-	// NoticeID is the platform id of the chat notice this row was announced in.
-	// A reaction names the message it targets, so this is what turns a ✅ into
-	// this call's verdict.
+	// A reaction names the message it targets, so NoticeID is what turns a ✅
+	// into this call's verdict.
 	NoticeID string `json:"notice_id"`
 
-	// The three fields below are DERIVED from Args, never stored: they are
-	// what an `always` verdict would write, computed by one renderer
-	// (withMatcher → holdMatcher) so the notice, the REST row and the writer
-	// cannot disagree about the rule. Spec 6/26 § "The predicate is part of the
-	// verdict": a rule nobody was shown is a grant nobody agreed to.
+	// DERIVED from Args, never stored: what an `always` verdict would write,
+	// computed by the one renderer (withMatcher) so the notice, the REST row
+	// and the writer cannot disagree about the rule (spec 6/26).
 	Matcher string `json:"matcher"`
-	// Unmatchable names the arguments no rule can constrain — stringArgs skips
-	// every non-scalar, so a rule is silent about them and they are free to
-	// change on the next call. Stated in words wherever Matcher is shown.
+	// Unmatchable names the arguments no rule can constrain (stringArgs skips
+	// every non-scalar). Stated in words wherever Matcher is shown.
 	Unmatchable []string `json:"unmatchable,omitempty"`
-	// MatcherError is why no exact rule can be written for this call. Non-empty
-	// means `always` is refused rather than approximated.
+	// Non-empty means `always` is refused rather than approximated.
 	MatcherError string `json:"matcher_error,omitempty"`
 }
 
@@ -90,11 +67,8 @@ const (
 	PendingExpired  = "expired"
 )
 
-// PutPendingAction records a held call.
-//
-// The write is an unconditional Put: the id is minted per call, so a second Put
-// on one id is a caller mistake rather than a race, and the whole item is this
-// call's own answer.
+// PutPendingAction records a held call. An unconditional Put: the id is
+// minted per call, so a second Put on one id is a caller mistake, not a race.
 func (d *DB) PutPendingAction(p PendingAction) error {
 	if p.ID == "" || p.GroupFolder == "" || p.Tool == "" {
 		return fmt.Errorf("pending action needs id, folder and tool")
@@ -115,13 +89,10 @@ func (d *DB) PutPendingAction(p PendingAction) error {
 	return err
 }
 
-// pendingAttrs renders the attributes a held call carries. `id` is not among
-// them: it is the coordinate, and storing it twice is two facts that can
-// disagree.
-//
-// An empty field is left OFF the item — absent is the only null this model has,
-// and it is the same rule resreg's own writer of these items follows
-// (resreg/entity.go itemFor), so a row written by either is read the same way.
+// pendingAttrs renders the attributes a held call carries; `id` is the
+// coordinate and is not stored twice. An empty field is left OFF the item —
+// absent is the only null, the same rule resreg's own writer follows
+// (resreg/entity.go itemFor), so a row written by either reads the same.
 func pendingAttrs(p PendingAction) map[string]string {
 	attrs := map[string]string{}
 	for name, v := range map[string]string{
@@ -145,7 +116,7 @@ func pendingAttrs(p PendingAction) map[string]string {
 	return attrs
 }
 
-// pendingFrom reads one item back, with the expiry applied and the derived
+// pendingFrom reads one item back with the expiry applied and the derived
 // verdict fields filled — the shape every reader of a held call wants.
 func pendingFrom(it objstore.Item) PendingAction {
 	p := PendingAction{
@@ -166,9 +137,8 @@ func pendingFrom(it objstore.Item) PendingAction {
 	return withMatcher(applyExpiry(p))
 }
 
-// pendingItems reads a selection of the partition. Every selection but the id is
-// on an attribute, and an attribute is not a leading fragment of the key, so the
-// callers below read the partition and filter in Go.
+// pendingItems reads the partition: every selection but the id is on an
+// attribute, so the callers filter in Go.
 func (d *DB) pendingItems(where ...objstore.Cmp) ([]objstore.Item, error) {
 	return d.Obj().Query(context.Background(), objstore.Query{
 		Entity: store.PendingActions, Partition: store.OwnerRoutd, Where: where,
@@ -194,17 +164,16 @@ func (d *DB) pendingAction(id string) (PendingAction, bool) {
 // GetPendingAction reads one row by id, for the blocking waiter.
 func (d *DB) GetPendingAction(id string) (PendingAction, bool) { return d.pendingAction(id) }
 
-// SetPendingNotice records which chat message announced this row, so a reaction
-// on that message can be read as its verdict.
+// SetPendingNotice records which chat message announced this row, so a
+// reaction on that message can be read as its verdict.
 func (d *DB) SetPendingNotice(id, noticeID string) error {
 	return d.setPendingAttr(id, store.AttrPendNoticeID, noticeID)
 }
 
-// setPendingAttr merges one attribute into a held call, and a held call that is
-// not there is an ERROR. Nothing deletes a pending row — a verdict moves its
-// status — so a refusal is a row that was never written, and both callers act on
-// the answer: the waiter that gives up logs that a later approval will not reach
-// the agent, and the notice path binds the message a reaction is read from.
+// setPendingAttr merges one attribute into a held call; a held call that is
+// not there is an ERROR. Nothing deletes a pending row (a verdict moves its
+// status), so a refusal is a row that was never written, and both callers act
+// on the answer.
 func (d *DB) setPendingAttr(id, name, value string) error {
 	key, err := store.PendingActionKey(id)
 	if err != nil {
@@ -236,11 +205,9 @@ func (d *DB) VerdictForReaction(chatJID, target, emoji string) string {
 	return verb + " " + items[0].Key.Sort
 }
 
-// platformID reduces a reaction's target to the bare platform message id the
-// delivery returned. Adapters disagree about the shape: teled reports a reacted
-// message as `<chat-jid>/<id>` while discd and slakd report the id alone, and a
-// notice recorded as `6335` would never match `telegram:user/…/6335`. No
-// platform id in use contains a slash, so the last segment is the id.
+// platformID reduces a reaction's target to the bare platform message id:
+// teled reports a reacted message as `<chat-jid>/<id>` while discd and slakd
+// report the id alone. No platform id in use contains a slash.
 func platformID(target string) string {
 	if i := strings.LastIndexByte(target, '/'); i >= 0 {
 		return target[i+1:]
@@ -262,19 +229,17 @@ func (d *DB) ListPendingActions(folder, status string) ([]PendingAction, error) 
 	}
 	var out []PendingAction
 	for _, it := range items {
-		// Expiry is applied BEFORE the status filter. Filtering in the read
-		// compares the STORED status, so `status=expired` returned nothing while
-		// `status=held` returned rows this function then relabelled expired —
-		// each filter answering with the other's rows (BUGS J7).
+		// Expiry is applied BEFORE the status filter: filtering on the STORED
+		// status made `status=expired` return nothing and `status=held` return
+		// rows this function then relabelled expired (BUGS J7).
 		p := pendingFrom(it)
 		if status != "" && p.Status != status {
 			continue
 		}
 		out = append(out, p)
 	}
-	// Newest first. `created_at` is an attribute, not a leading fragment of the
-	// key, so the order is applied here — over the RFC3339 text this file writes,
-	// which is fixed-width and therefore orders by byte comparison.
+	// `created_at` is an attribute, not a key fragment, so the order is applied
+	// here — over fixed-width RFC3339 text, which orders by byte comparison.
 	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt > out[j].CreatedAt })
 	return out, nil
 }
@@ -294,8 +259,7 @@ func applyExpiry(p PendingAction) PendingAction {
 }
 
 // ErrPendingNotFound / ErrPendingResolved / ErrPendingForbidden let the REST
-// face map the three verdict failures to 404/409/403 without string-matching
-// the operator text.
+// face map the three verdict failures to 404/409/403.
 var (
 	ErrPendingNotFound  = errors.New("not found")
 	ErrPendingResolved  = errors.New("already resolved")
@@ -303,7 +267,7 @@ var (
 )
 
 // resolvePendingActionInto buffers one verdict on the caller's write set — the
-// chat command's and the REST face's, which differ only in whose set it is, and
+// chat command's and the REST face's, which differ only in whose set it is and
 // in what a LOST race is called there (lost).
 func (d *DB) resolvePendingActionInto(ws *store.WriteSet, id, status, reviewer, note string,
 	lost error) (PendingAction, error) {
@@ -322,12 +286,10 @@ func (d *DB) resolvePendingActionInto(ws *store.WriteSet, id, status, reviewer, 
 		return PendingAction{}, fmt.Errorf("pending action %q %w (%s)", id, ErrPendingResolved, cur.Status)
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
-	// The read above is advisory — two operators can both pass it. The write's
-	// `status = held` CONDITION is what actually serializes them, so its refusal
-	// IS the verdict: without it, both callers were told "approved", two
-	// resolution messages were enqueued, and the agent was asked twice to
-	// re-issue one call. The loser learns that from the BATCH, which is why the
-	// answer travels with the write instead of being returned here.
+	// The read above is advisory. The write's `status = held` CONDITION is what
+	// serializes two operators, so its refusal IS the verdict: without it both
+	// were told "approved" and the agent was asked twice to re-issue one call.
+	// The loser learns that from the BATCH, so the answer travels with the write.
 	if err := ws.AddGuarded(lost, objstore.Write{
 		Op: objstore.Update, Entity: store.PendingActions, Key: key,
 		Attrs: map[string]string{
@@ -349,13 +311,9 @@ func (d *DB) resolvePendingActionInto(ws *store.WriteSet, id, status, reviewer, 
 // skipApprovalRow is the acl row an `always` verdict writes: on the `hold:`
 // action, never on the tool. `deny` there means DO NOT HOLD this shape —
 // Authorize reads every other effect as ALLOW, so a third effect name would be
-// spec 5/19 Hazard 1 in friendlier words, and a plain allow on `mcp:<tool>`
-// would grant the tool while the hold still fired. Every surface says "skip
-// approval"; only the wire says deny (spec 6/26 § Decision 5).
-//
-// Params is the matcher withMatcher already rendered and the notice already
-// displayed — never one built here, which is what makes "the surface refuses to
-// write a rule it did not display" structural rather than a habit.
+// spec 5/19 Hazard 1, and a plain allow on `mcp:<tool>` would grant the tool
+// while the hold still fired (spec 6/26 § Decision 5). Params is the matcher
+// withMatcher rendered and the notice displayed — never one built here.
 func skipApprovalRow(p PendingAction, reviewer string) core.ACLRow {
 	return core.ACLRow{
 		Principal: p.CallerAgent,
@@ -367,42 +325,20 @@ func skipApprovalRow(p PendingAction, reviewer string) core.ACLRow {
 	}
 }
 
-// resolveHoldInto is the one funnel both resolution faces run — chat /approve and
-// REST POST /v1/pending_actions/{id}/approve|reject. The verdict, and the
-// skip-approval rule an `always` adds, go into the caller's write set so ONE
-// batch carries them.
-//
-// It tells nobody to run anything. The agent's call is suspended on this row right
-// now, so the waiter that suspended it sees the verdict and runs the call itself.
-//
-// `standing` is the `always` verdict: approve exactly as `yes`, and additionally
-// write the skip-approval row so the next call of this shape runs inline. It is
-// NOT a third status — pending_actions keeps its states and the standing answer
-// lives in acl, where every other standing answer already lives — and the row
-// rides THIS batch, so a crash cannot leave a call approved with no rule or a
-// rule with no approved call.
-//
-// `never` is deliberately absent. Undoing it means deleting the tool deny it
-// also writes, and acl rows carry no verdict identity, so a revoke could not
-// tell that deny from standing policy that predates it (spec 6/26 § "Revocation
-// needs provenance"). That is an unresolved design question, not an omission.
-//
-// WHO MAY ANSWER IS DECIDED HERE, on the HELD ROW's folder — `admin` there is
-// what "may answer this call" means, and this is the one gate both faces run.
-// Testing the CALLER for the operator `**` instead leaves a world creator, who
-// holds `admin <world>/**`, unable to answer a hold inside their own world:
-// `admin <world>/**` does not cover `**`, so the world has no reachable
-// approver and every held call in it waits until it expires (BUGS L271).
-//
-// auth.Authorize is the evaluator, so a deny row is unconfined by scope
-// specificity and still wins: an operator can refuse a folder's own admin the
-// verdict, and no narrower allow restores it.
+// resolveHoldInto is the one funnel both resolution faces run. The verdict
+// and the skip-approval rule an `always` adds ride ONE batch, so a crash
+// cannot leave a call approved with no rule or a rule with no approved call;
+// the waiter that suspended the call runs it itself. `standing` is NOT a third
+// status: the standing answer lives in acl. `never` is deliberately absent:
+// acl rows carry no verdict identity, so a revoke could not tell its deny
+// from standing policy (spec 6/26). WHO MAY ANSWER is decided HERE, on the
+// HELD ROW's folder: testing the CALLER for `**` left a world creator unable
+// to answer a hold in their own world (BUGS L271).
 func (d *DB) resolveHoldInto(ctx context.Context, ws *store.WriteSet, id, verdict, reviewer,
 	note string, standing bool, lost error) (PendingAction, error) {
 	// The folder comes off the ROW, never off the reviewer's chat or the
-	// transport: the call names the folder it was held in, and that is what the
-	// verdict is authorized against. The read is advisory — the conditional
-	// write inside resolvePendingActionTx is what serializes two reviewers.
+	// transport. The read is advisory; the conditional write serializes two
+	// reviewers.
 	held, ok := d.pendingAction(id)
 	if !ok {
 		return PendingAction{}, fmt.Errorf("no pending action %q: %w", id, ErrPendingNotFound)
@@ -430,20 +366,17 @@ func (d *DB) resolveHoldInto(ctx context.Context, ws *store.WriteSet, id, verdic
 			"cannot make this a standing answer: the held row names no caller, tool or folder")
 	}
 	// The rule is a Merge and refuses nothing, so it rides beside the verdict's
-	// conditional write without a second meaning for one refusal bit.
+	// conditional write.
 	if err := d.grantACLInto(ctx, ws, skipApprovalRow(p, reviewer)); err != nil {
 		return PendingAction{}, fmt.Errorf("record the skip-approval rule: %w", err)
 	}
 	return p, nil
 }
 
-// expirePendingAction closes a call nobody answered in time. The write CONDITIONS
-// on the row still being held, so a verdict that landed in the same instant stands
-// and this one refuses — the same serialisation a second reviewer meets.
-//
-// The row is closed rather than left waiting: a held call the agent is no longer
-// suspended on can never run, and an approval typed against it would otherwise
-// look accepted and reach nobody.
+// expirePendingAction closes a call nobody answered in time. The write
+// CONDITIONS on the row still being held, so a verdict that landed in the same
+// instant stands. Closed rather than left waiting: an approval typed against a
+// row nobody is suspended on would look accepted and reach nobody.
 func (d *DB) expirePendingAction(id string) (bool, error) {
 	key, err := store.PendingActionKey(id)
 	if err != nil {
@@ -464,13 +397,10 @@ func NewPendingID() string {
 	return randHex(4)
 }
 
-// holdGate builds the tools/call hold check for one turn (spec 5/19). Nil when the
-// turn cannot be held, so the ipc layer pays nothing.
-//
-// It answers one of two things: run the call, or do not run it and tell the agent
-// why. Nothing is deferred — the call the human approves is the call this gate is
-// still holding, so the approved arguments are the arguments that run and the
-// agent reports the real result.
+// holdGate builds the tools/call hold check for one turn (spec 5/19); nil when
+// the turn cannot be held, so the ipc layer pays nothing. Nothing is deferred:
+// the call the human approves is the call this gate is still holding, so the
+// approved arguments are the arguments that run.
 func (s *Server) holdGate(t turnMCP) func(string, map[string]any) (string, bool) {
 	if t.elevated || s.db == nil {
 		return nil
@@ -486,35 +416,30 @@ func (s *Server) holdGate(t turnMCP) func(string, map[string]any) (string, bool)
 			Tool: tool, Args: string(raw), Status: PendingHeld, ChatJID: t.chatJID,
 		}
 		if err := s.db.PutPendingAction(p); err != nil {
-			// Fail CLOSED: a hold rule exists and we could not record the call, so letting
-			// it run would silently defeat the gate. The EMPTY refusal is the signal ipc
-			// renders as an error rather than a verdict: with no row there is no id to
-			// /approve (BUGS J3). The chat notice is the operator's only sign it happened.
+			// Fail CLOSED: the hold rule exists and the call is unrecorded. The
+			// EMPTY refusal is what ipc renders as an error rather than a verdict
+			// — no row, no id to /approve (BUGS J3).
 			slog.Error("hitl could not record pending action; blocking the call",
 				"folder", t.folder, "tool", tool, "err", err)
 			s.notifyHoldFailed(t, tool, err)
 			return "", true
 		}
-		// The notice quotes the rule an `always` would write, so it runs through
-		// the same renderer the writer will read it from.
+		// The notice quotes the rule an `always` would write, through the same
+		// renderer the writer reads it from.
 		s.notifyHeld(t, withMatcher(p))
 		return s.awaitVerdict(id, tool)
 	}
 }
 
-// HoldWait bounds how long a blocking hold suspends the agent's tool call. It has
-// to stay under RUNED_RUN_TIMEOUT (20m default): past that the container is killed
-// and the wait ends as a dead turn rather than as an answer.
+// HoldWait bounds how long a blocking hold suspends the agent's tool call. It
+// must stay under RUNED_RUN_TIMEOUT (20m default): past that the container is
+// killed and the wait ends as a dead turn rather than as an answer.
 var HoldWait = chanlib.EnvDur("HITL_WAIT", 10*time.Minute)
 
-// awaitVerdict suspends the agent's tool call until a human answers it, and
-// reports (what to tell the agent, whether the call stays blocked). An approval
-// returns ("", false) — the caller runs the call and the agent gets the real
-// result. Everything else returns the reason the call did not run, in words the
-// agent can repeat to the user.
-//
-// Giving up CLOSES the row. Nobody is suspended on it any more, so a verdict
-// typed later could never reach the agent, and a row left `held` would take that
+// awaitVerdict suspends the agent's tool call until a human answers it:
+// ("", false) on approval (the caller runs the call), else the reason the call
+// did not run, in words the agent can repeat. Giving up CLOSES the row: nobody
+// is suspended on it any more, and a row left `held` would take a later
 // verdict and look accepted.
 func (s *Server) awaitVerdict(id, tool string) (string, bool) {
 	deadline := time.Now().Add(HoldWait)
@@ -537,10 +462,8 @@ func (s *Server) awaitVerdict(id, tool string) (string, bool) {
 			"now will look accepted and reach nobody", "pending", id, "err", err)
 	}
 	if !won {
-		// The expiry is conditioned on the row still being held, so losing it means
-		// a human answered in the same instant the wait ended. The ROW is the
-		// record: honour it, rather than telling the agent nobody answered while
-		// the queue shows an approval.
+		// Losing the conditional expiry means a human answered as the wait
+		// ended; the ROW is the record.
 		if p, ok := s.db.GetPendingAction(id); ok && p.Status != PendingHeld {
 			if p.Status == PendingApproved {
 				slog.Info("hitl approved as the wait ended; running inline", "pending", id)
@@ -558,8 +481,8 @@ func (s *Server) awaitVerdict(id, tool string) (string, bool) {
 }
 
 // verdictRefusal is what the agent is told about a call that will not run. The
-// reviewer's note rides along: a rejection without the reason reaches the user as
-// "it did not work", which is the failure the note exists to prevent.
+// reviewer's note rides along so the user hears the reason, not "it did not
+// work".
 func verdictRefusal(p PendingAction, tool string) string {
 	switch p.Status {
 	case PendingRejected:
@@ -576,15 +499,14 @@ func verdictRefusal(p PendingAction, tool string) string {
 	}
 }
 
-// hitlPoll is how often the waiter re-reads the row. A verdict arrives at human
-// speed, so a tighter loop only costs reads.
+// hitlPoll is how often the waiter re-reads the row; a verdict arrives at
+// human speed.
 var hitlPoll = 2 * time.Second
 
-// withMatcher fills the derived verdict fields — the ONE renderer of the rule an
-// `always` would write. Every sink reads it here: the chat notice, the REST row
-// the dashboard renders, and resolveHoldTx's writer. A second renderer anywhere
-// would let a surface display one rule and store another, which spec 6/26 calls
-// a grant nobody agreed to. It reads the call's recorded arguments, which are the
+// withMatcher fills the derived verdict fields — the ONE renderer of the rule
+// an `always` would write, read by the chat notice, the REST row and the
+// writer; a second renderer would let a surface display one rule and store
+// another (spec 6/26). It reads the recorded arguments, which are the
 // arguments that will run: nothing edits them between the notice and the call.
 func withMatcher(p PendingAction) PendingAction {
 	raw := p.Args
@@ -611,9 +533,9 @@ func withMatcher(p PendingAction) PendingAction {
 	return p
 }
 
-// stringArgs flattens tool args for the acl `params` matcher, which compares
-// globs against strings. A non-scalar arg has no glob meaning and is skipped
-// rather than stringified into something a rule could match by accident.
+// stringArgs flattens tool args for the acl `params` glob matcher. A
+// non-scalar arg has no glob meaning and is skipped rather than stringified
+// into something a rule could match by accident.
 func stringArgs(args map[string]any) map[string]string {
 	out := make(map[string]string, len(args))
 	for k, v := range args {
@@ -629,13 +551,10 @@ func stringArgs(args map[string]any) map[string]string {
 	return out
 }
 
-// notifyHeld tells the chat a call is waiting. Delivery failure is logged, not fatal:
-// the row is already recorded.
-//
-// The notice carries the chat commands AND the deep link to the approvals page, which
-// names WHICH decision while the page's own operator gate names WHO. Deliberately not
-// a bearer token: this notice lands in the chat the agent shares with its users, so a
-// link carrying the verdict would hand it to every reader (spec 6/26 § Gap 3).
+// notifyHeld tells the chat a call is waiting; delivery failure is logged, the
+// row is already recorded. The deep link names WHICH decision while the page's
+// operator gate names WHO — deliberately not a bearer, because the notice
+// lands in a chat every reader shares (spec 6/26 § Gap 3).
 func (s *Server) notifyHeld(t turnMCP, p PendingAction) {
 	text := fmt.Sprintf("⏸ %s held for approval (id %s)\n/approve %s   /reject %s"+
 		"\nor react ✅ / ❌ to this message",
@@ -652,8 +571,8 @@ func (s *Server) notifyHeld(t turnMCP, p PendingAction) {
 	}
 }
 
-// verdictOptions are the verdict commands as pickable answers. `/always` is
-// offered on the condition alwaysOffer states in the text: an exact rule exists.
+// verdictOptions are the verdict commands as pickable answers; `/always` is
+// offered only when an exact rule exists, the condition alwaysOffer states.
 func verdictOptions(p PendingAction) []chanlib.Option {
 	out := []chanlib.Option{
 		{Label: "✅ Approve", Data: "/approve " + p.ID},
@@ -666,16 +585,10 @@ func verdictOptions(p PendingAction) []chanlib.Option {
 }
 
 // alwaysOffer is the `always` half of the notice: the EXACT row the verdict
-// would write, plus the two properties that widen it past what an operator
-// assumes (spec 6/26 § "The predicate is part of the verdict"). Both are stated
-// in words because neither is visible in the rule text:
-//
-//   - a rule constrains only the parameters it NAMES, so an argument it does not
-//     name is free to be anything on the next call;
-//   - a non-scalar argument is skipped by stringArgs and can never be matched.
-//
-// When no exact rule can be written the offer is replaced by the reason, so the
-// operator is told why the button is missing rather than left to wonder.
+// would write, plus in words the two ways it is wider than it looks — a rule
+// constrains only the parameters it NAMES, and a non-scalar argument can never
+// be matched (spec 6/26). With no exact rule the offer is replaced by the
+// reason, so the operator knows why the button is missing.
 func alwaysOffer(p PendingAction) string {
 	if p.MatcherError != "" {
 		return "/always is not offered for this call: " + p.MatcherError
@@ -699,8 +612,8 @@ func alwaysOffer(p PendingAction) string {
 }
 
 // approvalURL is the operator's browser route to one held call. Empty when
-// WEB_HOST is unset — the chat commands are the whole notice then, rather than a
-// broken link the operator cannot use.
+// WEB_HOST is unset — the chat commands are the whole notice then, not a
+// broken link.
 func (s *Server) approvalURL(id string) string {
 	base := core.PublicBaseURL(s.webHost)
 	if base == "" {
@@ -709,10 +622,10 @@ func (s *Server) approvalURL(id string) string {
 	return base + "/dash/approvals/?id=" + url.QueryEscape(id)
 }
 
-// notifyHoldFailed reports a call the gate blocked but could not record. Unlike
-// a held call this leaves NO row, so nothing lists it and no id can resolve it —
-// this notice and the agent's error are the whole trace. Keyed per turn, like
-// the other dispatch notices, so a failing turn reports once.
+// notifyHoldFailed reports a call the gate blocked but could not record: no
+// row, so nothing lists it and no id can resolve it — this notice and the
+// agent's error are the whole trace. Keyed per turn so a failing turn reports
+// once.
 func (s *Server) notifyHoldFailed(t turnMCP, tool string, cause error) {
 	_ = s.notifyHold(t, "hitl-fail-"+t.turnID, fmt.Sprintf(
 		"⛔ %s needs approval and the hold could not be recorded (%v). The call was "+
@@ -720,8 +633,8 @@ func (s *Server) notifyHoldFailed(t turnMCP, tool string, cause error) {
 		tool, cause), nil)
 }
 
-// notifyHold delivers one notice and returns the platform id it landed as, which
-// is what a reaction on it will name.
+// notifyHold delivers one notice and returns the platform id it landed as,
+// which is what a reaction on it will name.
 func (s *Server) notifyHold(t turnMCP, idem, text string, options []chanlib.Option) string {
 	if t.chatJID == "" || s.deliver == nil {
 		return ""

@@ -11,11 +11,10 @@ import (
 	"time"
 )
 
-// OnbodClient is routd's federation to onbod's invite/gate admin surface. onbod
-// OWNS invites + onboarding_gates; routd's /invite and /gate slash commands reach
-// them over HTTP instead of touching the tables. nil client (ONBOD_URL unset / no
-// service key) → the commands report the federation gap. Each method returns a
-// human-readable line for the steering ack.
+// OnbodClient is routd's federation to onbod's invite/gate admin surface:
+// onbod OWNS invites + onboarding_gates, and the /invite and /gate slash
+// commands reach them over HTTP. nil (ONBOD_URL unset) → the commands report
+// the federation gap.
 type OnbodClient interface {
 	CreateInvite(targetGlob string, maxUses int) (token string, err error)
 	CreateInviteFull(targetGlob, issuedBySub string, maxUses int, expiresAt *time.Time) (Invite, error)
@@ -28,11 +27,8 @@ type OnbodClient interface {
 	EnableGate(gate string, enabled bool) error
 }
 
-// Invite is one invite row decoded from onbod's invite JSON (onbod's inviteJSON
-// shape). routd-local so the MCP invite tools see the full row (ref, target,
-// issuer, expiry, use counts) — not just the token CreateInvite returns. Token
-// is populated ONLY by the create response; onbod's list omits it entirely, so
-// it decodes empty there by construction.
+// Invite is one row decoded from onbod's invite JSON. Token is populated ONLY
+// by the create response; onbod's list omits it.
 type Invite struct {
 	Ref         string     `json:"ref"`
 	Token       string     `json:"token"`
@@ -51,18 +47,14 @@ type GateRow struct {
 	Enabled     bool   `json:"enabled"`
 }
 
-// httpOnbod calls onbod's /v1/* admin endpoints with routd's service token (the
-// same service:routd bearer the runed/identity clients use). Empty onbodURL →
-// NewOnbodClient returns nil.
+// httpOnbod calls onbod's /v1/* admin endpoints with routd's service token.
 type httpOnbod struct {
 	url   string
 	token func(context.Context) (string, error)
 	c     *http.Client
 }
 
-// NewOnbodClient builds a client against onbodURL, authenticating with token
-// (routd's service-token source). Empty onbodURL → nil (no client; /invite +
-// /gate then report the federation gap).
+// NewOnbodClient builds a client against onbodURL; empty → nil.
 func NewOnbodClient(onbodURL string, token func(context.Context) (string, error)) OnbodClient {
 	if onbodURL == "" {
 		return nil
@@ -124,9 +116,9 @@ func (o *httpOnbod) CreateInvite(targetGlob string, maxUses int) (string, error)
 	return out.Token, err
 }
 
-// CreateInviteFull mints an invite and decodes onbod's full invite JSON (not
-// just the token). issuedBySub records the agent folder so ListInvites can
-// scope to the issuer; expiresAt is optional (nil → no expiry).
+// CreateInviteFull mints an invite and decodes onbod's full invite JSON.
+// issuedBySub records the issuer so ListInvites can scope to it; nil
+// expiresAt → no expiry.
 func (o *httpOnbod) CreateInviteFull(targetGlob, issuedBySub string, maxUses int, expiresAt *time.Time) (Invite, error) {
 	body := map[string]any{"target_glob": targetGlob, "max_uses": maxUses, "issued_by_sub": issuedBySub}
 	if expiresAt != nil {
@@ -137,9 +129,8 @@ func (o *httpOnbod) CreateInviteFull(targetGlob, issuedBySub string, maxUses int
 	return out, err
 }
 
-// ListInvites returns invites onbod has on record for issuedBy (GET
-// /v1/invites?issued_by=). Empty issuedBy lists all (operator surface); the MCP
-// twin always passes "agent:<folder>" so an agent sees only its own.
+// ListInvites returns the invites on record for issuedBy; empty lists all
+// (operator surface), and the MCP twin always passes "agent:<folder>".
 func (o *httpOnbod) ListInvites(issuedBy string) ([]Invite, error) {
 	var out struct {
 		Invites []Invite `json:"invites"`
@@ -154,15 +145,14 @@ func (o *httpOnbod) ListInvites(issuedBy string) ([]Invite, error) {
 	return out.Invites, nil
 }
 
-// RevokeInviteByRef deletes an invite by its ref (DELETE /v1/invites/{ref}).
-// The path never carries the bearer, so a proxy log of this call is harmless.
-// onbod's DELETE is ref-only; the MCP twin enforces folder ownership first.
+// RevokeInviteByRef deletes an invite by ref. onbod's DELETE is ref-only; the
+// MCP twin enforces folder ownership first.
 func (o *httpOnbod) RevokeInviteByRef(ref string) error {
 	return o.do(http.MethodDelete, "/v1/invites/"+url.PathEscape(ref), nil, nil)
 }
 
-// InsertOnboarding records a chat-initiated onboarding row for an unrouted JID
-// via onbod's POST /v1/onboarding (onbod OWNS the table). Idempotent onbod-side.
+// InsertOnboarding records a chat-initiated onboarding row for an unrouted
+// JID; idempotent onbod-side.
 func (o *httpOnbod) InsertOnboarding(jid string) error {
 	return o.do(http.MethodPost, "/v1/onboarding", map[string]any{"jid": jid}, nil)
 }

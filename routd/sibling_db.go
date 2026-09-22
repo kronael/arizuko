@@ -11,13 +11,13 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
-// sibling_db.go is the federation surface. routd owns acl/acl_membership,
+// sibling_db.go is the federation surface: routd owns acl/acl_membership,
 // secrets/secret_use_log (it holds SECRETS_KEY), scheduled_tasks/task_run_logs
-// (serving timed) and pane_sessions (serving slakd); authd owns identity and runed
-// owns session_log, both federated over HTTP. routd opens no sibling messages.db.
+// (serving timed) and pane_sessions (serving slakd); authd owns identity and
+// runed owns session_log, both federated over HTTP.
 
 // Tasks reads scheduled_tasks for the tasks.json spawn snapshot: a root group
-// sees every task (owner filter empty); a child sees only its own.
+// sees every task; a child sees only its own.
 func (d *DB) Tasks(folder string, isRoot bool) []core.Task {
 	return d.store().ListTasks(folder, isRoot)
 }
@@ -28,7 +28,7 @@ func (d *DB) CountActiveTasks() int {
 }
 
 // PaneContextJID returns (contextJID, true) when a Slack assistant pane exists
-// for the DM channelID. No row → ("", false).
+// for the DM channelID.
 func (d *DB) PaneContextJID(channelID string) (string, bool) {
 	p, ok := d.store().PaneInChannel(channelID)
 	if !ok {
@@ -43,32 +43,27 @@ func (d *DB) SetPaneContext(channelID, contextJID string) error {
 	return d.store().SetPaneContextByChannel(channelID, contextJID)
 }
 
-// UpsertPane creates/refreshes the pane row keyed by (team, user, thread) (behind
-// POST /v1/pane upsert=open). slakd calls this over HTTP.
+// UpsertPane creates/refreshes the pane row keyed by (team, user, thread)
+// (behind POST /v1/pane op=open).
 func (d *DB) UpsertPane(teamID, userID, threadTS, channelID string) error {
 	return d.store().OpenPane(teamID, userID, threadTS, channelID)
 }
 
 // SetPaneContextByTriple updates the pane's workspace-channel context keyed by
-// (team, user, thread) — slakd's context-change path, served by POST /v1/pane.
-// Empty contextJID clears it.
+// (team, user, thread); empty contextJID clears it.
 func (d *DB) SetPaneContextByTriple(teamID, userID, threadTS, contextJID string) error {
 	return d.store().SetPaneContext(teamID, userID, threadTS, contextJID)
 }
 
-// store wraps routd.db as a *store.Store. It is the ONE seam routd reaches its
-// own tables through: acl and acl_membership (auth.Authorize and its readers),
-// groups, routes, route_tokens, scheduled_tasks, network_rules, pane_sessions
-// and the per-user cap. Every one of those is an objstore entity whose
-// coordinate and attribute names are declared in store, so a reader here that
-// went to the driver itself would be a second spelling of a format store owns.
-//
-// An empty acl table denies everything — there is no fallback grant set.
+// store wraps routd's handle as a *store.Store — the ONE seam routd reaches its
+// own tables through. Every one is an objstore entity whose coordinate and
+// attribute names store declares, so a reader that went to the driver would be
+// a second spelling of a format store owns. An empty acl table denies
+// everything — there is no fallback grant set.
 func (d *DB) store() *store.Store { return store.NewOver(d.obj) }
 
 // secretStore is the one variant: the same handle with the SECRETS_KEY keyring
-// set, so secret reads decrypt `v2:` values and writes seal them. Every other
-// caller wants the plain handle.
+// set, so secret reads decrypt `v2:` values and writes seal them.
 func (d *DB) secretStore() *store.Store {
 	s := d.store()
 	if len(d.secretKeyring) > 0 {
@@ -77,37 +72,29 @@ func (d *DB) secretStore() *store.Store {
 	return s
 }
 
-// UserCap returns the per-day cap for a user_sub in cents. Zero means uncapped
-// (the default).
+// UserCap returns the per-day cap for a user_sub in cents; zero is uncapped.
 func (d *DB) UserCap(userSub string) (int, error) {
 	return d.store().UserCap(userSub)
 }
 
-// SetUserCap writes the per-day cap for one user_sub. 0 = uncapped. The
-// operator write half of UserCap, so `arizuko budget set user` lands on the
-// row budgetGate reads.
+// SetUserCap writes the per-day cap for one user_sub; 0 = uncapped. The
+// operator write half of UserCap.
 func (d *DB) SetUserCap(userSub string, cents int) error {
 	return d.store().SetUserCap(userSub, cents)
 }
 
-// ProfileNames answers every sub the instance knows a profile for and the name
-// it holds, backing GET /v1/principals — the datalist an operator's grant form
-// offers, which dashd reads over HTTP rather than opening routd.db for it.
+// ProfileNames answers every sub the instance knows a profile for and its
+// name — GET /v1/principals, the datalist an operator's grant form offers.
 func (d *DB) ProfileNames(ctx context.Context) (map[string]string, error) {
 	return d.store().ProfileNames(ctx)
 }
 
-// EnvProfileSecrets resolves the caller's OWN user-scoped model credentials (BYOA)
-// for the container env. Those keys are spent by the Claude Code SDK subprocess,
-// not by a tool call, so they have no broker path. Every capability credential
-// reaches a TOOL solely through ResolveConnectorSecrets (spec 5/13 §Trust model);
-// the one exception is ShellEnvSecrets below, which needs its own grant per key.
-//
-// The narrowing lives HERE, not at the dispatch call site, because the call site
-// is bypassable: an exported reader handing back the whole decrypted folder set
-// would let the next writer of RunRequest.Secrets re-open the hole with a one-liner
-// that reads correct. This reader never asks for a folder at all, and the query is
-// SQL-scoped to scope_kind='user'.
+// EnvProfileSecrets resolves the caller's OWN user-scoped model credentials
+// (BYOA) for the container env: those keys are spent by the SDK subprocess, not
+// a tool call, so they have no broker path (spec 5/13 §Trust model). The
+// narrowing lives HERE, not at the dispatch call site: an exported bulk reader
+// is what a later one-liner re-opens the hole with, and this reader never asks
+// for a folder at all.
 func (d *DB) EnvProfileSecrets(userSub string) map[string]string {
 	out := map[string]string{}
 	if userSub == "" {
@@ -125,17 +112,11 @@ func (d *DB) EnvProfileSecrets(userSub string) map[string]string {
 	return out
 }
 
-// ShellEnvSecrets resolves the folder's capability credentials that an explicit
-// `shell:env:<KEY>` grant marks readable from the agent's own shell, so a CLI the
-// agent drives itself (`gh`) can authenticate. It returns ONLY granted keys and
-// never the whole folder set — the same narrowing discipline as EnvProfileSecrets,
-// and for the same reason: an exported bulk reader is what a later one-liner
-// re-opens the hole with.
-//
-// Env-profile keys are dropped even when granted. They already have a path
-// (EnvProfileSecrets), and the store rejects folder scope for them, so a
-// `shell:env:ANTHROPIC_API_KEY` row can only ever name a user-scoped model
-// credential the container already holds.
+// ShellEnvSecrets resolves the folder credentials an explicit `shell:env:<KEY>`
+// grant marks readable from the agent's own shell — ONLY granted keys, never
+// the whole set, the EnvProfileSecrets discipline. Env-profile keys are dropped
+// even when granted: they already have a path, and the store rejects folder
+// scope for them.
 func (d *DB) ShellEnvSecrets(folder, userSub string) map[string]string {
 	out := map[string]string{}
 	if folder == "" {
@@ -156,11 +137,10 @@ func (d *DB) ShellEnvSecrets(folder, userSub string) map[string]string {
 	return out
 }
 
-// folderSecrets resolves the folder-scoped secret set for `folder`, DECRYPTING
-// `v2:` values via the SECRETS_KEY keyring (deepest-wins folder-ancestry
-// precedence). SECRETS_KEY unset / read error → empty map. Unexported: the only
-// consumer is the broker resolution below, and an exported bulk reader of folder
-// capability secrets is exactly what EnvProfileSecrets exists to deny.
+// folderSecrets resolves the folder-scoped set, DECRYPTED via the keyring
+// (deepest-wins ancestry); unset key / read error → empty. Unexported: an
+// exported bulk reader of folder capability secrets is what EnvProfileSecrets
+// exists to deny.
 func (d *DB) folderSecrets(folder string) map[string]string {
 	out, err := d.secretStore().FolderSecretsResolved(folder)
 	if err != nil {
@@ -169,11 +149,9 @@ func (d *DB) folderSecrets(folder string) map[string]string {
 	return out
 }
 
-// folderSecretsForUser is the one resolution body behind the broker: values plus
-// the scope each key resolved from ("user" | "folder"). secret_use_log must
-// record whether a call spent the caller's OWN credential or the folder default,
-// and that distinction exists nowhere downstream of the overlay (spec 5/13
-// § Audit).
+// folderSecretsForUser is the one resolution body behind the broker: values
+// plus the scope each key resolved from ("user" | "folder"), which
+// secret_use_log records (spec 5/13 § Audit).
 func (d *DB) folderSecretsForUser(folder, userSub string) (map[string]string, map[string]store.SecretScope) {
 	out, scopes, err := d.secretStore().FolderSecretsResolvedForUser(folder, userSub)
 	if err == nil {
@@ -188,43 +166,32 @@ func (d *DB) folderSecretsForUser(folder, userSub string) (map[string]string, ma
 	return out, scopes
 }
 
-// SetSecret seals + upserts one folder/user secret (the operator write path
-// behind POST /v1/secrets).
+// SetSecret seals + upserts one folder/user secret (behind POST /v1/secrets).
 func (d *DB) SetSecret(scope store.SecretScope, scopeID, key, value string) error {
 	return d.secretStore().SetSecret(scope, scopeID, key, value)
 }
 
-// DeleteSecret removes one folder/user secret (behind DELETE /v1/secrets/{key}).
+// DeleteSecret removes one folder/user secret (behind DELETE /v1/secrets/{key});
 // ErrSecretNotFound when no row matched.
 func (d *DB) DeleteSecret(scope store.SecretScope, scopeID, key string) error {
 	return d.secretStore().DeleteSecret(scope, scopeID, key)
 }
 
-// ConnectorSecrets narrows the resolved secrets to the `required` names a connector
-// declares. callerSub overlays the triggering user's user-scoped secrets on top of
-// the folder defaults (BYOA). Missing keys are omitted.
-//
-// A required key backed by a user-scoped surrogate-OAuth row (spec 5/15) is
-// refreshed in place when within 60s of expiry. A DEFINITIVE rejection (revoked
-// refresh_token) nulls the row's oauth columns, drops the key, and returns a
-// "reconnect" error the caller surfaces to the agent; a transient failure keeps the
-// stale token and no error.
-//
-// The second return names the scope each REQUIRED key resolved from — the audit
-// provenance secret_use_log records. It is taken AFTER any surrogate refresh, so a
-// key the refresh dropped reads as missing rather than as a credential that was
-// spent.
+// ConnectorSecrets narrows the resolved secrets to the `required` names a
+// connector declares; callerSub overlays the user's own secrets on the folder
+// defaults (BYOA). A user-scoped surrogate-OAuth row (spec 5/15) is refreshed
+// in place near expiry: a DEFINITIVE rejection nulls the row, drops the key and
+// returns a "reconnect" error; a transient failure keeps the stale token. The
+// scopes are taken AFTER the refresh, so a dropped key reads as missing, not
+// as a credential that was spent.
 func (d *DB) ConnectorSecrets(folder, callerSub string, required []string) (map[string]string, map[string]store.SecretScope, error) {
 	return d.connectorSecrets(folder, callerSub, required, false)
 }
 
-// RefreshConnectorSecrets is ConnectorSecrets with the surrogate-OAuth refresh
-// FORCED rather than gated on near-expiry: the reactive half of spec 5/15, called
-// once behind a 401. A provider with an optimistic `expires_in` leaves expires_at
-// looking healthy, so the proactive check would refresh nothing.
-//
-// It writes no secret_use_log row: this is a retry of the SAME call, already
-// audited by the ConnectorSecrets that opened it.
+// RefreshConnectorSecrets FORCES the surrogate refresh: the reactive half of
+// spec 5/15, called once behind a 401, because an optimistic `expires_in`
+// leaves expires_at looking healthy. No secret_use_log row: a retry of the
+// SAME call, already audited by the ConnectorSecrets that opened it.
 func (d *DB) RefreshConnectorSecrets(folder, callerSub string, required []string) (map[string]string, error) {
 	out, _, err := d.connectorSecrets(folder, callerSub, required, true)
 	return out, err
@@ -256,40 +223,30 @@ func (d *DB) connectorSecrets(folder, callerSub string, required []string, force
 	return out, scopes, err
 }
 
-// ListACL returns acl rows, optionally filtered by principal. Backs the list_acl
-// tool (acl_resource.go). A read failure is an error, never an empty list
-// (BUGS A4).
+// ListACL returns acl rows, optionally filtered by principal. A read failure is
+// an error, never an empty list (BUGS A4).
 func (d *DB) ListACL(principal string) ([]core.ACLRow, error) {
 	return d.store().ListACL(principal)
 }
 
 // UserScopes returns the distinct allow-scopes a sub has, expanding membership
-// transitively. Backs GET /v1/users/{sub}/scopes (authd snapshots it at login).
-// A listing, never a verdict — see auth.UserScopes.
+// transitively — the snapshot authd takes at login. A listing, never a verdict.
 func (d *DB) UserScopes(sub string) ([]string, error) {
 	return auth.UserScopes(d.store(), sub)
 }
 
-// Authorize is the per-call row-ACL check for a caller that IS its own principal —
-// the operator REST/resreg face, where the JWT sub is the whole answer to "who".
-// Magnitude comes from the principal's role membership + operator grants; a no-match
-// denies. The agent turn does not use this: see AuthorizeTurn.
+// Authorize is the per-call row-ACL check for a caller that IS its own
+// principal — the operator REST/resreg face. A no-match denies. The agent turn
+// uses AuthorizeTurn.
 func (d *DB) Authorize(sub, folder, action string, params map[string]string) bool {
 	caller := auth.Caller{Principal: sub}
 	return auth.Authorize(d.store(), caller, action, folder, params)
 }
 
-// AuthorizeTurn is the per-call row-ACL check for an in-container agent tool call,
-// on the two axes of 5/33: turnFolder is the ROUTE the router resolved this turn to
-// and confers in full; senderSub is the attested sender and adds only inside that
-// folder's subtree. scope is the ACTUAL target — the caller's own folder for
-// magnitude, a descendant for a management tool's containment.
-//
-// It takes the sender rather than a principal because a turn HAS no single "who" to
-// pass: the folder answers "what may be reached through here" and the sender answers
-// "what does this person hold". Stacking them into one string is how a confused
-// deputy gets built, so the two arrive as two fields and auth.Authorize keeps them
-// apart.
+// AuthorizeTurn is the agent tool-call check on the two axes of 5/33:
+// turnFolder is the ROUTE and confers in full; senderSub is the attested sender
+// and adds only inside that folder's subtree; scope is the ACTUAL target. Two
+// fields, never one stacked string — that is how a confused deputy gets built.
 func (d *DB) AuthorizeTurn(senderSub, turnFolder, scope, action string, params map[string]string) bool {
 	caller := auth.Caller{Principal: senderSub, Route: turnFolder}
 	return auth.Authorize(d.store(), caller, action, scope, params)
@@ -302,12 +259,9 @@ func (d *DB) CheckHold(sub, folder, tool string, params map[string]string) bool 
 	return auth.CheckHold(d.store(), auth.Caller{Principal: sub}, tool, folder, params)
 }
 
-// IsOperator reports whether sub carries the operator `**` grant. Operators are
-// emergent from grants, never a role flag: the `**` grant is stored as a
-// role:operator acl_membership edge (grantACLInto), so operator status IS
-// transitive membership in role:operator. A direct `admin`/`*` grant on the whole
-// tree (`**`) also counts. This is the gate for /root elevation (steer.go
-// cmdRoot): only a `**` holder may raise a turn to root. Empty sub → false.
+// IsOperator reports whether sub carries the operator `**` grant: transitive
+// membership in role:operator, or a direct `admin` on `**`. Operators are
+// emergent from grants, never a role flag. The gate for /root elevation.
 func (d *DB) IsOperator(sub string) bool {
 	if sub == "" {
 		return false
@@ -318,32 +272,26 @@ func (d *DB) IsOperator(sub string) bool {
 	return auth.Authorize(d.store(), auth.Caller{Principal: sub}, "admin", "**", nil)
 }
 
-// GetTask reads one scheduled_tasks row by id, for the inspect_tasks per-task
-// authz check. No row → (zero, false).
+// GetTask reads one scheduled_tasks row by id; no row → (zero, false).
 func (d *DB) GetTask(id string) (core.Task, bool) {
 	return d.store().GetTask(id)
 }
 
-// DueTasks atomically claims + returns the tasks ready to fire, backing
-// GET /v1/tasks/due (timed's read half).
+// DueTasks atomically claims + returns the tasks ready to fire (timed's read half).
 func (d *DB) DueTasks(now time.Time) ([]core.Task, error) { return d.store().DueTasks(now) }
 
 // RecoverFiringTasks re-arms tasks stranded in 'firing' by a crash mid-fire.
-// Called once at routd startup (crash recovery).
 func (d *DB) RecoverFiringTasks() (int64, error) { return d.store().RecoverFiringTasks() }
 
-// RecordTaskRun appends one task_run_logs row, backing POST /v1/tasks/runlog
-// (timed's write half).
+// RecordTaskRun appends one task_run_logs row (timed's write half).
 func (d *DB) RecordTaskRun(l store.TaskRunLog) error { return d.store().RecordTaskRun(l) }
 
-// RescheduleTask sets a fired task's next_run + status, backing POST
-// /v1/tasks/{id}/reschedule (timed's reschedule half).
+// RescheduleTask sets a fired task's next_run + status (timed's reschedule half).
 func (d *DB) RescheduleTask(id, nextRun, status string) error {
 	return d.store().RescheduleTask(id, nextRun, status)
 }
 
-// TaskRunLogs reads task_run_logs rows for the inspect_tasks per-task run history,
-// translating store.TaskRunLog → ipc.TaskRunLog.
+// TaskRunLogs reads a task's run history, translated to ipc.TaskRunLog.
 func (d *DB) TaskRunLogs(taskID string, limit int) []ipc.TaskRunLog {
 	rows := d.store().TaskRunLogs(taskID, limit)
 	out := make([]ipc.TaskRunLog, len(rows))
@@ -357,8 +305,7 @@ func (d *DB) TaskRunLogs(taskID string, limit int) []ipc.TaskRunLog {
 	return out
 }
 
-// AllRunLogs returns recent task_run_logs rows across all tasks, for
-// GET /v1/tasks/runs (timed's dashboard cross-task run feed).
+// AllRunLogs returns recent task_run_logs rows across all tasks (GET /v1/tasks/runs).
 func (d *DB) AllRunLogs(limit int) []ipc.TaskRunLog {
 	rows := d.store().AllRunLogs(limit)
 	out := make([]ipc.TaskRunLog, len(rows))

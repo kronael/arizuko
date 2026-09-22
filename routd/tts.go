@@ -30,8 +30,7 @@ type ttsConfig struct {
 	CacheDir string
 }
 
-// TTSConfig builds the send_voice synthesis config for the cmd layer (the
-// struct is unexported; the cmd reads the TTS_* env and passes it to SetTTS).
+// TTSConfig builds the send_voice synthesis config for the cmd layer.
 func TTSConfig(enabled bool, url, voice, model string, timeout time.Duration, cacheDir string) ttsConfig {
 	return ttsConfig{Enabled: enabled, URL: url, Voice: voice, Model: model, Timeout: timeout, CacheDir: cacheDir}
 }
@@ -40,11 +39,9 @@ func TTSConfig(enabled bool, url, voice, model string, timeout time.Duration, ca
 // download calls.
 var httpClient = &http.Client{Timeout: 30 * time.Second}
 
-// sendVoice synthesizes text → Opus via the TTS service and hands the cached
-// audio path to the Deliverer for the owning adapter to upload: validate before
-// TTS, refuse when TTS is off / URL is empty / no voice resolves, memoize on
-// (text, voice, model). Returns the platform id. The ipc tool layer persists the
-// bot row (recordOutbound), so this must NOT persist — deliver-only.
+// sendVoice synthesizes text → Opus via the TTS service, memoized on (text,
+// voice, model), and hands the cached path to the Deliverer. The ipc tool layer
+// persists the bot row (recordOutbound), so this must NOT — deliver-only.
 func (s *Server) sendVoice(jid, text, voice, folder, threadID string) (string, error) {
 	if s.deliver == nil {
 		return "", nil
@@ -128,10 +125,9 @@ func (c ttsConfig) cacheOrSynthesize(text, voice, model string) (string, error) 
 	return path, nil
 }
 
-// synthesize POSTs to the OpenAI-compatible /v1/audio/speech endpoint and
-// returns the audio bytes. Format is fixed to opus (Opus in an Ogg container)
-// because every supported channel encodes its voice primitive that way
-// (Telegram NewVoice, WhatsApp ptt, Discord audio attachment).
+// synthesize POSTs to the OpenAI-compatible /v1/audio/speech endpoint. The
+// format is fixed to opus (Opus in Ogg) because every supported channel
+// encodes its voice primitive that way.
 func (c ttsConfig) synthesize(text, voice, model string) ([]byte, error) {
 	body, _ := json.Marshal(map[string]any{
 		"model":           model,

@@ -1,11 +1,10 @@
 package routd
 
 // Connector loader: reads <data_dir>/connectors.toml (or $CONNECTORS_TOML) at
-// routd boot and returns the validated specs. Discovery does NOT happen here —
-// a remote MCP server authenticates tools/list and the credential is per folder,
-// which routd's boot does not have, so the per-turn MCP socket discovers each
-// connector's catalog with the broker-resolved secrets. The reusable half
-// (ConnectorSpec + DiscoverConnectorTools + CallConnectorTool) lives in ipc.
+// boot and returns the validated specs. Discovery does NOT happen here — a
+// remote MCP server authenticates tools/list and the credential is per folder,
+// so the per-turn MCP socket discovers each catalog with the broker-resolved
+// secrets. The reusable half lives in ipc.
 
 import (
 	"errors"
@@ -21,12 +20,11 @@ import (
 	"github.com/kronael/arizuko/ipc"
 )
 
-// The two transports a [[connector]] block can declare (spec 6/19). They are
-// mechanically distinct dispatch paths, which is the rule that keeps one shape
-// from becoming a shape where a field means two things: `mcp` proxies a remote
+// The two transports a [[connector]] block can declare (spec 6/19), kept
+// mechanically distinct so no field means two things: `mcp` proxies a remote
 // MCP server and discovers its catalogue, `rest` calls an HTTP API from a
-// catalogue it declares. There is no third — the stdio connector was deleted
-// 2026-08-30 because an endpoint needs no runtime and a subprocess does.
+// catalogue it declares. There is no stdio transport: an endpoint needs no
+// runtime and a subprocess does.
 const (
 	transportMCP  = "mcp"
 	transportREST = "rest"
@@ -38,10 +36,9 @@ type connectorFile struct {
 	Connectors []ipc.ConnectorSpec `toml:"connector"`
 }
 
-// LoadConnectors reads connectors.toml under projectRoot (or $CONNECTORS_TOML)
-// and returns the validated specs. Missing file → nil (connector path
-// disabled). Bad TOML or an invalid block is an error (fail-fast at boot); an
-// unreachable endpoint is not, because nothing is dialled here.
+// LoadConnectors reads connectors.toml and returns the validated specs.
+// Missing file → nil. Bad TOML or an invalid block fails the boot; an
+// unreachable endpoint does not, because nothing is dialled here.
 func LoadConnectors(projectRoot string) ([]ipc.ConnectorSpec, error) {
 	path := os.Getenv("CONNECTORS_TOML")
 	if path == "" {
@@ -82,11 +79,9 @@ func LoadConnectors(projectRoot string) ([]ipc.ConnectorSpec, error) {
 	return out, nil
 }
 
-// decodeConnectors parses one connectors file and refuses any key the block
-// shape does not declare. Cost of the lenient decode: the shipped templates
-// wrote `[[mcp_connector]]` after the block became `[[connector]]`, parsed to
-// zero blocks with no error, and configured nothing on every instance that
-// copied them.
+// decodeConnectors refuses any key the block shape does not declare: a lenient
+// decode parsed `[[mcp_connector]]` templates to zero blocks with no error and
+// configured nothing on every instance that copied them.
 func decodeConnectors(src string, data []byte, v any) error {
 	meta, err := toml.Decode(string(data), v)
 	if err != nil {
