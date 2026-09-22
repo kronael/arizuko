@@ -103,7 +103,8 @@ func TestRouteCreate_Audited(t *testing.T) {
 	}
 }
 
-// The cockpit MINTS NOTHING (BUGS V2, spec 6/30 §webd). A mint form here was a
+// The cockpit MINTS NOTHING (BUGS V2, spec 6/30-per-daemon-dashboards §webd).
+// A mint form here was a
 // second writer over route_tokens beside routd's resource, with its own label
 // validation — the shape that drifts. Issuance is routd's
 // POST /v1/route_tokens/{chat,hook}, the agent's issue_* tools, and

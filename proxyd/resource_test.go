@@ -279,7 +279,7 @@ func TestRoutesResource_NonWebdBearerRejected(t *testing.T) {
 
 // Persistence: a new routesResource opened against the same store sees
 // what the previous one wrote. Validates the "mutations are durable"
-// invariant from spec 5/7 phase-3.
+// invariant from spec 5/7-proxyd-standalone phase-3.
 func TestRoutesResource_Durable(t *testing.T) {
 	mux, _, st := testResourceMux(t, nil)
 	w := doJSON(t, mux, "POST", "/v1/proxyd_routes", map[string]any{

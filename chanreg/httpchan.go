@@ -490,7 +490,7 @@ func (h *HTTPChannel) Edit(ctx context.Context, jid, targetID, content string) e
 }
 
 // SetSuggestions targets the adapter's /v1/pane/prompts endpoint
-// (Slack-only today; spec 8/D). Adapters without the capability
+// (Slack-only today; spec 8/D-slack-agent-pane). Adapters without the capability
 // respond 404 → ErrUnsupported. Idempotent; one-shot per outbound.
 func (h *HTTPChannel) SetSuggestions(ctx context.Context, jid string, prompts []core.PanePrompt) error {
 	b, _ := json.Marshal(map[string]any{"jid": jid, "prompts": prompts})

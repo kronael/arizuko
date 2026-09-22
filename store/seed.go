@@ -22,7 +22,7 @@ import (
 	"github.com/kronael/arizuko/objstore"
 )
 
-// RoleOperator is the delegation root (spec 5/33): it holds (*, **) WITH
+// RoleOperator is the delegation root (spec 5/33-paths-roles): it holds (*, **) WITH
 // GRANT OPTION. Every other grant starts without the option.
 const RoleOperator = "role:operator"
 
@@ -36,7 +36,7 @@ var memberVerbs = []string{
 }
 
 // alwaysMountedTools are the READS every turn mounts, plus the memory
-// checkpoint, the class spec 5/33 exempts from grants. They need the skip row
+// checkpoint, the class spec 5/33-paths-roles exempts from grants. They need the skip row
 // below, or a folder holding a blanket hold would wait for a human before it
 // could read its own notes. Reads only: a write that mounts unconditionally
 // (invite_create, pin_message, reset_session) stays held. routd's
