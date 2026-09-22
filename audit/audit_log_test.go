@@ -6,7 +6,6 @@ package audit
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"testing"
 	"time"
@@ -25,16 +24,6 @@ func rowsOf(t *testing.T, s *dynstore.Store) []Row {
 		t.Fatal(err)
 	}
 	return rows
-}
-
-// routeCount counts the scratch mutation the audited-write test records.
-func routeCount(t *testing.T, db *sql.DB) int {
-	t.Helper()
-	var n int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM routes`).Scan(&n); err != nil {
-		t.Fatal(err)
-	}
-	return n
 }
 
 // The declared width has to be the layout's, or every write is refused rather

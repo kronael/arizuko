@@ -8,7 +8,6 @@ import (
 	"context"
 	"os"
 	"sort"
-	"strings"
 	"testing"
 	"time"
 
@@ -64,18 +63,6 @@ func countItems(t *testing.T, s *store.Store, entity string, match func(objstore
 		}
 	}
 	return n
-}
-
-// keyIs matches an item whose coordinate joins to exactly these fields.
-func keyIs(parts ...string) func(objstore.Item) bool {
-	want := strings.Join(parts, store.KeySep)
-	return func(it objstore.Item) bool { return it.Key.Sort == want }
-}
-
-// keyLeads matches an item whose coordinate begins with these fields.
-func keyLeads(parts ...string) func(objstore.Item) bool {
-	want := strings.Join(parts, store.KeySep) + store.KeySep
-	return func(it objstore.Item) bool { return strings.HasPrefix(it.Key.Sort, want) }
 }
 
 // instanceStore is the INSTANCE's own routd tables — the ones addressed by
