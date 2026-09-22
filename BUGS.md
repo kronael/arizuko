@@ -28,8 +28,6 @@ marker every entry carries. Ten entries said open in the heading and carried no
 **A contract or design decision.** Each names the question in its own Status
 line; none can be answered from the code.
 
-- `L345` — may an empty action default to `admin` inside `store`? Collapsing
-  the three declarations widens three live callers.
 - `L347` — may the cursor stay put when a steered turn does not run? Changes
   the consume contract (`L104`).
 - `L317` — may `/stop` drop the backlog older than itself, and is that drop
@@ -236,7 +234,7 @@ review the line exists for.
 - **Status:** fixed. The line renders `when <predicate>`.
   `TestDescribeGrantNamesThePredicate` pins that two rows differing only by
   predicate render differently; removing the clause fails it.
-## L345 — the acl defaults are declared three times (2026-09-21, open)
+## L345 — the acl defaults are declared three times (2026-09-21, fixed `pending`)
 
 `store/acl.go` declares the default EFFECT, `routd/acl_resource.go` declares
 action + effect and its comment calls itself "the ONE place", and
@@ -285,11 +283,28 @@ Not done, and deliberately: there is no `ActionAdmin` constant and `"admin"`
 appears at 12 sites across six packages. Naming it is behaviour-preserving but
 it is a wider change than this entry describes.
 
-- **Status:** open — one question left, and it is smaller than when this was
-  filed: may an empty action default to `admin` inside `store.aclDefaults`?
-  Yes collapses the last two into one; no keeps `GrantDefaults` as the writers'
-  door and is already the shipped shape. Nothing else in this entry is
-  outstanding.
+**THE LAST QUESTION IS ANSWERED BY MEASUREMENT 2026-09-22: no.** It was filed
+as a decision because this entry said a row reaching `AddACLRow` with an empty
+action "stays empty". It does not. `aclKey` (`store/acl.go:52`) REFUSES it —
+"a grant with an empty one of those names nothing" — and `AddACLRow` builds its
+key through that function. `auth.actionCovers` agrees: an empty row action
+falls through every case and covers nothing, so the refusal is the right answer
+and the row would grant nothing anyway.
+
+So collapsing `aclDefaults` onto `GrantDefaults` would not widen a stored row;
+it would turn a LOUD REFUSAL into a silent `admin` grant for three live
+callers. That contradicts both "Strict, not magical" and "Fail loud", so it is
+not a preference to settle — it is already decided by the rules this project
+states. The two functions stay two.
+
+`TestAGrantWithNoActionIsRefused` pins the refusal, and reading the code was
+not taken as proof: removing the `r.Action == ""` clause from `aclKey` makes it
+fail. The comment above `TestGrantDefaultsFillsTheActionAndTheRowWriterDoesNot`
+said the row "keeps an empty action" and is corrected to say it is refused.
+
+- **Status:** fixed `pending`. Nothing is outstanding. The `ActionAdmin`
+  constant remains deliberately out of scope: `"admin"` appears at 12 sites
+  across six packages, which is a wider change than this entry describes.
 ## L346 — whapd's sweep reports a hold it does not have (2026-09-21, fixed `pending`)
 
 `whapd/src/main.ts` logs "the sweep holds the message" on a path where

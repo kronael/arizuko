@@ -223,9 +223,9 @@ func TestACLAllowsAPredicateOnAHoldGrant(t *testing.T) {
 
 // The grant writer's defaults and the store writer's are two functions on
 // purpose, and the difference is load-bearing: GrantDefaults fills the ACTION,
-// aclDefaults does not. A row reaching AddACLRow directly therefore keeps an
-// empty action, and making them one would default that to `admin` and widen
-// every caller of AddACLRow (BUGS L345, the open half).
+// aclDefaults does not. A row reaching AddACLRow with no action is REFUSED by
+// the coordinate (the test below), so merging the two would turn a loud
+// refusal into a silent `admin` grant for every caller of AddACLRow.
 //
 // This pins the difference so neither drifts into the other by accident — the
 // widening would be silent, because an empty action and `admin` write rows that
@@ -250,5 +250,20 @@ func TestGrantDefaultsFillsTheActionAndTheRowWriterDoesNot(t *testing.T) {
 	}
 	if stored.Effect != EffectAllow {
 		t.Errorf("aclDefaults effect = %q, want %q", stored.Effect, EffectAllow)
+	}
+}
+
+// A grant naming no action grants nothing: actionCovers answers false for every
+// request against an empty row action. The coordinate refuses it rather than
+// storing a row that reads like a grant and is not one.
+func TestAGrantWithNoActionIsRefused(t *testing.T) {
+	s := openMem(t)
+	err := s.AddACLRow(core.ACLRow{Principal: "github:bob", Scope: "main/**"})
+	if err == nil {
+		t.Fatal("a grant with no action was stored; it grants nothing and reads " +
+			"in the table like one that does")
+	}
+	if !strings.Contains(err.Error(), "names nothing") {
+		t.Errorf("refusal was %q; it must say the row names nothing", err)
 	}
 }
