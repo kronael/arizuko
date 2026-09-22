@@ -1,8 +1,9 @@
 // Package v1 is runed's published contract: the wire types plus a thin HTTP client
 // for /v1/*. It imports only types/ — no arizuko-internal domain packages — so
-// routd can call runed without dragging in core (spec 5/U). The POST /v1/runs
-// shapes are PINNED to the peer rendering in specs/5/E and specs/5/P; any drift
-// between this package and routd's call site is a contract break.
+// routd can call runed without dragging in core (ARCHITECTURE.md § Daemon
+// conventions). The POST /v1/runs shapes are PINNED to the peer rendering in
+// specs/5/E and specs/5/P; any drift between this package and routd's call
+// site is a contract break.
 package v1
 
 import "github.com/kronael/arizuko/types"

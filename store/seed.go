@@ -22,7 +22,7 @@ import (
 	"github.com/kronael/arizuko/objstore"
 )
 
-// RoleOperator is the delegation root (spec 4/R, 5/33): it holds (*, **) WITH
+// RoleOperator is the delegation root (spec 5/33): it holds (*, **) WITH
 // GRANT OPTION. Every other grant starts without the option.
 const RoleOperator = "role:operator"
 

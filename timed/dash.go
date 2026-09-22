@@ -13,10 +13,11 @@ import (
 	"github.com/kronael/arizuko/theme"
 )
 
-// dash.go is timed's operator overview at GET /dash/timed/ (spec 6/8): fire-loop
-// health (timed-local, in-memory) + the scheduled-task table. timed owns no DB
-// in the split, so task rows arrive from routd's GET /v1/tasks over the same
-// service:timed bearer the fire loop uses; only loop health is timed-local.
+// dash.go is timed's operator overview at GET /dash/timed/ (spec 6/30 §timed):
+// fire-loop health (timed-local, in-memory) + the scheduled-task table. timed
+// owns no DB in the split, so task rows arrive from routd's GET /v1/tasks over
+// the same service:timed bearer the fire loop uses; only loop health is
+// timed-local.
 
 // twoTicks is the lag/stuck threshold: the fire loop ticks every 60s, so a row
 // whose next_run passed >2 ticks ago (active) or that has been 'firing' >2 ticks
@@ -118,7 +119,7 @@ func statusCounts(tasks []taskRow) []byte {
 
 // taskTable renders the task rows sorted by next_run ascending (soonest first;
 // nil next_run last). Each row flags lag (active, next_run >2 ticks past) and
-// stuck fires (firing >2 ticks) per spec 6/8.
+// stuck fires (firing >2 ticks) per spec 6/30 §timed.
 func taskTable(tasks []taskRow, now time.Time) []byte {
 	sort.SliceStable(tasks, func(i, j int) bool {
 		ni, nj := tasks[i].NextRun, tasks[j].NextRun

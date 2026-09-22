@@ -1,7 +1,7 @@
 package main
 
 // Vendored from cmd/arizuko/flags.go — anteval keeps zero arizuko imports
-// (spec 11/A), so the helper is copied, not imported. Keep edits in sync.
+// (spec 6/16), so the helper is copied, not imported. Keep edits in sync.
 
 import (
 	"flag"

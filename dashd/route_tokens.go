@@ -24,8 +24,8 @@ import (
 // both faces (POST /v1/route_tokens/{chat,hook} for operators, issue_chat_link
 // / issue_webhook / issue_pairing_link for agents), and `arizuko token` for the
 // CLI. A mint form here was a second writer over the same table with its own
-// label validation — the shape that drifts (BUGS V2, spec 7/3 §webd: "There is
-// no token minting anywhere in the cockpit").
+// label validation — the shape that drifts (BUGS V2, spec 6/30 §webd: "There
+// is no token minting anywhere in the cockpit").
 
 func (d *dash) handleTokensFolder(w http.ResponseWriter, r *http.Request) {
 	folder := r.PathValue("folder")
