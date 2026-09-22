@@ -74,8 +74,8 @@ revoked — see its entry.)
 
 **A pointer that resolves and lies.**
 
-- `L355` — 26 of 64 bare spec numbers cited in Go have named more than one
-  document; two confirmed wrong, both in the auth path. No test can catch it.
+- `L355` — the comment audit shipped; what is left is 31 citations inside Go
+  string literals (three pinned by tests) and four stale § names.
 
 **A rule that belongs in WISDOM, not here.**
 
@@ -249,12 +249,31 @@ at line 117. A reader following either pointer lands on a sandboxing spec.
 - **Source:** `git log --all -M --pretty=format: --name-only --diff-filter=A --
   specs/<phase>/<id>-*.md` per cited number; the content check on
   `specs/6/9-crackbox-sandboxing.md` and `specs/5/32-acl-unified.md`
-- **Status:** open — the two confirmed sites are a fix, not a decision. The
-  other 24 reused numbers need their citing SENTENCE read against the current
-  document, one at a time, which is the audit `specs/CLAUDE.md` says must be
-  done by reading: "Rewrite by reading each site's claim and choosing the spec
-  whose CURRENT text supports it."
-- **Fix:**
+**THE COMMENT AUDIT IS DONE 2026-09-22** (`fc356ac1`): 417 lines across 204
+files, comments only. 31 sites moved to a DIFFERENT document — the two auth
+ones, six `5/5` sites that meant `uniform-mcp-rest` (now `5/17-openapi-mcp`),
+seventeen that meant the ownership table (`5/16`, which `5/17:210` points to),
+four `5/1`/`5/Y` sites — and four section names moved with them, because a §
+the new document lacks is a fresh falsehood. Every reused number now cites a
+filename stem.
+
+**What is left is not comments.** 31 citations sit inside Go STRING literals —
+`packages.go`'s refusal messages, `blend.go`'s advice text, `ipc.go` MCP tool
+descriptions, an `emaid` startup warning. They are user-facing text, three are
+pinned by test assertions (`blend_test.go:360`, `packages_test.go:603`), and
+eight of them carry a reused number.
+
+Separately found and NOT fixed: four sites cite a § that its (correct) document
+no longer has — `routd/contract_test.go:23,66` cite `5/E §"Standalone-ready
+acceptance"` and that section lives in `5/P:229`; `dashd/engagement_page.go:19`
+and `ipc/ipc.go` cite numbered items in `5/G`, which has no numbered list now;
+`obs/metrics.go:18` cites `5/O §"Histogram buckets"` where `5/O:53` says "code
+is the reference — do not restate here".
+
+- **Status:** open on the string literals and the stale sections. Changing a
+  user-facing message is a code change with three test assertions on it, and a
+  wrong § inside a right document is a second concern from this entry's.
+- **Fix:** `fc356ac1` (the comment audit).
 
 ## L352 — `tmp/` is gitignored but its Go files join the module, so the lint gate is not the gate CI runs (2026-09-22, open)
 
