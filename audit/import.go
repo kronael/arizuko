@@ -87,12 +87,12 @@ func LegacyID(r LegacyRow) (string, error) {
 // Import writes every row of snap as an item and answers how many landed.
 //
 // The writes are UNCONDITIONAL, which is the one place this package drops the
-// create-if-absent a live emit carries. A migration is re-runnable by design —
-// `arizuko migrate-split` copies the same monolith into the same owner file
-// whenever an operator retries — and an id is the instant plus the row's own
-// sequence number, so re-importing a source writes the same item with the same
-// content. Refusing there would make a retry a failure; the condition that
-// protects a RUNNING system stays on writeFor, where a live emit uses it.
+// create-if-absent a live emit carries. An import is re-runnable by design — an
+// operator retries a migration against the same source — and an id is the
+// instant plus the row's own sequence number, so re-importing writes the same
+// item with the same content. Refusing there would make a retry a failure; the
+// condition that protects a RUNNING system stays on writeFor, where a live emit
+// uses it.
 func Import(ctx context.Context, s objstore.Store, snap Snapshot) (int, error) {
 	written := 0
 	for start := 0; start < len(snap.Rows); start += importBatch {

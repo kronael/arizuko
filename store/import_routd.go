@@ -3,12 +3,11 @@ package store
 // import_routd.go is the target half of the move that carries routd's thirteen
 // tables onto the entities they are now (spec 6/37 step 7).
 //
-// IT OWNS THE ITEM SHAPE AND NOTHING ELSE. The SOURCE half — the only half that
-// knows the old column layout — is `arizuko migrate-routd`, which reads the
-// legacy tables into the rows below. Two tools reach this: the in-place move on
-// an already-split instance, and `arizuko migrate-split`, which carries the same
-// thirteen out of the pre-split monolith. One target, so the two cannot disagree
-// about what a row becomes.
+// IT OWNS THE ITEM SHAPE AND NOTHING ELSE. It was written as the one target two
+// migration tools wrote through, so the two could not disagree about what a row
+// becomes. NOTHING REACHES IT NOW: neither tool is a subcommand any more and no
+// production caller remains (BUGS L348, which asks whether this region is the
+// residue of a finished migration or the written half of L249).
 //
 // A ROW IS ITS COORDINATE AND ITS ATTRIBUTES, NOT A Go STRUCT. Every other
 // import in this package takes typed rows; this one does not, and the reason is

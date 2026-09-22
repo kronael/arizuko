@@ -36,6 +36,8 @@ line; none can be answered from the code.
   sender-scoped? No other command eats a row it did not author.
 - `L273`, `L249`, `L319`, `L159`, `L202`, `L283` — proposals, each costed in
   its entry.
+- `L348` — delete `store`'s unreached legacy-import region, or keep it as
+  `L249`'s finished import half and write the export side against it.
 - `L339`, `L167`, `L200` — proposals too. `L200` and `L133` were re-measured
   2026-09-21 and each came back narrower than filed.
 - `L133` — one question after that re-measure: `ext:` is a third namespace the
@@ -310,6 +312,40 @@ failure read as a quiet success.
 - **Status:** fixed. The sweep log reads `held`, and `pending` logs at ERROR
   before it answers empty. `pending says so when the ledger cannot be read`
   pins the second; removing the log fails it.
+## L348 — `store`'s legacy-import region has no production caller, and its header names two commands that do not exist (2026-09-22, open)
+
+850 lines across `store/import_hot.go` (502) and `store/import_routd.go` (348)
+are reached by nothing outside tests. Measured at HEAD:
+
+| symbol | production callers |
+| --- | --- |
+| `ImportRoutd`, `CheckRoutdSnapshot` | none — 2 test files |
+| `ImportHot`, `CheckHotSnapshot`, `HotEntities` | none — 1 test file |
+
+`import_routd.go`'s header names its callers outright: "Two tools reach this:
+the in-place move on an already-split instance, and `arizuko migrate-split`".
+Neither `migrate-split` nor `migrate-routd` is a subcommand — `./arizuko` lists
+neither and no Go file registers them. `audit/import.go` carries the same stale
+reference.
+
+**It is NOT obviously deletable, and that is the point of recording it rather
+than cutting it.** `L249` wants the archive to carry the runtime plane, and
+`HotEntities` is exactly that plane's list with a written import half. Deleting
+it would throw away the finished half of the thing `L249` asks for. The
+question is whether this region is dead weight or a half-built feature, and
+that is the owner's call.
+
+- **Severity:** low (no runtime defect; 850 lines and a header that lies about
+  who calls it)
+- **Scope:** `store/import_hot.go`, `store/import_routd.go`, `audit/import.go`
+- **Affected:** nothing at runtime
+- **Source:** grep for `.ImportRoutd(`, `.ImportHot(`, `HotEntities` over the
+  tree; `./arizuko` usage
+- **Status:** open — needs the owner to say which: delete the region as the
+  residue of a completed migration, or keep it as `L249`'s import half and
+  write the export side against it. `store_is_shared_library` is the standing
+  caution here — settle per method, not per package.
+
 ## L347 — rows behind a steered command are never re-fed (2026-09-21, open)
 
 `routd/dispatch.go` consumes the steered row and advances the cursor TO it, so
@@ -2054,6 +2090,21 @@ mechanism, which is a second format for the same facts.
 
 The history plane is a separate decision: `audit_log` has its own archive
 design, and `cost_log_archive` is deliberately left behind by `6/39`.
+
+**NARROWED 2026-09-22: the import half of the runtime plane is already
+written.** The 2026-09-07 measurement was taken with `sqlite3 .backup` against
+routd 0046 — the SQLite era — so it was re-checked at HEAD. The finding holds:
+`archive export` walks resreg subsystems (`cmd/arizuko/archive.go`
+`ExportSnapshot`) and carries no runtime table.
+
+What the entry does not say is that `store.HotEntities` already names exactly
+that plane — `chats`, `sessions`, `chat_reply_state`, `turn_context`,
+`system_messages` and the rest — and `ImportHot` already writes it. So the
+missing piece is the EXPORT side alone, against a list and a writer that exist.
+
+That region has no production caller at all, which is its own question: `L348`.
+Deciding THIS entry decides that one, because keeping the region is exactly
+"write the export half against it".
 
 - **Severity:** high (blocks `6/37` step 4 — the per-daemon export/import port)
 - **Scope:** `resreg/resources/`, `cmd/arizuko/archive.go`, `specs/6/37`
