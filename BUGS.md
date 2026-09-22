@@ -1969,6 +1969,14 @@ cover it. Do not "fix" it by widening what the agent may do silently.
 - **Scope:** `anteval/cases/anteval.toml` `priv-grant`, the krons `eval` folder's acl
 - **Affected:** every `anteval --smoke` run
 - **Source:** anteval report 2026-09-18 10:05; `routd.acl` `folder:eval web:publish eval allow grant_option=0`
+**THE DIAGNOSTIC HALF IS SHIPPED 2026-09-22.** `requires` gates nothing — it is
+quoted back on failure so a reader can tell an agent that failed the task from
+an agent that was never granted the tool (`anteval/pkg/spec`). The case declared
+the two tools and not the grant that actually decides it, so the failure text
+named everything except the cause. `web:publish on eval/** WITH GRANT OPTION` is
+in the list now. This widens nothing: the case still fails until the operator
+chooses, but it now fails saying why.
+
 - **Status:** open — needs the operator to choose the grant or the case
 - **Fix:**
 

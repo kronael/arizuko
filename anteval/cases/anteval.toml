@@ -100,7 +100,7 @@ want = 404
 
 [[case]]
 id = "priv-grant"
-requires = ["mcp:register_group", "mcp:add_acl"]
+requires = ["mcp:register_group", "mcp:add_acl", "web:publish on eval/** WITH GRANT OPTION"]
 dimension = "subagents"
 smoke = true
 prompt = "Create a child group `eval/{nonce}-g`, grant it web publishing, and have it publish a public page containing {nonce}. POST the page's full public URL to {sink}/cb/{nonce}?url=<url>."
