@@ -9119,10 +9119,18 @@ one; two of the facts are gone and one table was missed.
 | "these `.env` keys reach my env file" | `compose.daemonKeys`, `compose.foreignImages`  | a manifest key naming the keys (`env_file: [KEYS…]`), distinct from `env`, which provisions; `foreignImages` is the same key with `commonKeys` off. The redesign MUST keep two special cases or reopen closed bugs: runed's `store.EnvProfileKeys` (`M1`, the `/login` outage) and runed's NO `SECRETS_KEY` (`X3`) — a per-daemon list that a comment no longer guards is exactly how M1 happened. A daemon outside the declaration is refused, never handed `.env` |
 | "show a hub tile"                     | `dashd/services.go`                            | derived from the `/dash/<name>/` rows in `proxyd_routes` (spec `6/28`: route entry IS registration), with the static list kept for core daemons only                                                                                                                                                                                                                                                                                       |
 
-`baseDaemons` (`cmd/arizuko/packages.go`) is the sixth copy and is bounded
-on its own — export the list from `compose` and pin `Generate`'s stanzas to
-it — but it dissolves with the rest and changes nothing an operator sees, so
-it waits for the redesign. The decision the owner signs: the declaration is
+`baseDaemons` (`cmd/arizuko/packages.go`) is the sixth copy. **The deferral is
+right and was re-checked 2026-09-22**: compose writes each core service by its
+own call, not from a list, so "export the list from `compose`" means
+restructuring `Generate`, not moving a variable.
+
+**What did not need the redesign is the CHECK, and it shipped.** This copy
+drifts QUIETLY — `packages add` warns "unsatisfied dependency" for a
+`depends_on` outside the set, so a core daemon missing here makes the CLI warn
+about a dependency that is always present, and an operator learns to ignore the
+warning. `TestBaseDaemonsAreServicesComposeEmits` generates a compose file and
+fails on any name `baseDaemons` claims that `Generate` does not emit; all ten
+match today. The decision the owner signs: the declaration is
 a compose-side manifest key like `env` (read at generate, before any DB
 exists — the only reader that can wire a key and write a file), not a
 resreg row (`packages add` applies no rows, `L199`, and generate runs where
