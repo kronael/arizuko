@@ -167,6 +167,38 @@ Every daemon calls `defer obs.Setup("name", instance)()` at the top of
 `audit_log` stays SQLite-canonical; OTLP is observability only. Wiring
 rules: `obs/README.md`; model: `ARCHITECTURE.md` §Observability.
 
+## Bug triage: record AND fix
+
+This project overrides `~/.claude/CLAUDE.md`'s "record, never fix on
+discovery". Here a finding is not done when it is written down. The order is
+fixed:
+
+1. **Record it properly first** — a `BUGS.md` entry in the `/bugs` format, with
+   the measurement that found it. The entry is what a fix is checked against,
+   so writing it after the fix lets the fix define the bug.
+2. **Spawn ONE sub to fix it, immediately.** Brief it by goal, give it the
+   entry, and require a test that fails without the fix. Code-editing subs run
+   one at a time on the shared tree (`~/.claude/CLAUDE.md`), so a second
+   finding waits for the first to land.
+3. **Verify the diff yourself.** A sub's success report is not evidence. Read
+   the diff, run the test, and mutate it: a test that passes its own mutation
+   proves nothing.
+4. **Mark `✅ FIXED` with the SHA, then prune to `.diary/`** in the same pass,
+   per `/bugs` Lifecycle. An entry that is fixed and still in the queue makes
+   the queue lie about what needs a person.
+
+**Three things still stop at step 1**, and they are the reason this rule is not
+"always fix":
+
+- **A redesign** — new contract, changed cross-daemon control flow, auth or
+  schema change. It stays a proposal until the user signs off (`BUGS.md`
+  standing policy). Fixing one uninvited spends their decision for them.
+- **An operator action on live data** — a grant, a route row, a re-pair. The
+  platform half ships; the live half is theirs.
+- **A finding whose premise you have not measured.** Fix the bug, not the
+  entry's guess about it: `L348` and `L345` both prescribed fixes that the code
+  contradicted.
+
 ## Refine scope
 
 `/refine` (or "clean up", "polish", "finalize") covers the full surface in
