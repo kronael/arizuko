@@ -8,26 +8,17 @@ import path from 'path';
 import { ALLOW, ToolEvent, Verdict } from './policy.js';
 import { blockingVerdict, isGuardedPath } from './skillguard.js';
 
-// SECRET_ENV_VARS are unset in front of every Bash command the agent runs on
-// claude. The model credential is spent by the harness subprocess itself; a
-// Bash call has no business reading it.
+// SECRET_ENV_VARS are unset in front of every Bash command on claude.
 //
-// This is defence against an accidental echo, not a boundary. Every process in
-// the container runs as one uid, nothing sets hidepid, and /proc/<pid>/environ
-// is readable across siblings (measured in arizuko-ant), so a shell reads the
-// harness's own env whatever the harness strips from its child: `cat
-// /proc/1/environ` shows the credential on claude, codex and pi alike. The
-// boundary is upstream: with a model gateway configured, container.spawnSecrets
-// withholds every EnvProfileKeys entry and /proc holds nothing (spec 6/23,
-// BUGS L131).
+// DEFENCE AGAINST AN ACCIDENTAL ECHO, NOT A BOUNDARY: one uid, no hidepid, and
+// /proc/<pid>/environ readable across siblings, so `cat /proc/1/environ` shows
+// the credential whatever the harness strips from its child. The boundary is
+// the gateway (spec 6/23, BUGS L131).
 //
-// This is the ANTHROPIC subset of store.EnvProfileKeys, and the split is
-// deliberate: OPENAI_API_KEY and CODEX_API_KEY are in that set too, but the
-// agent's own /oracle skill shells out to `codex` and probes exactly those two
-// (ant/skills/oracle/SKILL.md), so scrubbing them would break a shipped skill.
-// A model credential the agent has no tool for is scrubbed; one it drives a CLI
-// with is not. container/secret_scrub_test.go pins the partition so a key added
-// to EnvProfileKeys cannot silently land on the wrong side.
+// The ANTHROPIC subset of store.EnvProfileKeys, deliberately: the /oracle skill
+// shells out to `codex` and probes OPENAI_API_KEY and CODEX_API_KEY, so
+// scrubbing those would break a shipped skill.
+// container/secret_scrub_test.go pins the partition.
 export const SECRET_ENV_VARS = [
   'ANTHROPIC_API_KEY',
   'CLAUDE_CODE_OAUTH_TOKEN',
@@ -35,12 +26,9 @@ export const SECRET_ENV_VARS = [
 ];
 
 // bashScrub prefixes every Bash command with an unset of the model credentials.
-// The one policy that returns 'rewrite', and rewrite is claude-only — so this
-// runs on claude and nowhere else. codex strips its own shell env
-// (shell_environment_policy default excludes `*KEY*`, `*SECRET*`, `*TOKEN*`,
-// codex-cli 0.147.0); pi's getShellEnv() passes `{...process.env}` verbatim
-// (utils/shell.js:105) and its hook cannot rewrite a tool's input, so pi has no
-// echo defence. The boundary is the same for all three: the gateway.
+// The one policy returning 'rewrite', and rewrite is claude-only. codex strips
+// its own shell env; pi passes process.env verbatim and cannot rewrite a tool
+// input, so pi has no echo defence. Same boundary for all three: the gateway.
 export function bashScrub(ev: ToolEvent): Verdict {
   const command = (ev.tool_input as { command?: string })?.command;
   if (!command) return ALLOW;
