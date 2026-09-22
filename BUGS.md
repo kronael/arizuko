@@ -72,6 +72,11 @@ revoked — see its entry.)
 
 - `L189` — blocked on `L137`. Do not take it alone.
 
+**Dead code with a price.**
+
+- `L351` — `store/import.go`'s onbod half has no production caller, but moving
+  its three seeds onto `SeedItem` costs four coordinate builders first.
+
 **A spec whose status is a claim.**
 
 - `L350` — `6/37` cites six deleted artifacts, four of them its own guards. The
@@ -330,6 +335,47 @@ failure read as a quiet success.
 - **Status:** fixed. The sweep log reads `held`, and `pending` logs at ERROR
   before it answers empty. `pending says so when the ledger cannot be read`
   pins the second; removing the log fails it.
+## L351 — `store/import.go`'s onbod half has no production caller either (2026-09-22, open)
+
+`L348` deleted the routd and hot-tier importers. `deadcode ./...` with every
+main package as root then named `store/import.go`, and `Store.Import` turned
+out to have exactly ONE reference — its own declaration. That half is gone
+(`b6fa1938`, 169 lines: `Snapshot`, `Counts`, `PaneRow`, `UseRow`,
+`importWrites`, `LegacyUseID`, `normalizeTS`).
+
+**The onbod half that remains is the same class, and stops short for one
+reason.** `gopls` gives `Store.ImportOnbod` seven references; six are tests and
+the seventh is its declaration. So it is dead in production and load-bearing in
+tests, exactly as `L348`'s region was.
+
+It differs from `L348` in a way that decides the work:
+
+| | `L348`'s region | this one |
+| --- | --- | --- |
+| production callers | none | none |
+| used as a test SEED | 5 files | 3 — `cmd/arizuko/archive_onboarding_test.go:27`, `cmd/arizuko/archive_test.go:111`, `store/invite_redemptions_test.go:131` |
+| tests OF the importer | none | 3 in `store/import_test.go` |
+| covered by `SeedItem` | yes, `keyFields` already held the coordinates | **no** |
+
+`SeedItem`'s `keyFields` carries routd's thirteen entities and the hot tier's
+eleven. `onbodWrites` addresses four the table does not name: `Onboarding`,
+`OnboardingGates`, `Invites`, `InviteRedemptions`. So the `L348` move does not
+transfer for free — it costs four coordinate builders wired into `keyFields`
+first, and then deleting three tests whose subject is the importer itself.
+
+- **Severity:** low (no runtime defect; 149 lines with no production caller)
+- **Scope:** `store/import.go`, `store/import_test.go`, the three seeds above
+- **Affected:** nothing at runtime
+- **Source:** `deadcode ./...`; `gopls go_symbol_references` on `Store.Import`
+  and `Store.ImportOnbod` — grep is unreliable here, the package has
+  same-named neighbours (`Snapshot`, `UseRow`, `importWrites` all exist in
+  other packages)
+- **Status:** open — the same question `L348` answered, with a price attached:
+  add onbod's four coordinates to `keyFields` and delete this region, or keep
+  the importer because it is the only writer those three seeds have. Deciding
+  it is cheap; doing it is not free.
+- **Fix:**
+
 ## L350 — spec `6/37` cites six artifacts that no longer exist, four of them the guards it rests on (2026-09-22, open)
 
 `specs/6/37-store-model.md` is `status: partial` and its steps 1-2 name the
