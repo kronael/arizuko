@@ -6686,7 +6686,7 @@ satisfied, and three of them describe functions that no longer exist. Verified a
 - **Status:** closed — the flip landed and satisfies all five
 - **Fix:** `6f980437`, `2ef91f65`, `e10cfcc2`
 
-## CEO audit — the connector capability has no concepts or howto page (2026-07-31, open — half a day of docs)
+## CEO audit — the connector capability has no concepts or howto page (2026-07-31, fixed 2026-09-22)
 
 The one surviving item of the 2026-07-31 CEO audit. Re-verified 2026-09-21: the
 ext-mcp connector injection (spec `5/13`) — the differentiator the pitch leans on
@@ -6698,9 +6698,18 @@ contains the word "connector" zero times. The capability is documented only in
 grant gating), one sentence at `security/index.html:46`, and one at
 `components/egress.html:109`.
 
-Fix: write `concepts/ext-mcp.html`, link it from the landing page, and add
-`howto/add-connector.html` mirroring `howto/oauth-provider.html`. Deploy per
-`template/web/CLAUDE.md`.
+**FIXED 2026-09-22.** `concepts/ext-mcp.html` states what a connector is, the
+two transports (`mcp` discovers its catalogue and reads headers only; `rest`
+declares its tools and may use all three sinks), the `{secret:KEY}` sinks and
+the three things that happen to the value per call, the `ext:<service>:<op>`
+grant gate, and three limits worth knowing — chiefly that the call leaves from
+`routd`, so the folder's egress allowlist does not bound it.
+`howto/add-connector.html` walks one REST connector end to end and ends on what
+to check when it does not work. Both are wired into every concepts and howto
+nav and into both index pages, and the landing page carries a connector bullet.
+`tests/webdocs` passes, and it does catch a dangling link — proven by breaking
+one. NOT deployed: the `cp` workflow in `template/web/CLAUDE.md` is the
+operator's to run.
 
 The other two items are closed:
 
@@ -6720,8 +6729,6 @@ The other two items are closed:
 
 - **Severity:** low (positioning, not code)
 - **Scope:** `template/web/pub/arizuko/concepts/`, `howto/`, `index.html`
-- **Status:** open — a writing task, no decision needed
-- **Fix:**
 
 ## ✅ CLOSED 2026-09-21 CTO audit — 5/33 partial cutover (2026-07-31)
 
