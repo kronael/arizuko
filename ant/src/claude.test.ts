@@ -10,6 +10,7 @@ import {
   claudeResultStatus,
   isRateLimitRejected,
   packContinuity,
+  permanentAPIError,
   resolveResumeSession,
   transcriptPath,
   unpackContinuity,
@@ -221,13 +222,39 @@ test('claudeResultStatus honours the SDK is_error verdict over the subtype', () 
 });
 
 test('ClaudeTurn marks an is_error result as a failure', () => {
+  // A 503 is transient, so this one stays retryable — which is what makes the
+  // 400 case below a classification and not a blanket change.
+  const frames = new ClaudeTurn().push({
+    type: 'result', subtype: 'success', is_error: true, result: 'API Error: 503 upstream',
+  });
+  const r = frames[0];
+  if (r.kind !== 'result') throw new Error('expected result frame');
+  expect(r.ok).toBe(false);
+  expect(r.terminal).toBeUndefined();
+});
+
+// Re-sending a request the API already refused spawns another container to
+// receive the same refusal. routd retried a 400 three times before telling
+// anyone (BUGS L349); terminal makes it one spawn and names the cause.
+test('a request the API refuses is terminal, a transient one is not', () => {
+  for (const code of [400, 401, 403, 404, 405, 410, 422]) {
+    expect(permanentAPIError(`API Error: ${code} nope`)).toBe(true);
+  }
+  for (const code of [408, 425, 429, 500, 502, 503]) {
+    expect(permanentAPIError(`API Error: ${code} later`)).toBe(false);
+  }
+  expect(permanentAPIError('the harness failed this turn')).toBe(false);
+  expect(permanentAPIError(undefined)).toBe(false);
+});
+
+test('ClaudeTurn marks a refused request terminal so routd does not respawn', () => {
   const frames = new ClaudeTurn().push({
     type: 'result', subtype: 'success', is_error: true, result: 'API Error: 400 fake says no',
   });
   const r = frames[0];
   if (r.kind !== 'result') throw new Error('expected result frame');
   expect(r.ok).toBe(false);
-  expect(r.terminal).toBeUndefined();
+  expect(r.terminal).toBe(true);
 });
 
 // sloth's seven-day cap reset eleven hours out, so re-spawning the turn only

@@ -343,6 +343,20 @@ export function claudeResultStatus(
   return result?.trim() === 'Not logged in · Please run /login' ? 'error' : 'success';
 }
 
+// permanentAPIError reports whether a harness error names a model-API status a
+// retry cannot repair. The SDK renders one as "API Error: <code> <body>".
+//
+// 400/401/403/404/405/410/422 are the request itself — a bad model name, a dead
+// credential, a malformed body — and re-sending it spawns another container to
+// receive the same answer. 408, 425, 429 and every 5xx ARE transient and keep
+// retrying. This is the repo's retry rule: retry remote and network failures,
+// never a misconfiguration.
+export function permanentAPIError(text: string | undefined): boolean {
+  const m = /^API Error:\s*(\d{3})\b/.exec((text ?? '').trim());
+  if (!m) return false;
+  return [400, 401, 403, 404, 405, 410, 422].includes(Number(m[1]));
+}
+
 // assistantText flattens an SDK assistant message's text parts. This is claude's
 // raw shape — reading it anywhere outside this file was the <status> bug.
 function assistantText(raw: Record<string, unknown>): string {
@@ -412,7 +426,7 @@ export class ClaudeTurn {
         // A resume miss ("No conversation found") surfaces as this subtype; it is a
         // retry signal, never a user-facing reply.
         retryFresh: m.subtype === 'error_during_execution' || undefined,
-        terminal: (status === 'error' && this.rejected) || undefined,
+        terminal: (status === 'error' && (this.rejected || permanentAPIError(text))) || undefined,
       }];
     }
     return [];
