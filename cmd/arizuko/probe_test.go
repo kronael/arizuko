@@ -13,7 +13,7 @@ func conformingComponent(t *testing.T) *httptest.Server {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/openapi.json", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"openapi":"3.1.0","paths":{"/v1/widgets":{},"/health":{}}}`)) //nolint:errcheck
+		w.Write([]byte(`{"openapi":"3.1.0","paths":{"/v1/widgets":{},"/health":{}}}`)) //nolint:errcheck // the test asserts on the response, not the write
 	})
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -71,7 +71,7 @@ func TestProbeCatchesGatedOpenAPI(t *testing.T) {
 func TestProbeCatchesAdvertisedButUnmounted(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/openapi.json", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`{"openapi":"3.1.0","paths":{"/v1/ghosts":{}}}`)) //nolint:errcheck
+		w.Write([]byte(`{"openapi":"3.1.0","paths":{"/v1/ghosts":{}}}`)) //nolint:errcheck // the test asserts on the response, not the write
 	})
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
@@ -89,7 +89,7 @@ func TestProbeCatchesAdvertisedButUnmounted(t *testing.T) {
 func TestProbeCatchesUngatedResource(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/openapi.json", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`{"openapi":"3.1.0","paths":{"/v1/secrets":{}}}`)) //nolint:errcheck
+		w.Write([]byte(`{"openapi":"3.1.0","paths":{"/v1/secrets":{}}}`)) //nolint:errcheck // the test asserts on the response, not the write
 	})
 	mux.HandleFunc("/v1/secrets", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK) // no auth check at all
@@ -109,7 +109,7 @@ func TestProbeCatchesUngatedResource(t *testing.T) {
 func TestProbeAllowsPublicHealth(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/openapi.json", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`{"openapi":"3.1.0","paths":{"/health":{},"/metrics":{}}}`)) //nolint:errcheck
+		w.Write([]byte(`{"openapi":"3.1.0","paths":{"/health":{},"/metrics":{}}}`)) //nolint:errcheck // the test asserts on the response, not the write
 	})
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {})
 	mux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {})
@@ -129,7 +129,7 @@ func TestProbeAllowsPublicHealth(t *testing.T) {
 func TestProbeCatchesForeignFolderAccepted(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/openapi.json", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`{"openapi":"3.1.0","paths":{"/v1/things":{}}}`)) //nolint:errcheck
+		w.Write([]byte(`{"openapi":"3.1.0","paths":{"/v1/things":{}}}`)) //nolint:errcheck // the test asserts on the response, not the write
 	})
 	mux.HandleFunc("/v1/things", func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") == "" {
@@ -154,7 +154,7 @@ func TestProbeCatchesForeignFolderAccepted(t *testing.T) {
 func TestProbeAcceptsAComponentThatOwnsNoResource(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/openapi.json", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`{"openapi":"3.1.0","paths":{}}`)) //nolint:errcheck
+		w.Write([]byte(`{"openapi":"3.1.0","paths":{}}`)) //nolint:errcheck // the test asserts on the response, not the write
 	})
 	srv := httptest.NewServer(mux)
 	defer srv.Close()

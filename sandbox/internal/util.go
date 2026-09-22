@@ -29,6 +29,6 @@ func GenerateToken() string {
 // Format: 52:54:XX:XX:XX:XX (QEMU's OUI prefix).
 func VMIDToMAC(vmID string) string {
 	b := make([]byte, 4)
-	hex.Decode(b, []byte(vmID[:8])) //nolint:errcheck
+	hex.Decode(b, []byte(vmID[:8])) //nolint:errcheck // a non-hex id yields a zero MAC, which is as good as any
 	return fmt.Sprintf("52:54:%02x:%02x:%02x:%02x", b[0], b[1], b[2], b[3])
 }

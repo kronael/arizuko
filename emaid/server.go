@@ -109,7 +109,7 @@ func (s *server) handleFile(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", meta.Mime)
 	w.Header().Set("Content-Disposition", dispositionHeader(meta.Filename))
-	w.Write(data) //nolint:errcheck
+	w.Write(data) //nolint:errcheck // client disconnect; the response is already committed
 }
 
 // dispositionHeader builds a safe Content-Disposition value.

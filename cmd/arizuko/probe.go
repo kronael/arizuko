@@ -190,7 +190,7 @@ func probeStatus(client *http.Client, url, token string) int {
 		return 0
 	}
 	defer resp.Body.Close()
-	io.Copy(io.Discard, resp.Body) //nolint:errcheck
+	io.Copy(io.Discard, resp.Body) //nolint:errcheck // drained so the connection pools; only the status is read
 	return resp.StatusCode
 }
 

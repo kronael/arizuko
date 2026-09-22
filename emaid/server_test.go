@@ -295,8 +295,8 @@ func serveAttachmentIMAP(t *testing.T, conn net.Conn, section []int, data []byte
 	br := bufio.NewReader(conn)
 	bw := bufio.NewWriter(conn)
 	flush := func(s string) {
-		bw.WriteString(s) //nolint:errcheck
-		bw.Flush()        //nolint:errcheck
+		bw.WriteString(s) //nolint:errcheck // the test fails on its assertion, not the write
+		bw.Flush()        //nolint:errcheck // the test fails on its assertion, not the flush
 	}
 
 	flush("* OK [CAPABILITY IMAP4rev1] ready\r\n")

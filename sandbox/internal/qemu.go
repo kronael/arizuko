@@ -126,7 +126,7 @@ func (m *Manager) stopQEMU(ctx context.Context, vm *VM) error {
 
 	conn, err := net.Dial("unix", monSocket)
 	if err == nil {
-		conn.Write([]byte("system_powerdown\n")) //nolint:errcheck
+		conn.Write([]byte("system_powerdown\n")) //nolint:errcheck // best-effort graceful stop; SIGKILL follows
 		conn.Close()
 
 		timeout := time.After(time.Duration(ShutdownTimeout) * time.Second)
@@ -151,7 +151,7 @@ func (m *Manager) stopQEMU(ctx context.Context, vm *VM) error {
 
 forceKill:
 	if m.isRunning(vm.PID) {
-		syscall.Kill(vm.PID, syscall.SIGKILL) //nolint:errcheck
+		syscall.Kill(vm.PID, syscall.SIGKILL) //nolint:errcheck // the process may already be gone, which is the goal
 	}
 
 cleanup:

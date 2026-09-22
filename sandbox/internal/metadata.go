@@ -231,6 +231,6 @@ func (m *Manager) acquireResourceLock(fn func() error) error {
 	if err := unix.Flock(int(lockFile.Fd()), unix.LOCK_EX); err != nil {
 		return fmt.Errorf("acquire lock: %w", err)
 	}
-	defer unix.Flock(int(lockFile.Fd()), unix.LOCK_UN) //nolint:errcheck
+	defer unix.Flock(int(lockFile.Fd()), unix.LOCK_UN) //nolint:errcheck // the fd closes next, which drops the lock anyway
 	return fn()
 }

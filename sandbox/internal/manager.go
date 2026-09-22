@@ -158,7 +158,7 @@ func (m *Manager) Start(id string) error {
 
 	// Discover IP — blocks until DHCP lease appears or times out.
 	if !m.discoverVMIP(vm) {
-		m.stopQEMU(ctx, vm) //nolint:errcheck
+		m.stopQEMU(ctx, vm) //nolint:errcheck // best-effort teardown; the caller is already failing
 		return fmt.Errorf("vm %s: IP discovery timeout", id[:8])
 	}
 

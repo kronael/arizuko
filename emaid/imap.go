@@ -89,11 +89,11 @@ func imapConnect(
 		return nil, fmt.Errorf("dial: %w", err)
 	}
 	if err := c.Login(cfg.Account, cfg.Password).Wait(); err != nil {
-		c.Logout() //nolint:errcheck
+		c.Logout() //nolint:errcheck // the connection is going away either way
 		return nil, fmt.Errorf("login: %w", err)
 	}
 	if _, err := c.Select("INBOX", nil).Wait(); err != nil {
-		c.Logout() //nolint:errcheck
+		c.Logout() //nolint:errcheck // the connection is going away either way
 		return nil, fmt.Errorf("select: %w", err)
 	}
 	return c, nil
@@ -162,19 +162,19 @@ func (p *poller) runIdle(ctx context.Context, rc *chanlib.RouterClient) error {
 	for {
 		select {
 		case <-ctx.Done():
-			idleCmd.Close() //nolint:errcheck
+			idleCmd.Close() //nolint:errcheck // ending IDLE; the poll reconnects on any fault
 			// idleCmd.Wait blocks on a server response after DONE is sent.
 			// If TCP is alive but unresponsive the read never returns, so we
 			// impose a 5-second backstop: close the connection to unblock it.
 			waitDone := make(chan struct{})
 			go func() {
-				idleCmd.Wait() //nolint:errcheck
+				idleCmd.Wait() //nolint:errcheck // ending IDLE; the poll reconnects on any fault
 				close(waitDone)
 			}()
 			select {
 			case <-waitDone:
 			case <-time.After(5 * time.Second):
-				c.Close() //nolint:errcheck
+				c.Close() //nolint:errcheck // the connection is going away either way
 				<-waitDone
 			}
 			return nil
@@ -467,10 +467,10 @@ func extractContent(
 					body = io.LimitReader(body, maxBytes+1)
 				}
 				b, _ := io.ReadAll(body)
-				io.Copy(io.Discard, p.Body) //nolint:errcheck
+				io.Copy(io.Discard, p.Body) //nolint:errcheck // the part is skipped; a read error here is unactionable
 				text = string(b)
 			} else {
-				io.Copy(io.Discard, p.Body) //nolint:errcheck
+				io.Copy(io.Discard, p.Body) //nolint:errcheck // the part is skipped; a read error here is unactionable
 			}
 		case *gomessage.AttachmentHeader:
 			ct, _, _ := h.ContentType()
@@ -484,7 +484,7 @@ func extractContent(
 				body = io.LimitReader(body, maxBytes+1)
 			}
 			n, _ := io.Copy(io.Discard, body)
-			io.Copy(io.Discard, p.Body) //nolint:errcheck
+			io.Copy(io.Discard, p.Body) //nolint:errcheck // the part is skipped; a read error here is unactionable
 			att := chanlib.InboundAttachment{
 				Mime:     ct,
 				Filename: fname,

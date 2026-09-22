@@ -106,13 +106,13 @@ func (h *Host) Spawn(cfg VMConfig) (Handle, error) {
 	}
 
 	if err := h.mgr.Start(id); err != nil {
-		h.mgr.Destroy(id) //nolint:errcheck
+		h.mgr.Destroy(id) //nolint:errcheck // rollback of a failed create; the create error is what the caller gets
 		return Handle{}, fmt.Errorf("start vm: %w", err)
 	}
 
 	meta, err := h.mgr.Get(id)
 	if err != nil || meta == nil {
-		h.mgr.Destroy(id) //nolint:errcheck
+		h.mgr.Destroy(id) //nolint:errcheck // rollback of a failed create; the create error is what the caller gets
 		return Handle{}, fmt.Errorf("get vm meta after start: %w", err)
 	}
 
