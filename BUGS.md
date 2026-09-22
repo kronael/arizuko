@@ -6427,7 +6427,7 @@ session-to-topic column persisted at first message — has no reader left to ser
   which left that sweep's heading standing over nothing.
 - **Fix:** none needed
 
-## anteval `--mcp` has no MCP client — bounded, anteval-side (2026-07-11, re-scoped 2026-09-21, no longer a proposal)
+## anteval `--mcp` has no MCP client — bounded, anteval-side (2026-07-11, fixed 2026-09-22)
 
 **The sign-off this entry asked for is not needed: the public surface it
 wanted already exists.** It offered two ways to close `5/9` gap (b) and said
@@ -6475,9 +6475,22 @@ corrected in the same pass.
 - **Affected:** nothing live — the case that used it is gone
 - **Source:** anteval/pkg/run/target.go:83-107; webd/mcp.go:171;
   webd/server.go:103,128,296
-- **Status:** open — bounded anteval work, no sign-off pending
-- **Fix:**
+- **Status:** fixed. `anteval/pkg/run/mcpread.go` speaks streamable HTTP
+  (`mark3labs/mcp-go`, already a direct dependency) and calls `get_history`.
+  The two argument shapes the entry flagged are settled: the topic is the run's
+  NONCE, which `run.go` already injects under, carried to the checker on
+  `check.Ctx.Topic`; the folder comes from `groupfolder.JidFolder`, so a
+  suffixed jid names no folder and is REFUSED rather than read as another
+  group's history (`L139`'s bug, not repeated). `role` maps to
+  `check.Msg.FromBot`. The `rest-mcp-parity` case is back in
+  `anteval/cases/anteval.toml`.
 
+  Two silent failure modes are pinned by test and proven by mutation: inverting
+  the role mapping, and failing to open the result envelope — webd answers
+  `NewToolResultText`, so the payload is a JSON STRING inside the first content
+  and is decoded twice. Either mistake reports an empty or mis-attributed
+  history, which in a parity check reads as "MCP does not have it".
+  `anteval/README.md`'s known-gap paragraph is replaced by what it does now.
 ## ✅ FIXED 2026-09-21 krons: `/hook/` proxyd route missing — webhook surface dead; route table not hot-reloaded (2026-07-11)
 
 Found by anteval's `webhook-in` live case. `POST /hook/<token>` on krons falls through to the
