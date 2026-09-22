@@ -399,3 +399,38 @@ func stubMeter(t *testing.T, metered bool, rows ...stubSpendRow) {
 	stubMetered, stubSpend = metered, rows
 	t.Cleanup(func() { stubMetered, stubSpend = true, nil })
 }
+
+// stubOnbod serves the one onbod read dashd makes, GET /v1/invites. onbod's
+// admin is package main, so its real resource cannot be mounted here; this
+// mirrors the shape onbod answers (onbod/admin.go inviteJSON), and a drift
+// between the two is what TestInviteRowMatchesOnbodsWireShape pins.
+func stubOnbod(t *testing.T, db objstore.Store) string {
+	t.Helper()
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1/invites", func(w http.ResponseWriter, _ *http.Request) {
+		invs, err := store.NewOver(db).ListInvites("")
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		out := make([]map[string]any, len(invs))
+		for i, inv := range invs {
+			row := map[string]any{
+				"ref":           inv.Ref,
+				"target_glob":   inv.TargetGlob,
+				"issued_by_sub": inv.IssuedBySub,
+				"issued_at":     inv.IssuedAt.Format(time.RFC3339),
+				"max_uses":      inv.MaxUses,
+				"used_count":    inv.UsedCount,
+			}
+			if inv.ExpiresAt != nil {
+				row["expires_at"] = inv.ExpiresAt.Format(time.RFC3339)
+			}
+			out[i] = row
+		}
+		writeStubJSON(w, map[string]any{"invites": out})
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	return srv.URL
+}

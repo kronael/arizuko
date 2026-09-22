@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -11,6 +13,40 @@ import (
 
 	"github.com/kronael/arizuko/store"
 )
+
+// inviteRow is onbod's read shape for an invite (GET /v1/invites). It carries
+// no token field, because the bearer is shown once at creation and never again.
+type inviteRow struct {
+	Ref         string `json:"ref"`
+	TargetGlob  string `json:"target_glob"`
+	IssuedBySub string `json:"issued_by_sub"`
+	IssuedAt    string `json:"issued_at"`
+	ExpiresAt   string `json:"expires_at,omitempty"`
+	MaxUses     int    `json:"max_uses"`
+	UsedCount   int    `json:"used_count"`
+}
+
+// listInvites reads onbod's own /v1, not onbod's tables. The rows belong to
+// onbod and onbod serves them on resreg, so the direct read was the one 6/28
+// forbids without qualifying for its `secrets` exception — the owner WOULD
+// serve this if asked, and does. The page's WRITES stay on the FS-mounted
+// discipline CLAUDE.md governs; only the LIST moves.
+func (d *dash) listInvites(ctx context.Context) ([]inviteRow, error) {
+	buf, status, err := d.bearerCall(ctx, d.onbodURL, http.MethodGet, "/v1/invites", nil)
+	if err != nil {
+		return nil, err
+	}
+	if status != http.StatusOK {
+		return nil, fmt.Errorf("onbod /v1/invites: %d", status)
+	}
+	var out struct {
+		Invites []inviteRow `json:"invites"`
+	}
+	if err := json.Unmarshal(buf, &out); err != nil {
+		return nil, err
+	}
+	return out.Invites, nil
+}
 
 // handleInvites renders the full invites page.
 // GET lists all pending invites with an inline create form.
@@ -24,14 +60,7 @@ func (d *dash) handleInvites(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, `<p class="dim">Invite links. Each token is single-use by default; set max uses for multi-use links. `+
 		`The link is shown once when you create it — this page lists each invite by its ref, which revokes but cannot redeem.</p>`)
 
-	s := d.onbodStore()
-	if s == nil {
-		fmt.Fprint(w, htmlBanner("err", "invites store unavailable"))
-		pageClose(w, r)
-		return
-	}
-
-	invites, err := s.ListInvites("")
+	invites, err := d.listInvites(r.Context())
 	if err != nil {
 		slog.Warn("invites: list", "err", err)
 		fmt.Fprint(w, htmlBanner("err", "invites query error: "+err.Error()))
@@ -45,8 +74,10 @@ func (d *dash) handleInvites(w http.ResponseWriter, r *http.Request) {
 		tableRows := make([][]string, len(invites))
 		for i, inv := range invites {
 			expires := "—"
-			if inv.ExpiresAt != nil {
-				expires = inv.ExpiresAt.Format("2006-01-02")
+			if inv.ExpiresAt != "" {
+				if t, err := time.Parse(time.RFC3339, inv.ExpiresAt); err == nil {
+					expires = t.Format("2006-01-02")
+				}
 			}
 			ref := inv.Ref
 			// Fully-used invites can't be redeemed again; hide revoke. MaxUses<=0
@@ -64,7 +95,7 @@ func (d *dash) handleInvites(w http.ResponseWriter, r *http.Request) {
 				`<code>` + esc(ref) + `</code>`,
 				`<code>` + esc(inv.TargetGlob) + `</code>`,
 				esc(inv.IssuedBySub),
-				`<abbr title="` + esc(inv.IssuedAt.UTC().Format(time.RFC3339)) + `">` + relativeTS(inv.IssuedAt.UTC().Format(time.RFC3339)) + `</abbr>`,
+				abbrTS(inv.IssuedAt),
 				esc(expires),
 				fmt.Sprintf("%d / %d", inv.UsedCount, inv.MaxUses),
 				revokeBtn,

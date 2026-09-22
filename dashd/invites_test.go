@@ -35,7 +35,7 @@ func testDBWithInvites(t *testing.T) objstore.Store {
 
 func TestHandleInvitesEmpty(t *testing.T) {
 	db := testDBWithInvites(t)
-	d := &dash{routd: db, onbod: db, routdURL: stubRoutd(t, db)}
+	d := &dash{routd: db, onbod: db, routdURL: stubRoutd(t, db), onbodURL: stubOnbod(t, db)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 
@@ -65,7 +65,7 @@ func TestHandleInviteCreateAndList(t *testing.T) {
 		Effect: "allow", GrantedBy: "test",
 	})
 
-	d := &dash{routd: db, onbod: db, routdURL: stubRoutd(t, db)}
+	d := &dash{routd: db, onbod: db, routdURL: stubRoutd(t, db), onbodURL: stubOnbod(t, db)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 
@@ -125,7 +125,7 @@ func TestHandleInviteCreateAndList(t *testing.T) {
 func TestHandleInviteCreateForbiddenWithoutAdminGrant(t *testing.T) {
 	db := testDBWithInvites(t)
 	// No acl row → requireAdmin denies.
-	d := &dash{routd: db, onbod: db, routdURL: stubRoutd(t, db)}
+	d := &dash{routd: db, onbod: db, routdURL: stubRoutd(t, db), onbodURL: stubOnbod(t, db)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 
@@ -161,7 +161,7 @@ func TestHandleInviteRevokeAndGone(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	d := &dash{routd: db, onbod: db, routdURL: stubRoutd(t, db)}
+	d := &dash{routd: db, onbod: db, routdURL: stubRoutd(t, db), onbodURL: stubOnbod(t, db)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 
