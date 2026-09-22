@@ -18,7 +18,7 @@ package store
 // set — and under any other partition it would have none to name.
 //
 // WHAT THE CONSTANT COSTS is that one read, and it was already a scan on the
-// engine this replaces: `SELECT sub, COALESCE(name,'') FROM user_profiles`
+// projection: the sub and the name, nothing else.
 // answers `SCAN user_profiles USING COVERING INDEX` (EXPLAIN QUERY PLAN, krons'
 // routd.db, 2026-09-09). What bounds the partition is the number of people who
 // have ever been given a profile, and the live fleet holds 0 on krons, 2 on

@@ -34,8 +34,8 @@ line; none can be answered from the code.
   the consume contract (`L104`).
 - `L317` — may `/stop` drop the backlog older than itself, and is that drop
   sender-scoped? No other command eats a row it did not author.
-- `L273`, `L254`, `L249`, `L319`, `L159`, `L202`, `L283` — proposals, each
-  costed in its entry.
+- `L273`, `L249`, `L319`, `L159`, `L202`, `L283` — proposals, each costed in
+  its entry.
 - `L339`, `L167`, `L200` — proposals too. `L200` and `L133` were re-measured
   2026-09-21 and each came back narrower than filed.
 - `L133` — one question after that re-measure: `ext:` is a third namespace the
@@ -1969,7 +1969,7 @@ new tool lands on the wrong side, which is what keeps the choice honest.
   per world instead of on `role:member`, and the guard test becomes the thing
   that stops them drifting.
 
-## L254 — "the point of no return arrives once per daemon" is false for anything that reaches through `store` (2026-09-07, open — proposal, needs sign-off)
+## ✅ CLOSED-STALE 2026-09-22 L254 — "the point of no return arrives once per daemon" is false for anything that reaches through `store` (2026-09-07)
 
 `6/37`'s order says each daemon moves on its own and reverts on its own.
 Measured 2026-09-07: **18 packages import `store`** — auth, authd, cmd/arizuko,
@@ -1992,9 +1992,22 @@ it is the decision this entry asks for.
 - **Scope:** `specs/6/37-store-model.md` §Order, `store/`, `resreg/`, `audit/`
 - **Affected:** every unit after `authd`
 - **Source:** measured importer census, 2026-09-07
-- **Status:** open — proposal, needs sign-off
-- **Fix:** move `store`, `resreg` and `audit` first, or accept that the port is
-  one cutover for eighteen packages and plan the rehearsal accordingly
+**CLOSED-STALE 2026-09-22: the port this entry asked to RE-ORDER has finished.**
+The measurement was sound and the question is gone, because the work it
+sequenced is done. Measured at HEAD:
+
+- `database/sql` is imported by exactly ONE file in the tree, `audit/audit_log_test.go`.
+- `db_utils/` does not exist, so the storage-layer rule and its guard
+  (`sql_layer_test.go`, `sqlLayers`) — steps 1 of the order — have no referent.
+- `store/migrations/` does not exist, so step 2's frozen legacy schema is gone.
+- No SQL runs in `store`. The four remaining `SELECT`/`sql.` hits in the package
+  were COMMENTS, two of them describing the `*sql.DB` era as current; corrected
+  in the same pass.
+
+Whatever order was actually taken, eighteen consumers reached no-SQL and the
+fleet is green on it (`dynamo_transition`, v0.68.0). Nothing is left to sign
+off. `specs/6/37` still says `status: partial`, which is a separate question
+about that spec's own bookkeeping, not about this decision.
 
 ## L249 — the archive export carries the config plane, not the runtime plane, so export/import cannot yet carry a daemon's port (2026-09-07, open — proposal, needs sign-off)
 

@@ -9,11 +9,8 @@ package store
 // places for the set to drift, which is what BUGS F29 cost when a database
 // booted healthy and dropped every audit row.
 //
-// The set is SMALL because the move is partial. `store.Store` still holds a
-// *sql.DB for the tables that have not moved and reaches the entities below
-// through the same pool's driver (Store.Obj), so each table has exactly one
-// implementation at every moment: a moved one reads through objstore, an
-// unmoved one through SQL. There is no fallback and no dual read.
+// Every table this package serves reads through objstore (`Store.Obj`). There
+// is one implementation per table, no fallback and no dual read.
 
 import (
 	"context"
@@ -242,11 +239,11 @@ type Driver interface {
 // migrate and the migration tools — and a loop copied into each is four places
 // for the set to drift. Asking twice is a no-op.
 //
-// The owner is a parameter rather than something derived from the handle,
-// because a *sql.DB does not know which file it opened and guessing from a path
-// is the derivation this repo has an outage on record for (CLAUDE.md). An owner
-// with no entities declared is a caller mistake and fails loudly: a silent
-// no-op there is a database that boots healthy and drops every write.
+// The owner is a parameter rather than something derived from the handle: a
+// handle does not know whose partition it addresses, and guessing identity from
+// a path is the derivation this repo has an outage on record for (CLAUDE.md).
+// An owner with no entities declared is a caller mistake and fails loudly — a
+// silent no-op there is a store that boots healthy and drops every write.
 //
 // audit's entity is NOT created here even though every database that holds
 // these also holds one. audit owns that declaration, four owners share it, and
