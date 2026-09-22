@@ -341,6 +341,47 @@ failure read as a quiet success.
 - **Status:** fixed. The sweep log reads `held`, and `pending` logs at ERROR
   before it answers empty. `pending says so when the ledger cannot be read`
   pins the second; removing the log fails it.
+## L353 — the shutdown guard named its own scope, so `timed` kept `L127`'s window (2026-09-22, fixed `pending`)
+
+`tests/shutdown` exists to stop exactly one defect: a daemon that arms
+`signal.Notify` AFTER its listener accepts, where a SIGTERM takes Go's default
+disposition and the `Shutdown` below never runs. `L127` found that in six of
+nine daemons and closed it.
+
+**The guard held a hand-written list of nine files, and `timed/split.go` was
+not one.** timed's server lives in `split.go`, the list never followed, and the
+guard reported nine green while timed started its listener on line 86 and
+called `signal.Notify` on line 92. Deploys are `systemctl restart`, so that
+window is entered on every deploy of every instance.
+
+`mcpfw/cmd/mcpfw/main.go` had no signal handling at all — it served through
+`http.ListenAndServe` directly, with no `Shutdown` anywhere. It is not in any
+compose fragment, so nothing deployed was affected, but it ships as a sibling
+component and the root rule is "ALWAYS handle graceful shutdown on
+SIGINT/SIGTERM".
+
+**The cause fix is the guard, not the two daemons.** It now walks the tree for
+every `main` package that starts a listener, instead of naming them: the same
+nine plus `timed` and `mcpfw`, with `refs/` and `third_party/` skipped as other
+people's code. An empty result is a hard failure — which immediately caught a
+bug in my own walk, since it starts at `"../.."` and that name begins with a
+dot, so the root was skipped and the guard found nothing.
+
+Proven by mutation three ways: revert timed's ordering, drop mcpfw's
+`signal.Notify`, break the walk. Each fails, each with the sentence that names
+the file.
+
+- **Severity:** medium (every `timed` deploy entered an unhandled-SIGTERM
+  window; the guard that should have said so could not see the file)
+- **Scope:** `timed/split.go`, `mcpfw/cmd/mcpfw/main.go`, `tests/shutdown`
+- **Affected:** every instance, on every deploy
+- **Source:** a source scan of every `package main` holding `ListenAndServe`,
+  compared against the guard's hardcoded list
+- **Status:** fixed `pending`. The same shape as `L342`'s and `L349`'s lesson,
+  and `gate_cannot_fail`: a gate whose scope is hand-maintained stops covering
+  what moves, and reports green the whole time.
+- **Fix:** shipped in `80b641fa` (the two daemons) and `4bb4ef9d` (the guard).
+
 ## L352 — `tmp/` is gitignored but its Go files join the module, so the lint gate is not the gate CI runs (2026-09-22, open)
 
 `./tmp` is where scratch goes by convention (`~/.claude/CLAUDE.md`, Bash / Tool
