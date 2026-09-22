@@ -259,12 +259,45 @@ last one excludes the shape this gate was built to catch.
 - **Affected:** every lint run
 - **Source:** `golangci-lint --version` → 2.13.2; `make lint` → exit 3;
   `golangci-lint migrate` then `make lint` → 81 issues
+**TWELVE OF THE 81 EXAMINED 2026-09-22, and three were real defects.** Each is
+fixed on its own terms; the linter was run with `--no-config` so the repo's
+config stayed untouched.
+
+- `nilerr` → **`chownR` answered success over a tree it never touched**
+  (`d5b18dce`). `F62` made its `Lchown` errors propagate; the WALK error was
+  still discarded, so a directory runed cannot read skipped that whole subtree
+  with no chown attempted and nothing reported — `F62`'s exact silence, one
+  level above the fix that names it.
+- `unused` → **`routd` declared a `cost:write` scope nothing reads**
+  (`bffe31c7`). `4fee18cf` moved the write path to the gateway under
+  `6/39-gateway-owns-spend`; the scope and its rationale stayed.
+- `ineffassign` → **`runed/docker.go` bound `StartSpan`'s context and dropped
+  it** (`ce5a7b93`). `runner.Run` takes none, so `container_spawn` parents
+  nothing. Two others in the same run were NOT defects: one redundant `err =
+  nil`, and one `src = nil` that is load-bearing — it drops the last reference
+  so the GC below can take the corpus before the heap is read, so it took a
+  `nolint` with that reason rather than a deletion.
+
+**The one substantive `staticcheck` finding is a proposal, not a fix.**
+`proxyd/main.go:282,287` use `httputil.ReverseProxy.Director`, deprecated since
+Go 1.26 in favour of `Rewrite`. It is NOT a security hole: `stripClientHeaders`
+is the first statement of `(s *server) route`, proxyd's single ingress, and it
+deletes `X-User-Sub/Name/Groups/Sig` before anything else runs. But `Rewrite`
+builds the outbound request differently — `SetXForwarded` is explicit there —
+and proxyd is the sole `X-User-*` stamper, so changing it is changed control
+flow on the security boundary. The other 19 are style (De Morgan, `Fprintf`,
+merged declarations, capitalised error strings).
+
+Unexamined: 47 `errcheck` and two unused test helpers.
+
 - **Status:** open — two ways out and they cost differently. Pin the action to
   a v1 release and the gate keeps working with no code change. Or migrate the
   config, restore the header and the explicit `errcheck`, drop the presets the
-  migrator invented, and work through what v2's wider default set reports.
-  Choosing is yours; I restored the v1 config and changed nothing.
-- **Fix:**
+  migrator invented, and work through what v2's wider default set reports. The
+  evidence now favours migrating: three genuine defects out of the twelve
+  findings read. Choosing is yours; the v1 config is untouched.
+- **Fix:** `d5b18dce`, `bffe31c7`, `ce5a7b93` are the defects it found. The
+  config itself is undecided.
 
 ## L355 — a bare spec number that resolves can still name the wrong document, and two sit in the authorization path (2026-09-22, open)
 
