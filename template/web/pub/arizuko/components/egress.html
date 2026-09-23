@@ -131,13 +131,13 @@ make -C egress build        # produces ./egress/egress
 
     <p><code>GET /health</code> returns 200 <code>{"status":"ok"}</code> once the listener is bound and the allowlist loaded, 503 <code>{"status":"starting"}</code> before. It is answered before the <code>--client</code> check, because whoever starts the sandbox is not the client. Proxy requests arrive in absolute form (<code>GET http://host/path</code>), so an origin-form <code>GET /health</code> is unambiguously a probe of this process rather than traffic to forward.</p>
 
-    <h3>Running something in a box locally</h3>
-    <p><code>crackbox</code> is the local-development command that composes <code>egress</code> with a sandbox so you can try the same shape on your own machine. Production never runs it &mdash; runed starts <code>egress</code> directly.</p>
+    <h3>Running the proxy locally</h3>
+    <p>Start the binary on its own to try the same shape on your own machine. Production does exactly this &mdash; runed starts one <code>egress</code> process per spawn and stops it with the turn.</p>
 
-    <pre><code>crackbox run --allow github.com,api.anthropic.com -- curl https://github.com
-crackbox run --image python:3 --allow pypi.org,files.pythonhosted.org -- pip install requests</code></pre>
+    <pre><code>egress --listen 127.0.0.1:3128 --client 127.0.0.1 --allow github.com,api.anthropic.com
+HTTPS_PROXY=http://127.0.0.1:3128 curl https://github.com</code></pre>
 
-    <p><code>crackbox run --kvm</code> swaps the container for a qemu VM using the <code>sandbox/</code> library, where the allowlist becomes netfilter rules on the VM&rsquo;s tap device instead of a proxy hop. That library is shipped but <strong>not wired into the arizuko spawn path</strong> &mdash; runed spawns Docker containers, and <code>crackbox run --kvm</code> is its only consumer today.</p>
+    <p>The VM substrate puts the same proxy on the host side of the guest&rsquo;s tap, so the guest&rsquo;s only route out is through it &mdash; enforced below the kernel the agent runs, rather than by a network with no route (<a href="https://github.com/kronael/arizuko/blob/main/specs/6/41-qemu-substrate.md"><code>specs/6/41</code></a>). The four <code>EGRESS_*</code> settings below are docker facts and retire with the container substrate; the allowlist rows do not.</p>
 
     <h2>Key env vars</h2>
     <p>These are read by runed, not by the proxy binary. Naming <code>EGRESS_IMAGE</code> is the whole switch &mdash; there is no separate enable flag.</p>
@@ -155,9 +155,9 @@ crackbox run --image python:3 --allow pypi.org,files.pythonhosted.org -- pip ins
       <li><a href="../security/">security</a> &mdash; where egress sits among the other agent-run controls.</li>
       <li><a href="runed.html">components/runed</a> &mdash; the daemon that starts the proxy and the agent, in that order.</li>
       <li><a href="../reference/cli.html">reference/cli</a> &mdash; <code>arizuko network allow / deny / list / resolve</code>, which write the rules the proxy is started with.</li>
-      <li><code>egress/README.md</code>, <code>crackbox/README.md</code>, <code>sandbox/README.md</code> &mdash; the three directories and what each one is.</li>
+      <li><code>egress/README.md</code>, <code>sandbox/README.md</code> &mdash; the two directories and what each one is.</li>
       <li><a href="https://github.com/kronael/arizuko/blob/main/specs/6/24-crackbox-lightest.md"><code>specs/6/24</code></a> &mdash; the cut: what the shared model cost and why per-spawn is safer, not just smaller.</li>
-      <li><a href="https://github.com/kronael/arizuko/blob/main/specs/6/9-crackbox-sandboxing.md"><code>specs/6/9</code></a> &mdash; the KVM/qemu sandbox library.</li>
+      <li><a href="https://github.com/kronael/arizuko/blob/main/specs/6/41-qemu-substrate.md"><code>specs/6/41</code></a> &mdash; the VM substrate, where this proxy moves to the host side of the guest&rsquo;s tap.</li>
     </ul>
 
 
@@ -167,7 +167,7 @@ crackbox run --image python:3 --allow pypi.org,files.pythonhosted.org -- pip ins
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/components/egress.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-09-19">2026-09-19</time>
+        &middot; updated <time class="docs-updated" datetime="2026-09-20">2026-09-20</time>
       </div>
     </main>
 
