@@ -32,19 +32,19 @@ right-hand side. `ant/` changes by zero lines.
 These are constraints, not a verdict. A design that does not meet the first row
 is not shipped.
 
-| Constraint                     | Measured                                                                                                                                                                                                                                                                      |
-| ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Boot budget                    | Docker `run --rm --entrypoint /bin/true arizuko-ant:latest`: **0.62 / 0.82 / 0.93 s** wall. The VM turn must reach `init` in **≤ 1.0 s p50** on the same host, measured the same way (§"The warm pool").                                                                      |
-| Untuned QEMU, distro kernel    | `-M q35,accel=kvm` direct kernel boot, Debian 6.1.0-43 kernel, static Go init: **2.43 / 2.69 / 2.89 s** wall, 0.7–0.8 s guest uptime at init. `-M microvm`: **3.75–4.06 s**, 1.9–2.2 s guest uptime.                                                                          |
-| The VMM itself                 | `qemu-system-x86_64 -M microvm -S` start and quit: **0.09–0.13 s**. The cost is the guest kernel, not QEMU.                                                                                                                                                                   |
-| Tuned QEMU, literature         | Firecracker's NSDI'20 paper §5.1: Linux 4.14, no modules, qboot, 1 vCPU/256 MB — QEMU boots within ~50 ms of end-to-end Firecracker; pre-configured Firecracker p99 146 ms (usenix.org/system/files/nsdi20-paper-agache.pdf).                                                 |
-| Turn volume                    | krons: 162 turns in 7 days, 15 in the last 24 h (`container-*.log` count under `groups/`). Boot cost is per-turn latency the user sees, not throughput.                                                                                                                       |
-| Host                           | 2 vCPU, 15 GB RAM, QEMU 7.2.22 (Debian 12), `/dev/kvm`, `/dev/vhost-vsock`, `/dev/net/tun` present; kernel ships `fs/fuse/virtiofs.ko` and the vsock transports; `socat 1.7.4.4` built `WITH_VSOCK`.                                                                          |
-| QEMU 7.2 devices               | `-M microvm`, `vhost-user-fs-device`, `vhost-vsock-device`, `memory-backend-memfd`, `-sandbox on` all present (`-M help`, `-device help`, `-object help`).                                                                                                                    |
-| Image                          | `arizuko-ant:latest` is **8.26 GB** (`node:22-slim` + ~40 tool installs, `ant/Dockerfile`). The rootfs pipeline moves this once per release, never per turn.                                                                                                                  |
-| Packages the runed image needs | Alpine carries `qemu-system-x86_64`, `virtiofsd`, `socat` (`apk search` from `arizuko:latest`, 2026-09-12); none of the three is installed in `arizuko:latest` today, so the image gains them (§"The runed deploy topology"). `nftables`/`iptables` verified at build, §Open. |
-| Host disk                      | hel1v5: **5.2 GB free of 256 GB, 98 % used** (`df -h /`, 2026-09-23), with `arizuko-ant` at `latest` 7.85 GB and two release tags at 8.26 GB each already resident. The rootfs export needs one rootfs of free space per release (§"The image and the guest kernel").         |
-| Host memory and concurrency    | `MAX_CONCURRENT_CONTAINERS` defaults to **5** (`core/config.go:246`) and caps total live spawns (`runed/manager.go:47-53`). Five guests at `-m 4G` is 20 GB against 15 GB total and ~5 GB free, so the guest size and the cap are one budget (§"The host budget").            |
+| Constraint                     | Measured                                                                                                                                                                                                                                                                             |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Boot budget                    | Docker `run --rm --entrypoint /bin/true arizuko-ant:latest`: **0.62 / 0.82 / 0.93 s** wall. The VM turn must reach `init` in **≤ 1.0 s p50** on the same host, measured the same way (§"The warm pool").                                                                             |
+| Untuned QEMU, distro kernel    | `-M q35,accel=kvm` direct kernel boot, Debian 6.1.0-43 kernel, static Go init: **2.43 / 2.69 / 2.89 s** wall, 0.7–0.8 s guest uptime at init. `-M microvm`: **3.75–4.06 s**, 1.9–2.2 s guest uptime.                                                                                 |
+| The VMM itself                 | `qemu-system-x86_64 -M microvm -S` start and quit: **0.09–0.13 s**. The cost is the guest kernel, not QEMU.                                                                                                                                                                          |
+| Tuned QEMU, literature         | Firecracker's NSDI'20 paper §5.1: Linux 4.14, no modules, qboot, 1 vCPU/256 MB — QEMU boots within ~50 ms of end-to-end Firecracker; pre-configured Firecracker p99 146 ms (usenix.org/system/files/nsdi20-paper-agache.pdf).                                                        |
+| Turn volume                    | krons: 162 turns in 7 days, 15 in the last 24 h (`container-*.log` count under `groups/`). Boot cost is per-turn latency the user sees, not throughput.                                                                                                                              |
+| Host                           | 2 vCPU, 15 GB RAM, QEMU 7.2.22 (Debian 12), `/dev/kvm`, `/dev/vhost-vsock`, `/dev/net/tun` present; kernel ships `fs/fuse/virtiofs.ko` and the vsock transports; `socat 1.7.4.4` built `WITH_VSOCK`.                                                                                 |
+| QEMU 7.2 devices               | `-M microvm`, `vhost-user-fs-device`, `vhost-vsock-device`, `memory-backend-memfd`, `-sandbox on` all present (`-M help`, `-device help`, `-object help`).                                                                                                                           |
+| Image                          | `arizuko-ant:latest` is **8.26 GB** (`node:22-slim` + ~40 tool installs, `ant/Dockerfile`). The rootfs pipeline moves this once per release, never per turn.                                                                                                                         |
+| Packages the runed image needs | Alpine carries `qemu-system-x86_64`, `virtiofsd`, `socat` (`apk search` from `arizuko:latest`, 2026-09-12); none of the three is installed in `arizuko:latest` today, so the image gains them (§"The runed deploy topology"). `nftables`/`iptables` verified at build, §Open.        |
+| Host disk                      | hel1v5: **9.4 GB free of 256 GB** after `docker builder prune -f` recovered 4.37 GB of layer cache (2026-09-23); before it, 5.2 GB. `arizuko-ant` holds `latest` at 7.85 GB and two release tags at 8.26 GB. One rootfs export fits, and the operator reclaims (§"The host budget"). |
+| Host memory and concurrency    | `MAX_CONCURRENT_CONTAINERS` defaults to **5** (`core/config.go:246`) and caps total live spawns (`runed/manager.go:47-53`). Five guests at `-m 4G` is 20 GB against 15 GB total and ~5 GB free, so the guest size and the cap are one budget (§"The host budget").                   |
 
 ## The engine: `qemu-system-x86_64`, owned by arizuko
 
@@ -459,12 +459,15 @@ any of them. Measured on hel1v5 (the krons host) 2026-09-23.
   with an explicit `size=`, and a write past it is `ENOSPC` inside the guest —
   a failed turn, never a host that reclaims under pressure.
 - **Disk is one rootfs per release, and a release deletes.** The export is
-  8.26 GB uncompressed and the host has 5.2 GB free today, so the export step
-  does not fit as things stand. `make images` therefore checks free space
-  against the image size BEFORE it exports and fails loudly, and it keeps
-  exactly two unpacked trees — the running release and one previous, so a
-  rollback needs no re-export — and deletes every older one by name. An
-  operator who wants more keeps more; nothing accumulates by default.
+  8.26 GB uncompressed. Free space is the operator's, not a guard in the build:
+  `docker builder prune -f` is the lever and it recovered 4.37 GB on krons
+  (`docker system df` reported the layer cache 100 % reclaimable, 2026-09-23),
+  taking free space from 5.2 GB to 9.4 GB. `make images` carries no free-space
+  check — a build that cannot write fails on the write, which is loud enough. **Never `docker image prune -a` on an
+  arizuko host**: it deletes `arizuko-ant` and every spawn then fails. What the
+  export DOES own is not growing without bound: it keeps exactly two unpacked
+  trees — the running release and one previous, so a rollback needs no
+  re-export — and deletes every older one by name.
 
 ## The runed deploy topology
 
@@ -583,10 +586,9 @@ ceiling `New(instanceID, dataDir)`, `Spawn`, `Stop`, `List` and `Exec`
 1. **Land behind the selector, default `docker`.** `runed/qemu.go`, the
    `container.Run` split, the fold of `sandbox/` into `runed/` (§"What moves
    into `runed`"), `guest-init`, the kernel stage, the compose generator's
-   device and capability lines, and the three host-budget guards
-   (§"The host budget"): the memory-times-cap refusal at runed start, the
-   free-space check and two-tree retention in `make images`, and the overlay
-   `size=`. No file under `runed/runstore`, `store/` or
+   device and capability lines, and the two host-budget guards
+   (§"The host budget"): the memory-times-cap refusal at runed start and the
+   overlay `size=`, plus two-tree retention in `make images`. No file under `runed/runstore`, `store/` or
    `objstore/` is touched. Tests without a hypervisor cover the record, the
    argument rendering, the frame codec and the tree builder; `make
 bench-boot` and the end-to-end turn run on a host with `/dev/kvm`.
@@ -676,9 +678,8 @@ example.com` fails; a raw `nc` to any address off the tap times out.
 - **A squatted vsock port fails the turn and never moves.** Bind the port runed
   would take, start a turn, and assert the turn fails with the bind error and
   that runed binds no other port (§"The peer credential").
-- **`make images` refuses to export** when free space is under the image size,
-  and after two releases exactly two unpacked rootfs trees remain
-  (§"The host budget").
+- **After three releases exactly two unpacked rootfs trees remain**, named by
+  version, and the third-oldest is gone (§"The host budget").
 
 ## Open questions — each with the measurement that settles it
 
