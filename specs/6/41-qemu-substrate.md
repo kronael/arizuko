@@ -83,22 +83,99 @@ pipeline would have failed to produce.
 
 ## The seam: one interface, one production type, one instance one substrate
 
-`runed.Runtime` (`runed/runtime.go:71-83`) is one interface with one
-production implementation chosen at startup (`runed/docker.go:46`) and one
-fake for tests (`runed/runtimes.go`). Three answers:
+`runed.Runtime` is the port: two methods, one production implementation
+chosen at startup (`NewDockerRuntime` in `runed/docker.go`; `runed/qemu.go`
+over `sandbox/` is the second), one fake for tests (`runed/runtimes.go`) and
+`holdRuntime` for a run that starts nothing. The port and its one value are
+declared together in `runed/runtime.go`:
+
+```go
+// Runtime starts one guest and stops it. ctx carries the deadline.
+type Runtime interface {
+	Run(ctx context.Context, t Turn) RunResult
+	Kill(handle string) error
+}
+
+// Turn is the envelope: one guest, rendered. A substrate delivers every
+// field and interprets none.
+type Turn struct {
+	Handle        string            // the substrate starts, steers and kills by it
+	Folder        string            // the one path the substrate resolves
+	Mounts        []core.Mount      // the mount table's right-hand side; Container is the guest path
+	Env           map[string]string // the agent's process environment
+	Stdin         []byte            // the agent payload: ant/src/index.ts ContainerInput
+	Egress        []string          // the proxy allowlist, grants applied
+	RegisterSteer func(steer func(batch string) bool)
+}
+```
+
+`RunResult` does not change. `Handle` is what `steerInto`, `armCancel`,
+`Kill` and `holdRuntime`'s slot act on, and what step 1 of §"The turn"
+records the VM under. `Folder` is read for paths only: the ipc dir of the
+Docker steer, the `logs/` dir of the turn log, the name of the Docker egress
+network. `Mounts`, `Env`, `Stdin` and `Egress` reach Docker as `-v`, `-e`,
+the stdin pipe and the proxy container, and QEMU as the staging tree, the
+`{env, stdin}` frame on `ctl` and the proxy on the tap; a substrate adds the
+proxy variables (`HTTP_PROXY` and its three companions) because their value
+is its own address. `RegisterSteer`'s closure is what each substrate makes of
+it (§"Steer and stop").
+
+The deadline is `ctx`. `Manager.spawn` arms it from `RunTTL`, and the group's
+`container_config` `Timeout` is an input to that one deadline, never a
+substrate's timer. A substrate with a timer of its own reads `ctx.Deadline()`.
+
+**The renderer.** The envelope half of `container.Run` — `prepareInput`,
+`buildMounts`, `seedSettings`, `spawnSecrets`, `pickOutputStyle`, the
+payload marshal — becomes one function in `runed` that takes the wire request
+(`runedv1.RunRequest`), the handle and the deadline and returns a `Turn`.
+`Manager.spawn` calls it, then `Run`. The `docker run` half — `buildArgs`,
+the process start, its stderr reader and its timers — becomes the body of
+`runed/docker.go`; `container/` keeps group setup, seeding, snapshots and the
+egress proxy engine. `container.Runner`, `container.Input`,
+`container.Output` and `RunSpec` are deleted: the facts they copied between
+them are declared once, on the wire request, and rendered once.
+
+**Where `Turn` lives, and why.** In `runed`, beside the interface. Its only
+readers are runed's: the manager fills it, the two runtimes and the fake
+consume it. `container/` then declares no turn type, so the port imports
+nothing named for a substrate. `substrate/` cannot hold it — its own rule
+refuses a field that holds a folder or an allowlist — and `runed/api/v1` is
+routd's format, not the port's.
+
+**What leaves the port, and who takes it.**
+
+- `RunID`, `Kind`, `Isolated` → the manager: `SetSteer(runID, …)`,
+  `executor(kind)`, the session-log decision in `spawn`. No runtime reads them.
+- `RunTTL` → `ctx`; the renderer writes `ARIZUKO_QUERY_TIMEOUT_MS` into
+  `Env` from the deadline.
+- `ContainerName` → `Handle`. `ContainerConfig.Mounts` → `Mounts`, through
+  `mountsec`; `ContainerConfig.Timeout` → the deadline.
+- `MessageBatch`, `SessionID`, `ChatJID`, `Topic`, `TurnID`, `TriggerSender`,
+  `Secrets`, `Channel` → `Stdin`.
+- `Model`, `Effort`, `GHWrite`, `ModelGatewayKey`, `Elevated` → `Env`.
+  `Elevated`, `ShareReadOnly`, `WebPublish` → `Mounts`. `Channel`, `ChatJID`,
+  `Topic`, `WebPublish`, `Elevated` → `settings.json`.
+- `EgressAllowlist` and the `Egress` grant → `Egress`.
+- `CallerSub`: nothing in runed reads it. It stays on the pinned wire body
+  and goes nowhere.
+- `Input.MsgCount`, `GroupPath`, `PaneLookup`: no production setter; they
+  leave with `Input`.
+
+**What this forecloses.** A substrate cannot read a grant, a persona or a
+session id: it holds names, rows and bytes. A new per-turn fact changes the
+renderer and never the port. A substrate's own state — a CID, a tap, a
+network — is keyed by `Handle` and is never a `Turn` field, so `Kill(handle)`
+finds all of it. One payload format serves both substrates; `ant/` changes by
+zero lines. A third method on `Runtime`, or a `Turn` field a substrate must
+interpret, needs an approved plan first (root `CLAUDE.md`, "A port is two
+methods and stays two").
+
+Two answers the port does not change:
 
 - **Does this make the runner multi-machine? No.** runed spawns one VM per
   turn on its own host, exactly as it spawns one container per turn on its own
   host. The seam gains no scheduler and no notion of a second host; a second
   host is a second instance, as today.
-- **What a second implementation means.** `runed/qemu.go` implements
-  `Runtime` over `sandbox/`. `container.Run` (`container/runner.go:161`)
-  splits into its envelope half — `seedSettings`, `seedSkills`, the `Input`
-  JSON, the output-style pick, the secret scrub, the turn log — which both
-  runtimes call, and its `docker run` half (`runner.go:678-745`,
-  `container/network.go`, `container/egress.go`'s container start), which
-  only the Docker runtime calls. `RunSpec` and `RunResult` do not change
-  shape; `RegisterSteer`'s closure is what each runtime makes of it.
 - **What selects it, and whether one instance may run both.** During the
   transition, `RUNED_SUBSTRATE=docker|qemu` in the instance `.env`, read once
   at runed start, logged once with the substrate line runed already prints
@@ -117,7 +194,7 @@ routd binds the folder's `gated.sock` before the spawn, as today
 1. Allocates the VM's CID (`≥ 3`, unique among live VMs on the host) and two
    vsock ports on the host side, `ctl` and `mcp`, and records all three in
    the spawn's on-disk record (`sandbox/internal/metadata.go`) under the
-   `ContainerName` the Manager pinned.
+   `Handle` the Manager pinned.
 2. Builds the turn's staging tree (§"The files") and starts two `virtiofsd`
    processes: `root` over the release's unpacked rootfs, read-only, and
    `turn` over the staging tree.
@@ -139,9 +216,8 @@ routd binds the folder's `gated.sock` before the spawn, as today
    github.com/kata-containers/kata-containers/blob/main/docs/how-to/how-to-run-docker-with-kata.md),
    mounts `turn`, bind-mounts each family onto its canonical path, mounts a
    1 GiB `/dev/shm` (the `--shm-size=1g` of `runner.go:682`), dials
-   `ctl`, and receives one JSON frame `{env, input}` — the environment
-   `runner.go:683-736` passes as `-e` and the envelope `runner.go:247`
-   writes to stdin.
+   `ctl`, and receives one JSON frame `{env, stdin}`: `Turn.Env` and
+   `Turn.Stdin`.
 7. `guest-init` starts `socat UNIX-LISTEN:/run/ipc/gated.sock,fork
 VSOCK-CONNECT:2:<mcp>` on a guest-local tmpfs and execs ant as uid 1000
    with the environment and the envelope on stdin. `settings.json`'s MCP
@@ -152,7 +228,7 @@ VSOCK-CONNECT:2:<mcp>` on a guest-local tmpfs and execs ant as uid 1000
 9. ant exits; `guest-init` sends `{exit: code}` on `ctl` and powers the
    guest off; QEMU exits; runed reaps in order: tap rules, tap, the two
    `virtiofsd` (they exit with their socket), the staging tree, the record.
-   `RunTTL` expiry is `SIGKILL` on the QEMU pid, then the same reap.
+   `ctx` expiry is `SIGKILL` on the QEMU pid, then the same reap.
 
 `RunResult.ExitCode` is the `{exit}` frame; `Outcome` and `NewSessionID`
 arrive by `submit_turn` over MCP, unchanged.
@@ -163,7 +239,7 @@ arrive by `submit_turn` over MCP, unchanged.
 | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `docker run -i --rm --name … --shm-size=1g` (`runner.go:680-682`)                                        | one QEMU process per turn (§"The turn" step 5); `/dev/shm` sized by `guest-init`                                                                                                                       |
 | nine mount families as `-v` (`runner.go:539-669`, `741-744`)                                             | one staging tree, one `turn` share (§"The files")                                                                                                                                                      |
-| `-e KEY=VALUE` (`runner.go:683-736`) and the stdin envelope (`runner.go:247`)                            | the `{env, input}` frame on `ctl`; nothing touches the kernel command line or a file                                                                                                                   |
+| `-e KEY=VALUE` and the stdin pipe, from `Turn.Env` and `Turn.Stdin`                                      | the `{env, stdin}` frame on `ctl`; nothing touches the kernel command line or a file                                                                                                                   |
 | `--user uid:gid` when the host uid is not 1000 (`runner.go:731-737`)                                     | the guest agent is always uid 1000; `virtiofsd` carries the guest's credentials to the host, `--translate-uid` where a data dir is owned otherwise (§Open)                                             |
 | routd's socket visible through the bind-mounted `ipc/` dir (`ipc/ipc.go:361-363`, `runner.go:912-915`)   | vsock, CID-pinned, bridged by runed (§"The peer credential"); a unix socket does not cross virtio-fs — a bind-mounted socket answers "Operation not supported" (github.com/abiosoft/colima/issues/997) |
 | SO_PEERCRED uid check (`ipc/ipc.go:397-410`)                                                             | unchanged in routd; the bridge child runs as uid 1000 and the guest is bound by CID (§"The peer credential")                                                                                           |
