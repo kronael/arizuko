@@ -32,17 +32,19 @@ right-hand side. `ant/` changes by zero lines.
 These are constraints, not a verdict. A design that does not meet the first row
 is not shipped.
 
-| Constraint                     | Measured                                                                                                                                                                                                                      |
-| ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Boot budget                    | Docker `run --rm --entrypoint /bin/true arizuko-ant:latest`: **0.62 / 0.82 / 0.93 s** wall. The VM turn must reach `init` in **≤ 1.0 s p50** on the same host, measured the same way (§"The warm pool").                      |
-| Untuned QEMU, distro kernel    | `-M q35,accel=kvm` direct kernel boot, Debian 6.1.0-43 kernel, static Go init: **2.43 / 2.69 / 2.89 s** wall, 0.7–0.8 s guest uptime at init. `-M microvm`: **3.75–4.06 s**, 1.9–2.2 s guest uptime.                          |
-| The VMM itself                 | `qemu-system-x86_64 -M microvm -S` start and quit: **0.09–0.13 s**. The cost is the guest kernel, not QEMU.                                                                                                                   |
-| Tuned QEMU, literature         | Firecracker's NSDI'20 paper §5.1: Linux 4.14, no modules, qboot, 1 vCPU/256 MB — QEMU boots within ~50 ms of end-to-end Firecracker; pre-configured Firecracker p99 146 ms (usenix.org/system/files/nsdi20-paper-agache.pdf). |
-| Turn volume                    | krons: 162 turns in 7 days, 15 in the last 24 h (`container-*.log` count under `groups/`). Boot cost is per-turn latency the user sees, not throughput.                                                                       |
-| Host                           | 2 vCPU, 15 GB RAM, QEMU 7.2.22 (Debian 12), `/dev/kvm`, `/dev/vhost-vsock`, `/dev/net/tun` present; kernel ships `fs/fuse/virtiofs.ko` and the vsock transports; `socat 1.7.4.4` built `WITH_VSOCK`.                          |
-| QEMU 7.2 devices               | `-M microvm`, `vhost-user-fs-device`, `vhost-vsock-device`, `memory-backend-memfd`, `-sandbox on` all present (`-M help`, `-device help`, `-object help`).                                                                    |
-| Image                          | `arizuko-ant:latest` is **8.26 GB** (`node:22-slim` + ~40 tool installs, `ant/Dockerfile`). The rootfs pipeline moves this once per release, never per turn.                                                                  |
-| Packages the runed image needs | Alpine carries `qemu-system-x86_64`, `virtiofsd`, `socat` (`apk search` from `arizuko:latest`, 2026-09-12). `nftables`/`iptables` verified at build, §Open.                                                                   |
+| Constraint                     | Measured                                                                                                                                                                                                                                                                      |
+| ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Boot budget                    | Docker `run --rm --entrypoint /bin/true arizuko-ant:latest`: **0.62 / 0.82 / 0.93 s** wall. The VM turn must reach `init` in **≤ 1.0 s p50** on the same host, measured the same way (§"The warm pool").                                                                      |
+| Untuned QEMU, distro kernel    | `-M q35,accel=kvm` direct kernel boot, Debian 6.1.0-43 kernel, static Go init: **2.43 / 2.69 / 2.89 s** wall, 0.7–0.8 s guest uptime at init. `-M microvm`: **3.75–4.06 s**, 1.9–2.2 s guest uptime.                                                                          |
+| The VMM itself                 | `qemu-system-x86_64 -M microvm -S` start and quit: **0.09–0.13 s**. The cost is the guest kernel, not QEMU.                                                                                                                                                                   |
+| Tuned QEMU, literature         | Firecracker's NSDI'20 paper §5.1: Linux 4.14, no modules, qboot, 1 vCPU/256 MB — QEMU boots within ~50 ms of end-to-end Firecracker; pre-configured Firecracker p99 146 ms (usenix.org/system/files/nsdi20-paper-agache.pdf).                                                 |
+| Turn volume                    | krons: 162 turns in 7 days, 15 in the last 24 h (`container-*.log` count under `groups/`). Boot cost is per-turn latency the user sees, not throughput.                                                                                                                       |
+| Host                           | 2 vCPU, 15 GB RAM, QEMU 7.2.22 (Debian 12), `/dev/kvm`, `/dev/vhost-vsock`, `/dev/net/tun` present; kernel ships `fs/fuse/virtiofs.ko` and the vsock transports; `socat 1.7.4.4` built `WITH_VSOCK`.                                                                          |
+| QEMU 7.2 devices               | `-M microvm`, `vhost-user-fs-device`, `vhost-vsock-device`, `memory-backend-memfd`, `-sandbox on` all present (`-M help`, `-device help`, `-object help`).                                                                                                                    |
+| Image                          | `arizuko-ant:latest` is **8.26 GB** (`node:22-slim` + ~40 tool installs, `ant/Dockerfile`). The rootfs pipeline moves this once per release, never per turn.                                                                                                                  |
+| Packages the runed image needs | Alpine carries `qemu-system-x86_64`, `virtiofsd`, `socat` (`apk search` from `arizuko:latest`, 2026-09-12); none of the three is installed in `arizuko:latest` today, so the image gains them (§"The runed deploy topology"). `nftables`/`iptables` verified at build, §Open. |
+| Host disk                      | hel1v5: **5.2 GB free of 256 GB, 98 % used** (`df -h /`, 2026-09-23), with `arizuko-ant` at `latest` 7.85 GB and two release tags at 8.26 GB each already resident. The rootfs export needs one rootfs of free space per release (§"The image and the guest kernel").         |
+| Host memory and concurrency    | `MAX_CONCURRENT_CONTAINERS` defaults to **5** (`core/config.go:246`) and caps total live spawns (`runed/manager.go:47-53`). Five guests at `-m 4G` is 20 GB against 15 GB total and ~5 GB free, so the guest size and the cap are one budget (§"The host budget").            |
 
 ## The engine: `qemu-system-x86_64`, owned by arizuko
 
@@ -75,10 +77,18 @@ is taken.
   exec and socket transports are undocumented. `CelestoAI/SmolVM` is an
   unrelated project with the same name.
 
-**Reopen trigger, one:** if the guest-kernel pipeline cannot deliver the boot
-budget on krons within its costed budget (§"The image and the guest kernel"),
-the engine question reopens for libkrun, whose bundled kernel is the thing the
-pipeline would have failed to produce.
+**The machine type is not the engine, and it falls back first.** `-M microvm`
+measured SLOWER than `-M q35` on the distro kernel — 3.75–4.06 s against
+2.43–2.89 s — so microvm is a bet that a kernel with no modules and no ACPI
+probe reverses that order, not a measured win. `make bench-boot` runs both
+machine types on the pinned kernel and the argument list takes whichever is
+faster. q35 with direct kernel boot is the fallback and it costs one argument
+list, so the engine is never the first thing to change.
+
+**Reopen trigger, one:** if NEITHER machine type on the pinned kernel meets the
+boot budget on krons within the pipeline's costed budget (§"The image and the
+guest kernel"), the engine question reopens for libkrun, whose bundled kernel is
+the thing the pipeline would have failed to produce.
 
 ## The seam: one interface, one production type, one instance one substrate
 
@@ -207,7 +217,9 @@ routd binds the folder's `gated.sock` before the spawn, as today
 1. Allocates the VM's CID (`≥ 3`, unique among live VMs on the host) and two
    vsock ports on the host side, `ctl` and `mcp`, and records all three in
    the spawn's on-disk VM record (§"What moves into `runed`") under the
-   `Handle` the Manager pinned.
+   `Handle` the Manager pinned. Every later step appends its pid to that
+   record as it starts the process, so a runed that dies at any point leaves a
+   record naming what it started.
 2. Builds the turn's staging tree (§"The files") and starts two `virtiofsd`
    processes: `root` over the release's unpacked rootfs, read-only, and
    `turn` over the staging tree.
@@ -239,9 +251,12 @@ VSOCK-CONNECT:2:<mcp>` on a guest-local tmpfs and execs ant as uid 1000
    routd's `gated.sock`. Steer and stop arrive on `ctl` (§"Steer and stop").
    ant's stderr streams over `ctl` as `{log}` frames into the turn log.
 9. ant exits; `guest-init` sends `{exit: code}` on `ctl` and powers the
-   guest off; QEMU exits; runed reaps in order: tap rules, tap, the two
-   `virtiofsd` (they exit with their socket), the staging tree, the record.
-   `ctx` expiry is `SIGKILL` on the QEMU pid, then the same reap.
+   guest off; QEMU exits; runed reaps in order: tap rules, tap, the `egress`
+   proxy, the two `virtiofsd`, the staging tree, the record. A `virtiofsd`
+   normally exits when its socket closes; the reap does not rely on that — it
+   signals the recorded pid and waits, because the record is what the disk
+   scan replays after a crash. `ctx` expiry is `SIGKILL` on the QEMU pid, then
+   the same reap.
 
 `RunResult.ExitCode` is the `{exit}` frame; `Outcome` and `NewSessionID`
 arrive by `submit_turn` over MCP, unchanged.
@@ -298,11 +313,21 @@ fixed at fork. The threat the check exists for — an agent in folder A reaching
 folder B's tools (`SECURITY.md` §Model) — needs either B's CID (the host kernel
 denies) or A's bridge dialing B's socket (the bridge holds one path).
 
-What it does not defend: a host process that binds a vsock port before runed
-does receives that guest's traffic. The guest holds no secret, so the outcome
-is a failed turn, not a leak — the same trust the operator's host already
-carries. Whether a compose container can bind host vsock ports at all is an
-open question with a measurement (§Open).
+**A port squat is a denial, and the bind order is what makes it one.**
+Measured 2026-09-23 on hel1v5: an UNPRIVILEGED host process binds a host-side
+vsock port, and a sibling compose container given `--device /dev/vhost-vsock`
+binds one too — the host's second bind of that port then fails with
+`EADDRINUSE` (`socat VSOCK-LISTEN:7777` in an `alpine` container, then the same
+port from the host). The host has one vsock port namespace and every holder of
+that device shares it.
+
+That cannot become a hijack, because runed binds `ctl` and `mcp` at step 4 and
+starts QEMU at step 5. A squatter that binds first makes runed's bind fail
+before any guest exists, so there is no traffic to receive and no secret to
+take. **runed therefore fails the turn on a bind error and never picks another
+port**: a silent retry is what would turn a denial into a guest talking to
+whoever answered. The residual is a neighbour on the operator's own host
+denying turns, which is the trust that host already carries.
 
 ## Steer and stop
 
@@ -384,7 +409,8 @@ by the `ctl` handshake, not by a mount becoming visible.
 
 `Persistence` stays `mounted_home`: the guest's own filesystem is a tmpfs
 overlay discarded at power-off; what the folder keeps, it keeps because it is
-a share.
+a share. That overlay is RAM inside `-m`, so `guest-init` mounts it with an
+explicit `size=` (§"The host budget").
 
 ## The image and the guest kernel
 
@@ -412,6 +438,33 @@ the command line follow it.
 Owner: arizuko, in `ant/`. Cost: **2–4 engineer-days** for the stage, the
 fragment and the bench target, plus the kernel build time on every image
 build. The gate it must pass is the boot budget in the first table.
+
+## The host budget
+
+Three host resources bound this substrate, and the guest size is not free in
+any of them. Measured on hel1v5 (the krons host) 2026-09-23.
+
+- **Memory is the guest size times the concurrency cap.** `-m 4G` with
+  `MAX_CONCURRENT_CONTAINERS` at its default 5 (`core/config.go:246`,
+  `runed/manager.go:47-53`) is a 20 GB ceiling on a 15 GB host with ~5 GB free.
+  `memory-backend-memfd` commits pages on touch, so the ceiling is not a
+  reservation — but two guests that each touch 2 GB already exceed what is
+  free, and the host has no swap headroom to hide it. **`-m` and the cap are
+  one setting**: runed refuses to start when `guest_mem × MAX_CONCURRENT_CONTAINERS`
+  exceeds the host's `MemTotal`, and the pair is set from Open question 4's
+  peak-RSS measurement rather than from the 4 GB placeholder.
+- **The tmpfs overlay upper is inside `-m`, and it is capped.** The guest's
+  writable layer is RAM, so an agent that unpacks a large dependency tree
+  consumes the guest's memory rather than disk. `guest-init` mounts the upper
+  with an explicit `size=`, and a write past it is `ENOSPC` inside the guest —
+  a failed turn, never a host that reclaims under pressure.
+- **Disk is one rootfs per release, and a release deletes.** The export is
+  8.26 GB uncompressed and the host has 5.2 GB free today, so the export step
+  does not fit as things stand. `make images` therefore checks free space
+  against the image size BEFORE it exports and fails loudly, and it keeps
+  exactly two unpacked trees — the running release and one previous, so a
+  rollback needs no re-export — and deletes every older one by name. An
+  operator who wants more keeps more; nothing accumulates by default.
 
 ## The runed deploy topology
 
@@ -481,7 +534,12 @@ Measured 2026-09-23:
 - The on-disk VM record: one file per guest under
   `<dataDir>/<instance>/vms/<id>` (`sandbox/internal/metadata.go:16-29,30`),
   which is the record §"The turn" step 1 writes. Its fields become
-  `{Handle, CID, CtlPort, McpPort, Pid, TurnDir}`; `SSHPort`, `SSHKeys`,
+  `{Handle, CID, CtlPort, McpPort, QemuPid, VirtiofsdPids, EgressPid, TurnDir}`
+  — **every process the turn starts, not only QEMU**, because the disk scan is
+  the only thing that reaps after a runed crash and it can reap only what the
+  record names. Today's orphan sweep finds proxies by docker label
+  (`container/runtime.go:138`); with four host processes per turn and no label,
+  the record IS the label. `SSHPort`, `SSHKeys`,
   `SSHKeyPath`, `AllowList` and `AllowAll` go with the mechanisms that wrote
   them.
 - The tap helper: `sandbox/libexec/crackbox-tap` and its callers
@@ -525,7 +583,10 @@ ceiling `New(instanceID, dataDir)`, `Spawn`, `Stop`, `List` and `Exec`
 1. **Land behind the selector, default `docker`.** `runed/qemu.go`, the
    `container.Run` split, the fold of `sandbox/` into `runed/` (§"What moves
    into `runed`"), `guest-init`, the kernel stage, the compose generator's
-   device and capability lines. No file under `runed/runstore`, `store/` or
+   device and capability lines, and the three host-budget guards
+   (§"The host budget"): the memory-times-cap refusal at runed start, the
+   free-space check and two-tree retention in `make images`, and the overlay
+   `size=`. No file under `runed/runstore`, `store/` or
    `objstore/` is touched. Tests without a hypervisor cover the record, the
    argument rendering, the frame codec and the tree builder; `make
 bench-boot` and the end-to-end turn run on a host with `/dev/kvm`.
@@ -605,6 +666,19 @@ example.com` fails; a raw `nc` to any address off the tap times out.
 - No `docker` string remains under `runed/` or `container/` after step 4, and
   `compose/compose_test.go:95-98` asserts that no service mounts
   `docker.sock`.
+- **runed refuses to start** when `guest_mem × MAX_CONCURRENT_CONTAINERS`
+  exceeds the host's `MemTotal`, and the refusal names both settings
+  (§"The host budget").
+- **A `SIGKILL` of runed mid-turn leaves nothing running.** Start a turn, kill
+  runed with `-9`, restart it, and the disk scan reaps the QEMU process, both
+  `virtiofsd`, the `egress` proxy, the tap and the staging tree — the test
+  asserts each pid is gone by name, not that the scan returned.
+- **A squatted vsock port fails the turn and never moves.** Bind the port runed
+  would take, start a turn, and assert the turn fails with the bind error and
+  that runed binds no other port (§"The peer credential").
+- **`make images` refuses to export** when free space is under the image size,
+  and after two releases exactly two unpacked rootfs trees remain
+  (§"The host budget").
 
 ## Open questions — each with the measurement that settles it
 
@@ -617,18 +691,17 @@ example.com` fails; a raw `nc` to any address off the tap times out.
    with `virtiofsd --sandbox=chroot` as root and `stat` the host file; if it
    is not uid 1000, `--translate-uid`/`--translate-gid` (virtiofsd README)
    is the fix and the compose line carries it.
-3. **Is `AF_VSOCK` reachable from another compose container?** From a
-   sibling container, `socat VSOCK-LISTEN:5555` then a guest `VSOCK-CONNECT
-2:5555`. If it connects, the port squat is a local-host denial only, as
-   §"The peer credential" states; the spec then records it as accepted.
-4. **Peak guest memory.** Sample `docker stats` on krons over seven days for
-   the ant container's peak RSS; `-m 4G` is the placeholder and the memfd
-   backend commits pages on touch.
-5. **`nftables` versus `iptables` in the Alpine image.** `apk search`
+3. **Peak guest memory, which sets `-m` AND the concurrency cap.** Sample
+   `docker stats` on krons over seven days for the ant container's peak RSS.
+   `-m 4G` is a placeholder and the pair must satisfy
+   `guest_mem × MAX_CONCURRENT_CONTAINERS ≤ MemTotal` (§"The host budget"), so
+   this measurement decides two settings, not one.
+4. **`nftables` versus `iptables` in the Alpine image.** `apk search`
    listed `qemu-system-x86_64`, `virtiofsd`, `socat`; the rule renderer
    uses `iptables` today. Verify the package at the first image build.
-6. **Boot with the pipeline's kernel on krons** — the whole gate; nothing
-   in this spec assumes the number.
+5. **Boot with the pipeline's kernel on krons, on BOTH machine types** — the
+   whole gate; nothing in this spec assumes the number, and microvm is a bet
+   against a measurement that q35 currently wins (§"The engine").
 
 ## Ties
 
