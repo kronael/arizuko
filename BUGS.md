@@ -208,6 +208,44 @@ instance layout to drive.
   literal; it asserts what the declaration is for, that `EnvOr` on an unset var
   resolves to the shared default.
 
+## L358 — the helm chart still deploys a shared crackbox proxy wired to `gated`, a daemon deleted at v0.50.0 (2026-09-23, open)
+
+`deploy/helm/arizuko/templates/crackbox.yaml` renders a `Deployment` for a
+`crackbox:latest` image and its own comment says what it is for: *"You must set
+the `CRACKBOX_*` env on gated (via config/secrets) to make gated route through
+it"* (lines 7-8). `gated` was deleted at v0.50.0, so the instruction names a
+daemon that does not exist and the Deployment has nothing to serve.
+
+Three more facts, measured 2026-09-23:
+
+- No Makefile target builds a `crackbox:latest` image. `COMPONENTS` is `egress
+  anteval`, so `make build` cannot produce it and `helm install` with
+  `crackbox.enabled=true` pulls an image that is not there.
+- The shared proxy this chart deploys is the shape `6/24` replaced with one
+  forward proxy per spawn. `runed/cmd/runed/main.go:82` REFUSES TO START when
+  `CRACKBOX_ADMIN_API` is set without `EGRESS_IMAGE`, so the compose path
+  actively rejects what this chart configures.
+- `activeProfiles` (`compose/compose.go:602`) never emits a `crackbox` profile,
+  and `compose/compose_test.go:544` asserts no `crackbox:` service is written.
+  The compose half is clean; only helm carries the relic.
+
+The chart defaults to `enabled: false`, so nothing is broken today. It is a
+documented deployment path that cannot work, which is worse than an absent one:
+an operator reading `deploy/helm/arizuko/README.md:40` finds a supported
+"egress-isolation proxy (advanced; parity only)" row.
+
+- **Severity:** low (no runtime defect; `enabled: false` by default)
+- **Scope:** kubernetes deploy artifacts
+- **Affected:** `deploy/helm/arizuko/templates/crackbox.yaml`,
+  `deploy/helm/arizuko/values.yaml:190-192`,
+  `deploy/helm/arizuko/README.md:40`, `deploy/helm/arizuko/templates/NOTES.txt`
+- **Source:** the crackbox removal sweep of 2026-09-23 (`L137`)
+- **Status:** open. The fix is a deletion across four files, and whether the
+  helm chart carries an egress story at all is a deploy decision, not a code
+  one — k8s has no per-folder docker network for the per-spawn proxy to attach
+  to, which the chart's own comment already says.
+- **Fix:**
+
 ## L357 — `.golangci.yml` is a v1 config and `golangci-lint` is v2, so the one gate CI enforces cannot load it (2026-09-22, open)
 
 `.golangci.yml`'s own header calls itself "the one gate CI enforces". It has no
@@ -8380,7 +8418,7 @@ the agent can reach", for anything an attacker can encode in a hostname.
     as accepted, and `SECURITY.md:110` stops naming an absent default route as
     the mechanism, because it is not the one doing the work.
 
-## L137 — proposal: `sandbox/` is 1342 lines nothing in arizuko runs; the import graph says it can leave cleanly, and the cost of leaving is one 144-line package (2026-08-30, proposal — needs sign-off)
+## L137 — `sandbox/` and `crackbox/` are ~2400 lines no arizuko daemon runs (2026-08-30, DECIDED 2026-09-23 — option C, and `crackbox/` left the repo)
 
 The operator's framing: *"i guess eventually crackbox changed to qemubox for
 users and here it's useless then."* This entry records the measured basis for
@@ -8453,6 +8491,26 @@ decide rather than drift: while it is undecided, `6/16` keeps advertising a
 ship gate for a component whose shape `6/24` already changed, and `6/9` stays
 `defected` describing a library with no home.
 
+**DECIDED 2026-09-23 — option C, plus the `crackbox/` half of option B.** The
+maintainer's words: *"keep only the minimal in here and directly in runed. not
+as a publishable code."* and *"remove crackbox or perhaps like park it with
+qemubox or so in tools and remove from this repo."*
+
+- `crackbox/` left the repo on 2026-09-23. The four files are parked at
+  `/home/onvos/app/tools/crackbox/` beside `qemubox`, with a `PARKED.md` that
+  says they need a `go.mod` and the two vendored packages to build. `Makefile`
+  `COMPONENTS` drops it and `tests/components/imports_test.go` drops both the
+  `TestNoDaemonImportsCrackbox` guard and the `crackbox` entry.
+- `sandbox/` stops being a shippable component in the same commit: the
+  `shippable` set is `egress`, `substrate`, `mcpfw`. `qemubox` is the
+  standalone KVM tool, so arizuko publishes no Go library for it.
+- `sandbox/`'s code folds into `runed/` as unexported code, which is
+  `specs/6/41-qemu-substrate.md` step 1 of §"Order". Until that step runs,
+  `sandbox/` sits in the tree with no consumer at all. That is the measured
+  state, not a regression.
+- `egress/match` and `substrate` stay in arizuko, so the 203-line severance
+  cost option B carried is not paid.
+
 - **Severity:** low (no runtime defect; this is packaging and narrative)
 - **Scope:** module layout / component boundary
 - **Affected:** `sandbox/`, `crackbox/`, `egress/`, `specs/6/9`, `specs/6/16`,
@@ -8460,7 +8518,8 @@ ship gate for a component whose shape `6/24` already changed, and `6/9` stays
 - **Source:** import graph measured 2026-08-30 (commands above);
   `crackbox/pkg/run/run.go:175,180`; `runed/docker.go:46`;
   `tests/components/imports_test.go`
-- **Status:** proposal (needs sign-off) — no split performed, nothing deleted
+- **Status:** decided. `crackbox/` is out of the repo; the `sandbox/` half
+  waits on `6/41` step 1.
 - **Fix:**
 
 - [x] ✅ FIXED 2026-09-05 — `add_acl` and `POST /v1/acl` never write `grant_option` (`routd/acl_resource.go:290` vs `store/acl.go:16`), so re-delegation is reachable only through `resreg.Apply` — the live grant surfaces cannot express it. `aclArgsRow` reads the argument, `grantACLTx` writes the column and `list_acl` reports it; the Gate needed no change, because `auth.Delegate`'s `grantableRows` already only holds rows the caller has WITH the option. `fix(routd): write grant_option on the live acl grant surfaces`
@@ -8999,7 +9058,7 @@ One row needs no case at all and should be struck rather than backfilled:
 "Additional mounts, operator SQL" is an operator procedure, not agent
 behaviour, and the table already says so.
 
-## L189 — `sandbox/` writes no netfilter rule for a host-name allowlist entry (2026-09-05, SILENT HALF FIXED 2026-09-20; the rule is BLOCKED on `L137`, not separately decidable)
+## L189 — `sandbox/` writes no netfilter rule for a host-name allowlist entry (2026-09-05, SILENT HALF FIXED 2026-09-20; the rule is ANSWERED by `6/41`, pending that spec's step 1)
 
 Measured at `7c631ed3`: `sandbox/internal/netfilter.go` `RestoreNetworkRules`
 and `CleanupNetworkRules` walk `meta.AllowList` and act only where
@@ -9022,12 +9081,19 @@ address rules (TTL churn, rebinding); (b) a proxy inside the VM network;
 `VMConfig.AllowList` — the strict option, the same rule `6/25` 1b applied to
 the proxy ("a rule that never matches reads as protection and is not").
 
-- **Severity:** low (nothing in arizuko runs `sandbox/`; `crackbox run --kvm` is local dev)
+- **Severity:** low (nothing in arizuko runs `sandbox/` yet)
 - **Scope:** `sandbox/internal/netfilter.go`
-- **Affected:** `crackbox run --kvm` users who pass host names
+- **Affected:** a caller that passes host names in `VMConfig.AllowList`
 - **Source:** `sandbox/internal/netfilter.go` RestoreNetworkRules; `egress/match.LooksLikeIP`; `sandbox/sandbox.go` Profile
-- **Status:** open — BLOCKED on `L137`; do not take this one on its own
-- **Fix:** none until `L137` is signed; then (a), (b) or (c) against whatever `L137` chooses
+- **Status:** open — the design answer is settled and the code change waits on
+  `specs/6/41-qemu-substrate.md` step 1. `L137` chose option C, so the KVM
+  lifecycle becomes runed's own code, and `6/41` §"Egress by name, sealed
+  below the kernel" reaches option (c) by construction rather than by a
+  reject: the tap rule set is static (accept guest to the host-side proxy,
+  drop everything else), and every allowlist entry — name and address alike —
+  goes to the proxy, which already matches both. A name never reaches
+  netfilter, so no rule that "never matches" is left to read as protection.
+- **Fix:** lands with `6/41` step 1; no separate change.
 
 - **The silence is fixed 2026-09-20, and the stale comment with it.**
   `RestoreNetworkRules` said "domains are handled by egred proxy — no iptables
