@@ -142,7 +142,7 @@ read answers "surface not configured" and an mcp or parity case fails loudly
 instead of passing on nothing.
 
 The callback sink binds locally; the agent containers must be able to reach
-`--sink`, so the eval host has to be on the target folder's crackbox egress
+`--sink`, so the eval host has to be on the target folder's egress
 allowlist (or run on an already-allowed host). A default-deny refusal there is a
 deploy gap, not a capability failure.
 

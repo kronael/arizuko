@@ -1,15 +1,14 @@
 # sandbox
 
-The KVM/qemu sandbox lifecycle library: create a VM, start it, exec into it
-over SSH, list, stop, destroy. Spec
-[`specs/6/9`](../specs/6/9-crackbox-sandboxing.md).
+The KVM/qemu lifecycle: create a VM, start it, exec into it over SSH, list,
+stop, destroy. Spec
+[`specs/6/41`](../specs/6/41-qemu-substrate.md).
 
-Moved out of `crackbox/pkg/host` on 2026-08-18 (spec
-[`6/24`](../specs/6/24-crackbox-lightest.md)). It lived next to a proxy it
-never linked; one directory claimed to be one component and was two.
-
-**Not wired into arizuko.** `runed` spawns docker containers; nothing in the
-spawn path imports this. Its consumer today is `crackbox run --kvm`.
+**This is runed's substrate, not a shippable library.** `qemubox` is the
+standalone KVM tool and it lives outside this repo. `6/41` step 1 folds this
+package into `runed/` as unexported code and rewrites the qemu argument list
+for `-M microvm`; until that step runs, `runed` spawns docker containers and
+nothing in the spawn path imports this.
 
 ## Coverage
 
@@ -22,7 +21,8 @@ VM record, `detectState`/`readPID`, `Destroy`'s soft-delete branch, and
 Coverage stops around 20% because everything below `Start` needs a real
 hypervisor: `qemu-system-x86_64`, a KVM device node, the `libexec` helpers, and
 `ip`/`nft` to build the guest network. A mock of qemu would assert the mock.
-That half is exercised by `crackbox run --kvm` on a host that has KVM.
+That half runs only on a host with `/dev/kvm`; `6/41` §Acceptance names the
+end-to-end turn and `make bench-boot` as the gates that cover it.
 
 ## Use
 
@@ -49,22 +49,23 @@ is an IP address or a CIDR becomes a rule; a host name becomes nothing
 — the declaration is the statement of record, and BUGS `L189` holds the open
 question of whether host names should be enforced here at all.
 
-The VM case needs no proxy and no registration: a guest has exactly one
-virtual NIC, the tap the host created, so the tap IS the identity. Nothing
-has to answer "which tenant is this address?".
+The VM case needs no registration: a guest has exactly one virtual NIC, the
+tap the host created, so the tap IS the identity. Nothing has to answer "which
+tenant is this address?", and a rule attached to the tap dies with the tap.
 
-Until 2026-08-18 `Spawn` also registered the VM with a shared proxy's admin
-API and `Stop` unregistered it — inheriting that design's leak, where a
-crash between VM exit and unregister left a stale allowlist bound to an
-address the next VM could get. The registration is gone; the netfilter rules
-were always the enforcement.
+`6/41` §"Egress by name, sealed below the kernel" changes what enforces a
+name: the tap rule set becomes static — accept guest to the host-side proxy,
+drop everything else — and the proxy matches names and addresses alike. That
+closes `L189` by construction, because a name never reaches netfilter.
 
 ## Requirements
 
 qemu, KVM, and root (tap devices, netfilter). The helper scripts live in
 `libexec/` and are found via `CRACKBOX_LIBEXEC`,
-`/usr/local/libexec/crackbox`, or `/usr/libexec/crackbox` — `make -C
-crackbox install` puts them there.
+`/usr/local/libexec/crackbox`, or `/usr/libexec/crackbox`
+(`internal/libexec.go:26-27`). Nothing installs them today, so the search
+falls back to walking up from the source file's compile-time path until it
+finds `libexec/crackbox-cloudinit` (`internal/libexec.go:14-16`).
 
 ## Layout
 

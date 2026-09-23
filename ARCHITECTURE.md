@@ -21,7 +21,7 @@ New integrations are added via the extension points described in
   skill in `ant/skills/oracle/` driving the `codex` CLI, egress isolation (`EGRESS_IMAGE` set),
   model gateway (`litellm` package + `MODEL_GATEWAY_URL`,
   `specs/6/23-llm-gateway.md`),
-  sandbox backend choice (Docker today, KVM via `sandbox/`)).
+  substrate choice (Docker today, KVM under `specs/6/41-qemu-substrate.md`)).
 
 A minimal deployment runs core plus one channel adapter; a maxed-out
 deployment runs all of them.
@@ -90,10 +90,8 @@ sidecar/ whisper-cpp container; routd calls Whisper for inbound
 egress/   forward proxy, one static allowlist, one client. runed starts
         one per spawn when EGRESS_IMAGE is set and stops it with the
         turn (see "Compose Containers" below); specs/6/24
-sandbox/  KVM/qemu sandbox lifecycle library; shipped, not wired into
-        the spawn path; specs/6/9
-crackbox/ local-development command composing egress + sandbox; production
-        never runs it; specs/6/24
+sandbox/  KVM/qemu lifecycle; it folds into runed/ as the VM substrate
+        and is not a shippable library; specs/6/41
 anteval/  agent-capability gate: a black-box prober that runs real tasks
         through the public surfaces (REST/HTTP/MCP + a callback sink) against
         a LIVE instance and grades observable effects, not prose. Zero

@@ -11,8 +11,8 @@ route table, and the egress name derivations.
 
 Optional daemons are never gated by a Go conditional: every stanza is
 always emitted with `profiles:` (`web` for webd/proxyd/vited/dashd, then
-`timed`, `onbod`, `davd`, `crackbox`), and docker starts the ones listed
-in `COMPOSE_PROFILES`.
+`timed`, `onbod`, `davd`), and docker starts the ones listed in
+`COMPOSE_PROFILES` (`activeProfiles`, `compose.go:602`).
 
 ## The compose-managed .env block
 
@@ -24,7 +24,7 @@ lines untouched:
 APP=arizuko
 FLAVOR=krons
 DATA_DIR=/srv/data/arizuko_krons
-COMPOSE_PROFILES=crackbox,davd,onbod,timed,web
+COMPOSE_PROFILES=davd,onbod,timed,web
 # --- end compose-managed ---
 ```
 
