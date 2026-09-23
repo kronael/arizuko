@@ -21,6 +21,13 @@ Docker leaves the turn path: no `docker run`, no per-folder docker network, no
 proxy container, no `docker.sock` in runed. The daemon fleet's packaging
 (compose) is outside this spec.
 
+**Signed off 2026-09-23** for build, after a review that changed five
+mechanisms: the uid clamp on `virtiofsd` (§"The peer credential"), the guest ack
+on a steer (§"Steer and stop"), `-no-reboot` plus a confirmed pid in the reap
+(§"The turn" step 9), the four-timestamp boot split (§"The image and the guest
+kernel"), and `Turn.RegisterSteer` kept rather than shed (§"Order" step 4). The
+day estimate is accepted only after step 0 reports.
+
 The turn model of [`5/A`](../5/A-primitives-framing.md) holds unchanged: the guest is
 stateless, the folder and the database carry every fact across turns, and the
 container mount table in `ARCHITECTURE.md` §"Container mount layout" is the
@@ -32,19 +39,19 @@ right-hand side. `ant/` changes by zero lines.
 These are constraints, not a verdict. A design that does not meet the first row
 is not shipped.
 
-| Constraint                     | Measured                                                                                                                                                                                                                                                                             |
-| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Boot budget                    | Docker `run --rm --entrypoint /bin/true arizuko-ant:latest`: **0.62 / 0.82 / 0.93 s** wall. The VM turn must reach `init` in **≤ 1.0 s p50** on the same host, measured the same way (§"The warm pool").                                                                             |
-| Untuned QEMU, distro kernel    | `-M q35,accel=kvm` direct kernel boot, Debian 6.1.0-43 kernel, static Go init: **2.43 / 2.69 / 2.89 s** wall, 0.7–0.8 s guest uptime at init. `-M microvm`: **3.75–4.06 s**, 1.9–2.2 s guest uptime.                                                                                 |
-| The VMM itself                 | `qemu-system-x86_64 -M microvm -S` start and quit: **0.09–0.13 s**. The cost is the guest kernel, not QEMU.                                                                                                                                                                          |
-| Tuned QEMU, literature         | Firecracker's NSDI'20 paper §5.1: Linux 4.14, no modules, qboot, 1 vCPU/256 MB — QEMU boots within ~50 ms of end-to-end Firecracker; pre-configured Firecracker p99 146 ms (usenix.org/system/files/nsdi20-paper-agache.pdf).                                                        |
-| Turn volume                    | krons: 162 turns in 7 days, 15 in the last 24 h (`container-*.log` count under `groups/`). Boot cost is per-turn latency the user sees, not throughput.                                                                                                                              |
-| Host                           | 2 vCPU, 15 GB RAM, QEMU 7.2.22 (Debian 12), `/dev/kvm`, `/dev/vhost-vsock`, `/dev/net/tun` present; kernel ships `fs/fuse/virtiofs.ko` and the vsock transports; `socat 1.7.4.4` built `WITH_VSOCK`.                                                                                 |
-| QEMU 7.2 devices               | `-M microvm`, `vhost-user-fs-device`, `vhost-vsock-device`, `memory-backend-memfd`, `-sandbox on` all present (`-M help`, `-device help`, `-object help`).                                                                                                                           |
-| Image                          | `arizuko-ant:latest` is **8.26 GB** (`node:22-slim` + ~40 tool installs, `ant/Dockerfile`). The rootfs pipeline moves this once per release, never per turn.                                                                                                                         |
-| Packages the runed image needs | Alpine carries `qemu-system-x86_64`, `virtiofsd`, `socat` (`apk search` from `arizuko:latest`, 2026-09-12); none of the three is installed in `arizuko:latest` today, so the image gains them (§"The runed deploy topology"). `nftables`/`iptables` verified at build, §Open.        |
-| Host disk                      | hel1v5: **9.4 GB free of 256 GB** after `docker builder prune -f` recovered 4.37 GB of layer cache (2026-09-23); before it, 5.2 GB. `arizuko-ant` holds `latest` at 7.85 GB and two release tags at 8.26 GB. One rootfs export fits, and the operator reclaims (§"The host budget"). |
-| Host memory and concurrency    | `MAX_CONCURRENT_CONTAINERS` defaults to **5** (`core/config.go:246`) and caps total live spawns (`runed/manager.go:47-53`). Five guests at `-m 4G` is 20 GB against 15 GB total and ~5 GB free, so the guest size and the cap are one budget (§"The host budget").                   |
+| Constraint                     | Measured                                                                                                                                                                                                                                                                                                                                            |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Boot budget                    | Docker `run --rm --entrypoint /bin/true arizuko-ant:latest`: **0.62 / 0.82 / 0.93 s** wall. The VM turn must reach `init` in **≤ 1.0 s p50** on the same host, measured the same way (§"The warm pool").                                                                                                                                            |
+| Untuned QEMU, distro kernel    | `-M q35,accel=kvm` direct kernel boot, Debian 6.1.0-43 kernel, static Go init: **2.43 / 2.69 / 2.89 s** wall, 0.7–0.8 s guest uptime at init. `-M microvm`: **3.75–4.06 s**, 1.9–2.2 s guest uptime.                                                                                                                                                |
+| The VMM itself                 | `qemu-system-x86_64 -M microvm -S` start and quit: **0.09–0.13 s**. This bounds QEMU's own startup and does NOT attribute the remaining ~2 s: a paused VM configures no virtio-fs share, no vsock and no tap, so the gap is unexplained rather than charged to the kernel. `make bench-boot` reports the split (§"The image and the guest kernel"). |
+| Tuned QEMU, literature         | Firecracker's NSDI'20 paper §5.1: Linux 4.14, no modules, qboot, 1 vCPU/256 MB — QEMU boots within ~50 ms of end-to-end Firecracker; pre-configured Firecracker p99 146 ms (usenix.org/system/files/nsdi20-paper-agache.pdf).                                                                                                                       |
+| Turn volume                    | krons: 162 turns in 7 days, 15 in the last 24 h (`container-*.log` count under `groups/`). Boot cost is per-turn latency the user sees, not throughput.                                                                                                                                                                                             |
+| Host                           | 2 vCPU, 15 GB RAM, QEMU 7.2.22 (Debian 12), `/dev/kvm`, `/dev/vhost-vsock`, `/dev/net/tun` present; kernel ships `fs/fuse/virtiofs.ko` and the vsock transports; `socat 1.7.4.4` built `WITH_VSOCK`.                                                                                                                                                |
+| QEMU 7.2 devices               | `-M microvm`, `vhost-user-fs-device`, `vhost-vsock-device`, `memory-backend-memfd`, `-sandbox on` all present (`-M help`, `-device help`, `-object help`).                                                                                                                                                                                          |
+| Image                          | `arizuko-ant:latest` is **8.26 GB** (`node:22-slim` + ~40 tool installs, `ant/Dockerfile`). The rootfs pipeline moves this once per release, never per turn.                                                                                                                                                                                        |
+| Packages the runed image needs | Alpine carries `qemu-system-x86_64`, `virtiofsd`, `socat` (`apk search` from `arizuko:latest`, 2026-09-12); none of the three is installed in `arizuko:latest` today, so the image gains them (§"The runed deploy topology"). `nftables`/`iptables` verified at build, §Open.                                                                       |
+| Host disk                      | hel1v5: **9.4 GB free of 256 GB** after `docker builder prune -f` recovered 4.37 GB of layer cache (2026-09-23); before it, 5.2 GB. `arizuko-ant` holds `latest` at 7.85 GB and two release tags at 8.26 GB. One rootfs export fits, and the operator reclaims (§"The host budget").                                                                |
+| Host memory and concurrency    | `MAX_CONCURRENT_CONTAINERS` defaults to **5** (`core/config.go:246`) and caps total live spawns (`runed/manager.go:47-53`). Five guests at `-m 4G` is 20 GB against 15 GB total and ~5 GB free, so the guest size and the cap are one budget (§"The host budget").                                                                                  |
 
 ## The engine: `qemu-system-x86_64`, owned by arizuko
 
@@ -258,6 +265,16 @@ VSOCK-CONNECT:2:<mcp>` on a guest-local tmpfs and execs ant as uid 1000
    scan replays after a crash. `ctx` expiry is `SIGKILL` on the QEMU pid, then
    the same reap.
 
+   **A guest power-off does not prove QEMU exited.** On `-M microvm` a guest
+   shuts down by triggering a triple fault, which QEMU turns into a reset, and
+   only `-no-reboot` makes that reset an exit
+   (qemu.org/docs/master/system/i386/microvm.html, "Triggering a guest-initiated
+   shut down"). The argument list carries `-no-reboot` and the guest command line
+   carries `reboot=t`, so the guest takes the path that document names. The reap
+   assumes neither worked: it waits for the QEMU pid with a bounded grace,
+   `SIGKILL`s it, and confirms the pid is gone before it removes the record. A
+   record removed over a live QEMU is a guest nothing reaps.
+
 `RunResult.ExitCode` is the `{exit}` frame; `Outcome` and `NewSessionID`
 arrive by `submit_turn` over MCP, unchanged.
 
@@ -305,6 +322,21 @@ listener for exactly one VM, accepts a connection only from that CID
 turn's folder socket. routd's check is byte-for-byte the check it runs today —
 the peer is uid 1000 — and `ipc.ServeMCP` does not change.
 
+**The CID identifies the VM, not the process inside it.** That is the limit of
+the binding, and it matters for the file path rather than the tool path: a guest
+kernel under the agent's control states the uid and gid that `virtiofsd` applies
+to a host file. A compromised guest can therefore ask for host-root ownership or
+a setuid mode on any WRITABLE export, and a `chown` or a `chmod` on the folder
+outlives the power-off that ends the turn — a restart does not undo it. So the
+uid is clamped, never translated as a convenience: `virtiofsd` runs with
+`--translate-uid`/`--translate-gid` mapping **every** guest id onto the single
+host id the folder already uses (uid 1000, `runner.go:1112`), so a write lands as
+that id whatever the guest claims and no guest id maps to 0. The acceptance test
+writes from the guest as uid 0 and asserts the host file is owned by 1000. This
+is the one place where the VM boundary is weaker than the container boundary,
+which stamps `--user uid:gid` from the host side, and the clamp is what restores
+it.
+
 Why this is at least as hard to forge as the mount: both links are host-kernel
 facts a guest cannot influence and a host process needs root to change. What
 moves is where the folder binding is stated — from a Docker mount set fixed at
@@ -337,6 +369,20 @@ travel on `ctl`: runed sends `{steer: batch}`; `guest-init` writes the batch
 into the guest's `/run/ipc/input/` and sends `SIGUSR1` to ant's pid. The
 closure `RegisterSteer` hands back returns false when `ctl` is closed — the
 same documented race, the same fall-through to a fresh spawn.
+
+**A steer is acknowledged by the guest, never by the socket write.** routd marks
+the turn `done` the moment a steer is accepted (`routd/dispatch.go:465-469`:
+`if out.Steered { SetTurnState(turnID, "done") }`), because the original run owns
+the batch. A write to `ctl` that returns no error proves only that the host
+queued bytes, and the guest tmpfs holding the pending batch is discarded at
+power-off — so a steer lost between the two makes a user's message vanish while
+the turn reads as delivered. That is a silent failure on a user-facing path,
+which the project forbids. Therefore `guest-init` answers every `{steer}` with
+`{steer_ack: id}` AFTER it writes the batch into `/run/ipc/input/` and delivers
+`SIGUSR1`, and the closure returns true ONLY on that ack, inside the grace it
+already waits. No ack is a false return, which is the documented fall-through to
+a fresh spawn, so the batch is re-fed rather than lost. An ack that arrives after
+the guest starts power-off counts as no ack.
 
 `{stop}` sends ant `SIGTERM`; after the grace runed already uses for
 `docker stop`, `guest-init` powers off regardless. The deadline kill is
@@ -434,6 +480,16 @@ compressed with no modules against a distro kernel's 6.7 MB plus 44 MB of
 modules, and its command line "disables the standard logging to the serial
 console (saving up to 70ms of boot time)" (NSDI'20 §5.1); the fragment and
 the command line follow it.
+
+**The literature number is not this design's number.** The paper measures a
+minimal init with no virtio-fs share to mount, no overlay to assemble and no
+control handshake, so it bounds the kernel's own boot and nothing else.
+`make bench-boot` therefore reports FOUR timestamps rather than one — QEMU exec,
+first guest instruction, `guest-init` entry, and `guest-init`'s first `ctl`
+frame — so the gap is attributed before anyone tunes it. The ≤ 1.0 s gate is on
+the last of the four. A design that meets the kernel budget and misses the gate
+because nine bind targets cost 900 ms learns that from the split, not from a
+retrospective guess.
 
 Owner: arizuko, in `ant/`. Cost: **2–4 engineer-days** for the stage, the
 fragment and the bench target, plus the kernel build time on every image
@@ -583,6 +639,22 @@ ceiling `New(instanceID, dataDir)`, `Spawn`, `Stop`, `List` and `Exec`
 
 ## Order
 
+The day estimate below is **not accepted until step 0 reports**. Four of this
+design's load-bearing numbers are inferred rather than measured — the boot
+split (§"The image and the guest kernel"), the peak guest memory
+(§"The host budget"), the cost of assembling nine bind targets, and whether the
+vsock bridge survives a real guest. A step-1 commitment made before those is a
+commitment to an estimate, not to a design.
+
+0. **The bounded prototype, throwaway, in `tmp/_qemuprobe/`.** One shell
+   script and one static Go init, no arizuko code touched, on this host's
+   `/dev/kvm`: boot the pinned kernel on BOTH machine types with the four
+   `bench-boot` timestamps; mount one virtio-fs share and nine bind targets
+   and time the assembly; complete one `ctl` round trip over a CID-pinned
+   vsock; write from the guest as uid 0 through `--translate-uid` and `stat`
+   the host file; power the guest off and confirm the QEMU pid is gone. It
+   answers the boot gate, the uid clamp and the reap, and it is deleted after.
+   **2–3 days**, and a miss here changes the design rather than the schedule.
 1. **Land behind the selector, default `docker`.** `runed/qemu.go`, the
    `container.Run` split, the fold of `sandbox/` into `runed/` (§"What moves
    into `runed`"), `guest-init`, the kernel stage, the compose generator's
@@ -613,16 +685,20 @@ bench-boot` and the end-to-end turn run on a host with `/dev/kvm`.
    substrates on purpose. One substrate leaves each item below with one
    reader or none, and an unread field on a port is read by the next author
    as a contract:
-   - **`Turn.RegisterSteer` goes.** It is the one field a substrate
-     interprets rather than delivers, against the `Turn` comment above it,
-     and it holds one assignment (`runed/manager.go:329`) and one call site
-     (`runed/docker.go:66-68`). The manager calls the production substrate's
-     own `steer(handle, batch string) bool` instead, so every destination is
-     a named method; `Runtime` keeps two methods because `steer` is not one
-     of them. `Manager.steerFns` and `SetSteer` go with it
-     (`runed/manager.go:45,406`), and `ActiveSpawn`
-     (`runed/runstore/spawns.go:76-79`) gains the handle its own row already
-     stores (`spawns.go:392`).
+   - **`Turn.RegisterSteer` stays, and this is a stated trade, not an
+     oversight.** It is a function-typed field, which the code baseline calls
+     a jump rather than an abstraction, and shedding it looks free because it
+     has one assignment (`runed/manager.go:329`) and one call site
+     (`runed/docker.go:66-68`). It is not free. Steering is a third operation
+     whatever carries it: as a method on `Runtime` it widens the port, which
+     needs the maintainer's approval first; as a concrete `steer(handle,
+batch)` the manager calls, it makes the manager depend on the production
+     type, so `FakeRuntime` and `holdRuntime` stop serving the contract and
+     the port stops being a port. The field is the only shape that keeps
+     `Runtime` at two methods AND keeps every implementation substitutable.
+     What the field costs — one assignment a reader must search for — is
+     paid down by naming it here and keeping the assignment count at one:
+     a second assignment is a review-blocker.
    - **`Turn.Egress` stays.** The tap rule set names no host, so the
      allowlist is the proxy's argument, and the substrate starts the proxy
      because the listen address is the tap's host side — substrate state
@@ -644,8 +720,8 @@ bench-boot` and the end-to-end turn run on a host with `/dev/kvm`.
      needs the interface exactly as much as a substrate does. **`FakeRuntime`
      stays** (`runed/runtimes.go:11`) as the test seam `Runtime` exists for.
 
-Total **14–22 engineer-days**, plus what §"The warm pool" costs if the gate
-fails: the pool is a separate costing when and if its trigger fires.
+Total **16–25 engineer-days** including step 0, plus what §"The warm pool" costs
+if the gate fails: the pool is a separate costing when and if its trigger fires.
 
 ## Acceptance
 
