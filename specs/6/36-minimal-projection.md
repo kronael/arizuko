@@ -128,7 +128,7 @@ a second owner of the verb? Only the middle kind is a cut.
 | dashd admin pages                                       | (read face)     | `dashd/routes_admin.go:278`, `tasks_admin.go:204`, `groups_admin.go:133`         | **raw SQL beside the resreg handlers** for routes, tasks, groups (§7, S1)                                |
 | CLI grant/route/invite/secret/network                   | (write face)    | `cmd/arizuko/main.go:605`, `route.go:101`, `secret.go`, `network.go`             | a third writer through `store`; `resreg.Apply` already exists for the offline case (`apply.go:193`)      |
 | onbod world creation                                    | Grant bootstrap | `onbod/main.go:923-940` raw `INSERT` into routd's `groups`, `acl`, `routes`      | a second group-create transaction beside `store.SeedMemberRoleTx` (`store/membership.go:118`)            |
-| `sandbox/`, `crackbox/`                                 | (substrate)     | `runed/cmd/runed/main.go:102` wires `NewDockerRuntime` only                      | not in the turn path; [`6/9`](9-crackbox-sandboxing.md) says so                                          |
+| `sandbox/`                                              | (substrate)     | `runed/cmd/runed/main.go:102` wires `NewDockerRuntime` only                      | not in the turn path until [`6/41`](41-qemu-substrate.md) step 1 folds it into `runed/`                  |
 | `proxycfg/caddy.go`                                     | (surface)       | `cmd/arizuko/routes.go:60-95` prints, never installs                             | a third reader of `proxyd_routes`, staged by [`6/22`](22-proxyd-cut.md)                                  |
 
 Two rows deserve a sentence each. The 14-verb set is declared five times:

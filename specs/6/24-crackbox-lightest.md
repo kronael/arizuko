@@ -63,7 +63,7 @@ out, so the proxy is not what stops it — the missing route is.
 > must stay; the agent must never share the proxy's namespace or hold a
 > second interface.
 
-**VM (`6/9`).** A guest has exactly one virtual NIC — a tap the host
+**VM ([`6/41`](41-qemu-substrate.md)).** A guest has exactly one virtual NIC — a tap the host
 created. Put the proxy on the host side of that tap and the guest's only
 route is through it, enforced below the kernel it runs. Stronger than the
 namespace case by a category, not a degree.
@@ -73,34 +73,25 @@ because the tap IS the identity. A registry exists to answer "which
 tenant is this source IP?", and that question does not arise when the
 answer is "the one on the other end of this tap".
 
-## Three parts
+## Two parts
 
-| Piece       | Is                                                                                        | Used by                                 |
-| ----------- | ----------------------------------------------------------------------------------------- | --------------------------------------- |
-| `egress/`   | the forward proxy: library + small binary                                                 | `runed`, per spawn, in production       |
-| `sandbox/`  | the KVM/qemu lifecycle library (`6/9`)                                                    | whatever wires VMs, when something does |
-| `crackbox/` | **a user-facing command that stands up parts of the arizuko stack for local development** | a developer working on one piece        |
+| Piece      | Is                                                     | Used by                           |
+| ---------- | ------------------------------------------------------ | --------------------------------- |
+| `egress/`  | the forward proxy: library + small binary              | `runed`, per spawn, in production |
+| `sandbox/` | the KVM/qemu lifecycle, unexported code inside `runed` | the VM substrate (`6/41`)         |
 
-The first two are what production consumes: runed starts an `egress`
-proxy per spawn and never runs `crackbox` at all. `crackbox` is the
-developer's tool — stand up a sandboxed VM with filtered egress on your
-own machine, or bring up a subset of the stack without the full
-twenty-daemon compose.
+Production consumes the proxy: runed starts one `egress` process per spawn
+and stops it with the turn. `qemubox` is the standalone tool a developer runs
+to stand up a sandboxed VM with filtered egress on their own machine, and it
+lives outside this repo.
 
-**The packaging question does not arise.** crackbox shares arizuko's
-`go.mod`, so a stranger cannot `go install` it — fatal for a component
-meant to ship outward, irrelevant for a command used by people who have
-already cloned the repo.
-
-It also settles the stranger question the same way the Anthropic finding
-does (below): nothing here is shipped outward. `egress` and `sandbox` are
-libraries this codebase consumes; `crackbox` is how a developer runs them
-locally. If an outside consumer ever appears, they take a library, not a
-bundle.
+Nothing here ships outward. `egress` is a library this codebase consumes, and
+the KVM lifecycle is runed's own code. An outside consumer takes a library,
+never a bundle — the same answer the Anthropic finding gives below.
 
 ## The layout
 
-Three directories, all inside arizuko's single `go.mod` (root `CLAUDE.md` —
+Two directories, both inside arizuko's single `go.mod` (root `CLAUDE.md` —
 siblings share the module; orthogonality is enforced by the import graph,
 not by module boundaries):
 
@@ -110,9 +101,7 @@ egress/            the proxy: forward-only, static allowlist, one client
   match/           allowlist globbing
   cmd/egress/      the binary runed starts per spawn
   test/            end-to-end over real sockets
-sandbox/           the KVM/qemu lifecycle library
-crackbox/          the local-development command
-  cmd/crackbox/    `crackbox run [--kvm]` — a sandbox + filtered egress
+sandbox/           the KVM/qemu lifecycle, folding into runed/ (6/41)
 ```
 
 **DNS is not sealed.** A DNS query never appears in a CONNECT line, so the
@@ -171,6 +160,14 @@ both vars. Loud, once, at deploy — not per turn, and never silent.
 **Filtering is opt-in.** An instance with no egress image configured
 spawns unfiltered — `EgressConfig.active()` gates the whole path.
 
+**Four of the five settings are Docker facts and retire with the container
+substrate.** `EGRESS_IMAGE`, `EGRESS_UPLINK_NETWORK`, `EGRESS_NETWORK_PREFIX`
+and `EGRESS_SUBNET` all name a docker image or a docker network
+(`compose/compose.go:165-166,707-721`). The VM substrate runs the proxy as a
+host process on the tap's high address and needs none of them, so `6/41`
+§"Order" deletes all four with the Docker runtime. `network_rules` is the one
+that stays: it is the allowlist itself, and the substrate never reads it.
+
 ## Why the parts stay small
 
 Anthropic ships sandboxing and network restriction inside Claude Code
@@ -187,6 +184,7 @@ boring rather than to market them.
 
 ## Ties
 
-`6/9` (`sandbox/`, the other half) · `6/16` (ship one, not seven) · BUGS
-`L48` (the proposal and its measurements) · BUGS `L136` (the DNS channel
-this design does not close).
+[`6/41`](41-qemu-substrate.md) (the VM substrate, which puts this proxy on
+the host side of the tap) · `6/16` (ship one, not seven) · BUGS `L48` (the
+proposal and its measurements) · BUGS `L136` (the DNS channel this design
+does not close, and which the VM case closes by construction).

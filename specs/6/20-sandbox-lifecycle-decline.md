@@ -89,8 +89,8 @@ folder, where it is diffable and owned.
 ## What survives the decline
 
 - **`can_open_io` + desired/observed reconcile** are the right shapes
-  for managing LONG-LIVED runtimes. arizuko has none today; if `6/9`
-  (crackbox KVM sandboxing) ever wires into `runed` with VMs that
+  for managing LONG-LIVED runtimes. arizuko has none today; if the VM
+  substrate ([`6/41`](41-qemu-substrate.md)) ever keeps guests that
   outlive a turn, copy exactly these two: the one-boolean I/O gate and
   the total desired×observed plan function, both unit-testable against
   a fake backend.
@@ -113,7 +113,8 @@ folder, where it is diffable and owned.
 ## Decision
 
 Decline the lifecycle plane. **Reopen trigger**: a runtime whose boot
-cost is genuinely turn-dominant (KVM via `6/9`, or an image whose
+cost is genuinely turn-dominant (KVM via [`6/41`](41-qemu-substrate.md),
+or an image whose
 seed/install phase grows past model latency) — then take the warm pool
 WITH its consequences (claim seam, idle policy, reaper) as one unit,
 and only for that runtime.

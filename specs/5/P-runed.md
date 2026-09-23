@@ -99,8 +99,11 @@ is a runtime **echo** only.
 One agent turn is **one owned sequence** with a single owner of the
 lifetime — atomic claim → container spawn → stream/collect → teardown —
 bounded by the same deadline timers, with teardown on every exit path
-(`defer`). The sequence is `runed/manager.go` + `runed/docker.go`; the
-prose here would only restate it.
+(`defer`). The sequence is `runed/manager.go` + the substrate behind
+`Runtime`; the prose here would only restate it. `Manager.spawn` renders the
+wire request into the substrate's envelope and arms the one deadline from
+`RunTTL`, so a substrate reads `ctx.Deadline()` and never keeps a timer of
+its own ([`6/41`](../6/41-qemu-substrate.md) §"The seam").
 
 Two properties that are decisions, not mechanism:
 
@@ -119,11 +122,15 @@ never sees the conversation.
 
 ## The container model — `container/`
 
-- **Per-turn-ephemeral.** `docker run -i --rm`, one container per turn,
-  no warm pool. Pluggable behind the `Runtime` interface
-  (`runed/runtimes.go`); `dockerRuntime` (`runed/docker.go:64`) is
-  production, `FakeRuntime` backs the contract + unit tests. There is no
-  `LocalRuntime`.
+- **Per-turn-ephemeral.** One guest per turn, no warm pool. The port is
+  `Runtime` — two methods, `Run` and `Kill` (`runed/runtime.go:70`). One
+  production type, chosen at runed start: `dockerRuntime`
+  (`runed/docker.go:27`, built by `NewDockerRuntime` at line 43) runs
+  `docker run -i --rm`, and the VM substrate of
+  [`6/41`](../6/41-qemu-substrate.md) replaces it. `FakeRuntime`
+  (`runed/runtimes.go:11`) backs the contract and unit tests, and
+  `holdRuntime` (`runed/hold.go`) is the run that starts nothing. An
+  instance runs exactly one substrate.
 - **FHS mounts** (`container/runner.go` `buildMounts`): group workspace →
   `$HOME` (`/home/node`); `/opt/arizuko` (RO app src); `/run/ipc` (the
   socket dir routd serves into); the web slots `/var/lib/www` (RO public
@@ -132,8 +139,12 @@ never sees the conversation.
   (grant-gated world share); `/var/lib/groups` (root only); layered
   `.codex` creds. Mount paths are configured-not-derived (CLAUDE.md
   § Identity is configured).
-- **Egress isolation.** Register the container IP with crackbox, attach
-  `--network <egress-net>`, set `HTTP(S)_PROXY`.
+- **Egress isolation.** One proxy per spawn, pinned to one client address,
+  with nothing registered and nothing to undo
+  ([`6/24`](../6/24-crackbox-lightest.md) §"`--client` and `/health`"). runed
+  attaches the container to the folder's `--internal` network and sets
+  `HTTP(S)_PROXY` to the proxy (`container/runner.go:781-782`). The
+  `--internal` network is what enforces it; the proxy is what filters.
 - **The harness is opaque to the envelope.** `runed` writes JSON to
   stdin and drains stdout/stderr — it must stay harness-agnostic.
 - **Graceful shutdown — a run outlives runed, not routd.** On

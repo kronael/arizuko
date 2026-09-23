@@ -14,8 +14,7 @@ A part can be "standalone" in two different senses; keep them apart.
 1. **Import-orthogonal component** — a sibling dir, zero arizuko-internal
    imports, consumed only via CLI / HTTP / `pkg/` (the contract below). The
    _toolbox_ test: raid the repo for one part. Passers today: `mcpfw`
-   (`6/12`), `egress` (`6/24`), `obs`, and `crackbox` as a set with
-   `egress` + `sandbox`.
+   (`6/12`), `egress` (`6/24`), and `obs`.
 2. **Config-driven droppable daemon** — keeps arizuko imports, but runs
    generic against any stack because its behaviour is TOML/env, not
    hardcoded. The _service_ test: drop it in front of your backends.
@@ -34,8 +33,8 @@ For each candidate:
 
 1. **Contract** — the one promise it makes to a caller who knows nothing
    about arizuko. Can't state it in one sentence → not a component yet.
-2. **Does it hold?** — test it adversarially. `crackbox` was the lesson: 0
-   internal deps **and** its default-deny egress failed open —
+2. **Does it hold?** — test it adversarially. The egress proxy was the
+   lesson: 0 internal deps **and** its default-deny allowlist failed open —
    ready-by-import-count, broken-by-contract.
 3. **Stranger vs cruft** — the minimal surface a stranger imports/runs,
    minus every folder/JID/`routd.db` assumption baked in. That delta is
@@ -128,12 +127,11 @@ spec and are the credible "drop in front of your stack" story.
 Sibling dirs / libs consumed with no arizuko process (the component
 contract, above).
 
-| Component  | Contract                                                  | Surface        | Gate                                                                        |
-| ---------- | --------------------------------------------------------- | -------------- | --------------------------------------------------------------------------- |
-| `mcpfw`    | Gate an agent's MCP tool calls against a ruleset (`6/12`) | CLI + ruleset  | none — a binary, a README, stub-driven acceptance tests; first in `7/25`    |
-| `egress`   | Resolve, then check the address, then dial (`6/24`)       | CLI + HTTP     | none — ships with `crackbox` as its local front end                         |
-| `crackbox` | Default-deny egress per source id + KVM sandbox           | CLI + HTTP     | none — imports only `egress` and `sandbox`; `tests/components` pins the set |
-| `obs`      | Opt-in `audit_log`+journald+OTLP for any Go daemon        | `import` + env | none — has a README; publish on request (`7/25`)                            |
+| Component | Contract                                                  | Surface        | Gate                                                                     |
+| --------- | --------------------------------------------------------- | -------------- | ------------------------------------------------------------------------ |
+| `mcpfw`   | Gate an agent's MCP tool calls against a ruleset (`6/12`) | CLI + ruleset  | none — a binary, a README, stub-driven acceptance tests; first in `7/25` |
+| `egress`  | Resolve, then check the address, then dial (`6/24`)       | CLI + HTTP     | none — a binary runed starts per spawn; `tests/components` pins the set  |
+| `obs`     | Opt-in `audit_log`+journald+OTLP for any Go daemon        | `import` + env | none — has a README; publish on request (`7/25`)                         |
 
 ### Channel + effect/event daemons (correct granularity as daemons)
 
@@ -164,9 +162,8 @@ shippable set):
 | Package                  | internal deps                               | readiness                   | what it is                                  |
 | ------------------------ | ------------------------------------------- | --------------------------- | ------------------------------------------- |
 | `mcpfw`, `egress`, `obs` | 0                                           | **ship now** (`7/25` order) | MCP gate, egress proxy, observability       |
-| `substrate`              | 0                                           | ships with the sandbox      | the capability declaration (`Profile`)      |
-| `sandbox`                | 2 (`egress`, `substrate`)                   | ships with `crackbox`       | KVM substrate (`6/9`)                       |
-| `crackbox`               | 2 (`egress`, `sandbox`)                     | **ships now** as the set    | local front end for egress + KVM            |
+| `substrate`              | 0                                           | **ship now**                | the capability declaration (`Profile`)      |
+| `sandbox`                | 2 (`egress`, `substrate`)                   | **don't extract**           | the KVM substrate, folding into `runed`     |
 | `groupfolder`            | 0                                           | not published — 73 callers  | the containment predicate (`7/25`)          |
 | `router`                 | 1 (`core`)                                  | near — lift `core` types    | routing-table DSL                           |
 | `resreg`                 | 3 (`audit`, `auth`, `store`)                | roadmap = two-face lib      | two-face API engine (`5/17`)                |
@@ -178,7 +175,9 @@ shippable set):
 The Docker substrate is `container/` and its declaration is
 `container.Profile`; the KVM substrate is `sandbox/` and its declaration
 is `sandbox.Profile`. What either can do is read from those values
-(`6/25` §2), not from this table.
+(`6/25` §2), not from this table. Neither is a component: a substrate is
+runed's own mechanism, and [`6/41`](41-qemu-substrate.md) folds the KVM one
+into `runed/` as unexported code.
 
 **The web stack is three unrelated contracts**, so as a bundle it fails the
 one-sentence test:
@@ -217,7 +216,7 @@ core — the DSL is agent-agnostic, the daemon is not.
   platform; 10 adapters + `timed`/`ttsd` are coupled bridges. The
   standalone story is **4 config-driven daemons + 2 components**, not 21.
 - **Two shelves, not one list.** The import-orthogonal toolbox
-  (`obs`/`crackbox` — a stranger _imports_) and the droppable service
+  (`obs`/`mcpfw` — a stranger _imports_) and the droppable service
   (`5/1`/`5/7`: `authd`/`proxyd` — a stranger _deploys_) are different
   products. Import-count misranks them: `vited`/`davd` are 0-dep but thin;
   `authd`/`proxyd` carry imports yet are the real standalone daemons.
@@ -225,7 +224,7 @@ core — the DSL is agent-agnostic, the daemon is not.
   channel isolates its own failure; don't consolidate the fleet.
 - **No security gate blocks the components.** `5/33` grants gate the `*`
   egress bypass behind an explicit `egress` grant, and the e2e suite
-  (Case2/Case4) proves deny; crackbox is shippable.
+  (Case2/Case4) proves deny; the egress proxy is shippable.
 - **Ship one, not seven.** `USELESS.md`'s sharpest finding is that arizuko is
   over-built for its proven audience, and "one stranger running one instance is
   worth more than the next five daemons". Carving every boundary in this
@@ -247,7 +246,7 @@ is a feature, not sprawl.
 | **Web + management**   | `proxyd` `vited` `davd` `dashd`                                                        | put the agent on the web, run/observe/control | shrink to off-the-shelf (above) |
 | **Onboarding**         | `onbod`                                                                                | let people join safely                        | optional                        |
 | **Scheduling**         | `timed`                                                                                | wake the agent on a clock                     | optional                        |
-| **Isolation / egress** | `crackbox`                                                                             | contain what the agent can reach              | optional (security)             |
+| **Isolation / egress** | `egress`                                                                               | contain what the agent can reach              | optional (security)             |
 | **Capabilities**       | `ttsd` (+ Whisper/OpenAI hooks)                                                        | give the agent voice / extra models           | optional                        |
 | **Observability**      | `obs` (library)                                                                        | see what happened                             | opt-in, zero-overhead unset     |
 
@@ -284,13 +283,13 @@ and the human over REST. That composition is the claim. A part is not,
 and the rule stands: **never claim a commodity part is novel** (`5/A`).
 "We have an OIDC issuer" competes with Keycloak on Keycloak's turf and
 loses; "one path binds six things" is the sentence, and even it ships
-qualified while `crackbox` egress is opt-in.
+qualified while per-spawn egress is opt-in.
 
 Replacing a native part with its counterpart is possible only for the
 commodities, and only behind arizuko's seam — never a raw drop-in.
-`runed`'s `ContainerRuntime` seam (`5/P`, today Docker + Fake) can carry
-an external sandbox, but the folder-mount + MCP-socket contract makes it
-a port, not a swap. The catch is _can_ ≠ _should_: swapping `authd` for
+`runed`'s `Runtime` port (`5/P`; `runed/runtime.go:70`) can carry an
+external sandbox, but the folder-mount + MCP-socket contract makes it a
+port, not a swap. The catch is _can_ ≠ _should_: swapping `authd` for
 Keycloak trades a small Go binary for a JVM and its own database,
 against the plain-primitives / one-tar-backup ethos. `ttsd` is the one
 part where the swap is free.
@@ -313,8 +312,8 @@ it.
 Ship on two shelves, not one list:
 
 1. **Components (import)** — `mcpfw`, then `egress`, then `obs` on
-   request, `crackbox` as the set with `egress` + `sandbox` (`7/25`'s
-   order); the `resreg` two-face lib only after its three imports are cut.
+   request (`7/25`'s order); the `resreg` two-face lib only after its three
+   imports are cut.
 2. **Daemons (deploy)** — `authd` + `proxyd` as the "auth gateway you
    drop in front of any stack" pair; `vited`/`davd` fold in as generic
    static/WebDAV origins. `5/1` + `5/7` are the specs; the gate is
@@ -329,6 +328,7 @@ lives.
 
 `6/1` (adoption — publish the contract, and where the two environment
 contracts are stated) · `5/1` (`authd` standalone) · `5/7` (`proxyd` standalone) ·
-`6/24` (`egress` per-spawn proxy) · `6/9` (`crackbox` KVM)
+`6/24` (`egress` per-spawn proxy) · [`6/41`](41-qemu-substrate.md) (the VM
+substrate, which makes the KVM half runed's own code)
 · `6/12` (`mcpfw` firewall) · `5/17` (`resreg` two-face) · `5/A`
 (primitives framing).
