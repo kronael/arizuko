@@ -272,3 +272,32 @@ target list (capture; pick + spec as they mature):
 
 Each of these earns a spec when it moves to active. Parked here as
 raw direction, not yet committed to.
+
+## Audit every registered callback against its real callers
+
+**82 exported func-typed fields across 14 files** — `RegisterSteer`,
+`AfterScan`, `BeforeInsert`, `AllowlistFn`, `Authorize`, `Authz`,
+`AddGroupWatcher`, `BumpEngagement` and the rest. Each one is an injection
+point a spec or an interface declares, and each is a place where the
+declaration and the use can drift apart without anything failing.
+
+The sweep: for every such field, find who ASSIGNS it and who CALLS it. Three
+outcomes worth separating, because they need different fixes:
+
+- **Assigned and never called** — dead injection. Delete the field.
+- **Called with exactly one assignment, forever** — an abstraction with one
+  implementation. It is a direct call wearing a seam; inline it unless a
+  second implementation is actually planned.
+- **Genuinely many-to-one** — the seam earns its place. Say so in the doc
+  comment so the next reader does not delete it.
+
+Use `gopls go_symbol_references` per field, never grep: `Authorize` and
+`Authz` alone appear in several packages with different meanings, and a
+name-based sweep answers about the wrong one (the `L355` failure).
+
+Why it matters here: `runed.Runtime`'s `RegisterSteer` is one of these, and
+the minimal-port work (`6/41-qemu-substrate` §"The seam") turns on whether
+that closure is load-bearing or ceremony. Settling the class settles that
+field too.
+
+Parked as direction. Not started.
