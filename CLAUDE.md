@@ -9,10 +9,11 @@ NEVER `filepath.Base()` a runtime path to discover project name, container name,
 - GitHub: `github.com/kronael/arizuko` — the home of this project.
 - `go.mod` module: `github.com/kronael/arizuko`. All imports
   `github.com/kronael/arizuko/<pkg>`.
-- Shippable sibling components (`crackbox/`, future `gateway/`,
-  `mcpfw/`) are designed to be usable outside arizuko but share
-  arizuko's single `go.mod`; orthogonality is enforced by the import-graph
-  rule (no arizuko-internal subpackage imports), not by module separation.
+- Shippable sibling components (`egress/`, `substrate/`, `mcpfw/`) are
+  designed to be usable outside arizuko but share arizuko's single `go.mod`;
+  orthogonality is enforced by the import-graph rule (no arizuko-internal
+  subpackage imports, `tests/components/imports_test.go`), not by module
+  separation.
 
 ## Response Style
 
@@ -59,10 +60,11 @@ them on each request.
   implementation can be written against it, which is the whole reason it
   exists. The rule is the port, not the file.
 
-  `RunSpec` is where this is already strained: 26 fields, and `ContainerName`
-  and `ContainerConfig` name Docker inside a substrate-neutral port. Settle
-  that vocabulary BEFORE a second runtime lands, or the second implementation
-  inherits the first one's nouns.
+  The value the port carries is named for the turn, never for a substrate:
+  `specs/6/41-qemu-substrate.md` §"The seam" fixes that vocabulary and says
+  which fact each field holds. A substrate's own state — a container name, a
+  CID, a tap — hangs off the handle and is never a field, so `Kill(handle)`
+  finds all of it. A new per-turn fact changes the renderer, never the port.
 
 - **Strict, not magical**: no silent fallbacks for missing data
   (PERSONA.md without frontmatter returns empty, not "guess from body").
