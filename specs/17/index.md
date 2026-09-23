@@ -58,7 +58,8 @@ No `ant/examples/` template, no page — intent only, kept as lines:
 
 The HITL firewall ([5/19](../5/19-hitl-firewall.md)) shipped 2026-08-07 and
 no longer blocks `creator`/`socials`. What remains: per-channel budgets
-([11/19](../11/19-cost-caps.md), partial — the mid-turn nudges are unshipped)
+([6/39-gateway-owns-spend](../6/39-gateway-owns-spend.md), the
+cap the gateway enforces)
 gate `support` and `socials`.
 
 ## Removed in the 2026-08-02 minimization

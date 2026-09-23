@@ -186,7 +186,7 @@ func main() {
 		InstanceName:          core.EnvOr("ASSISTANT_NAME", core.DefaultAssistantName),
 		ObserveWindowMessages: core.EnvInt("OBSERVE_WINDOW_MESSAGES", 10),
 		ObserveWindowChars:    core.EnvInt("OBSERVE_WINDOW_CHARS", 4000),
-		// Pre-spawn budget gate (spec 11/19-cost-caps, 6/39); default-on. Off clears the
+		// Pre-spawn budget gate (spec 6/39-gateway-owns-spend); default-on. Off clears the
 		// gateway's budgets too, so the escape hatch reaches what enforces them.
 		CostCapsEnabled: core.EnvOr("COST_CAPS_ENABLED", "true") == "true",
 		// Model gateway (spec 6/23, 6/39). With a URL set, routd mints one

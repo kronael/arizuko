@@ -116,7 +116,7 @@ test('ClaudeTurn: a success result is an ok frame with usage', () => {
   expect(r.ok).toBe(true);
   expect(r.text).toBe('the answer');
   expect(r.retryFresh).toBeUndefined();
-  // costUSD → cost_cents is × 100 then ROUNDED (spec 11/19). 0.0456 → 4.56 → 5;
+  // costUSD → cost_cents is × 100 then ROUNDED (spec 6/39). 0.0456 → 4.56 → 5;
   // truncation would give 4. The cache fields cross names, and 7 ≠ 3 catches a swap.
   expect(r.usage?.['claude-opus-5']).toEqual({
     input: 100, output: 20, cache_read: 7, cache_write: 3, cost_cents: 5,

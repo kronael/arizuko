@@ -103,6 +103,11 @@ carries no `max_budget` of its own because the team is what enforces the
 folder's cap. A call the agent makes outside the gateway is a bypassed gateway,
 and the answer to that is a log line, not a row.
 
+The mid-turn `<budget_notice>` nudge is not built and is not planned. A turn
+that approaches the cap gets no warning inside the turn; the gate refuses the
+next turn instead. The nudge needs a spend number during the run, and the
+gateway answers `/spend/logs` only after the run returns.
+
 ## What arizuko keeps, and why
 
 - **The cap decision.** What a folder may spend is an operator policy in

@@ -29,7 +29,7 @@ interface ContainerOutput {
   result: string | null;
   newSessionId?: string;
   error?: string;
-  // Per-model usage harvested from the harness's result frame (spec 11/19).
+  // Per-model usage harvested from the harness's result frame (spec 6/39).
   models?: Record<string, import('./mcp.js').ModelUsage>;
   // timedOut marks a result that is the graceful query-timeout summary.
   timedOut?: boolean;

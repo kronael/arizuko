@@ -317,8 +317,8 @@ dilution — not token cost — is the only cost that survives caching. The
 proposal converts a cached, always-present read into an on-demand read
 the model performs some fraction of the time, to save cache-read tokens
 that are already discounted. If the maintainer's aim is cost, the tool
-is measurement (the per-model usage rows of `11/19` carry cache-read
-counts per turn) and the answer may be "leave it". If the aim is
+is measurement (the gateway's per-model usage rows carry cache-read
+counts per turn, [`6/39-gateway-owns-spend`](39-gateway-owns-spend.md)) and the answer may be "leave it". If the aim is
 attention — the rule in the middle of a 388-line file being the one
 skipped — the proposal stands, and `L130` adds a second reason: a codex
 or pi agent receives none of this file today, and the proposal there is

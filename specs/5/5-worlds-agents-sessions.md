@@ -96,8 +96,9 @@ or expressible elsewhere:
   question rather than a table.
 
 A world is **not** a billing boundary either. The cap primitive ships
-(`11/19`: `store.FolderCap` / `store.UserCap`) but is read per **exact** folder
-(`store/cost_log.go:66`) and per user (`user_profiles`, line 87), with no
+([`6/39-gateway-owns-spend`](../6/39-gateway-owns-spend.md): `store.FolderCap` /
+`store.UserCap`) but is read per **exact** folder (`store/groups.go:582`) and
+per user (`store/user_profiles.go:186`), with no
 roll-up to the top-level folder — and `0` means uncapped, which is the schema
 default (`routd/migrations/0001:11`).
 
@@ -296,9 +297,9 @@ container. What ships today.
 
 **The condition under which this flips.** B becomes viable **once a spend cap
 is enforced on the admission path**. Note precisely what is missing: the cap
-_primitive_ already ships (`11/19`, `store.FolderCap`), but
-`cost_cap_cents_per_day` defaults to `0` = uncapped
-(`routd/migrations/0001:11`) and nothing on the admission path sets or
+_primitive_ already ships ([`6/39-gateway-owns-spend`](../6/39-gateway-owns-spend.md),
+`store.FolderCap`), but `cost_cap_cents_per_day` reads `0` = uncapped for an
+unknown group (`store/groups.go:578-587`) and nothing on the admission path sets or
 requires one. So B is not blocked on inventing a cap — it is blocked on the
 admission path refusing to run a turn into an uncapped folder. Until then it
 is a signup-driven cost channel on a path anyone can reach.
@@ -465,7 +466,8 @@ collaboration is disallowed by design: worlds are isolation boundaries.
 `5/18` onboarding · `5/31` pairing · `5/S` JID · `5/15` surrogate OAuth ·
 `5/17` one handler, two faces · `5/32`+`5/33` grants · `5/P` runed
 sessions/spawns · `5/21` products (`draft`) · `5/8` export/apply ·
-`5/28` packages · `5/14` credentials · `11/19` cost caps · `5/9` capability
+`5/28` packages · `5/14` credentials · `6/39` the gateway owns spend ·
+`5/9` capability
 eval · `5/V` web vhosts.
 
 Prototypes are **not** a tie: the mechanism and its spec were deleted in
