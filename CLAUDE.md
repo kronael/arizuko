@@ -49,6 +49,21 @@ them on each request.
   docker's compose fragment AND arizuko's manifest — two files because
   they answer to two owners, not one file that knows about both. Split by
   who defines the format, never by what is convenient to parse together.
+- **A port is two methods and stays two.** `objstore` is `Query` +
+  `GuardedBatch`, and every storage protocol is written OVER them rather than
+  added TO them. `runed.Runtime` is the same shape for the execution substrate:
+  `Run` + `Kill`, one production type, one instance one substrate
+  (`specs/6/41-qemu-substrate.md` §"The seam"). **Adding a method to either, or
+  widening the value they carry, needs an explicit plan the user approves
+  first** — a port grows one convenience at a time and then no second
+  implementation can be written against it, which is the whole reason it
+  exists. The rule is the port, not the file.
+
+  `RunSpec` is where this is already strained: 26 fields, and `ContainerName`
+  and `ContainerConfig` name Docker inside a substrate-neutral port. Settle
+  that vocabulary BEFORE a second runtime lands, or the second implementation
+  inherits the first one's nouns.
+
 - **Strict, not magical**: no silent fallbacks for missing data
   (PERSONA.md without frontmatter returns empty, not "guess from body").
   No parent-folder inheritance for group-scoped files. Operator data
