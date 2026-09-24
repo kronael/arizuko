@@ -90,18 +90,27 @@ measures SLOWER than `-M q35`, and step 0 widened the gap rather than closing
 it. Five runs each on hel1v5 with the distro kernel, 2026-09-24, reading the
 kernel's own printk at `Run /init as init process`:
 
-| Machine   | kernel to init, 5 runs             | median |
-| --------- | ---------------------------------- | ------ |
-| `microvm` | 3.24 / 3.25 / 3.53 / 3.71 / 4.08 s | 3.53 s |
-| `q35`     | 1.48 / 1.93 / 2.01 / 2.16 / 2.46 s | 1.93 s |
+| Machine   | distro kernel, 5 runs              | median | pinned kernel   |
+| --------- | ---------------------------------- | ------ | --------------- |
+| `microvm` | 3.24 / 3.25 / 3.53 / 3.71 / 4.08 s | 3.53 s | **0.72–1.00 s** |
+| `q35`     | 1.48 / 1.93 / 2.01 / 2.16 / 2.46 s | 1.93 s | 1.03 s          |
 
-q35 reaches init in **0.55×** the time microvm takes. The likely cause is the
-same fact microvm is built for: the distro kernel probes ACPI and PCI, which
-microvm does not provide, so it pays timeouts for buses that are absent. A
-pinned kernel with those drivers compiled out is what would reverse the order —
-which is exactly the bet, now with a number on it. **Neither type meets the
-1.0 s gate on the distro kernel**, so the pinned kernel must cut the kernel-side
-cost by 1.5× for q35 and 3.5× for microvm.
+On the DISTRO kernel q35 reaches init in 0.55× the time microvm takes, because
+that kernel probes ACPI and PCI which microvm does not provide, so it pays
+timeouts for absent buses. **The pinned kernel reverses it and clears the gate**:
+`make kernel` built 6.1.112 from the Firecracker config plus
+`kernel/arizuko.fragment`, and microvm reaches `Run /init as init process` in
+**0.72–1.00 s** against q35's 1.03 s (measured 2026-09-24). The bet the machine
+type rested on is paid — microvm wins once the kernel stops probing buses it does
+not have — and the kernel-side cost is inside the 1.0 s budget, with the boot
+split's other three timestamps still to account for.
+
+**`-M microvm` needs `acpi=on`, and PCI is not an option.** The Firecracker config
+sets `# CONFIG_PCI is not set`, which also silently drops a `CONFIG_VIRTIO_PCI=y`
+from the fragment — so `vhost-vsock-pci` can never be enumerated and the
+`vhost-vsock-device` mmio form §"The turn" step 5 names is the only one that
+works. With `acpi=off` the guest finds no mmio device at all; `-M microvm,acpi=on`
+enumerates the bus.
 
 `make bench-boot` runs both machine types on the pinned kernel and the argument
 list takes whichever is faster. q35 with direct kernel boot is the fallback and
@@ -289,6 +298,14 @@ VSOCK-CONNECT:2:<mcp>` on a guest-local tmpfs and execs ant as uid 1000
    assumes neither worked: it waits for the QEMU pid with a bounded grace,
    `SIGKILL`s it, and confirms the pid is gone before it removes the record. A
    record removed over a live QEMU is a guest nothing reaps.
+
+   **Measured 2026-09-24, and the warning holds:** a
+   `LINUX_REBOOT_CMD_POWER_OFF` from PID 1 on `-M microvm,acpi=on` prints
+   `reboot: System halted` and QEMU **stays alive**. `-no-reboot` alone does not
+   turn that halt into an exit. The bounded grace plus `SIGKILL` is therefore not
+   belt-and-braces; it is the only thing that ends the process today. Which
+   shutdown path exits cleanly is §Open, and the reap does not wait to find
+   out.
 
 `RunResult.ExitCode` is the `{exit}` frame; `Outcome` and `NewSessionID`
 arrive by `submit_turn` over MCP, unchanged.
@@ -855,9 +872,19 @@ example.com` fails; a raw `nc` to any address off the tap times out.
 4. **`nftables` versus `iptables` in the Alpine image.** `apk search`
    listed `qemu-system-x86_64`, `virtiofsd`, `socat`; the rule renderer
    uses `iptables` today. Verify the package at the first image build.
-5. **Boot with the pipeline's kernel on krons, on BOTH machine types** — the
-   whole gate; nothing in this spec assumes the number, and microvm is a bet
-   against a measurement that q35 currently wins (§"The engine").
+5. **PID 1's stdio in the initramfs.** The kernel boots, runs `guest-init` and
+   powers off with an EMPTY console, while the same binary prints every line
+   correctly on the host (measured 2026-09-24, both ways). `/dev` and a
+   `console` node are in the initrd and `guest-init` no longer mounts over the
+   kernel's devtmpfs, so the two known causes are closed and a third remains.
+   Until it is found, a guest reports nothing and the turn log has no guest
+   half — so this blocks the `ctl` round trip, the virtio-fs mount and the uid
+   clamp, which all report through it. The measurement is a raw
+   `write(1, ...)` as the first instruction of `main` plus
+   `console=ttyS0 earlyprintk=serial` on the command line.
+6. **Which shutdown path makes QEMU exit.** `LINUX_REBOOT_CMD_POWER_OFF` gives
+   `reboot: System halted` with QEMU alive (§"The turn" step 9). The reap does
+   not depend on the answer; the turn's wall-clock cost does.
 
 ## Ties
 
