@@ -105,12 +105,21 @@ type rested on is paid — microvm wins once the kernel stops probing buses it d
 not have — and the kernel-side cost is inside the 1.0 s budget, with the boot
 split's other three timestamps still to account for.
 
-**`-M microvm` needs `acpi=on`, and PCI is not an option.** The Firecracker config
-sets `# CONFIG_PCI is not set`, which also silently drops a `CONFIG_VIRTIO_PCI=y`
-from the fragment — so `vhost-vsock-pci` can never be enumerated and the
-`vhost-vsock-device` mmio form §"The turn" step 5 names is the only one that
-works. With `acpi=off` the guest finds no mmio device at all; `-M microvm,acpi=on`
-enumerates the bus.
+**microvm's device enumeration is the open cost of the faster machine type.**
+Measured 2026-09-24 on QEMU 7.2.22, in this order. The Firecracker base config sets
+`# CONFIG_PCI is not set`, which silently drops a `CONFIG_VIRTIO_PCI=y` added
+beside it, so `vhost-vsock-pci` cannot be seen at all. `-M microvm,acpi=on`
+publishes a 365-byte DSDT that declares no virtio device, so ACPI does not
+enumerate them either. With `CONFIG_VIRTIO_MMIO_CMDLINE_DEVICES=y` and all eight
+slots given as `virtio_mmio.device=512@0xfeb00000+n*512:irq`, the guest registers
+every slot — `info mtree` confirms QEMU maps exactly those eight windows — and
+still binds no device, so a vsock connect stays `ENODEV`.
+
+**So the q35 fallback is not a contingency, it is the path that works today.** It
+costs `CONFIG_PCI=y` in the fragment and 1.03 s against microvm's 0.72–1.00 s, both
+inside the gate. microvm keeps a 0.03–0.3 s edge and owes an answer on how its
+devices are found; q35 owes nothing. §Open carries the question, and the argument
+list takes whichever the acceptance test passes on.
 
 `make bench-boot` runs both machine types on the pinned kernel and the argument
 list takes whichever is faster. q35 with direct kernel boot is the fallback and
@@ -872,17 +881,25 @@ example.com` fails; a raw `nc` to any address off the tap times out.
 4. **`nftables` versus `iptables` in the Alpine image.** `apk search`
    listed `qemu-system-x86_64`, `virtiofsd`, `socat`; the rule renderer
    uses `iptables` today. Verify the package at the first image build.
-5. **PID 1's stdio in the initramfs.** The kernel boots, runs `guest-init` and
-   powers off with an EMPTY console, while the same binary prints every line
-   correctly on the host (measured 2026-09-24, both ways). `/dev` and a
-   `console` node are in the initrd and `guest-init` no longer mounts over the
-   kernel's devtmpfs, so the two known causes are closed and a third remains.
-   Until it is found, a guest reports nothing and the turn log has no guest
-   half — so this blocks the `ctl` round trip, the virtio-fs mount and the uid
-   clamp, which all report through it. The measurement is a raw
-   `write(1, ...)` as the first instruction of `main` plus
-   `console=ttyS0 earlyprintk=serial` on the command line.
-6. **Which shutdown path makes QEMU exit.** `LINUX_REBOOT_CMD_POWER_OFF` gives
+5. **How a `-M microvm` guest finds its virtio devices.** Neither ACPI nor the
+   command line binds one on QEMU 7.2.22 (§"The engine"), so microvm's 0.03–0.3 s
+   boot edge is unusable until this is answered. The measurement is a guest that
+   logs `virtio_vsock` bound to an mmio slot; QEMU's own `info mtree` already
+   confirms the eight windows exist, so the gap is on the guest side. q35 with
+   `CONFIG_PCI=y` is the path that works and it is inside the gate, so this
+   blocks an optimisation rather than the substrate.
+6. **PID 1's stdio — ANSWERED 2026-09-24, and it is `/dev/kmsg`.** A guest wrote
+   nothing while its own mount syscalls reached the kernel log from the same
+   function. `/dev/ttyS0` and `/dev/console` both OPEN and then fail every write
+   with `EIO`: a 16550A with no carrier rejects writes unless `CLOCAL` is set, and
+   `-serial file:` never asserts the modem lines. `guest-init` writes to
+   `/dev/kmsg`, which needs no termios, cannot be silenced by carrier state, and
+   lands in the same stream the kernel console already writes to — the turn log —
+   so ordering with kernel messages is free. The diagnosis itself came through a
+   failed `virtiofs` mount whose SOURCE NAME carried the message, which is the one
+   channel that works while the console does not; a guest that cannot say what is
+   wrong needs a channel that is not the thing under test.
+7. **Which shutdown path makes QEMU exit.** `LINUX_REBOOT_CMD_POWER_OFF` gives
    `reboot: System halted` with QEMU alive (§"The turn" step 9). The reap does
    not depend on the answer; the turn's wall-clock cost does.
 

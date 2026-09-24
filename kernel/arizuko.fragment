@@ -12,6 +12,15 @@ CONFIG_VIRTIO_MMIO=y
 # line, so a vsock connect fails with ENODEV. This option is what makes
 # `virtio_mmio.device=<size>@<base>:<irq>` on the command line work.
 CONFIG_VIRTIO_MMIO_CMDLINE_DEVICES=y
+# PCI, because the q35 fallback needs it and the Firecracker base turns it off.
+# Measured 2026-09-24: on -M microvm the guest registers every mmio slot from the
+# command line and still binds no device, so vsock stays ENODEV; q35 with
+# virtio-pci is the path that enumerates. Setting CONFIG_PCI here also un-drops
+# CONFIG_VIRTIO_PCI, which the base config silently discarded.
+CONFIG_PCI=y
+CONFIG_PCI_MSI=y
+CONFIG_VIRTIO_PCI=y
+CONFIG_VIRTIO_PCI_LEGACY=y
 CONFIG_VIRTIO_PCI=y
 CONFIG_VIRTIO_PCI_LEGACY=y
 CONFIG_VIRTIO_BLK=y
