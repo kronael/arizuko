@@ -74,6 +74,25 @@ func NewQemuRuntime(cfg *core.Config, folders *groupfolder.Resolver) (Runtime, s
 	return q, eff, nil
 }
 
+// layerImageEnv puts the turn's rendered environment over the agent image's own.
+// The image is the BASE and the rendered map WINS, which is the order docker
+// applies under the other substrate: `ENV` first, then `-e`.
+//
+// It lives here and not in `turnEnv` (`render.go`) because that renderer is
+// substrate-agnostic and this layer is this substrate's alone: docker applies an
+// image's config by itself, and a rootfs TREE carries none. PATH and HOME are the
+// image's (`env_contract_test.go` names it as the owner), so without this the
+// agent runs on whatever PATH the shell compiled in.
+//
+// The result is a fresh map. The renderer's map is the Manager's, and a substrate
+// that wrote into it would hand the next reader its own proxy address.
+func layerImageEnv(image, rendered map[string]string) map[string]string {
+	env := make(map[string]string, len(image)+len(rendered))
+	maps.Copy(env, image)
+	maps.Copy(env, rendered)
+	return env
+}
+
 // qemuProfile is what this substrate declares. Egress is domain-granular because
 // the proxy matches names at CONNECT, and the guest has no resolver at all: a
 // name is meaningful only in a CONNECT line, so nothing leaves the tap except to
@@ -270,10 +289,7 @@ func (q *qemuRuntime) spawn(ctx context.Context, t Turn) RunResult {
 	// The guest's environment is the rendered one plus this substrate's own
 	// proxy address. Copied, because the renderer's map is the Manager's and a
 	// substrate that wrote into it would hand the next reader its own address.
-	env := maps.Clone(t.Env)
-	if env == nil {
-		env = map[string]string{}
-	}
+	env := layerImageEnv(q.paths.ImageEnv, t.Env)
 	proxyEnv(env, proxyURL)
 
 	// Step 4: both vsock listeners, bound BEFORE QEMU starts. A port a squatter

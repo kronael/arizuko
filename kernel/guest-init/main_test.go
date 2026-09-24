@@ -111,6 +111,10 @@ func TestRootPlanMirrorsTheHostsManifest(t *testing.T) {
 		{Source: "proc", Target: "/newroot/proc", FS: "proc"},
 		{Source: "sysfs", Target: "/newroot/sys", FS: "sysfs"},
 		{Source: "/dev", Target: "/newroot/dev", Flags: syscall.MS_BIND | syscall.MS_REC},
+		// A pty needs /dev/ptmx AND the numbered slave under /dev/pts; without the
+		// mount the second open is ENOENT. The kernel has CONFIG_UNIX98_PTYS=y.
+		{Source: "devpts", Target: "/newroot/dev/pts", FS: "devpts",
+			Data: "gid=5,mode=620,ptmxmode=666", Needs: []string{"/newroot/dev/pts"}},
 		{Source: "/turn/home/node", Target: "/newroot/home/node",
 			Flags: syscall.MS_BIND | syscall.MS_REC},
 		{Source: "/turn/home/node/.codex/auth.json", Target: "/newroot/home/node/.codex/auth.json",

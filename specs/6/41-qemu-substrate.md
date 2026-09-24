@@ -646,11 +646,27 @@ any of them. Measured on hel1v5 (the krons host) 2026-09-23.
   one setting**: runed refuses to start when `guest_mem × MAX_CONCURRENT_CONTAINERS`
   exceeds the host's `MemTotal`, and the pair is set from Open question 4's
   peak-RSS measurement rather than from the 4 GB placeholder.
+- **A pty works, and it rests on an INHERITED config value.** The guest mounts
+  `devpts` at `/dev/pts`, because a pty is allocated by opening `/dev/ptmx` and
+  then the numbered slave, and without the mount that second open is `ENOENT`.
+  Measured 2026-09-24 in the BUILT artifact rather than read off the fragment:
+  `kernel.config` carries `CONFIG_UNIX98_PTYS=y` and `CONFIG_TTY=y`, inherited
+  from Firecracker's base config, and `kernel/arizuko.fragment` names neither. So
+  a base-config bump can take ptys away silently. Both are pinned in the fragment
+  at the next kernel rebuild — not now, because pinning a value that is already
+  set changes the `KERNEL_KEY` and costs the operator 30–60 minutes of both vCPUs
+  for no change in the artifact.
 - **The tmpfs overlay upper is inside `-m`, and it is capped.** The guest's
   writable layer is RAM, so an agent that unpacks a large dependency tree
   consumes the guest's memory rather than disk. `guest-init` mounts the upper
   with an explicit `size=`, and a write past it is `ENOSPC` inside the guest —
-  a failed turn, never a host that reclaims under pressure.
+  a failed turn, never a host that reclaims under pressure. **The numbers, set
+  2026-09-24: `size=512m` for the upper and `size=16m` for each manifest tmpfs
+  entry**, against the 2 GB `RUNED_GUEST_MEM` default and leaving `/dev/shm` the
+  gigabyte `runner.go:682` gives it. They are consts in `guest-init`, not
+  per-instance tunables, so an instance that raises `-m` does not raise them;
+  Open question 4's peak-RSS measurement is what says whether they should move
+  onto the command line beside `ARIZUKO_CTL` and `ARIZUKO_MCP`.
 - **Disk is one rootfs per release, and a release deletes.** The export is
   8.26 GB uncompressed. Free space is the operator's, not a guard in the build:
   `docker builder prune -f` is the lever and it recovered 4.37 GB on krons

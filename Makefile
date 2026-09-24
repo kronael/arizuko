@@ -271,6 +271,14 @@ rootfs:
 	  cid=$$($(DOCKER) create arizuko-ant:latest true); \
 	  trap "$(DOCKER) rm -f $$cid >/dev/null" EXIT; \
 	  $(DOCKER) export $$cid | $(DOCKER_SUDO) tar -x -C $(ROOTFS_DIR)
+	# A rootfs tree carries no image CONFIG, and docker is what applies it today:
+	# PATH, HOME and every ENV line of ant/Dockerfile come from the image, which
+	# `runed/env_contract_test.go` records as the owner. Under the VM substrate
+	# nothing applies them, so the export captures them beside the tree and runed
+	# merges them UNDER the rendered turn env. One declaration (the image), one
+	# more reader — never a second copy of the values.
+	$(DOCKER) image inspect --format '{{json .Config.Env}}' arizuko-ant:latest \
+	  | $(DOCKER_SUDO) tee $(ROOTFS_DIR)/.image-env.json > /dev/null
 	@echo "rootfs: $(ROOTFS_DIR)"
 	@$(MAKE) --no-print-directory rootfs-stale DATA_DIR=$(DATA_DIR)
 

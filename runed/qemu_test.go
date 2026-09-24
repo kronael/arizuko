@@ -549,3 +549,86 @@ func TestTurnResultMapsEveryEnding(t *testing.T) {
 		t.Errorf("an unframed turn must name the console: %q", e.Error)
 	}
 }
+
+// A rootfs TREE carries no image config, and docker is what applies it under the
+// other substrate: PATH and HOME belong to the image, which env_contract_test.go
+// names as their owner. So the export captures the image's ENV beside the tree and
+// this substrate layers it UNDER the rendered turn env — the order docker uses,
+// `ENV` first and then `-e`. Without it the agent runs on whatever PATH the shell
+// compiled in, and node is not on that.
+func TestTheImageEnvIsTheBaseAndTheTurnWins(t *testing.T) {
+	image := map[string]string{
+		"PATH":         "/usr/local/go/bin:/usr/bin:/bin",
+		"NODE_VERSION": "22.23.2",
+		"TZ":           "Etc/UTC",
+	}
+	rendered := map[string]string{"TZ": "Europe/Prague", "ARIZUKO_MODEL": "opus"}
+
+	env := layerImageEnv(image, rendered)
+
+	if env["PATH"] != "/usr/local/go/bin:/usr/bin:/bin" {
+		t.Errorf("the image's PATH must reach the guest, got %q", env["PATH"])
+	}
+	if env["NODE_VERSION"] != "22.23.2" {
+		t.Errorf("every image ENV line reaches the guest, got %q", env["NODE_VERSION"])
+	}
+	if env["TZ"] != "Europe/Prague" {
+		t.Errorf("the rendered turn env must WIN on a clash, got TZ=%q", env["TZ"])
+	}
+	if env["ARIZUKO_MODEL"] != "opus" {
+		t.Errorf("the turn's own keys must survive, got %q", env["ARIZUKO_MODEL"])
+	}
+	// The renderer's map is the Manager's; writing into it would hand the next
+	// reader this turn's values.
+	if len(rendered) != 2 {
+		t.Errorf("layerImageEnv must not write into the rendered map: %v", rendered)
+	}
+}
+
+// readImageEnv parses docker's own `{{json .Config.Env}}`, so the format is
+// docker's. A tree without the file is a stale export and refuses: guessing a PATH
+// here would be a SECOND declaration of what ant/Dockerfile already says.
+func TestReadImageEnvRefusesWhatItCannotUse(t *testing.T) {
+	cases := []struct {
+		name, body string
+		wantKeys   int
+		wantErr    string
+	}{
+		{"docker's own shape", `["PATH=/bin","HOME=/home/node"]`, 2, ""},
+		{"a bare name means inherit, and a guest has nothing to inherit from",
+			`["PATH=/bin","INHERIT_ME"]`, 1, ""},
+		{"an empty set declared nothing", `[]`, 0, "declared nothing"},
+		{"not an array at all", `{"PATH":"/bin"}`, 0, "cannot unmarshal"},
+		{"entries but none usable", `["A","B"]`, 0, "none was KEY=value"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			dir := t.TempDir()
+			if err := os.WriteFile(filepath.Join(dir, imageEnvName), []byte(c.body), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			env, err := readImageEnv(dir)
+			if c.wantKeys == 0 {
+				if err == nil {
+					t.Fatalf("must refuse, got %v", env)
+				}
+				// The MESSAGE, because two guards reject an empty array and a
+				// bare "it errored" cannot tell which one ran.
+				if !strings.Contains(err.Error(), c.wantErr) {
+					t.Errorf("refusal must say %q, got %v", c.wantErr, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("must parse docker's shape: %v", err)
+			}
+			if len(env) != c.wantKeys {
+				t.Errorf("got %d keys, want %d: %v", len(env), c.wantKeys, env)
+			}
+		})
+	}
+	// A missing file is the stale-export case and is also a refusal.
+	if _, err := readImageEnv(t.TempDir()); err == nil {
+		t.Error("a rootfs with no captured image env must refuse, not default")
+	}
+}

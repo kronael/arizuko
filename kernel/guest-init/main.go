@@ -407,6 +407,18 @@ func rootPlan(m treeManifest) []mountOp {
 		{Source: "proc", Target: guestRoot + "/proc", FS: "proc"},
 		{Source: "sysfs", Target: guestRoot + "/sys", FS: "sysfs"},
 		{Source: "/dev", Target: guestRoot + "/dev", Flags: syscall.MS_BIND | syscall.MS_REC},
+		// devpts, because a pty is allocated by opening /dev/ptmx and then the
+		// numbered slave under /dev/pts, and without the mount that second open
+		// is ENOENT — so any turn tool that wants a terminal fails.
+		//
+		// MEASURED 2026-09-24, in the built artifact rather than assumed from the
+		// fragment: kernel.config carries CONFIG_UNIX98_PTYS=y and CONFIG_TTY=y,
+		// inherited from Firecracker's base config. The fragment does NOT name
+		// either, so this mount rests on an inherited value — spec §"The image and
+		// the guest kernel" records that, and it is pinned at the next rebuild
+		// rather than forcing one for a value already set.
+		{Source: "devpts", Target: guestRoot + "/dev/pts", FS: "devpts",
+			Data: "gid=5,mode=620,ptmxmode=666", Needs: []string{guestRoot + "/dev/pts"}},
 	}
 	// The families, in the order the host sorted them: a parent before its
 	// children, which is the layering the mount renderer already relies on.

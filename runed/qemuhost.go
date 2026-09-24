@@ -5,6 +5,7 @@ package runed
 // found missing per turn is a fleet that looks healthy and answers nothing.
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -72,8 +73,10 @@ const (
 	// the host and every id outside the range has none.
 	clampFlag = "--uid-map"
 	// shareRoot and shareTurn are the two virtio-fs tags the guest mounts.
-	shareRoot = "root"
-	shareTurn = "turn"
+	// imageEnvName sits beside the rootfs tree, written by `make rootfs`.
+	imageEnvName = ".image-env.json"
+	shareRoot    = "root"
+	shareTurn    = "turn"
 )
 
 // qemuPaths is what the preconditions resolved: a runtime holds this and looks
@@ -89,6 +92,12 @@ type qemuPaths struct {
 	Kernel    string
 	Initrd    string
 	Rootfs    string
+	// ImageEnv is the agent image's own `ENV` set, captured beside the rootfs by
+	// `make rootfs`. docker applies it under the docker substrate — PATH and HOME
+	// are the image's, which `env_contract_test.go` records — and a rootfs TREE
+	// carries no config, so the host applies it here instead. One declaration,
+	// one more reader.
+	ImageEnv  map[string]string
 	VMRoot    string
 	Mem       string
 	SMP       int
@@ -173,6 +182,14 @@ func qemuPreconditions(cfg *core.Config) (qemuPaths, error) {
 		miss("%s is unset — set it to the unpacked release rootfs (`make images` exports it once per release)", envRootfsDir)
 	} else if fi, err := os.Stat(p.Rootfs); err != nil || !fi.IsDir() {
 		miss("%s=%s is not a directory (%v)", envRootfsDir, p.Rootfs, err)
+	} else if env, err := readImageEnv(p.Rootfs); err != nil {
+		// A refusal, not a default. Without the image's PATH the agent's own
+		// runtime is not on it, and guessing one here would be a SECOND
+		// declaration of what ant/Dockerfile already says.
+		miss("%s=%s carries no readable %s (%v): re-run `make rootfs`, which captures "+
+			"the image ENV the tree cannot", envRootfsDir, p.Rootfs, imageEnvName, err)
+	} else {
+		p.ImageEnv = env
 	}
 	checkClamp(p, miss)
 	if total, err := hostMemTotal(); err != nil {
@@ -220,6 +237,36 @@ func checkClamp(p qemuPaths, miss func(string, ...any)) {
 			"(spec 6/41 §\"Open questions — each with the measurement that settles it\", question 2)",
 			envUIDMap, envGIDMap, uid)
 	}
+}
+
+// readImageEnv reads the agent image's `ENV` set from beside the rootfs tree.
+// `make rootfs` writes docker's own `{{json .Config.Env}}`, a JSON array of
+// `KEY=value` strings, so the format is docker's and this only splits it.
+//
+// A key with no `=` is skipped rather than guessed at: docker allows a bare name
+// meaning "inherit", and there is nothing to inherit from in a guest.
+func readImageEnv(rootfs string) (map[string]string, error) {
+	b, err := os.ReadFile(filepath.Join(rootfs, imageEnvName))
+	if err != nil {
+		return nil, err
+	}
+	var lines []string
+	if err := json.Unmarshal(b, &lines); err != nil {
+		return nil, fmt.Errorf("%s: %w", imageEnvName, err)
+	}
+	if len(lines) == 0 {
+		return nil, fmt.Errorf("%s is an empty set, so the image declared nothing", imageEnvName)
+	}
+	env := map[string]string{}
+	for _, l := range lines {
+		if k, v, ok := strings.Cut(l, "="); ok {
+			env[k] = v
+		}
+	}
+	if len(env) == 0 {
+		return nil, fmt.Errorf("%s held %d entries and none was KEY=value", imageEnvName, len(lines))
+	}
+	return env, nil
 }
 
 // memoryFits is the host-budget guard: the guest size and the concurrency cap
