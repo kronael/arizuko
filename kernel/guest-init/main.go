@@ -52,6 +52,10 @@ type frame struct {
 }
 
 func main() {
+	// A raw write to fd 1 before anything else: if the console is not there, every
+	// later Printf is silent and the guest looks hung rather than broken.
+	_, _ = syscall.Write(1, []byte("ARIZUKO_INIT_ALIVE\n"))
+
 	// Step 0 reads uptime at entry: the kernel's own boot cost, from the guest
 	// side rather than inferred from the host (spec §"The image and the guest
 	// kernel", the four timestamps).
@@ -84,10 +88,14 @@ func main() {
 // ENOSPC in the guest, never a host reclaiming under pressure (spec §"The host
 // budget").
 func mountBase(probe map[string]string) {
+	// /dev is NOT in this list. CONFIG_DEVTMPFS_MOUNT=y means the kernel mounts it
+	// before it execs init, and mounting over it cost a whole debug cycle on
+	// 2026-09-24: the guest booted, ran its retry loop and powered off with an
+	// EMPTY console, because re-mounting /dev invalidated the console fd the
+	// kernel had already handed PID 1 as stdout.
 	for _, m := range []struct{ src, dst, fs, opts string }{
 		{"proc", "/proc", "proc", ""},
 		{"sysfs", "/sys", "sysfs", ""},
-		{"devtmpfs", "/dev", "devtmpfs", ""},
 		{"tmpfs", "/run", "tmpfs", "size=64m"},
 		{"tmpfs", "/dev/shm", "tmpfs", "size=1g"},
 	} {

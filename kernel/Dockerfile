@@ -36,4 +36,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends cpio gzip
 COPY --from=build /src/arch/x86/boot/bzImage /out/bzImage
 COPY --from=build /src/.config /out/kernel.config
 COPY --from=init /init /root/init
-RUN cd /root && printf 'init\n' | cpio -o -H newc | gzip -9 > /out/initrd.gz
+# /dev and a console node are NOT optional. CONFIG_DEVTMPFS_MOUNT mounts devtmpfs
+# only if /dev exists in the initramfs, and without /dev/console the kernel hands
+# PID 1 no stdin, stdout or stderr at all -- the guest then boots, runs and powers
+# off in total silence. Measured 2026-09-24: an initrd of one binary produced an
+# empty console while the same binary printed correctly on the host.
+RUN cd /root && mkdir -p dev && mknod -m 622 dev/console c 5 1 \
+    && printf 'init\ndev\ndev/console\n' | cpio -o -H newc | gzip -9 > /out/initrd.gz

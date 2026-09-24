@@ -25,11 +25,15 @@ build:
 # the disk lever the spec names — deletes a build cache, so a kernel living in
 # one would be thrown away by the documented cleanup.
 #
-# The artifact key is the version plus the fragment hash, so a fragment edit
-# rebuilds and nothing else does. `make images` depends on this path; it never
-# produces it.
+# The artifact key is the version plus a hash of EVERY input that lands in the
+# artifact — the fragment and guest-init's sources. guest-init belongs in the key
+# because it ships inside initrd.gz: with the fragment alone, an init fix left the
+# key unchanged, the target short-circuited on the existing bzImage, and a stale
+# initrd shipped. Found by writing it that way, 2026-09-24. `make images` depends on this path; it never
+# produces it. KERNEL_DIR lands under the instance data dir, which is root-owned,
+# so the mkdir carries the same $(DOCKER_SUDO) prefix docker already needs.
 KVER ?= 6.1.112
-KERNEL_KEY = $(KVER)-$(shell sha256sum kernel/arizuko.fragment | cut -c1-12)
+KERNEL_KEY = $(KVER)-$(shell cat kernel/arizuko.fragment kernel/guest-init/*.go | sha256sum | cut -c1-12)
 KERNEL_DIR ?= $(DATA_DIR)/images/kernel-$(KERNEL_KEY)
 
 kernel:
@@ -39,7 +43,7 @@ kernel:
 	fi
 	$(DOCKER_BUILD) --target out -t arizuko-kernel:$(KERNEL_KEY) \
 	  --build-arg KVER=$(KVER) kernel/
-	mkdir -p $(KERNEL_DIR)
+	$(DOCKER_SUDO) mkdir -p $(KERNEL_DIR)
 	$(DOCKER) run --rm -v $(KERNEL_DIR):/dst arizuko-kernel:$(KERNEL_KEY) \
 	  sh -c 'cp /out/bzImage /out/initrd.gz /out/kernel.config /dst/'
 	@echo "kernel: $(KERNEL_DIR)"
