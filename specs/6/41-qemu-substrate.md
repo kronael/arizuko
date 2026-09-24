@@ -39,19 +39,20 @@ right-hand side. `ant/` changes by zero lines.
 These are constraints, not a verdict. A design that does not meet the first row
 is not shipped.
 
-| Constraint                     | Measured                                                                                                                                                                                                                                                                                                                                            |
-| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Boot budget                    | Docker `run --rm --entrypoint /bin/true arizuko-ant:latest`: **0.62 / 0.82 / 0.93 s** wall. The VM turn must reach `init` in **≤ 1.0 s p50** on the same host, measured the same way (§"The warm pool").                                                                                                                                            |
-| Untuned QEMU, distro kernel    | `-M q35,accel=kvm` direct kernel boot, Debian 6.1.0-43 kernel, static Go init: **2.43 / 2.69 / 2.89 s** wall, 0.7–0.8 s guest uptime at init. `-M microvm`: **3.75–4.06 s**, 1.9–2.2 s guest uptime.                                                                                                                                                |
-| The VMM itself                 | `qemu-system-x86_64 -M microvm -S` start and quit: **0.09–0.13 s**. This bounds QEMU's own startup and does NOT attribute the remaining ~2 s: a paused VM configures no virtio-fs share, no vsock and no tap, so the gap is unexplained rather than charged to the kernel. `make bench-boot` reports the split (§"The image and the guest kernel"). |
-| Tuned QEMU, literature         | Firecracker's NSDI'20 paper §5.1: Linux 4.14, no modules, qboot, 1 vCPU/256 MB — QEMU boots within ~50 ms of end-to-end Firecracker; pre-configured Firecracker p99 146 ms (usenix.org/system/files/nsdi20-paper-agache.pdf).                                                                                                                       |
-| Turn volume                    | krons: 162 turns in 7 days, 15 in the last 24 h (`container-*.log` count under `groups/`). Boot cost is per-turn latency the user sees, not throughput.                                                                                                                                                                                             |
-| Host                           | 2 vCPU, 15 GB RAM, QEMU 7.2.22 (Debian 12), `/dev/kvm`, `/dev/vhost-vsock`, `/dev/net/tun` present; kernel ships `fs/fuse/virtiofs.ko` and the vsock transports; `socat 1.7.4.4` built `WITH_VSOCK`.                                                                                                                                                |
-| QEMU 7.2 devices               | `-M microvm`, `vhost-user-fs-device`, `vhost-vsock-device`, `memory-backend-memfd`, `-sandbox on` all present (`-M help`, `-device help`, `-object help`).                                                                                                                                                                                          |
-| Image                          | `arizuko-ant:latest` is **8.26 GB** (`node:22-slim` + ~40 tool installs, `ant/Dockerfile`). The rootfs pipeline moves this once per release, never per turn.                                                                                                                                                                                        |
-| Packages the runed image needs | Alpine carries `qemu-system-x86_64`, `virtiofsd`, `socat` (`apk search` from `arizuko:latest`, 2026-09-12); none of the three is installed in `arizuko:latest` today, so the image gains them (§"The runed deploy topology"). `nftables`/`iptables` verified at build, §Open.                                                                       |
-| Host disk                      | hel1v5: **9.4 GB free of 256 GB** after `docker builder prune -f` recovered 4.37 GB of layer cache (2026-09-23); before it, 5.2 GB. `arizuko-ant` holds `latest` at 7.85 GB and two release tags at 8.26 GB. One rootfs export fits, and the operator reclaims (§"The host budget").                                                                |
-| Host memory and concurrency    | `MAX_CONCURRENT_CONTAINERS` defaults to **5** (`core/config.go:246`) and caps total live spawns (`runed/manager.go:47-53`). Five guests at `-m 4G` is 20 GB against 15 GB total and ~5 GB free, so the guest size and the cap are one budget (§"The host budget").                                                                                  |
+| Constraint                     | Measured                                                                                                                                                                                                                                                                                                                                                                              |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Boot budget                    | Docker `run --rm --entrypoint /bin/true arizuko-ant:latest`: **0.62 / 0.82 / 0.93 s** wall. The VM turn must reach `init` in **≤ 1.0 s p50** on the same host, measured the same way (§"The warm pool").                                                                                                                                                                              |
+| Untuned QEMU, distro kernel    | `-M q35,accel=kvm` direct kernel boot, Debian 6.1.0-43 kernel, static Go init: **2.43 / 2.69 / 2.89 s** wall, 0.7–0.8 s guest uptime at init. `-M microvm`: **3.75–4.06 s**, 1.9–2.2 s guest uptime.                                                                                                                                                                                  |
+| The VMM itself                 | `qemu-system-x86_64 -M microvm -S` start and quit: **0.09–0.13 s**. This bounds QEMU's own startup and does NOT attribute the remaining ~2 s: a paused VM configures no virtio-fs share, no vsock and no tap, so the gap is unexplained rather than charged to the kernel. `make bench-boot` reports the split (§"The image and the guest kernel").                                   |
+| Tuned QEMU, literature         | Firecracker's NSDI'20 paper §5.1: Linux 4.14, no modules, qboot, 1 vCPU/256 MB — QEMU boots within ~50 ms of end-to-end Firecracker; pre-configured Firecracker p99 146 ms (usenix.org/system/files/nsdi20-paper-agache.pdf).                                                                                                                                                         |
+| Turn volume                    | krons: 162 turns in 7 days, 15 in the last 24 h (`container-*.log` count under `groups/`). Boot cost is per-turn latency the user sees, not throughput.                                                                                                                                                                                                                               |
+| Host                           | 2 vCPU, 15 GB RAM, QEMU 7.2.22 (Debian 12), `/dev/kvm`, `/dev/vhost-vsock`, `/dev/net/tun` present; kernel ships `fs/fuse/virtiofs.ko` and the vsock transports; `socat 1.7.4.4` built `WITH_VSOCK`.                                                                                                                                                                                  |
+| QEMU 7.2 devices               | `-M microvm`, `vhost-user-fs-device`, `vhost-vsock-device`, `memory-backend-memfd`, `-sandbox on` all present (`-M help`, `-device help`, `-object help`).                                                                                                                                                                                                                            |
+| Image                          | `arizuko-ant:latest` is **8.26 GB** (`node:22-slim` + ~40 tool installs, `ant/Dockerfile`). The rootfs pipeline moves this once per release, never per turn.                                                                                                                                                                                                                          |
+| Packages the runed image needs | Alpine carries `qemu-system-x86_64`, `virtiofsd`, `socat` (`apk search` from `arizuko:latest`, 2026-09-12); none of the three is installed in `arizuko:latest` today, so the image gains them (§"The runed deploy topology"). `nftables`/`iptables` verified at build, §Open.                                                                                                         |
+| Host disk                      | hel1v5: **9.4 GB free of 256 GB** after `docker builder prune -f` recovered 4.37 GB of layer cache (2026-09-23); before it, 5.2 GB. `arizuko-ant` holds `latest` at 7.85 GB and two release tags at 8.26 GB. One rootfs export fits, and the operator reclaims (§"The host budget").                                                                                                  |
+| virtiofsd and the uid clamp    | The packaged daemon is QEMU's C build at `/usr/lib/qemu/virtiofsd` (not on `PATH`), with NO id-mapping flags; the Rust one that has them is unpackaged. User namespaces are available (`/proc/sys/user/max_user_namespaces` = 63819) and a single-id map refuses `chown` to any other id with `EINVAL` (measured 2026-09-24), so the clamp is the namespace (§"The peer credential"). |
+| Host memory and concurrency    | `MAX_CONCURRENT_CONTAINERS` defaults to **5** (`core/config.go:246`) and caps total live spawns (`runed/manager.go:47-53`). Five guests at `-m 4G` is 20 GB against 15 GB total and ~5 GB free, so the guest size and the cap are one budget (§"The host budget").                                                                                                                    |
 
 ## The engine: `qemu-system-x86_64`, owned by arizuko
 
@@ -285,7 +286,7 @@ arrive by `submit_turn` over MCP, unchanged.
 | `docker run -i --rm --name … --shm-size=1g` (`runner.go:680-682`)                                        | one QEMU process per turn (§"The turn" step 5); `/dev/shm` sized by `guest-init`                                                                                                                       |
 | nine mount families as `-v` (`runner.go:539-669`, `741-744`)                                             | one staging tree, one `turn` share (§"The files")                                                                                                                                                      |
 | `-e KEY=VALUE` and the stdin pipe, from `Turn.Env` and `Turn.Stdin`                                      | the `{env, stdin}` frame on `ctl`; nothing touches the kernel command line or a file                                                                                                                   |
-| `--user uid:gid` when the host uid is not 1000 (`runner.go:731-737`)                                     | the guest agent is always uid 1000; `virtiofsd` carries the guest's credentials to the host, `--translate-uid` where a data dir is owned otherwise (§Open)                                             |
+| `--user uid:gid` when the host uid is not 1000 (`runner.go:731-737`)                                     | the guest agent is always uid 1000; `virtiofsd` runs in a single-id user namespace, so every ownership the guest asks for lands as host uid 1000 or fails (§"The peer credential")                     |
 | routd's socket visible through the bind-mounted `ipc/` dir (`ipc/ipc.go:361-363`, `runner.go:912-915`)   | vsock, CID-pinned, bridged by runed (§"The peer credential"); a unix socket does not cross virtio-fs — a bind-mounted socket answers "Operation not supported" (github.com/abiosoft/colima/issues/997) |
 | SO_PEERCRED uid check (`ipc/ipc.go:397-410`)                                                             | unchanged in routd; the bridge child runs as uid 1000 and the guest is bound by CID (§"The peer credential")                                                                                           |
 | `docker kill --signal=SIGUSR1` (`runed/docker.go:47-49`, `runner.go:378`)                                | a `{steer}` frame on `ctl` (§"Steer and stop")                                                                                                                                                         |
@@ -328,14 +329,30 @@ kernel under the agent's control states the uid and gid that `virtiofsd` applies
 to a host file. A compromised guest can therefore ask for host-root ownership or
 a setuid mode on any WRITABLE export, and a `chown` or a `chmod` on the folder
 outlives the power-off that ends the turn — a restart does not undo it. So the
-uid is clamped, never translated as a convenience: `virtiofsd` runs with
-`--translate-uid`/`--translate-gid` mapping **every** guest id onto the single
-host id the folder already uses (uid 1000, `runner.go:1112`), so a write lands as
-that id whatever the guest claims and no guest id maps to 0. The acceptance test
-writes from the guest as uid 0 and asserts the host file is owned by 1000. This
-is the one place where the VM boundary is weaker than the container boundary,
-which stamps `--user uid:gid` from the host side, and the clamp is what restores
-it.
+uid is clamped, and **the kernel does the clamping, not a daemon flag**:
+`virtiofsd` runs inside a user namespace with exactly ONE id mapped, the host id
+the folder already uses (uid 1000, `runner.go:1112`). A namespace with one id has
+no other id to name, so every ownership the guest asks for resolves to that id or
+fails.
+
+Measured on hel1v5 2026-09-24, inside `unshare -U --map-user=1000
+--map-group=1000`: `chown 0:0` and `chown 1001:1001` both return `EINVAL`, and
+the host file stays uid 1000. `chmod 4755` DOES succeed and reaches the host, so
+the clamp covers ownership and not mode — which costs nothing, because a setuid
+bit on a file owned by the agent's own uid yields the uid the agent already has,
+and setuid root needs owner root, which the clamp refuses.
+
+`--translate-uid` is not the mechanism and cannot be: the packaged daemon is
+QEMU's C `virtiofsd` at `/usr/lib/qemu/virtiofsd` (`qemu-system-common`, QEMU
+7.2) and its `--help` lists `sandbox`, `xattrmap` and cache options with **no id
+mapping at all**. The Rust `virtiofsd` that has those flags is not packaged for
+these hosts, and taking it means a Rust build in the image — the cost this spec
+already refused for libkrun (§"The engine"). The namespace needs neither.
+
+The acceptance test writes from the guest as uid 0 and asserts the host file is
+owned by 1000. This is the one place where the VM boundary is weaker than the
+container boundary, which stamps `--user uid:gid` from the host side, and the
+clamp is what restores it.
 
 Why this is at least as hard to forge as the mount: both links are host-kernel
 facts a guest cannot influence and a host process needs root to change. What
@@ -651,7 +668,7 @@ commitment to an estimate, not to a design.
    `/dev/kvm`: boot the pinned kernel on BOTH machine types with the four
    `bench-boot` timestamps; mount one virtio-fs share and nine bind targets
    and time the assembly; complete one `ctl` round trip over a CID-pinned
-   vsock; write from the guest as uid 0 through `--translate-uid` and `stat`
+   vsock; write from the guest as uid 0 through the single-id namespace and `stat`
    the host file; power the guest off and confirm the QEMU pid is gone. It
    answers the boot gate, the uid clamp and the reap, and it is deleted after.
    **2–3 days**, and a miss here changes the design rather than the schedule.
@@ -764,10 +781,13 @@ example.com` fails; a raw `nc` to any address off the tap times out.
    tap and read the failures. If a required tool resolves locally, the
    proxy gains a `/etc/resolv.conf`-facing UDP/53 answerer that returns
    `NXDOMAIN` for a name off the allowlist — the shape `L136` names.
-2. **Guest credentials on host files.** Write from the guest as uid 1000
-   with `virtiofsd --sandbox=chroot` as root and `stat` the host file; if it
-   is not uid 1000, `--translate-uid`/`--translate-gid` (virtiofsd README)
-   is the fix and the compose line carries it.
+2. **Does the single-id namespace survive `virtiofsd`'s own sandbox?**
+   `-o sandbox=namespace` makes the daemon do its own `pivot_root`, and
+   `sandbox=chroot` is the mode for a caller that already set the namespaces up.
+   Run the daemon under `unshare -U` with one id mapped and `sandbox=chroot`,
+   write from the guest as uid 0, and `stat` the host file. The clamp is proven
+   on the host (§"The peer credential"); what is unproven is the two sandboxes
+   composing.
 3. **Peak guest memory, which sets `-m` AND the concurrency cap.** Sample
    `docker stats` on krons over seven days for the ant container's peak RSS.
    `-m 4G` is a placeholder and the pair must satisfy
