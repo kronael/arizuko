@@ -308,13 +308,14 @@ VSOCK-CONNECT:2:<mcp>` on a guest-local tmpfs and execs ant as uid 1000
    `SIGKILL`s it, and confirms the pid is gone before it removes the record. A
    record removed over a live QEMU is a guest nothing reaps.
 
-   **Measured 2026-09-24, and the warning holds:** a
+   **Measured 2026-09-24, and the machine type decides it.** A
    `LINUX_REBOOT_CMD_POWER_OFF` from PID 1 on `-M microvm,acpi=on` prints
-   `reboot: System halted` and QEMU **stays alive**. `-no-reboot` alone does not
-   turn that halt into an exit. The bounded grace plus `SIGKILL` is therefore not
-   belt-and-braces; it is the only thing that ends the process today. Which
-   shutdown path exits cleanly is §Open, and the reap does not wait to find
-   out.
+   `reboot: System halted` and QEMU **stays alive**. On `-M q35` with the same
+   `-no-reboot` and `reboot=t`, the same call ends the process cleanly: a full turn
+   measured **2.13 s wall from exec to QEMU exit**, with no kill needed. That is a
+   second reason q35 is the path (§"The engine"). The bounded grace plus `SIGKILL`
+   stays regardless, because it is what makes the reap independent of which
+   shutdown path a guest actually takes.
 
 `RunResult.ExitCode` is the `{exit}` frame; `Outcome` and `NewSessionID`
 arrive by `submit_turn` over MCP, unchanged.
@@ -362,6 +363,15 @@ listener for exactly one VM, accepts a connection only from that CID
 (`getpeername` on the accepted socket), and dials exactly one path: that
 turn's folder socket. routd's check is byte-for-byte the check it runs today —
 the peer is uid 1000 — and `ipc.ServeMCP` does not change.
+
+**The hole is real and measured, not reasoned.** 2026-09-24 on hel1v5: a guest
+booted as **uid 0**, mounted the host's share over virtio-fs, read the host's file
+(`turn_read: "hello-from-host"`) and wrote a new one. On the host that file is
+owned by **`root root`** — created by a guest, owned by host root, and still there
+after the guest is gone. `virtiofsd` ran as root with `-o sandbox=chroot`, which is
+the deploy shape §"The runed deploy topology" describes, and that was enough. So
+the clamp below is not defence in depth; without it the substrate hands every
+folder a host-root write.
 
 **The CID identifies the VM, not the process inside it.** That is the limit of
 the binding, and it matters for the file path rather than the tool path: a guest
