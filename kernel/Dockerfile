@@ -41,5 +41,14 @@ COPY --from=init /init /root/init
 # PID 1 no stdin, stdout or stderr at all -- the guest then boots, runs and powers
 # off in total silence. Measured 2026-09-24: an initrd of one binary produced an
 # empty console while the same binary printed correctly on the host.
-RUN cd /root && mkdir -p dev && mknod -m 622 dev/console c 5 1 \
-    && printf 'init\ndev\ndev/console\n' | cpio -o -H newc | gzip -9 > /out/initrd.gz
+# ttyS0 is here as well as console, and it is the one guest-init writes to. A
+# kernel with CONFIG_VT=y routes /dev/console to the virtual terminal, which a
+# guest with no video never shows, so the serial node is the only reliable sink.
+# Both are real nodes rather than devtmpfs's, so the console works before any
+# mount and cannot depend on one.
+RUN cd /root && mkdir -p dev \
+    && mknod -m 622 dev/console c 5 1 \
+    && mknod -m 622 dev/ttyS0 c 4 64 \
+    && mknod -m 622 dev/kmsg c 1 11 \
+    && printf 'init\ndev\ndev/console\ndev/ttyS0\ndev/kmsg\n' \
+       | cpio -o -H newc | gzip -9 > /out/initrd.gz

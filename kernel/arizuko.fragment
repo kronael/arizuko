@@ -6,6 +6,12 @@
 CONFIG_VIRTIO=y
 CONFIG_VIRTIO_MENU=y
 CONFIG_VIRTIO_MMIO=y
+# The guest finds microvm's mmio devices from the kernel command line, not from
+# ACPI. Measured 2026-09-24 on QEMU 7.2.22: -M microvm,acpi=on publishes a 365-byte
+# DSDT that declares no virtio device at all, and the guest logs no virtio-mmio
+# line, so a vsock connect fails with ENODEV. This option is what makes
+# `virtio_mmio.device=<size>@<base>:<irq>` on the command line work.
+CONFIG_VIRTIO_MMIO_CMDLINE_DEVICES=y
 CONFIG_VIRTIO_PCI=y
 CONFIG_VIRTIO_PCI_LEGACY=y
 CONFIG_VIRTIO_BLK=y
@@ -28,6 +34,14 @@ CONFIG_TMPFS_XATTR=y
 # reboot path (reboot=t triple fault, spec §"The turn" step 9) and no more.
 CONFIG_SERIAL_8250=y
 CONFIG_SERIAL_8250_CONSOLE=y
+# No virtual terminal. A microvm guest has no video, and CONFIG_VT=y makes
+# /dev/console route to the VT instead of the serial port: the kernel's printk
+# still reaches ttyS0 because it writes every registered console, but a userspace
+# write to /dev/console lands on an invisible CGA text screen. Measured
+# 2026-09-24: guest-init's every line vanished while its mount syscalls appeared
+# in the kernel log from the same function.
+# CONFIG_VT is not set
+# CONFIG_VGA_CONSOLE is not set
 CONFIG_PRINTK=y
 CONFIG_BINFMT_ELF=y
 CONFIG_BLK_DEV_INITRD=y

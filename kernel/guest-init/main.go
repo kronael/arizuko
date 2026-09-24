@@ -52,9 +52,13 @@ type frame struct {
 }
 
 func main() {
-	// A raw write to fd 1 before anything else: if the console is not there, every
-	// later Printf is silent and the guest looks hung rather than broken.
-	_, _ = syscall.Write(1, []byte("ARIZUKO_INIT_ALIVE\n"))
+	// guest-init opens its own console rather than trusting the fds it inherits.
+	// Measured 2026-09-24: PID 1 in this initramfs gets an fd 1 that write(2)
+	// rejects, so every Printf vanished while the guest's mount syscalls still
+	// reached the kernel log — the guest looked hung and was only mute. An init
+	// that owns its sink cannot be silenced by whatever exec handed it.
+	openConsole()
+	logf("guest-init: alive")
 
 	// Step 0 reads uptime at entry: the kernel's own boot cost, from the guest
 	// side rather than inferred from the host (spec §"The image and the guest
@@ -69,7 +73,7 @@ func main() {
 	if err != nil {
 		// No control channel means no turn. Say so on the console, which is the
 		// only sink left, and power off rather than hang holding a guest.
-		fmt.Printf("guest-init: ctl dial failed: %v\n", err)
+		logf("guest-init: ctl dial failed: %v", err)
 		probe["ctl_error"] = err.Error()
 		report(probe)
 		off()
@@ -114,6 +118,46 @@ func mountBase(probe map[string]string) {
 	}
 }
 
+// console is the sink every message goes to: the turn log's guest half, and the
+// only sink at all when ctl is not up.
+var console int = -1
+
+func openConsole() {
+	// /dev/kmsg, not a tty. Measured 2026-09-24: /dev/ttyS0 and /dev/console both
+	// OPEN and then fail every write with EIO, because a 16550A with no carrier
+	// rejects writes unless CLOCAL is set, and `-serial file:` never asserts the
+	// modem lines. Setting termios from PID 1 would work; /dev/kmsg needs no setup,
+	// cannot be silenced by carrier state, and lands in the SAME stream the kernel
+	// console already writes to — which is the turn log (spec §"The turn" step 9).
+	// Ordering with kernel messages comes free.
+	fd, err := syscall.Open("/dev/kmsg", syscall.O_WRONLY, 0)
+	if err != nil {
+		kmsg("open /dev/kmsg: " + err.Error())
+		return
+	}
+	console = fd
+}
+
+// kmsg reports through the kernel log, which is the one sink proven to reach the
+// host before the console is known good: a failed virtiofs mount logs its source
+// name, so the name carries the message. It exists to debug the console itself and
+// is the only channel that works when the console does not.
+func kmsg(msg string) {
+	// The target must EXIST or the mount fails at path resolution and never
+	// reaches the driver that logs the source name. /dev is in the initrd; /proc
+	// is not, and pointing at it cost a whole cycle of silence.
+	_ = syscall.Mount("ARIZUKO:"+msg, "/dev", "virtiofs", 0, "")
+}
+
+// logf writes one line to the console. It takes the raw fd rather than os.Stdout
+// because stdout is the thing that was broken.
+func logf(format string, a ...any) {
+	if console < 0 {
+		return
+	}
+	_, _ = syscall.Write(console, []byte(fmt.Sprintf(format, a...)+"\n"))
+}
+
 func dialCtl() (int, error) {
 	fd, err := syscall.Socket(afVSOCK, syscall.SOCK_STREAM, 0)
 	if err != nil {
@@ -151,7 +195,7 @@ func writeFrame(fd int, f frame) error {
 // its measurements. The console is the turn log's other half (spec §"The turn").
 func report(p map[string]string) {
 	b, _ := json.Marshal(p)
-	fmt.Printf("ARIZUKO_PROBE %s\n", b)
+	logf("ARIZUKO_PROBE %s", b)
 }
 
 func uptime() string {
