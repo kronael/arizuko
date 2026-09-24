@@ -46,6 +46,14 @@ func newRunedMux(srv *runed.Server) *http.ServeMux {
 }
 
 func main() {
+	// runed re-execs itself as one turn's MCP bridge: a child running as the
+	// agent's uid that holds one guest's vsock port and dials one folder socket
+	// (spec 6/41 §"The peer credential"). It is the same binary so the pid the
+	// VM record names has a cmdline the reap can recognize, and it must answer
+	// before any daemon setup runs.
+	if code, isBridge := runed.MCPBridgeMain(); isBridge {
+		os.Exit(code)
+	}
 	defer obs.Setup("runed", os.Getenv("ARIZUKO_INSTANCE"))()
 	defer obs.SetupTraces("runed", os.Getenv("ARIZUKO_INSTANCE"))()
 
@@ -54,17 +62,21 @@ func main() {
 		slog.Error("load config", "err", err)
 		os.Exit(1)
 	}
-	// What the Docker substrate delivers on this configuration, decided once
-	// at start where the operator is looking (spec 6/25 §3). An error is a
-	// half configuration — the image is named and an input the proxy needs is
-	// empty — under which every spawn would run unfiltered; refusing to start
-	// is the loud version, once at deploy instead of per turn.
-	sub, err := runed.Substrate(cfg)
+	folders := &groupfolder.Resolver{GroupsDir: cfg.GroupsDir, IpcDir: cfg.IpcDir}
+	// The turn substrate, chosen once at start where the operator is looking
+	// (RUNED_SUBSTRATE, spec 6/41 §"The seam"), together with what it delivers
+	// on this configuration (spec 6/25 §3). An error is a host that cannot run
+	// a turn as declared — a half egress configuration under which every spawn
+	// would run unfiltered, an unreachable docker, a missing guest kernel, a
+	// virtiofsd that cannot clamp the guest's uid. Refusing to start is the loud
+	// version, once at deploy instead of per turn.
+	runtime, sub, err := runed.NewRuntime(cfg, folders)
 	if err != nil {
-		slog.Error("substrate", "err", err)
+		slog.Error("substrate", "selector", runed.SubstrateName(), "err", err)
 		os.Exit(1)
 	}
-	slog.Info("substrate", "backend", sub.Delivered.Backend, "egress", sub.Delivered.Egress,
+	slog.Info("substrate", "selector", runed.SubstrateName(),
+		"backend", sub.Delivered.Backend, "egress", sub.Delivered.Egress,
 		"declared_egress", sub.Declared.Egress, "reason", sub.Reason)
 	// Where the model credential sits is decided at the same moment. With no
 	// gateway, spawnSecrets hands the operator anchor to every container, and
@@ -127,9 +139,6 @@ func main() {
 		dashKeys = ks
 	}
 
-	folders := &groupfolder.Resolver{GroupsDir: cfg.GroupsDir, IpcDir: cfg.IpcDir}
-	runtime := runed.NewDockerRuntime(cfg, folders)
-
 	mgr := runed.NewManager(db, runtime, runed.ManagerConfig{
 		RunTTL:        runTTL,
 		Instance:      cfg.Name,
@@ -161,15 +170,6 @@ func main() {
 			}
 		}
 	}()
-
-	// Startup parity with the former gateway.Run (spec 5/P-runed): fail fast if the
-	// container runtime is unreachable, then stop any orphaned spawn containers
-	// left by a prior crash before we start accepting new runs.
-	if err := container.EnsureRunning(); err != nil {
-		slog.Error("container runtime check failed", "err", err)
-		os.Exit(1)
-	}
-	container.CleanupOrphans(cfg.Name, cfg.Image)
 
 	// Stage the release's ant/ where agent containers can bind-mount it. Must
 	// precede the first spawn — an agent with no /opt/arizuko cannot migrate.

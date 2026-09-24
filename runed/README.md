@@ -92,6 +92,38 @@ every read is "the n newest in this folder" and nothing sweeps it; and
 - `LISTEN_ADDR` (default `:8080`)
 - Container config via `core.LoadConfig`: `MaxContainers`, dirs (GroupsDir, IpcDir, StoreDir, etc.)
 
+### The turn substrate
+
+`RUNED_SUBSTRATE` (`docker` | `qemu`, default `docker`) selects it, once at
+start, for the whole instance — never per folder, never per turn (spec
+`specs/6/41-qemu-substrate.md` §"The seam"). The selector and what the
+substrate delivers are both on runed's startup `substrate` log line and on
+`/dash/runed/`.
+
+`qemu` is one KVM guest per turn. It refuses to start unless every
+precondition below holds, and the refusal names all of them at once, because
+an input found missing per spawn is a fleet that looks healthy and answers
+nothing:
+
+- runed runs as root, and `/dev/kvm`, `/dev/vhost-vsock` and `/dev/net/tun` open
+- `RUNED_QEMU` (default `qemu-system-x86_64`) runs `-version`
+- `RUNED_KERNEL_DIR` holds `bzImage` and `initrd.gz` from `make kernel`
+- `RUNED_ROOTFS_DIR` is the release rootfs `make images` exports once per release
+- `RUNED_VIRTIOFSD` (default `/usr/lib/qemu/virtiofsd`) advertises
+  `--translate-uid`, and `RUNED_VIRTIOFSD_UID_MAP` / `RUNED_VIRTIOFSD_GID_MAP`
+  give the mapping. This is the uid clamp: without it a guest as uid 0 writes
+  host-root-owned files into the folder and they outlive the turn (measured
+  2026-09-24). The packaged C daemon has no id mapping at all, so it is refused
+- `RUNED_EGRESS_BIN` (default `egress`), `RUNED_FIREWALL_BIN` (default
+  `iptables`) and `RUNED_IP_BIN` (default `ip`) are executable
+- `RUNED_GUEST_MEM` (default `2G`) × `MAX_CONCURRENT_CONTAINERS` fits the
+  host's `MemTotal` — the guest size and the cap are one setting
+
+Tunables: `RUNED_GUEST_SMP` (2), `RUNED_VSOCK_PORT_BASE` (5555),
+`RUNED_TAP_SUBNET` (`10.97.0.0/24`), `RUNED_PROXY_PORT` (3128),
+`RUNED_VM_DIR` (`<data>/vms`), `RUNED_BOOT_TIMEOUT` (30s),
+`RUNED_REAP_GRACE` (5s).
+
 ## Health signal
 
 `GET /health` returns 200 once the process is up. Red flag: spawns stuck
@@ -189,6 +221,17 @@ companions) and the guest uid, because both are its own.
 - `docker.go` — the Docker substrate: one `docker run` per turn, steer, the
   deadline kill, teardown. Mounts the ipc dir routd bound the turn's socket
   in; hosts no MCP of its own
+- `substrate.go` — `RUNED_SUBSTRATE`, read once: the one place a substrate is
+  chosen, its preconditions checked and its orphans reaped
+- `qemu.go` — the KVM substrate: the preconditions it refuses on, the
+  argument list, the turn, the reap
+- `vmrecord.go` — the on-disk VM record (every pid the turn starts) and the
+  disk scan that reaps what a dead runed left
+- `vmtree.go` — the staging tree: one share, mirroring the guest's own paths
+- `vmctl.go` — the `ctl` frame protocol, the vsock listeners, and the
+  uid-1000 MCP bridge (`runed --mcp-bridge`)
+- `vmnet.go` — the per-turn tap, its proxy-only rule set, and the `egress`
+  process on the tap's host side
 - `turnlog.go` — the per-turn log beside the group's files, secrets removed
 - `hold.go` — `POST /v1/holds`, the folder run-slot claim
 - `dash.go` — `/dash/runed/` and its kill form
