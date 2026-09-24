@@ -332,6 +332,13 @@ enough to meet a container restart, a timeout, or an OOM.
   with nothing active. Together that is roughly 37 G, taking the disk from 99%
   to about 84%.
 
+  A third reclaim, measured 2026-09-24: `.claude/worktrees/` holds **3.1 G** in
+  **25** agent checkouts, of which **23 have no uncommitted changes** and are
+  therefore agent litter. That is close to the 3.5 G the volume has left. It
+  needs a person only because `git worktree remove` is a wrapped recursive
+  delete, which WISDOM bans outright — and because a checkout that is clean can
+  still belong to a session that has not edited anything yet.
+
   The cause fix is to stop interrupting the repacks. Either give the clone a
   bounded history so a repack cannot take minutes, which `L360` argues for on
   its own grounds, or run the repack where a restart cannot reach it and let
