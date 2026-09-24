@@ -36,15 +36,15 @@ extension points. See
 ## Adding an output-style file
 
 Per-channel + per-surface tone, length, and formatting hints applied
-at session bind. `container/runner.go::pickOutputStyle` derives
+at session bind. `runed/settings.go::pickOutputStyle` derives
 `<channel>-<surface>` from inbound JID + topic + `paneLookup`; falls
 back to `<channel>.md` for channels with no per-surface split. Spec:
 `specs/5/Y-output-styles-per-surface.md`. Conventions, file list, and
 adding-a-new-file recipe: `ant/output-styles/README.md`.
 
-No registration step — `seedOutputStyles` discovers files by directory
-listing at spawn (`container/runner.go:669`). Drop the file, rebuild
-the agent image (`make agent`), redeploy.
+No registration step — `container.SeedOutputStyles` discovers files by
+directory listing at spawn. Drop the file, rebuild the agent image
+(`make agent`), redeploy.
 
 ## Adding a host mount (`/mnt/<name>`)
 
@@ -708,10 +708,9 @@ Adding one:
 1. Install the binary in `ant/Dockerfile` (pinned version where
    upstream supports it).
 2. If the tool needs host-side credentials/state, add a `HOST_*_DIR`
-   env on `core.Config`, plumb through `compose.Generate` and
-   `container.runner` so it's bind-mounted into spawns. Pattern:
-   `HOST_CODEX_DIR` → layered mount at `/home/node/.codex` via
-   `container/runner.go`.
+   env on `core.Config`, plumb through `compose.Generate` and the turn
+   renderer so it's bind-mounted into spawns. Pattern: `HOST_CODEX_DIR` →
+   layered mount at `/home/node/.codex` via `runed/mounts.go`.
 3. Write `ant/skills/<name>/SKILL.md` with sharp frontmatter
    `description` (this is what `/dispatch` matches on), a "when to
    invoke" section, copy-pasteable invocations, and a missing-auth

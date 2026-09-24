@@ -616,7 +616,7 @@ Prefix layer (in routd code, not table):
    - groupBySender → one batch for telegram:67890
    - enrichAttachments (download any media)
    - router.FormatMessages → XML prompt
-   - container.Run(atlas, prompt, ...) → docker run
+   - runed renders the turn for atlas → the substrate starts one guest
    - Agent processes, produces output
    - makeOutputCallback sends reply via ch.Send("telegram:12345", text, replyTo, topic)
      and records it via store.PutMessage (is_bot_message=1, routed_to=atlas)

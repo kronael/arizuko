@@ -33,7 +33,7 @@ What's isolated per group:
 
 - **Filesystem** — only `groups/<folder>/` mounts at `/home/node/`;
   `groupfolder.Resolver` rejects `..` and reserved paths
-  (`groupfolder/folder.go`, `container/runner.go` `buildMounts`).
+  (`groupfolder/folder.go`, `runed/mounts.go` `buildMounts`).
 - **Network namespace** — agent container attaches to a Docker
   `internal: true` network with no default route; egress passes
   through that spawn's own proxy against the per-folder allowlist
@@ -104,8 +104,8 @@ tenant's routes or tasks.
 
 | Boundary            | Mechanism                                                                                                                                                                                                                                                                                                                                                      | Location                                                                                                                        |
 | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| Group filesystem    | Per-group bind mount; `Resolver.GroupPath` rejects `..`, `\`, reserved                                                                                                                                                                                                                                                                                         | `groupfolder/folder.go`, `container/runner.go` (`buildMounts`)                                                                  |
-| Group MCP socket    | Per-group mount of `ipcDir` → `/run/ipc`; `Resolver.IpcPath` rejects                                                                                                                                                                                                                                                                                           | `container/runner.go` (`buildMounts`)                                                                                           |
+| Group filesystem    | Per-group bind mount; `Resolver.GroupPath` rejects `..`, `\`, reserved                                                                                                                                                                                                                                                                                         | `groupfolder/folder.go`, `runed/mounts.go` (`buildMounts`)                                                                      |
+| Group MCP socket    | Per-group mount of `ipcDir` → `/run/ipc`; `Resolver.IpcPath` rejects                                                                                                                                                                                                                                                                                           | `runed/mounts.go` (`buildMounts`)                                                                                               |
 | MCP peer identity   | `SO_PEERCRED` peer-uid check on each accepted conn                                                                                                                                                                                                                                                                                                             | `ipc/ipc.go` (`ServeMCP`), see `ipc/SECURITY.md`                                                                                |
 | Agent exec scope    | `bypassPermissions` inside container; mounts scoped to the group                                                                                                                                                                                                                                                                                               | `ant/src/index.ts`, `container/runner.go`                                                                                       |
 | Additional mounts   | `ValidateAdditionalMounts` + `ValidateFilePath` blocklist/symlink guard                                                                                                                                                                                                                                                                                        | `mountsec/`                                                                                                                     |
@@ -364,7 +364,7 @@ the internal network only.
 - Unknown source IP or unmatched host → connection closed silently.
 - Egress wildcard (`"*"`) is appended only when the folder holds the
   `egress` grant, or the turn is an elevated `/root` turn
-  (`routd/dispatch.go` → `RunRequest.Egress` → `container.Input.EgressOpen`).
+  (`routd/dispatch.go` → `RunRequest.Egress` → `runed.Turn.Egress`).
   Without that grant a folder stays on the per-folder allowlist, whatever
   its depth — `role:member`, the default, does not carry it.
 
@@ -419,7 +419,7 @@ _where_ the agent can reach.
 
 The decision is open (BUGS `L136`; `specs/6/24-crackbox-lightest.md` § "DNS
 is not sealed"): scope the guarantee to TCP and accept the channel, or add a
-UDP/53 filter and wire it into `container.Run`. This section states what is
+UDP/53 filter and wire it into the substrate. This section states what is
 true today and takes neither.
 
 ## Per-daemon docs

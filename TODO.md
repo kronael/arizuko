@@ -53,7 +53,7 @@ Current template/skill system is flat file layering — no first-class
 Desired direction: a "product" is a named bundle (SOUL + skills + CLAUDE
 sections + output-style + config). Groups select one product at creation.
 Mixins are optional add-ons that compose on top. Both declared in TOML or
-similar, resolved at seed time by `container/runner.go`.
+similar, resolved at seed time by `container/runner.go` (group setup).
 
 ## Next (small wins)
 

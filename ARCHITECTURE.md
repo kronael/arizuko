@@ -595,10 +595,11 @@ runed (`POST /v1/runs`). runed performs the spawn:
 
 1. `container.EnsureRunning()` — verify docker
 2. `container.CleanupOrphans()` — stop stale `arizuko-*`
-3. `container.Run()`:
+3. `runed` renders the turn (`renderTurn`) and hands it to the substrate:
    - Resolve path via `groupfolder.Resolver`
    - `buildMounts()` → `mountsec.ValidateAdditionalMounts()`
    - `seedSettings()` — write `settings.json` (env, arizuko MCP via socat)
+   - `dockerRuntime` delivers the rendered mounts, env and stdin to `docker run`
    - `seedSkills()` — copy `ant/skills/` (re-seeds every run); seed `.claude.json`
    - Name: `arizuko-<instance>-<folder>-<ts_ms>` or overridden by caller
      (e.g. task containers set `timed-isolated:<id>` sender)
@@ -621,7 +622,7 @@ delivery paths:
 - **Env-profile keys** (model creds: `ANTHROPIC_API_KEY`,
   `CLAUDE_CODE_OAUTH_TOKEN`, `OPENAI_API_KEY`, `CODEX_API_KEY`) — pick which
   model a spawn talks to. The operator default lives in the host `.env`
-  (`container/runner.go:readSecrets()`); a user's own key (BYOA) at user
+  (`runed/secrets.go:readSecrets()`); a user's own key (BYOA) at user
   scope in the `secrets` table overrides it. **Spawn-inject** — merged into
   the container env at start. This is the only table-backed credential that
   gets there, because the key is spent by the Claude Code SDK subprocess and
