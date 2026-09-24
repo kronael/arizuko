@@ -86,12 +86,26 @@ is taken.
   unrelated project with the same name.
 
 **The machine type is not the engine, and it falls back first.** `-M microvm`
-measured SLOWER than `-M q35` on the distro kernel — 3.75–4.06 s against
-2.43–2.89 s — so microvm is a bet that a kernel with no modules and no ACPI
-probe reverses that order, not a measured win. `make bench-boot` runs both
-machine types on the pinned kernel and the argument list takes whichever is
-faster. q35 with direct kernel boot is the fallback and it costs one argument
-list, so the engine is never the first thing to change.
+measures SLOWER than `-M q35`, and step 0 widened the gap rather than closing
+it. Five runs each on hel1v5 with the distro kernel, 2026-09-24, reading the
+kernel's own printk at `Run /init as init process`:
+
+| Machine   | kernel to init, 5 runs             | median |
+| --------- | ---------------------------------- | ------ |
+| `microvm` | 3.24 / 3.25 / 3.53 / 3.71 / 4.08 s | 3.53 s |
+| `q35`     | 1.48 / 1.93 / 2.01 / 2.16 / 2.46 s | 1.93 s |
+
+q35 reaches init in **0.55×** the time microvm takes. The likely cause is the
+same fact microvm is built for: the distro kernel probes ACPI and PCI, which
+microvm does not provide, so it pays timeouts for buses that are absent. A
+pinned kernel with those drivers compiled out is what would reverse the order —
+which is exactly the bet, now with a number on it. **Neither type meets the
+1.0 s gate on the distro kernel**, so the pinned kernel must cut the kernel-side
+cost by 1.5× for q35 and 3.5× for microvm.
+
+`make bench-boot` runs both machine types on the pinned kernel and the argument
+list takes whichever is faster. q35 with direct kernel boot is the fallback and
+it costs one argument list, so the engine is never the first thing to change.
 
 **Reopen trigger, one:** if NEITHER machine type on the pinned kernel meets the
 boot budget on krons within the pipeline's costed budget (§"The image and the
@@ -526,7 +540,10 @@ minimal init with no virtio-fs share to mount, no overlay to assemble and no
 control handshake, so it bounds the kernel's own boot and nothing else.
 `make bench-boot` therefore reports FOUR timestamps rather than one — QEMU exec,
 first guest instruction, `guest-init` entry, and `guest-init`'s first `ctl`
-frame — so the gap is attributed before anyone tunes it. The ≤ 1.0 s gate is on
+frame — so the gap is attributed before anyone tunes it. The third one is free:
+the kernel prints `Run /init as init process` with its own timestamp, which is
+`guest-init` entry measured by the guest rather than inferred from the host
+(step 0 read it that way, 2026-09-24). The ≤ 1.0 s gate is on
 the last of the four. A design that meets the kernel budget and misses the gate
 because nine bind targets cost 900 ms learns that from the split, not from a
 retrospective guess.
