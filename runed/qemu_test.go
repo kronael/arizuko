@@ -102,10 +102,14 @@ func TestClampRefusesADaemonThatCannotTranslate(t *testing.T) {
     -o sandbox=namespace|chroot
                                sandboxing mode:
 `
+	// Verbatim from virtiofsd 1.10.1, the build Alpine 3.20 packages and the
+	// arizuko image carries. The flags are `--uid-map`/`--gid-map`, NOT the
+	// `--translate-uid` the spec first named, and the value is a RANGE.
 	rustHelp := `Usage: virtiofsd [OPTIONS] --shared-dir <shared_dir>
 
-      --translate-uid <TYPE:FIRST:FIRST_TARGET:COUNT>
-      --translate-gid <TYPE:FIRST:FIRST_TARGET:COUNT>
+      --uid-map <UID_MAP>
+          Map a range of UIDs from the host into the namespace, given as :namespace_uid:host_uid:count:
+      --gid-map <GID_MAP>
       --sandbox <SANDBOX>
 `
 	cases := []struct {
@@ -115,10 +119,10 @@ func TestClampRefusesADaemonThatCannotTranslate(t *testing.T) {
 		gidMap string
 		want   string
 	}{
-		{"packaged C daemon", cHelp, "map:0:1000:1", "map:0:1000:1", "--translate-uid"},
+		{"packaged C daemon", cHelp, ":1000:1000:1:", ":1000:1000:1:", "--uid-map"},
 		{"no mapping given", rustHelp, "", "", "RUNED_VIRTIOFSD_UID_MAP"},
-		{"gid mapping missing", rustHelp, "map:0:1000:1", "", "RUNED_VIRTIOFSD_GID_MAP"},
-		{"clamped", rustHelp, "map:0:1000:1", "map:0:1000:1", ""},
+		{"gid mapping missing", rustHelp, ":1000:1000:1:", "", "RUNED_VIRTIOFSD_GID_MAP"},
+		{"clamped", rustHelp, ":1000:1000:1:", ":1000:1000:1:", ""},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

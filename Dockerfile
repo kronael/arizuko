@@ -12,12 +12,20 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
     make -j$(nproc) docker-build OUT=/
 
 FROM alpine:3.20
+# The VMM side (spec 6/41 §"The runed deploy topology"): qemu runs one guest per
+# turn, virtiofsd exports the turn's share, socat bridges the guest's MCP port.
+# Alpine 3.20's virtiofsd is the RUST daemon (1.10.1), which is the one that can
+# clamp the guest's uid — QEMU's C daemon cannot, and dropping the Rust BUILD the
+# spec planned for is measured, not assumed. docker-cli stays until step 4 takes
+# the Docker substrate out, because `docker` is still the default selector.
 RUN apk add --no-cache sqlite-libs ca-certificates docker-cli wget \
+    qemu-system-x86_64 virtiofsd socat \
     && addgroup -g 1000 node \
     && adduser -D -u 1000 -G node node \
     && mkdir -p /srv/app/home \
     && chown -R 1000:1000 /srv/app/home
 COPY --from=build /arizuko /usr/local/bin/arizuko
+COPY --from=build /egress /usr/local/bin/egress
 COPY --from=build /authd /usr/local/bin/authd
 COPY --from=build /routd /usr/local/bin/routd
 COPY --from=build /runed /usr/local/bin/runed

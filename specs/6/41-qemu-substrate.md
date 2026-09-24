@@ -386,13 +386,23 @@ kernel under the agent's control states the uid and gid that `virtiofsd` applies
 to a host file. A compromised guest can therefore ask for host-root ownership or
 a setuid mode on any WRITABLE export, and a `chown` or a `chmod` on the folder
 outlives the power-off that ends the turn — a restart does not undo it. So the
-uid is clamped, and **the clamp costs a Rust build in the `arizuko` image**: the
-turn share is exported by the Rust `virtiofsd`
-(gitlab.com/virtio-fs/virtiofsd) with `--translate-uid`/`--translate-gid`
-mapping every guest id onto the one host id the folder already uses
-(`runner.go:1112`), and with `--sandbox=none` because runed has already made the
-namespaces. The acceptance test writes from the guest as uid 0 and asserts the
-host file carries the host id.
+uid is clamped, and **the clamp costs one package, not a Rust build.** Measured
+2026-09-24: Alpine 3.20 packages the RUST `virtiofsd` as `virtiofsd` (1.10.1),
+installed at `/usr/libexec/virtiofsd`, so `apk add virtiofsd` in the `arizuko`
+image is the whole cost. The plan for a Rust build stage
+(gitlab.com/virtio-fs/virtiofsd) is dropped.
+
+**The flags are `--uid-map` and `--gid-map`, not `--translate-uid`.** That name
+was a guess and it was wrong: 1.10.1's own `--help` has no `translate` of any
+kind. Each takes a RANGE, `:namespace_id:host_id:count:` — its help says
+"`:0:100000:65536:` will map the 65536 host UIDs [100000, 165535] into the
+namespace as [0, 65535]" — so the map does NOT collapse many guest ids onto one
+host id, as this section first claimed. It states which guest ids exist on the
+host, and an id outside the range has none. The turn runs ant as uid 1000, so the
+map the operator sets is that one id and a compromised guest running as uid 0
+falls outside it. `--sandbox=none` goes with it, because runed has already made
+the namespaces. The acceptance test writes from the guest as uid 0 and asserts
+the host file carries the host id.
 
 **Three cheaper mechanisms were measured on hel1v5 2026-09-24 and all three
 refuse.** They are written down so nobody pays to learn it twice.
@@ -652,10 +662,13 @@ Its service gains what a VMM needs and loses what Docker needed:
 - runs as root inside its container so `virtiofsd` can carry guest
   credentials to host files and the bind mounts can be made; `group_add`
   of the docker gid and the `docker.sock` volume go;
-- the `arizuko` image carries `qemu-system-x86_64`, the Rust `virtiofsd`
-  (built in a Rust stage — the packaged C daemon cannot be uid-clamped,
-  §"The peer credential"), `socat` and the `egress` binary; `docker-cli`
-  (`Dockerfile:14`) goes.
+- the `arizuko` image carries `qemu-system-x86_64`, the Rust `virtiofsd`, `socat`
+  and the `egress` binary, all four added 2026-09-24 — one `apk add` line plus one
+  `COPY`, because Alpine packages the Rust daemon (§"The peer credential"). The
+  image's QEMU is **9.0.2**, against the 7.2.22 every §"The engine" measurement
+  was taken on, so microvm's device question is open on a newer VMM than the one
+  that failed it. `docker-cli` (`Dockerfile:14`) goes at step 4, not here,
+  because the default selector is still `docker`.
 
 The privilege runed holds does not rise: the docker socket it holds today is
 root-equivalent on the host. The privilege runed holds becomes explicit —
@@ -776,9 +789,9 @@ commitment to an estimate, not to a design.
    reap, and it is deleted after. **2–3 days**, and a miss here changes the
    design rather than the schedule.
 1. **Land behind the selector, default `docker`.** `runed/qemu.go`, the
-   `container.Run` split, the substrate's five files (§"What moves into
+   `container.Run` split, the substrate's six files (§"What moves into
    `runed`"), `guest-init`, the kernel stage, the compose generator's
-   device and capability lines, the Rust `virtiofsd` stage
+   device and capability lines, the `virtiofsd` package
    (§"The peer credential"), and the two host-budget guards
    (§"The host budget"): the memory-times-cap refusal at runed start and the
    overlay `size=`, plus two-tree retention in `make images`. No file under `runed/runstore`, `store/` or

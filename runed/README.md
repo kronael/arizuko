@@ -109,11 +109,14 @@ nothing:
 - `RUNED_QEMU` (default `qemu-system-x86_64`) runs `-version`
 - `RUNED_KERNEL_DIR` holds `bzImage` and `initrd.gz` from `make kernel`
 - `RUNED_ROOTFS_DIR` is the release rootfs `make images` exports once per release
-- `RUNED_VIRTIOFSD` (default `/usr/lib/qemu/virtiofsd`) advertises
-  `--translate-uid`, and `RUNED_VIRTIOFSD_UID_MAP` / `RUNED_VIRTIOFSD_GID_MAP`
-  give the mapping. This is the uid clamp: without it a guest as uid 0 writes
-  host-root-owned files into the folder and they outlive the turn (measured
-  2026-09-24). The packaged C daemon has no id mapping at all, so it is refused
+- `RUNED_VIRTIOFSD` (default `/usr/libexec/virtiofsd`, where Alpine's Rust
+  daemon lands) advertises `--uid-map`, and `RUNED_VIRTIOFSD_UID_MAP` /
+  `RUNED_VIRTIOFSD_GID_MAP` give the ranges, written
+  `:namespace_id:host_id:count:`. This is the uid clamp: without it a guest as
+  uid 0 writes host-root-owned files into the folder and they outlive the turn
+  (measured 2026-09-24). A range states which guest ids exist on the host, so
+  set the one id the turn runs as and a guest as uid 0 falls outside it. QEMU's
+  packaged C daemon has no id mapping at all, so it is refused
 - `RUNED_EGRESS_BIN` (default `egress`), `RUNED_FIREWALL_BIN` (default
   `iptables`) and `RUNED_IP_BIN` (default `ip`) are executable
 - `RUNED_GUEST_MEM` (default `2G`) × `MAX_CONCURRENT_CONTAINERS` fits the

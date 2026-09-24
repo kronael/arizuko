@@ -54,16 +54,23 @@ const (
 	// neither.
 	kernelImage  = "bzImage"
 	kernelInitrd = "initrd.gz"
-	// virtiofsdDefault is where the packaged daemon sits on Debian. It is NOT
-	// on PATH, and the packaged build is the C one, which carries no id
-	// mapping at all — so this default resolves the FILE and the clamp check
-	// then refuses it (spec 6/41 §"The peer credential").
-	virtiofsdDefault = "/usr/lib/qemu/virtiofsd"
-	// translateFlag is the clamp. Without it a guest states the uid and gid
+	// virtiofsdDefault is where the arizuko image's daemon sits: Alpine 3.20's
+	// `virtiofsd` package is the RUST daemon (1.10.1), and it installs the same
+	// binary at /usr/libexec/virtiofsd and /usr/lib/qemu/virtiofsd. On a Debian
+	// host the same second path holds QEMU's C daemon instead, which carries no
+	// id mapping at all, so this default names the file that CAN clamp and the
+	// check below refuses the one that cannot (spec 6/41 §"The peer credential").
+	virtiofsdDefault = "/usr/libexec/virtiofsd"
+	// clampFlag is the clamp. Without it a guest states the uid and gid
 	// virtiofsd applies to a host file: measured 2026-09-24, a guest booted as
-	// uid 0 created a file owned by host `root root` through the packaged
+	// uid 0 created a file owned by host `root root` through the packaged C
 	// daemon under -o sandbox=chroot, and it outlived the guest.
-	translateFlag = "--translate-uid"
+	//
+	// The flag is `--uid-map`, NOT the `--translate-uid` the spec first named.
+	// Measured 2026-09-24 against virtiofsd 1.10.1: it takes a RANGE, written
+	// `:namespace_id:host_id:count:`, so the map says which guest ids exist on
+	// the host and every id outside the range has none.
+	clampFlag = "--uid-map"
 	// shareRoot and shareTurn are the two virtio-fs tags the guest mounts.
 	shareRoot = "root"
 	shareTurn = "turn"
@@ -199,11 +206,11 @@ func checkClamp(p qemuPaths, miss func(string, ...any)) {
 		return
 	}
 	out, _ := exec.Command(p.Virtiofsd, "--help").CombinedOutput()
-	if !strings.Contains(string(out), translateFlag) {
+	if !strings.Contains(string(out), clampFlag) {
 		miss("%s=%s advertises no %s in its --help: it cannot clamp the guest's uid, "+
 			"and a guest as uid 0 then writes host-root-owned files into the folder "+
 			"(measured 2026-09-24). The image must carry the Rust virtiofsd",
-			envVirtiofsd, p.Virtiofsd, translateFlag)
+			envVirtiofsd, p.Virtiofsd, clampFlag)
 		return
 	}
 	uid, _ := container.RunUID()

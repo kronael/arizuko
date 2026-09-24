@@ -53,17 +53,23 @@ kernel:
 .PHONY: kernel
 
 OUT ?= .
-DOCKER_TARGETS = $(addprefix docker-build-,arizuko $(DAEMONS))
+DOCKER_TARGETS = $(addprefix docker-build-,arizuko egress $(DAEMONS))
 
 docker-build: $(DOCKER_TARGETS)
 
 docker-build-arizuko:
 	CGO_ENABLED=1 go build -o $(OUT)/arizuko ./cmd/arizuko/
 
+# egress is a COMPONENT, not a daemon, and it is in the image anyway: under the
+# QEMU substrate runed starts it as a HOST process on the tap's host side, not
+# as a container from EGRESS_IMAGE (spec 6/41 §"The runed deploy topology").
+docker-build-egress:
+	CGO_ENABLED=0 go build -o $(OUT)/egress ./egress/cmd/egress/
+
 $(addprefix docker-build-,$(DAEMONS)): docker-build-%:
 	$(MAKE) -C $* OUT=$(OUT) build
 
-.PHONY: docker-build docker-build-arizuko $(DOCKER_TARGETS)
+.PHONY: docker-build docker-build-arizuko docker-build-egress $(DOCKER_TARGETS)
 
 # lint is the ONE gate, and CI runs exactly this target. Three checks, in the
 # order that fails cheapest first:
