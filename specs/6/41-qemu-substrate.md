@@ -521,15 +521,25 @@ gains one step: `docker create` + `docker export` of the image into
 and `arizuko run` (initial setup) does the same. The 8.26 GB moves once. The
 `root` share is that directory; nothing per turn copies or converts it.
 
-**The guest kernel is part of the image.** A `kernel` stage in `ant/Dockerfile`
-builds a pinned Linux 6.1 from Firecracker's
+**The guest kernel is its own artifact, not a stage of the ant image.** It is
+built by `make kernel` into `<data>/images/kernel-<version>-<confighash>/`, and
+`make images` depends on that path existing rather than producing it. Two
+measurements force the split. `ant/` took **130 commits in 60 days** (~2 a day,
+`git log --since` 2026-09-24) while the kernel changes when its pinned version or
+its config fragment changes, which is close to never — so a stage inside
+`ant/Dockerfile` risks a 30–60 minute compile against every skill-text edit. And
+the disk lever of §"The host budget" is `docker builder prune -f`, which deletes
+the build cache such a stage would live in: the spec would tell the operator to
+throw away the kernel. A directory keyed by version and config hash is rebuilt
+only when its key changes and survives every prune.
+
+`make kernel` builds a pinned Linux 6.1 from Firecracker's
 `microvm-kernel-ci-x86_64-6.1.config`
 (github.com/firecracker-microvm/firecracker/tree/main/resources/guest_configs)
 plus arizuko's fragment: `VIRTIO_FS`, `FUSE_FS`, `VIRTIO_VSOCKETS`,
-`OVERLAY_FS`, `VIRTIO_MMIO`, `VIRTIO_NET`, built in, no modules. The stage
-writes `vmlinux` and the initrd — `guest-init` and nothing else — to
-`/opt/arizuko/guest/` inside the image, so they come out of the same export
-and QEMU reads them from the unpacked directory. The paper's kernel is 4.0 MB
+`OVERLAY_FS`, `VIRTIO_MMIO`, `VIRTIO_NET`, built in, no modules. It writes `vmlinux` and the initrd — `guest-init` and nothing else — into that
+directory, and runed reads both from there by the path the generator writes into
+its env. Nothing per turn copies either. The paper's kernel is 4.0 MB
 compressed with no modules against a distro kernel's 6.7 MB plus 44 MB of
 modules, and its command line "disables the standard logging to the serial
 console (saving up to 70ms of boot time)" (NSDI'20 §5.1); the fragment and
@@ -548,9 +558,9 @@ the last of the four. A design that meets the kernel budget and misses the gate
 because nine bind targets cost 900 ms learns that from the split, not from a
 retrospective guess.
 
-Owner: arizuko, in `ant/`. Cost: **2–4 engineer-days** for the stage, the
-fragment and the bench target, plus the kernel build time on every image
-build. The gate it must pass is the boot budget in the first table.
+Owner: arizuko. Cost: **2–4 engineer-days** for the target, the fragment and
+the bench target, plus one 30–60 minute build per kernel change — not per
+release. The gate it must pass is the boot budget in the first table.
 
 ## The host budget
 
