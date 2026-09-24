@@ -36,7 +36,13 @@ build:
 # produces it. KERNEL_DIR lands under the instance data dir, which is root-owned,
 # so the mkdir carries the same $(DOCKER_SUDO) prefix docker already needs.
 KVER ?= 6.1.112
-KERNEL_KEY = $(KVER)-$(shell cat kernel/Dockerfile kernel/arizuko.fragment kernel/guest-init/*.go | sha256sum | cut -c1-12)
+# The key hashes every input that changes the ARTIFACT, and _test.go is not one:
+# it does not enter the initrd, and hashing it made a test-only edit trigger a
+# 30-60 minute kernel rebuild. It earlier missed guest-init and then the
+# Dockerfile, and both times shipped a stale bzImage — so the rule is every input
+# the artifact has, and nothing that is not one.
+KERNEL_KEY = $(KVER)-$(shell cat kernel/Dockerfile kernel/arizuko.fragment \
+  $(filter-out %_test.go,$(wildcard kernel/guest-init/*.go)) | sha256sum | cut -c1-12)
 KERNEL_DIR ?= $(DATA_DIR)/images/kernel-$(KERNEL_KEY)
 
 kernel:
@@ -85,6 +91,8 @@ lint:
 	@out=$$(gofmt -l $(GOFMT_DIRS)); \
 	  if [ -n "$$out" ]; then echo "gofmt needed:"; echo "$$out"; exit 1; fi
 	go vet ./...
+	# guest-init is its own module, so the root ./... cannot vet it (see `test`).
+	cd kernel/guest-init && go vet ./...
 	@if command -v golangci-lint >/dev/null 2>&1; then \
 	  golangci-lint run; \
 	else \
