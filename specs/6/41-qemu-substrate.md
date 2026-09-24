@@ -707,13 +707,20 @@ commitment to an estimate, not to a design.
 
 0. **The bounded prototype, throwaway, in `tmp/_qemuprobe/`.** One shell
    script and one static Go init, no arizuko code touched, on this host's
-   `/dev/kvm`: boot the pinned kernel on BOTH machine types with the four
-   `bench-boot` timestamps; mount one virtio-fs share and nine bind targets
-   and time the assembly; complete one `ctl` round trip over a CID-pinned
-   vsock; write from the guest as uid 0 through `--translate-uid` and `stat`
-   the host file; power the guest off and confirm the QEMU pid is gone. It
-   answers the boot gate, the uid clamp and the reap, and it is deleted after.
-   **2–3 days**, and a miss here changes the design rather than the schedule.
+   `/dev/kvm`. **The kernel stage comes FIRST inside this step**, and that is
+   measured, not a preference: the distro kernel ships `VIRTIO_VSOCKETS`,
+   `VIRTIO_FS` and `OVERLAY_FS` as modules (`/boot/config-6.1.0-43-amd64`,
+   2026-09-24) and the initrd carries `guest-init` and nothing else, so a guest
+   on the distro kernel answers `AF_VSOCK` with "address family not supported"
+   and can mount neither the share nor the overlay. Only the boot split can be
+   read without the pinned kernel, and step 0 has read it (§"The engine").
+   The rest, in order, once `vmlinux` exists: the four `bench-boot` timestamps
+   on both machine types; one virtio-fs share plus nine bind targets, timed;
+   one `ctl` round trip over a CID-pinned vsock; a write from the guest as uid 0
+   through the single-id namespace, `stat`ed on the host; a power-off with the
+   QEMU pid confirmed gone. It answers the boot gate, the uid clamp and the
+   reap, and it is deleted after. **2–3 days**, and a miss here changes the
+   design rather than the schedule.
 1. **Land behind the selector, default `docker`.** `runed/qemu.go`, the
    `container.Run` split, the fold of `sandbox/` into `runed/` (§"What moves
    into `runed`"), `guest-init`, the kernel stage, the compose generator's
