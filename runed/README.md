@@ -223,8 +223,9 @@ companions) and the guest uid, because both are its own.
   in; hosts no MCP of its own
 - `substrate.go` — `RUNED_SUBSTRATE`, read once: the one place a substrate is
   chosen, its preconditions checked and its orphans reaped
-- `qemu.go` — the KVM substrate: the preconditions it refuses on, the
-  argument list, the turn, the reap
+- `qemu.go` — the KVM substrate: the argument list, the turn, the reap
+- `qemuhost.go` — what this host can run: every precondition, checked once at
+  start, including the uid clamp and guest memory against the concurrency cap
 - `vmrecord.go` — the on-disk VM record (every pid the turn starts) and the
   disk scan that reaps what a dead runed left
 - `vmtree.go` — the staging tree: one share, mirroring the guest's own paths
