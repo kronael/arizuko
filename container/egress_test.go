@@ -80,9 +80,9 @@ func resetNetMgr(t *testing.T) {
 // probeAt points the readiness probe at port for the duration of a test.
 func probeAt(t *testing.T, port int, timeout time.Duration) {
 	t.Helper()
-	prevPort, prevTimeout := egressPort, egressReadyTimeout
-	t.Cleanup(func() { egressPort, egressReadyTimeout = prevPort, prevTimeout })
-	egressPort, egressReadyTimeout = port, timeout
+	prevPort, prevTimeout := EgressPort, egressReadyTimeout
+	t.Cleanup(func() { EgressPort, egressReadyTimeout = prevPort, prevTimeout })
+	EgressPort, egressReadyTimeout = port, timeout
 }
 
 // healthyProxy stands up a listener that answers /health 200, standing in for

@@ -23,9 +23,10 @@ const egressLabel = "arizuko.egress"
 // Vars, not consts, so tests can point the probe at a local listener and cut
 // the deadline. Production never reassigns them.
 var (
-	// egressPort is the proxy's listen port inside its own container. One
-	// proxy per spawn in its own network namespace, so this never collides.
-	egressPort = 3128
+	// EgressPort is the proxy's listen port: one proxy per spawn, on its own
+	// network namespace or its own tap, so this never collides. The QEMU
+	// substrate reads it as the port on the host side of the guest's tap.
+	EgressPort = 3128
 	// egressReadyTimeout bounds the wait for the proxy's /health. The spawn
 	// fails if it elapses — never spawn the agent with no proxy answering.
 	egressReadyTimeout = 15 * time.Second
@@ -185,6 +186,32 @@ func PickIP(subnet string) (string, error) {
 	return net.IP(out[:]).String(), nil
 }
 
+// EgressRules is the ONE translation from a resolved allowlist to the proxy's
+// rules, read by every substrate that starts a proxy.
+//
+// Both producers of "allow everything" — a folder's `*` network_rules row and
+// the renderer's egress-grant append — spell it as a `*` list entry, and the
+// egress binary takes an explicit --allow-all mode instead of a magic string in
+// a list (spec 6/25 1b), so this is where that becomes a flag.
+//
+// The gateway is the model endpoint for this deployment, so it is allowed by
+// construction. Without it the proxy denies the gateway and EVERY turn fails
+// with no model call — the feature would look configured and be dead.
+func EgressRules(allowlist []string, gatewayURL string) (names []string, allowAll bool) {
+	names = make([]string, 0, len(allowlist))
+	for _, e := range allowlist {
+		if e == "*" {
+			allowAll = true
+			continue
+		}
+		names = append(names, e)
+	}
+	if h := gatewayHost(gatewayURL); h != "" {
+		names = append(names, h)
+	}
+	return names, allowAll
+}
+
 // StartEgressProxy starts this spawn's own egress proxy and returns where to
 // put the spawn and how to reach the proxy. Isolation off by choice
 // (Effective: no image) is a no-op — zero EgressSpawn, nil error — and the
@@ -213,25 +240,7 @@ func StartEgressProxy(cfg EgressConfig, id, spawnName string) (EgressSpawn, erro
 	if err != nil {
 		return EgressSpawn{}, fmt.Errorf("resolve allowlist: %w", err)
 	}
-	// Both producers of "allow everything" — a folder's `*` network_rules row
-	// and the renderer's egress-grant append — spell it as a `*` list entry.
-	// The egress binary takes an explicit --allow-all mode instead of a magic
-	// string in a list (spec 6/25 1b), so this one seam translates.
-	allowAll := false
-	names := make([]string, 0, len(allowlist))
-	for _, e := range allowlist {
-		if e == "*" {
-			allowAll = true
-			continue
-		}
-		names = append(names, e)
-	}
-	// The gateway is the model endpoint for this deployment, so it is allowed
-	// by construction. Without this the proxy denies it and EVERY turn fails
-	// with no model call — the feature would look configured and be dead.
-	if h := gatewayHost(cfg.GatewayURL); h != "" {
-		names = append(names, h)
-	}
+	names, allowAll := EgressRules(allowlist, cfg.GatewayURL)
 	spawnIP, proxyIP, err := pickPair(subnet)
 	if err != nil {
 		return EgressSpawn{}, err
@@ -251,7 +260,7 @@ func StartEgressProxy(cfg EgressConfig, id, spawnName string) (EgressSpawn, erro
 		"--cap-drop", "ALL",
 		"--read-only",
 		cfg.Image,
-		"--listen", fmt.Sprintf(":%d", egressPort),
+		"--listen", fmt.Sprintf(":%d", EgressPort),
 		"--client", spawnIP,
 		"--allow", strings.Join(names, ","),
 	}
@@ -285,8 +294,8 @@ func StartEgressProxy(cfg EgressConfig, id, spawnName string) (EgressSpawn, erro
 		return EgressSpawn{}, fmt.Errorf("egress proxy uplink ip: %w", err)
 	}
 	probe := fmt.Sprintf("http://%s%s",
-		net.JoinHostPort(uplinkIP, fmt.Sprint(egressPort)), egress.HealthPath)
-	if err := waitHealthy(probe, egressReadyTimeout); err != nil {
+		net.JoinHostPort(uplinkIP, fmt.Sprint(EgressPort)), egress.HealthPath)
+	if err := WaitHealthy(probe, egressReadyTimeout); err != nil {
 		stop()
 		return EgressSpawn{}, fmt.Errorf("egress proxy %s not ready: %w", name, err)
 	}
@@ -297,7 +306,7 @@ func StartEgressProxy(cfg EgressConfig, id, spawnName string) (EgressSpawn, erro
 	return EgressSpawn{
 		Network:  netName,
 		IP:       spawnIP,
-		ProxyURL: fmt.Sprintf("http://%s:%d", proxyIP, egressPort),
+		ProxyURL: fmt.Sprintf("http://%s:%d", proxyIP, EgressPort),
 		stop:     stop,
 	}, nil
 }
@@ -368,7 +377,7 @@ func containerIP(name, network string) (string, error) {
 // instead of a hope: the caller starts the agent only after this returns nil.
 // A TCP connect would not be enough — it succeeds the moment the port is
 // bound, which can precede the handler serving.
-func waitHealthy(url string, deadline time.Duration) error {
+func WaitHealthy(url string, deadline time.Duration) error {
 	c := &http.Client{Timeout: 2 * time.Second}
 	end := time.Now().Add(deadline)
 	var last error

@@ -22,6 +22,11 @@ const (
 	// `ant/skills/arizuko/SKILL.md` must spell the same path.
 	webRoot    = "/var/lib/www"
 	webDocsDir = "arizuko"
+	// ipcMount is where the agent's ipc dir appears in the guest. Declared here
+	// because two readers need the same path: this renderer mounts it, and the
+	// QEMU substrate's staging tree makes it a guest-local tmpfs instead — a
+	// unix socket does not cross virtio-fs (spec 6/41 §"The files").
+	ipcMount = "/run/ipc"
 )
 
 // buildMounts renders the mount table's right-hand side: the guest paths of
@@ -72,7 +77,7 @@ func buildMounts(
 		os.MkdirAll(groupfolder.IpcInputDir(ipcDir), 0o755)
 		m = append(m, core.Mount{
 			Host:      hp(cfg, ipcDir),
-			Container: "/run/ipc",
+			Container: ipcMount,
 		})
 	}
 
