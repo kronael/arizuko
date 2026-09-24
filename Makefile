@@ -110,6 +110,12 @@ export GOFLAGS += -timeout=20m
 # running — the PostgreSQL deployment, or Amazon's own service.
 test:
 	go test ./... -count=1 -short
+	# guest-init is its OWN module (kernel/guest-init/go.mod), so the root ./...
+	# cannot see it — measured: `go list ./... | grep -c guest-init` is 0. Its
+	# tests would have been written and then never run by anything. The module is
+	# separate on purpose: it is PID 1 in an initrd holding one binary and it
+	# takes no dependency it can avoid, so it carries no go.sum.
+	cd kernel/guest-init && go test ./... -count=1 -short
 
 # integration: pure integration tests in tests/ (no -short; hits real DBs,
 # real HTTP between daemons). Excluded from `make test` due to setup cost.

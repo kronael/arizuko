@@ -617,6 +617,17 @@ the last of the four. A design that meets the kernel budget and misses the gate
 because nine bind targets cost 900 ms learns that from the split, not from a
 retrospective guess.
 
+**`bench-boot` drives the acceptance test, not a second boot driver** (built
+2026-09-24). A separate harness would render its own argument list and then
+measure a guest the substrate does not start, which is the drift §"The seam"
+exists to stop; the test already logs the guest's probe map and both host-side
+times, so `-v` is the whole report. Its first cut exited 0 on a SKIP, so a run
+that measured nothing read as a pass — it now prints every missing precondition
+and fails. **On a bare Debian host it names three, and all three are satisfied
+inside runed's own container rather than on the host:** the `egress` binary, the
+rootfs tree, and the Rust `virtiofsd`. So the end-to-end turn is a test of the
+image, and running it outside one measures the wrong machine.
+
 Owner: arizuko. Cost: **2–4 engineer-days** for the target, the fragment and
 the bench target, plus one 30–60 minute build per kernel change — not per
 release. The gate it must pass is the boot budget in the first table.
@@ -794,7 +805,13 @@ commitment to an estimate, not to a design.
    device and capability lines, the `virtiofsd` package
    (§"The peer credential"), and the two host-budget guards
    (§"The host budget"): the memory-times-cap refusal at runed start and the
-   overlay `size=`, plus two-tree retention in `make images`. No file under `runed/runstore`, `store/` or
+   overlay `size=`, plus the rootfs export and its retention in `make images`.
+   **The retention REPORTS and does not delete** (built 2026-09-24): a tree is
+   ~8.3 GB in an instance's data dir, a turn may have it mounted through
+   virtio-fs at that moment, and a recursive delete of a wrong path removes a
+   release. `make rootfs-stale` names every tree past the newest two and the
+   operator removes it — the same split every other live-data action takes. No
+   file under `runed/runstore`, `store/` or
    `objstore/` is touched. Tests without a hypervisor cover the record, the
    argument rendering, the frame codec and the tree builder; `make
 bench-boot` and the end-to-end turn run on a host with `/dev/kvm`.
