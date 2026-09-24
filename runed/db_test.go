@@ -9,9 +9,8 @@ import (
 
 func TestMain(m *testing.M) { dyntest.Main(m) }
 
-// TestDBSpawnLifecycle exercises the spawns + session_log + mcp_tokens
-// round-trip: create → start → end, with the brokered token ref and
-// session_log close.
+// TestDBSpawnLifecycle exercises the spawns + session_log round-trip: create →
+// start → end, then the session close that rolls the session id forward.
 func TestDBSpawnLifecycle(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {

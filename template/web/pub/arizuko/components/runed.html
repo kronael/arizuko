@@ -55,16 +55,16 @@
       <h1>runed</h1>
 
     <h2>What it is</h2>
-    <p>In plain terms, runed is the thing that runs the agent. When a turn needs to happen, runed starts one fresh Docker container, lets the agent work inside it, then throws the container away.</p>
+    <p>In plain terms, runed is the thing that runs the agent. When a turn needs to happen, runed starts one fresh, empty machine, lets the agent work inside it, then throws the machine away. <code>RUNED_SUBSTRATE</code> picks what that machine is: a Docker container, which is the default, or one KVM virtual machine per turn.</p>
 
-    <p>runed is the execution plane: a pure container-spawner. It serves the work queue, starts one Docker container per spawn, enforces the run timeout, and brokers a downscoped capability token for that single spawn. It is the <strong>only</strong> daemon wired to the Docker socket. It never appends a message (<a href="routd.html">routd</a> is the sole appender) and never signs a token (<a href="authd.html">authd</a> is the sole signer).</p>
+    <p>runed is the execution plane: a pure container-spawner. It serves the work queue, starts one Docker container per spawn, and enforces the run timeout. It is the <strong>only</strong> daemon wired to the Docker socket. It never appends a message (<a href="routd.html">routd</a> is the sole appender), and it neither signs nor mints a token: <a href="authd.html">authd</a> is the sole signer, and runed reads authd&rsquo;s public keys only to verify the callers of its own <code>/v1</code>.</p>
 
-    <p>runed owns its tables and creates them itself &mdash; the runtime tables (<code>spawns</code>, <code>session_log</code>, <code>spawn_logs</code>, <code>mcp_tokens</code>) that have no home in routd.</p>
+    <p>runed owns its tables and creates them itself &mdash; the runtime tables (<code>spawns</code> and <code>session_log</code>) that have no home in routd.</p>
 
     <h2>Why it exists</h2>
     <p>A turn is one ephemeral container run. (See the <a href="../concepts/primitives.html">Turn primitive</a>.) Something has to own the Docker socket, and only one thing should: the socket is the keys to the host, so concentrating it in one small daemon keeps the blast radius small. runed is that daemon.</p>
 
-    <p>Spawning a container is more than <code>docker run</code>. runed has to apply the egress allowlist so the agent can only reach approved hosts, enforce <code>RUNED_RUN_TIMEOUT</code> so a runaway turn can&rsquo;t burn forever, steer a live run with <code>SIGUSR1</code>, and tear the container down cleanly (stop, then kill, then <code>rm -f</code>). It also brokers a per-spawn token from authd that is downscoped to exactly that turn&rsquo;s folder &mdash; so a container that escapes still can&rsquo;t act outside its grant.</p>
+    <p>Spawning a container is more than <code>docker run</code>. runed has to apply the egress allowlist so the agent can only reach approved hosts, enforce <code>RUNED_RUN_TIMEOUT</code> so a runaway turn can&rsquo;t burn forever, steer a live run with <code>SIGUSR1</code>, and tear the container down cleanly (stop, then kill, then <code>rm -f</code>). What keeps a turn inside its folder is not a token runed hands out. It is the MCP socket itself: routd hosts one per turn, reads the peer uid off it, and answers only for that turn&rsquo;s folder &mdash; so there is no credential in the container to steal.</p>
 
     <p>Without runed, routd would have to hold the Docker socket itself, mixing the routing plane with host-level container control. Keeping them apart means the daemon that talks to the network (routd) is not the daemon that can start processes on the host (runed).</p>
 
@@ -73,7 +73,7 @@
       <pre><code>routd
         |  POST /v1/runs   (scope runs:run)
         v
-      runed   broker downscoped per-spawn token  &lt;-- authd
+      runed   verify the caller  &lt;-- authd public keys
         |     docker run the spawn's own egress proxy, wait for /health
         |     docker run --rm  (--internal net, HTTP_PROXY, ipc dir mounted)
         v
@@ -83,27 +83,26 @@
         +-- timeout / SIGUSR1 steer / stop->kill->rm -f --&gt; runed</code></pre>
     </div>
 
-    <p>Inputs: <code>POST /v1/runs</code> from routd (the routd&harr;runed contract); a <code>service:runed</code> token from authd it uses as the parent when brokering each spawn token. Outputs: a running container; status and kill over <code>/v1/runs/{run_id}</code>; spawn and session rows in its own tables.</p>
+    <p>Inputs: <code>POST /v1/runs</code> from routd (the routd&harr;runed contract); authd&rsquo;s public keys, fetched once at start, which it verifies those requests against. Outputs: a running container; status and kill over <code>/v1/runs/{run_id}</code>; spawn and session rows in its own tables.</p>
 
-    <p>Hard deps: the Docker socket on the host; <a href="authd.html">authd</a> as the token broker and JWKS source; <a href="routd.html">routd</a>, which hosts the per-turn MCP socket and receives the agent&rsquo;s tool calls. When <code>EGRESS_IMAGE</code> is set, runed also starts one <a href="egress.html">egress</a> proxy per spawn from that image, on the folder&rsquo;s <code>--internal</code> network, and stops it with the turn.</p>
+    <p>Hard deps: the Docker socket on the host; <a href="authd.html">authd</a> as the JWKS source; <a href="routd.html">routd</a>, which hosts the per-turn MCP socket and receives the agent&rsquo;s tool calls. When <code>EGRESS_IMAGE</code> is set, runed also starts one <a href="egress.html">egress</a> proxy per spawn from that image, on the folder&rsquo;s <code>--internal</code> network, and stops it with the turn.</p>
 
     <h2>Timeouts and shutdown</h2>
     <p><code>RUNED_RUN_TIMEOUT</code> (default 20m) is the run ceiling, and it bounds two things at once: the container hard-kill, and the in-container agent query timeout (<code>ARIZUKO_QUERY_TIMEOUT_MS</code> = <code>RUNED_RUN_TIMEOUT &minus; 30s</code>). The 30-second gap lets the agent abort and deliver a graceful summary before runed kills the container under it. On graceful shutdown runed detaches in-flight runs, so containers outlive the daemon and a restart doesn&rsquo;t murder a turn mid-sentence.</p>
 
     <h2>Standalone usage</h2>
-    <p>runed runs as a daemon, but it cannot do its job without a Docker socket to spawn into and an authd to broker tokens from. It also expects routd to host the MCP socket the container talks to. Run it only alongside those.</p>
+    <p>runed runs as a daemon, but it cannot do its job without a substrate to spawn into and an authd whose keys it can fetch. It also expects routd to host the MCP socket the container talks to. Run it only alongside those.</p>
 
     <pre><code>cd /srv/data/myinstance
 export DATA_DIR=/srv/data/myinstance
 export LISTEN_ADDR=:8080
 export AUTHD_URL=http://authd:8080
-export AUTHD_SERVICE_KEY=$(grep ^AUTHD_SERVICE_KEY .env | cut -d= -f2)
 export RUNED_RUN_TIMEOUT=20m
 export CONTAINER_IMAGE=arizuko-ant:latest
 # the host docker socket must be reachable
 ./runed</code></pre>
 
-    <p>With <code>AUTHD_URL</code> unset the verifier runs open and the broker hands out a static token &mdash; local-dev only. <code>GET /health</code> returns 200 once the process is up; the red flag is spawns stuck in <code>state=queued</code>, which means the broker or Docker is unavailable.</p>
+    <p>With <code>AUTHD_URL</code> unset the verifier runs open &mdash; local-dev only. <code>GET /health</code> returns 200 once the process is up; the red flag is spawns stuck in <code>state=queued</code>, which means the substrate is unavailable.</p>
 
     <h2>What runed does not do</h2>
     <p>runed does not route messages, does not append to the message log, and does not sign tokens. It takes a run request, produces a container, enforces its limits, and reports the result &mdash; the execution plane, nothing else.</p>
@@ -125,7 +124,7 @@ export CONTAINER_IMAGE=arizuko-ant:latest
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/components/runed.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-09-13">2026-09-13</time>
+        &middot; updated <time class="docs-updated" datetime="2026-09-19">2026-09-19</time>
       </div>
     </main>
 
