@@ -115,6 +115,20 @@ func mountBase(probe map[string]string) {
 		probe["virtiofs_error"] = err.Error()
 	} else {
 		probe["virtiofs"] = "mounted"
+		// Write as uid 0 from inside the guest. The host must see the file owned by
+		// the single id virtiofsd's user namespace maps, whatever the guest claims
+		// (spec §"The peer credential"). This is the uid clamp's guest half.
+		probe["guest_uid"] = itoa(syscall.Getuid())
+		if err := os.WriteFile("/turn/from-guest.txt", []byte("written-as-uid-0\n"), 0o644); err != nil {
+			probe["turn_write_error"] = err.Error()
+		} else {
+			probe["turn_write"] = "ok"
+		}
+		if b, err := os.ReadFile("/turn/probe.txt"); err == nil {
+			probe["turn_read"] = string(b[:len(b)-1])
+		} else {
+			probe["turn_read_error"] = err.Error()
+		}
 	}
 }
 
@@ -142,6 +156,18 @@ func openConsole() {
 // host before the console is known good: a failed virtiofs mount logs its source
 // name, so the name carries the message. It exists to debug the console itself and
 // is the only channel that works when the console does not.
+func itoa(n int) string {
+	if n == 0 {
+		return "0"
+	}
+	var b []byte
+	for n > 0 {
+		b = append([]byte{byte('0' + n%10)}, b...)
+		n /= 10
+	}
+	return string(b)
+}
+
 func kmsg(msg string) {
 	// The target must EXIST or the mount fails at path resolution and never
 	// reaches the driver that logs the source name. /dev is in the initrd; /proc
