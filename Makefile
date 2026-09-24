@@ -228,6 +228,86 @@ images:
 	$(DOCKER_BUILD) -t arizuko-ttsd -f ttsd/Dockerfile .
 	make -C ant image DOCKER="$(DOCKER)"
 	make vite-image
+	make rootfs
+
+# rootfs exports the agent image's filesystem as a directory tree, which is what
+# the QEMU substrate boots read-only per turn (spec 6/41 §"The image and the guest
+# kernel"). `docker export` of a created-but-never-started container gives the flat
+# filesystem; `docker save` gives layers, which the guest cannot mount, and
+# virtio-fs exports a directory, so the tree cannot stay a tarball.
+#
+# It is keyed on the IMAGE ID, not a tag, for the reason the kernel key hashes its
+# inputs: `arizuko-ant:latest` moves under you, and a guest booting last week's
+# rootfs against this week's ant is the failure that has no error message.
+#
+# MEASURED: the tree is ~8.3 GB, against a host that has had 3.5 GB free. There is
+# deliberately NO free-space check here — the operator's lever is `docker builder
+# prune -f`, and a guard would refuse a build that the lever makes fit.
+ROOTFS_KEY = $(shell $(DOCKER) image inspect --format '{{.Id}}' arizuko-ant:latest 2>/dev/null | cut -d: -f2 | cut -c1-12)
+ROOTFS_DIR ?= $(DATA_DIR)/images/rootfs-$(ROOTFS_KEY)
+
+rootfs:
+	@if [ -z "$(DATA_DIR)" ]; then echo "rootfs: set DATA_DIR=<instance data dir>" >&2; exit 1; fi
+	@if [ -z "$(ROOTFS_KEY)" ]; then echo "rootfs: no arizuko-ant:latest image — run \`make agent\` first" >&2; exit 1; fi
+	@if [ -d "$(ROOTFS_DIR)/usr" ]; then echo "rootfs: $(ROOTFS_DIR) is current for $(ROOTFS_KEY)"; exit 0; fi
+	$(DOCKER_SUDO) mkdir -p $(ROOTFS_DIR)
+	# One container, created and exported, never started. `create` takes no --rm,
+	# so the id is captured and dropped on exit even when tar fails.
+	set -e; \
+	  cid=$$($(DOCKER) create arizuko-ant:latest true); \
+	  trap "$(DOCKER) rm -f $$cid >/dev/null" EXIT; \
+	  $(DOCKER) export $$cid | $(DOCKER_SUDO) tar -x -C $(ROOTFS_DIR)
+	@echo "rootfs: $(ROOTFS_DIR)"
+	@$(MAKE) --no-print-directory rootfs-stale DATA_DIR=$(DATA_DIR)
+
+# rootfs-stale NAMES the trees beyond the newest two: the one a running turn may
+# still have mounted, and the one before it, so a rollback needs no re-export. At
+# ~8.3 GB each an unbounded set fills the volume, which is how this host reached
+# 99% (BUGS L359).
+#
+# It REPORTS and does not delete, and that is the design rather than a gap. The
+# tree sits in an instance's data dir, a turn may have it mounted through
+# virtiofs this second, and a recursive delete of a wrong path removes a release.
+# The platform names what is stale; the operator removes it, which is the same
+# split every other live-data action in this repo takes.
+rootfs-stale:
+	@cd $(DATA_DIR)/images 2>/dev/null || exit 0; \
+	  stale=$$(ls -1dt rootfs-* 2>/dev/null | tail -n +3); \
+	  if [ -z "$$stale" ]; then echo "rootfs-stale: none, two or fewer trees kept"; exit 0; fi; \
+	  echo "rootfs-stale: these trees are past the two kept, ~8.3 GB each:"; \
+	  for d in $$stale; do echo "  $(DATA_DIR)/images/$$d"; done; \
+	  echo "rootfs-stale: a turn may still have one mounted, so removal is yours"
+
+# bench-boot reports the boot split the gate is written against: kernel entry,
+# mounts done, ctl up, and QEMU exit (spec 6/41 §"The image and the guest kernel").
+#
+# It drives the ACCEPTANCE TEST rather than a second boot driver. One renderer,
+# many sinks: a separate benchmark harness would render its own argument list and
+# then measure a guest the substrate does not start. The test already logs the
+# guest's probe map and both host-side times, so -v is the whole report.
+#
+# Needs /dev/kvm and root. sudo strips PATH, so the toolchain is named explicitly
+# — a bare `sudo go` picks an older Go and dies on go.mod's `toolchain` directive.
+bench-boot:
+	@if [ -z "$(DATA_DIR)" ]; then echo "bench-boot: set DATA_DIR=<instance data dir>" >&2; exit 1; fi
+	@if [ ! -f "$(KERNEL_DIR)/bzImage" ]; then \
+	  echo "bench-boot: no kernel at $(KERNEL_DIR) — run \`make kernel DATA_DIR=$(DATA_DIR)\`" >&2; exit 1; fi
+	@echo "bench-boot: kernel $(KERNEL_DIR), rootfs $(ROOTFS_DIR)"
+	@mkdir -p tmp
+	sudo -E RUNED_SUBSTRATE=qemu \
+	  RUNED_KERNEL_DIR=$(KERNEL_DIR) RUNED_ROOTFS_DIR=$(ROOTFS_DIR) \
+	  DATA_DIR=$(DATA_DIR) \
+	  $$(command -v go) test ./runed/ -count=1 -v \
+	  -run TestGuestBootsAndReportsOverCtl > tmp/bench-boot.log 2>&1 || true
+	@grep -E "ctl up|guest probe|qemu exited|FAIL" tmp/bench-boot.log || true
+	@# A SKIP exits 0 and would read as a measurement. Print what the host is
+	@# missing and fail: a benchmark that measured nothing is not a green one.
+	@if ! grep -q "ctl up" tmp/bench-boot.log; then \
+	  echo "bench-boot: NOTHING WAS MEASURED. The test did not reach a booted guest:"; \
+	  sed -n '/SKIP\|cannot run the QEMU substrate/,$$p' tmp/bench-boot.log | sed -n '1,12p'; \
+	  echo "bench-boot: full output in tmp/bench-boot.log"; \
+	  exit 1; \
+	fi
 
 vite-image:
 	$(DOCKER_BUILD) -f ant/Dockerfile.vite -t arizuko-vite:latest .
@@ -235,4 +315,4 @@ vite-image:
 agent:
 	make -C ant image DOCKER="$(DOCKER)"
 
-.PHONY: build lint test clean images agent vite-image
+.PHONY: build lint test clean images agent vite-image rootfs rootfs-stale bench-boot
