@@ -47,6 +47,9 @@ line; none can be answered from the code.
 - `V2` — may `acl_membership` grow a LIST action? It publishes who holds
   authority over whom, on REST and on MCP.
 - `L326` — the honest liveness fix needs a barrier nobody has signed off.
+- `L360` — is one reference clone shared across groups, or copied per group?
+  Sharing couples them to one revision; copying costs about 10 G today and
+  serves a third-party `.git` tree from the public webroot.
 - `L358` — the helm chart renders a `crackbox:latest` proxy wired to `gated`, a
   daemon deleted at v0.50.0. Deleting it is four files; whether the chart
   carries an egress story at all is a deploy decision, because k8s has no
@@ -65,6 +68,8 @@ revoked — see its entry.)
   Which route rows to write is yours.
 - `L62` — marinade's emaid IMAP login fails.
 - `L63` — krons whapd wants a phone re-pair; the recipe is in the entry.
+- `L359` — 11 G of interrupted git repacks, on a disk with 3.9 G free. The
+  files are unreferenced and the deletion is live data, so it is yours.
 
 **Outside this repo.**
 
@@ -211,6 +216,75 @@ instance layout to drive.
   `TestTheSharedDefaultsAreNamedOnce` no longer compares a constant to its own
   literal; it asserts what the declaration is for, that `EnvOr` on an unset var
   resolves to the shared default.
+
+## L360 — one agent reference clone is copied per group and served from the public webroot (2026-09-24, open)
+
+`elizaos` exists three times under `/srv/data/arizuko_krons`, at 5.4 G, 5.2 G
+and 5.2 G: once in `groups/krons/workspace/agent-research-sources/`, and once
+each under `web/pub/krons/agents/refs/` and `web/pub/rhias/agents/refs/`.
+`openclaw` is duplicated the same way.
+
+They are copies, not independent clones. The orphaned pack files of `L359`
+carry identical names across them — `tmp_pack_78joXn` appears in both the
+krons and the rhias tree, and a second clone of the same upstream would not
+produce that name. So a whole `.git` directory was copied per group, garbage
+included.
+
+Two problems, and only the first is size. The clones live under `web/pub`,
+which is the public webroot, so a 2.1 G pack file and the full history of a
+third-party repository are served to anyone who asks. Nothing needs the
+`.git` directory to be reachable for the checked-out files to be.
+
+- **Severity:** medium — roughly 10 G recoverable, and a `.git` tree is public
+- **Scope:** agent reference material, per-group layout
+- **Affected:** every group that pins a reference repository; krons and rhias
+  hold the two measured copies
+- **Source:** `du` over `/srv/data/arizuko_krons`, 2026-09-24; identical
+  `tmp_pack_*` names across the krons and rhias trees
+- **Status:** open — whether references are shared or copied is a design
+  decision, because sharing one clone couples the groups to one revision
+- **Fix:** three shapes. Share one clone per upstream outside any group and
+  give each group a checkout of the revision it pins, which is the smallest
+  change and the one that keeps groups independent at the revision. Or keep
+  per-group copies and clone with `--depth 1`, which loses the ability to pin
+  an old revision. Either way the `.git` directory stops being served: the
+  webroot needs the working tree, never the object store.
+
+## L359 — 11 G of interrupted git repacks sit in the data tree and nothing prunes them (2026-09-24, open)
+
+The root filesystem is at 99%, 242 G used of 256 G, 3.9 G free.
+
+Eleven `tmp_pack_*` files under `/srv/data/arizuko_krons` total 11.0 G, the
+largest 1.7 G. No git process is running, so every one is the debris of a
+repack or fetch that was killed part-way. Git writes these under
+`objects/pack/` while it builds a pack and renames them on success; on a kill
+they stay, and no later operation removes them, because git only prunes temp
+files it can prove are its own and older than the grace period.
+
+The cause is that these repacks are being interrupted. The box runs at load
+7.64 on two cores, so a repack of a multi-gigabyte repository takes long
+enough to meet a container restart, a timeout, or an OOM.
+
+- **Severity:** high — the disk has 3.9 G left, and a full root stops every
+  daemon that writes
+- **Scope:** the data tree under `/srv/data/arizuko_krons`
+- **Affected:** the `elizaos` and `openclaw` reference clones in the krons and
+  rhias groups and in `groups/krons/workspace/agent-research-sources`
+- **Source:** `find /srv/data -name 'tmp_pack_*'` and `df -h /`, 2026-09-24
+- **Status:** open — the deletion is live data, so it waits on an operator
+- **Fix:** the files are unreferenced and no git process holds them, so
+  deleting them recovers 11 G immediately and loses nothing. Two further
+  reclaims need no decision: `docker system prune` frees 21.97 G of the 32.93 G
+  in 66 images, of which only 18 are active, and the build cache is 3.664 G
+  with nothing active. Together that is roughly 37 G, taking the disk from 99%
+  to about 84%.
+
+  The cause fix is to stop interrupting the repacks. Either give the clone a
+  bounded history so a repack cannot take minutes, which `L360` argues for on
+  its own grounds, or run the repack where a restart cannot reach it and let
+  it finish. A janitor that deletes `tmp_pack_*` on a timer is the symptom
+  patch: it keeps the disk from filling while leaving every repack still
+  failing, so nothing is ever actually packed.
 
 ## L358 — the helm chart still deploys a shared crackbox proxy wired to `gated`, a daemon deleted at v0.50.0 (2026-09-23, open)
 
