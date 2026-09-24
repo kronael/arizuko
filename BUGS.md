@@ -217,6 +217,59 @@ instance layout to drive.
   literal; it asserts what the declaration is for, that `EnvOr` on an unset var
   resolves to the shared default.
 
+## ✅ FIXED 2026-09-24 L361 — the section-citation guard reads only citations that spell "spec", so 145 bare `§"…"` pointers are unchecked (2026-09-24, open)
+
+`tests/specrefs` `TestEverySectionCitationResolves` matches
+`spec[s]? <phase>/<id> § ?"<section>"` (`specrefs_test.go:206`). A spec citing a
+section of ITSELF writes the short form the corpus actually prefers — a bare
+`§"The host budget"`, with no number in front of it — and that form the regex
+never sees. `specs/CLAUDE.md` describes the guard as reading "the quoted form",
+which reads as covering both.
+
+Measured 2026-09-24:
+
+- **145** bare `§"…"` pointers exist across the documents. **One is dead**:
+  `EXTENDING.md:452` cites `specs/5/13-ext-mcp.md` §"Connector declaration", and
+  5/13 has no such heading — the shipped shape is §"Shape 2 — MCP HTTP connector
+  (shipped)".
+- The guard is green on a broken one. Rewriting one live citation in
+  `specs/6/41-qemu-substrate.md` to `§"The host budgetZZ"` — a section no file
+  has — left `go test ./tests/specrefs/ -count=1` reporting `ok`.
+- `sourceFiles` already walks `.md`, so the file set is right and only the
+  pattern is narrow. The numbered form is checked in the same loop and works:
+  mutating the heading `runed/vmrecord.go` cites makes the guard name that file.
+
+This is the shape of an unprovable gate, and a section heading is exactly what a
+refine pass renames — `6/24`'s own §"Two parts" became §"What is left" in this
+pass, and no test could have told me whether anything cited it. Renaming
+`6/41` §"The host budget" takes **10** pointers down in silence.
+
+**Two traps in writing the fix, both worth the lines.** The bare form does NOT
+mean the containing file: §"Identity header trust" is `SECURITY.md`'s and
+§"Split write-discipline" is the root `CLAUDE.md`'s, so a guard that resolves a
+bare pointer against its own file reports 28 false deaths. And a first cut that
+searched the raw document PASSED ITS OWN MUTATION, because a pointer is a quoted
+copy of the heading and therefore matches itself — the pointers have to come out
+of the haystack before the search.
+
+- **Severity:** low (one dead pointer, in a doc; the guard cannot report the
+  next one)
+- **Scope:** `tests/specrefs`
+- **Affected:** `tests/specrefs/specrefs_test.go:206` `sectionRe`,
+  `specs/CLAUDE.md` §"Quote the section you cite"
+- **Source:** the refine pass of 2026-09-24, proving the gate rather than
+  trusting its green run (`feedback_gate_cannot_fail`)
+- **Status:** fixed
+- **Fix:** `TestEveryBareSectionCitationResolves` reads the bare form and
+  resolves it against every `.md` and `.html` document with the pointers removed
+  from the haystack first. `.html` is in the set because `5/9` cites an operator
+  page's `<h2>`, and `unwrap` learned the `>` blockquote prefix, which two
+  citations carried inside the quotes. It checks 145 pointers and fails on an
+  empty set. Proven twice by mutation: one broken citation names its file, and
+  renaming `6/41` §"The host budget" reports all 10 pointers to it.
+  `EXTENDING.md`'s dead pointer now names §"Shape 2 — MCP HTTP connector
+  (shipped)".
+
 ## L360 — one agent reference clone is copied per group and served from the public webroot (2026-09-24, open)
 
 `elizaos` exists three times under `/srv/data/arizuko_krons`, at 5.4 G, 5.2 G

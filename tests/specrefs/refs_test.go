@@ -210,9 +210,11 @@ var sectionRe = regexp.MustCompile(`spec[s]? ([1-9][0-9]?)/([0-9A-Z][0-9A-Za-z-]
 // reported six correct pointers as dead.
 func despan(s string) string { return strings.ReplaceAll(s, "`", "") }
 
-// unwrap joins a citation that spans two comment lines. A quoted section long
-// enough to wrap carries "\n// " inside the capture, which matches no spec.
-var unwrapRe = regexp.MustCompile(`\s*\n\s*(//|\*)?\s*`)
+// unwrap joins a citation that spans two lines. A quoted section long enough to
+// wrap carries the next line's prefix inside the capture, which matches no spec:
+// "\n// " in a Go comment, and "\n> " in a markdown blockquote, where two
+// citations read as §"The > hot-path exception" until the ">" comes out.
+var unwrapRe = regexp.MustCompile(`\s*\n\s*(//|\*|>)?\s*`)
 
 func unwrap(s string) string { return strings.TrimSpace(unwrapRe.ReplaceAllString(s, " ")) }
 
@@ -261,4 +263,80 @@ func TestEverySectionCitationResolves(t *testing.T) {
 			"and an empty set is a guard that cannot fail")
 	}
 	t.Logf("resolved %d section citations", checked)
+}
+
+// selfSectionRe matches a section pointer with NO spec number in front of it —
+// `§"The host budget"` — which is how a spec cites a section of itself. It is
+// the form the corpus prefers: 133 bare pointers against 83 numbered ones, and
+// sectionRe sees none of them (BUGS L361).
+var selfSectionRe = regexp.MustCompile(`§ ?"([^"]+)"`)
+
+// numberedBefore reports whether a spec id sits immediately in front of a `§`,
+// which makes that pointer sectionRe's to resolve and not this test's.
+var numberedBefore = regexp.MustCompile(`[1-9][0-9]?/[0-9A-Z][0-9A-Za-z-]*[\s\x60]*$`)
+
+// TestEveryBareSectionCitationResolves is the other half of the same hole.
+// sectionRe requires the word "spec" and a number, so a pointer written as a
+// bare §"Heading" is unread, and a renamed heading takes every pointer to it in
+// silence. `6/24`'s §"Two parts" became §"What is left" in one refine pass, and
+// no test could say what cited it.
+//
+// It does NOT assume the pointer means the containing file. Measured: a bare §
+// in a spec names the document the prose around it named, and that is often
+// another one — §"Identity header trust" is SECURITY.md's and §"Split
+// write-discipline" is the root `CLAUDE.md`'s. So the claim checked is the
+// weaker one a reader can verify without the prose: this string exists SOMEWHERE
+// in the documents. That still fails on a rename, which is what takes pointers
+// down, and it cannot fail on a pointer that merely crosses a file.
+func TestEveryBareSectionCitationResolves(t *testing.T) {
+	// The pointers come OUT of the haystack first. A pointer is itself a quoted
+	// copy of the heading, so a haystack that holds the pointers matches every
+	// one of them and the guard can never fail — the first cut of this test
+	// passed its own mutation for exactly that reason.
+	docs := ""
+	for _, f := range sourceFiles(t) {
+		// `.html` is in the haystack because a spec may cite an operator page's
+		// heading, and `5/9` does: the only target of §"Ship tests with it" is an
+		// `<h2>` in `howto/build-a-product.html`.
+		if ext := filepath.Ext(f); ext != ".md" && ext != ".html" {
+			continue
+		}
+		if isHistory(rel(f)) {
+			continue
+		}
+		raw, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatalf("read %s: %v", f, err)
+		}
+		docs += " " + selfSectionRe.ReplaceAllString(string(raw), "")
+	}
+	hay := strings.ToLower(despan(unwrap(docs)))
+
+	checked := 0
+	for _, f := range sourceFiles(t) {
+		r := rel(f)
+		if filepath.Ext(r) != ".md" || isHistory(r) || discussesTheForm(r) {
+			continue
+		}
+		raw, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatalf("read %s: %v", f, err)
+		}
+		body := string(raw)
+		for _, m := range selfSectionRe.FindAllStringSubmatchIndex(body, -1) {
+			if numberedBefore.MatchString(body[max(0, m[0]-40):m[0]]) {
+				continue
+			}
+			section := unwrap(body[m[2]:m[3]])
+			checked++
+			if !strings.Contains(hay, strings.ToLower(despan(section))) {
+				t.Errorf("%s: cites §%q, and that heading is in no document", r, section)
+			}
+		}
+	}
+	if checked == 0 {
+		t.Fatal("no bare section citations found — the pattern stopped matching the corpus, " +
+			"and an empty set is a guard that cannot fail")
+	}
+	t.Logf("resolved %d bare section citations", checked)
 }

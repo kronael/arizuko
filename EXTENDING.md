@@ -449,7 +449,7 @@ through the broker chain. Per-call invocation resolves the declared
 secrets, renders the headers, proxies `tools/call`, and scrubs the
 result. The loader refuses any other table name or transport value,
 so a block under an old name fails routd's boot instead of configuring
-nothing. Specs `specs/5/13-ext-mcp.md` § "Connector declaration",
+nothing. Specs `specs/5/13-ext-mcp.md` § "Shape 2 — MCP HTTP connector (shipped)",
 `specs/6/19-unified-tool-declaration.md`; operator copies in
 `template/connectors/`.
 
