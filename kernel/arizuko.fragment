@@ -1,0 +1,50 @@
+# arizuko guest kernel fragment (spec 6/41 §"The image and the guest kernel").
+# Every driver the turn needs is built IN, never a module: the initrd carries
+# guest-init and nothing else, so a module has nothing to load it.
+# Measured 2026-09-24: the distro kernel ships these three as =m and a guest on
+# it answers AF_VSOCK with "address family not supported".
+CONFIG_VIRTIO=y
+CONFIG_VIRTIO_MENU=y
+CONFIG_VIRTIO_MMIO=y
+CONFIG_VIRTIO_PCI=y
+CONFIG_VIRTIO_PCI_LEGACY=y
+CONFIG_VIRTIO_BLK=y
+CONFIG_VIRTIO_NET=y
+CONFIG_VIRTIO_CONSOLE=y
+# virtio-fs: the one share the staging tree is exported through.
+CONFIG_FUSE_FS=y
+CONFIG_VIRTIO_FS=y
+# vsock: the ctl and mcp transport, CID-pinned by the host.
+CONFIG_VSOCKETS=y
+CONFIG_VSOCKETS_DIAG=y
+CONFIG_VIRTIO_VSOCKETS=y
+CONFIG_VIRTIO_VSOCKETS_COMMON=y
+# overlayfs: root share read-only as lower, tmpfs as upper.
+CONFIG_OVERLAY_FS=y
+CONFIG_TMPFS=y
+CONFIG_TMPFS_POSIX_ACL=y
+CONFIG_TMPFS_XATTR=y
+# The guest is one process from boot to power-off; it needs a console and a
+# reboot path (reboot=t triple fault, spec §"The turn" step 9) and no more.
+CONFIG_SERIAL_8250=y
+CONFIG_SERIAL_8250_CONSOLE=y
+CONFIG_PRINTK=y
+CONFIG_BINFMT_ELF=y
+CONFIG_BLK_DEV_INITRD=y
+CONFIG_RD_GZIP=y
+CONFIG_EPOLL=y
+CONFIG_FUTEX=y
+CONFIG_SIGNALFD=y
+CONFIG_TIMERFD=y
+CONFIG_EVENTFD=y
+CONFIG_SHMEM=y
+CONFIG_PROC_FS=y
+CONFIG_SYSFS=y
+CONFIG_DEVTMPFS=y
+CONFIG_DEVTMPFS_MOUNT=y
+CONFIG_UNIX=y
+CONFIG_INET=y
+CONFIG_NET=y
+CONFIG_PACKET=y
+# No module loader at all: a kernel that cannot load a module cannot be asked to.
+# CONFIG_MODULES is not set

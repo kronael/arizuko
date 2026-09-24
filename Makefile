@@ -19,6 +19,32 @@ build:
 	$(foreach d,$(DAEMONS),make -C $(d) build;)
 	$(foreach c,$(COMPONENTS),make -C $(c) build;)
 
+# kernel: the guest kernel arizuko boots per turn (spec 6/41). Its own target and
+# NOT a stage of ant/Dockerfile: ant/ took 130 commits in 60 days while this
+# changes only when KVER or the fragment does, and `docker builder prune -f` —
+# the disk lever the spec names — deletes a build cache, so a kernel living in
+# one would be thrown away by the documented cleanup.
+#
+# The artifact key is the version plus the fragment hash, so a fragment edit
+# rebuilds and nothing else does. `make images` depends on this path; it never
+# produces it.
+KVER ?= 6.1.112
+KERNEL_KEY = $(KVER)-$(shell sha256sum kernel/arizuko.fragment | cut -c1-12)
+KERNEL_DIR ?= $(DATA_DIR)/images/kernel-$(KERNEL_KEY)
+
+kernel:
+	@if [ -z "$(DATA_DIR)" ]; then echo "kernel: set DATA_DIR=<instance data dir>" >&2; exit 1; fi
+	@if [ -f "$(KERNEL_DIR)/bzImage" ]; then \
+	  echo "kernel: $(KERNEL_DIR) is current for $(KERNEL_KEY)"; exit 0; \
+	fi
+	$(DOCKER_BUILD) --target out -t arizuko-kernel:$(KERNEL_KEY) \
+	  --build-arg KVER=$(KVER) kernel/
+	mkdir -p $(KERNEL_DIR)
+	$(DOCKER) run --rm -v $(KERNEL_DIR):/dst arizuko-kernel:$(KERNEL_KEY) \
+	  sh -c 'cp /out/bzImage /out/initrd.gz /out/kernel.config /dst/'
+	@echo "kernel: $(KERNEL_DIR)"
+.PHONY: kernel
+
 OUT ?= .
 DOCKER_TARGETS = $(addprefix docker-build-,arizuko $(DAEMONS))
 
