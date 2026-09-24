@@ -47,6 +47,10 @@ line; none can be answered from the code.
 - `V2` — may `acl_membership` grow a LIST action? It publishes who holds
   authority over whom, on REST and on MCP.
 - `L326` — the honest liveness fix needs a barrier nobody has signed off.
+- `L358` — the helm chart renders a `crackbox:latest` proxy wired to `gated`, a
+  daemon deleted at v0.50.0. Deleting it is four files; whether the chart
+  carries an egress story at all is a deploy decision, because k8s has no
+  per-folder docker network for the per-spawn proxy to attach to.
 
 **An operator action on live data.** The platform side is done in each.
 (`L334` is closed and carries one too: the third party's `**` on sloth is not
