@@ -1,15 +1,16 @@
-package container
+package runed
 
 // The spawn env is a contract between two languages: Go decides what reaches
 // the container, TypeScript decides what it reads. Nothing joined the two, so a
-// key ant read that buildArgs never emitted was not a build failure, not a test
+// key ant read that the spawn never emitted was not a build failure, not a test
 // failure and not a log line — it was ant's own default, silently. Three keys
 // have died that way (ARIZUKO_MODEL, RUNED_RUN_TIMEOUT, ARIZUKO_BACKEND), and
 // the last one killed the second-backend slot for months.
 //
-// This test reads ant's ACTUAL source for the keys it takes from the container
-// env, then asserts buildArgs emits each one. It fails when either side moves:
-// ant adding a read, or Go dropping an emission.
+// This test reads ant's ACTUAL source for the keys it takes from the guest env,
+// then asserts the pair that decides it — the renderer's turnEnv and the
+// substrate's buildArgs — emits each one. It fails when either side moves: ant
+// adding a read, or Go dropping an emission.
 
 import (
 	"os"
@@ -19,7 +20,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kronael/arizuko/container"
 	"github.com/kronael/arizuko/core"
+	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 )
 
 // notArizukos are keys ant reads that arizuko does not own, each with the owner
@@ -27,9 +30,9 @@ import (
 // fallback in ant, which is what makes the absence safe — a key arizuko owns
 // has no sane default, and that is exactly why it must be emitted.
 var notArizukos = map[string]string{
-	"HOME":         "docker and the image; buildArgs also emits it when the uid is not 1000",
+	"HOME":         "docker and the image; the substrate also emits it when the uid is not 1000",
 	"PATH":         "the image",
-	"NODE_OPTIONS": "buildArgs when egress is on; node's own variable otherwise",
+	"NODE_OPTIONS": "the substrate when egress is on; node's own variable otherwise",
 	"CODEX_HOME":   "codex; ant falls back to <home>/.codex (codex.ts codexHomeDir)",
 }
 
@@ -83,7 +86,7 @@ func antEnvReads(t *testing.T) []string {
 	return out
 }
 
-// A key ant reads must be a key buildArgs emits. cfg is filled so every
+// A key ant reads must be a key the spawn emits. cfg is filled so every
 // conditional emission fires — an emission gated on an unset config value looks
 // identical to no emission at all, which is the fault this pins.
 func TestSpawnEnvCarriesEveryKeyAntReads(t *testing.T) {
@@ -93,16 +96,17 @@ func TestSpawnEnvCarriesEveryKeyAntReads(t *testing.T) {
 		AgentBackend:    "codex",
 		ModelGatewayURL: "http://litellm:4000",
 	}
-	args := strings.Join(buildArgs(cfg, nil, "c1", egressSpawn{}, "opus", "xhigh", 900000, false, false, "sk-virtual"), " ")
+	req := runedv1.RunRequest{Model: "opus", Effort: "xhigh", ModelGatewayKey: "sk-virtual"}
+	args := strings.Join(buildArgs(cfg, Turn{Handle: "c1", Env: turnEnv(cfg, req, 900000)}, container.EgressSpawn{}), " ")
 
 	for _, key := range antEnvReads(t) {
 		if notArizukos[key] != "" {
 			continue
 		}
 		if !strings.Contains(args, "-e "+key+"=") {
-			t.Errorf("ant reads %s from the container env, and buildArgs never emits it — "+
+			t.Errorf("ant reads %s from the guest env, and the spawn never emits it — "+
 				"the read silently falls to ant's own default (BUGS: ARIZUKO_BACKEND, "+
-				"ARIZUKO_MODEL, RUNED_RUN_TIMEOUT all died this way). Emit it in buildArgs, "+
+				"ARIZUKO_MODEL, RUNED_RUN_TIMEOUT all died this way). Emit it in turnEnv, "+
 				"or stop reading it in ant/src.", key)
 		}
 	}
@@ -131,7 +135,8 @@ func TestSpawnEnvEmitsNothingAntIgnores(t *testing.T) {
 		ModelGatewayURL: "http://litellm:4000",
 	}
 	emitted := regexp.MustCompile(`^([A-Z_][A-Z0-9_]*)=`)
-	args := buildArgs(cfg, nil, "c1", egressSpawn{}, "opus", "", 900000, false, false, "sk-virtual")
+	req := runedv1.RunRequest{Model: "opus", ModelGatewayKey: "sk-virtual"}
+	args := buildArgs(cfg, Turn{Handle: "c1", Env: turnEnv(cfg, req, 900000)}, container.EgressSpawn{})
 	for i, a := range args {
 		if a != "-e" || i+1 >= len(args) {
 			continue
@@ -144,7 +149,7 @@ func TestSpawnEnvEmitsNothingAntIgnores(t *testing.T) {
 		if reads[key] || consumedByOthers[key] != "" {
 			continue
 		}
-		t.Errorf("buildArgs emits %s and nothing in ant/src reads it — either ant lost the "+
+		t.Errorf("the spawn emits %s and nothing in ant/src reads it — either ant lost the "+
 			"read (the key is now dead) or a non-ant consumer owns it, in which case name "+
 			"that consumer in consumedByOthers.", key)
 	}

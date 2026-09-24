@@ -1,11 +1,11 @@
-package container
+package runed
 
 import (
 	"os"
-	"strings"
 	"testing"
 
 	"github.com/kronael/arizuko/core"
+	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -13,7 +13,7 @@ import (
 // CLAUDE_CODE_OAUTH_TOKEN) off the host env so the in-container Claude Code SDK
 // can reach the LLM — the floor under mergeSecrets. CONNECTOR secrets still flow
 // through the broker at tool-call time; the per-user BYOA override rides in
-// container.Input.Secrets and is overlaid by mergeSecrets (see TestMergeSecrets).
+// turn's payload Secrets and is overlaid by mergeSecrets (see TestMergeSecrets).
 func TestReadSecrets_PicksOperatorAnchors(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "anth-xxx")
 	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "oauth-yyy")
@@ -83,7 +83,7 @@ func TestMergeSecrets_NilOverride(t *testing.T) {
 // A configured gateway withholds the model credential from BOTH sources — the
 // host anchor and the trigger user's own env-profile row — while a `shell:env`
 // capability key still passes, and the virtual key still reaches the spawn as
-// container env (spec 6/23 Fault 1).
+// the guest env (spec 6/23 Fault 1).
 func TestSpawnSecrets_GatewayWithholdsModelCredential(t *testing.T) {
 	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "operator-oauth")
 	t.Setenv("ANTHROPIC_API_KEY", "")
@@ -101,9 +101,9 @@ func TestSpawnSecrets_GatewayWithholdsModelCredential(t *testing.T) {
 	if got["GITHUB_TOKEN"] != "ghp-shell-env" {
 		t.Errorf("shell:env key dropped by the gateway filter: %v", got)
 	}
-	args := strings.Join(buildArgs(cfg, nil, "c8", egressSpawn{}, "", "", 0, false, false, "sk-turn-key"), " ")
-	if !strings.Contains(args, "-e MODEL_GATEWAY_KEY=sk-turn-key") {
-		t.Errorf("virtual key must still reach the spawn: %s", args)
+	env := turnEnv(cfg, runedv1.RunRequest{ModelGatewayKey: "sk-turn-key"}, 0)
+	if env["MODEL_GATEWAY_KEY"] != "sk-turn-key" {
+		t.Errorf("virtual key must still reach the guest: %v", env)
 	}
 }
 
@@ -148,6 +148,6 @@ func TestSpawnHoldsModelCredential(t *testing.T) {
 	}
 	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "")
 	if SpawnHoldsModelCredential(&core.Config{}) {
-		t.Error("no anchor set: no credential enters the container")
+		t.Error("no anchor set: no credential enters the guest")
 	}
 }

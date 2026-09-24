@@ -7,17 +7,17 @@ import (
 )
 
 // FakeRuntime backs the contract test + standalone acceptance: it invokes a
-// caller-supplied function with the RunSpec and returns its outcome.
+// caller-supplied function with the rendered Turn and returns its outcome.
 type FakeRuntime struct {
-	Fn func(ctx context.Context, spec RunSpec) RunResult
+	Fn func(ctx context.Context, t Turn) RunResult
 }
 
-func (f FakeRuntime) Run(ctx context.Context, spec RunSpec) RunResult {
+func (f FakeRuntime) Run(ctx context.Context, t Turn) RunResult {
 	if f.Fn == nil {
 		return RunResult{Outcome: runedv1.OutcomeSilent}
 	}
-	return f.Fn(ctx, spec)
+	return f.Fn(ctx, t)
 }
 
-// Kill is a no-op for the fake (no container to stop).
+// Kill is a no-op for the fake (nothing runs).
 func (FakeRuntime) Kill(string) error { return nil }

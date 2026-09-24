@@ -35,16 +35,16 @@ type RunRequest struct {
 	// a live agent's running container, nor count toward its breaker.
 	Kind string `json:"kind,omitempty"`
 	// Elevated is the operator /root elevation signal: routd sets it true ONLY
-	// for a turn an operator raised via /root (steer.go cmdRoot). runed forwards
-	// it to container.Input.Elevated → root=Elevated (tier 0, /var/lib/groups
-	// mount). A normal spawn is never root; folder shape does not grant it.
+	// for a turn an operator raised via /root (steer.go cmdRoot). The renderer
+	// turns it into tier 0: the /var/lib/groups mount and ARIZUKO_IS_ROOT=1. A
+	// normal spawn is never root; folder shape does not grant it.
 	Elevated bool `json:"elevated,omitempty"`
-	// ShareReadOnly/Egress/WebPublish are the container-capability DECISIONS routd
+	// ShareReadOnly/Egress/WebPublish are the guest-capability DECISIONS routd
 	// resolved from the folder's acl grants (5/33-paths-roles: mounts/egress/web are grants, not
-	// tier). runed forwards them to container.Input so buildMounts downgrades the
-	// share to RO, appends "*" to the egress allowlist, and mounts the web surfaces —
-	// each only when its grant holds. EgressAllowlist is the resolved egress
-	// allowlist (network_rules ancestry); runed wires it into EgressConfig.AllowlistFn.
+	// tier). runed's renderer downgrades the share to RO, appends "*" to the egress
+	// allowlist, and mounts the web surfaces — each only when its grant holds.
+	// EgressAllowlist is the resolved egress allowlist (network_rules ancestry);
+	// the renderer puts it on Turn.Egress, which the substrate hands its proxy.
 	// routd is the authz plane; runed has no store (spec 5/E-routd).
 	ShareReadOnly bool `json:"share_read_only,omitempty"`
 	Egress        bool `json:"egress,omitempty"`

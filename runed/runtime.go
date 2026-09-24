@@ -2,51 +2,48 @@ package runed
 
 import (
 	"context"
-	"time"
 
-	"github.com/kronael/arizuko/types"
+	"github.com/kronael/arizuko/core"
 )
 
-// RunSpec is one agent invocation as runed sees it: the rendered prompt, the
-// resume session id (empty = fresh) and the turn_id stamped onto every
-// callback. Mirrors the PINNED POST /v1/runs body (spec 5/P-runed).
-type RunSpec struct {
-	RunID           string
-	Folder          string
-	ContainerName   string // the Manager's pinned name; the Runtime spawns + Kills by it
-	Topic           string
-	ChatJID         string
-	Channel         string // JID scheme → container.Input.Channel → pickOutputStyle
-	SessionID       string // resume; empty = fresh
-	MessageBatch    string // rendered prompt STRING
-	TriggerSender   string
-	CallerSub       types.UserSub
-	TurnID          string
-	Kind            string // 'agent' | 'backup' | ... — selects the Executor (spec 5/8)
-	Isolated        bool
-	Elevated        bool              // operator /root elevation → container.Input.Elevated (tier 0 + all-groups mount)
-	Model           string            // per-group model override; empty = instance default
-	Effort          string            // reasoning depth for the harness CLI; empty = its own default
-	ContainerConfig map[string]any    // opaque GroupConfig forwarded from groups.container_config
-	ShareReadOnly   bool              // 5/33-paths-roles grant decision → container.Input.ShareReadOnly (RO share mount)
-	Egress          bool              // 5/33-paths-roles grant decision → container.Input.Egress (append "*" to allowlist)
-	WebPublish      bool              // 5/33-paths-roles grant decision → container.Input.WebPublish (mount web surfaces)
-	GHWrite         bool              // 5/33-paths-roles grant decision → container.Input.GHWrite (ant's gh gate)
-	EgressAllowlist []string          // routd-resolved egress allowlist → EgressConfig.AllowlistFn
-	Secrets         map[string]string // routd-resolved user env-profile keys (BYOA model creds) → container.Input.Secrets, injected as container env; capability creds are brokered, never here
-	// ModelGatewayKey is this turn's virtual key at the model gateway, minted
-	// by routd (spec 6/23). Empty means no gateway on this instance.
-	ModelGatewayKey string
+// Runtime starts one guest and stops it. ctx carries the deadline.
+//
+// One production implementation is chosen at startup (NewDockerRuntime in
+// docker.go), holdRuntime is the executor for a run that starts nothing, and
+// FakeRuntime backs tests without a substrate. The port is two methods: a
+// third, or a Turn field a substrate must interpret rather than deliver, needs
+// an approved plan first (root CLAUDE.md, "A port is two methods and stays
+// two"; spec 6/41 §"The seam").
+type Runtime interface {
+	Run(ctx context.Context, t Turn) RunResult
+	// Kill stops a live guest by handle (DELETE /v1/runs/{id}). A no-op for a
+	// runtime with nothing running.
+	Kill(handle string) error
+}
 
-	// RunTTL is the run ceiling. The Runtime enforces it as a kill-deadline
-	// FROM WITHIN the run path, so the kill is armed only once the run is
-	// underway and stops when the run returns (spec 5/P-runed). Zero = no ceiling.
-	RunTTL time.Duration
-
-	// RegisterSteer is the Manager's hook the Runtime calls ONCE the
-	// container + IPC dir are up, handing back a steer closure so a
-	// concurrent POST /v1/runs steers into this live spawn (spec 5/P-runed). The
-	// closure returns false when the container has already exited.
+// Turn is the envelope: one guest, rendered. A substrate delivers every field
+// and interprets none. renderTurn is the one producer (spec 6/41
+// §"The renderer"); the substrates and the fake are the only consumers.
+type Turn struct {
+	// Handle is what the substrate starts, steers and kills by.
+	Handle string
+	// Folder is the one path the substrate resolves: the ipc dir of the steer,
+	// the logs/ dir of the turn log, the name of the egress network.
+	Folder string
+	// Mounts is the mount table's right-hand side; Container is the guest path.
+	Mounts []core.Mount
+	// Env is the agent's process environment. A substrate adds the proxy
+	// variables (HTTP_PROXY and its three companions) because their value is
+	// its own address.
+	Env map[string]string
+	// Stdin is the agent payload: ant/src/index.ts ContainerInput.
+	Stdin []byte
+	// Egress is the proxy allowlist, grants applied.
+	Egress []string
+	// RegisterSteer is the Manager's hook the substrate calls ONCE the guest
+	// and its ipc dir are up, handing back a steer closure so a concurrent
+	// POST /v1/runs steers into this live guest (spec 5/P-runed). The closure
+	// returns false when the guest has already exited.
 	RegisterSteer func(steer func(batch string) bool)
 }
 
@@ -59,17 +56,7 @@ type RunResult struct {
 	ExitCode     int
 	MessageCount int
 	// Terminal reports a failure that a retry cannot repair (the
-	// container invocation itself failed). The zero value means
+	// guest invocation itself failed). The zero value means
 	// retryable (spec 5/12).
 	Terminal bool
-}
-
-// Runtime executes one agent turn end to end (spec 5/P-runed § envelope):
-// production wraps container.DockerRunner; FakeRuntime backs tests without
-// docker. Frames arrive out-of-band via the agent's callbacks into routd.
-type Runtime interface {
-	Run(ctx context.Context, spec RunSpec) RunResult
-	// Kill stops a live container by name (DELETE /v1/runs/{id}). A no-op for
-	// runtimes with no container.
-	Kill(containerName string) error
 }

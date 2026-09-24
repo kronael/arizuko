@@ -18,8 +18,10 @@ func newTestRuned(t *testing.T, rt Runtime) (*DB, *Server) {
 		t.Fatalf("open mem db: %v", err)
 	}
 	t.Cleanup(func() { db.Close() })
+	cfg, folders := renderWiring(t)
 	mgr := NewManager(db, rt, ManagerConfig{
 		Instance: "test",
+		Cfg:      cfg, Folders: folders,
 	})
 	return db, NewServer(mgr, db, nil)
 }
@@ -32,9 +34,9 @@ func newTestRuned(t *testing.T, rt Runtime) (*DB, *Server) {
 func TestContractRun(t *testing.T) {
 	// FakeRuntime stands in for the spawner: it sees the brokered token + the
 	// fields decoded from RunRequest and returns the run outcome.
-	var sawSpec RunSpec
-	rt := FakeRuntime{Fn: func(_ context.Context, spec RunSpec) RunResult {
-		sawSpec = spec
+	var sawTurn Turn
+	rt := FakeRuntime{Fn: func(_ context.Context, turn Turn) RunResult {
+		sawTurn = turn
 		return RunResult{Outcome: runedv1.OutcomeOK, NewSessionID: "sess-runed"}
 	}}
 
@@ -62,16 +64,19 @@ func TestContractRun(t *testing.T) {
 		t.Fatal("run_id empty")
 	}
 
-	// the Runtime saw the fields decoded from RunRequest (Model +
-	// ContainerConfig are forwarded, not dropped).
-	if sawSpec.MessageBatch != "rendered prompt" || sawSpec.ChatJID != "slack:T/C/U" {
-		t.Fatalf("spec not decoded from RunRequest: %+v", sawSpec)
+	// The substrate saw the request rendered into an envelope: the prompt and
+	// the chat jid in the stdin frame, the model in the process environment,
+	// the handle the claim pinned, and a mount table.
+	frame := turnFrame(t, sawTurn)
+	prompt, _ := frame["prompt"].(string)
+	if !strings.HasSuffix(prompt, "\n\nrendered prompt") || frame["chatJid"] != "slack:T/C/U" {
+		t.Fatalf("stdin frame not rendered from RunRequest: %+v", frame)
 	}
-	if sawSpec.Model != "claude-opus-4-8" {
-		t.Fatalf("spec.Model=%q want claude-opus-4-8 (dropped)", sawSpec.Model)
+	if sawTurn.Env["ARIZUKO_MODEL"] != "claude-opus-4-8" {
+		t.Fatalf("Env[ARIZUKO_MODEL]=%q want claude-opus-4-8 (dropped)", sawTurn.Env["ARIZUKO_MODEL"])
 	}
-	if v, _ := sawSpec.ContainerConfig["MaxChildren"]; v != float64(2) {
-		t.Fatalf("spec.ContainerConfig=%+v want MaxChildren=2 (dropped)", sawSpec.ContainerConfig)
+	if sawTurn.Handle == "" || len(sawTurn.Mounts) == 0 {
+		t.Fatalf("turn has no handle or no mounts: %+v", sawTurn)
 	}
 
 	// the spawn was persisted; one session_log row.
@@ -94,7 +99,7 @@ func TestSteerIntoRunning(t *testing.T) {
 	// FakeRuntime that blocks until we release it, simulating a live run.
 	release := make(chan struct{})
 	started := make(chan struct{})
-	rt := FakeRuntime{Fn: func(ctx context.Context, spec RunSpec) RunResult {
+	rt := FakeRuntime{Fn: func(ctx context.Context, turn Turn) RunResult {
 		close(started)
 		<-release
 		return RunResult{Outcome: runedv1.OutcomeOK, NewSessionID: "s1"}

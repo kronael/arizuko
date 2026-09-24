@@ -124,16 +124,72 @@ so a row per turn would duplicate it at turn volume. What `spawns` never
 records is who asked — and a busy hold, or a kill that found nothing live,
 writes no `spawns` row at all. See `runed/audit.go`.
 
+## The turn envelope
+
+The guest's stdin frame carries model credentials only: the operator anchors from the
+host `.env` (`store.EnvProfileKeys` — `ANTHROPIC_API_KEY`,
+`CLAUDE_CODE_OAUTH_TOKEN`, `OPENAI_API_KEY`, `CODEX_API_KEY`, required for LLM
+calls), overlaid with the triggering user's own rows for those same keys
+(BYOA, `routd.DB.EnvProfileSecrets`). With a model gateway configured
+(`MODEL_GATEWAY_URL`), `spawnSecrets` withholds those keys from both sources
+and the guest holds only `MODEL_GATEWAY_KEY`, the gateway's virtual key
+(spec `6/23`). Capability credentials — folder- or
+user-scoped — are broker-resolved on the host at tool-call time and never
+enter the guest (specs `5/13`, `5/14`). Agent model and query timeout
+ride the process environment as `ARIZUKO_MODEL` and `ARIZUKO_QUERY_TIMEOUT_MS`
+(read by ant's index.ts and claude.ts at module load) — `turnEnv` is the one
+place that decides it, and a key it omits is silently dead in the guest.
+
+### Mounts
+
+`buildMounts` renders the table's right-hand side, in this order. Every turn:
+
+- `groupDir` → `/home/node` (rw)
+- `HOST_APP_DIR` → `/opt/arizuko` (ro)
+- `ipc/` → `/run/ipc` (rw, for MCP socket)
+- `groups/<world>/share/` → `/var/lib/share` (rw; ro if `share_mount` grant with `readonly=true`)
+
+Elevated `/root` turn only:
+
+- `GROUPS_DIR` → `/var/lib/groups` (rw)
+
+With the `web:publish` grant:
+
+- `WEB_DIR/pub/` → `/var/lib/www` (ro, whole tree)
+- `WEB_DIR/pub/<folder>/` → `~/public_html` (rw)
+- `WEB_DIR/priv/<folder>/` → `~/private_html` (rw)
+
+Without it, one subtree of that tree still mounts — the platform doc site
+the `arizuko` skill every folder ships reads from (spec `5/V`):
+
+- `WEB_DIR/pub/arizuko/` → `/var/lib/www/arizuko` (ro)
+
+When `HOST_CODEX_DIR` set:
+
+- `groupDir/.codex/` → `~/.codex` (rw, per-group)
+- `HOST_CODEX_DIR/auth.json` → `~/.codex/auth.json` (ro, overmount)
+- `HOST_CODEX_DIR/config.toml` → `~/.codex/config.toml` (ro, overmount)
+
+Additional mounts from the group's `container_config` are validated via
+`mountsec`. The substrate adds the proxy variables (`HTTP_PROXY` and its three
+companions) and the guest uid, because both are its own.
+
 ## Files
 
 - `cmd/runed/main.go` — daemon wiring, verifier bootstrap, shutdown
 - `server.go` — HTTP surface + bearer/scope gate
 - `audit.go` — the run-slot audit renderer (what runed records, and why not turns)
 - `manager.go` — Manager: run lifecycle, concurrency, queue, circuit breaker
-- `runtime.go` — the `Runtime` interface (`Run`, `Kill`) and `RunSpec`
-- `runtimes.go` — which substrate a spawn gets
-- `docker.go` — `dockerRuntime`: spawn / steer / kill. Mounts the ipc dir
-  routd bound the turn's socket in; hosts no MCP of its own
+- `runtime.go` — the port: the `Runtime` interface (`Run`, `Kill`) and the
+  `Turn` it carries (spec 6/41 §"The seam")
+- `render.go` — the ONE renderer: a wire request in, one `Turn` out. With
+  `mounts.go` (the mount table), `settings.go` (`settings.json` + the output
+  style) and `secrets.go` (what credential a guest receives)
+- `runtimes.go` — `FakeRuntime`, the test seam
+- `docker.go` — the Docker substrate: one `docker run` per turn, steer, the
+  deadline kill, teardown. Mounts the ipc dir routd bound the turn's socket
+  in; hosts no MCP of its own
+- `turnlog.go` — the per-turn log beside the group's files, secrets removed
 - `hold.go` — `POST /v1/holds`, the folder run-slot claim
 - `dash.go` — `/dash/runed/` and its kill form
 - `db.go` — spawn/session persistence, and the boot that dials the endpoint

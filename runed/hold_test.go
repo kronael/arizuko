@@ -19,8 +19,10 @@ func newHoldMgr(t *testing.T, rt Runtime, max int, ttl time.Duration) (*DB, *Man
 		t.Fatalf("open mem db: %v", err)
 	}
 	t.Cleanup(func() { db.Close() })
+	cfg, folders := renderWiring(t)
 	mgr := NewManager(db, rt, ManagerConfig{
 		Instance: "test", MaxConcurrent: max, RunTTL: ttl,
+		Cfg: cfg, Folders: folders,
 	})
 	mgr.RegisterExecutor(KindHold, NewHoldRuntime())
 	return db, mgr
@@ -55,7 +57,7 @@ func waitSpawnState(t *testing.T, db *DB, runID string, want ...string) Spawn {
 // callback: nothing can be written into a run that is not a container.
 func TestHoldBlocksAgentTurn(t *testing.T) {
 	var ran bool
-	rt := FakeRuntime{Fn: func(context.Context, RunSpec) RunResult {
+	rt := FakeRuntime{Fn: func(context.Context, Turn) RunResult {
 		ran = true
 		return RunResult{Outcome: runedv1.OutcomeOK}
 	}}
@@ -90,7 +92,7 @@ func TestHoldBlocksAgentTurn(t *testing.T) {
 // release-specific path.
 func TestHoldReleaseUnblocks(t *testing.T) {
 	ran := make(chan struct{}, 1)
-	rt := FakeRuntime{Fn: func(context.Context, RunSpec) RunResult {
+	rt := FakeRuntime{Fn: func(context.Context, Turn) RunResult {
 		ran <- struct{}{}
 		return RunResult{Outcome: runedv1.OutcomeOK}
 	}}
@@ -212,7 +214,7 @@ func TestHoldDoesNotTripBreaker(t *testing.T) {
 // Holds on other folders must never make an agent turn 503-busy on capacity
 // it is not using. maxRun=1 makes the accounting unambiguous.
 func TestHoldDoesNotConsumeContainerCap(t *testing.T) {
-	rt := FakeRuntime{Fn: func(context.Context, RunSpec) RunResult {
+	rt := FakeRuntime{Fn: func(context.Context, Turn) RunResult {
 		return RunResult{Outcome: runedv1.OutcomeOK}
 	}}
 	db, mgr := newHoldMgr(t, rt, 1, time.Minute)
@@ -308,8 +310,10 @@ func holdServer(t *testing.T, v Verifier) (*DB, *Server) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
+	cfg, folders := renderWiring(t)
 	mgr := NewManager(db, FakeRuntime{}, ManagerConfig{
 		Instance: "test", MaxConcurrent: 5, RunTTL: time.Minute,
+		Cfg: cfg, Folders: folders,
 	})
 	mgr.RegisterExecutor(KindHold, NewHoldRuntime())
 	return db, NewServer(mgr, db, v)

@@ -24,6 +24,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -191,8 +192,8 @@ type federation struct {
 	// secret set it shipped for the container env.
 	mu          sync.Mutex
 	ranFolders  map[string]string            // turnID -> routd-dispatched folder
-	ranSessions map[string]string            // turnID -> RunSpec.SessionID routd shipped (resume id)
-	ranSecrets  map[string]map[string]string // folder -> RunRequest.Secrets (container env)
+	ranSessions map[string]string            // turnID -> the resume session id the turn carried
+	ranSecrets  map[string]map[string]string // folder -> the secrets the turn's payload carried
 }
 
 // fedOpts selects what stands in for the agent and for adapter egress. The zero
@@ -208,7 +209,10 @@ type fedOpts struct {
 	deliver routd.Deliverer
 	// runTTL bounds one run; zero keeps runed's default.
 	runTTL time.Duration
-	loop   []func(*routd.LoopConfig)
+	// cfg is what runed's Manager renders each turn's envelope from. nil → a
+	// config over temp dirs, which is all the FakeRuntime agent needs.
+	cfg  *core.Config
+	loop []func(*routd.LoopConfig)
 }
 
 // bootFederation stands up authd, runed (real Manager + FakeRuntime), and routd (real
@@ -250,9 +254,30 @@ func bootFederationWith(t *testing.T, o fedOpts) *federation {
 	if o.instance == "" {
 		o.instance = "fedtest"
 	}
+	// No host model credential may leak into a rendered turn: the renderer
+	// merges the operator anchors off the environment, and a developer's own key
+	// would show up in the secret set these tests assert on.
+	for k := range store.EnvProfileKeys {
+		t.Setenv(k, "")
+	}
+	rcfg := o.cfg
+	if rcfg == nil {
+		root := t.TempDir()
+		rcfg = &core.Config{
+			Name: o.instance, Timezone: "UTC",
+			ProjectRoot: root,
+			HostAppDir:  filepath.Join(root, "app"),
+			GroupsDir:   filepath.Join(root, "groups"),
+			IpcDir:      f.ipcDir,
+			WebDir:      filepath.Join(root, "web"),
+			Timeout:     time.Hour, IdleTimeout: time.Hour,
+		}
+	}
 	mgr := runed.NewManager(rudb, rt, runed.ManagerConfig{
 		Instance: o.instance,
 		RunTTL:   o.runTTL,
+		Cfg:      rcfg,
+		Folders:  &groupfolder.Resolver{GroupsDir: rcfg.GroupsDir, IpcDir: rcfg.IpcDir},
 	})
 	runedSrv := runed.NewServer(mgr, rudb, newFedVerifier(t, f.authd))
 	f.runedTS = httptest.NewServer(runedSrv.Handler())
@@ -320,18 +345,40 @@ func bootFederationWith(t *testing.T, o fedOpts) *federation {
 // without an LLM deciding the text.
 func fakeAgentRuntime(t *testing.T, f *federation) runed.Runtime {
 	t.Helper()
-	return runed.FakeRuntime{Fn: func(_ context.Context, spec runed.RunSpec) runed.RunResult {
+	return runed.FakeRuntime{Fn: func(_ context.Context, turn runed.Turn) runed.RunResult {
+		frame := decodeTurn(t, turn)
 		f.mu.Lock()
-		f.ranFolders[spec.TurnID] = spec.Folder
-		f.ranSessions[spec.TurnID] = spec.SessionID
-		f.ranSecrets[spec.Folder] = spec.Secrets
+		f.ranFolders[frame.MessageID] = turn.Folder
+		f.ranSessions[frame.MessageID] = frame.SessionID
+		f.ranSecrets[turn.Folder] = frame.Secrets
 		f.mu.Unlock()
 		// Reply over the turn's own MCP socket — the path a real agent takes.
-		if err := f.agentReply(spec, "agent says: ack "+spec.TurnID); err != nil {
+		if err := f.agentReply(turn, frame, "agent says: ack "+frame.MessageID); err != nil {
 			return runed.RunResult{Outcome: runedv1.OutcomeError, Error: err.Error()}
 		}
-		return runed.RunResult{Outcome: runedv1.OutcomeOK, NewSessionID: "sess-" + spec.TurnID}
+		return runed.RunResult{Outcome: runedv1.OutcomeOK, NewSessionID: "sess-" + frame.MessageID}
 	}}
+}
+
+// turnFrame is the agent payload a rendered Turn carries on its stdin — the same
+// JSON ant/src/index.ts parses. A federation test reads it because that is what
+// the guest would read; runed's port carries bytes, not fields.
+type turnFrame struct {
+	Prompt    string            `json:"prompt"`
+	SessionID string            `json:"sessionId"`
+	ChatJID   string            `json:"chatJid"`
+	Folder    string            `json:"groupFolder"`
+	MessageID string            `json:"messageId"`
+	Secrets   map[string]string `json:"secrets"`
+}
+
+func decodeTurn(t *testing.T, turn runed.Turn) turnFrame {
+	t.Helper()
+	var f turnFrame
+	if err := json.Unmarshal(turn.Stdin, &f); err != nil {
+		t.Fatalf("turn stdin is not the agent payload: %v (%q)", err, turn.Stdin)
+	}
+	return f
 }
 func (f *federation) dispatchedFolder(turnID string) string {
 	f.mu.Lock()
@@ -339,16 +386,16 @@ func (f *federation) dispatchedFolder(turnID string) string {
 	return f.ranFolders[turnID]
 }
 
-// dispatchedSession is the resume session id routd shipped in the turn's
-// RunSpec — what the agent would hand to `claude --resume`.
+// dispatchedSession is the resume session id the turn's payload carried — what
+// the agent would hand to `claude --resume`.
 func (f *federation) dispatchedSession(turnID string) string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.ranSessions[turnID]
 }
 
-// dispatchedSecrets is the secret map routd shipped in RunRequest.Secrets for
-// that folder's turn — verbatim what runed injects as container env.
+// dispatchedSecrets is the secret map the turn's payload carried for that
+// folder — verbatim what the guest receives.
 func (f *federation) dispatchedSecrets(folder string) map[string]string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -359,8 +406,8 @@ func (f *federation) dispatchedSecrets(folder string) map[string]string {
 // per-turn MCP socket routd serves under the folder's ipc dir. routd binds the
 // socket before it calls runed and removes it when the run returns, so it is
 // live for the whole FakeRuntime call.
-func (f *federation) agentReply(spec runed.RunSpec, text string) error {
-	ipcDir, err := (&groupfolder.Resolver{IpcDir: f.ipcDir}).IpcPath(spec.Folder)
+func (f *federation) agentReply(turn runed.Turn, frame turnFrame, text string) error {
+	ipcDir, err := (&groupfolder.Resolver{IpcDir: f.ipcDir}).IpcPath(turn.Folder)
 	if err != nil {
 		return err
 	}
@@ -371,7 +418,7 @@ func (f *federation) agentReply(spec runed.RunSpec, text string) error {
 	defer conn.Close()
 	req, _ := json.Marshal(map[string]any{
 		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-		"params": map[string]any{"name": "reply", "arguments": map[string]any{"chatJid": spec.ChatJID, "text": text}},
+		"params": map[string]any{"name": "reply", "arguments": map[string]any{"chatJid": frame.ChatJID, "text": text}},
 	})
 	if _, err := conn.Write(append(req, '\n')); err != nil {
 		return err

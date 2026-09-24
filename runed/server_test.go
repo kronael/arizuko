@@ -49,8 +49,10 @@ func serverWith(t *testing.T, rt Runtime, v Verifier) (*DB, *Server) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
+	cfg, folders := renderWiring(t)
 	mgr := NewManager(db, rt, ManagerConfig{
 		Instance: "test", MaxConcurrent: 5,
+		Cfg: cfg, Folders: folders,
 	})
 	return db, NewServer(mgr, db, v)
 }
@@ -107,7 +109,7 @@ func TestKillStopsContainer(t *testing.T) {
 func TestStopFolderKillsActiveRun(t *testing.T) {
 	release := make(chan struct{})
 	started := make(chan struct{})
-	rec := &killRecorder{FakeRuntime: FakeRuntime{Fn: func(_ context.Context, _ RunSpec) RunResult {
+	rec := &killRecorder{FakeRuntime: FakeRuntime{Fn: func(_ context.Context, _ Turn) RunResult {
 		close(started)
 		<-release
 		return RunResult{Outcome: runedv1.OutcomeOK, NewSessionID: "s1"}
@@ -289,18 +291,25 @@ func TestRunRequiresScope(t *testing.T) {
 	}
 }
 
-// TestFreshSpawnResolvesSessionID: a fresh run (no session_id) must pass the
-// RESOLVED session id into Runtime.Run, not the empty req.SessionID — else the
-// DB/slot advertise one session while the container starts another.
+// TestFreshSpawnResolvesSessionID: a fresh run (no session_id) must render the
+// RESOLVED session id into the guest's payload, not the empty req.SessionID —
+// else the DB and the slot advertise one session while the guest starts another.
 func TestFreshSpawnResolvesSessionID(t *testing.T) {
-	var got string
-	rt := FakeRuntime{Fn: func(_ context.Context, spec RunSpec) RunResult {
-		got = spec.SessionID
-		return RunResult{Outcome: runedv1.OutcomeOK, NewSessionID: spec.SessionID}
+	var got Turn
+	rt := FakeRuntime{Fn: func(_ context.Context, turn Turn) RunResult {
+		got = turn
+		return RunResult{Outcome: runedv1.OutcomeOK}
 	}}
-	_, mgr := newMgr(t, rt, 5)
-	mgr.Run(context.Background(), runedv1.RunRequest{Folder: "demo", MessageBatch: "m"})
-	if got == "" {
-		t.Fatal("fresh spawn passed empty SessionID to Runtime.Run — resolved id must reach the container")
+	db, mgr := newMgr(t, rt, 5)
+	out, _ := mgr.Run(context.Background(), runedv1.RunRequest{Folder: "demo", MessageBatch: "m"})
+	sp, err := db.SpawnByRunID(t.Context(), out.RunID)
+	if err != nil {
+		t.Fatalf("spawn not persisted: %v", err)
+	}
+	if sp.SessionID == "" {
+		t.Fatal("the claim minted no session id")
+	}
+	if sid := turnFrame(t, got)["sessionId"]; sid != sp.SessionID {
+		t.Fatalf("payload sessionId=%#v want the claim's %q — the guest must resume what the slot advertises", sid, sp.SessionID)
 	}
 }

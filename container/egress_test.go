@@ -126,7 +126,7 @@ func TestStartEgressProxyRefusesHalfConfig(t *testing.T) {
 
 	cfg := testConfig()
 	cfg.UplinkNetwork = ""
-	_, err := startEgressProxy(cfg, "atlas", "arizuko-test-atlas-1")
+	_, err := StartEgressProxy(cfg, "atlas", "arizuko-test-atlas-1")
 	if err == nil || !strings.Contains(err.Error(), "uplink network") {
 		t.Fatalf("a half config must fail naming the missing input, got %v", err)
 	}
@@ -142,7 +142,7 @@ func TestStartEgressProxyInertWithoutConfig(t *testing.T) {
 	f := &fakeDocker{}
 	f.install(t)
 
-	eg, err := startEgressProxy(EgressConfig{}, "atlas", "arizuko-test-atlas-1")
+	eg, err := StartEgressProxy(EgressConfig{}, "atlas", "arizuko-test-atlas-1")
 	if err != nil {
 		t.Fatalf("inert config must not error: %v", err)
 	}
@@ -167,7 +167,7 @@ func TestStartEgressProxyBakesAllowlistAndPin(t *testing.T) {
 	f.install(t)
 
 	cfg := testConfig("api.anthropic.com", "github.com")
-	eg, err := startEgressProxy(cfg, "atlas/support", "arizuko-test-atlas-1")
+	eg, err := StartEgressProxy(cfg, "atlas/support", "arizuko-test-atlas-1")
 	if err != nil {
 		t.Fatalf("startEgressProxy: %v", err)
 	}
@@ -222,7 +222,7 @@ func TestStartEgressProxyTranslatesStarToAllowAll(t *testing.T) {
 	f.install(t)
 
 	cfg := testConfig("api.anthropic.com", "*")
-	if _, err := startEgressProxy(cfg, "atlas", "arizuko-test-atlas-1"); err != nil {
+	if _, err := StartEgressProxy(cfg, "atlas", "arizuko-test-atlas-1"); err != nil {
 		t.Fatalf("startEgressProxy: %v", err)
 	}
 
@@ -256,7 +256,7 @@ func TestStartEgressProxyFailsSpawnWhenProxyCannotStart(t *testing.T) {
 	f := &fakeDocker{failOn: "run", inspecIP: "127.0.0.1"}
 	f.install(t)
 
-	eg, err := startEgressProxy(testConfig("github.com"), "atlas", "arizuko-test-atlas-1")
+	eg, err := StartEgressProxy(testConfig("github.com"), "atlas", "arizuko-test-atlas-1")
 	if err == nil {
 		t.Fatal("a proxy that fails to start MUST fail the spawn, not spawn unfiltered")
 	}
@@ -277,7 +277,7 @@ func TestStartEgressProxyTearsDownOnUplinkFailure(t *testing.T) {
 	f.install(t)
 
 	name := "arizuko-test-atlas-1"
-	if _, err := startEgressProxy(testConfig("github.com"), "atlas", name); err == nil {
+	if _, err := StartEgressProxy(testConfig("github.com"), "atlas", name); err == nil {
 		t.Fatal("uplink failure must fail the spawn")
 	}
 	if !f.sawRemoveOf(name + "-egress") {
@@ -304,7 +304,7 @@ func TestStartEgressProxyFailsWhenProxyNeverHealthy(t *testing.T) {
 	f.install(t)
 
 	name := "arizuko-test-atlas-1"
-	_, err = startEgressProxy(testConfig("github.com"), "atlas", name)
+	_, err = StartEgressProxy(testConfig("github.com"), "atlas", name)
 	if err == nil {
 		t.Fatal("a proxy that never reports healthy must fail the spawn")
 	}

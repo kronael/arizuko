@@ -22,7 +22,7 @@ func TestDistinctFoldersRunConcurrently(t *testing.T) {
 	var live, peak int32
 	bothLive := make(chan struct{})
 	var once sync.Once
-	rt := FakeRuntime{Fn: func(_ context.Context, _ RunSpec) RunResult {
+	rt := FakeRuntime{Fn: func(_ context.Context, _ Turn) RunResult {
 		n := atomic.AddInt32(&live, 1)
 		for {
 			p := atomic.LoadInt32(&peak)
@@ -66,7 +66,7 @@ func TestConcurrencyCapNoOverAdmit(t *testing.T) {
 	const cap, callers = 3, 12
 	var live, peak, admitted, busy int32
 	release := make(chan struct{})
-	rt := FakeRuntime{Fn: func(_ context.Context, _ RunSpec) RunResult {
+	rt := FakeRuntime{Fn: func(_ context.Context, _ Turn) RunResult {
 		n := atomic.AddInt32(&live, 1)
 		for {
 			p := atomic.LoadInt32(&peak)
@@ -141,7 +141,7 @@ func TestFolderBusySteerFailReturnsBusy(t *testing.T) {
 	release := make(chan struct{})
 	done := make(chan struct{})
 	var spawns atomic.Int32
-	rt := FakeRuntime{Fn: func(_ context.Context, _ RunSpec) RunResult {
+	rt := FakeRuntime{Fn: func(_ context.Context, _ Turn) RunResult {
 		spawns.Add(1)
 		close(started)
 		<-release
@@ -175,7 +175,7 @@ func TestFolderBusySteerFailReturnsBusy(t *testing.T) {
 // TestBreakerPersistsToDB: a failed run increments the circuit_breaker table,
 // a successful run resets it, and the count survives a manager restart.
 func TestBreakerPersistsToDB(t *testing.T) {
-	db, mgr := newMgr(t, FakeRuntime{Fn: func(_ context.Context, _ RunSpec) RunResult {
+	db, mgr := newMgr(t, FakeRuntime{Fn: func(_ context.Context, _ Turn) RunResult {
 		return RunResult{Outcome: runedv1.OutcomeError, Error: "boom"}
 	}}, 5)
 
@@ -192,10 +192,12 @@ func TestBreakerPersistsToDB(t *testing.T) {
 	}
 
 	// Simulate restart: create a new manager with the same DB.
-	mgr2 := NewManager(db, FakeRuntime{Fn: func(_ context.Context, _ RunSpec) RunResult {
+	cfg, folders := renderWiring(t)
+	mgr2 := NewManager(db, FakeRuntime{Fn: func(_ context.Context, _ Turn) RunResult {
 		return RunResult{Outcome: runedv1.OutcomeOK, NewSessionID: "s"}
 	}}, ManagerConfig{
 		Instance: "test", MaxConcurrent: 5,
+		Cfg: cfg, Folders: folders,
 	})
 
 	// New manager reads existing failure count. A successful run resets it.
@@ -219,8 +221,10 @@ func TestActiveSpawnsPersistAcrossRestart(t *testing.T) {
 	_ = db.CreateSpawn(t.Context(), Spawn{RunID: "r3", Folder: "c", ContainerName: "c3", State: "exited"})
 
 	// New manager reads state from DB.
+	cfg, folders := renderWiring(t)
 	mgr2 := NewManager(db, FakeRuntime{}, ManagerConfig{
 		Instance: "test", MaxConcurrent: 3,
+		Cfg: cfg, Folders: folders,
 	})
 
 	// ActiveCount should return 2 (the two live spawns).
@@ -248,7 +252,7 @@ func TestKillFreesSlotForNextRun(t *testing.T) {
 	firstStarted := make(chan struct{})
 	secondRan := make(chan struct{})
 	var which atomic.Int32
-	rt := &killRecorder{FakeRuntime: FakeRuntime{Fn: func(_ context.Context, _ RunSpec) RunResult {
+	rt := &killRecorder{FakeRuntime: FakeRuntime{Fn: func(_ context.Context, _ Turn) RunResult {
 		if which.Add(1) == 1 {
 			close(firstStarted)
 			<-hold // first run hangs until killed.
@@ -287,7 +291,7 @@ func TestKillFreesSlotForNextRun(t *testing.T) {
 // only taken when m.active[folder] != nil. The complement of TestSteerWhenLive.
 func TestSteerWhenNoLiveRunSpawns(t *testing.T) {
 	var spawns int32
-	rt := FakeRuntime{Fn: func(_ context.Context, _ RunSpec) RunResult {
+	rt := FakeRuntime{Fn: func(_ context.Context, _ Turn) RunResult {
 		atomic.AddInt32(&spawns, 1)
 		return RunResult{Outcome: runedv1.OutcomeOK, NewSessionID: "s"}
 	}}

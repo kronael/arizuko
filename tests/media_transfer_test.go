@@ -2,7 +2,7 @@ package tests
 
 // File + voice transfer integration: inbound (user → routd enrich → agent
 // prompt) and outbound (agent tool → routd → adapter). The LLM/container is
-// faked (runed.FakeRuntime captures the rendered RunSpec.MessageBatch); the
+// faked (runed.FakeRuntime captures the rendered prompt); the
 // adapter, file server, Whisper, and TTS are stub httptest servers. Everything
 // between — routd's real poll loop, enrichAttachments, downloadFile, the
 // chanreg HTTPChannel multipart egress, the routd turn-callback handlers — is
@@ -30,6 +30,7 @@ import (
 
 	"github.com/kronael/arizuko/chanreg"
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/routd"
 	routdv1 "github.com/kronael/arizuko/routd/api/v1"
 	"github.com/kronael/arizuko/runed"
@@ -39,9 +40,9 @@ import (
 // ---- inbound harness: routd (real Loop + enrich) + runed (FakeRuntime) ----
 
 // mediaFed boots routd + runed wired for inbound media enrichment. The
-// FakeRuntime captures the rendered prompt (RunSpec.MessageBatch) per turn so a
-// test can assert the <attachment> tag the enrich path inlined. groupsDir is a
-// temp dir under which enrich writes media/<date>/<file>.
+// FakeRuntime captures the prompt the rendered turn carries per turn so a test
+// can assert the <attachment> tag the enrich path inlined. groupsDir is a temp
+// dir under which enrich writes media/<date>/<file>.
 type mediaFed struct {
 	authd     *fakeAuthd
 	routdDB   *routd.DB
@@ -49,7 +50,7 @@ type mediaFed struct {
 	groupsDir string
 
 	mu      sync.Mutex
-	batches map[string]string // turnID -> rendered MessageBatch the agent saw
+	batches map[string]string // turnID -> the prompt the rendered turn carried
 }
 
 func (f *mediaFed) batch(turnID string) string {
@@ -72,14 +73,27 @@ func bootMediaFed(t *testing.T, enabled bool, whisperURL string, maxBytes int64)
 	}
 	t.Cleanup(func() { rudb.Close() })
 
-	rt := runed.FakeRuntime{Fn: func(_ context.Context, spec runed.RunSpec) runed.RunResult {
+	rt := runed.FakeRuntime{Fn: func(_ context.Context, turn runed.Turn) runed.RunResult {
+		frame := decodeTurn(t, turn)
 		f.mu.Lock()
-		f.batches[spec.TurnID] = spec.MessageBatch
+		f.batches[frame.MessageID] = frame.Prompt
 		f.mu.Unlock()
-		return runed.RunResult{Outcome: runedv1.OutcomeOK, NewSessionID: "sess-" + spec.TurnID}
+		return runed.RunResult{Outcome: runedv1.OutcomeOK, NewSessionID: "sess-" + frame.MessageID}
 	}}
+	root := t.TempDir()
+	rcfg := &core.Config{
+		Name: "mediatest", Timezone: "UTC",
+		ProjectRoot: root,
+		HostAppDir:  filepath.Join(root, "app"),
+		GroupsDir:   f.groupsDir,
+		IpcDir:      filepath.Join(root, "ipc"),
+		WebDir:      filepath.Join(root, "web"),
+		Timeout:     time.Hour, IdleTimeout: time.Hour,
+	}
 	mgr := runed.NewManager(rudb, rt, runed.ManagerConfig{
 		Instance: "mediatest",
+		Cfg:      rcfg,
+		Folders:  &groupfolder.Resolver{GroupsDir: rcfg.GroupsDir, IpcDir: rcfg.IpcDir},
 	})
 	runedTS := httptest.NewServer(runed.NewServer(mgr, rudb, newFedVerifier(t, f.authd)).Handler())
 	t.Cleanup(runedTS.Close)

@@ -23,7 +23,7 @@ import (
 // TestKillSpawnDoesNotOverwriteTerminal covers only the DB layer.
 func TestSpawnAbortsWhenKilledBeforeStart(t *testing.T) {
 	var launches atomic.Int32
-	rt := FakeRuntime{Fn: func(_ context.Context, _ RunSpec) RunResult {
+	rt := FakeRuntime{Fn: func(_ context.Context, _ Turn) RunResult {
 		launches.Add(1)
 		return RunResult{Outcome: runedv1.OutcomeOK, NewSessionID: "s"}
 	}}
@@ -77,7 +77,7 @@ func TestKilledClaimDoesNotDoubleSpawnFolder(t *testing.T) {
 	var launches atomic.Int32
 	entered := make(chan struct{}, 1)
 	release := make(chan struct{})
-	rt := FakeRuntime{Fn: func(context.Context, RunSpec) RunResult {
+	rt := FakeRuntime{Fn: func(context.Context, Turn) RunResult {
 		launches.Add(1)
 		select {
 		case entered <- struct{}{}:

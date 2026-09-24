@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/container"
+	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/groupfolder"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 	"github.com/kronael/arizuko/types"
 )
@@ -36,6 +38,10 @@ type Manager struct {
 	runTTL    time.Duration
 	instance  string
 	maxRun    int
+	// cfg + folders are what renderTurn reads: with the request they decide
+	// every fact one turn delivers to its guest (spec 6/41 §"The renderer").
+	cfg     *core.Config
+	folders *groupfolder.Resolver
 
 	mu sync.Mutex
 	// steerFns is run_id -> steer callback. Keyed by RUN, not by folder:
@@ -51,6 +57,10 @@ type ManagerConfig struct {
 	RunTTL        time.Duration
 	Instance      string
 	MaxConcurrent int
+	// Cfg + Folders wire the turn renderer. An agent run refuses without them:
+	// there is no envelope to hand a substrate.
+	Cfg     *core.Config
+	Folders *groupfolder.Resolver
 }
 
 // NewManager builds the run Manager.
@@ -67,6 +77,8 @@ func NewManager(db *DB, runtime Runtime, cfg ManagerConfig) *Manager {
 		runTTL:    cfg.RunTTL,
 		instance:  cfg.Instance,
 		maxRun:    cfg.MaxConcurrent,
+		cfg:       cfg.Cfg,
+		folders:   cfg.Folders,
 		steerFns:  map[string]func(batch string) bool{},
 	}
 }
@@ -299,35 +311,23 @@ func (m *Manager) spawn(ctx context.Context, req runedv1.RunRequest, runID, sess
 		}
 	}
 
-	// RunTTL's kill-deadline is armed HERE, at the shared dispatch site, not
+	// The turn's ONE deadline is armed HERE, at the shared dispatch site, not
 	// inside any one executor (spec 5/8): every kind gets it by honoring ctx
-	// cancellation. dockerRuntime's armCancel kills on ctx.Done() whatever
+	// cancellation, and a substrate with a timer of its own reads
+	// ctx.Deadline(). dockerRuntime's armCancel kills on ctx.Done() whatever
 	// the cause.
 	runCtx := ctx
-	if m.runTTL > 0 {
+	ttl := m.turnTTL(req)
+	if ttl > 0 {
 		var cancel context.CancelFunc
-		runCtx, cancel = context.WithTimeout(ctx, m.runTTL)
+		runCtx, cancel = context.WithTimeout(ctx, ttl)
 		defer cancel()
 	}
 
-	// RegisterSteer wires the steer callback once the container + IPC are up;
-	// a containerless executor never calls it.
-	res := exec.Run(runCtx, RunSpec{
-		RunID: runID, Folder: folder, ContainerName: containerName,
-		Topic: req.Topic, ChatJID: req.ChatJID, Channel: req.Channel,
-		SessionID: sessionID, MessageBatch: req.MessageBatch,
-		TriggerSender: req.TriggerSender, CallerSub: req.CallerSub,
-		TurnID: req.TurnID, Kind: kind, Isolated: req.Isolated,
-		Elevated: req.Elevated,
-		Model:    req.Model, Effort: req.Effort, ContainerConfig: req.ContainerConfig,
-		ShareReadOnly: req.ShareReadOnly, Egress: req.Egress, WebPublish: req.WebPublish,
-		GHWrite:         req.GHWrite,
-		EgressAllowlist: req.EgressAllowlist,
-		Secrets:         req.Secrets,
-		ModelGatewayKey: req.ModelGatewayKey,
-		RunTTL:          m.runTTL,
-		RegisterSteer:   func(steer func(batch string) bool) { m.SetSteer(runID, steer) },
-	})
+	// The session id the renderer must resume is the claim's, not the
+	// request's: admit mints one for a fresh turn.
+	req.SessionID = sessionID
+	res := m.execute(runCtx, exec, req, kind, runID, containerName, ttl)
 
 	state := "exited"
 	failed := res.Outcome == runedv1.OutcomeError
@@ -364,6 +364,68 @@ func (m *Manager) spawn(ctx context.Context, req runedv1.RunRequest, runID, sess
 		}
 	}
 	return out
+}
+
+// execute renders this turn's envelope and hands it to the kind's executor.
+// One renderer, two consumers: a substrate reads the Turn and interprets none
+// of it (spec 6/41 §"The seam"). A kind that starts nothing — a hold — gets the
+// handle and the folder, which is all its executor reads.
+func (m *Manager) execute(
+	ctx context.Context, exec Runtime, req runedv1.RunRequest,
+	kind, runID, handle string, ttl time.Duration,
+) RunResult {
+	turn := Turn{Handle: handle, Folder: string(req.Folder)}
+	if kind == KindAgent {
+		if m.cfg == nil || m.folders == nil {
+			// Loud and terminal: with no renderer there is no envelope, and a
+			// guest started without one would run with no mounts and no prompt.
+			slog.Error("runed: no turn renderer wired (ManagerConfig.Cfg/Folders) — the agent run is refused",
+				"run_id", runID, "folder", req.Folder)
+			return RunResult{
+				Outcome: runedv1.OutcomeError, Terminal: true,
+				Error: "runed: no turn renderer configured (ManagerConfig.Cfg + Folders)",
+			}
+		}
+		// A gateway instance withholds the model credential from the guest
+		// (spawnSecrets), so a turn arriving with no minted key would reach no
+		// model at all and read as a harness fault. Refuse before anything is
+		// started: the only way here is a routd that did not mint, which is a
+		// version skew or a bug, never a state to run a turn in.
+		if m.cfg.ModelGatewayURL != "" && req.ModelGatewayKey == "" {
+			return RunResult{
+				Outcome: runedv1.OutcomeError, Terminal: true,
+				Error: "model gateway configured but this run carries no virtual key; routd mints one per turn (spec 6/23)",
+			}
+		}
+		turn = renderTurn(m.cfg, m.folders, req, handle, ttl)
+	}
+	// RegisterSteer wires the steer callback once the guest + IPC are up; a
+	// guestless executor never calls it. It is the Manager's hook, not a
+	// rendered fact, so it is attached here rather than by the renderer.
+	turn.RegisterSteer = func(steer func(batch string) bool) { m.SetSteer(runID, steer) }
+	return exec.Run(ctx, turn)
+}
+
+// turnTTL is the one deadline: the run ceiling (RUNED_RUN_TIMEOUT), lowered by
+// the guest ceiling the group's container_config Timeout sets — an input to this
+// deadline, never a substrate timer of its own (spec 6/41 §"The seam"). The
+// guest ceiling is floored at the idle timeout plus a grace period, so it can
+// never cut in before the idle timer has given up.
+func (m *Manager) turnTTL(req runedv1.RunRequest) time.Duration {
+	if m.cfg == nil {
+		return m.runTTL
+	}
+	guest := m.cfg.Timeout
+	if gc := groupConfig(req.ContainerConfig); gc.Timeout > 0 {
+		guest = gc.Timeout
+	}
+	if grace := m.cfg.IdleTimeout + containerGracePeriod; guest < grace {
+		guest = grace
+	}
+	if m.runTTL <= 0 || guest < m.runTTL {
+		return guest
+	}
+	return m.runTTL
 }
 
 // endRun clears the steer callback and updates the breaker counter. Returns

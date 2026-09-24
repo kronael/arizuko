@@ -1,18 +1,20 @@
 # container
 
-Docker runner, mount setup, skill seeding for the agent container.
+Group setup, skill seeding, and the egress proxy engine.
 
 ## Purpose
 
-Spawns one `docker run -i --rm` per agent invocation. Builds mounts,
-seeds `settings.json` and `.claude/skills/`, pipes input JSON on stdin,
-waits for exit. Per-turn results return over MCP via `submit_turn`;
-stdout is discarded. Also owns `SetupGroup` to create new group folders.
+Owns the files a turn reads and the proxy it reaches the network through.
+`SetupGroup` creates a group folder and seeds its skills; `SeedOutputStyles`,
+`SeedMigrateSkill` and `SeedCodexMountTargets` refresh what the platform owns
+before each spawn; `StartEgressProxy` starts one allowlisted proxy per spawn.
+
+The turn envelope itself — the mount table, the guest environment, the stdin
+frame — is rendered in `runed` and delivered by a substrate (spec 6/41
+§"The renderer"). Nothing here knows how a guest is started.
 
 ## Public API
 
-- `Run(cfg, folders, in) Output` — single container run
-- `Input`, `Output`, `Runner`, `DockerRunner`
 - `SetupGroup(cfg, folder, seedDir) error` — create a group dir, optionally
   copying `seedDir` (a product template) in as its starting files
 - `ComposeGroup(cfg, folder, mix, prior) ([]Blended, error)` — the same group
@@ -29,6 +31,17 @@ stdout is discarded. Also owns `SetupGroup` to create new group folders.
 - `WriteTasksSnapshot`, `WriteGroupsSnapshot` — per-group snapshots
 - `CopySession(groupDir, srcUUID, dstUUID) error` — fork sessions
 - `SeedCodexMountTargets(codexDir)` — pre-create the files codex overmounts
+- `SeedOutputStyles(cfg, claudeDir)`, `SeedMigrateSkill(cfg, claudeDir)` —
+  the platform-owned files refreshed on every spawn
+- `SeedPackageSkills(cfg, folder) (int, error)` — layer the instance's package
+  skills into one group
+- `WriteGatewayCaps(groupDir, cfg)` — the per-turn `.gateway-caps` file
+- `MaterializeAppSrc(cfg) string` — stage the release's `ant/` on the data dir
+- `RunUID() (int, bool)` — the uid the agent runs as inside the guest, and
+  whether the substrate has to be told it
+- `StartEgressProxy(cfg, id, spawnName) (EgressSpawn, error)` — this spawn's
+  own proxy, healthy before it returns; `EgressSpawn.Stop()` tears it down
+- `SweepEgressProxies(prefix)` — reap the proxies a dead runed left behind
 - `FolderNetwork(prefix, folder) string` — per-folder network name
 - `PickIP(subnet) string` — random IP in /24 for egress isolation
 - `EgressConfig` — this instance's egress isolation inputs
@@ -36,60 +49,19 @@ stdout is discarded. Also owns `SetupGroup` to create new group folders.
   `EgressConfig.Effective()` is the one verdict on whether egress isolation
   runs, with the reason when it does not
 
-## Env injection
+## The turn envelope lives in runed
 
-Container env carries model credentials only: the operator anchors from the
-host `.env` (`store.EnvProfileKeys` — `ANTHROPIC_API_KEY`,
-`CLAUDE_CODE_OAUTH_TOKEN`, `OPENAI_API_KEY`, `CODEX_API_KEY`, required for LLM
-calls), overlaid with the triggering user's own rows for those same keys
-(BYOA, `routd.DB.EnvProfileSecrets`). With a model gateway configured
-(`MODEL_GATEWAY_URL`), `spawnSecrets` withholds those keys from both sources
-and the container holds only `MODEL_GATEWAY_KEY`, the gateway's virtual key
-(spec `6/23`). Capability credentials — folder- or
-user-scoped — are broker-resolved on the host at tool-call time and never
-enter the container (specs `5/13`, `5/14`). Agent model and query timeout
-are set via `ARIZUKO_MODEL` and `ARIZUKO_QUERY_TIMEOUT_MS` env vars
-(read by ant's index.ts and claude.ts at module load).
-
-## Mounts
-
-Every container:
-
-- `groupDir` → `/home/node` (rw)
-- `HOST_APP_DIR` → `/opt/arizuko` (ro)
-- `ipc/` → `/run/ipc` (rw, for MCP socket)
-- `groups/<world>/share/` → `/var/lib/share` (rw; ro if `share_mount` grant with `readonly=true`)
-
-Elevated `/root` turn only:
-
-- `GROUPS_DIR` → `/var/lib/groups` (rw)
-
-With the `web:publish` grant:
-
-- `WEB_DIR/pub/` → `/var/lib/www` (ro, whole tree)
-- `WEB_DIR/pub/<folder>/` → `~/public_html` (rw)
-- `WEB_DIR/priv/<folder>/` → `~/private_html` (rw)
-
-Without it, one subtree of that tree still mounts — the platform doc site
-the `arizuko` skill every folder ships reads from (spec `5/V`):
-
-- `WEB_DIR/pub/arizuko/` → `/var/lib/www/arizuko` (ro)
-
-When `HOST_CODEX_DIR` set:
-
-- `groupDir/.codex/` → `~/.codex` (rw, per-group)
-- `HOST_CODEX_DIR/auth.json` → `~/.codex/auth.json` (ro, overmount)
-- `HOST_CODEX_DIR/config.toml` → `~/.codex/config.toml` (ro, overmount)
-
-Additional mounts from `group.toml` validated via `mountsec`.
+What a guest receives — the mount table, its process environment, the stdin
+frame — is rendered once in `runed` (`runed/render.go`) and delivered by a
+substrate. `runed/README.md` §"The turn envelope" holds both tables.
 
 ## Dependencies
 
-- `core`, `groupfolder`, `mountsec`, `audit`, `diary`, `router`, `chanlib`, `chanlib/chanstore`, `store`, `objstore`, `objstore/dynstore`, `auth`, `obs`, `theme`, `egress`, `egress/match`, `substrate` (measured with `go list -deps`; `tests/components` pins that `ipc` is not among them)
+- `core`, `groupfolder`, `audit`, `router`, `chanlib`, `chanlib/chanstore`, `store`, `objstore`, `objstore/dynstore`, `auth`, `obs`, `theme`, `egress`, `egress/match`, `substrate` (measured with `go list -deps`; `tests/components` pins that `ipc` is not among them)
 
 ## Files
 
-- `runner.go` — docker invocation, lifecycle, idle/hard-deadline timers, mount assembly, settings seeding; `SetupGroup`/`ComposeGroup` over one `setupGroup` skeleton
+- `runner.go` — group setup and skill seeding: `SetupGroup`/`ComposeGroup` over one `setupGroup` skeleton, the platform-owned refreshes, the copy helpers
 - `blend.go` — spec 5/28's composition: the blend table as code. `classify` is its left column; seed-once vs managed is per payload KIND, and a collision refuses before any byte is written
 - `runtime.go` — docker daemon checks, container cleanup, codex seed
 - `episodes.go` — recent-episode XML for prompt context

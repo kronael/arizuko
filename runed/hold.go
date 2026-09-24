@@ -24,8 +24,8 @@ const (
 // it inherits from the shared claim path.
 type holdRuntime struct {
 	mu sync.Mutex
-	// live maps a run's executor handle (RunSpec.ContainerName, which names
-	// no container for a hold) to that hold's release signal.
+	// live maps a run's executor handle (Turn.Handle, which names no guest for
+	// a hold) to that hold's release signal.
 	live map[string]*heldSlot
 }
 
@@ -58,14 +58,14 @@ func (h *holdRuntime) slot(handle string) *heldSlot {
 	return s
 }
 
-// Run blocks until the hold is released or ctx dies. ctx carries the RunTTL
+// Run blocks until the hold is released or ctx dies. ctx carries the turn
 // deadline, so a holder that vanishes mid-job expires as outcome=error and
 // the folder frees itself.
-func (h *holdRuntime) Run(ctx context.Context, spec RunSpec) RunResult {
-	slot := h.slot(spec.ContainerName)
+func (h *holdRuntime) Run(ctx context.Context, t Turn) RunResult {
+	slot := h.slot(t.Handle)
 	defer func() {
 		h.mu.Lock()
-		delete(h.live, spec.ContainerName)
+		delete(h.live, t.Handle)
 		h.mu.Unlock()
 	}()
 

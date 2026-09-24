@@ -132,8 +132,10 @@ func (e EgressConfig) Effective() (substrate.Effective, error) {
 	return eff, nil
 }
 
-// egressSpawn is one spawn's private egress path.
-type egressSpawn struct {
+// EgressSpawn is one spawn's private egress path. The substrate that starts it
+// holds it: the proxy's address is the substrate's own, which is why the
+// allowlist arrives on the turn and the address does not.
+type EgressSpawn struct {
 	Network  string // docker network to attach the spawn to
 	IP       string // the address the spawn must hold — the proxy accepts no other
 	ProxyURL string // HTTP_PROXY/HTTPS_PROXY value for the spawn
@@ -141,7 +143,7 @@ type egressSpawn struct {
 }
 
 // Stop kills this spawn's proxy. Safe on a zero value.
-func (e egressSpawn) Stop() {
+func (e EgressSpawn) Stop() {
 	if e.stop != nil {
 		e.stop()
 	}
@@ -183,9 +185,9 @@ func PickIP(subnet string) (string, error) {
 	return net.IP(out[:]).String(), nil
 }
 
-// startEgressProxy starts this spawn's own egress proxy and returns where to
+// StartEgressProxy starts this spawn's own egress proxy and returns where to
 // put the spawn and how to reach the proxy. Isolation off by choice
-// (Effective: no image) is a no-op — zero egressSpawn, nil error — and the
+// (Effective: no image) is a no-op — zero EgressSpawn, nil error — and the
 // spawn goes on the default network. A half configuration is Effective's
 // error, returned as is.
 //
@@ -195,24 +197,24 @@ func PickIP(subnet string) (string, error) {
 // failure returns an error, tears down what it created, and MUST fail the
 // spawn — a spawn that proceeds without its proxy is an unfiltered container,
 // which inverts the property this exists for.
-func startEgressProxy(cfg EgressConfig, id, spawnName string) (egressSpawn, error) {
+func StartEgressProxy(cfg EgressConfig, id, spawnName string) (EgressSpawn, error) {
 	eff, err := cfg.Effective()
 	if err != nil {
-		return egressSpawn{}, err
+		return EgressSpawn{}, err
 	}
 	if eff.Delivered.Egress == substrate.EgressNone {
-		return egressSpawn{}, nil
+		return EgressSpawn{}, nil
 	}
 	netName, subnet, err := ensureFolderNetwork(cfg.NetworkPrefix, cfg.ParentSubnet, id)
 	if err != nil {
-		return egressSpawn{}, err
+		return EgressSpawn{}, err
 	}
 	allowlist, err := cfg.AllowlistFn(id)
 	if err != nil {
-		return egressSpawn{}, fmt.Errorf("resolve allowlist: %w", err)
+		return EgressSpawn{}, fmt.Errorf("resolve allowlist: %w", err)
 	}
 	// Both producers of "allow everything" — a folder's `*` network_rules row
-	// and runner.go's elevated-egress append — spell it as a `*` list entry.
+	// and the renderer's egress-grant append — spell it as a `*` list entry.
 	// The egress binary takes an explicit --allow-all mode instead of a magic
 	// string in a list (spec 6/25 1b), so this one seam translates.
 	allowAll := false
@@ -232,7 +234,7 @@ func startEgressProxy(cfg EgressConfig, id, spawnName string) (egressSpawn, erro
 	}
 	spawnIP, proxyIP, err := pickPair(subnet)
 	if err != nil {
-		return egressSpawn{}, err
+		return EgressSpawn{}, err
 	}
 
 	name := spawnName + "-egress"
@@ -257,7 +259,7 @@ func startEgressProxy(cfg EgressConfig, id, spawnName string) (egressSpawn, erro
 		args = append(args, "--allow-all")
 	}
 	if out, err := execCommand(Bin, args...).CombinedOutput(); err != nil {
-		return egressSpawn{}, fmt.Errorf("egress proxy run %s: %w (%s)",
+		return EgressSpawn{}, fmt.Errorf("egress proxy run %s: %w (%s)",
 			name, err, strings.TrimSpace(string(out)))
 	}
 	stop := func() {
@@ -273,26 +275,26 @@ func startEgressProxy(cfg EgressConfig, id, spawnName string) (egressSpawn, erro
 	if out, err := execCommand(Bin, "network", "connect",
 		cfg.UplinkNetwork, name).CombinedOutput(); err != nil {
 		stop()
-		return egressSpawn{}, fmt.Errorf("egress uplink connect %s -> %s: %w (%s)",
+		return EgressSpawn{}, fmt.Errorf("egress uplink connect %s -> %s: %w (%s)",
 			name, cfg.UplinkNetwork, err, strings.TrimSpace(string(out)))
 	}
 
 	uplinkIP, err := containerIP(name, cfg.UplinkNetwork)
 	if err != nil {
 		stop()
-		return egressSpawn{}, fmt.Errorf("egress proxy uplink ip: %w", err)
+		return EgressSpawn{}, fmt.Errorf("egress proxy uplink ip: %w", err)
 	}
 	probe := fmt.Sprintf("http://%s%s",
 		net.JoinHostPort(uplinkIP, fmt.Sprint(egressPort)), egress.HealthPath)
 	if err := waitHealthy(probe, egressReadyTimeout); err != nil {
 		stop()
-		return egressSpawn{}, fmt.Errorf("egress proxy %s not ready: %w", name, err)
+		return EgressSpawn{}, fmt.Errorf("egress proxy %s not ready: %w", name, err)
 	}
 
 	slog.Info("egress proxy up", "id", id, "container", name,
 		"network", netName, "spawn_ip", spawnIP, "proxy_ip", proxyIP,
 		"rules", len(names), "allow_all", allowAll)
-	return egressSpawn{
+	return EgressSpawn{
 		Network:  netName,
 		IP:       spawnIP,
 		ProxyURL: fmt.Sprintf("http://%s:%d", proxyIP, egressPort),

@@ -5,37 +5,46 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
+	"github.com/kronael/arizuko/core"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 )
 
-// specRecorder is a Runtime that captures the LAST RunSpec it was handed and
-// returns a scripted outcome — the integration seam for asserting routd's
-// RunRequest threads end-to-end onto RunSpec through the real HTTP handler +
-// Manager, no docker.
-type specRecorder struct {
-	last atomic.Pointer[RunSpec]
-	res  RunResult
+// turnRecorder is a Runtime that captures the LAST Turn it was handed, and the
+// ceiling on its ctx, then returns a scripted outcome — the integration seam
+// for asserting routd's RunRequest reaches a rendered envelope end to end
+// through the real HTTP handler + Manager, no docker.
+type turnRecorder struct {
+	last atomic.Pointer[Turn]
+	// ttl is what was left of the ctx deadline when the run started; 0 means
+	// the ctx carried none.
+	ttl atomic.Int64
+	res RunResult
 }
 
-func (r *specRecorder) Run(_ context.Context, spec RunSpec) RunResult {
-	cp := spec
+func (r *turnRecorder) Run(ctx context.Context, turn Turn) RunResult {
+	cp := turn
 	r.last.Store(&cp)
+	if dl, ok := ctx.Deadline(); ok {
+		r.ttl.Store(int64(time.Until(dl)))
+	}
 	return r.res
 }
-func (*specRecorder) Kill(string) error { return nil }
+func (*turnRecorder) Kill(string) error { return nil }
 
-// TestHTTPRunThreadsFullRunSpec: POST /v1/runs over the real handler+Manager
-// reaches the Runtime with EVERY routd-supplied field threaded onto RunSpec —
-// folder, topic, channel, session, message, caller_sub, turn_id,
-// trigger_sender, model, container_config, grants, egress allowlist. A dropped
-// field silently runs the agent mis-configured (wrong output style, wrong
-// egress, missing grants). The lone end-to-end field-fidelity gate over HTTP
-// (contract_test asserts a SUBSET, no grants/egress/channel).
-func TestHTTPRunThreadsFullRunSpec(t *testing.T) {
-	rec := &specRecorder{res: RunResult{Outcome: runedv1.OutcomeOK, NewSessionID: "sess-x"}}
+// TestHTTPRunThreadsFullTurn: POST /v1/runs over the real handler + Manager
+// renders EVERY routd-supplied field into the envelope the substrate receives —
+// folder, topic, channel, session, message, turn_id, trigger_sender, model,
+// container_config, the capability grants, the egress allowlist and the
+// deadline. A dropped field silently runs the agent mis-configured (wrong output
+// style, wrong egress, missing grants), and the expectations below are literals
+// so a renderer that changes its answer cannot agree with them.
+func TestHTTPRunThreadsFullTurn(t *testing.T) {
+	rec := &turnRecorder{res: RunResult{Outcome: runedv1.OutcomeOK, NewSessionID: "sess-x"}}
 	// service:routd drives runs (folder=""), so any target folder is allowed.
 	_, srv := serverWith(t, rec, fakeVerifier{scope: []string{"runs:run"}})
 	h := srv.Handler()
@@ -54,33 +63,88 @@ func TestHTTPRunThreadsFullRunSpec(t *testing.T) {
 	if got.Code != 200 {
 		t.Fatalf("run = %d want 200 (body=%s)", got.Code, got.Body.String())
 	}
-	spec := rec.last.Load()
-	if spec == nil {
-		t.Fatal("runtime never saw a RunSpec")
+	turn := rec.last.Load()
+	if turn == nil {
+		t.Fatal("runtime never saw a Turn")
 	}
-	if spec.Folder != "acme/eng" || spec.Topic != "incident" || spec.ChatJID != "telegram:42" ||
-		spec.Channel != "telegram" || spec.SessionID != "resume-me" || spec.MessageBatch != "rendered" ||
-		spec.TriggerSender != "user:trig" || spec.CallerSub != "user:caller" || spec.TurnID != "wamid.Z" ||
-		spec.Model != "claude-opus-4-8" {
-		t.Fatalf("scalar fields not threaded: %+v", spec)
+	if turn.Folder != "acme/eng" {
+		t.Fatalf("Folder=%q want acme/eng", turn.Folder)
 	}
-	if v := spec.ContainerConfig["MaxChildren"]; v != float64(4) {
-		t.Fatalf("container_config not threaded: %+v", spec.ContainerConfig)
+	if turn.Handle == "" {
+		t.Fatal("Handle empty — the substrate has nothing to start, steer or kill by")
 	}
-	if !spec.ShareReadOnly || !spec.Egress || !spec.WebPublish {
-		t.Fatalf("capability grants not threaded: %+v", spec)
+
+	// The stdin frame: the fields ant reads, plus the topic annotation the
+	// renderer prefixes onto the prompt.
+	frame := turnFrame(t, *turn)
+	for key, want := range map[string]any{
+		"chatJid":     "telegram:42",
+		"groupFolder": "acme/eng",
+		"topic":       "incident",
+		"channelName": "telegram",
+		"sessionId":   "resume-me",
+		"messageId":   "wamid.Z",
+		"sender":      "user:trig",
+	} {
+		if frame[key] != want {
+			t.Errorf("stdin frame %s=%#v want %#v", key, frame[key], want)
+		}
 	}
-	if len(spec.EgressAllowlist) != 2 || spec.EgressAllowlist[0] != "api.acme.com" {
-		t.Fatalf("egress_allowlist not threaded: %+v", spec.EgressAllowlist)
+	prompt, _ := frame["prompt"].(string)
+	if !strings.HasSuffix(prompt, "\n\nrendered") {
+		t.Errorf("prompt does not end with the rendered batch: %q", prompt)
 	}
-	// runTTL is threaded from the Manager config default, not the request.
-	if spec.RunTTL != defaultRunTTL {
-		t.Fatalf("RunTTL=%s want default %s", spec.RunTTL, defaultRunTTL)
+	if !strings.Contains(prompt, "Topic session: incident") {
+		t.Errorf("topic annotation missing from the prompt: %q", prompt)
+	}
+	// caller_sub is the brokered token's subject and nothing in the envelope
+	// reads it: it stays on the wire body (spec 6/41 §"What leaves the port").
+	if strings.Contains(string(turn.Stdin), "user:caller") {
+		t.Errorf("caller_sub reached the guest: %s", turn.Stdin)
+	}
+
+	// The process environment: the model override, and the query timeout derived
+	// from the one deadline (60s ceiling → 60s floor, in ms).
+	if turn.Env["ARIZUKO_MODEL"] != "claude-opus-4-8" {
+		t.Errorf("Env[ARIZUKO_MODEL]=%q want claude-opus-4-8", turn.Env["ARIZUKO_MODEL"])
+	}
+	if turn.Env["ARIZUKO_QUERY_TIMEOUT_MS"] != "60000" {
+		t.Errorf("Env[ARIZUKO_QUERY_TIMEOUT_MS]=%q want 60000", turn.Env["ARIZUKO_QUERY_TIMEOUT_MS"])
+	}
+
+	// The grants: share downgraded to RO, both web surfaces mounted, and the
+	// egress grant appending "*" to the resolved allowlist.
+	share := mountAt(t, *turn, "/var/lib/share")
+	if !share.RO {
+		t.Errorf("share_read_only did not downgrade /var/lib/share: %+v", share)
+	}
+	mountAt(t, *turn, "/home/node/public_html")
+	mountAt(t, *turn, "/home/node/private_html")
+	if strings.Join(turn.Egress, ",") != "api.acme.com,github.com,*" {
+		t.Errorf("Egress=%v want [api.acme.com github.com *]", turn.Egress)
+	}
+
+	// The deadline: the Manager's, armed on ctx. 60s is the instance ceiling
+	// renderWiring configures; container_config carried no Timeout.
+	if ttl := time.Duration(rec.ttl.Load()); ttl <= 55*time.Second || ttl > 60*time.Second {
+		t.Errorf("ctx deadline left %s, want just under 60s", ttl)
 	}
 }
 
+// mountAt returns the turn's mount at a guest path, failing when it is absent.
+func mountAt(t *testing.T, turn Turn, guest string) core.Mount {
+	t.Helper()
+	for _, m := range turn.Mounts {
+		if m.Container == guest {
+			return m
+		}
+	}
+	t.Fatalf("no mount at %s: %+v", guest, turn.Mounts)
+	return core.Mount{}
+}
+
 func TestHTTPRunMissingFolder(t *testing.T) {
-	rec := &specRecorder{res: RunResult{Outcome: runedv1.OutcomeOK}}
+	rec := &turnRecorder{res: RunResult{Outcome: runedv1.OutcomeOK}}
 	_, srv := serverWith(t, rec, fakeVerifier{scope: []string{"runs:run"}})
 	got := postJSON(t, srv.Handler(), "/v1/runs", `{"message_batch":"m"}`)
 	if got.Code != 400 {
@@ -98,7 +162,7 @@ func TestHTTPRunMissingFolder(t *testing.T) {
 
 // TestHTTPRunMalformedBody: a non-JSON body is 400 bad_request.
 func TestHTTPRunMalformedBody(t *testing.T) {
-	_, srv := serverWith(t, &specRecorder{}, fakeVerifier{scope: []string{"runs:run"}})
+	_, srv := serverWith(t, &turnRecorder{}, fakeVerifier{scope: []string{"runs:run"}})
 	if got := postJSON(t, srv.Handler(), "/v1/runs", `{not json`); got.Code != 400 {
 		t.Fatalf("malformed body = %d want 400", got.Code)
 	}
@@ -111,7 +175,7 @@ func TestHTTPRunMalformedBody(t *testing.T) {
 func TestHTTPRunLifecycle(t *testing.T) {
 	started := make(chan struct{})
 	release := make(chan struct{})
-	rec := &killRecorder{FakeRuntime: FakeRuntime{Fn: func(_ context.Context, _ RunSpec) RunResult {
+	rec := &killRecorder{FakeRuntime: FakeRuntime{Fn: func(_ context.Context, _ Turn) RunResult {
 		close(started)
 		<-release
 		return RunResult{Outcome: runedv1.OutcomeOK, NewSessionID: "s-final"}
@@ -157,7 +221,7 @@ func TestHTTPRunLifecycle(t *testing.T) {
 func TestHTTPRunStopLifecycle(t *testing.T) {
 	started := make(chan struct{})
 	release := make(chan struct{})
-	rec := &killRecorder{FakeRuntime: FakeRuntime{Fn: func(_ context.Context, _ RunSpec) RunResult {
+	rec := &killRecorder{FakeRuntime: FakeRuntime{Fn: func(_ context.Context, _ Turn) RunResult {
 		close(started)
 		<-release
 		return RunResult{Outcome: runedv1.OutcomeOK}
@@ -202,7 +266,11 @@ func TestHTTPUnauthorizedWhenVerifyFails(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	mgr := NewManager(db, &specRecorder{}, ManagerConfig{Instance: "test", MaxConcurrent: 5})
+	cfg, folders := renderWiring(t)
+	mgr := NewManager(db, &turnRecorder{}, ManagerConfig{
+		Instance: "test", MaxConcurrent: 5,
+		Cfg: cfg, Folders: folders,
+	})
 	srv := NewServer(mgr, db, errVerifier{})
 	h := srv.Handler()
 

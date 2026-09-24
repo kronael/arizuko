@@ -71,7 +71,7 @@ func main() {
 	// inside one it is readable from the agent's shell and from /proc whatever
 	// the harness scrubs (BUGS L131). A supported deployment (spec 6/23), so a
 	// warning, not a refusal — once, where the operator is looking.
-	if container.SpawnHoldsModelCredential(cfg) {
+	if runed.SpawnHoldsModelCredential(cfg) {
 		slog.Warn("no model gateway: the operator model credential enters every agent container " +
 			"and is readable from the agent's shell and /proc; set MODEL_GATEWAY_URL " +
 			"(the litellm package, spec 6/23) to withhold it")
@@ -134,6 +134,8 @@ func main() {
 		RunTTL:        runTTL,
 		Instance:      cfg.Name,
 		MaxConcurrent: cfg.MaxContainers,
+		Cfg:           cfg,
+		Folders:       folders,
 	})
 	// POST /v1/holds: let an external process (arizuko archive apply, and any
 	// future folder-exclusive job) claim a folder's run slot (spec 5/8).

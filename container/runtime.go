@@ -8,7 +8,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/kronael/arizuko/core"
@@ -16,9 +15,9 @@ import (
 
 const Bin = "docker"
 
-// CodexROMounts are the shared-credential files buildMounts overmounts RO into
-// the group's ~/.codex. Declared once: buildMounts reads it to build the mount
-// list, SeedCodexMountTargets reads it to own the targets first.
+// CodexROMounts are the shared-credential files the mount renderer overmounts
+// RO into the group's ~/.codex. Declared once: the renderer reads it to build
+// the mount list, SeedCodexMountTargets reads it to own the targets first.
 var CodexROMounts = []string{"auth.json", "config.toml"}
 
 // SeedCodexMountTargets creates the RO overmount targets under a group's
@@ -55,39 +54,6 @@ func SeedCodexMountTargets(codexDir string) {
 		}
 		f.Close()
 	}
-}
-
-// unreadableCodexCreds names the shared codex credentials that the agent's uid
-// certainly cannot open. The RO overmount carries the HOST file's owner and
-// mode into the container, and `HOST_CODEX_DIR` is normally an operator's own
-// ~/.codex at mode 0600, so the agent's uid gets EACCES on a file docker
-// mounted successfully. codex then says "not logged in", which reads as an
-// expired login and is a permission fault on the host.
-//
-// Only the certain case is named. A file the uid owns with the user-read bit,
-// or one carrying the world-read bit, is reachable. A group-readable file may
-// be reachable through a supplementary group this process cannot enumerate, so
-// it is left alone: a wrong accusation here would train the operator to ignore
-// the line that matters.
-func unreadableCodexCreds(hostCodexDir string, uid int) []string {
-	var out []string
-	for _, name := range CodexROMounts {
-		p := filepath.Join(hostCodexDir, name)
-		fi, err := os.Stat(p)
-		if err != nil {
-			continue // absent is the mount's own failure to report, not this one
-		}
-		st, ok := fi.Sys().(*syscall.Stat_t)
-		if !ok {
-			continue
-		}
-		mode := fi.Mode().Perm()
-		if mode&0o044 != 0 || (int(st.Uid) == uid && mode&0o400 != 0) {
-			continue
-		}
-		out = append(out, p)
-	}
-	return out
 }
 
 // AppSrcDir is where MaterializeAppSrc stages the agent-visible copy of `ant/`,

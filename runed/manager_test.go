@@ -2,11 +2,13 @@ package runed
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/kronael/arizuko/core"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 	"github.com/kronael/arizuko/types"
 )
@@ -18,9 +20,11 @@ func newMgr(t *testing.T, rt Runtime, max int) (*DB, *Manager) {
 		t.Fatalf("open mem db: %v", err)
 	}
 	t.Cleanup(func() { db.Close() })
+	cfg, folders := renderWiring(t)
 	mgr := NewManager(db, rt, ManagerConfig{
 		Instance:      "test",
 		MaxConcurrent: max,
+		Cfg:           cfg, Folders: folders,
 	})
 	return db, mgr
 }
@@ -33,7 +37,7 @@ func newMgr(t *testing.T, rt Runtime, max int) (*DB, *Manager) {
 func TestSerializationNoConcurrentDoubleSpawn(t *testing.T) {
 	var live, peak int32
 	var mu sync.Mutex
-	rt := FakeRuntime{Fn: func(ctx context.Context, spec RunSpec) RunResult {
+	rt := FakeRuntime{Fn: func(ctx context.Context, turn Turn) RunResult {
 		n := atomic.AddInt32(&live, 1)
 		mu.Lock()
 		if n > peak {
@@ -68,9 +72,9 @@ func TestSteerWhenLive(t *testing.T) {
 	var spawns atomic.Int32
 	wired := make(chan struct{})
 	release := make(chan struct{})
-	rt := FakeRuntime{Fn: func(ctx context.Context, spec RunSpec) RunResult {
+	rt := FakeRuntime{Fn: func(ctx context.Context, turn Turn) RunResult {
 		spawns.Add(1)
-		spec.RegisterSteer(func(string) bool { return true })
+		turn.RegisterSteer(func(string) bool { return true })
 		close(wired)
 		<-release
 		return RunResult{Outcome: runedv1.OutcomeOK, NewSessionID: "s1"}
@@ -103,8 +107,8 @@ func TestSteerWhenLive(t *testing.T) {
 func TestFreshRunSteerSeesResolvedSessionID(t *testing.T) {
 	wired := make(chan struct{})
 	release := make(chan struct{})
-	rt := FakeRuntime{Fn: func(ctx context.Context, spec RunSpec) RunResult {
-		spec.RegisterSteer(func(string) bool { return true })
+	rt := FakeRuntime{Fn: func(ctx context.Context, turn Turn) RunResult {
+		turn.RegisterSteer(func(string) bool { return true })
 		close(wired)
 		<-release
 		return RunResult{Outcome: runedv1.OutcomeOK, NewSessionID: "minted-by-runtime"}
@@ -137,7 +141,7 @@ func TestConcurrencyCap(t *testing.T) {
 	var live, peak int32
 	release := make(chan struct{})
 	var mu sync.Mutex
-	rt := FakeRuntime{Fn: func(ctx context.Context, spec RunSpec) RunResult {
+	rt := FakeRuntime{Fn: func(ctx context.Context, turn Turn) RunResult {
 		n := atomic.AddInt32(&live, 1)
 		mu.Lock()
 		if n > peak {
@@ -186,7 +190,7 @@ func TestCircuitBreakerTripAndReset(t *testing.T) {
 	var calls int32
 	failNext := atomic.Bool{}
 	failNext.Store(true)
-	rt := FakeRuntime{Fn: func(ctx context.Context, spec RunSpec) RunResult {
+	rt := FakeRuntime{Fn: func(ctx context.Context, turn Turn) RunResult {
 		atomic.AddInt32(&calls, 1)
 		if failNext.Load() {
 			return RunResult{Outcome: runedv1.OutcomeError, Error: "boom"}
@@ -219,16 +223,18 @@ func TestCircuitBreakerTripAndReset(t *testing.T) {
 	}
 }
 
-// TestRunTTLThreadedToRuntime: m.runTTL is the intended run ceiling, still
-// threaded into RunSpec.RunTTL for the executor's own use (dockerRuntime's
-// queryTimeoutMs, the agent's in-container abort hint) even though the KILL
-// enforcement moved to ctx wrapping (TestManagerAppliesRunTTLDeadline covers
-// that half; TestDockerRuntimeCtxDeadlineKills covers dockerRuntime's side
-// of honoring the wrapped ctx).
-func TestRunTTLThreadedToRuntime(t *testing.T) {
+// TestRunTTLBecomesTheCtxDeadline: m.runTTL is the run ceiling and it reaches
+// the executor as ctx's deadline — the ONE deadline of spec 6/41 §"The seam".
+// A substrate with a timer of its own reads it from there, so nothing on the
+// port carries a duration. TestManagerAppliesRunTTLDeadline covers the kill the
+// elapsed deadline causes; TestDockerCtxDeadlineKills covers the substrate's
+// side of honouring it.
+func TestRunTTLBecomesTheCtxDeadline(t *testing.T) {
 	var gotTTL atomic.Int64
-	rt := FakeRuntime{Fn: func(_ context.Context, spec RunSpec) RunResult {
-		gotTTL.Store(int64(spec.RunTTL))
+	rt := FakeRuntime{Fn: func(ctx context.Context, turn Turn) RunResult {
+		if dl, ok := ctx.Deadline(); ok {
+			gotTTL.Store(int64(time.Until(dl)))
+		}
 		return RunResult{Outcome: runedv1.OutcomeOK, NewSessionID: "s"}
 	}}
 	db, err := OpenMem()
@@ -236,14 +242,50 @@ func TestRunTTLThreadedToRuntime(t *testing.T) {
 		t.Fatalf("open mem db: %v", err)
 	}
 	t.Cleanup(func() { db.Close() })
+	cfg, folders := renderWiring(t)
 	mgr := NewManager(db, rt, ManagerConfig{
 		Instance: "test", MaxConcurrent: 5, RunTTL: 20 * time.Millisecond,
+		Cfg: cfg, Folders: folders,
 	})
 
 	mgr.Run(context.Background(), runedv1.RunRequest{Folder: "demo", MessageBatch: "m"})
 
-	if got := time.Duration(gotTTL.Load()); got != 20*time.Millisecond {
-		t.Fatalf("RunSpec.RunTTL=%s want 20ms (manager must thread runTTL to the runtime)", got)
+	got := time.Duration(gotTTL.Load())
+	if got <= 0 || got > 20*time.Millisecond {
+		t.Fatalf("ctx deadline left %s, want just under the 20ms ceiling", got)
+	}
+}
+
+// TestTurnTTLFoldsTheGuestCeiling pins the one deadline's arithmetic: the run
+// ceiling, lowered by the group's container_config Timeout over the instance
+// default, and floored at the idle timeout plus its grace so the deadline can
+// never cut in before the idle timer has given up (spec 6/41 §"The seam" —
+// container_config Timeout is an input to the deadline, never a second timer).
+func TestTurnTTLFoldsTheGuestCeiling(t *testing.T) {
+	cases := []struct {
+		name         string
+		runTTL       time.Duration
+		cfgTimeout   time.Duration
+		idle         time.Duration
+		groupTimeout time.Duration
+		want         time.Duration
+	}{
+		{"instance ceiling above the run ceiling", 20 * time.Minute, 60 * time.Minute, 60 * time.Minute, 0, 20 * time.Minute},
+		{"instance ceiling below the run ceiling", 20 * time.Minute, 10 * time.Minute, time.Minute, 0, 10 * time.Minute},
+		{"the group's own ceiling wins", 20 * time.Minute, 10 * time.Minute, time.Minute, 5 * time.Minute, 5 * time.Minute},
+		{"floored at idle + grace", 20 * time.Minute, 10 * time.Minute, 10 * time.Minute, 5 * time.Minute, 10*time.Minute + 30*time.Second},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			m := &Manager{runTTL: c.runTTL, cfg: &core.Config{Timeout: c.cfgTimeout, IdleTimeout: c.idle}}
+			req := runedv1.RunRequest{Folder: "demo"}
+			if c.groupTimeout > 0 {
+				req.ContainerConfig = map[string]any{"Timeout": int64(c.groupTimeout)}
+			}
+			if got := m.turnTTL(req); got != c.want {
+				t.Fatalf("turnTTL=%s want %s", got, c.want)
+			}
+		})
 	}
 }
 
@@ -253,7 +295,7 @@ func TestRunTTLThreadedToRuntime(t *testing.T) {
 // one executor. This exercises a minimal Runtime double that (like
 // dockerRuntime's armCancel) does nothing but honor ctx.Done(), proving the
 // deadline actually reaches the executor through Manager — not just that
-// RunSpec.RunTTL carries the raw value (TestRunTTLThreadedToRuntime).
+// Turn.RunTTL carries the raw value (TestRunTTLThreadedToRuntime).
 func TestManagerAppliesRunTTLDeadline(t *testing.T) {
 	rt := ctxWatchingRuntime{}
 	db, err := OpenMem()
@@ -261,8 +303,10 @@ func TestManagerAppliesRunTTLDeadline(t *testing.T) {
 		t.Fatalf("open mem db: %v", err)
 	}
 	t.Cleanup(func() { db.Close() })
+	cfg, folders := renderWiring(t)
 	mgr := NewManager(db, rt, ManagerConfig{
 		Instance: "test", MaxConcurrent: 5, RunTTL: 20 * time.Millisecond,
+		Cfg: cfg, Folders: folders,
 	})
 
 	out, _ := mgr.Run(context.Background(), runedv1.RunRequest{Folder: "demo", MessageBatch: "m"})
@@ -275,7 +319,7 @@ func TestManagerAppliesRunTTLDeadline(t *testing.T) {
 // pinned RunOutcome, so routd receives the retry decision, not the raw
 // exit code (spec 5/12, BUGS F73).
 func TestTerminalOnWire(t *testing.T) {
-	rt := FakeRuntime{Fn: func(context.Context, RunSpec) RunResult {
+	rt := FakeRuntime{Fn: func(context.Context, Turn) RunResult {
 		return RunResult{
 			Outcome: runedv1.OutcomeError, Terminal: true,
 			Error: "Container exited with code 125: pull access denied",
@@ -297,7 +341,7 @@ func TestTerminalOnWire(t *testing.T) {
 // machinery — used to prove Manager wires the RunTTL deadline onto ctx.
 type ctxWatchingRuntime struct{}
 
-func (ctxWatchingRuntime) Run(ctx context.Context, _ RunSpec) RunResult {
+func (ctxWatchingRuntime) Run(ctx context.Context, _ Turn) RunResult {
 	<-ctx.Done()
 	return RunResult{Outcome: runedv1.OutcomeError, Error: ctx.Err().Error()}
 }
@@ -311,7 +355,7 @@ func (ctxWatchingRuntime) Kill(string) error { return nil }
 func TestBreakerResetsOnSilent(t *testing.T) {
 	var outcome atomic.Value
 	outcome.Store(runedv1.OutcomeError)
-	rt := FakeRuntime{Fn: func(ctx context.Context, spec RunSpec) RunResult {
+	rt := FakeRuntime{Fn: func(ctx context.Context, turn Turn) RunResult {
 		return RunResult{Outcome: outcome.Load().(string)}
 	}}
 	_, mgr := newMgr(t, rt, 5)
@@ -352,7 +396,7 @@ func TestKillDoesNotRelabelCompletedRun(t *testing.T) {
 // row), matching gated's `if !isolated` guards. A non-isolated run DOES record
 // one (gap 4).
 func TestIsolatedRunNoSessionLineage(t *testing.T) {
-	rt := FakeRuntime{Fn: func(context.Context, RunSpec) RunResult {
+	rt := FakeRuntime{Fn: func(context.Context, Turn) RunResult {
 		return RunResult{Outcome: runedv1.OutcomeOK, NewSessionID: "s"}
 	}}
 	db, mgr := newMgr(t, rt, 5)
@@ -386,7 +430,7 @@ func TestIsolatedRunNoSessionLineage(t *testing.T) {
 // threshold returns BreakerOpen=true on its synchronous response (gap 5 —
 // routd keys the user-notification + session-delete on this signal).
 func TestTrippingRunEmitsBreakerOpen(t *testing.T) {
-	rt := FakeRuntime{Fn: func(context.Context, RunSpec) RunResult {
+	rt := FakeRuntime{Fn: func(context.Context, Turn) RunResult {
 		return RunResult{Outcome: runedv1.OutcomeError, Error: "boom"}
 	}}
 	_, mgr := newMgr(t, rt, 5)
@@ -400,5 +444,72 @@ func TestTrippingRunEmitsBreakerOpen(t *testing.T) {
 		if want && out.Error == "" {
 			t.Fatalf("tripping run carries empty error; want a breaker message")
 		}
+	}
+}
+
+// TestGatewaySpawnWithoutAKeyIsRefused: a gateway instance withholds the model
+// credential from the guest (spawnSecrets), so a turn with no minted virtual key
+// would reach no model at all and read as a harness fault. The refusal is
+// terminal — the only way here is a routd that did not mint, which a retry
+// cannot repair — and nothing is started.
+func TestGatewaySpawnWithoutAKeyIsRefused(t *testing.T) {
+	var ran atomic.Bool
+	rt := FakeRuntime{Fn: func(context.Context, Turn) RunResult {
+		ran.Store(true)
+		return RunResult{Outcome: runedv1.OutcomeOK}
+	}}
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	cfg, folders := renderWiring(t)
+	cfg.ModelGatewayURL = "http://litellm:4000"
+	mgr := NewManager(db, rt, ManagerConfig{
+		Instance: "test", MaxConcurrent: 5,
+		Cfg: cfg, Folders: folders,
+	})
+
+	out, _ := mgr.Run(context.Background(), runedv1.RunRequest{Folder: "demo", MessageBatch: "m"})
+	if out.Outcome != runedv1.OutcomeError || !out.Terminal {
+		t.Fatalf("outcome=%q terminal=%v want a terminal error", out.Outcome, out.Terminal)
+	}
+	if !strings.Contains(out.Error, "no virtual key") {
+		t.Errorf("error=%q — it must name the missing minted key", out.Error)
+	}
+	if ran.Load() {
+		t.Error("the runtime ran on a turn that can reach no model")
+	}
+	// With the key, the same request runs.
+	out, _ = mgr.Run(context.Background(), runedv1.RunRequest{
+		Folder: "demo", MessageBatch: "m", ModelGatewayKey: "sk-virtual",
+	})
+	if out.Outcome != runedv1.OutcomeOK || !ran.Load() {
+		t.Fatalf("a minted key must run: outcome=%q ran=%v", out.Outcome, ran.Load())
+	}
+}
+
+// TestAgentRunWithoutARendererIsRefused: with no renderer wiring there is no
+// envelope, and a guest started without one would run with no mounts and no
+// prompt. The refusal is loud and terminal rather than a bare Turn.
+func TestAgentRunWithoutARendererIsRefused(t *testing.T) {
+	var ran atomic.Bool
+	rt := FakeRuntime{Fn: func(context.Context, Turn) RunResult {
+		ran.Store(true)
+		return RunResult{Outcome: runedv1.OutcomeOK}
+	}}
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	mgr := NewManager(db, rt, ManagerConfig{Instance: "test", MaxConcurrent: 5})
+
+	out, _ := mgr.Run(context.Background(), runedv1.RunRequest{Folder: "demo", MessageBatch: "m"})
+	if out.Outcome != runedv1.OutcomeError || !out.Terminal {
+		t.Fatalf("outcome=%q terminal=%v want a terminal error", out.Outcome, out.Terminal)
+	}
+	if ran.Load() {
+		t.Error("the runtime ran with no envelope to deliver")
 	}
 }
