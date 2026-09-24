@@ -217,6 +217,63 @@ instance layout to drive.
   literal; it asserts what the declaration is for, that `EnvOr` on an unset var
   resolves to the shared default.
 
+## ✅ FIXED 2026-09-24 L362 — one guest write into the share root keeps the VM record forever, and five of them exhaust the CID space (2026-09-24, open)
+
+`reapVM` (`runed/vmrecord.go`) removes a turn's record only when NOTHING in the
+reap reported an error, and the staging tree's removal is one of those reports.
+`turnTree.teardown` ends `return t.remove()`, and `remove` treats **any non-empty
+regular file it did not create** as foreign and returns `"tree kept"`. That error
+joins `failed`, so `reapVM` returns `"record kept"` and the record file survives
+— every reap and every disk-scan replay hits the same file and fails the same way.
+
+The record is what marks a CID used. `liveCIDs` builds its set from the records on
+disk and nothing else, and `allocateCID` searches only
+`[3, 3+MAX_CONCURRENT_CONTAINERS)`. So a kept record costs a CID permanently, and
+on a default instance **five** of them leave `allocateCID` with nothing to return:
+`"no free guest CID: 5 live guests at MAX_CONCURRENT_CONTAINERS=5"` on every
+spawn, with no live guest at all.
+
+Measured by reading the chain 2026-09-24, each link confirmed in the source:
+`vmtree.go` `remove` → `teardown`'s `return t.remove()` → `reapVM`'s `failed` →
+the `os.Remove` of the record that never runs → `liveCIDs` → `allocateCID`.
+
+**Step 0's own probe triggers it.** `guest-init`'s `mountBase` writes
+`/turn/from-guest.txt` (17 bytes) to prove the uid clamp, and `/turn` IS the
+staging tree root, so the acceptance test's own guest bricks the instance it ran
+on. That is how the bug was found, but it is not the bug: a guest holds a WRITABLE
+export by design, so any guest — buggy or hostile — can do the same on purpose.
+
+The guard itself is right and must stay. A recursive delete over a live bind
+deletes the group's own files, so refusing to remove a tree that holds something
+unexpected is correct. What is wrong is the CONSEQUENCE: the record's job is to
+name the processes a dead runed must reap, and every one of them was reaped.
+
+- **Severity:** high (a reachable, permanent denial of every spawn on the
+  instance; no runtime defect today because `RUNED_SUBSTRATE` defaults to
+  `docker`)
+- **Scope:** `runed/vmrecord.go`, `runed/vmtree.go`
+- **Affected:** `reapVM`, `turnTree.remove`, `liveCIDs`, `allocateCID`,
+  `kernel/guest-init/main.go` `mountBase`
+- **Source:** the step-1 `guest-init` build, 2026-09-24 — found by the subagent
+  writing the production half, which was told to keep the probe path and asked
+  what the probe write lands on
+- **Status:** fixed
+- **Fix:** `reapVM` separates "every process is reaped" from "the tree is gone". A
+  tree `remove` refuses is logged at ERROR with its path and the action a person
+  takes; it no longer joins `failed`, so the record goes and the CID comes back.
+  The tree is an operator action on live data, the same split `make rootfs-stale`
+  takes. `TestReapReleasesTheCIDWhenOnlyTheTreeIsStuck` holds a 17-byte file — the
+  size of the probe's own write — in the tree and asserts three things: the record
+  is gone, `liveCIDs` no longer marks the CID, and **the guest's file is still
+  there**. Reverting the one line fails it.
+
+  The test then found a second half. `listVMRecords` called a dir with NO record
+  file `broken`, the same as a CORRUPT one, so a released turn reported itself on
+  every scan forever and would have buried the corrupt case that does need
+  reading. A missing record is now skipped and an unparseable one still reports —
+  `TestListVMRecordsReportsAnUnreadableDir` writes `{not json`, so the property
+  the disk scan exists for is still guarded.
+
 ## ✅ FIXED 2026-09-24 L361 — the section-citation guard reads only citations that spell "spec", so 145 bare `§"…"` pointers are unchecked (2026-09-24, open)
 
 `tests/specrefs` `TestEverySectionCitationResolves` matches

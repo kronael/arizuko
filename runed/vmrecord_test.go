@@ -244,3 +244,42 @@ func TestListVMRecordsReportsAnUnreadableDir(t *testing.T) {
 		t.Errorf("an undecodable record must be reported: records=%d broken=%v", len(records), broken)
 	}
 }
+
+// A guest holds a WRITABLE export by design, so any guest can leave a file in the
+// staging tree and `remove` then refuses the tree — step 0's own uid-clamp probe
+// does exactly that. Before BUGS L362 the refusal kept the RECORD, and the record
+// is the only thing that marks a CID used, so five such turns left `allocateCID`
+// with nothing to return and no live guest anywhere. The record's job is to name
+// the processes a dead runed must reap; once every pid is gone it has done it.
+func TestReapReleasesTheCIDWhenOnlyTheTreeIsStuck(t *testing.T) {
+	rec, p := fullRecord(t)
+	tree := &turnTree{dir: filepath.Join(rec.TurnDir, "tree")}
+	if err := os.MkdirAll(tree.dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// 17 bytes, the size of guest-init's own probe write.
+	if err := os.WriteFile(filepath.Join(tree.dir, "from-guest.txt"),
+		[]byte("written-as-uid-0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := reapVM(rec, p, 20*time.Millisecond, time.Millisecond, tree, nil); err != nil {
+		t.Fatalf("every pid was reaped, so the turn is reaped: %v", err)
+	}
+	// The record goes, which is what frees the CID.
+	if _, err := os.Stat(filepath.Join(rec.TurnDir, vmRecordName)); !os.IsNotExist(err) {
+		t.Fatalf("the record must go once every pid is gone, else its CID never comes back: %v", err)
+	}
+	// And the CID is free again for the next turn, which is the claim that matters.
+	records, bad := listVMRecords(filepath.Dir(rec.TurnDir))
+	if len(bad) != 0 {
+		t.Fatalf("unreadable records: %v", bad)
+	}
+	if used := liveCIDs(records); used[rec.CID] {
+		t.Errorf("CID %d is still marked live with no guest and no record", rec.CID)
+	}
+	// The tree itself stays, because removing it could delete the group's files.
+	if _, err := os.Stat(filepath.Join(tree.dir, "from-guest.txt")); err != nil {
+		t.Errorf("the guest's file must NOT be deleted: %v", err)
+	}
+}

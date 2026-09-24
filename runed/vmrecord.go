@@ -132,6 +132,17 @@ func listVMRecords(root string) ([]*vmRecord, []string) {
 		dir := filepath.Join(root, e.Name())
 		rec, err := loadVMRecord(dir)
 		if err != nil {
+			// NO record and a CORRUPT record are different states and only one
+			// needs a person. The record is written before anything starts, so a
+			// dir without one is a turn whose reap finished — possibly leaving a
+			// staging tree `remove` refused, which `reapVM` already logged by path
+			// (BUGS L362). There is nothing to reap and nothing to decide, so
+			// reporting it on every scan forever would bury the corrupt case that
+			// does need reading. A record that EXISTS and will not parse still
+			// reports: that is the property the disk scan is for.
+			if os.IsNotExist(err) {
+				continue
+			}
 			broken = append(broken, dir)
 			continue
 		}
@@ -287,9 +298,24 @@ func reapVM(rec *vmRecord, p procs, grace, poll time.Duration, tree *turnTree, n
 	// The staging tree unmounts before it is removed, and the removal is
 	// refused while anything is still mounted under it: a recursive delete over
 	// a live bind deletes the group's own files, not the tree.
+	//
+	// A tree that will not go is NOT a reason to keep the record, and that
+	// distinction is the whole of BUGS L362. `remove` refuses while the tree
+	// holds a file it did not create, and a guest holds a WRITABLE export by
+	// design, so any guest can leave one — step 0's own uid-clamp probe does. A
+	// kept record costs a CID forever, because `liveCIDs` reads the records on
+	// disk and `allocateCID` searches only MAX_CONCURRENT_CONTAINERS of them, so
+	// five such turns leave every later spawn with no CID and no live guest.
+	//
+	// The record's job is to name the processes a dead runed must reap. Once every
+	// pid it names is confirmed gone that job is done, so the record goes and the
+	// CID comes back. The tree is reported by path for a person instead — an
+	// operator action on live data, the same split `make rootfs-stale` takes.
 	if tree != nil {
 		if err := tree.teardown(); err != nil {
-			failed = append(failed, err.Error())
+			slog.Error("vm teardown: staging tree kept, record released anyway",
+				"vm", rec.Handle, "dir", rec.TurnDir, "err", err,
+				"action", "remove the tree by hand once nothing is mounted under it")
 		}
 	}
 	if len(failed) > 0 {
