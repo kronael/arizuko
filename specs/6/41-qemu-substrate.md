@@ -268,7 +268,10 @@ routd binds the folder's `gated.sock` before the spawn, as today
 4. Binds the `ctl` and `mcp` listeners on `AF_VSOCK` (`unix.SockaddrVM`,
    `golang.org/x/sys/unix`), each accepting only a peer whose CID is this
    VM's.
-5. Starts QEMU: `-M microvm -enable-kvm -cpu host -smp 2 -m 4G` with
+5. Starts QEMU on the measured argument list (§"The engine"; `-sandbox on` is NOT
+   in it — it was never measured against the `vhost-user-fs` plus `vhost-vsock`
+   set, and the list that works omits it):
+   `-M q35 -enable-kvm -cpu host -smp 2 -m <RUNED_GUEST_MEM>` with
    `-object memory-backend-memfd,share=on` (virtio-fs requires the shared
    backend: virtio-fs.gitlab.io/howto-qemu.html), `-kernel`/`-initrd` from
    the release, two `vhost-user-fs-device`s, one `vhost-vsock-device` with
@@ -322,24 +325,24 @@ arrive by `submit_turn` over MCP, unchanged.
 
 ## The mechanisms, one by one
 
-| Docker fact today                                                                                        | QEMU answer                                                                                                                                                                                            |
-| -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `docker run -i --rm --name … --shm-size=1g` (`runner.go:680-682`)                                        | one QEMU process per turn (§"The turn" step 5); `/dev/shm` sized by `guest-init`                                                                                                                       |
-| nine mount families as `-v` (`runner.go:539-669`, `741-744`)                                             | one staging tree, one `turn` share (§"The files")                                                                                                                                                      |
-| `-e KEY=VALUE` and the stdin pipe, from `Turn.Env` and `Turn.Stdin`                                      | the `{env, stdin}` frame on `ctl`; nothing touches the kernel command line or a file                                                                                                                   |
-| `--user uid:gid` when the host uid is not 1000 (`runner.go:731-737`)                                     | the guest agent is always uid 1000; `virtiofsd` runs in a single-id user namespace, so every ownership the guest asks for lands as host uid 1000 or fails (§"The peer credential")                     |
-| routd's socket visible through the bind-mounted `ipc/` dir (`ipc/ipc.go:361-363`, `runner.go:912-915`)   | vsock, CID-pinned, bridged by runed (§"The peer credential"); a unix socket does not cross virtio-fs — a bind-mounted socket answers "Operation not supported" (github.com/abiosoft/colima/issues/997) |
-| SO_PEERCRED uid check (`ipc/ipc.go:397-410`)                                                             | unchanged in routd; the bridge child runs as uid 1000 and the guest is bound by CID (§"The peer credential")                                                                                           |
-| `docker kill --signal=SIGUSR1` (`runed/docker.go:47-49`, `runner.go:378`)                                | a `{steer}` frame on `ctl` (§"Steer and stop")                                                                                                                                                         |
-| stop → `docker kill` → `rm -f` (`runner.go:288-299`, `runed/docker.go:56-58`)                            | `{stop}` frame → `SIGTERM` to ant → power-off; `SIGKILL` QEMU on the deadline; reap                                                                                                                    |
-| `docker network create --internal` + `--ip` (`container/network.go:157-163`, `runner.go:724-725`)        | one tap per turn; the guest's only route is the host side of its tap (§"Egress")                                                                                                                       |
-| the egress proxy as a sidecar container on two networks (`container/egress.go:238-274`)                  | the `egress` binary as a process on the tap's host side, `--client <guest ip>`; `EGRESS_IMAGE`, `EGRESS_UPLINK_NETWORK`, `EGRESS_NETWORK_PREFIX/_SUBNET` retire                                        |
-| `docker ps --filter=name=arizuko-` orphan sweep (`container/runtime.go:138`)                             | runed's own disk scan: every on-disk VM record, plus a check of the recorded pid (§"What moves into `runed`")                                                                                          |
-| `docker info` liveness (`container/runtime.go:124-131`)                                                  | `/dev/kvm` opens and `qemu-system-x86_64 -version` runs, checked once at runed start, refused loudly                                                                                                   |
-| stderr over the CLI's pipe, `docker logs` unused (`runner.go:245-253`)                                   | `{log}` frames on `ctl`; kernel console on `-serial file:` into the same `groups/<folder>/logs/container-<ts>.log`                                                                                     |
-| session copy is host-FS (`runner.go:1330-1360`); `docker cp`/`exec` unused                               | unchanged                                                                                                                                                                                              |
-| runed in a container with `/var/run/docker.sock` (`compose/compose.go:1115-1118`)                        | §"The runed deploy topology"                                                                                                                                                                           |
-| `arizuko-ant` built by `docker build`, distributed by being built on the deploy box (`Makefile:147-161`) | built the same way, then unpacked once per release to a host directory (§"The image and the guest kernel")                                                                                             |
+| Docker fact today                                                                                        | QEMU answer                                                                                                                                                                                                                                                                              |
+| -------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `docker run -i --rm --name … --shm-size=1g` (`runner.go:680-682`)                                        | one QEMU process per turn (§"The turn" step 5); `/dev/shm` sized by `guest-init`                                                                                                                                                                                                         |
+| nine mount families as `-v` (`runner.go:539-669`, `741-744`)                                             | one staging tree, one `turn` share (§"The files")                                                                                                                                                                                                                                        |
+| `-e KEY=VALUE` and the stdin pipe, from `Turn.Env` and `Turn.Stdin`                                      | the `{env, stdin}` frame on `ctl`; nothing touches the kernel command line or a file                                                                                                                                                                                                     |
+| `--user uid:gid` when the host uid is not 1000 (`runner.go:731-737`)                                     | the guest agent is always uid 1000; `virtiofsd` runs in a single-id user namespace, so every ownership the guest asks for lands as host uid 1000 or fails (§"The peer credential")                                                                                                       |
+| routd's socket visible through the bind-mounted `ipc/` dir (`ipc/ipc.go:361-363`, `runner.go:912-915`)   | vsock, CID-pinned, bridged by runed (§"The peer credential"); a unix socket does not cross virtio-fs — a bind-mounted socket answers "Operation not supported" (github.com/abiosoft/colima/issues/997)                                                                                   |
+| SO_PEERCRED uid check (`ipc/ipc.go:397-410`)                                                             | unchanged in routd; the bridge child runs as uid 1000 and the guest is bound by CID (§"The peer credential")                                                                                                                                                                             |
+| `docker kill --signal=SIGUSR1` (`runed/docker.go:47-49`, `runner.go:378`)                                | a `{steer}` frame on `ctl` (§"Steer and stop")                                                                                                                                                                                                                                           |
+| stop → `docker kill` → `rm -f` (`runner.go:288-299`, `runed/docker.go:56-58`)                            | `{stop}` frame → `SIGTERM` to ant → power-off; `SIGKILL` QEMU on the deadline; reap                                                                                                                                                                                                      |
+| `docker network create --internal` + `--ip` (`container/network.go:157-163`, `runner.go:724-725`)        | one tap per turn; the guest's only route is the host side of its tap (§"Egress")                                                                                                                                                                                                         |
+| the egress proxy as a sidecar container on two networks (`container/egress.go:238-274`)                  | the `egress` binary as a process on the tap's host side, `--client <guest ip>`; `EGRESS_IMAGE`, `EGRESS_UPLINK_NETWORK`, `EGRESS_NETWORK_PREFIX/_SUBNET` retire                                                                                                                          |
+| `docker ps --filter=name=arizuko-` orphan sweep (`container/runtime.go:138`)                             | runed's own disk scan: every on-disk VM record, plus a check of the recorded pid (§"What moves into `runed`")                                                                                                                                                                            |
+| `docker info` liveness (`container/runtime.go:124-131`)                                                  | `/dev/kvm` opens and `qemu-system-x86_64 -version` runs, checked once at runed start, refused loudly                                                                                                                                                                                     |
+| stderr over the CLI's pipe, `docker logs` unused (`runner.go:245-253`)                                   | `{log}` frames on `ctl`; kernel console on `-serial file:` into `container-<ts>.console.log` BESIDE the turn log — never the turn log itself, which `writeLog` truncates with `os.WriteFile` at turn end (`runed/turnlog.go:67`) and would destroy the console exactly when it is wanted |
+| session copy is host-FS (`runner.go:1330-1360`); `docker cp`/`exec` unused                               | unchanged                                                                                                                                                                                                                                                                                |
+| runed in a container with `/var/run/docker.sock` (`compose/compose.go:1115-1118`)                        | §"The runed deploy topology"                                                                                                                                                                                                                                                             |
+| `arizuko-ant` built by `docker build`, distributed by being built on the deploy box (`Makefile:147-161`) | built the same way, then unpacked once per release to a host directory (§"The image and the guest kernel")                                                                                                                                                                               |
 
 ## The peer credential
 
@@ -530,6 +533,12 @@ exports it:
 | all groups, elevated only `:665-669`  | `groups/`               | rw                    |
 | `ipc/` `:574-578`                     | —                       | guest-local tmpfs     |
 
+**The tree MIRRORS the guest's paths, and a manifest names them.** A flattened
+name collides — `/mnt/a-b` and `/mnt/a/b` both render `mnt-a-b` — so the staging
+tree holds `tree/home/node`, `tree/var/lib/www` and so on, and runed writes
+`mounts.json` at the share root. `guest-init` reads that file rather than knowing
+the table, so a new mount family changes the renderer and never the guest.
+
 `guest-init` bind-mounts each tree path onto the canonical container path
 and the two `codex-ro` files over their `home/.codex` names. Read-only is
 enforced on the host: a bind mount made `ro` before `virtiofsd` starts is
@@ -698,7 +707,10 @@ Measured 2026-09-23:
 - The on-disk VM record: one file per guest under
   `<dataDir>/<instance>/vms/<id>` (`sandbox/internal/metadata.go:16-29,30`),
   which is the record §"The turn" step 1 writes. Its fields become
-  `{Handle, CID, CtlPort, McpPort, QemuPid, VirtiofsdPids, EgressPid, TurnDir}`
+  `{Handle, Folder, CreatedAt, CID, CtlPort, McpPort, QemuPid, VirtiofsdPids,
+EgressPid, BridgePid, Tap, GuestIP, HostIP, ProxyPort, TurnDir}` — the network
+  four because the reap re-renders and deletes exactly the rules it inserted, and
+  `BridgePid` because the MCP bridge is the turn's fourth process
   — **every process the turn starts, not only QEMU**, because the disk scan is
   the only thing that reaps after a runed crash and it can reap only what the
   record names. Today's orphan sweep finds proxies by docker label
