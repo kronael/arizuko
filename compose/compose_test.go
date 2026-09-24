@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -972,4 +973,108 @@ func TestTheModelGatewayMasterKeyReachesRoutdAndNotRuned(t *testing.T) {
 		t.Errorf("env/runed.env carries the gateway MASTER key; runed injects only the "+
 			"per-turn key routd hands it in the run request:\n%s", runed)
 	}
+}
+
+// TestRunedHoldsTheDockerSocketOnlyUnderDocker and its qemu twin pin the two
+// shapes of one service against each other. A substrate is chosen once, in the
+// instance's configuration, and the privilege the service grants has to follow
+// that choice or runed refuses to start (spec 6/41 §"The runed deploy topology").
+// service cuts one service's block out of the compose document. Scoping matters
+// and is not pedantry: the first cut of the test below asserted on the WHOLE
+// file and failed, because every other daemon also runs as uid 1000, so an
+// absence claim about runed read as an absence claim about the instance.
+func service(t *testing.T, doc, name string) string {
+	t.Helper()
+	head := "  " + name + ":\n"
+	i := strings.Index(doc, head)
+	if i < 0 {
+		t.Fatalf("no %q service in the generated compose document", name)
+	}
+	rest := doc[i+len(head):]
+	// The next line at two-space indent that is not deeper is the next service.
+	for off := 0; ; {
+		nl := strings.Index(rest[off:], "\n  ")
+		if nl < 0 {
+			return rest
+		}
+		off += nl + 1
+		if len(rest) > off+2 && rest[off+2] != ' ' && rest[off+2] != '-' {
+			return rest[:off]
+		}
+	}
+}
+
+func TestRunedHoldsTheDockerSocketOnlyUnderDocker(t *testing.T) {
+	out := service(t, gen(t, seed(t, "RUNED_SUBSTRATE=docker\n")), "runed")
+	for _, want := range []string{"user: '1000:1000'", "/var/run/docker.sock", "group_add:"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the docker substrate must keep %q", want)
+		}
+	}
+	for _, unwanted := range []string{"/dev/kvm", "cap_add:", "user: '0:0'"} {
+		if strings.Contains(out, unwanted) {
+			t.Errorf("the docker substrate must NOT grant %q", unwanted)
+		}
+	}
+}
+
+func TestRunedHoldsTheVMDevicesOnlyUnderQemu(t *testing.T) {
+	out := service(t, gen(t, seed(t, "RUNED_SUBSTRATE=qemu\n")), "runed")
+	// Every device and capability is named, not counted: a missing /dev/net/tun
+	// fails the first tap and a missing SYS_ADMIN fails the first bind, and
+	// neither is visible until a turn runs.
+	for _, want := range []string{
+		"user: '0:0'", "/dev/kvm", "/dev/vhost-vsock", "/dev/net/tun",
+		"cap_add: [NET_ADMIN, SYS_ADMIN]",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the QEMU substrate must grant %q", want)
+		}
+	}
+	// The socket goes, and so does the gid that only existed to reach it.
+	for _, unwanted := range []string{"/var/run/docker.sock", "group_add:", "user: '1000:1000'"} {
+		if strings.Contains(out, unwanted) {
+			t.Errorf("the QEMU substrate must NOT keep %q", unwanted)
+		}
+	}
+}
+
+// TestRunedEnvKeysCoverEveryRunedVar derives the set from runed's own source
+// instead of repeating it. A var the daemon reads and compose never emits is
+// SILENTLY dead: it stops applying and the fleet looks healthy, which is the
+// class that shipped three times (BUGS `ant_env_delivery`). A hand-listed guard
+// stops covering what moves and stays green, so this one fails on an empty set
+// too.
+func TestRunedEnvKeysCoverEveryRunedVar(t *testing.T) {
+	sources, err := filepath.Glob(filepath.Join("..", "runed", "*.go"))
+	if err != nil || len(sources) == 0 {
+		t.Fatalf("no runed sources found (%v): a guard that reads nothing cannot fail", err)
+	}
+	declared := map[string]bool{}
+	for _, k := range daemonKeys["runed"] {
+		declared[k] = true
+	}
+	re := regexp.MustCompile(`"(RUNED_[A-Z_]+)"`)
+	found := 0
+	for _, src := range sources {
+		if strings.HasSuffix(src, "_test.go") {
+			continue
+		}
+		body, rerr := os.ReadFile(src)
+		if rerr != nil {
+			t.Fatalf("read %s: %v", src, rerr)
+		}
+		for _, m := range re.FindAllStringSubmatch(string(body), -1) {
+			found++
+			if !declared[m[1]] {
+				t.Errorf("%s reads %s and daemonKeys[\"runed\"] does not carry it, "+
+					"so compose never emits it and the value silently does not apply",
+					filepath.Base(src), m[1])
+			}
+		}
+	}
+	if found == 0 {
+		t.Fatal("no RUNED_ vars found in runed's sources — the pattern stopped matching")
+	}
+	t.Logf("checked %d RUNED_ references against %d declared keys", found, len(daemonKeys["runed"]))
 }
