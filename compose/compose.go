@@ -1122,6 +1122,13 @@ func runedService(app, flavor, dataDir string, env map[string]string) string {
 	b.WriteString("      - /dev/net/tun\n")
 	// NET_ADMIN for the tap and its rule set; SYS_ADMIN for the binds.
 	b.WriteString("    cap_add: [NET_ADMIN, SYS_ADMIN]\n")
+	// AppArmor's docker-default denies mount(2) for every container WHATEVER its
+	// capabilities, so SYS_ADMIN alone is necessary and not sufficient: the staging
+	// tree's binds answer "permission denied" and every turn fails (BUGS `L371`,
+	// measured both ways on krons). Seccomp needs nothing — docker's default
+	// profile already allows mount to a holder of CAP_SYS_ADMIN. A custom profile
+	// that permits this one mount is tighter and is the operator's to write.
+	b.WriteString("    security_opt: [apparmor=unconfined]\n")
 	b.WriteString("    volumes:\n")
 	fmt.Fprintf(&b, "      - %s:%s\n", dataDir, containerDataMount)
 	// A guest can be shown only what RUNED can open: virtiofsd is runed's own

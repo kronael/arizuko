@@ -226,8 +226,15 @@ func (q *qemuRuntime) Run(ctx context.Context, t Turn) RunResult {
 // reap. Every exit returns one RunResult, so Run's span and metrics close in one
 // place.
 func (q *qemuRuntime) spawn(ctx context.Context, t Turn) RunResult {
+	// Every failure is LOGGED here as well as returned. The caller's own record
+	// cannot hold it — `spawns` carries `outcome` and no error attribute — and
+	// routd's retry line names the turn without the reason, so a turn that never
+	// started left the operator nothing but "turn failed without reply" (measured
+	// on krons 2026-09-25, on three different causes in a row).
 	fail := func(f string, a ...any) RunResult {
-		return RunResult{Outcome: runedv1.OutcomeError, Error: fmt.Sprintf(f, a...)}
+		msg := fmt.Sprintf(f, a...)
+		slog.Error("turn did not start", "folder", t.Folder, "handle", t.Handle, "err", msg)
+		return RunResult{Outcome: runedv1.OutcomeError, Error: msg}
 	}
 
 	// Step 1: the CID, the two ports and the record, before anything is started.

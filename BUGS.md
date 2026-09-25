@@ -224,6 +224,50 @@ instance layout to drive.
   literal; it asserts what the declaration is for, that `EnvOr` on an unset var
   resolves to the shared default.
 
+## L371 — `CAP_SYS_ADMIN` is not enough to make a bind mount in a container: AppArmor's docker-default denies it (2026-09-25, open)
+
+The staging tree is assembled by bind-mounting each of the turn's sources into one
+tree, and runed's service grants `CAP_SYS_ADMIN` for exactly that
+(`6/41` §"The runed deploy topology"). It is necessary and not sufficient.
+Measured on krons, 2026-09-25:
+
+```
+$ docker exec arizuko_runed_krons sh -c 'mount --bind /tmp/a /tmp/b'
+mount: mounting /tmp/a on /tmp/b failed: Permission denied
+$ docker inspect … --format '{{.AppArmorProfile}} | {{.HostConfig.CapAdd}}'
+docker-default | [CAP_NET_ADMIN CAP_SYS_ADMIN]
+```
+
+`docker-default` denies `mount` for every container, whatever its capabilities.
+With the profile off, the same image and the same one capability succeed:
+
+```
+$ docker run --rm --cap-add SYS_ADMIN --security-opt apparmor=unconfined … \
+    sh -c 'mount --bind /tmp/a /tmp/b && echo "bind OK"'
+bind OK
+```
+
+**Every turn failed with `permission denied` and the fleet reported healthy.** The
+message was in runed's return value and nowhere else: `spawns` carries `outcome`
+and no error attribute, and routd's retry line names the turn without the reason,
+so the operator's only witness was "turn failed without reply". That is fixed in
+the same pass — `spawn`'s one failure funnel logs before it returns.
+
+- **Severity:** high (no turn can stage its tree; three separate causes in a row
+  were invisible for the same reason)
+- **Scope:** `compose/compose.go`, `specs/6/41` §"The runed deploy topology",
+  `runed/qemu.go`
+- **Affected:** `runedService`, every turn
+- **Source:** measured on krons 2026-09-25, both directions (denied under
+  docker-default, allowed with the profile off)
+- **Status:** open
+- **Fix:** runed's service takes `security_opt: [apparmor=unconfined]` beside the
+  two capabilities, and the generator's comment says why — a capability list that
+  looks sufficient and is not costs one deploy per reader. Seccomp needs nothing:
+  docker's default profile already allows `mount` to a holder of `CAP_SYS_ADMIN`.
+  A tighter posture is a custom AppArmor profile that permits this one mount, which
+  is an operator artifact and not a generator's to write.
+
 ## L370 — a guest can only be shown what runed can see, and two settings name host paths runed has no mount for (2026-09-25, open)
 
 Measured on krons after the mount-path fix (`L368`), on the next turn:

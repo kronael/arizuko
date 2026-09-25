@@ -1007,6 +1007,10 @@ func TestRunedHoldsTheVMDevices(t *testing.T) {
 	for _, want := range []string{
 		"user: '0:0'", "/dev/kvm", "/dev/vhost-vsock", "/dev/net/tun",
 		"cap_add: [NET_ADMIN, SYS_ADMIN]",
+		// SYS_ADMIN alone cannot make a bind mount: docker-default denies mount(2)
+		// whatever the capabilities, so every turn failed to stage its tree
+		// (BUGS `L371`, measured both ways).
+		"security_opt: [apparmor=unconfined]",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the QEMU substrate must grant %q", want)
