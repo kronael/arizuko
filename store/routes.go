@@ -201,16 +201,39 @@ func (s *Store) routeByID(ctx context.Context, id int64) (objstore.Item, core.Ro
 	if err != nil {
 		return objstore.Item{}, core.Route{}, false, fmt.Errorf("read routes: %w", err)
 	}
+	// EVERY item is read, not just up to the first match. An id is a handle the
+	// operator and the agent both address a rule by, and it is NOT unique in every
+	// live table: sloth carries six ids twice, one sloth rule against one
+	// marinade rule, because the 2026-09-18 merge joined two partitions each
+	// minted from its own counter (BUGS `L364`, `L335`).
+	//
+	// Returning the first match deleted the WRONG RULE and said it had deleted the
+	// right one: `route rm 37` destroyed `main/main ← room=group/5069669817
+	// verb=mention` and left 37 in place, because items arrive in sort-key order
+	// and the lower `seq` came first. So an ambiguous id is refused, naming both
+	// coordinates. A loud refusal costs an operator one command; the silent
+	// version cost a live routing rule.
+	var found objstore.Item
+	var route core.Route
+	ok := false
 	for _, it := range items {
 		r, err := routeFrom(it)
 		if err != nil {
 			return objstore.Item{}, core.Route{}, false, err
 		}
-		if r.ID == id {
-			return it, r, true, nil
+		if r.ID != id {
+			continue
 		}
+		if ok {
+			return objstore.Item{}, core.Route{}, false, fmt.Errorf(
+				"route id %d names two rules (%q and %q); it is a duplicate this table "+
+					"must not hold, so nothing is changed — address the rule by its "+
+					"(seq, target, match) coordinate and re-mint the ids (BUGS L364)",
+				id, found.Key.Sort, it.Key.Sort)
+		}
+		found, route, ok = it, r, true
 	}
-	return objstore.Item{}, core.Route{}, false, nil
+	return found, route, ok, nil
 }
 
 func (s *Store) GetRoute(id int64) (core.Route, bool) {
