@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html"
 	"html/template"
@@ -1464,7 +1465,20 @@ func handleDeleteRoute(w http.ResponseWriter, r *http.Request,
 		return
 	}
 
-	route, ok := db.GetRoute(id)
+	// RouteByID, not a read that collapses "absent" into "unreadable": an
+	// operator told "route not found" about a rule that is still firing goes and
+	// creates a second one. An ambiguous id is a 409 naming both coordinates,
+	// because the delete below refuses it anyway (BUGS `L364`, `L366`).
+	route, ok, err := db.RouteByID(id)
+	if errors.Is(err, store.ErrRouteIDAmbiguous) {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+	if err != nil {
+		slog.Error("route lookup", "id", id, "sub", sub, "err", err)
+		http.Error(w, "lookup failed", http.StatusInternalServerError)
+		return
+	}
 	if !ok {
 		http.Error(w, "route not found", http.StatusNotFound)
 		return

@@ -80,20 +80,23 @@ func (d *DB) JIDRoutableToFolder(jid, folder string) bool {
 var ErrNoRoute = errors.New("routd: no such route")
 
 // GetRoute returns one route by id: ErrNoRoute when absent (404) vs a real
-// store error (500) — callers MUST distinguish them with errors.Is. The id is
-// an ATTRIBUTE of a route item, not its coordinate, and store.GetRoute
-// collapses both misses into ok=false, so the table is read here.
+// store error (500) — callers MUST distinguish them with errors.Is, and
+// store.ErrRouteIDAmbiguous is a third answer they owe a 409.
+//
+// It reads through store.RouteByID and scans nothing itself. It used to walk
+// RouteTable() and return the first r.ID == id, which is the loop BUGS `L364`
+// removed from the store re-implemented one package up: on a table carrying an
+// id twice this resolved the rule that `contain` then bound the caller's folder
+// to, while the store refused to touch either (BUGS `L366`).
 func (d *DB) GetRoute(id int64) (core.Route, error) {
-	routes, err := d.store().RouteTable()
+	r, ok, err := d.store().RouteByID(id)
 	if err != nil {
 		return core.Route{}, err
 	}
-	for _, r := range routes {
-		if r.ID == id {
-			return r, nil
-		}
+	if !ok {
+		return core.Route{}, ErrNoRoute
 	}
-	return core.Route{}, ErrNoRoute
+	return r, nil
 }
 
 // WebRouteOwner reports which folder owns an exact path_prefix row, if any

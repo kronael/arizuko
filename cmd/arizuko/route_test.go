@@ -47,8 +47,12 @@ func TestRouteAddListRm(t *testing.T) {
 	if err := runRouteRm(s, rs[0].ID, &out); err != nil {
 		t.Fatalf("runRouteRm: %v", err)
 	}
-	if !strings.Contains(out.String(), "removed route") {
-		t.Errorf("rm output = %q", out.String())
+	// The report names the ROW, not the handle typed: "removed route 37" is what
+	// let BUGS L364 run to a destroyed rule (cmd/arizuko/route.go runRouteRm).
+	for _, want := range []string{"removed route", "platform=telegram", "shop"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("rm output = %q, want the coordinate it removed (%q)", out.String(), want)
+		}
 	}
 
 	out.Reset()

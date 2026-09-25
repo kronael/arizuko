@@ -11,6 +11,7 @@ import (
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/resreg"
 	apiv1 "github.com/kronael/arizuko/routd/api/v1"
+	"github.com/kronael/arizuko/store"
 )
 
 // replyExcerptChars bounds the parent text a reply carries: enough to identify
@@ -112,6 +113,10 @@ func (s *Server) handleRouteGet(w http.ResponseWriter, r *http.Request) {
 	rt, err := s.db.GetRoute(id)
 	if errors.Is(err, ErrNoRoute) {
 		writeErr(w, 404, "not_found", "route not found")
+		return
+	}
+	if errors.Is(err, store.ErrRouteIDAmbiguous) {
+		writeErr(w, 409, "route_id_ambiguous", err.Error())
 		return
 	}
 	if err != nil {

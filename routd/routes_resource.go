@@ -181,6 +181,12 @@ func (s *Server) routesHandler(ctx context.Context, x resreg.Execution, contain 
 		if errors.Is(err, ErrNoRoute) {
 			return nil, resreg.Errorf(http.StatusNotFound, "route not found: %d", rid)
 		}
+		// An ambiguous id is a CONFLICT the caller can act on, and it carries both
+		// coordinates: masked as store_error it is the silence L364 was filed
+		// against, and the store refuses the delete either way.
+		if errors.Is(err, store.ErrRouteIDAmbiguous) {
+			return nil, resreg.Errorf(http.StatusConflict, "%v", err)
+		}
 		if err != nil {
 			// A store error is a 500, never masked as a 404.
 			return nil, resreg.Errorf(http.StatusInternalServerError, "store_error")

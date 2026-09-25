@@ -21,6 +21,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strconv"
@@ -40,6 +41,12 @@ var ErrWebJIDRouted = fmt.Errorf(
 	"web: JIDs are 1:1 with groups; route table does not apply. " +
 		"Create the group via setup_group instead.",
 )
+
+// ErrRouteIDAmbiguous reports that two rules carry the id the caller named, so
+// nothing was read and nothing was changed. It is a SENTINEL because a surface
+// must answer it as a conflict the operator can act on: `store_error` on a 500
+// is the silence BUGS `L364` was filed against.
+var ErrRouteIDAmbiguous = errors.New("route id names two rules")
 
 // The attributes a route item carries. `seq`, `target` and `match` are the
 // coordinate.
@@ -279,22 +286,14 @@ func (s *Store) routeByID(ctx context.Context, id int64) (objstore.Item, core.Ro
 		}
 		if ok {
 			return objstore.Item{}, core.Route{}, false, fmt.Errorf(
-				"route id %d names two rules (%q and %q); it is a duplicate this table "+
-					"must not hold, so nothing is changed — address the rule by its "+
-					"(seq, target, match) coordinate and re-mint the ids (BUGS L364)",
-				id, found.Key.Sort, it.Key.Sort)
+				"%w: %d names (%q and %q); it is a duplicate this table must not hold, "+
+					"so nothing is changed — address the rule by its (seq, target, match) "+
+					"coordinate and re-mint the ids (BUGS L364)",
+				ErrRouteIDAmbiguous, id, found.Key.Sort, it.Key.Sort)
 		}
 		found, route, ok = it, r, true
 	}
 	return found, route, ok, nil
-}
-
-func (s *Store) GetRoute(id int64) (core.Route, bool) {
-	r, ok, err := s.RouteByID(id)
-	if err != nil {
-		return core.Route{}, false
-	}
-	return r, ok
 }
 
 // RouteByID answers the rule one id names, and SEPARATES "no such rule" from

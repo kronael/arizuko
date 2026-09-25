@@ -283,7 +283,7 @@ rule already holds.
   and asserts the next `AddRoute` collides with neither. It does NOT re-mint
   sloth's existing duplicates: that is live data and stays `L364` half two.
 
-## L366 — three readers answer "which rule does this id name", and `L364`'s refusal reaches neither the agent's surface nor the operator's web UI (2026-09-25, open)
+## ✅ FIXED 2026-09-25 L366 — three readers answer "which rule does this id name", and `L364`'s refusal reaches neither the agent's surface nor the operator's web UI (2026-09-25)
 
 `L364` put the refusal in `store.routeByID`. Two of the three by-id readers do
 not go through it, so the guarantee stops at `dashd` and the CLI.
@@ -323,7 +323,7 @@ surface says it.
   `delete_route` form action, `arizuko route rm`
 - **Source:** read 2026-09-25 while sweeping `L364`'s class;
   `routd/reads.go:86`, `onbod/main.go:1467`, `cmd/arizuko/route.go:117`
-- **Status:** open
+- **Status:** ✅ FIXED 2026-09-25
 - **Fix — one reader, and it names what it did:**
   1. `routd.DB.GetRoute` delegates to `store.RouteByID` and maps `ok=false` to
      `ErrNoRoute`. The duplicate scan goes.

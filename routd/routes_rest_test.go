@@ -13,13 +13,16 @@ package routd
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/kronael/arizuko/core"
 	apiv1 "github.com/kronael/arizuko/routd/api/v1"
 	"github.com/kronael/arizuko/router"
+	"github.com/kronael/arizuko/store"
 )
 
 // TestRESTRouteParity: POST add → GET list → GET-one → DELETE all run the shared
@@ -262,4 +265,42 @@ func listTargets(t *testing.T, h http.Handler) map[string]bool {
 		out[v.Target] = true
 	}
 	return out
+}
+
+// TestRouteByIDAmbiguity_IsAConflictAndNotAnArbitraryRow pins BUGS L366. routd
+// used to answer "which rule does this id name" with its own scan over
+// RouteTable() and return the first match — the loop L364 removed from the store,
+// re-implemented one package up, and the row it returned is what the agent's
+// delete_route bound the caller's folder to.
+//
+// The seed is two rules carrying one id, which is what the marinade merge left on
+// sloth. AddRoute writes a stated id, so the collision goes in directly.
+func TestRouteByIDAmbiguity_IsAConflictAndNotAnArbitraryRow(t *testing.T) {
+	db, h := authSrv(t, fakeVerifier{sub: "user:u",
+		scope: []string{"routes:write:own_group", "routes:read:own_group"}, folder: "hq"})
+	_ = db.PutGroup(core.Group{Folder: "hq"})
+	for _, r := range []core.Route{
+		{ID: 37, Seq: 1, Target: "hq", Match: "room=group/1"},
+		{ID: 37, Seq: 31, Target: "hq#observe", Match: "room=group/2"},
+	} {
+		if _, err := db.AddRoute(r); err != nil {
+			t.Fatalf("seed %q: %v", r.Target, err)
+		}
+	}
+
+	if _, err := db.GetRoute(37); !errors.Is(err, store.ErrRouteIDAmbiguous) {
+		t.Fatalf("GetRoute(37) err = %v, want store.ErrRouteIDAmbiguous: a first match "+
+			"hands the authz check an arbitrary rule", err)
+	}
+
+	// The surface says so: 409, and the body carries both coordinates.
+	r := doJSON(t, h, "GET", "/v1/routes/37", "", nil)
+	if r.Code != 409 {
+		t.Fatalf("GET /v1/routes/37 = %d want 409, body=%s", r.Code, r.Body.String())
+	}
+	for _, want := range []string{"room=group/1", "room=group/2"} {
+		if !strings.Contains(r.Body.String(), want) {
+			t.Errorf("409 body = %s, want the coordinate %q", r.Body.String(), want)
+		}
+	}
 }

@@ -106,7 +106,18 @@ func runRouteAdd(s *store.Store, seq int, match, target string, w io.Writer) err
 	return nil
 }
 
+// runRouteRm removes one rule and names the ROW it removed, not the handle the
+// operator typed. `route rm 37` printing "removed route 37" is what let BUGS
+// `L364` run: 37 was still in the table and another rule was gone. The read also
+// puts an ambiguous id's refusal before the write.
 func runRouteRm(s *store.Store, id int64, w io.Writer) error {
+	r, ok, err := s.RouteByID(id)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("no route %d", id)
+	}
 	n, err := s.DeleteRoute(id)
 	if err != nil {
 		return err
@@ -114,6 +125,10 @@ func runRouteRm(s *store.Store, id int64, w io.Writer) error {
 	if n == 0 {
 		return fmt.Errorf("no route %d", id)
 	}
-	fmt.Fprintf(w, "removed route %d\n", id)
+	match := r.Match
+	if match == "" {
+		match = "*"
+	}
+	fmt.Fprintf(w, "removed route %d: seq=%d %s <- %s\n", id, r.Seq, r.Target, match)
 	return nil
 }
