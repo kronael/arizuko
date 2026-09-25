@@ -696,12 +696,34 @@ Its service gains what a VMM needs and loses what Docker needed:
 - devices: `/dev/kvm`, `/dev/vhost-vsock`, `/dev/net/tun`;
 - `cap_add: [NET_ADMIN, SYS_ADMIN]` — taps and the tap rule set; the staging
   tree's bind mounts in runed's own mount namespace;
+- `security_opt: [apparmor=unconfined]`, because **the capability is not
+  sufficient**: AppArmor's `docker-default` denies `mount(2)` for every container
+  whatever its capabilities, so every turn failed to stage its tree with
+  `permission denied`. Measured both ways on krons 2026-09-25 — denied under the
+  profile, `bind OK` with the same image and the same one capability when it is
+  off (BUGS `L371`). Seccomp needs nothing: docker's default profile already
+  allows `mount` to a holder of `CAP_SYS_ADMIN`. A custom AppArmor profile that
+  permits this one mount is tighter and is the operator's artifact, not the
+  generator's;
+- **a mount for every host path a turn will show its guest**, at the same
+  absolute path, read-only: `HOST_CODEX_DIR` and each root in
+  `MOUNT_ALLOWED_ROOTS`. virtiofsd is runed's own child, so a guest can be shown
+  only what runed can open — the Docker substrate could name any host path
+  because the docker daemon opened it. Every turn in a folder with codex
+  credentials failed until the generator wrote these (BUGS `L370`), and the
+  in-data-dir half of the same rule is why `hp()` is gone (BUGS `L368`);
 - runs as root inside its container so `virtiofsd` can carry guest
   credentials to host files and the bind mounts can be made; `group_add`
   of the docker gid and the `docker.sock` volume go;
-- the `arizuko` image carries `qemu-system-x86_64`, the Rust `virtiofsd`, `socat`
-  and the `egress` binary, all four added 2026-09-24 — one `apk add` line plus one
+- the `arizuko` image carries `qemu-system-x86_64`, the Rust `virtiofsd`, `socat`,
+  `iptables`, `iproute2` and the `egress` binary — one `apk add` line plus one
   `COPY`, because Alpine packages the Rust daemon (§"The peer credential"). The
+  last two were missing until 2026-09-25 and each cost a deploy: with no
+  `iptables` the tap rule set cannot be written, and Alpine's `ip` is BusyBox's
+  applet, which has no `tuntap` subcommand at all — so the precondition's
+  `LookPath` passed and no guest got an interface (BUGS `L369`). A precondition on
+  a binary that has a capable and an incapable build under one name must run the
+  subcommand, the way the clamp check greps virtiofsd's `--help`. The
   image's QEMU is **9.0.2**, against the 7.2.22 every §"The engine" measurement
   was taken on, so microvm's device question is open on a newer VMM than the one
   that failed it. `docker-cli` (`Dockerfile:14`) goes at step 4, not here,
@@ -851,8 +873,23 @@ bench-boot` and the end-to-end turn run on a host with `/dev/kvm`.
    **2–3 days, including the `SECURITY.md`, `ARCHITECTURE.md`,
    `EXTENDING.md` and `runed/README.md` edits, the web docs, and the
    migration file with the `MIGRATION_VERSION` bump.**
-4. **Delete Docker from the turn path**, after fourteen green days on krons
-   and a green smoke on a second instance: `dockerRuntime`,
+4. **Delete Docker from the turn path** — **DONE 2026-09-25**, and the soak the
+   step asked for was WAIVED by the owner rather than served. The deletion landed
+   with the flip on krons in one session (`2a42a02a`, `23925150`, `1a7f1fed`,
+   `1e729401`, `244829b3`, `790d4389`), so the first instance to run the VM
+   substrate is also the first to have no Docker runtime to fall back to. Rolling
+   back is a git revert and a rebuild, not a setting — which is what the soak was
+   protecting and is the cost the owner accepted.
+
+   **Five defects were measured on the flip's own path**, four of them invisible
+   to every test because no test runs a real guest: the clamp sent a flag
+   virtiofsd does not have (`L367`), the image lacked `iptables` and `iproute2`
+   (`L369`), the mount table carried translated host paths (`L368`), the operator's
+   host paths had no mount into runed (`L370`), and `CAP_SYS_ADMIN` alone cannot
+   make a bind mount under docker-default (`L371`). Each was found by pointing the
+   new binary at a live instance's own configuration before or during the restart.
+
+   The original list, for the record: `dockerRuntime`,
    `container/network.go`, the container half of `container/egress.go`,
    `EGRESS_IMAGE`, `EGRESS_UPLINK_NETWORK`, `EGRESS_NETWORK_PREFIX`,
    `EGRESS_SUBNET`, and the `docker.sock` and `docker-cli` lines. **2–3
