@@ -266,8 +266,21 @@ that skips the sender reports a healthy chat.
 - **Source:** the marinade consolidation, 2026-09-18 (`L335`); found 2026-09-25
   while answering whether atlas is hooked into krons — it is not, and was never
   meant to be
-- **Status:** open. The platform half is a second `teled`, which `L335`'s own fix
-  already proved out for `slakd`; the credential and the deploy are the owner's.
+- **Status:** DECIDED 2026-09-25 — option 3. The owner's words: "atlas as a bot on
+  telegram is now dead for now", and atlas stays a coding assistant **on sloth**.
+  So the bot is not restored and the four unreachable routes are dead by
+  intention, not by accident.
+
+  Two things follow, and neither is an edit I may make. The four rows still sit in
+  sloth's live route table and still advertise ingress that cannot arrive, so the
+  table lies until an operator removes them — one `arizuko route delete` per row,
+  live data, the owner's. And **"for now" is why the token still matters**: the
+  only copy of `@mnde_atlas_bot`'s token is in
+  `/srv/data/tmp_removed_marinade_20260925`, so deleting that tree ends the option
+  to revive it. Copy the token out first if "for now" might end.
+
+  A new Telegram account for sloth is the owner's too — BotFather is not
+  something this repo can reach.
 - **Fix — one of three, and it is a decision:**
   1. **Serve the atlas bot on sloth**, the shape that fixed `L335`: a second
      Telegram adapter beside `teled`, exactly as krons already runs
