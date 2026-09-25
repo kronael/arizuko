@@ -120,18 +120,30 @@ func TestRenderTurnGolden(t *testing.T) {
 		t.Errorf("Folder=%q", turn.Folder)
 	}
 
+	// Every source is the path RUNED sees, and cfg carries HOST_DATA_DIR
+	// (`/srv/data/arizuko_krons`) on purpose: the renderer must IGNORE it. It used
+	// to translate every line through it, for the Docker substrate that handed the
+	// path to the docker daemon on the host. virtiofsd is runed's own child, so a
+	// translated path is a path that does not exist — which failed every turn on
+	// krons (BUGS `L368`). A `/srv/data/` prefix in this list is that bug.
 	wantMounts := []string{
-		"/srv/data/arizuko_krons/groups/atlas/support -> /home/node",
-		"/srv/data/arizuko_krons/app-src -> /opt/arizuko ro",
-		"/srv/data/arizuko_krons/groups/atlas/share -> /var/lib/share ro",
-		"/srv/data/arizuko_krons/ipc/atlas/support -> /run/ipc",
-		"/srv/data/arizuko_krons/groups/atlas/support/.codex -> /home/node/.codex",
+		root + "/groups/atlas/support -> /home/node",
+		root + "/app-src -> /opt/arizuko ro",
+		root + "/groups/atlas/share -> /var/lib/share ro",
+		root + "/ipc/atlas/support -> /run/ipc",
+		root + "/groups/atlas/support/.codex -> /home/node/.codex",
 		root + "/codexhost/auth.json -> /home/node/.codex/auth.json ro",
 		root + "/codexhost/config.toml -> /home/node/.codex/config.toml ro",
 		root + "/extra -> /mnt/extra ro",
-		"/srv/data/arizuko_krons/web/pub -> /var/lib/www ro",
-		"/srv/data/arizuko_krons/web/pub/atlas/support -> /home/node/public_html",
-		"/srv/data/arizuko_krons/web/priv/atlas/support -> /home/node/private_html",
+		root + "/web/pub -> /var/lib/www ro",
+		root + "/web/pub/atlas/support -> /home/node/public_html",
+		root + "/web/priv/atlas/support -> /home/node/private_html",
+	}
+	for _, line := range wantMounts {
+		if strings.HasPrefix(line, "/srv/data/") {
+			t.Fatalf("this list asserts a translated host path (%q): the substrate cannot "+
+				"reach it (BUGS L368)", line)
+		}
 	}
 	if got := mountLines(turn.Mounts); strings.Join(got, "\n") != strings.Join(wantMounts, "\n") {
 		t.Errorf("mount table\n got:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(wantMounts, "\n"))
@@ -225,15 +237,15 @@ func TestRenderTurnGoldenElevated(t *testing.T) {
 	}, "arizuko-krons-main-1700000000000", 0)
 
 	wantMounts := []string{
-		"/srv/data/arizuko_krons/groups/main -> /home/node",
-		"/srv/data/arizuko_krons/app-src -> /opt/arizuko ro",
-		"/srv/data/arizuko_krons/groups/share -> /var/lib/share",
-		"/srv/data/arizuko_krons/ipc/main -> /run/ipc",
-		"/srv/data/arizuko_krons/groups/main/.codex -> /home/node/.codex",
+		root + "/groups/main -> /home/node",
+		root + "/app-src -> /opt/arizuko ro",
+		root + "/groups/share -> /var/lib/share",
+		root + "/ipc/main -> /run/ipc",
+		root + "/groups/main/.codex -> /home/node/.codex",
 		root + "/codexhost/auth.json -> /home/node/.codex/auth.json ro",
 		root + "/codexhost/config.toml -> /home/node/.codex/config.toml ro",
-		"/srv/data/arizuko_krons/web/pub/arizuko -> /var/lib/www/arizuko ro",
-		"/srv/data/arizuko_krons/groups -> /var/lib/groups",
+		root + "/web/pub/arizuko -> /var/lib/www/arizuko ro",
+		root + "/groups -> /var/lib/groups",
 	}
 	if got := mountLines(turn.Mounts); strings.Join(got, "\n") != strings.Join(wantMounts, "\n") {
 		t.Errorf("mount table\n got:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(wantMounts, "\n"))

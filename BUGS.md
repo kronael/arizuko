@@ -224,6 +224,57 @@ instance layout to drive.
   literal; it asserts what the declaration is for, that `EnvOr` on an unset var
   resolves to the shared default.
 
+## L368 — the mount table carries HOST paths and virtiofsd runs inside runed, so every VM turn fails to stage its tree (2026-09-25, open)
+
+**Measured on krons, 2026-09-25, on the first turn after the flip:**
+
+```
+run outcome error folder=krons/content turn_id=cli-1790375856053172002
+  err="staging tree: mount source /srv/data/arizuko_krons/groups/krons/content
+       (guest /home/node): stat …: no such file or directory" retry_count=3
+```
+
+The path exists. It does not exist FOR RUNED:
+
+```
+$ sudo ls -d /srv/data/arizuko_krons/groups/krons/content        # host: exists
+$ docker exec arizuko_runed_krons ls -d /srv/data/arizuko_krons/…  # No such file
+$ docker exec arizuko_runed_krons ls -d /srv/app/home/groups/krons/content  # exists
+```
+
+Every turn fails, on every folder, three retries each, and the fleet reports
+healthy: runed answers `/health`, the substrate line says `backend=kvm`, and the
+only symptom is a WARN per turn.
+
+**`runed/mounts.go` `hp()` translates every mount source to the path the HOST
+sees** — `HOST_DATA_DIR` over `ProjectRoot`, eleven call sites. That was right
+for the Docker substrate and only for it: runed handed the path to the docker
+DAEMON, a process on the host, which resolved it there. virtiofsd is not on the
+host. runed starts it as its own child, inside its own mount namespace, so the
+only path that can work is the one runed itself sees. The translation is now
+exactly backwards.
+
+Its doc comment says so, read after the fact: "maps a path as runed sees it to
+the path the substrate's host sees, for the deployments where runed itself runs
+in a container." The substrate's host WAS a different machine-eye-view; now it
+is runed.
+
+- **Severity:** high (no turn runs on the flipped instance; the fleet looks
+  healthy while every turn fails)
+- **Scope:** `runed/mounts.go`, `core/config.go`
+- **Affected:** every mount of every turn under the VM substrate; `hp`,
+  `Config.HostProjectRoot`, `HOST_DATA_DIR` as runed reads it
+- **Source:** measured on krons 2026-09-25 (above) after the 6/41 step 4 flip;
+  `runed/mounts.go:214-225`
+- **Status:** open
+- **Fix:** `hp()` goes, with its eleven call sites, so `Mount.Host` is the path
+  runed sees. The renderer's test asserted the TRANSLATED path in eleven lines,
+  which is why nothing caught this: it pinned the docker-sibling behaviour, and
+  it now pins the substrate's. `HOST_DATA_DIR` stays a compose fact — compose
+  writes bind sources the docker daemon resolves, and a package fragment
+  interpolates it — but runed stops reading it. `Config.HostProjectRoot` keeps
+  one reader, proxyd's audit path, which is a separate question.
+
 ## ✅ FIXED 2026-09-25 L367 — the QEMU substrate starts `virtiofsd` with a flag it does not have, so every VM turn would fail its share (2026-09-25)
 
 `runed/qemu.go` `virtiofsdArgs` renders the clamp as `--translate-uid=` and
@@ -5720,7 +5771,17 @@ no file is wanted. Both are now recorded as deliberate, not missing.
   renaming `whatsapp.md`→`whapd.md` fails the test, which is the real failure
   mode — the channel is the JID scheme, never the daemon name.
 
-## L24 — a fresh instance ships with egress isolation OFF, while the docs describe it as the model (2026-08-15, docs + discoverability halves FIXED 2026-09-21 on the path operators actually use; the DEFAULT is one signed sentence away)
+## ✅ FIXED 2026-09-25 L24 — a fresh instance ships with egress isolation OFF, while the docs describe it as the model (2026-08-15, closed by construction 2026-09-25)
+
+**CLOSED BY THE SUBSTRATE, not by a signed default.** The question this entry
+held open — should isolation default on — stopped existing when spec `6/41` step 4
+deleted the Docker turn path. A turn is a KVM guest whose only interface is one
+tap, the tap's rule set accepts that guest's own proxy and drops everything else,
+and runed refuses to start when the proxy binary is missing. There is no
+`EGRESS_IMAGE` to leave empty: `arizuko create` and `template/env.example` write
+none, and the four `EGRESS_*` settings are gone from `core.Config` and from the
+generated env. `TestCreateEnvCarriesNoEgressSwitch` inverts the old guard, so a
+re-introduced switch fails it.
 
 **RE-MEASURED 2026-09-20 and the switch has been renamed since this was
 filed.** It is `EGRESS_IMAGE`, not `CRACKBOX_ADMIN_API`: `core/config.go:242`

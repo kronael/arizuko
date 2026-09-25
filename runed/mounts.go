@@ -41,18 +41,25 @@ func buildMounts(
 	elevated := req.Elevated
 	var m []core.Mount
 
+	// EVERY Host path here is the path RUNED sees, never a translated host path.
+	// The substrate resolves these itself: virtiofsd is runed's own child, in
+	// runed's own mount namespace. `hp()` used to map each one through
+	// HOST_DATA_DIR because the Docker substrate handed the path to the docker
+	// DAEMON, a process on the host — and after the flip that made every turn
+	// fail to stage its tree, on every folder, while the fleet reported healthy
+	// (BUGS `L368`). HOST_DATA_DIR remains a compose fact; runed does not read it.
+
 	m = append(m, core.Mount{
-		Host:      hp(cfg, groupDir),
+		Host:      groupDir,
 		Container: core.ContainerHome,
 	})
 	media := filepath.Join(groupDir, "media")
 	os.MkdirAll(media, 0o755)
 
 	// The staged copy of the release's `ant/`, not HOST_APP_DIR: see
-	// container.MaterializeAppSrc. hp() because the path is the data dir as
-	// runed sees it and the substrate resolves bind sources on the host.
+	// container.MaterializeAppSrc.
 	m = append(m, core.Mount{
-		Host:      hp(cfg, filepath.Join(cfg.ProjectRoot, container.AppSrcDir)),
+		Host:      filepath.Join(cfg.ProjectRoot, container.AppSrcDir),
 		Container: "/opt/arizuko",
 		RO:        true,
 	})
@@ -65,7 +72,7 @@ func buildMounts(
 	share := filepath.Join(cfg.GroupsDir, world, "share")
 	os.MkdirAll(share, 0o755)
 	m = append(m, core.Mount{
-		Host:      hp(cfg, share),
+		Host:      share,
 		Container: "/var/lib/share",
 		RO:        req.ShareReadOnly, // 5/33-paths-roles: a `share_mount(readonly=true)` grant downgrades to RO
 	})
@@ -76,7 +83,7 @@ func buildMounts(
 	if err == nil {
 		os.MkdirAll(groupfolder.IpcInputDir(ipcDir), 0o755)
 		m = append(m, core.Mount{
-			Host:      hp(cfg, ipcDir),
+			Host:      ipcDir,
 			Container: ipcMount,
 		})
 	}
@@ -88,7 +95,7 @@ func buildMounts(
 		runnerSrc := filepath.Join(cfg.HostAppDir, "ant", "src")
 		if _, err := os.Stat(runnerSrc); err == nil {
 			m = append(m, core.Mount{
-				Host:      hp(cfg, runnerSrc),
+				Host:      runnerSrc,
 				Container: "/app/src",
 			})
 		}
@@ -105,7 +112,7 @@ func buildMounts(
 	// afterwards found nothing.
 	groupCodex := filepath.Join(groupDir, ".codex")
 	os.MkdirAll(groupCodex, 0o755)
-	m = append(m, core.Mount{Host: hp(cfg, groupCodex), Container: core.ContainerHome + "/.codex"})
+	m = append(m, core.Mount{Host: groupCodex, Container: core.ContainerHome + "/.codex"})
 	if cfg.HostCodexDir != "" {
 		container.SeedCodexMountTargets(groupCodex)
 		runUID, _ := container.RunUID()
@@ -162,7 +169,7 @@ func buildMounts(
 	}
 	if fi, err := os.Stat(webHost); err == nil && fi.IsDir() {
 		m = append(m, core.Mount{
-			Host:      hp(cfg, webHost),
+			Host:      webHost,
 			Container: webTarget,
 			RO:        true,
 		})
@@ -173,7 +180,7 @@ func buildMounts(
 		pubGroupHost := filepath.Join(cfg.WebDir, "pub", folder)
 		mkSlot(pubGroupHost)
 		m = append(m, core.Mount{
-			Host:      hp(cfg, pubGroupHost),
+			Host:      pubGroupHost,
 			Container: filepath.Join(core.ContainerHome, "public_html"),
 		})
 
@@ -181,7 +188,7 @@ func buildMounts(
 		privGroupHost := filepath.Join(cfg.WebDir, "priv", folder)
 		mkSlot(privGroupHost)
 		m = append(m, core.Mount{
-			Host:      hp(cfg, privGroupHost),
+			Host:      privGroupHost,
 			Container: filepath.Join(core.ContainerHome, "private_html"),
 		})
 	}
@@ -191,7 +198,7 @@ func buildMounts(
 	// elimination). A normal top-level spawn is a tenant, confined to its own home.
 	if elevated {
 		m = append(m, core.Mount{
-			Host:      hp(cfg, cfg.GroupsDir),
+			Host:      cfg.GroupsDir,
 			Container: "/var/lib/groups",
 		})
 	}
@@ -209,19 +216,6 @@ func worldOf(folder string, elevated bool) string {
 		return before
 	}
 	return folder
-}
-
-// hp maps a path as runed sees it to the path the substrate's host sees, for
-// the deployments where runed itself runs in a container.
-func hp(cfg *core.Config, local string) string {
-	if cfg.HostProjectRoot == "" {
-		return local
-	}
-	if !strings.HasPrefix(local, cfg.ProjectRoot) {
-		return local
-	}
-	rel, _ := filepath.Rel(cfg.ProjectRoot, local)
-	return filepath.Join(cfg.HostProjectRoot, rel)
 }
 
 // mkSlot is the spawn-time backstop for a web slot container.SetupGroup should
