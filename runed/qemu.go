@@ -48,9 +48,8 @@ type qemuRuntime struct {
 // naming what is missing, rather than starting an instance that cannot run a
 // turn safely.
 //
-// The check is at runed START, not per turn, for the reason container's docker
-// liveness check is (container/runtime.go EnsureRunning): a missing input found
-// per spawn is a fleet that looks healthy and answers nothing. The uid clamp is
+// The check is at runed START and not per turn: a missing input found per turn is
+// a fleet that looks healthy and answers nothing. The uid clamp is
 // in the list because without it every folder gets a host-root write it keeps
 // after the guest is gone, so an instance that cannot clamp must not run turns.
 func NewQemuRuntime(cfg *core.Config, folders *groupfolder.Resolver) (Runtime, substrate.Effective, error) {

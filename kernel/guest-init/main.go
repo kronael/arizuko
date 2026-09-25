@@ -145,10 +145,9 @@ const (
 	// socket before a spawn as well.
 	socketWait = 5 * time.Second
 	// stopGrace is how long the agent gets after {stop}'s SIGTERM before the
-	// guest powers off regardless (spec §"Steer and stop"). It is docker's own
-	// default stop timeout, which is the grace the agent has today
-	// (container/runtime.go StopContainerArgs passes no -t), so the agent's
-	// wrap-up window does not change with the substrate. The host stops waiting
+	// guest powers off regardless (spec §"Steer and stop"). It is the 10 s docker
+	// used to give a stopping container, which is the grace the agent had before
+	// the substrate changed, so its wrap-up window did not move. The host stops waiting
 	// for the exit frame after RUNED_REAP_GRACE (5 s default) and SIGKILLs QEMU,
 	// so an agent that needs the whole grace ends as a timeout either way —
 	// shortening the agent's window to make the frame arrive would trade a

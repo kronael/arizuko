@@ -13,41 +13,6 @@ func mustMkdir(t *testing.T, p string) {
 	}
 }
 
-// dockerUp reports whether a docker daemon is reachable (EnsureRunning passes).
-func dockerUp() bool { return EnsureRunning() == nil }
-
-// TestEnsureRunningReflectsDaemon: EnsureRunning is the runed startup preflight
-// (main.go exits 1 on its error). It returns nil iff the container runtime is
-// reachable, a non-nil error otherwise — the signal main.go gates the daemon
-// boot on. We assert the contract against whatever this host reports (daemon
-// up → nil; down/absent → error), so the test is deterministic either way.
-func TestEnsureRunningReflectsDaemon(t *testing.T) {
-	err := EnsureRunning()
-	// `docker info` exit status is the ground truth; cross-check the function.
-	if dockerUp() != (err == nil) {
-		t.Fatalf("EnsureRunning err=%v inconsistent with daemon reachability", err)
-	}
-	if err != nil && err.Error() == "" {
-		t.Fatal("EnsureRunning returned a non-nil but empty error")
-	}
-}
-
-// TestCleanupOrphansNoPanic: CleanupOrphans is the runed startup orphan-reap
-// (main.go calls it after EnsureRunning). It must never panic regardless of
-// docker reachability — with no daemon it logs a warning and returns; with a
-// daemon and no matching containers it's a no-op. Either path is a clean
-// return. This pins the "startup never crashes on the reap" contract.
-func TestCleanupOrphansNoPanic(t *testing.T) {
-	// A throwaway instance/image name that matches nothing real, so even with a
-	// live daemon this stops zero containers.
-	CleanupOrphans("runed-test-nonexistent-instance", "arizuko-test-nonexistent-image:none")
-	CleanupOrphans("", "") // the both-empty path (prefix=arizuko-, no image filter).
-}
-
-// The RO overmount targets exist after the seed, so the docker daemon never
-// has to materialize them. The daemon creates them root-owned inside the
-// group's bind-mounted .codex/, which is the EPERM runed then reports on every
-// restart (BUGS L156).
 func TestSeedCodexMountTargetsCreatesTheTargets(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), ".codex")
 	mustMkdir(t, dir)

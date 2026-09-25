@@ -19,9 +19,9 @@ import (
 //
 // It carries EVERY pid the turn starts, not only QEMU's, because the disk scan
 // is the only thing that reaps after a runed crash and it can reap only what the
-// record names. The Docker substrate finds a turn's second process by container
-// label (container/runtime.go CleanupOrphans); with four host processes and no
-// label, the record IS the label (spec 6/41 §"What moves into `runed`").
+// record names. A container substrate finds a turn's second process by container
+// label; with four host processes and no label, the record IS the label (spec
+// 6/41 §"What moves into `runed`").
 //
 // runed keeps no in-memory index of guests: this file and the pid table are the
 // one source of truth, so two readers of the same instance see the same set.
