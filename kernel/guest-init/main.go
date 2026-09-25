@@ -289,11 +289,21 @@ func mountBase(probe map[string]string) {
 		probe["virtiofs_error"] = err.Error()
 	} else {
 		probe["virtiofs"] = "mounted"
-		// Write as uid 0 from inside the guest. The host must see the file owned by
-		// the single id virtiofsd's user namespace maps, whatever the guest claims
-		// (spec §"The peer credential"). This is the uid clamp's guest half.
+		// The clamp measured from inside the guest, BOTH ways, because both answers
+		// are the property (spec §"The peer credential"): a write as the agent's uid
+		// lands on the host as the folder's owner, and a write as uid 0 is REFUSED,
+		// because the share's daemon is unprivileged and cannot own a file for
+		// anyone else. A "root_write":"ok" here would be the hole this exists to
+		// close.
 		probe["guest_uid"] = itoa(syscall.Getuid())
-		if err := os.WriteFile("/turn/from-guest.txt", []byte("written-as-uid-0\n"), 0o644); err != nil {
+		if err := os.WriteFile("/turn/from-guest-root.txt", []byte("as-uid-0\n"), 0o644); err == nil {
+			probe["root_write"] = "ok — THE CLAMP IS OFF"
+		} else {
+			probe["root_write"] = "refused"
+		}
+		if err := asAgent(func() error {
+			return os.WriteFile("/turn/from-guest.txt", []byte("as-the-agent\n"), 0o644)
+		}); err != nil {
 			probe["turn_write_error"] = err.Error()
 		} else {
 			probe["turn_write"] = "ok"
@@ -528,6 +538,15 @@ func createOnShare(what string, create func() error) error {
 // (runed/vmtree.go stageTargets), and a directory target for a file source is
 // ENOTDIR at mount time.
 func ensureTarget(op mountOp) error {
+	// A mount point that is ALREADY THERE needs no write, and on the share that is
+	// the difference between working and not: the share's daemon is unprivileged,
+	// so a create it must perform for another uid is refused, while an existing
+	// file is just a path to mount over. The codex credentials are exactly this
+	// case — `groups/<folder>/.codex/auth.json` is seeded on the host and the guest
+	// only overmounts it (BUGS `L373`).
+	if _, err := os.Stat(op.Target); err == nil {
+		return nil
+	}
 	if op.FS == "" {
 		if fi, err := os.Stat(op.Source); err == nil && !fi.IsDir() {
 			dir := filepath.Dir(op.Target)
