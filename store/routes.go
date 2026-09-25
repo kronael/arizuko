@@ -194,6 +194,59 @@ func (s *Store) RouteTable() ([]core.Route, error) {
 	return s.allRoutes(context.Background())
 }
 
+// mintRouteIDs draws n ids NO rule holds. The counter is the arbiter between two
+// concurrent adds — it is a compare-and-swap — and the TABLE is what says which
+// numbers are taken, because every writer that STATES an id leaves the counter
+// where it was: a restore states the ids it exported (resreg's mintNumbers
+// numbers the row set and writes the items directly), and the marinade merge
+// stated them by copying items, through no writer at all. A mint that trusted
+// the counter alone handed out an id a rule already held, and then routeByID
+// refuses BOTH rules and neither can be deleted (BUGS `L365`, `L364`).
+//
+// The draw is bounded by the rows read: each draw burns one counter value and
+// the counter only rises, so at most len(held) draws can land on a held id.
+func (s *Store) mintRouteIDs(ctx context.Context, n int) ([]int64, error) {
+	items, err := s.Obj().Query(ctx, objstore.Query{Entity: Routes, Partition: OwnerRoutd})
+	if err != nil {
+		return nil, fmt.Errorf("read routes: %w", err)
+	}
+	held := make(map[int64]bool, len(items))
+	for _, it := range items {
+		r, err := routeFrom(it)
+		if err != nil {
+			return nil, err
+		}
+		held[r.ID] = true
+	}
+	out := make([]int64, 0, n)
+	for range n + len(held) {
+		if len(out) == n {
+			return out, nil
+		}
+		v, err := s.nextNumber(ctx, OwnerRoutd, CounterRouteID)
+		if err != nil {
+			return nil, fmt.Errorf("mint a route id: %w", err)
+		}
+		if !held[int64(v)] {
+			out = append(out, int64(v))
+		}
+	}
+	if len(out) == n {
+		return out, nil
+	}
+	return nil, fmt.Errorf("could not draw %d route id(s) the table does not already hold "+
+		"after %d tries; the counter or the table is being written under this call", n, n+len(held))
+}
+
+// mintRouteID draws one id no rule holds.
+func (s *Store) mintRouteID(ctx context.Context) (int64, error) {
+	ids, err := s.mintRouteIDs(ctx, 1)
+	if err != nil {
+		return 0, err
+	}
+	return ids[0], nil
+}
+
 // routeByID finds the item one id names. The id is an ATTRIBUTE, so this reads
 // the table and compares.
 func (s *Store) routeByID(ctx context.Context, id int64) (objstore.Item, core.Route, bool, error) {
@@ -261,11 +314,11 @@ func (s *Store) putRoute(ctx context.Context, r core.Route, addedBy, addedVia st
 		return 0, err
 	}
 	if r.ID == 0 {
-		n, err := s.nextNumber(ctx, OwnerRoutd, CounterRouteID)
+		id, err := s.mintRouteID(ctx)
 		if err != nil {
-			return 0, fmt.Errorf("mint a route id: %w", err)
+			return 0, err
 		}
-		r.ID = int64(n)
+		r.ID = id
 	}
 	w := objstore.Write{
 		Op: objstore.Put, Entity: Routes, Key: key, Attrs: routeAttrs(r, addedBy, addedVia),
@@ -307,11 +360,11 @@ func (s *Store) AddRoute(r core.Route) (int64, error) {
 		return 0, err
 	}
 	if r.ID == 0 {
-		n, err := s.nextNumber(ctx, OwnerRoutd, CounterRouteID)
+		id, err := s.mintRouteID(ctx)
 		if err != nil {
-			return 0, fmt.Errorf("mint a route id: %w", err)
+			return 0, err
 		}
-		r.ID = int64(n)
+		r.ID = id
 	}
 	actor, actorSub, surface := s.auditIdentity()
 	created, err := s.tryWriteAudited(func() ([]objstore.Write, audit.Event, error) {
@@ -513,7 +566,7 @@ func (s *Store) ListRoutes(folder string, isRoot bool) []core.Route {
 // THE RULE IS LOOKED UP BEFORE THE WRITE: an add is idempotent, and a buffered
 // write has no verdict to read back. A rule another caller creates between
 // that read and the batch REFUSES the guarded create: loud, rather than an id
-// no row carries. The id is minted BEFORE anything is buffered (nextNumber).
+// no row carries. The id is minted BEFORE anything is buffered (mintRouteID).
 func (s *Store) PutRouteInto(ctx context.Context, ws *WriteSet, r core.Route,
 	addedBy, addedVia string, refused error) (int64, error) {
 	if MatchesWebJID(r.Match) {
@@ -531,11 +584,11 @@ func (s *Store) PutRouteInto(ctx context.Context, ws *WriteSet, r core.Route,
 		return held, nil
 	}
 	if r.ID == 0 {
-		n, nerr := s.nextNumber(ctx, OwnerRoutd, CounterRouteID)
+		id, nerr := s.mintRouteID(ctx)
 		if nerr != nil {
-			return 0, fmt.Errorf("mint a route id: %w", nerr)
+			return 0, nerr
 		}
-		r.ID = int64(n)
+		r.ID = id
 	}
 	if err := ws.AddGuarded(refused, objstore.Write{
 		Op: objstore.Put, Entity: Routes, Key: key, Attrs: routeAttrs(r, addedBy, addedVia),
@@ -576,15 +629,17 @@ func (s *Store) ReplaceFolderRoutesInto(ctx context.Context, ws *WriteSet, folde
 	routes []core.Route, addedBy, addedVia string) error {
 	puts := make([]objstore.Write, 0, len(routes))
 	replaced := make(map[string]bool, len(routes))
-	for _, r := range routes {
+	// One draw for the whole set: the ids are read off the table once, not once
+	// per rule.
+	ids, err := s.mintRouteIDs(ctx, len(routes))
+	if err != nil {
+		return err
+	}
+	for i, r := range routes {
 		if MatchesWebJID(r.Match) {
 			return ErrWebJIDRouted
 		}
-		n, err := s.nextNumber(ctx, OwnerRoutd, CounterRouteID)
-		if err != nil {
-			return fmt.Errorf("mint a route id: %w", err)
-		}
-		r.ID = int64(n)
+		r.ID = ids[i]
 		key, err := routeKey(r)
 		if err != nil {
 			return err

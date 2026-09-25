@@ -165,7 +165,7 @@ var ErrGitHubSourceExists = errors.New("github source already registered")
 // attribute. The source item is the one write that may refuse (refused is
 // ErrGitHubSourceExists' place); the seeded rules are Merges that tolerate a
 // rule already there. Every route id is minted before anything is buffered
-// (nextNumber).
+// (mintRouteIDs).
 func (s *Store) AddGitHubSourceInto(ctx context.Context, ws *WriteSet, src GitHubSource,
 	target string, refused error) (string, error) {
 	if _, _, err := ParseGitHubSourceKey(src.Source); err != nil {
@@ -178,12 +178,12 @@ func (s *Store) AddGitHubSourceInto(ctx context.Context, ws *WriteSet, src GitHu
 	if err != nil {
 		return "", err
 	}
+	ids, err := s.mintRouteIDs(ctx, len(routes))
+	if err != nil {
+		return "", err
+	}
 	for i := range routes {
-		n, err := s.nextNumber(ctx, OwnerRoutd, CounterRouteID)
-		if err != nil {
-			return "", fmt.Errorf("mint a route id: %w", err)
-		}
-		routes[i].ID = int64(n)
+		routes[i].ID = ids[i]
 	}
 	secret := GenRouteToken()
 	sealed, err := s.storeValue(secret)

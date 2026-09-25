@@ -224,6 +224,117 @@ instance layout to drive.
   literal; it asserts what the declaration is for, that `EnvOr` on an unset var
   resolves to the shared default.
 
+## ✅ FIXED 2026-09-25 L365 — `add_route` mints an id a restored rule already holds, and `L364`'s refusal then makes BOTH rules undeletable (2026-09-25)
+
+`L364` fixed the READ: an ambiguous route id refuses instead of destroying an
+arbitrary rule. It said the duplicates came from the marinade merge and that
+`AddRoute` cannot produce one. **The second half of that sentence is false.**
+Measured 2026-09-25 with a probe test on an empty store:
+
+```go
+s.PutRouteRow(core.Route{ID: 1, ...})   // what a restore states
+s.PutRouteRow(core.Route{ID: 2, ...})
+id, _ := s.AddRoute(core.Route{...})    // id == 1
+```
+
+`AddRoute` minted **1**, an id a rule already held. So the collision `L364`
+blamed on an operator's item-level copy is reachable through the ordinary API,
+and the rule that lands is unaddressable from the moment it is written: with
+`L364` in place `routeByID` refuses the id, so `route rm`, `delete_route` and
+`update_route` now refuse BOTH rules. The table can only be repaired by an
+item-level write.
+
+**Two mints, one counter, and only one of them reads it.** `store.putRoute`
+mints from `store.Counters` (`CounterRouteID`), the compare-and-swap that makes
+two concurrent adds one winner. The apply path mints differently:
+`resreg/entity.go` `mintNumbers` numbers every unset id "one past the LARGEST
+the set already states" and writes the items directly. Nothing in `resreg`
+touches `Counters` — `grep -rn 'Counters' --include=*.go .` names only
+`store/entities.go`, `store/scopes.go`, `store/routes.go`'s comment and the
+objstore conformance suite. So every writer that STATES an id leaves the counter
+where it was:
+
+- `arizuko apply <manifest>` and `arizuko archive apply` — a restore states the
+  ids it exported, and `arizuko packages install` applies its rows through the
+  same path (`cmd/arizuko/README.md`).
+- `store.PutRouteRow` with a non-zero `ID` (`routd.DB.AddRoute`, the
+  dashd-playwright seed, `cmd/arizuko/main.go`'s setup rows).
+- `ensureCounters` seeds a NEW counter at zero and leaves an existing one alone,
+  so a restore onto a fresh instance starts the counter at 0 under a table whose
+  ids run to N.
+
+**Bumping the counter in each writer would not have stopped the incident.** The
+marinade merge was an item-level copy and went through no writer at all. The
+invariant that holds for both doors is on the MINT: a minted id is not one a
+rule already holds.
+
+- **Severity:** high (a restored instance's first `add_route` writes an
+  unaddressable rule, and takes a second rule down with it)
+- **Scope:** `store/routes.go`
+- **Affected:** `putRoute`, `AddRoute`, `PutRouteRow`, `add_route`, every
+  instance created by `arizuko apply` / `archive apply` / `packages install`
+- **Source:** measured 2026-09-25 by a probe test on an empty store (above);
+  `resreg/entity.go:518-552`; `store/entities.go:200-239`
+- **Status:** ✅ FIXED 2026-09-25
+- **Fix:** the mint skips an id the table already holds. `putRoute` reads the
+  partition once and draws from `CounterRouteID` until the number is free, so
+  the counter stays the arbiter between two concurrent adds and the table is
+  what says which numbers are taken. The test states two ids a restore carries
+  and asserts the next `AddRoute` collides with neither. It does NOT re-mint
+  sloth's existing duplicates: that is live data and stays `L364` half two.
+
+## L366 — three readers answer "which rule does this id name", and `L364`'s refusal reaches neither the agent's surface nor the operator's web UI (2026-09-25, open)
+
+`L364` put the refusal in `store.routeByID`. Two of the three by-id readers do
+not go through it, so the guarantee stops at `dashd` and the CLI.
+
+**`routd.DB.GetRoute` is a second reader, and it first-matches.**
+`routd/reads.go:86-97` reads `RouteTable()` and returns the first `r.ID == id` —
+the exact loop `L364` removed from the store, re-implemented one package up. Its
+own comment says why it exists: `store.GetRoute` collapses "absent" and
+"unreadable" into one `false`. It is the reader behind `GET /v1/routes/{id}`
+(`routd/routes_http.go:112`) and behind the agent's `delete_route` (
+`routd/routes_resource.go:180`), where the route it returns is what `contain`
+binds the caller's folder to. On sloth's six duplicated ids it authorizes
+against one row while the store then refuses to delete either — and before
+`L364` it authorized against `main/*` and deleted `atlas/*`.
+
+**`store.GetRoute` drops the error, so the operator's own UI reports the
+refusal as a 404.** `onbod/main.go:1467` is its only caller:
+`route, ok := db.GetRoute(id)` → `http.Error(w, "route not found", 404)`. An
+operator told "route not found" about a rule that is still firing goes and
+creates a second one — the cost `dashstore.RouteTarget`'s comment already spells
+out, which is why dashd reads through `RouteByID` instead.
+
+**And the delete still reports the handle, not the row.**
+`cmd/arizuko/route.go:117` prints `removed route %d` from the id the operator
+typed. That sentence is what made `L364` survive the command that caused it:
+`route rm 37` printed `removed route 37` while 37 was still in the table. The
+row that went is in hand — `DeleteRoute` reads it before it deletes — and no
+surface says it.
+
+- **Severity:** high (the agent MCP surface resolves an ambiguous id to an
+  arbitrary rule for its authz check; the operator UI reports a live rule as
+  absent)
+- **Scope:** `routd/reads.go`, `routd/routes_resource.go`,
+  `routd/routes_http.go`, `store/routes.go`, `onbod/main.go`,
+  `cmd/arizuko/route.go`
+- **Affected:** `GET /v1/routes/{id}`, `delete_route`, `update_route`, onbod's
+  `delete_route` form action, `arizuko route rm`
+- **Source:** read 2026-09-25 while sweeping `L364`'s class;
+  `routd/reads.go:86`, `onbod/main.go:1467`, `cmd/arizuko/route.go:117`
+- **Status:** open
+- **Fix — one reader, and it names what it did:**
+  1. `routd.DB.GetRoute` delegates to `store.RouteByID` and maps `ok=false` to
+     `ErrNoRoute`. The duplicate scan goes.
+  2. An ambiguous id is a sentinel (`store.ErrRouteIDAmbiguous`) so a surface
+     can answer **409** with the two coordinates. `store_error` on a 500 is not
+     a loud refusal; it is the silence `L364` was filed against.
+  3. `store.GetRoute` goes. `onbod` reads `RouteByID` and splits 404 from 500,
+     the shape `dashstore.RouteTarget` already uses.
+  4. `arizuko route rm` prints the coordinate it removed, so the operator can
+     check the tool's word against the table.
+
 ## L363 — sloth advertises five atlas Telegram routes and can serve one; the bot the other four talk to is served by nothing (2026-09-25, open — operator deploy + decision)
 
 `L335` found this shape for Slack. It is also true for Telegram, and it survived

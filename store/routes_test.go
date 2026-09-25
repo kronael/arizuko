@@ -141,3 +141,69 @@ func TestRouteByID_RefusesADuplicateIDAndDeletesNothing(t *testing.T) {
 		t.Fatalf("both rules must survive a refused delete, got %d", len(items))
 	}
 }
+
+// TestAddRoute_NeverMintsAnIDARuleAlreadyHolds pins BUGS L365. Every writer that
+// STATES an id leaves CounterRouteID where it was: a restore states the ids it
+// exported (resreg's mintNumbers), and the marinade merge stated them by copying
+// items. The next mint then handed out an id a rule already held, and L364's
+// refusal made BOTH rules undeletable.
+//
+// Two ids a restore carries, and the counter still at zero, is the whole setup.
+func TestAddRoute_NeverMintsAnIDARuleAlreadyHolds(t *testing.T) {
+	s := openMem(t)
+	for _, r := range []core.Route{
+		{ID: 1, Seq: 0, Target: "main/main", Match: "room=group/1"},
+		{ID: 2, Seq: 0, Target: "main/main#observe", Match: "room=group/1"},
+	} {
+		if _, err := s.PutRouteRow(r); err != nil {
+			t.Fatalf("seed %q: %v", r.Target, err)
+		}
+	}
+
+	id, err := s.AddRoute(core.Route{Seq: 0, Target: "main/other", Match: "room=group/2"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id == 1 || id == 2 {
+		t.Fatalf("the mint handed out id %d, which a rule already holds: two rules now "+
+			"share one handle and routeByID refuses both", id)
+	}
+
+	// The rule the mint just wrote is addressable. This is the assertion the old
+	// code failed: it wrote a rule nothing could delete.
+	if _, ok, err := s.RouteByID(id); err != nil || !ok {
+		t.Fatalf("RouteByID(%d) = ok %v, err %v; the minted rule must be addressable", id, ok, err)
+	}
+}
+
+// TestReplaceFolderRoutes_MintsAroundHeldIDs is the same invariant on the set
+// path: set_routes mints every replacement rule a new id, and a rule OUTSIDE the
+// replaced folder holds ids the counter does not know about.
+func TestReplaceFolderRoutes_MintsAroundHeldIDs(t *testing.T) {
+	s := openMem(t)
+	if _, err := s.PutRouteRow(core.Route{ID: 1, Seq: 0, Target: "other/keep", Match: "room=group/9"}); err != nil {
+		t.Fatal(err)
+	}
+	ws := &WriteSet{}
+	set := []core.Route{
+		{Seq: 0, Target: "main/main", Match: "room=group/1"},
+		{Seq: 0, Target: "main/main#observe", Match: "room=group/1"},
+	}
+	if err := s.ReplaceFolderRoutesInto(t.Context(), ws, "main", set, "test", "test"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Apply(t.Context(), ws); err != nil {
+		t.Fatal(err)
+	}
+	table, err := s.RouteTable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := map[int64]string{}
+	for _, r := range table {
+		if prev, dup := seen[r.ID]; dup {
+			t.Fatalf("id %d names two rules (%q and %q)", r.ID, prev, r.Target)
+		}
+		seen[r.ID] = r.Target
+	}
+}
