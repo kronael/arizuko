@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -390,6 +391,10 @@ func TestQemuPreconditionsNameEveryMissingInput(t *testing.T) {
 	t.Setenv(envVirtiofsd, filepath.Join(t.TempDir(), "no-virtiofsd"))
 	t.Setenv(envUIDMap, "")
 	t.Setenv(envGIDMap, "")
+	// BusyBox's ip: on the PATH, and no `tuntap`. The refusal has to come through
+	// qemuPreconditions and not only from checkTuntap, or the check is written and
+	// never called (BUGS `L369`).
+	t.Setenv(envIPBin, fakeExitBinary(t, "ip", "BusyBox v1.36.1 multi-call binary.\n\nUsage: ip [OPTIONS] address|route|link", 1))
 	_, err := qemuPreconditions(cfgFor(t))
 	if err == nil {
 		t.Fatal("a host with no kernel artifact, no rootfs and no clamp must refuse")
@@ -398,6 +403,8 @@ func TestQemuPreconditionsNameEveryMissingInput(t *testing.T) {
 		envKernelDir,
 		envRootfsDir,
 		envVirtiofsd,
+		envIPBin,
+		"iproute2",
 		"`make kernel`",
 		"precondition(s) missing",
 	} {
@@ -621,4 +628,49 @@ func TestCheckMapRangeTakesOnlyTheDaemonsSpelling(t *testing.T) {
 			t.Errorf("%q must be refused: virtiofsd parses the range itself and exits on a bad one", bad)
 		}
 	}
+}
+
+// TestCheckTuntapRefusesBusyBoxIP pins BUGS L369. BusyBox's `ip` applet sits on
+// Alpine's PATH and understands no `tuntap`, so a LookPath check passes and the
+// tap — the guest's only interface — cannot be created. The failure then arrives
+// once per turn as a usage message while runed reports healthy.
+func TestCheckTuntapRefusesBusyBoxIP(t *testing.T) {
+	busybox := fakeExitBinary(t, "ip", `BusyBox v1.36.1 (2025-11-23 14:32:18 UTC) multi-call binary.
+
+Usage: ip [OPTIONS] address|route|link|tunnel|neigh|rule [ARGS]`, 1)
+
+	var missing []string
+	checkTuntap(qemuPaths{IP: busybox}, func(f string, a ...any) {
+		missing = append(missing, fmt.Sprintf(f, a...))
+	})
+	if len(missing) != 1 {
+		t.Fatalf("BusyBox ip must be refused, got %d refusals: %v", len(missing), missing)
+	}
+	for _, want := range []string{"tuntap", "BusyBox", "iproute2"} {
+		if !strings.Contains(missing[0], want) {
+			t.Errorf("the refusal must name %q so an operator knows the fix: %s", want, missing[0])
+		}
+	}
+
+	// A capable `ip` passes. Exit 0 is what `ip tuntap show` answers when it
+	// understands the subcommand, whether or not any tap exists.
+	real := fakeExitBinary(t, "ip", "", 0)
+	missing = nil
+	checkTuntap(qemuPaths{IP: real}, func(f string, a ...any) {
+		missing = append(missing, fmt.Sprintf(f, a...))
+	})
+	if len(missing) != 0 {
+		t.Errorf("an ip that understands tuntap must pass: %v", missing)
+	}
+}
+
+// fakeExitBinary writes an executable that prints out and exits with code.
+func fakeExitBinary(t *testing.T, name, out string, code int) string {
+	t.Helper()
+	p := filepath.Join(t.TempDir(), name)
+	script := "#!/bin/sh\ncat <<'EOF'\n" + out + "\nEOF\nexit " + strconv.Itoa(code) + "\n"
+	if err := os.WriteFile(p, []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake %s: %v", name, err)
+	}
+	return p
 }

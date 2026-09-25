@@ -166,6 +166,7 @@ func qemuPreconditions(cfg *core.Config) (qemuPaths, error) {
 			miss("%s is not executable (%s=%s): %v", b.bin, b.env, b.bin, err)
 		}
 	}
+	checkTuntap(p, miss)
 	// The kernel artifact, by the path the generator writes. `make kernel`
 	// builds it into a directory keyed by version and config hash, so the name
 	// is configuration and never a guess.
@@ -210,6 +211,37 @@ func qemuPreconditions(cfg *core.Config) (qemuPaths, error) {
 			len(missing), strings.Join(missing, "\n  - "))
 	}
 	return p, nil
+}
+
+// checkTuntap proves the CAPABILITY the tap needs and not the file's existence.
+// BusyBox `ip` is on Alpine's PATH and understands address|route|link|tunnel|
+// neigh|rule and no `tuntap`, so LookPath passes and `ip tuntap add` then fails
+// once per turn with a usage message — the guest gets no interface and runed
+// reports healthy (BUGS `L369`). The clamp check does the same thing for
+// virtiofsd's flags; this is that check applied to the other binary that has a
+// capable and an incapable build under one name.
+func checkTuntap(p qemuPaths, miss func(string, ...any)) {
+	out, err := exec.Command(p.IP, "tuntap", "show").CombinedOutput()
+	if err == nil {
+		return
+	}
+	text := string(out)
+	if strings.Contains(text, "BusyBox") || strings.Contains(strings.ToLower(text), "usage:") {
+		miss("%s=%s does not understand `ip tuntap` (%s): it is BusyBox's applet, and the "+
+			"tap a guest's only interface hangs off cannot be created with it. The image must "+
+			"carry iproute2", envIPBin, p.IP, firstLine(text))
+		return
+	}
+	// A real `ip` that refuses for another reason — no CAP_NET_ADMIN, say — is
+	// reported as it answered rather than diagnosed here.
+	miss("%s=%s could not list taps: %v (%s)", envIPBin, p.IP, err, firstLine(text))
+}
+
+// firstLine trims a command's output to its first line, which is where both a
+// usage message and an error put the part worth reading.
+func firstLine(s string) string {
+	line, _, _ := strings.Cut(strings.TrimSpace(s), "\n")
+	return line
 }
 
 // checkClamp is the uid clamp's precondition: the daemon that exports the turn

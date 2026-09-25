@@ -14,16 +14,18 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 FROM alpine:3.20
 # The VMM side (spec 6/41 §"The runed deploy topology"): qemu runs one guest per
 # turn, virtiofsd exports the turn's share, socat bridges the guest's MCP port,
-# and iptables writes the tap's rule set — the one that accepts the guest's proxy
-# and drops everything else, so without it runed refuses to start and says so
-# (measured 2026-09-25 against the image, which is how the omission was found).
+# iptables writes the tap's rule set — the one that accepts the guest's proxy and
+# drops everything else — and iproute2 creates the tap itself. BOTH were missing
+# (measured 2026-09-25 against the image). iproute2 is the one that matters most:
+# BusyBox `ip` is on the PATH and has no `tuntap` subcommand, so a presence check
+# passes and the guest gets no interface (BUGS `L369`).
 # Alpine 3.20's virtiofsd is the RUST daemon (1.10.1), which is the one that can
 # clamp the guest's uid — QEMU's C daemon cannot, and dropping the Rust BUILD the
 # spec planned for is measured, not assumed. docker-cli stays: no turn uses it any
 # more, but the `arizuko` CLI this image also ships drives `docker compose` for
 # run, pair and status.
 RUN apk add --no-cache sqlite-libs ca-certificates docker-cli wget \
-    qemu-system-x86_64 virtiofsd socat iptables \
+    qemu-system-x86_64 virtiofsd socat iptables iproute2 \
     && addgroup -g 1000 node \
     && adduser -D -u 1000 -G node node \
     && mkdir -p /srv/app/home \

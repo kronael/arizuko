@@ -224,6 +224,53 @@ instance layout to drive.
   literal; it asserts what the declaration is for, that `EnvOr` on an unset var
   resolves to the shared default.
 
+## L369 — the precondition proves a binary EXISTS and not that it can do the job, so BusyBox `ip` passes and no guest gets an interface (2026-09-25, open)
+
+Measured against the image, 2026-09-25:
+
+```
+$ docker run --rm --entrypoint sh arizuko:latest -c 'ip tuntap add name probe0 mode tap'
+BusyBox v1.36.1 multi-call binary.
+Usage: ip [OPTIONS] address|route|link|tunnel|neigh|rule [ARGS]
+```
+
+Alpine's `ip` is BusyBox, and BusyBox `ip` has no `tuntap` subcommand at all. So
+`vmnet.go` cannot create the tap, the guest gets no interface, and the tap rules
+that follow fail too — which is what krons logged after the flip, once per turn:
+
+```
+WARN tap rule delete rule="-D FORWARD -o arz-77a1-t00 -j DROP"
+  err="exit status 1" out="iptables: Bad rule (does a matching rule exist…)"
+WARN tap delete tap="arz-77a1-t00" err="exit status 1" out="BusyBox v1.36.1 …"
+```
+
+The rules could not be deleted because they were never added; the tap could not be
+deleted because it was never created.
+
+**`qemuPreconditions` checks `exec.LookPath(p.IP)` and that is the whole check.**
+BusyBox `ip` IS on the PATH, so the check passes and the failure moves to the
+first turn. The clamp check one screen above does this correctly — it runs
+`virtiofsd --help` and greps for the flag it will send (BUGS `L367`) — so the
+pattern was already in the file, applied to one of the four binaries and not the
+others.
+
+`iptables` was the same omission and was fixed 2026-09-25 in `23925150`: the
+image had none, and there the refusal DID fire because Alpine ships no `iptables`
+at all. `ip` is worse than absent — it is present and incapable, which is exactly
+the state a presence check cannot see.
+
+- **Severity:** high (no turn can get a network interface; the refusal that should
+  have fired at runed start fires as a per-turn WARN instead)
+- **Scope:** `Dockerfile`, `runed/qemuhost.go`
+- **Affected:** `qemuPreconditions`, `envIPBin`, `vmnet.go` `tapUp`, every turn
+- **Source:** measured 2026-09-25 in the image, and on krons after the flip
+- **Status:** open
+- **Fix:** the image gains `iproute2`, so `ip` is the real one. And the
+  precondition proves the CAPABILITY it needs rather than the file's existence:
+  `ip tuntap` must be a subcommand this `ip` understands, checked the way the
+  clamp checks `--uid-map`. A test drives the check over a stub that answers
+  BusyBox's usage text and asserts the refusal names the package to install.
+
 ## L368 — the mount table carries HOST paths and virtiofsd runs inside runed, so every VM turn fails to stage its tree (2026-09-25, open)
 
 **Measured on krons, 2026-09-25, on the first turn after the flip:**
