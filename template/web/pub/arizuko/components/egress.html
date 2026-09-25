@@ -57,38 +57,33 @@
     <h2>What it is</h2>
     <p><code>egress</code> is a forward HTTP/CONNECT proxy that allows one fixed list of hosts, for one client. It reads the destination out of the request the client sends, matches it against the allowlist, and either splices the connection or answers <code>403</code>. That is the whole program.</p>
 
-    <p>runed starts one of these per spawned agent container, with that folder&rsquo;s allowlist baked into the process at start, and kills it when the turn ends. There is no long-lived proxy, no registry of who is who, and no admin API &mdash; every one of those existed so that <em>one</em> proxy could serve <em>many</em> tenants, and one proxy per spawn needs none of them (<a href="https://github.com/kronael/arizuko/blob/main/specs/6/24-crackbox-lightest.md"><code>specs/6/24</code></a>).</p>
+    <p>runed starts one of these per turn, with that folder&rsquo;s allowlist baked into the process at start, and kills it when the turn ends. There is no long-lived proxy, no registry of who is who, and no admin API &mdash; every one of those existed so that <em>one</em> proxy could serve <em>many</em> tenants, and one proxy per turn needs none of them (<a href="https://github.com/kronael/arizuko/blob/main/specs/6/24-crackbox-lightest.md"><code>specs/6/24</code></a>).</p>
 
     <h2>Why it exists</h2>
-    <p>An agent runs generated code with the network open. You want it to reach <code>github.com</code> and <code>api.anthropic.com</code> &mdash; not your internal services, not a crypto miner shipped in a compromised npm package, not wherever a prompt injection points it. A network-level firewall doesn&rsquo;t know which folder is calling. Per-process iptables is fiddly. The proxy sits in the one place that knows both: the single path this spawn has out.</p>
+    <p>An agent runs generated code with the network open. You want it to reach <code>github.com</code> and <code>api.anthropic.com</code> &mdash; not your internal services, not a crypto miner shipped in a compromised npm package, not wherever a prompt injection points it. A network-level firewall doesn&rsquo;t know which folder is calling. Per-process iptables is fiddly. The proxy sits in the one place that knows both: the single path this turn has out.</p>
 
-    <p>Per-spawn is also what removes a leak the shared model could not close. A shared proxy keyed tenants by source IP, so it depended on the consumer unregistering when a container exited. Docker reuses source addresses; if runed died between a container exiting and the unregister call, the stale entry survived and the next tenant on that address inherited the previous folder&rsquo;s allowlist. Per-spawn deletes the registry, so there is nothing to go stale.</p>
+    <p>Per-turn is also what removes a leak the shared model could not close. A shared proxy keyed tenants by source address, so it depended on the consumer unregistering when a process exited. If the reuse window landed wrong, the stale entry survived and the next tenant on that address inherited the previous folder&rsquo;s allowlist. Per-turn deletes the registry, so there is nothing to go stale.</p>
 
     <h2>How it fits</h2>
     <div class="callout">
       <pre><code>runed spawn
   |
-  | 1. create/reuse the folder network  (docker network --internal)
-  | 2. docker run the proxy on it, --client &lt;spawn ip&gt;, allowlist baked in
-  | 3. docker network connect &lt;uplink&gt; &lt;proxy&gt;
-  | 4. poll the proxy's /health until 200   <-- the spawn does not exist yet
-  | 5. docker run the agent, HTTP_PROXY -> the proxy
+  | 1. bring up this turn's tap; the rule set accepts the proxy port, drops
+  |    everything else, both directions, on that tap
+  | 2. start egress on the tap's host side, --client &lt;guest ip&gt;, allowlist baked in
+  | 3. poll the proxy's /health until 200   <-- the guest does not exist yet
+  | 4. start the guest, HTTP_PROXY -> the proxy
   v
-agent  --internal net-->  its proxy  --uplink-->  allowed hosts only</code></pre>
+guest  --its one tap-->  its proxy  --runed's own network-->  allowed hosts only</code></pre>
     </div>
 
-    <p><strong>The proxy is not what confines the agent &mdash; the missing route is.</strong> The folder network is created with <code>--internal</code>, so it has no route to the internet at all. The proxy is the only container attached to both that network and <code>EGRESS_UPLINK_NETWORK</code> (the compose project&rsquo;s default bridge). The agent is attached to the internal network only. An agent that ignores <code>HTTPS_PROXY</code> and opens a raw socket to an IP literal reaches nothing, because there is nowhere for the packet to go.</p>
+    <p><strong>The proxy is not what confines the agent &mdash; the tap rule set is.</strong> The guest has exactly one network interface, its tap, and that tap&rsquo;s static rule set accepts only the guest&rsquo;s own proxy port and drops every other packet, both directions, UDP/53 included. The proxy runs on the host side of that tap, inside runed&rsquo;s own container, so it reaches the network runed itself is on. A guest process that ignores <code>HTTPS_PROXY</code> and opens a raw socket to an IP literal reaches nothing, because the tap drops it below the kernel the agent runs on &mdash; there is no shared network namespace to escape into, because there is nothing else on that tap to share.</p>
 
-    <div class="callout">
-      <strong>Never let the agent share the proxy&rsquo;s network namespace.</strong>
-      <code>--network container:&lt;proxy&gt;</code> looks like it removes a startup race and instead removes the enforcement: the proxy has to reach the internet to forward, so its namespace carries a default route, and everything sharing it inherits that route. Measured on a live docker host &mdash; a container run that way, with no proxy environment at all, fetched an unlisted host directly and exited 0. Same rule for a second interface on the agent.
-    </div>
+    <p><strong>Order is enforced, not hoped for.</strong> The proxy answers <code>GET /health</code> with 200 only once its listener is bound and its allowlist is loaded. runed polls that (15s ceiling) and starts the guest only on a 200; a TCP connect would not do, since it succeeds the moment the port is bound. A proxy that fails to start or never reports healthy <strong>fails the turn</strong> &mdash; and so does a missing <code>egress</code> binary: runed refuses to start at all rather than let a turn run unfiltered.</p>
 
-    <p><strong>Order is enforced, not hoped for.</strong> The proxy answers <code>GET /health</code> with 200 only once its listener is bound and its allowlist is loaded. runed polls that (15s ceiling) and starts the agent only on a 200; a TCP connect would not do, since it succeeds the moment the port is bound. A proxy that fails to start, fails to connect to the uplink, or never reports healthy <strong>fails the spawn</strong>. There is no fallback to an unfiltered container.</p>
+    <p><strong>The proxy serves exactly one address.</strong> <code>--client</code> is the guest&rsquo;s tap address; every other peer gets a 403, including a concurrent turn in the same folder. That matters because concurrent turns in one folder do not all hold the same list &mdash; an elevated <code>/root</code> turn&rsquo;s is unrestricted &mdash; so without the pin a plain turn could send its CONNECT to a neighbour&rsquo;s proxy and borrow rules it was never granted. It is a bind scope, not a lookup: nothing is registered, and a second client is refused rather than served from some other rule set.</p>
 
-    <p><strong>The proxy serves exactly one address.</strong> <code>--client</code> is the spawn&rsquo;s address; every other peer gets a 403, including the folder&rsquo;s other spawns on the same network. That matters because concurrent spawns in one folder do not all hold the same list &mdash; an elevated <code>/root</code> turn&rsquo;s is unrestricted &mdash; so without the pin a plain spawn could send its CONNECT to a neighbour&rsquo;s proxy and borrow rules it was never granted. It is a bind scope, not a lookup: nothing is registered, and a second client is refused rather than served from some other rule set.</p>
-
-    <p>Inputs: the resolved allowlist for the folder (<code>store.ResolveAllowlist</code> walks the folder ancestry over <code>network_rules</code> and dedupes) plus runed&rsquo;s four <code>EGRESS_*</code> values. Outputs: one proxy container per spawn, and a <code>403</code> for anything off the list.</p>
+    <p>Inputs: the resolved allowlist for the folder (<code>store.ResolveAllowlist</code> walks the folder ancestry over <code>network_rules</code> and dedupes). Outputs: one proxy process per turn, and a <code>403</code> for anything off the list.</p>
 
     <h3>Matching</h3>
     <p>Host names only &mdash; exact, subdomain-aware (<code>--allow github.com</code> covers <code>api.github.com</code>), case-insensitive, trailing dot stripped. A bare <code>*</code> allows everything. IP entries in the list are skipped: the filter works on the NAME, because the name is what the client puts in the request line. No path rules, no method rules.</p>
@@ -103,8 +98,8 @@ agent  --internal net-->  its proxy  --uplink-->  allowed hosts only</code></pre
       <li>no request or response body access, no content filtering, no secret injection</li>
       <li>no registry, no admin API, no client library</li>
       <li>no transparent interception and no SNI peeking &mdash; forward mode reads the destination from the request line, so it never needed either</li>
-      <li>no DNS filter &mdash; UDP/53 leaves a spawn unfiltered and the proxy cannot stand in for one, because a DNS query never appears in a CONNECT line (<a href="../security/">security</a> &sect; No DNS filter)</li>
-      <li>no supervision &mdash; the spawn&rsquo;s lifetime is the proxy&rsquo;s lifetime, and runed owns both</li>
+      <li>no DNS lookup of its own, and none is needed &mdash; the proxy never sees a bare DNS query, because the guest ships no resolver at all and a name is only meaningful inside a CONNECT line (<a href="../security/">security</a> &sect; No DNS filter)</li>
+      <li>no supervision &mdash; the turn&rsquo;s lifetime is the proxy&rsquo;s lifetime, and runed owns both</li>
     </ul>
     <p>Interception stays declined (<code>specs/5/13-ext-mcp.md</code>): a proxy that never terminates TLS has nothing to leak if it is compromised, which is what keeps it small enough to audit.</p>
 
@@ -137,18 +132,13 @@ make -C egress build        # produces ./egress/egress
     <pre><code>egress --listen 127.0.0.1:3128 --client 127.0.0.1 --allow github.com,api.anthropic.com
 HTTPS_PROXY=http://127.0.0.1:3128 curl https://github.com</code></pre>
 
-    <p>The VM substrate puts the same proxy on the host side of the guest&rsquo;s tap, so the guest&rsquo;s only route out is through it &mdash; enforced below the kernel the agent runs, rather than by a network with no route (<a href="https://github.com/kronael/arizuko/blob/main/specs/6/41-qemu-substrate.md"><code>specs/6/41</code></a>). The four <code>EGRESS_*</code> settings below are docker facts and retire with the container substrate; the allowlist rows do not.</p>
+    <p>Production puts this same proxy on the host side of the guest&rsquo;s tap, so the guest&rsquo;s only route out is through it &mdash; enforced below the kernel the agent runs, rather than by a network with no route (<a href="https://github.com/kronael/arizuko/blob/main/specs/6/41-qemu-substrate.md"><code>specs/6/41</code></a>). There is no setting that turns this off.</p>
 
     <h2>Key env vars</h2>
-    <p>These are read by runed, not by the proxy binary. Naming <code>EGRESS_IMAGE</code> is the whole switch &mdash; there is no separate enable flag.</p>
-    <ul>
-      <li><code>EGRESS_IMAGE</code> &mdash; the image holding the <code>egress</code> binary, e.g. <code>arizuko-egress:latest</code>. Empty means egress isolation is off and spawns run unfiltered.</li>
-      <li><code>EGRESS_NETWORK_PREFIX</code> &mdash; prefix for the per-folder docker networks. <code>arizuko generate</code> writes <code>&lt;app&gt;_&lt;flavor&gt;</code>.</li>
-      <li><code>EGRESS_UPLINK_NETWORK</code> &mdash; the network giving each proxy its route out, and runed its path to the <code>/health</code> probe. <code>arizuko generate</code> writes <code>&lt;project&gt;_default</code>.</li>
-      <li><code>EGRESS_SUBNET</code> &mdash; parent CIDR carved into per-folder <code>/24</code>s. Default <code>10.99.0.0/16</code>.</li>
-    </ul>
+    <p>None. Egress isolation is not a switch &mdash; every turn gets a proxy, and runed refuses to start at all if the <code>egress</code> binary is missing. What&rsquo;s left to configure is the allowlist itself, per folder:</p>
+    <pre><code>arizuko network &lt;instance&gt; allow &lt;folder&gt; api.github.com</code></pre>
 
-    <p>Full list and defaults in <a href="../reference/env.html#EGRESS_IMAGE">reference/env</a>. If a <code>.env</code> still sets the retired <code>CRACKBOX_ADMIN_API</code> while <code>EGRESS_IMAGE</code> is empty, runed refuses to start and names both variables &mdash; an upgraded instance must not spawn unfiltered while looking healthy.</p>
+    <p>The tap subnet and the proxy&rsquo;s port are runed&rsquo;s own tunables, not the <code>egress</code> binary&rsquo;s (see <code>runed/README.md</code>).</p>
 
     <h2>Go deeper</h2>
     <ul>
@@ -157,7 +147,7 @@ HTTPS_PROXY=http://127.0.0.1:3128 curl https://github.com</code></pre>
       <li><a href="../reference/cli.html">reference/cli</a> &mdash; <code>arizuko network allow / deny / list / resolve</code>, which write the rules the proxy is started with.</li>
       <li><code>egress/README.md</code> &mdash; the directory and what is in it.</li>
       <li><a href="https://github.com/kronael/arizuko/blob/main/specs/6/24-crackbox-lightest.md"><code>specs/6/24</code></a> &mdash; the cut: what the shared model cost and why per-spawn is safer, not just smaller.</li>
-      <li><a href="https://github.com/kronael/arizuko/blob/main/specs/6/41-qemu-substrate.md"><code>specs/6/41</code></a> &mdash; the VM substrate, where this proxy moves to the host side of the guest&rsquo;s tap.</li>
+      <li><a href="https://github.com/kronael/arizuko/blob/main/specs/6/41-qemu-substrate.md"><code>specs/6/41</code></a> &mdash; the KVM substrate: the tap, the rule set, and why this proxy sits on its host side.</li>
     </ul>
 
 
@@ -167,7 +157,7 @@ HTTPS_PROXY=http://127.0.0.1:3128 curl https://github.com</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/components/egress.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-09-23">2026-09-23</time>
+        &middot; updated <time class="docs-updated" datetime="2026-09-21">2026-09-21</time>
       </div>
     </main>
 

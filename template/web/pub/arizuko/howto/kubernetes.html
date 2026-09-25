@@ -114,26 +114,33 @@
           <strong>The agent MCP socket.</strong> <code>routd</code> binds a Unix
           socket per turn at <code>&lt;data&gt;/ipc/&lt;folder&gt;/gated.sock</code>
           (<code>routd/mcp.go</code> <code>ServeTurnMCP</code>), and
-          <code>runed</code> bind-mounts that directory into the agent container
-          at <code>/run/ipc</code> (<code>container/runner.go</code>
-          <code>buildMounts</code>). A Unix socket is an inode. The two daemons
-          must see the same one.
+          <code>runed</code> runs a bridge, one per turn, that dials that exact
+          path and forwards it over the guest&rsquo;s vsock (spec <code>6/41</code>
+          &sect; &ldquo;The peer credential&rdquo;). A Unix socket is an inode.
+          <code>runed</code> and <code>routd</code> must see the same one.
         </li>
         <li>
-          <strong>The container runtime socket.</strong> <code>runed</code>
-          spawns each turn with <code>docker run</code>, so its pod mounts
-          <code>/var/run/docker.sock</code> and joins the gid that owns it
-          (<code>compose/compose.go</code> <code>runedService</code>,
-          <code>dockerGID</code>). It is the only daemon wired that way, and it
-          is wired to one node&rsquo;s daemon.
+          <strong>The KVM device nodes.</strong> <code>runed</code> starts
+          each turn as one <code>qemu-system-x86_64</code> guest, so its pod
+          needs <code>/dev/kvm</code>, <code>/dev/vhost-vsock</code> and
+          <code>/dev/net/tun</code> plus the <code>NET_ADMIN</code> and
+          <code>SYS_ADMIN</code> capabilities for the tap and its rule set
+          (<code>compose/compose.go</code> <code>runedService</code>). It is
+          the only daemon wired that way, and it is wired to one node&rsquo;s
+          devices &mdash; there is no Docker socket in this pod at all.
         </li>
         <li>
-          <strong>Bind sources are node paths.</strong> The spawned container is
-          a sibling, not a child, so the node&rsquo;s container runtime resolves
-          every mount source. <code>container.hp()</code> rewrites each path from
-          the data dir as <code>runed</code> sees it to the data dir as the node
-          sees it, which is what <code>HOST_DATA_DIR</code> is for. Get that
-          value wrong and every spawn mounts an empty directory.
+          <strong>Bind sources are node paths, still.</strong> <code>runed</code>
+          now builds each turn&rsquo;s staging tree with bind mounts in its own
+          mount namespace and exports it with <code>virtiofsd</code> &mdash; no
+          sibling container is spawned to resolve them &mdash; but the paths it
+          builds (the group folder, the kernel and rootfs directories) still
+          have to be node paths when <code>runed</code>&rsquo;s own container
+          sees the data dir at a different mount point than the node does.
+          <code>runed/mounts.go</code> <code>hp()</code> rewrites each one from
+          the path <code>runed</code> sees to the path <code>HOST_DATA_DIR</code>
+          names. Get that value wrong and every turn&rsquo;s share points at an
+          empty directory.
         </li>
         <li>
           <strong>The group tree is files.</strong> <code>routd</code> reads
@@ -147,12 +154,14 @@
         </li>
       </ul>
       <div class="callout">
-        <strong>Direction:</strong>
+        <strong>The substrate is shipped; this deployment is not.</strong>
         <a href="https://github.com/kronael/arizuko/blob/main/specs/6/41-qemu-substrate.md" target="_blank" rel="noopener">specs/6/41</a>
-        is the spec that would change <code>runed</code>&rsquo;s half: the turn
-        substrate becomes a KVM guest driven by <code>qemu-system-x86_64</code>,
-        and <code>docker.sock</code> leaves <code>runed</code> altogether. It is
-        a draft. The socket and the group tree stay files either way.
+        is the spec behind the shape above, and it is live: the turn substrate is
+        a KVM guest driven by <code>qemu-system-x86_64</code>, one per turn, and
+        there is no <code>docker.sock</code> in <code>runed</code> at all. The
+        YAML on this page is still the direction rather than a tested chart, and
+        the bundled Helm chart has not caught up. The MCP socket and the group
+        tree stay files either way, which is why the pinned pair stays pinned.
       </div>
 
       <h2>what you can actually scale</h2>
@@ -256,20 +265,22 @@
           <tr>
             <td><code>ipc/</code></td>
             <td>one per-turn Unix socket per folder</td>
-            <td><code>routd</code> binds, <code>runed</code> mounts</td>
+            <td><code>routd</code> binds, <code>runed</code>&rsquo;s per-turn bridge dials</td>
           </tr>
           <tr>
             <td><code>app-src/</code></td>
-            <td>the release&rsquo;s <code>ant/</code>, staged out of <code>runed</code>&rsquo;s image on every start so a sibling container can bind-mount it (<code>container.MaterializeAppSrc</code>)</td>
+            <td>the release&rsquo;s <code>ant/</code>, staged out of <code>runed</code>&rsquo;s image on every start so it can be shared into each guest (<code>container.MaterializeAppSrc</code>)</td>
             <td><code>runed</code> writes, the agent reads</td>
           </tr>
         </tbody>
       </table>
       <p>
-        All four must be visible at a <em>node</em> path, because the node&rsquo;s
-        container runtime resolves the agent container&rsquo;s bind mounts. A
-        <code>local</code> or <code>hostPath</code> volume satisfies that; a
-        network PVC whose node mount point you cannot name does not.
+        All four must be visible at a <em>node</em> path: <code>runed</code>
+        builds each turn&rsquo;s staging tree from them, and <code>HOST_DATA_DIR</code>
+        is what lets it name that path correctly when its own container sees the
+        volume mounted somewhere else than the node does. A <code>local</code> or
+        <code>hostPath</code> volume satisfies that; a network PVC whose node
+        mount point you cannot name does not.
       </p>
 
       <h2>the shape that fits</h2>
@@ -318,12 +329,12 @@ spec:
     requests:
       storage: 20Gi</code></pre>
       <div class="callout">
-        <strong>Pick a node-local class.</strong> The agent container is spawned
-        by the node&rsquo;s container runtime, which resolves bind sources on the
-        node filesystem. <code>local-path</code> (Rancher) or a
-        <code>local</code> PV give you a node path you can name and put in
-        <code>HOST_DATA_DIR</code>. A remote-attach CSI volume usually works too,
-        but only if you can name its node mount point.
+        <strong>Pick a node-local class.</strong> <code>runed</code> builds each
+        turn&rsquo;s staging tree from bind sources on the node filesystem.
+        <code>local-path</code> (Rancher) or a <code>local</code> PV give you a
+        node path you can name and put in <code>HOST_DATA_DIR</code>. A
+        remote-attach CSI volume usually works too, but only if you can name its
+        node mount point.
       </div>
 
       <h2>ConfigMap</h2>
@@ -339,8 +350,8 @@ data:
   WEB_HOST: "https://demo.example.com"
   CONTAINER_IMAGE: "arizuko-ant:latest"
   DATA_DIR: "/srv/app/home"
-  # the NODE path of the same volume — container.hp() rewrites every agent
-  # bind source through this. Wrong value = every spawn mounts nothing.
+  # the NODE path of the same volume — runed's hp() rewrites every turn's
+  # bind source through this. Wrong value = every turn shares in nothing.
   HOST_DATA_DIR: "/var/lib/rancher/k3s/storage/pvc-…_arizuko-data"
   AUTHD_URL: "http://authd:8080"
   ROUTER_URL: "http://routd:8080"
@@ -394,8 +405,8 @@ stringData:
       <h2>the pinned pair</h2>
       <p>
         <code>routd</code> and <code>runed</code> in one Deployment, one replica,
-        sharing the volume. <code>runed</code> needs the node&rsquo;s container
-        socket and the gid that owns it.
+        sharing the volume. <code>runed</code> needs the node&rsquo;s KVM device
+        nodes and the capabilities its tap and its bind mounts take.
       </p>
       <pre><code># routd-runed.yaml
 apiVersion: apps/v1
@@ -405,21 +416,20 @@ metadata:
 spec:
   replicas: 1
   strategy:
-    type: Recreate          # never two runed holding one docker.sock
+    type: Recreate          # never two runed reaping the same VM records
   selector:
     matchLabels: { app: arizuko, tier: turn }
   template:
     metadata:
       labels: { app: arizuko, tier: turn }
     spec:
-      securityContext:
-        runAsUser: 1000
-        runAsGroup: 1000
-        supplementalGroups: [999]   # the gid owning /var/run/docker.sock
       containers:
         - name: routd
           image: arizuko:latest
           command: ["routd"]
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
           envFrom:
             - configMapRef: { name: arizuko-config }
             - secretRef:    { name: arizuko-routd }
@@ -432,20 +442,38 @@ spec:
         - name: runed
           image: arizuko:latest
           command: ["runed"]
+          securityContext:
+            runAsUser: 0        # virtiofsd carries guest credentials onto host files
+            capabilities:
+              add: ["NET_ADMIN", "SYS_ADMIN"]   # the tap's rule set; the staging tree's bind mounts
           envFrom:
             - configMapRef: { name: arizuko-config }
             - secretRef:    { name: arizuko-runed }
           env:
             - { name: LISTEN_ADDR, value: ":8082" }   # routd already has :8080
           volumeMounts:
-            - { name: data,   mountPath: /srv/app/home }
-            - { name: docker, mountPath: /var/run/docker.sock }
+            - { name: data,        mountPath: /srv/app/home }
+            - { name: kvm,         mountPath: /dev/kvm }
+            - { name: vhost-vsock, mountPath: /dev/vhost-vsock }
+            - { name: net-tun,     mountPath: /dev/net/tun }
 
       volumes:
         - name: data
           persistentVolumeClaim: { claimName: arizuko-data }
-        - name: docker
-          hostPath: { path: /var/run/docker.sock, type: Socket }</code></pre>
+        - name: kvm
+          hostPath: { path: /dev/kvm, type: CharDevice }
+        - name: vhost-vsock
+          hostPath: { path: /dev/vhost-vsock, type: CharDevice }
+        - name: net-tun
+          hostPath: { path: /dev/net/tun, type: CharDevice }</code></pre>
+      <p>
+        <code>runed</code> also refuses to start unless it finds a kernel and a
+        release rootfs at <code>RUNED_KERNEL_DIR</code> and
+        <code>RUNED_ROOTFS_DIR</code> &mdash; <code>make kernel</code> and
+        <code>make images</code> are one-time, per-release artifacts, the same
+        shape as the seeding step below, not something a Deployment builds on
+        every rollout.
+      </p>
       <div class="note">
         Two containers in one pod share localhost, so the second one needs its
         own <code>LISTEN_ADDR</code>. Everywhere else keep the in-container port
@@ -580,14 +608,17 @@ curl -s http://localhost:8080/health</code></pre>
           nowhere anyone reads.
         </dd>
 
-        <dt>Agent containers never spawn</dt>
+        <dt>Turns never start</dt>
         <dd>
-          Either <code>runed</code> can&rsquo;t reach
-          <code>/var/run/docker.sock</code> (check
-          <code>supplementalGroups</code> matches the gid that owns it on the
-          node) or <code>HOST_DATA_DIR</code> names a path the node does not
-          have. The second one is quieter: the spawn succeeds and the agent
-          finds an empty home.
+          <code>runed</code> logs every unmet substrate precondition at once
+          and refuses to start rather than spawn one turn unfiltered &mdash;
+          check the pod&rsquo;s logs for which device, binary, or directory it
+          named (<code>/dev/kvm</code>, <code>/dev/vhost-vsock</code>,
+          <code>/dev/net/tun</code>, the <code>egress</code> binary,
+          <code>RUNED_KERNEL_DIR</code>, <code>RUNED_ROOTFS_DIR</code>). If
+          <code>runed</code> itself is healthy but a turn&rsquo;s guest finds an
+          empty home, <code>HOST_DATA_DIR</code> names a path the node does not
+          have &mdash; that failure is quieter, because the guest still boots.
         </dd>
 
         <dt>The agent starts but has no tools</dt>
@@ -616,7 +647,7 @@ curl -s http://localhost:8080/health</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/howto/kubernetes.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-09-13">2026-09-13</time>
+        &middot; updated <time class="docs-updated" datetime="2026-09-22">2026-09-22</time>
       </div>
     </main>
 

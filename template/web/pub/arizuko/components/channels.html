@@ -135,7 +135,7 @@
 
 <p>Per-platform quirks stay inside the adapter. Slack threads, Discord ActionRows, WhatsApp QR pairing, IMAP folder watching &mdash; none of it leaks into <code>routd</code>. The DB sees a uniform <code>messages</code> row no matter where the message came from.</p>
 
-<p>Output rendering follows the same one-renderer rule. The agent picks a Claude Code output style per channel: <code>slack</code> emits Slack mrkdwn (<code>*bold*</code>, <code>_italic_</code>, <code>&lt;url|text&gt;</code>); other channels use CommonMark. The runner selects the style when it spawns the container (<code>container/runner.go</code>) so the adapter receives text already shaped for the channel.</p>
+<p>Output rendering follows the same one-renderer rule. The agent picks a Claude Code output style per channel: <code>slack</code> emits Slack mrkdwn (<code>*bold*</code>, <code>_italic_</code>, <code>&lt;url|text&gt;</code>); other channels use CommonMark. runed selects the style when it renders the turn (<code>runed/settings.go</code> <code>pickOutputStyle</code>) so the adapter receives text already shaped for the channel.</p>
 
 <p>Language choice follows the upstream SDK. Most platforms have a maintained Go client, so the adapter is Go. WhatsApp and X have their best-maintained clients in TypeScript (Baileys, twitter-api-v2), so those adapters run on Node. The HTTP contract is identical either way.</p>
 
@@ -166,7 +166,7 @@
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/components/channels.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-09-13">2026-09-13</time>
+        &middot; updated <time class="docs-updated" datetime="2026-09-19">2026-09-19</time>
       </div>
     </main>
 

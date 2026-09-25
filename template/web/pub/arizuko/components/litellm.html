@@ -55,18 +55,18 @@
       <h1>litellm</h1>
 
     <h2>What it is</h2>
-    <p>litellm is the model gateway: a third-party LLM proxy (<a href="https://github.com/BerriAI/litellm">BerriAI/litellm</a>, image <code>ghcr.io/berriai/litellm</code>) that arizuko ships as a package. It holds the instance&rsquo;s model credential and forwards every agent request to Anthropic with it. An agent container never sees that credential &mdash; it gets <code>MODEL_GATEWAY_KEY</code>, a virtual key that only the gateway accepts.</p>
+    <p>litellm is the model gateway: a third-party LLM proxy (<a href="https://github.com/BerriAI/litellm">BerriAI/litellm</a>, image <code>ghcr.io/berriai/litellm</code>) that arizuko ships as a package. It holds the instance&rsquo;s model credential and forwards every agent request to Anthropic with it. The agent&rsquo;s guest never sees that credential &mdash; it gets <code>MODEL_GATEWAY_KEY</code>, a virtual key that only the gateway accepts.</p>
 
     <p>Add it with <code>arizuko packages &lt;instance&gt; add litellm</code>. The package is one compose fragment, <code>template/services/litellm.yml</code>, with the litellm config inline; there is no route into it from outside the docker network, so it ships no <code>.yaml</code> manifest.</p>
 
     <h2>Why it exists</h2>
-    <p>Without it, the model credential is the one secret that enters the container by design: <code>ANTHROPIC_API_KEY</code> or <code>CLAUDE_CODE_OAUTH_TOKEN</code> lands in the spawn&rsquo;s env because the Claude Code process itself spends it (see <a href="../concepts/secrets.html">concepts/secrets</a>). Anything running in that container can read it, and the only revocation is rotating the credential for everyone who shares it.</p>
+    <p>Without it, the model credential is the one secret that enters the guest by design: <code>ANTHROPIC_API_KEY</code> or <code>CLAUDE_CODE_OAUTH_TOKEN</code> lands in the turn&rsquo;s env because the Claude Code process itself spends it (see <a href="../concepts/secrets.html">concepts/secrets</a>). Anything running in that guest can read it, and the only revocation is rotating the credential for everyone who shares it.</p>
 
-    <p>A gateway is configured, not intercepted. The client is told where to send its traffic (<code>ANTHROPIC_BASE_URL</code>) and what to send as its bearer (<code>ANTHROPIC_AUTH_TOKEN</code>); nothing is decrypted or spliced, and no CA goes into the container. That is why this works where a TLS-terminating proxy was declined.</p>
+    <p>A gateway is configured, not intercepted. The client is told where to send its traffic (<code>ANTHROPIC_BASE_URL</code>) and what to send as its bearer (<code>ANTHROPIC_AUTH_TOKEN</code>); nothing is decrypted or spliced, and no CA goes into the guest. That is why this works where a TLS-terminating proxy was declined.</p>
 
     <h2>The loop</h2>
     <ol>
-      <li>runed starts the agent container with <code>MODEL_GATEWAY_URL</code> and <code>MODEL_GATEWAY_KEY</code>. For the <code>claude</code> harness those become <code>ANTHROPIC_BASE_URL=http://litellm:4000</code> and <code>ANTHROPIC_AUTH_TOKEN=&lt;key&gt;</code>; the real credential is not in the env.</li>
+      <li>runed starts the turn&rsquo;s guest with <code>MODEL_GATEWAY_URL</code> and <code>MODEL_GATEWAY_KEY</code>. For the <code>claude</code> harness those become <code>ANTHROPIC_BASE_URL=http://litellm:4000</code> and <code>ANTHROPIC_AUTH_TOKEN=&lt;key&gt;</code>; the real credential is not in the env.</li>
       <li>Claude Code posts to <code>http://litellm:4000/v1/messages</code> with <code>Authorization: Bearer &lt;key&gt;</code>. litellm checks it against its master key. No key, or the wrong one, is refused (401, or 400 <code>no_db_connection</code> for an unknown key &mdash; litellm phrases the miss as a database lookup it cannot do).</li>
       <li>litellm swaps in the real credential and calls <code>api.anthropic.com</code>. An API key goes out as <code>x-api-key</code>; an <code>sk-ant-oat</code> subscription token goes out as <code>Authorization: Bearer</code> plus the <code>anthropic-beta: oauth-2025-04-20</code> header, which litellm adds on its own. The <code>User-Agent</code> upstream is litellm&rsquo;s (<code>litellm/1.101.0</code> measured); arizuko forges nothing.</li>
       <li>The reply streams back. litellm writes one JSON access line to stdout, and &mdash; when the instance exports OTLP &mdash; one span per request carrying <code>gen_ai.usage.*</code> token counts and <code>gen_ai.cost.total_cost</code>.</li>
@@ -78,9 +78,9 @@
     <div class="callout">
       <pre><code> .env: ANTHROPIC_API_KEY | CLAUDE_CODE_OAUTH_TOKEN, MODEL_GATEWAY_KEY
    |                                              |
-   | docker interpolates                          | runed hands to every spawn
+   | docker interpolates                          | runed hands to every turn
    v                                              v
- litellm  &lt;---- POST /v1/messages ----------  agent container
+ litellm  &lt;---- POST /v1/messages ----------  the turn's guest
    |          Authorization: Bearer $MODEL_GATEWAY_KEY
    | real credential
    v
@@ -90,9 +90,9 @@
    +--&gt; OTel span (tokens, cost) --&gt; OTEL_EXPORTER_OTLP_ENDPOINT, if set</code></pre>
     </div>
 
-    <p>Inputs: HTTP from agent containers on the compose network. Outputs: HTTPS to the model provider. Hard deps: <code>MODEL_GATEWAY_KEY</code> in <code>.env</code> &mdash; <code>arizuko packages &lt;name&gt; add litellm</code> mints it there, and the fragment still interpolates it as required, so a hand-copied fragment with no key does not start at all rather than starting a gateway that accepts every caller.</p>
+    <p>Inputs: HTTP from turns&rsquo; guests, via their egress proxies on the compose network. Outputs: HTTPS to the model provider. Hard deps: <code>MODEL_GATEWAY_KEY</code> in <code>.env</code> &mdash; <code>arizuko packages &lt;name&gt; add litellm</code> mints it there, and the fragment still interpolates it as required, so a hand-copied fragment with no key does not start at all rather than starting a gateway that accepts every caller.</p>
 
-    <p>With <a href="egress.html">egress</a> isolation on (<code>EGRESS_IMAGE</code> set), a spawn reaches the gateway through its own egress proxy, which sits on the compose network where <code>litellm</code> resolves. The proxy forwards plain HTTP to any host on the spawn&rsquo;s allowlist, so <code>litellm</code> must be on it.</p>
+    <p>Egress isolation is not a setting &mdash; every turn reaches the gateway through its own <a href="egress.html">egress</a> proxy, which runs inside runed&rsquo;s own container on the compose network where <code>litellm</code> resolves. The proxy forwards plain HTTP to any host on the turn&rsquo;s allowlist, so <code>litellm</code> must be on it.</p>
 
     <h2>Which credential you give it</h2>
     <p>The gateway is credential-agnostic; what you put in <code>.env</code> decides the billing and who can use it.</p>
@@ -109,7 +109,7 @@
     <p>arizuko stores no spend (spec <a href="https://github.com/kronael/arizuko/blob/main/specs/6/39-gateway-owns-spend.md">6/39</a>). A second ledger can only agree, lag, or lie, so there is one number and litellm holds it.</p>
     <ul>
       <li><strong>A folder is a team.</strong> The folder path is the litellm <code>team_id</code> verbatim, and its <code>cost_cap_cents_per_day</code> is that team&rsquo;s <code>max_budget</code> on a <code>1d</code> window. The cap is enforced on the request itself: over budget, litellm answers 429 <code>Budget has been exceeded! Team=&hellip;</code> and the call never reaches the model.</li>
-      <li><strong>A person is an internal user.</strong> routd sets <code>user_id</code> on the key it mints, so the caller a turn is charged to is not a field the container can rewrite.</li>
+      <li><strong>A person is an internal user.</strong> routd sets <code>user_id</code> on the key it mints, so the caller a turn is charged to is not a field the guest can rewrite.</li>
       <li><strong>A turn is a key.</strong> One virtual key per turn, with the run ceiling as its TTL, deleted when the turn ends.</li>
     </ul>
     <p>The pre-spawn gate is a single <code>GET /team/info</code> doing three jobs at once: it creates the team a turn&rsquo;s key needs to exist at all &mdash; a key naming a team litellm does not have fails every model call with 404 &mdash; it moves the team&rsquo;s budget onto whatever cap the operator now holds, and it reads the spend its refusal quotes. Everything the operator sees, on the dashboard or over REST, reads back through the same meter.</p>
@@ -145,7 +145,7 @@ ANTHROPIC_BASE_URL=http://localhost:4000 ANTHROPIC_AUTH_TOKEN=sk-my-virtual-key 
 
     <h2>Key env vars</h2>
     <ul>
-      <li><code>MODEL_GATEWAY_KEY</code> &mdash; the virtual key. litellm&rsquo;s master key on one side, the container&rsquo;s <code>ANTHROPIC_AUTH_TOKEN</code> on the other. Minted into <code>.env</code> by <code>packages add</code>; delete the line to rotate it on the next generate.</li>
+      <li><code>MODEL_GATEWAY_KEY</code> &mdash; the virtual key. litellm&rsquo;s master key on one side, the guest&rsquo;s <code>ANTHROPIC_AUTH_TOKEN</code> on the other. Minted into <code>.env</code> by <code>packages add</code>; delete the line to rotate it on the next generate.</li>
       <li><code>MODEL_GATEWAY_URL</code> &mdash; defaults to <code>http://litellm:4000</code> on every generate while the package is installed; what runed hands the spawn as its base URL. Set it in <code>.env</code> to point at another gateway.</li>
       <li><code>ANTHROPIC_API_KEY</code> / <code>CLAUDE_CODE_OAUTH_TOKEN</code> &mdash; the real credential, read by the gateway from <code>.env</code>; API key wins.</li>
       <li><code>OTEL_EXPORTER_OTLP_ENDPOINT</code>, <code>OTEL_EXPORTER_OTLP_PROTOCOL</code>, <code>OTEL_EXPORTER_OTLP_HEADERS</code> &mdash; the instance&rsquo;s OTLP declaration, passed through unchanged.</li>
@@ -157,8 +157,8 @@ ANTHROPIC_BASE_URL=http://localhost:4000 ANTHROPIC_AUTH_TOKEN=sk-my-virtual-key 
     <ul>
       <li><code>specs/6/23-llm-gateway.md</code> &mdash; the two faults the gateway closes, the measured harness matrix, and the tier placement.</li>
       <li><a href="../concepts/secrets.html">concepts/secrets</a> &mdash; the three credential types and which one the gateway moves.</li>
-      <li><a href="../security/">security</a> &mdash; what stays in the container and what never enters it.</li>
-      <li><a href="egress.html">components/egress</a> &mdash; the proxy a spawn reaches the gateway through when egress isolation is on.</li>
+      <li><a href="../security/">security</a> &mdash; what stays in the guest and what never enters it.</li>
+      <li><a href="egress.html">components/egress</a> &mdash; the proxy every turn reaches the gateway through.</li>
     </ul>
 
       <nav class="docs-pager" aria-label="Pager">
@@ -167,7 +167,7 @@ ANTHROPIC_BASE_URL=http://localhost:4000 ANTHROPIC_AUTH_TOKEN=sk-my-virtual-key 
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/components/litellm.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-09-06">2026-09-06</time>
+        &middot; updated <time class="docs-updated" datetime="2026-09-19">2026-09-19</time>
       </div>
     </main>
 

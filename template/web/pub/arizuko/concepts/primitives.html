@@ -77,7 +77,7 @@
   &rarr; Routing        &rarr; corp/eng/oncall
   &rarr; Agent          folder loaded: persona, skills, memory
   &rarr; Authorization  may it read / send / delegate here?
-  &rarr; Turn           one ephemeral container run, then it exits
+  &rarr; Turn           one ephemeral KVM guest run, then it exits
   &rarr; State          rows written, files edited
   &rarr; reply in the Slack thread</code></pre>
       <p>It looks like feature sprawl until you trace one example &mdash; then
@@ -108,15 +108,15 @@
           the <code>acl</code> table &mdash; nothing is inferred from the path.
           See <a href="grants.html">grants</a> and <a href="scopes.html">scopes</a>.</li>
         <li><span class="name">Turn</span> &mdash; the bounded reaction. One
-          ephemeral Docker container runs the agent loop for a single turn,
-          then exits. Every side effect is one tool call through the auth gate,
+          ephemeral KVM guest runs the agent loop for a single turn,
+          then powers off. Every side effect is one tool call through the auth gate,
           written to one audit row. Tasks, autocalls, and interjections are all
           just turns triggered by a different event.</li>
         <li><span class="name">State</span> &mdash; what persists, in two
           stores by design. The shared database holds events, routes, grants,
           ACL, sessions. The folder on disk holds the persona, skills, memory,
-          diary. The folder is not a cache &mdash; containers are stateless and
-          mount it each turn. A tar of the instance directory is a full backup.
+          diary. The folder is not a cache &mdash; a guest&rsquo;s own filesystem is stateless and
+          the folder is shared in fresh each turn. A tar of the instance directory is a full backup.
           See <a href="secrets.html">secrets</a>.</li>
       </ul>
 
@@ -198,7 +198,7 @@
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/concepts/primitives.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-09-19">2026-09-19</time>
+        &middot; updated <time class="docs-updated" datetime="2026-09-22">2026-09-22</time>
       </div>
     </main>
 

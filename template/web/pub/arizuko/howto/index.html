@@ -49,7 +49,8 @@
     <h2>1. What you need</h2>
     <ul>
       <li>A Linux host you can <code>sudo</code> on. arizuko is tested on Debian 12.</li>
-      <li>Docker (with the <code>docker compose</code> plugin). Every daemon and every agent runs in a container.</li>
+      <li>Docker (with the <code>docker compose</code> plugin), for the daemon fleet.</li>
+      <li>Hardware virtualization with <code>/dev/kvm</code> reachable. Every turn is one KVM guest that <code>runed</code> starts with <code>qemu-system-x86_64</code>; runed refuses to start without it.</li>
       <li>Go 1.22+ to install the <code>arizuko</code> CLI (<code>go install</code>) or build from source.</li>
       <li>About 4 GB of free disk under <code>/srv/data/</code> per instance.</li>
       <li>A public domain and TLS, only if you want web chat, OAuth login, or inbound webhooks from Slack/Discord. A local-only instance needs neither.</li>
@@ -122,7 +123,7 @@ arizuko apply demo demo.yaml        # apply the manifest back</code></pre>
       <dt>group</dt>
       <dd>A workspace. Files, diary, skills, and one agent live here. Folder name like <code>main</code> or <code>corp/eng/sre</code>.</dd>
       <dt>agent</dt>
-      <dd>The Claude Code instance for a group. Runs in a docker container, started on demand, idle-killed.</dd>
+      <dd>The Claude Code instance for a group. Runs in its own KVM guest, one per turn, started on demand and thrown away when the turn ends.</dd>
       <dt>channel</dt>
       <dd>Where messages flow in and out: Slack, Discord, Telegram, web, email, &hellip;. Each adapter is a separate daemon.</dd>
       <dt>skill</dt>
@@ -162,7 +163,7 @@ arizuko apply demo demo.yaml        # apply the manifest back</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/howto/index.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-09-21">2026-09-21</time>
+        &middot; updated <time class="docs-updated" datetime="2026-09-22">2026-09-22</time>
       </div>
     </main>
 

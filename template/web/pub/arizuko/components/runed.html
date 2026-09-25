@@ -55,18 +55,18 @@
       <h1>runed</h1>
 
     <h2>What it is</h2>
-    <p>In plain terms, runed is the thing that runs the agent. When a turn needs to happen, runed starts one fresh, empty machine, lets the agent work inside it, then throws the machine away. <code>RUNED_SUBSTRATE</code> picks what that machine is: a Docker container, which is the default, or one KVM virtual machine per turn.</p>
+    <p>In plain terms, runed is the thing that runs the agent. When a turn needs to happen, runed starts one fresh, empty KVM guest with <code>qemu-system-x86_64</code>, lets the agent work inside it, then throws the guest away. There is one substrate and no selector &mdash; the container substrate <code>RUNED_SUBSTRATE</code> used to pick between is gone.</p>
 
-    <p>runed is the execution plane: a pure container-spawner. It serves the work queue, starts one Docker container per spawn, and enforces the run timeout. It is the <strong>only</strong> daemon wired to the Docker socket. It never appends a message (<a href="routd.html">routd</a> is the sole appender), and it neither signs nor mints a token: <a href="authd.html">authd</a> is the sole signer, and runed reads authd&rsquo;s public keys only to verify the callers of its own <code>/v1</code>.</p>
+    <p>runed is the execution plane. It serves the work queue, starts one KVM guest per turn, and enforces the run timeout. It holds <code>/dev/kvm</code>, <code>/dev/vhost-vsock</code> and <code>/dev/net/tun</code> plus the <code>NET_ADMIN</code> and <code>SYS_ADMIN</code> capabilities, and mounts no Docker socket at all. It never appends a message (<a href="routd.html">routd</a> is the sole appender), and it neither signs nor mints a token: <a href="authd.html">authd</a> is the sole signer, and runed reads authd&rsquo;s public keys only to verify the callers of its own <code>/v1</code>.</p>
 
     <p>runed owns its tables and creates them itself &mdash; the runtime tables (<code>spawns</code> and <code>session_log</code>) that have no home in routd.</p>
 
     <h2>Why it exists</h2>
-    <p>A turn is one ephemeral container run. (See the <a href="../concepts/primitives.html">Turn primitive</a>.) Something has to own the Docker socket, and only one thing should: the socket is the keys to the host, so concentrating it in one small daemon keeps the blast radius small. runed is that daemon.</p>
+    <p>A turn is one ephemeral KVM guest. (See the <a href="../concepts/primitives.html">Turn primitive</a>.) Something has to hold <code>/dev/kvm</code> and the other device nodes a guest needs, and only one thing should: that access is root-equivalent on the host, so concentrating it in one small daemon keeps the blast radius small. runed is that daemon.</p>
 
-    <p>Spawning a container is more than <code>docker run</code>. runed has to apply the egress allowlist so the agent can only reach approved hosts, enforce <code>RUNED_RUN_TIMEOUT</code> so a runaway turn can&rsquo;t burn forever, steer a live run with <code>SIGUSR1</code>, and tear the container down cleanly (stop, then kill, then <code>rm -f</code>). What keeps a turn inside its folder is not a token runed hands out. It is the MCP socket itself: routd hosts one per turn, reads the peer uid off it, and answers only for that turn&rsquo;s folder &mdash; so there is no credential in the container to steal.</p>
+    <p>Starting a guest is more than <code>qemu-system-x86_64 -m 2G</code>. runed has to build the staging tree and start <code>virtiofsd</code> for it, bring up the guest&rsquo;s tap and its rule set, start its egress proxy on the host side of that tap, enforce <code>RUNED_RUN_TIMEOUT</code> so a runaway turn can&rsquo;t burn forever, steer a live run over the vsock <code>ctl</code> frame, and tear the guest down cleanly by reaping every pid the turn's record names. What keeps a turn inside its folder is not a token runed hands out. It is a host kernel fact across two hops: the guest&rsquo;s vsock CID, which the host&rsquo;s vhost driver refuses to let any other guest claim, and a uid-1000 bridge that accepts a connection only from that CID and dials that one turn&rsquo;s folder socket &mdash; so there is no credential inside the guest to steal.</p>
 
-    <p>Without runed, routd would have to hold the Docker socket itself, mixing the routing plane with host-level container control. Keeping them apart means the daemon that talks to the network (routd) is not the daemon that can start processes on the host (runed).</p>
+    <p>Without runed, routd would have to hold those device nodes itself, mixing the routing plane with host-level guest control. Keeping them apart means the daemon that talks to the network (routd) is not the daemon that can start processes on the host (runed).</p>
 
     <h2>How it fits</h2>
     <div class="callout">
@@ -74,45 +74,46 @@
         |  POST /v1/runs   (scope runs:run)
         v
       runed   verify the caller  &lt;-- authd public keys
-        |     docker run the spawn's own egress proxy, wait for /health
-        |     docker run --rm  (--internal net, HTTP_PROXY, ipc dir mounted)
+        |     start this turn's egress proxy on its tap's host side, wait for /health
+        |     qemu-system-x86_64: one guest, its virtiofs share, its tap
         v
-      arizuko-ant container   runs one turn, then exits
-        |     agent tools  --&gt;  routd, over the per-turn MCP socket
+      KVM guest   runs one turn, then powers off
+        |     agent tools  --&gt;  routd, over vsock through the uid-1000 bridge
         |                       (MCP socket hosted in routd, not runed)
-        +-- timeout / SIGUSR1 steer / stop->kill->rm -f --&gt; runed</code></pre>
+        +-- timeout / ctl steer / power off + reap every pid --&gt; runed</code></pre>
     </div>
 
-    <p>Inputs: <code>POST /v1/runs</code> from routd (the routd&harr;runed contract); authd&rsquo;s public keys, fetched once at start, which it verifies those requests against. Outputs: a running container; status and kill over <code>/v1/runs/{run_id}</code>; spawn and session rows in its own tables.</p>
+    <p>Inputs: <code>POST /v1/runs</code> from routd (the routd&harr;runed contract); authd&rsquo;s public keys, fetched once at start, which it verifies those requests against. Outputs: a running guest; status and kill over <code>/v1/runs/{run_id}</code>; spawn and session rows in its own tables.</p>
 
-    <p>Hard deps: the Docker socket on the host; <a href="authd.html">authd</a> as the JWKS source; <a href="routd.html">routd</a>, which hosts the per-turn MCP socket and receives the agent&rsquo;s tool calls. When <code>EGRESS_IMAGE</code> is set, runed also starts one <a href="egress.html">egress</a> proxy per spawn from that image, on the folder&rsquo;s <code>--internal</code> network, and stops it with the turn.</p>
+    <p>Hard deps: <code>/dev/kvm</code>, <code>/dev/vhost-vsock</code> and <code>/dev/net/tun</code> on the host; <a href="authd.html">authd</a> as the JWKS source; <a href="routd.html">routd</a>, which hosts the per-turn MCP socket and receives the agent&rsquo;s tool calls. runed also starts one <a href="egress.html">egress</a> proxy per turn on that guest&rsquo;s tap, and stops it with the turn &mdash; that isn&rsquo;t a setting, runed refuses to start at all if the <code>egress</code> binary is missing.</p>
 
     <h2>Timeouts and shutdown</h2>
-    <p><code>RUNED_RUN_TIMEOUT</code> (default 20m) is the run ceiling, and it bounds two things at once: the container hard-kill, and the in-container agent query timeout (<code>ARIZUKO_QUERY_TIMEOUT_MS</code> = <code>RUNED_RUN_TIMEOUT &minus; 30s</code>). The 30-second gap lets the agent abort and deliver a graceful summary before runed kills the container under it. On graceful shutdown runed detaches in-flight runs, so containers outlive the daemon and a restart doesn&rsquo;t murder a turn mid-sentence.</p>
+    <p><code>RUNED_RUN_TIMEOUT</code> (default 20m) is the run ceiling, and it bounds two things at once: the guest hard-kill, and the in-guest agent query timeout (<code>ARIZUKO_QUERY_TIMEOUT_MS</code> = <code>RUNED_RUN_TIMEOUT &minus; 30s</code>). The 30-second gap lets the agent abort and deliver a graceful summary before runed kills the guest under it. On graceful shutdown runed detaches in-flight runs, so a guest outlives the daemon and a restart doesn&rsquo;t murder a turn mid-sentence &mdash; the next runed reaps it from the on-disk record.</p>
 
     <h2>Standalone usage</h2>
-    <p>runed runs as a daemon, but it cannot do its job without a substrate to spawn into and an authd whose keys it can fetch. It also expects routd to host the MCP socket the container talks to. Run it only alongside those.</p>
+    <p>runed runs as a daemon, but it cannot do its job without the KVM substrate&rsquo;s preconditions met and an authd whose keys it can fetch. It also expects routd to host the MCP socket the guest talks to. Run it only alongside those.</p>
 
     <pre><code>cd /srv/data/myinstance
 export DATA_DIR=/srv/data/myinstance
 export LISTEN_ADDR=:8080
 export AUTHD_URL=http://authd:8080
 export RUNED_RUN_TIMEOUT=20m
-export CONTAINER_IMAGE=arizuko-ant:latest
-# the host docker socket must be reachable
+export RUNED_KERNEL_DIR=/srv/data/myinstance/images/kernel-v0.68.0-abc123
+export RUNED_ROOTFS_DIR=/srv/data/myinstance/images/ant-v0.68.0/rootfs
+# the host must expose /dev/kvm, /dev/vhost-vsock and /dev/net/tun
 ./runed</code></pre>
 
-    <p>With <code>AUTHD_URL</code> unset the verifier runs open &mdash; local-dev only. <code>GET /health</code> returns 200 once the process is up; the red flag is spawns stuck in <code>state=queued</code>, which means the substrate is unavailable.</p>
+    <p>With <code>AUTHD_URL</code> unset the verifier runs open &mdash; local-dev only. <code>GET /health</code> returns 200 once the process is up; the red flag is spawns stuck in <code>state=queued</code>, which means the concurrency cap is full or a precondition the guest needs went away under a running daemon. A precondition missing at boot fails earlier than that: runed refuses to start at all, and the refusal names every one unmet at once.</p>
 
     <h2>What runed does not do</h2>
-    <p>runed does not route messages, does not append to the message log, and does not sign tokens. It takes a run request, produces a container, enforces its limits, and reports the result &mdash; the execution plane, nothing else.</p>
+    <p>runed does not route messages, does not append to the message log, and does not sign tokens. It takes a run request, produces a guest, enforces its limits, and reports the result &mdash; the execution plane, nothing else.</p>
 
     <h2>Go deeper</h2>
     <ul>
-      <li><a href="../concepts/primitives.html">concepts/primitives</a> &mdash; the Turn primitive: one ephemeral container run per event.</li>
-      <li><a href="egress.html">components/egress</a> &mdash; the per-spawn proxy runed starts, and why the missing route is what confines the agent.</li>
-      <li><a href="../reference/env.html#split">reference/env &mdash; split daemons</a> &mdash; the wiring vars; container spawn vars under <a href="../reference/env.html#container">container</a>.</li>
-      <li><a href="routd.html">components/routd</a> &mdash; sends the run, hosts the MCP socket the container calls back on.</li>
+      <li><a href="../concepts/primitives.html">concepts/primitives</a> &mdash; the Turn primitive: one ephemeral guest run per event.</li>
+      <li><a href="egress.html">components/egress</a> &mdash; the per-turn proxy runed starts, and why the tap's rule set is what confines the agent.</li>
+      <li><a href="../reference/env.html#split">reference/env &mdash; split daemons</a> &mdash; the wiring vars; agent spawn vars under <a href="../reference/env.html#container">container</a>.</li>
+      <li><a href="routd.html">components/routd</a> &mdash; sends the run, hosts the MCP socket the guest calls back on.</li>
       <li><code>runed/README.md</code> &mdash; the run contract, timeout math, file map.</li>
       <li><code>specs/5/P</code> &mdash; the execution plane split.</li>
     </ul>
@@ -124,7 +125,7 @@ export CONTAINER_IMAGE=arizuko-ant:latest
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/components/runed.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-09-19">2026-09-19</time>
+        &middot; updated <time class="docs-updated" datetime="2026-09-24">2026-09-24</time>
       </div>
     </main>
 

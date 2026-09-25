@@ -114,19 +114,19 @@ arizuko acl myagent add alice@example.com "eng/**" "**"</code></pre>
 
       <h3>Internet</h3>
       <pre><code>arizuko token myagent create --jid web:support</code></pre>
-      <p>A route token lets anonymous visitors in. Add <code>ONBOARDING_ADMISSION=queue</code> to gate new users, and <code>EGRESS_IMAGE=arizuko-egress:latest</code> to put every spawn behind its own filtered proxy. See <a href="tokens.html">tokens</a> and <a href="onboarding.html">onboarding</a>.</p>
+      <p>A route token lets anonymous visitors in. Add <code>ONBOARDING_ADMISSION=queue</code> to gate new users. Every turn already runs behind its own filtered egress proxy &mdash; there is no switch to flip. See <a href="tokens.html">tokens</a> and <a href="onboarding.html">onboarding</a>.</p>
 
       <h2>Where isolation comes from</h2>
-      <p>Tenants share one store, one set of daemons, one container image. Isolation comes from three things:</p>
+      <p>Tenants share one store, one set of daemons, one release image. Isolation comes from three things:</p>
       <ul>
-        <li><strong>Folder containment.</strong> A group's agent runs in a container whose home is <code>groups/&lt;folder&gt;/</code>. It cannot see sibling folders' files. <a href="scopes.html">Scopes</a> explains the rules.</li>
+        <li><strong>Folder containment.</strong> A group's agent runs in its own KVM guest whose home is <code>groups/&lt;folder&gt;/</code>. It cannot see sibling folders' files. <a href="scopes.html">Scopes</a> explains the rules.</li>
         <li><strong>Grant resolution.</strong> Every MCP call checks <code>(caller, action, target)</code> against the ACL. A folder holding only the default role can <code>send</code> but not <code>register_group</code>. <a href="grants.html">Grants</a> explains the rows.</li>
-        <li><strong>Egress filtering.</strong> Each spawn gets its own <code>egress</code> proxy holding that folder&rsquo;s allowlist, on a network with no other route out. It is instance-wide once <code>EGRESS_IMAGE</code> is set, and the rules are per folder.</li>
+        <li><strong>Egress filtering.</strong> Each turn gets its own <code>egress</code> proxy holding that folder&rsquo;s allowlist, on a tap with no other route out. It always runs, and the rules are per folder.</li>
       </ul>
-      <p>Cross-tenant read is structurally impossible: the container mount, the grant gate, and the egress proxy all bind to the folder. A bug in one group's skill doesn't leak into another group's context.</p>
+      <p>Cross-tenant read is structurally impossible: the guest's mount, the grant gate, and the egress proxy all bind to the folder. A bug in one group's skill doesn't leak into another group's context.</p>
 
       <h2>Capacity, not tenancy</h2>
-      <p>Scaling arizuko is a capacity question, not an architecture one. One store handles thousands of groups; a single host runs hundreds of concurrent containers. When you hit the host ceiling, the answer is a second instance (a separate data directory, a separate systemd unit), not a rewrite. Each instance is fully independent &mdash; no shared state, no cross-instance routing.</p>
+      <p>Scaling arizuko is a capacity question, not an architecture one. One store handles thousands of groups; a single host runs hundreds of concurrent turns. When you hit the host ceiling, the answer is a second instance (a separate data directory, a separate systemd unit), not a rewrite. Each instance is fully independent &mdash; no shared state, no cross-instance routing.</p>
       <p>This is intentional. The operational model is "many small instances" rather than "one distributed cluster." A support team runs one instance; a product team runs another; they share nothing but the binary. Operational blast radius stays small.</p>
 
       <div class="callout"><strong>No managed control plane.</strong> There is no central service that coordinates instances, no billing layer that gates usage, no SaaS dashboard that aggregates metrics. Each instance is a standalone unit you run on your own host. That's the feature, not an oversight.</div>
@@ -137,7 +137,7 @@ arizuko acl myagent add alice@example.com "eng/**" "**"</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/concepts/scaling.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-09-13">2026-09-13</time>
+        &middot; updated <time class="docs-updated" datetime="2026-09-22">2026-09-22</time>
       </div>
     </main>
 
