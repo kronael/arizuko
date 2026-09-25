@@ -8,7 +8,7 @@ for shipped milestones.
 - **Deploy pending** — Phase B+D of 5/5 (invites + chats.is_group),
   cli-chat, doc refresh, web UI gaps, and the verb-taxonomy work all
   sit on detached HEAD. krons is the test target; `sudo make images
-&& sudo systemctl restart arizuko_krons`. Marinade only on explicit
+&& sudo systemctl restart arizuko_krons`. sloth only on explicit
   request.
 - **Phase C of 5/5** (secrets resolver) — Phase B (invites) and
   Phase D (chats.is_group) shipped. C reads `chats.is_group` and

@@ -105,7 +105,7 @@ The pattern: complexity is paid **daily**; several headline benefits are
 
 ## 3. Validation, honestly
 
-Three instances — krons, sloth, marinade — **all operated by the author.
+Two instances — krons and sloth — **all operated by the author.
 Zero known external installs.** The validated-usefulness cell reads:
 autobiographical. 21 daemons, 5 databases, 233 specs, to serve a fleet of
 one operator's three boxes.

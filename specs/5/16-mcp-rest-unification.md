@@ -676,14 +676,15 @@ auth decision," not because anything forces them there.
 
 ### Migration path per instance
 
-Applies identically to krons, sloth, marinade (the three live instances) —
+Applies identically to krons and sloth (the live instances; marinade was
+removed 2026-09-25, its store consolidated into sloth — BUGS `L335`) —
 run each numbered step's verification independently per instance; nothing
 here is a single global cutover.
 
 1. **`auth_sessions`/`auth_users` emptiness check** (read-only, do first,
    every instance): `sqlite3 <datadir>/store/routd.db "SELECT COUNT(*) FROM
 auth_sessions; SELECT COUNT(*) FROM auth_users;"`. Verified zero on krons
-   at time of writing; sloth and marinade are NOT yet checked — do not run
+   at time of writing; sloth is NOT yet checked — do not run
    steps 3/4 below on an instance until its own count comes back zero.
 2. Ship the code fixes (proxyd `sub.Scope`, webd dead-open removal) —
    no schema change, safe on all three regardless of row counts.
@@ -699,7 +700,7 @@ auth_sessions; SELECT COUNT(*) FROM auth_users;"`. Verified zero on krons
    mount. `sudo systemctl restart arizuko_<instance>` is the whole procedure.
 
    ```bash
-   I=krons                                # then sloth, then marinade
+   I=krons                                # then sloth
    sudo systemctl restart arizuko_$I      # ExecStartPre: down → generate (moves) → up
    sudo journalctl -u arizuko_$I --since "2 min ago" --no-pager | grep 'store: moved'
    ```

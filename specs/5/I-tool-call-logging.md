@@ -54,7 +54,7 @@ shared schema is the deliverable of this spec.
 | `duration_ms`    | int    | Wall-clock; omitted for `agent_pretool` (no duration yet)                               |
 | `turn_id`        | string | Agent-initiated calls and any handler called inside a turn                              |
 | `folder`         | string | Group folder, e.g. `atlas/support`                                                      |
-| `instance`       | string | Instance name (`krons`, `marinade`)                                                     |
+| `instance`       | string | Instance name (`krons`, `sloth`)                                                        |
 
 `actor` + `actor_sub` answer "who"; `tool` + `resource` +
 `params_summary` answer "what"; `outcome` + `error` + `duration_ms` answer

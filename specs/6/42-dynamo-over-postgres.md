@@ -1,5 +1,5 @@
 ---
-status: partial
+status: shipped
 depends:
   [
     37-store-model,
@@ -692,8 +692,8 @@ stays FTS5 on a SQLite deployment" — because there is no SQLite deployment.
 
 ## 10. Ordering, and the rule
 
-krons runs the object model on SQLite entity tables today; marinade and sloth
-do not. **An instance moves to the server only FROM the object model, never
+krons ran the object model on SQLite entity tables first; marinade and sloth
+did not. **An instance moves to the server only FROM the object model, never
 from the column schema**, because the copy of §7 is mechanical only when
 source and target share the item shape. So marinade and sloth first run the
 entity migration krons has run (`arizuko migrate-hot` and its siblings, from
@@ -718,7 +718,8 @@ window, in either order.
 4. **Compose, keys, `arizuko create`, and the operator's copy script**,
    rehearsed on a krons snapshot; then krons: copy, flip, smoke. **5–6 days.**
 5. **marinade and sloth**: entity migration, fourteen green days on krons,
-   copy, flip. **2–3 days** of engineer time; calendar time longer.
+   copy, flip. **2–3 days** of engineer time; calendar time longer. **Closed
+   2026-09-25** — sloth by this path, marinade by removal (§13).
 6. **The deletion release**: the table of §7, the import guard,
    `ARCHITECTURE.md`, `INSTALL.md`, `SECURITY.md`, `README.md`,
    `objstore/README.md` and the comments in `objstore/` that describe a SQL
@@ -797,8 +798,30 @@ a)` concurrently, a thousand times: the answer must be one commit and one
 ## 13. What shipped, and what is left
 
 **v0.68.0 is step 6, the deletion release, shipped 2026-09-14 with step 5
-outstanding.** That is the order this section states is allowed: marinade and
-sloth are not moved, and they stay on the pre-deletion tag.
+outstanding.** That is the order this section states is allowed.
+
+**Step 5 closed 2026-09-25, and one of its two instances closed by REMOVAL
+rather than by migration.** Measured that day:
+
+- **sloth is moved.** `arizuko_extenddb_sloth` and `arizuko_extenddb_db_sloth`
+  are healthy and three days up, `DYNAMODB_URL=https://extenddb:18443` is set on
+  its routd, and it runs `arizuko:latest` — the same image as krons, not the
+  pinned pre-deletion tag this section expected. Its `store/` directory still
+  holds `routd.db` and the per-owner dirs; those are the FROZEN leftovers, and a
+  query against one answers what was true before the flip (BUGS `L284`).
+- **marinade is gone.** Its store was consolidated into sloth's ExtendDB around
+  2026-09-18 (BUGS `L335`), its service went down 2026-09-18T20:20:48 and never
+  returned, and on 2026-09-25 its 26 GB tree and its systemd unit moved to
+  `/srv/data/tmp_removed_marinade_20260925` for later removal. So it never ran
+  the entity migration this section required of it — the data reached the object
+  model through sloth's store instead.
+- **The consolidation was marinade → sloth, never marinade → krons.** krons
+  serves neither the `atlas` folders nor its bot, and never did.
+
+So nothing is left gated on step 5. What the merge DID leave is two recorded
+items that are not storage: the merged Telegram cursor and colliding platform
+ids of `L335`, and `L363` — sloth advertises five `atlas` Telegram routes and
+can serve one, because the bot the others talk to is served by nothing.
 
 Deleted as §7 names them: `objstore/sqlstore`, `db_utils` and `db_utils/dbtest`,
 `store/migrations` and `routd/migrations`, the owner files and `seedOwnerDBs`,
