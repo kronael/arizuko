@@ -224,6 +224,43 @@ instance layout to drive.
   literal; it asserts what the declaration is for, that `EnvOr` on an unset var
   resolves to the shared default.
 
+## L373 — the clamped share accepts writes from ONE uid, and guest-init is root, so no bind target on the share can be made (2026-09-25, open)
+
+The guest boots, mounts virtio-fs and brings `ctl` up in 1.50 s of guest uptime.
+Then it stops, and its own probe says why (krons, 2026-09-25):
+
+```
+guest-init: alive
+ARIZUKO_PROBE {"virtiofs":"mounted","ctl_up_uptime":"1.50 0.39","guest_uid":"0",
+  "turn_write_error":"open /turn/from-guest.txt: permission denied"}
+guest-init: mount point /newroot/home/node/.codex/auth.json: permission denied
+```
+
+`L372` made the clamp the daemon's uid: the turn's share is exported by a
+virtiofsd running as the agent's uid, which is what stops a guest from owning a
+host file as root. The cost of that control is now visible — **an unprivileged
+daemon cannot honour a request carrying any other uid.** It does not silently land
+the write as its own id; it refuses. And `guest-init` is uid 0, because it is PID 1
+of the VM, so every file it creates on the share is refused.
+
+The agent itself runs as 1000 and is unaffected. What fails is guest-init's own
+work: the bind targets it must create inside share-backed directories (the two
+codex credentials are single files overmounted into `~/.codex`, which is itself a
+bind of the share) and the probe write.
+
+- **Severity:** high (the guest boots and no turn can assemble its root)
+- **Scope:** `kernel/guest-init/main.go`
+- **Affected:** `ensureTarget`, the probe, every turn
+- **Source:** measured on krons 2026-09-25 from the guest's own console log
+- **Status:** open
+- **Fix:** guest-init asks with the agent's FILESYSTEM identity where root is
+  refused. `setfsuid`/`setfsgid` change file access checks and nothing else, so
+  every capability the mounts need survives; the thread is locked because the call
+  is per-thread. Root is tried FIRST and the agent second, because the targets on
+  the guest's own overlay are root-owned and the share is the exception — one
+  helper rather than a path test, since which targets land on the share is the
+  renderer's decision and not a prefix this program can read off a path.
+
 ## ✅ FIXED 2026-09-25 L372 — the uid clamp is illegal as runed ran it, and the id map cannot run in a container at all (2026-09-25)
 
 The guest booted. QEMU then died at once:

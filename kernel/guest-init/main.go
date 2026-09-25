@@ -9,11 +9,13 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -478,6 +480,49 @@ func applyPlan(ops []mountOp) error {
 	return nil
 }
 
+// asAgent runs fn with the FILESYSTEM identity of the agent's uid, keeping every
+// capability the caller holds (setfsuid touches file access checks and nothing
+// else). It is per-THREAD, so the thread is locked for the duration.
+//
+// The turn's share is exported by a virtiofsd running as the agent's own uid —
+// that daemon IS the clamp, and it cannot satisfy a request that carries any other
+// uid (spec §"The peer credential"). guest-init is uid 0, so every file it creates
+// on the share is refused with EACCES until it asks as the agent. Measured on krons
+// 2026-09-25: `open /newroot/home/node/.codex/auth.json: permission denied` on a
+// bind target, and the guest's own probe write refused the same way (BUGS `L373`).
+func asAgent(fn func() error) error {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	if err := syscall.Setfsgid(agentGID); err != nil {
+		return fmt.Errorf("setfsgid %d: %w", agentGID, err)
+	}
+	if err := syscall.Setfsuid(agentUID); err != nil {
+		_ = syscall.Setfsgid(0)
+		return fmt.Errorf("setfsuid %d: %w", agentUID, err)
+	}
+	defer func() {
+		_ = syscall.Setfsuid(0)
+		_ = syscall.Setfsgid(0)
+	}()
+	return fn()
+}
+
+// createOnShare makes a mount point, as root first and as the agent when root is
+// refused. Root is right for the targets on the guest's own overlay, which is
+// root-owned; the agent is the only identity the share accepts. One helper rather
+// than a path test, because which targets land on the share is the renderer's
+// decision and not a prefix this program can read off a path.
+func createOnShare(what string, create func() error) error {
+	err := create()
+	if err == nil || !errors.Is(err, os.ErrPermission) {
+		return err
+	}
+	if agentErr := asAgent(create); agentErr != nil {
+		return fmt.Errorf("%s: refused as root (%v) and as the agent (%w)", what, err, agentErr)
+	}
+	return nil
+}
+
 // ensureTarget creates the mount point. A bind target must match its source's
 // kind: the two codex credentials are single FILES overmounted read-only
 // (runed/vmtree.go stageTargets), and a directory target for a file source is
@@ -485,17 +530,24 @@ func applyPlan(ops []mountOp) error {
 func ensureTarget(op mountOp) error {
 	if op.FS == "" {
 		if fi, err := os.Stat(op.Source); err == nil && !fi.IsDir() {
-			if err := os.MkdirAll(filepath.Dir(op.Target), 0o755); err != nil {
-				return fmt.Errorf("mount point %s: %w", filepath.Dir(op.Target), err)
+			dir := filepath.Dir(op.Target)
+			if err := createOnShare("mount point "+dir, func() error {
+				return os.MkdirAll(dir, 0o755)
+			}); err != nil {
+				return fmt.Errorf("mount point %s: %w", dir, err)
 			}
-			f, err := os.OpenFile(op.Target, os.O_CREATE|os.O_WRONLY, 0o644)
-			if err != nil {
-				return fmt.Errorf("mount point %s: %w", op.Target, err)
-			}
-			return f.Close()
+			return createOnShare("mount point "+op.Target, func() error {
+				f, err := os.OpenFile(op.Target, os.O_CREATE|os.O_WRONLY, 0o644)
+				if err != nil {
+					return err
+				}
+				return f.Close()
+			})
 		}
 	}
-	if err := os.MkdirAll(op.Target, 0o755); err != nil {
+	if err := createOnShare("mount point "+op.Target, func() error {
+		return os.MkdirAll(op.Target, 0o755)
+	}); err != nil {
 		return fmt.Errorf("mount point %s: %w", op.Target, err)
 	}
 	return nil
