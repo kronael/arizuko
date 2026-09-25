@@ -402,16 +402,29 @@ host, and an id outside the range has none. The turn runs ant as uid 1000, so th
 map the operator sets is that one id — `:1000:1000:1:` — and a compromised guest
 running as uid 0 falls outside it.
 
-**The map is legal only under `--sandbox namespace`, and only from an unprivileged
-caller.** This section said `--sandbox=none` "goes with it, because runed has
-already made the namespaces", and 1.10.1 refuses that pair in as many words:
-"uid_map can only be used by unprivileged user where sandbox mod is namespace".
-runed exported the share as root, so both halves were false and every turn died
-with QEMU's `Connection refused` on the chardev (BUGS `L372`). So **the clamp is a
-uid as much as a flag**: the turn's share is exported by a child running as the
-agent's own uid, which cannot chown a host file to anyone else whatever the guest
-asks, and the map is what lands the guest's own 1000 on that same host id. The
-read-only rootfs share stays `--sandbox=none` as root. So the acceptance is two writes, not one: from
+**THE MAP CANNOT RUN IN A CONTAINER, and the clamp is the daemon's UID instead.**
+Measured three ways on krons 2026-09-25 (BUGS `L372`), after this section had
+specified `--uid-map` with `--sandbox=none`:
+
+| what runed does                                | virtiofsd's answer                                                                                                            |
+| ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| root + `--uid-map`                             | "uid_map can only be used by unprivileged user where sandbox mod is namespace"                                                |
+| uid 1000 + `--sandbox namespace` + `--uid-map` | `failed to execute newuidmap`, and with `shadow-uidmap` present, `Error entering sandbox: MountProc(Operation not permitted)` |
+| uid 1000 + `--sandbox=none`, no map            | **serves**                                                                                                                    |
+
+The namespace sandbox mounts a fresh `/proc`; docker's own `/proc` carries locked
+masked paths, so the nested mount is `EPERM` however the map is written. Neither
+half of the map's precondition can hold for a daemon inside runed's container.
+
+So the writable share is exported by a child running as **the agent's own uid**,
+and that IS the control the map was for: a daemon with no privilege cannot create
+a host file owned by anyone else, whatever uid the guest states. It is simpler than
+the map and needs nothing of the host — no `newuidmap`, no user namespace, no
+unmasked `/proc`. The read-only rootfs share stays root's, because it is read-only.
+`RUNED_VIRTIOFSD_UID_MAP` and `RUNED_VIRTIOFSD_GID_MAP` are deleted; the
+`--uid-map` probe in `--help` stays, because it is how the precondition tells the
+Rust build from QEMU's C one, which needs real root and therefore cannot be
+clamped at all. So the acceptance is two writes, not one: from
 the guest as uid 1000 the host file carries host uid 1000, and from the guest as
 uid 0 the write is REFUSED, because an unmapped id has no host identity to write
 under.

@@ -82,10 +82,21 @@ func (r *vmRecord) save() error {
 		return fmt.Errorf("vm record %q: no turn dir", r.Handle)
 	}
 	// 0o710 and owned by the agent's uid: the turn's virtiofsd runs UNPRIVILEGED
-	// (the id map is legal for no other caller) and creates its socket in here,
-	// while the tree/ below stays root-owned because root makes its binds.
+	// (the id map is legal for no other caller) and creates its socket AND its pid
+	// file in here, while the tree/ below stays root-owned because root makes its
+	// binds.
 	if err := os.MkdirAll(r.TurnDir, 0o710); err != nil {
 		return err
+	}
+	// The ROOT above it must be traversable by that uid too, and 0o711 is the
+	// narrowest mode that allows it: reach your own turn dir, enumerate nobody
+	// else's. Chmod and not MkdirAll's mode, because an instance that ran an older
+	// runed already has the root at 0o700 and MkdirAll leaves an existing dir
+	// alone — which is exactly how this shipped as "Permission denied" on a pid
+	// file in a directory the daemon owned (BUGS `L372`).
+	if err := os.Chmod(filepath.Dir(r.TurnDir), 0o711); err != nil && !os.IsNotExist(err) {
+		slog.Warn("vm root not traversable by the agent uid; the turn share will not open",
+			"root", filepath.Dir(r.TurnDir), "err", err)
 	}
 	if uid, _ := container.RunUID(); uid > 0 {
 		// Report and carry on: a record that cannot be chowned is a turn whose

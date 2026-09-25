@@ -26,8 +26,6 @@ const (
 	envKernelDir    = "RUNED_KERNEL_DIR"
 	envRootfsDir    = "RUNED_ROOTFS_DIR"
 	envVirtiofsd    = "RUNED_VIRTIOFSD"
-	envUIDMap       = "RUNED_VIRTIOFSD_UID_MAP"
-	envGIDMap       = "RUNED_VIRTIOFSD_GID_MAP"
 	envQemu         = "RUNED_QEMU"
 	envEgressBin    = "RUNED_EGRESS_BIN"
 	envFirewallBin  = "RUNED_FIREWALL_BIN"
@@ -89,8 +87,6 @@ const (
 type qemuPaths struct {
 	Qemu      string
 	Virtiofsd string
-	UIDMap    string
-	GIDMap    string
 	Egress    string
 	Firewall  string
 	IP        string
@@ -123,8 +119,6 @@ func qemuPreconditions(cfg *core.Config) (qemuPaths, error) {
 	p := qemuPaths{
 		Qemu:      core.EnvOr(envQemu, "qemu-system-x86_64"),
 		Virtiofsd: core.EnvOr(envVirtiofsd, virtiofsdDefault),
-		UIDMap:    os.Getenv(envUIDMap),
-		GIDMap:    os.Getenv(envGIDMap),
 		Egress:    core.EnvOr(envEgressBin, "egress"),
 		Firewall:  core.EnvOr(envFirewallBin, "iptables"),
 		IP:        core.EnvOr(envIPBin, "ip"),
@@ -244,15 +238,18 @@ func firstLine(s string) string {
 	return line
 }
 
-// checkClamp is the uid clamp's precondition: the daemon that exports the turn
-// share must be able to translate every guest id onto the one host id the folder
-// already uses, and the mapping it is given must be stated rather than guessed.
+// checkClamp is the uid clamp's precondition, and the clamp is that the writable
+// share is exported by a daemon running as the AGENT'S OWN UID: such a daemon
+// cannot create a host file owned by anyone else, whatever uid the guest states.
+// Measured 2026-09-24: as root the same daemon made a guest's file `root root` on
+// the host, and it outlived the guest.
 //
-// Three cheaper mechanisms were measured out on 2026-09-24 and are not retried
-// here: the packaged C daemon has no id mapping of any kind, it cannot run in a
-// single-id user namespace because its startup setgroups() fails there, and an
-// idmapped mount translates the CALLER so it cannot redirect a root daemon's
-// writes (spec 6/41 §"The peer credential").
+// So what this checks is that the daemon can run UNPRIVILEGED, and the id-map
+// flags are how it tells the two builds apart. QEMU's C `virtiofsd` advertises
+// neither flag and requires real root — its startup `setgroups()` fails for an
+// unprivileged caller — so a host carrying only that build cannot clamp at all.
+// The flags themselves are not sent: an id map is legal only under
+// `--sandbox namespace`, whose own /proc mount docker refuses (BUGS `L372`).
 func checkClamp(p qemuPaths, miss func(string, ...any)) {
 	fi, err := os.Stat(p.Virtiofsd)
 	if err != nil || fi.IsDir() {
@@ -261,51 +258,12 @@ func checkClamp(p qemuPaths, miss func(string, ...any)) {
 	}
 	out, _ := exec.Command(p.Virtiofsd, "--help").CombinedOutput()
 	if !strings.Contains(string(out), clampUIDFlag) || !strings.Contains(string(out), clampGIDFlag) {
-		miss("%s=%s advertises no %s in its --help: it cannot clamp the guest's uid, "+
-			"and a guest as uid 0 then writes host-root-owned files into the folder "+
-			"(measured 2026-09-24). The image must carry the Rust virtiofsd",
-			envVirtiofsd, p.Virtiofsd, clampUIDFlag+" and "+clampGIDFlag)
-		return
+		miss("%s=%s advertises neither %s in its --help, so it is QEMU's C build: it "+
+			"requires real root, and a root daemon writes host-root-owned files into "+
+			"the folder on a guest's say-so (measured 2026-09-24). The image must carry "+
+			"the Rust virtiofsd",
+			envVirtiofsd, p.Virtiofsd, clampUIDFlag+" nor "+clampGIDFlag)
 	}
-	uid, _ := container.RunUID()
-	if p.UIDMap == "" || p.GIDMap == "" {
-		miss("%s and %s must both be set to the mapping that lands every guest id on host uid %d; "+
-			"the value is the operator's measurement, not a default this daemon may guess "+
-			"(spec 6/41 §\"Open questions — each with the measurement that settles it\", question 2)",
-			envUIDMap, envGIDMap, uid)
-		return
-	}
-	// The SHAPE is checked here because the alternative is a daemon that exits on
-	// turn one: virtiofsd parses the range itself and a misspelled map is an
-	// "invalid value" it reports to a log nobody is reading yet (BUGS `L367`).
-	for _, m := range []struct{ env, val string }{{envUIDMap, p.UIDMap}, {envGIDMap, p.GIDMap}} {
-		if err := checkMapRange(m.val); err != nil {
-			miss("%s=%s %s; the daemon's own --help spells it :namespace_id:host_id:count:, "+
-				"for example :%d:%d:1: for the one id the turn runs as",
-				m.env, m.val, err, uid, uid)
-		}
-	}
-}
-
-// checkMapRange holds a virtiofsd id map to the spelling the daemon parses:
-// `:namespace_id:host_id:count:`, three decimal fields between four colons.
-func checkMapRange(v string) error {
-	f := strings.Split(v, ":")
-	if len(f) != 5 || f[0] != "" || f[4] != "" {
-		return fmt.Errorf("is not a range between four colons")
-	}
-	for _, n := range f[1:4] {
-		if n == "" {
-			return fmt.Errorf("leaves a field of the range empty")
-		}
-		if _, err := strconv.ParseUint(n, 10, 32); err != nil {
-			return fmt.Errorf("carries %q where the range wants a number", n)
-		}
-	}
-	if f[3] == "0" {
-		return fmt.Errorf("maps a count of 0, so no guest id has a host id")
-	}
-	return nil
 }
 
 // readImageEnv reads the agent image's `ENV` set from beside the rootfs tree.

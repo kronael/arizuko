@@ -224,7 +224,7 @@ instance layout to drive.
   literal; it asserts what the declaration is for, that `EnvOr` on an unset var
   resolves to the shared default.
 
-## L372 — the uid clamp is illegal as runed ran it: virtiofsd takes an id map only from an unprivileged caller under `--sandbox namespace` (2026-09-25, open)
+## ✅ FIXED 2026-09-25 L372 — the uid clamp is illegal as runed ran it, and the id map cannot run in a container at all (2026-09-25)
 
 The guest booted. QEMU then died at once:
 
@@ -264,12 +264,31 @@ the socket and not the cause. The wait now watches the process too.
 - **Scope:** `runed/qemu.go`, `runed/vmrecord.go`, `specs/6/41` §"The peer credential"
 - **Affected:** `virtiofsdArgs`, `startVirtiofsd`, `waitForSocket`, `vmRecord.save`
 - **Source:** measured on krons 2026-09-25 from the daemon's own stderr
-- **Status:** open
-- **Fix:** `--sandbox=namespace` for the clamped share, started with the agent's
-  uid as its credential; the per-turn dir becomes `0o710` owned by that uid so the
-  unprivileged daemon can create its socket while `tree/` below stays root-owned,
-  because root makes its binds. And `waitForSocket` fails the moment the daemon
-  exits, naming its exit, so the daemon's own error is what the operator reads.
+- **Status:** ✅ FIXED 2026-09-25 — and the fix is not the one this entry first
+  proposed. **The id map cannot run here at all**, measured three ways:
+
+  | what runed does | virtiofsd's answer |
+  | --- | --- |
+  | root + `--uid-map` | "uid_map can only be used by unprivileged user where sandbox mod is namespace" |
+  | uid 1000 + `--sandbox namespace` + `--uid-map` | `couldn't setup id mappings: failed to execute newuidmap` → with `shadow-uidmap` installed: `Error entering sandbox: MountProc(Operation not permitted)` |
+  | uid 1000 + `--sandbox=none`, no map | **serves** |
+
+  The namespace sandbox mounts a fresh `/proc`, and docker's own `/proc` carries
+  locked masked paths, so the nested mount is `EPERM` however the map is written.
+- **Fix:** **the clamp is the daemon's UID, not a flag.** The writable share is
+  exported by a child running as the agent's own uid, which cannot create a host
+  file owned by anyone else whatever the guest states — the same control the map
+  was for, by a mechanism docker allows. `RUNED_VIRTIOFSD_UID_MAP` and
+  `RUNED_VIRTIOFSD_GID_MAP` are deleted with their shape validator; the `--uid-map`
+  probe in `--help` STAYS, because it is how the check tells the Rust build from
+  QEMU's C one, which needs real root and so cannot be clamped at all.
+
+  The per-turn dir becomes `0o710` owned by that uid and the VM root `0o711`, so
+  the unprivileged daemon can reach its own turn dir and create its socket and pid
+  file while `tree/` below stays root-owned, because root makes its binds. And
+  `waitForSocket` fails the moment the daemon exits, naming its exit, so what the
+  operator reads is the daemon's own error rather than QEMU's chardev one step
+  later.
 
 ## L371 — `CAP_SYS_ADMIN` is not enough to make a bind mount in a container: AppArmor's docker-default denies it (2026-09-25, open)
 

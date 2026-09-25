@@ -114,27 +114,28 @@ func TestClampRefusesADaemonThatCannotTranslate(t *testing.T) {
       --sandbox <SANDBOX>
 `
 	cases := []struct {
-		name   string
-		help   string
-		uidMap string
-		gidMap string
-		want   string
+		name string
+		help string
+		want string
 	}{
-		{"packaged C daemon", cHelp, ":1000:1000:1:", ":1000:1000:1:", "--uid-map"},
-		{"no mapping given", rustHelp, "", "", "RUNED_VIRTIOFSD_UID_MAP"},
-		{"gid mapping missing", rustHelp, ":1000:1000:1:", "", "RUNED_VIRTIOFSD_GID_MAP"},
-		{"clamped", rustHelp, ":1000:1000:1:", ":1000:1000:1:", ""},
+		// The C build advertises neither flag and needs real root, so a host with
+		// only it cannot run the daemon unprivileged and cannot clamp at all.
+		{"packaged C daemon", cHelp, "--uid-map"},
+		// The Rust build passes. The flags are the discriminator, not an argument
+		// runed sends: an id map is legal only under `--sandbox namespace`, whose
+		// own /proc mount docker refuses (BUGS `L372`).
+		{"rust daemon", rustHelp, ""},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			bin := fakeHelpBinary(t, c.help)
 			var missing []string
-			checkClamp(qemuPaths{Virtiofsd: bin, UIDMap: c.uidMap, GIDMap: c.gidMap},
+			checkClamp(qemuPaths{Virtiofsd: bin},
 				func(f string, a ...any) { missing = append(missing, fmt.Sprintf(f, a...)) })
 			joined := strings.Join(missing, "\n")
 			if c.want == "" {
 				if len(missing) != 0 {
-					t.Fatalf("a clamping daemon with both mappings must pass, got: %s", joined)
+					t.Fatalf("the Rust daemon must pass, got: %s", joined)
 				}
 				return
 			}
@@ -145,9 +146,6 @@ func TestClampRefusesADaemonThatCannotTranslate(t *testing.T) {
 	}
 }
 
-// A virtiofsd path that is not a file at all is named too: an image built without
-// the Rust stage leaves nothing there, and the spawn would otherwise fail per
-// turn instead of once at start.
 func TestClampRefusesAMissingBinary(t *testing.T) {
 	var missing []string
 	checkClamp(qemuPaths{Virtiofsd: filepath.Join(t.TempDir(), "absent")},
@@ -226,47 +224,24 @@ func TestParseGuestMemTakesQemusSpelling(t *testing.T) {
 // The turn share is clamped and the release rootfs is not: the rootfs is
 // root-owned and the guest mounts it read-only, so the flags differ by exactly
 // the two translate options.
-// The clamp flags are the ones virtiofsd 1.10.1 ACTUALLY takes, and the literals
-// below are copied from its own --help rather than from the code (BUGS `L367`):
-//
-//	--uid-map <UID_MAP>   given as :namespace_uid:host_uid:count:
-//	--gid-map <GID_MAP>   given as :namespace_gid:host_gid:count:
-//
-// The daemon answers "unexpected argument '--translate-uid' found" to the name
-// the substrate used to send, so a test that read the expectation off
-// virtiofsdArgs was green while no turn could mount its share.
-func TestVirtiofsdArgsClampOnlyTheTurnShare(t *testing.T) {
-	p := qemuPaths{UIDMap: ":1000:1000:1:", GIDMap: ":1000:1000:1:"}
-	turn := virtiofsdArgs(p, "/vms/h/turn.sock", "/vms/h/tree", true)
-	// --sandbox=namespace, not none: virtiofsd 1.10.1 refuses an id map under any
-	// other sandbox mode, in as many words ("uid_map can only be used by
-	// unprivileged user where sandbox mod is namespace"). It created its socket and
-	// exited, so QEMU answered "connection refused" and the turn failed with no
-	// clue (BUGS `L372`).
+// virtiofsdArgs renders ONE list for both shares: the clamp is the daemon's uid,
+// not a flag (BUGS `L372`). An id map is legal only under `--sandbox namespace`,
+// and that sandbox's own /proc mount is EPERM inside docker, measured three ways.
+// So a `-map` flag in this list is a daemon that refuses to start.
+func TestVirtiofsdArgsCarryNoIDMap(t *testing.T) {
 	want := []string{
 		"--socket-path=/vms/h/turn.sock",
 		"--shared-dir=/vms/h/tree",
 		"--cache=always",
-		"--sandbox=namespace",
-		"--uid-map=:1000:1000:1:",
-		"--gid-map=:1000:1000:1:",
+		"--sandbox=none",
 	}
-	if !slices.Equal(turn, want) {
-		t.Errorf("turn share args\ngot:  %v\nwant: %v", turn, want)
+	if got := virtiofsdArgs(qemuPaths{}, "/vms/h/turn.sock", "/vms/h/tree"); !slices.Equal(got, want) {
+		t.Errorf("turn share args\ngot:  %v\nwant: %v", got, want)
 	}
-	root := virtiofsdArgs(p, "/vms/h/root.sock", "/srv/images/ant/rootfs", false)
-	for _, a := range root {
-		if strings.HasSuffix(strings.SplitN(a, "=", 2)[0], "-map") {
-			t.Errorf("the read-only rootfs share must carry no translation: %v", root)
+	for _, a := range virtiofsdArgs(qemuPaths{}, "/vms/h/root.sock", "/srv/rootfs") {
+		if strings.Contains(a, "-map") || strings.Contains(a, "sandbox=namespace") {
+			t.Errorf("an id map or its namespace sandbox is a daemon that will not start: %v", a)
 		}
-	}
-	// And the unclamped share keeps sandbox=none, which is legal for root and is
-	// what makes the pair above a deliberate difference rather than a drift.
-	if !slices.Contains(root, "--sandbox=none") {
-		t.Errorf("the rootfs share must stay --sandbox=none: %v", root)
-	}
-	if !slices.Contains(root, "--shared-dir=/srv/images/ant/rootfs") {
-		t.Errorf("root share source missing: %v", root)
 	}
 }
 
@@ -399,8 +374,6 @@ func TestQemuPreconditionsNameEveryMissingInput(t *testing.T) {
 	t.Setenv(envKernelDir, "")
 	t.Setenv(envRootfsDir, "")
 	t.Setenv(envVirtiofsd, filepath.Join(t.TempDir(), "no-virtiofsd"))
-	t.Setenv(envUIDMap, "")
-	t.Setenv(envGIDMap, "")
 	// BusyBox's ip: on the PATH, and no `tuntap`. The refusal has to come through
 	// qemuPreconditions and not only from checkTuntap, or the check is written and
 	// never called (BUGS `L369`).
@@ -622,21 +595,6 @@ func TestReadImageEnvRefusesWhatItCannotUse(t *testing.T) {
 	// A missing file is the stale-export case and is also a refusal.
 	if _, err := readImageEnv(t.TempDir()); err == nil {
 		t.Error("a rootfs with no captured image env must refuse, not default")
-	}
-}
-
-// TestCheckMapRangeTakesOnlyTheDaemonsSpelling pins the shape the operator's
-// setting must have. `map:0:1000:1` is the value the substrate shipped with, and
-// virtiofsd rejects it, so the refusal belongs at runed start and not in a log
-// after the first turn's share fails to appear (BUGS `L367`).
-func TestCheckMapRangeTakesOnlyTheDaemonsSpelling(t *testing.T) {
-	if err := checkMapRange(":1000:1000:1:"); err != nil {
-		t.Errorf("the daemon's own spelling must pass: %v", err)
-	}
-	for _, bad := range []string{"map:0:1000:1", ":0:1000:1", "0:1000:1:", ":a:1000:1:", ":0:1000:0:", ""} {
-		if err := checkMapRange(bad); err == nil {
-			t.Errorf("%q must be refused: virtiofsd parses the range itself and exits on a bad one", bad)
-		}
 	}
 }
 

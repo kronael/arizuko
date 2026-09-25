@@ -110,13 +110,15 @@ looks healthy and answers nothing:
 - `RUNED_KERNEL_DIR` holds `bzImage` and `initrd.gz` from `make kernel`
 - `RUNED_ROOTFS_DIR` is the release rootfs `make images` exports once per release
 - `RUNED_VIRTIOFSD` (default `/usr/libexec/virtiofsd`, where Alpine's Rust
-  daemon lands) advertises `--uid-map`, and `RUNED_VIRTIOFSD_UID_MAP` /
-  `RUNED_VIRTIOFSD_GID_MAP` give the ranges, written
-  `:namespace_id:host_id:count:`. This is the uid clamp: without it a guest as
-  uid 0 writes host-root-owned files into the folder and they outlive the turn
-  (measured 2026-09-24). A range states which guest ids exist on the host, so
-  set the one id the turn runs as and a guest as uid 0 falls outside it. QEMU's
-  packaged C daemon has no id mapping at all, so it is refused
+  daemon lands) advertises `--uid-map` and `--gid-map`. Those flags are NOT sent:
+  they are how the check tells the Rust build from QEMU's C one, which needs real
+  root and is refused. **The clamp is the daemon's uid** — the writable share is
+  exported by a child running as the agent's own uid, so it cannot create a host
+  file owned by anyone else whatever uid the guest states. Without the clamp a
+  guest as uid 0 writes host-root-owned files into the folder and they outlive the
+  turn (measured 2026-09-24). An id map was the first design and cannot run here:
+  it is legal only under `--sandbox namespace`, whose own `/proc` mount docker
+  refuses (BUGS `L372`)
 - `RUNED_EGRESS_BIN` (default `egress`), `RUNED_FIREWALL_BIN` (default
   `iptables`) and `RUNED_IP_BIN` (default `ip`) are executable
 - `RUNED_GUEST_MEM` (default `2G`) × `MAX_CONCURRENT_CONTAINERS` fits the

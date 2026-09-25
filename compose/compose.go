@@ -150,7 +150,7 @@ var daemonKeys = map[string][]string{
 		// `ant_env_delivery`) — so `TestRunedEnvKeysCoverEveryRunedVar` derives
 		// this set from runed's own source instead of trusting this list.
 		"RUNED_QEMU", "RUNED_KERNEL_DIR", "RUNED_ROOTFS_DIR",
-		"RUNED_VIRTIOFSD", "RUNED_VIRTIOFSD_UID_MAP", "RUNED_VIRTIOFSD_GID_MAP",
+		"RUNED_VIRTIOFSD",
 		"RUNED_EGRESS_BIN", "RUNED_FIREWALL_BIN", "RUNED_IP_BIN",
 		"RUNED_GUEST_MEM", "RUNED_GUEST_SMP", "RUNED_VSOCK_PORT_BASE",
 		"RUNED_TAP_SUBNET", "RUNED_PROXY_PORT", "RUNED_VM_DIR",

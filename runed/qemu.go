@@ -177,39 +177,30 @@ func guestMAC(cid uint32) string {
 
 // virtiofsdArgs renders one share's daemon.
 //
-// The turn share is clamped: --uid-map and --gid-map state which guest ids exist
-// on the host, so an id outside the range has none, and --sandbox=none because
-// runed has already made the namespaces. The flags are the Rust daemon's; the
-// packaged C build has none of them, which is what the clamp precondition
-// refuses on.
+// virtiofsdArgs renders one share's argument list. Both shares take the same list:
+// the CLAMP is not a flag, it is the daemon's own uid (startVirtiofsd).
 //
-// The flag names come from clampUIDFlag and clampGIDFlag, the same constants the
-// precondition requires in the daemon's --help. A literal here is how BUGS `L367`
-// happened: the args said --translate-uid, 1.10.1 answers "unexpected argument",
-// and the check passed because it looked for the other spelling.
-func virtiofsdArgs(p qemuPaths, sock, source string, clamp bool) []string {
-	args := []string{
+// Measured three ways on krons 2026-09-25, because the spec's `--uid-map` design
+// cannot run here (BUGS `L372`):
+//
+//   - root + `--uid-map`: refused. "uid_map can only be used by unprivileged user
+//     where sandbox mod is namespace".
+//   - unprivileged + `--sandbox namespace` + `--uid-map`: refused one step later.
+//     The namespace sandbox mounts a fresh /proc, and docker's own /proc carries
+//     locked masked paths, so the nested mount is EPERM whatever the map says.
+//   - unprivileged + `--sandbox=none`, no map: SERVES. And it is the control the
+//     map was for — a daemon running as the agent's uid cannot create a host file
+//     owned by anyone else, whatever uid the guest states.
+//
+// `--sandbox=none` is right for both shares because runed has already made the
+// namespaces; the rootfs share is read-only and exported by root.
+func virtiofsdArgs(p qemuPaths, sock, source string) []string {
+	return []string{
 		"--socket-path=" + sock,
 		"--shared-dir=" + source,
 		"--cache=always",
+		"--sandbox=none",
 	}
-	if !clamp {
-		// The read-only rootfs share is exported by root and needs no map, so it
-		// takes no sandbox of its own: runed has already made the namespaces.
-		return append(args, "--sandbox=none")
-	}
-	// The id map works ONLY under `--sandbox namespace`, and only for a caller
-	// that is unprivileged. virtiofsd 1.10.1 says so and refuses the pair:
-	// "uid_map can only be used by unprivileged user where sandbox mod is
-	// namespace (Use '--sandbox namespace' instead)". The spec's
-	// §"The peer credential" had `--sandbox=none` here, on the reasoning that
-	// runed has already made the namespaces — measured wrong on krons 2026-09-25,
-	// and the daemon then created its socket and exited, so QEMU answered
-	// "connection refused" (BUGS `L372`).
-	return append(args,
-		"--sandbox=namespace",
-		clampUIDFlag+"="+p.UIDMap,
-		clampGIDFlag+"="+p.GIDMap)
 }
 
 // Run starts one guest turn.
@@ -657,13 +648,15 @@ func exitCodeOf(err error) int {
 // startVirtiofsd starts one share's daemon and records its pid before it can
 // exit unnoticed.
 func (q *qemuRuntime) startVirtiofsd(rec *vmRecord, sock, source string, clamp bool) error {
-	cmd := exec.Command(q.paths.Virtiofsd, virtiofsdArgs(q.paths, sock, source, clamp)...)
+	cmd := exec.Command(q.paths.Virtiofsd, virtiofsdArgs(q.paths, sock, source)...)
 	cmd.Stderr = newPrefixWriter("virtiofsd", rec.Folder)
 	if clamp {
-		// UNPRIVILEGED, because that is the only caller the id map is legal for.
-		// It is also the clamp itself, twice over: a daemon running as the agent's
-		// uid cannot chown a host file to anyone else whatever the guest asks, and
-		// the map is what makes the guest's own 1000 land on that same id.
+		// THE CLAMP: the writable share is exported by a daemon running as the
+		// agent's own uid, so it cannot create a host file owned by anyone else
+		// whatever uid the guest states. Measured 2026-09-25: as ROOT the same
+		// daemon made a guest's file `root root` on the host, and it outlived the
+		// guest (spec 6/41 §"The peer credential"). The read-only rootfs share
+		// stays root's, because it is read-only.
 		uid, _ := container.RunUID()
 		cmd.SysProcAttr = &syscall.SysProcAttr{
 			Credential: &syscall.Credential{Uid: uint32(uid), Gid: uint32(uid)},
