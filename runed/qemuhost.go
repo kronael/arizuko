@@ -23,7 +23,6 @@ import (
 // the rootfs are release artifacts whose names carry a version and a config hash,
 // and a daemon that went looking for them would find whichever one was newest.
 const (
-	envSubstrate    = "RUNED_SUBSTRATE"
 	envKernelDir    = "RUNED_KERNEL_DIR"
 	envRootfsDir    = "RUNED_ROOTFS_DIR"
 	envVirtiofsd    = "RUNED_VIRTIOFSD"
@@ -43,11 +42,11 @@ const (
 	envProxyPortVar = "RUNED_PROXY_PORT"
 )
 
-// The substrate names RUNED_SUBSTRATE takes.
-const (
-	SubstrateDocker = "docker"
-	SubstrateQEMU   = "qemu"
-)
+// substrateName is what the audit row and the turn log call this substrate. It is
+// a LABEL and no longer a selector: RUNED_SUBSTRATE went with the Docker runtime
+// at spec 6/41 step 4, because a setting with one legal value stops applying
+// without saying so.
+const substrateName = "kvm"
 
 const (
 	// bzImage and initrd.gz are what `make kernel` writes into the kernel
@@ -207,8 +206,8 @@ func qemuPreconditions(cfg *core.Config) (qemuPaths, error) {
 		miss("%s=%s: %v", envTapSubnet, p.TapSubnet, err)
 	}
 	if len(missing) > 0 {
-		return p, fmt.Errorf("%s=%s cannot run turns on this host; %d precondition(s) missing:\n  - %s",
-			envSubstrate, SubstrateQEMU, len(missing), strings.Join(missing, "\n  - "))
+		return p, fmt.Errorf("this host cannot run turns; %d precondition(s) missing:\n  - %s",
+			len(missing), strings.Join(missing, "\n  - "))
 	}
 	return p, nil
 }

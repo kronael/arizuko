@@ -66,16 +66,16 @@ func main() {
 	// The turn substrate, chosen once at start where the operator is looking
 	// (RUNED_SUBSTRATE, spec 6/41 §"The seam"), together with what it delivers
 	// on this configuration (spec 6/25 §3). An error is a host that cannot run
-	// a turn as declared — a half egress configuration under which every spawn
-	// would run unfiltered, an unreachable docker, a missing guest kernel, a
-	// virtiofsd that cannot clamp the guest's uid. Refusing to start is the loud
-	// version, once at deploy instead of per turn.
+	// a turn as declared — a missing device node, a missing guest kernel or
+	// rootfs, an egress proxy binary that is not there, a virtiofsd that cannot
+	// clamp the guest's uid. Refusing to start is the loud version, once at
+	// deploy instead of per turn.
 	runtime, sub, err := runed.NewRuntime(cfg, folders)
 	if err != nil {
-		slog.Error("substrate", "selector", runed.SubstrateName(), "err", err)
+		slog.Error("substrate", "err", err)
 		os.Exit(1)
 	}
-	slog.Info("substrate", "selector", runed.SubstrateName(),
+	slog.Info("substrate",
 		"backend", sub.Delivered.Backend, "egress", sub.Delivered.Egress,
 		"declared_egress", sub.Declared.Egress, "reason", sub.Reason)
 	// Where the model credential sits is decided at the same moment. With no

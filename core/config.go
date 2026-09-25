@@ -117,16 +117,6 @@ type Config struct {
 	VideoEnabled  bool
 	WhisperModel  string
 
-	// Egress isolation (spec 6/24). Enabled when EgressImage is non-empty.
-	// No separate EGRESS_ISOLATION switch — name the image or don't.
-	// Per-folder networks are created lazily under EgressNetworkPrefix
-	// with /24s carved from EgressParentSubnet; each spawn gets its own
-	// proxy container from EgressImage, with its allowlist baked in.
-	EgressNetworkPrefix string // e.g. "arizuko_krons" — folder networks are <prefix>_<sanitized-folder>
-	EgressImage         string // image holding the `egress` binary (e.g. arizuko-egress:latest)
-	EgressUplinkNetwork string // network giving each spawn's proxy its route out (compose project default)
-	EgressParentSubnet  string // parent CIDR carved into per-folder /24s (default 10.99.0.0/16)
-
 	// ENGAGEMENT_TTL, the TTS_*, SEND_DISABLED_*, OBSERVE_WINDOW_*, retry and
 	// cost-cap vars belong to routd alone (routd/cmd/routd/main.go) and must
 	// not gain a field here: a second default nothing reads is what the
@@ -279,11 +269,6 @@ func LoadConfig() (*Config, error) {
 		VoiceEnabled:  EnvOr("VOICE_TRANSCRIPTION_ENABLED", "false") == "true",
 		VideoEnabled:  EnvOr("VIDEO_TRANSCRIPTION_ENABLED", "false") == "true",
 		WhisperModel:  EnvOr("WHISPER_MODEL", DefaultWhisperModel),
-
-		EgressNetworkPrefix: EnvOr("EGRESS_NETWORK_PREFIX", ""),
-		EgressImage:         EnvOr("EGRESS_IMAGE", ""),
-		EgressUplinkNetwork: EnvOr("EGRESS_UPLINK_NETWORK", ""),
-		EgressParentSubnet:  EnvOr("EGRESS_SUBNET", "10.99.0.0/16"),
 
 		SecretsKey: EnvOr("SECRETS_KEY", ""),
 	}

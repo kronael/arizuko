@@ -126,7 +126,7 @@ adapter (teled/discd/slakd/…) --HTTP--> routd (conversation plane)
                                           │     └── messages, routes, acl, secrets, tasks
                                           │     └── hosts agent MCP socket in-process (ipc)
                                           ├──HTTP--> runed (execution plane)
-                                          │           └── spawns, session_log; docker.sock + per-spawn egress
+                                          │           └── spawns, session_log; one KVM guest + per-turn egress
                                           │           └── spawns the agent container per turn
                                           └──HTTP--> authd (token authority)
                                                       └── signing_keys; ES256 minter + JWKS

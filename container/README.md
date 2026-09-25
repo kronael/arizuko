@@ -24,7 +24,7 @@ frame — is rendered in `runed` and delivered by a substrate (spec 6/41
   product owns, what changed, and what was left alone as locally edited
 - `EnsureRunning() error` — verify docker daemon
 - `CleanupOrphans(instance, image)` — stop stale `arizuko-*`
-- `SanitizeFolder(folder) string` — safe docker network/container names
+- `SanitizeFolder(folder) string` — safe container, tap and network names
 - `StopContainerArgs(name) []string` — docker stop args
 - `MigrationVersion(path) int` — reads `MIGRATION_VERSION` file
 - `ReadRecentEpisodes(groupDir) string` — XML snippet for prompt

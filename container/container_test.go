@@ -34,13 +34,6 @@ func TestSanitizeFolder(t *testing.T) {
 	}
 }
 
-func TestStopContainerArgs(t *testing.T) {
-	got := StopContainerArgs("arizuko-test-123")
-	if got[0] != "stop" || got[1] != "arizuko-test-123" {
-		t.Errorf("got %v", got)
-	}
-}
-
 func TestMigrationVersion(t *testing.T) {
 	d := t.TempDir()
 

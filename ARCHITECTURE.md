@@ -44,9 +44,9 @@ routd/    conversation/routing plane (sole message appender, token verifier)
   └── diary, groupfolder
   routd tables: messages, routes, chats, secrets, acl, tasks, sessions, pane
 
-runed/    execution plane (the ONLY daemon wired to docker.sock + the
-        per-spawn egress proxies)
-  ├── container     docker spawn, volume mounts, runtime
+runed/    execution plane (one KVM guest per turn: /dev/kvm,
+        /dev/vhost-vsock, /dev/net/tun, and the per-turn egress proxy)
+  ├── container     mount rendering, app-src staging, the egress rules
   │   └── groupfolder, mountsec
   └── auth          verify only — the turn is credentialed by the MCP
                     socket (SO_PEERCRED), not by a token
@@ -128,8 +128,9 @@ Channel adapter → POST /v1/messages (routd) → PutMessage (sole appender)
     + acl lookup → typed ShareReadOnly/Egress/WebPublish on the run request
   → routd stands up the per-turn MCP socket in-process (ipc.ServeMCP)
   → routd → runed: POST /v1/runs (dispatch the turn)
-    → runed: steer into a live spawn (SIGUSR1 + IPC) OR new docker run --rm
-    → runed mounts the ipc dir (the socket IS the turn credential)
+    → runed: steer into a live guest (a ctl frame over vsock) OR boot a new one
+    → runed exports the ipc dir over virtio-fs and bridges the guest's MCP port
+      from its own CID (the CID IS the turn credential, spec 6/41)
   → agent runs the turn; per-turn results return over MCP (submit_turn)
     and the run outcome returns on the /v1/runs response
   → routd: chanreg Deliverer → POST <adapter>/send (channel egress)
@@ -565,9 +566,9 @@ and `routed_to` capture audit metadata. Spec: `specs/3/c-audit-log.md`.
 
 ## Container Lifecycle
 
-`runed` is the only daemon that spawns containers. One ephemeral
-container per turn (`docker run --rm`), always bound to the same
-per-group folder and network. The container runs one turn and exits;
+`runed` is the only daemon that starts a turn. One ephemeral KVM guest
+per turn (`qemu-system-x86_64`, spec 6/41), always bound to the same
+per-group folder and its own tap. The guest runs one turn and exits;
 the group folder mounts at `/home/node/` so conversation state, diary,
 skills, and the Claude Code session jsonl persist between turns —
 context accumulates per-group because each run resumes the session
@@ -597,14 +598,16 @@ runed (`POST /v1/runs`). runed performs the spawn:
    - Resolve path via `groupfolder.Resolver`
    - `buildMounts()` → `mountsec.ValidateAdditionalMounts()`
    - `seedSettings()` — write `settings.json` (env, arizuko MCP via socat)
-   - `dockerRuntime` delivers the rendered mounts, env and stdin to `docker run`
+   - `qemuRuntime` delivers the rendered mounts, env and stdin to the guest:
+     the mounts as one virtio-fs share assembled from a staging tree, the env
+     layered over the release image's own, the stdin as a ctl frame
    - `seedSkills()` — copy `ant/skills/` (re-seeds every run); seed `.claude.json`
    - Name: `arizuko-<instance>-<folder>-<ts_ms>` or overridden by caller
      (e.g. task containers set `timed-isolated:<id>` sender)
    - Env: `WEB_PREFIX` (`pub` for an elevated `/root` turn, world subdomain for children),
      `ARIZUKO_IS_ROOT`, `ARIZUKO_DELEGATE_DEPTH`, `WEB_HOST`,
      `ARIZUKO_ASSISTANT_NAME`, plus group overrides
-   - `docker run -i --rm`; spawn + wait. Per-turn results arrive
+   - boot the guest and wait for its `{exit}` frame. Per-turn results arrive
      over MCP (`submit_turn`), not stdout.
    - Output: `{ status, error }` from the runner; `newSessionId` and
      `result` flow back to routd via `submit_turn` callbacks, and the

@@ -8,9 +8,13 @@ package runed
 // the last one killed the second-backend slot for months.
 //
 // This test reads ant's ACTUAL source for the keys it takes from the guest env,
-// then asserts the pair that decides it — the renderer's turnEnv and the
-// substrate's buildArgs — emits each one. It fails when either side moves: ant
-// adding a read, or Go dropping an emission.
+// then asserts that the ONE renderer of that env, turnEnv, emits each one. It
+// fails when either side moves: ant adding a read, or Go dropping an emission.
+//
+// It read the Docker substrate's `-e` argument list until spec 6/41 step 4
+// deleted that substrate. The map is the better subject anyway: it is what
+// renderTurn produces and what every substrate delivers unchanged, so this pins
+// the producer rather than one consumer's spelling of it.
 
 import (
 	"os"
@@ -20,7 +24,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kronael/arizuko/container"
 	"github.com/kronael/arizuko/core"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 )
@@ -97,13 +100,13 @@ func TestSpawnEnvCarriesEveryKeyAntReads(t *testing.T) {
 		ModelGatewayURL: "http://litellm:4000",
 	}
 	req := runedv1.RunRequest{Model: "opus", Effort: "xhigh", ModelGatewayKey: "sk-virtual"}
-	args := strings.Join(buildArgs(cfg, Turn{Handle: "c1", Env: turnEnv(cfg, req, 900000)}, container.EgressSpawn{}), " ")
+	env := turnEnv(cfg, req, 900000)
 
 	for _, key := range antEnvReads(t) {
 		if notArizukos[key] != "" {
 			continue
 		}
-		if !strings.Contains(args, "-e "+key+"=") {
+		if _, ok := env[key]; !ok {
 			t.Errorf("ant reads %s from the guest env, and the spawn never emits it — "+
 				"the read silently falls to ant's own default (BUGS: ARIZUKO_BACKEND, "+
 				"ARIZUKO_MODEL, RUNED_RUN_TIMEOUT all died this way). Emit it in turnEnv, "+
@@ -134,18 +137,8 @@ func TestSpawnEnvEmitsNothingAntIgnores(t *testing.T) {
 		Timezone: "UTC", Image: "img:latest", AgentBackend: "codex",
 		ModelGatewayURL: "http://litellm:4000",
 	}
-	emitted := regexp.MustCompile(`^([A-Z_][A-Z0-9_]*)=`)
 	req := runedv1.RunRequest{Model: "opus", ModelGatewayKey: "sk-virtual"}
-	args := buildArgs(cfg, Turn{Handle: "c1", Env: turnEnv(cfg, req, 900000)}, container.EgressSpawn{})
-	for i, a := range args {
-		if a != "-e" || i+1 >= len(args) {
-			continue
-		}
-		m := emitted.FindStringSubmatch(args[i+1])
-		if m == nil {
-			continue
-		}
-		key := m[1]
+	for key := range turnEnv(cfg, req, 900000) {
 		if reads[key] || consumedByOthers[key] != "" {
 			continue
 		}

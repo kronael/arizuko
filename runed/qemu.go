@@ -360,7 +360,7 @@ func (q *qemuRuntime) spawn(ctx context.Context, t Turn) RunResult {
 		Folder:   t.Folder,
 		Outcome:  audit.OutcomeOK,
 		ParamsSummary: map[string]any{
-			"substrate": SubstrateQEMU,
+			"substrate": substrateName,
 			"cid":       rec.CID,
 			"elevated":  t.Env["ARIZUKO_IS_ROOT"] == "1",
 		},
@@ -439,7 +439,7 @@ func (q *qemuRuntime) spawn(ctx context.Context, t Turn) RunResult {
 		Folder: t.Folder, Outcome: exitOutcome, ErrorMsg: exitErrMsg,
 		DurationMS: elapsed.Milliseconds(),
 		ParamsSummary: map[string]any{
-			"exit_code": code, "timed_out": timedOut, "substrate": SubstrateQEMU,
+			"exit_code": code, "timed_out": timedOut, "substrate": substrateName,
 		},
 	})
 

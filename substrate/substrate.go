@@ -13,8 +13,11 @@ package substrate
 type Backend string
 
 const (
-	Docker Backend = "docker"
-	KVM    Backend = "kvm"
+	// KVM is the one backend arizuko runs a turn on (spec 6/41). `Docker` stood
+	// beside it until that spec's step 4 deleted the container substrate, and it
+	// went with its last reader: an enum value nothing produces is read by the
+	// next author as a backend this package still supports.
+	KVM Backend = "kvm"
 )
 
 // Persistence says where a workload's writes survive it.

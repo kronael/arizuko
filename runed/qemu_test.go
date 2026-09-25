@@ -407,36 +407,6 @@ func TestQemuPreconditionsNameEveryMissingInput(t *testing.T) {
 	}
 }
 
-func TestSubstrateNameDefaultsToDocker(t *testing.T) {
-	t.Setenv(envSubstrate, "")
-	if got := SubstrateName(); got != SubstrateDocker {
-		t.Errorf("SubstrateName() = %q with %s unset, want %q", got, envSubstrate, SubstrateDocker)
-	}
-	t.Setenv(envSubstrate, SubstrateQEMU)
-	if got := SubstrateName(); got != SubstrateQEMU {
-		t.Errorf("SubstrateName() = %q, want %q", got, SubstrateQEMU)
-	}
-}
-
-// An unknown substrate is a refusal, not a silent fall back to Docker: an
-// operator who typed `kvm` instead of `qemu` must not get the substrate they were
-// leaving.
-func TestNewRuntimeRefusesAnUnknownSubstrate(t *testing.T) {
-	t.Setenv(envSubstrate, "firecracker")
-	rt, _, err := NewRuntime(cfgFor(t), nil)
-	if err == nil {
-		t.Fatal("an unknown RUNED_SUBSTRATE must refuse")
-	}
-	if rt != nil {
-		t.Error("a refused substrate must return no runtime")
-	}
-	for _, want := range []string{"firecracker", SubstrateDocker, SubstrateQEMU} {
-		if !strings.Contains(err.Error(), want) {
-			t.Errorf("refusal must name %q: %v", want, err)
-		}
-	}
-}
-
 // fakeHelpBinary writes an executable that prints the given --help text, so the
 // clamp check can be driven over a daemon that is not installed.
 func fakeHelpBinary(t *testing.T, help string) string {
@@ -458,10 +428,6 @@ func cfgFor(t *testing.T) *core.Config {
 	return cfg
 }
 
-// The guest's exit frame and QEMU's own exit race, and a select over both picks
-// either. A turn reported as unframed on that coin toss is a turn that went
-// perfectly reported as one with no result, so the frame wins whenever it is in
-// hand. Fifty rounds, because a 50/50 race that passes once proves nothing.
 func TestAwaitTakesTheExitFrameWhenQemuExitsInTheSameMoment(t *testing.T) {
 	q := &qemuRuntime{paths: qemuPaths{Grace: 50 * time.Millisecond}}
 	for i := range 50 {

@@ -7,15 +7,18 @@ import (
 	"testing"
 )
 
-// TestCreateEnvNamesEgressIsolation: the `.env` `arizuko create` generates has
-// to NAME the egress switch and say what its empty value allows.
+// TestCreateEnvCarriesNoEgressSwitch: the `.env` `arizuko create` generates must
+// name NO egress switch, because there is nothing to switch.
 //
-// `create` writes its own key set and never reads `template/env.example`, so
-// the warning that file carries reached nobody on the documented install route
-// — a fresh instance ran unfiltered while SECURITY.md described the isolated
-// shape (BUGS L24). The assertion is on discoverability, not on the default:
-// the value stays empty, and whether it should is the owner's open question.
-func TestCreateEnvNamesEgressIsolation(t *testing.T) {
+// It used to name `EGRESS_IMAGE` and warn that an empty value ran the agent
+// unfiltered — the discoverability half of BUGS `L24`, which existed because
+// `create` writes its own key set and never reads `template/env.example`. Spec
+// `6/41` step 4 closed the other half by construction: the turn runs in a KVM
+// guest whose tap accepts the proxy and drops everything else, and runed refuses
+// to start without the proxy binary. So the assertion inverts — a re-introduced
+// switch would be a way back to an unfiltered turn, and it would look like
+// configuration.
+func TestCreateEnvCarriesNoEgressSwitch(t *testing.T) {
 	t.Cleanup(func() { dropInstance(t) })
 	base := t.TempDir()
 	t.Setenv("ARIZUKO_DATA_DIR", base)
@@ -28,23 +31,22 @@ func TestCreateEnvNamesEgressIsolation(t *testing.T) {
 		t.Fatalf("create wrote no .env: %v", err)
 	}
 	env := string(b)
+	if env == "" {
+		t.Fatal("create wrote an empty .env: a guard that reads nothing cannot fail")
+	}
 
-	if !strings.Contains(env, "\nEGRESS_IMAGE=\n") {
-		t.Errorf("generated .env does not name EGRESS_IMAGE; an operator never\n"+
-			"learns the switch exists:\n%s", env)
+	for _, gone := range []string{"EGRESS_IMAGE", "EGRESS_NETWORK_PREFIX", "EGRESS_UPLINK_NETWORK", "EGRESS_SUBNET"} {
+		if strings.Contains(env, gone) {
+			t.Errorf("the generated .env names %s; the docker substrate's egress settings "+
+				"went with it (spec 6/41 step 4), and one back in this file is a turn that "+
+				"can run unfiltered again:\n%s", gone, env)
+		}
 	}
-	// The bare key alone is not the fix: an operator who has never read spec
-	// 6/24 cannot tell that empty means unfiltered.
-	if !strings.Contains(env, "UNFILTERED") {
-		t.Errorf("generated .env does not say what an empty EGRESS_IMAGE allows:\n%s", env)
-	}
-	// The DEFAULT is deliberately untouched — flipping it is the half of L24
-	// that needs sign-off, and a test that asserted an image here would ship
-	// that decision silently.
-	for _, line := range strings.Split(env, "\n") {
-		if strings.HasPrefix(line, "EGRESS_IMAGE=") && line != "EGRESS_IMAGE=" {
-			t.Errorf("create seeded an egress image (%q); turning isolation on by\n"+
-				"default is BUGS L24's unsigned half, not a docs fix", line)
+	// The keys create DOES owe, so this test fails if the file stops being the
+	// instance's identity rather than merely losing a line.
+	for _, want := range []string{"ASSISTANT_NAME=", "AUTH_SECRET=", "SECRETS_KEY=", "API_PORT="} {
+		if !strings.Contains(env, want) {
+			t.Errorf("the generated .env is missing %s:\n%s", want, env)
 		}
 	}
 }

@@ -2,15 +2,38 @@ package runed
 
 import (
 	"context"
+	"time"
 
 	"github.com/kronael/arizuko/core"
 )
 
+// The turn's boundaries, read by whatever substrate runs it. These four are the
+// turn's contract with the Manager and the agent, not one substrate's: the run
+// ceiling against the idle timer, the wrap-up warning, the code the agent uses
+// to say a retry cannot help, and the cap on the stderr the turn log keeps. They
+// lived in the Docker runtime until spec 6/41 step 4 deleted it.
+const (
+	// maxOutputSize caps the stderr a substrate keeps for the turn log.
+	maxOutputSize = 10 * 1024 * 1024 // 10MB
+	// containerGracePeriod is how far above the idle timeout the run ceiling
+	// must sit: a deadline below it would kill a guest the idle timer had not
+	// even given up on (Manager.turnTTL).
+	containerGracePeriod = 30 * time.Second
+	// containerSoftDeadlineOffset is how long before the deadline the agent is
+	// warned to wrap up.
+	containerSoftDeadlineOffset = 2 * time.Minute
+	// agentTerminalExit is sysexits.h EX_CONFIG, which the agent uses to say the
+	// model refused for a reason a retry cannot repair — an exhausted quota or a
+	// spend cap, whose reset is hours out (BUGS L175). It is the agent's own
+	// code, so it stays clear of the 128+ signal range.
+	agentTerminalExit = 78
+)
+
 // Runtime starts one guest and stops it. ctx carries the deadline.
 //
-// One production implementation is chosen at startup (NewDockerRuntime in
-// docker.go), holdRuntime is the executor for a run that starts nothing, and
-// FakeRuntime backs tests without a substrate. The port is two methods: a
+// There is one production implementation, the KVM guest of spec 6/41
+// (NewQemuRuntime in qemu.go). holdRuntime is the executor for a run that starts
+// nothing, and FakeRuntime backs tests without a hypervisor. The port is two methods: a
 // third, or a Turn field a substrate must interpret rather than deliver, needs
 // an approved plan first (root CLAUDE.md, "A port is two methods and stays
 // two"; spec 6/41 §"The seam").

@@ -18,11 +18,13 @@ in-process `ServeMCP`. Spec: `specs/5/P-runed.md`.
 - Serve `POST /v1/holds`: claim a folder's run slot for an external,
   folder-exclusive job (a filesystem restore, a vacuum, a migration) so
   no agent turn can start in that folder until it is released.
-- Per-spawn Docker lifecycle: `docker run --rm`, egress allowlist,
-  steer via `docker kill --signal=SIGUSR1`, kill via stop→kill→`rm -f`.
+- Per-turn KVM lifecycle: one `qemu-system-x86_64` guest, its virtio-fs shares,
+  its tap and its egress proxy; steer as a ctl frame over vsock, kill by reaping
+  every pid the turn's record names (spec `6/41`).
 - Enforce `RUNED_RUN_TIMEOUT` per run; hourly sweep of spawns older than the
   seven-day retention, which is what bounds the one partition they share.
-- Graceful shutdown detaches in-flight runs (containers outlive the daemon).
+- Graceful shutdown detaches in-flight runs (a guest outlives the daemon, and the
+  next runed reaps it from the record on disk).
 
 ## Entities owned
 
@@ -70,7 +72,8 @@ every read is "the n newest in this folder" and nothing sweeps it; and
 ## Dependencies
 
 - `auth` (offline token verify via authd JWKS; `ServiceToken` bootstrap)
-- `container` (docker runner), `core`, `groupfolder`, `obs`, `resreg`, `types`
+- `container` (mount rendering, app-src staging, the egress rules), `core`,
+  `groupfolder`, `obs`, `resreg`, `types`
 - `authd` (JWKS), `routd` (hosts the per-turn agent MCP socket)
 
 ## Configuration
@@ -94,16 +97,13 @@ every read is "the n newest in this folder" and nothing sweeps it; and
 
 ### The turn substrate
 
-`RUNED_SUBSTRATE` (`docker` | `qemu`, default `docker`) selects it, once at
-start, for the whole instance — never per folder, never per turn (spec
-`specs/6/41-qemu-substrate.md` §"The seam"). The selector and what the
-substrate delivers are both on runed's startup `substrate` log line and on
-`/dash/runed/`.
+There is ONE substrate and no selector: one KVM guest per turn, for the whole
+instance (spec `specs/6/41-qemu-substrate.md` §"The seam"). What it delivers is on
+runed's startup `substrate` log line and on `/dash/runed/`.
 
-`qemu` is one KVM guest per turn. It refuses to start unless every
-precondition below holds, and the refusal names all of them at once, because
-an input found missing per spawn is a fleet that looks healthy and answers
-nothing:
+It refuses to start unless every precondition below holds, and the refusal names
+all of them at once, because an input found missing per turn is a fleet that
+looks healthy and answers nothing:
 
 - runed runs as root, and `/dev/kvm`, `/dev/vhost-vsock` and `/dev/net/tun` open
 - `RUNED_QEMU` (default `qemu-system-x86_64`) runs `-version`
@@ -130,7 +130,8 @@ Tunables: `RUNED_GUEST_SMP` (2), `RUNED_VSOCK_PORT_BASE` (5555),
 ## Health signal
 
 `GET /health` returns 200 once the process is up. Red flag: spawns stuck
-in `state=queued` (docker unavailable, or the concurrency cap is full).
+in `state=queued` (the concurrency cap is full, or a precondition the guest
+needs went away under a running daemon).
 
 ## Observability
 
@@ -221,11 +222,10 @@ companions) and the guest uid, because both are its own.
   `mounts.go` (the mount table), `settings.go` (`settings.json` + the output
   style) and `secrets.go` (what credential a guest receives)
 - `runtimes.go` — `FakeRuntime`, the test seam
-- `docker.go` — the Docker substrate: one `docker run` per turn, steer, the
-  deadline kill, teardown. Mounts the ipc dir routd bound the turn's socket
-  in; hosts no MCP of its own
-- `substrate.go` — `RUNED_SUBSTRATE`, read once: the one place a substrate is
-  chosen, its preconditions checked and its orphans reaped
+- `substrate.go` — `NewRuntime`: the one place the substrate is built, its
+  preconditions checked and a previous runed's guests reaped. There is one
+  substrate and no selector — the Docker runtime and `RUNED_SUBSTRATE` went at
+  spec `6/41` step 4
 - `qemu.go` — the KVM substrate: the argument list, the turn, the reap
 - `qemuhost.go` — what this host can run: every precondition, checked once at
   start, including the uid clamp and guest memory against the concurrency cap

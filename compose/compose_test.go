@@ -88,16 +88,19 @@ func TestGenerateBaseDaemons(t *testing.T) {
 		if !strings.Contains(blk, "/health") {
 			t.Errorf("%s missing /health healthcheck", svc)
 		}
+		// runed is the exception and it is root: virtiofsd carries guest
+		// credentials to host files and the staging tree's binds are made in its
+		// own mount namespace (spec 6/41 §"The runed deploy topology").
+		if svc == "runed" {
+			continue
+		}
 		if !strings.Contains(blk, "user: '1000:1000'") {
 			t.Errorf("%s missing user 1000 — would create root-owned files in the data dir", svc)
 		}
 	}
-	// runed is the only daemon wired to docker.sock (spawns agent containers).
-	runed := serviceBlock(out, "runed")
-	if !strings.Contains(runed, "group_add:") || !strings.Contains(runed, "/var/run/docker.sock") {
-		t.Error("runed missing docker.sock wiring")
-	}
-	for _, svc := range []string{"routd", "authd"} {
+	// NO daemon mounts the docker socket: the turn is a KVM guest, so runed holds
+	// device nodes instead (spec 6/41 step 4 deleted the container substrate).
+	for _, svc := range []string{"runed", "routd", "authd"} {
 		if strings.Contains(serviceBlock(out, svc), "docker.sock") {
 			t.Errorf("%s must NOT mount docker.sock", svc)
 		}
@@ -535,35 +538,24 @@ func TestTimedWiring(t *testing.T) {
 	}
 }
 
-// Egress isolation: EGRESS_IMAGE is the switch, and compose declares NO proxy
-// service — runed starts one per spawn and stops it with the turn (spec 6/24).
-// The names runed needs are written into its env, never derived at runtime;
-// folder networks stay runtime-managed, never declared in compose.
-func TestEgressIsolation(t *testing.T) {
-	dir := seed(t, "EGRESS_IMAGE=arizuko-egress:latest\n")
+// Egress isolation needs no switch any more: the guest's tap accepts the proxy
+// and drops everything else, and runed refuses to start without the proxy binary
+// (spec 6/41 §"Egress by name, sealed below the kernel"). What compose still owes
+// is the absence it always owed — no long-lived proxy service and no declared
+// networks, because the proxy is one process per turn and dies with it.
+func TestEgressDeclaresNoProxyService(t *testing.T) {
+	dir := seed(t, "")
 	out := gen(t, dir)
 	if strings.Contains(out, "  crackbox:\n") {
 		t.Error("compose must not declare a long-lived proxy service")
 	}
 	if strings.Contains(out, "\nnetworks:\n") {
-		t.Error("compose must not declare networks — folder networks are runtime-managed")
+		t.Error("compose must not declare networks — the guest's tap is per turn")
 	}
-	runedEnv := read(t, dir, "env/runed.env")
-	if !strings.Contains(runedEnv, "EGRESS_IMAGE=arizuko-egress:latest") {
-		t.Error("runed env missing EGRESS_IMAGE")
-	}
-	if !strings.Contains(runedEnv, "EGRESS_NETWORK_PREFIX=") {
-		t.Errorf("runed env missing derived network prefix; got:\n%s", runedEnv)
-	}
-	// The uplink is the proxy's route out. Written by compose (which owns the
-	// project name), never guessed by runed from a filesystem path.
-	if !strings.Contains(runedEnv, "EGRESS_UPLINK_NETWORK="+filepath.Base(dir)+"_default") {
-		t.Errorf("runed env missing derived uplink network; got:\n%s", runedEnv)
-	}
-	for _, svc := range []string{"routd", "authd"} {
+	for _, svc := range []string{"runed", "routd", "authd"} {
 		env := read(t, dir, "env/"+svc+".env")
-		if strings.Contains(env, "EGRESS") {
-			t.Errorf("%s env must NOT carry egress vars", svc)
+		if strings.Contains(env, "EGRESS_IMAGE") || strings.Contains(env, "EGRESS_NETWORK_PREFIX") {
+			t.Errorf("%s env still carries a docker-substrate egress var:\n%s", svc, env)
 		}
 	}
 }
@@ -1004,22 +996,11 @@ func service(t *testing.T, doc, name string) string {
 	}
 }
 
-func TestRunedHoldsTheDockerSocketOnlyUnderDocker(t *testing.T) {
-	out := service(t, gen(t, seed(t, "RUNED_SUBSTRATE=docker\n")), "runed")
-	for _, want := range []string{"user: '1000:1000'", "/var/run/docker.sock", "group_add:"} {
-		if !strings.Contains(out, want) {
-			t.Errorf("the docker substrate must keep %q", want)
-		}
-	}
-	for _, unwanted := range []string{"/dev/kvm", "cap_add:", "user: '0:0'"} {
-		if strings.Contains(out, unwanted) {
-			t.Errorf("the docker substrate must NOT grant %q", unwanted)
-		}
-	}
-}
-
-func TestRunedHoldsTheVMDevicesOnlyUnderQemu(t *testing.T) {
-	out := service(t, gen(t, seed(t, "RUNED_SUBSTRATE=qemu\n")), "runed")
+// runed holds the VM's three device nodes and two capabilities, and no docker
+// socket. There is nothing to select: the Docker substrate and RUNED_SUBSTRATE
+// went at spec 6/41 step 4, so this is what every generated instance gets.
+func TestRunedHoldsTheVMDevices(t *testing.T) {
+	out := service(t, gen(t, seed(t, "")), "runed")
 	// Every device and capability is named, not counted: a missing /dev/net/tun
 	// fails the first tap and a missing SYS_ADMIN fails the first bind, and
 	// neither is visible until a turn runs.
@@ -1031,10 +1012,10 @@ func TestRunedHoldsTheVMDevicesOnlyUnderQemu(t *testing.T) {
 			t.Errorf("the QEMU substrate must grant %q", want)
 		}
 	}
-	// The socket goes, and so does the gid that only existed to reach it.
+	// The socket is gone, and so is the gid that only existed to reach it.
 	for _, unwanted := range []string{"/var/run/docker.sock", "group_add:", "user: '1000:1000'"} {
 		if strings.Contains(out, unwanted) {
-			t.Errorf("the QEMU substrate must NOT keep %q", unwanted)
+			t.Errorf("runed must NOT hold %q", unwanted)
 		}
 	}
 }

@@ -7,20 +7,24 @@ import (
 	"testing"
 
 	"github.com/kronael/arizuko/auth"
-	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/substrate"
 )
 
-// The dashboard states what the substrate delivers and why less when less:
-// the operator's surface for an egress downgrade (spec 6/25 §3).
+// The dashboard states what the substrate delivers and why less when less: the
+// operator's surface for an egress downgrade (spec 6/25 §3). Under the one
+// substrate a downgrade cannot happen — NewQemuRuntime refuses to start instead
+// of delivering less — so what this pins is that the page renders the delivered
+// profile at all, and the Reason line when one is set.
 func TestDashboardShowsSubstrate(t *testing.T) {
 	s, _, h := dashSrv(t)
-	sub, err := Substrate(&core.Config{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	s.SetSubstrate(sub)
+	s.SetSubstrate(substrate.Effective{
+		Declared:  qemuProfile,
+		Delivered: qemuProfile,
+		Reason:    "the guest reaches the proxy and nothing else",
+	})
 	body := dashGet(h, "", `["**"]`).Body.String()
-	for _, want := range []string{"Substrate: docker", "egress none", "declared domain", "no egress image configured"} {
+	for _, want := range []string{"Substrate: kvm", "egress domain", "declared domain",
+		"the guest reaches the proxy and nothing else"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("the overview does not render %q", want)
 		}

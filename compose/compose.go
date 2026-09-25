@@ -11,7 +11,6 @@ import (
 	"slices"
 	"sort"
 	"strings"
-	"syscall"
 
 	"github.com/joho/godotenv"
 
@@ -32,16 +31,6 @@ const (
 
 // routdURL is the in-network base URL every ROUTER_URL points at.
 const routdURL = "http://routd:8080"
-
-// dockerGID returns the gid that owns /var/run/docker.sock, or 999; runed must
-// be in this group to spawn agent containers as uid 1000.
-func dockerGID() int {
-	var st syscall.Stat_t
-	if err := syscall.Stat("/var/run/docker.sock", &st); err == nil {
-		return int(st.Gid)
-	}
-	return 999
-}
 
 // provisionServiceKey returns the daemon's AUTHD_SERVICE_KEY, reusing the one
 // in env/<daemon>.env so a redeploy keeps the same service identity.
@@ -160,7 +149,6 @@ var daemonKeys = map[string][]string{
 		// dead — the class that cost three outages (BUGS reference
 		// `ant_env_delivery`) — so `TestRunedEnvKeysCoverEveryRunedVar` derives
 		// this set from runed's own source instead of trusting this list.
-		"RUNED_SUBSTRATE",
 		"RUNED_QEMU", "RUNED_KERNEL_DIR", "RUNED_ROOTFS_DIR",
 		"RUNED_VIRTIOFSD", "RUNED_VIRTIOFSD_UID_MAP", "RUNED_VIRTIOFSD_GID_MAP",
 		"RUNED_EGRESS_BIN", "RUNED_FIREWALL_BIN", "RUNED_IP_BIN",
@@ -174,8 +162,6 @@ var daemonKeys = map[string][]string{
 		"MEDIA_ENABLED", "MEDIA_MAX_FILE_BYTES", "WHISPER_BASE_URL",
 		"VOICE_TRANSCRIPTION_ENABLED", "VIDEO_TRANSCRIPTION_ENABLED", "WHISPER_MODEL",
 		"TTS_ENABLED", "TTS_BASE_URL", "TTS_VOICE", "TTS_MODEL", "TTS_TIMEOUT",
-		"EGRESS_SUBNET", "EGRESS_NETWORK_PREFIX",
-		"EGRESS_IMAGE", "EGRESS_UPLINK_NETWORK",
 		"HOST_CODEX_DIR",
 		// Picks the harness (claude|codex|pi); absent here the .env value never
 		// reaches runed, and a restart silently kept spawning claude.
@@ -716,24 +702,6 @@ func Generate(dataDir string) (string, []ProxydRoute, error) {
 			env["ARIZUKO_INSTANCE"] = app
 		}
 	}
-	// EGRESS_IMAGE is the master switch for egress isolation: runed starts one
-	// proxy per spawn from it with the folder's allowlist baked in (spec 6/24).
-	// The uplink network is written here, never derived at runtime: the compose
-	// project's default network, the proxy's route out and runed's path to its
-	// /health.
-	if envOr(env, "EGRESS_IMAGE", "") != "" {
-		if _, ok := env["EGRESS_NETWORK_PREFIX"]; !ok {
-			if flavor != "" {
-				env["EGRESS_NETWORK_PREFIX"] = app + "_" + flavor
-			} else {
-				env["EGRESS_NETWORK_PREFIX"] = app
-			}
-		}
-		if _, ok := env["EGRESS_UPLINK_NETWORK"]; !ok {
-			env["EGRESS_UPLINK_NETWORK"] = project + "_default"
-		}
-	}
-
 	// Service-key provisioning (spec 5/E-routd + 5/P-runed): each daemon authenticates to
 	// authd with its own AUTHD_SERVICE_KEY, which authd recognises via
 	// AUTHD_SERVICE_KEYS (hashed at compare time). Keys persist in the
@@ -1113,43 +1081,30 @@ func routdService(app, flavor, dataDir string, env map[string]string) string {
 	return writeSvc(def)
 }
 
-// runedService emits the execution plane. Under the docker substrate it is the
-// ONLY daemon wired to the docker socket; under the QEMU one it holds three
-// device nodes and two capabilities instead, and no socket at all.
+// runedService emits the execution plane: one KVM guest per turn, so three device
+// nodes and two capabilities, and NO docker socket (spec 6/41 §"The runed deploy
+// topology"). The docker-substrate branch that mounted /var/run/docker.sock went
+// with the substrate at step 4 of that spec's order.
 func runedService(app, flavor, dataDir string, env map[string]string) string {
 	var b strings.Builder
 	b.WriteString("  runed:\n")
 	fmt.Fprintf(&b, "    container_name: %s_runed_%s\n", app, flavor)
 	b.WriteString("    image: arizuko:latest\n")
 	b.WriteString("    entrypoint: ['runed']\n")
-	// The substrate is READ from the instance's configuration, never derived
-	// from anything on the host: runed refuses to start when what it reads and
-	// what this service grants disagree, and that refusal is only useful if the
-	// two read the same variable (spec 6/41 §"The runed deploy topology").
-	if env["RUNED_SUBSTRATE"] == "qemu" {
-		// Root, because virtiofsd carries guest credentials to host files and
-		// the staging tree's binds are made in runed's own mount namespace.
-		// The privilege does not RISE: the docker socket it drops was already
-		// root-equivalent on the host. It becomes explicit instead — three
-		// nodes and two capabilities, listed in one generator.
-		b.WriteString("    user: '0:0'\n")
-		b.WriteString("    devices:\n")
-		b.WriteString("      - /dev/kvm\n")
-		b.WriteString("      - /dev/vhost-vsock\n")
-		b.WriteString("      - /dev/net/tun\n")
-		// NET_ADMIN for the tap and its rule set; SYS_ADMIN for the binds.
-		b.WriteString("    cap_add: [NET_ADMIN, SYS_ADMIN]\n")
-		b.WriteString("    volumes:\n")
-		fmt.Fprintf(&b, "      - %s:%s\n", dataDir, containerDataMount)
-	} else {
-		// uid 1000 matches the agent container so data-dir files round-trip;
-		// group_add into the docker gid grants docker.sock access.
-		b.WriteString("    user: '1000:1000'\n")
-		fmt.Fprintf(&b, "    group_add: ['%d']\n", dockerGID())
-		b.WriteString("    volumes:\n")
-		fmt.Fprintf(&b, "      - %s:%s\n", dataDir, containerDataMount)
-		b.WriteString("      - /var/run/docker.sock:/var/run/docker.sock\n")
-	}
+	// Root, because virtiofsd carries guest credentials to host files and the
+	// staging tree's binds are made in runed's own mount namespace. The privilege
+	// does not RISE: the docker socket it replaces was already root-equivalent on
+	// the host. It is explicit instead — three nodes and two capabilities, listed
+	// in one generator.
+	b.WriteString("    user: '0:0'\n")
+	b.WriteString("    devices:\n")
+	b.WriteString("      - /dev/kvm\n")
+	b.WriteString("      - /dev/vhost-vsock\n")
+	b.WriteString("      - /dev/net/tun\n")
+	// NET_ADMIN for the tap and its rule set; SYS_ADMIN for the binds.
+	b.WriteString("    cap_add: [NET_ADMIN, SYS_ADMIN]\n")
+	b.WriteString("    volumes:\n")
+	fmt.Fprintf(&b, "      - %s:%s\n", dataDir, containerDataMount)
 	vol, src := appSrc(env)
 	runedEnv := map[string]string{"DATA_DIR": containerDataMount, "APP_SRC_DIR": src}
 	if vol != "" {

@@ -331,33 +331,30 @@ Two consequences we state rather than paper over:
 
 ## Network egress isolation
 
-When `EGRESS_IMAGE` is set, agent containers attach to a Docker
-`internal: true` network with no default route to the internet. The only
-TCP path out is that spawn's OWN proxy container, which runed starts before
-the agent exists and stops with the turn (spec `6/24`). The proxy runs on
-both the internal network and `EGRESS_UPLINK_NETWORK`; the agent runs on
-the internal network only.
+Isolation is not a setting. The turn runs in a KVM guest whose only network
+interface is one tap, and that tap's rule set accepts the guest's own proxy and
+drops everything else in both directions (spec `6/41` §"Egress by name, sealed
+below the kernel"). runed starts the proxy before the guest exists, as one
+process per turn, and it dies with the turn. There is no `EGRESS_IMAGE` switch
+and no unfiltered mode to fall back to: runed refuses to start when the proxy
+binary is absent.
 
-- Agent containers receive `HTTPS_PROXY=http://<that proxy>:3128` at spawn
-  plus `NODE_OPTIONS=--require=/app/proxy-shim.js` so Node's built-in
-  fetch honors the proxy (curl/wget/pip/go/npm honor it natively).
-  The proxy forwards HTTP and CONNECT-tunnels HTTPS without decrypting.
-- Non-cooperating TCP clients fail closed: the internal Docker network
-  has no default route, so a client that ignores `HTTPS_PROXY` cannot open
-  a TCP connection to anything off that network. This is the enforcement
-  for TCP; the proxy is what filters WHICH allowed hosts, not what
-  confines. UDP/53 leaves by another door (§ No DNS filter). Never give the agent a
-  second interface, and never let it share the proxy's namespace
-  (`--network container:`) — the proxy is dual-homed by necessity, so its
-  namespace carries the route out (measured: a container sharing a
-  proxy's namespace reached an unlisted host directly).
-- The proxy serves ONE address — the spawn's — and 403s every other peer,
-  including the folder's other spawns. Without that, a spawn could borrow
-  a concurrent elevated turn's unrestricted allowlist off the shared
-  folder network.
-- A proxy that fails to start or never reports healthy FAILS THE SPAWN.
-  There is no fallback to an unfiltered container.
-- Allowlist baked into the proxy by runed at container spawn from
+- The guest receives `HTTPS_PROXY=http://<the tap's host side>:3128` plus
+  `NODE_OPTIONS=--require=/app/proxy-shim.js` so Node's built-in fetch honors
+  the proxy (curl/wget/pip/go/npm honor it natively). The proxy forwards HTTP
+  and CONNECT-tunnels HTTPS without decrypting.
+- Non-cooperating TCP clients fail closed BELOW the kernel the agent runs on:
+  the tap rules drop every packet that is not to the proxy, so a client that
+  ignores `HTTPS_PROXY` reaches nothing — and neither does a process that sets
+  its own routes, because the rules are on the host side of the tap. The proxy
+  filters WHICH hosts; the tap is what confines. UDP/53 has no door at all
+  (§ No DNS filter): the guest ships no resolver, so a name is meaningful only
+  inside a CONNECT line.
+- The proxy serves ONE address — that guest's — and 403s every other peer.
+  Without the pin, a second guest on the same host could borrow a concurrent
+  elevated turn's unrestricted allowlist.
+- A proxy that fails to start or never reports healthy FAILS THE TURN.
+- Allowlist baked into the proxy by runed at turn start from
   `store.ResolveAllowlist(folder)` (folder ancestry walk + dedupe).
 - Default seed: `anthropic.com`, `api.anthropic.com`. Operators add
   rules via `arizuko network <instance> allow <folder> <target>`.
@@ -370,9 +367,9 @@ the internal network only.
 
 Caveats:
 
-- The container env holds the operator anchors plus the triggering user's
-  own `store.EnvProfileKeys`, which override them for that spawn
-  (`routd/sibling_db.go` `EnvProfileSecrets` → `container/runner.go`
+- The guest env holds the operator anchors plus the triggering user's
+  own `store.EnvProfileKeys`, which override them for that turn
+  (`routd/sibling_db.go` `EnvProfileSecrets` → `runed/secrets.go`
   `mergeSecrets`). That reader queries `scope_kind='user'` and keeps only
   the four model keys, so a folder capability credential cannot reach the
   container even if a future caller asks it to. The egress allowlist
