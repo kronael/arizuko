@@ -13,6 +13,72 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+> arizuko v0.70.0 — a turn runs in its own virtual machine
+>
+> Docker has left the turn path: every turn now boots one KVM guest, and egress
+> isolation stopped being a setting an operator can leave empty.
+>
+> • one KVM guest per turn — runed boots the release's own kernel, exports the
+> turn's files over virtio-fs and reaches the guest over vsock; the folder, the
+> skills and the session history arrive at the same paths as before
+> • egress cannot be off — the guest's one interface is a tap whose rules accept
+> its own proxy and drop everything else, and runed refuses to start without the
+> proxy binary, so `EGRESS_IMAGE` and its three companions are gone
+> • no resolver in the guest — a host name is only meaningful inside a request to
+> the proxy, which closes the UDP/53 side channel by construction
+> • the turn's credential is the guest's vsock CID, a host-kernel fact a guest
+> cannot forge, in place of the container's uid
+> • 2400 lines deleted — the Docker runtime, the per-folder network carve, the
+> proxy-container lifecycle, `RUNED_SUBSTRATE` and the docker socket
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Changed
+
+- **The turn substrate is a KVM virtual machine, one per turn** (spec
+  `6/41`). `runed` boots `qemu-system-x86_64` with the release's guest kernel by
+  direct kernel boot, exports the turn's staging tree through one virtio-fs
+  share, bridges the agent's MCP port over vsock and reaps every pid the turn
+  started from a record on disk. No `docker run`, no per-folder docker network,
+  no proxy container, no `docker.sock` in runed's service — it holds `/dev/kvm`,
+  `/dev/vhost-vsock` and `/dev/net/tun` instead. `ant/` changes by zero lines and
+  the mount table the agent sees is unchanged.
+- **Egress isolation is a property of the substrate, not a setting.** The guest's
+  only interface is one tap whose rule set accepts that guest's own egress proxy
+  and drops everything else in both directions, and `runed` refuses to start when
+  the proxy binary is missing. `EGRESS_IMAGE`, `EGRESS_NETWORK_PREFIX`,
+  `EGRESS_UPLINK_NETWORK` and `EGRESS_SUBNET` are gone, and `arizuko create`
+  writes none of them. That closes the half of BUGS `L24` which asked whether
+  isolation should default on: it cannot default off.
+- **`RUNED_SUBSTRATE` is gone.** One legal value is a setting that stops applying
+  without saying so.
+
+### Fixed
+
+- `virtiofsd` was started with `--translate-uid`, a flag the packaged daemon
+  (1.10.1) does not have — it answers `error: unexpected argument`. Every VM turn
+  would have failed its share. The flags are `--uid-map` and `--gid-map`, now
+  rendered from the same constants the precondition requires in the daemon's
+  `--help`, and the operator's map is shape-checked at start (BUGS `L367`).
+- The image carried neither `iptables` nor `iproute2`, so the tap's rule set could
+  not be written and the tap itself could not be created. BusyBox's `ip` is on
+  Alpine's PATH and has no `tuntap` subcommand, so the precondition passed on a
+  binary that cannot do the job; it now proves the capability and names the package
+  to install (BUGS `L369`).
+- Every mount source was translated through `HOST_DATA_DIR`, which was right only
+  while the docker daemon resolved it on the host. virtiofsd is runed's own child,
+  so every turn failed to stage its tree — on every folder, while runed answered
+  `/health`. The renderer now emits the path runed sees (BUGS `L368`).
+- `AddRoute` could mint a route id another rule already held, because every writer
+  that STATES an id — a restore, an archive apply, a package install — leaves
+  `CounterRouteID` where it was. The rule that landed was then unaddressable, and
+  it took a second rule down with it. The mint now skips a held id (BUGS `L365`).
+- `route rm <id>` deleted the FIRST row carrying that id. Three readers answered
+  "which rule does this id name" and two of them first-matched or swallowed the
+  refusal, so the agent's `delete_route` bound its authz check to an arbitrary
+  rule and onbod reported a live rule as absent. One reader now, 409 with both
+  coordinates, and the CLI names the row it removed (BUGS `L364`, `L366`).
+
 ## [v0.69.0] — 2026-09-19
 
 > arizuko v0.69.0 — the operator page checks the proof
