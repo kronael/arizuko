@@ -643,7 +643,12 @@ enough to meet a container restart, a timeout, or an OOM.
 - **Affected:** the `elizaos` and `openclaw` reference clones in the krons and
   rhias groups and in `groups/krons/workspace/agent-research-sources`
 - **Source:** `find /srv/data -name 'tmp_pack_*'` and `df -h /`, 2026-09-24
-- **Status:** open — the deletion is live data, so it waits on an operator
+- **Status:** PARTLY FIXED 2026-09-25 — the 11 files are deleted, on the owner's
+  say-so, and the build cache with them: `find /srv/data -name 'tmp_pack_*'`
+  answers 0 and the disk went 2.7 G free → 18 G (98% → 93%). The CAUSE is open:
+  nothing stops the next repack from being interrupted, and the 26 G staged
+  marinade tree is still the largest single reclaim (its credentials are copied
+  out, see `L363`).
 - **Fix:** the files are unreferenced and no git process holds them, so
   deleting them recovers 11 G immediately and loses nothing. Two further
   reclaims need no decision: `docker system prune` frees 21.97 G of the 32.93 G
