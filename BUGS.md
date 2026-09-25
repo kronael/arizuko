@@ -224,6 +224,53 @@ instance layout to drive.
   literal; it asserts what the declaration is for, that `EnvOr` on an unset var
   resolves to the shared default.
 
+## L372 — the uid clamp is illegal as runed ran it: virtiofsd takes an id map only from an unprivileged caller under `--sandbox namespace` (2026-09-25, open)
+
+The guest booted. QEMU then died at once:
+
+```
+qemu-system-x86_64: -chardev socket,id=vfs1,path=…/turn.sock:
+  Failed to connect to '…/turn.sock': Connection refused
+```
+
+and the daemon behind that socket had already said why:
+
+```
+ERROR virtiofsd] Error entering sandbox: uid_map can only be used by unprivileged
+  user where sandbox mod is namespace (Use '--sandbox namespace' instead)
+```
+
+`6/41` §"The peer credential" states `--sandbox=none` "goes with it, because runed
+has already made the namespaces". Measured wrong, 2026-09-25: virtiofsd 1.10.1
+accepts an id map ONLY under `--sandbox namespace`, and ONLY from a caller that is
+unprivileged. runed exports the turn's share as root, so BOTH halves of the
+condition were false.
+
+**The clamp is therefore a uid, not only a flag.** The turn's share is exported by
+a child running as the agent's own uid, which is the control twice over: such a
+daemon cannot chown a host file to anyone else whatever the guest asks, and the map
+is what makes the guest's own 1000 land on that same host id. The read-only rootfs
+share keeps `--sandbox=none` as root, and the difference between the two calls is
+now deliberate rather than drift.
+
+**The socket is not the readiness signal, and that is why this cost a round.**
+virtiofsd CREATES its socket and then enters its sandbox, so a daemon that refuses
+its own arguments leaves the file behind. `waitForSocket` saw the file, returned
+nil, and the failure surfaced one step later as QEMU's `chardev` line — which names
+the socket and not the cause. The wait now watches the process too.
+
+- **Severity:** high (no turn can mount its share; the error the operator sees names
+  the wrong component)
+- **Scope:** `runed/qemu.go`, `runed/vmrecord.go`, `specs/6/41` §"The peer credential"
+- **Affected:** `virtiofsdArgs`, `startVirtiofsd`, `waitForSocket`, `vmRecord.save`
+- **Source:** measured on krons 2026-09-25 from the daemon's own stderr
+- **Status:** open
+- **Fix:** `--sandbox=namespace` for the clamped share, started with the agent's
+  uid as its credential; the per-turn dir becomes `0o710` owned by that uid so the
+  unprivileged daemon can create its socket while `tree/` below stays root-owned,
+  because root makes its binds. And `waitForSocket` fails the moment the daemon
+  exits, naming its exit, so the daemon's own error is what the operator reads.
+
 ## L371 — `CAP_SYS_ADMIN` is not enough to make a bind mount in a container: AppArmor's docker-default denies it (2026-09-25, open)
 
 The staging tree is assembled by bind-mounting each of the turn's sources into one

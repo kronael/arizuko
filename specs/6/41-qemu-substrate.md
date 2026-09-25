@@ -400,8 +400,18 @@ namespace as [0, 65535]" — so the map does NOT collapse many guest ids onto on
 host id, as this section first claimed. It states which guest ids exist on the
 host, and an id outside the range has none. The turn runs ant as uid 1000, so the
 map the operator sets is that one id — `:1000:1000:1:` — and a compromised guest
-running as uid 0 falls outside it. `--sandbox=none` goes with it, because runed
-has already made the namespaces. So the acceptance is two writes, not one: from
+running as uid 0 falls outside it.
+
+**The map is legal only under `--sandbox namespace`, and only from an unprivileged
+caller.** This section said `--sandbox=none` "goes with it, because runed has
+already made the namespaces", and 1.10.1 refuses that pair in as many words:
+"uid_map can only be used by unprivileged user where sandbox mod is namespace".
+runed exported the share as root, so both halves were false and every turn died
+with QEMU's `Connection refused` on the chardev (BUGS `L372`). So **the clamp is a
+uid as much as a flag**: the turn's share is exported by a child running as the
+agent's own uid, which cannot chown a host file to anyone else whatever the guest
+asks, and the map is what lands the guest's own 1000 on that same host id. The
+read-only rootfs share stays `--sandbox=none` as root. So the acceptance is two writes, not one: from
 the guest as uid 1000 the host file carries host uid 1000, and from the guest as
 uid 0 the write is REFUSED, because an unmapped id has no host identity to write
 under.

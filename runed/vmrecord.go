@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/core"
+
+	"github.com/kronael/arizuko/container"
 )
 
 // vmRecord is one turn's guest, written to disk before anything is started and
@@ -79,8 +81,20 @@ func (r *vmRecord) save() error {
 	if r.TurnDir == "" {
 		return fmt.Errorf("vm record %q: no turn dir", r.Handle)
 	}
-	if err := os.MkdirAll(r.TurnDir, 0o700); err != nil {
+	// 0o710 and owned by the agent's uid: the turn's virtiofsd runs UNPRIVILEGED
+	// (the id map is legal for no other caller) and creates its socket in here,
+	// while the tree/ below stays root-owned because root makes its binds.
+	if err := os.MkdirAll(r.TurnDir, 0o710); err != nil {
 		return err
+	}
+	if uid, _ := container.RunUID(); uid > 0 {
+		// Report and carry on: a record that cannot be chowned is a turn whose
+		// virtiofsd will fail to create its socket, and THAT failure names the
+		// socket, which is the better message.
+		if err := os.Chown(r.TurnDir, uid, uid); err != nil && !os.IsNotExist(err) {
+			slog.Warn("turn dir not chowned to the agent uid; the turn share may not open",
+				"dir", r.TurnDir, "uid", uid, "err", err)
+		}
 	}
 	b, err := json.MarshalIndent(r, "", "  ")
 	if err != nil {

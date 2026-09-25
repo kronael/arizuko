@@ -192,14 +192,24 @@ func virtiofsdArgs(p qemuPaths, sock, source string, clamp bool) []string {
 		"--socket-path=" + sock,
 		"--shared-dir=" + source,
 		"--cache=always",
-		"--sandbox=none",
 	}
-	if clamp {
-		args = append(args,
-			clampUIDFlag+"="+p.UIDMap,
-			clampGIDFlag+"="+p.GIDMap)
+	if !clamp {
+		// The read-only rootfs share is exported by root and needs no map, so it
+		// takes no sandbox of its own: runed has already made the namespaces.
+		return append(args, "--sandbox=none")
 	}
-	return args
+	// The id map works ONLY under `--sandbox namespace`, and only for a caller
+	// that is unprivileged. virtiofsd 1.10.1 says so and refuses the pair:
+	// "uid_map can only be used by unprivileged user where sandbox mod is
+	// namespace (Use '--sandbox namespace' instead)". The spec's
+	// §"The peer credential" had `--sandbox=none` here, on the reasoning that
+	// runed has already made the namespaces — measured wrong on krons 2026-09-25,
+	// and the daemon then created its socket and exited, so QEMU answered
+	// "connection refused" (BUGS `L372`).
+	return append(args,
+		"--sandbox=namespace",
+		clampUIDFlag+"="+p.UIDMap,
+		clampGIDFlag+"="+p.GIDMap)
 }
 
 // Run starts one guest turn.
@@ -649,6 +659,16 @@ func exitCodeOf(err error) int {
 func (q *qemuRuntime) startVirtiofsd(rec *vmRecord, sock, source string, clamp bool) error {
 	cmd := exec.Command(q.paths.Virtiofsd, virtiofsdArgs(q.paths, sock, source, clamp)...)
 	cmd.Stderr = newPrefixWriter("virtiofsd", rec.Folder)
+	if clamp {
+		// UNPRIVILEGED, because that is the only caller the id map is legal for.
+		// It is also the clamp itself, twice over: a daemon running as the agent's
+		// uid cannot chown a host file to anyone else whatever the guest asks, and
+		// the map is what makes the guest's own 1000 land on that same id.
+		uid, _ := container.RunUID()
+		cmd.SysProcAttr = &syscall.SysProcAttr{
+			Credential: &syscall.Credential{Uid: uint32(uid), Gid: uint32(uid)},
+		}
+	}
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("virtiofsd %s: %w", source, err)
 	}
@@ -657,19 +677,33 @@ func (q *qemuRuntime) startVirtiofsd(rec *vmRecord, sock, source string, clamp b
 		_ = cmd.Process.Kill()
 		return fmt.Errorf("vm record: %w", err)
 	}
-	go func() { _ = cmd.Wait() }()
+	died := make(chan error, 1)
+	go func() { died <- cmd.Wait() }()
 	// QEMU connects to the socket, so it must exist before QEMU starts. The
 	// daemon creates it as it comes up.
-	if err := waitForSocket(sock, q.paths.Grace); err != nil {
+	if err := waitForSocket(sock, q.paths.Grace, died); err != nil {
 		return fmt.Errorf("virtiofsd %s: %w", source, err)
 	}
 	return nil
 }
 
-// waitForSocket waits for a vhost-user socket to appear.
-func waitForSocket(path string, within time.Duration) error {
+// waitForSocket waits for a vhost-user socket to appear, and gives up the moment
+// the daemon exits.
+//
+// The socket alone is not the readiness signal: virtiofsd CREATES it and then
+// enters its sandbox, so a daemon that refuses its own arguments leaves the file
+// behind and QEMU answers "Failed to connect … Connection refused" one step later,
+// naming the chardev and not the cause (BUGS `L372`). Watching the process is what
+// turns that into the daemon's own error text.
+func waitForSocket(path string, within time.Duration, died <-chan error) error {
 	deadline := time.Now().Add(within)
 	for {
+		select {
+		case err := <-died:
+			return fmt.Errorf("the daemon exited before its socket was usable (%v); "+
+				"its own error is on the `virtiofsd` lines of this log", err)
+		default:
+		}
 		if _, err := os.Stat(path); err == nil {
 			return nil
 		}

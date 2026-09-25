@@ -238,11 +238,16 @@ func TestParseGuestMemTakesQemusSpelling(t *testing.T) {
 func TestVirtiofsdArgsClampOnlyTheTurnShare(t *testing.T) {
 	p := qemuPaths{UIDMap: ":1000:1000:1:", GIDMap: ":1000:1000:1:"}
 	turn := virtiofsdArgs(p, "/vms/h/turn.sock", "/vms/h/tree", true)
+	// --sandbox=namespace, not none: virtiofsd 1.10.1 refuses an id map under any
+	// other sandbox mode, in as many words ("uid_map can only be used by
+	// unprivileged user where sandbox mod is namespace"). It created its socket and
+	// exited, so QEMU answered "connection refused" and the turn failed with no
+	// clue (BUGS `L372`).
 	want := []string{
 		"--socket-path=/vms/h/turn.sock",
 		"--shared-dir=/vms/h/tree",
 		"--cache=always",
-		"--sandbox=none",
+		"--sandbox=namespace",
 		"--uid-map=:1000:1000:1:",
 		"--gid-map=:1000:1000:1:",
 	}
@@ -254,6 +259,11 @@ func TestVirtiofsdArgsClampOnlyTheTurnShare(t *testing.T) {
 		if strings.HasSuffix(strings.SplitN(a, "=", 2)[0], "-map") {
 			t.Errorf("the read-only rootfs share must carry no translation: %v", root)
 		}
+	}
+	// And the unclamped share keeps sandbox=none, which is legal for root and is
+	// what makes the pair above a deliberate difference rather than a drift.
+	if !slices.Contains(root, "--sandbox=none") {
+		t.Errorf("the rootfs share must stay --sandbox=none: %v", root)
 	}
 	if !slices.Contains(root, "--shared-dir=/srv/images/ant/rootfs") {
 		t.Errorf("root share source missing: %v", root)
@@ -673,4 +683,32 @@ func fakeExitBinary(t *testing.T, name, out string, code int) string {
 		t.Fatalf("write fake %s: %v", name, err)
 	}
 	return p
+}
+
+// TestWaitForSocketGivesUpWhenTheDaemonDies pins the other half of BUGS L372.
+// virtiofsd CREATES its socket and then enters its sandbox, so a daemon that
+// refuses its own arguments leaves the file behind: the old wait saw the file,
+// returned nil, and QEMU answered "Failed to connect … Connection refused" one
+// step later — naming the chardev and not the cause.
+func TestWaitForSocketGivesUpWhenTheDaemonDies(t *testing.T) {
+	dir := t.TempDir()
+	sock := filepath.Join(dir, "turn.sock")
+	// The file EXISTS and the daemon is gone: exactly the state that read as ready.
+	if err := os.WriteFile(sock, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	died := make(chan error, 1)
+	died <- fmt.Errorf("exit status 1")
+	err := waitForSocket(sock, time.Second, died)
+	if err == nil {
+		t.Fatal("a dead daemon must fail the wait even though its socket is there")
+	}
+	if !strings.Contains(err.Error(), "exited before its socket was usable") {
+		t.Errorf("the failure must name the daemon's exit, not the socket: %v", err)
+	}
+
+	// A live daemon whose socket is there passes.
+	if err := waitForSocket(sock, time.Second, make(chan error, 1)); err != nil {
+		t.Errorf("a live daemon with its socket in place must pass: %v", err)
+	}
 }
