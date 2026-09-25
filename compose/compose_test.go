@@ -1059,3 +1059,35 @@ func TestRunedEnvKeysCoverEveryRunedVar(t *testing.T) {
 	}
 	t.Logf("checked %d RUNED_ references against %d declared keys", found, len(daemonKeys["runed"]))
 }
+
+// TestRunedSeesTheOperatorsHostPaths pins BUGS L370. virtiofsd is runed's own
+// child, so a guest can be shown only what runed can open: a host path outside the
+// data dir needs a mount in runed's own service or the staging tree refuses it and
+// the turn fails. On krons that was HOST_CODEX_DIR, and every turn in a folder with
+// codex credentials failed.
+//
+// Each path lands at the SAME absolute path, so the renderer's own string resolves
+// and nothing reads a second spelling.
+func TestRunedSeesTheOperatorsHostPaths(t *testing.T) {
+	dir := seed(t, "HOST_CODEX_DIR=/home/op/.codex\nMOUNT_ALLOWED_ROOTS=/srv/shared,/mnt/data\n")
+	out := service(t, gen(t, dir), "runed")
+	for _, want := range []string{
+		"- /home/op/.codex:/home/op/.codex:ro",
+		"- /srv/shared:/srv/shared:ro",
+		"- /mnt/data:/mnt/data:ro",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("runed cannot open a path a turn will mount, so the turn fails: want %q in\n%s", want, out)
+		}
+	}
+
+	// A path nobody declared stays invisible, which is what MOUNT_ALLOWED_ROOTS is
+	// for: the generator must not widen runed's view on its own.
+	if strings.Contains(out, "/home/op/.ssh") {
+		t.Error("the generator mounted a path no setting named")
+	}
+	bare := service(t, gen(t, seed(t, "")), "runed")
+	if strings.Count(bare, ":ro\n") != 0 {
+		t.Errorf("with neither setting, runed takes no read-only host mount:\n%s", bare)
+	}
+}

@@ -1081,6 +1081,25 @@ func routdService(app, flavor, dataDir string, env map[string]string) string {
 	return writeSvc(def)
 }
 
+// hostViewPaths are the host paths runed must be able to open for a turn to mount
+// them into its guest: the operator's shared codex login and every root the
+// operator allows a group to mount. Empty values and duplicates are dropped, and
+// the order is stable so a regenerate is a no-op.
+func hostViewPaths(env map[string]string) []string {
+	var out []string
+	seen := map[string]bool{containerDataMount: true}
+	for _, v := range append([]string{env["HOST_CODEX_DIR"]},
+		core.ParseCSV(env["MOUNT_ALLOWED_ROOTS"])...) {
+		v = strings.TrimSpace(v)
+		if v == "" || !strings.HasPrefix(v, "/") || seen[v] {
+			continue
+		}
+		seen[v] = true
+		out = append(out, v)
+	}
+	return out
+}
+
 // runedService emits the execution plane: one KVM guest per turn, so three device
 // nodes and two capabilities, and NO docker socket (spec 6/41 §"The runed deploy
 // topology"). The docker-substrate branch that mounted /var/run/docker.sock went
@@ -1105,6 +1124,15 @@ func runedService(app, flavor, dataDir string, env map[string]string) string {
 	b.WriteString("    cap_add: [NET_ADMIN, SYS_ADMIN]\n")
 	b.WriteString("    volumes:\n")
 	fmt.Fprintf(&b, "      - %s:%s\n", dataDir, containerDataMount)
+	// A guest can be shown only what RUNED can open: virtiofsd is runed's own
+	// child, not a daemon on the host, so a host path outside the data dir needs a
+	// mount here or the turn's staging tree refuses it (BUGS `L370`). Each one
+	// lands at the SAME absolute path, so the string the renderer already holds
+	// resolves and no code reads a second spelling. Read-only, because these are
+	// the operator's own files and a turn has no business writing them.
+	for _, p := range hostViewPaths(env) {
+		fmt.Fprintf(&b, "      - %s:%s:ro\n", p, p)
+	}
 	vol, src := appSrc(env)
 	runedEnv := map[string]string{"DATA_DIR": containerDataMount, "APP_SRC_DIR": src}
 	if vol != "" {

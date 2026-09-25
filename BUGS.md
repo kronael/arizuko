@@ -224,6 +224,45 @@ instance layout to drive.
   literal; it asserts what the declaration is for, that `EnvOr` on an unset var
   resolves to the shared default.
 
+## L370 — a guest can only be shown what runed can see, and two settings name host paths runed has no mount for (2026-09-25, open)
+
+Measured on krons after the mount-path fix (`L368`), on the next turn:
+
+```
+run outcome error folder=eval/eti0iz2-priv-grant-g
+  err="staging tree: mount source /home/onvos/.codex/auth.json
+       (guest /home/node/.codex/auth.json): stat …: no such file or directory"
+```
+
+`HOST_CODEX_DIR=/home/onvos/.codex` is a host path OUTSIDE the data dir, and
+runed's container mounts only the data dir. The Docker substrate could name any
+host path, because the docker DAEMON opened it on the host. virtiofsd is runed's
+own child, so the rule is now absolute: **a guest can be shown only what runed
+itself can open.**
+
+`L368` fixed the paths that are INSIDE the data dir, by not translating them. This
+is the other half — the paths that are genuinely outside it:
+
+- `HOST_CODEX_DIR` — the operator's own `~/.codex`, mounted read-only so a group
+  can share a codex login (`runed/mounts.go:116-130`).
+- `MOUNT_ALLOWED_ROOTS` — the operator's allowlist for per-group host mounts
+  (`GroupConfig.Mounts`, `mountsec.ValidateAdditionalMounts`). Any root an
+  operator lists is a host path with the same problem.
+
+- **Severity:** high (every turn in a folder with codex credentials fails; a
+  granted host mount fails the same way)
+- **Scope:** `compose/compose.go`, `runed/README.md`, `specs/6/41`
+- **Affected:** `runedService`, `HOST_CODEX_DIR`, `MOUNT_ALLOWED_ROOTS`, every
+  turn that mounts a path outside the data dir
+- **Source:** measured on krons 2026-09-25
+- **Status:** open
+- **Fix:** the generator mounts each configured host path INTO runed at the SAME
+  absolute path, read-only. Then the string runed already holds resolves, and no
+  renderer changes: one declaration, and compose is the reader that gives runed
+  the view. A path the operator did not declare stays invisible, which is the
+  property `MOUNT_ALLOWED_ROOTS` exists for — and the failure when one is missing
+  is already loud (the staging tree refuses and fails the turn).
+
 ## L369 — the precondition proves a binary EXISTS and not that it can do the job, so BusyBox `ip` passes and no guest gets an interface (2026-09-25, open)
 
 Measured against the image, 2026-09-25:
