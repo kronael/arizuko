@@ -224,6 +224,63 @@ instance layout to drive.
   literal; it asserts what the declaration is for, that `EnvOr` on an unset var
   resolves to the shared default.
 
+## ✅ FIXED 2026-09-25 L367 — the QEMU substrate starts `virtiofsd` with a flag it does not have, so every VM turn would fail its share (2026-09-25)
+
+`runed/qemu.go` `virtiofsdArgs` renders the clamp as `--translate-uid=` and
+`--gid` likewise. The daemon the image installs takes neither. Measured
+2026-09-25 against the exact package `Dockerfile` installs
+(`alpine:3.20`, `apk add virtiofsd`, 1.10.1):
+
+```
+$ virtiofsd --help | grep -c translate
+0
+$ virtiofsd --socket-path=/tmp/x --shared-dir=/tmp --translate-uid=map:0:1000:1
+error: unexpected argument '--translate-uid' found
+```
+
+The flags are `--uid-map` and `--gid-map`, and each takes
+`:namespace_uid:host_uid:count:` — the help's own example is
+`:0:100000:65536:`. The value the code carries, `map:0:1000:1`, is a second
+spelling of the same guess.
+
+**`6/41` §"The peer credential" already recorded the correction and the code did
+not take it**: "The flags are `--uid-map` and `--gid-map`, not
+`--translate-uid`. That name was a guess and it was wrong: 1.10.1's own `--help`
+has no `translate` of any kind." So the spec, written 2026-09-24, and the
+substrate that shipped the same day disagree, and the spec is the one that
+measured.
+
+**The precondition cannot catch it, and it looks like it can.** `checkClamp`
+greps the daemon's `--help` for `clampFlag`, and `clampFlag` IS `--uid-map`
+(`runed/qemuhost.go:74`). So the check passes on a binary that can clamp, and the
+spawn then hands that same binary a flag it rejects. One constant names the flag
+the check looks for; a literal in `virtiofsdArgs` names the flag the daemon gets.
+Two declarations, and only one of them was corrected.
+
+**The test pins the defect.** `TestVirtiofsdArgsClampOnlyTheTurnShare` asserts
+`--translate-uid=map:0:1000:1`, so it derives its expectation from the code under
+test rather than from the tool the code drives — green, and worth nothing. The
+same class as [[test_mirrors_its_subject]].
+
+The failure mode is not subtle: `virtiofsd` exits at once, the turn's share never
+appears, and the guest cannot mount `turn`. It would have hit on the first turn
+after the flip and on no test before it, because no test runs the real daemon.
+
+- **Severity:** high (no VM turn can run; found on the flip's own path, before
+  the flip)
+- **Scope:** `runed/qemu.go`, `runed/qemuhost.go`, `runed/qemu_test.go`
+- **Affected:** `virtiofsdArgs`, `checkClamp`, `RUNED_VIRTIOFSD_UID_MAP`,
+  `RUNED_VIRTIOFSD_GID_MAP`, every turn under `RUNED_SUBSTRATE=qemu`
+- **Source:** measured 2026-09-25 in `alpine:3.20` with the packaged 1.10.1;
+  `specs/6/41-qemu-substrate.md` §"The peer credential"
+- **Status:** ✅ FIXED 2026-09-25
+- **Fix:** one declaration of each flag — `virtiofsdArgs` renders `clampFlag`
+  and its gid twin rather than a literal, so the string the check requires IS the
+  string the daemon gets. The map VALUE is the operator's, so its SHAPE is
+  checked at start (`:N:M:C:`), which is where a wrong spelling belongs: the
+  alternative is a daemon that exits on turn one. The test asserts the measured
+  help text, and it fails if either flag goes back to a literal.
+
 ## ✅ FIXED 2026-09-25 L365 — `add_route` mints an id a restored rule already holds, and `L364`'s refusal then makes BOTH rules undeletable (2026-09-25)
 
 `L364` fixed the READ: an ambiguous route id refuses instead of destroying an

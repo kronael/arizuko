@@ -225,23 +225,32 @@ func TestParseGuestMemTakesQemusSpelling(t *testing.T) {
 // The turn share is clamped and the release rootfs is not: the rootfs is
 // root-owned and the guest mounts it read-only, so the flags differ by exactly
 // the two translate options.
+// The clamp flags are the ones virtiofsd 1.10.1 ACTUALLY takes, and the literals
+// below are copied from its own --help rather than from the code (BUGS `L367`):
+//
+//	--uid-map <UID_MAP>   given as :namespace_uid:host_uid:count:
+//	--gid-map <GID_MAP>   given as :namespace_gid:host_gid:count:
+//
+// The daemon answers "unexpected argument '--translate-uid' found" to the name
+// the substrate used to send, so a test that read the expectation off
+// virtiofsdArgs was green while no turn could mount its share.
 func TestVirtiofsdArgsClampOnlyTheTurnShare(t *testing.T) {
-	p := qemuPaths{UIDMap: "map:0:1000:1", GIDMap: "map:0:1000:2"}
+	p := qemuPaths{UIDMap: ":1000:1000:1:", GIDMap: ":1000:1000:1:"}
 	turn := virtiofsdArgs(p, "/vms/h/turn.sock", "/vms/h/tree", true)
 	want := []string{
 		"--socket-path=/vms/h/turn.sock",
 		"--shared-dir=/vms/h/tree",
 		"--cache=always",
 		"--sandbox=none",
-		"--translate-uid=map:0:1000:1",
-		"--translate-gid=map:0:1000:2",
+		"--uid-map=:1000:1000:1:",
+		"--gid-map=:1000:1000:1:",
 	}
 	if !slices.Equal(turn, want) {
 		t.Errorf("turn share args\ngot:  %v\nwant: %v", turn, want)
 	}
 	root := virtiofsdArgs(p, "/vms/h/root.sock", "/srv/images/ant/rootfs", false)
 	for _, a := range root {
-		if strings.HasPrefix(a, "--translate") {
+		if strings.HasSuffix(strings.SplitN(a, "=", 2)[0], "-map") {
 			t.Errorf("the read-only rootfs share must carry no translation: %v", root)
 		}
 	}
@@ -630,5 +639,20 @@ func TestReadImageEnvRefusesWhatItCannotUse(t *testing.T) {
 	// A missing file is the stale-export case and is also a refusal.
 	if _, err := readImageEnv(t.TempDir()); err == nil {
 		t.Error("a rootfs with no captured image env must refuse, not default")
+	}
+}
+
+// TestCheckMapRangeTakesOnlyTheDaemonsSpelling pins the shape the operator's
+// setting must have. `map:0:1000:1` is the value the substrate shipped with, and
+// virtiofsd rejects it, so the refusal belongs at runed start and not in a log
+// after the first turn's share fails to appear (BUGS `L367`).
+func TestCheckMapRangeTakesOnlyTheDaemonsSpelling(t *testing.T) {
+	if err := checkMapRange(":1000:1000:1:"); err != nil {
+		t.Errorf("the daemon's own spelling must pass: %v", err)
+	}
+	for _, bad := range []string{"map:0:1000:1", ":0:1000:1", "0:1000:1:", ":a:1000:1:", ":0:1000:0:", ""} {
+		if err := checkMapRange(bad); err == nil {
+			t.Errorf("%q must be refused: virtiofsd parses the range itself and exits on a bad one", bad)
+		}
 	}
 }

@@ -178,11 +178,16 @@ func guestMAC(cid uint32) string {
 
 // virtiofsdArgs renders one share's daemon.
 //
-// The turn share is clamped: --translate-uid/--translate-gid map every id the
-// guest states onto the one host id the folder already uses, and --sandbox=none
-// because runed has already made the namespaces. The flags are the Rust
-// daemon's; the packaged C build has none of them, which is what the clamp
-// precondition refuses on.
+// The turn share is clamped: --uid-map and --gid-map state which guest ids exist
+// on the host, so an id outside the range has none, and --sandbox=none because
+// runed has already made the namespaces. The flags are the Rust daemon's; the
+// packaged C build has none of them, which is what the clamp precondition
+// refuses on.
+//
+// The flag names come from clampUIDFlag and clampGIDFlag, the same constants the
+// precondition requires in the daemon's --help. A literal here is how BUGS `L367`
+// happened: the args said --translate-uid, 1.10.1 answers "unexpected argument",
+// and the check passed because it looked for the other spelling.
 func virtiofsdArgs(p qemuPaths, sock, source string, clamp bool) []string {
 	args := []string{
 		"--socket-path=" + sock,
@@ -192,8 +197,8 @@ func virtiofsdArgs(p qemuPaths, sock, source string, clamp bool) []string {
 	}
 	if clamp {
 		args = append(args,
-			"--translate-uid="+p.UIDMap,
-			"--translate-gid="+p.GIDMap)
+			clampUIDFlag+"="+p.UIDMap,
+			clampGIDFlag+"="+p.GIDMap)
 	}
 	return args
 }

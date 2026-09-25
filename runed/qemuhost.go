@@ -62,16 +62,22 @@ const (
 	// id mapping at all, so this default names the file that CAN clamp and the
 	// check below refuses the one that cannot (spec 6/41 §"The peer credential").
 	virtiofsdDefault = "/usr/libexec/virtiofsd"
-	// clampFlag is the clamp. Without it a guest states the uid and gid
-	// virtiofsd applies to a host file: measured 2026-09-24, a guest booted as
-	// uid 0 created a file owned by host `root root` through the packaged C
-	// daemon under -o sandbox=chroot, and it outlived the guest.
+	// clampUIDFlag and clampGIDFlag are the clamp. Without it a guest states the
+	// uid and gid virtiofsd applies to a host file: measured 2026-09-24, a guest
+	// booted as uid 0 created a file owned by host `root root` through the
+	// packaged C daemon under -o sandbox=chroot, and it outlived the guest.
 	//
-	// The flag is `--uid-map`, NOT the `--translate-uid` the spec first named.
-	// Measured 2026-09-24 against virtiofsd 1.10.1: it takes a RANGE, written
-	// `:namespace_id:host_id:count:`, so the map says which guest ids exist on
-	// the host and every id outside the range has none.
-	clampFlag = "--uid-map"
+	// The flags are `--uid-map` and `--gid-map`, NOT the `--translate-uid` the
+	// spec first named: 1.10.1's own --help carries no `translate` of any kind and
+	// answers "unexpected argument" to one (BUGS `L367`). Each takes a RANGE,
+	// written `:namespace_id:host_id:count:`, so the map says which guest ids
+	// exist on the host and every id outside the range has none.
+	//
+	// These constants are BOTH the string checkClamp requires in the daemon's
+	// --help and the string virtiofsdArgs sends it. Two declarations is what
+	// L367 was: the check looked for one spelling and the spawn used another.
+	clampUIDFlag = "--uid-map"
+	clampGIDFlag = "--gid-map"
 	// shareRoot and shareTurn are the two virtio-fs tags the guest mounts.
 	// imageEnvName sits beside the rootfs tree, written by `make rootfs`.
 	imageEnvName = ".image-env.json"
@@ -223,11 +229,11 @@ func checkClamp(p qemuPaths, miss func(string, ...any)) {
 		return
 	}
 	out, _ := exec.Command(p.Virtiofsd, "--help").CombinedOutput()
-	if !strings.Contains(string(out), clampFlag) {
+	if !strings.Contains(string(out), clampUIDFlag) || !strings.Contains(string(out), clampGIDFlag) {
 		miss("%s=%s advertises no %s in its --help: it cannot clamp the guest's uid, "+
 			"and a guest as uid 0 then writes host-root-owned files into the folder "+
 			"(measured 2026-09-24). The image must carry the Rust virtiofsd",
-			envVirtiofsd, p.Virtiofsd, clampFlag)
+			envVirtiofsd, p.Virtiofsd, clampUIDFlag+" and "+clampGIDFlag)
 		return
 	}
 	uid, _ := container.RunUID()
@@ -236,7 +242,39 @@ func checkClamp(p qemuPaths, miss func(string, ...any)) {
 			"the value is the operator's measurement, not a default this daemon may guess "+
 			"(spec 6/41 §\"Open questions — each with the measurement that settles it\", question 2)",
 			envUIDMap, envGIDMap, uid)
+		return
 	}
+	// The SHAPE is checked here because the alternative is a daemon that exits on
+	// turn one: virtiofsd parses the range itself and a misspelled map is an
+	// "invalid value" it reports to a log nobody is reading yet (BUGS `L367`).
+	for _, m := range []struct{ env, val string }{{envUIDMap, p.UIDMap}, {envGIDMap, p.GIDMap}} {
+		if err := checkMapRange(m.val); err != nil {
+			miss("%s=%s %s; the daemon's own --help spells it :namespace_id:host_id:count:, "+
+				"for example :%d:%d:1: for the one id the turn runs as",
+				m.env, m.val, err, uid, uid)
+		}
+	}
+}
+
+// checkMapRange holds a virtiofsd id map to the spelling the daemon parses:
+// `:namespace_id:host_id:count:`, three decimal fields between four colons.
+func checkMapRange(v string) error {
+	f := strings.Split(v, ":")
+	if len(f) != 5 || f[0] != "" || f[4] != "" {
+		return fmt.Errorf("is not a range between four colons")
+	}
+	for _, n := range f[1:4] {
+		if n == "" {
+			return fmt.Errorf("leaves a field of the range empty")
+		}
+		if _, err := strconv.ParseUint(n, 10, 32); err != nil {
+			return fmt.Errorf("carries %q where the range wants a number", n)
+		}
+	}
+	if f[3] == "0" {
+		return fmt.Errorf("maps a count of 0, so no guest id has a host id")
+	}
+	return nil
 }
 
 // readImageEnv reads the agent image's `ENV` set from beside the rootfs tree.

@@ -399,10 +399,20 @@ kind. Each takes a RANGE, `:namespace_id:host_id:count:` — its help says
 namespace as [0, 65535]" — so the map does NOT collapse many guest ids onto one
 host id, as this section first claimed. It states which guest ids exist on the
 host, and an id outside the range has none. The turn runs ant as uid 1000, so the
-map the operator sets is that one id and a compromised guest running as uid 0
-falls outside it. `--sandbox=none` goes with it, because runed has already made
-the namespaces. The acceptance test writes from the guest as uid 0 and asserts
-the host file carries the host id.
+map the operator sets is that one id — `:1000:1000:1:` — and a compromised guest
+running as uid 0 falls outside it. `--sandbox=none` goes with it, because runed
+has already made the namespaces. So the acceptance is two writes, not one: from
+the guest as uid 1000 the host file carries host uid 1000, and from the guest as
+uid 0 the write is REFUSED, because an unmapped id has no host identity to write
+under.
+
+**runed sends the flags the check requires, from one declaration each**
+(`clampUIDFlag`, `clampGIDFlag`). The substrate shipped 2026-09-24 with
+`--translate-uid` in its argument list while the check looked for `--uid-map`, so
+every VM turn would have failed its share with "unexpected argument" and no test
+saw it — the test read its expectation off the code (BUGS `L367`, fixed
+2026-09-25). The map's SHAPE is checked at runed start for the same reason: the
+daemon parses the range itself and exits on a bad one.
 
 **Three cheaper mechanisms were measured on hel1v5 2026-09-24 and all three
 refuse.** They are written down so nobody pays to learn it twice.
