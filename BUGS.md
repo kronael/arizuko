@@ -64,9 +64,13 @@ revoked — see its entry.)
 - `L327` — which Discord channels should answer. The inversion CHECK shipped
   (`/eval` 22); which rows to renumber is your call.
 - `L308`, `L181`, `L131`, `L188`.
+- `L363` — sloth advertises five atlas Telegram routes and can serve one. The
+  bot the others talk to is served by nothing, and its only token is in the
+  staged marinade tree. Three options in the entry; one is a deploy.
 - `L307` — seven Slack chats carry traffic and match no route, live on sloth.
   Which route rows to write is yours.
-- `L62` — marinade's emaid IMAP login fails.
+- `L62` — emaid retries an IMAP auth rejection forever; the marinade half is
+  moot (instance removed 2026-09-25), the code defect is not.
 - `L63` — krons whapd wants a phone re-pair; the recipe is in the entry.
 - `L359` — 11 G of interrupted git repacks, on a disk with 3.9 G free. The
   files are unreferenced and the deletion is live data, so it is yours.
@@ -216,6 +220,68 @@ instance layout to drive.
   `TestTheSharedDefaultsAreNamedOnce` no longer compares a constant to its own
   literal; it asserts what the declaration is for, that `EnvOr` on an unset var
   resolves to the shared default.
+
+## L363 — sloth advertises five atlas Telegram routes and can serve one; the bot the other four talk to is served by nothing (2026-09-25, open — operator deploy + decision)
+
+`L335` found this shape for Slack. It is also true for Telegram, and it survived
+that entry's fix because only the Slack half was repaired.
+
+marinade's store was consolidated into sloth around 2026-09-18 (`L335`) and the
+`atlas` folders and routes came across. **The Telegram bot did not.** sloth's
+`teled` serves `@sloth_fiu_bot` (id 8520760331); atlas's chats talk to
+`@mnde_atlas_bot` (id 8122465866), whose only token lives in marinade's tree and
+whose instance is `disabled` and `inactive (dead)` since 2026-09-21.
+
+Measured 2026-09-25 by asking Telegram `getChat` with EACH bot's token, because
+the route table alone cannot say whether a chat is reachable:
+
+| sloth route (priority 30) | chat | who can see it |
+| --- | --- | --- |
+| `atlas` ← `room=user/1112184352` | `kronael`, private | **`@sloth_fiu_bot`** — works |
+| `atlas/content` ← `room=group/5012430759` | "Marinade Content Group", basic group | **`@mnde_atlas_bot` only** |
+| `atlas/martin` ← `room=user/137865889` | `Martin`, private | **`@mnde_atlas_bot` only** |
+| `atlas/support` ← `room=group/1003805633088` | — | **neither bot** (every id encoding returns "chat not found") |
+| `atlas` ← `room=user/1444744465` | — | **neither bot** |
+
+`@mnde_atlas_bot` answers `getMe`, has **no webhook** (`url` is empty, so it
+long-polls) and `pending_update_count` 0 — nothing polls it, so an update is
+dropped rather than queued. So `atlas/content` and Martin's DM are ingress the
+route table advertises and no process can deliver.
+
+The store agrees and would have been read wrong on its own. Both group
+partitions look alive: `telegram:group/1003805633088` carries a message from
+2026-09-25T02:00:48. It is `sender = timed-isolated:task-…` running
+`/compact-memories episodes day` — **cron writing into the partition**, not
+inbound traffic. Filtering to `sender like 'telegram:%'` gives the real picture:
+atlas/support's newest human message is **2026-06-05**, atlas/content's is
+**2026-05-19**, `atlas/martin` has **none ever**, while the operator DM that does
+work carries one from 2026-09-21, after the cutover. A "newest message" check
+that skips the sender reports a healthy chat.
+
+- **Severity:** medium (two live chats, one of them a named person's DM, reach a
+  folder that is advertised for them and cannot receive; no error anywhere)
+- **Scope:** `/srv/data/arizuko_sloth/services/`, sloth's `routd.routes`
+- **Affected:** the five priority-30/31 `atlas*` Telegram routes in sloth's live
+  route table; `@mnde_atlas_bot`
+- **Source:** the marinade consolidation, 2026-09-18 (`L335`); found 2026-09-25
+  while answering whether atlas is hooked into krons — it is not, and was never
+  meant to be
+- **Status:** open. The platform half is a second `teled`, which `L335`'s own fix
+  already proved out for `slakd`; the credential and the deploy are the owner's.
+- **Fix — one of three, and it is a decision:**
+  1. **Serve the atlas bot on sloth**, the shape that fixed `L335`: a second
+     Telegram adapter beside `teled`, exactly as krons already runs
+     `teled-rhias` alongside `teled`. Its token is `TELEGRAM_BOT_TOKEN` (id
+     8122465866) in marinade's `.env` and `env/teled.env`. **Those files are the
+     only copy**, and they now sit in
+     `/srv/data/tmp_removed_marinade_20260925/`, staged for deletion — deleting
+     that tree without copying the token out first makes this fix impossible.
+  2. **Add `@sloth_fiu_bot` to the two live chats** and drop the atlas bot. One
+     operator action per chat, no deploy, and it changes which bot the people in
+     "Marinade Content Group" and Martin talk to.
+  3. **Delete the four unreachable routes.** The honest option if atlas's
+     Telegram side is finished: two of them already name chats neither bot can
+     see, so they are dead regardless of the decision above.
 
 ## ✅ FIXED 2026-09-24 L362 — one guest write into the share root keeps the VM record forever, and five of them exhaust the CID space (2026-09-24, open)
 
@@ -4418,25 +4484,32 @@ on a decision, the network cleanup need not.
 This entry also gates `L188` (see that entry): backfilling ~12 anteval cases
 against today's harness raises both numbers by about half again.
 
-## L62 — marinade's emaid IMAP login fails, unhealthy for 3 days (2026-08-21, open)
+## L62 — emaid retries an IMAP authentication rejection forever (2026-08-21, re-aimed 2026-09-25, open)
 
-`arizuko_emaid_marinade` has been `Up (unhealthy)` since 2026-08-18. Every IMAP
-IDLE cycle logs once a minute:
+Filed against `arizuko_emaid_marinade`, which was `Up (unhealthy)` from
+2026-08-18 and logged once a minute:
 
 ```
 {"level":"ERROR","msg":"imap idle error","err":"login: imap: NO [AUTHENTICATIONFAILED] Invalid credentials (Failure)"}
 ```
 
-The daemon retries a NON-transient error forever — WISDOM says retry only
-transient failures, and an authentication rejection is a configuration fault,
-not a network blip. Two separate items:
+**The operator half is moot: the marinade instance was removed 2026-09-25**, its
+store consolidated into sloth (`L335`) and its tree staged at
+`/srv/data/tmp_removed_marinade_20260925`. Nobody has an IMAP password to fix.
 
-- **Operator:** the stored IMAP password is wrong or revoked. Email ingest on
-  marinade has been dead for three days and nothing surfaced it to a user.
-- **Code:** `AUTHENTICATIONFAILED` should stop the loop and surface once, not
-  re-log every 60s. Same cadence class as `L61`.
+**The code defect outlives the instance and is unchanged.** Verified 2026-09-25:
+`emaid/imap.go:117-124` logs the error, sleeps, doubles the backoff to
+`maxRetryBackoff` and loops — with no test for a non-transient failure. WISDOM
+says retry only transient errors, and an authentication rejection is a
+configuration fault, not a network blip. `AUTHENTICATIONFAILED` must stop the
+loop and surface once. Same cadence class as `L61`.
 
-- **Source:** `emaid/`, marinade instance `.env`.
+- **Severity:** low (no instance runs emaid today, so nothing is failing now; the
+  next one to configure it wrong gets a silent minute-by-minute loop)
+- **Scope:** `emaid/imap.go`
+- **Source:** `emaid/imap.go:117-124`, read 2026-09-25
+- **Status:** open — a code fix, and it needs a test that a non-transient
+  rejection ends the loop.
 
 ## L63 — krons whapd 401-loops, needs a phone re-pair (2026-08-21, open)
 
