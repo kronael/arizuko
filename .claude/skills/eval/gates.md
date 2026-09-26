@@ -60,7 +60,20 @@ answering correctly but past the harness's wall — `rest-roundtrip` replied 5
 minutes after a 94s cap. Drain first:
 
 ```bash
-until [ "$(sudo docker ps --format '{{.Names}}' | grep -c "arizuko-$I-")" -eq 0 ]; do sleep 30; done
+# A turn is a KVM GUEST, not a container (spec 6/41), so counting containers here
+# answers 0 forever and the wait returns at once — the storm then runs under the
+# eval. Count the guests, and count them by process NAME, `qemu-system-x86`:
+#
+#   - the name is TRUNCATED to 15 characters in `comm`, so `qemu-system-x86_64`
+#     matches nothing and `pgrep -x` says so out loud;
+#   - matching the name and not the command line is what keeps the check off ITSELF:
+#     `pgrep -f qemu-system-x86_64` matches the shell running it and never reaches 0
+#     (BUGS reference `pgrep_self_match`).
+#
+# Measured 2026-09-26 with one guest live: `pgrep -c qemu-system-x86` is 1 and
+# `pgrep -fc qemu-system-x86_64` is 2. Host-wide is the right scope — one host runs
+# both instances and they share the run slots the eval is measuring.
+until [ "$(pgrep -c qemu-system-x86 || true)" -eq 0 ]; do sleep 30; done
 ```
 
 Then check no `/migrate` turn has arrived for five minutes. A run started
@@ -169,7 +182,8 @@ survived /new for 1m30s`. A single `arizuko send $I eval "hello"` probe leaves
 the same root session and costs the same abort. Wait for both:
 
 ```bash
-until [ "$(sudo docker ps --format '{{.Names}}' | grep -c "arizuko-$I-eval-")" -eq 0 ]; do sleep 20; done
+# Guests, not containers, and by TRUNCATED process name — see the drain wait above.
+until [ "$(pgrep -c qemu-system-x86 || true)" -eq 0 ]; do sleep 20; done
 curl -s -H "Authorization: Bearer $TOK" \
   "http://localhost:<routd-port>/v1/topic_sessions?folder=eval&topic="
 ```
