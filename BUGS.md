@@ -64,6 +64,13 @@ revoked — see its entry.)
 - `L327` — which Discord channels should answer. The inversion CHECK shipped
   (`/eval` 22); which rows to renumber is your call.
 - `L308`, `L181`, `L131`, `L188`.
+- `L375` — the VM substrate runs a turn end to end on krons and the AGENT exits 1
+  inside the guest with its output reaching nobody: the turn log has no output
+  section and says exit 0 while the guest said 1. It is the last step of the flip
+  and it needs its own session, because nothing can be diagnosed until a log frame
+  is traced from the guest to the file.
+- `L376` — every turn leaks its directory (250 in one evening). Medium, and it
+  wants the teardown rewritten to remove what it created in the order it created it.
 - `L364` — `route rm <id>` on sloth deletes the WRONG row: six ids are duplicated
   by the marinade merge. It already destroyed a live rule once. Re-minting sloth's
   route ids is yours; do not address a sloth rule by id until then.
@@ -224,7 +231,82 @@ instance layout to drive.
   literal; it asserts what the declaration is for, that `EnvOr` on an unset var
   resolves to the shared default.
 
-## L374 — the guest has no `/dev/null`, because `CONFIG_DEVTMPFS_MOUNT` does nothing on an initramfs boot (2026-09-25, open)
+## L375 — the agent exits 1 inside the guest and NOTHING carries its output out, so the one remaining failure cannot be read (2026-09-25, open)
+
+The substrate works. Measured on krons 2026-09-26, one turn end to end:
+
+```
+egress proxy up   listen=10.97.0.6 guest=10.97.0.5 rules=3
+booting guest     cid=4 tap=arz-77a1-t01 mounts=7
+ARIZUKO_PROBE     {"virtiofs":"mounted","root_write":"refused","turn_write":"ok",
+                   "ctl_up_uptime":"3.18 1.60"}
+[  245.48] guest-init: agent wait: exit status 1
+guest exited      code=0 duration=254s timedOut=false
+turn failed without reply, scheduling retry
+```
+
+So the guest boots, mounts its shares, holds the clamp in both directions and runs
+the agent for four minutes. **The agent then exits 1 and its stderr is nowhere.**
+
+- The console log carries `guest-init: agent wait: exit status 1` and not one line
+  of the agent's own output.
+- The turn log (`groups/<folder>/logs/container-*.log`) ends after its Input
+  Summary: no output section, and `Exit Code: 0` while the guest reported 1.
+- The journal has no `vm process` line for the agent, though it has them for
+  `qemu`, `virtiofsd` and `egress`.
+
+`guest-init` streams the agent's stderr over `ctl` as log frames
+(`stream(c, stderr)`), and `runed/vmctl_test.go` `TestLogFramesReachTheTurnLog`
+asserts they land. On the live path they do not, and the turn log's own exit code
+disagrees with the guest's.
+
+Until this is fixed the substrate cannot be debugged one layer further: every agent
+failure looks identical from the outside, which is the class `L371`'s second half
+already fixed for runed's own errors.
+
+- **Severity:** high (blocks the last step of the flip; an agent failure is
+  undiagnosable)
+- **Scope:** `runed/turnlog.go`, `runed/vmctl.go`, `kernel/guest-init/main.go`
+- **Affected:** the turn log's output section and exit code, every failing turn
+- **Source:** measured on krons 2026-09-26; `container-2026-09-26T00-12-46.log`
+  and its `.console.log` beside it
+- **Status:** open
+- **Fix:** trace one log frame from `stream()` to the file and find where it is
+  dropped — the test that says they arrive drives the codec, not the path. The turn
+  log must also record the exit code the GUEST reported rather than 0, because two
+  different numbers in two files is worse than either.
+
+## L376 — the reap leaves every turn dir behind, and 250 of them accumulated in one evening (2026-09-25, open)
+
+```
+WARN vm teardown: turn dir kept
+  dir=/srv/app/home/vms/arizuko-krons-eval-etk2r1b-…-1790381566591
+  err="remove …: directory not empty"
+```
+
+Measured on krons 2026-09-26: `ls /srv/data/arizuko_krons/vms/ | wc -l` is **250**
+after one evening of turns. The teardown removes the record only when every pid it
+names is gone, and then `os.Remove` on the turn dir fails because the dir still
+holds `tree/` and the two pid files. So every turn leaks its directory.
+
+This is `L362`'s class — a stuck staging tree holding a CID forever — with a
+different door: there the tree was mounted, here the tree is merely present.
+`allocate` derives the live CID set from the record scan, so a dir with no record
+does not hold a CID; what accumulates is inodes and confusion, and a dir that DOES
+keep its record after a failed reap holds its CID.
+
+- **Severity:** medium (no CID exhaustion measured yet; 250 dirs of debris and the
+  same warning once per turn)
+- **Scope:** `runed/vmrecord.go`, `runed/vmtree.go`
+- **Affected:** `reapVM`, the VM root
+- **Source:** measured on krons 2026-09-26
+- **Status:** open
+- **Fix:** the teardown removes what it created, in the order it created it: the
+  tree's binds are unmounted and `tree/` removed, then the pid files, then the dir.
+  A dir it cannot empty is REPORTED with what is left in it, not with
+  "directory not empty" — the name of the survivor is the whole diagnosis.
+
+## ✅ FIXED 2026-09-25 L374 — the guest has no `/dev/null`, because `CONFIG_DEVTMPFS_MOUNT` does nothing on an initramfs boot (2026-09-25)
 
 The guest boots, mounts virtio-fs, passes the clamp (`root_write: refused`) and
 assembles its root. Then:
@@ -260,7 +342,7 @@ terminal.
   the assembled root gets them. Mounting devtmpfs is NOT the fix and the comment
   that suggested the kernel had done it is corrected in place.
 
-## L373 — the clamped share accepts writes from ONE uid, and guest-init is root, so no bind target on the share can be made (2026-09-25, open)
+## ✅ FIXED 2026-09-25 L373 — the clamped share accepts writes from ONE uid, and guest-init is root, so no bind target on the share can be made (2026-09-25)
 
 The guest boots, mounts virtio-fs and brings `ctl` up in 1.50 s of guest uptime.
 Then it stops, and its own probe says why (krons, 2026-09-25):
