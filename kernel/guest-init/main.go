@@ -146,6 +146,11 @@ const (
 	// call finds no socket answers nothing, which is why routd binds the folder's
 	// socket before a spawn as well.
 	socketWait = 5 * time.Second
+	// ctlSettle bounds the wait for the host to finish with ctl after the exit
+	// frame. It is a DELIVERY wait, not a timeout the turn spends: the host closes
+	// the channel as soon as it has the frame, so this elapses only when the host
+	// is already gone.
+	ctlSettle = 3 * time.Second
 	// stopGrace is how long the agent gets after {stop}'s SIGTERM before the
 	// guest powers off regardless (spec §"Steer and stop"). It is the 10 s docker
 	// used to give a stopping container, which is the grace the agent had before
@@ -221,7 +226,7 @@ func main() {
 	// `make bench-boot`'s four timestamps and the 1.0 s gate is on it
 	// (spec §"The image and the guest kernel"), so nothing the turn needs is
 	// allowed to sit in front of it.
-	c := &ctl{w: fd}
+	c := &ctl{w: fd, conn: fd}
 	_ = c.send(frame{Kind: kindReady, Probe: probe})
 
 	// From here every failure goes out on ctl and ends the turn with a nonzero
@@ -257,6 +262,9 @@ func main() {
 		c.fail("guest-init: %v", err)
 	}
 	run(t, agentCmd(turnFrame.Env, turnFrame.Stdin))
+	// The exit frame is the turn's only result, so the guest waits for the host to
+	// have it before the VM is destroyed (BUGS `L375`).
+	c.settle(ctlSettle)
 	off()
 }
 
@@ -602,6 +610,31 @@ type ctl struct {
 	w    io.Writer
 	mu   sync.Mutex
 	once sync.Once
+	// conn is the same connection as w when ctl runs over a real socket, and nil
+	// in a test that drives the protocol over buffers. settle needs to READ it.
+	conn *os.File
+}
+
+// settle waits for the host to finish with the control channel, and it is what
+// makes the exit frame arrive. Power-off destroys the VM, so a frame still in the
+// socket's buffer is lost: the host's read answered "connection reset by peer" one
+// second before QEMU exited, `await` fell back to QEMU's own status of 0, and the
+// turn log then recorded exit 0 with no stderr while the agent had exited 1 (BUGS
+// `L375`).
+//
+// The host closes ctl once it has the frame, so a read that ends is the delivery
+// receipt. Bounded, because a host that never closes must not hold a guest.
+func (c *ctl) settle(d time.Duration) {
+	if c.conn == nil {
+		return
+	}
+	_ = c.conn.SetReadDeadline(time.Now().Add(d))
+	var b [1]byte
+	for {
+		if _, err := c.conn.Read(b[:]); err != nil {
+			return // EOF, reset or the deadline: the host is done either way
+		}
+	}
 }
 
 func (c *ctl) send(f frame) error {
@@ -635,6 +668,7 @@ func (c *ctl) report(code int) {
 func (c *ctl) fail(format string, a ...any) {
 	c.logf(format, a...)
 	c.report(initExit)
+	c.settle(ctlSettle)
 	off()
 }
 
@@ -861,7 +895,10 @@ func run(t *turn, cmd *exec.Cmd) {
 	// log frame has to precede the exit frame on one ordered stream.
 	<-stream(t.c, stderr)
 	if err := cmd.Wait(); err != nil {
-		logf("guest-init: agent wait: %v", err)
+		// On ctl as well as the console: the host's turn log is where an operator
+		// looks first, and this line is the only one that names WHY a turn had no
+		// reply (BUGS `L375`).
+		t.c.logf("guest-init: agent wait: %v", err)
 	}
 	t.c.report(exitCode(cmd.ProcessState))
 }

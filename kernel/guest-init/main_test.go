@@ -331,9 +331,13 @@ func TestTheExitFrameCarriesTheAgentsOwnCode(t *testing.T) {
 			}
 		}
 		// Ordered, and complete: Wait closes the stderr pipe, so a Wait that ran
-		// before the last read would drop the agent's final lines.
-		if !reflect.DeepEqual(got, []string{"first", "second", "exit"}) {
-			t.Errorf("the wire held %v, want the two stderr lines then the exit frame", got)
+		// before the last read would drop the agent's final lines. The wait's own
+		// error follows them and precedes the exit frame — it is the one line that
+		// names WHY a turn had no reply, and it used to reach the console only
+		// (BUGS `L375`).
+		want := []string{"first", "second", "guest-init: agent wait: exit status 3", "exit"}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("the wire held %v, want %v", got, want)
 		}
 	})
 

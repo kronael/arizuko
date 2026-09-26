@@ -231,7 +231,7 @@ instance layout to drive.
   literal; it asserts what the declaration is for, that `EnvOr` on an unset var
   resolves to the shared default.
 
-## L375 — the agent exits 1 inside the guest and NOTHING carries its output out, so the one remaining failure cannot be read (2026-09-25, open)
+## ✅ FIXED 2026-09-26 L375 — the agent exits 1 inside the guest and NOTHING carries its output out, so the one remaining failure cannot be read (2026-09-25)
 
 The substrate works. Measured on krons 2026-09-26, one turn end to end:
 
@@ -270,11 +270,28 @@ already fixed for runed's own errors.
 - **Affected:** the turn log's output section and exit code, every failing turn
 - **Source:** measured on krons 2026-09-26; `container-2026-09-26T00-12-46.log`
   and its `.console.log` beside it
-- **Status:** open
-- **Fix:** trace one log frame from `stream()` to the file and find where it is
-  dropped — the test that says they arrive drives the codec, not the path. The turn
-  log must also record the exit code the GUEST reported rather than 0, because two
-  different numbers in two files is worse than either.
+- **Status:** ✅ FIXED 2026-09-26 — and the frames were never dropped. Traced:
+
+  1. The guest sends `{exit}` and powers off IMMEDIATELY. Power-off destroys the
+     VM, so the frame still in the socket buffer is lost — the host's read answered
+     `connection reset by peer` one second before QEMU exited. `await` then fell
+     back to QEMU's own status, which was **0**.
+  2. `writeLog` writes its `=== Stderr ===` section only when
+     `code != 0 || timedOut`. With the frame lost and QEMU's 0 in hand, a failed
+     turn wrote the SHORT form: no stderr, `Exit Code: 0`.
+  3. The agent's wait error went to `logf` (the console) and not `c.logf` (the
+     console AND a ctl frame), so the one line naming the failure never left the
+     guest.
+
+  The log frames themselves arrived all along; `slog.Debug` for them is correct —
+  the turn log is their sink, not the journal.
+- **Fix:** three, one per step above. The guest SETTLES before power-off: after the
+  exit frame it reads ctl until the host closes it, which is the delivery receipt,
+  bounded so a dead host cannot hold a guest. `writeLog` treats a MISSING FRAME as
+  an error condition of its own and says so beside the number it prints
+  (`Exit Code: 0 (QEMU's — the guest sent no exit frame)`), because a number that is
+  not the agent's must not read as the agent's. And the agent's wait error goes out
+  on ctl.
 
 ## L376 — the reap leaves every turn dir behind, and 250 of them accumulated in one evening (2026-09-25, open)
 

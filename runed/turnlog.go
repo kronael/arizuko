@@ -16,9 +16,14 @@ import (
 func writeLog(
 	path string, t Turn,
 	dur time.Duration, code int,
-	timedOut bool, stderr string,
+	timedOut, framed bool, stderr string,
 ) {
-	isErr := code != 0 || timedOut
+	// A turn with NO exit frame is an error however innocent its code looks. The
+	// guest's own code is the only word on how the agent ended, and when the frame
+	// is missing `code` is QEMU's status — which was 0 while the agent had exited 1,
+	// so this file recorded a clean turn with no stderr for the one failure that
+	// needed reading (BUGS `L375`).
+	isErr := code != 0 || timedOut || !framed
 	lvl := os.Getenv("LOG_LEVEL")
 	verbose := lvl == "debug" || lvl == "trace"
 
@@ -28,8 +33,14 @@ func writeLog(
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "=== Container Run Log%s ===\n", suffix)
-	fmt.Fprintf(&b, "Timestamp: %s\nGroup: %s\nContainer: %s\nDuration: %s\nExit Code: %d\n",
+	fmt.Fprintf(&b, "Timestamp: %s\nGroup: %s\nContainer: %s\nDuration: %s\nExit Code: %d",
 		time.Now().Format(time.RFC3339), t.Folder, t.Handle, dur, code)
+	if framed {
+		b.WriteString("\n")
+	} else {
+		// Said in the file, because the number beside it is not the agent's.
+		b.WriteString(" (QEMU's — the guest sent no exit frame)\n")
+	}
 
 	b.WriteString("\n=== Mounts ===\n")
 	for _, m := range t.Mounts {

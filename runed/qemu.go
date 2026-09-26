@@ -429,7 +429,7 @@ func (q *qemuRuntime) spawn(ctx context.Context, t Turn) RunResult {
 	code, timedOut := end.code, end.timedOut
 	elapsed := time.Since(start)
 	logFile := filepath.Join(logsDir, "container-"+ts+".log")
-	writeLog(logFile, t, elapsed, code, timedOut, logbuf.String()+"\nkernel console: "+console+"\n")
+	writeLog(logFile, t, elapsed, code, timedOut, end.framed, logbuf.String()+"\nkernel console: "+console+"\n")
 
 	slog.Info("guest exited", "folder", t.Folder, "handle", t.Handle,
 		"code", code, "duration", elapsed, "timedOut", timedOut)
