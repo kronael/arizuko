@@ -62,6 +62,10 @@ type vmRecord struct {
 // dir without it is a dir nothing reaps and nothing believes.
 const vmRecordName = "record.json"
 
+// pidSuffix is what virtiofsd appends to its socket path for its own pid file. It
+// is the daemon's convention, not ours, and the teardown must name it (BUGS `L376`).
+const pidSuffix = ".pid"
+
 // vmDir resolves one handle's turn dir under the record root.
 //
 // The handle comes from the Manager, not from a caller, but it becomes a path
@@ -350,15 +354,32 @@ func reapVM(rec *vmRecord, p procs, grace, poll time.Duration, tree *turnTree, n
 		return fmt.Errorf("vm %s: remove record: %w", rec.Handle, err)
 	}
 	// Whatever is left in the turn dir is this substrate's own: the vhost-user
-	// sockets, the pid file, the emptied tree. Named removals only — the tree's
-	// own teardown is what proves nothing is mounted under it.
-	for _, name := range []string{qemuPidName, rootSockName, turnSockName} {
+	// sockets and the pid file BESIDE EACH of them, the QEMU pid file, the emptied
+	// tree. Named removals only — the tree's own teardown is what proves nothing is
+	// mounted under it.
+	//
+	// virtiofsd writes `<socket>.pid` next to its socket, which this list did not
+	// name, so every turn left three files and its directory behind: 250 of them in
+	// one evening on krons (BUGS `L376`).
+	for _, name := range []string{
+		qemuPidName,
+		rootSockName, rootSockName + pidSuffix,
+		turnSockName, turnSockName + pidSuffix,
+	} {
 		if err := os.Remove(filepath.Join(rec.TurnDir, name)); err != nil && !os.IsNotExist(err) {
 			slog.Warn("vm teardown: leftover file", "path", filepath.Join(rec.TurnDir, name), "err", err)
 		}
 	}
 	if err := os.Remove(rec.TurnDir); err != nil && !os.IsNotExist(err) {
-		slog.Warn("vm teardown: turn dir kept", "dir", rec.TurnDir, "err", err)
+		// NAME what survived. "directory not empty" is the one message that cannot
+		// be acted on, and it is what this said for every turn.
+		left, _ := os.ReadDir(rec.TurnDir)
+		names := make([]string, 0, len(left))
+		for _, e := range left {
+			names = append(names, e.Name())
+		}
+		slog.Warn("vm teardown: turn dir kept", "dir", rec.TurnDir,
+			"left", strings.Join(names, ","), "err", err)
 	}
 	return nil
 }

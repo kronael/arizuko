@@ -283,3 +283,34 @@ func TestReapReleasesTheCIDWhenOnlyTheTreeIsStuck(t *testing.T) {
 		t.Errorf("the guest's file must NOT be deleted: %v", err)
 	}
 }
+
+// TestReapRemovesTheDaemonsOwnPidFiles pins BUGS L376. virtiofsd writes
+// `<socket>.pid` beside its socket, which the teardown's name list did not carry —
+// so every turn left three files and its directory behind, 250 of them in one
+// evening on krons, and said only "directory not empty".
+func TestReapRemovesTheDaemonsOwnPidFiles(t *testing.T) {
+	rec, p := fullRecord(t)
+	// Exactly what a finished turn leaves: the two sockets, a pid file beside each,
+	// and QEMU's own.
+	for _, name := range []string{
+		qemuPidName,
+		rootSockName, rootSockName + pidSuffix,
+		turnSockName, turnSockName + pidSuffix,
+	} {
+		if err := os.WriteFile(filepath.Join(rec.TurnDir, name), []byte("7\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := reapVM(rec, p, time.Millisecond, time.Millisecond, nil, nil); err != nil {
+		t.Fatalf("reap: %v", err)
+	}
+	if _, err := os.Stat(rec.TurnDir); !os.IsNotExist(err) {
+		left, _ := os.ReadDir(rec.TurnDir)
+		names := make([]string, 0, len(left))
+		for _, e := range left {
+			names = append(names, e.Name())
+		}
+		t.Fatalf("the turn dir survived, holding %v: a name the teardown does not know "+
+			"is a directory that leaks once per turn", names)
+	}
+}

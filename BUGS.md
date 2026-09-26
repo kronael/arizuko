@@ -64,13 +64,6 @@ revoked — see its entry.)
 - `L327` — which Discord channels should answer. The inversion CHECK shipped
   (`/eval` 22); which rows to renumber is your call.
 - `L308`, `L181`, `L131`, `L188`.
-- `L375` — the VM substrate runs a turn end to end on krons and the AGENT exits 1
-  inside the guest with its output reaching nobody: the turn log has no output
-  section and says exit 0 while the guest said 1. It is the last step of the flip
-  and it needs its own session, because nothing can be diagnosed until a log frame
-  is traced from the guest to the file.
-- `L376` — every turn leaks its directory (250 in one evening). Medium, and it
-  wants the teardown rewritten to remove what it created in the order it created it.
 - `L364` — `route rm <id>` on sloth deletes the WRONG row: six ids are duplicated
   by the marinade merge. It already destroyed a live rule once. Re-minting sloth's
   route ids is yours; do not address a sloth rule by id until then.
@@ -293,7 +286,7 @@ already fixed for runed's own errors.
   not the agent's must not read as the agent's. And the agent's wait error goes out
   on ctl.
 
-## L376 — the reap leaves every turn dir behind, and 250 of them accumulated in one evening (2026-09-25, open)
+## ✅ FIXED 2026-09-26 L376 — the reap leaves every turn dir behind, and 250 of them accumulated in one evening (2026-09-25)
 
 ```
 WARN vm teardown: turn dir kept
@@ -317,11 +310,15 @@ keep its record after a failed reap holds its CID.
 - **Scope:** `runed/vmrecord.go`, `runed/vmtree.go`
 - **Affected:** `reapVM`, the VM root
 - **Source:** measured on krons 2026-09-26
-- **Status:** open
-- **Fix:** the teardown removes what it created, in the order it created it: the
-  tree's binds are unmounted and `tree/` removed, then the pid files, then the dir.
-  A dir it cannot empty is REPORTED with what is left in it, not with
-  "directory not empty" — the name of the survivor is the whole diagnosis.
+- **Status:** ✅ FIXED 2026-09-26 — and the survivor names it: `root.sock.pid` and
+  `turn.sock.pid`. **virtiofsd writes `<socket>.pid` beside its socket**, and the
+  teardown's name list carried the sockets and QEMU's pid file and not those two. So
+  every turn left three files plus its directory, and the warning said only
+  "directory not empty" — the one message that cannot be acted on.
+- **Fix:** the list names the daemon's convention (`pidSuffix`), and a dir the
+  teardown cannot empty is reported WITH WHAT IS LEFT IN IT. The test seeds exactly
+  what a finished turn leaves and fails when a name is dropped from the list, which
+  is what the old list was: correct for what it knew about.
 
 ## ✅ FIXED 2026-09-25 L374 — the guest has no `/dev/null`, because `CONFIG_DEVTMPFS_MOUNT` does nothing on an initramfs boot (2026-09-25)
 
