@@ -1,5 +1,5 @@
 ---
-status: partial
+status: shipped
 depends:
   [
     22-proxyd-cut,
@@ -600,8 +600,19 @@ layers; the filing is worth doing once, for its method names, and never again.
    coordinate rather than a rowid; it leaves for its own daemon next, which is the
    last thing holding `routd` to SQLite.
 
-What remains of SQL in the tree: 13 schema probes, the FTS search, and the
-`migrations` bookkeeping row.
+What remains of SQL in the tree: **nothing, measured 2026-09-26.** Over non-test
+Go, `"database/sql"` has zero importers, no SQLite driver is imported at all
+(`mattn/go-sqlite3`, `modernc.org/sqlite`, `ncruces/go-sqlite3`), there is no
+`fts5` or `MATCH ?`, and no `sqlite_master` probe. The 13 probes, the FTS search
+and the `migrations` bookkeeping row this line used to name all left with the
+deletion release (`v0.68.0`), and `db_utils`, `db_utils/dbtest` and
+`objstore/sqlstore` are not in the tree. `store/` reaches the object store from 73
+files and `database/sql` from none.
+
+So the order below is complete and this spec is **shipped**. The `db_utils` and
+`sql.Open` references further down are the record of HOW the move was made, not a
+description of the tree: each one names a guard that did its job and left with the
+thing it guarded.
 
 **Where this stood, measured 2026-09-10. One table was left.** Every table in
 arizuko is an objstore entity except `messages` and its FTS twin. The census
