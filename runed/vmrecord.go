@@ -196,19 +196,29 @@ func liveCIDs(records []*vmRecord) map[uint32]bool {
 // 2 is the host (vsock(7)).
 const vsockCIDMin = 3
 
-// allocateCID returns the lowest free guest CID at or above vsockCIDMin, bounded
-// by the concurrency cap: a cap of 5 needs 5 CIDs, and a request for a sixth is
-// the Manager's slot accounting having failed rather than a CID shortage.
-func allocateCID(used map[uint32]bool, cap int) (uint32, error) {
+// allocateCID returns the lowest free guest CID at or above base, bounded by the
+// concurrency cap: a cap of 5 needs 5 CIDs, and a request for a sixth is the
+// Manager's slot accounting having failed rather than a CID shortage.
+//
+// base is an INSTANCE setting because the CID space is the HOST's, not an
+// instance's. Two instances that both start at 3 ask the host for the same CID and
+// the same derived vsock ports, and the second one's turn fails with
+// "vsock bind port 5555: address already in use" — measured on this host the moment
+// a second instance ran a turn (BUGS `L378`).
+func allocateCID(used map[uint32]bool, cap int, base uint32) (uint32, error) {
 	if cap < 1 {
 		cap = 1
 	}
-	for cid := uint32(vsockCIDMin); cid < uint32(vsockCIDMin+cap); cid++ {
+	if base < vsockCIDMin {
+		base = vsockCIDMin
+	}
+	for cid := base; cid < base+uint32(cap); cid++ {
 		if !used[cid] {
 			return cid, nil
 		}
 	}
-	return 0, fmt.Errorf("no free guest CID: %d live guests at MAX_CONCURRENT_CONTAINERS=%d", len(used), cap)
+	return 0, fmt.Errorf("no free guest CID in [%d,%d): %d live guests at MAX_CONCURRENT_CONTAINERS=%d",
+		base, base+uint32(cap), len(used), cap)
 }
 
 // vsockPorts derives a guest's two host-side ports from its CID. Derived, not
@@ -221,6 +231,11 @@ func vsockPorts(base uint32, cid uint32) (ctl, mcp uint32) {
 	off := (cid - vsockCIDMin) * 2
 	return base + off, base + off + 1
 }
+
+// cidBase and portBase are one window, and an instance owns one window of each.
+// The offsets are derived from the CID so the two stay in step: an instance whose
+// CID base is higher gets ports higher by the same step, which is what keeps two
+// instances on one host from asking for the same port.
 
 // procs is the pid table the reap acts on. Tests replace it, so the reap's
 // order and its confirm-gone rule are checked without starting a process.

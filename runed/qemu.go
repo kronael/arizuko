@@ -516,7 +516,7 @@ func (q *qemuRuntime) allocate(t Turn) (*vmRecord, error) {
 	for _, dir := range broken {
 		slog.Error("vm record unreadable: its processes cannot be reaped by name", "dir", dir)
 	}
-	cid, err := allocateCID(liveCIDs(records), q.cfg.MaxContainers)
+	cid, err := allocateCID(liveCIDs(records), q.cfg.MaxContainers, q.paths.CIDBase)
 	if err != nil {
 		return nil, err
 	}

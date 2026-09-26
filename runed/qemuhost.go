@@ -33,6 +33,7 @@ const (
 	envGuestMem     = "RUNED_GUEST_MEM"
 	envGuestSMP     = "RUNED_GUEST_SMP"
 	envVsockBase    = "RUNED_VSOCK_PORT_BASE"
+	envCIDBase      = "RUNED_VSOCK_CID_BASE"
 	envTapSubnet    = "RUNED_TAP_SUBNET"
 	envVMDir        = "RUNED_VM_DIR"
 	envBootTimeout  = "RUNED_BOOT_TIMEOUT"
@@ -103,6 +104,7 @@ type qemuPaths struct {
 	Mem       string
 	SMP       int
 	VsockBase uint32
+	CIDBase   uint32
 	TapSubnet string
 	ProxyPort int
 	Boot      time.Duration
@@ -127,6 +129,9 @@ func qemuPreconditions(cfg *core.Config) (qemuPaths, error) {
 		Mem:       core.EnvOr(envGuestMem, "2G"),
 		SMP:       core.EnvInt(envGuestSMP, 2),
 		VsockBase: uint32(core.EnvInt(envVsockBase, 5555)),
+		// The CID space is the HOST's, so a second instance needs its own window or
+		// both ask for CID 3 and the same derived ports (BUGS `L378`).
+		CIDBase:   uint32(core.EnvInt(envCIDBase, vsockCIDMin)),
 		TapSubnet: core.EnvOr(envTapSubnet, "10.97.0.0/24"),
 		ProxyPort: core.EnvInt(envProxyPortVar, container.EgressPort),
 		Boot:      core.DurOr(envBootTimeout, 30*time.Second),

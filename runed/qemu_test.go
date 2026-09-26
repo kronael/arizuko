@@ -362,15 +362,30 @@ func TestVsockPortsAreDerivedFromTheCID(t *testing.T) {
 }
 
 func TestAllocateCIDSkipsTheGuestsOnDisk(t *testing.T) {
-	got, err := allocateCID(map[uint32]bool{3: true, 4: true}, 5)
+	got, err := allocateCID(map[uint32]bool{3: true, 4: true}, 5, vsockCIDMin)
 	if err != nil || got != 5 {
 		t.Errorf("allocateCID = %d, %v; want 5, nil", got, err)
 	}
-	if got, err := allocateCID(nil, 5); err != nil || got != 3 {
+	if got, err := allocateCID(nil, 5, vsockCIDMin); err != nil || got != 3 {
 		t.Errorf("the first guest takes CID 3 (0,1,2 are reserved by vsock(7)), got %d, %v", got, err)
 	}
+	// A SECOND INSTANCE on the same host takes its own window, or both ask the host
+	// for CID 3 and the same derived ports — which is the failure the second
+	// instance's first turn showed: "vsock bind port 5555: address already in use"
+	// (BUGS `L378`).
+	if got, err := allocateCID(nil, 5, 20); err != nil || got != 20 {
+		t.Errorf("a window starting at 20 must hand out 20, got %d, %v", got, err)
+	}
+	if got, err := allocateCID(map[uint32]bool{20: true}, 5, 20); err != nil || got != 21 {
+		t.Errorf("a window skips its own live guests, got %d, %v", got, err)
+	}
+	// A base below the reserved floor is raised, never honoured: 0, 1 and 2 belong
+	// to vsock(7) and a guest that claimed one would collide with the host itself.
+	if got, err := allocateCID(nil, 5, 1); err != nil || got != vsockCIDMin {
+		t.Errorf("a base under the floor must be raised to %d, got %d, %v", vsockCIDMin, got, err)
+	}
 	full := map[uint32]bool{3: true, 4: true, 5: true, 6: true, 7: true}
-	if _, err := allocateCID(full, 5); err == nil {
+	if _, err := allocateCID(full, 5, vsockCIDMin); err == nil {
 		t.Error("a full host must refuse rather than reuse a live guest's CID")
 	}
 }

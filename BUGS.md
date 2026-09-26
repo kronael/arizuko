@@ -224,6 +224,44 @@ instance layout to drive.
   literal; it asserts what the declaration is for, that `EnvOr` on an unset var
   resolves to the shared default.
 
+## L378 — the vsock CID and port space is the HOST's, and every instance starts at 3, so a second deployment's turns fail (2026-09-26, open)
+
+Measured the moment a second instance ran a turn on the VM substrate. krons, with
+sloth's guest already up:
+
+```
+ERROR turn did not start folder=krons/content
+  err="vsock bind port 5555: address already in use"
+```
+
+`allocateCID` hands out the lowest free CID at or above **3** for every instance,
+and `vsockPorts` derives `base + (cid-3)*2` from `RUNED_VSOCK_PORT_BASE`, default
+**5555**. Two instances therefore ask the host for the same CID and the same two
+ports. `6/41` §"The peer credential" measured that the host has ONE vsock port
+namespace and that runed must fail the turn on a bind error rather than move —
+correct, and it anticipated a squatter rather than arizuko's own second instance,
+which is the documented shape of this host (krons and sloth).
+
+The CID half is the worse one: a CID identifies a VM to the host kernel, so two
+instances that both allocate 3 are two guests claiming one identity.
+
+- **Severity:** high (every turn on the second instance fails while the first is
+  busy, and the error names a port rather than the collision)
+- **Scope:** `runed/vmrecord.go`, `runed/qemuhost.go`, `compose/compose.go`
+- **Affected:** `allocateCID`, `vsockPorts`, every instance after the first
+- **Source:** measured on this host 2026-09-26, krons failing while sloth held the
+  window
+- **Status:** open
+- **Fix:** an instance owns a WINDOW of the host's space. `RUNED_VSOCK_CID_BASE`
+  joins `RUNED_VSOCK_PORT_BASE`, both instance settings, and the two stay in step
+  because the port offset is derived from the CID. A base below the reserved floor
+  is raised rather than honoured, since 0, 1 and 2 belong to `vsock(7)`.
+
+  **What this does NOT do is detect an overlap.** Two windows an operator sets to
+  the same numbers still collide, and the failure is still a bind error on turn one.
+  A precondition could read the live guests' `guest-cid=` off the host's other QEMU
+  processes and refuse at start, which is the loud version; it is not built.
+
 ## ✅ FIXED 2026-09-26 L377 — the guest gets no IP and no default route, so every model call hangs to the turn's deadline (2026-09-26)
 
 With `L375` fixed the agent's own output reaches the turn log, and it says where the
