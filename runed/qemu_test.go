@@ -31,6 +31,7 @@ func TestQemuArgsRendersTheMeasuredMachine(t *testing.T) {
 		Mem: "2G", SMP: 2, CID: 7, Tap: "arz-ab12-t04", MAC: "52:54:00:00:00:07",
 		PidFile: "/srv/vms/h1/qemu.pid", Console: "/g/logs/container-x.console.log",
 		CtlPort: 5563, McpPort: 5564,
+		GuestIP: "10.97.0.17", HostIP: "10.97.0.18",
 	})
 	want := []string{
 		"-M", "q35",
@@ -42,7 +43,13 @@ func TestQemuArgsRendersTheMeasuredMachine(t *testing.T) {
 		"-numa", "node,memdev=mem",
 		"-kernel", "/srv/images/k/bzImage",
 		"-initrd", "/srv/images/k/initrd.gz",
-		"-append", "console=ttyS0 reboot=t panic=-1 ARIZUKO_CTL=5563 ARIZUKO_MCP=5564",
+		// ip= is how the guest gets an address and a default route AT ALL: nothing in
+		// the guest configures a NIC, so without it every outbound request hangs to
+		// the turn's deadline — the agent reached "Session initialized" and waited
+		// there (BUGS `L377`). The gateway is the tap's host side, which is where
+		// this turn's proxy listens and the only address its rule set accepts.
+		"-append", "console=ttyS0 reboot=t panic=-1 ARIZUKO_CTL=5563 ARIZUKO_MCP=5564 " +
+			"ip=10.97.0.17::10.97.0.18:255.255.255.252::eth0:off",
 		"-chardev", "socket,id=vfs0,path=/srv/vms/h1/root.sock",
 		"-device", "vhost-user-fs-pci,queue-size=1024,chardev=vfs0,tag=root",
 		"-chardev", "socket,id=vfs1,path=/srv/vms/h1/turn.sock",

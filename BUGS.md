@@ -224,6 +224,46 @@ instance layout to drive.
   literal; it asserts what the declaration is for, that `EnvOr` on an unset var
   resolves to the shared default.
 
+## ✅ FIXED 2026-09-26 L377 — the guest gets no IP and no default route, so every model call hangs to the turn's deadline (2026-09-26)
+
+With `L375` fixed the agent's own output reaches the turn log, and it says where the
+turn stops (krons, 2026-09-26):
+
+```
+=== Stderr ===
+[ant] Received input for group: fiu
+[ant] backend: claude
+[ant] Starting turn (continuity: 6df2466b-…)
+[ant] Session initialized: 6df2466b-…
+guest-init: stop frame; SIGTERM to the agent
+```
+
+`turn deadline reached, stopping guest` follows, 93 s after the boot. The agent
+starts, initializes, issues its first model call and waits there until the host
+stops it. **Zero `submit_turn` calls across the fleet**, so no turn has ever
+produced a reply on this substrate.
+
+The tap exists, its rule set is in place and this turn's proxy is listening on the
+tap's host side. **Nothing gives the GUEST an address.** `qemuArgs` renders
+`console=ttyS0 reboot=t panic=-1 ARIZUKO_CTL=… ARIZUKO_MCP=…` and no `ip=`, and
+`guest-init` configures no interface — it hand-rolls vsock and never touches the
+NIC. So `eth0` comes up with no address and no route, `HTTPS_PROXY` points at an
+address the guest cannot reach, and every request waits for a timeout nobody set.
+
+- **Severity:** high (no turn can reach the model; the whole substrate is unusable
+  and every symptom is a deadline)
+- **Scope:** `runed/qemu.go`
+- **Affected:** `qemuArgs`, `qemuSpec`, every turn
+- **Source:** measured on krons 2026-09-26 — the agent's stderr in the turn log,
+  `turn deadline reached` in the journal, and zero `submit_turn` in 15 minutes
+- **Status:** ✅ FIXED 2026-09-26
+- **Fix:** the kernel's own ipconfig, one parameter:
+  `ip=<guest>::<host>:<netmask>::eth0:off`. `CONFIG_IP_PNP=y` is already in the
+  built kernel, so the interface is configured BEFORE init execs and nothing in the
+  guest has to know how to address a NIC. The gateway is the tap's HOST side, which
+  is where the proxy listens and the only address the rule set accepts — so a
+  default route through it grants nothing the proxy does not.
+
 ## ✅ FIXED 2026-09-26 L375 — the agent exits 1 inside the guest and NOTHING carries its output out, so the one remaining failure cannot be read (2026-09-25)
 
 The substrate works. Measured on krons 2026-09-26, one turn end to end:

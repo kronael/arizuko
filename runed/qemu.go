@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"maps"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -116,10 +117,16 @@ type qemuSpec struct {
 	CID      uint32
 	Tap      string
 	MAC      string
-	PidFile  string
-	Console  string
-	CtlPort  uint32
-	McpPort  uint32
+	// GuestIP and HostIP are the two ends of this turn's tap. They reach the guest
+	// on the kernel command line, because the kernel configures the interface
+	// BEFORE it execs init (CONFIG_IP_PNP) and nothing in the guest has to know how
+	// to address a NIC.
+	GuestIP string
+	HostIP  string
+	PidFile string
+	Console string
+	CtlPort uint32
+	McpPort uint32
 }
 
 // qemuArgs renders the machine.
@@ -151,8 +158,20 @@ func qemuArgs(s qemuSpec) []string {
 		"-numa", "node,memdev=mem",
 		"-kernel", s.Kernel,
 		"-initrd", s.Initrd,
-		"-append", fmt.Sprintf("console=ttyS0 reboot=t panic=-1 ARIZUKO_CTL=%d ARIZUKO_MCP=%d",
-			s.CtlPort, s.McpPort),
+		// ip= is the kernel's own ipconfig, and it is how the guest gets an address
+		// and a default route at all: guest-init configures no interface, so without
+		// this the NIC comes up with no address and every outbound request hangs
+		// until the turn's deadline. Measured on krons 2026-09-26: the agent reached
+		// "Session initialized" and then waited for its model call until the guest
+		// was stopped (BUGS `L377`).
+		//
+		// The form is client::gateway:netmask::device:autoconf. The gateway is the
+		// tap's HOST side, which is where this turn's egress proxy listens, and the
+		// rule set drops everything else — so a default route through it grants
+		// nothing the proxy does not.
+		"-append", fmt.Sprintf(
+			"console=ttyS0 reboot=t panic=-1 ARIZUKO_CTL=%d ARIZUKO_MCP=%d ip=%s::%s:%s::eth0:off",
+			s.CtlPort, s.McpPort, s.GuestIP, s.HostIP, net.IP(net.CIDRMask(tapPrefix, 32)).String()),
 		"-chardev", "socket,id=vfs0,path=" + s.RootSock,
 		"-device", "vhost-user-fs-pci,queue-size=1024,chardev=vfs0,tag=" + shareRoot,
 		"-chardev", "socket,id=vfs1,path=" + s.TurnSock,
@@ -336,6 +355,7 @@ func (q *qemuRuntime) spawn(ctx context.Context, t Turn) RunResult {
 		RootSock: rootSock, TurnSock: turnSock,
 		Mem: q.paths.Mem, SMP: q.paths.SMP,
 		CID: rec.CID, Tap: rec.Tap, MAC: guestMAC(rec.CID),
+		GuestIP: rec.GuestIP, HostIP: rec.HostIP,
 		PidFile: filepath.Join(rec.TurnDir, qemuPidName),
 		Console: console,
 		CtlPort: rec.CtlPort, McpPort: rec.McpPort,
