@@ -1,5 +1,5 @@
 ---
-status: partial
+status: shipped
 depends:
   [
     20-sandbox-lifecycle-decline,
@@ -959,6 +959,25 @@ batch)` the manager calls, it makes the manager depend on the production
 
 Total **16–25 engineer-days** including step 0, plus what §"The warm pool" costs
 if the gate fails: the pool is a separate costing when and if its trigger fires.
+
+## Acceptance — MET on krons 2026-09-26
+
+The turn that closes it, in the store: `web:krons/content` carries the agent's
+reply `VM TURN OK` at `2026-09-26T00:40:48`, and the operator's prompt asked for
+exactly that string. Around it, from one turn:
+
+- `booting guest cid=4 tap=arz-77a1-t01 mounts=7`, `egress proxy up
+listen=10.97.0.6 guest=10.97.0.5`, and the guest's own probe
+  `{"virtiofs":"mounted","root_write":"refused","turn_write":"ok"}` — **the uid
+  clamp measured from inside the guest, both directions**.
+- `agent self-reported model usage model=claude-haiku… model=claude-opus…` — the
+  agent reached the model THROUGH the tap's proxy, with no resolver in the guest.
+- `guest exited code=0 duration=29.9s timedOut=false`, and the turn log's exit code
+  carries no "(QEMU's…)" qualifier, so the `{exit}` frame arrived.
+
+Eleven defects were measured on this path and each is recorded: `L367`–`L377`. Four
+of them (`L372`, `L373`, `L375`, `L377`) contradicted what this spec said, and the
+sections above are corrected rather than annotated.
 
 ## Acceptance
 
