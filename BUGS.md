@@ -224,6 +224,42 @@ instance layout to drive.
   literal; it asserts what the declaration is for, that `EnvOr` on an unset var
   resolves to the shared default.
 
+## L374 — the guest has no `/dev/null`, because `CONFIG_DEVTMPFS_MOUNT` does nothing on an initramfs boot (2026-09-25, open)
+
+The guest boots, mounts virtio-fs, passes the clamp (`root_write: refused`) and
+assembles its root. Then:
+
+```
+guest-init: start /usr/bin/socat: open /dev/null: no such file or directory
+```
+
+`/dev` in the guest holds exactly three nodes — `console`, `ttyS0`, `kmsg` — the
+ones `kernel/Dockerfile` puts in the initrd. Nothing else ever creates any, and
+`guest-init`'s own comment states the reason it does not mount devtmpfs: doing so
+invalidates the console fd the kernel handed PID 1, measured 2026-09-24.
+
+The comment then says the kernel has already mounted it: "CONFIG_DEVTMPFS_MOUNT=y
+means the kernel mounts it before it execs init". **That is false for an
+initramfs.** The kernel calls `devtmpfs_mount()` from `prepare_namespace()`, which
+runs only when it mounts a REAL root; an initramfs boot never reaches it. So the
+config is set, the mount never happens, and `/dev` is whatever the cpio carried.
+
+Go's `os/exec` opens `os.DevNull` for any child whose Stdin or Stdout is nil, which
+is why socat is where this surfaced — but the same absence reaches the agent, which
+needs `/dev/null`, `/dev/urandom` and a `/dev/ptmx` for any tool that wants a
+terminal.
+
+- **Severity:** high (the guest assembles its root and no child process can start)
+- **Scope:** `kernel/Dockerfile`, `kernel/guest-init/main.go`
+- **Affected:** the MCP bridge, the agent, every turn
+- **Source:** measured on krons 2026-09-25 from the guest's console log
+- **Status:** open
+- **Fix:** every node the turn needs is a REAL node in the initrd — `null`, `zero`,
+  `full`, `random`, `urandom`, `tty`, `ptmx` beside the three already there, plus
+  the `pts` directory devpts mounts on. `/newroot/dev` is a rec-bind of that, so
+  the assembled root gets them. Mounting devtmpfs is NOT the fix and the comment
+  that suggested the kernel had done it is corrected in place.
+
 ## L373 — the clamped share accepts writes from ONE uid, and guest-init is root, so no bind target on the share can be made (2026-09-25, open)
 
 The guest boots, mounts virtio-fs and brings `ctl` up in 1.50 s of guest uptime.

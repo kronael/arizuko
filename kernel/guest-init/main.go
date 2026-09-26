@@ -266,11 +266,12 @@ func main() {
 // ENOSPC in the guest, never a host reclaiming under pressure (spec §"The host
 // budget").
 func mountBase(probe map[string]string) {
-	// /dev is NOT in this list. CONFIG_DEVTMPFS_MOUNT=y means the kernel mounts it
-	// before it execs init, and mounting over it cost a whole debug cycle on
-	// 2026-09-24: the guest booted, ran its retry loop and powered off with an
-	// EMPTY console, because re-mounting /dev invalidated the console fd the
-	// kernel had already handed PID 1 as stdout.
+	// /dev is NOT in this list, and the kernel does not populate it either:
+	// CONFIG_DEVTMPFS_MOUNT has no effect on an initramfs boot, so /dev is exactly
+	// the set of real nodes kernel/Dockerfile puts in the initrd (BUGS `L374`).
+	// Mounting devtmpfs over it here is not the fix — that cost a whole debug cycle
+	// on 2026-09-24, when re-mounting /dev invalidated the console fd the kernel had
+	// already handed PID 1 as stdout and the guest powered off in silence.
 	for _, m := range []struct{ src, dst, fs, opts string }{
 		{"proc", "/proc", "proc", ""},
 		{"sysfs", "/sys", "sysfs", ""},
@@ -301,8 +302,12 @@ func mountBase(probe map[string]string) {
 		} else {
 			probe["root_write"] = "refused"
 		}
+		// Under the group's own directory, not at the share ROOT: the staging tree's
+		// root is runed's and root-owned, so nobody but root may create a file
+		// there — and root is exactly who the clamp refuses. The agent's writes all
+		// land under its home, which the folder owns.
 		if err := asAgent(func() error {
-			return os.WriteFile("/turn/from-guest.txt", []byte("as-the-agent\n"), 0o644)
+			return os.WriteFile(shareDir+"/home/node/.arizuko-probe", []byte("as-the-agent\n"), 0o644)
 		}); err != nil {
 			probe["turn_write_error"] = err.Error()
 		} else {
