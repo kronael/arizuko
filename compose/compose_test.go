@@ -1095,3 +1095,30 @@ func TestRunedSeesTheOperatorsHostPaths(t *testing.T) {
 		t.Errorf("with neither setting, runed takes no read-only host mount:\n%s", bare)
 	}
 }
+
+// TestRunedSeesSharedReleaseArtifacts pins the other half of the host-view rule: the
+// guest kernel and the release rootfs are named by version and content hash, so ONE
+// copy serves every instance on the host — two instances on the same arizuko-ant
+// image produce byte-identical trees, and a second 7 GB export buys nothing. runed
+// must be able to open them, and a value inside the data dir needs no mount because
+// the data dir is mounted whole.
+func TestRunedSeesSharedReleaseArtifacts(t *testing.T) {
+	shared := service(t, gen(t, seed(t,
+		"RUNED_KERNEL_DIR=/srv/data/arizuko_images/kernel-6.1.112-abc\n"+
+			"RUNED_ROOTFS_DIR=/srv/data/arizuko_images/rootfs-def\n")), "runed")
+	for _, want := range []string{
+		"- /srv/data/arizuko_images/kernel-6.1.112-abc:/srv/data/arizuko_images/kernel-6.1.112-abc:ro",
+		"- /srv/data/arizuko_images/rootfs-def:/srv/data/arizuko_images/rootfs-def:ro",
+	} {
+		if !strings.Contains(shared, want) {
+			t.Errorf("runed cannot open a shared artifact, so the guest cannot boot: want %q in\n%s", want, shared)
+		}
+	}
+
+	// Inside the data dir: no second mount, because the data dir is already there.
+	own := service(t, gen(t, seed(t,
+		"RUNED_KERNEL_DIR=/srv/app/home/images/kernel-6.1.112-abc\n")), "runed")
+	if strings.Contains(own, "images/kernel-6.1.112-abc:/srv/app/home") {
+		t.Errorf("a path under the data mount must not be mounted twice:\n%s", own)
+	}
+}

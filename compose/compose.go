@@ -1081,17 +1081,28 @@ func routdService(app, flavor, dataDir string, env map[string]string) string {
 	return writeSvc(def)
 }
 
-// hostViewPaths are the host paths runed must be able to open for a turn to mount
-// them into its guest: the operator's shared codex login and every root the
-// operator allows a group to mount. Empty values and duplicates are dropped, and
-// the order is stable so a regenerate is a no-op.
+// hostViewPaths are the host paths runed must be able to open: the operator's
+// shared codex login, every root the operator allows a group to mount, and the two
+// RELEASE ARTIFACTS the guest boots from. Empty values and duplicates are dropped,
+// and the order is stable so a regenerate is a no-op.
+//
+// The kernel and the rootfs are named by version and content hash, so one copy
+// serves every instance on the host — two instances on the same `arizuko-ant`
+// image produce byte-identical trees, and a second 7 GB export buys nothing. A
+// value INSIDE the data dir needs no mount, which is what the prefix test below
+// answers; a value outside it is a shared artifact and gets one.
 func hostViewPaths(env map[string]string) []string {
 	var out []string
 	seen := map[string]bool{containerDataMount: true}
-	for _, v := range append([]string{env["HOST_CODEX_DIR"]},
-		core.ParseCSV(env["MOUNT_ALLOWED_ROOTS"])...) {
+	for _, v := range append([]string{
+		env["HOST_CODEX_DIR"], env["RUNED_KERNEL_DIR"], env["RUNED_ROOTFS_DIR"],
+	}, core.ParseCSV(env["MOUNT_ALLOWED_ROOTS"])...) {
 		v = strings.TrimSpace(v)
 		if v == "" || !strings.HasPrefix(v, "/") || seen[v] {
+			continue
+		}
+		// Already reachable: the data dir is mounted whole.
+		if strings.HasPrefix(v, containerDataMount+"/") {
 			continue
 		}
 		seen[v] = true
