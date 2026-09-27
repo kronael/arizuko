@@ -64,6 +64,10 @@ revoked — see its entry.)
 - `L327` — which Discord channels should answer. The inversion CHECK shipped
   (`/eval` 22); which rows to renumber is your call.
 - `L308`, `L181`, `L131`, `L188`.
+- `L379` — `anteval --smoke` scores 1/9 on the VM substrate and the substrate is
+  not why: the harness's callback sink is a docker-network address a guest cannot
+  reach. Three fixes are costed in the entry and choosing between them is yours —
+  a name the proxy can dial, one tap rule, or the callback over MCP.
 - `L364` — `route rm <id>` on sloth deletes the WRONG row: six ids are duplicated
   by the marinade merge. It already destroyed a live rule once. Re-minting sloth's
   route ids is yours; do not address a sloth rule by id until then.
@@ -223,6 +227,54 @@ instance layout to drive.
   `TestTheSharedDefaultsAreNamedOnce` no longer compares a constant to its own
   literal; it asserts what the declaration is for, that `EnvOr` on an unset var
   resolves to the shared default.
+
+## L379 — anteval's callback sink is unreachable from a guest, so eight of nine cases time out on a working substrate (2026-09-27, open)
+
+`anteval --smoke` on sloth, on the VM substrate, quiet host, two run slots, a 3 h
+bearer: **1/9**. The one pass is `rest-roundtrip` (20 s), and it is the only case
+that needs NO callback — it checks that a message appeared in `web:eval`.
+
+Every other case fails the same way: `no callback for <case>`, or an empty URL
+(`Get "": unsupported protocol scheme ""`) because the value the callback would
+have carried never arrived.
+
+**The substrate is not the cause, and the proxy's own log says so.** From the same
+run:
+
+```
+egress: allow connect src=10.97.0.69 host=api.anthropic.com
+egress: allow connect src=10.97.0.69 host=http-intake.logs.us5.datadoghq.com
+```
+
+The guest reaches the model through its tap's proxy, 16 model-usage reports landed
+in 12 minutes, and one hand-timed turn on the same instance was **43 s** inject to
+reply. What the proxy log does NOT contain is a single connect to the sink.
+
+**The sink is a docker-network address.** The gate runs it on the compose network's
+gateway (`--sink http://$GW:9099`), which worked when the turn was a container ON
+that network. A guest's only interface is one tap whose rule set accepts its own
+proxy and drops everything else, so a direct dial to `192.168.160.1:9099` is
+dropped below the guest's kernel — and routing it through the proxy would not help,
+because the allowlist matches NAMES and the matcher skips IP entries
+(`egress/address.go`).
+
+- **Severity:** high for the eval, zero for the fleet (the substrate works; the
+  harness cannot observe it)
+- **Scope:** `anteval/pkg/run`, `.claude/skills/eval/gates.md`
+- **Affected:** every case whose verdict needs an agent callback — 8 of 9 in smoke
+- **Source:** measured on sloth 2026-09-27: 1/9, the proxy's allow-connect lines,
+  and no sink connect in the same window
+- **Status:** open
+- **Fix — one of three, and the choice is a decision:**
+  1. **A name the proxy can dial.** Give the sink a hostname the host resolves and
+     allowlist it for the eval folder. Smallest change, and it keeps the callback on
+     the one path a guest has.
+  2. **A tap rule for the sink.** One explicit accept beside the proxy rule, for the
+     eval folder only. Widens a guest's egress by one address, which is what the
+     rule set exists to prevent.
+  3. **Callback over MCP.** The guest already has one authenticated channel to the
+     platform; a case's result could arrive as a tool call rather than an HTTP POST.
+     Largest change, and the only one that needs no network reachability at all.
 
 ## L378 — the vsock CID and port space is the HOST's, and every instance starts at 3, so a second deployment's turns fail (2026-09-26, open)
 
