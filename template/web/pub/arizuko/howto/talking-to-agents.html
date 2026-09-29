@@ -87,10 +87,10 @@
         </thead>
         <tbody>
           <tr><td><code>/new [text]</code></td><td>anyone with interact</td><td>Clear the agent's session for this folder. Optional <code>text</code> runs as the first message of the new session.</td></tr>
-          <tr><td><code>/ping</code></td><td>anyone with interact</td><td>Replies with current folder, session ID prefix, active container count, registered group count.</td></tr>
+          <tr><td><code>/ping</code></td><td>anyone with interact</td><td>Replies with current folder, session ID prefix, how many turns are running right now, registered group count.</td></tr>
           <tr><td><code>/chatid</code></td><td>anyone with interact</td><td>Replies with the <code>chat_jid</code> of the current chat. Useful when writing route rules.</td></tr>
-          <tr><td><code>/stop</code></td><td>anyone with interact</td><td>Kills the current agent container for this chat. Next message spawns a fresh one.</td></tr>
-          <tr><td><code>/status</code></td><td>root only</td><td>Channel count, group count, active containers, errored chats, active tasks.</td></tr>
+          <tr><td><code>/stop</code></td><td>anyone with interact</td><td>Kills the current agent guest for this chat. Next message boots a fresh one.</td></tr>
+          <tr><td><code>/status</code></td><td>root only</td><td>Channel count, group count, turns running now, errored chats, active tasks.</td></tr>
           <tr><td><code>/root &lt;msg&gt;</code></td><td>operator only</td><td>Re-run <code>&lt;msg&gt;</code> in this same chat as a one-shot elevated turn &mdash; every grant check passes for that message only. Replies land here.</td></tr>
           <tr><td><code>/invite [N]</code></td><td>root only</td><td>Mint an invite link; <code>N</code> = max uses (default 1).</td></tr>
           <tr><td><code>/gate list|add|rm|enable|disable</code></td><td>root only</td><td>Manage rate-limit gates.</td></tr>
@@ -209,7 +209,7 @@ hook:&lt;folder&gt;/&lt;source&gt;     # webhook ingest at folder (via /hook/&lt
           <tr><td>Open a new sub-folder</td><td>Ask the agent to call <code>register_group</code></td></tr>
           <tr><td>Push a system note into another folder</td><td>Ask the agent to call <code>inject_message</code></td></tr>
           <tr><td>Bring in events from GitHub or Stripe</td><td>Wire a webhook &rarr; <a href="../howto/webhooks.html">webhooks</a></td></tr>
-          <tr><td>Make the agent forget and start over</td><td><code>/stop</code> (kills container), then <code>/new</code></td></tr>
+          <tr><td>Make the agent forget and start over</td><td><code>/stop</code> (kills the guest), then <code>/new</code></td></tr>
         </tbody>
       </table>
 
@@ -249,7 +249,7 @@ hook:&lt;folder&gt;/&lt;source&gt;     # webhook ingest at folder (via /hook/&lt
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/howto/talking-to-agents.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-08-15">2026-08-15</time>
+        &middot; updated <time class="docs-updated" datetime="2026-09-22">2026-09-22</time>
       </div>
     </main>
 

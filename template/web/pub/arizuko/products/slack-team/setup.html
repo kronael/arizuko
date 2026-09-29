@@ -55,9 +55,10 @@
       <h2>prerequisites</h2>
       <ul>
         <li>A host with Docker, ports 80/443 reachable behind a TLS terminator (or run with <code>WEB_HOST</code> on a reverse proxy that handles certs).</li>
+        <li>Hardware virtualization: <code>/dev/kvm</code> on the host. A turn is one KVM guest, and <code>runed</code> refuses to start without it.</li>
         <li>A Slack workspace where you can install a Slack App.</li>
         <li>The <code>arizuko</code> binary and the <code>arizuko-ant</code> agent image built locally (<code>make build</code>, <code>sudo make images</code>, <code>sudo make agent</code>).</li>
-        <li>Anthropic API access for the in-container agent.</li>
+        <li>Anthropic API access for the agent inside the guest.</li>
       </ul>
 
       <h2>1. seed the instance</h2>
@@ -225,7 +226,7 @@ arizuko invite acme list</code></pre>
         agent needs in one channel but not another go in the
         <code>secrets</code> table &mdash; set with
         <code>arizuko secret &lt;instance&gt; set &lt;folder&gt; KEY --value V</code>.
-        They merge into the agent container's env at spawn time;
+        They merge into the guest's env at spawn time;
         nothing leaks to other channels.
       </div>
 
@@ -518,7 +519,7 @@ mcpc @s tools-call add_route \
         from it (group-level isolation by design).
       </p>
       <p>
-        Limits: each child group runs its own container per agent turn, so
+        Limits: each child group runs its own guest per agent turn, so
         the global concurrency cap matters
         (<code>MAX_CONCURRENT_CONTAINERS</code>, default 5). How many child
         groups the <em>agent</em> may register itself is a grant question:
@@ -592,7 +593,7 @@ mcpc @s tools-call add_route \
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/slack-team/setup.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-08-27">2026-08-27</time>
+        &middot; updated <time class="docs-updated" datetime="2026-09-06">2026-09-06</time>
       </div>
     </main>
 

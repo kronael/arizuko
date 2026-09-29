@@ -92,7 +92,7 @@
           reaches the bot or the chat URL can ask. No per-user ACL rows.
         </li>
         <li>
-          <strong>Turn.</strong> One ephemeral container per query. The agent
+          <strong>Turn.</strong> One ephemeral guest per query. The agent
           reads <code>facts/retailers.md</code>, searches the named retailers
           on the live web, and writes a reply. Results are cached in
           <code>facts/cache/</code> by item + date; a second query for the
@@ -107,7 +107,7 @@
       </ul>
       <p>
         Ten users or ten thousand &mdash; the structure doesn&rsquo;t change.
-        The limit is concurrent container slots
+        The limit is concurrent guest slots
         (<code>MAX_CONCURRENT_CONTAINERS</code>, default 5), not registered
         users. There is no registration to do.
       </p>
@@ -227,7 +227,7 @@ arizuko run shop</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/supermarket/index.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-08-18">2026-08-18</time>
+        &middot; updated <time class="docs-updated" datetime="2026-08-27">2026-08-27</time>
       </div>
     </main>
 

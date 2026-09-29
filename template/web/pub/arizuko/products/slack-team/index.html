@@ -315,7 +315,7 @@
         <li>
           <strong>Channel-scoped secrets.</strong> API keys for tools the agent
           calls live in the <code>secrets</code> table, AES-256-GCM encrypted
-          at rest under <code>SECRETS_KEY</code>. They never enter the container:
+          at rest under <code>SECRETS_KEY</code>. They never enter the guest:
           the host-side broker resolves each key per tool call, spends it in the
           outbound request, and scrubs it from the result.
         </li>
@@ -428,7 +428,7 @@ arizuko run acme
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/slack-team/index.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-08-18">2026-08-18</time>
+        &middot; updated <time class="docs-updated" datetime="2026-08-27">2026-08-27</time>
       </div>
     </main>
 

@@ -81,9 +81,9 @@
         |     authz gate       (auth.AuthorizeWith on acl / acl_membership)
         |     append message   (sole appender -> the message store)
         |
-        +--POST /v1/runs--&gt;  runed   (spawns the container)
+        +--POST /v1/runs--&gt;  runed   (boots the guest)
         |                      |
-        |     agent MCP socket | ServeTurnMCP in-process; runed mounts ipc dir
+        |     agent MCP socket | ServeTurnMCP in-process; runed bridges it over vsock
         |   &lt;-reply/send/like-&gt; |  in-process (ipc.ServeMCP)
         v
       channel deliverer (chanreg)  -> back out to the adapter</code></pre>
@@ -111,7 +111,7 @@ export WEB_HOST=localhost:8080
     <p>With <code>AUTHD_URL</code> unset the token verifier runs open &mdash; local-dev only, never production. <code>GET /health</code> returns 200 once the process is up; the red flag is turns stuck unclaimed in the loop, or runed unreachable on dispatch.</p>
 
     <h2>What routd does not do</h2>
-    <p>routd does not spawn containers (runed does), does not sign tokens (authd does), and does not host HTML or SSE (webd does). It routes, authorizes, appends, and delivers &mdash; the conversation plane, nothing else.</p>
+    <p>routd does not boot guests (runed does), does not sign tokens (authd does), and does not host HTML or SSE (webd does). It routes, authorizes, appends, and delivers &mdash; the conversation plane, nothing else.</p>
 
     <h2>Go deeper</h2>
     <ul>
@@ -130,7 +130,7 @@ export WEB_HOST=localhost:8080
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/components/routd.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-09-13">2026-09-13</time>
+        &middot; updated <time class="docs-updated" datetime="2026-09-19">2026-09-19</time>
       </div>
     </main>
 

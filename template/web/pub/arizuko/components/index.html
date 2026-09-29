@@ -63,7 +63,7 @@
   </thead>
   <tbody>
     <tr><td class="name"><a href="../components/routd.html">routd</a></td><td>routing plane &mdash; message loop, resolves event&rarr;group, hosts the agent MCP socket, owns the <code>routd.*</code> tables and the grant/ACL authority. See <a href="../concepts/routing.html">concepts/routing</a></td></tr>
-    <tr><td class="name"><a href="../components/runed.html">runed</a></td><td>execution plane &mdash; spawns and tears down the per-turn agent container; the only daemon wired to the Docker socket; owns the <code>runed.*</code> tables</td></tr>
+    <tr><td class="name"><a href="../components/runed.html">runed</a></td><td>execution plane &mdash; boots and reaps the per-turn KVM guest; the only daemon wired to <code>/dev/kvm</code>; owns the <code>runed.*</code> tables</td></tr>
     <tr><td class="name"><a href="../components/authd.html">authd</a></td><td>auth plane &mdash; mints and verifies tokens, OAuth provider routes, owns the <code>authd.*</code> tables. See <a href="../concepts/auth.html">concepts/auth</a></td></tr>
     <tr><td class="name"><a href="../components/webd.html">webd</a></td><td>web channel &mdash; SSE hub, the <a href="../components/tokens.html">route-token</a> URLs, MCP endpoint</td></tr>
     <tr><td class="name"><a href="../components/proxyd.html">proxyd</a></td><td>auth-gated reverse proxy &mdash; verifies JWTs, signs identity headers for backends</td></tr>
@@ -75,7 +75,7 @@
     <tr><td class="name"><a href="../components/davd.html">davd</a></td><td>WebDAV workspace browser &mdash; mount a group&rsquo;s folder in a file manager</td></tr>
     <tr><td class="name"><a href="../components/tokens.html">route tokens</a></td><td><code>/chat/&lt;token&gt;/</code> visitor chat + <code>/hook/&lt;token&gt;</code> webhook ingest, both served by webd</td></tr>
     <tr><td class="name"><a href="../components/egress.html">egress</a></td><td>forward proxy &mdash; one per agent spawn, one fixed host allowlist, one client; runed starts it and kills it with the turn</td></tr>
-    <tr><td class="name"><a href="../components/litellm.html">litellm</a></td><td>model gateway (package) &mdash; holds the model credential, agent containers get a virtual key; one JSON log line per request, token and cost spans over OTLP</td></tr>
+    <tr><td class="name"><a href="../components/litellm.html">litellm</a></td><td>model gateway (package) &mdash; holds the model credential, each turn's guest gets a virtual key; one JSON log line per request, token and cost spans over OTLP</td></tr>
   </tbody>
 </table>
 

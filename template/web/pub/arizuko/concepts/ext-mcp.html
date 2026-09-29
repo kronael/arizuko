@@ -56,11 +56,11 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">concepts</a> &rsaquo; connectors</p>
 <h1>connectors</h1>
 
-    <p class="lede">A connector hands the agent a tool it did not ship with &mdash; a DNS registrar, an internal API, somebody else&rsquo;s MCP server &mdash; and does it without letting the credential into the container. You write one TOML block. <code>routd</code> makes the call on the host, fills the secret in on the way out, and hands the agent back the response body and nothing else.</p>
+    <p class="lede">A connector hands the agent a tool it did not ship with &mdash; a DNS registrar, an internal API, somebody else&rsquo;s MCP server &mdash; and does it without letting the credential into the guest. You write one TOML block. <code>routd</code> makes the call on the host, fills the secret in on the way out, and hands the agent back the response body and nothing else.</p>
 
     <h2>the shape of the problem</h2>
-    <p>An agent that can only talk is not much use. Sooner or later it needs to read a DNS zone, file a ticket, or query your own service. The usual way to arrange that is to put an API token in the container and let the agent call <code>curl</code>. That works, and it means the token is now readable by anything the agent runs &mdash; including whatever it was asked to summarise from a web page.</p>
-    <p>A connector splits the two halves. The agent gets the <em>tool</em>; the host keeps the <em>credential</em>. From inside the container there is an MCP tool called <code>cloudflare_dns_list</code>, and no <code>CF_API_TOKEN</code> anywhere in the environment, the filesystem, or <code>/proc</code>.</p>
+    <p>An agent that can only talk is not much use. Sooner or later it needs to read a DNS zone, file a ticket, or query your own service. The usual way to arrange that is to put an API token in the guest and let the agent call <code>curl</code>. That works, and it means the token is now readable by anything the agent runs &mdash; including whatever it was asked to summarise from a web page.</p>
+    <p>A connector splits the two halves. The agent gets the <em>tool</em>; the host keeps the <em>credential</em>. From inside the guest there is an MCP tool called <code>cloudflare_dns_list</code>, and no <code>CF_API_TOKEN</code> anywhere in the environment, the filesystem, or <code>/proc</code>.</p>
 
     <h2>one block, two transports</h2>
     <p>Every connector is one <code>[[connector]]</code> block, and <code>transport</code> picks which dispatch path it takes. A field is absent for a transport rather than meaning two different things:</p>
@@ -115,7 +115,7 @@ headers   = { Authorization = "Bearer {secret:CF_API_TOKEN}" }
 
     <h2>limits worth knowing</h2>
     <ul>
-      <li><strong>A connector is host-side, so the container&rsquo;s egress rules do not apply to it.</strong> The call leaves from <code>routd</code>, not from the agent&rsquo;s network. Decide what a folder may reach with the grant, not with the allowlist.</li>
+      <li><strong>A connector is host-side, so the guest&rsquo;s egress rules do not apply to it.</strong> The call leaves from <code>routd</code>, not from the agent&rsquo;s network. Decide what a folder may reach with the grant, not with the allowlist.</li>
       <li><strong>The response body is all the agent gets.</strong> No status line, no headers. A connector that needs the agent to branch on a status code is the wrong shape for the job.</li>
       <li><strong>An <code>mcp</code> connector trusts the far side&rsquo;s catalogue.</strong> It discovers tools at connect time, so a server that adds a tool gives your agent that tool the next time it connects &mdash; gated by the grant, but not by anything you wrote down.</li>
     </ul>

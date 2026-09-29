@@ -58,7 +58,7 @@
       </p>
       <p>
         Small daemons keep that bounded: <code>routd</code> routes and
-        authorizes, <code>runed</code> runs each turn in a fresh container,
+        authorizes, <code>runed</code> runs each turn in a fresh virtual machine,
         <code>authd</code> issues identity &mdash; hard walls around what
         language can reshape. Agent content lands as plain files; routes,
         grants, and secrets are rows in the store right next to them &mdash; one
@@ -131,12 +131,14 @@ arizuko run demo                       # compose up; @mention the bot in a chann
       </p>
       <ul>
         <li><strong>Isolation that keeps memory.</strong> Each folder has its
-          own persona, memory, and secrets, and runs in fresh per-turn
-          containers; with <a href="components/egress.html">egress</a>
-          enabled, outbound traffic is allowlist-only. A support agent can
-          face strangers on a public channel and still remember its own
-          history &mdash; another folder&rsquo;s home is never mounted into
-          its container.</li>
+          own persona, memory, and secrets, and runs in a fresh per-turn
+          KVM guest; outbound traffic leaves through that guest&rsquo;s own
+          <a href="components/egress.html">egress</a> proxy, which reaches the
+          host names the folder allowed and nothing else, and the guest&rsquo;s
+          one network interface drops every packet that tries to skip it. A
+          support agent can face strangers on a public channel and still
+          remember its own history &mdash; another folder&rsquo;s home is never
+          shared into its guest.</li>
         <li><strong>Agents hand work along the tree.</strong> Each
           department shapes its own agent. An agent delegates down to a
           child, escalates up to its parent, and can subscribe to another
@@ -160,7 +162,7 @@ arizuko run demo                       # compose up; @mention the bot in a chann
   &rarr; Routing        &rarr; corp/eng/oncall
   &rarr; Agent          folder loaded: persona, skills, memory
   &rarr; Authorization  may it read / send / delegate here?
-  &rarr; Turn           one container run, then it exits
+  &rarr; Turn           one guest boots, answers, powers off
   &rarr; State          rows written, files edited
   &rarr; reply in the Slack thread</code></pre>
       <p>
@@ -185,10 +187,10 @@ arizuko run demo                       # compose up; @mention the bot in a chann
           (<code>corp/eng/sre</code>).</li>
         <li><strong>Authorization</strong> &mdash; one question: may this
           principal do this action here?</li>
-        <li><strong>Turn</strong> &mdash; a fresh container runs the agent
-          once; platform actions are permission-checked tool calls, and file
-          and network reach is bounded by mounts and egress; then the
-          container exits.</li>
+        <li><strong>Turn</strong> &mdash; a fresh virtual machine runs the
+          agent once; platform actions are permission-checked tool calls, and
+          file and network reach is bounded by what is shared in and by the
+          guest&rsquo;s own egress proxy; then the guest is powered off.</li>
         <li><strong>State</strong> &mdash; two durable stores, by design:
           the tables and the agent&rsquo;s folder on disk.</li>
       </ul>
@@ -249,9 +251,11 @@ arizuko run demo                       # compose up; @mention the bot in a chann
 
       <h2>honest constraints</h2>
       <ul>
-        <li><strong>Linux + Docker.</strong> One host, no Kubernetes, no
-          Redis. All four owners live on one store server, and its data sits
-          inside this directory like everything else.</li>
+        <li><strong>Linux, Docker, and KVM.</strong> One host: the daemons are
+          compose services, and a turn is a KVM guest, so the box needs
+          <code>/dev/kvm</code>. No Kubernetes, no Redis. All four owners live
+          on one store server, and its data sits inside this directory like
+          everything else.</li>
         <li><strong>Self-hosted only.</strong> There&rsquo;s no managed
           control plane. That&rsquo;s the feature, not an oversight.</li>
         <li><strong>The split is the topology.</strong> A minimal deploy is
@@ -270,7 +274,7 @@ arizuko run demo                       # compose up; @mention the bot in a chann
         <li><strong>Connectors, with the credential kept back.</strong> One
           TOML block gives an agent somebody else&rsquo;s API as a tool. The
           call goes out from the host, the secret is filled in on the way,
-          and no token ever enters the container &mdash;
+          and no token ever enters the guest &mdash;
           <a href="concepts/ext-mcp.html">connectors</a>.</li>
         <li><strong>Sized for agent teams.</strong> Dozens of messages a
           day per group, not consumer-scale traffic.</li>
@@ -302,9 +306,9 @@ arizuko run demo                       # compose up; @mention the bot in a chann
       </ul>
 
       <p class="dim" style="margin-top: 2em; font-size: 0.9em">
-        MIT &middot; Go + Docker.
+        MIT &middot; Go, Docker and KVM.
       </p>
-      <p class="docs-footer">updated <time class="docs-updated" datetime="2026-09-16">2026-09-16</time></p>
+      <p class="docs-footer">updated <time class="docs-updated" datetime="2026-09-22">2026-09-22</time></p>
     </div>
     <button class="theme-toggle">&#127769;</button>
     <script src="assets/hub.js"></script>

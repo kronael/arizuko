@@ -55,7 +55,7 @@
       <h1>runed</h1>
 
     <h2>What it is</h2>
-    <p>In plain terms, runed is the thing that runs the agent. When a turn needs to happen, runed starts one fresh, empty KVM guest with <code>qemu-system-x86_64</code>, lets the agent work inside it, then throws the guest away. There is one substrate and no selector &mdash; the container substrate <code>RUNED_SUBSTRATE</code> used to pick between is gone.</p>
+    <p>In plain terms, runed is the thing that runs the agent. When a turn needs to happen, runed starts one fresh, empty KVM guest with <code>qemu-system-x86_64</code>, lets the agent work inside it, then throws the guest away. There is one substrate and no selector &mdash; the container substrate <code>RUNED_SUBSTRATE</code> used to pick between is gone, because a setting with one legal value stops applying without saying so.</p>
 
     <p>runed is the execution plane. It serves the work queue, starts one KVM guest per turn, and enforces the run timeout. It holds <code>/dev/kvm</code>, <code>/dev/vhost-vsock</code> and <code>/dev/net/tun</code> plus the <code>NET_ADMIN</code> and <code>SYS_ADMIN</code> capabilities, and mounts no Docker socket at all. It never appends a message (<a href="routd.html">routd</a> is the sole appender), and it neither signs nor mints a token: <a href="authd.html">authd</a> is the sole signer, and runed reads authd&rsquo;s public keys only to verify the callers of its own <code>/v1</code>.</p>
 
@@ -98,8 +98,8 @@ export DATA_DIR=/srv/data/myinstance
 export LISTEN_ADDR=:8080
 export AUTHD_URL=http://authd:8080
 export RUNED_RUN_TIMEOUT=20m
-export RUNED_KERNEL_DIR=/srv/data/myinstance/images/kernel-v0.68.0-abc123
-export RUNED_ROOTFS_DIR=/srv/data/myinstance/images/ant-v0.68.0/rootfs
+export RUNED_KERNEL_DIR=/srv/data/myinstance/images/kernel-6.1.112-40e1508980d0
+export RUNED_ROOTFS_DIR=/srv/data/myinstance/images/rootfs-a35045d89e3e
 # the host must expose /dev/kvm, /dev/vhost-vsock and /dev/net/tun
 ./runed</code></pre>
 
@@ -112,7 +112,7 @@ export RUNED_ROOTFS_DIR=/srv/data/myinstance/images/ant-v0.68.0/rootfs
     <ul>
       <li><a href="../concepts/primitives.html">concepts/primitives</a> &mdash; the Turn primitive: one ephemeral guest run per event.</li>
       <li><a href="egress.html">components/egress</a> &mdash; the per-turn proxy runed starts, and why the tap's rule set is what confines the agent.</li>
-      <li><a href="../reference/env.html#split">reference/env &mdash; split daemons</a> &mdash; the wiring vars; agent spawn vars under <a href="../reference/env.html#container">container</a>.</li>
+      <li><a href="../reference/env.html#runed">reference/env &mdash; runed</a> &mdash; every var the substrate reads, with its default; the daemon-to-daemon wiring is under <a href="../reference/env.html#split">split daemons</a> and what reaches the agent is under <a href="../reference/env.html#container">agent spawn</a>.</li>
       <li><a href="routd.html">components/routd</a> &mdash; sends the run, hosts the MCP socket the guest calls back on.</li>
       <li><code>runed/README.md</code> &mdash; the run contract, timeout math, file map.</li>
       <li><code>specs/5/P</code> &mdash; the execution plane split.</li>
@@ -125,7 +125,7 @@ export RUNED_ROOTFS_DIR=/srv/data/myinstance/images/ant-v0.68.0/rootfs
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/components/runed.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-09-24">2026-09-24</time>
+        &middot; updated <time class="docs-updated" datetime="2026-09-25">2026-09-25</time>
       </div>
     </main>
 

@@ -96,7 +96,7 @@
       <li><strong>The plan has one step.</strong> A one-item checklist is noise, so it isn&rsquo;t sent. Two or more items earn a live message.</li>
       <li><strong>The agent answers without planning.</strong> Short turns don&rsquo;t need a plan and don&rsquo;t make one.</li>
     </ul>
-    <p>A long turn that never planned still isn&rsquo;t silent: roughly every 90 seconds the container nudges the agent for a one-line <code>&lt;status&gt;</code>, and that feeds the same one-message-edited path. It&rsquo;s the floor, not the main route.</p>
+    <p>A long turn that never planned still isn&rsquo;t silent: roughly every 90 seconds the harness inside the guest nudges the agent for a one-line <code>&lt;status&gt;</code>, and that feeds the same one-message-edited path. It&rsquo;s the floor, not the main route.</p>
 
     <h2>go deeper</h2>
     <p>The design and the two decisions that carry it: <a href="https://github.com/kronael/arizuko/blob/main/specs/5/24-live-tasklist-status.md">specs/5/24</a>. The hook that renders the list lives in <a href="https://github.com/kronael/arizuko/blob/main/ant/src/todo-status.ts"><code>ant/src/todo-status.ts</code></a>; the edit-or-send half is <code>mcpSubmitStatus</code> in <a href="https://github.com/kronael/arizuko/blob/main/routd/mcp.go"><code>routd/mcp.go</code></a>. What happens when the turn dies before it can finish the list: <a href="retries.html">retries</a>.</p>
@@ -107,7 +107,7 @@
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/concepts/progress.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-08-07">2026-08-07</time>
+        &middot; updated <time class="docs-updated" datetime="2026-09-22">2026-09-22</time>
       </div>
     </main>
 

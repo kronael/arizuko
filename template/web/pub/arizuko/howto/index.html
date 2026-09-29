@@ -58,7 +58,7 @@
     </ul>
 
     <h2>2. Install</h2>
-    <p>Clone the repo. A self-hosted deploy needs it either way: the daemon images build from it, and the <code>arizuko</code> directory is bind-mounted into the containers at runtime.</p>
+    <p>Clone the repo. A self-hosted deploy needs it: the daemon images build from it, and so do the two release artifacts a turn boots &mdash; the guest kernel and the agent rootfs. Nothing bind-mounts the checkout at runtime; <code>ant/</code> is baked into the image.</p>
     <pre><code>git clone https://github.com/kronael/arizuko.git
 cd arizuko
 make build
@@ -107,7 +107,13 @@ sudo install -m 0755 arizuko /usr/local/bin/arizuko</code></pre>
     <pre><code>sudo arizuko send demo main "ping" --wait</code></pre>
     <p><strong>From the channel</strong>, send a message in the wired chat and watch <code>routd</code> pick it up:</p>
     <pre><code>sudo journalctl -u arizuko_demo --since "2 min ago" --no-pager | grep -iE 'mention|spawn|reply'</code></pre>
-    <p>Red flags in the log: <code>error in message loop</code>, <code>container timeout</code>, <code>circuit breaker open</code>, <code>pull access denied for arizuko-ant</code> (means <code>make images</code> never ran on this host).</p>
+    <p>Red flags in the log, and what each one means:</p>
+    <ul>
+      <li><code>this host cannot run turns</code> &mdash; a substrate precondition is unmet. The message names every one; the full set is in <a href="../reference/env.html#runed">reference/env &sect; runed</a>.</li>
+      <li><code>guest did not open ctl within</code> &mdash; the guest booted and never called back.</li>
+      <li><code>staging tree: mount source</code> &mdash; a path the turn mounts that <code>runed</code> itself cannot open.</li>
+      <li><code>circuit breaker open</code> &mdash; one folder failed too many turns in a row.</li>
+    </ul>
 
     <h2>8. Back up &amp; restore the setup</h2>
     <p>An agent is data, so the configuration is too. Export the whole instance config to one YAML manifest, keep it in git as a backup, and re-apply it to rebuild &mdash; on this host or another.</p>
@@ -163,7 +169,7 @@ arizuko apply demo demo.yaml        # apply the manifest back</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/howto/index.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-09-22">2026-09-22</time>
+        &middot; updated <time class="docs-updated" datetime="2026-09-25">2026-09-25</time>
       </div>
     </main>
 

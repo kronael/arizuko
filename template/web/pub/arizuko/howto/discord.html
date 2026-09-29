@@ -51,7 +51,7 @@
     <ol>
       <li><strong>discd</strong> receives the message via Discord&rsquo;s Gateway WebSocket and converts it to an internal <code>InboundMsg</code> with a typed <a href="../concepts/jid.html">JID</a>.</li>
       <li><strong>routd</strong> stores the message and looks it up in the <strong>routing table</strong>. The first matching route determines which group folder receives it.</li>
-      <li><strong>routd</strong> dispatches the turn; <strong>runed</strong> spawns a Docker container with the agent for that group and delivers the message.</li>
+      <li><strong>routd</strong> dispatches the turn; <strong>runed</strong> boots a KVM guest with the agent for that group and delivers the message over its vsock channel.</li>
       <li>The agent runs, calls MCP tools, and eventually calls <code>reply</code> or <code>send</code>.</li>
       <li><strong>discd</strong> sends the agent&rsquo;s response back to the Discord channel.</li>
     </ol>
@@ -191,7 +191,7 @@ target: main   &lt;-- catch-all for other channels</code></pre>
     <p>Discord threads are treated as separate conversations. When a message arrives inside a thread, arizuko sets the <code>topic</code> field to the thread&rsquo;s channel ID. The agent sees threads as distinct conversation threads — replies to a thread stay in that thread&rsquo;s context.</p>
 
     <h2>sending to Discord from the agent</h2>
-    <p>Inside a container, the agent uses MCP tools:</p>
+    <p>Inside the guest, the agent uses MCP tools:</p>
     <pre><code># reply in the same channel/thread
 reply text:="Here is your answer."
 
@@ -261,7 +261,7 @@ send_file chatJid:="discord:123456789/987654321" \
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/howto/discord.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-08-15">2026-08-15</time>
+        &middot; updated <time class="docs-updated" datetime="2026-09-22">2026-09-22</time>
       </div>
     </main>
 

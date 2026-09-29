@@ -115,7 +115,7 @@
       <p class="tldr-text">
         <strong>Folders are agents.</strong> Each folder is a tenant: isolated memory, persona, skills, routes.
         <strong>MCP over unix socket.</strong> Tool calls go through routd, which decides what an agent may reach.
-        <strong>Defense-in-depth.</strong> Container isolation + a per-spawn egress proxy + per-group MCP sockets + the host-side secret broker.
+        <strong>Defense-in-depth.</strong> One KVM guest per turn + a per-turn egress proxy on that guest's own tap + per-group MCP sockets + the host-side secret broker.
       </p>
     </div>
 
@@ -180,7 +180,7 @@
       <h3>Tenancy Model</h3>
       <p>
         Each folder is a tenant. A folder path is a routing target, a JID prefix, a
-        container home and a web vhost — it carries no authority. Authority is a row
+        home shared into the guest and a web vhost — it carries no authority. Authority is a row
         in the <code>acl</code> table:
       </p>
       <table>
@@ -218,16 +218,18 @@
         When a message arrives:
       </p>
       <ul>
-        <li>Gateway matches route predicates (<code>platform=</code>, <code>chat_jid=</code>, <code>sender=</code>)</li>
-        <li>Starts a Docker container for the matched folder</li>
-        <li>Mounts <code>/home/node/</code> (the group folder), <code>/var/lib/www</code> read-only, and <code>~/public_html</code> when the folder may publish</li>
-        <li>Bridges MCP unix socket from host into container</li>
-        <li>Claude Code agent runs; all tool calls go through <code>routd</code> over the MCP socket</li>
-        <li>Container exits after turn completes; workspace persists</li>
+        <li><code>routd</code> matches route predicates (<code>platform=</code>, <code>chat_jid=</code>, <code>sender=</code>) and POSTs <code>/v1/runs</code> to <code>runed</code></li>
+        <li><code>runed</code> stages that turn's tree of bind mounts in its own mount namespace, then exports two virtio-fs shares from it: the release rootfs read-only, the staging tree read-write</li>
+        <li>The tree carries <code>/home/node/</code> (the group folder), <code>/opt/arizuko</code> (the release's <code>ant/</code>) and <code>/var/lib/www</code> read-only, plus <code>~/public_html</code> and <code>~/private_html</code> when the folder may publish</li>
+        <li>One tap, its static rule set, and that turn's <code>egress</code> proxy on the tap's host side — all three before the guest exists</li>
+        <li><code>qemu-system-x86_64</code> boots the guest directly on the built kernel and initrd; the turn's env and payload arrive over a vsock control channel</li>
+        <li>The Claude Code agent runs; its tool calls reach <code>/run/ipc/gated.sock</code>, a guest-local socket forwarded over a second vsock port to a host bridge that dials <code>routd</code>'s own socket — a unix socket does not cross virtio-fs</li>
+        <li>The guest powers off; <code>runed</code> reaps QEMU, then the rule set and the tap, then the host processes that served it, then the tree. The workspace persists.</li>
       </ul>
       <p>
-        Containers are ephemeral. All state is in <code>/home/node/</code> (volume-mounted) or
-        routd's message store, which is host-side.
+        The guest is ephemeral and holds nothing of its own: its writable layer is a sized tmpfs
+        in RAM. All state is in <code>/home/node/</code> (shared in from the host) or routd's
+        message store, which is host-side.
       </p>
 
       <h3>Groups, Topics, Sessions</h3>
@@ -306,7 +308,7 @@
         <li><strong>Network egress is risk.</strong> Agents can exfiltrate data if unrestricted.</li>
       </ul>
       <p>
-        Defense: isolation at container, network, MCP, and secret layers.
+        Defense: isolation at the guest, network, MCP, and secret layers.
       </p>
 
       <h3>Defense-in-Depth</h3>
@@ -317,13 +319,13 @@
           <th>Threat Mitigated</th>
         </tr>
         <tr>
-          <td>Container</td>
-          <td>Docker isolation, no <code>--privileged</code></td>
+          <td>Guest</td>
+          <td>One KVM guest per turn, powered off after; the agent's kernel is not the host's</td>
           <td>Process escape, host filesystem access</td>
         </tr>
         <tr>
           <td>Network</td>
-          <td>Per-spawn proxy on an <code>internal</code> network + host allowlist</td>
+          <td>One tap per guest, a static rule set, and the per-turn proxy as the only accepted destination</td>
           <td>Exfiltration, C2 communication</td>
         </tr>
         <tr>
@@ -334,19 +336,19 @@
         <tr>
           <td>Secrets</td>
           <td>AES-256-GCM at rest, env-var injection, no disk persistence</td>
-          <td>Secret theft via disk access or container inspect</td>
+          <td>Secret theft via disk access or guest inspection</td>
         </tr>
       </table>
 
       <h3>Egress filtering</h3>
       <p>
-        Per-folder allowlist, enforced by a proxy started fresh for each spawn:
+        Per-folder allowlist, enforced by a proxy started fresh for each turn:
       </p>
       <ul>
-        <li><strong>No route out:</strong> the spawn's network is created <code>--internal</code>, so the proxy is its only path anywhere</li>
+        <li><strong>No route out:</strong> the guest's only interface is its <code>/30</code> tap, and that tap's rule set accepts only the proxy's port, so the proxy is its only path anywhere. A raw socket to an IP literal is dropped below the kernel the agent runs on.</li>
         <li><strong>Host matching:</strong> exact, subdomain-aware and case-insensitive, read from the request line</li>
         <li><strong>CONNECT tunnelling:</strong> HTTPS is spliced, never decrypted &mdash; no CA, no key material, no request bodies</li>
-        <li><strong>One client:</strong> the proxy answers that spawn's address and 403s every other peer, including sibling spawns</li>
+        <li><strong>One client:</strong> the proxy is pinned with <code>--client</code> to that one guest's address and refuses every other peer, sibling guests included</li>
       </ul>
       <p>
         The agent reaches only what the operator permitted. Example allowlist:
@@ -357,15 +359,17 @@
 
       <h3>MCP Socket Isolation</h3>
       <p>
-        Each group gets its own unix socket (<code>/ipc/&lt;group_id&gt;.sock</code>).
-        <code>routd</code> brokers every tool call, enforces grants, and logs actions.
-        Agents cannot reach other groups' sockets — Docker mounts only the agent's own socket.
+        Each group gets its own unix socket on the host
+        (<code>&lt;data&gt;/ipc/&lt;folder&gt;/gated.sock</code>), bound in <code>routd</code>'s
+        own process. <code>routd</code> brokers every tool call, enforces grants, and logs
+        actions. A guest cannot reach another group's socket: its bridge is forked per turn with
+        that one path and runs as the agent's uid, so there is no second path to name.
       </p>
 
       <h3>Secrets</h3>
       <p>
         Secrets are AES-256-GCM encrypted in routd&rsquo;s <code>secrets</code> table.
-        The container env carries model credentials only &mdash; the four env-profile keys, taken
+        The guest's env carries model credentials only &mdash; the four env-profile keys, taken
         from the host <code>.env</code> and overlaid with the triggering user's own rows. Every
         capability credential stays on the host: <code>routd</code> resolves it per tool call,
         spends it in the outbound request, and returns only the response. No secret is written to

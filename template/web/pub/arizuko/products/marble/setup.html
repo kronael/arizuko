@@ -85,7 +85,7 @@ arizuko group krons add web:krons/public/marble krons/public/marble</code></pre>
       <h2>2. bundle the dataset</h2>
       <p>
         Drop the JSON into the group folder. The agent reads it from
-        <code>~/taxonomy/</code> inside its container, which maps to
+        <code>~/taxonomy/</code> inside its guest, which maps to
         <code>groups/&lt;folder&gt;/taxonomy/</code> on the host:
       </p>
       <pre><code>mkdir -p /srv/data/arizuko_&lt;instance&gt;/groups/&lt;folder&gt;/taxonomy
@@ -137,7 +137,7 @@ EOF</code></pre>
         in the group settings &mdash;
         <code>/dash/groups/&lt;folder&gt;/settings</code> &rarr; <strong>Model</strong>
         &rarr; <em>Claude Haiku 4.5</em>. That writes
-        <code>groups.config.$.model</code>, which routd forwards to the container
+        <code>groups.config.$.model</code>, which routd forwards to the guest
         as <code>ARIZUKO_MODEL</code> on the next turn.
       </p>
       <p>
@@ -151,7 +151,7 @@ arizuko apply &lt;instance&gt; groups.yaml</code></pre>
 
       <h2>5. trim the skills</h2>
       <p>
-        A fresh container spawns per turn with no prompt cache, so every seeded
+        A fresh guest boots per turn with no prompt cache, so every seeded
         skill&rsquo;s <code>SKILL.md</code> is re-indexed into the system prompt
         each answer. A read-only taxonomy bot needs almost none of the ~95 stock
         skills. Uncheck all but a small keep-set at
@@ -195,16 +195,17 @@ arizuko apply &lt;instance&gt; groups.yaml</code></pre>
           say so explicitly there.
         </li>
         <li>
-          <strong>Latency.</strong> The two biggest costs are the fresh-container
-          cold start (~3.5s) and the number of sequential <code>jq</code>
-          round-trips the agent makes per answer. Steps 4 and 5 cut the model
+          <strong>Latency.</strong> The two biggest costs are the cold start of a
+          fresh guest and the number of sequential <code>jq</code> round-trips
+          the agent makes per answer. (The figure that used to sit here was
+          measured on the Docker substrate and has not been re-taken on KVM.) Steps 4 and 5 cut the model
           and prompt size; to cut round-trips, pre-digest the dataset (a
           summary file, precomputed indices) so common questions answer in one
           or two calls instead of ten.
         </li>
         <li>
           <strong>Rate limiting.</strong> Each visitor question is one
-          container, so the instance-wide
+          guest, so the instance-wide
           <code>MAX_CONCURRENT_CONTAINERS</code> is what bounds the load.
         </li>
         <li>
@@ -231,7 +232,7 @@ arizuko apply &lt;instance&gt; groups.yaml</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/marble/setup.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-08-27">2026-08-27</time>
+        &middot; updated <time class="docs-updated" datetime="2026-09-13">2026-09-13</time>
       </div>
     </main>
 

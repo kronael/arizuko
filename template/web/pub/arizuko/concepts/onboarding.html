@@ -97,7 +97,7 @@ arizuko invite &lt;instance&gt; revoke &lt;token&gt;</code></pre>
       <li><code>.claude/skills/</code> &mdash; every directory under <code>ant/skills/</code> with a valid name is copied in. See <a href="../concepts/skills.html">skills</a>.</li>
       <li><code>.claude/CLAUDE.md</code> &mdash; copied from <code>ant/CLAUDE.md</code>.</li>
       <li><code>.claude/.claude.json</code> &mdash; seeded with a per-folder user id (sha256 of <code>arizuko:&lt;folder&gt;</code>).</li>
-      <li>Ownership chowned to uid 1000 so the in-container <code>node</code> user can write.</li>
+      <li>Ownership chowned to uid 1000 so the guest&rsquo;s <code>node</code> user can write.</li>
     </ul>
     <p>Skipping <code>SetupGroup</code> produces a folder the agent can&rsquo;t use: no skills, no settings, wrong ownership. Everything onbod does for a brand-new user funnels through this one call.</p>
 
@@ -117,7 +117,7 @@ arizuko invite &lt;instance&gt; revoke &lt;token&gt;</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/concepts/onboarding.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-08-07">2026-08-07</time>
+        &middot; updated <time class="docs-updated" datetime="2026-09-22">2026-09-22</time>
       </div>
     </main>
 

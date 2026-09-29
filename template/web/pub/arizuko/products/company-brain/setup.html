@@ -55,6 +55,7 @@
       <h2>prerequisites</h2>
       <ul>
         <li>A host with Docker, ports 80/443 reachable behind a TLS terminator.</li>
+        <li>Hardware virtualization: <code>/dev/kvm</code> on the host. A turn is one KVM guest, and <code>runed</code> refuses to start without it.</li>
         <li>The <code>arizuko</code> binary and <code>arizuko-ant</code> agent image (<code>make build</code>, <code>sudo make images</code>, <code>sudo make agent</code>).</li>
         <li>Anthropic API access.</li>
         <li>At least one channel adapter token: Slack (<code>SLACK_BOT_TOKEN</code> + <code>SLACK_SIGNING_SECRET</code>) and/or email (<code>emaid</code>). Webhooks need no adapter &mdash; just a hook token.</li>
@@ -306,7 +307,7 @@ arizuko route corp add 'chat_jid=hook:corp/eng/github' corp/eng --seq -5</code><
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/company-brain/setup.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-08-18">2026-08-18</time>
+        &middot; updated <time class="docs-updated" datetime="2026-08-27">2026-08-27</time>
       </div>
     </main>
 

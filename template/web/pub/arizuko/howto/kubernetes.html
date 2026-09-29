@@ -130,17 +130,20 @@
           devices &mdash; there is no Docker socket in this pod at all.
         </li>
         <li>
-          <strong>Bind sources are node paths, still.</strong> <code>runed</code>
-          now builds each turn&rsquo;s staging tree with bind mounts in its own
-          mount namespace and exports it with <code>virtiofsd</code> &mdash; no
-          sibling container is spawned to resolve them &mdash; but the paths it
-          builds (the group folder, the kernel and rootfs directories) still
-          have to be node paths when <code>runed</code>&rsquo;s own container
-          sees the data dir at a different mount point than the node does.
-          <code>runed/mounts.go</code> <code>hp()</code> rewrites each one from
-          the path <code>runed</code> sees to the path <code>HOST_DATA_DIR</code>
-          names. Get that value wrong and every turn&rsquo;s share points at an
-          empty directory.
+          <strong>A bind source is the path <em>runed</em> sees.</strong>
+          <code>runed</code> builds each turn&rsquo;s staging tree with bind
+          mounts in its own mount namespace and exports it with
+          <code>virtiofsd</code>, which is <code>runed</code>&rsquo;s own child
+          rather than a daemon on the node &mdash; so nothing translates a path
+          and <code>HOST_DATA_DIR</code> no longer enters a turn at all
+          (<code>runed/mounts.go</code> <code>buildMounts</code>; the old
+          <code>hp()</code> rewrite is gone with the Docker substrate). What
+          this does demand is that <code>runed</code> can <em>open</em> every
+          path a turn mounts: the group folder, the kernel and rootfs
+          directories, and any root you allow under
+          <code>MOUNT_ALLOWED_ROOTS</code>. A path outside the data volume needs
+          its own mount in <code>runed</code>&rsquo;s pod, at the same absolute
+          path, or the staging tree refuses it and the turn fails.
         </li>
         <li>
           <strong>The group tree is files.</strong> <code>routd</code> reads
@@ -275,12 +278,12 @@
         </tbody>
       </table>
       <p>
-        All four must be visible at a <em>node</em> path: <code>runed</code>
-        builds each turn&rsquo;s staging tree from them, and <code>HOST_DATA_DIR</code>
-        is what lets it name that path correctly when its own container sees the
-        volume mounted somewhere else than the node does. A <code>local</code> or
-        <code>hostPath</code> volume satisfies that; a network PVC whose node
-        mount point you cannot name does not.
+        All four must be on one volume that both <code>routd</code> and
+        <code>runed</code> mount at the same place: <code>runed</code> builds
+        each turn&rsquo;s staging tree out of them, in its own mount namespace,
+        from the paths it sees. Nothing rewrites those paths, so the requirement
+        is a shared read-write volume and one node, not a node path you can
+        name.
       </p>
 
       <h2>the shape that fits</h2>
@@ -304,7 +307,7 @@
           <tr><td><code>timed</code></td><td>Deployment + Service, <code>replicas: 1</code></td><td>no volume</td></tr>
           <tr><td><code>proxyd</code>, <code>webd</code></td><td>Deployment + Service</td><td>no volume; <code>proxyd</code> is what the Ingress points at</td></tr>
           <tr><td>adapter (<code>teled</code>, <code>slakd</code>, &hellip;)</td><td>Deployment + Service per account</td><td><code>replicas: 1</code>, small RWO volume</td></tr>
-          <tr><td>non-secret <code>.env</code></td><td>ConfigMap &rarr; <code>envFrom</code></td><td><code>ASSISTANT_NAME</code>, <code>WEB_HOST</code>, <code>HOST_DATA_DIR</code>, <code>DYNAMODB_URL</code>, &hellip;</td></tr>
+          <tr><td>non-secret <code>.env</code></td><td>ConfigMap &rarr; <code>envFrom</code></td><td><code>ASSISTANT_NAME</code>, <code>WEB_HOST</code>, <code>DYNAMODB_URL</code>, <code>RUNED_KERNEL_DIR</code>, &hellip;</td></tr>
           <tr><td>secret <code>.env</code></td><td>Secret &rarr; <code>envFrom</code></td><td><code>SECRETS_KEY</code>, <code>AUTH_SECRET</code>, <code>AUTHD_SERVICE_KEY</code>, <code>AWS_SECRET_ACCESS_KEY</code>, adapter tokens</td></tr>
         </tbody>
       </table>
@@ -329,12 +332,14 @@ spec:
     requests:
       storage: 20Gi</code></pre>
       <div class="callout">
-        <strong>Pick a node-local class.</strong> <code>runed</code> builds each
-        turn&rsquo;s staging tree from bind sources on the node filesystem.
-        <code>local-path</code> (Rancher) or a <code>local</code> PV give you a
-        node path you can name and put in <code>HOST_DATA_DIR</code>. A
-        remote-attach CSI volume usually works too, but only if you can name its
-        node mount point.
+        <strong>One volume, one node.</strong> <code>routd</code> and
+        <code>runed</code> must see the same inode for the per-turn MCP socket,
+        so the claim is <code>ReadWriteOnce</code> and the pair is pinned.
+        <code>local-path</code> (Rancher) or a <code>local</code> PV is what
+        arizuko is run on. Nothing has to name the node&rsquo;s own mount point
+        any more &mdash; <code>runed</code> binds and exports the paths it sees
+        &mdash; but whether a remote-attach CSI volume can back a
+        <code>virtiofsd</code> export has not been measured here.
       </div>
 
       <h2>ConfigMap</h2>
@@ -349,15 +354,18 @@ data:
   ARIZUKO_INSTANCE: "demo"
   WEB_HOST: "https://demo.example.com"
   DATA_DIR: "/srv/app/home"
-  # the NODE path of the same volume — runed's hp() rewrites every turn's
-  # bind source through this. Wrong value = every turn shares in nothing.
-  HOST_DATA_DIR: "/var/lib/rancher/k3s/storage/pvc-…_arizuko-data"
   AUTHD_URL: "http://authd:8080"
   ROUTER_URL: "http://routd:8080"
   RUNED_URL: "http://runed:8080"
   DYNAMODB_URL: "https://extenddb:18443"
   AWS_REGION: "us-east-1"
-  LOG_LEVEL: "info"</code></pre>
+  LOG_LEVEL: "info"
+  # the turn substrate: the artifact dirs `make kernel` and `make images`
+  # wrote, by the path runed's own container sees. runed refuses to start
+  # without both, and names every other unmet precondition in the same log
+  # line. Full set: ../reference/env.html#runed
+  RUNED_KERNEL_DIR: "/srv/app/home/images/kernel-6.1.112-40e1508980d0"
+  RUNED_ROOTFS_DIR: "/srv/app/home/images/rootfs-a35045d89e3e"</code></pre>
       <div class="note">
         <code>HOST_APP_DIR</code> and <code>APP_SRC_DEV</code> belong to the
         development loop on a host checkout. Leave both unset: the release bakes
@@ -478,6 +486,20 @@ spec:
         own <code>LISTEN_ADDR</code>. Everywhere else keep the in-container port
         at <code>:8080</code> &mdash; every daemon defaults to it and every
         backend row names it.
+      </div>
+      <div class="callout">
+        <strong><code>SYS_ADMIN</code> is necessary and not sufficient.</strong>
+        The default AppArmor profile denies <code>mount(2)</code> to a container
+        whatever its capabilities, so <code>runed</code>&rsquo;s staging binds
+        answer &ldquo;permission denied&rdquo; and every turn fails. Generated
+        compose sets <code>security_opt: [apparmor=unconfined]</code> on
+        <code>runed</code> for exactly this reason
+        (<code>compose/compose.go</code> <code>runedService</code>, measured both
+        ways on krons). Under Kubernetes the same relaxation is
+        <code>runed</code>&rsquo;s AppArmor profile set to unconfined; a profile
+        that permits this one mount is tighter, and is yours to write. Seccomp
+        needs nothing &mdash; the default profile already allows
+        <code>mount</code> to a holder of <code>CAP_SYS_ADMIN</code>.
       </div>
 
       <h2>seeding the data dir</h2>
@@ -614,17 +636,28 @@ curl -s http://localhost:8080/health</code></pre>
           check the pod&rsquo;s logs for which device, binary, or directory it
           named (<code>/dev/kvm</code>, <code>/dev/vhost-vsock</code>,
           <code>/dev/net/tun</code>, the <code>egress</code> binary,
-          <code>RUNED_KERNEL_DIR</code>, <code>RUNED_ROOTFS_DIR</code>). If
-          <code>runed</code> itself is healthy but a turn&rsquo;s guest finds an
-          empty home, <code>HOST_DATA_DIR</code> names a path the node does not
-          have &mdash; that failure is quieter, because the guest still boots.
+          <code>RUNED_KERNEL_DIR</code>, <code>RUNED_ROOTFS_DIR</code>). The
+          whole set is in
+          <a href="../reference/env.html#runed">reference/env &sect; runed</a>.
+        </dd>
+
+        <dt>Every turn dies with <code>staging tree: mount source &hellip;</code></dt>
+        <dd>
+          A path a turn mounts that <code>runed</code>&rsquo;s own container
+          cannot open. <code>runed</code> stats every source before it binds
+          anything and refuses by name rather than materialising an empty
+          directory as root, so the message carries the path. Give
+          <code>runed</code> that path as its own mount, at the same absolute
+          path it has on the host &mdash; the group volume, plus anything under
+          <code>MOUNT_ALLOWED_ROOTS</code> or <code>HOST_CODEX_DIR</code>.
         </dd>
 
         <dt>The agent starts but has no tools</dt>
         <dd>
           <code>routd</code> and <code>runed</code> landed on different
           filesystems, so the MCP socket <code>routd</code> bound is not the one
-          <code>runed</code> mounted. They must share the volume and the node.
+          <code>runed</code>&rsquo;s per-turn bridge dialled. They must share the
+          volume and the node.
         </dd>
 
         <dt>Telegram replays a day of messages after a rollout</dt>
@@ -646,7 +679,7 @@ curl -s http://localhost:8080/health</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/howto/kubernetes.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-09-25">2026-09-25</time>
+        &middot; updated <time class="docs-updated" datetime="2026-09-29">2026-09-29</time>
       </div>
     </main>
 

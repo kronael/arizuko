@@ -311,7 +311,7 @@
 <ol style="line-height: 1.8; margin: 1em 0 1em 1.5em;">
 <li><strong>Multi-channel persistent team agent</strong> — 11 adapters in tree (Telegram, Discord, WhatsApp, Slack, email, Bluesky, Reddit, X/Twitter, LinkedIn, web chat, webhooks)</li>
 <li><strong>Per-folder agent identity</strong> — PERSONA + skills + MEMORY + .diary + ACL + secrets; filesystem as tenant boundary</li>
-<li><strong>Operator-owned footprint</strong> — Go daemons + Docker + one store endpoint the operator runs or rents; no ClickHouse, no Redis, no managed control plane</li>
+<li><strong>Operator-owned footprint</strong> — Go daemons in Docker, one KVM guest per turn, one store endpoint the operator runs or rents; no ClickHouse, no Redis, no managed control plane</li>
 <li><strong>Uniform MCP+REST per resource</strong> — agent-first protocol, REST as impedance match for external tools</li>
 </ol>
 
@@ -319,7 +319,7 @@
 
 <ul style="line-height: 1.8; margin: 1em 0 1em 1.5em;">
 <li><strong>Observability</strong> — every daemon exports OTLP when <code>OTEL_EXPORTER_OTLP_ENDPOINT</code> is set, but journalctl + dashd is still not Langfuse.</li>
-<li><strong>Sandbox strength</strong> — Docker-per-group weak vs gVisor/Firecracker. per-spawn egress filtering exists but gVisor RuntimeClass not shipped.</li>
+<li><strong>Sandbox strength</strong> — no longer the gap it was: spec 6/41 step 4 moved the turn off Docker onto one KVM guest per turn, so the boundary is a hypervisor and the agent's kernel is not the host's. What is left is <code>runed</code>'s <em>own</em> container, which compose runs as root with <code>NET_ADMIN</code>, <code>SYS_ADMIN</code> and <code>apparmor=unconfined</code> because AppArmor's default denies the staging tree's <code>mount(2)</code> — a profile that permits just that one mount is unwritten.</li>
 <li><strong>Product abstraction</strong> — no <code>arizuko product clone</code>, no manifest, no registry.</li>
 <li><strong>No K8s / cloud-provider templates</strong> — no Helm chart, no operator; the turn path still pins <code>routd</code> and <code>runed</code> to one node.</li>
 <li><strong>Evals at scale</strong> — specs/10/1-self-healing-loop.md is a draft; none of the judge/evaluate/repair loop is built.</li>
@@ -348,9 +348,9 @@
 </div>
 <div style="text-align: center; margin: 0.5em 0; color: var(--accent2);">↓ projects ↓</div>
 <div class="arch-layer">
-<div class="arch-label">CONTAINERS (ephemeral — projection of git@HEAD into runtime)</div>
+<div class="arch-label">GUESTS (ephemeral — projection of git@HEAD into runtime)</div>
 <div class="arch-items">• read working tree at turn start<br>
-• MCP over unix socket to gated<br>
+• MCP over vsock to routd's per-group socket<br>
 • gateway commits state changes at turn end</div>
 </div>
 </div>
@@ -390,7 +390,7 @@ Audit = <code>git log</code>. Fork = <code>git worktree</code>. Distribute = <co
     <li><strong>Drop the bespoke events table.</strong> Gateway becomes the only git writer; commits per turn with sidecar event list</li>
     <li>Projection function over working tree + the store's hot path → graph view for plan/dashd/fork/OTLP</li>
     <li>OTLP-out via OpenLLMetry → Langfuse self-host (operator's choice)</li>
-    <li>gVisor RuntimeClass under existing Docker — per-product sandbox profile in TOML</li>
+    <li><s>gVisor RuntimeClass under existing Docker</s> — superseded. The turn is a KVM guest as of 6/41 step 4; the unwritten piece is a narrow AppArmor profile for <code>runed</code> itself.</li>
   </ul>
 </div>
 
@@ -449,8 +449,8 @@ Audit = <code>git log</code>. Fork = <code>git worktree</code>. Distribute = <co
   <div class="bridge-title"><a href="/pub/krons/agents/subagents/">Subagents</a></div>
   <div class="bridge-arrow">↓</div>
   <div class="bridge-feature"><strong>Tier A:</strong> Product mixins in <code>agents.toml</code>. Compose a support product from (base-agent + slack-responder + escalation-child) fragments.<br><br>
-  <strong>Already shipped:</strong> <code>delegate_group</code>, <code>escalate_group</code>, <code>observe_group</code> MCP tools. Per-folder isolation = NanoClaw's container-per-child model.<br><br>
-  <strong>Research insight:</strong> Six trust models compared; we already ship the strongest (container boundary per folder).</div>
+  <strong>Already shipped:</strong> <code>delegate_group</code>, <code>escalate_group</code>, <code>observe_group</code> MCP tools. Per-folder isolation is one guest per turn, per folder.<br><br>
+  <strong>Research insight:</strong> Six trust models compared; we already ship the strongest (a hypervisor boundary per turn, per folder).</div>
 </div>
 
 <div class="bridge-card">

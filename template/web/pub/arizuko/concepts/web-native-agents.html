@@ -63,7 +63,7 @@
 
     <section>
       <h2>the four pieces</h2>
-      <p>One folder, four surfaces sharing one container and one history:</p>
+      <p>One folder, four surfaces sharing one guest per turn and one history:</p>
       <table>
         <tr><th>piece</th><th>what it does</th><th>path</th></tr>
         <tr><td>public page</td><td>Agent writes into <code>~/public_html/</code>; <code>vited</code> serves it to anyone.</td><td><code>/pub/&lt;folder&gt;/*</code></td></tr>
@@ -88,7 +88,7 @@
                                         routd
                                           │
                                           ▼
-                                   container (agent)
+                                    guest (agent)
                                           │
         davd write  &lt;──  ~/public_html/&lt;name&gt;.html
                                           │
@@ -103,7 +103,7 @@
       <p>A visitor opens <code>/pub/atlas/strengths/</code> and sees an intake form. They paste their Gallup CliftonStrengths results and click submit.</p>
       <ol>
         <li>The form POSTs to <code>/chat/&lt;form-token&gt;/</code>; <code>webd</code> writes a message into <code>web:atlas/strengths/submissions</code>. The <code>atlas/strengths/submissions</code> group must exist — web JIDs map 1:1 to group folders, the route table does not apply.</li>
-        <li><code>routd</code> dispatches the turn (<code>runed</code> spawns the <code>atlas/strengths/submissions</code> container) to process the form post.</li>
+        <li><code>routd</code> dispatches the turn (<code>runed</code> boots the <code>atlas/strengths/submissions</code> guest) to process the form post.</li>
         <li>The agent dispatches its <code>process-strengths</code> skill and writes <code>~/public_html/strengths/&lt;name&gt;.html</code> via <code>davd</code> &mdash; served at <code>/pub/atlas/strengths/submissions/strengths/&lt;name&gt;.html</code>.</li>
         <li>The visitor is redirected to that new path. <code>vited</code> serves the personalised report on the next request.</li>
       </ol>
@@ -152,7 +152,7 @@
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/concepts/web-native-agents.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-08-07">2026-08-07</time>
+        &middot; updated <time class="docs-updated" datetime="2026-09-22">2026-09-22</time>
       </div>
     </main>
 

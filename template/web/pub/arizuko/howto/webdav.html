@@ -136,7 +136,7 @@ curl -u :$TOKEN \
      https://fab.krons.cx/dav/atlas/media/quarterly.csv</code></pre>
 
     <h3>agent writes a file; user pulls it down</h3>
-    <p>The agent runs inside a container with its group folder mounted read-write; it can drop generated artifacts (PDFs, charts, transcripts) anywhere except <code>logs/</code>. The user then pulls them down:</p>
+    <p>The agent runs inside a guest with its group folder shared in read-write; it can drop generated artifacts (PDFs, charts, transcripts) anywhere except <code>logs/</code>. The user then pulls them down:</p>
     <pre><code>curl -H "Authorization: Bearer $TOKEN" \
      -o report.pdf \
      https://fab.krons.cx/dav/atlas/out/report.pdf</code></pre>
@@ -240,7 +240,7 @@ curl -X PUT --data-binary @./notes.md \
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/howto/webdav.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-08-15">2026-08-15</time>
+        &middot; updated <time class="docs-updated" datetime="2026-09-22">2026-09-22</time>
       </div>
     </main>
 
