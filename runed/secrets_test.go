@@ -87,7 +87,7 @@ func TestMergeSecrets_NilOverride(t *testing.T) {
 func TestSpawnSecrets_GatewayWithholdsModelCredential(t *testing.T) {
 	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "operator-oauth")
 	t.Setenv("ANTHROPIC_API_KEY", "")
-	cfg := &core.Config{Timezone: "UTC", Image: "img:latest", ModelGatewayURL: "http://gw:4000"}
+	cfg := &core.Config{Timezone: "UTC", ModelGatewayURL: "http://gw:4000"}
 	user := map[string]string{"ANTHROPIC_API_KEY": "user-byoa", "GITHUB_TOKEN": "ghp-shell-env"}
 
 	got := spawnSecrets(cfg, user)
@@ -112,7 +112,7 @@ func TestSpawnSecrets_GatewayWithholdsModelCredential(t *testing.T) {
 func TestSpawnSecrets_NoGatewayKeepsBothSources(t *testing.T) {
 	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "operator-oauth")
 	t.Setenv("ANTHROPIC_API_KEY", "operator-anchor")
-	cfg := &core.Config{Timezone: "UTC", Image: "img:latest"}
+	cfg := &core.Config{Timezone: "UTC"}
 	user := map[string]string{"ANTHROPIC_API_KEY": "user-byoa", "GITHUB_TOKEN": "ghp-shell-env"}
 
 	got := spawnSecrets(cfg, user)

@@ -262,6 +262,45 @@ documented per-instance tags as a shipped feature.
   export, repoint `RUNED_ROOTFS_DIR`, restart one instance. `TestCreateEnvNamesNoAgentImage`
   pins the absence at the place the file is written.
 
+## L386 — `make lint`, the ONE gate CI enforces, cannot read its own config, so 80 issues accumulated behind it (2026-09-29)
+
+`.golangci.yml` carried no `version` key, which is schema v1. The installed binary
+is **golangci-lint 2.13.2**, and v2 refuses a v1 config outright:
+
+```
+Error: can't load config: unsupported version of the configuration: ""
+make: *** [Makefile:95: lint] Error 3
+```
+
+CI runs the same gate and installs `version: latest`
+(`.github/workflows/ci.yml`), so it takes a v2 binary to the v1 config and its
+**Lint step fails before it lints anything** — and `make lint`'s golangci-lint half
+has therefore never reported on this code. The Makefile's fallback covers the
+linter being ABSENT, not present and unable to read the config, so the step does
+not degrade to a notice; it fails the build for a reason unrelated to the change
+under test.
+
+Behind it, measured after fixing the config: **80 issues** — 50 `errcheck`, 21
+`staticcheck`, 6 `nilerr`, 3 `unused`, spread over 15 packages. The 6 `nilerr` are
+the class the gate was written for (`if err != nil { return nil }`, the shape behind
+the route-drop and silent-turn bugs), and 3 of the `unused` are dead symbols the
+Docker substrate left behind (`container.egressReadyTimeout`,
+`container.execCommand`, `tests.liveSpawnCount`).
+
+- **Severity:** high (no static gate on any push, for an unknown period)
+- **Scope:** `.golangci.yml`, `.github/workflows/ci.yml`, and the 15 packages the
+  findings sit in
+- **Affected:** every commit since the config and the installed binary diverged
+- **Source:** found when `make lint` was run to verify `L384`, 2026-09-29; the
+  refusal and the 80-issue count both measured
+- **Status:** config migrated by hand 2026-09-29; the 80 issues are the open half
+- **Fix, and the trap in it:** the config is rewritten to v2 BY HAND, not by
+  `golangci-lint migrate` — the migrator adds four `exclusions.presets`, and
+  `std-error-handling` alone excuses every dropped `Close`/`Write`/`Seek`, so the
+  gate would run, pass, and stop reporting the class it exists for. That is the
+  `gate_cannot_fail` shape one level up. The remaining work is the 80 findings
+  themselves, each judged rather than silenced: NO `//nolint`, no new exclusion.
+
 ## ✅ FIXED 2026-09-29 L385 — the turn log truncates at 10 MB and says nothing, so the log worth reading is the one that ends mid-line (2026-09-29)
 
 `lineBuffer.add` returned early once the builder passed `maxOutputSize`

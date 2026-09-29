@@ -4,20 +4,25 @@
 #   shape behind the route-drop and silent-turn bugs.
 # errcheck: flags dropped error returns. check-blank stays false: `_ = err` is a
 #   sanctioned, reviewed ignore (~200 in-tree); we only want the UNsanctioned
-#   fully-dropped calls, keeping noise low.
+#   fully-dropped calls, keeping noise low. v2 enables it by default, so it is
+#   not in `enable` — deleting the `settings` block would silently widen it.
+#
+# Schema v2. NO `exclusions.presets`: `golangci-lint migrate` adds four of them,
+# and `std-error-handling` alone excuses every dropped Close/Write/Seek — the
+# gate would still run and stop reporting the class it exists for (BUGS `L386`).
 #
 # Run by `make lint`, the one gate CI enforces. When golangci-lint is absent
 # that step prints a notice instead of failing, so a machine without it still
 # gets gofmt and go vet; CI installs it, so the gate is real there.
+version: '2'
 linters:
   enable:
-    - errcheck
     - nilerr
-linters-settings:
-  errcheck:
-    check-blank: false
-    check-type-assertions: false
-issues:
-  exclude-rules:
-    - path: _test\.go
-      linters: [errcheck]
+  settings:
+    errcheck:
+      check-blank: false
+      check-type-assertions: false
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters: [errcheck]

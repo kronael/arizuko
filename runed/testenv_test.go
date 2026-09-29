@@ -29,7 +29,6 @@ func renderWiring(t *testing.T) (*core.Config, *groupfolder.Resolver) {
 	}
 	cfg := &core.Config{
 		Name:        "test",
-		Image:       "arizuko-ant:test",
 		Timezone:    "UTC",
 		ProjectRoot: root,
 		HostAppDir:  appSrc,

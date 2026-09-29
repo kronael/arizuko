@@ -32,7 +32,6 @@ func goldenCfg(t *testing.T, root string) *core.Config {
 	}
 	return &core.Config{
 		Name:              "krons",
-		Image:             "arizuko-ant:latest",
 		AgentBackend:      "claude",
 		Timeout:           60 * time.Minute,
 		IdleTimeout:       60 * time.Minute,

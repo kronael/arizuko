@@ -95,7 +95,6 @@ func antEnvReads(t *testing.T) []string {
 func TestSpawnEnvCarriesEveryKeyAntReads(t *testing.T) {
 	cfg := &core.Config{
 		Timezone:        "UTC",
-		Image:           "img:latest",
 		AgentBackend:    "codex",
 		ModelGatewayURL: "http://litellm:4000",
 	}
@@ -134,7 +133,7 @@ func TestSpawnEnvEmitsNothingAntIgnores(t *testing.T) {
 		reads[k] = true
 	}
 	cfg := &core.Config{
-		Timezone: "UTC", Image: "img:latest", AgentBackend: "codex",
+		Timezone: "UTC", AgentBackend: "codex",
 		ModelGatewayURL: "http://litellm:4000",
 	}
 	req := runedv1.RunRequest{Model: "opus", ModelGatewayKey: "sk-virtual"}
