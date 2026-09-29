@@ -267,6 +267,36 @@ sloth escaped only by luck: base 20 gives index 17, and 17 is inside a /24's 64.
   checks EVERY slot the cap allows, the shape `memoryFits` already uses — one
   arbitrary point is not a capacity check.
 
+## ✅ FIXED 2026-09-29 L381 — the release rootfs is exported writable, and only the guest's own mount options keep it read-only (2026-09-29)
+
+`startVirtiofsd(rec, rootSock, q.paths.Rootfs, false)` exported the release rootfs
+directly. virtiofsd 1.10.1 has **no read-only export flag** — measured in the arizuko image,
+`/usr/libexec/virtiofsd --help` names neither `--readonly` nor `read-only`, because
+the Rust rewrite dropped the C daemon's `-o ro` — and the `root` share runs unclamped
+as the daemon's own uid — so
+the share was writable on the host side and the only thing standing between a guest
+and the release tree was the guest mounting it `ro` itself.
+
+The guest is the untrusted half. One guest that mounts `root` read-write writes the
+release that EVERY later turn boots from, on BOTH instances, because the artifact is
+shared by content hash under `/srv/data/arizuko_images/` — the same sharing that made
+the hardlink cheap makes the blast radius the fleet.
+
+- **Severity:** high (guest-to-host write into the artifact every turn boots from)
+- **Scope:** `runed/qemu.go`, `runed/vmtree.go`
+- **Affected:** the `root` virtio-fs share, both instances
+- **Source:** codex audit of the 6/41 substrate, 2026-09-29; the absent flag measured
+  against `virtiofsd --help` in the shipped image, not read from a changelog
+- **Status:** ✅ FIXED 2026-09-29
+- **Fix:** the release is bound **read-only on the host** into the turn dir and that
+  bind is what virtiofsd exports — `MS_BIND|MS_REC` then `MS_REMOUNT|MS_BIND|MS_RDONLY`,
+  a kernel fact the guest cannot influence. The bind sits BESIDE the tree, never
+  inside it, because a release inside the tree would also reach the guest through the
+  writable `turn` share. So the teardown scans the TURN dir and one mountinfo pass
+  takes the tree's binds and the release bind together; a scan of the tree alone
+  leaves the release bound after every turn and the turn dir can never be removed.
+  `TestTeardownScansTheTurnDirSoTheRootfsBindGoesToo` pins both halves.
+
 ## ✅ FIXED 2026-09-29 L380 — `METRICS_ENABLED` reaches no daemon, so `6/44`'s gate has been armed over a counter nothing can scrape (2026-09-29)
 
 Eight daemons mount `GET /metrics` behind `obs.MetricsEnabled`, which reads

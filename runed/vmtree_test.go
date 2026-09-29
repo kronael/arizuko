@@ -195,3 +195,43 @@ func TestMountedUnderFindsThisTreesBindsDeepestFirst(t *testing.T) {
 		t.Error("a partial path must not match a mount point")
 	}
 }
+
+// TestTeardownScansTheTurnDirSoTheRootfsBindGoesToo pins BUGS `L381`. The release
+// rootfs is exported through a read-only bind, because virtiofsd 1.10.1 has no
+// read-only export flag and serves the `root` share as root — so the share's
+// guarantee is the HOST's bind, not the guest's mount options.
+//
+// The bind sits BESIDE the tree rather than inside it: a release inside the tree
+// would reach the guest through the `turn` share as well, writable. That places it
+// outside a scan of the tree dir, so the teardown scans the TURN dir and one pass
+// takes both. A scan of the tree alone leaves the release bound after every turn,
+// and the turn dir can never be removed.
+func TestTeardownScansTheTurnDirSoTheRootfsBindGoesToo(t *testing.T) {
+	const mountinfo = `25 30 0:22 / /proc rw,nosuid,nodev,noexec,relatime shared:5 - proc proc rw
+712 30 253:1 /srv/data/arizuko_krons/groups/solo/inbox /srv/data/arizuko_krons/vms/h1/tree/home/node rw,relatime shared:1 - ext4 /dev/sda1 rw
+716 30 253:1 /srv/data/arizuko_images/rootfs-abc /srv/data/arizuko_krons/vms/h1/rootfs ro,relatime shared:1 - ext4 /dev/sda1 rw
+714 30 253:1 /srv/other /srv/data/arizuko_krons/vms/h2/tree/home/node rw,relatime shared:1 - ext4 /dev/sda1 rw
+`
+	tree := treeFor("/srv/data/arizuko_krons/vms/h1")
+
+	got := mountedUnder(strings.NewReader(mountinfo), tree.scanRoot())
+	want := []string{
+		"/srv/data/arizuko_krons/vms/h1/tree/home/node",
+		"/srv/data/arizuko_krons/vms/h1/rootfs",
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("the teardown must find both binds, deepest first\ngot:  %v\nwant: %v", got, want)
+	}
+
+	// The rootfs bind is outside the tree, which is why the scan root had to move.
+	// This is the assertion that fails if someone stages the release into the tree.
+	if inTree := mountedUnder(strings.NewReader(mountinfo), tree.dir); slices.Contains(inTree, want[1]) {
+		t.Error("the release must not be bound inside the tree: the `turn` share exports it writable")
+	}
+
+	// A tree built from a path alone — a disk scan after a runed crash — still
+	// scans the turn dir, because treeFor is the only way to make one.
+	if tree.scanRoot() != "/srv/data/arizuko_krons/vms/h1" {
+		t.Errorf("scanRoot = %q, want the turn dir", tree.scanRoot())
+	}
+}

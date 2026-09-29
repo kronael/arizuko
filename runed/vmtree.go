@@ -27,9 +27,17 @@ const (
 	// the control channel. No family mounts at /mounts.json, so it collides
 	// with nothing the tree mirrors.
 	treeManifestName = "mounts.json"
-	rootSockName     = "root.sock"
-	turnSockName     = "turn.sock"
-	qemuPidName      = "qemu.pid"
+	// rootfsDirName is where the release rootfs is bound READ-ONLY, and it is
+	// virtiofsd's source for the `root` share. The bind is the enforcement: 1.10.1
+	// has no read-only export flag, so without it the share's guarantee rests on
+	// the GUEST choosing to mount it ro — and a guest is the untrusted half. A
+	// guest that mounted it rw would write the release every later turn boots from,
+	// on every instance, because the artifact is shared by content hash (BUGS
+	// `L381`).
+	rootfsDirName = "rootfs"
+	rootSockName  = "root.sock"
+	turnSockName  = "turn.sock"
+	qemuPidName   = "qemu.pid"
 )
 
 // treeEntry is one family in the staging tree. Path is the guest path, and it is
@@ -86,11 +94,38 @@ func treePlan(mounts []core.Mount) treeManifest {
 type turnTree struct {
 	// dir is the tree root, which is virtiofsd's source for `turn`.
 	dir string
+	// turnDir is the tree's parent. teardown scans it rather than dir, so ONE
+	// mountinfo pass covers the tree's binds and the read-only rootfs beside it.
+	turnDir string
 }
 
 // treeFor names a turn dir's tree without touching the disk, so the disk scan
 // can tear down a tree whose plan it never had.
-func treeFor(turnDir string) *turnTree { return &turnTree{dir: filepath.Join(turnDir, treeDirName)} }
+func treeFor(turnDir string) *turnTree {
+	return &turnTree{dir: filepath.Join(turnDir, treeDirName), turnDir: turnDir}
+}
+
+// bindRootfs binds the release rootfs read-only inside the turn dir and answers the
+// path to export as the `root` share.
+//
+// The read-only-ness is the HOST's, which is the whole point: virtiofsd 1.10.1
+// exports whatever it is given with no read-only flag, and it serves the root share
+// as root, so the only thing standing between a guest and the release tree was the
+// guest's own mount options. MS_RDONLY makes it a kernel fact the guest cannot
+// influence (BUGS `L381`).
+func (t *turnTree) bindRootfs(src string) (string, error) {
+	target := filepath.Join(t.turnDir, rootfsDirName)
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		return "", fmt.Errorf("rootfs mount point: %w", err)
+	}
+	if err := unix.Mount(src, target, "", unix.MS_BIND|unix.MS_REC, ""); err != nil {
+		return "", fmt.Errorf("bind rootfs %s -> %s: %w", src, target, err)
+	}
+	if err := unix.Mount("", target, "", unix.MS_REMOUNT|unix.MS_BIND|unix.MS_RDONLY, ""); err != nil {
+		return "", fmt.Errorf("remount rootfs ro %s: %w", target, err)
+	}
+	return target, nil
+}
 
 // stageTargets creates the tree's mount points and writes the manifest. It makes
 // no mount, so it needs no privilege — which is what lets a test assert the
@@ -163,7 +198,17 @@ func (t *turnTree) bindAll(plan treeManifest) error {
 	return nil
 }
 
-// teardown unmounts everything under the tree and then removes it.
+// scanRoot is what teardown unmounts under: the TURN dir when the tree knows it,
+// so one pass covers the tree's own binds and the read-only rootfs beside them; the
+// tree dir alone when a disk scan built this value from a path and nothing else.
+func (t *turnTree) scanRoot() string {
+	if t.turnDir != "" {
+		return t.turnDir
+	}
+	return t.dir
+}
+
+// teardown unmounts everything under the turn dir and then removes the tree.
 //
 // The mount list comes from /proc/self/mountinfo rather than from the plan, so a
 // disk scan after a runed crash tears down a tree whose plan died with the
@@ -181,7 +226,7 @@ func (t *turnTree) teardown() error {
 		if err != nil {
 			return fmt.Errorf("staging tree teardown: %w", err)
 		}
-		mounts := mountedUnder(f, t.dir)
+		mounts := mountedUnder(f, t.scanRoot())
 		f.Close()
 		if len(mounts) == 0 {
 			break
@@ -201,7 +246,7 @@ func (t *turnTree) teardown() error {
 	if err != nil {
 		return fmt.Errorf("staging tree teardown: %w", err)
 	}
-	left := mountedUnder(f, t.dir)
+	left := mountedUnder(f, t.scanRoot())
 	f.Close()
 	if len(left) > 0 {
 		return fmt.Errorf("staging tree %s still has %d mounts (%s); tree kept",
