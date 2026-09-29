@@ -28,8 +28,9 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 > the proxy, which closes the UDP/53 side channel by construction
 > • the turn's credential is the guest's vsock CID, a host-kernel fact a guest
 > cannot forge, in place of the container's uid
-> • 2400 lines deleted — the Docker runtime, the per-folder network carve, the
-> proxy-container lifecycle, `RUNED_SUBSTRATE` and the docker socket
+> • 2800 lines net gone in one commit — measured, 3055 deleted against 258 added:
+> the Docker runtime, the per-folder network carve, the proxy-container lifecycle,
+> `RUNED_SUBSTRATE`, `CONTAINER_IMAGE` and the docker socket
 >
 > Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
 
