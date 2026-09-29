@@ -1122,3 +1122,22 @@ func TestRunedSeesSharedReleaseArtifacts(t *testing.T) {
 		t.Errorf("a path under the data mount must not be mounted twice:\n%s", own)
 	}
 }
+
+// TestMetricsEnabledReachesTheDaemons pins BUGS L380. Eight daemons mount
+// `/metrics` behind obs.MetricsEnabled, and compose emitted the variable to none of
+// them — so an operator who set it got nothing, and spec `6/44`'s gate sat armed
+// over a counter no scrape could ever read.
+//
+// The guard is the same one every env key needs: a var a daemon READS and compose
+// never EMITS is silently dead (BUGS reference `ant_env_delivery`).
+func TestMetricsEnabledReachesTheDaemons(t *testing.T) {
+	dir := seed(t, "METRICS_ENABLED=true\n")
+	gen(t, dir)
+	for _, d := range []string{"routd", "runed", "authd", "onbod", "webd", "dashd", "proxyd"} {
+		env := read(t, dir, "env/"+d+".env")
+		if !strings.Contains(env, "METRICS_ENABLED=true") {
+			t.Errorf("%s reads METRICS_ENABLED and compose does not emit it, so the value "+
+				"silently does not apply:\n%s", d, env)
+		}
+	}
+}

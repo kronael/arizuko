@@ -70,6 +70,13 @@ var commonKeys = []string{
 	"AUTHD_SERVICE_NAME",
 	// OTLP export (spec 5/O-observability). Unset -> stock JSON handler, zero overhead.
 	"ARIZUKO_INSTANCE",
+	// METRICS_ENABLED gates the `/metrics` endpoint EIGHT daemons mount
+	// (obs.MetricsEnabled). It belongs here because compose is the only thing that
+	// can deliver it: a var a daemon reads and compose never emits is silently
+	// dead, and this one left `6/44`'s gate armed over a counter nothing could
+	// scrape — the spec waits on a 7-day number that could not be taken (BUGS
+	// `L380`).
+	"METRICS_ENABLED",
 	"OTEL_EXPORTER_OTLP_ENDPOINT",
 	"OTEL_EXPORTER_OTLP_PROTOCOL",
 	"OTEL_EXPORTER_OTLP_HEADERS",

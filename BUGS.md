@@ -228,6 +228,41 @@ instance layout to drive.
   literal; it asserts what the declaration is for, that `EnvOr` on an unset var
   resolves to the shared default.
 
+## ✅ FIXED 2026-09-29 L380 — `METRICS_ENABLED` reaches no daemon, so `6/44`'s gate has been armed over a counter nothing can scrape (2026-09-29)
+
+Eight daemons mount `GET /metrics` behind `obs.MetricsEnabled`, which reads
+`METRICS_ENABLED` (`obs/metrics.go:119`). Measured 2026-09-29:
+`grep -c METRICS compose/compose.go` is **0**. The variable is in neither
+`commonKeys` nor any `daemonKeys` set, so compose emits it to nothing and an
+operator who sets it in `.env` gets silence. Both live instances have it unset, and
+setting it would have changed nothing.
+
+**What that costs is a spec.** `6/44` §"The gate" says the instrumentation ships
+first and alone, and the inversion waits on its number: `prose_only` over delivering
+turns, on krons, ≥ 2,000 turns, ≥ 5 folders, ≥ 7 days. The counter IS shipped —
+`arizuko_prose_fallback_turns_total`, registered in `obs/metrics.go:42` and
+incremented at `routd/turns.go:228` — so the spec reads as blocked on a measurement,
+while the measurement was never takeable. `6/44` has sat at `draft` waiting for a
+number no scrape could reach.
+
+This is `ant_env_delivery`'s class at the platform's own instrumentation: a var a
+daemon READS and compose never EMITS is silently dead, and it looks configured.
+`TestRunedEnvKeysCoverEveryRunedVar` derives runed's key set from runed's own source
+and would have caught it there — but `METRICS_ENABLED` is read through `obs`, not as
+a literal in a daemon's package, so no per-daemon guard sees it.
+
+- **Severity:** high for the roadmap (a phase-6 spec cannot advance), low for the
+  fleet (no runtime defect: metrics off is a supported state)
+- **Scope:** `compose/compose.go`
+- **Affected:** `METRICS_ENABLED`, the eight daemons' `/metrics`, spec `6/44`'s gate
+- **Source:** measured 2026-09-29: zero occurrences in compose, unset on both
+  instances, counter present and called
+- **Status:** ✅ FIXED 2026-09-29 (the code half; the operator turns it on)
+- **Fix:** `METRICS_ENABLED` joins `commonKeys` beside the OTLP keys, because every
+  daemon reads it through the same package. The test asserts it lands in seven
+  daemons' env files and fails when the key is removed from the set. Then the
+  operator turns it on and `6/44`'s window starts.
+
 ## L379 — anteval's callback sink is unreachable from a guest, so eight of nine cases time out on a working substrate (2026-09-27, open)
 
 `anteval --smoke` on sloth, on the VM substrate, quiet host, two run slots, a 3 h
