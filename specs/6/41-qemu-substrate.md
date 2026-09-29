@@ -1,5 +1,6 @@
 ---
 status: shipped
+defects: [L379, L387]
 depends:
   [
     20-sandbox-lifecycle-decline,
@@ -979,13 +980,23 @@ Eleven defects were measured on this path and each is recorded: `L367`–`L377`.
 of them (`L372`, `L373`, `L375`, `L377`) contradicted what this spec said, and the
 sections above are corrected rather than annotated.
 
-## Acceptance
+## Acceptance — the criteria, and which of them an artifact answers
 
-- `make bench-boot` on krons reports ≤ 1.0 s p50 to `guest-init`'s first
-  frame, and the number is in the changelog.
-- A turn on krons completes end to end over the VM substrate: prompt in,
-  `submit_turn` out, `RunResult.ExitCode` from the `{exit}` frame,
-  `anteval --smoke` green.
+Each line says what closes it. Three are NOT closed, and they are named rather
+than dropped: a criteria list that quietly loses its open items is a list that
+reports itself met.
+
+- ❌ `make bench-boot` on krons reports ≤ 1.0 s p50 to `guest-init`'s first
+  frame, and the number is in the changelog. **Not measured, and not measurable
+  as written** — the bench target runs `go test` on the host while `virtiofsd`
+  and `egress` live in the arizuko image, and production discards the `{ready}`
+  frame instead of timing it (BUGS `L387`). The user waived the gate for the
+  flip; the number is still unknown.
+- ⚠ A turn on krons completes end to end over the VM substrate: prompt in,
+  `submit_turn` out, `RunResult.ExitCode` from the `{exit}` frame — **met**, see
+  the MET record above. `anteval --smoke` green — **not met**: the harness
+  cannot observe a guest (BUGS `L379`), so its score says nothing about the
+  substrate.
 - A guest whose bridge is pinned to CID _N_ cannot reach folder _B_'s socket
   from a guest with CID _M_; the test is a second VM dialing the first VM's
   `mcp` port and being refused at `accept`.
@@ -997,16 +1008,25 @@ example.com` fails; a raw `nc` to any address off the tap times out.
 - The QEMU code is unexported inside `runed/`, so no other package can reach
   it, and `tests/components/imports_test.go:28` names `egress`, `substrate`
   and `mcpfw`.
-- No `docker` string remains under `runed/` or `container/` after step 4, and
-  `compose/compose_test.go:95-98` asserts that no service mounts
-  `docker.sock`.
+- ✅ Nothing under `runed/` or `container/` CALLS docker: no
+  `exec.Command("docker"…)`, no docker client import, and
+  `compose/compose_test.go:95-98` asserts that no service mounts `docker.sock`
+  (all three measured 2026-09-29). The criterion first said "no `docker` string
+  remains", which the code contradicts and should: ~19 comments name the Docker
+  substrate to record WHY a rule exists, and this project keeps a line that
+  documents a past failure. A string ban would have deleted the reasons along
+  with the code.
 - **runed refuses to start** when `guest_mem × MAX_CONCURRENT_CONTAINERS`
   exceeds the host's `MemTotal`, and the refusal names both settings
   (§"The host budget").
-- **A `SIGKILL` of runed mid-turn leaves nothing running.** Start a turn, kill
+- ❌ **A `SIGKILL` of runed mid-turn leaves nothing running.** Start a turn, kill
   runed with `-9`, restart it, and the disk scan reaps the QEMU process, both
   `virtiofsd`, the `egress` proxy, the tap and the staging tree — the test
-  asserts each pid is gone by name, not that the scan returned.
+  asserts each pid is gone by name, not that the scan returned. **No such test
+  exists**: `q.sweep()` has no test caller (measured 2026-09-29), and
+  `TestReapReleasesTheCIDWhenOnlyTheTreeIsStuck` covers the record half only.
+  The sweep is the one path that runs after a crash, so it is the one with no
+  operator watching it.
 - **A squatted vsock port fails the turn and never moves.** Bind the port runed
   would take, start a turn, and assert the turn fails with the bind error and
   that runed binds no other port (§"The peer credential").

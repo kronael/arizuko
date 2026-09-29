@@ -262,6 +262,50 @@ documented per-instance tags as a shipped feature.
   export, repoint `RUNED_ROOTFS_DIR`, restart one instance. `TestCreateEnvNamesNoAgentImage`
   pins the absence at the place the file is written.
 
+## L387 — the boot number `6/41` is gated on cannot be measured: the bench target cannot run on this host and production never records the ready frame (2026-09-29)
+
+`6/41`'s first acceptance criterion is "`make bench-boot` on krons reports ≤ 1.0 s
+p50 to `guest-init`'s first frame, and the number is in the changelog". Neither half
+is possible today.
+
+**The bench target cannot run here.** Measured 2026-09-29:
+
+```
+bench-boot: NOTHING WAS MEASURED. The test did not reach a booted guest:
+  - egress is not executable (RUNED_EGRESS_BIN=egress): executable file not found in $PATH
+  - RUNED_VIRTIOFSD=/usr/libexec/virtiofsd is not an executable file
+```
+
+Both binaries live in the **arizuko image**, not on the host, and `make bench-boot`
+runs `go test` on the host. The target's own guard is honest — it refuses rather than
+reporting a SKIP as a measurement — so this is a target written for an environment
+that does not exist, not a silent pass.
+
+**And production measures nothing either.** `ctlSession.ready` is written on the
+guest's `{ready}` frame and **has no reader outside the boot test** — measured, a
+tree-wide grep for `.ready` in `runed/` returns one line, the send. The channel is
+buffered 1 with a `default:` skip, so in production the frame arrives and is
+discarded. runed logs `booting guest` and, much later, `guest exited`; nothing between
+them, so the p50 cannot be recovered from the journal either (checked against 24 h of
+`arizuko_krons` logs: seven turns, no boot line).
+
+- **Severity:** low in behaviour, high for the gate (a criterion nothing can answer)
+- **Scope:** `Makefile` (`bench-boot`), `runed/vmctl.go`, `specs/6/41-qemu-substrate.md`
+- **Affected:** `6/41`'s acceptance criterion 1
+- **Source:** ran `make bench-boot DATA_DIR=/srv/data/arizuko_krons` 2026-09-29; the
+  absent production reader measured by grep, the absent log line by journal
+- **Status:** open. The user waived this gate for the flip ("flip regardless of the
+  number"), so nothing is blocked on it; it is the MEASUREMENT that is missing, and a
+  waived gate that also cannot be measured later is how a number stays unknown forever.
+- **Fix, one line of production rather than a harness:** runed logs the boot split when
+  the `{ready}` frame arrives — the delta from `booting guest`, plus the guest's own
+  probe map. Then every turn on both instances measures the gate and the changelog
+  number comes from production instead of a synthetic boot. `make bench-boot` then
+  stops being the only path to the number, and its own fix is separate: run the test
+  inside the arizuko image, which is where `virtiofsd` and `egress` are.
+- **Also stale:** `bench-boot` still exports `RUNED_SUBSTRATE=qemu`, a variable
+  `6/41` step 4 deleted.
+
 ## L386 — `make lint`, the ONE gate CI enforces, cannot read its own config, so 80 issues accumulated behind it (2026-09-29)
 
 `.golangci.yml` carried no `version` key, which is schema v1. The installed binary
