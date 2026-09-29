@@ -228,6 +228,42 @@ instance layout to drive.
   literal; it asserts what the declaration is for, that `EnvOr` on an unset var
   resolves to the shared default.
 
+## ✅ FIXED 2026-09-29 L383 — the tap's rule set is IPv4 only, so a guest reaches runed's own API over IPv6 link-local (2026-09-29)
+
+`tapRules` renders six `iptables` rules (`runed/vmnet.go`). `iptables` is IPv4.
+The guest kernel carries a **full IPv6 stack** — measured, `CONFIG_IPV6=y` plus
+eleven IPv6 options in the built `kernel.config` on both instances, because
+Firecracker's microvm config is the base and arizuko's fragment does not turn it
+off.
+
+So the guest and the host side of the tap each take a link-local address, and the
+guest reaches every IPv6 listener in runed's namespace — **runed's own `:8080`
+among them**, because Go's `":8080"` binds the wildcard in both families
+(measured: `ss -ltn` in `arizuko_runed_krons` shows `*:8080`). The drops the guest
+is supposed to face are in the wrong table to see any of it.
+
+It is closed today only by the environment: `net.ipv6.conf.all.disable_ipv6` and
+`.default.disable_ipv6` are both `1` inside `arizuko_runed_krons`, which docker
+sets for a container on a v4-only network, and `ip6tables -S` in that namespace is
+three ACCEPT policies and nothing else. An operator who enables IPv6 on the
+compose network opens the hole with no arizuko change and no warning.
+
+- **Severity:** high if it opens (guest reaches the daemon that starts turns),
+  latent today
+- **Scope:** `runed/vmnet.go`
+- **Affected:** every guest, both instances
+- **Source:** codex audit of the 6/41 substrate, 2026-09-29; the guest kernel's
+  IPv6, runed's listener and the container's sysctls each measured rather than
+  assumed
+- **Status:** ✅ FIXED 2026-09-29
+- **Fix — remove the family, do not filter it.** `sealIPv6` writes
+  `/proc/sys/net/ipv6/conf/<tap>/disable_ipv6` before the link comes up, so the
+  device has no IPv6 address to reach anything with. That keeps ONE rule renderer:
+  a second one in `ip6tables` would be a second declaration of the same policy,
+  and a second binary precondition. A kernel with no IPv6 has no knob and nothing
+  to disable, so an absent path is not an error; a write that fails IS one,
+  because a turn must never run with an address family its rule set cannot see.
+
 ## ✅ FIXED 2026-09-29 L382 — `L378`'s own fix derives every per-turn number from the absolute CID, so a second instance's tap runs off the subnet and its ports move (2026-09-29)
 
 `L378` gave each instance a window of the host's vsock space, `RUNED_VSOCK_CID_BASE`.

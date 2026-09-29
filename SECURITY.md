@@ -116,7 +116,7 @@ tenant's routes or tasks.
 | Secrets at rest     | AES-256-GCM encrypted (`v2:` prefix, key=SHA-256(`SECRETS_KEY`); required — routd refuses to start without it, no `AUTH_SECRET` fallback); comma keyring for rotation; legacy plaintext rows sealed in place by the explicit `arizuko secret <inst> seal-legacy` verb (never on boot, never deleted)                                                             | `store/secrets.go`, `cmd/arizuko/secret.go`                                                                                  |
 | Secret injection    | The guest's env carries model credentials ONLY: operator anchors from host `.env`, overridden by the triggering user's own `store.EnvProfileKeys` (BYOA). Capability credentials are broker-only — resolved on the host per tool call, narrowed to the keys that call declares, scrubbed from the result (`specs/5/13-ext-mcp.md`, `specs/5/14-credentials.md`). | `routd/sibling_db.go` (`EnvProfileSecrets`), `runed/secrets.go` (`mergeSecrets`), `routd/mcp.go` (`ResolveConnectorSecrets`) |
 | Onboarding rate cap | Per-gate daily limit from `onboarding_gates` table                                                                                                                                                                                                                                                                                                               | `onbod/main.go` (`admitFromQueue`)                                                                                           |
-| Network egress      | Default-deny for TCP: the turn's tap has no route but to its own proxy, which holds the per-folder allowlist and serves that turn's address only. UDP/53 sits outside it (§ No DNS filter)                                                                                                                                                                       | `egress/`, `store/network.go`, `runed/vmnet.go`                                                                              |
+| Network egress      | Default-deny for TCP: the turn's tap has no route but to its own proxy, which holds the per-folder allowlist and serves that turn's address only. UDP/53 has nowhere to go (§ No DNS filter) and IPv6 is taken off the tap before the link comes up                                                                                                              | `egress/`, `store/network.go`, `runed/vmnet.go`                                                                              |
 | Store access        | One access key per daemon, signed as itself over TLS; the server's policy bounds each key to the owner prefixes that daemon reaches (`<owner>.<entity>`). A file instance binds one `store/<owner>/` subdir per container instead                                                                                                                                | `objstore/dynstore/env.go`, `compose/compose.go`, INSTALL.md § The store server                                              |
 
 Anything not in this table is not a security boundary. In particular:
@@ -398,6 +398,17 @@ query has nowhere to go — the tap drops UDP/53 with everything else that is
 not to the proxy (spec `6/41` §"Egress by name, sealed below the kernel").
 That closes the side channel by construction rather than by a filter added on
 top.
+
+**One address family, because the rule set only has one.** The tap's rule set is
+`iptables`, so it says nothing about IPv6, and the guest kernel carries a full
+IPv6 stack. `runed` therefore takes the family off the device — it writes
+`net/ipv6/conf/<tap>/disable_ipv6` before the link comes up (`runed/vmnet.go`
+`sealIPv6`), and a write it cannot make fails the turn. Without the seal, the
+guest and the host side of the tap each take a link-local address and the guest
+reaches every IPv6 listener in runed's namespace, runed's own `:8080` among them,
+in a table the drops are not written in. Docker happens to close it by setting
+`disable_ipv6=1` in a container on a v4-only network; a boundary that rests on
+somebody else's default is not a boundary (BUGS `L383`).
 
 ## Per-daemon docs
 

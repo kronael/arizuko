@@ -735,3 +735,45 @@ func TestTapSubnetIsCheckedForEverySlot(t *testing.T) {
 		t.Errorf("the refusal must name the subnet's limit: %s", missing[0])
 	}
 }
+
+// TestSealIPv6TakesTheFamilyOffTheTap pins BUGS `L383`. The rule set is iptables,
+// so it says nothing about IPv6; without the seal the guest and the host side of
+// the tap each take a link-local address and the guest reaches every IPv6 listener
+// in runed's namespace, runed's own :8080 included.
+//
+// Docker closes it today by setting disable_ipv6=1 in a container on a v4-only
+// network. That is somebody else's default, so the seal makes it arizuko's fact.
+func TestSealIPv6TakesTheFamilyOffTheTap(t *testing.T) {
+	root := t.TempDir()
+	ipv6ConfDir = root
+	t.Cleanup(func() { ipv6ConfDir = "/proc/sys/net/ipv6/conf" })
+
+	const tap = "arz-ab12-t01"
+	if err := os.MkdirAll(filepath.Join(root, tap), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	knob := filepath.Join(root, tap, "disable_ipv6")
+	if err := os.WriteFile(knob, []byte("0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := sealIPv6(tap); err != nil {
+		t.Fatalf("seal: %v", err)
+	}
+	if b, _ := os.ReadFile(knob); strings.TrimSpace(string(b)) != "1" {
+		t.Errorf("disable_ipv6 = %q, want 1", strings.TrimSpace(string(b)))
+	}
+
+	// A kernel with no IPv6 has no knob and nothing to disable.
+	if err := sealIPv6("arz-ab12-t99"); err != nil {
+		t.Errorf("an absent knob is not an error: %v", err)
+	}
+
+	// A knob that will not take the write IS an error: the turn must not run with
+	// an address family its rule set cannot see.
+	if err := os.MkdirAll(filepath.Join(root, "arz-ab12-t02", "disable_ipv6"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := sealIPv6("arz-ab12-t02"); err == nil {
+		t.Error("a failed write must fail the turn")
+	}
+}

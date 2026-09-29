@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -132,18 +134,67 @@ func (q *qemuRuntime) rulesDown(rec *vmRecord) {
 	}
 }
 
-// tapUp creates the guest's tap and addresses the host side of it.
-func (q *qemuRuntime) tapUp(rec *vmRecord) error {
-	steps := [][]string{
-		{"tuntap", "add", "dev", rec.Tap, "mode", "tap"},
-		{"addr", "add", fmt.Sprintf("%s/%d", rec.HostIP, tapPrefix), "dev", rec.Tap},
-		{"link", "set", rec.Tap, "up"},
+// ipv6ConfDir is the per-device IPv6 knob tree. A var so a test can point it at
+// a temp tree; production never reassigns it.
+var ipv6ConfDir = "/proc/sys/net/ipv6/conf"
+
+// sealIPv6 removes the IPv6 address family from the tap, before the link comes up.
+//
+// The rule set is iptables, so it says nothing about IPv6 (`tapRules`). Without
+// this seal the guest and the host side of the tap each take a link-local address
+// and the guest reaches every IPv6 listener in runed's namespace — runed's own
+// :8080 among them, because Go's ":8080" binds the wildcard in both families. The
+// drops the guest is supposed to face are in the wrong table to see any of it.
+//
+// It is closed today only by the environment: docker sets disable_ipv6=1 in a
+// container on a v4-only network (measured in arizuko_runed_krons). An operator
+// who enables IPv6 on the compose network opens it, and a boundary that rests on
+// somebody else's default is not a boundary (BUGS `L383`).
+//
+// A kernel built without IPv6 has no knob and nothing to disable, so an absent
+// path is not an error. A write that fails IS one: a turn must never run with an
+// address family its rule set cannot see.
+func sealIPv6(tap string) error {
+	p := filepath.Join(ipv6ConfDir, tap, "disable_ipv6")
+	if _, err := os.Stat(p); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("seal ipv6 on %s: %w", tap, err)
 	}
-	for _, s := range steps {
+	if err := os.WriteFile(p, []byte("1\n"), 0o644); err != nil {
+		return fmt.Errorf("seal ipv6 on %s: %w", tap, err)
+	}
+	return nil
+}
+
+// tapUp creates the guest's tap, seals IPv6 on it, and addresses the host side.
+//
+// The seal sits between the creation and the link coming up, because a link that
+// is up has its link-local address already.
+func (q *qemuRuntime) tapUp(rec *vmRecord) error {
+	run := func(s ...string) error {
 		if out, err := exec.Command(q.paths.IP, s...).CombinedOutput(); err != nil {
-			q.tapDown(rec.Tap)
 			return fmt.Errorf("ip %s: %w (%s)", strings.Join(s, " "), err,
 				strings.TrimSpace(string(out)))
+		}
+		return nil
+	}
+	if err := run("tuntap", "add", "dev", rec.Tap, "mode", "tap"); err != nil {
+		q.tapDown(rec.Tap)
+		return err
+	}
+	if err := sealIPv6(rec.Tap); err != nil {
+		q.tapDown(rec.Tap)
+		return err
+	}
+	for _, s := range [][]string{
+		{"addr", "add", fmt.Sprintf("%s/%d", rec.HostIP, tapPrefix), "dev", rec.Tap},
+		{"link", "set", rec.Tap, "up"},
+	} {
+		if err := run(s...); err != nil {
+			q.tapDown(rec.Tap)
+			return err
 		}
 	}
 	return nil
