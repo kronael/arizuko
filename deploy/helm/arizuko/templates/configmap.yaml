@@ -20,8 +20,7 @@ data:
   HOST_APP_DIR: /opt/arizuko
   APP_SRC_DIR: /opt/arizuko
   ROUTER_URL: {{ include "arizuko.routerURL" . | quote }}
-  # Agent spawn knobs (gated → arizuko-ant).
-  CONTAINER_IMAGE: {{ .Values.agentImage | quote }}
+  # Agent spawn knobs.
   CONTAINER_TIMEOUT: {{ .Values.config.containerTimeout | quote }}
   IDLE_TIMEOUT: {{ .Values.config.idleTimeout | quote }}
   MAX_CONCURRENT_CONTAINERS: {{ .Values.config.maxConcurrentContainers | quote }}

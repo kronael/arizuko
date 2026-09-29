@@ -228,6 +228,40 @@ instance layout to drive.
   literal; it asserts what the declaration is for, that `EnvOr` on an unset var
   resolves to the shared default.
 
+## ✅ FIXED 2026-09-29 L384 — `CONTAINER_IMAGE` is read by nothing, and eleven places still present it as the way to pick the agent image (2026-09-29)
+
+`core.LoadConfig` assigned `Image: EnvOr("CONTAINER_IMAGE", DefaultImage)` and
+**nothing read `Config.Image`** — measured, a tree-wide grep for `.Image` outside
+`third_party/` and `bskyd/` returns only that assignment.
+
+The guest boots the exported root filesystem TREE that `RUNED_ROOTFS_DIR` names, and
+`make rootfs` exports it from the hardcoded `arizuko-ant:latest` (`Makefile`
+`ROOTFS_KEY`). So the image name is a build input with one declaration, and the env
+var is a dead second one.
+
+A var nothing reads is worse than an absent one. The operator who retags an image
+and sets it here gets a **silent no-op**, and every reader of the eleven places that
+still name it — `template/env.example`, the `.env` `arizuko create` writes,
+`compose`'s emitted key set, the helm ConfigMap, `ARCHITECTURE.md`'s anchor-var
+list, `cmd/arizuko/README.md`, `specs/4/P-personas.md` ("`CONTAINER_IMAGE` in
+`.env` selects the tag"), and the `env.html` / `kubernetes.html` operator pages —
+believes the platform resolves an image name per instance. `specs/4/P` even
+documented per-instance tags as a shipped feature.
+
+- **Severity:** low in behaviour, high in documentation (a setting that does nothing)
+- **Scope:** `core/config.go`, `core/config_test.go`, `compose/compose.go`,
+  `cmd/arizuko/main.go`, `template/env.example`, `deploy/helm/arizuko/`,
+  `ARCHITECTURE.md`, `cmd/arizuko/README.md`, `specs/4/P-personas.md`,
+  `template/web/pub/arizuko/{reference/env.html,howto/kubernetes.html}`
+- **Affected:** `core.Config.Image`, `core.DefaultImage`
+- **Source:** found while verifying the docs sweep's compose claims, 2026-09-29;
+  the absent reader measured, not inferred
+- **Status:** ✅ FIXED 2026-09-29
+- **Fix:** the var, the field and the `DefaultImage` constant are deleted, so the
+  tag has ONE declaration — the `Makefile`'s. `4/P` now says selection is by tree:
+  export, repoint `RUNED_ROOTFS_DIR`, restart one instance. `TestCreateEnvNamesNoAgentImage`
+  pins the absence at the place the file is written.
+
 ## ✅ FIXED 2026-09-29 L385 — the turn log truncates at 10 MB and says nothing, so the log worth reading is the one that ends mid-line (2026-09-29)
 
 `lineBuffer.add` returned early once the builder passed `maxOutputSize`

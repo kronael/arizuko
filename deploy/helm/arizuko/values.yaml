@@ -16,9 +16,9 @@ image:
   tag: latest
   pullPolicy: IfNotPresent
 
-# The agent image gated/runed spawns once per turn via the container runtime.
-# It is NOT a Deployment here — gated launches it through the docker socket
-# (see agentRuntime below). Set to whatever CONTAINER_IMAGE you built.
+# The agent image `make rootfs` exports the guest's root filesystem from. It is
+# a BUILD input, not a runtime setting: runed boots the exported tree named by
+# RUNED_ROOTFS_DIR and never resolves an image name (spec 6/41).
 agentImage: arizuko-ant:latest
 
 # Helper images for the web/storage plane (built by `make images`).

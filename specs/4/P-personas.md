@@ -32,10 +32,14 @@ steps inside the migration `.md`.
 
 ## Image distribution
 
-- Single `arizuko-ant:latest` built from `ant/`
-- Per-instance tags: `arizuko-ant-<name>:latest`
-- `CONTAINER_IMAGE` in `.env` selects the tag
-- Selective upgrades: tag + restart one instance
+- Single `arizuko-ant:latest` built from `ant/`, exported to a root filesystem
+  tree by `make rootfs`
+- Per-instance selection is by TREE, not by tag: `RUNED_ROOTFS_DIR` in `.env`
+  names the exported directory runed boots (spec `6/41` §"The image and the guest
+  kernel"). The tree is content-addressed, so two instances on the same release
+  share one copy
+- Selective upgrades: export the new tree, repoint `RUNED_ROOTFS_DIR`, restart
+  one instance
 
 ## Persona files
 

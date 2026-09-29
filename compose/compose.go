@@ -144,11 +144,11 @@ var daemonKeys = map[string][]string{
 		// Surrogate OAuth (spec 5/15): routd's broker refreshes near-expiry tokens.
 		"SURROGATE_GITHUB_CLIENT_ID", "SURROGATE_GITHUB_CLIENT_SECRET",
 	},
-	// runed: execution plane, the ONLY daemon wired to docker.sock.
+	// runed: execution plane, the ONLY daemon wired to /dev/kvm.
 	"runed": {
 		"AUTHD_URL", "AUTHD_SERVICE_KEY",
-		"CONTAINER_IMAGE", "CONTAINER_TIMEOUT",
-		// Bounds the run: the container hard-kill AND (minus 30s) the agent
+		"CONTAINER_TIMEOUT",
+		// Bounds the run: the guest hard-kill AND (minus 30s) the agent
 		// query timeout. Default 20m.
 		"RUNED_RUN_TIMEOUT",
 		// The turn substrate and everything the QEMU one reads (spec 6/41
@@ -176,7 +176,7 @@ var daemonKeys = map[string][]string{
 		// runed re-emits it as container env and allows the host through the
 		// spawn's egress proxy. NOT the master key: routd mints each turn's key
 		// and runed injects only the one it is handed (spec 6/23), so the daemon
-		// holding docker.sock has no credential of its own.
+		// that starts the guests has no credential of its own.
 		"MODEL_GATEWAY_URL",
 		// NO SECRETS_KEY: runed injects the credentials routd already decrypted
 		// and opens no secrets table, so the key had no reader here, only a

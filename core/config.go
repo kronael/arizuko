@@ -18,11 +18,6 @@ import (
 // avoid import cycles (container imports ipc).
 const ContainerHome = "/home/node"
 
-// DefaultImage is the agent container image name used when CONTAINER_IMAGE
-// is not set. cmd/arizuko seeds this value into generated .env files; both
-// must stay in sync.
-const DefaultImage = "arizuko-ant:latest"
-
 // DefaultAPIPort is the default daemon HTTP listen port, used as the default
 // for API_PORT in config, compose generation, and seeded .env files.
 const DefaultAPIPort = 8080
@@ -54,7 +49,6 @@ func AppSrcDir() string {
 type Config struct {
 	Name          string
 	TelegramToken string
-	Image         string
 	// ModelGatewayURL points every harness at an LLM gateway that holds the
 	// real model credential, meters and logs; ModelGatewayKey is the virtual
 	// credential the container presents to it. One declaration, translated
@@ -64,7 +58,7 @@ type Config struct {
 	ModelGatewayKey string
 	// AgentBackend selects the container occupant (spec 6/16 — the harness
 	// seam): claude (default, empty), codex, pi. Static infra config — a
-	// backend exists only if its CLI is baked into Image — so it lives in the
+	// backend exists only if its CLI is baked into the agent image — so it lives in the
 	// instance .env, never the DB.
 	AgentBackend        string
 	Timeout             time.Duration
@@ -227,7 +221,6 @@ func LoadConfig() (*Config, error) {
 	c := &Config{
 		Name:                name,
 		TelegramToken:       EnvOr("TELEGRAM_BOT_TOKEN", ""),
-		Image:               EnvOr("CONTAINER_IMAGE", DefaultImage),
 		AgentBackend:        EnvOr("ARIZUKO_BACKEND", ""),
 		ModelGatewayURL:     EnvOr("MODEL_GATEWAY_URL", ""),
 		ModelGatewayKey:     EnvOr("MODEL_GATEWAY_KEY", ""),

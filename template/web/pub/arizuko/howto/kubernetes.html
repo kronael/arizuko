@@ -304,7 +304,7 @@
           <tr><td><code>timed</code></td><td>Deployment + Service, <code>replicas: 1</code></td><td>no volume</td></tr>
           <tr><td><code>proxyd</code>, <code>webd</code></td><td>Deployment + Service</td><td>no volume; <code>proxyd</code> is what the Ingress points at</td></tr>
           <tr><td>adapter (<code>teled</code>, <code>slakd</code>, &hellip;)</td><td>Deployment + Service per account</td><td><code>replicas: 1</code>, small RWO volume</td></tr>
-          <tr><td>non-secret <code>.env</code></td><td>ConfigMap &rarr; <code>envFrom</code></td><td><code>ASSISTANT_NAME</code>, <code>CONTAINER_IMAGE</code>, <code>WEB_HOST</code>, <code>HOST_DATA_DIR</code>, <code>DYNAMODB_URL</code>, &hellip;</td></tr>
+          <tr><td>non-secret <code>.env</code></td><td>ConfigMap &rarr; <code>envFrom</code></td><td><code>ASSISTANT_NAME</code>, <code>WEB_HOST</code>, <code>HOST_DATA_DIR</code>, <code>DYNAMODB_URL</code>, &hellip;</td></tr>
           <tr><td>secret <code>.env</code></td><td>Secret &rarr; <code>envFrom</code></td><td><code>SECRETS_KEY</code>, <code>AUTH_SECRET</code>, <code>AUTHD_SERVICE_KEY</code>, <code>AWS_SECRET_ACCESS_KEY</code>, adapter tokens</td></tr>
         </tbody>
       </table>
@@ -348,7 +348,6 @@ data:
   ASSISTANT_NAME: "Ari"
   ARIZUKO_INSTANCE: "demo"
   WEB_HOST: "https://demo.example.com"
-  CONTAINER_IMAGE: "arizuko-ant:latest"
   DATA_DIR: "/srv/app/home"
   # the NODE path of the same volume — runed's hp() rewrites every turn's
   # bind source through this. Wrong value = every turn shares in nothing.
@@ -647,7 +646,7 @@ curl -s http://localhost:8080/health</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/howto/kubernetes.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-09-22">2026-09-22</time>
+        &middot; updated <time class="docs-updated" datetime="2026-09-25">2026-09-25</time>
       </div>
     </main>
 

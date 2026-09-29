@@ -50,3 +50,31 @@ func TestCreateEnvCarriesNoEgressSwitch(t *testing.T) {
 		}
 	}
 }
+
+// TestCreateEnvNamesNoAgentImage pins BUGS `L384`. `CONTAINER_IMAGE` had no reader
+// left: `core.Config.Image` was assigned from it and read by nothing, because the
+// guest boots the exported root filesystem tree `RUNED_ROOTFS_DIR` names and
+// `make rootfs` exports that from the hardcoded `arizuko-ant:latest`.
+//
+// A var that nothing reads is worse than an absent one: the operator who retags an
+// image and sets it here gets a silent no-op, and the next reader believes the
+// platform resolves an image name per instance. `create` is where the file is
+// written, so this is where the absence is pinned.
+func TestCreateEnvNamesNoAgentImage(t *testing.T) {
+	t.Cleanup(func() { dropInstance(t) })
+	base := t.TempDir()
+	t.Setenv("ARIZUKO_DATA_DIR", base)
+	t.Setenv("DATA_DIR", "")
+
+	cmdCreate([]string{"imginst"})
+
+	b, err := os.ReadFile(filepath.Join(base, "arizuko_imginst", ".env"))
+	if err != nil {
+		t.Fatalf("create wrote no .env: %v", err)
+	}
+	if strings.Contains(string(b), "CONTAINER_IMAGE") {
+		t.Errorf("the generated .env names CONTAINER_IMAGE; nothing reads it, so an "+
+			"operator who sets it gets a silent no-op — the tree is named by "+
+			"RUNED_ROOTFS_DIR (spec 6/41):\n%s", b)
+	}
+}

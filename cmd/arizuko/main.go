@@ -318,8 +318,8 @@ func cmdCreate(args []string) {
 		// sealed below the kernel"), so isolation is a property of the substrate
 		// rather than a variable an operator can leave empty. That closes the
 		// half of BUGS `L24` that asked whether the default should be on.
-		content := fmt.Sprintf("ASSISTANT_NAME=%s\nCONTAINER_IMAGE=%s\nAPI_PORT=%d\nAUTH_SECRET=%s\nSECRETS_KEY=%s\nARIZUKO_DEFAULT_PRODUCT=%s\n",
-			name, core.DefaultImage, core.DefaultAPIPort, hex.EncodeToString(authSecret), hex.EncodeToString(secretsKey), product)
+		content := fmt.Sprintf("ASSISTANT_NAME=%s\nAPI_PORT=%d\nAUTH_SECRET=%s\nSECRETS_KEY=%s\nARIZUKO_DEFAULT_PRODUCT=%s\n",
+			name, core.DefaultAPIPort, hex.EncodeToString(authSecret), hex.EncodeToString(secretsKey), product)
 		// 0600: .env holds AUTH_SECRET plus operator-populated OAuth
 		// secrets and tokens — not world-readable.
 		if err := os.WriteFile(envFile, []byte(content), 0o600); err != nil {

@@ -14,7 +14,7 @@ func TestLoadConfigDefaults(t *testing.T) {
 	// Clear env to test defaults
 	for _, k := range []string{
 		"ASSISTANT_NAME", "TELEGRAM_BOT_TOKEN",
-		"CONTAINER_IMAGE", "MAX_CONCURRENT_CONTAINERS", "TZ",
+		"MAX_CONCURRENT_CONTAINERS", "TZ",
 	} {
 		os.Unsetenv(k)
 	}
@@ -31,9 +31,6 @@ func TestLoadConfigDefaults(t *testing.T) {
 	if cfg.Name != DefaultAssistantName {
 		t.Fatalf("expected the shared default %q, got %q", DefaultAssistantName, cfg.Name)
 	}
-	if cfg.Image != "arizuko-ant:latest" {
-		t.Fatalf("expected default image, got %q", cfg.Image)
-	}
 	if cfg.MaxContainers != 5 {
 		t.Fatalf("expected 5 max containers, got %d", cfg.MaxContainers)
 	}
@@ -45,13 +42,11 @@ func TestLoadConfigDefaults(t *testing.T) {
 func TestLoadConfigFromEnv(t *testing.T) {
 	os.Setenv("ASSISTANT_NAME", "TestBot")
 	os.Setenv("TELEGRAM_BOT_TOKEN", "abc123")
-	os.Setenv("CONTAINER_IMAGE", "custom:v1")
 	os.Setenv("MAX_CONCURRENT_CONTAINERS", "10")
 	os.Setenv("ARIZUKO_DEV", "true")
 	defer func() {
 		os.Unsetenv("ASSISTANT_NAME")
 		os.Unsetenv("TELEGRAM_BOT_TOKEN")
-		os.Unsetenv("CONTAINER_IMAGE")
 		os.Unsetenv("MAX_CONCURRENT_CONTAINERS")
 		os.Unsetenv("ARIZUKO_DEV")
 	}()
@@ -66,9 +61,6 @@ func TestLoadConfigFromEnv(t *testing.T) {
 	}
 	if cfg.TelegramToken != "abc123" {
 		t.Fatalf("expected abc123, got %q", cfg.TelegramToken)
-	}
-	if cfg.Image != "custom:v1" {
-		t.Fatalf("expected custom:v1, got %q", cfg.Image)
 	}
 	if cfg.MaxContainers != 10 {
 		t.Fatalf("expected 10, got %d", cfg.MaxContainers)

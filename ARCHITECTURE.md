@@ -1061,7 +1061,8 @@ turn is scoped to its own folder subtree. Full tool table in
 
 - `.env` — config; daemons read it from cwd (`core.LoadConfig`). Anchor
   vars: `AUTHD_SERVICE_KEY`, `AUTH_SECRET`, `HOST_DATA_DIR`,
-  `CONTAINER_IMAGE`, `WEB_HOST`, `ASSISTANT_NAME`; per-daemon vars in each
+  `RUNED_KERNEL_DIR`, `RUNED_ROOTFS_DIR`, `WEB_HOST`, `ASSISTANT_NAME`;
+  per-daemon vars in each
   `<daemon>/README.md`. Business state (gates, grants, onboarding) lives in
   the DB; infra toggles live in env.
 - `store/` — the instance's state. `store/extenddb/` holds the server's config
