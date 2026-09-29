@@ -818,17 +818,25 @@ func (q *qemuRuntime) sweep() {
 	}
 }
 
-// lineBuffer collects the guest's log lines for the turn log, bounded the way
-// the Docker substrate bounds its stderr.
+// lineBuffer collects the guest's log lines for the turn log, bounded the way the
+// Docker substrate bounded its stderr.
+//
+// Past the bound it COUNTS instead of writing, and says so at the end. A log that
+// stops at 10 MB and says nothing reads as a guest that stopped talking, which is
+// the same silence BUGS `L375` cost a day to: the turn that produces 10 MB of
+// stderr is the one being read, so the reader must be told the tail is missing
+// (BUGS `L385`).
 type lineBuffer struct {
-	mu sync.Mutex
-	b  strings.Builder
+	mu      sync.Mutex
+	b       strings.Builder
+	dropped int
 }
 
 func (l *lineBuffer) add(line string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if l.b.Len() >= maxOutputSize {
+		l.dropped++
 		return
 	}
 	l.b.WriteString(line)
@@ -838,7 +846,11 @@ func (l *lineBuffer) add(line string) {
 func (l *lineBuffer) String() string {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	return l.b.String()
+	if l.dropped == 0 {
+		return l.b.String()
+	}
+	return fmt.Sprintf("%s... %d more line(s) dropped: the guest's log passed the %d MB cap\n",
+		l.b.String(), l.dropped, maxOutputSize/(1024*1024))
 }
 
 // newPrefixWriter turns a child's stderr into log lines, so a virtiofsd or a

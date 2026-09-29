@@ -57,3 +57,34 @@ func TestTurnLogStaysShortWhenTheGuestReportedSuccess(t *testing.T) {
 		t.Errorf("the summary form is what it should have written:\n%s", got)
 	}
 }
+
+// TestLineBufferSaysWhatItDropped pins BUGS `L385`. The guest's log is capped at
+// 10 MB, and past the cap `add` wrote nothing and said nothing — so the turn whose
+// log is worth reading, the one that produced 10 MB of stderr, ended mid-line and
+// read as a guest that stopped talking.
+//
+// This is the same silence `L375` cost a day to: an absent tail must name itself.
+func TestLineBufferSaysWhatItDropped(t *testing.T) {
+	var l lineBuffer
+
+	l.add("the first line")
+	if got := l.String(); got != "the first line\n" {
+		t.Errorf("under the cap the buffer is the lines alone, got %q", got)
+	}
+
+	// One line over the cap, then three more.
+	l.add(strings.Repeat("x", maxOutputSize))
+	for range 3 {
+		l.add("dropped")
+	}
+	got := l.String()
+	if strings.Contains(got, "dropped\n") {
+		t.Error("past the cap the buffer must stop writing")
+	}
+	for _, want := range []string{"3 more line(s) dropped", "10 MB cap"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the buffer must name what it dropped, %q absent from the tail:\n%s",
+				want, got[len(got)-200:])
+		}
+	}
+}

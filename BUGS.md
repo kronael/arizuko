@@ -228,6 +228,25 @@ instance layout to drive.
   literal; it asserts what the declaration is for, that `EnvOr` on an unset var
   resolves to the shared default.
 
+## ✅ FIXED 2026-09-29 L385 — the turn log truncates at 10 MB and says nothing, so the log worth reading is the one that ends mid-line (2026-09-29)
+
+`lineBuffer.add` returned early once the builder passed `maxOutputSize`
+(`runed/qemu.go`). It wrote nothing more and recorded nothing about it, so the turn
+log simply stopped.
+
+The turn that produces 10 MB of stderr is the turn somebody is reading. It ends
+mid-line with no marker, which reads as a guest that stopped talking — the exact
+silence `L375` cost a day to, where QEMU's own exit 0 hid an agent that exited 1.
+
+- **Severity:** low (diagnosis only, no wrong behaviour)
+- **Scope:** `runed/qemu.go`
+- **Affected:** `lineBuffer`
+- **Source:** codex audit of the 6/41 substrate, 2026-09-29
+- **Status:** ✅ FIXED 2026-09-29
+- **Fix:** past the cap `add` counts instead of writing, and `String` ends with
+  `... N more line(s) dropped: the guest's log passed the 10 MB cap`. An absent tail
+  now names itself. `TestLineBufferSaysWhatItDropped` pins it.
+
 ## ✅ FIXED 2026-09-29 L383 — the tap's rule set is IPv4 only, so a guest reaches runed's own API over IPv6 link-local (2026-09-29)
 
 `tapRules` renders six `iptables` rules (`runed/vmnet.go`). `iptables` is IPv4.
