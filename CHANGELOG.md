@@ -52,9 +52,56 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   isolation should default on: it cannot default off.
 - **`RUNED_SUBSTRATE` is gone.** One legal value is a setting that stops applying
   without saying so.
+- **`CONTAINER_IMAGE` is gone**, with `core.Config.Image` and `core.DefaultImage`.
+  Nothing read the field: the guest boots the exported root filesystem tree
+  `RUNED_ROOTFS_DIR` names, and `make rootfs` exports it from `arizuko-ant:latest`.
+  An operator who retagged an image and set it here got a silent no-op, and
+  `specs/4/P` documented per-instance tags as a shipped feature. Selection is by
+  tree now: export, repoint `RUNED_ROOTFS_DIR`, restart one instance (BUGS `L384`).
 
 ### Fixed
 
+- The turn's numbers all come from its SLOT. `RUNED_VSOCK_CID_BASE` gives each
+  instance a window of the host's vsock space, because a CID identifies a guest to
+  the host kernel and both instances were claiming 3; and the tap's name, the tap's
+  /30 and the two vsock ports are then derived from `cid - CIDBase` rather than from
+  the absolute CID, which had put the ports where no operator asked for them and run
+  the tap subnet out at any base over 64 (BUGS `L378`, `L382`).
+- The guest gets an address and a route before its init runs, on the kernel command
+  line. Without them every model call hung to the turn's deadline, on a substrate
+  that was otherwise working (BUGS `L377`).
+- The agent's own output leaves the guest. QEMU's exit status is QEMU's, and it was 0
+  while the agent had exited 1, so the one failure worth reading recorded a clean
+  turn and dropped the stderr. An absent exit frame is now the error condition, and a
+  log truncated at its 10 MB cap says how many lines it dropped (BUGS `L375`, `L385`).
+- The guest has a `/dev/null`. `CONFIG_DEVTMPFS_MOUNT` does nothing on an initramfs
+  boot — the kernel mounts devtmpfs only from `prepare_namespace()` — so `/dev` was
+  whatever the cpio carried, and it carried nothing (BUGS `L374`).
+- The uid clamp is the daemon's own uid. `--uid-map` needs an unprivileged caller AND
+  `--sandbox namespace`, whose `/proc` mount is refused inside a container, and the
+  clamped share then accepted writes from one uid while `guest-init` ran as root, so
+  no bind target could be made on it (BUGS `L372`, `L373`).
+- The release rootfs is read-only because the HOST says so. virtiofsd 1.10.1 has no
+  read-only export flag, so the share's guarantee had rested on the guest choosing to
+  mount it `ro` — and one guest that did not would write the release every later turn
+  boots from, on both instances (BUGS `L381`).
+- The tap carries one address family. The rule set is `iptables` and the guest kernel
+  has a full IPv6 stack, so `runed` takes IPv6 off the device before the link comes
+  up rather than writing a second rule set for it (BUGS `L383`).
+- The reap removes the turn dir, including the `<socket>.pid` files virtiofsd writes
+  beside its sockets, which nothing named: 250 turn dirs accumulated in one evening.
+  A staging tree that will not unmount is reported by path and no longer keeps the
+  record, because a kept record costs a CID forever (BUGS `L376`, `L362`).
+- `runed` can see what it shows a guest. Every path `MOUNT_ALLOWED_ROOTS` and
+  `HOST_CODEX_DIR` name is bound into runed's own container at the same absolute
+  path, and the binds need AppArmor off, since `docker-default` denies `mount(2)`
+  whatever the capabilities (BUGS `L370`, `L371`).
+- `METRICS_ENABLED` reaches the daemons that read it, so `6/44`'s gate measures a
+  counter something can scrape (BUGS `L380`).
+- `make lint`, the one gate CI enforces, can read its own config. `.golangci.yml` was
+  schema v1 and the installed binary is golangci-lint v2, which refuses a v1 config
+  outright — so the static half of the gate had never reported on this code, in CI or
+  locally (BUGS `L386`).
 - `virtiofsd` was started with `--translate-uid`, a flag the packaged daemon
   (1.10.1) does not have — it answers `error: unexpected argument`. Every VM turn
   would have failed its share. The flags are `--uid-map` and `--gid-map`, now
