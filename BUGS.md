@@ -262,6 +262,91 @@ documented per-instance tags as a shipped feature.
   export, repoint `RUNED_ROOTFS_DIR`, restart one instance. `TestCreateEnvNamesNoAgentImage`
   pins the absence at the place the file is written.
 
+## L388 — `RUNED_SHUTDOWN_GRACE` is read and never delivered, and the guard written to catch exactly this globs one directory (2026-09-29)
+
+`runed/cmd/runed/main.go:212` reads it:
+
+```go
+grace := core.DurOr("RUNED_SHUTDOWN_GRACE", runTTL)
+```
+
+`daemonKeys["runed"]` in `compose/compose.go` does not list it — measured, a grep for
+the name in that file returns nothing. So compose never emits it, an operator's `.env`
+value is **silently dead**, and runed always drains for `runTTL` instead. This is the
+`ant_env_delivery` class the project has already paid for three times.
+
+The part that matters more than the one var: `TestRunedEnvKeysCoverEveryRunedVar`
+exists precisely to make this impossible, and its own comment says it "derives the set
+from runed's own source instead of trusting this list". It derives it from:
+
+```go
+sources, err := filepath.Glob(filepath.Join("..", "runed", "*.go"))
+```
+
+`*.go` does not descend, so `runed/cmd/runed/` — **the daemon's `main`, where a
+daemon reads its own environment** — has never been in the guard's scope. The guard is
+green and the directory it most needs to read is the one it cannot see. That is
+`guard_names_its_scope`: a hand-listed scope stops covering what moves.
+
+- **Severity:** medium (one dead setting; a blind guard over every future one)
+- **Scope:** `compose/compose.go`, `compose/compose_test.go`, `runed/cmd/runed/main.go`
+- **Affected:** `RUNED_SHUTDOWN_GRACE`, and any var a daemon's `main` reads
+- **Source:** found by the web-docs sweep while deriving `env.html`'s runed section
+  from the code, 2026-09-29; both halves verified by grep
+- **Status:** open
+- **Fix:** the var joins `daemonKeys["runed"]`, and the guard walks `runed/` instead of
+  globbing its top level — `filepath.WalkDir`, so a new subdirectory is covered the day
+  it appears rather than the day someone remembers. Widening the walk will likely find
+  more missing keys; each is a finding, not a reason to narrow the walk again.
+
+## L389 — three chat commands and two comments still tell the operator about containers and `EGRESS_IMAGE` (2026-09-29)
+
+The substrate is a KVM guest, and the surfaces a person actually reads still say
+container:
+
+- `routd/steer.go` — `cmdPing` reports "active containers", `cmdStop` answers
+  "Container stopped.", `cmdStatus` answers "No active container for this chat."
+  The number behind it is `queue.ActiveCount()`, which counts concurrent TURNS, not
+  guests, so the word is wrong twice over.
+- `runed/cmd/runed/main.go:96` tells the operator to `set EGRESS_IMAGE=arizuko-egress:latest`.
+  Nothing reads that variable; `6/41` step 4 deleted it. An operator who follows the
+  instruction gets no error and no effect.
+- `compose/compose.go:838` comments that "runed starts one per spawn from `EGRESS_IMAGE`".
+
+- **Severity:** low (wording and one dead instruction), but `/ping` is the surface a
+  person uses to ask what is running
+- **Scope:** `routd/steer.go`, `runed/cmd/runed/main.go`, `compose/compose.go`
+- **Source:** web-docs sweep, 2026-09-29
+- **Status:** open
+- **Fix:** the three commands say "turn", which is what the count means. The
+  `EGRESS_IMAGE` instruction is deleted rather than reworded: there is nothing to set,
+  because the tap accepts only its own proxy by construction.
+
+## L390 — `specs/5/12` says a retry waits on a doubling backoff, and no such wait exists (2026-09-29)
+
+`specs/5/12-turn-retry.md:37` says the re-feed happens "on the busy backoff (4s,
+doubling to a 60s cap)".
+
+`routd/dispatch.go:484-492` returns `retry=true` with **no delay and no `noteBusy`
+call** — the batch stays un-advanced and re-feeds on the next poll tick, which
+`routd/loop.go:184-185` defaults to 2s with nothing setting it otherwise. `noteBusy` is
+called from one place, `routd/dispatch.go:141`, which is the STEER path, not the retry
+path.
+
+So a reader who sizes a retry budget from the spec is out by more than an order of
+magnitude, and two operator pages repeated the spec's number until this sweep removed
+it.
+
+- **Severity:** low in behaviour, and it is the spec that is wrong about the code
+- **Scope:** `specs/5/12-turn-retry.md` — and whichever of the two is the intended
+  design
+- **Source:** web-docs sweep, 2026-09-29; the absent call verified at both sites
+- **Status:** open, and it needs a DECISION rather than an edit: either the retry
+  should back off, in which case the code is missing `noteBusy` and this is a defect,
+  or it should re-feed immediately, in which case the spec's sentence goes. A 2s
+  re-feed loop against a failing turn is three attempts in six seconds, so the
+  question is not cosmetic.
+
 ## L387 — the boot number `6/41` is gated on cannot be measured: the bench target cannot run on this host and production never records the ready frame (2026-09-29)
 
 `6/41`'s first acceptance criterion is "`make bench-boot` on krons reports ≤ 1.0 s
