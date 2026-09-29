@@ -508,7 +508,7 @@ because the allowlist matches NAMES and the matcher skips IP entries
      platform; a case's result could arrive as a tool call rather than an HTTP POST.
      Largest change, and the only one that needs no network reachability at all.
 
-## L378 — the vsock CID and port space is the HOST's, and every instance starts at 3, so a second deployment's turns fail (2026-09-26, open)
+## ✅ FIXED 2026-09-29 L378 — the vsock CID and port space is the HOST's, and every instance starts at 3, so a second deployment's turns fail (2026-09-26)
 
 Measured the moment a second instance ran a turn on the VM substrate. krons, with
 sloth's guest already up:
@@ -535,7 +535,9 @@ instances that both allocate 3 are two guests claiming one identity.
 - **Affected:** `allocateCID`, `vsockPorts`, every instance after the first
 - **Source:** measured on this host 2026-09-26, krons failing while sloth held the
   window
-- **Status:** open
+- **Status:** ✅ FIXED 2026-09-29 in `7d7bfa00`. `L382` then corrected that fix,
+  which derived the turn's index from the ABSOLUTE CID instead of from the window's
+  base — read both together, because the second is what makes the first work.
 - **Fix:** an instance owns a WINDOW of the host's space. `RUNED_VSOCK_CID_BASE`
   joins `RUNED_VSOCK_PORT_BASE`, both instance settings, and the two stay in step
   because the port offset is derived from the CID. A base below the reserved floor
@@ -821,7 +823,7 @@ the socket and not the cause. The wait now watches the process too.
   operator reads is the daemon's own error rather than QEMU's chardev one step
   later.
 
-## L371 — `CAP_SYS_ADMIN` is not enough to make a bind mount in a container: AppArmor's docker-default denies it (2026-09-25, open)
+## ✅ FIXED 2026-09-25 L371 — `CAP_SYS_ADMIN` is not enough to make a bind mount in a container: AppArmor's docker-default denies it (2026-09-25)
 
 The staging tree is assembled by bind-mounting each of the turn's sources into one
 tree, and runed's service grants `CAP_SYS_ADMIN` for exactly that
@@ -857,7 +859,9 @@ the same pass — `spawn`'s one failure funnel logs before it returns.
 - **Affected:** `runedService`, every turn
 - **Source:** measured on krons 2026-09-25, both directions (denied under
   docker-default, allowed with the profile off)
-- **Status:** open
+- **Status:** ✅ FIXED 2026-09-25 in `790d4389` — `security_opt: [apparmor=unconfined]` on runed's
+  service; a custom profile that allows only the two mounts is the narrower answer
+  and needs its own plan.
 - **Fix:** runed's service takes `security_opt: [apparmor=unconfined]` beside the
   two capabilities, and the generator's comment says why — a capability list that
   looks sufficient and is not costs one deploy per reader. Seccomp needs nothing:
@@ -865,7 +869,7 @@ the same pass — `spawn`'s one failure funnel logs before it returns.
   A tighter posture is a custom AppArmor profile that permits this one mount, which
   is an operator artifact and not a generator's to write.
 
-## L370 — a guest can only be shown what runed can see, and two settings name host paths runed has no mount for (2026-09-25, open)
+## ✅ FIXED 2026-09-25 L370 — a guest can only be shown what runed can see, and two settings name host paths runed has no mount for (2026-09-25)
 
 Measured on krons after the mount-path fix (`L368`), on the next turn:
 
@@ -896,7 +900,9 @@ is the other half — the paths that are genuinely outside it:
 - **Affected:** `runedService`, `HOST_CODEX_DIR`, `MOUNT_ALLOWED_ROOTS`, every
   turn that mounts a path outside the data dir
 - **Source:** measured on krons 2026-09-25
-- **Status:** open
+- **Status:** ✅ FIXED 2026-09-25 in `244829b3` — `hostViewPaths` binds every path
+  `MOUNT_ALLOWED_ROOTS` and `HOST_CODEX_DIR` name into runed's own container at the
+  same absolute path, so a guest can be shown only what runed can open.
 - **Fix:** the generator mounts each configured host path INTO runed at the SAME
   absolute path, read-only. Then the string runed already holds resolves, and no
   renderer changes: one declaration, and compose is the reader that gives runed
@@ -1314,7 +1320,7 @@ and a live agent reads it from `list_routes`.
      then, address a rule on sloth by its `(seq, target, match)` coordinate and
      never by id.
 
-## ✅ FIXED 2026-09-24 L362 — one guest write into the share root keeps the VM record forever, and five of them exhaust the CID space (2026-09-24, open)
+## ✅ FIXED 2026-09-24 L362 — one guest write into the share root keeps the VM record forever, and five of them exhaust the CID space (2026-09-24)
 
 `reapVM` (`runed/vmrecord.go`) removes a turn's record only when NOTHING in the
 reap reported an error, and the staging tree's removal is one of those reports.
@@ -1478,7 +1484,11 @@ enough to meet a container restart, a timeout, or an OOM.
 - **Affected:** the `elizaos` and `openclaw` reference clones in the krons and
   rhias groups and in `groups/krons/workspace/agent-research-sources`
 - **Source:** `find /srv/data -name 'tmp_pack_*'` and `df -h /`, 2026-09-24
-- **Status:** PARTLY FIXED 2026-09-25 — the 11 files are deleted, on the owner's
+- **Status:** the 11 G is reclaimed (2026-09-29, named file by file with the
+  user's approval — a `find -delete` over a data tree is not a cleanup, it is a
+  second outage). The PREVENTION is not built, so this entry stays open: nothing
+  prunes `tmp_pack_*`, and the interrupted repack that writes them is still
+  interrupted. Measured 2026-09-29: no `tmp_pack_*` under `/srv/data`.
   say-so, and the build cache with them: `find /srv/data -name 'tmp_pack_*'`
   answers 0 and the disk went 2.7 G free → 18 G (98% → 93%). The CAUSE is open:
   nothing stops the next repack from being interrupted, and the 26 G staged
