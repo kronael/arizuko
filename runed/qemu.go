@@ -290,10 +290,17 @@ func (q *qemuRuntime) spawn(ctx context.Context, t Turn) RunResult {
 	}
 	rootSock := filepath.Join(rec.TurnDir, rootSockName)
 	turnSock := filepath.Join(rec.TurnDir, turnSockName)
-	// The release rootfs is exported as it sits: the guest mounts it read-only
-	// with a tmpfs overlay upper, and the clamp lands any write the guest
-	// attempts as the agent's uid, which owns nothing in a root-owned rootfs.
-	if err := q.startVirtiofsd(rec, rootSock, q.paths.Rootfs, false); err != nil {
+	// The release rootfs is exported through a READ-ONLY BIND, not as it sits.
+	// virtiofsd 1.10.1 has no read-only export flag and serves this share as root,
+	// so without the bind the share's guarantee rested on the GUEST mounting it ro
+	// — and the guest is the untrusted half. One guest that mounted it rw would
+	// write the release every later turn boots from, on every instance, because the
+	// artifact is shared by content hash (BUGS `L381`).
+	rootfsRO, err := tree.bindRootfs(q.paths.Rootfs)
+	if err != nil {
+		return fail("%v", err)
+	}
+	if err := q.startVirtiofsd(rec, rootSock, rootfsRO, false); err != nil {
 		return fail("%v", err)
 	}
 	if err := q.startVirtiofsd(rec, turnSock, tree.dir, true); err != nil {
@@ -520,14 +527,19 @@ func (q *qemuRuntime) allocate(t Turn) (*vmRecord, error) {
 	if err != nil {
 		return nil, err
 	}
-	rec, err := newVMRecord(q.paths.VMRoot, t.Handle, t.Folder, cid, q.paths.VsockBase)
+	// The SLOT is the turn's index within this instance's own window, 0 to cap-1.
+	// Every per-turn number comes from it — the tap's name, the tap's /30 inside the
+	// subnet, and the two vsock ports — so an instance's CID window and its port
+	// window are independent, and the subnet's capacity depends on the concurrency
+	// cap rather than on where the CID window happens to start (BUGS `L382`).
+	slot := cid - q.paths.CIDBase
+	rec, err := newVMRecord(q.paths.VMRoot, t.Handle, t.Folder, cid, slot, q.paths.VsockBase)
 	if err != nil {
 		return nil, err
 	}
-	idx := int(cid - vsockCIDMin)
-	rec.Tap = tapName(q.cfg.Name, idx)
+	rec.Tap = tapName(q.cfg.Name, int(slot))
 	rec.ProxyPort = q.paths.ProxyPort
-	if rec.GuestIP, rec.HostIP, err = tapNet(q.paths.TapSubnet, idx); err != nil {
+	if rec.GuestIP, rec.HostIP, err = tapNet(q.paths.TapSubnet, int(slot)); err != nil {
 		return nil, err
 	}
 	if err := rec.save(); err != nil {

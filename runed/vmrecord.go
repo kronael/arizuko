@@ -221,14 +221,22 @@ func allocateCID(used map[uint32]bool, cap int, base uint32) (uint32, error) {
 		base, base+uint32(cap), len(used), cap)
 }
 
-// vsockPorts derives a guest's two host-side ports from its CID. Derived, not
+// vsockPorts derives a guest's two host-side ports from its SLOT. Derived, not
 // searched: the acceptance test binds "the port runed would take" before the
 // turn starts, and a port runed picks by probing is a port no test can squat
 // (spec 6/41 §"The peer credential"). A bind failure fails the turn — runed
 // never moves to another port, because a silent retry is what would turn a
 // denial into a guest talking to whoever answered.
-func vsockPorts(base uint32, cid uint32) (ctl, mcp uint32) {
-	off := (cid - vsockCIDMin) * 2
+//
+// THE SLOT, not the CID. A slot is `cid - RUNED_VSOCK_CID_BASE`, so it runs 0 to
+// MAX_CONCURRENT_CONTAINERS-1 whatever window the instance owns. Deriving from the
+// absolute CID instead tied the two bases together: an instance at CID base 20 with
+// port base 5655 got ports 5689 upward, neither number where the operator put it,
+// and the tap subnet's index ran off the end of a /24 at any CID base over 64 —
+// every turn failing, at an instance the precondition still called healthy (BUGS
+// `L382`).
+func vsockPorts(base uint32, slot uint32) (ctl, mcp uint32) {
+	off := slot * 2
 	return base + off, base + off + 1
 }
 
@@ -442,12 +450,12 @@ func waitGone(p procs, pid int, grace, poll time.Duration) bool {
 // newVMRecord fills the fields that are known before anything is started. Every
 // later step appends its pid and saves again, so a runed that dies at any point
 // leaves a record naming what it started (spec 6/41 §"The turn" step 1).
-func newVMRecord(root, handle, folder string, cid uint32, base uint32) (*vmRecord, error) {
+func newVMRecord(root, handle, folder string, cid, slot, base uint32) (*vmRecord, error) {
 	dir, err := vmDir(root, handle)
 	if err != nil {
 		return nil, err
 	}
-	ctl, mcp := vsockPorts(base, cid)
+	ctl, mcp := vsockPorts(base, slot)
 	return &vmRecord{
 		Handle:    handle,
 		Folder:    folder,

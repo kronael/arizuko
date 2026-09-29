@@ -202,8 +202,17 @@ func qemuPreconditions(cfg *core.Config) (qemuPaths, error) {
 	} else if err := memoryFits(p.Mem, cfg.MaxContainers, total); err != nil {
 		miss("%s", err)
 	}
-	if _, _, err := tapNet(p.TapSubnet, 0); err != nil {
-		miss("%s=%s: %v", envTapSubnet, p.TapSubnet, err)
+	// EVERY slot the cap allows, not slot 0. A subnet that holds the first guest and
+	// not the last is a fleet that looks healthy and fails on its second concurrent
+	// turn, and checking one arbitrary point is how the CID-base defect reached a
+	// live instance (BUGS `L382`). This is the shape `memoryFits` already uses: the
+	// guest size times the cap, not one guest.
+	for slot := 0; slot < max(cfg.MaxContainers, 1); slot++ {
+		if _, _, err := tapNet(p.TapSubnet, slot); err != nil {
+			miss("%s=%s cannot hold MAX_CONCURRENT_CONTAINERS=%d guests: %v",
+				envTapSubnet, p.TapSubnet, cfg.MaxContainers, err)
+			break
+		}
 	}
 	if len(missing) > 0 {
 		return p, fmt.Errorf("this host cannot run turns; %d precondition(s) missing:\n  - %s",

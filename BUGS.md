@@ -228,6 +228,45 @@ instance layout to drive.
   literal; it asserts what the declaration is for, that `EnvOr` on an unset var
   resolves to the shared default.
 
+## ✅ FIXED 2026-09-29 L382 — `L378`'s own fix derives every per-turn number from the absolute CID, so a second instance's tap runs off the subnet and its ports move (2026-09-29)
+
+`L378` gave each instance a window of the host's vsock space, `RUNED_VSOCK_CID_BASE`.
+`allocate` then computed the turn's index as `cid - vsockCIDMin` — the package
+CONSTANT `3`, not the instance's base (`runed/qemu.go:534`), and `vsockPorts` did the
+same (`runed/vmrecord.go:231`). Three consequences, measured by reading the
+arithmetic:
+
+1. **The ports are not where the operator put them.** An instance at CID base 20 with
+   port base 5655 gets `5655 + (20-3)*2` = **5689**. Both numbers are settings and
+   neither holds.
+2. **The tap subnet runs out.** `tapNet` gives each index a /30, so a /24 holds 64.
+   An instance at CID base 103 asks for index 100, `offset+3 >= 256`, and EVERY turn
+   fails with "index 100 is past the subnet" — the documented fix for `L378`,
+   applied as written, breaks the instance it was meant to fix.
+3. **The precondition cannot see it.** `qemuPreconditions` checked `tapNet(subnet, 0)`
+   and nothing else (`runed/qemuhost.go:205`), so a subnet that holds the first guest
+   and not the last passes at start and fails on the second concurrent turn — "a
+   fleet that looks healthy and answers nothing", which is the failure mode that
+   file's own comments say the checks exist to prevent.
+
+sloth escaped only by luck: base 20 gives index 17, and 17 is inside a /24's 64.
+
+- **Severity:** high (any CID base over 64 breaks every turn; any base at all moves
+  the ports)
+- **Scope:** `runed/qemu.go`, `runed/vmrecord.go`, `runed/qemuhost.go`
+- **Affected:** `allocate`, `vsockPorts`, `newVMRecord`, `tapName`, `tapNet`, the
+  tap-subnet precondition
+- **Source:** found by an adversarial read of `L378`'s own diff, 2026-09-29;
+  arithmetic verified by hand against the default `/24`
+- **Status:** ✅ FIXED 2026-09-29
+- **Fix — one rule, applied once:** every per-turn number comes from the turn's
+  **SLOT**, `cid - CIDBase`, which runs 0 to cap-1 whatever window the instance owns.
+  The tap's name, the tap's /30 and the two ports all take it, so the CID window and
+  the port window are independent and the subnet's capacity depends on the
+  concurrency cap rather than on where the CID window starts. And the precondition
+  checks EVERY slot the cap allows, the shape `memoryFits` already uses — one
+  arbitrary point is not a capacity check.
+
 ## ✅ FIXED 2026-09-29 L380 — `METRICS_ENABLED` reaches no daemon, so `6/44`'s gate has been armed over a counter nothing can scrape (2026-09-29)
 
 Eight daemons mount `GET /metrics` behind `obs.MetricsEnabled`, which reads

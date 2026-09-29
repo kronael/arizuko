@@ -39,7 +39,7 @@ func TestGuestBootsAndReportsOverCtl(t *testing.T) {
 	q := &qemuRuntime{cfg: cfg, folders: folders, paths: paths,
 		procs: hostProcs{}, reapPoll: 10 * time.Millisecond}
 
-	rec, err := newVMRecord(paths.VMRoot, "arizuko-test-boot", "solo/inbox", 3, paths.VsockBase)
+	rec, err := newVMRecord(paths.VMRoot, "arizuko-test-boot", "solo/inbox", 3, 0, paths.VsockBase)
 	if err != nil {
 		t.Fatal(err)
 	}

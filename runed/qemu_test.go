@@ -348,16 +348,25 @@ func TestEgressArgsPinTheGuestAndTranslateStar(t *testing.T) {
 	}
 }
 
-func TestVsockPortsAreDerivedFromTheCID(t *testing.T) {
-	for _, c := range []struct{ cid, ctl, mcp uint32 }{
-		{3, 5555, 5556},
-		{4, 5557, 5558},
-		{7, 5563, 5564},
+// The ports come from the turn's SLOT, so an instance's port window sits where the
+// operator put it whatever CID window it owns. Deriving from the absolute CID tied
+// the two together — base 20 with port base 5655 produced 5689 — and ran the tap
+// subnet's index off the end of a /24 at any CID base over 64 (BUGS `L382`).
+func TestVsockPortsAreDerivedFromTheSlot(t *testing.T) {
+	for _, c := range []struct{ slot, ctl, mcp uint32 }{
+		{0, 5555, 5556},
+		{1, 5557, 5558},
+		{4, 5563, 5564},
 	} {
-		ctl, mcp := vsockPorts(5555, c.cid)
+		ctl, mcp := vsockPorts(5555, c.slot)
 		if ctl != c.ctl || mcp != c.mcp {
-			t.Errorf("vsockPorts(5555, %d) = %d/%d, want %d/%d", c.cid, ctl, mcp, c.ctl, c.mcp)
+			t.Errorf("vsockPorts(5555, slot %d) = %d/%d, want %d/%d", c.slot, ctl, mcp, c.ctl, c.mcp)
 		}
+	}
+	// The window is where the operator put it: slot 0 of a second instance is its
+	// OWN base, never its base plus its CID offset.
+	if ctl, _ := vsockPorts(5655, 0); ctl != 5655 {
+		t.Errorf("slot 0 of the 5655 window is %d, want 5655", ctl)
 	}
 }
 
@@ -690,5 +699,39 @@ func TestWaitForSocketGivesUpWhenTheDaemonDies(t *testing.T) {
 	// A live daemon whose socket is there passes.
 	if err := waitForSocket(sock, time.Second, make(chan error, 1)); err != nil {
 		t.Errorf("a live daemon with its socket in place must pass: %v", err)
+	}
+}
+
+// TestTapSubnetIsCheckedForEverySlot pins the half of BUGS L382 that let it ship: the
+// precondition checked slot 0 and nothing else, so a subnet that holds the first
+// guest and not the last passed at start and failed on the second concurrent turn.
+// One arbitrary point is not a capacity check — `memoryFits` already knows that.
+func TestTapSubnetIsCheckedForEverySlot(t *testing.T) {
+	// A /28 is the smallest subnet tapNet accepts, and it holds FOUR /30 windows. So
+	// slots 0-3 fit and slot 4 does not: the shape that used to be invisible, because
+	// the precondition only ever asked about slot 0.
+	const small = "10.97.0.0/28"
+	for slot := range 4 {
+		if _, _, err := tapNet(small, slot); err != nil {
+			t.Fatalf("slot %d of a /28 must fit, got %v", slot, err)
+		}
+	}
+	if _, _, err := tapNet(small, 4); err == nil {
+		t.Fatal("slot 4 of a /28 must not fit: the test's own premise is wrong otherwise")
+	}
+	// Now the precondition's own loop shape, with a cap one past the subnet.
+	var missing []string
+	miss := func(f string, a ...any) { missing = append(missing, fmt.Sprintf(f, a...)) }
+	for slot := 0; slot < 5; slot++ {
+		if _, _, err := tapNet(small, slot); err != nil {
+			miss("tap subnet cannot hold %d guests: %v", 5, err)
+			break
+		}
+	}
+	if len(missing) != 1 {
+		t.Fatalf("a cap of 5 on a /28 must be refused exactly once, got %v", missing)
+	}
+	if !strings.Contains(missing[0], "past the subnet") {
+		t.Errorf("the refusal must name the subnet's limit: %s", missing[0])
 	}
 }
