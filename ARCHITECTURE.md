@@ -18,10 +18,9 @@ New integrations are added via the extension points described in
   `twitd`, `linkd`, `gitd`) talking to core over the channel protocol; optional
   capability hooks (Whisper transcription via `WHISPER_BASE_URL`, TTS
   via `ttsd` + `TTS_BASE_URL` (`specs/5/T-voice-synthesis.md`), oracle
-  skill in `ant/skills/oracle/` driving the `codex` CLI, egress isolation (`EGRESS_IMAGE` set),
+  skill in `ant/skills/oracle/` driving the `codex` CLI,
   model gateway (`litellm` package + `MODEL_GATEWAY_URL`,
-  `specs/6/23-llm-gateway.md`),
-  substrate choice (Docker today, KVM under `specs/6/41-qemu-substrate.md`)).
+  `specs/6/23-llm-gateway.md`)).
 
 A minimal deployment runs core plus one channel adapter; a maxed-out
 deployment runs all of them.
@@ -68,15 +67,15 @@ chanlib/  RouterClient, InboundMsg, auth middleware, URLCache (CDN-id
           by adapters + routd + container + onbod + webd
 compose/  docker-compose generation
 theme/    shared CSS + HTML helpers (used by onbod, dashd)
-objstore/ the two storage primitives + one driver per engine (dynstore,
-          sqlstore); every daemon addresses this, never an engine
-db_utils/ the SQL pool and migration runner a file instance opens
+objstore/ the two storage primitives + the DynamoDB-protocol driver
+          (dynstore); every daemon addresses this, never the engine
 ```
 
 Every channel adapter, `webd`, and `proxyd` talk to `routd` over HTTP
 (`/v1/*`). `routd` dispatches each turn to `runed` (`POST /v1/runs`);
-`runed` spawns the agent container. The per-turn agent MCP socket is hosted in-process by
-`routd` (`ipc.ServeMCP`); `runed` only mounts the ipc dir.
+`runed` spawns the agent guest. The per-turn agent MCP socket is hosted in-process by
+`routd` (`ipc.ServeMCP`); `runed` bridges it to the guest over vsock, never
+by a mount (spec `6/41`).
 
 ## Integrations
 
@@ -88,8 +87,8 @@ teled/ discd/ slakd/ bskyd/ reditd/ emaid/ whapd/ twitd/ linkd/ gitd/
 sidecar/ whisper-cpp container; routd calls Whisper for inbound
         voice when VOICE_TRANSCRIPTION_ENABLED=true
 egress/   forward proxy, one static allowlist, one client. runed starts
-        one per spawn when EGRESS_IMAGE is set and stops it with the
-        turn (see "Compose Containers" below); specs/6/24
+        one per turn on its tap's host side and stops it with the
+        turn (see "Compose Containers" below); specs/6/41
 anteval/  agent-capability gate: a black-box prober that runs real tasks
         through the public surfaces (REST/HTTP/MCP + a callback sink) against
         a LIVE instance and grades observable effects, not prose. Zero
@@ -295,13 +294,15 @@ standalone daemon owning its own tables:
   socket in-process (`ipc.ServeMCP`) and builds the agent prompt. No
   docker socket, no egress proxies. Spec
   [`specs/5/E-routd.md`](specs/5/E-routd.md).
-- **`runed`** — execution plane. The only daemon wired to the docker
-  socket, the per-spawn egress proxies, and the per-folder agent
-  networks. Owns the work
+- **`runed`** — execution plane. The only daemon wired to `/dev/kvm`,
+  `/dev/vhost-vsock` and `/dev/net/tun`, one KVM guest and one egress
+  proxy per turn. Owns the work
   queue, circuit breaker, `MaxConcurrent` cap, run TTL and steer
-  (SIGUSR1). It brokers no token: the agent is credentialed by the
-  per-turn MCP unix socket routd hosts, which `SO_PEERCRED` binds to the
-  spawned process. Owns the `runed` tables (`spawns`, `session_log`,
+  (a ctl frame over vsock). It brokers no token: the turn is credentialed
+  by the guest's vsock CID, a host-kernel fact a guest cannot forge, and
+  reaches the per-turn MCP unix socket routd hosts through a uid-1000
+  bridge `SO_PEERCRED` binds (spec `6/41` §"The peer credential"). Owns
+  the `runed` tables (`spawns`, `session_log`,
   `circuit_breaker` — `runed/runstore`). Spec
   [`specs/5/P-runed.md`](specs/5/P-runed.md).
 - **`authd`** — auth authority. The sole ES256 token minter; serves
@@ -564,7 +565,7 @@ output, delegation, and escalation flow through `PutMessage` — bot rows are
 `is_from_me=1 is_bot_message=1` and filtered from inbound polling. `topic`
 and `routed_to` capture audit metadata. Spec: `specs/3/c-audit-log.md`.
 
-## Container Lifecycle
+## Guest Lifecycle
 
 `runed` is the only daemon that starts a turn. One ephemeral KVM guest
 per turn (`qemu-system-x86_64`, spec 6/41), always bound to the same
@@ -577,8 +578,8 @@ jsonl, not because the process is long-lived. Per-group web slots
 `<data>/web/{pub,priv}/<folder>/` trees — writes appear at both the
 agent's home path and the URL-serving path. The agent reaches platform
 data only over the in-process MCP socket routd hosts (no DB mount).
-Sibling groups get their own containers on their own networks — the
-cross-tenant boundary is the group (folder + network + scoped token),
+Sibling groups get their own guests on their own taps — the
+cross-tenant boundary is the group (folder + tap + scoped token),
 not the turn. Threat model + isolated axes in `SECURITY.md` § Model.
 
 **Why per-group context isolation matters.** Each group is one agent
@@ -592,9 +593,11 @@ focused context that accumulates only the conversations relevant to it.
 routd resolves the route, derives grants, and dispatches the turn to
 runed (`POST /v1/runs`). runed performs the spawn:
 
-1. `container.EnsureRunning()` — verify docker
-2. `container.CleanupOrphans()` — stop stale `arizuko-*`
-3. `runed` renders the turn (`renderTurn`) and hands it to the substrate:
+1. `runed.NewRuntime()` (once, at start) — check every substrate
+   precondition (`/dev/kvm` open, the kernel and rootfs artifacts present,
+   the clamp, guest memory against the concurrency cap) and reap any guest
+   a previous runed left running, from the on-disk VM record
+2. `runed` renders the turn (`renderTurn`) and hands it to the substrate:
    - Resolve path via `groupfolder.Resolver`
    - `buildMounts()` → `mountsec.ValidateAdditionalMounts()`
    - `seedSettings()` — write `settings.json` (env, arizuko MCP via socat)
@@ -696,10 +699,12 @@ plain operator `auth.Authorize`. One row set feeds both, so the tool list
 and the per-call gate agree by construction. `list_acl` inspects the
 effective ACL rows for the caller's principal set.
 
-socat bridges the host socket into the container; the agent configures
-the `arizuko` MCP server in `settings.json` with `socat UNIX-CONNECT`.
-routd binds the socket before runed spawns the container and removes it
-when the run returns; runed only mounts the ipc dir.
+Inside the guest, `guest-init` starts `socat` bridging a guest-local unix
+socket to vsock; the agent configures the `arizuko` MCP server in
+`settings.json` with `socat UNIX-CONNECT`. A tool call crosses the vsock to a
+uid-1000 bridge runed starts per turn, which dials routd's socket. routd
+binds the socket before runed spawns the guest and removes it when the run
+returns; runed never mounts it (spec `6/41` §"The peer credential").
 
 Identity resolved from the socket path (folder); authorization runs
 the injected agent gate (`db.Authorize` with `mcp:`+tool name), never a
@@ -708,7 +713,7 @@ second hand-rolled check.
 ## Queue (queue package)
 
 Two layers serialize work. routd's `GroupQueue` serializes inbound
-dispatch per folder; runed's Manager enforces the docker-level
+dispatch per folder; runed's Manager enforces the guest
 concurrency cap, circuit breaker, and steer at the spawn boundary.
 
 routd-side `GroupQueue`:
@@ -728,7 +733,8 @@ runed Manager (`runed/manager.go`):
 - circuit breaker: 3 consecutive folder failures opens; reset by a new run
 - run TTL (`RUNED_RUN_TIMEOUT`, default 20m); hourly sweep of spawns past a
   seven-day retention, which is what keeps their one partition a window
-- steer into a live spawn via `docker kill --signal=SIGUSR1` + IPC write
+- steer into a live spawn via a `{steer}` ctl frame over vsock, acked by
+  the guest before the closure returns true (spec `6/41` §"Steer and stop")
 
 Delegation, escalation, and `#topic` routing are not special — each writes
 a row via `PutMessage` and calls `EnqueueMessageCheck`.
@@ -757,7 +763,7 @@ row = deny, loud. Nothing derives capability from a folder's depth.
 
 Rule grammar inside a row's `params` is `[!]action[(param=glob,...)]`.
 Seeded roles: `role:member` (the messaging floor, bound to every folder at
-create) and `role:operator` (`*` on `**`, WITH GRANT OPTION). Container
+create) and `role:operator` (`*` on `**`, WITH GRANT OPTION). Guest
 capabilities are resolved from `acl` at dispatch and shipped as typed
 booleans (`ShareReadOnly`/`Egress`/`WebPublish`) on the run request —
 runed and container consume a decision, not a rule bundle. Model:
@@ -806,14 +812,15 @@ flag) is settled.
 
 `COMPOSE_PROFILES` in the data dir's `.env` is the single gate. Generate
 derives it from the feature flags (`WEB_PORT`, `WEBDAV_ENABLED`,
-`ONBOARDING_ENABLED`, `EGRESS_IMAGE`) and rewrites it, with
+`ONBOARDING_ENABLED`) and rewrites it, with
 `APP`/`FLAVOR`/`DATA_DIR`, inside a `# --- compose-managed` block that leaves
 operator lines untouched. Fragments interpolate those three for their
 container name and host mount — identity is configured, never derived.
 
 Adapters reach the router at `ROUTER_URL=http://routd:8080`. `runed` is the
-only built-in service granted the docker socket; `authd` exposes JWKS for
-offline verification by the rest.
+only built-in service granted `/dev/kvm`, `/dev/vhost-vsock`, `/dev/net/tun`
+and `NET_ADMIN`/`SYS_ADMIN` (spec `6/41` §"The runed deploy topology");
+`authd` exposes JWKS for offline verification by the rest.
 
 Bundled catalog at `template/services/` (ships in image, Ansible extracts to
 `/srv/app/arizuko/template/services/`): `teled.yml`, `whapd.yml`, `discd.yml`,
@@ -857,17 +864,15 @@ instance value is a visible edit. Both secrets are minted into `.env` by
 `packages add` (the `env` block of `litellm.yaml`), so the `:?` is a guard
 against a hand-copied fragment, not a step the operator performs.
 
-Egress isolation runs when `EGRESS_IMAGE` is set. There is no long-lived
-proxy service in the compose file: `runed` starts ONE `egress` proxy
-container per spawn with that folder's allowlist baked in, and stops it
-with the turn (spec `6/24`). Per-folder agent networks are created at
-runtime by `runed` and are `--internal` — no route out at all. Each
-spawn's proxy is attached to that network AND to `EGRESS_UPLINK_NETWORK`
-(the compose project's default bridge, which is also how runed polls its
-`/health` before starting the agent); the agent is attached to the
-internal network only, so the proxy is its single route out. The proxy
-serves that one spawn's address and refuses every other peer. See
-`egress/README.md` and `SECURITY.md` (Network egress isolation).
+Egress isolation is not a setting; it is a property of the turn substrate.
+There is no proxy service in the compose file: `runed` starts ONE `egress`
+process per turn on the host side of that turn's own tap, with the folder's
+allowlist baked in, and stops it with the turn (spec `6/41` §"Egress by name,
+sealed below the kernel"). The tap's rule set accepts only that guest's
+traffic to the proxy and drops everything else in both directions; the guest
+has no other route and no resolver, so a host name is meaningful only inside
+a request to the proxy. runed refuses to start when the `egress` binary is
+missing. See `egress/README.md` and `SECURITY.md` (Network egress isolation).
 
 ## Onboarding (onbod/)
 
@@ -919,7 +924,7 @@ Three substrates, clearly split:
   operations, one per owner. Where the mutation is local the row rides its
   batch (`audit.WriteFor`), so a refused mutation records nothing and a
   recorded one happened; where the effect lands on a remote — a platform
-  message, the docker daemon — the row is written alongside it
+  message, a guest — the row is written alongside it
   (`audit.EmitTo`), since there is no batch to join. Each owner
   serves its own table read-only at `GET /v1/audit` (one `resreg`
   registration, mounted by routd/runed/authd; `audit.Query` is the single
@@ -956,11 +961,12 @@ per-chat quarantine.
   `routd.Loop.onCircuitBreakerOpen` calls routd `DeleteErroredMessages`
   and resets the session. No permanent quarantine — the next inbound
   message gets a clean run.
-- Container timeout: graceful `docker stop` → `Process.Kill`.
+- Turn timeout: a `{stop}` frame (`SIGTERM` to the agent, then power-off) →
+  `SIGKILL` on the QEMU pid if the deadline still passes.
 
-## Long-running tasks — the 900s container timeout
+## Long-running tasks — the 900s guest timeout
 
-The Claude Code SDK inside the agent container hard-aborts any single
+The Claude Code SDK inside the agent guest hard-aborts any single
 turn at **900 seconds (15 min) of wall time**. This is a property of
 the upstream SDK, not arizuko — there is no platform-side knob to
 raise it. Observed 4+ times in May 2026 (atlas 2026-05-07/19/25,
@@ -976,7 +982,7 @@ Container exited with code 1
 User-visible impact: the in-flight reply is dropped; any inbound
 messages that arrived during the timing-out turn get tagged
 `errored=1` in `messages`. The agent typically recovers on the next
-inbound (cursor advanced, fresh container), but the errored rows
+inbound (cursor advanced, fresh guest), but the errored rows
 stay flagged in the DB and surface as failed turns in the UI.
 
 Mitigations available to skill authors and agents (no platform
@@ -985,7 +991,7 @@ change required):
 - **Split into multiple turns** — emit partial results, ask the user
   for "continue" rather than packing a 15-minute job into one turn.
 - **Checkpoint progress** — write intermediate state to `~/facts/`
-  or `~/tmp/` between subtasks so a fresh container can resume
+  or `~/tmp/` between subtasks so a fresh guest can resume
   instead of restarting from zero.
 - **Fewer parallel subagents** — every Task subagent shares the
   parent turn's wall budget; 8 parallel critics is 8× the chance of
@@ -1114,7 +1120,11 @@ caller-supplied `Allowlist`. `ValidateFilePath` guards inbound paths (MCP
 tool arguments) against symlink escapes and a blocklist (`.ssh`, `.gnupg`,
 `.env`, credentials, private keys). Container path: `/mnt/<name>`.
 
-## Docker-in-Docker Paths
+## Mount paths inside runed's own container
 
-`container.hp()` translates local to host paths when runed runs in docker.
-`HOST_DATA_DIR` and `HOST_APP_DIR` provide the host-side base paths.
+`runed` builds its mount table entirely in the paths it sees itself:
+`virtiofsd` is runed's own child, in runed's own mount namespace, so a mount
+source is never translated through `HOST_DATA_DIR`. `HOST_DATA_DIR` and
+`HOST_APP_DIR` remain compose facts used to render the compose file and to
+locate the staged `ant/` release, not inputs runed reads to rewrite a mount
+source (BUGS `L368`).

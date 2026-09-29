@@ -31,7 +31,7 @@ COMPOSE_PROFILES=davd,onbod,timed,web
 Docker interpolates package fragments with these — `${APP}`/`${FLAVOR}`
 build the container name, `${DATA_DIR}` the host mount. `COMPOSE_PROFILES`
 is derived from the feature flags (`WEB_PORT`, `WEBDAV_ENABLED`,
-`ONBOARDING_ENABLED`, `EGRESS_IMAGE`); change a flag, regenerate.
+`ONBOARDING_ENABLED`); change a flag, regenerate.
 
 ## Packages
 

@@ -1,7 +1,7 @@
 # egress
 
 A forward HTTP/CONNECT proxy that allows one fixed list of hosts, for one
-client. `runed` starts one per spawned container and stops it with the turn.
+client. `runed` starts one per turn and stops it with the turn.
 
 What it does: read the destination out of the request the client sends,
 match the NAME against the deny list first and the allowlist second, resolve
@@ -121,9 +121,12 @@ egress/
 
 ## Image
 
-`make images` at the repo root builds `arizuko-egress`. runed starts spawn
-proxies from whatever `EGRESS_IMAGE` names; if that image is missing, every
-spawn fails loudly rather than running unfiltered.
+`make images` at the repo root builds the `egress` binary into the `arizuko`
+image (`RUNED_EGRESS_BIN`, default `egress`). runed starts one process per
+turn on the tap's host side; if the binary is missing, runed refuses to
+start rather than running a turn unfiltered (spec `6/41`). A standalone
+`arizuko-egress` Docker image still builds from `egress/Dockerfile` for a
+Docker-based caller outside arizuko's own turn path.
 
 ## The address check
 

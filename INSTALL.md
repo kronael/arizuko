@@ -36,6 +36,11 @@ git --version && make --version | head -1
 # Default: /srv/data — needs write access for arizuko create
 # Alternative: set PREFIX env to use a different path
 ls -ld /srv/data 2>/dev/null || echo "/srv/data does not exist"
+
+# 8. KVM (the turn substrate: one guest per turn, spec 6/41)
+ls -l /dev/kvm /dev/vhost-vsock /dev/net/tun 2>&1
+# missing /dev/kvm = blocker (see "KVM not available" below); the other two
+# come from the kernel modules `vhost_vsock` and `tun`, both usually built in
 ```
 
 ## Fixing blockers
@@ -115,6 +120,22 @@ export PREFIX=~/.arizuko
 # All arizuko commands will use $PREFIX instead of /srv/data
 ```
 
+### KVM not available
+
+`/dev/kvm` missing means the host cannot run the turn substrate at all — this
+is a hardware/hypervisor blocker, not an arizuko setting:
+
+```bash
+ls -l /dev/kvm || echo "no /dev/kvm"
+lsmod | grep kvm                          # kvm_intel or kvm_amd should be loaded
+sudo modprobe kvm_intel || sudo modprobe kvm_amd
+```
+
+If both modprobes fail, check virtualization is enabled in the BIOS/UEFI
+(Intel VT-x / AMD-V), and on a cloud instance or a VM confirm the provider
+exposes nested virtualization — a plain (non-nested) guest has no `/dev/kvm`
+of its own.
+
 ## Build
 
 ```bash
@@ -127,8 +148,21 @@ Note: host builds use `modernc.org/sqlite` (pure Go, no CGO). No gcc needed.
 
 ## Build Docker images
 
+`DATA_DIR` names the directory the guest kernel and the release rootfs land
+in — the same `/srv/data/arizuko_<name>` the next section creates (`mkdir -p`
+makes it now if it does not exist yet). One value serves every instance that
+runs the same `arizuko-ant` image, so a host with several instances can point
+them all at one shared `DATA_DIR` instead of paying for the export twice
+(spec `6/41` §"The image and the guest kernel").
+
 ```bash
-sudo make images   # builds ALL images: arizuko:latest + arizuko-ant:latest + adapters
+sudo make images DATA_DIR=/srv/data/arizuko_<name>
+# builds arizuko:latest + arizuko-ant:latest + adapters, then exports the
+# release rootfs the turn substrate boots (DATA_DIR/images/rootfs-<hash>/)
+sudo make kernel DATA_DIR=/srv/data/arizuko_<name>
+# builds the pinned guest kernel + initrd once (DATA_DIR/images/kernel-<hash>/);
+# rebuilds only when kernel/Dockerfile, kernel/arizuko.fragment or
+# kernel/guest-init/*.go change — not on every release
 ```
 
 This builds the complete image set. Individual adapter images (whapd, etc.)
@@ -402,6 +436,11 @@ CLAUDE_CODE_OAUTH_TOKEN=...             # from claude.ai subscription
 
 # Channel credentials (at least one required — see next section)
 TELEGRAM_BOT_TOKEN=...                  # example: Telegram
+
+# The turn substrate: where `make images`/`make kernel` exported the release
+# rootfs and the guest kernel (required — runed refuses to start without both)
+RUNED_KERNEL_DIR=/srv/data/arizuko_<name>/images/kernel-<hash>
+RUNED_ROOTFS_DIR=/srv/data/arizuko_<name>/images/rootfs-<hash>
 ```
 
 Optional settings:
@@ -457,7 +496,7 @@ Without this step, no adapter will start. Each adapter needs its package in
 
 ## Optional: model gateway
 
-By default every agent container receives the model credential from `.env`.
+By default every agent guest receives the model credential from `.env`.
 The `litellm` package moves it into a gateway container instead; the agent
 gets a virtual key that only the gateway accepts (`specs/6/23-llm-gateway.md`).
 
@@ -475,7 +514,7 @@ next generate mints a new one.
 
 `MODEL_GATEWAY_KEY` is the gateway's MASTER key and goes to routd, which mints
 one virtual key per turn with it, bounded by that folder's remaining daily
-budget and expiring with the run. runed gets only the URL; the container gets
+budget and expiring with the run. runed gets only the URL; the guest gets
 only the minted key. The package also starts `litellm_db`, the Postgres litellm
 keeps those keys and its spend log in — that database is the gateway's
 bookkeeping, in a named volume, and separate from the instance's own store
@@ -537,11 +576,11 @@ For background operation:
 ## Verify
 
 ```bash
-# Check running containers
+# Check running daemon containers
 docker compose -f /srv/data/arizuko_<name>/docker-compose.yml ps
 
-# Check container health
-docker ps --filter "name=arizuko-" --format "{{.Names}} {{.Status}}"
+# Check daemon health
+docker ps --filter "name=arizuko_<name>" --format "{{.Names}} {{.Status}}"
 
 # View logs
 docker compose -f /srv/data/arizuko_<name>/docker-compose.yml logs --tail=50
@@ -551,13 +590,21 @@ make smoke SMOKE_INSTANCE=<name>
 ```
 
 All core containers (routd, authd, runed, adapter) should show `(healthy)`.
+A turn itself is not a container — it is a KVM guest runed starts and reaps
+per turn (spec `6/41`) — so send the agent a message and check
+`journalctl -u arizuko_<name>` or `/dash/runed/` for the spawn, not `docker
+ps`.
 
 ## Troubleshooting
 
 **Agent doesn't reply (healthchecks green):** usually one of
 
-1. **`arizuko-ant` image missing.** journalctl shows
-   `pull access denied for arizuko-ant`. Fix: `sudo make -C ant image`.
+1. **runed refuses to start.** journalctl shows `this host cannot run turns;
+N precondition(s) missing:` and lists every one at once — a missing
+   `/dev/kvm`, an unset `RUNED_KERNEL_DIR`/`RUNED_ROOTFS_DIR`, a missing
+   `egress`/`iptables`/`ip` binary, or the kernel/rootfs artifacts not yet
+   built. Fix the named ones and restart; a fix for one item never masks the
+   others (spec `6/41`; `runed/qemuhost.go` `qemuPreconditions`).
 2. **Adapter disconnected.** `docker ps` shows `(unhealthy)`, or its
    `/health` returns 503 `{status:"disconnected"}` while the process is up
    (whapd waiting for a QR scan, a stream dropped). Check the adapter's
@@ -565,13 +612,22 @@ All core containers (routd, authd, runed, adapter) should show `(healthy)`.
    `sudo curl -s -o /dev/null -w '%{http_code}\n' http://localhost:<port>/health`
 3. **Adapter silent.**
    `sudo journalctl -u arizuko_<name> --since "10 min ago" | grep -viE health`
-4. **Container exit 125** in runed logs — see below.
+4. **A turn fails to start** in runed's own logs — `turn did not start` names
+   the folder, the handle and the reason (a `virtiofsd`/tap/proxy start
+   failure) — see below.
 
 The docker log driver is `none`: read `journalctl -u arizuko_<name>`, never
 `docker logs`.
 
-**Container exit 125:**
-Image/compose mismatch. Rebuild: `sudo make images`
+**runed logs "this host cannot run turns":**
+One or more preconditions above are missing; the message lists all of them.
+Rebuild the kernel/rootfs if named: `sudo make kernel DATA_DIR=...` /
+`sudo make images DATA_DIR=...`, and confirm `RUNED_KERNEL_DIR` /
+`RUNED_ROOTFS_DIR` in `.env` point at the resulting directories.
+
+**A turn fails with `virtiofsd`/tap/proxy errors:**
+Image/compose mismatch, or the `arizuko` image is missing `iptables`,
+`iproute2` or the `egress` binary. Rebuild: `sudo make images DATA_DIR=...`
 
 **Adapter shows `(unhealthy)`:**
 Platform credentials wrong or expired. Check adapter-specific logs.
@@ -614,9 +670,12 @@ sudo journalctl -u arizuko_<name> -f
 ```bash
 # Full install (Telegram example)
 git clone https://github.com/kronael/arizuko && cd arizuko
-make build && sudo make images
+make build
+sudo make images DATA_DIR=/srv/data/arizuko_mybot
+sudo make kernel DATA_DIR=/srv/data/arizuko_mybot
 ./arizuko create mybot
-# Edit /srv/data/arizuko_mybot/.env (set TELEGRAM_BOT_TOKEN, ANTHROPIC_API_KEY, ASSISTANT_NAME)
+# Edit /srv/data/arizuko_mybot/.env (set TELEGRAM_BOT_TOKEN, ANTHROPIC_API_KEY,
+# ASSISTANT_NAME, RUNED_KERNEL_DIR, RUNED_ROOTFS_DIR)
 ./arizuko packages mybot add teled
 ./arizuko group mybot add telegram:group/123456789 main
 ./arizuko run mybot

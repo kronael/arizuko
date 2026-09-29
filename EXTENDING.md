@@ -48,13 +48,16 @@ directory listing at spawn. Drop the file, rebuild the agent image
 
 ## Adding a host mount (`/mnt/<name>`)
 
-The operator can bind-mount host dirs (read-only) into every container of
+The operator can bind-mount host dirs (read-only) into every guest of
 a group at `/mnt/<name>` — a mount named `data/binance_perp` appears at
 `/mnt/data/binance_perp`. Two parts:
 
 1. **Instance allowlist** — `MOUNT_ALLOWED_ROOTS=/path1,/path2` in the
-   instance `.env` (compose hands it to `runed`). A host path not under an
-   allowed root is rejected and logged.
+   instance `.env`, then `arizuko generate` and restart `runed`. `virtiofsd`
+   is runed's own child, so a guest can be shown only a path runed can open
+   itself; `generate` bind-mounts every allowed root into runed's own
+   container at the same absolute path (spec `6/41` §"The runed deploy
+   topology"). A host path not under an allowed root is rejected and logged.
 2. **Per-group mounts** — `container_config.Mounts` on the group's row, a
    JSON array of `{"Host":"/path","Container":"name","RO":true}`. Read it,
    edit it, apply it back:
@@ -516,7 +519,7 @@ base = "https://api.cloudflare.com/client/v4"
   `apikey-query`, `basic`, `json-body`. The credential comes from `secret`
   (plus `secret2` for two-part auth like basic or a paired key). Resolved
   from the `secrets` table at call time (user rows win over folder), on the
-  host — never injected into the container. The resolved value is
+  host — never injected into the guest. The resolved value is
   exact-string-scrubbed from the HTTP response before the agent sees it,
   including the query string for `apikey-query`.
 - **Path-param substitution** — `{name}` segments in `path` are filled from
@@ -693,15 +696,15 @@ mounts host state into it) and ships a skill that drives it as a
 subprocess. The agent sees an ordinary command on `PATH`; the
 skill is the discovery surface. Auth flows from a host-side mount or, for a
 model key, the host `.env` / the user's own `/dash/me/env` row — a capability
-credential cannot back one of these, because it never reaches container env
+credential cannot back one of these, because it never reaches guest env
 (spec `5/14`). Distinct from MCP tools (in-band, schema-typed,
 routd-mediated) and channel adapters (out-of-band, HTTP).
 
 Currently shipping:
 
-| Capability | Binary  | Skill                        | Auth                                                                                                                                      |
-| ---------- | ------- | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| `oracle`   | `codex` | `ant/skills/oracle/SKILL.md` | `HOST_CODEX_DIR` mount on the agent container **OR** `CODEX_API_KEY` / `OPENAI_API_KEY` from the host `.env` or the user's `/dash/me/env` |
+| Capability | Binary  | Skill                        | Auth                                                                                                                                  |
+| ---------- | ------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `oracle`   | `codex` | `ant/skills/oracle/SKILL.md` | `HOST_CODEX_DIR` mount on the agent guest **OR** `CODEX_API_KEY` / `OPENAI_API_KEY` from the host `.env` or the user's `/dash/me/env` |
 
 Adding one:
 
@@ -753,7 +756,7 @@ wraps a harness, it never is one" still governs the wholesale lane.
 ## Permissions
 
 Capability comes from `acl` rows, never from where a folder sits. A path
-is a routing target, JID prefix, container home, and web vhost — depth
+is a routing target, JID prefix, guest home, and web vhost — depth
 means nothing to authorization.
 
 Every folder is bound to `role:member` at create, carrying the messaging

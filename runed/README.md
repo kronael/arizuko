@@ -1,11 +1,11 @@
 # runed
 
-Execution plane: the work queue + per-spawn container lifecycle.
+Execution plane: the work queue + per-spawn guest lifecycle.
 
 ## Purpose
 
-Pure container-spawner. runed runs the agent work queue, starts one
-Docker container per spawn and enforces run timeouts. It never appends a
+Pure turn-spawner. runed runs the agent work queue, starts one KVM guest
+per spawn and enforces run timeouts. It never appends a
 message (routd is the sole appender) and never signs or brokers a token —
 the turn is credentialed by the MCP unix socket, which `SO_PEERCRED` binds
 to the spawned process. The per-turn agent MCP socket is hosted in-process by **routd**
@@ -88,12 +88,12 @@ every read is "the n newest in this folder" and nothing sweeps it; and
 - `CRACKBOX_ADMIN_API` — set with no egress substrate selected is fatal at
   boot, rather than a spawn that quietly gets no isolation
 - `RUNED_RUN_TIMEOUT` (default 20m) — the run ceiling: bounds BOTH the
-  container hard-kill AND the in-container agent query timeout
+  guest hard-kill AND the in-guest agent query timeout
   (`ARIZUKO_QUERY_TIMEOUT_MS` = `RUNED_RUN_TIMEOUT − 30s`), so the agent aborts
-  and delivers a graceful summary before runed kills the container.
+  and delivers a graceful summary before runed kills the guest.
 - `RUNED_SHUTDOWN_GRACE` (default = `RUNED_RUN_TIMEOUT`) — graceful shutdown wait for in-flight handlers
 - `LISTEN_ADDR` (default `:8080`)
-- Container config via `core.LoadConfig`: `MaxContainers`, dirs (GroupsDir, IpcDir, StoreDir, etc.)
+- Guest config via `core.LoadConfig`: `MaxContainers`, dirs (GroupsDir, IpcDir, StoreDir, etc.)
 
 ### The turn substrate
 

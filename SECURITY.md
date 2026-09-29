@@ -9,7 +9,7 @@ the index and cross-cutting model.
 Three isolation axes:
 
 1. **Group isolation** — per-group bind mounts; no path inside one
-   group's container resolves to another group's files or sockets.
+   group's guest resolves to another group's files or sockets.
 2. **User isolation** — users reach groups only via `acl` allow rows
    (directly or through `acl_membership`). OAuth → JWT at the proxy
    edge; `auth.Authorize` enforces.
@@ -22,30 +22,30 @@ Three isolation axes:
 ### The group is the tenant boundary
 
 The isolation unit in arizuko is the **group**, not the turn. Each
-group runs in its own Docker container with its own filesystem, its
-own network namespace, its own DB view, and its own egress allowlist.
+group runs in its own KVM guest with its own filesystem, its
+own tap, its own DB view, and its own egress allowlist.
 `solo/inbox` and `corp/eng` cannot see each other's files, sockets,
 network state, or messages — and this is structural, enforced by
-docker + bind mounts + MCP folder scoping, not by policy inside the
-agent.
+the VM boundary + virtio-fs shares + MCP folder scoping, not by policy
+inside the agent.
 
 What's isolated per group:
 
 - **Filesystem** — only `groups/<folder>/` mounts at `/home/node/`;
   `groupfolder.Resolver` rejects `..` and reserved paths
   (`groupfolder/folder.go`, `runed/mounts.go` `buildMounts`).
-- **Network namespace** — agent container attaches to a Docker
-  `internal: true` network with no default route; egress passes
-  through that spawn's own proxy against the per-folder allowlist
-  (`container/egress.go`, `egress/`).
+- **Network** — the guest's only interface is one tap whose rule set
+  accepts that guest's own proxy and drops everything else; egress passes
+  through that turn's proxy against the per-folder allowlist
+  (`runed/vmnet.go`, `egress/`).
 - **DB view** — the MCP socket at `ipc/<folder>/gated.sock` carries
   the group's identity (`SO_PEERCRED` + socket-path folder); every
   tool call resolves through `auth.Authorize` against that folder,
   not the caller's claim (`ipc/ipc.go`, `auth/middleware.go`).
-- **Secrets** — AES-256-GCM encrypted at rest. Container env carries model
+- **Secrets** — AES-256-GCM encrypted at rest. The guest's env carries model
   credentials only: the operator anchors from host `.env` plus the
   triggering user's own `store.EnvProfileKeys` (BYOA), which override
-  them for that spawn. Capability credentials never enter the container —
+  them for that spawn. Capability credentials never enter the guest —
   the tool-call-time broker resolves them on the host, per call
   (`specs/5/13-ext-mcp.md`, `specs/5/14-credentials.md`). With the
   `litellm` package the model credential stays out too: the gateway
@@ -54,37 +54,30 @@ What's isolated per group:
   budget and expiring with the run (`specs/6/23-llm-gateway.md`).
 
 The threat the model defends against is a malicious agent in group A
-trying to reach group B's data, files, or network. Separate containers
-on separate networks with separate DB views close that path
+trying to reach group B's data, files, or network. Separate guests
+on separate taps with separate DB views close that path
 structurally. The agent runs with `bypassPermissions` inside its own
-container by design — the boundary is the mount set and the network
-namespace, not what the agent decides to do with its shell.
+guest by design — the boundary is the mount set and the tap, not what
+the agent decides to do with its shell.
 
-**What that boundary does NOT include today.** The turn container runs with
-docker's default capability set: `container/runner.go` passes `--rm`, `--name`
-and `--shm-size`, and no `--cap-drop`, `--security-opt`, `--read-only`,
-`--pids-limit` or `--memory`. The egress sidecar beside it already runs
-`--cap-drop ALL --read-only`, so the hardening sits on the process that proxies
-traffic and not on the one that runs what the model produced. `runed` also
-mounts the docker socket, so the daemon that spawns turns holds
-root-equivalent access to the host.
-
-None of that crosses the mount-set or network-namespace boundary above, which
-is what separates group A from group B. It does mean the kernel is shared and
-the turn is not confined within it, so read the structural claim as "separate
-mounts, separate networks, separate store views" and not as "confined
-process". Closing it is BUGS `L283`: the flag set is a new contract for every
-spawn, so it waits on the operator rather than arriving silently.
+**What runed's own privilege means.** `runed` runs as root, holding
+`/dev/kvm`, `/dev/vhost-vsock`, `/dev/net/tun` and `NET_ADMIN`/`SYS_ADMIN`
+explicitly, in place of the docker socket it held before (spec `6/41`
+§"The runed deploy topology"); QEMU inherits that root credential when
+runed execs it. That privilege does not cross the tap or the virtio-fs
+share boundary that separates group A from group B — a compromised guest
+faces the VM boundary, not a shared container kernel — but the write a
+guest can ask its own share for is bounded by a separate control, the
+`virtiofsd` uid clamp (spec `6/41` §"The peer credential").
 
 Per-turn freshness solves a different problem: a compromised turn
-affecting the next turn in the **same** group. The container is
-already per-turn fresh — each turn runs a `docker run --rm` container
-that reads one turn from stdin and exits, so no compromised process
+affecting the next turn in the **same** group. The guest is
+already per-turn fresh — each turn boots one KVM guest that reads one
+turn over vsock and powers off, so no compromised process
 survives. What persists across turns is the group folder
 (`/home/node/`: conversation state, diary, skills, session jsonl),
 re-loaded each turn. That persisted state — not a long-lived process —
-is the same-group cross-turn surface; stronger per-turn isolation (a
-KVM micro-VM) is the opt-in posture for it. Per-group isolation is what
+is the same-group cross-turn surface. Per-group isolation is what
 makes the cross-tenant threat go away.
 
 The cold-tier **management** surface is a second cross-tenant vector, and
@@ -102,34 +95,34 @@ tenant's routes or tasks.
 
 ## Boundaries
 
-| Boundary            | Mechanism                                                                                                                                                                                                                                                                                                                                                      | Location                                                                                                                        |
-| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| Group filesystem    | Per-group bind mount; `Resolver.GroupPath` rejects `..`, `\`, reserved                                                                                                                                                                                                                                                                                         | `groupfolder/folder.go`, `runed/mounts.go` (`buildMounts`)                                                                      |
-| Group MCP socket    | Per-group mount of `ipcDir` → `/run/ipc`; `Resolver.IpcPath` rejects                                                                                                                                                                                                                                                                                           | `runed/mounts.go` (`buildMounts`)                                                                                               |
-| MCP peer identity   | `SO_PEERCRED` peer-uid check on each accepted conn                                                                                                                                                                                                                                                                                                             | `ipc/ipc.go` (`ServeMCP`), see `ipc/SECURITY.md`                                                                                |
-| Agent exec scope    | `bypassPermissions` inside container; mounts scoped to the group                                                                                                                                                                                                                                                                                               | `ant/src/index.ts`, `container/runner.go`                                                                                       |
-| Additional mounts   | `ValidateAdditionalMounts` + `ValidateFilePath` blocklist/symlink guard                                                                                                                                                                                                                                                                                        | `mountsec/`                                                                                                                     |
-| Web routes          | `/pub/*` + `/health` public; `/priv/*` JWT-gated (serves from `web/priv/`); `/slink/*` forwarded to webd (which 308s → `/chat/<token>/`); `/chat/*` + `/hook/*` are `auth: optional` rows to webd, which holds the token check; rest JWT                                                                                                                       | `proxyd/main.go`, `webd/server.go` (`handleSlinkRedirect`), `webd/route_token.go`                                               |
-| Chat-MCP            | `/chat/<token>/mcp` — token IS the auth; it authenticates an ANONYMOUS principal whose grant set is the one folder the row records, so the shared `send`/`get_history` gate (`auth.MatchGroups`) admits no other                                                                                                                                               | `webd/mcp.go` (`handleChatTokenMCP`)                                                                                            |
-| WebDAV write-block  | `.env` / `*.pem` / `.git` write-blocked; `<group>/logs/` read-only                                                                                                                                                                                                                                                                                             | `proxyd/main.go` (`davAllow`)                                                                                                   |
-| Chat identity relay | proxyd stamps `X-User-*` and proves channel via ES256 `service:proxyd` bearer; webd verifies via `auth.ProxydTransit` and resolves the route token itself                                                                                                                                                                                                      | `proxyd/main.go` (`attachTransit`), `webd/route_token.go`, `webd/server.go` (`auth.ProxydTransit`)                              |
-| Authn               | GitHub / Google / Discord / Telegram OAuth → JWT (1h) + refresh (30d)                                                                                                                                                                                                                                                                                          | `auth/web.go`, `auth/oauth.go`                                                                                                  |
-| Login throttle      | 5 POST `/auth/login` per IP per 15min, in-memory                                                                                                                                                                                                                                                                                                               | `auth/web.go`                                                                                                                   |
-| Authz               | Unified `acl` + `acl_membership` → `auth.Authorize`; a row's `params` predicates do per-tool arg gating; `auth.Delegate` bounds re-delegation to a subset of rows held WITH GRANT OPTION                                                                                                                                                                       | `auth/authorize.go`, `auth/delegate.go`, `auth/acl.go`                                                                          |
-| Channel ingress     | ES256 service token (`AUTHD_SERVICE_KEY`); adapter exchanges key for `service:<daemon>` JWT on startup, presents bearer on every routd call; docker-network only                                                                                                                                                                                               | `chanlib/run.go`, `chanlib/chanlib.go` (`bearer`)                                                                               |
-| Slack webhook       | proxyd forwards `/slack/*` → `slakd:8080` verbatim; `X-Slack-Signature` HMAC over `v0:<ts>:<body>` (signing secret); ±5min skew                                                                                                                                                                                                                                | `slakd/bot.go` (verify), `template/services/slakd.yaml` (route), `slakd/README.md` § Threat model                               |
-| Email sender auth   | DMARC via pinned `Authentication-Results` authserv-id + operator allowlist; fail → `verb=untrusted`, never promoted to `mention`                                                                                                                                                                                                                               | `emaid/imap.go`, spec 11/17                                                                                                     |
-| Mention promotion   | routd-side `verb=mention` rewrite when parent is bot-authored; one renderer across all adapters, untrusted verbs never promote                                                                                                                                                                                                                                 | `routd/loop.go`, spec 5/L                                                                                                       |
-| Secrets at rest     | AES-256-GCM encrypted (`v2:` prefix, key=SHA-256(`SECRETS_KEY`); required — routd refuses to start without it, no `AUTH_SECRET` fallback); comma keyring for rotation; legacy plaintext rows sealed in place by the explicit `arizuko secret <inst> seal-legacy` verb (never on boot, never deleted)                                                           | `store/secrets.go`, `cmd/arizuko/secret.go`                                                                                     |
-| Secret injection    | Container env carries model credentials ONLY: operator anchors from host `.env`, overridden by the triggering user's own `store.EnvProfileKeys` (BYOA). Capability credentials are broker-only — resolved on the host per tool call, narrowed to the keys that call declares, scrubbed from the result (`specs/5/13-ext-mcp.md`, `specs/5/14-credentials.md`). | `routd/sibling_db.go` (`EnvProfileSecrets`), `container/runner.go` (`mergeSecrets`), `routd/mcp.go` (`ResolveConnectorSecrets`) |
-| Onboarding rate cap | Per-gate daily limit from `onboarding_gates` table                                                                                                                                                                                                                                                                                                             | `onbod/main.go` (`admitFromQueue`)                                                                                              |
-| Network egress      | Default-deny for TCP: the spawn's network has no default route, and its own proxy holds the per-folder allowlist, serving that spawn's address only. UDP/53 sits outside it (§ No DNS filter)                                                                                                                                                                  | `egress/`, `store/network.go`, `container/egress.go`                                                                            |
-| Store access        | One access key per daemon, signed as itself over TLS; the server's policy bounds each key to the owner prefixes that daemon reaches (`<owner>.<entity>`). A file instance binds one `store/<owner>/` subdir per container instead                                                                                                                              | `objstore/dynstore/env.go`, `compose/compose.go`, INSTALL.md § The store server                                                 |
+| Boundary            | Mechanism                                                                                                                                                                                                                                                                                                                                                        | Location                                                                                                                     |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| Group filesystem    | Per-group bind mount; `Resolver.GroupPath` rejects `..`, `\`, reserved                                                                                                                                                                                                                                                                                           | `groupfolder/folder.go`, `runed/mounts.go` (`buildMounts`)                                                                   |
+| Group MCP socket    | Bridged over vsock, never mounted: a uid-1000 bridge dials the group's `ipcDir` socket, CID-pinned to that guest                                                                                                                                                                                                                                                 | `runed/vmctl.go`, `ipc/SECURITY.md`                                                                                          |
+| MCP peer identity   | `SO_PEERCRED` peer-uid check on each accepted conn                                                                                                                                                                                                                                                                                                               | `ipc/ipc.go` (`ServeMCP`), see `ipc/SECURITY.md`                                                                             |
+| Agent exec scope    | `bypassPermissions` inside the guest; mounts scoped to the group                                                                                                                                                                                                                                                                                                 | `ant/src/claude.ts`, `runed/mounts.go`                                                                                       |
+| Additional mounts   | `ValidateAdditionalMounts` + `ValidateFilePath` blocklist/symlink guard                                                                                                                                                                                                                                                                                          | `mountsec/`                                                                                                                  |
+| Web routes          | `/pub/*` + `/health` public; `/priv/*` JWT-gated (serves from `web/priv/`); `/slink/*` forwarded to webd (which 308s → `/chat/<token>/`); `/chat/*` + `/hook/*` are `auth: optional` rows to webd, which holds the token check; rest JWT                                                                                                                         | `proxyd/main.go`, `webd/server.go` (`handleSlinkRedirect`), `webd/route_token.go`                                            |
+| Chat-MCP            | `/chat/<token>/mcp` — token IS the auth; it authenticates an ANONYMOUS principal whose grant set is the one folder the row records, so the shared `send`/`get_history` gate (`auth.MatchGroups`) admits no other                                                                                                                                                 | `webd/mcp.go` (`handleChatTokenMCP`)                                                                                         |
+| WebDAV write-block  | `.env` / `*.pem` / `.git` write-blocked; `<group>/logs/` read-only                                                                                                                                                                                                                                                                                               | `proxyd/main.go` (`davAllow`)                                                                                                |
+| Chat identity relay | proxyd stamps `X-User-*` and proves channel via ES256 `service:proxyd` bearer; webd verifies via `auth.ProxydTransit` and resolves the route token itself                                                                                                                                                                                                        | `proxyd/main.go` (`attachTransit`), `webd/route_token.go`, `webd/server.go` (`auth.ProxydTransit`)                           |
+| Authn               | GitHub / Google / Discord / Telegram OAuth → JWT (1h) + refresh (30d)                                                                                                                                                                                                                                                                                            | `auth/web.go`, `auth/oauth.go`                                                                                               |
+| Login throttle      | 5 POST `/auth/login` per IP per 15min, in-memory                                                                                                                                                                                                                                                                                                                 | `auth/web.go`                                                                                                                |
+| Authz               | Unified `acl` + `acl_membership` → `auth.Authorize`; a row's `params` predicates do per-tool arg gating; `auth.Delegate` bounds re-delegation to a subset of rows held WITH GRANT OPTION                                                                                                                                                                         | `auth/authorize.go`, `auth/delegate.go`, `auth/acl.go`                                                                       |
+| Channel ingress     | ES256 service token (`AUTHD_SERVICE_KEY`); adapter exchanges key for `service:<daemon>` JWT on startup, presents bearer on every routd call; docker-network only                                                                                                                                                                                                 | `chanlib/run.go`, `chanlib/chanlib.go` (`bearer`)                                                                            |
+| Slack webhook       | proxyd forwards `/slack/*` → `slakd:8080` verbatim; `X-Slack-Signature` HMAC over `v0:<ts>:<body>` (signing secret); ±5min skew                                                                                                                                                                                                                                  | `slakd/bot.go` (verify), `template/services/slakd.yaml` (route), `slakd/README.md` § Threat model                            |
+| Email sender auth   | DMARC via pinned `Authentication-Results` authserv-id + operator allowlist; fail → `verb=untrusted`, never promoted to `mention`                                                                                                                                                                                                                                 | `emaid/imap.go`, spec 11/17                                                                                                  |
+| Mention promotion   | routd-side `verb=mention` rewrite when parent is bot-authored; one renderer across all adapters, untrusted verbs never promote                                                                                                                                                                                                                                   | `routd/loop.go`, spec 5/L                                                                                                    |
+| Secrets at rest     | AES-256-GCM encrypted (`v2:` prefix, key=SHA-256(`SECRETS_KEY`); required — routd refuses to start without it, no `AUTH_SECRET` fallback); comma keyring for rotation; legacy plaintext rows sealed in place by the explicit `arizuko secret <inst> seal-legacy` verb (never on boot, never deleted)                                                             | `store/secrets.go`, `cmd/arizuko/secret.go`                                                                                  |
+| Secret injection    | The guest's env carries model credentials ONLY: operator anchors from host `.env`, overridden by the triggering user's own `store.EnvProfileKeys` (BYOA). Capability credentials are broker-only — resolved on the host per tool call, narrowed to the keys that call declares, scrubbed from the result (`specs/5/13-ext-mcp.md`, `specs/5/14-credentials.md`). | `routd/sibling_db.go` (`EnvProfileSecrets`), `runed/secrets.go` (`mergeSecrets`), `routd/mcp.go` (`ResolveConnectorSecrets`) |
+| Onboarding rate cap | Per-gate daily limit from `onboarding_gates` table                                                                                                                                                                                                                                                                                                               | `onbod/main.go` (`admitFromQueue`)                                                                                           |
+| Network egress      | Default-deny for TCP: the turn's tap has no route but to its own proxy, which holds the per-folder allowlist and serves that turn's address only. UDP/53 sits outside it (§ No DNS filter)                                                                                                                                                                       | `egress/`, `store/network.go`, `runed/vmnet.go`                                                                              |
+| Store access        | One access key per daemon, signed as itself over TLS; the server's policy bounds each key to the owner prefixes that daemon reaches (`<owner>.<entity>`). A file instance binds one `store/<owner>/` subdir per container instead                                                                                                                                | `objstore/dynstore/env.go`, `compose/compose.go`, INSTALL.md § The store server                                              |
 
 Anything not in this table is not a security boundary. In particular:
-socket filesystem permissions alone do not separate containers, and
+socket filesystem permissions alone do not separate guests, and
 host root always wins — arizuko does not defend against the host
-operator. The agent container runs with `bypassPermissions`; the
+operator. The agent guest runs with `bypassPermissions`; the
 boundary is the mount set, not the tool policy.
 
 ### Route tokens: capability URL + optional identity overlay
@@ -191,7 +184,7 @@ membership (scoped to `added_by='pairing'`).
 `<data>/web/pub/` and `<data>/web/priv/` are **separate filesystem
 trees**. `/pub/<X>` URLs are public (no auth) and never serve from
 `web/priv/`; `/priv/<X>` URLs require a valid JWT (via proxyd) and
-never serve from `web/pub/`. Each group's container bind-mounts its
+never serve from `web/pub/`. Each group's guest mounts its
 own slot into `~/public_html/` (public tree) and `~/private_html/`
 (private tree); content cannot leak from one to the other except by
 the agent explicitly copying bytes. Full model:
@@ -245,15 +238,14 @@ same trust zone as proxyd, not on a rented edge.
 ┌─ host (trusted) ─────────────────────────────────────────┐
 │                                                          │
 │  ┌─ arizuko_<instance> (docker-compose, trusted) ──────┐ │
-│  │                                                     │ │
-│  │  authd routd runed onbod dashd webd proxyd timed │ │
+│  │  authd routd runed onbod dashd webd proxyd timed    │ │
 │  │  teled   discd   slakd   bskyd   whapd   ...        │ │
-│  │                                                     │ │
-│  │  ┌─ agent container (per-group, partially trusted) ┐│ │
-│  │  │  claude code + ant/ + skills                    ││ │
-│  │  │  runs arbitrary Bash/Edit/WebFetch              ││ │
-│  │  │  scoped to /run/ipc + group mounts              ││ │
-│  │  └─────────────────────────────────────────────────┘│ │
+│  └─────────────────────────────────────────────────────┘ │
+│                                                          │
+│  ┌─ KVM guest (per-turn, partially trusted) ───────────┐ │
+│  │  claude code + ant/ + skills                        │ │
+│  │  runs arbitrary Bash/Edit/WebFetch                  │ │
+│  │  scoped to its virtio-fs shares + its own tap       │ │
 │  └─────────────────────────────────────────────────────┘ │
 │                                                          │
 │  ┌─ external channels (untrusted) ─────────────────────┐ │
@@ -282,7 +274,7 @@ retry blindly.
 - Nothing outside `~/.claude/` is scanned; the group home and both web
   slots are data, gated by the mounts and the web tree instead.
 - **Fails open.** A scanner crash or an unrecognised tool shape allows the
-  write. This is not a containment boundary — Docker, the egress
+  write. This is not a containment boundary — the VM boundary, the egress
   allowlist and the gated MCP socket are. It raises the cost of one
   specific move: persisting a malicious instruction into next session.
 
@@ -294,10 +286,10 @@ arizuko's credential story is not "we hide secrets well". It is that **the tool
 call is a chokepoint and a raw socket is not**, and four properties hang off
 that one fact. For anything the agent reaches as a tool:
 
-1. **The credential never enters the container.** A connector's secret is
+1. **The credential never enters the guest.** A connector's secret is
    rendered into the subprocess environment **host-side**, in routd's
    in-process MCP host (`ipc/connector.go` `renderEnv`, `ipc/extcall.go`), and
-   the value is scrubbed from the result before the agent sees it. Container
+   the value is scrubbed from the result before the agent sees it. The guest's
    env carries no capability credential at all (BUGS `X1`, closed 2026-08-09).
    This is the same property competitors buy with a TLS-terminating proxy, and
    it costs us no CA and no man-in-the-middle.
@@ -311,7 +303,7 @@ that one fact. For anything the agent reaches as a tool:
 4. **Every mutation writes its audit row in its own transaction** — the call is
    attributable to a folder, a tool, and a triggering user.
 
-A raw HTTP client inside the container — `aws`, `gh`, a script the agent just
+A raw HTTP client inside the guest — `aws`, `gh`, a script the agent just
 wrote — gets **none** of the four. It never crosses the socket, so no grant, no
 hold, and no per-call audit applies; only the host allowlist below does.
 
@@ -322,7 +314,7 @@ Two consequences we state rather than paper over:
   at once. That is why the connector path is the primary one and the egress
   proxy covers the residue — DECLINED 2026-08-20 along with every other
   tier of it: credentials reach a client through the MCP broker or not at all,
-  and an opaque in-container client is out of scope by decision.
+  and an opaque in-guest client is out of scope by decision.
 - **Scrubbing is substring replacement** (`ipc/connector.go` `scrubResult`).
   It protects against a credential appearing incidentally in output; it is not
   a defence against a caller that chooses its own command and encodes the value.
@@ -372,15 +364,15 @@ Caveats:
   (`routd/sibling_db.go` `EnvProfileSecrets` → `runed/secrets.go`
   `mergeSecrets`). That reader queries `scope_kind='user'` and keeps only
   the four model keys, so a folder capability credential cannot reach the
-  container even if a future caller asks it to. The egress allowlist
+  guest even if a future caller asks it to. The egress allowlist
   restricts _where_ the agent can reach over TCP; it does not prevent leaking a
   model credential to an allowed domain. The `litellm` package closes
-  that gap by construction: the container holds `MODEL_GATEWAY_KEY`, which
+  that gap by construction: the guest holds `MODEL_GATEWAY_KEY`, which
   buys exactly the gateway's upstream access and nothing else — the
   provider credential never moves. routd mints that key per turn against a
   master key it alone holds, bounds it by the folder's remaining daily
   budget and the run ceiling, and deletes it when the turn ends, so a key
-  read out of a container's environment buys one turn of one folder's
+  read out of a guest's environment buys one turn of one folder's
   tokens and then nothing.
 - The tool-level secret broker is **shipped** (v0.57.0;
   `specs/5/13-ext-mcp.md`, `specs/5/14-credentials.md`): the broker
@@ -395,29 +387,17 @@ Caveats:
   wired — see `specs/5/13-ext-mcp.md` §"OAuth is the next step, not this one".
 - IPv6 is not redirected by the entrypoint script.
 
-**No DNS filter, and the proxy does not stand in for one.** Nothing in a
-spawn filters UDP/53. `/etc/resolv.conf` inside an agent container is
-`nameserver 127.0.0.11` — docker's embedded resolver, which forwards
-upstream from the HOST namespace, so the container's missing default route
-never applies to it. Measured 2026-08-30 on this docker host: on an
-`--internal` network with no proxy environment, `getent hosts example.com`
-returned real addresses and exit 0 while `curl` to the same host timed out.
-A DNS query never appears in a CONNECT line, so the proxy cannot see one —
-the two controls do not overlap, and the HTTP/CONNECT 403 in `egress/` is
-the enforced path for TCP alone.
-
-What that costs: an agent emits arbitrary query names to a resolver it does
-not control, whatever the folder's `network_rules` allowlist says — a
-low-bandwidth outbound channel for anything encodable in a hostname. It does
-not breach the boundary § Model names (a malicious agent in group A reaching
-group B's data, files, or network); folder isolation is per-network and
-holds. It does defeat the weaker property above, that the allowlist restricts
-_where_ the agent can reach.
-
-The decision is open (BUGS `L136`; `specs/6/24-crackbox-lightest.md` § "DNS
-is not sealed"): scope the guarantee to TCP and accept the channel, or add a
-UDP/53 filter and wire it into the substrate. This section states what is
-true today and takes neither.
+**No DNS filter, because the guest has no resolver.** Under the earlier
+Docker substrate, `/etc/resolv.conf` inside an agent container named docker's
+own embedded resolver, which forwarded upstream from the HOST namespace and
+so ignored the container's missing default route — an agent could emit
+arbitrary query names to a resolver it did not control, whatever the folder's
+`network_rules` allowlist said. The KVM guest ships no resolver at all: a
+host name is meaningful only inside a `CONNECT` line to the proxy, so a DNS
+query has nowhere to go — the tap drops UDP/53 with everything else that is
+not to the proxy (spec `6/41` §"Egress by name, sealed below the kernel").
+That closes the side channel by construction rather than by a filter added on
+top.
 
 ## Per-daemon docs
 
