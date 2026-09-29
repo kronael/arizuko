@@ -22,6 +22,36 @@
 
     <p>What shipped, dated, terse. Reverse chronological. The chat broadcast for each release lives at the top of every block; the bullets below expand it for operators.</p>
 
+    <h2>arizuko v0.70.0 <span class="date">&mdash; 29 September 2026</span></h2>
+    <p>Docker has left the turn path: every turn now boots its own virtual machine, and egress isolation stopped being a setting an operator can leave empty.</p>
+    <ul>
+      <li><strong>One KVM guest per turn</strong> &mdash; runed boots the release&rsquo;s own kernel, exports the turn&rsquo;s files over virtio-fs and reaches the guest over vsock. The folder, the skills and the session history arrive at the same paths as before.</li>
+      <li><strong>Egress cannot be off</strong> &mdash; the guest&rsquo;s one interface is a tap whose rules accept its own proxy and drop everything else, and runed refuses to start without the proxy binary. <code>EGRESS_IMAGE</code> and its three companions are gone.</li>
+      <li><strong>No resolver in the guest</strong> &mdash; a host name is only meaningful inside a request to the proxy, which closes the UDP/53 side channel by construction. IPv6 is taken off the tap before the link comes up.</li>
+      <li><strong>The turn&rsquo;s credential is the guest&rsquo;s vsock CID</strong>, a host-kernel fact a guest cannot forge, in place of the container&rsquo;s uid.</li>
+      <li><strong>2800 lines net gone in one commit</strong> &mdash; the Docker runtime, the per-folder network carve, the proxy-container lifecycle, <code>RUNED_SUBSTRATE</code>, <code>CONTAINER_IMAGE</code> and the docker socket.</li>
+    </ul>
+    <p class="full">Full notes: <a href="https://github.com/kronael/arizuko/blob/main/CHANGELOG.md#v0700--2026-09-29">CHANGELOG &sect; v0.70.0</a></p>
+
+    <h2>arizuko v0.69.0 <span class="date">&mdash; 19 September 2026</span></h2>
+    <p>A stamped operator header is worth nothing on its own, and nine dashboards were taking it at face value; they check proxyd&rsquo;s signature now.</p>
+    <ul>
+      <li><strong>Nine dashboards verify the transit proof</strong> &mdash; eight channel adapters and ttsd read <code>X-User-Groups</code> and nothing else, so anyone who could reach the port could send <code>["**"]</code> and get the operator page.</li>
+      <li><strong>A folder can hold <code>gh:write</code></strong> &mdash; an agent whose folder was granted it can approve and merge pull requests with <code>gh</code>, and an operator <code>**</code> does not confer it.</li>
+      <li><strong>A person admitted to a group gets a profile</strong> &mdash; every caller of the writer was a test, so new people stayed nameless on every operator surface.</li>
+      <li><strong>gitd has a documentation page</strong>, and the docs no longer describe daemons that were deleted in June.</li>
+    </ul>
+    <p class="full">Full notes: <a href="https://github.com/kronael/arizuko/blob/main/CHANGELOG.md#v0690--2026-09-19">CHANGELOG &sect; v0.69.0</a></p>
+
+    <h2>arizuko v0.68.0 <span class="date">&mdash; 16 September 2026</span></h2>
+    <p>SQLite leaves the code. Every daemon reaches its owner&rsquo;s tables on the instance&rsquo;s store server and nowhere else, so there is no file path left to point at the wrong place.</p>
+    <ul>
+      <li><strong>One store, not two</strong> &mdash; the branch each daemon&rsquo;s boot took between a file and the endpoint is gone, and so are the two SQL migration chains.</li>
+      <li><strong>An instance needs a store server</strong> &mdash; <code>DYNAMODB_URL</code> is required, and a daemon without one refuses to start instead of opening an empty file.</li>
+      <li><strong>The test suite proves the real protocol</strong> &mdash; every fixture runs against a DynamoDB endpoint, so a green suite is evidence about the store production has.</li>
+    </ul>
+    <p class="full">Full notes: <a href="https://github.com/kronael/arizuko/blob/main/CHANGELOG.md#v0680--2026-09-16">CHANGELOG &sect; v0.68.0</a></p>
+
     <h2>arizuko v0.67.0 <span class="date">&mdash; 13 September 2026</span></h2>
     <p>Your instance&rsquo;s data now lives on a DynamoDB-protocol server instead of SQLite files on the box, so it can run on a managed store and every daemon reaches only what its own key allows.</p>
     <ul>
