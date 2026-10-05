@@ -3,8 +3,7 @@ import { join } from 'node:path';
 
 // Watch ONLY the served trees (pub/, priv/). vite cwd is /web; everything else
 // there (node_modules — 214 dirs on krons — plus operator junk) is never served
-// over HMR, so polling it is pure wasted CPU. Scoping the watcher took krons
-// vited from ~21% CPU to idle while clean instances were already <1%.
+// over HMR, so watching it is pure waste.
 const webRoot = process.cwd();
 const skipSeg = new Set(['.git', 'node_modules', '.vite', '.cache']);
 function unwatched(p) {
@@ -12,8 +11,8 @@ function unwatched(p) {
   const rel = p.startsWith(webRoot + '/') ? p.slice(webRoot.length + 1) : p;
   const segs = rel.split('/');
   // Only pub/ and priv/ are served; never descend VCS/dep dirs even inside them
-  // (a krons agent published a 16k-file tree + a .git repo under pub/ — polling
-  // it burned CPU).
+  // (a krons agent published a 16k-file tree + a .git repo under pub/ — every
+  // directory costs an inotify watch).
   if (segs[0] !== 'pub' && segs[0] !== 'priv') return true;
   return segs.some((s) => skipSeg.has(s));
 }
@@ -98,14 +97,11 @@ export default {
   cacheDir: '/home/node/.vite-cache',
   server: {
     allowedHosts: true,
-    // Polling is required: agents in OTHER containers write web/pub via a bind
-    // mount and inotify doesn't cross it. Scope it to served trees (unwatched)
-    // and halve the rate so a junk-filled /web doesn't burn CPU.
-    watch: {
-      usePolling: true,
-      interval: 2000,
-      ignored: unwatched,
-    },
+    // inotify sees a write from another container or from the host, because
+    // the bind mount shares the host inode, so the watcher costs nothing until
+    // a file changes. Polling krons' 48k files every 2 s held vited at 26% CPU
+    // with no traffic (BUGS L391).
+    watch: { ignored: unwatched },
     // Defense-in-depth: vited is internal-only (proxyd rewrites all paths to
     // /pub) but pin fs serving and never serve secrets even if reached directly.
     fs: { strict: true, deny: ['**/.env', '**/.env.*', '**/*.db', '**/.git/**'] },
