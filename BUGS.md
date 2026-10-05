@@ -47,21 +47,14 @@ line; none can be answered from the code.
 - `V2` — may `acl_membership` grow a LIST action? It publishes who holds
   authority over whom, on REST and on MCP.
 - `L326` — the honest liveness fix needs a barrier nobody has signed off.
-- `L360` — is one reference clone shared across groups, or copied per group?
-  Sharing couples them to one revision; copying costs about 10 G today and
-  serves a third-party `.git` tree from the public webroot.
 - `L358` — the helm chart renders a `crackbox:latest` proxy wired to `gated`, a
   daemon deleted at v0.50.0. Deleting it is four files; whether the chart
   carries an egress story at all is a deploy decision, because k8s has no
   per-folder docker network for the per-spawn proxy to attach to.
-- `L392` — every daemon on the host network, each on its own declared port
-  above 49000, no `ports:` mapping. The allocation is in the entry; the
-  decision is the move itself, because it changes how every daemon addresses
-  every other one. The interim step needs no code and is yours: three `.env`
-  keys per instance.
-- `L393` — vited's idle memory is the size of the operator's web tree: keep
-  the dev server and cap what it indexes, or serve the tree from webd. Both
-  costed in the entry.
+- `L392` — every daemon on the host network, no `ports:` mapping. The
+  loopback binds and the ports above 49000 shipped with v0.70.0; what is
+  left is the move itself, which re-addresses every daemon and needs the Go
+  suite runnable on the host first.
 
 **An operator action on live data.** The platform side is done in each.
 (`L334` is closed and carries one too: the third party's `**` on sloth is not
@@ -122,6 +115,29 @@ revoked — see its entry.)
 
 - `L350` — `6/37` cites six deleted artifacts, four of them its own guards. The
   invariant still holds; the tests that held it do not.
+
+## ✅ FIXED 2026-10-05 L394 — a moved `STORE_HOST_PORT` never reaches `env/operator.env`, so the host CLI keeps dialling the port the store left (2026-10-05)
+
+`writeOperatorEnv` rewrites the `DYNAMODB_URL` line of `env/operator.env`
+only when it is absent or names the in-network service `extenddb`. The line
+it writes names `127.0.0.1:<STORE_HOST_PORT>`, and on the next generate that
+line fails the same test, so it is treated as the operator's own and kept.
+Found preparing `L392`'s port move: krons' file carried
+`https://127.0.0.1:18443` and sloth's `https://127.0.0.1:18444`; with
+`STORE_HOST_PORT=49209` the generate would have left both, and `arizuko`
+on the host — `token issue` for anteval, `route`, `archive` — would have
+dialled a port nothing listens on. The interim step `L392` prescribed had
+this hole.
+
+- **Severity:** medium — every host CLI call fails after a store port move,
+  and the generate reports nothing
+- **Scope:** `compose/compose.go` `writeOperatorEnv`, `isGeneratedStoreLine`
+- **Source:** reading `writeOperatorEnv` before setting `STORE_HOST_PORT`,
+  2026-10-05
+- **Status:** ✅ FIXED 2026-10-05 (`9d0361e5`): a loopback line is generate's
+  own and follows the published port; only an address on another host is the
+  operator's. `TestOperatorEnvFollowsAMovedStorePort` fails without the fix
+  (mutated and run in the `golang:1.27rc2-alpine` image).
 
 ## ✅ FIXED 2026-10-05 L391 — vited polls 48k files every 2 s to notice writes that inotify already delivers, so an idle dev server holds a quarter of a core (2026-10-05)
 
@@ -280,10 +296,23 @@ and `:8880` stay, and they cost the host nothing.
   `template/services/*.yml`, both systemd units, the docs listed above
 - **Source:** the vited idle-cost measurement of 2026-10-05 (`L391`), which
   enumerated the host's listeners
-- **Status:** open — needs sign-off on the move; the interim step is an
-  operator action. no test — design.
+- **Status:** open — the host-network shape. What shipped 2026-10-05
+  (`7183063c`): `routdService`, `dashdService` and `davdService` publish on
+  `127.0.0.1` by construction, so the bind column of the allocation holds
+  for every port that exists today, and `TestInternalPortsBindLoopback`
+  pins it; v0.70.0's deploy sets `API_PORT`, `DASH_PORT` and
+  `STORE_HOST_PORT` per the table (krons 49201/49204/49209, sloth
+  49301/49304/49309), and `L394` makes the store move reach the host CLI.
+  What does not ship: `network_mode: host` and the end of `ports:` mapping.
+  It re-addresses every daemon (`http://routd:8080` in every fragment and
+  route backend, `healthBlock`, the systemd units' `generate` step, the
+  store certificate's SAN, proxyd's alias listen) and nothing of it can be
+  tested on this host today — `go1.27rc2` is not installed, so `make lint`
+  and `go test ./...` cannot run outside a container, and the host had
+  391 MB free with swap full. A redesign of that reach ships with the test
+  suite green, not with a vited fix.
 
-## L393 — vited is a Vite dev server in production, and its idle footprint is the size of the operator's web tree (2026-10-05, open — needs sign-off)
+## ✅ FIXED 2026-10-05 L393 — vited is a Vite dev server in production, and its idle footprint is the size of the operator's web tree (2026-10-05)
 
 `vited/README.md` says the shape on purpose: the container runs the Vite dev
 server, `/@vite/client` is the health probe and hot-module-reload is a listed
@@ -321,7 +350,16 @@ Two shapes, each a decision:
 - **Scope:** `ant/vite.config.js` (1); `webd`, `compose/compose.go`, proxyd's
   fallback route, `ant/Dockerfile.vite`, `Makefile` (2)
 - **Source:** `L391`'s measurement
-- **Status:** open — needs sign-off on which shape. no test — design.
+- **Status:** ✅ FIXED 2026-10-05 by shape 1, with no config change: the
+  reload push to an open tab is what vited is for, and shape 2 drops it. The
+  tree was the cost, and `L360`'s move took it out. Measured 2026-10-05 on
+  krons' tree after the move (2,261 files under `pub/`, throwaway container,
+  60 s after a 20 s warm-up): `0ba405e1`'s config 110 MB resident, 1 tick in
+  60 s, 1.4 s of CPU at start; the same plus `optimizeDeps.noDiscovery` 111 MB,
+  9 ticks, 0.9 s at start — the scan is free on a tree this size, so it stays.
+  The live container before: 232 MB resident, 1,244 ticks in 60 s (20% of a
+  core). What is left is vite itself plus a watcher over 2k files; sloth's
+  506 files cost 50 MB. no test — the measurement is the check.
 
 ## ✅ FIXED 2026-09-21 L333 — an operator-only slash command refuses without naming the principal it tested, and the refusal leaves no trace
 
@@ -1767,7 +1805,7 @@ of the haystack before the search.
   `EXTENDING.md`'s dead pointer now names §"Shape 2 — MCP HTTP connector
   (shipped)".
 
-## L360 — one agent reference clone is copied per group and served from the public webroot (2026-09-24, open)
+## ✅ FIXED 2026-10-05 L360 — one agent reference clone is copied per group and served from the public webroot (2026-09-24)
 
 `elizaos` exists three times under `/srv/data/arizuko_krons`, at 5.4 G, 5.2 G
 and 5.2 G: once in `groups/krons/workspace/agent-research-sources/`, and once
@@ -1791,14 +1829,23 @@ third-party repository are served to anyone who asks. Nothing needs the
   hold the two measured copies
 - **Source:** `du` over `/srv/data/arizuko_krons`, 2026-09-24; identical
   `tmp_pack_*` names across the krons and rhias trees
-- **Status:** open — whether references are shared or copied is a design
-  decision, because sharing one clone couples the groups to one revision
-- **Fix:** three shapes. Share one clone per upstream outside any group and
-  give each group a checkout of the revision it pins, which is the smallest
-  change and the one that keeps groups independent at the revision. Or keep
-  per-group copies and clone with `--depth 1`, which loses the ability to pin
-  an old revision. Either way the `.git` directory stops being served: the
-  webroot needs the working tree, never the object store.
+- **Status:** ✅ FIXED 2026-10-05 (`3ca8083a`). The cause: `~/public_html`
+  is the group's writable view of the public webroot, and the hub's own
+  `CLAUDE.md` says "clone repos, read implementation" with the hub as the
+  working directory, so the clones landed beside the pages. Nothing in the
+  storage table or the web skill said the slot is served, indexed and watched
+  in full. Both now say pages only, a clone goes in `~/workspace/`, and
+  migration 213 tells every folder. The trees moved, 21,121 files each, into
+  `groups/krons/workspace/agents/` and `groups/rhias/workspace/agents/`
+  (`refs/<clone>`, `refs-kanipi`, `refs-nemoclaw`); `pub/*/agents/refs/`
+  keeps its page, its three notes and `notes/`, `web/`. `pub/.backup-2026-06-14`
+  (3,734 files) moved to `web/.backup-2026-06-14`. `pub/` went from 48,237
+  files to 2,261. Nothing was deleted, so the 10 G is still on disk, twice:
+  the June copies in each workspace beside the live clones
+  `workspace/agent-research-sources` already keeps.
+- **Fix:** per-group copies stay, outside the webroot. `pub/krons/archive/`'s
+  site catalogue still lists 31 HTML files inside the moved clones; those
+  links 404 now, and the catalogue is the group's page to regenerate.
 
 ## L359 — 11 G of interrupted git repacks sit in the data tree and nothing prunes them (2026-09-24, open)
 
