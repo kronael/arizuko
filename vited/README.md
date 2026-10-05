@@ -14,12 +14,15 @@ rule. vited is not a Go daemon — the container runs the Vite dev server
 - Serve `/pub/*` — public operator docs and landing pages (unauthenticated).
 - Serve `/priv/*` — JWT-gated operator UI (proxyd enforces auth before
   forwarding).
-- Serve `/@vite/client` and hot-module-reload in dev; in production a built
-  dist is served from the same path.
+- Push a reload to an open tab when a page under `pub/` or `priv/` changes.
+  The watcher is inotify over those two trees only — a write from an agent's
+  container reaches it through the shared bind mount — and the tree's size is
+  the server's idle memory: ~110 MB at 2k files on krons, ~55 MB at 500 on
+  sloth, ~0% CPU. Nothing is bundled; the dev server runs in production.
 
 ## Entry points
 
-- Image: `arizuko-vite:latest` (built from `template/web/`, `vite.config.ts`).
+- Image: `arizuko-vite:latest` (`ant/Dockerfile.vite`, config `ant/vite.config.js`).
 - Listen: `:8080` inside the container.
 - Volume: `<data>/web` mounted at `/web` (read-only source for pages).
 - Health probe: `GET /@vite/client` (always 200 in dev mode).
@@ -34,4 +37,4 @@ rule. vited is not a Go daemon — the container runs the Vite dev server
 - `ARCHITECTURE.md` (Web Channel section, proxyd routing table)
 - `proxyd/README.md` — proxyd is the auth gate; vited trusts all proxied
   requests.
-- `template/web/` — page source, `vite.config.ts`, hub.css
+- `template/web/` — the operator doc site's source, hub.css
