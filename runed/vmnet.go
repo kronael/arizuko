@@ -152,15 +152,24 @@ var ipv6ConfDir = "/proc/sys/net/ipv6/conf"
 // somebody else's default is not a boundary (BUGS `L383`).
 //
 // A kernel built without IPv6 has no knob and nothing to disable, so an absent
-// path is not an error. A write that fails IS one: a turn must never run with an
+// path is not an error. A knob that already reads 1 — the tap inherits
+// `default.disable_ipv6`, which docker sets on a v4-only network — needs no
+// write, and the write would not take: /proc/sys is read-only in the runed
+// container, caps or not (measured on sloth 2026-10-05, 33 turns refused in
+// two minutes, BUGS `L395`). So the write is attempted only when the family is
+// open, and then a write that fails IS an error: a turn must never run with an
 // address family its rule set cannot see.
 func sealIPv6(tap string) error {
 	p := filepath.Join(ipv6ConfDir, tap, "disable_ipv6")
-	if _, err := os.Stat(p); err != nil {
+	have, err := os.ReadFile(p)
+	if err != nil {
 		if os.IsNotExist(err) {
 			return nil
 		}
 		return fmt.Errorf("seal ipv6 on %s: %w", tap, err)
+	}
+	if strings.TrimSpace(string(have)) == "1" {
+		return nil
 	}
 	if err := os.WriteFile(p, []byte("1\n"), 0o644); err != nil {
 		return fmt.Errorf("seal ipv6 on %s: %w", tap, err)

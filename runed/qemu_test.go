@@ -776,4 +776,21 @@ func TestSealIPv6TakesTheFamilyOffTheTap(t *testing.T) {
 	if err := sealIPv6("arz-ab12-t02"); err == nil {
 		t.Error("a failed write must fail the turn")
 	}
+
+	// The production shape: the tap inherits disable_ipv6=1 and /proc/sys is
+	// read-only, so the seal already holds and no write may be attempted. A
+	// knob the process cannot write stands in for the read-only mount; run as
+	// root the write would succeed and this case proves nothing, so it is not.
+	if os.Geteuid() != 0 {
+		sealed := filepath.Join(root, "arz-ab12-t03")
+		if err := os.MkdirAll(sealed, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(sealed, "disable_ipv6"), []byte("1\n"), 0o444); err != nil {
+			t.Fatal(err)
+		}
+		if err := sealIPv6("arz-ab12-t03"); err != nil {
+			t.Errorf("a knob that already reads 1 needs no write: %v", err)
+		}
+	}
 }
