@@ -342,8 +342,10 @@ func operatorEnvPath(dataDir string) string {
 // publishes: on the host the compose service name in DYNAMODB_URL resolves to
 // nothing (BUGS L311). The credential lines are minted by a by-hand `extenddb
 // init` and cannot be generated, so the file is never rewritten wholesale: one
-// URL line is edited, and only when it is absent or names the in-network
-// service. Any other endpoint is the operator's own and is left alone.
+// URL line is edited, and only when it is absent, names the in-network
+// service, or is the loopback line a previous generate wrote — a moved
+// STORE_HOST_PORT has to reach it, or the host CLI keeps dialling the old
+// port. An address on any other host is the operator's own and is left alone.
 func writeOperatorEnv(dataDir string, env map[string]string) error {
 	inNetwork, err := url.Parse(env[dynstore.EnvURL])
 	if err != nil || inNetwork.Hostname() != storeService {
@@ -385,7 +387,7 @@ func writeOperatorEnv(dataDir string, env map[string]string) error {
 	switch {
 	case at == -1:
 		lines = append(lines, line)
-	case !namesStoreService(lines[at]):
+	case !isGeneratedStoreLine(lines[at]):
 		// The operator's line; only the mode is still ours.
 		return chmodOperatorEnv(path)
 	default:
@@ -397,10 +399,10 @@ func writeOperatorEnv(dataDir string, env map[string]string) error {
 // namesStoreService reports whether a KEY=VALUE line's URL addresses the store
 // server by its compose service name; an unparseable value counts, it reaches
 // nothing either way.
-func namesStoreService(line string) bool {
+func isGeneratedStoreLine(line string) bool {
 	_, value, _ := strings.Cut(line, "=")
 	have, err := url.Parse(strings.TrimSpace(value))
-	return err != nil || have.Hostname() == storeService
+	return err != nil || have.Hostname() == storeService || have.Hostname() == "127.0.0.1"
 }
 
 // chmodOperatorEnv takes the file back to 0600 without touching a byte: sloth

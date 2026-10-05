@@ -92,6 +92,28 @@ func TestOperatorEnvKeepsAnOperatorAddressedFile(t *testing.T) {
 	mustBe0600(t, dir)
 }
 
+// The loopback line is generate's own, so a moved STORE_HOST_PORT reaches it;
+// krons' host CLI would otherwise keep dialling the port the store left.
+func TestOperatorEnvFollowsAMovedStorePort(t *testing.T) {
+	dir := seed(t, "APP=arizuko\nFLAVOR=krons\n"+dynstore.EnvURL+"=https://extenddb:18443\n"+
+		storeHostPortKey+"=49209\n")
+	if err := os.MkdirAll(filepath.Join(dir, "env"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	write(t, dir, filepath.Join("env", "operator.env"),
+		dynstore.EnvKeyID+"=AKIAOPERATOR\n"+
+			dynstore.EnvURL+"=https://127.0.0.1:18443\n")
+	gen(t, dir)
+
+	body := read(t, dir, filepath.Join("env", "operator.env"))
+	if !strings.Contains(body, dynstore.EnvURL+"=https://127.0.0.1:49209\n") {
+		t.Errorf("operator.env still dials the old port:\n%s", body)
+	}
+	if !strings.Contains(body, dynstore.EnvKeyID+"=AKIAOPERATOR\n") {
+		t.Errorf("operator.env lost the credential:\n%s", body)
+	}
+}
+
 // The sloth failure itself: the file carried the in-network name, which the
 // host cannot resolve. That one line is corrected and the credential the
 // operator cannot regenerate survives beside it.
