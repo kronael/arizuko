@@ -13,6 +13,28 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.70.1] — 2026-10-05
+
+> arizuko v0.70.1 — the turn starts again
+>
+> v0.70.0's image refused every turn: it wrote an IPv6 knob the runed container
+> cannot write. The seal now reads first and writes only when the family is open.
+>
+> • turns start under the v0.70.0 substrate — 33 refusals in two minutes on
+> sloth, none after the fix
+> • the IPv6 seal still refuses a turn when the family is open and will not close
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Fixed
+
+- `sealIPv6` wrote `/proc/sys/net/ipv6/conf/<tap>/disable_ipv6` on every tap,
+  and `/proc/sys` is read-only in the runed container whatever its
+  capabilities, so no turn started. The tap inherits `default.disable_ipv6=1`
+  from docker's v4-only network; the seal reads the knob and writes only when
+  it does not read `1`, where a failed write still refuses the turn (BUGS
+  `L395`).
+
 ## [v0.70.0] — 2026-10-05
 
 > arizuko v0.70.0 — a turn runs in its own virtual machine
@@ -35,8 +57,8 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 > `RUNED_SUBSTRATE`, `CONTAINER_IMAGE` and the docker socket
 > • the web server idles at 0% and a third of the memory — it watches pages with
 > inotify instead of polling 48k files, and reference clones left the public tree
-> • routd, dashd and the store publish on loopback, above port 49000; only proxyd
-> faces the network
+> • routd and dashd publish on loopback only, and the instances' host ports move
+> above 49000; only proxyd faces the network
 >
 > Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
 
