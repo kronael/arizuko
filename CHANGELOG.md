@@ -13,6 +13,8 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.70.0] — 2026-10-05
+
 > arizuko v0.70.0 — a turn runs in its own virtual machine
 >
 > Docker has left the turn path: every turn now boots one KVM guest, and egress
@@ -31,6 +33,10 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 > • 2800 lines net gone in one commit — measured, 3055 deleted against 258 added:
 > the Docker runtime, the per-folder network carve, the proxy-container lifecycle,
 > `RUNED_SUBSTRATE`, `CONTAINER_IMAGE` and the docker socket
+> • the web server idles at 0% and a third of the memory — it watches pages with
+> inotify instead of polling 48k files, and reference clones left the public tree
+> • routd, dashd and the store publish on loopback, above port 49000; only proxyd
+> faces the network
 >
 > Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
 
@@ -60,12 +66,26 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   `specs/4/P` documented per-instance tags as a shipped feature. Selection is by
   tree now: export, repoint `RUNED_ROOTFS_DIR`, restart one instance (BUGS `L384`).
 
+- **routd, dashd and davd publish on loopback.** `API_PORT`, `DASH_PORT` and
+  `DAV_PORT` bind `127.0.0.1` by construction; proxyd's `WEB_PORT` is the one
+  entry point from off the host. The deployed instances take their host ports
+  above 49000, one block each (krons 49200+, sloth 49300+); the host-network
+  shape with no port mapping stays a proposal (BUGS `L392`).
+- **The web slot holds pages only.** `~/public_html` is served, indexed and
+  watched in full, so a source clone or a working tree belongs in
+  `~/workspace/`; migration 213 says so, and krons' and rhias' reference
+  clones moved there (BUGS `L360`).
+
 ### Fixed
 
 - vited watches the web tree with inotify instead of polling it. A write from
   another container reaches the watcher through the shared bind mount, so the
   poll bought nothing, and on krons' 48k-file tree it held the idle dev server
-  at 26% of a core (BUGS `L391`).
+  at 26% of a core (BUGS `L391`). With the reference clones out of the tree the
+  same server idles at 0% and 110 MB, from 20% and 232 MB (BUGS `L393`).
+- A moved `STORE_HOST_PORT` reaches `env/operator.env`: the loopback line a
+  previous generate wrote is generate's own and follows the port, so the host
+  CLI does not keep dialling the port the store left.
 - The turn's numbers all come from its SLOT. `RUNED_VSOCK_CID_BASE` gives each
   instance a window of the host's vsock space, because a CID identifies a guest to
   the host kernel and both instances were claiming 3; and the tap's name, the tap's
