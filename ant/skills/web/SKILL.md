@@ -38,6 +38,16 @@ ALWAYS place public apps under `~/public_html/<app>/`. ALWAYS place
 OAuth-gated apps under `~/private_html/<app>/`. NEVER write to
 `/workspace/web/...` — that path is gone (v0.45.11).
 
+## Pages only
+
+Every file under `~/public_html/` is served to anyone, and the dev server
+indexes and watches all of it. Put there ONLY what a page serves. A source
+clone you read for research, a reference checkout, notes, `.claude/`, caches
+— all of that is `~/workspace/` (say `~/workspace/refs/<name>`), and a page
+links to the upstream URL. Cost: krons kept two 21k-file reference trees
+under `pub/*/agents/refs`, 7.6 G each with their `.git` public, and the
+server paid 145 MB of memory idle to watch them (BUGS L360, L393).
+
 ## Create a public app
 
 1. `mkdir -p ~/public_html/myapp && cat > ~/public_html/myapp/index.html`

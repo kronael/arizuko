@@ -162,7 +162,7 @@ Verify before you announce: `curl -sI` the URL — `/pub/*` MUST return 200, `/p
 | `~/.claude/skills/` | Custom skills you create or install | no |
 | `~/workspace/` | Long-lived project files, code, data | no |
 | `~/tmp/` | Single-run scratch — survives this session but disposable | no |
-| `~/public_html/` | Public web slot, from `<data>/web/pub/<folder>/` | `/pub/<folder>/...` (no auth) |
+| `~/public_html/` | Public web slot, from `<data>/web/pub/<folder>/` — pages only; a source clone or a working tree goes in `~/workspace/` | `/pub/<folder>/...` (no auth) |
 | `~/private_html/` | OAuth web slot, from `<data>/web/priv/<folder>/` | `/priv/<folder>/...` (JWT) |
 | `/var/lib/www/` (RO) | Whole unified public web tree | read-only view |
 | `/tmp/` | Nothing — lost when the turn ends | no |
