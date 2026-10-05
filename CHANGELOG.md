@@ -62,6 +62,10 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ### Fixed
 
+- vited watches the web tree with inotify instead of polling it. A write from
+  another container reaches the watcher through the shared bind mount, so the
+  poll bought nothing, and on krons' 48k-file tree it held the idle dev server
+  at 26% of a core (BUGS `L391`).
 - The turn's numbers all come from its SLOT. `RUNED_VSOCK_CID_BASE` gives each
   instance a window of the host's vsock space, because a CID identifies a guest to
   the host kernel and both instances were claiming 3; and the tap's name, the tap's

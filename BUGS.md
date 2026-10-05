@@ -54,6 +54,14 @@ line; none can be answered from the code.
   daemon deleted at v0.50.0. Deleting it is four files; whether the chart
   carries an egress story at all is a deploy decision, because k8s has no
   per-folder docker network for the per-spawn proxy to attach to.
+- `L392` — every daemon on the host network, each on its own declared port
+  above 49000, no `ports:` mapping. The allocation is in the entry; the
+  decision is the move itself, because it changes how every daemon addresses
+  every other one. The interim step needs no code and is yours: three `.env`
+  keys per instance.
+- `L393` — vited's idle memory is the size of the operator's web tree: keep
+  the dev server and cap what it indexes, or serve the tree from webd. Both
+  costed in the entry.
 
 **An operator action on live data.** The platform side is done in each.
 (`L334` is closed and carries one too: the third party's `**` on sloth is not
@@ -114,6 +122,206 @@ revoked — see its entry.)
 
 - `L350` — `6/37` cites six deleted artifacts, four of them its own guards. The
   invariant still holds; the tests that held it do not.
+
+## ✅ FIXED 2026-10-05 L391 — vited polls 48k files every 2 s to notice writes that inotify already delivers, so an idle dev server holds a quarter of a core (2026-10-05)
+
+`ant/vite.config.js` set `server.watch.usePolling: true, interval: 2000` on the
+reasoning that "agents in OTHER containers write web/pub via a bind mount and
+inotify doesn't cross it". It does cross it: a bind mount is the host inode and
+inotify is a property of the inode. Measured 2026-10-05 with two throwaway
+containers sharing one bind mount — `fs.watch` in one saw the `rename` event
+for a file the other created, and vite under the fixed config logged `page
+reload pub/index.html` for an append made from the other container.
+
+What the poll cost on `arizuko_vited_krons` (pid 10404, up 3 days 16 h, no
+traffic — proxyd held no established connection to it):
+
+- `docker stats`: 20–26% CPU, 312 MiB. `/proc/10404/stat`: 13,411 s user and
+  31,250 s system over the container's life, 1.07 G non-voluntary context
+  switches, 123 GB read.
+- Throwaway containers on krons' `/web` (62,121 files, 48,237 under `pub/`),
+  same image, 60 s each: the polling config 1,562 ticks (26% of a core) and
+  310 MB; the fixed config 730 ticks in its first minute (the startup scan),
+  then 802 → 802 → 803 ticks across the next two (~0%), 305 MB, 37,747
+  inotify watches.
+- sloth (506 files) never showed it: 0.17% CPU, 56 MiB. The cost is the
+  tree's size times the poll rate.
+
+The healthcheck is not it: the probe containers ran the image's own `wget`
+every 30 s and the steady state above includes it.
+
+The memory is the tree, not the poll. Same tree, 60 s, three configs: watcher
+plus dependency scan 305 MB; no watcher 161 MB; no dependency scan 253 MB.
+About 145 MB is chokidar's tables for 37,747 watches, about 50 MB the
+`[optimizer] scanning dependencies` pass over every HTML file under `/web`,
+and the ~60 MB left is vite itself (sloth's whole footprint). `pub/rhias` and
+`pub/krons` hold 22,146 and 22,140 files and `pub/.backup-2026-06-14` 3,734:
+48,020 of the 48,237. Of those, `pub/rhias/agents` and `pub/krons/agents` are
+21,239 and 21,240 — the per-group reference clones `L360` describes, so that
+entry's decision is also most of vited's memory.
+
+- **Severity:** medium — a quarter of a core and swap pressure on a 16 GB host
+  with 600 MB free, for nothing
+- **Scope:** `ant/vite.config.js`
+- **Source:** the owner's question why an idle vited runs at all, 2026-10-05
+- **Status:** ✅ FIXED 2026-10-05 (`0ba405e1`): `server.watch` keeps
+  `ignored: unwatched` and drops `usePolling` and `interval`. The running
+  image was built 2026-09-18 and carries the poll until `make vite-image` and
+  a restart. The memory the tree costs is `L393`'s question.
+- **Fix:** no test — the config is JavaScript the Go suite does not load; the
+  measurement above is the check, and the cross-container reload is the
+  behaviour the poll existed for.
+
+## L392 — four host ports below 49000 are arizuko's, one of them a code default nobody set, and the asked-for shape (no mapping, host network, ports above 49000) is a redesign (2026-10-05, open — needs sign-off)
+
+What occupies the host today, measured 2026-10-05 (`ss -tlnp`, `docker ps`):
+
+| host port | bind | owner | how it got there |
+|---|---|---|---|
+| 8080 | 0.0.0.0 | `arizuko_routd_sloth` (docker-proxy pid 12164) | sloth's `.env` has no `API_PORT`; `seedSharedDefaults` fills `core.DefaultAPIPort` = 8080 and `routdService` publishes `API_PORT:8080` |
+| 8081 | 0.0.0.0 | `arizuko_routd_krons` | `API_PORT=8081` |
+| 8090, 8091 | 0.0.0.0 | `arizuko_dashd_sloth`, `arizuko_dashd_krons` | `DASH_PORT` |
+| 18443, 18444 | 127.0.0.1 | `arizuko_extenddb_krons`, `_sloth` | `STORE_HOST_PORT` (`template/services/extenddb.yml`) |
+| 49165, 49177 | 0.0.0.0 | `arizuko_proxyd_krons` | `WEB_PORT`, `WEB_PORT_ALIASES` |
+| 49176 | 0.0.0.0 | `arizuko_proxyd_sloth` | `WEB_PORT` |
+
+Nothing else of arizuko's touches a host port. kokoro's `8880/tcp`, ttsd's
+`8880`, vited's `8080` and every Go daemon's `:8080` live inside the instance
+bridge network; `docker ps` prints them because the images `EXPOSE` them, and
+an exposed-but-unpublished port consumes nothing on the host. The eight
+listeners above are the whole of what "below 49000" means here, and six of them
+are `.env` values the operator can move today (see the interim step).
+
+Neighbours on the host network, so the allocation below avoids them: 49169
+(`go_from_rust.service`), 49179–49181 (reveries), 18445 (`extenddb.service`),
+8178 (`whisper.service`).
+
+**The asked-for shape.** No `ports:` mapping and no `EXPOSE` indirection: each
+service listens directly on its own host port above 49000, `network_mode:
+host`, internal services bound to 127.0.0.1, public entry points to 0.0.0.0.
+That is a redesign under this file's standing policy — it replaces compose
+service names as the addressing scheme (`http://routd:8080` in every fragment,
+every proxyd route backend, `ROUTER_URL`/`AUTHD_URL`/`ONBOD_URL`/`VITE_ADDR`,
+`healthBlock`'s `http://127.0.0.1:8080/health`, `DYNAMODB_URL=https://extenddb:18443`
+in both systemd units' `generate` step) with declared per-instance host ports,
+and it retires the `:8080`-everywhere invariant in root `CLAUDE.md`
+§Conventions. Shipping it uninvited would spend that decision; the 2026-04-29
+outage in root `CLAUDE.md` came from one derived network name.
+
+**Allocation — one declaration.** One `.env` key per instance, `PORT_BASE`
+(krons 49200, sloth 49300), and one offset table in `compose` keyed by daemon
+name; a package's offset lives in its `<name>.yaml` manifest, so a suffixed
+copy (`teled-rhias`) declares its own in the copied manifest, never derived
+from position. Every port is `PORT_BASE + offset`:
+
+| offset | daemon | krons | sloth | bind |
+|---|---|---|---|---|
+| 0 | authd | 49200 | 49300 | 127.0.0.1 |
+| 1 | routd | 49201 | 49301 | 127.0.0.1 (replaces `API_PORT`; the host CLI dials it) |
+| 2 | runed | 49202 | 49302 | 127.0.0.1 — the per-turn egress proxy (`RUNED_PROXY_PORT`, 3128) is on the tap side and is not a host port today |
+| 3 | webd | 49203 | 49303 | 127.0.0.1 |
+| 4 | dashd | 49204 | 49304 | 127.0.0.1 (replaces `DASH_PORT`; proxyd fronts `/dash/`) |
+| 5 | vited | 49205 | 49305 | 127.0.0.1 (`VITE_PORT`) |
+| 6 | timed | 49206 | 49306 | 127.0.0.1 |
+| 7 | onbod | 49207 | 49307 | 127.0.0.1 |
+| 8 | davd | 49208 | 49308 | 127.0.0.1 (replaces `DAV_PORT`) |
+| 9 | extenddb | 49209 | 49309 | 127.0.0.1 (replaces `STORE_HOST_PORT`) |
+| 10 | extenddb_db | 49210 | 49310 | 127.0.0.1 (`postgres -p`) |
+| 11 | ttsd | 49211 | 49311 | 127.0.0.1 (`TTSD_ADDR`) |
+| 12 | kokoro | 49212 | 49312 | 127.0.0.1 — **mapped, not moved**: the upstream image's `entrypoint.sh` ends in `exec uv run … uvicorn … --host 0.0.0.0 --port 8880`, so 8880 is its contract; it stays on the instance bridge with `ports: ['127.0.0.1:${PORT}:8880']` and ttsd dials the loopback port |
+| 13 | teled | 49213 | 49313 | 127.0.0.1 |
+| 14 | teled-rhias | 49214 | — | 127.0.0.1 |
+| 15 | whapd | 49215 | 49315 | 127.0.0.1 |
+| 16 | discd | 49216 | 49316 | 127.0.0.1 |
+| 17 | slakd | 49217 | 49317 | 127.0.0.1 |
+| 18 | litellm | 49218 | 49318 | 127.0.0.1 (`--port`) |
+| 19 | litellm_db | 49219 | 49319 | 127.0.0.1 |
+| 20–25 | gitd, linkd, emaid, reditd, bskyd, twitd | 49220–49225 | 49320–49325 | 127.0.0.1 |
+| — | proxyd | 49165 + 49177 | 49176 | 0.0.0.0 — the public entry point; unchanged because the edge dials these |
+
+**What the move costs**, each a file or a contract the table above does not
+cover by itself:
+
+- `WEB_PORT_ALIASES` is a second `ports:` line today; on the host network
+  proxyd must listen on each alias itself (one `LISTEN_ADDR` becomes a list).
+- `DYNAMODB_URL` names `extenddb` and the store's TLS certificate is issued for
+  that name; dialling `https://127.0.0.1:49209` needs the certificate to carry
+  the loopback SAN or the client to pin `ServerName`.
+- Where the per-turn egress proxy binds once runed is on the host network
+  needs measuring, not assuming: on the tap it stays per-guest, on the host it
+  becomes one more listener per turn.
+- Every fragment under `template/services/` drops its literal `LISTEN_ADDR`,
+  `LISTEN_URL` and `ROUTER_URL` lines; the renderer writes them into the
+  daemon's scoped `env/<daemon>.env`, which the fragments already load.
+- `compose/compose_test.go` pins `'49165:8080'`, `/web:/web:ro` and the
+  health lines; `tests/integration_features_smoke_test.go` checks the
+  third-party services as Running; both follow the renderer.
+- Docs: root `CLAUDE.md` §Conventions, `ARCHITECTURE.md` §"All Go daemons
+  listen on :8080", `INSTALL.md`, `vited/README.md`, `ttsd/README.md`,
+  `davd/README.md`, `template/env.example`.
+- `L379` narrows: anteval's callback sink becomes a host address, and whether
+  the tap rule set lets a guest reach it is that entry's remaining question.
+
+**Interim step, no code, yours (operator data).** It clears every arizuko port
+below 49000 with the mechanism that exists: in `/srv/data/arizuko_krons/.env`
+set `API_PORT=49201`, `DASH_PORT=49204`, `STORE_HOST_PORT=49209`; in
+`/srv/data/arizuko_sloth/.env` set `API_PORT=49301`, `DASH_PORT=49304`,
+`STORE_HOST_PORT=49309`; then `sudo systemctl restart arizuko_sloth`, check
+`ss -tlnp`, then `sudo systemctl restart arizuko_krons`. One restart per
+instance is the unit's own `down → generate → up`; there is no narrower path
+while one compose file carries the instance. The container-internal `:8080`
+and `:8880` stay, and they cost the host nothing.
+
+- **Severity:** low in behaviour (nothing is broken; sloth's 8080 is a default
+  on a public interface and `routd` has its own auth), high in scope
+- **Scope:** `compose/compose.go` (`seedSharedDefaults`, `routdService`,
+  `dashdService`, `proxydService`, `davdService`, `vitedService`,
+  `healthBlock`, `proxydRoutes`), `core/config.go` (`DefaultAPIPort`), every
+  `template/services/*.yml`, both systemd units, the docs listed above
+- **Source:** the vited idle-cost measurement of 2026-10-05 (`L391`), which
+  enumerated the host's listeners
+- **Status:** open — needs sign-off on the move; the interim step is an
+  operator action. no test — design.
+
+## L393 — vited is a Vite dev server in production, and its idle footprint is the size of the operator's web tree (2026-10-05, open — needs sign-off)
+
+`vited/README.md` says the shape on purpose: the container runs the Vite dev
+server, `/@vite/client` is the health probe and hot-module-reload is a listed
+responsibility. The pages under `pub/` and `priv/` are plain HTML, CSS and JS;
+nothing is bundled and the image runs no build step. What the dev server adds
+over a file server is the reload push to an open browser tab, and the module
+graph and watcher it keeps for that.
+
+Measured on krons' tree with `L391`'s fix (60 s, throwaway container): 305 MB
+resident and ~7 s of CPU at start, of which about 145 MB is the watcher over
+37,747 inotify watches and about 50 MB the dependency scan over every HTML
+file under `/web`; the remaining ~60 MB is vite itself, which is sloth's whole
+footprint at 506 files. Both scale with the tree, and the tree is
+operator-written: `pub/rhias/agents` and `pub/krons/agents` hold 21k files
+each, `L360`'s reference clones, so that decision alone removes most of it
+under either shape below.
+
+Two shapes, each a decision:
+
+1. **Keep the dev server, cap what it indexes.** `optimizeDeps.noDiscovery`
+   drops the scan (253 MB, measured). `server.watch: null` drops the watcher
+   (161 MB, measured) and with it the reload an agent's write pushes to an
+   open tab; whether a changed JS module then serves stale from vite's
+   transform cache until restart is to measure before choosing. Config only,
+   no new container.
+2. **A static origin.** A file server over `/web/pub` and `/web/priv` with the
+   two rewrites `pubFallback` and `trailingSlash` carry. `webd` already serves
+   static files from the binary, so this would be a data mount on webd rather
+   than a new daemon: no scan, no watcher, no memory beyond the process. It
+   retires the `arizuko-vite` image, `vitedService`, `VITE_ADDR`, the
+   `/@vite/client` probe and `vited/README.md`, and it is a new contract for
+   proxyd's fallback backend and the `web` profile.
+
+- **Severity:** low — idle memory only; `L391` removed the CPU
+- **Scope:** `ant/vite.config.js` (1); `webd`, `compose/compose.go`, proxyd's
+  fallback route, `ant/Dockerfile.vite`, `Makefile` (2)
+- **Source:** `L391`'s measurement
+- **Status:** open — needs sign-off on which shape. no test — design.
 
 ## ✅ FIXED 2026-09-21 L333 — an operator-only slash command refuses without naming the principal it tested, and the refusal leaves no trace
 
