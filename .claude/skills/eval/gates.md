@@ -45,7 +45,7 @@ sudo ./arizuko token $I issue bearer eval \
   --scope messages:write,messages:read,cost:read --ttl 2h    # token: line
 GW=$(sudo docker network inspect arizuko_${I}_default \
   --format '{{range .IPAM.Config}}{{.Gateway}}{{end}}')      # NOT a hardcoded IP
-cd anteval && ./anteval run https://<host> --api http://localhost:8081 \
+cd anteval && ./anteval run https://<host> --api http://localhost:49201 \
   --token "$TOK" --chat web:eval --folder eval \
   --sink-addr $GW:9099 --sink http://$GW:9099 --smoke
 ```

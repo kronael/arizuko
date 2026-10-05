@@ -1066,7 +1066,8 @@ func authdService(app, flavor string) string {
 }
 
 // routdService emits the canonical router: NO egress proxy, NO docker socket.
-// Publishes API_PORT:8080 so the host CLI reaches /v1/channels.
+// Publishes API_PORT:8080 on loopback so the host CLI reaches /v1/channels;
+// only proxyd is an entry point from off the host (BUGS L392).
 func routdService(app, flavor, dataDir string, env map[string]string) string {
 	apiPort := envOr(env, "API_PORT", fmt.Sprintf("%d", core.DefaultAPIPort))
 	def := svcDef{
@@ -1075,7 +1076,7 @@ func routdService(app, flavor, dataDir string, env map[string]string) string {
 		flavor:     flavor,
 		entrypoint: "routd",
 		dataDir:    dataDir,
-		ports:      []string{fmt.Sprintf("%s:%d", apiPort, core.DefaultAPIPort)},
+		ports:      []string{fmt.Sprintf("127.0.0.1:%s:%d", apiPort, core.DefaultAPIPort)},
 		dependsOn:  "authd, runed",
 	}
 	// routd reads ant/skills/self/MIGRATION_VERSION to enqueue /migrate; pointed
@@ -1236,7 +1237,7 @@ func dashdService(app, flavor, dataDir string, env map[string]string) string {
 		def.volumes = []string{vol}
 	}
 	if dashPort := envOr(env, "DASH_PORT", ""); dashPort != "" {
-		def.ports = []string{dashPort + ":8080"}
+		def.ports = []string{"127.0.0.1:" + dashPort + ":8080"}
 	}
 	return writeSvc(def)
 }
@@ -1278,7 +1279,7 @@ func davdService(app, flavor, dataDir string, env map[string]string) string {
 	fmt.Fprintf(&b, "    volumes:\n      - %s/groups:/data\n", dataDir)
 	if davPort := envOr(env, "DAV_PORT", ""); davPort != "" {
 		b.WriteString("    ports:\n")
-		fmt.Fprintf(&b, "      - '%s:8080'\n", davPort)
+		fmt.Fprintf(&b, "      - '127.0.0.1:%s:8080'\n", davPort)
 	}
 	b.WriteString("    command:\n")
 	b.WriteString("      - --port\n      - '8080'\n      - --allow-all\n      - /data\n")

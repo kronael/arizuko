@@ -105,9 +105,10 @@ func TestGenerateBaseDaemons(t *testing.T) {
 			t.Errorf("%s must NOT mount docker.sock", svc)
 		}
 	}
-	// routd publishes API_PORT:8080 so the host CLI reaches /v1/channels.
-	if !strings.Contains(serviceBlock(out, "routd"), "'8080:8080'") {
-		t.Errorf("routd must publish API_PORT:8080; got:\n%s", serviceBlock(out, "routd"))
+	// routd publishes API_PORT:8080 on loopback so the host CLI reaches
+	// /v1/channels and nothing off the host does.
+	if !strings.Contains(serviceBlock(out, "routd"), "'127.0.0.1:8080:8080'") {
+		t.Errorf("routd must publish API_PORT:8080 on loopback; got:\n%s", serviceBlock(out, "routd"))
 	}
 	// authd resolves login/refresh scopes against routd's ACL owner.
 	if !strings.Contains(serviceBlock(out, "authd"), "GRANTS_URL: 'http://routd:8080'") {
@@ -334,6 +335,29 @@ func TestProxydPortAliases(t *testing.T) {
 	proxyd := serviceBlock(out, "proxyd")
 	if !strings.Contains(proxyd, "'49165:8080'") || !strings.Contains(proxyd, "'49177:8080'") {
 		t.Errorf("proxyd must publish WEB_PORT + aliases; got:\n%s", proxyd)
+	}
+}
+
+// proxyd is the one entry point from off the host. Every other published port
+// is for the host itself — the CLI, the operator's browser through proxyd — so
+// it binds loopback: sloth's routd sat on 0.0.0.0:8080 for months (BUGS L392).
+func TestInternalPortsBindLoopback(t *testing.T) {
+	out := gen(t, seed(t, "WEB_PORT=49165\nAPI_PORT=49201\nDASH_PORT=49204\nDAV_PORT=49208\n"))
+	for svc, want := range map[string]string{
+		"routd": "'127.0.0.1:49201:8080'",
+		"dashd": "'127.0.0.1:49204:8080'",
+		"davd":  "'127.0.0.1:49208:8080'",
+	} {
+		block := serviceBlock(out, svc)
+		if !strings.Contains(block, want) {
+			t.Errorf("%s must publish %s; got:\n%s", svc, want, block)
+		}
+		if strings.Contains(block, "- '49") {
+			t.Errorf("%s publishes on every interface:\n%s", svc, block)
+		}
+	}
+	if proxyd := serviceBlock(out, "proxyd"); strings.Contains(proxyd, "127.0.0.1:49165") {
+		t.Errorf("proxyd is the public entry point and must not bind loopback:\n%s", proxyd)
 	}
 }
 
