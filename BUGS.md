@@ -116,6 +116,37 @@ revoked — see its entry.)
 - `L350` — `6/37` cites six deleted artifacts, four of them its own guards. The
   invariant still holds; the tests that held it do not.
 
+## ✅ FIXED 2026-10-05 L395 — `sealIPv6` writes a `/proc/sys` knob the runed container cannot write, so the v0.70.0 image refuses every turn (2026-10-05)
+
+`L383`'s fix (`ac0d46c8`, 2026-09-29) writes
+`/proc/sys/net/ipv6/conf/<tap>/disable_ipv6` before each tap comes up and
+refuses the turn when the write fails. `/proc/sys` is read-only in the runed
+container — `cap_add: [NET_ADMIN, SYS_ADMIN]` does not change that, only
+`privileged` would — so the write never takes. Deployed to sloth 2026-10-05
+08:38 as the first image built since 2026-09-26: 33 `turn did not start`
+(`seal ipv6 on arz-068f-t00: open /proc/sys/net/ipv6/conf/arz-068f-t00/disable_ipv6:
+read-only file system`) in two minutes, 0 in the 24 h before. Rolled back to
+the 2026-09-26 image at 08:41; 0 refusals and 2 guests booted in the next
+minute. Nothing between `ac0d46c8` and the deploy ran the code: `go1.27rc2`
+has not been installed on this host since 2026-09-29, so none of that day's
+five fixes (`L380`–`L385`) was built into an image or run against a turn.
+
+The knob already reads `1`: the tap inherits `default.disable_ipv6`, which
+docker sets on a v4-only network (`L383` measured it). So the invariant held
+and the write was the only thing failing.
+
+- **Severity:** high — no turn runs on an instance that takes the image
+- **Scope:** `runed/vmnet.go` `sealIPv6`
+- **Affected:** every turn on both instances under v0.70.0's image
+- **Source:** the v0.70.0 deploy to sloth, 2026-10-05
+- **Status:** ✅ FIXED 2026-10-05 (`5120c3ef`): the seal reads the knob and
+  writes only when it does not read `1`; a failed write still refuses the
+  turn, so an operator who enables IPv6 on the compose network gets the
+  refusal `L383` promised instead of an open family.
+  `TestSealIPv6TakesTheFamilyOffTheTap` gains the production case (knob `1`,
+  unwritable) and fails under the old code — run as uid 1001 in the
+  `golang:1.27rc2-alpine` image, since root would write through the 0444.
+
 ## ✅ FIXED 2026-10-05 L394 — a moved `STORE_HOST_PORT` never reaches `env/operator.env`, so the host CLI keeps dialling the port the store left (2026-10-05)
 
 `writeOperatorEnv` rewrites the `DYNAMODB_URL` line of `env/operator.env`
