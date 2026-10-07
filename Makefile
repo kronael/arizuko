@@ -116,8 +116,13 @@ export GOFLAGS += -timeout=20m
 # docker: dyntest starts one per test binary and removes it at the end.
 # ARIZUKO_TEST_DYNAMO_ENDPOINT points the same suites at one that is already
 # running — the PostgreSQL deployment, or Amazon's own service.
+# -timeout is explicit because the DEFAULT is 10m per package and two packages need
+# more than that: measured 2026-10-07, routd 601s and store 601s both died on the
+# default, so `make test` - the documented dev loop - could not pass on this host.
+# A gate that always fails teaches people to ignore it (BUGS `L398`). The number is
+# a ceiling for a hang, not a budget: the slowness itself is the finding.
 test:
-	go test ./... -count=1 -short
+	go test ./... -count=1 -short -timeout 1800s
 	# guest-init is its OWN module (kernel/guest-init/go.mod), so the root ./...
 	# cannot see it — measured: `go list ./... | grep -c guest-init` is 0. Its
 	# tests would have been written and then never run by anything. The module is
