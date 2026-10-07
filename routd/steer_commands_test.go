@@ -92,7 +92,7 @@ func TestCmdPing(t *testing.T) {
 	if !steerOne(loop, "web:demo", "demo", "/ping") {
 		t.Fatal("/ping not consumed")
 	}
-	want := "pong\ngroup: demo\nsession: sessionA\nactive containers: 0\nregistered groups: 1"
+	want := "pong\ngroup: demo\nsession: sessionA\nactive turns: 0\nregistered groups: 1"
 	if got := lastAck(t, dl); got != want {
 		t.Fatalf("/ping ack=%q want %q", got, want)
 	}
@@ -120,7 +120,7 @@ func TestCmdStop(t *testing.T) {
 	if !steerOne(loop, "tg:1", "demo", "/stop") {
 		t.Fatal("/stop not consumed")
 	}
-	if got := lastAck(t, dl); got != "No active container for this chat." {
+	if got := lastAck(t, dl); got != "No active turn for this chat." {
 		t.Fatalf("/stop ack=%q", got)
 	}
 }
@@ -139,7 +139,7 @@ func (r *stopRunner) StopFolder(_ context.Context, folder string) (runedv1.StopR
 }
 
 // TestCmdStopKillsViaRuned: /stop asks runed to kill the resolved folder's live
-// run (POST /v1/runs/stop) and, on killed:true, acks gated's "Container stopped."
+// run (POST /v1/runs/stop) and, on killed:true, acks gated's "Turn stopped."
 func TestCmdStopKillsViaRuned(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
@@ -158,7 +158,7 @@ func TestCmdStopKillsViaRuned(t *testing.T) {
 	if sr.folder != "demo" {
 		t.Fatalf("runed asked to stop folder %q want demo", sr.folder)
 	}
-	if got := lastAck(t, dl); got != "Container stopped." {
+	if got := lastAck(t, dl); got != "Turn stopped." {
 		t.Fatalf("/stop ack=%q want Container stopped.", got)
 	}
 }
@@ -178,7 +178,7 @@ func TestCmdStopNoActiveViaRuned(t *testing.T) {
 	loop.deliver = dl
 
 	_ = steerOne(loop, "tg:1", "demo", "/stop")
-	if got := lastAck(t, dl); got != "No active container for this chat." {
+	if got := lastAck(t, dl); got != "No active turn for this chat." {
 		t.Fatalf("/stop ack=%q want no-active", got)
 	}
 }
@@ -196,7 +196,7 @@ func TestCmdStatusOperatorOnly(t *testing.T) {
 	if !steerOne(loop, "web:demo", "demo", "/status") {
 		t.Fatal("/status not consumed")
 	}
-	want := "status\nchannels: 0\ngroups: 1\nactive containers: 0\nerrored chats: 0\nactive tasks: 0"
+	want := "status\nchannels: 0\ngroups: 1\nactive turns: 0\nerrored chats: 0\nactive tasks: 0"
 	if got := lastAck(t, dl); got != want {
 		t.Fatalf("/status ack=%q want %q", got, want)
 	}

@@ -162,6 +162,10 @@ var daemonKeys = map[string][]string{
 		"RUNED_GUEST_MEM", "RUNED_GUEST_SMP", "RUNED_VSOCK_PORT_BASE",
 		"RUNED_TAP_SUBNET", "RUNED_PROXY_PORT", "RUNED_VM_DIR", "RUNED_VSOCK_CID_BASE",
 		"RUNED_BOOT_TIMEOUT", "RUNED_REAP_GRACE",
+		// How long runed's own shutdown waits for in-flight handlers
+		// (runed/cmd/runed/main.go). It lives in the daemon's main, which is why the
+		// guard that should have caught its absence could not see it (BUGS `L388`).
+		"RUNED_SHUTDOWN_GRACE",
 		"IDLE_TIMEOUT", "MAX_CONCURRENT_CONTAINERS",
 		// Gates per-group host mounts; absent from runed's env they are
 		// default-denied.
@@ -843,8 +847,10 @@ func Generate(dataDir string) (string, []ProxydRoute, error) {
 	b.WriteString(timedService(app, flavor, env))
 	b.WriteString(onbodService(app, flavor, dataDir))
 	b.WriteString(davdService(app, flavor, dataDir, env))
-	// No egress proxy service: runed starts one per spawn from EGRESS_IMAGE
-	// and kills it with the turn (spec 6/24).
+	// No egress proxy service: runed starts one `egress` PROCESS per turn on the host
+	// side of that turn's tap and kills it with the turn (spec 6/41 §"Egress by name,
+	// sealed below the kernel"). There is no image to name: EGRESS_IMAGE went with the
+	// Docker substrate, and runed refuses to start without the proxy binary.
 	return b.String(), routes, nil
 }
 

@@ -1,6 +1,7 @@
 package compose
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -1055,9 +1056,22 @@ func TestRunedHoldsTheVMDevices(t *testing.T) {
 // stops covering what moves and stays green, so this one fails on an empty set
 // too.
 func TestRunedEnvKeysCoverEveryRunedVar(t *testing.T) {
-	sources, err := filepath.Glob(filepath.Join("..", "runed", "*.go"))
-	if err != nil || len(sources) == 0 {
-		t.Fatalf("no runed sources found (%v): a guard that reads nothing cannot fail", err)
+	// WALK, never glob. `*.go` does not descend, so runed/cmd/runed/ - the daemon's
+	// own main, where a daemon reads its environment - was never in this guard's
+	// scope, and RUNED_SHUTDOWN_GRACE sat there undelivered while this test stayed
+	// green (BUGS `L388`). A hand-named scope stops covering what moves.
+	var sources []string
+	werr := filepath.WalkDir(filepath.Join("..", "runed"), func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() && strings.HasSuffix(path, ".go") {
+			sources = append(sources, path)
+		}
+		return nil
+	})
+	if werr != nil || len(sources) == 0 {
+		t.Fatalf("no runed sources found (%v): a guard that reads nothing cannot fail", werr)
 	}
 	declared := map[string]bool{}
 	for _, k := range daemonKeys["runed"] {

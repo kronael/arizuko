@@ -162,8 +162,12 @@ func (l *Loop) handleCommand(chatJID string, msg core.Message, folder string) bo
 	return true
 }
 
-// cmdPing reports the resolved folder, its session prefix, the queue's
-// in-flight run count ("active containers") and the registered-group count.
+// cmdPing reports the resolved folder, its session prefix, the queue's in-flight
+// run count and the registered-group count.
+//
+// The count is TURNS, not guests: `queue.ActiveCount()` counts what the queue holds,
+// and one turn is one guest only while nothing is queued behind it. It said
+// "containers" until the substrate stopped having any (BUGS `L389`).
 func (l *Loop) cmdPing(chatJID, folder string) {
 	sessID, _ := l.db.GetSession(folder, "")
 	nGroups := len(l.db.AllGroups())
@@ -173,27 +177,30 @@ func (l *Loop) cmdPing(chatJID, folder string) {
 		sess = sessID[:min(8, len(sessID))]
 	}
 	l.ack(chatJID, fmt.Sprintf(
-		"pong\ngroup: %s\nsession: %s\nactive containers: %d\nregistered groups: %d",
+		"pong\ngroup: %s\nsession: %s\nactive turns: %d\nregistered groups: %d",
 		folder, sess, active, nGroups))
 }
 
 // cmdStop asks runed to map the folder to its live spawn and kill it.
+//
+// The answers name the TURN. A turn is a KVM guest now, and an operator who reads
+// "container" goes looking for one with `docker ps` (BUGS `L389`).
 func (l *Loop) cmdStop(chatJID, folder string) {
 	stopper, ok := l.runner.(RunStopper)
 	if !ok {
-		l.ack(chatJID, "No active container for this chat.")
+		l.ack(chatJID, "No active turn for this chat.")
 		return
 	}
 	res, err := stopper.StopFolder(context.Background(), folder)
 	if err != nil {
 		slog.Warn("cmdStop: runed stop failed", "jid", chatJID, "folder", folder, "err", err)
-		l.ack(chatJID, "No active container for this chat.")
+		l.ack(chatJID, "No active turn for this chat.")
 		return
 	}
 	if res.Killed {
-		l.ack(chatJID, "Container stopped.")
+		l.ack(chatJID, "Turn stopped.")
 	} else {
-		l.ack(chatJID, "No active container for this chat.")
+		l.ack(chatJID, "No active turn for this chat.")
 	}
 }
 
@@ -231,7 +238,7 @@ func (l *Loop) cmdStatus(chatJID, folder, sender string) {
 	errored := l.db.CountErroredChats()
 	tasks := l.db.CountActiveTasks()
 	l.ack(chatJID, fmt.Sprintf(
-		"status\nchannels: %d\ngroups: %d\nactive containers: %d\nerrored chats: %d\nactive tasks: %d",
+		"status\nchannels: %d\ngroups: %d\nactive turns: %d\nerrored chats: %d\nactive tasks: %d",
 		nChannels, nGroups, active, errored, tasks))
 }
 

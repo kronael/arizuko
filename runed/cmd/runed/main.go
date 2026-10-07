@@ -22,7 +22,6 @@ import (
 	"github.com/kronael/arizuko/obs"
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/runed"
-	"github.com/kronael/arizuko/substrate"
 )
 
 // spawnRetention is how long a finished run stays queryable. It is the bound
@@ -88,13 +87,20 @@ func main() {
 			"and is readable from the agent's shell and /proc; set MODEL_GATEWAY_URL " +
 			"(the litellm package, spec 6/23) to withhold it")
 	}
-	// A .env still naming the shared crackbox proxy reads as isolation on to
-	// the operator while the substrate delivers none: the admin API it points
-	// at does not exist (spec 6/24). Same refusal, same moment.
-	if v := os.Getenv("CRACKBOX_ADMIN_API"); v != "" && sub.Delivered.Egress == substrate.EgressNone {
-		slog.Error("CRACKBOX_ADMIN_API is set but the shared crackbox proxy was removed (spec 6/24); "+
-			"egress is now one proxy per spawn: set EGRESS_IMAGE=arizuko-egress:latest "+
-			"(build it with `make images`) and drop CRACKBOX_ADMIN_API, or drop both to run without egress filtering",
+	// A .env still naming the shared crackbox proxy reads as isolation on to the
+	// operator while the admin API it points at does not exist (spec 6/24).
+	//
+	// The refusal is on the stale variable ALONE. It used to require
+	// Delivered.Egress == EgressNone as well, which the one production substrate
+	// never reports — qemuProfile declares EgressDomain — so the check could not
+	// fire and a stale .env passed in silence. And its advice named EGRESS_IMAGE,
+	// which nothing has read since spec 6/41 step 4: an operator who followed it
+	// got no error and no effect (BUGS `L389`).
+	if v := os.Getenv("CRACKBOX_ADMIN_API"); v != "" {
+		slog.Error("CRACKBOX_ADMIN_API is set and the shared crackbox proxy was removed "+
+			"(spec 6/24). Drop the variable: egress is one proxy per turn on that turn's own "+
+			"tap, by construction, and runed refuses to start without the proxy binary — "+
+			"there is nothing left to switch on",
 			"crackbox_admin_api", v)
 		os.Exit(1)
 	}

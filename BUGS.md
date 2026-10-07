@@ -67,13 +67,8 @@ line; none can be answered from the code.
 
 **Small, unclaimed, and nobody is blocked on them.**
 
-- `L388` — `RUNED_SHUTDOWN_GRACE` is read and never delivered, and the guard written
-  to catch that globs `../runed/*.go`, which never descends into the daemon's own
-  `main`. Widening the walk will likely find more missing keys.
-- `L389` — `/ping`, `/stop` and `/status` still say "container", and runed's startup
-  hint still tells the operator to set `EGRESS_IMAGE`, which nothing reads.
 - `L398` — `make test` could not pass at all; it now has an explicit timeout, and what
-  stays open is WHY `routd` and `store` each spend ten minutes under `-short`.
+  stays open is WHY `routd` spends 452 s under `-short` and `store` 247 s.
 
 **An operator action on live data.** The platform side is done in each.
 (`L334` is closed and carries one too: the third party's `**` on sloth is not
@@ -690,7 +685,7 @@ documented per-instance tags as a shipped feature.
   export, repoint `RUNED_ROOTFS_DIR`, restart one instance. `TestCreateEnvNamesNoAgentImage`
   pins the absence at the place the file is written.
 
-## L388 — `RUNED_SHUTDOWN_GRACE` is read and never delivered, and the guard written to catch exactly this globs one directory (2026-09-29)
+## ✅ FIXED 2026-10-07 L388 — `RUNED_SHUTDOWN_GRACE` is read and never delivered, and the guard written to catch exactly this globs one directory (2026-09-29)
 
 `runed/cmd/runed/main.go:212` reads it:
 
@@ -721,13 +716,17 @@ green and the directory it most needs to read is the one it cannot see. That is
 - **Affected:** `RUNED_SHUTDOWN_GRACE`, and any var a daemon's `main` reads
 - **Source:** found by the web-docs sweep while deriving `env.html`'s runed section
   from the code, 2026-09-29; both halves verified by grep
-- **Status:** open
+- **Status:** ✅ FIXED 2026-10-07. `RUNED_SHUTDOWN_GRACE` joins `daemonKeys["runed"]`,
+  and the guard WALKS `runed/` with `filepath.WalkDir` instead of globbing its top level,
+  so a new subdirectory is covered the day it appears. The widened walk found exactly one
+  missing key — 18 `RUNED_` references against 37 declared — so the hole was this var and
+  the blind spot, not a backlog.
 - **Fix:** the var joins `daemonKeys["runed"]`, and the guard walks `runed/` instead of
   globbing its top level — `filepath.WalkDir`, so a new subdirectory is covered the day
   it appears rather than the day someone remembers. Widening the walk will likely find
   more missing keys; each is a finding, not a reason to narrow the walk again.
 
-## L389 — three chat commands and two comments still tell the operator about containers and `EGRESS_IMAGE` (2026-09-29)
+## ✅ FIXED 2026-10-07 L389 — three chat commands and two comments still tell the operator about containers and `EGRESS_IMAGE` (2026-09-29)
 
 The substrate is a KVM guest, and the surfaces a person actually reads still say
 container:
@@ -745,7 +744,17 @@ container:
   person uses to ask what is running
 - **Scope:** `routd/steer.go`, `runed/cmd/runed/main.go`, `compose/compose.go`
 - **Source:** web-docs sweep, 2026-09-29
-- **Status:** open
+- **Status:** ✅ FIXED 2026-10-07. `/ping` and `/status` report "active turns", which is
+  what `queue.ActiveCount()` counts, and `/stop` answers "Turn stopped." / "No active turn
+  for this chat."
+
+  The `EGRESS_IMAGE` instruction is deleted rather than reworded, and the refusal around it
+  was ALSO unreachable: it required `Delivered.Egress == EgressNone`, which the one
+  production substrate never reports because `qemuProfile` declares `EgressDomain`. So a
+  stale `CRACKBOX_ADMIN_API` passed in silence while the branch that should have caught it
+  could not fire. It now refuses on the stale variable alone and says the true thing —
+  drop it, because egress is one proxy per turn by construction and runed will not start
+  without the binary.
 - **Fix:** the three commands say "turn", which is what the count means. The
   `EGRESS_IMAGE` instruction is deleted rather than reworded: there is nothing to set,
   because the tap accepts only its own proxy by construction.
