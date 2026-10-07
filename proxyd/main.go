@@ -278,36 +278,40 @@ func buildRouteProxy(r Route) *httputil.ReverseProxy {
 		slog.Error("invalid route backend", "path", r.Path, "backend", r.Backend, "err", err)
 		return nil
 	}
-	rp := httputil.NewSingleHostReverseProxy(u)
-	orig := rp.Director
 	stripPrefix := r.StripPrefix
 	prefix := strings.TrimSuffix(r.Path, "/")
 	preserveKeys := append([]string(nil), r.PreserveHeaders...)
 	backendHost := u.Host
-	rp.Director = func(rq *http.Request) {
+	// Rewrite, not Director. Director is deprecated, and the two do not carry the
+	// same defaults: Rewrite strips hop-by-hop headers from Out before this runs and
+	// adds NO X-Forwarded-For unless asked, so SetXForwarded is not optional here —
+	// TRUSTED_PROXIES is written against that header (BUGS `L40`).
+	// TestBuildRouteProxy_ForwardsHostPathAndHeaders pins all four facts.
+	rp := &httputil.ReverseProxy{Rewrite: func(pr *httputil.ProxyRequest) {
 		saved := map[string]string{}
 		for _, k := range preserveKeys {
-			if v := rq.Header.Get(k); v != "" {
+			if v := pr.In.Header.Get(k); v != "" {
 				saved[k] = v
 			}
 		}
-		orig(rq)
-		// Rewrite Host to the backend's hostname (spec §"preserve_headers"):
-		// proxyd is not transparent; the inbound Host belongs to proxyd, not
-		// the backend. httputil's default Director only updates rq.URL.Host;
-		// rq.Host (used by the Transport) is left as the inbound value.
-		rq.Host = backendHost
+		pr.SetURL(u)
+		pr.SetXForwarded()
+		// The Host is the BACKEND's (spec §"preserve_headers"): proxyd is not
+		// transparent, and the inbound Host belongs to proxyd. SetURL leaves Out.Host
+		// empty so the transport would take it from the URL, which is the same value
+		// — stating it keeps the rule visible at the line that owns it.
+		pr.Out.Host = backendHost
 		if stripPrefix && prefix != "" {
-			rq.URL.Path = strings.TrimPrefix(rq.URL.Path, prefix)
-			if rq.URL.Path == "" {
-				rq.URL.Path = "/"
+			pr.Out.URL.Path = strings.TrimPrefix(pr.Out.URL.Path, prefix)
+			if pr.Out.URL.Path == "" {
+				pr.Out.URL.Path = "/"
 			}
-			rq.URL.RawPath = strings.TrimPrefix(rq.URL.RawPath, prefix)
+			pr.Out.URL.RawPath = strings.TrimPrefix(pr.Out.URL.RawPath, prefix)
 		}
 		for k, v := range saved {
-			rq.Header.Set(k, v)
+			pr.Out.Header.Set(k, v)
 		}
-	}
+	}}
 	return rp
 }
 
