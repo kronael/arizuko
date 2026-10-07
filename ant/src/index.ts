@@ -480,9 +480,12 @@ async function main(): Promise<void> {
         // marks the chat errored and tells the user. Staying alive for the next
         // message would hide a model outage behind a clean-looking container.
         if (r.failed) {
+          // The reason comes BEFORE the explanation of the exit, because runed keeps
+          // a TAIL: a reason at the end of the sentence is the first thing cut.
           log(
-            `Turn failed (${r.failed}); exiting so the run is recorded as a failure` +
-              (r.failedReason ? `: ${r.failedReason}` : ''),
+            `Turn failed (${r.failed})` +
+              (r.failedReason ? `: ${r.failedReason}` : '') +
+              '; exiting so the run is recorded as a failure',
           );
           process.exit(r.failed === 'terminal' ? EXIT_TERMINAL : 1);
         }
