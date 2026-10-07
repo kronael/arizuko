@@ -65,10 +65,10 @@ line; none can be answered from the code.
   wait at all, re-feeding on a 2 s tick. Which of the two is the design is yours;
   three attempts in six seconds against a failing turn is not cosmetic.
 
-**Small, unclaimed, and nobody is blocked on them.**
-
-- `L398` — `make test` could not pass at all; it now has an explicit timeout, and what
-  stays open is WHY `routd` spends 452 s under `-short` and `store` 247 s.
+- `L398` — the suite's slowness is MEASURED and it is not a slow test: 783 routd tests,
+  median 0.61 s, each creating 32 tables through the fixture every daemon shares. Making
+  that per-binary instead of per-test is a change to `store.TestOwner`'s contract, so it
+  is yours.
 
 **An operator action on live data.** The platform side is done in each.
 (`L334` is closed and carries one too: the third party's `**` on sloth is not
@@ -160,7 +160,18 @@ clock it mostly did not get to use.
 So the ceiling was genuinely too low for a two-core host, and the slowness is still
 real: 452 s for one package under `-short` is the part worth explaining.
 
-**The timeout is the symptom; the 452 seconds is the defect.** `-short` is supposed to
+**MEASURED 2026-10-07, and there is no slow test — there are 783 of them.**
+`go test ./routd/ -short -json` gives **783 tests, 534 s of named test time, median
+0.61 s**. The top twelve are 66 s, 12 % of the total; the slowest single test is 13.8 s.
+565 tests sit between 0.1 s and 1 s. So the cost is a per-test FIXED overhead of roughly
+0.6 s, not a hot spot, and no amount of fixing one test touches it.
+
+The overhead is the fixture. `memDBOrSkip` → `routd.OpenMem` → `store.TestOwner` →
+`PrepareOwner` → `EnsureEntitySet` over `EntitiesByOwner[OwnerRoutd]`, which is **32
+entities**, plus `audit.EnsureEntities`, plus `SeedRoutdFloor`'s ACL rows. **Every one of
+the 783 tests creates 32 tables against the store server and drops them again.**
+
+**The timeout is the symptom; the 32-table fixture is the defect.** `-short` is supposed to
 skip the long tests, and two packages still spend ten minutes. One contributor is
 known and recorded: `chanreg.Register` does an unbounded `net.LookupIP`, measured at 98
 seconds inside routd's suite (`dns_lookup_in_register`). Nothing has measured where the
@@ -173,10 +184,12 @@ rest goes, and `store` has no such explanation at all.
   measured, not inferred
 - **Status:** partially fixed. `make test` now passes `-timeout 1800s`, so the gate can
   report a real result. **The ten minutes is still unexplained and stays open**: a
-  ceiling against a hang is not a budget, and raising it is exactly how a slow suite
-  goes unmeasured. What is needed is the per-test breakdown (`-v` with timings, or
-  `-json`) for routd's 452 s, and then the cause — starting with the DNS lookup that is
-  already recorded. `store`'s 247 s has no explanation at all.
+  ceiling against a hang is not a budget. The cause is now measured (above), so what
+  remains is a DECISION, not an investigation: prepare the entity set ONCE per test
+  binary and give each test a namespace over it, instead of 32 `CreateTable` calls per
+  test. That changes the fixture contract every daemon's tests share — `store.TestOwner`
+  is not routd's — so it needs sign-off rather than a drive-by. `store`'s 247 s is the
+  same shape through the same helper.
 
 ## ✅ FIXED 2026-10-07 L397 — a terminal turn tells the journal that it failed and not why, so 27 failures on sloth named no cause (2026-10-07)
 
