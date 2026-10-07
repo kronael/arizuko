@@ -276,7 +276,10 @@ func (q *qemuRuntime) spawn(ctx context.Context, t Turn) RunResult {
 
 	groupDir, _ := q.folders.GroupPath(t.Folder)
 	logsDir := filepath.Join(groupDir, "logs")
-	os.MkdirAll(logsDir, 0o755)
+	if err := os.MkdirAll(logsDir, 0o755); err != nil {
+		// Not fatal: the turn runs, its console just has nowhere to land.
+		slog.Warn("console log dir; this turn keeps no console log", "path", logsDir, "err", err)
+	}
 	ts := time.Now().Format("2006-01-02T15-04-05")
 	console := filepath.Join(logsDir, "container-"+ts+".console.log")
 
@@ -337,7 +340,7 @@ func (q *qemuRuntime) spawn(ctx context.Context, t Turn) RunResult {
 	if err != nil {
 		return fail("%v", err)
 	}
-	defer ctlL.Close()
+	defer func() { _ = ctlL.Close() }()
 	mcpL, err := vsockListen(rec.McpPort)
 	if err != nil {
 		return fail("%v", err)
@@ -346,7 +349,7 @@ func (q *qemuRuntime) spawn(ctx context.Context, t Turn) RunResult {
 	// Step 5: the MCP bridge, one child per turn, running as the agent's uid so
 	// routd's SO_PEERCRED check is the one it already runs.
 	bridge, err := q.startBridge(rec, mcpL)
-	mcpL.Close() // the child holds it now
+	_ = mcpL.Close() // the child holds it now
 	if err != nil {
 		return fail("%v", err)
 	}
@@ -421,7 +424,7 @@ func (q *qemuRuntime) spawn(ctx context.Context, t Turn) RunResult {
 				q.paths.Boot, console, a.err)
 		}
 		if a.cid != rec.CID {
-			a.conn.Close()
+			_ = a.conn.Close()
 			return fail("ctl peer cid %d is not this guest's %d", a.cid, rec.CID)
 		}
 		conn = a.conn
@@ -434,7 +437,7 @@ func (q *qemuRuntime) spawn(ctx context.Context, t Turn) RunResult {
 	case <-ctx.Done():
 		return fail("turn deadline reached before the guest opened ctl (kernel console: %s)", console)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	var logbuf lineBuffer
 	sess := newCtlSession(conn, func(line string) {
@@ -860,9 +863,45 @@ func newPrefixWriter(what, folder string) io.Writer {
 	go func() {
 		sc := bufio.NewScanner(r)
 		sc.Buffer(make([]byte, 16*1024), 1024*1024)
+		clamped := 0
 		for sc.Scan() {
-			slog.Info("vm process", "what", what, "folder", folder, "line", sc.Text())
+			line := sc.Text()
+			if isClampReport(line) {
+				clamped++
+				continue
+			}
+			slog.Info("vm process", "what", what, "folder", folder, "line", line)
+		}
+		// One line per share instead of three per file operation. The count is kept
+		// rather than dropped: a share that stops reporting the clamp has lost it.
+		if clamped > 0 {
+			slog.Debug("vm process clamp reports", "what", what, "folder", folder, "lines", clamped)
 		}
 	}()
 	return w
+}
+
+// isClampReport answers whether a virtiofsd line is the clamp reporting itself.
+//
+// virtiofsd runs as the AGENT's uid with `--sandbox=none` (startVirtiofsd), so its
+// per-operation attempt to regain root cannot succeed — that refusal IS the control
+// the clamp exists for, and it is not actionable. It is also not rare: 4110 of these
+// lines in one hour on krons, three per file operation, which buries every real error
+// in the same journal and dominates the eval error census (BUGS `L396`).
+//
+// The alternative is not available. `--uid-map` needs an unprivileged caller AND
+// `--sandbox namespace`, and the namespace sandbox cannot mount its own /proc inside
+// a container, so there is no configuration in which virtiofsd stays quiet and
+// clamped. Suppressing the report is the only lever, and the count survives at debug.
+func isClampReport(line string) bool {
+	for _, s := range []string{
+		"failed to change uid back to root",
+		"failed to change gid back to root",
+		"failed to add 'DAC_OVERRIDE' to the effective set of capabilities",
+	} {
+		if strings.Contains(line, s) {
+			return true
+		}
+	}
+	return false
 }

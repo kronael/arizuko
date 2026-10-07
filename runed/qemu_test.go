@@ -794,3 +794,32 @@ func TestSealIPv6TakesTheFamilyOffTheTap(t *testing.T) {
 		}
 	}
 }
+
+// TestClampReportsAreNotLoggedAsErrors pins BUGS `L396`. virtiofsd runs as the
+// agent's uid with `--sandbox=none`, so every file operation tries to regain root
+// and fails — the clamp working, reported three times per operation. On krons that
+// was 4110 lines in one hour, which buries every real error in the same journal.
+//
+// The real errors must still come through, so this asserts both directions.
+func TestClampReportsAreNotLoggedAsErrors(t *testing.T) {
+	for _, line := range []string{
+		"[2026-10-07T22:23:05Z ERROR virtiofsd::passthrough::credentials] failed to change uid back to root: Operation not permitted (os error 1)",
+		"[2026-10-07T22:23:05Z ERROR virtiofsd::passthrough::credentials] failed to change gid back to root: Operation not permitted (os error 1)",
+		"[2026-10-07T22:23:05Z WARN  virtiofsd::passthrough::credentials] failed to add 'DAC_OVERRIDE' to the effective set of capabilities: failed to sync capabilities with the kernel",
+	} {
+		if !isClampReport(line) {
+			t.Errorf("this line is the clamp reporting itself and must not reach the log:\n%s", line)
+		}
+	}
+	// A virtiofsd failure that IS actionable must still be logged. A filter that
+	// swallows these is worse than the flood it replaced.
+	for _, line := range []string{
+		"[2026-10-07T22:23:05Z ERROR virtiofsd] failed to bind socket: Address already in use",
+		"error: unexpected argument '--translate-uid' found",
+		"failed to change uid back to nobody",
+	} {
+		if isClampReport(line) {
+			t.Errorf("this line is actionable and must reach the log:\n%s", line)
+		}
+	}
+}
