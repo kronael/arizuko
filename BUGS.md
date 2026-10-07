@@ -156,7 +156,19 @@ So `CLAUDE.md` documents `make test` as the fast dev loop and it reports FAIL on
 healthy tree, every time, for everyone. A gate that always fails is not a gate: it
 teaches its readers to ignore it, which is the same end as a gate that cannot fail.
 
-**The timeout is the symptom; the ten minutes is the defect.** `-short` is supposed to
+**RE-MEASURED with the new ceiling, and the cause is contention, not a ten-minute
+package.** Run alone, `go test ./routd/ ./store/ -short -timeout 1800s` gives
+**routd 451.7 s, store 247.1 s**, both green. Against the full suite the same two took
+601 s each. Go's `-timeout` is a per-package WALL clock and `go test ./...` runs
+packages concurrently up to `GOMAXPROCS` — two cores here — so each binary's clock
+counts the time it spends descheduled, plus the `dyntest` store container every
+store-touching package starts. routd needs 452 s of its own and died at 600 s of wall
+clock it mostly did not get to use.
+
+So the ceiling was genuinely too low for a two-core host, and the slowness is still
+real: 452 s for one package under `-short` is the part worth explaining.
+
+**The timeout is the symptom; the 452 seconds is the defect.** `-short` is supposed to
 skip the long tests, and two packages still spend ten minutes. One contributor is
 known and recorded: `chanreg.Register` does an unbounded `net.LookupIP`, measured at 98
 seconds inside routd's suite (`dns_lookup_in_register`). Nothing has measured where the
@@ -171,8 +183,8 @@ rest goes, and `store` has no such explanation at all.
   report a real result. **The ten minutes is still unexplained and stays open**: a
   ceiling against a hang is not a budget, and raising it is exactly how a slow suite
   goes unmeasured. What is needed is the per-test breakdown (`-v` with timings, or
-  `-json`) for those two packages, and then the cause — starting with the DNS lookup
-  that is already recorded.
+  `-json`) for routd's 452 s, and then the cause — starting with the DNS lookup that is
+  already recorded. `store`'s 247 s has no explanation at all.
 
 ## ✅ FIXED 2026-10-07 L397 — a terminal turn tells the journal that it failed and not why, so 27 failures on sloth named no cause (2026-10-07)
 
