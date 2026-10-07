@@ -264,3 +264,30 @@ test('runTurn: a clean turn reports no failure and keeps its text as the reply',
   expect(deliveries[0].error).toBeUndefined();
   expect(r.failed).toBeUndefined();
 });
+
+// A terminal failure carries the harness's own words out. The journal entry routd
+// writes is built from the stderr TAIL, so a reason printed three lines before the
+// exit is outside it: 27 terminal turns on sloth said only "Turn failed (terminal)"
+// while the log on disk said "You've hit your individual spend limit" (BUGS L397).
+test('runTurn: a terminal failure carries its reason to the caller', async () => {
+  const { deliveries, deliver } = spy();
+  const why = "You've hit your individual spend limit";
+  const r = await runTurn(scripted([{ kind: 'result', ok: false, terminal: true, text: why }]),
+    'p', undefined, INPUT, {}, 'turn-1', deliver);
+  expect(r.failed).toBe('terminal');
+  expect(r.failedReason).toBe(why);
+  // The delivered error already carried it; this asserts the two agree, so the
+  // journal and the chat cannot name different causes for one turn.
+  expect(deliveries).toHaveLength(1);
+  expect(deliveries[0].error).toBe(why);
+});
+
+// A retryable failure with no text must not invent one. The exit line stays bare
+// rather than ending in a dangling colon.
+test('runTurn: a failure with no text leaves failedReason unset', async () => {
+  const { deliver } = spy();
+  const r = await runTurn(scripted([{ kind: 'result', ok: false }]),
+    'p', undefined, INPUT, {}, 'turn-1', deliver);
+  expect(r.failed).toBe('retryable');
+  expect(r.failedReason).toBeUndefined();
+});

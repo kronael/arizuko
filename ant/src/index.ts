@@ -253,6 +253,12 @@ interface TurnResult {
   // routd's existing failure path instead of delivering the harness's error
   // line to the chat as the reply (BUGS L175).
   failed?: 'retryable' | 'terminal';
+  // failedReason is the harness's own words for why, carried to the LAST line this
+  // process writes. routd's journal entry is built from the stderr tail, so a reason
+  // printed three lines earlier is outside it: 27 terminal turns on sloth said only
+  // "Turn failed (terminal)" while the log on disk said "You've hit your individual
+  // spend limit" (BUGS `L397`).
+  failedReason?: string;
 }
 
 // EXIT_TERMINAL is sysexits.h EX_CONFIG: "something was found in an
@@ -342,7 +348,10 @@ export async function runTurn(
           // A failed turn's text is a diagnostic, never the answer. It rides
           // `error`, so routd delivers its own failure notice rather than
           // handing the user "API Error: 400 …" as the agent's reply.
-          if (!frame.ok) out.failed = frame.terminal ? 'terminal' : 'retryable';
+          if (!frame.ok) {
+            out.failed = frame.terminal ? 'terminal' : 'retryable';
+            out.failedReason = frame.text;
+          }
           await deliver(turnID, {
             status: frame.ok ? 'success' : 'error',
             result: frame.ok ? frame.text || null : null,
@@ -471,7 +480,10 @@ async function main(): Promise<void> {
         // marks the chat errored and tells the user. Staying alive for the next
         // message would hide a model outage behind a clean-looking container.
         if (r.failed) {
-          log(`Turn failed (${r.failed}); exiting so the run is recorded as a failure`);
+          log(
+            `Turn failed (${r.failed}); exiting so the run is recorded as a failure` +
+              (r.failedReason ? `: ${r.failedReason}` : ''),
+          );
           process.exit(r.failed === 'terminal' ? EXIT_TERMINAL : 1);
         }
 
