@@ -987,8 +987,14 @@ than dropped: a criteria list that quietly loses its open items is a list that
 reports itself met.
 
 - ❌ `make bench-boot` on krons reports ≤ 1.0 s p50 to `guest-init`'s first
-  frame, and the number is in the changelog. **Not measured, and not measurable
-  as written** — the bench target runs `go test` on the host while `virtiofsd`
+  frame, and the number is in the changelog. **Measured 2026-10-07 and MISSED:
+  p50 = 1.54 s** over the 60 most recent turns on both instances (min 1.11 s, max
+  7.14 s), read from `ctl_up_uptime` in each turn's `*.console.log` — the guest's
+  own `/proc/uptime` when the control channel came up. The clock starts at kernel
+  entry, so it excludes QEMU's startup and the true figure is higher. The budget
+  is what keeps `6/20`'s warm pool declined, so by this spec's own rule that
+  question reopens (BUGS `L387`). `make bench-boot` remains **not runnable as
+  written** — the bench target runs `go test` on the host while `virtiofsd`
   and `egress` live in the arizuko image, and production discards the `{ready}`
   frame instead of timing it (BUGS `L387`). The user waived the gate for the
   flip; the number is still unknown.

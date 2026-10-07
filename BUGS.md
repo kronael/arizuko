@@ -56,6 +56,25 @@ line; none can be answered from the code.
   left is the move itself, which re-addresses every daemon and needs the Go
   suite runnable on the host first.
 
+**A contract or design decision, measured since.**
+
+- `L387` — the boot budget is MISSED: p50 1.54 s against the ≤ 1.0 s gate, over 60
+  live turns. `6/41` makes that budget the gate that keeps `6/20`'s warm pool
+  declined, so the pool question reopens. Yours.
+- `L390` — `specs/5/12` promises a 4 s doubling retry backoff and the code has no
+  wait at all, re-feeding on a 2 s tick. Which of the two is the design is yours;
+  three attempts in six seconds against a failing turn is not cosmetic.
+
+**Small, unclaimed, and nobody is blocked on them.**
+
+- `L388` — `RUNED_SHUTDOWN_GRACE` is read and never delivered, and the guard written
+  to catch that globs `../runed/*.go`, which never descends into the daemon's own
+  `main`. Widening the walk will likely find more missing keys.
+- `L389` — `/ping`, `/stop` and `/status` still say "container", and runed's startup
+  hint still tells the operator to set `EGRESS_IMAGE`, which nothing reads.
+- `L398` — `make test` could not pass at all; it now has an explicit timeout, and what
+  stays open is WHY `routd` and `store` each spend ten minutes under `-short`.
+
 **An operator action on live data.** The platform side is done in each.
 (`L334` is closed and carries one too: the third party's `**` on sloth is not
 revoked — see its entry.)
@@ -115,6 +134,129 @@ revoked — see its entry.)
 
 - `L350` — `6/37` cites six deleted artifacts, four of them its own guards. The
   invariant still holds; the tests that held it do not.
+
+## L398 — `make test`, the documented dev loop, cannot pass: two packages exceed Go's default 10-minute timeout (2026-10-07, open — the ten minutes is unexplained)
+
+Measured 2026-10-07, a full `go test ./... -count=1 -short` on this host:
+
+```
+FAIL github.com/kronael/arizuko/routd  601.621s
+FAIL github.com/kronael/arizuko/store  601.680s
+panic: test timed out after 10m0s
+	running tests:
+		TestIssuedURLsCarrySchemeForBareWebHost (2s)
+```
+
+67 of 69 packages pass. The two that fail do not fail an assertion — they run out of
+Go's **default** per-package timeout, which `make test` never overrides. The test
+named in the panic took 2 s; it was simply the one holding the floor when the clock
+expired, so the panic does not even name the slow test.
+
+So `CLAUDE.md` documents `make test` as the fast dev loop and it reports FAIL on a
+healthy tree, every time, for everyone. A gate that always fails is not a gate: it
+teaches its readers to ignore it, which is the same end as a gate that cannot fail.
+
+**The timeout is the symptom; the ten minutes is the defect.** `-short` is supposed to
+skip the long tests, and two packages still spend ten minutes. One contributor is
+known and recorded: `chanreg.Register` does an unbounded `net.LookupIP`, measured at 98
+seconds inside routd's suite (`dns_lookup_in_register`). Nothing has measured where the
+rest goes, and `store` has no such explanation at all.
+
+- **Severity:** medium (no correctness impact; it removes the project's only fast gate)
+- **Scope:** `Makefile` `test`; `routd` and `store` test suites
+- **Affected:** every run of `make test`, and CI, which runs exactly it
+- **Source:** the full suite run of 2026-10-07; both durations and the panic text
+  measured, not inferred
+- **Status:** partially fixed. `make test` now passes `-timeout 1800s`, so the gate can
+  report a real result. **The ten minutes is still unexplained and stays open**: a
+  ceiling against a hang is not a budget, and raising it is exactly how a slow suite
+  goes unmeasured. What is needed is the per-test breakdown (`-v` with timings, or
+  `-json`) for those two packages, and then the cause — starting with the DNS lookup
+  that is already recorded.
+
+## ✅ FIXED 2026-10-07 L397 — a terminal turn tells the journal that it failed and not why, so 27 failures on sloth named no cause (2026-10-07)
+
+Measured on sloth, 2026-10-07: 27 `run outcome error` entries in three hours, every
+one of them
+
+```
+err="Guest exited with code 78:  results: 1, sessionId: …, closedDuringQuery: false
+[ant] Turn failed (terminal); exiting so the run is recorded as a failure"
+```
+
+The cause was three lines higher in the turn log on disk, and only there:
+
+```
+[ant] Result #1: ok=false text=You've hit your individual spend limit · ask your admin
+to raise it at claude.ai/admin-settings/usage · your weekly limit resets Oct 11, 11am
+```
+
+So the account's weekly spend limit is exhausted — **not a platform defect**, and exit
+78 is exactly right, because no retry repairs a quota. The defect is that an operator
+reading `journalctl` sees 27 failures with no cause and goes looking for a platform
+fault. `docker logs` is dead on this host, so the journal is the only log an operator
+reads without knowing which group folder to open.
+
+It is a tail problem, not a missing value. `ant` already delivers the reason to routd
+in `submit_turn`'s `error` field, and `runed` builds `RunResult.Error` from the stderr
+TAIL — so a reason printed three lines before the exit falls outside the window by
+construction. Any later consumer that keeps a tail inherits the same hole.
+
+- **Severity:** medium (every terminal failure, on both instances, names no cause)
+- **Scope:** `ant/src/index.ts`
+- **Affected:** every `failed` turn; worst for `terminal`, where there is no retry to
+  produce a second, better-logged attempt
+- **Source:** the eval of krons and sloth, 2026-10-07. The reason was read out of
+  `groups/main/main/logs/container-2026-10-07T22-15-51.log`, which is where an operator
+  should not have to go to learn it.
+- **Status:** ✅ FIXED 2026-10-07
+- **Fix:** the outcome carries `failedReason` and the LAST line the process writes ends
+  with it, so the tail every consumer keeps contains the cause. Fixed at the producer
+  rather than by widening a reader's window — a second reader would need the same
+  widening, and `runed`'s tail exists to bound what a turn can write.
+  `runTurn: a terminal failure carries its reason to the caller` asserts the journal
+  line and the delivered error name the SAME cause, so one turn cannot report two; the
+  dual asserts a failure with no text leaves the line bare instead of ending in a
+  dangling colon.
+
+## ✅ FIXED 2026-10-07 L396 — virtiofsd reports the uid clamp three times per file operation, and 4110 ERROR lines an hour bury every real one (2026-10-07)
+
+Measured on krons, 2026-10-07: **4110 lines in one hour** matching
+`credentials] failed`, three per file operation per share:
+
+```
+ERROR virtiofsd::passthrough::credentials] failed to change uid back to root: Operation not permitted (os error 1)
+ERROR virtiofsd::passthrough::credentials] failed to change gid back to root: Operation not permitted (os error 1)
+WARN  virtiofsd::passthrough::credentials] failed to add 'DAC_OVERRIDE' to the effective set of capabilities
+```
+
+They are the clamp working. `startVirtiofsd` runs the daemon as the AGENT's uid with
+`--sandbox=none`, so its per-operation attempt to regain root MUST fail — that refusal
+is the control the clamp exists for, and there is nothing for an operator to do about
+it.
+
+There is also no configuration that is both quiet and clamped: `--uid-map` needs an
+unprivileged caller AND `--sandbox namespace`, and the namespace sandbox cannot mount
+its own `/proc` inside a container (measured three ways for `L372`, recorded in
+`runed/qemu.go`'s own comment). So the report cannot be turned off at the source.
+
+The cost is not cosmetic. `runed` logs each line at INFO carrying an ERROR string, the
+journal is the only log this host has — `docker logs` is dead, log-driver `none` — and
+the eval error census counts error strings. One real `virtiofsd` failure sits in 4110
+lines of noise, and the census reports a flood rather than the fault.
+
+- **Severity:** medium (diagnosis; it hides the one line worth reading)
+- **Scope:** `runed/qemu.go` `newPrefixWriter`
+- **Affected:** every turn on both instances
+- **Source:** the eval of krons and sloth, 2026-10-07; the hourly count measured from
+  the journal, not estimated
+- **Status:** ✅ FIXED 2026-10-07
+- **Fix:** `isClampReport` names the three lines and `newPrefixWriter` counts them
+  instead of logging each, with one `DEBUG` summary per share. The count is kept rather
+  than dropped, because a share that STOPS reporting the clamp has lost it.
+  `TestClampReportsAreNotLoggedAsErrors` asserts both directions — a filter that also
+  swallowed a real `virtiofsd` failure would be worse than the flood it replaced, so
+  the test gives it a bind failure, an unknown-argument error and a near-miss string.
 
 ## ✅ FIXED 2026-10-05 L395 — `sealIPv6` writes a `/proc/sys` knob the runed container cannot write, so the v0.70.0 image refuses every turn (2026-10-05)
 
@@ -656,7 +798,19 @@ them, so the p50 cannot be recovered from the journal either (checked against 24
 - **Affected:** `6/41`'s acceptance criterion 1
 - **Source:** ran `make bench-boot DATA_DIR=/srv/data/arizuko_krons` 2026-09-29; the
   absent production reader measured by grep, the absent log line by journal
-- **Status:** open. The user waived this gate for the flip ("flip regardless of the
+- **MEASURED 2026-10-07, and the gate is MISSED.** The number was recoverable all
+  along, from a place neither half of this entry looked: `guest-init`'s probe line
+  in each turn's `*.console.log` carries `ctl_up_uptime`, the guest's own
+  `/proc/uptime` at the moment the control channel came up. Across the **60 most
+  recent turns on both instances**: **p50 = 1.54 s**, min 1.11 s, max 7.14 s. The
+  gate is ≤ 1.0 s p50, so it fails by half — and it fails generously, because this
+  clock starts at KERNEL entry and excludes QEMU's own startup.
+
+  `6/41` makes the boot budget the gate that keeps `6/20`'s warm pool declined, so
+  by that spec's own rule the pool question REOPENS. That is a decision, not a
+  defect, and it belongs to the user.
+- **Status:** open — the measurement is no longer missing; the GATE is now known to
+  fail, and `make bench-boot` still cannot run on this host. The user waived this gate for the flip ("flip regardless of the
   number"), so nothing is blocked on it; it is the MEASUREMENT that is missing, and a
   waived gate that also cannot be measured later is how a number stays unknown forever.
 - **Fix, one line of production rather than a harness:** runed logs the boot split when
@@ -668,7 +822,7 @@ them, so the p50 cannot be recovered from the journal either (checked against 24
 - **Also stale:** `bench-boot` still exports `RUNED_SUBSTRATE=qemu`, a variable
   `6/41` step 4 deleted.
 
-## L386 — `make lint`, the ONE gate CI enforces, cannot read its own config, so 80 issues accumulated behind it (2026-09-29)
+## ✅ FIXED 2026-09-29 L386 — DUPLICATE of `L357`. `make lint`, the ONE gate CI enforces, cannot read its own config, so 80 issues accumulated behind it (2026-09-29)
 
 `.golangci.yml` carried no `version` key, which is schema v1. The installed binary
 is **golangci-lint 2.13.2**, and v2 refuses a v1 config outright:
@@ -699,7 +853,10 @@ Docker substrate left behind (`container.egressReadyTimeout`,
 - **Affected:** every commit since the config and the installed binary diverged
 - **Source:** found when `make lint` was run to verify `L384`, 2026-09-29; the
   refusal and the 80-issue count both measured
-- **Status:** config migrated by hand 2026-09-29; the 80 issues are the open half
+- **Status:** ✅ FIXED 2026-09-29 (config) — and filed in DUPLICATE: `L357` already
+  recorded this, with 81 findings to this entry's 80. I filed a second entry without
+  searching the queue for the first. `L357` stays the record; the findings themselves
+  are now at 2, both the `proxyd` `Director` deprecation
 - **Fix, and the trap in it:** the config is rewritten to v2 BY HAND, not by
   `golangci-lint migrate` — the migrator adds four `exclusions.presets`, and
   `std-error-handling` alone excuses every dropped `Close`/`Write`/`Seek`, so the
@@ -1316,7 +1473,7 @@ is the other half — the paths that are genuinely outside it:
   property `MOUNT_ALLOWED_ROOTS` exists for — and the failure when one is missing
   is already loud (the staging tree refuses and fails the turn).
 
-## L369 — the precondition proves a binary EXISTS and not that it can do the job, so BusyBox `ip` passes and no guest gets an interface (2026-09-25, open)
+## ✅ FIXED 2026-09-25 L369 — the precondition proves a binary EXISTS and not that it can do the job, so BusyBox `ip` passes and no guest gets an interface (2026-09-25)
 
 Measured against the image, 2026-09-25:
 
@@ -1356,14 +1513,15 @@ the state a presence check cannot see.
 - **Scope:** `Dockerfile`, `runed/qemuhost.go`
 - **Affected:** `qemuPreconditions`, `envIPBin`, `vmnet.go` `tapUp`, every turn
 - **Source:** measured 2026-09-25 in the image, and on krons after the flip
-- **Status:** open
+- **Status:** ✅ FIXED 2026-09-25 in `1e729401` — `checkTuntap` runs the subcommand instead of trusting `LookPath`, and
+  the refusal names the package to install
 - **Fix:** the image gains `iproute2`, so `ip` is the real one. And the
   precondition proves the CAPABILITY it needs rather than the file's existence:
   `ip tuntap` must be a subcommand this `ip` understands, checked the way the
   clamp checks `--uid-map`. A test drives the check over a stub that answers
   BusyBox's usage text and asserts the refusal names the package to install.
 
-## L368 — the mount table carries HOST paths and virtiofsd runs inside runed, so every VM turn fails to stage its tree (2026-09-25, open)
+## ✅ FIXED 2026-09-25 L368 — the mount table carries HOST paths and virtiofsd runs inside runed, so every VM turn fails to stage its tree (2026-09-25)
 
 **Measured on krons, 2026-09-25, on the first turn after the flip:**
 
@@ -1405,7 +1563,8 @@ is runed.
   `Config.HostProjectRoot`, `HOST_DATA_DIR` as runed reads it
 - **Source:** measured on krons 2026-09-25 (above) after the 6/41 step 4 flip;
   `runed/mounts.go:214-225`
-- **Status:** open
+- **Status:** ✅ FIXED 2026-09-25 in `1a7f1fed` — the renderer emits the path runed sees; `HOST_DATA_DIR` stays a compose
+  fact that runed never reads
 - **Fix:** `hp()` goes, with its eleven call sites, so `Mount.Host` is the path
   runed sees. The renderer's test asserted the TRANSLATED path in eleven lines,
   which is why nothing caught this: it pinned the docker-sibling behaviour, and
