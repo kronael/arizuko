@@ -22,6 +22,17 @@
 
     <p>What shipped, dated, terse. Reverse chronological. The chat broadcast for each release lives at the top of every block; the bullets below expand it for operators.</p>
 
+    <h2>arizuko v0.70.2 <span class="date">&mdash; 7 October 2026</span></h2>
+    <p>A failing turn now names its cause, the journal is readable again, and both build gates can report a real result for the first time in weeks.</p>
+    <ul>
+      <li><strong>A failed turn says why</strong> &mdash; 27 terminal failures named no cause at all, while the log on disk said &ldquo;you&rsquo;ve hit your individual spend limit&rdquo;.</li>
+      <li><strong>4110 fewer error lines an hour</strong> &mdash; the guest&rsquo;s file server was reporting its own uid clamp three times per file operation, burying every real error beside it.</li>
+      <li><strong><code>make lint</code> reports 0 issues</strong> &mdash; the gate could not read its own config, so 80 findings had accumulated behind it, 6 of them the error-swallowing class it exists for.</li>
+      <li><strong><code>make test</code> can pass</strong> &mdash; it ran with Go&rsquo;s default 10-minute per-package timeout on a two-core host, so it reported failure on a healthy tree every time.</li>
+      <li><strong>The guest boot budget is measured</strong> &mdash; 1.54 s median against a 1.0 s target, read from the guests&rsquo; own uptime over 60 live turns.</li>
+    </ul>
+    <p class="full">Full notes: <a href="https://github.com/kronael/arizuko/blob/main/CHANGELOG.md#v0702--2026-10-07">CHANGELOG &sect; v0.70.2</a></p>
+
     <h2>arizuko v0.70.1 <span class="date">&mdash; 5 October 2026</span></h2>
     <p>v0.70.0&rsquo;s image refused every turn: it wrote an IPv6 knob the runed container cannot write. The seal now reads first and writes only when the family is open.</p>
     <ul>

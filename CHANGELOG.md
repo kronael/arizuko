@@ -13,6 +13,61 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.70.2] — 2026-10-07
+
+> arizuko v0.70.2 — the logs say what happened
+>
+> A failing turn now names its cause, the journal is readable again, and `make lint`
+> and `make test` can both report a real result for the first time in weeks.
+>
+> • a failed turn says WHY — 27 terminal failures on sloth named no cause while the
+> log on disk said "you've hit your individual spend limit"
+> • 4110 fewer error lines an hour — virtiofsd was reporting the uid clamp three times
+> per file operation, burying every real error in the same journal
+> • `make lint` reports 0 issues — the gate could not read its own config, so 80
+> findings had accumulated behind it, 6 of them the error-swallowing class it exists for
+> • `make test` can pass — it ran with Go's default 10-minute per-package timeout on a
+> two-core host, so it reported FAIL on a healthy tree every time
+> • the guest boot budget is measured at last: p50 1.54 s against the 1.0 s gate
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Fixed
+
+- **A terminal turn names its cause.** 27 failures on sloth told the journal only
+  `Turn failed (terminal)`; the reason sat three lines higher in the turn log on disk.
+  `runed` builds the error from the stderr TAIL, so a reason printed earlier falls
+  outside the window by construction — fixed at the producer, because every later
+  consumer that keeps a tail inherits the same hole (BUGS `L397`).
+- **virtiofsd stops reporting the uid clamp 4110 times an hour.** The daemon runs as
+  the agent's uid with `--sandbox=none`, so each file operation tries to regain root
+  and cannot; that refusal is the control the clamp exists for and nothing can act on
+  it. There is no configuration that is both quiet and clamped, so the three known
+  lines are counted instead of logged and one `DEBUG` summary per share survives — a
+  share that STOPS reporting the clamp has lost it (BUGS `L396`).
+- **`make lint` reads its own config.** The file was schema v1 and the installed
+  binary is golangci-lint v2, which refuses a v1 config outright, so the static half
+  of the one gate CI enforces had never reported on this code. 80 findings had
+  accumulated: 50 `errcheck`, 21 `staticcheck`, 6 `nilerr`, 3 dead symbols. All are
+  fixed by handling or deleting, none by `//nolint` or a new exclusion, and the
+  deprecated `ReverseProxy.Director` in `proxyd` is migrated to `Rewrite` behind a
+  parity test written against the old code first — `Rewrite` adds no
+  `X-Forwarded-For` unless asked (BUGS `L357`).
+- **`make test` can report a real result.** It passed no `-timeout`, and Go's default
+  is 10 minutes of WALL clock per package while `go test ./...` runs packages
+  concurrently on two cores. `routd` needs 452 s of its own and died at 600 s it
+  mostly spent descheduled (BUGS `L398`).
+- The release rootfs is read-only because the HOST says so, the tap carries only the
+  address family its rules are written in, and a truncated turn log names how many
+  lines it dropped (BUGS `L381`, `L383`, `L385`).
+
+### Changed
+
+- **`CONTAINER_IMAGE` is gone**, with `core.Config.Image` and `core.DefaultImage`.
+  Nothing read the field: the guest boots the exported root filesystem tree
+  `RUNED_ROOTFS_DIR` names. An operator who retagged an image and set it here got a
+  silent no-op (BUGS `L384`).
+
 ## [v0.70.1] — 2026-10-05
 
 > arizuko v0.70.1 — the turn starts again
