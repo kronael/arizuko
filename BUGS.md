@@ -863,6 +863,11 @@ Docker substrate left behind (`container.egressReadyTimeout`,
   gate would run, pass, and stop reporting the class it exists for. That is the
   `gate_cannot_fail` shape one level up. The remaining work is the 80 findings
   themselves, each judged rather than silenced: NO `//nolint`, no new exclusion.
+- **The findings are at ZERO as of 2026-10-07** (`make lint`: `0 issues.`). The last
+  two were `proxyd`'s deprecated `ReverseProxy.Director`, migrated to `Rewrite` in
+  `83add342` behind a parity test written against the OLD code first — `Rewrite` adds
+  no `X-Forwarded-For` unless the hook asks, so a blind conversion would have dropped
+  the header `TRUSTED_PROXIES` is written against, silently.
 
 ## ✅ FIXED 2026-09-29 L385 — the turn log truncates at 10 MB and says nothing, so the log worth reading is the one that ends mid-line (2026-09-29)
 
