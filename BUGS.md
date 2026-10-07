@@ -32,7 +32,7 @@ line; none can be answered from the code.
   the consume contract (`L104`).
 - `L317` — may `/stop` drop the backlog older than itself, and is that drop
   sender-scoped? No other command eats a row it did not author.
-- `L273`, `L249`, `L319`, `L159`, `L202`, `L283` — proposals, each costed in
+- `L273`, `L249`, `L319`, `L159`, `L202` — proposals, each costed in
   its entry.
 - `L339`, `L167`, `L200` — proposals too. `L200` and `L133` were re-measured
   2026-09-21 and each came back narrower than filed.
@@ -113,10 +113,7 @@ revoked — see its entry.)
 
 - `L189` — blocked on `L137`. Do not take it alone.
 
-**The gate itself.**
 
-- `L357` — `.golangci.yml` is v1, golangci-lint is v2, and it refuses to load.
-  Pin the action to v1, or migrate and face 81 findings.
 
 **A pointer that resolves and lies.**
 
@@ -2144,7 +2141,7 @@ an operator reading `deploy/helm/arizuko/README.md:40` finds a supported
   to, which the chart's own comment already says.
 - **Fix:**
 
-## L357 — `.golangci.yml` is a v1 config and `golangci-lint` is v2, so the one gate CI enforces cannot load it (2026-09-22, open)
+## ✅ FIXED 2026-10-07 L357 — `.golangci.yml` is a v1 config and `golangci-lint` is v2, so the one gate CI enforces cannot load it (2026-09-22)
 
 `.golangci.yml`'s own header calls itself "the one gate CI enforces". It has no
 `version:` key, which makes it a v1 config. golangci-lint **2.13.2** — what
@@ -2279,6 +2276,19 @@ deprecation.
   findings read. Choosing is yours; the v1 config is untouched.
 - **Fix:** `d5b18dce`, `bffe31c7`, `ce5a7b93` are the defects it found. The
   config itself is undecided.
+- **Status:** ✅ FIXED 2026-10-07. The config is migrated to v2 BY HAND, not with
+  `golangci-lint migrate` — the migrator adds four `exclusions.presets`, and
+  `std-error-handling` alone excuses every dropped `Close`/`Write`/`Seek`, so the gate
+  would run, pass, and stop reporting the class it exists for.
+- **And the findings are at ZERO.** `make lint` answers `0 issues.` The 80 behind the
+  broken gate are closed by handling or deleting, none by `//nolint` or a new
+  exclusion: 6 `nilerr` restructured so the nil return no longer sits under
+  `err != nil`, 3 dead symbols the Docker substrate left behind deleted, and `proxyd`'s
+  deprecated `ReverseProxy.Director` migrated to `Rewrite` behind a parity test written
+  against the OLD code first — `Rewrite` adds no `X-Forwarded-For` unless the hook asks,
+  and mutating that call out fails the test, which is the silent change a blind
+  conversion would have shipped on the daemon that stamps identity.
+- `L386` filed this a second time; it is marked the duplicate and this entry is the record.
 
 ## L355 — a bare spec number that resolves can still name the wrong document, and two sit in the authorization path (2026-09-22, open)
 
@@ -4124,7 +4134,7 @@ this; the grouping key belongs in the proposal before sign-off.
   per-(chat, topic) cursor still buy anything worth those five readers losing
   their definition?
 
-## L283 — the agent turn container runs unhardened while its own egress sidecar is locked down (2026-09-12, open — needs sign-off)
+## ✅ RETIRED 2026-10-07 L283 — the agent turn container runs unhardened while its own egress sidecar is locked down (2026-09-12)
 
 MEASURED at `container/runner.go:678-700`: the `docker run` that executes an
 agent turn carries `--rm`, `--name` and `--shm-size=1g`, and nothing else. No
@@ -4156,6 +4166,24 @@ pre-empted; the claim just stopped being stronger than the code.
   declares, from ONE place both read, so a new spawn site cannot be born
   unhardened. `--runtime=runsc` is the separate, larger question: it is one
   `daemon.json` line and changes no arizuko mechanism.
+- **RETIRED 2026-10-07: the premise is gone, not answered.** This entry asks for
+  `--cap-drop`, `--security-opt`, `--read-only`, `--pids-limit` and `--memory` on the
+  turn's `docker run`. Spec `6/41` step 4 deleted that `docker run`: a turn is one
+  ephemeral KVM guest, and the only `docker` string left under `runed/` or `container/`
+  is a comment recording what the old substrate did (measured 2026-09-29 — no
+  `exec.Command("docker"…)`, no docker client import, no service mounting
+  `docker.sock`).
+
+  The question it asked — is the thing running model output confined? — is now answered
+  by a different mechanism rather than by a flag set: the guest IS the confinement, and
+  `SECURITY.md` § Model states what runed's own privilege means in its place. A flag
+  list for a container that is never created would be a contract nothing reads.
+
+  What is NOT retired with it: the guest's own budget. `RUNED_GUEST_MEM` ×
+  `MAX_CONCURRENT_CONTAINERS` is checked against the host's `MemTotal` at start
+  (`6/41` §"The host budget"), which is the `--memory` half; there is no `--pids-limit`
+  equivalent inside a guest and none is needed, because a fork bomb exhausts the
+  guest's own kernel and the guest is discarded at power-off.
 
 ## L273 — the approval floor makes 22 tools unholdable for every folder, not only worlds (2026-09-12, open — needs sign-off)
 
