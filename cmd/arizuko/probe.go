@@ -189,7 +189,7 @@ func probeStatus(client *http.Client, url, token string) int {
 	if err != nil {
 		return 0
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	io.Copy(io.Discard, resp.Body) //nolint:errcheck // drained so the connection pools; only the status is read
 	return resp.StatusCode
 }
@@ -205,7 +205,7 @@ func fetchOpenAPI(client *http.Client, base string) (openAPIDoc, int, error) {
 	if err != nil {
 		return doc, 0, fmt.Errorf("unreachable: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return doc, resp.StatusCode, fmt.Errorf("read body: %w", err)

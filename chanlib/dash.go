@@ -62,7 +62,7 @@ func handleAdapterDash(name string, prefixes []string, bot BotHandler,
 				b.WriteString(renderSection(sec))
 			}
 		}
-		fmt.Fprint(w, theme.Page(name, template.HTML(b.String())))
+		_, _ = fmt.Fprint(w, theme.Page(name, template.HTML(b.String())))
 	}
 }
 

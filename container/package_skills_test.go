@@ -155,3 +155,26 @@ func TestSeedPackageSkillsInertWithoutPackages(t *testing.T) {
 		t.Fatalf("n=%d err=%v, want 0/nil", n, err)
 	}
 }
+
+// A package skills dir that cannot be READ is not an instance with no
+// packages: answering (0, nil) for both makes a broken mount look like a bare
+// instance, and BUGS L47 is exactly the bug where a package's skill never
+// arrives and nothing says why.
+func TestSeedPackageSkillsRefusesAnUnreadableSkillsDir(t *testing.T) {
+	cfg := &core.Config{HostAppDir: t.TempDir(), GroupsDir: filepath.Join(t.TempDir(), "groups")}
+	// A regular file where the dir belongs: ReadDir fails with something other
+	// than "does not exist", on any uid, root included.
+	if err := os.MkdirAll(filepath.Dir(PackageSkillsDir(cfg)), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(PackageSkillsDir(cfg), []byte("not a dir"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	n, err := SeedPackageSkills(cfg, "eng")
+	if err == nil {
+		t.Fatal("an unreadable skills dir was reported as an instance with no packages")
+	}
+	if n != 0 {
+		t.Errorf("n=%d, want 0", n)
+	}
+}

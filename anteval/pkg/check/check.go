@@ -67,7 +67,7 @@ func Run(ctx Ctx, c spec.Check) (bool, string) {
 		if err != nil {
 			return false, "GET " + url + ": " + err.Error()
 		}
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		if resp.StatusCode == c.Want {
 			return true, fmt.Sprintf("GET %s == %d", url, c.Want)
 		}

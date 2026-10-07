@@ -47,10 +47,10 @@ func (d *dash) handleGroupGrants(w http.ResponseWriter, r *http.Request) {
 	// The alias warning from a just-written grant rides back as ?err=.
 	writeFlash(w, r, nil)
 
-	fmt.Fprint(w, `<p><a href="/dash/groups/`+folderPath(folder)+`/settings">← Back to settings</a></p>`)
+	_, _ = fmt.Fprint(w, `<p><a href="/dash/groups/`+folderPath(folder)+`/settings">← Back to settings</a></p>`)
 
 	if d.routdStore() == nil {
-		fmt.Fprint(w, htmlBanner("err", "store unavailable"))
+		_, _ = fmt.Fprint(w, htmlBanner("err", "store unavailable"))
 		pageClose(w, r)
 		return
 	}
@@ -72,13 +72,13 @@ func (d *dash) handleGroupGrants(w http.ResponseWriter, r *http.Request) {
 		// An empty grants table would read as "this folder has no permissions",
 		// which is the opposite of "we could not read them" (BUGS A4).
 		slog.Error("dashd: grants read failed", "folder", folder, "err", err)
-		fmt.Fprint(w, htmlBanner("err", "could not read grants: "+esc(err.Error())))
+		_, _ = fmt.Fprint(w, htmlBanner("err", "could not read grants: "+esc(err.Error())))
 		pageClose(w, r)
 		return
 	}
 
-	fmt.Fprintf(w, `<p class="dim">ACL rows scoped to <code>%s</code>.</p>`, esc(folder))
-	fmt.Fprint(w, `<p>Each row is a permission: who may do what, and when.</p>`)
+	_, _ = fmt.Fprintf(w, `<p class="dim">ACL rows scoped to <code>%s</code>.</p>`, esc(folder))
+	_, _ = fmt.Fprint(w, `<p>Each row is a permission: who may do what, and when.</p>`)
 
 	tableRows := make([][]string, len(rows))
 	for i, row := range rows {
@@ -108,7 +108,7 @@ func (d *dash) handleGroupGrants(w http.ResponseWriter, r *http.Request) {
 			revokeBtn,
 		}
 	}
-	fmt.Fprint(w, htmlTable(
+	_, _ = fmt.Fprint(w, htmlTable(
 		[]string{"who", "can do what", "allow or deny", "only these", "only when", "granted by", "granted", ""},
 		tableRows,
 		"No grants for this group.",
@@ -161,16 +161,16 @@ func (d *dash) handleGroupGrants(w http.ResponseWriter, r *http.Request) {
 	}
 	actionSelect.WriteString(`</select>`)
 
-	fmt.Fprintf(w, `<h2>Add grant</h2><form method="post" action="/dash/groups/%s/grants">`, folderPath(folder))
-	fmt.Fprint(w, principalOpts.String())
-	fmt.Fprint(w, htmlFormRow("principal",
+	_, _ = fmt.Fprintf(w, `<h2>Add grant</h2><form method="post" action="/dash/groups/%s/grants">`, folderPath(folder))
+	_, _ = fmt.Fprint(w, principalOpts.String())
+	_, _ = fmt.Fprint(w, htmlFormRow("principal",
 		`<input type="text" name="principal" required list="principals" autocomplete="off" `+
 			`size="40" placeholder="google:123 or local:admin">`))
-	fmt.Fprint(w, htmlFormRow("action", actionSelect.String()))
-	fmt.Fprint(w, htmlFormRow("effect", `<select name="effect"><option value="allow">allow</option><option value="deny">deny</option></select>`))
-	fmt.Fprint(w, htmlFormRow("params", `<input type="text" name="params" size="40" placeholder="jid=telegram:* (blank = any)">`))
-	fmt.Fprint(w, htmlFormRow("scope", scopeSelect.String()))
-	fmt.Fprint(w, `<p><button type="submit">add grant</button></p></form>`)
+	_, _ = fmt.Fprint(w, htmlFormRow("action", actionSelect.String()))
+	_, _ = fmt.Fprint(w, htmlFormRow("effect", `<select name="effect"><option value="allow">allow</option><option value="deny">deny</option></select>`))
+	_, _ = fmt.Fprint(w, htmlFormRow("params", `<input type="text" name="params" size="40" placeholder="jid=telegram:* (blank = any)">`))
+	_, _ = fmt.Fprint(w, htmlFormRow("scope", scopeSelect.String()))
+	_, _ = fmt.Fprint(w, `<p><button type="submit">add grant</button></p></form>`)
 
 	pageClose(w, r)
 }
@@ -187,7 +187,7 @@ func (d *dash) handleGroupGrantAdd(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if d.routdStore() == nil {
-		fmt.Fprint(w, htmlBanner("err", "store unavailable"))
+		_, _ = fmt.Fprint(w, htmlBanner("err", "store unavailable"))
 		return
 	}
 	if err := r.ParseForm(); err != nil {
@@ -273,7 +273,7 @@ func (d *dash) handleGroupGrantRevoke(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if d.routdStore() == nil {
-		fmt.Fprint(w, htmlBanner("err", "store unavailable"))
+		_, _ = fmt.Fprint(w, htmlBanner("err", "store unavailable"))
 		return
 	}
 	if err := r.ParseForm(); err != nil {

@@ -25,7 +25,7 @@ import (
 // the route table is exactly the failure this replaces.
 func syncProxydRoutes(dataDir string, routes []compose.ProxydRoute) {
 	rdb := mustOpenRoutd()
-	defer rdb.Close()
+	defer func() { _ = rdb.Close() }()
 	// AsCLI attributes the write to the invoking operator: generate has no
 	// X-User-* header to learn a sub from, same as grant/secret.
 	st := store.NewOver(rdb.Obj()).AsCLI(os.Getenv("USER"))
@@ -81,7 +81,7 @@ func cmdProxyConfig(args []string) {
 		}
 	}
 	rdb := mustOpenRoutd()
-	defer rdb.Close()
+	defer func() { _ = rdb.Close() }()
 	rows, err := store.NewOver(rdb.Obj()).AllProxydRoutes()
 	if err != nil {
 		die("Failed: read proxyd_routes: %v", err)

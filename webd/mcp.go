@@ -190,7 +190,7 @@ func (s *server) buildWebMCP(sub, name string, grants []string, pin *chatPin) *m
 		// chat send wrote to, so a pinned token reads back its own suffixed JID.
 		msgs, err := s.stRoutd.MessagesByThread(chatJID(g.Folder), topic, time.Now(), limit)
 		if err != nil {
-			return mcp.NewToolResultError("query failed: " + err.Error()), nil
+			return mcp.NewToolResultErrorf("query failed: %v", err), nil
 		}
 		type msgOut struct {
 			ID        string    `json:"id"`

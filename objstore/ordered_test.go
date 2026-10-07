@@ -74,7 +74,7 @@ func TestABareInstantIsAValidQueryBound(t *testing.T) {
 	if err := ValidateQuery(q); err != nil {
 		t.Fatalf("a bare instant was refused as a bound: %v", err)
 	}
-	if !(instant < leadKey("a")) {
+	if instant >= leadKey("a") {
 		t.Fatal("the bare instant does not sort below a key at the same instant, so the " +
 			"bound selects the wrong rows")
 	}

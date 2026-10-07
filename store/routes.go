@@ -39,7 +39,7 @@ import (
 // is to create the group, not add a route.
 var ErrWebJIDRouted = fmt.Errorf(
 	"web: JIDs are 1:1 with groups; route table does not apply. " +
-		"Create the group via setup_group instead.",
+		"Create the group via setup_group instead",
 )
 
 // ErrRouteIDAmbiguous reports that two rules carry the id the caller named, so

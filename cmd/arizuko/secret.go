@@ -60,7 +60,7 @@ func cmdScopedSecret(args []string, command, scopeName string, scope store.Secre
 	if err != nil {
 		die("Failed: open db: %v", err)
 	}
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 
 	switch action {
 	case "set":
@@ -127,11 +127,11 @@ func runSealLegacy(s *store.Store, dryRun bool, w io.Writer) error {
 		return err
 	}
 	if dryRun {
-		fmt.Fprintf(w, "%d plaintext secret row(s) would be sealed (dry run, nothing changed)\n", before)
+		_, _ = fmt.Fprintf(w, "%d plaintext secret row(s) would be sealed (dry run, nothing changed)\n", before)
 		return nil
 	}
 	if before == 0 {
-		fmt.Fprintln(w, "no plaintext secret rows: nothing to seal")
+		_, _ = fmt.Fprintln(w, "no plaintext secret rows: nothing to seal")
 		return nil
 	}
 	sealed, err := s.EncryptPlaintextSecrets(ctx)
@@ -142,7 +142,7 @@ func runSealLegacy(s *store.Store, dryRun bool, w io.Writer) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(w, "sealed %d of %d plaintext secret row(s); %d remaining\n", sealed, before, after)
+	_, _ = fmt.Fprintf(w, "sealed %d of %d plaintext secret row(s); %d remaining\n", sealed, before, after)
 	if after != 0 {
 		return fmt.Errorf("%d row(s) still plaintext after sealing", after)
 	}
@@ -180,7 +180,7 @@ func runSecretSet(s *store.Store, scope store.SecretScope, scopeID, key, value s
 	if err := s.SetSecret(scope, scopeID, key, value); err != nil {
 		return err
 	}
-	fmt.Fprintf(w, "set %s/%s/%s\n", scope, scopeID, key)
+	_, _ = fmt.Fprintf(w, "set %s/%s/%s\n", scope, scopeID, key)
 	return nil
 }
 
@@ -190,13 +190,13 @@ func runSecretList(s *store.Store, scope store.SecretScope, scopeID string, w io
 		return err
 	}
 	if len(rows) == 0 {
-		fmt.Fprintln(w, "no secrets")
+		_, _ = fmt.Fprintln(w, "no secrets")
 		return nil
 	}
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "KEY\tCREATED_AT")
+	_, _ = fmt.Fprintln(tw, "KEY\tCREATED_AT")
 	for _, r := range rows {
-		fmt.Fprintf(tw, "%s\t%s\n", r.Key, r.CreatedAt.Format("2006-01-02 15:04:05"))
+		_, _ = fmt.Fprintf(tw, "%s\t%s\n", r.Key, r.CreatedAt.Format("2006-01-02 15:04:05"))
 	}
 	return tw.Flush()
 }
@@ -205,6 +205,6 @@ func runSecretDelete(s *store.Store, scope store.SecretScope, scopeID, key strin
 	if err := s.DeleteSecret(scope, scopeID, key); err != nil {
 		return err
 	}
-	fmt.Fprintf(w, "deleted %s/%s/%s\n", scope, scopeID, key)
+	_, _ = fmt.Fprintf(w, "deleted %s/%s/%s\n", scope, scopeID, key)
 	return nil
 }

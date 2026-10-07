@@ -37,7 +37,7 @@ func TestCaddyfile_LongestPrefixFirst(t *testing.T) {
 	if iApprovals < 0 || iDash < 0 || iRoot < 0 {
 		t.Fatalf("a route is missing:\n%s", out)
 	}
-	if !(iApprovals < iDash && iDash < iRoot) {
+	if iApprovals >= iDash || iDash >= iRoot {
 		t.Errorf("emission order is not longest-first:\n%s", out)
 	}
 }

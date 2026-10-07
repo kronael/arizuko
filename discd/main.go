@@ -55,7 +55,7 @@ func main() {
 				slog.Error("discord connect failed", "err", err)
 				return nil, nil, err
 			}
-			return srv.handler(), func() { b.stop(); as.Close() }, nil
+			return srv.handler(), func() { b.stop(); _ = as.Close() }, nil
 		},
 	})
 }

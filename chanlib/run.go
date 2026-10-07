@@ -89,7 +89,9 @@ func Run(opts RunOpts) {
 		os.Exit(1)
 	}
 	slog.Info("shutting down")
-	rc.Deregister()
+	if err := rc.Deregister(); err != nil {
+		slog.Warn("deregister failed; routd holds the channel until it expires", "err", err)
+	}
 	if stop != nil {
 		stop()
 	}

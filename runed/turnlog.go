@@ -75,7 +75,10 @@ func writeLog(
 			len(prompt), sid)
 	}
 
-	os.WriteFile(path, []byte(b.String()), 0o644)
+	if err := os.WriteFile(path, []byte(b.String()), 0o644); err != nil {
+		slog.Warn("turn log not written", "logFile", path, "err", err)
+		return
+	}
 	slog.Debug("container log written", "logFile", path, "verbose", verbose)
 }
 

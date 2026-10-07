@@ -121,17 +121,17 @@ func (l *Loop) enrichAttachments(ctx context.Context, msg *core.Message, folder 
 			} else if strings.HasPrefix(att.Mime, "video/") {
 				if audioPath := extractVideoAudio(dest); audioPath != "" {
 					transcript = whisperTranscribe(ctx, l.media.WhisperURL, l.media.WhisperModel, audioPath, "audio/mpeg", langs)
-					os.Remove(audioPath)
+					_ = os.Remove(audioPath)
 				}
 			}
 		}
 		containerPath := core.ContainerHome + "/media/" + day + "/" + fname
 		if transcript != "" {
-			extra.WriteString(fmt.Sprintf("\n<attachment path=%q mime=%q filename=%q transcript=%q/>",
-				containerPath, att.Mime, displayName, transcript))
+			fmt.Fprintf(&extra, "\n<attachment path=%q mime=%q filename=%q transcript=%q/>",
+				containerPath, att.Mime, displayName, transcript)
 		} else {
-			extra.WriteString(fmt.Sprintf("\n<attachment path=%q mime=%q filename=%q/>",
-				containerPath, att.Mime, displayName))
+			fmt.Fprintf(&extra, "\n<attachment path=%q mime=%q filename=%q/>",
+				containerPath, att.Mime, displayName)
 		}
 	}
 
@@ -176,7 +176,7 @@ func downloadFile(ctx context.Context, url, dest string, bearer func(context.Con
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != 200 {
 		return fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
@@ -198,7 +198,7 @@ func downloadFile(ctx context.Context, url, dest string, bearer func(context.Con
 		cpErr = fmt.Errorf("file exceeds %d bytes", maxBytes)
 	}
 	if cpErr != nil {
-		os.Remove(dest)
+		_ = os.Remove(dest)
 	}
 	return cpErr
 }
@@ -221,7 +221,7 @@ func transcribeOnce(ctx context.Context, baseURL, model, path, lang, mime string
 	if err != nil {
 		return ""
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	url := baseURL + "/v1/audio/transcriptions"
 	req, err := http.NewRequestWithContext(ctx, "POST", url, f)
@@ -239,14 +239,19 @@ func transcribeOnce(ctx context.Context, baseURL, model, path, lang, mime string
 	if err != nil {
 		return ""
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != 200 {
 		return ""
 	}
 	var out struct {
 		Text string `json:"text"`
 	}
-	json.NewDecoder(resp.Body).Decode(&out)
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		// The turn then carries the attachment with no transcript, which reads to
+		// the agent as a voice note that said nothing.
+		slog.Warn("whisper response will not parse", "url", url, "err", err)
+		return ""
+	}
 	return strings.TrimSpace(out.Text)
 }
 

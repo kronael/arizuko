@@ -43,7 +43,7 @@ func SymlinkFragment(servicesDir, hostCatalogDir, filename string) error {
 		return fmt.Errorf("symlink %s: %w", filename, err)
 	}
 	if err := os.Rename(tmp, dst); err != nil {
-		os.Remove(tmp)
+		_ = os.Remove(tmp)
 		return fmt.Errorf("point %s at the catalog: %w", filename, err)
 	}
 	return nil
@@ -157,8 +157,11 @@ func relinkSidecar(servicesDir, readableCatalogDir, hostCatalogDir, name string)
 		return nil
 	}
 	tmpl, terr := os.ReadFile(filepath.Join(readableCatalogDir, sidecar))
-	if terr != nil {
+	if os.IsNotExist(terr) {
 		return nil // catalog ships no manifest for this kind
+	}
+	if terr != nil {
+		return fmt.Errorf("read catalog/%s: %w", sidecar, terr)
 	}
 	installed, ierr := os.ReadFile(filepath.Join(servicesDir, sidecar))
 	if ierr != nil && !os.IsNotExist(ierr) {

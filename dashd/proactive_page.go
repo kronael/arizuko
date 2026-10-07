@@ -27,7 +27,7 @@ func (d *dash) handleProactive(w http.ResponseWriter, r *http.Request) {
 	pageTopFor(w, r, "proactive")
 
 	if d.routdStore() == nil {
-		fmt.Fprint(w, htmlBanner("err", "routd store unavailable"))
+		_, _ = fmt.Fprint(w, htmlBanner("err", "routd store unavailable"))
 		pageClose(w, r)
 		return
 	}
@@ -35,10 +35,10 @@ func (d *dash) handleProactive(w http.ResponseWriter, r *http.Request) {
 	// dashd cannot read routd's environment, so this states the rule rather
 	// than a live value — a green "enabled" dot dashd cannot verify would be
 	// worse than no dot.
-	fmt.Fprint(w, `<p class="dim">Normally the agent only answers when spoken to. `+
+	_, _ = fmt.Fprint(w, `<p class="dim">Normally the agent only answers when spoken to. `+
 		`A group set to <code>lurk</code> may also speak up on its own &mdash; once per chat per cooldown, `+
 		`and only when a question has gone unanswered in a busy room.</p>`)
-	fmt.Fprint(w, htmlBannerRaw("warn",
+	_, _ = fmt.Fprint(w, htmlBannerRaw("warn",
 		`Proactive interjection is off unless routd runs with <code>PROACTIVE_ENABLED</code> set. `+
 			`No shipped template sets it, so it is off unless you opted in. `+
 			`This page shows what would happen once you do &mdash; it cannot read routd&rsquo;s environment to confirm the switch.`))
@@ -51,15 +51,15 @@ func (d *dash) handleProactive(w http.ResponseWriter, r *http.Request) {
 // renderProactiveModes writes the per-group mode table, parsing each group's
 // CLAUDE.md through the same parser routd's scanner gates on.
 func (d *dash) renderProactiveModes(ctx context.Context, w http.ResponseWriter) {
-	fmt.Fprint(w, `<h2>Group settings</h2>`)
-	fmt.Fprint(w, `<p class="dim">silent &mdash; never speaks first (the default). `+
+	_, _ = fmt.Fprint(w, `<h2>Group settings</h2>`)
+	_, _ = fmt.Fprint(w, `<p class="dim">silent &mdash; never speaks first (the default). `+
 		`lurk &mdash; may speak first. `+
 		`broken &mdash; the settings have a mistake, so this group says nothing at all until you fix it.</p>`)
 
 	folders, err := d.foldersViaRoutd(ctx)
 	if err != nil {
 		slog.Warn("proactive page: read groups via routd", "err", err)
-		fmt.Fprint(w, htmlBanner("err", "could not reach routd for the group list"))
+		_, _ = fmt.Fprint(w, htmlBanner("err", "could not reach routd for the group list"))
 		return
 	}
 
@@ -73,7 +73,7 @@ func (d *dash) renderProactiveModes(ctx context.Context, w http.ResponseWriter) 
 			proactiveProblemCell(m),
 		})
 	}
-	fmt.Fprint(w, htmlTable([]string{"Group", "Mode", "Quiet hours", "Problem"}, tableRows,
+	_, _ = fmt.Fprint(w, htmlTable([]string{"Group", "Mode", "Quiet hours", "Problem"}, tableRows,
 		"No groups yet."))
 }
 
@@ -131,15 +131,15 @@ func proactiveProblemCell(m proactive.Mode) string {
 // renderProactiveCooldowns writes the per-chat cooldown table from
 // chat_proactive — routd.db's record of when a chat last spoke unprompted.
 func (d *dash) renderProactiveCooldowns(w http.ResponseWriter) {
-	fmt.Fprint(w, `<h2>Chats that spoke first</h2>`)
-	fmt.Fprint(w, `<p class="dim">After speaking unprompted, a chat is barred from doing it again `+
+	_, _ = fmt.Fprint(w, `<h2>Chats that spoke first</h2>`)
+	_, _ = fmt.Fprint(w, `<p class="dim">After speaking unprompted, a chat is barred from doing it again `+
 		`until the cooldown passes &mdash; 24 hours unless routd runs with a different `+
 		`<code>PROACTIVE_COOLDOWN</code>. This is the usual answer to &ldquo;why didn&rsquo;t it say anything?&rdquo;</p>`)
 
 	cooldowns, err := d.ds().ProactiveCooldowns()
 	if err != nil {
 		slog.Warn("proactive page: cooldown query", "err", err)
-		fmt.Fprint(w, htmlBanner("err", "cooldown query error: "+err.Error()))
+		_, _ = fmt.Fprint(w, htmlBanner("err", "cooldown query error: "+err.Error()))
 		return
 	}
 
@@ -150,6 +150,6 @@ func (d *dash) renderProactiveCooldowns(w http.ResponseWriter) {
 			abbrTS(c.FiredAt),
 		})
 	}
-	fmt.Fprint(w, htmlTable([]string{"Chat", "Last spoke first"}, tableRows,
+	_, _ = fmt.Fprint(w, htmlTable([]string{"Chat", "Last spoke first"}, tableRows,
 		"No chat has spoken unprompted yet."))
 }

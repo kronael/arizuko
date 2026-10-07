@@ -179,9 +179,9 @@ func TestMCPReplyRetryReusesIdempotencyKey(t *testing.T) {
 	if len(pending) != 1 {
 		t.Fatalf("pending rows=%d want 1 (the failed reply)", len(pending))
 	}
-	if pending[0].Message.ID != firstKey {
+	if pending[0].ID != firstKey {
 		t.Fatalf("row id=%q but the send claimed %q — the sweep would open a second claim",
-			pending[0].Message.ID, firstKey)
+			pending[0].ID, firstKey)
 	}
 
 	loop := NewLoop(db, runnerFn(nil), LoopConfig{Deliver: deliver, MaxOutboundRetry: 10})

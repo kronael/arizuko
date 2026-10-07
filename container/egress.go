@@ -22,16 +22,13 @@ import (
 )
 
 // Vars, not consts, so tests can point the probe at a local listener and cut
-// the deadline. Production never reassigns them.
+// the poll interval. Production never reassigns them.
 var (
 	// EgressPort is the proxy's listen port: one proxy per spawn, on its own
 	// tap, so this never collides. The QEMU substrate reads it as the port on
 	// the host side of the guest's tap.
-	EgressPort = 3128
-	// egressReadyTimeout bounds the wait for the proxy's /health. The spawn
-	// fails if it elapses — never spawn the agent with no proxy answering.
-	egressReadyTimeout = 15 * time.Second
-	egressReadyPoll    = 20 * time.Millisecond
+	EgressPort      = 3128
+	egressReadyPoll = 20 * time.Millisecond
 )
 
 // gatewayHost is the one place that turns the configured gateway URL into an
@@ -90,7 +87,7 @@ func WaitHealthy(url string, deadline time.Duration) error {
 		resp, err := c.Get(url)
 		if err == nil {
 			_, _ = io.Copy(io.Discard, resp.Body)
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			if resp.StatusCode == http.StatusOK {
 				return nil
 			}

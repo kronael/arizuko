@@ -162,7 +162,7 @@ func TestAuditMergedNewestFirst(t *testing.T) {
 	iNew := strings.Index(body, "newest-routd")
 	iMid := strings.Index(body, "middle-runed")
 	iOld := strings.Index(body, "oldest-routd")
-	if !(iNew < iMid && iMid < iOld) {
+	if iNew >= iMid || iMid >= iOld {
 		t.Errorf("interleave wrong: newest=%d middle=%d oldest=%d — a per-source merge would "+
 			"have kept routd's two adjacent: %s", iNew, iMid, iOld, body)
 	}

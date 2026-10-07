@@ -31,7 +31,7 @@ func (d *dash) handleApprovals(w http.ResponseWriter, r *http.Request) {
 	}
 	pageTopFor(w, r, "approvals")
 
-	fmt.Fprint(w, `<p class="dim">A hold rule pauses a risky tool call until a human says go. `+
+	_, _ = fmt.Fprint(w, `<p class="dim">A hold rule pauses a risky tool call until a human says go. `+
 		`The agent is waiting on it right now. Review the arguments, then approve `+
 		`&mdash; it runs immediately, with exactly these arguments &mdash; or reject, `+
 		`and the agent is told so and never runs it.</p>`)
@@ -77,12 +77,12 @@ func (d *dash) renderApprovals(w http.ResponseWriter, r *http.Request) {
 		"/v1/pending_actions?reviewer="+url.QueryEscape(reviewerSub(r)))
 	if err != nil {
 		slog.Warn("approvals page: routd call", "err", err)
-		fmt.Fprint(w, htmlBanner("err", "could not reach routd: "+err.Error()))
+		_, _ = fmt.Fprint(w, htmlBanner("err", "could not reach routd: "+err.Error()))
 		return
 	}
 	if status != http.StatusOK {
 		slog.Warn("approvals page: routd status", "status", status)
-		fmt.Fprint(w, htmlBanner("err", upstreamErr("routd", status, body)))
+		_, _ = fmt.Fprint(w, htmlBanner("err", upstreamErr("routd", status, body)))
 		return
 	}
 	var out struct {
@@ -90,7 +90,7 @@ func (d *dash) renderApprovals(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := json.Unmarshal(body, &out); err != nil {
 		slog.Warn("approvals page: decode", "err", err)
-		fmt.Fprint(w, htmlBanner("err", "could not read routd's answer: "+err.Error()))
+		_, _ = fmt.Fprint(w, htmlBanner("err", "could not read routd's answer: "+err.Error()))
 		return
 	}
 
@@ -114,14 +114,14 @@ func (d *dash) renderApprovals(w http.ResponseWriter, r *http.Request) {
 		if !hasPending(held, focus) {
 			switch {
 			case hasPending(resolved, focus):
-				fmt.Fprint(w, htmlBanner("ok", "call "+esc(focus)+" already has a verdict — it is in Recent verdicts below."))
+				_, _ = fmt.Fprint(w, htmlBanner("ok", "call "+esc(focus)+" already has a verdict — it is in Recent verdicts below."))
 			default:
-				fmt.Fprint(w, htmlBanner("err", "no held call with id "+esc(focus)+" — it may have expired."))
+				_, _ = fmt.Fprint(w, htmlBanner("err", "no held call with id "+esc(focus)+" — it may have expired."))
 			}
 		}
 	}
 
-	fmt.Fprint(w, `<h2>Waiting for a verdict</h2>`)
+	_, _ = fmt.Fprint(w, `<h2>Waiting for a verdict</h2>`)
 	heldRows := make([][]string, 0, len(held))
 	for _, p := range held {
 		group := folderLink(p.GroupFolder)
@@ -137,7 +137,7 @@ func (d *dash) renderApprovals(w http.ResponseWriter, r *http.Request) {
 			approvalVerdictCell(p),
 		})
 	}
-	fmt.Fprint(w, htmlTable([]string{"Group", "Tool", "Arguments", "Chat", "Held", ""}, heldRows,
+	_, _ = fmt.Fprint(w, htmlTable([]string{"Group", "Tool", "Arguments", "Chat", "Held", ""}, heldRows,
 		"Nothing is waiting. Held calls appear here the moment a hold rule fires."))
 
 	if len(resolved) == 0 {
@@ -148,7 +148,7 @@ func (d *dash) renderApprovals(w http.ResponseWriter, r *http.Request) {
 	if len(resolved) > 20 {
 		resolved = resolved[:20]
 	}
-	fmt.Fprint(w, `<h2>Recent verdicts</h2>`)
+	_, _ = fmt.Fprint(w, `<h2>Recent verdicts</h2>`)
 	resolvedRows := make([][]string, 0, len(resolved))
 	for _, p := range resolved {
 		when := p.ReviewedAt
@@ -164,7 +164,7 @@ func (d *dash) renderApprovals(w http.ResponseWriter, r *http.Request) {
 			esc(p.ReviewerNote),
 		})
 	}
-	fmt.Fprint(w, htmlTable([]string{"Group", "Tool", "Outcome", "By", "When", "Note"}, resolvedRows))
+	_, _ = fmt.Fprint(w, htmlTable([]string{"Group", "Tool", "Outcome", "By", "When", "Note"}, resolvedRows))
 }
 
 // approvalArgsCell shows the call's arguments — the material under review, so

@@ -91,7 +91,7 @@ func (s *Server) handleDash(w http.ResponseWriter, r *http.Request) {
 
 	b.WriteString(erroredTable(snap.Errored))
 	b.WriteString(deadLetterTable(snap.Dead))
-	fmt.Fprint(w, theme.Page("routd", template.HTML(b.String())))
+	_, _ = fmt.Fprint(w, theme.Page("routd", template.HTML(b.String())))
 }
 
 // handleDashRetry clears a chat's errored rows so the loop feeds them again.

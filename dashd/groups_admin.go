@@ -52,7 +52,7 @@ func (d *dash) handleGroupNewForm(w http.ResponseWriter, r *http.Request) {
 		crumb{"/dash/groups/", "Groups"},
 		crumb{"", "New"},
 	)
-	fmt.Fprint(w, `<p class="dim">Create a group folder. Use <code>parent/child</code> to nest.</p>
+	_, _ = fmt.Fprint(w, `<p class="dim">Create a group folder. Use <code>parent/child</code> to nest.</p>
 <form method="post" action="/dash/groups/new">
 <p><label>Folder <input type="text" name="folder" placeholder="solo/inbox" required size="40"></label></p>
 <p><label>Product <select name="product">
@@ -234,7 +234,7 @@ func (d *dash) handleGroupSettings(w http.ResponseWriter, r *http.Request) {
 	)
 
 	if d.routdStore() == nil {
-		fmt.Fprint(w, htmlBanner("err", "store unavailable"))
+		_, _ = fmt.Fprint(w, htmlBanner("err", "store unavailable"))
 		pageClose(w, r)
 		return
 	}
@@ -249,7 +249,7 @@ func (d *dash) handleGroupSettings(w http.ResponseWriter, r *http.Request) {
 	// them waits on 6/29's identity decision.
 	g, err := d.getGroup(r.Context(), folder)
 	if err != nil {
-		fmt.Fprint(w, htmlBanner("err", "could not read group: "+esc(err.Error())))
+		_, _ = fmt.Fprint(w, htmlBanner("err", "could not read group: "+esc(err.Error())))
 		pageClose(w, r)
 		return
 	}
@@ -260,7 +260,7 @@ func (d *dash) handleGroupSettings(w http.ResponseWriter, r *http.Request) {
 	open := g.Open
 	owMsgs, owChars := g.ObserveWindowMessages, g.ObserveWindowChars
 
-	fmt.Fprintf(w, `<p class="dim">Group <code>%s</code> &middot; product <code>%s</code></p>`, esc(folder), esc(product))
+	_, _ = fmt.Fprintf(w, `<p class="dim">Group <code>%s</code> &middot; product <code>%s</code></p>`, esc(folder), esc(product))
 	openChecked := ""
 	if open {
 		openChecked = " checked"
@@ -286,14 +286,14 @@ func (d *dash) handleGroupSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	modelSelect.WriteString(`</select>`)
 
-	fmt.Fprintf(w, `<form method="post" action="/dash/groups/%s/settings">`, folderPath(folder))
-	fmt.Fprint(w, htmlFormRow("Model", modelSelect.String()))
-	fmt.Fprintf(w, `<p><label><input type="checkbox" name="open" value="1"%s> open <span class="dim">— sibling groups can see messages sent here</span></label></p>`, openChecked)
-	fmt.Fprint(w, htmlFormRow("Messages a nearby group can peek at",
+	_, _ = fmt.Fprintf(w, `<form method="post" action="/dash/groups/%s/settings">`, folderPath(folder))
+	_, _ = fmt.Fprint(w, htmlFormRow("Model", modelSelect.String()))
+	_, _ = fmt.Fprintf(w, `<p><label><input type="checkbox" name="open" value="1"%s> open <span class="dim">— sibling groups can see messages sent here</span></label></p>`, openChecked)
+	_, _ = fmt.Fprint(w, htmlFormRow("Messages a nearby group can peek at",
 		fmt.Sprintf(`<input type="number" name="observe_window_messages" value="%s" min="0"> <span class="dim">max messages a sibling sees (blank = default 50)</span>`, numOrBlank(owMsgs))))
-	fmt.Fprint(w, htmlFormRow("observe_window_chars",
+	_, _ = fmt.Fprint(w, htmlFormRow("observe_window_chars",
 		fmt.Sprintf(`<input type="number" name="observe_window_chars" value="%s" min="0"> <span class="dim">max chars per observation (blank = default 2000)</span>`, numOrBlank(owChars))))
-	fmt.Fprintf(w, `<h2>Agent files</h2>`+
+	_, _ = fmt.Fprintf(w, `<h2>Agent files</h2>`+
 		`<p class="dim">Edit in the workspace browser — dufs opens text files in its built-in editor.</p>`+
 		`<ul>`+
 		`<li><a href="/dav/%s/CLAUDE.md" target="_blank">CLAUDE.md</a> — instructions the agent reads on every container start</li>`+
@@ -303,24 +303,24 @@ func (d *dash) handleGroupSettings(w http.ResponseWriter, r *http.Request) {
 		`</ul>`, folderPath(folder), folderPath(folder), folderPath(folder), folderPath(folder))
 
 	if len(skills) > 0 {
-		fmt.Fprint(w, `<h2>Skills</h2><p class="dim">Unchecked skills are disabled on next agent run.</p><ul class="plain-list">`)
+		_, _ = fmt.Fprint(w, `<h2>Skills</h2><p class="dim">Unchecked skills are disabled on next agent run.</p><ul class="plain-list">`)
 		for _, name := range skills {
 			checked := ""
 			if !disabled[name] {
 				checked = " checked"
 			}
-			fmt.Fprintf(w, `<li><label><input type="checkbox" name="skill_enabled" value="%s"%s> %s</label></li>`,
+			_, _ = fmt.Fprintf(w, `<li><label><input type="checkbox" name="skill_enabled" value="%s"%s> %s</label></li>`,
 				esc(name), checked, esc(name))
 		}
-		fmt.Fprint(w, `</ul>`)
+		_, _ = fmt.Fprint(w, `</ul>`)
 	}
 
-	fmt.Fprint(w, `<p><button type="submit">save</button></p></form>`)
+	_, _ = fmt.Fprint(w, `<p><button type="submit">save</button></p></form>`)
 
-	fmt.Fprintf(w, `<p><a href="/dash/groups/%s/grants">Manage grants &rarr;</a></p>`, folderPath(folder))
-	fmt.Fprintf(w, `<p><a href="/dash/groups/%s/tools">Browse tools &rarr;</a></p>`, folderPath(folder))
+	_, _ = fmt.Fprintf(w, `<p><a href="/dash/groups/%s/grants">Manage grants &rarr;</a></p>`, folderPath(folder))
+	_, _ = fmt.Fprintf(w, `<p><a href="/dash/groups/%s/tools">Browse tools &rarr;</a></p>`, folderPath(folder))
 
-	fmt.Fprintf(w, `<details><summary>Danger zone</summary><div style="margin-top:.5rem">`+
+	_, _ = fmt.Fprintf(w, `<details><summary>Danger zone</summary><div style="margin-top:.5rem">`+
 		`<form method="post" action="/dash/groups/%s/delete" onsubmit="return confirm('Delete group %s? Routes, sessions, files remain on disk; the DB row is removed.')">`+
 		`<button type="submit" class="btn-danger">delete group</button></form>`+
 		`</div></details>`, folderPath(folder), esc(folder))

@@ -406,7 +406,7 @@ func receiveUpload(w http.ResponseWriter, r *http.Request, tmpPrefix string) (ji
 		WriteErr(w, 400, "file required")
 		return
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	if name == "" {
 		name = hdr.Filename
 	}
@@ -423,18 +423,18 @@ func receiveUpload(w http.ResponseWriter, r *http.Request, tmpPrefix string) (ji
 	localPath = filepath.Join(dir, name)
 	tmp, err := os.Create(localPath)
 	if err != nil {
-		os.RemoveAll(dir)
+		_ = os.RemoveAll(dir)
 		WriteErr(w, 500, "temp file failed")
 		return
 	}
 	_, copyErr := io.Copy(tmp, file)
 	closeErr := tmp.Close()
 	if copyErr != nil || closeErr != nil {
-		os.RemoveAll(dir)
+		_ = os.RemoveAll(dir)
 		WriteErr(w, 500, "temp file write failed")
 		return
 	}
-	return jid, localPath, name, caption, func() { os.RemoveAll(dir) }, true
+	return jid, localPath, name, caption, func() { _ = os.RemoveAll(dir) }, true
 }
 
 func handleSendFile(bot BotHandler, st *chanstore.Store) http.HandlerFunc {
@@ -701,7 +701,7 @@ func FileProxyHandler(opts FileProxyOpts) http.HandlerFunc {
 			WriteErr(w, 502, "cdn fetch failed")
 			return
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		ProxyFile(w, resp, opts.MaxBytes)
 	}
 }

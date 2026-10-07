@@ -16,7 +16,7 @@ func (s *server) handleXGroups(w http.ResponseWriter, r *http.Request) {
 	groups := s.groupList()
 	w.Header().Set("Content-Type", "text/html")
 	for _, g := range groups {
-		fmt.Fprintf(w, `<a class="card" href="/panel/%s"><strong>%s</strong></a>`,
+		_, _ = fmt.Fprintf(w, `<a class="card" href="/panel/%s"><strong>%s</strong></a>`,
 			htmlEscape(g.Folder), htmlEscape(groupfolder.NameOf(g.Folder)))
 	}
 }
@@ -40,10 +40,10 @@ func (s *server) handleXTopics(w http.ResponseWriter, r *http.Request) {
 		if len(preview) > 40 {
 			preview = preview[:40] + "…"
 		}
-		fmt.Fprintf(w, `<option value="%s">%s — %s</option>`,
+		_, _ = fmt.Fprintf(w, `<option value="%s">%s — %s</option>`,
 			htmlEscape(t.ID), label, htmlEscape(preview))
 	}
-	fmt.Fprint(w, `<option value="">+ new conversation</option>`)
+	_, _ = fmt.Fprint(w, `<option value="">+ new conversation</option>`)
 }
 
 // GET /x/groups/<folder>/messages?topic=<t>&before=<ts>
@@ -65,7 +65,7 @@ func (s *server) handleXMessages(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html")
 	for _, m := range slices.Backward(msgs) {
 
-		fmt.Fprintf(w, `<div class="msg %s" id="msg-%s"><p>%s</p><time>%s</time></div>`,
+		_, _ = fmt.Fprintf(w, `<div class="msg %s" id="msg-%s"><p>%s</p><time>%s</time></div>`,
 			messageRole(m), m.ID, htmlEscape(m.Content), m.Timestamp.Format("15:04"))
 	}
 }

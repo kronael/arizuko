@@ -114,7 +114,7 @@ func TestE2ESlinkWebsocketEcho(t *testing.T) {
 	var gotUser, gotAssistant bool
 	r := bufio.NewReader(resp.Body)
 	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) && !(gotUser && gotAssistant) {
+	for time.Now().Before(deadline) && (!gotUser || !gotAssistant) {
 		line, err := r.ReadString('\n')
 		if err != nil {
 			if err == io.EOF {

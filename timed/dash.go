@@ -61,13 +61,13 @@ func (d *dashServer) handleDash(w http.ResponseWriter, r *http.Request) {
 		slog.Error("dash: list tasks", "err", err)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusBadGateway)
-		fmt.Fprint(w, theme.Page("timed",
+		_, _ = fmt.Fprint(w, theme.Page("timed",
 			template.HTML(`<div class="banner-err">Could not reach routd for task data.</div>`)))
 		return
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	fmt.Fprint(w, theme.Page("timed", renderDash(tasks, d.r.loopHealth(), time.Now())))
+	_, _ = fmt.Fprint(w, theme.Page("timed", renderDash(tasks, d.r.loopHealth(), time.Now())))
 }
 
 // renderDash builds the overview body: a loop-health line, a per-status count

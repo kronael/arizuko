@@ -419,8 +419,7 @@ func TestUnroutedJIDOffersEveryAdminWorld(t *testing.T) {
 		t.Error("picker must name the chat being routed")
 	}
 
-	var n int
-	n = countRoutes(t, db)
+	n := countRoutes(t, db)
 	if n != 0 {
 		t.Errorf("auto-picked a world before the owner chose: %d routes written", n)
 	}
@@ -462,8 +461,7 @@ func TestWorldPickerFormSatisfiesCSRFCheck(t *testing.T) {
 		t.Fatalf("want 303 from the rendered form, got %d: %s", pw.Code, pw.Body.String())
 	}
 
-	var target string
-	target = routeTarget(t, db, "room=42")
+	target := routeTarget(t, db, "room=42")
 	if target != form.Get("target") {
 		t.Errorf("route target = %q, want the chosen %q", target, form.Get("target"))
 	}
@@ -481,8 +479,7 @@ func TestSingleWorldRoutesWithoutAsking(t *testing.T) {
 	if strings.Contains(w.Body.String(), "add_route") {
 		t.Error("asked the owner to choose between one world")
 	}
-	var target string
-	target = routeTarget(t, db, "room=42")
+	target := routeTarget(t, db, "room=42")
 	if target != "acme" {
 		t.Errorf("single world not routed automatically, target=%q", target)
 	}
@@ -533,14 +530,12 @@ func TestCreateWorldValidUsername(t *testing.T) {
 		t.Errorf("want 303, got %d", w.Code)
 	}
 
-	var folder string
-	folder = folderName(t, db, "alice")
+	folder := folderName(t, db, "alice")
 	if folder != "alice" {
 		t.Errorf("group not created")
 	}
 
-	var ug string
-	ug = firstScope(t, db, "github:new")
+	ug := firstScope(t, db, "github:new")
 	if ug != "alice/**" {
 		t.Errorf("creator grant should be subtree-scoped, got %q", ug)
 	}
@@ -614,8 +609,7 @@ func TestAdmitJIDApprovesAndWritesNoEdge(t *testing.T) {
 
 	admitJID(db, config{}, "telegram:1", "github:alice")
 
-	var edges int
-	edges = parentCount(t, db, "telegram:1")
+	edges := parentCount(t, db, "telegram:1")
 	if edges != 0 {
 		t.Errorf("admitJID wrote %d acl_membership rows; the edge belongs to RedeemPairing alone", edges)
 	}
@@ -825,14 +819,12 @@ func TestCreateWorldNoLinkedJIDs(t *testing.T) {
 		t.Fatalf("want 303, got %d; body: %s", w.Code, w.Body.String())
 	}
 
-	var folder string
-	folder = folderName(t, db, "lonely")
+	folder := folderName(t, db, "lonely")
 	if folder != "lonely" {
 		t.Error("group not created")
 	}
 
-	var n int
-	n = len(routesMatching(t, db, func(r resources.RoutesRow) bool { return r.Target == "lonely" }))
+	n := len(routesMatching(t, db, func(r resources.RoutesRow) bool { return r.Target == "lonely" }))
 	if n != 0 {
 		t.Errorf("expected 0 routes, got %d", n)
 	}
@@ -867,13 +859,11 @@ func TestCreateWorldOperatorAllowed(t *testing.T) {
 	if w.Code != http.StatusSeeOther {
 		t.Fatalf("want 303, got %d; body: %s", w.Code, w.Body.String())
 	}
-	var folder string
-	folder = folderName(t, db, "opworld")
+	folder := folderName(t, db, "opworld")
 	if folder != "opworld" {
 		t.Errorf("operator's world not created")
 	}
-	var n int
-	n = countRoutes(t, db)
+	n := countRoutes(t, db)
 	if n != 0 {
 		t.Errorf("create_world wrote %d route(s) as a side effect; want 0", n)
 	}
@@ -1172,8 +1162,7 @@ func TestInviteConsume(t *testing.T) {
 		t.Errorf("want redirect to /onboard, got %s", loc)
 	}
 
-	var folder string
-	folder = firstScope(t, db, "github:bob")
+	folder := firstScope(t, db, "github:bob")
 	if folder != "alice" {
 		t.Errorf("want user_groups folder=alice, got %q", folder)
 	}
@@ -1181,8 +1170,7 @@ func TestInviteConsume(t *testing.T) {
 	// Redemption is a grant and nothing else (5/18 step 7). It used to route
 	// every paired JID at the target; the /onboard it redirects to routes the
 	// one unrouted chat, attributed.
-	var n int
-	n = countRoutes(t, db)
+	n := countRoutes(t, db)
 	if n != 0 {
 		t.Errorf("redemption wrote %d route(s) as a side effect; want 0", n)
 	}
@@ -1299,8 +1287,7 @@ func TestDeleteRoute(t *testing.T) {
 	seedGrant(t, db, "alice", "admin", "myroom")
 	seedRoute(t, db, 0, "room=1", "myroom")
 
-	var id int64
-	id = routeIDInto(t, db, "myroom")
+	id := routeIDInto(t, db, "myroom")
 
 	w := postOnboard(db, cfg, "alice", url.Values{
 		"action":   {"delete_route"},
@@ -1310,8 +1297,7 @@ func TestDeleteRoute(t *testing.T) {
 		t.Fatalf("want 303, got %d: %s", w.Code, w.Body.String())
 	}
 
-	var n int
-	n = boolCount(routeExists(t, db, id))
+	n := boolCount(routeExists(t, db, id))
 	if n != 0 {
 		t.Error("route should be deleted")
 	}
@@ -1323,8 +1309,7 @@ func TestDeleteRouteWrongUser(t *testing.T) {
 	seedGrant(t, db, "bob", "admin", "bobroom")
 	seedRoute(t, db, 0, "room=1", "aliceroom")
 
-	var id int64
-	id = routeIDInto(t, db, "aliceroom")
+	id := routeIDInto(t, db, "aliceroom")
 
 	w := postOnboard(db, cfg, "bob", url.Values{
 		"action":   {"delete_route"},
@@ -1334,8 +1319,7 @@ func TestDeleteRouteWrongUser(t *testing.T) {
 		t.Fatalf("want 403, got %d", w.Code)
 	}
 
-	var n int
-	n = boolCount(routeExists(t, db, id))
+	n := boolCount(routeExists(t, db, id))
 	if n != 1 {
 		t.Error("route should still exist")
 	}
@@ -1378,8 +1362,7 @@ func TestAddRouteMatchNotOwned(t *testing.T) {
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("want 403, got %d: %s", w.Code, w.Body.String())
 	}
-	var n int
-	n = countRoutes(t, db)
+	n := countRoutes(t, db)
 	if n != 0 {
 		t.Errorf("no route should have been created, got %d", n)
 	}
@@ -1452,8 +1435,7 @@ func TestInviteAtomicConsume(t *testing.T) {
 		t.Errorf("second consume: want 200 error page, got %d", w2.Code)
 	}
 	// Eve should not have user_groups row.
-	var n int
-	n = len(aclScopes(t, db, "github:eve"))
+	n := len(aclScopes(t, db, "github:eve"))
 	if n != 0 {
 		t.Errorf("eve must not be granted access, got %d rows", n)
 	}
@@ -1473,8 +1455,7 @@ func TestAddRouteWrongTarget(t *testing.T) {
 		t.Fatalf("want 403, got %d", w.Code)
 	}
 
-	var n int
-	n = countRoutes(t, db)
+	n := countRoutes(t, db)
 	if n != 0 {
 		t.Error("no route should have been created")
 	}
@@ -1592,8 +1573,7 @@ func TestOperatorCanManageAnyRoute(t *testing.T) {
 	seedGrant(t, db, "op", "admin", "**")
 	seedRoute(t, db, 0, "room=X", "any-world")
 
-	var id int64
-	id = routeIDInto(t, db, "any-world")
+	id := routeIDInto(t, db, "any-world")
 	w := postOnboard(db, config{}, "op", url.Values{
 		"action": {"delete_route"}, "route_id": {strconv.FormatInt(id, 10)},
 	})
@@ -1614,8 +1594,7 @@ func TestNonOperatorNoGrantsDenied(t *testing.T) {
 	db := testDB(t)
 	seedRoute(t, db, 0, "room=1", "someroom")
 
-	var id int64
-	id = routeIDInto(t, db, "someroom")
+	id := routeIDInto(t, db, "someroom")
 	// bob has no user_groups rows → userFolders returns nil → denied.
 	// Operator is emergent only from a `**` grant row.
 	w := postOnboard(db, config{}, "bob", url.Values{

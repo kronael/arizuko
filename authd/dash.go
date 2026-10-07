@@ -48,7 +48,7 @@ func (s *server) handleDash(w http.ResponseWriter, r *http.Request) {
 		b.WriteString(sessionTable(sessions))
 	}
 
-	fmt.Fprint(w, theme.Page("authd", template.HTML(b.String())))
+	_, _ = fmt.Fprint(w, theme.Page("authd", template.HTML(b.String())))
 }
 
 // handleDashRevoke kills one refresh family. RequireWrite: operator scope AND
@@ -90,12 +90,12 @@ func signingKeyTable(rows []resources.SigningKeysRow) string {
 	b.WriteString(`<table><thead><tr><th>kid</th><th>alg</th><th>status</th>` +
 		`<th>created</th><th>serves until</th></tr></thead><tbody>`)
 	for _, k := range rows {
-		b.WriteString(fmt.Sprintf(
+		fmt.Fprintf(&b,
 			`<tr><td><code>%s</code></td><td>%s</td><td class="status-%s">%s</td>`+
 				`<td>%s</td><td>%s</td></tr>`,
 			html.EscapeString(k.Kid), html.EscapeString(k.Alg),
 			html.EscapeString(k.Status), html.EscapeString(k.Status),
-			html.EscapeString(k.CreatedAt), html.EscapeString(k.ServesUntil)))
+			html.EscapeString(k.CreatedAt), html.EscapeString(k.ServesUntil))
 	}
 	b.WriteString(`</tbody></table>`)
 	return b.String()
@@ -111,13 +111,13 @@ func sessionTable(rows []resources.SessionsRow) string {
 	b.WriteString(`<table><thead><tr><th>sub</th><th>scope</th><th>status</th>` +
 		`<th>renewed</th><th>expires</th><th>rotations</th><th></th></tr></thead><tbody>`)
 	for _, s := range rows {
-		b.WriteString(fmt.Sprintf(
+		fmt.Fprintf(&b,
 			`<tr><td>%s</td><td>%s</td><td class="status-%s">%s</td>`+
 				`<td>%s</td><td>%s</td><td>%d</td><td>%s</td></tr>`,
 			html.EscapeString(s.Sub), html.EscapeString(s.Scope),
 			html.EscapeString(s.Status), html.EscapeString(s.Status),
 			html.EscapeString(s.RenewedAt), html.EscapeString(s.ExpiresAt),
-			s.Rotations, revokeForm(s)))
+			s.Rotations, revokeForm(s))
 	}
 	b.WriteString(`</tbody></table>`)
 	return b.String()

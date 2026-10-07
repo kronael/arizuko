@@ -105,21 +105,22 @@ func (f *Firewall) filterTools(reply json.RawMessage) (json.RawMessage, error) {
 			Tools []json.RawMessage `json:"tools"`
 		} `json:"result"`
 	}
-	if err := json.Unmarshal(reply, &env); err != nil || env.Result.Tools == nil {
-		return reply, nil
+	if err := json.Unmarshal(reply, &env); err == nil && env.Result.Tools != nil {
+		kept := make([]json.RawMessage, 0, len(env.Result.Tools))
+		for _, t := range env.Result.Tools {
+			var named struct {
+				Name string `json:"name"`
+			}
+			if err := json.Unmarshal(t, &named); err != nil {
+				continue
+			}
+			if f.Rules.Decide(named.Name).Allowed {
+				kept = append(kept, t)
+			}
+		}
+		env.Result.Tools = kept
+		return json.Marshal(env)
 	}
-	kept := make([]json.RawMessage, 0, len(env.Result.Tools))
-	for _, t := range env.Result.Tools {
-		var named struct {
-			Name string `json:"name"`
-		}
-		if err := json.Unmarshal(t, &named); err != nil {
-			continue
-		}
-		if f.Rules.Decide(named.Name).Allowed {
-			kept = append(kept, t)
-		}
-	}
-	env.Result.Tools = kept
-	return json.Marshal(env)
+	// Not a tools/list result this gate can read, so there is nothing to hide.
+	return reply, nil
 }

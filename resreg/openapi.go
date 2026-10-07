@@ -336,9 +336,9 @@ func endpointOp(r *Resource, e Endpoint, schemaRef map[string]any, hasPathParam 
 		"summary":     fmt.Sprintf("%s %s", titleAction(e.Action), r.Name),
 		"operationId": fmt.Sprintf("%s_%s", e.Action, r.Name),
 	}
-	switch {
-	case e.Verb == http.MethodGet:
-	case e.Verb == http.MethodDelete:
+	switch e.Verb {
+	case http.MethodGet:
+	case http.MethodDelete:
 		if !hasPathParam { // body-addressed delete reads the key from the body
 			op["requestBody"] = requestBody(schemaRef)
 		}

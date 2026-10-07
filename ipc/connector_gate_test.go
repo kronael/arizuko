@@ -123,7 +123,7 @@ func TestConnectorTool_RevokedAfterAnnounce_RefusedAtCall(t *testing.T) {
 	url, _, reqs := fakeMCP(t)
 	var revoked atomic.Bool
 	sock := gatedConnectorSocket(t, url, func(_, action string, _ map[string]string) bool {
-		return !(revoked.Load() && action == "mcp:fake_echo_auth")
+		return !revoked.Load() || action != "mcp:fake_echo_auth"
 	})
 	revoked.Store(true)
 	afterDiscovery := reqs()

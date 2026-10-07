@@ -51,7 +51,7 @@ func readCapped(path string) ([]byte, bool, error) {
 	if err != nil {
 		return nil, false, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	data, err := io.ReadAll(io.LimitReader(f, maxFileBytes+1))
 	if err != nil {
 		return nil, false, err
@@ -306,7 +306,7 @@ func main() {
 	go func() {
 		<-stop
 		slog.Info("dashd stopped")
-		srv.Close()
+		_ = srv.Close()
 	}()
 
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -612,13 +612,13 @@ func (d *dash) registerRoutes(mux *http.ServeMux) {
 
 func (d *dash) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	fmt.Fprintln(w, `{"ok":true}`)
+	_, _ = fmt.Fprintln(w, `{"ok":true}`)
 }
 
 func handleHtmxAsset(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/javascript")
 	w.Header().Set("Cache-Control", "public, max-age=86400")
-	w.Write(htmxJS)
+	_, _ = w.Write(htmxJS)
 }
 
 // navLinks: nav order + href + label + operator-only flag. Path-prefix match decides
@@ -799,7 +799,7 @@ func pageShell(w http.ResponseWriter, r *http.Request, title string) {
 	if isHtmx(r) {
 		return
 	}
-	fmt.Fprintf(w, `<!DOCTYPE html><html>%s<body><div class="page-wide">%s<div id="content">`,
+	_, _ = fmt.Fprintf(w, `<!DOCTYPE html><html>%s<body><div class="page-wide">%s<div id="content">`,
 		dashHead(title), dashNavFor(r))
 }
 
@@ -820,9 +820,9 @@ func pageTopFor(w http.ResponseWriter, r *http.Request, title string, crumbs ...
 			}
 		}
 		b.WriteString(`</p>`)
-		w.Write([]byte(b.String()))
+		_, _ = w.Write([]byte(b.String()))
 	}
-	fmt.Fprintf(w, `<h1>%s</h1>`, esc(title))
+	_, _ = fmt.Fprintf(w, `<h1>%s</h1>`, esc(title))
 }
 
 // pageClose closes the full shell. htmx swaps emit bare content — no wrapper
@@ -831,7 +831,7 @@ func pageClose(w http.ResponseWriter, r *http.Request) {
 	if isHtmx(r) {
 		return
 	}
-	fmt.Fprint(w, `</div></div></body></html>`)
+	_, _ = fmt.Fprint(w, `</div></div></body></html>`)
 }
 
 func (d *dash) handleStatus(w http.ResponseWriter, r *http.Request) {
@@ -850,14 +850,14 @@ func (d *dash) handleStatus(w http.ResponseWriter, r *http.Request) {
 		errLink += fmt.Sprintf(` &middot; <a href="/dash/activity/">%d errored chat%s</a>`,
 			erroredCount, pluralS(erroredCount))
 	}
-	fmt.Fprint(w, `<p class="dim">Service health</p>`)
-	fmt.Fprint(w, htmlBannerRaw(bannerClass, errLink))
+	_, _ = fmt.Fprint(w, `<p class="dim">Service health</p>`)
+	_, _ = fmt.Fprint(w, htmlBannerRaw(bannerClass, errLink))
 	if groupCount == 0 {
-		fmt.Fprint(w, htmlBannerRaw("warn", `No groups configured. <a href="/dash/groups/new">Create your first group.</a>`))
+		_, _ = fmt.Fprint(w, htmlBannerRaw("warn", `No groups configured. <a href="/dash/groups/new">Create your first group.</a>`))
 	}
 
 	if operator {
-		fmt.Fprint(w, d.answeringSection(r.Context()))
+		_, _ = fmt.Fprint(w, d.answeringSection(r.Context()))
 
 		counts, err := d.sessionCountsViaRoutd(r.Context())
 		if err != nil {
@@ -867,7 +867,7 @@ func (d *dash) handleStatus(w http.ResponseWriter, r *http.Request) {
 			// renders the same failure as a banner, and one page cannot hold two
 			// answers to "what does a dead routd look like" (BUGS L325).
 			slog.Warn("status: session counts via routd", "err", err)
-			fmt.Fprint(w, htmlBanner("err", "could not reach routd for session counts"))
+			_, _ = fmt.Fprint(w, htmlBanner("err", "could not reach routd for session counts"))
 		} else {
 			var sessionRows [][]string
 			var total int
@@ -878,8 +878,8 @@ func (d *dash) handleStatus(w http.ResponseWriter, r *http.Request) {
 				total += c.Count
 			}
 			if len(sessionRows) > 0 {
-				fmt.Fprintf(w, `<h2>Active sessions <span class="dim" style="font-weight:normal">%d total</span></h2>`, total)
-				fmt.Fprint(w, htmlTable([]string{"group", "sessions"}, sessionRows))
+				_, _ = fmt.Fprintf(w, `<h2>Active sessions <span class="dim" style="font-weight:normal">%d total</span></h2>`, total)
+				_, _ = fmt.Fprint(w, htmlTable([]string{"group", "sessions"}, sessionRows))
 			}
 		}
 	}
@@ -897,14 +897,14 @@ func pluralS(n int) string {
 func (d *dash) handleTasks(w http.ResponseWriter, r *http.Request) {
 	allowed, operator := d.callerScope(r)
 	pageTopFor(w, r, "Tasks")
-	fmt.Fprint(w, `<p class="dim">Scheduled jobs. Auto-refreshes every 10s.</p>`)
-	fmt.Fprint(w, `<table hx-get="/dash/tasks/x/list" hx-trigger="every 10s" hx-target="tbody" hx-swap="innerHTML">`+
+	_, _ = fmt.Fprint(w, `<p class="dim">Scheduled jobs. Auto-refreshes every 10s.</p>`)
+	_, _ = fmt.Fprint(w, `<table hx-get="/dash/tasks/x/list" hx-trigger="every 10s" hx-target="tbody" hx-swap="innerHTML">`+
 		`<thead><tr><th>ID</th><th>Group</th><th>Prompt</th><th>Cron</th><th>Status</th><th>Created</th><th>Next Run</th></tr></thead>`+
 		`<tbody>`)
 	d.writeTaskRows(r.Context(), w, allowed, operator)
-	fmt.Fprint(w, `</tbody></table>`)
+	_, _ = fmt.Fprint(w, `</tbody></table>`)
 
-	fmt.Fprint(w, htmlSection("Create task",
+	_, _ = fmt.Fprint(w, htmlSection("Create task",
 		`<form method="post" action="/dash/tasks/">`+
 			htmlFormRow("Group (owner)", `<input type="text" name="owner" placeholder="alice" required size="40">`)+
 			htmlFormRow("Chat JID", `<input type="text" name="chat_jid" placeholder="alice@s.whatsapp.net" required size="50">`)+
@@ -934,7 +934,7 @@ func (d *dash) writeTaskRows(ctx context.Context, w http.ResponseWriter, allowed
 	tasks, err := d.tasksViaRoutd(ctx)
 	if err != nil {
 		slog.Warn("tasks: read via routd", "err", err)
-		fmt.Fprint(w, `<tr><td colspan=7 class="empty">could not reach routd for the task list</td></tr>`)
+		_, _ = fmt.Fprint(w, `<tr><td colspan=7 class="empty">could not reach routd for the task list</td></tr>`)
 		return
 	}
 	var n int
@@ -949,7 +949,7 @@ func (d *dash) writeTaskRows(ctx context.Context, w http.ResponseWriter, allowed
 		if t.Status != "active" {
 			dot = "dot-warn"
 		}
-		fmt.Fprintf(w,
+		_, _ = fmt.Fprintf(w,
 			`<tr>`+
 				`<td><a href="/dash/tasks/%s"><code>%s</code></a></td>`+
 				`<td>%s</td>`+
@@ -970,7 +970,7 @@ func (d *dash) writeTaskRows(ctx context.Context, w http.ResponseWriter, allowed
 		n++
 	}
 	if n == 0 {
-		fmt.Fprint(w, `<tr><td colspan=7 class="empty">No scheduled tasks. `+
+		_, _ = fmt.Fprint(w, `<tr><td colspan=7 class="empty">No scheduled tasks. `+
 			`Ask the agent to schedule one (e.g. "remind me every morning at 8am").</td></tr>`)
 	}
 }
@@ -986,20 +986,20 @@ func (d *dash) handleActivity(w http.ResponseWriter, r *http.Request) {
 	allowed, operator := d.callerScope(r)
 	before := strings.TrimSpace(r.URL.Query().Get("before"))
 	pageTopFor(w, r, "Activity")
-	fmt.Fprint(w, `<p class="dim">Last 50 messages across all channels.</p>`)
+	_, _ = fmt.Fprint(w, `<p class="dim">Last 50 messages across all channels.</p>`)
 	// Auto-refresh only the live (first) page: polling an "older" page back to
 	// the newest 50 would silently discard the operator's pagination.
 	tableAttrs := ""
 	if before == "" {
 		tableAttrs = ` hx-get="/dash/activity/x/recent" hx-trigger="every 10s" hx-target="tbody" hx-swap="innerHTML"`
 	}
-	fmt.Fprintf(w, `<table%s>`+
+	_, _ = fmt.Fprintf(w, `<table%s>`+
 		`<thead><tr><th>Time</th><th>Source</th><th>Chat</th><th>Sender</th><th>Verb</th><th>Content</th></tr></thead>`+
 		`<tbody>`, tableAttrs)
 	older := d.writeActivityRows(r.Context(), w, allowed, operator, before)
-	fmt.Fprint(w, `</tbody></table>`)
+	_, _ = fmt.Fprint(w, `</tbody></table>`)
 	if older != "" {
-		fmt.Fprintf(w, `<p><a class="btn" href="/dash/activity/?before=%s">older &rarr;</a></p>`, url.QueryEscape(older))
+		_, _ = fmt.Fprintf(w, `<p><a class="btn" href="/dash/activity/?before=%s">older &rarr;</a></p>`, url.QueryEscape(older))
 	}
 	pageClose(w, r)
 }
@@ -1015,7 +1015,7 @@ func (d *dash) handleActivityPartial(w http.ResponseWriter, r *http.Request) {
 // the next "older" page, or "" when there is nothing further back.
 func (d *dash) writeActivityRows(ctx context.Context, w http.ResponseWriter, allowed []string, operator bool, before string) string {
 	if d.routdStore() == nil {
-		fmt.Fprint(w, `<tr><td colspan=6 class="empty">backend unavailable</td></tr>`)
+		_, _ = fmt.Fprint(w, `<tr><td colspan=6 class="empty">backend unavailable</td></tr>`)
 		return ""
 	}
 	// Non-operators may filter out most of the newest page; over-fetch so a
@@ -1031,7 +1031,7 @@ func (d *dash) writeActivityRows(ctx context.Context, w http.ResponseWriter, all
 	feed, err := d.activityViaRoutd(ctx, before, limit)
 	if err != nil {
 		slog.Warn("activity: read via routd", "err", err)
-		fmt.Fprint(w, `<tr><td colspan=6 class="empty">could not reach routd for activity</td></tr>`)
+		_, _ = fmt.Fprint(w, `<tr><td colspan=6 class="empty">could not reach routd for activity</td></tr>`)
 		return ""
 	}
 	var n int
@@ -1057,7 +1057,7 @@ func (d *dash) writeActivityRows(ctx context.Context, w http.ResponseWriter, all
 		if folder != "" {
 			chatCell = `<a href="/dash/groups/` + esc(folderPath(folder)) + `">` + chatCell + `</a>`
 		}
-		fmt.Fprintf(w, `<tr><td><abbr title="%s">%s</abbr></td><td>%s</td><td>%s</td><td><code>%s</code></td><td>%s</td><td>%s</td></tr>`,
+		_, _ = fmt.Fprintf(w, `<tr><td><abbr title="%s">%s</abbr></td><td>%s</td><td>%s</td><td><code>%s</code></td><td>%s</td><td>%s</td></tr>`,
 			esc(ts), esc(relativeTS(ts)),
 			esc(source),
 			chatCell,
@@ -1069,7 +1069,7 @@ func (d *dash) writeActivityRows(ctx context.Context, w http.ResponseWriter, all
 		n++
 	}
 	if n == 0 {
-		fmt.Fprint(w, `<tr><td colspan=6 class="empty">No messages yet.</td></tr>`)
+		_, _ = fmt.Fprint(w, `<tr><td colspan=6 class="empty">No messages yet.</td></tr>`)
 		return ""
 	}
 	if !more {
@@ -1125,18 +1125,18 @@ func groupFromPath(r *http.Request, suffix string) string {
 func (d *dash) handleGroups(w http.ResponseWriter, r *http.Request) {
 	allowed, operator := d.callerScope(r)
 	pageTopFor(w, r, "Groups")
-	fmt.Fprint(w, `<p class="dim">Group hierarchy. Expand a row to see routing rules and links.</p>`+
+	_, _ = fmt.Fprint(w, `<p class="dim">Group hierarchy. Expand a row to see routing rules and links.</p>`+
 		`<p><a href="/dash/groups/new">+ New group</a></p>`)
 
 	if d.routdStore() == nil {
-		fmt.Fprint(w, htmlBanner("err", "backend unavailable"))
+		_, _ = fmt.Fprint(w, htmlBanner("err", "backend unavailable"))
 		pageClose(w, r)
 		return
 	}
 	all, err := d.foldersViaRoutd(r.Context())
 	if err != nil {
 		slog.Warn("groups: read via routd", "err", err)
-		fmt.Fprint(w, htmlBanner("err", "could not reach routd for the group list"))
+		_, _ = fmt.Fprint(w, htmlBanner("err", "could not reach routd for the group list"))
 		pageClose(w, r)
 		return
 	}
@@ -1183,7 +1183,7 @@ func (d *dash) handleGroups(w http.ResponseWriter, r *http.Request) {
 		if u.lastActive != "" {
 			usageParts += ` &middot; last <abbr title="` + esc(u.lastActive) + `">` + relativeTS(u.lastActive) + `</abbr>`
 		}
-		fmt.Fprintf(w,
+		_, _ = fmt.Fprintf(w,
 			`<details><summary><code>%s</code>%s <span class="dim">(%s)</span></summary>`+
 				`<div class="group-detail">`,
 			esc(folder), label, usageParts,
@@ -1196,16 +1196,16 @@ func (d *dash) handleGroups(w http.ResponseWriter, r *http.Request) {
 		links := fmt.Sprintf(`<a href="/dash/groups/%s/settings">settings</a> &middot; `+
 			`<a href="/dash/groups/%s/grants">grants</a> &middot; `+
 			`<a href="/dash/tokens/%s/">tokens</a>`, fp, fp, fp)
-		fmt.Fprint(w, `<table>`+
+		_, _ = fmt.Fprint(w, `<table>`+
 			htmlDetail("folder", `<code>`+esc(folder)+`</code>`)+
 			htmlDetail("parent", `<code>`+esc(parentDisp)+`</code>`)+
 			htmlDetail("links", links)+
 			`</table>`)
 		d.writeGroupRoutes(w, folder)
-		fmt.Fprint(w, `</div></details>`)
+		_, _ = fmt.Fprint(w, `</div></details>`)
 	}
 	if len(folders) == 0 {
-		fmt.Fprint(w, `<p class="empty">No groups configured. `+
+		_, _ = fmt.Fprint(w, `<p class="empty">No groups configured. `+
 			`Run <code>arizuko invite</code> to onboard a user.</p>`)
 	}
 	pageClose(w, r)
@@ -1215,22 +1215,22 @@ func (d *dash) writeGroupRoutes(w http.ResponseWriter, folder string) {
 	routes, err := d.ds().RoutesIntoFolder(folder)
 	if err != nil {
 		slog.Warn("groups: routes query", "err", err, "folder", folder)
-		fmt.Fprint(w, htmlBanner("err", "routes error: "+err.Error()))
+		_, _ = fmt.Fprint(w, htmlBanner("err", "routes error: "+err.Error()))
 		return
 	}
 	if len(routes) == 0 {
-		fmt.Fprint(w, `<p class="empty">no routes targeting this group</p>`)
+		_, _ = fmt.Fprint(w, `<p class="empty">no routes targeting this group</p>`)
 		return
 	}
-	fmt.Fprint(w, `<table><thead><tr><th>Seq</th><th>Match</th><th>Target</th></tr></thead><tbody>`)
+	_, _ = fmt.Fprint(w, `<table><thead><tr><th>Seq</th><th>Match</th><th>Target</th></tr></thead><tbody>`)
 	for _, rt := range routes {
-		fmt.Fprintf(w, `<tr><td>%d</td><td><code>%s</code></td><td><code>%s</code></td></tr>`,
+		_, _ = fmt.Fprintf(w, `<tr><td>%d</td><td><code>%s</code></td><td><code>%s</code></td></tr>`,
 			rt.Seq,
 			esc(rt.Match),
 			esc(rt.Target),
 		)
 	}
-	fmt.Fprint(w, `</tbody></table>`)
+	_, _ = fmt.Fprint(w, `</tbody></table>`)
 }
 
 // Allowed: MEMORY.md, .claude/CLAUDE.md, *.md under diary/facts/users/episodes/ (no subdirs).
@@ -1348,7 +1348,7 @@ func (d *dash) handleMemoryWrite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := os.Rename(tmp, target); err != nil {
-		os.Remove(tmp)
+		_ = os.Remove(tmp)
 		slog.Warn("memory write: rename", "path", target, "err", err)
 		http.Error(w, "rename", http.StatusInternalServerError)
 		return
@@ -1397,19 +1397,19 @@ func (d *dash) handleMemory(w http.ResponseWriter, r *http.Request) {
 	}
 
 	pageTopFor(w, r, "Memory")
-	fmt.Fprint(w, `<p class="dim">Browse per-group MEMORY.md, CLAUDE.md, diary, episodes, users, facts.</p>`)
+	_, _ = fmt.Fprint(w, `<p class="dim">Browse per-group MEMORY.md, CLAUDE.md, diary, episodes, users, facts.</p>`)
 
 	if d.routdStore() == nil {
-		fmt.Fprint(w, htmlBanner("err", "backend unavailable"))
+		_, _ = fmt.Fprint(w, htmlBanner("err", "backend unavailable"))
 		pageClose(w, r)
 		return
 	}
 	folders, err := d.foldersViaRoutd(r.Context())
 	if err != nil {
 		slog.Warn("memory: read groups via routd", "err", err)
-		fmt.Fprint(w, htmlBanner("err", "could not reach routd for the group list"))
+		_, _ = fmt.Fprint(w, htmlBanner("err", "could not reach routd for the group list"))
 	} else {
-		fmt.Fprint(w, `<form method="get" class="form-narrow">
+		_, _ = fmt.Fprint(w, `<form method="get" class="form-narrow">
 <label class="dim" for="group">Group</label>
 <select id="group" name="group" onchange="this.form.submit()">
 <option value="">— select a group —</option>`)
@@ -1421,19 +1421,19 @@ func (d *dash) handleMemory(w http.ResponseWriter, r *http.Request) {
 			if folder == selectedGroup {
 				sel = ` selected`
 			}
-			fmt.Fprintf(w, `<option value="%s"%s>%s</option>`,
+			_, _ = fmt.Fprintf(w, `<option value="%s"%s>%s</option>`,
 				esc(folder),
 				sel,
 				esc(folder),
 			)
 		}
-		fmt.Fprint(w, `</select></form>`)
+		_, _ = fmt.Fprint(w, `</select></form>`)
 	}
 
 	if selectedGroup != "" {
 		d.renderMemorySection(w, selectedGroup)
 	} else if err == nil {
-		fmt.Fprint(w, `<p class="empty">Select a group above to view its memory.</p>`)
+		_, _ = fmt.Fprint(w, `<p class="empty">Select a group above to view its memory.</p>`)
 	}
 
 	pageClose(w, r)
@@ -1443,38 +1443,38 @@ func (d *dash) renderMemorySection(w http.ResponseWriter, folder string) {
 	groupDir := filepath.Join(d.groupsDir, filepath.Clean(folder))
 	if !strings.HasPrefix(groupDir, d.groupsDir+string(filepath.Separator)) &&
 		groupDir != d.groupsDir {
-		fmt.Fprint(w, `<p>Invalid group path.</p>`)
+		_, _ = fmt.Fprint(w, `<p>Invalid group path.</p>`)
 		return
 	}
 	// Resolve symlinks to block escapes; ErrNotExist is fine (group dir may not exist yet).
 	if real, err := filepath.EvalSymlinks(groupDir); err == nil {
 		if real != d.groupsDir && !strings.HasPrefix(real, d.groupsDir+string(filepath.Separator)) {
-			fmt.Fprint(w, `<p>Invalid group path.</p>`)
+			_, _ = fmt.Fprint(w, `<p>Invalid group path.</p>`)
 			return
 		}
 		groupDir = real
 	} else if !os.IsNotExist(err) {
-		fmt.Fprint(w, `<p>Invalid group path.</p>`)
+		_, _ = fmt.Fprint(w, `<p>Invalid group path.</p>`)
 		return
 	}
 
-	fmt.Fprintf(w, `<p><a class="btn btn-secondary" href="/dav/%s/" target="_blank">Open workspace ↗</a></p>`,
+	_, _ = fmt.Fprintf(w, `<p><a class="btn btn-secondary" href="/dav/%s/" target="_blank">Open workspace ↗</a></p>`,
 		esc(folder))
 
 	var memBuf strings.Builder
 	renderCappedFile(&memBuf, groupDir, "MEMORY.md", true)
-	fmt.Fprint(w, htmlSection("MEMORY.md", memBuf.String()))
+	_, _ = fmt.Fprint(w, htmlSection("MEMORY.md", memBuf.String()))
 
 	var personaBuf strings.Builder
 	renderCappedFile(&personaBuf, groupDir, "PERSONA.md", false)
 	if s := personaBuf.String(); s != "" {
-		fmt.Fprint(w, s)
+		_, _ = fmt.Fprint(w, s)
 	}
 
 	var claudeBuf strings.Builder
 	renderCappedFile(&claudeBuf, groupDir, "CLAUDE.md", false)
 	if s := claudeBuf.String(); s != "" {
-		fmt.Fprint(w, s)
+		_, _ = fmt.Fprint(w, s)
 	}
 
 	renderEntries(w, groupDir, "diary", "Diary", true)
@@ -1488,12 +1488,12 @@ func renderCappedFile(w io.Writer, groupDir, leaf string, showMissing bool) {
 	if err != nil {
 		if errors.Is(err, errEscape) {
 			slog.Warn("memory: symlink escape", "file", leaf, "groupDir", groupDir)
-			fmt.Fprintf(w, `<p><em>%s unavailable (symlink escape)</em></p>`,
+			_, _ = fmt.Fprintf(w, `<p><em>%s unavailable (symlink escape)</em></p>`,
 				esc(leaf))
 			return
 		}
 		if os.IsNotExist(err) && showMissing {
-			fmt.Fprintf(w, `<p><em>%s not found</em></p>`, esc(leaf))
+			_, _ = fmt.Fprintf(w, `<p><em>%s not found</em></p>`, esc(leaf))
 		}
 		return
 	}
@@ -1501,7 +1501,7 @@ func renderCappedFile(w io.Writer, groupDir, leaf string, showMissing bool) {
 	if err != nil {
 		slog.Warn("memory: read file", "err", err, "path", path)
 		if showMissing {
-			fmt.Fprintf(w, `<p><em>%s read error</em></p>`, esc(leaf))
+			_, _ = fmt.Fprintf(w, `<p><em>%s read error</em></p>`, esc(leaf))
 		}
 		return
 	}
@@ -1514,10 +1514,10 @@ func renderCappedFile(w io.Writer, groupDir, leaf string, showMissing bool) {
 		truncNote = fmt.Sprintf(" (truncated at %d bytes)", maxFileBytes)
 	}
 	if leaf == "MEMORY.md" {
-		fmt.Fprintf(w, `<p class="dim">%d bytes &middot; modified %s%s</p><pre>%s</pre>`,
+		_, _ = fmt.Fprintf(w, `<p class="dim">%d bytes &middot; modified %s%s</p><pre>%s</pre>`,
 			len(data), mtime, truncNote, esc(string(data)))
 	} else {
-		fmt.Fprintf(w, `<details><summary>%s%s</summary><pre>%s</pre></details>`,
+		_, _ = fmt.Fprintf(w, `<details><summary>%s%s</summary><pre>%s</pre></details>`,
 			esc(leaf), truncNote, esc(string(data)))
 	}
 }
@@ -1554,7 +1554,7 @@ func renderEntries(w io.Writer, groupDir, sub, title string, openDetails bool) {
 		openAttr = " open"
 	}
 	var items strings.Builder
-	items.WriteString(fmt.Sprintf(`<details%s><summary>%s</summary><ul>`, openAttr, esc(summaryLabel)))
+	fmt.Fprintf(&items, `<details%s><summary>%s</summary><ul>`, openAttr, esc(summaryLabel))
 	shown := 0
 	for i := total - 1; i >= 0 && shown < limit; i-- {
 		e := mdFiles[i]
@@ -1570,7 +1570,7 @@ func renderEntries(w io.Writer, groupDir, sub, title string, openDetails bool) {
 		shown++
 	}
 	items.WriteString(`</ul></details>`)
-	fmt.Fprint(w, htmlSection(title, items.String()))
+	_, _ = fmt.Fprint(w, htmlSection(title, items.String()))
 }
 
 func mdSummary(path string) string {

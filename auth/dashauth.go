@@ -124,6 +124,6 @@ func sameOrigin(r *http.Request) bool {
 func Forbidden(w http.ResponseWriter, daemon, msg string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusForbidden)
-	fmt.Fprint(w, theme.Page(daemon, template.HTML(
+	_, _ = fmt.Fprint(w, theme.Page(daemon, template.HTML(
 		`<div class="banner-err">`+template.HTMLEscapeString(msg)+`</div>`)))
 }

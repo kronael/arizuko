@@ -262,7 +262,7 @@ func buildPlan(mix []Product) (*plan, error) {
 				return nil, refusePayload(prod.Name, rel, kind)
 			case payDockerfile:
 				if p.dockerfile != -1 {
-					return nil, fmt.Errorf("Dockerfile.ant: both %s and %s ship one — at most one image extension per mix",
+					return nil, fmt.Errorf("both %s and %s ship a Dockerfile.ant — at most one image extension per mix",
 						mix[p.dockerfile].Name, prod.Name)
 				}
 				p.dockerfile = i

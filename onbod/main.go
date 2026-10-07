@@ -157,7 +157,7 @@ func main() {
 				admitCount = 0
 			}
 		case <-stop:
-			srv.Close()
+			_ = srv.Close()
 			slog.Info("onbod stopped")
 			return
 		}
@@ -1237,7 +1237,7 @@ func handleInvite(w http.ResponseWriter, r *http.Request, db, obdb *store.Store)
 
 func renderPage(w http.ResponseWriter, title string, body template.HTML) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	fmt.Fprint(w, theme.Page(title, body))
+	_, _ = fmt.Fprint(w, theme.Page(title, body))
 }
 
 func renderUsernamePicker(w http.ResponseWriter, currentUsername, csrf string) {
@@ -1266,10 +1266,10 @@ func renderWorldPicker(w http.ResponseWriter, jid string, folders []string, csrf
 		if i == 0 {
 			checked = " checked"
 		}
-		opts.WriteString(fmt.Sprintf(
+		fmt.Fprintf(&opts,
 			`<label style="display:block;padding:.3rem 0">`+
 				`<input type="radio" name="target" value="%s" style="width:auto;margin-right:.5rem"%s>%s</label>`,
-			esc(f), checked, esc(f)))
+			esc(f), checked, esc(f))
 	}
 	body := fmt.Sprintf(`<p class="dim" style="margin-bottom:.8em">Pick the world that should handle <span class="id">%s</span>. Messages from that chat go to the world you choose; earlier messages stay where they are.</p>
 <form method="POST" action="/onboard">
@@ -1326,8 +1326,8 @@ func renderDashboard(w http.ResponseWriter, db *store.Store, userSub, username s
 
 	var groupsHTML strings.Builder
 	for _, folder := range userFolders(db, userSub) {
-		groupsHTML.WriteString(fmt.Sprintf(
-			`<tr><td><span class="dot dot-ok"></span> %s</td></tr>`, esc(folder)))
+		fmt.Fprintf(&groupsHTML,
+			`<tr><td><span class="dot dot-ok"></span> %s</td></tr>`, esc(folder))
 	}
 
 	var routesHTML string
@@ -1358,7 +1358,7 @@ func renderDashboard(w http.ResponseWriter, db *store.Store, userSub, username s
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	fmt.Fprintf(w, `<!DOCTYPE html><html>%s<body>
+	_, _ = fmt.Fprintf(w, `<!DOCTYPE html><html>%s<body>
 <div class="page-wide">
 <div class="user-header">
   <div class="user-avatar">%s</div>
@@ -1415,7 +1415,7 @@ func sendReply(cfg config, jid, text string) error {
 	if err != nil {
 		return fmt.Errorf("post outbound: %w", err)
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("outbound %s: status %d", jid, resp.StatusCode)
 	}

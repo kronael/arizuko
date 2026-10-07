@@ -121,7 +121,7 @@ func (r *vmRecord) save() error {
 		return err
 	}
 	if err := os.Rename(tmp, final); err != nil {
-		os.Remove(tmp)
+		_ = os.Remove(tmp)
 		return err
 	}
 	return nil

@@ -43,7 +43,7 @@ func DoWithRetry(client *http.Client, req *http.Request) (*http.Response, error)
 func DoWithPolicy(client *http.Client, req *http.Request, policy RetryPolicy) (*http.Response, error) {
 	if req.Body != nil && req.GetBody == nil {
 		b, err := io.ReadAll(req.Body)
-		req.Body.Close()
+		_ = req.Body.Close()
 		if err != nil {
 			return nil, err
 		}
@@ -78,7 +78,7 @@ func DoWithPolicy(client *http.Client, req *http.Request, policy RetryPolicy) (*
 			if !ok || wait > retryMaxRetryAfter {
 				wait = retryBackoffs[min(i, len(retryBackoffs)-1)]
 			}
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			sleepJittered(wait)
 			continue
 		}
@@ -86,7 +86,7 @@ func DoWithPolicy(client *http.Client, req *http.Request, policy RetryPolicy) (*
 			if i == attempts-1 || policy == RetryRateLimitOnly {
 				return resp, nil
 			}
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			sleepJittered(retryBackoffs[i])
 			continue
 		}

@@ -27,11 +27,11 @@ func (d *dash) handleEngagement(w http.ResponseWriter, r *http.Request) {
 	}
 	pageTopFor(w, r, "engagement")
 
-	fmt.Fprint(w, `<p class="dim">Normally the agent only answers when you say its name. `+
+	_, _ = fmt.Fprint(w, `<p class="dim">Normally the agent only answers when you say its name. `+
 		`Once it has replied in a conversation it keeps listening there for a while, `+
 		`so you can carry on talking without naming it every time. `+
 		`Each row below is a conversation where that is switched on right now, and when it wears off.</p>`)
-	fmt.Fprint(w, `<p class="dim">Most of the time nothing here needs clearing &mdash; a window ends on its own `+
+	_, _ = fmt.Fprint(w, `<p class="dim">Most of the time nothing here needs clearing &mdash; a window ends on its own `+
 		`when the time runs out. Use <strong>disengage</strong> when the agent is replying in a chat `+
 		`it should stay out of: it stops there straight away and needs to be named again before it speaks.</p>`)
 
@@ -105,27 +105,27 @@ func engagementRedirect(w http.ResponseWriter, r *http.Request, msg, errMsg stri
 // viewer must NOT be given this page: routd authorizes dashd's bearer, not the
 // X-User-* headers dashd forwards.
 func (d *dash) renderEngagementWindows(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprint(w, `<h2>Engaged conversations</h2>`)
+	_, _ = fmt.Fprint(w, `<h2>Engaged conversations</h2>`)
 
 	if d.routdURL == "" {
-		fmt.Fprint(w, htmlBanner("err", "ROUTER_URL not configured"))
+		_, _ = fmt.Fprint(w, htmlBanner("err", "ROUTER_URL not configured"))
 		return
 	}
 	body, status, err := d.routdGet(r.Context(), "/v1/engagement")
 	if err != nil {
 		slog.Warn("engagement page: routd call", "err", err)
-		fmt.Fprint(w, htmlBanner("err", "could not reach routd: "+err.Error()))
+		_, _ = fmt.Fprint(w, htmlBanner("err", "could not reach routd: "+err.Error()))
 		return
 	}
 	if status != http.StatusOK {
 		slog.Warn("engagement page: routd status", "status", status)
-		fmt.Fprint(w, htmlBanner("err", upstreamErr("routd", status, body)))
+		_, _ = fmt.Fprint(w, htmlBanner("err", upstreamErr("routd", status, body)))
 		return
 	}
 	var out apiv1.EngagementListResponse
 	if err := json.Unmarshal(body, &out); err != nil {
 		slog.Warn("engagement page: decode", "err", err)
-		fmt.Fprint(w, htmlBanner("err", "could not read routd's answer: "+err.Error()))
+		_, _ = fmt.Fprint(w, htmlBanner("err", "could not read routd's answer: "+err.Error()))
 		return
 	}
 
@@ -139,7 +139,7 @@ func (d *dash) renderEngagementWindows(w http.ResponseWriter, r *http.Request) {
 			engagementDisengageCell(e),
 		})
 	}
-	fmt.Fprint(w, htmlTable([]string{"Chat", "Thread", "Group", "Wears off in", ""}, rows,
+	_, _ = fmt.Fprint(w, htmlTable([]string{"Chat", "Thread", "Group", "Wears off in", ""}, rows,
 		"No conversation is engaged right now."))
 }
 
@@ -210,7 +210,7 @@ func (d *dash) bearerCall(ctx context.Context, base, method, path string, body a
 	if err != nil {
 		return nil, 0, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	buf, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	return buf, resp.StatusCode, err
 }

@@ -365,8 +365,7 @@ func TestReadOnly_NoAuditRow(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d", w.Code)
 	}
-	var n int
-	n = len(auditTrail(t, st))
+	n := len(auditTrail(t, st))
 	if n != 0 {
 		t.Errorf("recorded rows on read = %d, want 0", n)
 	}
@@ -446,8 +445,7 @@ func TestForwarderResource_NoTx(t *testing.T) {
 		t.Errorf("marker rows = %d, want 0 (forwarder)", n)
 	}
 	// And no audit row at this daemon's table.
-	var n int
-	n = len(auditTrail(t, st))
+	n := len(auditTrail(t, st))
 	if n != 0 {
 		t.Errorf("recorded rows = %d, want 0 (downstream logs)", n)
 	}

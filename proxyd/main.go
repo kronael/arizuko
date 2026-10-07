@@ -202,7 +202,7 @@ func defaultProbe(url string) bool {
 	if err != nil {
 		return false
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	return resp.StatusCode < 500
 }
 
@@ -473,7 +473,7 @@ func (s *server) route(w http.ResponseWriter, r *http.Request) {
 
 	if r.URL.Path == "/health" {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"ok":true}`))
+		_, _ = w.Write([]byte(`{"ok":true}`))
 		return
 	}
 
@@ -1039,7 +1039,7 @@ func (s *server) tryRefreshViaAuthd(w http.ResponseWriter, r *http.Request) *htt
 	if err != nil || resp.StatusCode != http.StatusOK {
 		return nil
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	var result struct {
 		Token string `json:"token"`
 	}
@@ -1121,7 +1121,7 @@ func main() {
 		slog.Error("open routd's store", "err", err)
 		os.Exit(1)
 	}
-	defer stRoutd.Close()
+	defer func() { _ = stRoutd.Close() }()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -1190,7 +1190,9 @@ func main() {
 		slog.Info("proxyd stopping")
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		srv.Shutdown(ctx)
+		if err := srv.Shutdown(ctx); err != nil {
+			slog.Warn("graceful shutdown failed", "err", err)
+		}
 	}()
 
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {

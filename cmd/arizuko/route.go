@@ -24,7 +24,7 @@ func cmdRoute(args []string) {
 
 	dataDir := mustInstanceDir(instance)
 	s := mustOpenACL(dataDir).AsCLI(os.Getenv("USER"))
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 
 	switch action {
 	case "list":
@@ -73,17 +73,17 @@ func parseRouteAdd(args []string) (seq int, match, target string, err error) {
 func runRouteList(s *store.Store, w io.Writer) error {
 	routes := s.AllRoutes()
 	if len(routes) == 0 {
-		fmt.Fprintln(w, "no routes")
+		_, _ = fmt.Fprintln(w, "no routes")
 		return nil
 	}
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "ID\tSEQ\tMATCH\tTARGET")
+	_, _ = fmt.Fprintln(tw, "ID\tSEQ\tMATCH\tTARGET")
 	for _, r := range routes {
 		match := r.Match
 		if match == "" {
 			match = "*" // empty match = catch-all; render so it's not blank
 		}
-		fmt.Fprintf(tw, "%d\t%d\t%s\t%s\n", r.ID, r.Seq, match, r.Target)
+		_, _ = fmt.Fprintf(tw, "%d\t%d\t%s\t%s\n", r.ID, r.Seq, match, r.Target)
 	}
 	return tw.Flush()
 }
@@ -102,7 +102,7 @@ func runRouteAdd(s *store.Store, seq int, match, target string, w io.Writer) err
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(w, "added route %d\n", id)
+	_, _ = fmt.Fprintf(w, "added route %d\n", id)
 	return nil
 }
 
@@ -129,6 +129,6 @@ func runRouteRm(s *store.Store, id int64, w io.Writer) error {
 	if match == "" {
 		match = "*"
 	}
-	fmt.Fprintf(w, "removed route %d: seq=%d %s <- %s\n", id, r.Seq, r.Target, match)
+	_, _ = fmt.Fprintf(w, "removed route %d: seq=%d %s <- %s\n", id, r.Seq, r.Target, match)
 	return nil
 }

@@ -152,7 +152,9 @@ func (s *server) handleTurnSSE(w http.ResponseWriter, r *http.Request) {
 		for _, m := range msgs {
 			fr := messageFrames([]core.Message{m})[0]
 			data, _ := json.Marshal(fr)
-			writeSSE(w, flusher, "id: "+fr.ID+"\nevent: "+fr.Kind+"\ndata: "+string(data)+"\n\n")
+			if writeSSE(w, flusher, "id: "+fr.ID+"\nevent: "+fr.Kind+"\ndata: "+string(data)+"\n\n") != nil {
+				return
+			}
 		}
 	}
 
@@ -174,7 +176,7 @@ func (s *server) handleTurnSSE(w http.ResponseWriter, r *http.Request) {
 			"turn_id": turnID,
 			"status":  info.Status,
 		})
-		writeSSE(w, flusher, "event: round_done\ndata: "+string(payload)+"\n\n")
+		_ = writeSSE(w, flusher, "event: round_done\ndata: "+string(payload)+"\n\n")
 		return
 	}
 

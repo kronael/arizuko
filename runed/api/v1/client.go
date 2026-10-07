@@ -94,7 +94,7 @@ func call[T any](ctx context.Context, c *Client, method, path string, body any, 
 	if err != nil {
 		return out, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	raw, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK {
 		var e Err

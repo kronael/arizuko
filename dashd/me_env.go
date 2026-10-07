@@ -80,7 +80,7 @@ func (d *dash) handleMeEnv(w http.ResponseWriter, r *http.Request) {
 // renderEnvPage renders the model-API-key management page.
 func (d *dash) renderEnvPage(w http.ResponseWriter, r *http.Request, items []secretItem) {
 	pageTopFor(w, r, "Model API keys")
-	fmt.Fprint(w, `<p class="dim">Your personal model API keys — injected into your agent container at spawn. They override the platform key. Once saved, the value is hidden; replace to update.</p>`)
+	_, _ = fmt.Fprint(w, `<p class="dim">Your personal model API keys — injected into your agent container at spawn. They override the platform key. Once saved, the value is hidden; replace to update.</p>`)
 
 	set := map[string]string{}
 	for _, it := range items {
@@ -100,9 +100,9 @@ func (d *dash) renderEnvPage(w http.ResponseWriter, r *http.Request, items []sec
 			rows = append(rows, []string{`<code>` + esc(k) + `</code>`, `<span class="dim">platform key active</span>`, ""})
 		}
 	}
-	fmt.Fprint(w, htmlTable([]string{"Key", "Updated", ""}, rows))
+	_, _ = fmt.Fprint(w, htmlTable([]string{"Key", "Updated", ""}, rows))
 
-	fmt.Fprint(w, htmlSection("Set a key",
+	_, _ = fmt.Fprint(w, htmlSection("Set a key",
 		`<form id="add-env" onsubmit="return addEnvKey(event)">`+
 			htmlFormRow("Name", `<select name="key">`+envKeyOptions(set)+`</select>`)+
 			htmlFormRow("Value", `<input type="password" name="value" autocomplete="off" required size="40">`)+
@@ -110,7 +110,7 @@ func (d *dash) renderEnvPage(w http.ResponseWriter, r *http.Request, items []sec
 			`</form>`+
 			`<p id="env-err" class="banner-err" style="display:none"></p>`))
 
-	fmt.Fprint(w, envPageScript)
+	_, _ = fmt.Fprint(w, envPageScript)
 	pageClose(w, r)
 }
 

@@ -79,14 +79,14 @@ func dial(ctx context.Context, spec *ConnectorSpec, secrets map[string]string) (
 		return nil, fmt.Errorf("connector %q dial: %w", spec.Name, err)
 	}
 	if err := c.Start(ctx); err != nil {
-		c.Close()
+		_ = c.Close()
 		return nil, fmt.Errorf("connector %q start: %w", spec.Name, err)
 	}
 	var req mcp.InitializeRequest
 	req.Params.ProtocolVersion = mcp.LATEST_PROTOCOL_VERSION
 	req.Params.ClientInfo = mcp.Implementation{Name: "arizuko-broker", Version: "1"}
 	if _, err := c.Initialize(ctx, req); err != nil {
-		c.Close()
+		_ = c.Close()
 		return nil, fmt.Errorf("connector %q initialize: %w", spec.Name, err)
 	}
 	return c, nil
@@ -106,7 +106,7 @@ func DiscoverConnectorTools(ctx context.Context, spec *ConnectorSpec, secrets ma
 	if err != nil {
 		return nil, err
 	}
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 	res, err := c.ListTools(ctx, mcp.ListToolsRequest{})
 	if err != nil {
 		return nil, fmt.Errorf("connector %q tools/list: %w", spec.Name, err)
@@ -148,7 +148,7 @@ func CallConnectorTool(
 	if err != nil {
 		return nil, err
 	}
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 	var req mcp.CallToolRequest
 	req.Params.Name = tool.RemoteName
 	req.Params.Arguments = args

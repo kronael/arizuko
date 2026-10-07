@@ -22,12 +22,12 @@ func (d *dash) handleProfile(w http.ResponseWriter, r *http.Request) {
 	sub := strings.TrimSpace(r.Header.Get("X-User-Sub"))
 	pageTopFor(w, r, "Profile")
 	if sub == "" {
-		fmt.Fprint(w, htmlBanner("err", "no identity — sign in via proxyd to view your profile"))
+		_, _ = fmt.Fprint(w, htmlBanner("err", "no identity — sign in via proxyd to view your profile"))
 		pageClose(w, r)
 		return
 	}
 	if d.routdStore() == nil {
-		fmt.Fprint(w, htmlBanner("err", "backend unavailable"))
+		_, _ = fmt.Fprint(w, htmlBanner("err", "backend unavailable"))
 		pageClose(w, r)
 		return
 	}
@@ -44,12 +44,12 @@ func (d *dash) handleProfile(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	fmt.Fprint(w, `<p class="dim">Your account and the providers you can add to it.</p>`)
+	_, _ = fmt.Fprint(w, `<p class="dim">Your account and the providers you can add to it.</p>`)
 	identity := `<table>` + htmlDetail("Your account ID", `<code>`+esc(sub)+`</code>`)
 	if name != "" {
 		identity += htmlDetail("Name", esc(name))
 	}
-	fmt.Fprint(w, identity+`</table>`)
+	_, _ = fmt.Fprint(w, identity+`</table>`)
 
 	// One identity reaches this page: the caller's own sub, stamped by proxyd.
 	// Which other providers resolve to the same account is authd's answer
@@ -69,10 +69,10 @@ func (d *dash) handleProfile(w http.ResponseWriter, r *http.Request) {
 			`<a class="oauth-btn" href="%s?intent=link&return=%s">Link %s</a>`,
 			esc(p.path), esc("/dash/profile/"), esc(p.label))
 	}
-	fmt.Fprint(w, htmlSection("Add a provider",
+	_, _ = fmt.Fprint(w, htmlSection("Add a provider",
 		`<div class="form-narrow">`+providerLinks+`</div>`))
 
-	fmt.Fprint(w, htmlSection("API keys",
+	_, _ = fmt.Fprint(w, htmlSection("API keys",
 		`<p class="dim">Bring your own API keys (e.g. ANTHROPIC_API_KEY). They override the group's keys when the agent runs for you.</p>`+
 			`<p><a class="btn btn-secondary" href="/dash/me/secrets">Manage API keys</a></p>`))
 

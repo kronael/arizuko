@@ -61,7 +61,7 @@ func (g *httpGrants) FetchGrants(ctx context.Context, bareSub string) (GrantsSna
 	if err != nil {
 		return GrantsSnapshot{}, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	switch resp.StatusCode {
 	case http.StatusOK:
 		var out struct {

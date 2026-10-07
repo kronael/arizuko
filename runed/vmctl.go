@@ -94,11 +94,11 @@ func vsockListen(port uint32) (*os.File, error) {
 		return nil, fmt.Errorf("vsock socket: %w", err)
 	}
 	if err := unix.Bind(fd, &unix.SockaddrVM{CID: unix.VMADDR_CID_ANY, Port: port}); err != nil {
-		unix.Close(fd)
+		_ = unix.Close(fd)
 		return nil, fmt.Errorf("vsock bind port %d: %w", port, err)
 	}
 	if err := unix.Listen(fd, 8); err != nil {
-		unix.Close(fd)
+		_ = unix.Close(fd)
 		return nil, fmt.Errorf("vsock listen port %d: %w", port, err)
 	}
 	return os.NewFile(uintptr(fd), "vsock:"+strconv.FormatUint(uint64(port), 10)), nil
@@ -133,7 +133,7 @@ func vsockAccept(l *os.File, deadline time.Time) (*os.File, uint32, error) {
 	}
 	vm, ok := sa.(*unix.SockaddrVM)
 	if !ok {
-		unix.Close(nfd)
+		_ = unix.Close(nfd)
 		return nil, 0, fmt.Errorf("vsock accept: peer address is %T, not a vsock address", sa)
 	}
 	return os.NewFile(uintptr(nfd), "vsock-conn"), vm.CID, nil
@@ -345,7 +345,7 @@ func runMCPBridge(cid uint32, socket string, l *os.File) int {
 				got = peer.CID
 			}
 			fmt.Fprintf(os.Stderr, "mcp-bridge: refused peer cid %d, want %d\n", got, cid)
-			unix.Close(nfd)
+			_ = unix.Close(nfd)
 			continue
 		}
 		go bridgeConn(os.NewFile(uintptr(nfd), "mcp-conn"), socket)
@@ -354,13 +354,13 @@ func runMCPBridge(cid uint32, socket string, l *os.File) int {
 
 // bridgeConn joins one accepted vsock connection to the folder's socket.
 func bridgeConn(conn *os.File, socket string) {
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	uc, err := net.Dial("unix", socket)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "mcp-bridge: dial %s: %v\n", socket, err)
 		return
 	}
-	defer uc.Close()
+	defer func() { _ = uc.Close() }()
 	done := make(chan struct{}, 2)
 	go func() { io.Copy(uc, conn); done <- struct{}{} }() //nolint:errcheck // a closed half ends the pair
 	go func() { io.Copy(conn, uc); done <- struct{}{} }() //nolint:errcheck // same

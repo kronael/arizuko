@@ -41,7 +41,7 @@ func main() {
 			}
 			go bc.poll(ctx, rc)
 			return newServer(cfg, bc, as.Chan, bc.isConnected, bc.LastInboundAt).handler(),
-				func() { as.Close() }, nil
+				func() { _ = as.Close() }, nil
 		},
 	})
 }

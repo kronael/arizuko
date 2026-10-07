@@ -57,19 +57,19 @@ func (d *dash) handleInvites(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	pageTopFor(w, r, "Invites")
-	fmt.Fprint(w, `<p class="dim">Invite links. Each token is single-use by default; set max uses for multi-use links. `+
+	_, _ = fmt.Fprint(w, `<p class="dim">Invite links. Each token is single-use by default; set max uses for multi-use links. `+
 		`The link is shown once when you create it — this page lists each invite by its ref, which revokes but cannot redeem.</p>`)
 
 	invites, err := d.listInvites(r.Context())
 	if err != nil {
 		slog.Warn("invites: list", "err", err)
-		fmt.Fprint(w, htmlBanner("err", "invites query error: "+err.Error()))
+		_, _ = fmt.Fprint(w, htmlBanner("err", "invites query error: "+err.Error()))
 		pageClose(w, r)
 		return
 	}
 
 	if len(invites) == 0 {
-		fmt.Fprint(w, `<p class="empty">No invites. Create one below.</p>`)
+		_, _ = fmt.Fprint(w, `<p class="empty">No invites. Create one below.</p>`)
 	} else {
 		tableRows := make([][]string, len(invites))
 		for i, inv := range invites {
@@ -101,18 +101,18 @@ func (d *dash) handleInvites(w http.ResponseWriter, r *http.Request) {
 				revokeBtn,
 			}
 		}
-		fmt.Fprint(w, htmlTable(
+		_, _ = fmt.Fprint(w, htmlTable(
 			[]string{"Ref", "Target", "Issued by", "Issued", "Expires", "Uses", ""},
 			tableRows,
 		))
 	}
 
-	fmt.Fprint(w, `<h2>Create invite</h2><form method="post" action="/dash/invites/">`)
-	fmt.Fprint(w, htmlFormRow("Target glob", `<input type="text" name="target_glob" placeholder="alice or alice/ for sub-world" required size="40">`))
-	fmt.Fprint(w, htmlFormRow("Max uses", `<input type="number" name="max_uses" value="1" min="1" required>`))
-	fmt.Fprint(w, htmlFormRow("Expires (optional)", `<input type="date" name="expires_at">`))
-	fmt.Fprint(w, `<p><button type="submit">create</button></p></form>`)
-	fmt.Fprint(w, `<p class="dim">Target <code>folder</code> grants direct access; <code>folder/</code> lets the user pick a username under that folder.</p>`)
+	_, _ = fmt.Fprint(w, `<h2>Create invite</h2><form method="post" action="/dash/invites/">`)
+	_, _ = fmt.Fprint(w, htmlFormRow("Target glob", `<input type="text" name="target_glob" placeholder="alice or alice/ for sub-world" required size="40">`))
+	_, _ = fmt.Fprint(w, htmlFormRow("Max uses", `<input type="number" name="max_uses" value="1" min="1" required>`))
+	_, _ = fmt.Fprint(w, htmlFormRow("Expires (optional)", `<input type="date" name="expires_at">`))
+	_, _ = fmt.Fprint(w, `<p><button type="submit">create</button></p></form>`)
+	_, _ = fmt.Fprint(w, `<p class="dim">Target <code>folder</code> grants direct access; <code>folder/</code> lets the user pick a username under that folder.</p>`)
 
 	pageClose(w, r)
 }
@@ -179,10 +179,10 @@ func (d *dash) handleInviteCreate(w http.ResponseWriter, r *http.Request) {
 		link = d.connBaseURL + link
 	}
 	pageTopFor(w, r, "Invite created")
-	fmt.Fprint(w, htmlBanner("ok", "Invite created for "+targetGlob+". Copy the link now — it is not shown again."))
-	fmt.Fprintf(w, `<p><code>%s</code></p>`, esc(link))
-	fmt.Fprintf(w, `<p class="dim">Ref (for revoking): <code>%s</code></p>`, esc(ref))
-	fmt.Fprint(w, `<p><a href="/dash/invites/">Back to invites</a></p>`)
+	_, _ = fmt.Fprint(w, htmlBanner("ok", "Invite created for "+targetGlob+". Copy the link now — it is not shown again."))
+	_, _ = fmt.Fprintf(w, `<p><code>%s</code></p>`, esc(link))
+	_, _ = fmt.Fprintf(w, `<p class="dim">Ref (for revoking): <code>%s</code></p>`, esc(ref))
+	_, _ = fmt.Fprint(w, `<p><a href="/dash/invites/">Back to invites</a></p>`)
 	pageClose(w, r)
 }
 

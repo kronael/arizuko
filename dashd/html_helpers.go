@@ -57,10 +57,10 @@ type flash struct{ Class, Text string }
 // the same switch.
 func writeFlash(w http.ResponseWriter, r *http.Request, msgs map[string]flash) {
 	if m, ok := msgs[strings.TrimSpace(r.URL.Query().Get("msg"))]; ok {
-		fmt.Fprint(w, htmlBanner(m.Class, m.Text))
+		_, _ = fmt.Fprint(w, htmlBanner(m.Class, m.Text))
 	}
 	if e := strings.TrimSpace(r.URL.Query().Get("err")); e != "" {
-		fmt.Fprint(w, htmlBanner("err", e))
+		_, _ = fmt.Fprint(w, htmlBanner("err", e))
 	}
 }
 

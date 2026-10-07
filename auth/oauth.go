@@ -83,7 +83,7 @@ func ExchangeGoogle(ctx context.Context, cfg *core.Config, code, verifier string
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	var tok struct {
 		AccessToken string `json:"access_token"`
 	}
@@ -103,7 +103,7 @@ func FetchGoogleUser(ctx context.Context, token string) (sub, name, email string
 	if err != nil {
 		return "", "", "", false, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != 200 {
 		return "", "", "", false, fmt.Errorf("google userinfo: %s", resp.Status)
 	}
@@ -146,7 +146,7 @@ func checkGitHubOrgMember(ctx context.Context, token, org, username string) bool
 		slog.Warn("github org check failed", "org", org, "err", err)
 		return false
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	return resp.StatusCode == http.StatusNoContent
 }
 
@@ -280,7 +280,7 @@ func ExchangeGitHub(ctx context.Context, cfg *core.Config, code, verifier string
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	var result struct {
 		AccessToken string `json:"access_token"`
 		Error       string `json:"error"`
@@ -304,7 +304,7 @@ func FetchGitHubUser(ctx context.Context, token string) (string, string, error) 
 	if err != nil {
 		return "", "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != 200 {
 		return "", "", fmt.Errorf("github user: %s", resp.Status)
 	}
@@ -341,7 +341,7 @@ func ExchangeDiscord(ctx context.Context, cfg *core.Config, code, verifier strin
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != 200 {
 		body, _ := io.ReadAll(resp.Body)
 		return "", fmt.Errorf("discord token: %s", body)
@@ -366,7 +366,7 @@ func FetchDiscordUser(ctx context.Context, token string) (string, string, error)
 	if err != nil {
 		return "", "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != 200 {
 		return "", "", fmt.Errorf("discord user: %s", resp.Status)
 	}

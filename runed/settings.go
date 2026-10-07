@@ -29,7 +29,12 @@ func seedSettings(
 	fp := filepath.Join(claudeDir, "settings.json")
 	var settings map[string]any
 	if data, err := os.ReadFile(fp); err == nil {
-		json.Unmarshal(data, &settings)
+		if err := json.Unmarshal(data, &settings); err != nil {
+			// The merge below starts from an empty map, so a file that will not parse
+			// is REPLACED rather than merged and the operator's keys are gone.
+			slog.Warn("settings.json will not parse; it is rewritten from defaults, not merged",
+				"path", fp, "folder", folder, "err", err)
+		}
 	}
 	if settings == nil {
 		settings = map[string]any{}

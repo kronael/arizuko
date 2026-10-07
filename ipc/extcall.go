@@ -164,7 +164,7 @@ func extAttempt(
 		// apikey-query carries the secret in RawQuery — scrub before returning.
 		return 0, "", mcp.NewToolResultError(scrubSecrets("http: "+err.Error(), secrets))
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	respBytes, err := io.ReadAll(resp.Body)
 	if err != nil {

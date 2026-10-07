@@ -44,7 +44,7 @@ func main() {
 				return nil, nil, err
 			}
 			go lc.poll(ctx, rc)
-			return newServer(cfg, lc, as.Chan, lc.isConnected).handler(), func() { as.Close() }, nil
+			return newServer(cfg, lc, as.Chan, lc.isConnected).handler(), func() { _ = as.Close() }, nil
 		},
 	})
 }

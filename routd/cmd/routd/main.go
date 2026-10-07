@@ -51,7 +51,7 @@ func main() {
 		slog.Error("open routd's store", "err", err)
 		os.Exit(1)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	// The ranked message index is this process's: it is memory, built from the
 	// store, and only the process that answers `find_messages` needs it.
 	db.StartSearch()

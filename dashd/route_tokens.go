@@ -47,7 +47,7 @@ func (d *dash) handleTokensFolder(w http.ResponseWriter, r *http.Request) {
 	tokens, err := d.listRouteTokens(r.Context(), folder)
 	if err != nil {
 		slog.Warn("tokens page: list", "folder", folder, "err", err)
-		fmt.Fprint(w, htmlBanner("err", "could not reach routd for token data"))
+		_, _ = fmt.Fprint(w, htmlBanner("err", "could not reach routd for token data"))
 		pageClose(w, r)
 		return
 	}
@@ -67,10 +67,10 @@ func (d *dash) handleTokensFolder(w http.ResponseWriter, r *http.Request) {
 			revoke,
 		})
 	}
-	fmt.Fprint(w, htmlTable([]string{"JID", "Kind", "Created", "Context", ""}, tableRows,
+	_, _ = fmt.Fprint(w, htmlTable([]string{"JID", "Kind", "Created", "Context", ""}, tableRows,
 		"No tokens for this group."))
 
-	fmt.Fprint(w, htmlSection("Issuing a token",
+	_, _ = fmt.Fprint(w, htmlSection("Issuing a token",
 		`<p class="dim">Tokens are minted where they are owned, not here. `+
 			`Ask the agent for a chat link or a webhook, `+
 			`POST <code>/v1/route_tokens/chat</code> or <code>/v1/route_tokens/hook</code>, `+

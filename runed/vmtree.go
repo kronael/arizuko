@@ -160,7 +160,7 @@ func (t *turnTree) stageTargets(plan treeManifest) error {
 		if err != nil {
 			return fmt.Errorf("staging tree: file target %s: %w", target, err)
 		}
-		f.Close()
+		_ = f.Close()
 	}
 	b, err := json.MarshalIndent(plan, "", "  ")
 	if err != nil {
@@ -227,7 +227,7 @@ func (t *turnTree) teardown() error {
 			return fmt.Errorf("staging tree teardown: %w", err)
 		}
 		mounts := mountedUnder(f, t.scanRoot())
-		f.Close()
+		_ = f.Close()
 		if len(mounts) == 0 {
 			break
 		}
@@ -247,7 +247,7 @@ func (t *turnTree) teardown() error {
 		return fmt.Errorf("staging tree teardown: %w", err)
 	}
 	left := mountedUnder(f, t.scanRoot())
-	f.Close()
+	_ = f.Close()
 	if len(left) > 0 {
 		return fmt.Errorf("staging tree %s still has %d mounts (%s); tree kept",
 			t.dir, len(left), strings.Join(left, ", "))

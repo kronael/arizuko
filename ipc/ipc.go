@@ -365,14 +365,26 @@ const maxMCPConns = 8
 // store/resreg, so routd passes a closure that calls resreg.MCPTools. Empty in
 // every non-routd caller.
 func ServeMCP(sockPath string, gated GatedFns, db StoreFns, folder string, isRoot bool, expectedUID int, callerSub string, postBuild ...func(*server.MCPServer)) (func(), error) {
-	os.Remove(sockPath)
+	// A stale socket that will not unlink shows up as the Listen below refusing
+	// the address, which is the error the caller gets.
+	_ = os.Remove(sockPath)
 	ln, err := net.Listen("unix", sockPath)
 	if err != nil {
 		return nil, err
 	}
-	os.Chmod(sockPath, 0o660)
+	// The mode and the owner ARE the socket's reach: net.Listen leaves it at the
+	// umask, where the agent's uid cannot connect. Neither is fatal — a socket
+	// whose group the agent is in connects on the group bit alone — but a failure
+	// is the difference between a live socket and a group with no tool calls.
+	if err := os.Chmod(sockPath, 0o660); err != nil {
+		slog.Error("mcp socket chmod failed; the group may get no tool calls",
+			"folder", folder, "sock", sockPath, "err", err)
+	}
 	if expectedUID > 0 {
-		os.Chown(sockPath, expectedUID, -1)
+		if err := os.Chown(sockPath, expectedUID, -1); err != nil {
+			slog.Error("mcp socket chown failed; the group may get no tool calls",
+				"folder", folder, "sock", sockPath, "uid", expectedUID, "err", err)
+		}
 	}
 	slog.Info("mcp server listening",
 		"folder", folder, "sock", sockPath, "peer_uid", expectedUID)
@@ -397,11 +409,11 @@ func ServeMCP(sockPath string, gated GatedFns, db StoreFns, folder string, isRoo
 			default:
 				slog.Warn("mcp conn limit reached; rejecting",
 					"folder", folder, "limit", maxMCPConns)
-				conn.Close()
+				_ = conn.Close()
 				continue
 			}
 			go func(c net.Conn) {
-				defer func() { <-sem; c.Close() }()
+				defer func() { <-sem; _ = c.Close() }()
 				if expectedUID > 0 {
 					cred, err := peerCred(c)
 					if err != nil {
@@ -424,8 +436,8 @@ func ServeMCP(sockPath string, gated GatedFns, db StoreFns, folder string, isRoo
 
 	return func() {
 		cancel()
-		ln.Close()
-		os.Remove(sockPath)
+		_ = ln.Close()
+		_ = os.Remove(sockPath)
 	}, nil
 }
 
@@ -477,7 +489,12 @@ func serveConn(ctx context.Context, c net.Conn, srv *server.MCPServer, gated Gat
 				"folder", folder, "err", err)
 			b = rpcEncodeFailure(id)
 		}
-		c.Write(append(b, '\n'))
+		if _, werr := c.Write(append(b, '\n')); werr != nil {
+			// Same cost as a frame that would not marshal: no response reaches the
+			// agent and it waits out its deadline.
+			slog.Error("mcp response write failed; the agent gets no frame for this call",
+				"folder", folder, "err", werr)
+		}
 	}
 	for {
 		if err := ctx.Err(); err != nil {
@@ -2379,7 +2396,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 			return toolErr(err.Error())
 		}
 		if err := os.Rename(tmp, p); err != nil {
-			os.Remove(tmp)
+			_ = os.Remove(tmp)
 			return toolErr(err.Error())
 		}
 		slog.Info("set_work", "folder", folder, "bytes", len(content))

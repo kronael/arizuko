@@ -182,8 +182,7 @@ func TestPostCommentOutbound(t *testing.T) {
 // request still carries the full body (the original reader is drained by the
 // first attempt; do() must buffer and replay it).
 func TestPostComment401Retry(t *testing.T) {
-	var oauth *httptest.Server
-	oauth = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	oauth := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"access_token":"new-at","expires_in":3600}`))
 	}))

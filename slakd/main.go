@@ -67,7 +67,7 @@ func main() {
 				slog.Error("slack auth.test failed", "err", err)
 				return nil, nil, err
 			}
-			return srv.handler(), func() { b.stop(); as.Close() }, nil
+			return srv.handler(), func() { b.stop(); _ = as.Close() }, nil
 		},
 	})
 }

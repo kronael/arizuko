@@ -47,7 +47,7 @@ func (s *server) handleDash(w http.ResponseWriter, r *http.Request) {
 		`<div class="tile-l">Routes</div></div></div>`, len(routes))
 	b.WriteString(proxydRouteTable(routes))
 	b.WriteString(routeCreateForm())
-	fmt.Fprint(w, theme.Page("proxyd", template.HTML(b.String())))
+	_, _ = fmt.Fprint(w, theme.Page("proxyd", template.HTML(b.String())))
 }
 
 // handleDashRouteCreate adds or replaces one route.
@@ -156,9 +156,9 @@ func proxydRouteTable(routes []Route) string {
 		} else {
 			action = `<span class="dim">core</span>`
 		}
-		b.WriteString(fmt.Sprintf(`<tr><td><code>%s</code></td><td>%s</td><td>%s</td><td>%s</td></tr>`,
+		fmt.Fprintf(&b, `<tr><td><code>%s</code></td><td>%s</td><td>%s</td><td>%s</td></tr>`,
 			html.EscapeString(rt.Path), html.EscapeString(rt.Backend),
-			html.EscapeString(rt.Auth), action))
+			html.EscapeString(rt.Auth), action)
 	}
 	b.WriteString(`</tbody></table>`)
 	return b.String()

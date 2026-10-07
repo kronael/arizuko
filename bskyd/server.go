@@ -42,6 +42,6 @@ func (s *server) handleFile(w http.ResponseWriter, r *http.Request) {
 		chanlib.WriteErr(w, 502, "blob fetch failed")
 		return
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	chanlib.ProxyFile(w, resp, s.cfg.MediaMaxBytes)
 }

@@ -116,7 +116,7 @@ func (d *dash) handleMeConnections(w http.ResponseWriter, r *http.Request) {
 
 func (d *dash) renderConnectionsPage(w http.ResponseWriter, r *http.Request, items []connectionItem) {
 	pageTopFor(w, r, "OAuth connections")
-	fmt.Fprint(w, `<p class="dim">Connect a provider to let the agent act as you against its API. A connection writes a scoped, auto-refreshing token — the OAuth alternative to pasting a personal access token under <a href="/dash/me/secrets">API keys</a>.</p>`)
+	_, _ = fmt.Fprint(w, `<p class="dim">Connect a provider to let the agent act as you against its API. A connection writes a scoped, auto-refreshing token — the OAuth alternative to pasting a personal access token under <a href="/dash/me/secrets">API keys</a>.</p>`)
 
 	var rows [][]string
 	for _, it := range items {
@@ -138,12 +138,12 @@ func (d *dash) renderConnectionsPage(w http.ResponseWriter, r *http.Request, ite
 		rows = append(rows, []string{`<code>` + esc(it.Provider) + `</code>`, status, esc(scope), action})
 	}
 	if len(rows) == 0 {
-		fmt.Fprint(w, `<p class="empty">No providers configured.</p>`)
+		_, _ = fmt.Fprint(w, `<p class="empty">No providers configured.</p>`)
 	} else {
-		fmt.Fprint(w, htmlTable([]string{"Provider", "Status", "Scopes", ""}, rows))
+		_, _ = fmt.Fprint(w, htmlTable([]string{"Provider", "Status", "Scopes", ""}, rows))
 	}
-	fmt.Fprint(w, `<p id="conn-err" class="banner-err" style="display:none"></p>`)
-	fmt.Fprint(w, connectionsPageScript)
+	_, _ = fmt.Fprint(w, `<p id="conn-err" class="banner-err" style="display:none"></p>`)
+	_, _ = fmt.Fprint(w, connectionsPageScript)
 	pageClose(w, r)
 }
 

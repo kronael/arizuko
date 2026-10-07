@@ -89,7 +89,7 @@ func cmdSend(args []string) {
 
 	dataDir := mustInstanceDir(instance)
 	st := mustOpenACL(dataDir)
-	defer st.Close()
+	defer func() { _ = st.Close() }()
 
 	if _, ok := st.GroupByFolder(folder); !ok {
 		die("Failed: group %q not found in instance %q", folder, instance)
@@ -127,7 +127,7 @@ func cmdSend(args []string) {
 	if err != nil {
 		die("Failed: post: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != 200 {
 		raw, _ := io.ReadAll(resp.Body)
 		die("Failed: %s: %s", resp.Status, strings.TrimSpace(string(raw)))
@@ -225,7 +225,7 @@ func streamRound(client *http.Client, sseURL string) int {
 	if resp == nil {
 		return code
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	return readSSE(resp.Body)
 }
 
@@ -247,7 +247,7 @@ func openSSE(client *http.Client, sseURL string, hdr map[string]string) (*http.R
 	}
 	if resp.StatusCode != 200 {
 		raw, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		fmt.Fprintf(os.Stderr, "Failed: sse %s: %s\n", resp.Status, raw)
 		return nil, 2
 	}
@@ -294,7 +294,11 @@ func handleSSEFrame(event, data string) int {
 		}
 	case "round_done":
 		var f struct{ Status, Error string }
-		json.Unmarshal([]byte(data), &f)
+		if err := json.Unmarshal([]byte(data), &f); err != nil {
+			// The round is over either way; without the payload the parse failure
+			// IS the reason, and an empty one reads as a round that failed silently.
+			f.Error = "unreadable round_done payload: " + err.Error()
+		}
 		if f.Status == "success" {
 			return 0
 		}
@@ -327,8 +331,14 @@ func pollRound(client *http.Client, turnURL string) int {
 				Content, Kind string
 			} `json:"frames"`
 		}
-		json.NewDecoder(resp.Body).Decode(&snap)
-		resp.Body.Close()
+		derr := json.NewDecoder(resp.Body).Decode(&snap)
+		_ = resp.Body.Close()
+		if derr != nil {
+			// A snapshot that will not parse has no status, and the loop would poll
+			// on for it forever.
+			fmt.Fprintf(os.Stderr, "Failed: poll decode: %v\n", derr)
+			return 2
+		}
 		for _, f := range snap.Frames {
 			fmt.Println(f.Content)
 		}
@@ -354,7 +364,7 @@ func loadInstanceEnv(dataDir string) (map[string]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	out := map[string]string{}
 	scan := bufio.NewScanner(f)
 	for scan.Scan() {

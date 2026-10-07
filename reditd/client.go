@@ -87,9 +87,16 @@ func (rc *redditClient) loadCursors() {
 }
 
 func (rc *redditClient) saveCursors() {
-	os.MkdirAll(rc.cfg.DataDir, 0o755)
+	if err := os.MkdirAll(rc.cfg.DataDir, 0o755); err != nil {
+		slog.Warn("reddit cursor dir", "dir", rc.cfg.DataDir, "err", err)
+		return
+	}
 	b, _ := json.Marshal(rc.cursors)
-	os.WriteFile(filepath.Join(rc.cfg.DataDir, "cursors.json"), b, 0o600)
+	p := filepath.Join(rc.cfg.DataDir, "cursors.json")
+	if err := os.WriteFile(p, b, 0o600); err != nil {
+		// A lost cursor makes the next poll re-read what was already delivered.
+		slog.Warn("reddit cursor save", "path", p, "err", err)
+	}
 }
 
 func (rc *redditClient) refreshToken() error {
@@ -111,7 +118,7 @@ func (rc *redditClient) refreshToken() error {
 	if err != nil {
 		return fmt.Errorf("token request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != 200 {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		return fmt.Errorf("token request: status %d: %s", resp.StatusCode, string(b))
@@ -197,7 +204,7 @@ func (rc *redditClient) doWithRetry(req *http.Request, policy chanlib.RetryPolic
 	}
 	// 401: the token may have been revoked early. Refresh once and re-send.
 	if resp.StatusCode == 401 {
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		if err := rc.refreshToken(); err != nil {
 			return nil, fmt.Errorf("refresh after 401: %w", err)
 		}
@@ -213,7 +220,7 @@ func (rc *redditClient) doWithRetry(req *http.Request, policy chanlib.RetryPolic
 	// was created — so it becomes a typed transient error the dedup sweep may
 	// retry, rather than a fourth-through-ninth request now (slakd's shape).
 	if resp.StatusCode == 429 {
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		return nil, fmt.Errorf("reddit: rate limited: %w", chanlib.ErrNotDelivered)
 	}
 	return resp, nil
@@ -305,7 +312,7 @@ func (rc *redditClient) pollSource(key, path string, router *chanlib.RouterClien
 		slog.Error("reddit get failed", "path", path, "err", err)
 		return
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	var l listing
 	if json.NewDecoder(resp.Body).Decode(&l) != nil {
 		return
@@ -439,7 +446,7 @@ func (rc *redditClient) FetchHistory(req chanlib.HistoryRequest) (chanlib.Histor
 	if err != nil {
 		return chanlib.HistoryResponse{}, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != 200 {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
 		return chanlib.HistoryResponse{}, fmt.Errorf("reddit listing: status %d: %s", resp.StatusCode, string(b))
@@ -492,7 +499,7 @@ func (rc *redditClient) Typing(string, bool) {}
 // status is outside 2xx. do() already retries 429/401; this guards the
 // remaining failures so an outbound verb doesn't report silent success.
 func checkStatus(resp *http.Response, op string) error {
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode == 429 {
 		// A 429 that outlived do()'s retries is still a documented refusal —
 		// nothing was created — so the dedup claim is released for the

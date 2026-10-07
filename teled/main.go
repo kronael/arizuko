@@ -64,7 +64,7 @@ func main() {
 			}
 			go b.poll(pollCtx, rc, offset)
 			return newServer(cfg, b, as.Chan, b.isConnected, b.LastInboundAt).handler(),
-				func() { b.stop(); as.Close() }, nil
+				func() { b.stop(); _ = as.Close() }, nil
 		},
 	})
 }

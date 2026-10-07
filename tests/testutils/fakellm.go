@@ -99,8 +99,12 @@ func NewFakeLLM(t *testing.T, reply LLMReply) *FakeLLM {
 		users: map[string]*meterRow{},
 	}
 	srv := &http.Server{Handler: http.HandlerFunc(f.serve)}
-	go srv.Serve(ln)
-	t.Cleanup(func() { srv.Close() })
+	go func() {
+		if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
+			t.Logf("fake llm server stopped: %v", err)
+		}
+	}()
+	t.Cleanup(func() { _ = srv.Close() })
 	return f
 }
 
@@ -364,7 +368,7 @@ func (f *FakeLLM) serve(w http.ResponseWriter, r *http.Request) {
 	if reply.Status >= 400 {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(reply.Status)
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"type": "error",
 			"error": map[string]any{
 				"type": "invalid_request_error", "message": reply.Message,
@@ -377,7 +381,7 @@ func (f *FakeLLM) serve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{
+	_ = json.NewEncoder(w).Encode(map[string]any{
 		"id": "msg_fake", "type": "message", "role": "assistant", "model": body.Model,
 		"content":     []map[string]any{{"type": "text", "text": reply.Text}},
 		"stop_reason": "end_turn", "stop_sequence": nil,
@@ -396,7 +400,7 @@ func (f *FakeLLM) stream(w http.ResponseWriter, model string, reply LLMReply) {
 	flush, _ := w.(http.Flusher)
 	ev := func(name string, data any) {
 		raw, _ := json.Marshal(data)
-		fmt.Fprintf(w, "event: %s\ndata: %s\n\n", name, raw)
+		_, _ = fmt.Fprintf(w, "event: %s\ndata: %s\n\n", name, raw)
 		if flush != nil {
 			flush.Flush()
 		}

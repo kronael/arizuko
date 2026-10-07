@@ -179,20 +179,20 @@ func generateCompose(dataDir string) string {
 	}
 	tmpPath := tmp.Name()
 	if _, err := tmp.WriteString(yml); err != nil {
-		tmp.Close()
-		os.Remove(tmpPath)
+		_ = tmp.Close()
+		_ = os.Remove(tmpPath)
 		die("Failed: write tempfile: %v", err)
 	}
 	if err := tmp.Close(); err != nil {
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath)
 		die("Failed: close tempfile: %v", err)
 	}
 	if err := os.Chmod(tmpPath, 0o644); err != nil {
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath)
 		die("Failed: chmod tempfile: %v", err)
 	}
 	if err := os.Rename(tmpPath, outPath); err != nil {
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath)
 		die("Failed: rename compose: %v", err)
 	}
 	return outPath
@@ -402,7 +402,7 @@ func cmdGroup(args []string) {
 	// AsCLI attributes grant/ungrant to the invoking operator: the CLI has no
 	// X-User-* header to learn a sub from.
 	s := mustOpenACL(dataDir).AsCLI(os.Getenv("USER"))
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 
 	switch action {
 	case "list":
@@ -676,13 +676,13 @@ func runGrant(s *store.Store, row core.ACLRow, w io.Writer) error {
 	// The third write surface reads the same alias warning add_acl and dashd's
 	// form do. A row written against a linked alias looks applied and never
 	// fires, and the denial afterwards reads as policy (BUGS L152).
-	warn := func(m string) { fmt.Fprintln(w, "warning: "+m) }
+	warn := func(m string) { _, _ = fmt.Fprintln(w, "warning: "+m) }
 	if operatorRow(row) {
 		// Operator grant: add to role:operator instead of a per-folder row.
 		if err := s.AddMembership(row.Principal, "role:operator", "arizuko grant"); err != nil {
 			return err
 		}
-		fmt.Fprintf(w, "granted %s -> role:operator\n", row.Principal)
+		_, _ = fmt.Fprintf(w, "granted %s -> role:operator\n", row.Principal)
 		grantPrincipalWarn(row.Principal, warn)
 		return nil
 	}
@@ -690,7 +690,7 @@ func runGrant(s *store.Store, row core.ACLRow, w io.Writer) error {
 	if err := s.AddACLRow(row); err != nil {
 		return err
 	}
-	fmt.Fprintln(w, "granted "+describeGrant(row))
+	_, _ = fmt.Fprintln(w, "granted "+describeGrant(row))
 	grantPrincipalWarn(row.Principal, warn)
 	return nil
 }
@@ -704,13 +704,13 @@ func runUngrant(s *store.Store, row core.ACLRow, w io.Writer) error {
 		if err := s.RemoveMembership(row.Principal, "role:operator"); err != nil {
 			return err
 		}
-		fmt.Fprintf(w, "ungranted %s -> role:operator\n", row.Principal)
+		_, _ = fmt.Fprintf(w, "ungranted %s -> role:operator\n", row.Principal)
 		return nil
 	}
 	if err := s.RemoveACLRow(row); err != nil {
 		return err
 	}
-	fmt.Fprintln(w, "ungranted "+describeGrant(row))
+	_, _ = fmt.Fprintln(w, "ungranted "+describeGrant(row))
 	return nil
 }
 
@@ -721,14 +721,14 @@ func runGrants(s *store.Store, sub string, w io.Writer) error {
 		return err
 	}
 	if len(rows) == 0 && len(s.Ancestors(sub)) == 0 {
-		fmt.Fprintln(w, "no grants")
+		_, _ = fmt.Fprintln(w, "no grants")
 		return nil
 	}
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 	// PARAMS is in the table because it is in the KEY. A listing that hides it
 	// shows two narrowings of one tool as one indistinguishable line, and an
 	// operator cannot type the `ungrant` that removes either (L138).
-	fmt.Fprintln(tw, "PRINCIPAL\tACTION\tSCOPE\tEFFECT\tPARAMS\tGRANTED_AT")
+	_, _ = fmt.Fprintln(tw, "PRINCIPAL\tACTION\tSCOPE\tEFFECT\tPARAMS\tGRANTED_AT")
 	for _, r := range rows {
 		ts := r.GrantedAt
 		if ts == "" {
@@ -738,13 +738,13 @@ func runGrants(s *store.Store, sub string, w io.Writer) error {
 		if params == "" {
 			params = "-"
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", r.Principal, r.Action, r.Scope, r.Effect, params, ts)
+		_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", r.Principal, r.Action, r.Scope, r.Effect, params, ts)
 	}
 	// Also show role memberships transitively reachable from sub.
 	if anc := s.Ancestors(sub); len(anc) > 0 {
-		fmt.Fprintf(tw, "\nMEMBER OF\n")
+		_, _ = fmt.Fprintf(tw, "\nMEMBER OF\n")
 		for _, p := range anc {
-			fmt.Fprintf(tw, "  %s\n", p)
+			_, _ = fmt.Fprintf(tw, "  %s\n", p)
 		}
 	}
 	return tw.Flush()
@@ -756,7 +756,7 @@ func cmdGate(args []string) {
 
 	dataDir := mustInstanceDir(instance)
 	s := mustOpenOnbod(dataDir)
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 
 	switch action {
 	case "list":
@@ -769,15 +769,15 @@ func cmdGate(args []string) {
 			return
 		}
 		tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(tw, "GATE\tLIMIT/DAY\tENABLED")
+		_, _ = fmt.Fprintln(tw, "GATE\tLIMIT/DAY\tENABLED")
 		for _, g := range gates {
 			en := "yes"
 			if !g.Enabled {
 				en = "no"
 			}
-			fmt.Fprintf(tw, "%s\t%d\t%s\n", g.Gate, g.LimitPerDay, en)
+			_, _ = fmt.Fprintf(tw, "%s\t%d\t%s\n", g.Gate, g.LimitPerDay, en)
 		}
-		tw.Flush()
+		_ = tw.Flush()
 
 	case "add":
 		need(args, 4, "arizuko gate <instance> add <spec> <N>/day")
@@ -851,7 +851,7 @@ func cmdInvite(args []string) {
 
 	dataDir := mustInstanceDir(instance)
 	s := mustOpenOnbod(dataDir)
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 
 	switch action {
 	case "create":
@@ -887,18 +887,18 @@ func cmdInvite(args []string) {
 			return
 		}
 		tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(tw, "REF\tTARGET_GLOB\tISSUED_BY\tISSUED_AT\tEXPIRES_AT\tUSED")
+		_, _ = fmt.Fprintln(tw, "REF\tTARGET_GLOB\tISSUED_BY\tISSUED_AT\tEXPIRES_AT\tUSED")
 		for _, inv := range invs {
 			exp := "-"
 			if inv.ExpiresAt != nil {
 				exp = inv.ExpiresAt.Format(time.RFC3339)
 			}
-			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%d/%d\n",
+			_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%d/%d\n",
 				inv.Ref, inv.TargetGlob, inv.IssuedBySub,
 				inv.IssuedAt.Format(time.RFC3339), exp,
 				inv.UsedCount, inv.MaxUses)
 		}
-		tw.Flush()
+		_ = tw.Flush()
 
 	case "revoke":
 		need(args, 3, "arizuko invite <instance> revoke <ref>")
@@ -942,11 +942,15 @@ func cmdChat(args []string) {
 	if err != nil {
 		die("Failed: temp file: %v", err)
 	}
-	defer os.Remove(tmp.Name())
+	defer func() { _ = os.Remove(tmp.Name()) }()
 	if err := json.NewEncoder(tmp).Encode(cfg); err != nil {
 		die("Failed: write config: %v", err)
 	}
-	tmp.Close()
+	// claude reads this file next, so a close that lost the tail hands it a
+	// truncated config rather than none.
+	if err := tmp.Close(); err != nil {
+		die("Failed: close config: %v", err)
+	}
 
 	cmd := exec.Command("claude", "--mcp-config", tmp.Name())
 	cmd.Stdin = os.Stdin
@@ -989,7 +993,9 @@ func cmdStatus(args []string) {
 		"table {{.Name}}\t{{.Status}}\t{{.Ports}}")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	cmd.Run()
+	// `docker compose ps` prints its own diagnosis on stderr and a non-zero exit
+	// adds nothing; the channel probe below is the rest of the answer either way.
+	_ = cmd.Run()
 
 	cfg, err := core.LoadConfigFrom(dataDir)
 	if err != nil || cfg.APIPort == 0 {
@@ -1004,7 +1010,7 @@ func cmdStatus(args []string) {
 		fmt.Printf("\nrouter API unreachable at %s\n", url)
 		return
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	var channels struct {
 		Channels []struct {
 			Name string `json:"name"`

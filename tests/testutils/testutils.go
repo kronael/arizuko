@@ -42,7 +42,7 @@ func NewRoutdInstance(t *testing.T) *Inst {
 	if _, err := rand.Read(secret); err != nil {
 		t.Fatalf("rand: %v", err)
 	}
-	t.Cleanup(func() { rdb.Close() })
+	t.Cleanup(func() { _ = rdb.Close() })
 	return &Inst{
 		Store:     store.NewOver(rdb.Obj()),
 		Tmp:       t.TempDir(),
@@ -79,7 +79,7 @@ func NewOwnerStore(t *testing.T) *store.Store {
 	if err != nil {
 		t.Fatalf("store.OpenMem: %v", err)
 	}
-	t.Cleanup(func() { s.Close() })
+	t.Cleanup(func() { _ = s.Close() })
 	return s
 }
 
@@ -92,7 +92,7 @@ func NewRoutdStore(t *testing.T) *store.Store {
 	if err != nil {
 		t.Fatalf("routd.OpenMem: %v", err)
 	}
-	t.Cleanup(func() { d.Close() })
+	t.Cleanup(func() { _ = d.Close() })
 	return store.NewOver(d.Obj())
 }
 
@@ -123,11 +123,16 @@ func NewRouterStub() *RouterStub {
 			return
 		}
 		var im chanlib.InboundMsg
-		json.NewDecoder(req.Body).Decode(&im)
+		if err := json.NewDecoder(req.Body).Decode(&im); err != nil {
+			// routd's own handler 400s a body it cannot read; a stub that answers ok
+			// and records a zero message hides the producer that sent it.
+			w.WriteHeader(400)
+			return
+		}
 		r.Mu.Lock()
 		r.Msgs = append(r.Msgs, im)
 		r.Mu.Unlock()
-		w.Write([]byte(`{"ok":true}`))
+		_, _ = w.Write([]byte(`{"ok":true}`))
 	})
 	r.Srv = httptest.NewServer(r.Mux)
 	return r

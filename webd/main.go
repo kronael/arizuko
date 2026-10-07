@@ -69,7 +69,7 @@ func main() {
 		slog.Error("open routd's store", "err", err)
 		os.Exit(1)
 	}
-	defer stRoutd.Close()
+	defer func() { _ = stRoutd.Close() }()
 
 	// audit_log lives in routd.db (its owner, routd migration 0016) — not the
 	// frozen messages.db.
@@ -146,10 +146,16 @@ func main() {
 	slog.Info("webd starting", "addr", cfg.listenAddr)
 
 	srv := &http.Server{Handler: newServer(cfg, stRoutd, hub, rc, ks, svc).handler()}
-	go srv.Serve(ln)
+	go func() {
+		if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
+			slog.Error("serve failed", "addr", cfg.listenAddr, "err", err)
+		}
+	}()
 
 	<-ctx.Done()
 	slog.Info("shutting down")
-	rc.Deregister()
-	srv.Close()
+	if err := rc.Deregister(); err != nil {
+		slog.Warn("deregister failed; routd holds the channel until it expires", "err", err)
+	}
+	_ = srv.Close()
 }

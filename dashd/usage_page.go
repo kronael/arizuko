@@ -23,7 +23,7 @@ func (d *dash) handleUsage(w http.ResponseWriter, r *http.Request) {
 	pageTopFor(w, r, "usage")
 
 	if d.routdStore() == nil {
-		fmt.Fprint(w, htmlBanner("err", "store unavailable"))
+		_, _ = fmt.Fprint(w, htmlBanner("err", "store unavailable"))
 		pageClose(w, r)
 		return
 	}
@@ -31,7 +31,7 @@ func (d *dash) handleUsage(w http.ResponseWriter, r *http.Request) {
 	folders, err := d.usageFolders(r.Context())
 	if err != nil {
 		slog.Warn("usage page: folders", "err", err)
-		fmt.Fprint(w, htmlBanner("err", "folder query error: "+err.Error()))
+		_, _ = fmt.Fprint(w, htmlBanner("err", "folder query error: "+err.Error()))
 		pageClose(w, r)
 		return
 	}
@@ -45,7 +45,7 @@ func (d *dash) handleUsage(w http.ResponseWriter, r *http.Request) {
 		summaries, metered, err = d.groupUsageBulk(r.Context(), folders)
 		if err != nil {
 			slog.Warn("usage page: bulk", "err", err)
-			fmt.Fprint(w, htmlBanner("err", "usage query error: "+err.Error()))
+			_, _ = fmt.Fprint(w, htmlBanner("err", "usage query error: "+err.Error()))
 			pageClose(w, r)
 			return
 		}
@@ -58,7 +58,7 @@ func (d *dash) handleUsage(w http.ResponseWriter, r *http.Request) {
 		totalCents += s.Cents7d
 	}
 
-	fmt.Fprintf(w, `<div class="cols-3">`+
+	_, _ = fmt.Fprintf(w, `<div class="cols-3">`+
 		`<div class="card"><h3>%d</h3><p class="dim">total messages</p></div>`+
 		`<div class="card"><h3>%s</h3><p class="dim">tokens / 7d</p></div>`+
 		`<div class="card"><h3>%s</h3><p class="dim">cost / 7d</p></div>`+
@@ -66,13 +66,13 @@ func (d *dash) handleUsage(w http.ResponseWriter, r *http.Request) {
 		totalMsgs, meteredCell(metered, fmtTokens(totalTokens)),
 		meteredCell(metered, fmtCents(totalCents)))
 	if !metered {
-		fmt.Fprint(w, htmlBanner("warn", "No model gateway is set up on this instance, "+
+		_, _ = fmt.Fprint(w, htmlBanner("warn", "No model gateway is set up on this instance, "+
 			"so nothing is counting what it spends. Every token and cost figure below "+
 			"reads \"no meter\" — that means unknown, not zero. A daily spend cap needs "+
 			"a gateway to enforce it."))
 	}
 
-	fmt.Fprint(w, `<h2>Per-group</h2>`)
+	_, _ = fmt.Fprint(w, `<h2>Per-group</h2>`)
 	sort.Slice(summaries, func(i, j int) bool {
 		return summaries[i].Tokens7d > summaries[j].Tokens7d
 	})
@@ -86,12 +86,12 @@ func (d *dash) handleUsage(w http.ResponseWriter, r *http.Request) {
 			lastActiveCell(s.LastActive),
 		})
 	}
-	fmt.Fprint(w, htmlTable(
+	_, _ = fmt.Fprint(w, htmlTable(
 		[]string{"Group", "Msgs", "Tokens/7d", "$/7d", "Last active"}, groupRows))
 
 	// 7-day daily message volume (human messages only).
-	fmt.Fprint(w, `<h2>7-day volume</h2>`)
-	fmt.Fprint(w, d.usageVolumeTable(r.Context()))
+	_, _ = fmt.Fprint(w, `<h2>7-day volume</h2>`)
+	_, _ = fmt.Fprint(w, d.usageVolumeTable(r.Context()))
 
 	pageClose(w, r)
 }

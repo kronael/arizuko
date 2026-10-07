@@ -151,7 +151,7 @@ func qemuPreconditions(cfg *core.Config) (qemuPaths, error) {
 			miss("%s does not open (%v) — add it to runed's compose service `devices:`", dev, err)
 			continue
 		}
-		f.Close()
+		_ = f.Close()
 	}
 	if _, err := exec.LookPath(p.Qemu); err != nil {
 		miss("%s is not executable (%s=%s)", p.Qemu, envQemu, p.Qemu)
@@ -170,8 +170,8 @@ func qemuPreconditions(cfg *core.Config) (qemuPaths, error) {
 	// builds it into a directory keyed by version and config hash, so the name
 	// is configuration and never a guess.
 	kdir := os.Getenv(envKernelDir)
-	switch {
-	case kdir == "":
+	switch kdir {
+	case "":
 		miss("%s is unset — set it to the `make kernel` artifact dir holding %s and %s",
 			envKernelDir, kernelImage, kernelInitrd)
 	default:

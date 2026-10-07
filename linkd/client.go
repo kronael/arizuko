@@ -139,8 +139,13 @@ func (lc *linkClient) loadState() {
 	}
 }
 
+// saveState caches the token pair and the seen-id set. A failure costs a
+// re-auth and a replay of already-seen posts, not a message, so it logs.
 func (lc *linkClient) saveState() {
-	os.MkdirAll(lc.cfg.DataDir, 0o755)
+	if err := os.MkdirAll(lc.cfg.DataDir, 0o755); err != nil {
+		slog.Warn("linkedin state dir", "dir", lc.cfg.DataDir, "err", err)
+		return
+	}
 	lc.mu.Lock()
 	seen := make([]string, 0, len(lc.seen))
 	for k := range lc.seen {
@@ -158,7 +163,9 @@ func (lc *linkClient) saveState() {
 	}
 	lc.mu.Unlock()
 	b, _ := json.Marshal(s)
-	os.WriteFile(lc.stateFile, b, 0o600)
+	if err := os.WriteFile(lc.stateFile, b, 0o600); err != nil {
+		slog.Warn("linkedin state save", "path", lc.stateFile, "err", err)
+	}
 }
 
 func (lc *linkClient) refreshAccessToken() error {
@@ -183,7 +190,7 @@ func (lc *linkClient) refreshAccessToken() error {
 	if err != nil {
 		return fmt.Errorf("token request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 	var tr tokenResp
 	if err := json.Unmarshal(body, &tr); err != nil {
@@ -220,7 +227,7 @@ func (lc *linkClient) fetchMe() error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != 200 {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
 		return fmt.Errorf("/v2/me: status %d: %s", resp.StatusCode, string(b))
@@ -301,7 +308,7 @@ func (lc *linkClient) do(method, path string, params map[string]string, body io.
 	}
 	// 401 → refresh once and retry.
 	if resp.StatusCode == 401 && lc.refresh != "" {
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		if rerr := lc.refreshAccessToken(); rerr != nil {
 			return nil, fmt.Errorf("refresh on 401: %w", rerr)
 		}
@@ -400,7 +407,7 @@ func (lc *linkClient) fetchOwnShares() ([]shareItem, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != 200 {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
 		return nil, fmt.Errorf("/v2/shares: status %d: %s", resp.StatusCode, string(b))
@@ -420,7 +427,7 @@ func (lc *linkClient) fetchComments(urn string) ([]commentItem, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != 200 {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
 		return nil, fmt.Errorf("comments: status %d: %s", resp.StatusCode, string(b))
@@ -595,7 +602,7 @@ func (lc *linkClient) ugcPost(text, ref string) (string, error) {
 }
 
 func readUGCID(resp *http.Response, label string) (string, error) {
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode/100 != 2 {
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
 		return "", fmt.Errorf("%s: status %d: %s", label, resp.StatusCode, string(raw))
@@ -606,7 +613,10 @@ func readUGCID(resp *http.Response, label string) (string, error) {
 	var out struct {
 		ID string `json:"id"`
 	}
-	json.NewDecoder(io.LimitReader(resp.Body, 4096)).Decode(&out)
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 4096)).Decode(&out); err != nil {
+		slog.Warn("linkedin response carries no readable id; later reply/like/delete cannot target this post",
+			"label", label, "err", err)
+	}
 	return out.ID, nil
 }
 
@@ -638,7 +648,7 @@ func (lc *linkClient) Like(req chanlib.LikeRequest) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode/100 != 2 {
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
 		return fmt.Errorf("like: status %d: %s", resp.StatusCode, string(raw))
@@ -657,7 +667,7 @@ func (lc *linkClient) Delete(req chanlib.DeleteRequest) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode/100 != 2 {
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
 		return fmt.Errorf("delete: status %d: %s", resp.StatusCode, string(raw))
@@ -692,7 +702,7 @@ func (lc *linkClient) postComment(postURN, text, parentComment string) (string, 
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode/100 != 2 {
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
 		return "", fmt.Errorf("comment: status %d: %s", resp.StatusCode, string(raw))
@@ -700,7 +710,10 @@ func (lc *linkClient) postComment(postURN, text, parentComment string) (string, 
 	var out struct {
 		ID string `json:"id"`
 	}
-	json.NewDecoder(io.LimitReader(resp.Body, 4096)).Decode(&out)
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 4096)).Decode(&out); err != nil {
+		slog.Warn("linkedin comment response carries no readable id; later reply/like/delete cannot target it",
+			"err", err)
+	}
 	return out.ID, nil
 }
 
@@ -723,7 +736,7 @@ func (lc *linkClient) FetchHistory(req chanlib.HistoryRequest) (chanlib.HistoryR
 	if err != nil {
 		return chanlib.HistoryResponse{}, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != 200 {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
 		return chanlib.HistoryResponse{}, fmt.Errorf("comments: status %d: %s", resp.StatusCode, string(b))

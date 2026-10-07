@@ -33,7 +33,7 @@ func cmdToken(args []string) {
 	// frozen monolith routd never reads (same fix class as `arizuko network`,
 	// 2dfa5670).
 	st := mustOpenACL(dataDir)
-	defer st.Close()
+	defer func() { _ = st.Close() }()
 
 	switch sub {
 	case "issue":
@@ -135,7 +135,7 @@ func tokenIssueBearer(st *store.Store, dataDir string, args []string) {
 	// Folder must exist in routd.db — groups live there post-split; a token
 	// for a nonexistent folder would verify but own nothing.
 	gs := mustOpenACL(dataDir)
-	defer gs.Close()
+	defer func() { _ = gs.Close() }()
 	if _, ok := gs.GroupByFolder(folder); !ok {
 		die("Failed: group %q not found", folder)
 	}
@@ -201,12 +201,12 @@ func tokenList(st *store.Store, args []string) {
 		return
 	}
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "JID\tKIND\tCREATED\tCONTEXT")
+	_, _ = fmt.Fprintln(w, "JID\tKIND\tCREATED\tCONTEXT")
 	for _, t := range tokens {
 		kind := store.RouteTokenJIDKind(t.JID)
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", t.JID, kind, t.CreatedAt.Format(time.RFC3339), t.Context)
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", t.JID, kind, t.CreatedAt.Format(time.RFC3339), t.Context)
 	}
-	w.Flush()
+	_ = w.Flush()
 }
 
 func tokenRevoke(st *store.Store, args []string) {

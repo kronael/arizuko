@@ -129,8 +129,8 @@ func writeAtomic(tmp, dst, content string) error {
 	ok := false
 	defer func() {
 		if !ok {
-			f.Close()
-			os.Remove(tmp)
+			_ = f.Close()
+			_ = os.Remove(tmp)
 		}
 	}()
 	if _, err := f.WriteString(content); err != nil {
@@ -144,7 +144,7 @@ func writeAtomic(tmp, dst, content string) error {
 	}
 	ok = true
 	if err := os.Rename(tmp, dst); err != nil {
-		os.Remove(tmp)
+		_ = os.Remove(tmp)
 		return err
 	}
 	return nil

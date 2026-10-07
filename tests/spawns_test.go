@@ -26,16 +26,6 @@ func spawnCount(t *testing.T, db *runed.DB) int {
 	return len(rows)
 }
 
-// liveSpawnCount answers how many runs are queued or running.
-func liveSpawnCount(t *testing.T, db *runed.DB) int {
-	t.Helper()
-	n, err := runstore.New(db.Obj()).LiveSpawnCount(t.Context())
-	if err != nil {
-		t.Fatalf("count the live runs: %v", err)
-	}
-	return n
-}
-
 // waitForSpawn waits until runed has recorded a run at all — the execution
 // plane saw a real dispatch rather than a stub.
 func waitForSpawn(t *testing.T, db *runed.DB, timeout time.Duration) {

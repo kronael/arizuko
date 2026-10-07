@@ -88,11 +88,18 @@ func (bc *bskyClient) loadSession() *session {
 	return &s
 }
 
+// saveSession caches the session so a restart does not re-login. A failure
+// costs a re-login, not a message, so it logs rather than propagating.
 func (bc *bskyClient) saveSession() {
-	os.MkdirAll(bc.cfg.DataDir, 0o755)
+	if err := os.MkdirAll(bc.cfg.DataDir, 0o755); err != nil {
+		slog.Warn("bsky session dir", "dir", bc.cfg.DataDir, "err", err)
+		return
+	}
 	s := bc.getSession()
 	b, _ := json.Marshal(s)
-	os.WriteFile(bc.sessionPath(), b, 0o600)
+	if err := os.WriteFile(bc.sessionPath(), b, 0o600); err != nil {
+		slog.Warn("bsky session save", "path", bc.sessionPath(), "err", err)
+	}
 }
 
 // httpStatusError lets callers inspect the status code of an HTTP failure
@@ -127,7 +134,7 @@ func (bc *bskyClient) createSession() error {
 	if err != nil {
 		return fmt.Errorf("createSession: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != 200 {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		return &httpStatusError{Code: resp.StatusCode, Body: string(b), Op: "createSession"}
@@ -151,7 +158,7 @@ func (bc *bskyClient) refreshSession(refreshJwt string) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != 200 {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		return &httpStatusError{Code: resp.StatusCode, Body: string(b), Op: "refreshSession"}
@@ -294,7 +301,7 @@ func (bc *bskyClient) handleNotification(n notification, rc *chanlib.RouterClien
 	var content strings.Builder
 	content.WriteString(n.Record.Text)
 	for _, a := range atts {
-		content.WriteString(fmt.Sprintf(" [Image: %s]", a.Filename))
+		fmt.Fprintf(&content, " [Image: %s]", a.Filename)
 	}
 	ts, _ := time.Parse(time.RFC3339, n.IndexedAt)
 	// ID is the full at://repo/collection/rkey URI: it becomes the
@@ -562,7 +569,7 @@ func (bc *bskyClient) uploadBlob(data []byte, mime string) (map[string]any, erro
 	if err != nil {
 		return nil, fmt.Errorf("uploadBlob: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != 200 {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		return nil, &httpStatusError{Code: resp.StatusCode, Body: string(b), Op: "uploadBlob"}
@@ -662,7 +669,11 @@ func (bc *bskyClient) FetchHistory(req chanlib.HistoryRequest) (chanlib.HistoryR
 					} `json:"parent"`
 				} `json:"reply,omitempty"`
 			}
-			json.Unmarshal(fv.Post.Record, &rec)
+			if err := json.Unmarshal(fv.Post.Record, &rec); err != nil {
+				// The text and the reply parent both live in the record, so this
+				// post reaches the agent blank rather than not at all.
+				slog.Warn("bsky post record will not parse", "uri", fv.Post.URI, "err", err)
+			}
 			name := fv.Post.Author.DisplayName
 			if name == "" {
 				name = fv.Post.Author.Handle
@@ -749,7 +760,7 @@ func (bc *bskyClient) xrpc(method, nsid string, params map[string]string, body, 
 		if err != nil {
 			return fmt.Errorf("xrpc %s: %w", nsid, err)
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		if resp.StatusCode != 200 {
 			b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 			return &httpStatusError{Code: resp.StatusCode, Body: string(b), Op: "xrpc " + nsid}

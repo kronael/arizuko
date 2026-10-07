@@ -61,7 +61,7 @@ func (g *httpIdentity) Resolve(sub string) (ipc.Identity, []string, bool, error)
 	if err != nil {
 		return ipc.Identity{}, nil, false, fmt.Errorf("identity request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode == http.StatusNotFound {
 		return ipc.Identity{}, nil, false, nil
 	}

@@ -30,7 +30,7 @@ func cmdBudget(args []string) {
 	// which is what names the store the CLI then writes to.
 	mustInstanceDir(instance)
 	s := mustOpenRoutd()
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 
 	switch action {
 	case "set":
@@ -86,9 +86,9 @@ func runBudgetSet(s *routd.DB, scope, target string, daily int, w io.Writer) err
 		return fmt.Errorf("scope must be 'folder' or 'user', got %q", scope)
 	}
 	if daily == 0 {
-		fmt.Fprintf(w, "OK: cap removed for %s %s (uncapped)\n", scope, target)
+		_, _ = fmt.Fprintf(w, "OK: cap removed for %s %s (uncapped)\n", scope, target)
 	} else {
-		fmt.Fprintf(w, "OK: %s %s capped at %d cents/day\n", scope, target, daily)
+		_, _ = fmt.Fprintf(w, "OK: %s %s capped at %d cents/day\n", scope, target, daily)
 	}
 	return nil
 }
@@ -108,10 +108,10 @@ func runBudgetShow(s *routd.DB, scope, target string, w io.Writer) error {
 		return err
 	}
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintf(tw, "scope\t%s\n", scope)
-	fmt.Fprintf(tw, "target\t%s\n", target)
-	fmt.Fprintf(tw, "cap\t%s\n", formatCap(cap))
-	fmt.Fprintf(tw, "spend\tmetered by the model gateway — see the dashboard usage page\n")
+	_, _ = fmt.Fprintf(tw, "scope\t%s\n", scope)
+	_, _ = fmt.Fprintf(tw, "target\t%s\n", target)
+	_, _ = fmt.Fprintf(tw, "cap\t%s\n", formatCap(cap))
+	_, _ = fmt.Fprintf(tw, "spend\tmetered by the model gateway — see the dashboard usage page\n")
 	return tw.Flush()
 }
 

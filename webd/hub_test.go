@@ -358,7 +358,7 @@ func TestSlinkStream_Replay(t *testing.T) {
 	r := bufio.NewReader(resp.Body)
 	gotMissed1, gotMissed2 := false, false
 	deadline := time.Now().Add(1500 * time.Millisecond)
-	for time.Now().Before(deadline) && !(gotMissed1 && gotMissed2) {
+	for time.Now().Before(deadline) && (!gotMissed1 || !gotMissed2) {
 		line, err := r.ReadString('\n')
 		if err != nil {
 			break

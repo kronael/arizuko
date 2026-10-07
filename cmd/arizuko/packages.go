@@ -161,7 +161,7 @@ func installPackage(dataDir, inst, name, srcDir string, files []string, hashes m
 		}
 	}
 	rdb := mustOpenRoutd()
-	defer rdb.Close()
+	defer func() { _ = rdb.Close() }()
 	manifest := map[string][]string{manifestFiles: files}
 	applied := map[string][]string{}
 	if len(frags) > 0 {
@@ -297,7 +297,7 @@ func readFragmentAssets(dir string) (files []string, hashes map[string]string) {
 	hashes = map[string]string{}
 	for _, e := range entries {
 		n := e.Name()
-		if e.IsDir() || !(strings.HasSuffix(n, ".yml") || strings.HasSuffix(n, ".yaml")) {
+		if e.IsDir() || (!strings.HasSuffix(n, ".yml") && !strings.HasSuffix(n, ".yaml")) {
 			continue
 		}
 		b, err := os.ReadFile(filepath.Join(dir, n))
@@ -632,7 +632,7 @@ func pkgSubsystemStores(dataDir string, rdb *routd.DB, subsystems []string) (map
 			die("Failed: open onbod's store: %v", err)
 		}
 		stores[s] = ob.AsCLI(os.Getenv("USER"))
-		closers = append(closers, func() { ob.Close() })
+		closers = append(closers, func() { _ = ob.Close() })
 	}
 	return stores, func() {
 		for _, c := range closers {
@@ -1067,7 +1067,7 @@ func cmdPackages(args []string) {
 		name := args[2]
 		mustPkgName(name)
 		rdb := mustOpenRoutd()
-		defer rdb.Close()
+		defer func() { _ = rdb.Close() }()
 		rec, ok, err := rdb.InstalledPackage(routd.InstanceWide, name)
 		if err != nil {
 			die("Failed: read record: %v", err)
@@ -1101,7 +1101,7 @@ func cmdPackages(args []string) {
 		// identical. A dirty package is reported and SKIPPED rather than fatal, so one
 		// hand-edited fragment cannot block the rest of the instance from syncing.
 		rdb := mustOpenRoutd()
-		defer rdb.Close()
+		defer func() { _ = rdb.Close() }()
 		recs, err := rdb.InstalledPackages()
 		if err != nil {
 			die("Failed: list installed packages: %v", err)
@@ -1158,7 +1158,7 @@ func cmdPackages(args []string) {
 		name := args[2]
 		mustPkgName(name)
 		rdb := mustOpenRoutd()
-		defer rdb.Close()
+		defer func() { _ = rdb.Close() }()
 		// Prefer the installed record (spec 5/28-packages): delete exactly what the record
 		// says this package owns, then drop the record. Fall back to the legacy
 		// `<name>.yml` deletion for a catalog `add` that left no record.
@@ -1239,20 +1239,20 @@ func writeFileAtomic(path string, b []byte) error {
 	}
 	tmpPath := tmp.Name()
 	if _, err := tmp.Write(b); err != nil {
-		tmp.Close()
-		os.Remove(tmpPath)
+		_ = tmp.Close()
+		_ = os.Remove(tmpPath)
 		return err
 	}
 	if err := tmp.Close(); err != nil {
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath)
 		return err
 	}
 	if err := os.Chmod(tmpPath, 0o644); err != nil {
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath)
 		return err
 	}
 	if err := os.Rename(tmpPath, path); err != nil {
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath)
 		return err
 	}
 	return nil

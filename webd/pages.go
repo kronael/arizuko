@@ -24,8 +24,8 @@ const htmlHead = `<!DOCTYPE html>
 func (s *server) handleGroupsPage(w http.ResponseWriter, r *http.Request) {
 	name := userName(r)
 	w.Header().Set("Content-Type", "text/html")
-	fmt.Fprint(w, htmlHead)
-	fmt.Fprintf(w, `<body>
+	_, _ = fmt.Fprint(w, htmlHead)
+	_, _ = fmt.Fprintf(w, `<body>
 <header>
   <span class="logo">arizuko</span><span class="tagline">Claude agent gateway</span>
   <span class="user">%s</span>
@@ -64,8 +64,8 @@ func (s *server) handleChatPage(w http.ResponseWriter, r *http.Request) {
 	// default view listed nothing and each send opened a new topic (BUGS L116).
 	topic0 := newTopicID()
 	topicURL := url.PathEscape(topic0)
-	fmt.Fprint(w, htmlHead)
-	fmt.Fprintf(w, `<body>
+	_, _ = fmt.Fprint(w, htmlHead)
+	_, _ = fmt.Fprintf(w, `<body>
 <header>
   <a href="/">&#8592; arizuko</a>
   <span class="agent-name">%s</span>

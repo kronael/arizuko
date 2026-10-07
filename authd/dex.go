@@ -89,7 +89,7 @@ func (o *oauth) dexIdentity(ctx context.Context, code, verifier string) (provide
 	if err != nil {
 		return "", "", "", fmt.Errorf("dex token: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	var tok struct {
 		IDToken string `json:"id_token"`
 		Error   string `json:"error"`

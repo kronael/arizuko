@@ -124,7 +124,7 @@ func buildUserIdentify(token string) (json.RawMessage, error) {
 
 func (b *bot) stop() {
 	b.typing.Stop()
-	b.session.Close()
+	_ = b.session.Close()
 }
 
 func (b *bot) isConnected() bool {
@@ -323,7 +323,7 @@ func (b *bot) chatAndTopic(guildID, channelID string) (jid, topic string, ch *di
 // threads, group DMs). An unresolved channel counts as multi-user, so
 // user-scope secrets stay closed by default.
 func isGroupChannel(ch *discordgo.Channel) bool {
-	return !(ch != nil && ch.Type == discordgo.ChannelTypeDM)
+	return ch == nil || ch.Type != discordgo.ChannelTypeDM
 }
 
 // buttons draws the options as one actions row, or nil when there are none.
@@ -502,7 +502,7 @@ func (b *bot) SendVoice(jid, audioPath, caption, threadID string) (string, error
 	if err != nil {
 		return "", fmt.Errorf("discord open voice: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	name := filepath.Base(audioPath)
 	msg, err := b.session.ChannelMessageSendComplex(chID, &discordgo.MessageSend{
 		Content: caption,
@@ -526,7 +526,7 @@ func (b *bot) SendFile(jid, path, name, caption, _, threadID string) (string, er
 	if err != nil {
 		return "", fmt.Errorf("discord open file: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	if name == "" {
 		name = filepath.Base(path)
 	}

@@ -17,7 +17,7 @@ func cmdNetwork(args []string) {
 	if err != nil {
 		die("Failed: open routd's store: %v", err)
 	}
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 
 	switch action {
 	case "allow":
@@ -53,16 +53,16 @@ func cmdNetwork(args []string) {
 			return
 		}
 		tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(tw, "FOLDER\tTARGET\tCREATED_AT\tCREATED_BY")
+		_, _ = fmt.Fprintln(tw, "FOLDER\tTARGET\tCREATED_AT\tCREATED_BY")
 		for _, r := range rules {
 			folderLabel := r.Folder
 			if folderLabel == "" {
 				folderLabel = "(root)"
 			}
-			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n",
+			_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n",
 				folderLabel, r.Target, r.CreatedAt.Format("2006-01-02"), r.CreatedBy)
 		}
-		tw.Flush()
+		_ = tw.Flush()
 
 	case "resolve":
 		need(args, 3, "arizuko network <instance> resolve <folder>")

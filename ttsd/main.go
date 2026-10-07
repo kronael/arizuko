@@ -68,7 +68,9 @@ func main() {
 	<-sigs
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	srv.Shutdown(ctx)
+	if err := srv.Shutdown(ctx); err != nil {
+		slog.Warn("graceful shutdown failed", "err", err)
+	}
 	slog.Info("ttsd shut down")
 }
 
@@ -91,19 +93,19 @@ func healthHandler(backend string) http.HandlerFunc {
 	return func(w http.ResponseWriter, _ *http.Request) {
 		if backendUp(client, backend) {
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]any{"status": "ok", "name": "ttsd"})
+			_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok", "name": "ttsd"})
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusServiceUnavailable)
-		json.NewEncoder(w).Encode(map[string]any{"status": "disconnected", "name": "ttsd"})
+		_ = json.NewEncoder(w).Encode(map[string]any{"status": "disconnected", "name": "ttsd"})
 	}
 }
 
 func backendUp(client *http.Client, backend string) bool {
 	resp, err := client.Get(strings.TrimRight(backend, "/") + "/health")
 	if err == nil {
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		if resp.StatusCode < 500 {
 			return true
 		}
@@ -117,6 +119,6 @@ func backendUp(client *http.Client, backend string) bool {
 	if err != nil {
 		return false
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	return resp.StatusCode < 500
 }

@@ -45,7 +45,7 @@ func main() {
 		os.Exit(1)
 	}
 	set, err := rule.Load(f)
-	f.Close()
+	_ = f.Close()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
 		os.Exit(1)
@@ -74,7 +74,7 @@ func main() {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		w.Write(out)
+		_, _ = w.Write(out)
 	})
 	// Register the signal handler BEFORE the listener accepts: a SIGTERM in
 	// between takes Go's default disposition and kills the process, so the

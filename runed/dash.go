@@ -33,7 +33,7 @@ func (s *Server) handleDash(w http.ResponseWriter, r *http.Request) {
 		slog.Error("dash: list spawns", "err", err)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusInternalServerError)
-		fmt.Fprint(w, theme.Page("runed",
+		_, _ = fmt.Fprint(w, theme.Page("runed",
 			template.HTML(`<div class="banner-err">Could not read the spawn table.</div>`)))
 		return
 	}
@@ -55,7 +55,7 @@ func (s *Server) handleDash(w http.ResponseWriter, r *http.Request) {
 
 	b.WriteString(stateFilter(state))
 	b.WriteString(runTable(runs))
-	fmt.Fprint(w, theme.Page("runed", template.HTML(b.String())))
+	_, _ = fmt.Fprint(w, theme.Page("runed", template.HTML(b.String())))
 }
 
 // handleDashKill stops one run. RequireWrite: operator scope AND same origin,

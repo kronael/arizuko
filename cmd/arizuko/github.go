@@ -28,7 +28,7 @@ func cmdGithub(args []string) {
 	if err != nil {
 		die("Failed: open routd.db: %v", err)
 	}
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 
 	switch sub {
 	case "add":
@@ -70,11 +70,11 @@ func cmdGithub(args []string) {
 			die("Failed: list: %v", err)
 		}
 		w := tabwriter.NewWriter(os.Stdout, 0, 8, 2, ' ', 0)
-		fmt.Fprintln(w, "SOURCE\tOWNER\tCREATED")
+		_, _ = fmt.Fprintln(w, "SOURCE\tOWNER\tCREATED")
 		for _, r := range rows {
-			fmt.Fprintf(w, "%s\t%s\t%s\n", r.Source, r.OwnerFolder, r.CreatedAt.UTC().Format(time.RFC3339))
+			_, _ = fmt.Fprintf(w, "%s\t%s\t%s\n", r.Source, r.OwnerFolder, r.CreatedAt.UTC().Format(time.RFC3339))
 		}
-		w.Flush()
+		_ = w.Flush()
 
 	case "rm":
 		need(args, 4, "arizuko github <instance> rm <kind>/<name> <folder>")

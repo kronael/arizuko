@@ -214,7 +214,7 @@ func (e *Engine) Refresh(ctx context.Context, provider, refresh string) (Tokens,
 	if err != nil {
 		return Tokens{}, fmt.Errorf("surrogate refresh: %w", err) // transient
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if resp.StatusCode >= 500 {
 		return Tokens{}, fmt.Errorf("surrogate refresh: %s", resp.Status) // transient
@@ -259,7 +259,7 @@ func (e *Engine) Revoke(ctx context.Context, provider, token string) error {
 	if err != nil {
 		return err
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	return nil
 }
 
@@ -268,7 +268,7 @@ func (e *Engine) postToken(ctx context.Context, endpoint string, form url.Values
 	if err != nil {
 		return tokenResp{}, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	var tr tokenResp
 	if err := json.Unmarshal(body, &tr); err != nil {

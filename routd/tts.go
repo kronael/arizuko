@@ -119,7 +119,7 @@ func (c ttsConfig) cacheOrSynthesize(text, voice, model string) (string, error) 
 		return "", fmt.Errorf("write tts cache: %w", err)
 	}
 	if err := os.Rename(tmp, path); err != nil {
-		os.Remove(tmp)
+		_ = os.Remove(tmp)
 		return "", fmt.Errorf("rename tts cache: %w", err)
 	}
 	return path, nil
@@ -147,7 +147,7 @@ func (c ttsConfig) synthesize(text, voice, model string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("post: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != 200 {
 		bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		return nil, fmt.Errorf("status %d: %s", resp.StatusCode, string(bodyBytes))

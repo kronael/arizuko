@@ -218,7 +218,7 @@ func (p *Proxy) handleConnect(w http.ResponseWriter, r *http.Request, src string
 		http.Error(w, "denied", http.StatusForbidden)
 		return
 	}
-	defer upstream.Close()
+	defer func() { _ = upstream.Close() }()
 
 	hj, ok := w.(http.Hijacker)
 	if !ok {
@@ -230,7 +230,7 @@ func (p *Proxy) handleConnect(w http.ResponseWriter, r *http.Request, src string
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 	if _, err := client.Write([]byte("HTTP/1.1 200 Connection Established\r\n\r\n")); err != nil {
 		return
 	}
@@ -276,7 +276,7 @@ func (p *Proxy) handleHTTP(w http.ResponseWriter, r *http.Request, src string) {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	for k, vv := range resp.Header {
 		if isHopByHop(k) {
 			continue
@@ -286,7 +286,7 @@ func (p *Proxy) handleHTTP(w http.ResponseWriter, r *http.Request, src string) {
 		}
 	}
 	w.WriteHeader(resp.StatusCode)
-	io.Copy(w, resp.Body)
+	_, _ = io.Copy(w, resp.Body)
 	slog.Info("allow http", "src", src, "host", host, "status", resp.StatusCode)
 }
 

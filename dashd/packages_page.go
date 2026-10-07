@@ -19,29 +19,29 @@ func (d *dash) handlePackages(w http.ResponseWriter, r *http.Request) {
 
 	st := d.ds()
 	if st == nil {
-		fmt.Fprint(w, htmlBanner("err", "package store unavailable"))
+		_, _ = fmt.Fprint(w, htmlBanner("err", "package store unavailable"))
 		pageClose(w, r)
 		return
 	}
 	pkgs, err := st.InstalledPackages()
 	if err != nil {
-		fmt.Fprint(w, htmlBanner("err", "read installed_packages: "+esc(err.Error())))
+		_, _ = fmt.Fprint(w, htmlBanner("err", "read installed_packages: "+esc(err.Error())))
 		pageClose(w, r)
 		return
 	}
 
-	fmt.Fprint(w, `<table class="tbl"><thead><tr><th>folder</th><th>name</th><th>source</th><th>revision</th><th>installed</th></tr></thead><tbody>`)
+	_, _ = fmt.Fprint(w, `<table class="tbl"><thead><tr><th>folder</th><th>name</th><th>source</th><th>revision</th><th>installed</th></tr></thead><tbody>`)
 	for _, p := range pkgs {
 		scope := `<span class="dim">instance</span>`
 		if p.Folder != "" {
 			scope = "<code>" + esc(p.Folder) + "</code>"
 		}
-		fmt.Fprintf(w, `<tr><td>%s</td><td>%s</td><td>%s</td><td><code>%s</code></td><td>%s</td></tr>`,
+		_, _ = fmt.Fprintf(w, `<tr><td>%s</td><td>%s</td><td>%s</td><td><code>%s</code></td><td>%s</td></tr>`,
 			scope, esc(p.Name), esc(p.Source), esc(p.Revision), esc(p.InstalledAt))
 	}
-	fmt.Fprint(w, `</tbody></table>`)
+	_, _ = fmt.Fprint(w, `</tbody></table>`)
 	if len(pkgs) == 0 {
-		fmt.Fprint(w, `<p class="dim">No packages installed. Install one with `+
+		_, _ = fmt.Fprint(w, `<p class="dim">No packages installed. Install one with `+
 			`<code>arizuko packages &lt;instance&gt; install &lt;source&gt;</code>, `+
 			`or blend a group's products with <code>arizuko products &lt;instance&gt; apply &lt;folder&gt;</code>.</p>`)
 	}

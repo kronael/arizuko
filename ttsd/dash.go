@@ -43,7 +43,7 @@ func dashHandler(backend string, ks *auth.KeySet) http.HandlerFunc {
 		fmt.Fprint(&b, `<div class="crumb"><a href="/dash/services/">arizuko hub</a> › ttsd</div>`)
 		fmt.Fprint(&b, `<h1>ttsd</h1>`)
 		b.WriteString(backendPanel(backend, up, took))
-		fmt.Fprint(w, theme.Page("ttsd", template.HTML(b.String())))
+		_, _ = fmt.Fprint(w, theme.Page("ttsd", template.HTML(b.String())))
 	}
 }
 

@@ -30,7 +30,7 @@ func (d *dash) handleRoutes(w http.ResponseWriter, r *http.Request) {
 	}
 	allowed, operator := d.callerScope(r)
 	pageTopFor(w, r, "Routes")
-	fmt.Fprint(w, `<p class="dim">Routing rules. Each inbound message walks the table in <code>seq</code> order; the first <code>match</code> hit pins the <code>target</code> group.</p>`)
+	_, _ = fmt.Fprint(w, `<p class="dim">Routing rules. Each inbound message walks the table in <code>seq</code> order; the first <code>match</code> hit pins the <code>target</code> group.</p>`)
 
 	// READ through routd's /v1 (spec 6/28 §"Read-path: /v1 only, no direct DB").
 	// routd owns the routes table and already serves these rows to the agent, to
@@ -45,7 +45,7 @@ func (d *dash) handleRoutes(w http.ResponseWriter, r *http.Request) {
 	routes, err := d.listRoutes(r.Context())
 	if err != nil {
 		slog.Warn("routes: list", "err", err)
-		fmt.Fprint(w, htmlBanner("err", "could not reach routd for the route table"))
+		_, _ = fmt.Fprint(w, htmlBanner("err", "could not reach routd for the route table"))
 		pageClose(w, r)
 		return
 	}
@@ -70,7 +70,7 @@ func (d *dash) handleRoutes(w http.ResponseWriter, r *http.Request) {
 			del,
 		})
 	}
-	fmt.Fprint(w, htmlTable(
+	_, _ = fmt.Fprint(w, htmlTable(
 		[]string{"ID", "Seq", "Match", "Target", "Window (msgs/chars)", ""},
 		tableRows,
 		"No routes configured. Messages will not be delivered until at least one route exists.",
@@ -80,7 +80,7 @@ func (d *dash) handleRoutes(w http.ResponseWriter, r *http.Request) {
 		d.writeUnroutedSection(w, r)
 	}
 
-	fmt.Fprint(w, htmlSection("Add route",
+	_, _ = fmt.Fprint(w, htmlSection("Add route",
 		`<form method="post" action="/dash/routes/">`+
 			htmlFormRow("Seq", `<input type="number" name="seq" value="0" required>`)+
 			htmlFormRow("Match", `<input type="text" name="match" placeholder="room=12345@g.us" required size="60">`)+
@@ -106,13 +106,13 @@ func (d *dash) writeUnroutedSection(w http.ResponseWriter, r *http.Request) {
 	chats, err := d.listUnrouted(r.Context())
 	if err != nil {
 		slog.Warn("routes: unrouted", "err", err)
-		fmt.Fprint(w, htmlSection("Unrouted chats", htmlBanner("err", "could not reach routd for unrouted chats")))
+		_, _ = fmt.Fprint(w, htmlSection("Unrouted chats", htmlBanner("err", "could not reach routd for unrouted chats")))
 		return
 	}
 	folders, err := d.foldersViaRoutd(r.Context())
 	if err != nil {
 		slog.Warn("routes: unrouted folders", "err", err)
-		fmt.Fprint(w, htmlSection("Unrouted chats", htmlBanner("err", "could not reach routd for the group list")))
+		_, _ = fmt.Fprint(w, htmlSection("Unrouted chats", htmlBanner("err", "could not reach routd for the group list")))
 		return
 	}
 	var rows [][]string
@@ -128,7 +128,7 @@ func (d *dash) writeUnroutedSection(w http.ResponseWriter, r *http.Request) {
 			claimRouteForm(c.ChatJID, folders),
 		})
 	}
-	fmt.Fprint(w, htmlSection("Unrouted chats",
+	_, _ = fmt.Fprint(w, htmlSection("Unrouted chats",
 		`<p class="dim">Chats that have messaged this instance and reach no group: routd stores them and fires no turn.`+
 			` <strong>Claim</strong> writes a <code>chat_jid=</code> route at seq 0; to claim a whole platform, add`+
 			` <code>platform=&lt;name&gt;</code> below. History does not move — only messages after the claim reach the group.</p>`+
@@ -254,7 +254,7 @@ func (d *dash) handleRouteCreate(w http.ResponseWriter, r *http.Request) {
 	slog.Info("route added", "id", id, "match", body.Match, "target", body.Target)
 	if strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
 		w.WriteHeader(http.StatusCreated)
-		fmt.Fprintf(w, `{"id":%d}`, id)
+		_, _ = fmt.Fprintf(w, `{"id":%d}`, id)
 		return
 	}
 	http.Redirect(w, r, "/dash/routes/", http.StatusSeeOther)

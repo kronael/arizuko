@@ -51,7 +51,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("seed: open routd's store: %v", err)
 	}
-	defer rdb.Close()
+	defer func() { _ = rdb.Close() }()
 
 	// onbod's own tables — /dash/invites/ reads them. onbod is package main so
 	// the seed cannot import its opener, and it asks the owners that DECLARE
@@ -76,7 +76,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("seed: open runed's store: %v", err)
 	}
-	defer runedDB.Close()
+	defer func() { _ = runedDB.Close() }()
 
 	now := time.Now().UTC()
 	nowS := now.Format(time.RFC3339)

@@ -85,7 +85,7 @@ func (ts *TokenSource) exchange(ctx context.Context) (token string, expires time
 	if err != nil {
 		return "", time.Time{}, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return "", time.Time{}, fmt.Errorf("service-token exchange: status %d", resp.StatusCode)
 	}

@@ -3,6 +3,7 @@ package runed
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"slices"
@@ -51,7 +52,12 @@ func renderTurn(
 	folder := string(req.Folder)
 	gc := groupConfig(req.ContainerConfig)
 	groupDir, _ := folders.GroupPath(folder)
-	os.MkdirAll(groupDir, 0o755)
+	if err := os.MkdirAll(groupDir, 0o755); err != nil {
+		// The home mount, the caps file and settings.json all land under this dir,
+		// so the spawn below stages nothing the agent can read.
+		slog.Error("group home not created; the turn stages an empty home",
+			"folder", folder, "path", groupDir, "err", err)
+	}
 	container.WriteGatewayCaps(groupDir, cfg)
 
 	queryTimeout := queryTimeoutMs(ttl)

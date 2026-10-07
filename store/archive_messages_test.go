@@ -395,7 +395,7 @@ func TestDeriveAgentCursorsParksAtTheRenderedInstant(t *testing.T) {
 	if want := store.MsgStamp("2026-04-02T12:38:47.000000000Z", "h1"); got != want {
 		t.Fatalf("cursor = %q, want the rendered instant's key %q", got, want)
 	}
-	if !(got > handWritten) {
+	if got <= handWritten {
 		t.Errorf("the cursor %q sorts below the row %q it came from, so the poller re-feeds it",
 			got, handWritten)
 	}

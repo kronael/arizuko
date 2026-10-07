@@ -56,7 +56,7 @@ func main() {
 				return nil, nil, err
 			}
 			srv := newServer(cfg, b, st, as.Chan, rc)
-			return srv.handler(), func() { b.stop(); as.Close(); st.Close() }, nil
+			return srv.handler(), func() { b.stop(); _ = as.Close(); _ = st.Close() }, nil
 		},
 	})
 }

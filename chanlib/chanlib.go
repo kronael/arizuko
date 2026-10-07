@@ -318,7 +318,7 @@ func (r *RouterClient) Post(path string, body any, auth string, out any) error {
 	if err != nil {
 		return fmt.Errorf("router %s: %w", path, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != 200 {
 		return &StatusError{Path: path, Code: resp.StatusCode}
 	}
@@ -327,13 +327,13 @@ func (r *RouterClient) Post(path string, body any, auth string, out any) error {
 
 func WriteJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(v)
+	_ = json.NewEncoder(w).Encode(v)
 }
 
 func WriteErr(w http.ResponseWriter, code int, msg string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
-	json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": msg})
+	_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": msg})
 }
 
 func Chunk(s string, max int) []string {

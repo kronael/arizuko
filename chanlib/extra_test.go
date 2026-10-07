@@ -392,7 +392,7 @@ func TestFileProxyHandler_Success(t *testing.T) {
 	if w.Code != 200 {
 		t.Fatalf("status = %d", w.Code)
 	}
-	if !strings.Contains(string(w.Body.Bytes()), "fakepng") {
+	if !strings.Contains(w.Body.String(), "fakepng") {
 		t.Errorf("body = %q", w.Body.Bytes())
 	}
 	if w.Header().Get("Content-Type") != "image/png" {

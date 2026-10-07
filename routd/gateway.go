@@ -327,7 +327,7 @@ func (g *modelGateway) call(ctx context.Context, method, path string, body, out 
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, gatewayMaxBody))
 	if resp.StatusCode == http.StatusNotFound {
 		return fmt.Errorf("%w: %s %s", errGatewayNotFound, method, path)

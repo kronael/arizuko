@@ -96,7 +96,7 @@ func (o *oauth) loginPage(w http.ResponseWriter, r *http.Request) {
 		b.WriteString(`<a class="oauth-btn" href="/auth/dex">Sign in with Dex</a>`)
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	fmt.Fprint(w, theme.Page("Sign in", template.HTML(b.String())))
+	_, _ = fmt.Fprint(w, theme.Page("Sign in", template.HTML(b.String())))
 }
 
 // redirect builds the provider authorize URL, writes the CSRF state + PKCE
@@ -382,7 +382,7 @@ func (o *oauth) issueSession(w http.ResponseWriter, r *http.Request, sub, login,
 	accessJS, _ := json.Marshal(access)
 	destJS, _ := json.Marshal(dest)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	fmt.Fprintf(w, `<!DOCTYPE html><html><head><script>localStorage.setItem('jwt',%s);window.location=%s;</script></head><body></body></html>`,
+	_, _ = fmt.Fprintf(w, `<!DOCTYPE html><html><head><script>localStorage.setItem('jwt',%s);window.location=%s;</script></head><body></body></html>`,
 		auth.JSSafe(accessJS), auth.JSSafe(destJS))
 }
 

@@ -94,7 +94,7 @@ func (d *dash) handleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		dot = "dot-warn"
 	}
 
-	fmt.Fprintf(w, `<table>%s%s%s%s%s%s%s%s</table>`,
+	_, _ = fmt.Fprintf(w, `<table>%s%s%s%s%s%s%s%s</table>`,
 		htmlDetail("ID", `<code>`+esc(id)+`</code>`),
 		htmlDetail("Group", esc(owner)),
 		htmlDetail("Chat JID", `<code>`+esc(chatJID)+`</code>`),
@@ -105,33 +105,33 @@ func (d *dash) handleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		htmlDetail("Context Mode", esc(contextMode)),
 	)
 
-	fmt.Fprintf(w, `<h2>Prompt</h2><pre>%s</pre>`, esc(prompt))
+	_, _ = fmt.Fprintf(w, `<h2>Prompt</h2><pre>%s</pre>`, esc(prompt))
 
 	// Actions — POST forms (same-origin CSRF guard via requireAdmin).
-	fmt.Fprint(w, `<h2>Actions</h2><div class="form-inline-group">`)
+	_, _ = fmt.Fprint(w, `<h2>Actions</h2><div class="form-inline-group">`)
 	if status == "active" {
-		fmt.Fprintf(w,
+		_, _ = fmt.Fprintf(w,
 			`<form method="post" action="/dash/tasks/%s/pause">`+
 				`<button type="submit">pause</button></form>`, esc(id))
 	}
 	if status == "paused" {
-		fmt.Fprintf(w,
+		_, _ = fmt.Fprintf(w,
 			`<form method="post" action="/dash/tasks/%s/resume">`+
 				`<button type="submit">resume</button></form>`, esc(id))
 	}
 	if status != "cancelled" {
-		fmt.Fprintf(w,
+		_, _ = fmt.Fprintf(w,
 			`<form method="post" action="/dash/tasks/%s/cancel"`+
 				` onsubmit="return confirm('cancel task %s?')">`+
 				`<button type="submit">cancel</button></form>`, esc(id), esc(id))
 	}
-	fmt.Fprint(w, `</div>`)
+	_, _ = fmt.Fprint(w, `</div>`)
 
-	fmt.Fprint(w, `<h2>Run history</h2>`)
+	_, _ = fmt.Fprint(w, `<h2>Run history</h2>`)
 	runs, err := d.taskRuns(r.Context(), id)
 	if err != nil {
 		slog.Warn("task detail: run logs", "id", id, "err", err)
-		fmt.Fprint(w, htmlBanner("err", "could not reach routd for run history"))
+		_, _ = fmt.Fprint(w, htmlBanner("err", "could not reach routd for run history"))
 		pageClose(w, r)
 		return
 	}
@@ -145,7 +145,7 @@ func (d *dash) handleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			esc(run.Error),
 		})
 	}
-	fmt.Fprint(w, htmlTable([]string{"Run At", "Status", "Duration", "Error"}, logRows))
+	_, _ = fmt.Fprint(w, htmlTable([]string{"Run At", "Status", "Duration", "Error"}, logRows))
 
 	pageClose(w, r)
 }

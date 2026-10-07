@@ -73,7 +73,7 @@ func (s *server) handleFile(w http.ResponseWriter, r *http.Request) {
 		url.QueryEscape(token), url.QueryEscape(fileID)))
 	if err != nil || resp.StatusCode != 200 {
 		if resp != nil {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 		}
 		chanlib.WriteErr(w, 502, "getFile failed")
 		return
@@ -85,7 +85,7 @@ func (s *server) handleFile(w http.ResponseWriter, r *http.Request) {
 		} `json:"result"`
 	}
 	err = json.NewDecoder(resp.Body).Decode(&apiResp)
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if err != nil || !apiResp.OK {
 		chanlib.WriteErr(w, 502, "getFile parse failed")
 		return
@@ -97,7 +97,7 @@ func (s *server) handleFile(w http.ResponseWriter, r *http.Request) {
 		chanlib.WriteErr(w, 502, "file download failed")
 		return
 	}
-	defer fileResp.Body.Close()
+	defer func() { _ = fileResp.Body.Close() }()
 	w.Header().Set("Content-Disposition", fmt.Sprintf(
 		`attachment; filename="%s"`, sanitizeFilename(apiResp.Result.FilePath)))
 	chanlib.ProxyFile(w, fileResp, s.cfg.MediaMaxBytes)

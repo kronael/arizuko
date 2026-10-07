@@ -117,7 +117,7 @@ func cmdArchiveExport(args []string) {
 		}
 		fmt.Fprintf(os.Stderr, "wrote %s (%d bytes)\n", file, buf.Len())
 	} else {
-		os.Stdout.Write(buf.Bytes())
+		_, _ = os.Stdout.Write(buf.Bytes())
 	}
 	fmt.Fprint(os.Stderr, report)
 }
@@ -173,7 +173,7 @@ func cmdArchiveApply(args []string) {
 		fmt.Fprint(os.Stderr, report)
 		die("Failed: archive apply: %v", err)
 	}
-	fmt.Fprint(os.Stdout, report)
+	_, _ = fmt.Fprint(os.Stdout, report)
 }
 
 // holdFn claims folder's runed run slot for the duration of its filesystem
@@ -424,7 +424,7 @@ func tarFolderTree(tw *tar.Writer, root, folder string) error {
 		if err != nil {
 			return err
 		}
-		defer f.Close()
+		defer func() { _ = f.Close() }()
 		_, err = io.Copy(tw, f)
 		return err
 	})
@@ -801,8 +801,12 @@ func extractTarEntry(groupDir, folder string, hdr *tar.Header, r io.Reader) erro
 		if err != nil {
 			return err
 		}
-		defer f.Close()
+		// Close, not deferred: this is the write end of a restore, and a deferred
+		// close drops the flush error, so a truncated file reads as a clean apply.
 		_, err = io.Copy(f, r)
+		if cerr := f.Close(); err == nil {
+			err = cerr
+		}
 		return err
 	default:
 		return fmt.Errorf("entry %q: unsupported tar type %d", hdr.Name, hdr.Typeflag)

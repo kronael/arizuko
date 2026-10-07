@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"slices"
+	"sort"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -771,4 +773,44 @@ func TestStartHealthLoopStopsWithItsContext(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Errorf("the health loop goroutine outlived its context (%d -> %d)", before, runtime.NumGoroutine())
+}
+
+// The multipart body distinguishes "no caption" from "an empty caption": the
+// optional parts are ABSENT when unset, while chat_jid and filename always go
+// out because every adapter reads both by name. A field-writing loop that
+// emitted all six would tell the adapter the send carries an empty caption, an
+// empty reply target and an empty thread.
+func TestSendFileOmitsTheOptionalPartsItHasNoValueFor(t *testing.T) {
+	doc := filepath.Join(t.TempDir(), "bare.txt")
+	if err := os.WriteFile(doc, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var present []string
+	var filename string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseMultipartForm(1 << 20); err != nil {
+			t.Errorf("not multipart: %v", err)
+			return
+		}
+		for k := range r.MultipartForm.Value {
+			present = append(present, k)
+		}
+		sort.Strings(present)
+		filename = r.FormValue("filename")
+		_, _ = io.WriteString(w, `{"id":"f1"}`)
+	}))
+	t.Cleanup(srv.Close)
+
+	if _, err := chanWithCaps(t, srv.URL, "send_file").
+		SendFile("x:1", doc, "", "", "", "", ""); err != nil {
+		t.Fatalf("SendFile: %v", err)
+	}
+	want := []string{"chat_jid", "filename"}
+	if !slices.Equal(present, want) {
+		t.Errorf("parts = %v, want %v", present, want)
+	}
+	if filename != "" {
+		t.Errorf("filename = %q, want the empty value the caller passed", filename)
+	}
 }

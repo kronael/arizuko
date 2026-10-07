@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"strings"
@@ -52,18 +53,18 @@ func (d *dash) handleWhatsappPair(w http.ResponseWriter, r *http.Request) {
 	st := d.fetchPairStatus()
 	phone := os.Getenv("WHATSAPP_PHONE")
 
-	fmt.Fprintf(w, `<p class="dim">Operator-only. Re-pair binds the instance's WhatsApp account to a new linked device. <a href="/pub/arizuko/components/channels.html">channels overview</a>.</p>`)
-	fmt.Fprintf(w, `<div id="pair-status">%s</div>`, renderPairStatus(st))
+	_, _ = fmt.Fprintf(w, `<p class="dim">Operator-only. Re-pair binds the instance's WhatsApp account to a new linked device. <a href="/pub/arizuko/components/channels.html">channels overview</a>.</p>`)
+	_, _ = fmt.Fprintf(w, `<div id="pair-status">%s</div>`, renderPairStatus(st))
 	if d.svc == nil {
-		fmt.Fprint(w, `<p class="dim">Pair proxy unavailable (local dev)</p>`)
+		_, _ = fmt.Fprint(w, `<p class="dim">Pair proxy unavailable (local dev)</p>`)
 	} else {
-		fmt.Fprint(w, `<p class="dim">Starting a new pairing disconnects the phone currently linked until you finish scanning the new code — the bot goes offline on WhatsApp in the meantime.</p>`)
-		fmt.Fprintf(w, `<form method="post" action="/dash/channels/whatsapp/pair/start" hx-post="/dash/channels/whatsapp/pair/start" hx-target="#pair-result" hx-swap="innerHTML">
+		_, _ = fmt.Fprint(w, `<p class="dim">Starting a new pairing disconnects the phone currently linked until you finish scanning the new code — the bot goes offline on WhatsApp in the meantime.</p>`)
+		_, _ = fmt.Fprintf(w, `<form method="post" action="/dash/channels/whatsapp/pair/start" hx-post="/dash/channels/whatsapp/pair/start" hx-target="#pair-result" hx-swap="innerHTML">
 <p><label>Phone <input type="text" name="phone" value="%s" placeholder="+420..." required size="20"></label></p>
 <p><button type="submit">Start pairing</button></p>
 </form>`, esc(phone))
 	}
-	fmt.Fprint(w, `<div id="pair-result"></div>
+	_, _ = fmt.Fprint(w, `<div id="pair-result"></div>
 <script>
 (function(){
   // Light polling without bringing in htmx for the read view: refresh
@@ -106,7 +107,7 @@ func (d *dash) handleWhatsappPairStatus(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(d.fetchPairStatus())
+	_ = json.NewEncoder(w).Encode(d.fetchPairStatus())
 }
 
 // POST /dash/channels/whatsapp/pair/start — call whapd, render code once.
@@ -130,11 +131,11 @@ func (d *dash) handleWhatsappPairStart(w http.ResponseWriter, r *http.Request) {
 		if msg == "" {
 			msg = "pair-start failed"
 		}
-		fmt.Fprintf(w, `<div class="banner-err">%s</div>`, esc(msg))
+		_, _ = fmt.Fprintf(w, `<div class="banner-err">%s</div>`, esc(msg))
 		return
 	}
 	d.auditPairStart(sub, phone)
-	fmt.Fprintf(w, `<div class="banner-ok"><p>code: <strong class="code-xl">%s</strong> &middot; expires_at %s</p>
+	_, _ = fmt.Fprintf(w, `<div class="banner-ok"><p>code: <strong class="code-xl">%s</strong> &middot; expires_at %s</p>
 <ol><li>Open WhatsApp on +%s</li><li>Settings &rsaquo; Linked Devices &rsaquo; Link a Device</li><li>Tap "Link with phone number instead"</li><li>Enter the code above.</li></ol></div>`,
 		esc(pr.Code), esc(pr.ExpiresAt), esc(strings.TrimPrefix(phone, "+")))
 }
@@ -172,7 +173,11 @@ func (d *dash) fetchPairStatus() pairStatus {
 		return pairStatus{State: "unreachable", Reason: err.Error()}
 	}
 	var st pairStatus
-	json.Unmarshal(raw, &st)
+	if err := json.Unmarshal(raw, &st); err != nil {
+		// The page still reads "unknown"; without this nothing tells the operator
+		// apart a whapd that answered garbage from one with nothing to report.
+		slog.Warn("whapd pair status will not parse", "err", err)
+	}
 	if st.State == "" {
 		st.State = "unknown"
 	}

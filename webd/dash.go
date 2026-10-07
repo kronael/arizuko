@@ -62,7 +62,7 @@ func (s *server) handleDash(w http.ResponseWriter, r *http.Request) {
 	webdTile(&b, "Subscribers", total, 0)
 	fmt.Fprint(&b, `</div>`)
 	b.WriteString(hubTable(keys))
-	fmt.Fprint(w, theme.Page("webd", template.HTML(b.String())))
+	_, _ = fmt.Fprint(w, theme.Page("webd", template.HTML(b.String())))
 }
 
 // webdTile renders a count, with its ceiling when it has one — a subscriber

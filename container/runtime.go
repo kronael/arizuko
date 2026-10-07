@@ -45,7 +45,7 @@ func SeedCodexMountTargets(codexDir string) {
 			}
 			continue
 		}
-		f.Close()
+		_ = f.Close()
 	}
 }
 

@@ -140,7 +140,9 @@ func (w *writer) rotateIfNeeded() {
 	if !aged && !tooBig {
 		return
 	}
-	w.f.Close()
+	if err := w.f.Close(); err != nil {
+		slog.Warn("audit close before rotate", "path", w.path, "err", err)
+	}
 	w.f = nil
 
 	stamp := strconv.FormatInt(time.Now().Unix(), 10)
@@ -154,7 +156,9 @@ func (w *writer) rotateIfNeeded() {
 	if len(glob) > 2 {
 		sort.Strings(glob)
 		for _, old := range glob[:len(glob)-2] {
-			os.Remove(old)
+			if err := os.Remove(old); err != nil {
+				slog.Warn("audit prune rotated file", "path", old, "err", err)
+			}
 		}
 	}
 }
@@ -241,7 +245,7 @@ func postWebhook(url, secret string, payload []byte) {
 			lastErr = err
 			continue
 		}
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 			return
 		}

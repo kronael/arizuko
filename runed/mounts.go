@@ -54,7 +54,7 @@ func buildMounts(
 		Container: core.ContainerHome,
 	})
 	media := filepath.Join(groupDir, "media")
-	os.MkdirAll(media, 0o755)
+	mkMountSource(media)
 
 	// The staged copy of the release's `ant/`, not HOST_APP_DIR: see
 	// container.MaterializeAppSrc.
@@ -70,18 +70,18 @@ func buildMounts(
 	// grant with readonly=true downgrades it to RO for that folder.
 	world := worldOf(folder, elevated)
 	share := filepath.Join(cfg.GroupsDir, world, "share")
-	os.MkdirAll(share, 0o755)
+	mkMountSource(share)
 	m = append(m, core.Mount{
 		Host:      share,
 		Container: "/var/lib/share",
 		RO:        req.ShareReadOnly, // 5/33-paths-roles: a `share_mount(readonly=true)` grant downgrades to RO
 	})
 
-	os.MkdirAll(filepath.Join(groupDir, ".claude"), 0o755)
+	mkMountSource(filepath.Join(groupDir, ".claude"))
 
 	ipcDir, err := folders.IpcPath(folder)
 	if err == nil {
-		os.MkdirAll(groupfolder.IpcInputDir(ipcDir), 0o755)
+		mkMountSource(groupfolder.IpcInputDir(ipcDir))
 		m = append(m, core.Mount{
 			Host:      ipcDir,
 			Container: ipcMount,
@@ -111,7 +111,7 @@ func buildMounts(
 	// codex wrote its rollout to a guest-local path and every resume
 	// afterwards found nothing.
 	groupCodex := filepath.Join(groupDir, ".codex")
-	os.MkdirAll(groupCodex, 0o755)
+	mkMountSource(groupCodex)
 	m = append(m, core.Mount{Host: groupCodex, Container: core.ContainerHome + "/.codex"})
 	if cfg.HostCodexDir != "" {
 		container.SeedCodexMountTargets(groupCodex)
@@ -261,4 +261,13 @@ func unreadableCodexCreds(hostCodexDir string, uid int) []string {
 		out = append(out, p)
 	}
 	return out
+}
+
+// mkMountSource creates a mount's host side. A failure is named and not fatal
+// here: the mount still goes into the plan, and stageTargets refuses the turn by
+// path, which is where the operator can see which one is missing (BUGS L368).
+func mkMountSource(path string) {
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		slog.Warn("mount source not created", "path", path, "err", err)
+	}
 }

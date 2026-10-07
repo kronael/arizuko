@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -78,7 +79,7 @@ func Drive(cfg Config) ([]report.Result, error) {
 	}
 	s := newSink()
 	srv, addr := s.serve(bind)
-	defer srv.Close()
+	defer func() { _ = srv.Close() }()
 	if cfg.SinkURL == "" {
 		cfg.SinkURL = addr
 	}
@@ -304,7 +305,7 @@ func probeSink(sinkURL string) error {
 			"on restart, so re-read it: docker network inspect <instance>_default | grep Gateway",
 			sinkURL, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusNoContent {
 		return fmt.Errorf("--sink %s answered %d, want 204 — something other than this run's sink is on that address",
 			sinkURL, resp.StatusCode)
@@ -331,7 +332,13 @@ func (s *sink) serve(bind string) (io.Closer, string) {
 		panic(err)
 	}
 	srv := &http.Server{Handler: mux}
-	go srv.Serve(ln)
+	// A sink that died mid-run turns every later case into "no callback", which
+	// reads as an agent failure rather than a harness one.
+	go func() {
+		if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
+			fmt.Fprintf(os.Stderr, "anteval: callback sink stopped: %v\n", err)
+		}
+	}()
 	return srv, "http://" + ln.Addr().String()
 }
 

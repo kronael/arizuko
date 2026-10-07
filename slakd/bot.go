@@ -1111,7 +1111,7 @@ func mentionStartOK(prev rune) bool {
 	if prev == 0 {
 		return true
 	}
-	return !(prev == '<' || prev == '@' || isHandleRune(prev))
+	return prev != '<' && prev != '@' && !isHandleRune(prev)
 }
 
 // foldPrefixLen reports whether name (already lowercase) is a
@@ -1376,7 +1376,7 @@ func (b *bot) SendFile(jid, path, name, caption, replyTo, threadID string) (stri
 	if err != nil {
 		return "", fmt.Errorf("slack open file: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	st, err := f.Stat()
 	if err != nil {
 		return "", fmt.Errorf("slack stat file: %w", err)
@@ -1408,7 +1408,7 @@ func (b *bot) SendFile(jid, path, name, caption, replyTo, threadID string) (stri
 	if err != nil {
 		return "", fmt.Errorf("slack upload: %w", err)
 	}
-	defer upResp.Body.Close()
+	defer func() { _ = upResp.Body.Close() }()
 	if upResp.StatusCode/100 != 2 {
 		return "", fmt.Errorf("slack upload: status %d", upResp.StatusCode)
 	}
@@ -1810,7 +1810,7 @@ func (b *bot) postForm(ctx context.Context, path string, form url.Values, out an
 	if err != nil {
 		return fmt.Errorf("slack %s: %w", path, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode == 429 {
 		// A 429 that outlived DoWithPolicy's budget is still a documented
 		// refusal — nothing was created — so the dedup claim must be

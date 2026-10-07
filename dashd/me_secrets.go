@@ -109,11 +109,11 @@ func (d *dash) handleMeSecrets(w http.ResponseWriter, r *http.Request) {
 // guard) and reloads. esc() guards every interpolated key.
 func (d *dash) renderSecretsPage(w http.ResponseWriter, r *http.Request, items []secretItem) {
 	pageTopFor(w, r, "API keys")
-	fmt.Fprint(w, `<p class="dim">Your personal API keys. They override the group's keys when the agent runs for you. Once saved, a key's value is hidden — you can replace it but never read it back.</p>`)
-	fmt.Fprint(w, `<p><a href="/dash/me/connections">OAuth connections &rarr;</a> — connect a provider instead of pasting a token.</p>`)
+	_, _ = fmt.Fprint(w, `<p class="dim">Your personal API keys. They override the group's keys when the agent runs for you. Once saved, a key's value is hidden — you can replace it but never read it back.</p>`)
+	_, _ = fmt.Fprint(w, `<p><a href="/dash/me/connections">OAuth connections &rarr;</a> — connect a provider instead of pasting a token.</p>`)
 
 	if len(items) == 0 {
-		fmt.Fprint(w, `<p class="empty">No API keys yet.</p>`)
+		_, _ = fmt.Fprint(w, `<p class="empty">No API keys yet.</p>`)
 	} else {
 		var rows [][]string
 		for _, it := range items {
@@ -124,10 +124,10 @@ func (d *dash) renderSecretsPage(w http.ResponseWriter, r *http.Request, items [
 		}
 		// "Updated" not "Added": created_at is reset on every upsert (PutSecretRow
 		// ON CONFLICT), so it reflects the last write, not first-create.
-		fmt.Fprint(w, htmlTable([]string{"Key", "Updated", ""}, rows))
+		_, _ = fmt.Fprint(w, htmlTable([]string{"Key", "Updated", ""}, rows))
 	}
 
-	fmt.Fprint(w, htmlSection("Add a key",
+	_, _ = fmt.Fprint(w, htmlSection("Add a key",
 		`<form id="add-secret" onsubmit="return addSecret(event)">`+
 			htmlFormRow("Name", `<input type="text" name="key" placeholder="GITHUB_TOKEN" pattern="[A-Z][A-Z0-9_]*" title="uppercase letters, digits, underscore" required size="40">`)+
 			htmlFormRow("Value", `<input type="password" name="value" autocomplete="off" required size="40">`)+
@@ -135,7 +135,7 @@ func (d *dash) renderSecretsPage(w http.ResponseWriter, r *http.Request, items [
 			`</form>`+
 			`<p id="secret-err" class="banner-err" style="display:none"></p>`))
 
-	fmt.Fprint(w, secretsPageScript)
+	_, _ = fmt.Fprint(w, secretsPageScript)
 	pageClose(w, r)
 }
 

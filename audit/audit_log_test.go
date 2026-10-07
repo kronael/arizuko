@@ -45,7 +45,7 @@ func TestTheIdSortsByTime(t *testing.T) {
 	base := time.Date(2026, 9, 7, 5, 20, 57, 0, time.UTC)
 	earlier := NewID(base)
 	later := NewID(base.Add(time.Nanosecond))
-	if !(earlier < later) {
+	if earlier >= later {
 		t.Fatalf("%q does not sort before %q", earlier, later)
 	}
 	if got := createdAt(later); got != core.TS(base.Add(time.Nanosecond)) {

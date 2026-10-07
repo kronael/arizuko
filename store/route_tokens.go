@@ -216,7 +216,7 @@ func (s *Store) InsertRouteToken(rawToken string, t RouteToken) error {
 		return fmt.Errorf("jid and owner_folder required")
 	}
 	if RouteTokenJIDKind(t.JID) == "" {
-		return fmt.Errorf("jid must start with web: or hook:")
+		return fmt.Errorf(`jid must start with "web:" or "hook:"`)
 	}
 	ctx := context.Background()
 	if err := CheckRouteTokenTarget(ctx, s.Obj(), t.JID, t.TargetFolder); err != nil {

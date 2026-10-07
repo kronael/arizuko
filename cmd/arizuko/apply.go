@@ -62,7 +62,7 @@ func cliActor() string { return "cli:" + os.Getenv("USER") }
 
 func closeStores(stores map[string]*store.Store) {
 	for _, s := range stores {
-		s.Close()
+		_ = s.Close()
 	}
 }
 
@@ -399,7 +399,7 @@ func cmdExport(args []string) {
 		fmt.Fprintf(os.Stderr, "wrote %s (%d bytes)\n", args[1], len(out))
 		return
 	}
-	os.Stdout.Write(out)
+	_, _ = os.Stdout.Write(out)
 }
 
 // cmdPlan: non-mutating diff of a manifest vs live DB (spec 5/8 §"Surface").
@@ -529,5 +529,5 @@ func cmdGet(args []string) {
 	if err != nil {
 		die("Failed: emit yaml: %v", err)
 	}
-	os.Stdout.Write(out)
+	_, _ = os.Stdout.Write(out)
 }

@@ -314,7 +314,7 @@ func (s *talkSession) turn(ctx context.Context, prompt string) int {
 	if resp == nil {
 		return code
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if _, err := s.callText(ctx, "send", map[string]any{
 		"folder": s.folder, "content": prompt, "topic": s.thread,
@@ -345,9 +345,9 @@ func linePrompts(in io.Reader, out io.Writer) promptSource {
 	scan := bufio.NewScanner(in)
 	scan.Buffer(make([]byte, 64*1024), 1<<20)
 	return func() (string, bool) {
-		fmt.Fprint(out, "> ")
+		_, _ = fmt.Fprint(out, "> ")
 		if !scan.Scan() {
-			fmt.Fprintln(out)
+			_, _ = fmt.Fprintln(out)
 			return "", false
 		}
 		return scan.Text(), true
@@ -424,7 +424,7 @@ func cmdTalk(args []string) {
 		die("Failed: %v", err)
 	}
 	if !f.OneShot {
-		fmt.Fprintf(os.Stdout, "%s · %s · %s  (ctrl-d or /quit to leave)\n",
+		_, _ = fmt.Fprintf(os.Stdout, "%s · %s · %s  (ctrl-d or /quit to leave)\n",
 			entry.URL, s.folder, s.thread)
 	}
 	os.Exit(talkLoop(ctx, s, next))

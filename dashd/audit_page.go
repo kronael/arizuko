@@ -86,7 +86,7 @@ func (d *dash) handleAudit(w http.ResponseWriter, r *http.Request) {
 	}
 	cursors := parseAuditCursor(q.Get("before"))
 
-	fmt.Fprint(w, d.auditFilterForm(f))
+	_, _ = fmt.Fprint(w, d.auditFilterForm(f))
 
 	ctx, cancel := context.WithTimeout(r.Context(), auditFanoutTimeout)
 	defer cancel()
@@ -113,7 +113,7 @@ func (d *dash) handleAudit(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	for _, msg := range failures {
-		fmt.Fprint(w, htmlBanner("err", "audit source unavailable — "+msg))
+		_, _ = fmt.Fprint(w, htmlBanner("err", "audit source unavailable — "+msg))
 	}
 
 	// Newest first across all sources. created_at is an ISO-8601 UTC string
@@ -155,12 +155,12 @@ func (d *dash) handleAudit(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	fmt.Fprint(w, htmlTable(
+	_, _ = fmt.Fprint(w, htmlTable(
 		[]string{"Time", "Source", "Category", "Action", "Actor", "Folder", "Outcome", "Resource", "Surface", "Params"},
 		tableRows))
 
 	if more {
-		fmt.Fprintf(w, `<p><a class="btn" href="%s">older &rarr;</a></p>`,
+		_, _ = fmt.Fprintf(w, `<p><a class="btn" href="%s">older &rarr;</a></p>`,
 			esc(auditOlderHref(nextAuditCursor(cursors, merged), f)))
 	}
 

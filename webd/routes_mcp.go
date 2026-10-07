@@ -183,7 +183,7 @@ func (c *proxydClient) call(ctx context.Context, method, path string, body map[s
 	if err != nil {
 		return nil, 0, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	raw, _ := io.ReadAll(resp.Body)
 	return raw, resp.StatusCode, nil
 }

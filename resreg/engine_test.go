@@ -364,7 +364,7 @@ func TestYAMLEmit_Deterministic(t *testing.T) {
 	ix := strings.Index(out, "value: \"1\"")
 	iy := strings.Index(out, "value: \"2\"")
 	iz := strings.Index(out, "value: \"3\"")
-	if !(ix >= 0 && iy > ix && iz > iy) {
+	if ix < 0 || iy <= ix || iz <= iy {
 		t.Errorf("rows not PK-sorted in emit:\n%s", out)
 	}
 }

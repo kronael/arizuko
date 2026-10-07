@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -17,8 +16,6 @@ import (
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
 )
-
-var execCommand = exec.Command
 
 var (
 	safeNameRe  = regexp.MustCompile(`[^a-zA-Z0-9-]`)
@@ -250,8 +247,11 @@ func SeedPackageSkills(cfg *core.Config, folder string) (int, error) {
 	}
 	src := PackageSkillsDir(cfg)
 	pkgs, err := os.ReadDir(src)
-	if err != nil {
+	if os.IsNotExist(err) {
 		return 0, nil // no package ships a skill on this instance
+	}
+	if err != nil {
+		return 0, fmt.Errorf("read package skills %s: %w", src, err)
 	}
 	stock := map[string]bool{}
 	if entries, serr := os.ReadDir(filepath.Join(cfg.EffectiveAppSrcDir(), "ant", "skills")); serr == nil {
@@ -307,8 +307,14 @@ func seedSkills(cfg *core.Config, claudeDir, folder string) {
 			// Disabled by operator: don't seed; remove SKILL.md so
 			// Claude Code stops indexing it, and drop the stale
 			// merge-base so re-enable starts from a fresh sync.
-			os.Remove(filepath.Join(d, "SKILL.md"))
-			os.RemoveAll(filepath.Join(base, e.Name()))
+			if err := os.Remove(filepath.Join(d, "SKILL.md")); err != nil && !os.IsNotExist(err) {
+				slog.Warn("disabled skill keeps its SKILL.md; the agent still indexes it",
+					"skill", e.Name(), "folder", folder, "err", err)
+			}
+			if err := os.RemoveAll(filepath.Join(base, e.Name())); err != nil {
+				slog.Warn("stale merge-base kept; a re-enable 3-way merges against it",
+					"skill", e.Name(), "folder", folder, "err", err)
+			}
 			continue
 		}
 		s := filepath.Join(src, e.Name())
@@ -316,7 +322,10 @@ func seedSkills(cfg *core.Config, claudeDir, folder string) {
 		cpDirFresh(s, d)
 		// merge-base: full mirror of upstream — wipe then copy.
 		baseDir := filepath.Join(base, e.Name())
-		os.RemoveAll(baseDir)
+		if err := os.RemoveAll(baseDir); err != nil {
+			slog.Warn("merge-base not wiped; it keeps files this release dropped",
+				"skill", e.Name(), "folder", folder, "err", err)
+		}
 		cpDirOverwrite(s, baseDir)
 	}
 
@@ -330,11 +339,18 @@ func seedSkills(cfg *core.Config, claudeDir, folder string) {
 	if data, err := os.ReadFile(mdSrc); err == nil {
 		// ours: only write if missing — preserve operator edits.
 		if _, err := os.Stat(mdDst); os.IsNotExist(err) {
-			os.WriteFile(mdDst, data, 0o644)
+			if err := os.WriteFile(mdDst, data, 0o644); err != nil {
+				slog.Error("CLAUDE.md not written; the agent starts without it",
+					"path", mdDst, "folder", folder, "err", err)
+			}
 		}
 		// merge-base: always refresh to mirror upstream.
-		os.MkdirAll(filepath.Dir(mdBase), 0o755)
-		os.WriteFile(mdBase, data, 0o644)
+		if err := os.MkdirAll(filepath.Dir(mdBase), 0o755); err != nil {
+			slog.Warn("merge-base dir", "path", filepath.Dir(mdBase), "folder", folder, "err", err)
+		} else if err := os.WriteFile(mdBase, data, 0o644); err != nil {
+			slog.Warn("merge-base CLAUDE.md not refreshed; /migrate merges against the older one",
+				"path", mdBase, "folder", folder, "err", err)
+		}
 	}
 
 	jsonDst := filepath.Join(claudeDir, ".claude.json")
@@ -344,7 +360,10 @@ func seedSkills(cfg *core.Config, claudeDir, folder string) {
 			"firstStartTime": time.Now().Format(time.RFC3339),
 			"userID":         userID,
 		}, "", "  ")
-		os.WriteFile(jsonDst, append(data, '\n'), 0o644)
+		if err := os.WriteFile(jsonDst, append(data, '\n'), 0o644); err != nil {
+			slog.Warn("first-start marker not written; the agent re-runs onboarding every turn",
+				"path", jsonDst, "folder", folder, "err", err)
+		}
 	}
 }
 
@@ -360,8 +379,11 @@ func WriteGatewayCaps(groupDir string, cfg *core.Config) {
 	} else {
 		fmt.Fprintf(&b, "[web]\nenabled = false\n")
 	}
-	os.WriteFile(filepath.Join(groupDir, ".gateway-caps"),
-		[]byte(b.String()), 0o644)
+	p := filepath.Join(groupDir, ".gateway-caps")
+	if err := os.WriteFile(p, []byte(b.String()), 0o644); err != nil {
+		slog.Error("gateway caps not written; the agent reads the previous turn's capabilities",
+			"path", p, "err", err)
+	}
 }
 
 func MigrationVersion(path string) int {
@@ -370,7 +392,13 @@ func MigrationVersion(path string) int {
 		return 0
 	}
 	var v int
-	fmt.Sscanf(strings.TrimSpace(string(data)), "%d", &v)
+	if _, err := fmt.Sscanf(strings.TrimSpace(string(data)), "%d", &v); err != nil {
+		// 0, the same answer an absent file gives. Which way that fails depends on
+		// WHICH file: a garbled upstream MIGRATION_VERSION makes checkMigrationVersion
+		// return early and no group migrates at all, so the value has to be named.
+		slog.Warn("migration version file is not a number", "path", path, "err", err)
+		return 0
+	}
 	return v
 }
 
@@ -410,7 +438,7 @@ func CopySession(groupDir, srcUUID, dstUUID string) (bool, error) {
 		return false, fmt.Errorf("write tmp: %w", err)
 	}
 	if err := os.Rename(tmp, dst); err != nil {
-		os.Remove(tmp)
+		_ = os.Remove(tmp)
 		return false, fmt.Errorf("rename: %w", err)
 	}
 	return true, nil
@@ -467,7 +495,7 @@ func cpDirImpl(src, dst string, skipExisting bool) {
 			// daemon, but the uid-1000-owned dir lets us unlink + recreate it.
 			// Without this, cpDirOverwrite silently fails on root-owned files
 			// and the styles stay frozen — the staleness it was meant to cure.
-			os.Remove(dp)
+			_ = os.Remove(dp)
 			if err := os.WriteFile(dp, data, 0o644); err != nil {
 				slog.Error("cpDir: write failed — the agent starts without this file; "+
 					"chown the group home to the run uid",
@@ -483,9 +511,16 @@ func writeSnapshot(folders *groupfolder.Resolver, folder, filename string, v any
 		slog.Warn("cannot write snapshot", "folder", folder, "file", filename, "err", err)
 		return
 	}
-	os.MkdirAll(ipcDir, 0o755)
+	if err := os.MkdirAll(ipcDir, 0o755); err != nil {
+		slog.Warn("cannot write snapshot: no ipc dir",
+			"folder", folder, "file", filename, "dir", ipcDir, "err", err)
+		return
+	}
 	data, _ := json.MarshalIndent(v, "", "  ")
-	os.WriteFile(filepath.Join(ipcDir, filename), data, 0o644)
+	if err := os.WriteFile(filepath.Join(ipcDir, filename), data, 0o644); err != nil {
+		slog.Warn("snapshot not written; the agent reads the previous one",
+			"folder", folder, "file", filename, "err", err)
+	}
 }
 
 func WriteTasksSnapshot(

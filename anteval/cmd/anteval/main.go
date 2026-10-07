@@ -41,7 +41,7 @@ func usage() {
 func cmdValidate(args []string) {
 	fs := flag.NewFlagSet("validate", flag.ExitOnError)
 	casesDir := fs.String("cases", "cases", "directory of *.toml case files")
-	fs.Parse(args)
+	_ = fs.Parse(args) // ExitOnError: a bad flag exits inside Parse
 	cases, err := spec.Load(*casesDir)
 	if err != nil {
 		fatal(err)
@@ -124,12 +124,20 @@ func cmdRun(args []string) {
 
 	md := report.Markdown(results)
 	fmt.Print(md)
+	// The artifact the operator asked for by flag: CI reads the file, not this
+	// stdout, so a write that failed silently leaves a green run with no report.
 	if *mdOut != "" {
-		os.WriteFile(*mdOut, []byte(md), 0o644)
+		if err := os.WriteFile(*mdOut, []byte(md), 0o644); err != nil {
+			fatal(err)
+		}
 	}
 	if *jsonOut != "" {
-		if b, err := report.JSON(results); err == nil {
-			os.WriteFile(*jsonOut, b, 0o644)
+		b, err := report.JSON(results)
+		if err != nil {
+			fatal(err)
+		}
+		if err := os.WriteFile(*jsonOut, b, 0o644); err != nil {
+			fatal(err)
 		}
 	}
 	if !report.AllPassed(results) {
@@ -139,7 +147,7 @@ func cmdRun(args []string) {
 
 func cmdDash(args []string) {
 	fs := flag.NewFlagSet("dash", flag.ExitOnError)
-	fs.Parse(args)
+	_ = fs.Parse(args) // ExitOnError: a bad flag exits inside Parse
 	if fs.NArg() < 1 {
 		usage()
 	}

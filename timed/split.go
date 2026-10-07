@@ -219,7 +219,13 @@ func (r *router) fireSplit(ctx context.Context) {
 			if retryRun == "" {
 				retryRun = time.Now().UTC().Add(time.Minute).Format(time.RFC3339)
 			}
-			r.reschedule(ctx, t.ID, retryRun, "active")
+			if rerr := r.reschedule(ctx, t.ID, retryRun, "active"); rerr != nil {
+				// The restore IS what keeps the task discoverable: a claimed row left
+				// unrestored reports itself as scheduled and is never claimed again
+				// (BUGS L74).
+				slog.Error("task not restored to active; it stays claimed and no tick re-fires it",
+					"task", t.ID, "jid", t.ChatJID, "next_run", retryRun, "err", rerr)
+			}
 			continue
 		}
 
@@ -308,7 +314,7 @@ func (r *router) call(ctx context.Context, method, path string, in, out any) err
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<10))
 		return fmt.Errorf("%s %s: status %d: %s", method, path, resp.StatusCode, strings.TrimSpace(string(b)))

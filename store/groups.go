@@ -97,7 +97,12 @@ func groupFrom(it objstore.Item) core.Group {
 	g := core.Group{Folder: it.Key.Sort, Product: it.Attrs[attrGrpProduct]}
 	g.AddedAt, _ = time.Parse(core.TSLayout, it.Attrs[attrGrpAddedAt])
 	if raw := it.Attrs[attrGrpContainerConfig]; raw != "" {
-		json.Unmarshal([]byte(raw), &g.Config)
+		if err := json.Unmarshal([]byte(raw), &g.Config); err != nil {
+			// A zero Config is the default container config, so the group would run
+			// on defaults while the row says otherwise.
+			slog.Warn("group container config will not parse; the group runs on defaults",
+				"folder", it.Key.Sort, "err", err)
+		}
 	}
 	cfg := settingsOf(it)
 	if model, ok := cfg[cfgModel].(string); ok {

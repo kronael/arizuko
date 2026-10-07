@@ -401,10 +401,10 @@ func (p *poller) handleMsg(
 // renderEmailContent builds the agent-visible text for one email message.
 func renderEmailContent(fromName, fromAddr, subject, date, toAddr, body string, atts []chanlib.InboundAttachment) string {
 	var s strings.Builder
-	s.WriteString(fmt.Sprintf("From: %s <%s>\nSubject: %s\nDate: %s\nTo: %s\n\n%s",
-		fromName, fromAddr, subject, date, toAddr, body))
+	fmt.Fprintf(&s, "From: %s <%s>\nSubject: %s\nDate: %s\nTo: %s\n\n%s",
+		fromName, fromAddr, subject, date, toAddr, body)
 	for _, a := range atts {
-		s.WriteString(fmt.Sprintf(" [Attachment: %s]", a.Filename))
+		fmt.Fprintf(&s, " [Attachment: %s]", a.Filename)
 	}
 	return s.String()
 }
@@ -462,7 +462,7 @@ func extractContent(
 		case *gomessage.InlineHeader:
 			ct, _, _ := h.ContentType()
 			if ct == "text/plain" && text == "" {
-				var body io.Reader = p.Body
+				body := p.Body
 				if maxBytes > 0 {
 					body = io.LimitReader(body, maxBytes+1)
 				}
@@ -479,7 +479,7 @@ func extractContent(
 				fname = fmt.Sprintf("attachment-%d", attIdx)
 			}
 			// Read body only to measure size -- data is NOT stored.
-			var body io.Reader = p.Body
+			body := p.Body
 			if maxBytes > 0 {
 				body = io.LimitReader(body, maxBytes+1)
 			}

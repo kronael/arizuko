@@ -34,12 +34,12 @@ func (d *dash) handleGroupTools(w http.ResponseWriter, r *http.Request) {
 	held := auth.EffectiveActions(s, auth.Caller{Principal: "folder:" + folder})
 	tools := ipc.ListTools(folder, func(name string) bool { return held("mcp:" + name) })
 
-	fmt.Fprintf(w, `<p class="dim">%d tools available to <code>%s</code>. Read-only — modify via grants.</p>`,
+	_, _ = fmt.Fprintf(w, `<p class="dim">%d tools available to <code>%s</code>. Read-only — modify via grants.</p>`,
 		len(tools), esc(folder))
 
 	for _, t := range tools {
 		schemaJSON, _ := json.MarshalIndent(t.InputSchema, "", "  ")
-		fmt.Fprintf(w, `<details class="tool-card">`+
+		_, _ = fmt.Fprintf(w, `<details class="tool-card">`+
 			`<summary>%s</summary>`+
 			`<p>%s</p>`+
 			`<pre>%s</pre>`+

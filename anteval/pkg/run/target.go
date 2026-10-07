@@ -59,7 +59,7 @@ func (t *HTTPTarget) Inject(chat, topic, prompt string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode >= 300 {
 		return "", fmt.Errorf("inject %s: %d", chat, resp.StatusCode)
 	}
@@ -84,7 +84,7 @@ func (t *HTTPTarget) messages(base, chat string) ([]check.Msg, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("read %s: %d", chat, resp.StatusCode)
 	}
@@ -123,7 +123,7 @@ func (t *HTTPTarget) Session(folder, topic string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode >= 300 {
 		return "", fmt.Errorf("session %s/%q: %d", folder, topic, resp.StatusCode)
 	}
@@ -149,7 +149,7 @@ func (t *HTTPTarget) Cost(turnID string) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode == http.StatusNotFound {
 		return 0, nil
 	}

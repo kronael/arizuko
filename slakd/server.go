@@ -75,7 +75,7 @@ func (s *server) handlePanePrompts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`{"ok":true}`))
+	_, _ = w.Write([]byte(`{"ok":true}`))
 }
 
 type paneTitleReq struct {
@@ -94,7 +94,7 @@ func (s *server) handlePaneTitle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`{"ok":true}`))
+	_, _ = w.Write([]byte(`{"ok":true}`))
 }
 
 // handleInteractivity receives a button press. Slack requires a 2xx within three

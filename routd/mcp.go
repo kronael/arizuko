@@ -240,7 +240,10 @@ func ensureGroupGitRepo(groupDir string) {
 		return
 	}
 	lines := []string{"diary/", "episodes/", "users/", "logs/", "media/", "tmp/", "*.jl"}
-	os.WriteFile(gitignore, []byte(strings.Join(lines, "\n")+"\n"), 0o644)
+	if err := os.WriteFile(gitignore, []byte(strings.Join(lines, "\n")+"\n"), 0o644); err != nil {
+		slog.Warn("group .gitignore not written; the agent's commits pick up its own runtime files",
+			"path", gitignore, "err", err)
+	}
 }
 
 // mcpDeliver is the in-process reply/send: it ONLY delivers. The ipc tool

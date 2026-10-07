@@ -27,7 +27,7 @@ func defaultSMTPSender(addr string, a smtp.Auth, from string, to []string, msg [
 	if err != nil {
 		return fmt.Errorf("smtp dial: %w", err)
 	}
-	defer c.Quit()
+	defer func() { _ = c.Quit() }()
 
 	host := addr
 	if i := strings.LastIndex(addr, ":"); i > 0 {

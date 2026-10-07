@@ -76,7 +76,7 @@ func TestTSSortsTheL97Case(t *testing.T) {
 	cursor := time.Date(2026, 8, 26, 19, 6, 41, 0, time.UTC)
 	trigger := time.Date(2026, 8, 26, 19, 6, 41, 882458214, time.UTC)
 
-	if !(TS(trigger) > TS(cursor)) {
+	if TS(trigger) <= TS(cursor) {
 		t.Fatalf("the re-issue trigger %q must sort after the cursor %q",
 			TS(trigger), TS(cursor))
 	}

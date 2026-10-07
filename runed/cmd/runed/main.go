@@ -109,7 +109,7 @@ func main() {
 		slog.Error("open runed's store", "err", err)
 		os.Exit(1)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	// runed's audit sink is its OWN record — each daemon owns its own audit_log;
 	// correlation across them is turn_id, not a shared table (spec 5/I-tool-call-logging). Init
 	// takes whichever handle runed was opened over, so the sink follows.

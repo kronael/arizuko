@@ -158,3 +158,24 @@ func TestPollRoundReturnsOneOnFailedAndTwoOnTransportError(t *testing.T) {
 		t.Errorf("pollRound against a closed server = %d, want 2", got)
 	}
 }
+
+// A snapshot body the poller cannot read carries no status, and the loop used
+// to poll on for one forever — the same "CLI that never returns" this file was
+// written against, reached through a bad body instead of a bad frame.
+func TestPollRoundStopsOnAnUnreadableSnapshot(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = fmt.Fprint(w, `{not json`)
+	}))
+	t.Cleanup(srv.Close)
+
+	done := make(chan int, 1)
+	go func() { done <- pollRound(srv.Client(), srv.URL) }()
+	select {
+	case got := <-done:
+		if got != 2 {
+			t.Errorf("pollRound on an unreadable snapshot = %d, want 2", got)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("pollRound never returned; the CLI would hang")
+	}
+}

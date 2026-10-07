@@ -31,7 +31,7 @@ func syncPackageSkills(dataDir string) {
 		return // no package on this instance ships a skill
 	}
 	rdb := mustOpenRoutd()
-	defer rdb.Close()
+	defer func() { _ = rdb.Close() }()
 
 	groups := store.NewOver(rdb.Obj()).AllGroups()
 	folders := make([]string, 0, len(groups))

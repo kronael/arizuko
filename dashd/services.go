@@ -113,7 +113,7 @@ func hostResolves(host string) bool {
 // Connection refused or client timeout = deployed but daemon down = err.
 func classifyHealth(resp *http.Response, err error) string {
 	if err == nil {
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 			return statusOK
 		}
@@ -218,9 +218,9 @@ func (d *dash) handleServices(w http.ResponseWriter, r *http.Request) {
 		}
 		summary += fmt.Sprintf("%d %s", counts[k], k)
 	}
-	fmt.Fprintf(w, `<p class="dim">Daemon health (%s). Control planes with a link are available; others are in progress.</p>`, esc(summary))
+	_, _ = fmt.Fprintf(w, `<p class="dim">Daemon health (%s). Control planes with a link are available; others are in progress.</p>`, esc(summary))
 
-	fmt.Fprint(w, `<div class="services-grid">`)
+	_, _ = fmt.Fprint(w, `<div class="services-grid">`)
 	for i, s := range services {
 		// One question, one answer: a routed dashboard is a link, an unrouted
 		// one says so. Rendering the link and the label from two different
@@ -231,7 +231,7 @@ func (d *dash) handleServices(w http.ResponseWriter, r *http.Request) {
 		} else {
 			nameHTML += ` <span class="dim">(coming soon)</span>`
 		}
-		fmt.Fprintf(w,
+		_, _ = fmt.Fprintf(w,
 			`<div class="service-tile" data-status="%s">`+
 				`<h3><span class="dot dot-%s"></span><span class="status-%s">%s</span> %s</h3>`+
 				`<p class="dim">%s</p>`+
@@ -243,10 +243,10 @@ func (d *dash) handleServices(w http.ResponseWriter, r *http.Request) {
 			esc(s.Desc),
 		)
 	}
-	fmt.Fprint(w, `</div>`)
+	_, _ = fmt.Fprint(w, `</div>`)
 
 	if allUnknown(statuses) {
-		fmt.Fprint(w, `<p class="dim">Local dev: daemon DNS names don't resolve outside Docker network.</p>`)
+		_, _ = fmt.Fprint(w, `<p class="dim">Local dev: daemon DNS names don't resolve outside Docker network.</p>`)
 	}
 
 	pageClose(w, r)

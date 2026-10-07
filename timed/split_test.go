@@ -172,8 +172,12 @@ func TestFireSplitOpensNoDB(t *testing.T) {
 // walkNoDB fails if any SQLite artifact exists under root.
 func walkNoDB(t *testing.T, root string) {
 	t.Helper()
-	filepath.Walk(root, func(p string, info os.FileInfo, err error) error {
-		if err != nil || info.IsDir() {
+	// A walk error is fatal: the check cannot pass on a tree it could not read.
+	if err := filepath.Walk(root, func(p string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
 			return nil
 		}
 		switch ext := filepath.Ext(p); ext {
@@ -181,7 +185,9 @@ func walkNoDB(t *testing.T, root string) {
 			t.Errorf("split mode created a DB file: %s", p)
 		}
 		return nil
-	})
+	}); err != nil {
+		t.Fatalf("walk %s: %v", root, err)
+	}
 }
 
 // TestFireSplitEnqueueErrorRestoresActive: a routd enqueue failure logs an error

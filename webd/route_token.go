@@ -84,7 +84,7 @@ func (s *server) handleChatTokenRoot(w http.ResponseWriter, r *http.Request) {
 	name := groupfolder.NameOf(folder)
 	token := r.PathValue("token")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	fmt.Fprintf(w, chatWidgetHTML,
+	_, _ = fmt.Fprintf(w, chatWidgetHTML,
 		htmlEscape(name), htmlEscape(name),
 		htmlEscape(folder), htmlEscape(token))
 }
@@ -228,7 +228,7 @@ func (s *server) handleChatTokenPost(w http.ResponseWriter, r *http.Request) {
 	case wantHTML:
 		w.Header().Set("Content-Type", "text/html")
 		escaped := strings.ReplaceAll(htmlEscape(content), "\n", "<br>")
-		fmt.Fprintf(w, `<div class="msg user" id="msg-%s">%s</div>`, m.ID, escaped)
+		_, _ = fmt.Fprintf(w, `<div class="msg user" id="msg-%s">%s</div>`, m.ID, escaped)
 	default:
 		resp := map[string]any{
 			"user":    userPayload,
@@ -448,7 +448,7 @@ func (s *server) handleRouteTokenStream(w http.ResponseWriter, r *http.Request) 
 					"id": m.ID, "role": messageRole(m), "content": m.Content,
 					"created_at": m.Timestamp.Format(time.RFC3339),
 				})
-				fmt.Fprintf(w, "event: message\ndata: %s\n\n", data)
+				_, _ = fmt.Fprintf(w, "event: message\ndata: %s\n\n", data)
 				if flusher != nil {
 					flusher.Flush()
 				}

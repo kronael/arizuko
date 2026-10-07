@@ -348,7 +348,13 @@ func operatorEnvPath(dataDir string) string {
 // port. An address on any other host is the operator's own and is left alone.
 func writeOperatorEnv(dataDir string, env map[string]string) error {
 	inNetwork, err := url.Parse(env[dynstore.EnvURL])
-	if err != nil || inNetwork.Hostname() != storeService {
+	if err != nil {
+		// An unset key parses clean to an empty URL, so reaching here means the
+		// operator set a value and got it wrong. Skipping the file quietly would
+		// leave the host CLI pointed at nothing.
+		return fmt.Errorf("parse %s=%q: %w", dynstore.EnvURL, env[dynstore.EnvURL], err)
+	}
+	if inNetwork.Hostname() != storeService {
 		// No store server, or one the operator addressed themselves.
 		return nil
 	}

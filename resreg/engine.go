@@ -1009,7 +1009,11 @@ func EmitYAML(manifest map[string]any) ([]byte, error) {
 	if err := enc.Encode(doc); err != nil {
 		return nil, err
 	}
-	enc.Close()
+	// Close flushes the document terminator; without it the bytes below are a
+	// truncated YAML document that the apply side reads as a different subsystem.
+	if err := enc.Close(); err != nil {
+		return nil, err
+	}
 	return buf.Bytes(), nil
 }
 

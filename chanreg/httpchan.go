@@ -176,13 +176,9 @@ func (h *HTTPChannel) trySend(ctx context.Context, m outMsg) (string, error) {
 		}
 		resp, err := h.uploadMultipart(ctx, "/send-file", m.JID, m.Path, m.Name, m.Caption, m.FileReplyTo, m.ThreadID, m.IdempotencyKey)
 		if err == nil {
-			defer resp.Body.Close()
+			defer func() { _ = resp.Body.Close() }()
 			if resp.StatusCode == http.StatusOK {
-				var r struct {
-					ID string `json:"id"`
-				}
-				json.NewDecoder(resp.Body).Decode(&r)
-				return r.ID, nil
+				return decodeSentID(resp.Body, h.entry.Name, "send-file"), nil
 			}
 			err = adapterErr(resp)
 		}
@@ -210,13 +206,9 @@ func (h *HTTPChannel) trySend(ctx context.Context, m outMsg) (string, error) {
 	b, _ := json.Marshal(body)
 	httpResp, err := h.post(ctx, "/send", b)
 	if err == nil {
-		defer httpResp.Body.Close()
+		defer func() { _ = httpResp.Body.Close() }()
 		if httpResp.StatusCode == http.StatusOK {
-			var resp struct {
-				ID string `json:"id"`
-			}
-			json.NewDecoder(httpResp.Body).Decode(&resp)
-			return resp.ID, nil
+			return decodeSentID(httpResp.Body, h.entry.Name, "send"), nil
 		}
 		err = adapterErr(httpResp)
 	}
@@ -247,37 +239,50 @@ func (h *HTTPChannel) SendVoiceCtx(ctx context.Context, jid, audioPath, caption,
 	if err != nil {
 		return "", fmt.Errorf("channel %s send-voice: %w", h.entry.Name, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode == http.StatusNotImplemented {
 		return "", decodeUnsupported(resp.Body, "send_voice", h.entry.Name)
 	}
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("channel %s send-voice: status %d", h.entry.Name, resp.StatusCode)
 	}
+	return decodeSentID(resp.Body, h.entry.Name, "send-voice"), nil
+}
+
+// decodeSentID reads the platform id an adapter returns for a message it
+// delivered. The id is optional, but a body that will not parse leaves the row
+// with none, and reply/like/delete address a message by exactly that id.
+func decodeSentID(body io.Reader, channel, verb string) string {
 	var r struct {
 		ID string `json:"id"`
 	}
-	json.NewDecoder(resp.Body).Decode(&r)
-	return r.ID, nil
+	if err := json.NewDecoder(body).Decode(&r); err != nil {
+		slog.Warn("channel response carries no readable id; later reply/like/delete cannot target this message",
+			"channel", channel, "verb", verb, "err", err)
+	}
+	return r.ID
 }
 
 // uploadMultipart builds a multipart body and POSTs to endpoint.
 func (h *HTTPChannel) uploadMultipart(ctx context.Context, endpoint, jid, path, name, caption, replyTo, threadID, idempotencyKey string) (*http.Response, error) {
 	var buf bytes.Buffer
 	w := multipart.NewWriter(&buf)
-	w.WriteField("chat_jid", jid)
-	w.WriteField("filename", name)
-	if idempotencyKey != "" {
-		w.WriteField("idempotency_key", idempotencyKey)
+	// chat_jid and filename go out even when empty — the adapters read both by
+	// name. The rest are omitted when unset, which is what tells an adapter the
+	// send carries no caption, no reply target and no thread.
+	fields := [][2]string{{"chat_jid", jid}, {"filename", name}}
+	for _, kv := range [][2]string{
+		{"idempotency_key", idempotencyKey}, {"caption", caption},
+		{"reply_to", replyTo}, {"thread_id", threadID},
+	} {
+		if kv[1] != "" {
+			fields = append(fields, kv)
+		}
 	}
-	if caption != "" {
-		w.WriteField("caption", caption)
-	}
-	if replyTo != "" {
-		w.WriteField("reply_to", replyTo)
-	}
-	if threadID != "" {
-		w.WriteField("thread_id", threadID)
+	for _, kv := range fields {
+		if err := w.WriteField(kv[0], kv[1]); err != nil {
+			return nil, fmt.Errorf("write %s field: %w", kv[0], err)
+		}
 	}
 	formName := name
 	if formName == "" {
@@ -291,11 +296,15 @@ func (h *HTTPChannel) uploadMultipart(ctx context.Context, endpoint, jid, path, 
 	if err != nil {
 		return nil, fmt.Errorf("open file: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	if _, err := io.Copy(fw, f); err != nil {
 		return nil, fmt.Errorf("copy file: %w", err)
 	}
-	w.Close()
+	// Closing writes the terminating boundary: without it the body is not a
+	// valid multipart document and the adapter rejects the upload.
+	if err := w.Close(); err != nil {
+		return nil, fmt.Errorf("close multipart: %w", err)
+	}
 	req, err := http.NewRequestWithContext(ctx, "POST", h.entry.URL+endpoint, &buf)
 	if err != nil {
 		return nil, err
@@ -315,7 +324,7 @@ func (h *HTTPChannel) Typing(jid string, on bool) error {
 		slog.Warn("typing request failed", "channel", h.entry.Name, "jid", jid, "err", err)
 		return nil
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		slog.Warn("typing: non-2xx response", "channel", h.entry.Name, "status", resp.StatusCode)
 	}
@@ -335,7 +344,7 @@ func (h *HTTPChannel) PostRoundDone(chatJID, turnID, status, errMsg string) erro
 	if err != nil {
 		return fmt.Errorf("channel %s round_done: %w", h.entry.Name, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode == http.StatusNotFound {
 		return nil
 	}
@@ -364,7 +373,7 @@ func (h *HTTPChannel) FetchHistory(ctx context.Context, jid string, before time.
 	if err != nil {
 		return nil, fmt.Errorf("channel %s fetch_history: %w", h.entry.Name, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("channel %s fetch_history: status %d", h.entry.Name, resp.StatusCode)
 	}
@@ -378,18 +387,14 @@ func (h *HTTPChannel) postVerb(ctx context.Context, verb, endpoint string, body 
 	if err != nil {
 		return "", fmt.Errorf("channel %s %s: %w", h.entry.Name, verb, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode == http.StatusNotImplemented {
 		return "", decodeUnsupported(resp.Body, verb, h.entry.Name)
 	}
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("channel %s %s: status %d", h.entry.Name, verb, resp.StatusCode)
 	}
-	var r struct {
-		ID string `json:"id"`
-	}
-	json.NewDecoder(resp.Body).Decode(&r)
-	return r.ID, nil
+	return decodeSentID(resp.Body, h.entry.Name, verb), nil
 }
 
 func (h *HTTPChannel) Post(ctx context.Context, jid, content string, mediaPaths []string) (string, error) {
@@ -498,7 +503,7 @@ func (h *HTTPChannel) SetSuggestions(ctx context.Context, jid string, prompts []
 	if err != nil {
 		return fmt.Errorf("channel %s pane_set_prompts: %w", h.entry.Name, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode == http.StatusNotFound {
 		return chanlib.Unsupported("pane_set_prompts", h.entry.Name, "adapter has no open pane for jid (or doesn't support suggestions)")
 	}
@@ -514,7 +519,7 @@ func (h *HTTPChannel) SetName(ctx context.Context, jid, name string) error {
 	if err != nil {
 		return fmt.Errorf("channel %s pane_set_title: %w", h.entry.Name, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode == http.StatusNotFound {
 		return chanlib.Unsupported("pane_set_title", h.entry.Name, "adapter has no open pane for jid (or doesn't support rename)")
 	}
