@@ -118,9 +118,6 @@ revoked — see its entry.)
 
 **Dead code with a price.**
 
-- `L351` — six `import.go` files, 1120 lines, no production caller. They are
-  the test-seeding API wearing a deleted tool's documentation; one decision
-  covers all six.
 
 **A spec whose status is a claim.**
 
@@ -771,84 +768,32 @@ is the reference — do not restate here".
   wrong § inside a right document is a second concern from this entry's.
 - **Fix:** `fc356ac1` (the comment audit).
 
-## L351 — six `import.go` files, 1120 lines, zero production callers: the migration importers are now the test-seeding API (2026-09-22, open)
+## 📋 RECORD L351 — the six `import.go` files are the test-seeding API, documented as such, and not dead code (2026-10-08, record — nothing to fix)
 
-`L348` deleted the routd and hot-tier importers. `deadcode ./...` with every
-main package as root then named `store/import.go`, and `Store.Import` turned
-out to have exactly ONE reference — its own declaration. That half is gone
-(`b6fa1938`, 169 lines: `Snapshot`, `Counts`, `PaneRow`, `UseRow`,
-`importWrites`, `LegacyUseID`, `normalizeTS`).
+**Not a defect.** Re-measured 2026-10-08, and every number in the original entry holds:
+six files, **1139 lines**, and **zero production callers** — every `.Import(` call site
+in the tree is a `_test.go` file (`authd/authstore` 5, `runed/runstore` 3, `runed`,
+`chanlib/chanstore` 2 each, `routd`, `onbod`, `emaid/emaistore`, `dashd` 1 each).
 
-**The onbod half that remains is the same class, and stops short for one
-reason.** `gopls` gives `Store.ImportOnbod` seven references; six are tests and
-the seventh is its declaration. So it is dead in production and load-bearing in
-tests, exactly as `L348`'s region was.
+What makes it a record rather than a bug:
 
-It differs from `L348` in a way that decides the work:
+- **No symbol is unused.** Every exported function and type in all six files has a
+  caller, so there is nothing to delete. Removing the files means rewriting ~20 test
+  call sites to seed through the normal writers.
+- **All six already say they are test-only**, in their own first lines — `audit/import.go`
+  opens with "NOTHING IN PRODUCTION CALLS IT" in capitals.
+- **And one of them records WHY it cannot go.** `audit.Emit` stamps `now` and ends the id
+  with a random suffix, so a trail at instants a test chooses, in an order it fixes, is a
+  state `Emit` cannot build — and dashd's page orders several owners on `created_at`, so a
+  now-stamped fixture makes that order a race.
 
-| | `L348`'s region | this one |
-| --- | --- | --- |
-| production callers | none | none |
-| used as a test SEED | 5 files | 3 — `cmd/arizuko/archive_onboarding_test.go:27`, `cmd/arizuko/archive_test.go:111`, `store/invite_redemptions_test.go:131` |
-| tests OF the importer | none | 3 in `store/import_test.go` |
-| covered by `SeedItem` | yes, `keyFields` already held the coordinates | **no** |
+So the 1139 lines are a deliberate, documented seam with a reason at the top of the file.
+An audit that counts them as dead code is counting the test fixtures. If the seam is ever
+to move, it moves into `<pkg>test` helper packages, which is a restructure of twenty call
+sites and a decision — not a cleanup.
 
-`SeedItem`'s `keyFields` carries routd's thirteen entities and the hot tier's
-eleven. `onbodWrites` addresses four the table does not name: `Onboarding`,
-`OnboardingGates`, `Invites`, `InviteRedemptions`. So the `L348` move does not
-transfer for free — it costs four coordinate builders wired into `keyFields`
-first, and then deleting three tests whose subject is the importer itself.
-
-**AND IT IS NOT ONE FILE — IT IS SIX.** Every reference below is from
-`gopls go_symbol_references`, not grep: six packages declare a symbol named
-`Import` and a type named `Snapshot`, so a bare-name grep answers about the
-wrong package. Measured 2026-09-22:
-
-| importer | lines | references other than its declaration |
-| --- | --- | --- |
-| `store/import.go` `Store.ImportOnbod` | 149 | 6, all tests |
-| `audit/import.go` `Import` | 128 | 8, all tests (6 packages seed audit rows through it) |
-| `authd/authstore/import.go` `Store.Import` | 235 | 5, all tests |
-| `runed/runstore/import.go` `Store.Import` | 293 | 3, all tests |
-| `chanlib/chanstore/import.go` `Store.Import` | 176 | 2, all tests |
-| `emaid/emaistore/import.go` `Store.Import` | 139 | 1, all tests |
-
-1120 lines, and not one production caller among them. Each header describes a
-two-half design — "the source half belongs to the tool that runs it" — where
-the tool is gone: `773cb5c5` deleted the last `migrate-*` subcommand on
-2026-09-13.
-
-**They survive because they are the only writer that can place a row at a
-chosen instant**, which is exactly what `L348` found for the routd pair. So
-this is not six dead regions; it is one undeclared seeding API that every store
-package grew independently, still wearing a migration tool's documentation.
-
-**`deadcode` alone does not find this** and the reason is worth keeping: it
-under-reports METHODS. It flagged `store.Store.Import` and missed
-`authstore.Store.Import`, which gopls shows has only test callers. The census
-above is gopls per symbol; `deadcode ./...` was only the way in.
-
-- **Severity:** low (no runtime defect; 1120 lines with no production caller)
-- **Scope:** the six `import.go` files above and the tests that seed through them
-- **Affected:** nothing at runtime
-- **Source:** `deadcode ./...`; `gopls go_symbol_references` on `Store.Import`
-  and `Store.ImportOnbod` — grep is unreliable here, the package has
-  same-named neighbours (`Snapshot`, `UseRow`, `importWrites` all exist in
-  other packages)
-**OPTION (b) IS SHIPPED 2026-09-22** (`a12413d5`, `6ee11aa2`). All six headers
-now name the live writers they work around and say that nothing in production
-calls them. A tree-wide sweep then found twelve more references to the deleted
-tool, in eight files, and they are gone too — including two enumerations
-(`invitePut`, `onboardingPut`) that listed the writers going through them. A
-list of callers is what rots, so they state the invariant instead: there is ONE
-renderer. Comments only, proven both by `go/printer` strip-and-diff and by
-`git diff -U0`.
-
-- **Status:** open on (a) alone. Either each store grows a `SeedItem` of its own
-  and the importers go — the `L348` move, six times, each costing that store's
-  coordinate builders — or they stay as the seeding API they now admit to
-  being. Nothing is foreclosed either way.
-- **Fix:**
+- **Status:** record only — nothing to fix. Kept so the next dead-code sweep does not
+  re-report it; `L15` is the same shape for the 2026-08-11 sweep.
 
 ## L350 — spec `6/37` cites six artifacts that no longer exist, four of them the guards it rests on (2026-09-22, open)
 
