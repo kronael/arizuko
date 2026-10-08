@@ -29,15 +29,24 @@ var idInHeading = regexp.MustCompile(`^## (?:✅ FIXED [0-9-]+ |📋 RECORD )?([
 var idInIndex = regexp.MustCompile("(?m)^- ((?:`[A-Z]+[0-9]+[a-z]?`(?:, )?)+)")
 var idInBullet = regexp.MustCompile("`([A-Z]+[0-9]+[a-z]?)`")
 
+// openMarker matches the words a heading uses to say an entry still waits on
+// someone. `open` was the only one until 2026-10-08, when `S1b` — "PROPOSED —
+// redesign, needs sign-off" — turned out to be open, unlisted, and invisible to this
+// guard for two months. I then filed it a second time as `L399` without finding it.
+//
+// A proposal awaiting sign-off IS an open item: it is the shape most of this queue
+// takes.
+var openMarker = regexp.MustCompile(`(?i)\bopen\b|\bPROPOSED\b|\bneeds sign-off\b|\bawaiting sign-off\b`)
+
 // headingSaysOpen reads the parenthesised marker a heading ends with. "fixed
 // `pending`" and "one of two fixed" both contain no bare `open`, and
-// "open question" and "open — needs sign-off" both do.
+// "open question", "open — needs sign-off" and "PROPOSED — needs sign-off" all do.
 func headingSaysOpen(heading string) bool {
 	i := strings.LastIndex(heading, "(")
 	if i < 0 {
 		return false
 	}
-	return regexp.MustCompile(`\bopen\b`).MatchString(heading[i:])
+	return openMarker.MatchString(heading[i:])
 }
 
 func TestOpenEntriesAreListedHere(t *testing.T) {

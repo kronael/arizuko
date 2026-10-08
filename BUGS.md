@@ -47,8 +47,8 @@ line; none can be answered from the code.
 - `V2` — may `acl_membership` grow a LIST action? It publishes who holds
   authority over whom, on REST and on MCP.
 - `L326` — the honest liveness fix needs a barrier nobody has signed off.
-- `L399` — the helm chart deploys `gated`, deleted at v0.50.0, across 15 references and
-  a 113-line Deployment, so `helm install` cannot bring up arizuko. Port the chart to the
+- `S1b` — the helm chart deploys `gated`, deleted at v0.50.0, across 15 references and a
+  113-line Deployment, so `helm install` cannot bring up arizuko. Port the chart to the
   split topology, or delete it and say kubernetes is unsupported.
 - `L392` — every daemon on the host network, no `ports:` mapping. The
   loopback binds and the ports above 49000 shipped with v0.70.0; what is
@@ -98,6 +98,28 @@ revoked — see its entry.)
 - `L359` — 11 G of interrupted git repacks, on a disk with 3.9 G free. The
   files are unreferenced and the deletion is live data, so it is yours.
 
+**Proposals the guard could not see until 2026-10-08.** Each heading says PROPOSED or
+"needs sign-off" and no literal `open`, so `TestOpenEntriesAreListedHere` passed over
+all thirteen — for two months, and the queue under-reported by that much. The guard
+reads those words now.
+
+- `L145`, `L146` — the inbound path as one rewrite: a channel payload becomes
+  (destination URI, actor), and a link's URI selects a destination within what its
+  token authorizes. Two halves of one design.
+- `L185`, `L186` — the CLI's runtime verbs need a principal and an audit surface;
+  dashd's admin writes over routd's `/v1` need a forwarder trust routd does not grant.
+- `L171` — one TypeScript channel module for whapd and twitd.
+- `L151` — an adapter with a dead credential restart-loops and nothing pushes the fact
+  anywhere a person sees.
+- `L2`, `L75` — a delegated child is never dispatched; a dispatch failure loses the
+  trigger and the retry never retries. Both have a measured cause and an unsigned fix.
+- `L13`, `L31`, `L41`, `L134` — a write-only `secret_use_log` with no read surface;
+  four of six product payload kinds seed-once so a product never updates; compose
+  fragments frozen once they differ by a byte; a `shell:env:` grant that cannot be
+  conditioned on the channel.
+- `M4` — `vited` in production: the crash class is fixed and the cost premise was
+  REFUTED, so what is left is posture.
+
 **Outside this repo.**
 
 - `L40` — the edge must set `X-Forwarded-For` before `TRUSTED_PROXIES` may
@@ -123,6 +145,30 @@ revoked — see its entry.)
 
 - `L350` — `6/37` cites six deleted artifacts, four of them its own guards. The
   invariant still holds; the tests that held it do not.
+
+## Design invariants — intentional, do not re-report
+
+One line per ruling: what was reported, and why it is correct behaviour. These are
+never deleted — they exist to stop the same finding coming back. The reasoning that
+produced each one is in `.diary/`, dated; this list is the index, not the argument.
+
+- **`L351` — the six `import.go` files (1139 lines, zero production callers) are the
+  test-seeding API, not dead code.** No symbol is unused, all six say so in their own
+  first lines, and `audit/import.go` records why it cannot go: `Emit` stamps `now` with
+  a random id suffix, so a trail at instants a test chooses is a state `Emit` cannot
+  build, and dashd orders several owners on `created_at`. Every call site asserts
+  through a production reader (`SessionsByFamily`, `RecentSessions`, `SpawnByRunID`,
+  `ClaimDelivery`, `audit.Query`); the `counts` checks beside them are vacuous-pass
+  guards. A sweep that counts those lines as dead is counting the fixtures.
+- **`L147` — `web:` JIDs exist only to satisfy a storage column.** The principle:
+  the channel attests, the router resolves, the ACL authorizes. Records a design
+  fault, not a work item.
+- **`F77` — the skill-guard's per-line scan is evadable by splitting a payload.** The
+  demonstrated case is fixed; the class is out of scope by `5/23`, which says the guard
+  raises the cost of one move and is not a containment boundary.
+- **`L15` — the 2026-08-11 dead-code sweep's rejected hits.** `deadcode ./...` gave 149
+  hits, 56 under `-test`; nine survived verification and were filed separately. Kept so
+  the next sweep does not re-report the same ~135.
 
 ## L398 — `make test`, the documented dev loop, cannot pass: two packages exceed Go's default 10-minute timeout (2026-10-07, open — the ten minutes is unexplained)
 
@@ -665,40 +711,6 @@ by rotating it for everyone). The silence was not.
   Until then `6/23`'s own sentence is the thing that is wrong, and the operator note
   beside it should say the row is dropped.
 
-## L399 — the helm chart deploys `gated`, a daemon deleted at v0.50.0, across 15 references and a 113-line Deployment (2026-10-08, open — needs a deploy decision)
-
-`L358` removed the chart's crackbox relic. The same chart still carries a bigger one.
-
-Measured 2026-10-08:
-
-- `deploy/helm/arizuko/templates/gated.yaml` is **113 lines** rendering a Deployment for
-  a daemon whose directory does not exist — `ls gated` answers "No such file or
-  directory", and no Makefile target builds its image.
-- 15 more references: `values.yaml` (12), `templates/_helpers.tpl` (2),
-  `templates/configmap.yaml` (1), plus `webd.yaml`, `timed.yaml`, `NOTES.txt`,
-  `Chart.yaml` and `README.md`. `NOTES.txt` tells the operator to run
-  `kubectl rollout status deploy/<release>-gated`.
-- The compose path is CLEAN and must not be confused with this: `compose/compose.go`'s
-  seven "gated" hits are all `gated_by`, the env-gate feature on a proxyd route, not the
-  daemon.
-
-So `helm install` of this chart cannot bring up arizuko at all: the split of 2026-06-07
-replaced `gated` with `routd`/`runed`/`authd`, and the chart has never followed. This is
-the same fault as `L358` — a documented deployment path that cannot work is worse than an
-absent one — at ten times the size.
-
-- **Severity:** low at runtime (nobody can be running it), high as documentation
-- **Scope:** `deploy/helm/arizuko/` — 10 files
-- **Affected:** any kubernetes deploy; `howto/kubernetes.html` points operators here
-- **Source:** found while removing crackbox per the user's instruction, 2026-10-08; every
-  count measured, and the compose `gated_by` false positive excluded by reading the lines
-- **Status:** open, and it is a DECISION, not a port: either the chart is brought to the
-  split topology (routd, runed, authd, dashd, webd, proxyd, timed, onbod + adapters,
-  which is most of a rewrite), or it is deleted and `howto/kubernetes.html` says
-  kubernetes is unsupported. Porting it uninvited would be a large unrequested diff for a
-  deployment nobody has asked for; deleting it is the user's call on whether arizuko
-  claims a kubernetes story at all.
-
 ## L355 — a bare spec number that resolves can still name the wrong document, and two sit in the authorization path (2026-09-22, open)
 
 `specs/CLAUDE.md` states the hazard and says no test can catch it: "A bare
@@ -767,33 +779,6 @@ is the reference — do not restate here".
   user-facing message is a code change with three test assertions on it, and a
   wrong § inside a right document is a second concern from this entry's.
 - **Fix:** `fc356ac1` (the comment audit).
-
-## 📋 RECORD L351 — the six `import.go` files are the test-seeding API, documented as such, and not dead code (2026-10-08, record — nothing to fix)
-
-**Not a defect.** Re-measured 2026-10-08, and every number in the original entry holds:
-six files, **1139 lines**, and **zero production callers** — every `.Import(` call site
-in the tree is a `_test.go` file (`authd/authstore` 5, `runed/runstore` 3, `runed`,
-`chanlib/chanstore` 2 each, `routd`, `onbod`, `emaid/emaistore`, `dashd` 1 each).
-
-What makes it a record rather than a bug:
-
-- **No symbol is unused.** Every exported function and type in all six files has a
-  caller, so there is nothing to delete. Removing the files means rewriting ~20 test
-  call sites to seed through the normal writers.
-- **All six already say they are test-only**, in their own first lines — `audit/import.go`
-  opens with "NOTHING IN PRODUCTION CALLS IT" in capitals.
-- **And one of them records WHY it cannot go.** `audit.Emit` stamps `now` and ends the id
-  with a random suffix, so a trail at instants a test chooses, in an order it fixes, is a
-  state `Emit` cannot build — and dashd's page orders several owners on `created_at`, so a
-  now-stamped fixture makes that order a race.
-
-So the 1139 lines are a deliberate, documented seam with a reason at the top of the file.
-An audit that counts them as dead code is counting the test fixtures. If the seam is ever
-to move, it moves into `<pkg>test` helper packages, which is a restructure of twenty call
-sites and a decision — not a cleanup.
-
-- **Status:** record only — nothing to fix. Kept so the next dead-code sweep does not
-  re-report it; `L15` is the same shape for the 2026-08-11 sweep.
 
 ## L350 — spec `6/37` cites six artifacts that no longer exist, four of them the guards it rests on (2026-09-22, open)
 
@@ -2781,122 +2766,6 @@ and one half was bounded after all.**
   delivery) and the `<messages>` echo (fix 2). Both change a contract spanning
   routd and ant.
 
-## 📋 RECORD L147 — principle: the channel attests, the router resolves, the ACL authorizes — and `web:` JIDs exist only to satisfy a storage column (2026-08-30, principle — records a design fault, no work item)
-
-The operator's formulation, at the end of the session that produced `L139`,
-`L145` and `L146`: *"web should not have JIDs, that's the fault in the design"*,
-*"web should have direct links with an auth attached"*, *"who authorizes and the
-routing are two things separate"*, and finally *"channel created a trusted
-authority, the auth authorizes later"*.
-
-**Three roles, three owners, none deriving another:**
-
-| role | owner | why it must be there |
-| --- | --- | --- |
-| **attest** | the channel adapter | it is the ONLY component holding the platform secret — slakd verifies `X-Slack-Signature` (`slakd/server.go:103-105`), teled its token. Nothing downstream can re-check it. |
-| **resolve** | routd | correspondent → destination, computed per message from the route table, target expansion, modes, autoviv, the `@name`/`#topic` layer and sticky state (`routd/db.go:546`). A resolver, not a map. |
-| **authorize** | the `acl` evaluator | may this authority reach this destination, with these arguments. The only place a grant is read. |
-
-The adapter authenticates and does not authorize. The acl authorizes and cannot
-authenticate. They are separated by a hop, and that separation is the design —
-not an artefact of it.
-
-**There are TWO attesters, and web is not a special case.** proxyd is the owned
-surfaces' attester: `proxyd.tryAuth` (`proxyd/main.go:810`) verifies our own ES256
-bearer against authd's JWKs and stamps `X-User-*`, which is structurally the same
-job slakd does with `X-Slack-Signature`. Ours, theirs — same role, different
-secret holder.
-
-| path | attester | holds | attests |
-| --- | --- | --- | --- |
-| foreign | the channel adapter | the platform's signing secret | a correspondent |
-| owned | proxyd | authd's JWKs / our OAuth | a person |
-
-**And that exposes the real asymmetry: both paths attest, but only the owned
-path's attestation SURVIVES to the authorization.** Web carries `X-User-Sub`
-through to `auth.MatchGroups`. The foreign path attests a correspondent and then
-discards it — `db.Authorize("folder:"+folder, folder, …)` (`ipc/ipc.go:1092,1118`)
-— so the folder becomes the principal and the attested sender survives only as a
-payload field, converted to a sub once for the budget gate
-(`routd/dispatch.go:261`) and never for authz.
-
-So the foreign path **attests and discards**; the owned path **attests and
-carries**. It is not a missing mechanism, it is a dropped one — which is why
-`L146` measured the gap as one call frame wide.
-
-**Internally it is the credential arizuko already has, minted at the edge.** No
-new credential type is implied. Adapters ALREADY authenticate to authd and hold a
-bearer (`chanlib.SetServiceToken`, spec `5/1`); it is exchanged as the DAEMON
-principal — `AUTHD_SERVICE_NAME`, e.g. `teled` — so today it says "I am the
-adapter". The delta is one claim: "I am slakd, ACTING FOR
-`telegram:user/1112184352`". Same mint, same JWKs, same `X-User-*` stamp
-downstream.
-
-That is the whole edge conversion, and both edges already run it:
-
-    platform signature → authd credential      (adapter, foreign)
-    OAuth bearer       → authd credential      (proxyd, owned)
-
-Two edges, one internal credential, nothing new behind either. Which is why this
-is a claims change on a credential path that already exists, not a new auth
-system.
-
-**The fault this names.** Today routing address and authority are FUSED in the
-JID: it is both where a message goes and, through the token pin, what may be
-reached. That fusion is why `route_tokens` stores a folder three times (inside
-`jid`, again in `target_folder`, again in `owner_folder`), and why `L145` and
-`L146` kept circling one knot.
-
-**`web:` is the clearest instance, and it carries no information at all.**
-`web:<folder>` is 1:1 with the group, bypasses the route table entirely, and
-`store.AddRoute` REJECTS a `chat_jid=web:*` predicate at insert time
-(`ROUTING.md:29-38`). It exists because `messages.chat_jid` is the storage key,
-so every message needs a JID and web got a synthetic one. **The prefix is
-ceremony to satisfy a column.**
-
-**It is the direct cause of a measured bug class — 16 sites in 8 files build or
-parse `"web:"+folder`** (`webd/me.go` ×3, `webd/mcp.go` ×2, `store/messages.go`
-×2, `cmd/arizuko/token.go` ×2, `webd/channel.go`, `webd/api.go`,
-`routd/server.go`, `routd/route_tokens_resource.go`). Three failures traced to it:
-
-- `target_folder` had to be ADDED to the row because `web:t/sfx` cannot be parsed
-  back into a folder;
-- `L139`'s implementation caught `send` deriving `jid := "web:" + g.Folder`, which
-  would have written to and read the WRONG chat for any suffixed or `hook:` token;
-- the SSE `round_done` key bug, which landed twice — keyed on the chat JID where
-  the subscriber keyed on the target folder.
-
-All one shape: a folder encoded into a string and parsed back out
-(`identity_derived_not_read`).
-
-**What follows, if this is ever acted on:** for an owned surface there is no
-correspondent to resolve — only a folder to address — so the URI names the
-destination, the header carries the authority, and `web:` has nothing left to do.
-For a foreign surface the adapter attests, routd resolves, and the acl authorizes,
-each reading its own input.
-
-**No work item.** `L146` is DEFERRED — the JID router stands. This entry exists so
-the fault is named rather than rediscovered, and so a future change to
-`route_tokens`, `messages.chat_jid` or the adapter boundary starts from the
-principle instead of the symptom.
-
-**Update 2026-08-30 — the "attests and DISCARDS" half is closed.** The turn now
-authorizes on two axes: `auth.Caller.Route` carries the destination folder and
-`auth.Caller.Principal` carries the attested sender, and `auth.Authorize` unions
-them with the sender's half confined to the route's subtree and to an exact
-action (spec `5/33` §"Two axes"). The foreign path still attests a JID rather
-than an account — the sender string is matched as it arrives, and mapping a
-correspondent to a paired account is `L146`'s inbound rewrite, which stays
-deferred. So the fault this entry names is now the STORAGE-KEY half (`web:` as
-ceremony for a column, `L148`'s 22 conversion sites), not the authorization half.
-
-- **Severity:** n/a (recorded principle + a named design fault)
-- **Scope:** routing / auth model / storage key
-- **Affected:** `store/messages.go`, `store/route_tokens.go`, `webd/*`, `ROUTING.md`, `specs/5/W`, `specs/5/34`
-- **Status:** recorded — no work item; the auth-axis half shipped 2026-08-30,
-  `L146`'s inbound rewrite stays deferred, `L145` open as a proposal
-- **Related:** `L145`, `L146`, `L148`, `L122`, `identity_derived_not_read`
-
 ## L146 — proposal: the inbound path is one rewrite — a channel payload becomes (destination URI, Authorization header, body); authorize on user + destination, never source (2026-08-30, proposal — needs sign-off)
 
 Designed with the operator across this session. It supersedes `L145`'s framing:
@@ -3912,66 +3781,6 @@ the 42 live rows. No means `auth.UserScopes`' doc comment keeps naming a rule
 dashd does not follow, and that gap should be written down where dashd reads it
 rather than left as a latent contradiction.
 
-## 📋 RECORD F77 — skill-guard's per-line scan is evadable by splitting a payload (2026-08-08, RECORD 2026-09-21 — the demonstrated case is fixed, the class is out of scope by `5/23`)
-
-The demonstrated case is fixed: shell line-continuations are joined before
-scanning, so `curl \` + newline + payload no longer scans `safe` while the
-one-line form scans `dangerous`. Reproduced by codex and independently before
-the fix; regression test in `ant/src/skillguard.test.ts`.
-
-The CLASS remains open. A payload assembled from string concatenation, built in
-a variable, or split across a here-doc still passes a regex table that reads one
-line at a time. Closing it means AST or dataflow analysis, which
-`specs/5/23` explicitly puts out of scope.
-
-Not a containment boundary — Docker, the crackbox egress allowlist and the gated
-MCP socket are, and `SECURITY.md` states this. Recorded so the residual is not
-mistaken for coverage.
-
-**Re-verified 2026-08-15 at `bcb5bb83`: accurate as written, no action.** The
-demonstrated fix is present and is the one described — `logicalLines`
-(`ant/src/skillguard.ts:46`) joins a line ending in `\` with the next before
-scanning. The residual class is genuinely out of scope: closing it needs AST or
-dataflow analysis, which `specs/5/23` excludes by decision, so there is no
-contained fix to make and nothing to close. Left open deliberately as a
-recorded residual, which is what this entry is for.
-
-**Re-verified 2026-09-21 at `a388cad7`: accurate as written, no action, and no
-change since.** `logicalLines` (`ant/src/skillguard.ts`) still joins a line
-ending in `\` with the next before the regex table runs, and
-`ant/src/skillguard.test.ts` still carries the regression case. The residual
-class — a payload assembled by string concatenation, held in a variable, or
-split across a here-doc — still passes, and closing it still needs AST or
-dataflow analysis that `specs/5/23` excludes by decision.
-
-This entry wants no verdict and no sign-off. It is a recorded residual, kept so
-the gap is not mistaken for coverage; `SECURITY.md` names the actual containment
-boundaries (Docker, the crackbox egress allowlist, the gated MCP socket). It
-should be re-read, not re-triaged, and it costs the queue a line rather than a
-decision.
-
-**Typed RECORD 2026-09-21 at `f5851f94`, which is the only thing that was
-missing.** Both halves re-measured a third time and unchanged: `logicalLines`
-(`ant/src/skillguard.ts`) joins a line ending in `\` before the regex table
-runs, and `ant/src/skillguard.test.ts` carries three cases over it — the
-`curl \`-split payload scanning `dangerous`, the finding pointing at the FIRST
-physical line, and a Windows path that ends in a backslash and must NOT join.
-The exclusion is the spec's own text, not an inference: `specs/5/23` is
-`status: shipped` and says both halves itself — "split across string
-concatenation or assembled from a variable still passes", and "Deliberately NOT
-in scope: … AST scanning".
-
-So the residual is spec-sanctioned and the title was the whole problem:
-`PARTIALLY FIXED` reads as an open defect and drew a re-triage in August, in
-September, and again now. It is typed `RECORD` so the next pass re-reads it
-instead. Nothing here is a work item.
-
-- **Severity:** low — raises cost, never a containment boundary
-- **Scope:** `ant/` skill-guard PreToolUse hook
-- **Source:** `ant/src/skillguard.ts` `logicalLines`; `specs/5/23-skill-guard.md`
-- **Status:** record — the class is excluded by a shipped spec; do not re-triage
-- **Fix:** none wanted
-
 ## L50 — LoadConfigFrom leaks one instance's .env into the process (2026-08-18, SILENT HALF FIXED 2026-09-20; the prescribed cause fix is refuted)
 
 `core.LoadConfigFrom` (`core/config.go:185`) does two things a loader should not:
@@ -4456,78 +4265,6 @@ answers "who used which secret" only to an operator with sqlite3 on the host.
   than the new wire contract this entry originally asked for. Until it happens
   the duplicate write is harmless: one empty item collection, written in the
   same batch, costing one item per secret read.
-
-## 📋 RECORD L15 — dead-code sweep 2026-08-11: the hits deliberately REJECTED (record, not a bug)
-
-Not a defect. This is the audit's negative result, kept so the next sweep does not
-re-report the same ~135 hits. `deadcode ./...` gave 149 hits, 56 under `-test`;
-nine survived verification and are filed above as `L6`-`L14`.
-
-- **Status:** record only — nothing to fix
-
-Production run: 149 hits. With `-test`: 56. Buckets and verdicts:
-
-- **crackbox/** (~67 prod hits; 48 survive `-test`: `pkg/host` + `pkg/host/internal`,
-  `pkg/admin.NewAPI`, `pkg/dns Server.LocalAddr`, `pkg/match.LooksLikeDomain`) —
-  REJECTED: crackbox is a shipped standalone component with external users
-  (`specs/6/8`; brief's false-positive #2). Reachability from arizuko's mains is
-  the wrong root set for a public library. Not adjudicated here: whether some
-  `pkg/host/internal` helpers are dead even relative to crackbox's public API —
-  out of scope for an arizuko audit, flag to a crackbox-scoped pass if wanted.
-- **tests/testutils** (28 hits: FakeChannel/FakePlatform/NewInstance/etc.) —
-  REJECTED: shared test library; the 8 that survive `-test`
-  (Name/Connect/Disconnect/Forward/Quote/Repost/Dislike/Edit) are interface-
-  satisfaction stubs, live through the Channel interface contract.
-- **resreg/resregtest** (8 hits) + `resreg/engine.go:1311 reset` ("Test-only." by
-  its own comment) — REJECTED: test harness by design.
-- **routd/db.go:87, runed/db.go:61, store/store.go:178 `OpenMem`** — REJECTED:
-  conventional in-memory constructors for tests, colocated with the real Open.
-- **runed/runtimes.go FakeRuntime.Run/Kill** — REJECTED: fake in a prod file so
-  other packages' tests can import it; standard pattern.
-- **queue SetSignalContainerForTest / SetActiveForTest** — REJECTED: named test
-  seams (the *unnamed* dead queue surface is filed above).
-- **proxyd/resource.go:114 installManualWeb** — REJECTED: self-labeled
-  "test-only entry point" in its own doc comment.
-- **chanlib isStubVerb + CapImplReport** — REJECTED: consumed by nine adapter
-  test suites (`emaid/bskyd/slakd/discd/mastd/reditd/linkd/teled/caps_test.go`,
-  `chanlib/extra_test.go`) — the drift-guard is doing exactly its intended job
-  at test time.
-- **chanlib NoFileSender.SendFile** — REJECTED (with note): unused mixin, but
-  its siblings `NoVoiceSender` (5 adapters) and `NoPinSupport` (2) are embedded;
-  it is the deliberate mixin family's spare slot for the next file-less adapter.
-  4 lines; deleting buys nothing.
-- **core/types.go RouteTarget.String** — REJECTED: fmt.Stringer convention;
-  absence of any `%v` path over a RouteTarget value is not provable by grep, and
-  a wrong deletion breaks log formatting silently.
-- **groupfolder/folder.go:34 IsTopLevel** — REJECTED: documented shape predicate
-  of the leaf library (deliberately renamed from IsRoot with a semantics note),
-  test-covered; 1 line.
-- **auth/surrogate/engine.go:83 NewEngineWith** — REJECTED: own comment says
-  "tests point a…" — a named test seam.
-- **auth/jwks.go:50 NewKeySet** — REJECTED as dead code (test convenience), but
-  its stale "used in-process by authd" comment is filed in the wrapper-atrophy
-  entry above.
-- **chanlib/handler.go:252 NoFileSender / core RouteTarget / audit loadCursor+cursor.get/set/save** —
-  cursor family NOT rejected: filed inside the audit-messages entry (same
-  deleted chain).
-- **auth/jwt.go:29 mintJWT** — NOT rejected: filed as the HS256 entry.
-- **routd/tokens.go (5), routd/db.go (4), routd/sibling_db.go (2),
-  routd/pending_actions.go (2), routd/loop.go StopQueue, queue
-  RegisterProcess/StopProcess/SetHasPendingFn, runed/manager.go intersect,
-  obs (3), audit emitMessage** — NOT rejected: filed above.
-
-# Not determined (UNVERIFIED)
-
-- ~~Whether any live instance sets `AUDIT_WEBHOOK_URL_MESSAGES`~~ — MOOT
-  2026-08-15: the knob and its producer-less stream are deleted (`L11`). No
-  setting of it ever produced an event.
-- ~~`authd/http.go:40-43`'s claim that service:runed's grants entry gates a
-  per-turn downscope~~ — RESOLVED 2026-08-15 while fixing `L8`: the claim was
-  FALSE. runed calls `auth.ServiceToken` nowhere and mints nothing, so the
-  grant gated no call. Grant, comment and dead plumbing are deleted.
-- Whether the 2s poll fully substitutes for the queue's unwired
-  same-group-restart (`hasPending`) in production load — behavior inference
-  from code, not observed live.
 
 ## L2 — a delegated child is never dispatched: its only message is a bot row (2026-08-08, CAUSE ISOLATED 2026-08-15; SILENT HALF FIXED 2026-09-20, the fix needs sign-off, REPRODUCED 2026-08-16 on v0.64.0)
 
@@ -5070,71 +4807,6 @@ Severity drops from high to low, scope from "all dashd pages" to these two.
   "failing that, add a minimal daemon-owned read endpoint" — a new endpoint on
   routd, which is an addition to a public surface rather than a swap.
 
-## anteval `--mcp` has no MCP client — bounded, anteval-side (2026-07-11, fixed 2026-09-22)
-
-**The sign-off this entry asked for is not needed: the public surface it
-wanted already exists.** It offered two ways to close `5/9` gap (b) and said
-both "change a public surface contract or the spec's case semantics". Option
-(1) — an inspect-read on the chat-token MCP face — is SHIPPED. `webd/mcp.go:171`
-registers `get_history(folder, topic, limit≤100)` in `buildWebMCP`, the one
-builder both doors call, so it answers on `POST /mcp` AND on
-`POST /chat/{token}/mcp` (`webd/server.go:103,128`). It is folder-bound the way
-the entry asked — the grant set comes from the route-token ROW, never a request
-param — and it returns BOTH roles (`messageRole`, `webd/server.go:296`:
-non-bot → `"user"`), which is exactly what a harness-injected USER sentinel
-needs.
-
-**Two of the entry's facts were already stale when it was filed or went stale
-after.** The tools are not `send_message`/`get_round` — those names exist
-nowhere in the tree; the surface is `list_groups` / `send` / `get_history`. And
-the blocker it rested on ("get_round returns ASSISTANT frames for one turn, so
-the sentinel cannot be read through it") therefore has no referent.
-
-**What is actually missing is one thing, inside anteval.**
-`HTTPTarget.McpMessages` (`anteval/pkg/run/target.go:107`) hands `t.MCPURL` to
-`messages()`, which GETs `<base>/v1/messages/inspect?jid=` — a REST shape. So
-`--mcp` can only ever be pointed at a second REST URL, and pointing it at
-webd's MCP face is not a misconfiguration the operator can fix. The work:
-
-- a streamable-HTTP MCP client calling `get_history`. `mark3labs/mcp-go
-  v0.45.0` is already a direct dependency and ships
-  `client.NewStreamableHttpClient`; webd mounts the server side stateless.
-- the argument shape. `McpMessages` takes a chat jid; `get_history` takes
-  `folder` + `topic`, both required. anteval has `--folder` and runs each case
-  in its own topic, so both are in hand — but it is a signature change, not a
-  URL swap.
-- `role` → `check.Msg.FromBot`, the mapping `RestMessages` does from
-  `is_bot_message`.
-- restoring a `rest-mcp-parity` case. The `parity_sentinel` checker is still in
-  the vocabulary (`anteval/pkg/check/check.go:76`, `spec.go:52`) and still
-  tested; only the case was deleted 2026-08-21, so nothing is affected TODAY.
-
-No public contract changes, no spec amendment, no case semantics rewritten.
-`5/9` and `anteval/README.md` both said the face lacks an inspect-read; both
-corrected in the same pass.
-
-- **Severity:** low (a flag that cannot be configured; no case depends on it)
-- **Scope:** `anteval/pkg/run/target.go`, `anteval/cases/anteval.toml`
-- **Affected:** nothing live — the case that used it is gone
-- **Source:** anteval/pkg/run/target.go:83-107; webd/mcp.go:171;
-  webd/server.go:103,128,296
-- **Status:** fixed. `anteval/pkg/run/mcpread.go` speaks streamable HTTP
-  (`mark3labs/mcp-go`, already a direct dependency) and calls `get_history`.
-  The two argument shapes the entry flagged are settled: the topic is the run's
-  NONCE, which `run.go` already injects under, carried to the checker on
-  `check.Ctx.Topic`; the folder comes from `groupfolder.JidFolder`, so a
-  suffixed jid names no folder and is REFUSED rather than read as another
-  group's history (`L139`'s bug, not repeated). `role` maps to
-  `check.Msg.FromBot`. The `rest-mcp-parity` case is back in
-  `anteval/cases/anteval.toml`.
-
-  Two silent failure modes are pinned by test and proven by mutation: inverting
-  the role mapping, and failing to open the result envelope — webd answers
-  `NewToolResultText`, so the payload is a JSON STRING inside the first content
-  and is decoded twice. Either mistake reports an empty or mis-attributed
-  history, which in a parity check reads as "MCP does not have it".
-  `anteval/README.md`'s known-gap paragraph is replaced by what it does now.
-
 ## Adversarial review of the 5/16+surrogate features — the surviving findings (2026-07-30, re-adjudicated 2026-09-21)
 
 Fixed inline at filing time: F3, F4 (`cc11eace`), F8 (`48c7e5ce`), F9
@@ -5260,50 +4932,6 @@ Still live:
   `9ef99cb1`, F7
   `debe58f4` — all 2026-09-21; F1 and F10b closed as dead / wrong premise
 
-## CEO audit — the connector capability has no concepts or howto page (2026-07-31, fixed 2026-09-22)
-
-The one surviving item of the 2026-07-31 CEO audit. Re-verified 2026-09-21: the
-ext-mcp connector injection (spec `5/13`) — the differentiator the pitch leans on
-— still has no landing-page or concepts-page presence. `concepts/ext-mcp.html` and
-`howto/add-connector.html` do not exist, `concepts/index.html`'s 27-entry
-curriculum has no connector entry, and `template/web/pub/arizuko/index.html`
-contains the word "connector" zero times. The capability is documented only in
-`reference/mcp.html` (the `[[connector]]` TOML descriptor, credential injection,
-grant gating), one sentence at `security/index.html:46`, and one at
-`components/egress.html:109`.
-
-**FIXED 2026-09-22.** `concepts/ext-mcp.html` states what a connector is, the
-two transports (`mcp` discovers its catalogue and reads headers only; `rest`
-declares its tools and may use all three sinks), the `{secret:KEY}` sinks and
-the three things that happen to the value per call, the `ext:<service>:<op>`
-grant gate, and three limits worth knowing — chiefly that the call leaves from
-`routd`, so the folder's egress allowlist does not bound it.
-`howto/add-connector.html` walks one REST connector end to end and ends on what
-to check when it does not work. Both are wired into every concepts and howto
-nav and into both index pages, and the landing page carries a connector bullet.
-`tests/webdocs` passes, and it does catch a dangling link — proven by breaking
-one. NOT deployed: the `cp` workflow in `template/web/CLAUDE.md` is the
-operator's to run.
-
-The other two items are closed:
-
-- **Tier-language doc-debt — resolved.** The item was explicitly conditional ("NOT
-  stale yet — tracked for the 5/33 rename pass"). The trigger fired
-  (`AuthorizeStructural` has no definition in the tree; `container/runner.go:928`
-  documents `ARIZUKO_TIER` as dropped per 5/33 decision 10) and the coordinated
-  sweep it called for landed on 2026-08-05 in `7b3c41fe` (web) and `1bc1a967`
-  (root docs). Swept again 2026-09-21: no web page, root UPPERCASE doc or `ant/`
-  skill claims tiers gate anything today. The remaining "tier" hits are
-  cold-tier/hot-tier (MCP surface categories), `strategy/index.html`'s Tier A-D
-  roadmap buckets, third-party API tiers (Slack, Twitter), a CSS class, and dated
-  changelog and migration-summary history.
-- **README SDK-comparison pitch — moot.** `README.md:88-102` no longer holds a
-  pitch of that shape; it is a "when to use / when not to" fit filter. There is
-  nothing left to move onto the landing page.
-
-- **Severity:** low (positioning, not code)
-- **Scope:** `template/web/pub/arizuko/concepts/`, `howto/`, `index.html`
-
 ## S1b — the helm chart deploys the deleted `gated` daemon (2026-08-05, PROPOSED — redesign, needs sign-off; RE-MEASURED 2026-09-21)
 
 Split out of S1, whose fix ("wire `AUTHD_SERVICE_KEY` instead of the dead
@@ -5408,6 +5036,19 @@ chart would now *look* current. That is worse than the honest breakage.
   gate in `ci.yml` and an owner. Either way this is the owner's call, not a
   refinement — which is why it stays PROPOSED.
 
+**RE-MEASURED 2026-10-08, and I filed it a second time as `L399` before finding this
+entry.** The duplicate is folded in here; the counts it added:
+`templates/gated.yaml` is **113 lines**, and `gated` has **15 more references** across
+`values.yaml`, `_helpers.tpl`, `configmap.yaml`, `webd.yaml`, `timed.yaml`, `NOTES.txt`,
+`Chart.yaml` and `README.md`. `NOTES.txt` tells the operator to run
+`kubectl rollout status deploy/<release>-gated`. The crackbox half of the chart is gone
+as of `a01f4d7b`; this half is the larger one and is unchanged.
+
+**Why I missed this entry:** it has no `L`-number, so
+`TestOpenEntriesAreListedHere` cannot see it and it has never appeared in "What needs
+you". Ten entries are in that state. The guard now checks for them (same commit), which
+is the actual fix — a queue item invisible to the guard gets re-filed by the next
+reader, as it just was.
 ## V2 — the cockpit split SHIPPED and the duplication is closed; one item is live: dashd has no authority-provenance view (2026-08-04, DUPLICATION CLOSED 2026-09-21)
 
 **Re-measured 2026-09-21 at `f5851f94`. The direction was taken, not
