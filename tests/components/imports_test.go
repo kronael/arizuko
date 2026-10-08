@@ -84,3 +84,52 @@ func TestContainerImportsNoIPC(t *testing.T) {
 		}
 	}
 }
+
+// TestNoPackageOpensSQL restores the guard that left with the SQL it guarded.
+//
+// `db_utils/opener_test.go` failed the build on any opener other than `db_utils.Open`,
+// and `objstore/sqlstore`'s own refusal covered the engine. Both are gone — the move to
+// a DynamoDB-protocol store finished at v0.68.0 — and so is the thing that stopped a
+// second one arriving. Spec `6/37` states the invariant ("zero `database/sql`
+// importers") and nothing enforced it, which is the half BUGS `L350` is about: the
+// invariant still holds, and the tests that held it do not.
+//
+// `database/sql/driver` is permitted: the AWS SDK and `google/uuid` reach it
+// transitively and neither opens anything. `database/sql` itself is the handle you
+// cannot hold without a database, so that is the name to refuse.
+func TestNoPackageOpensSQL(t *testing.T) {
+	cmd := exec.Command("go", "list", "-deps", "./...")
+	cmd.Dir = root
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("go list -deps ./...: %v", err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	if len(lines) < 100 {
+		t.Fatalf("go list returned %d packages; a guard that reads nothing cannot fail", len(lines))
+	}
+	for _, dep := range lines {
+		if dep == "database/sql" {
+			t.Error(`a package imports "database/sql". The store is a DynamoDB-protocol ` +
+				`service reached through objstore (spec 6/37), there is no engine seam to ` +
+				`select with, and the opener guard that used to say so left with db_utils. ` +
+				`If a SQL handle is genuinely needed, that is a spec change, not an import.`)
+		}
+	}
+
+	// And the drivers, by name: an import of one is a second engine arriving whatever
+	// the handle is called.
+	banned := map[string]bool{
+		"github.com/mattn/go-sqlite3":   true,
+		"modernc.org/sqlite":            true,
+		"github.com/ncruces/go-sqlite3": true,
+		"github.com/lib/pq":             true,
+		"github.com/jackc/pgx/v5":       true,
+	}
+	for _, dep := range lines {
+		if banned[dep] {
+			t.Errorf("a package imports the SQL driver %q; the store server owns the "+
+				"engine and arizuko is one client of it (spec 6/42)", dep)
+		}
+	}
+}

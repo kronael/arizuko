@@ -125,17 +125,8 @@ reads those words now.
 - `L189` — blocked on `L137`. Do not take it alone.
 
 
-**A pointer that resolves and lies.**
-
-
-
-**Dead code with a price.**
-
-
 **A spec whose status is a claim.**
 
-- `L350` — `6/37` cites six deleted artifacts, four of them its own guards. The
-  invariant still holds; the tests that held it do not.
 
 ## Design invariants — intentional, do not re-report
 
@@ -821,7 +812,7 @@ literals, which is work nobody has claimed.
      every grep that scans for them, so the comment now uses `<phase>/<id>` placeholders.
      An exclusion list is the part that rots.
 
-## L350 — spec `6/37` cites six artifacts that no longer exist, four of them the guards it rests on (2026-09-22, open)
+## ✅ FIXED 2026-10-08 L350 — spec `6/37` cites six artifacts that no longer exist, four of them the guards it rests on (2026-09-22)
 
 `specs/6/37-store-model.md` is `status: partial` and its steps 1-2 name the
 tests that hold the SQL→objstore move honest. Every path in the spec was
@@ -860,6 +851,27 @@ guards come back because the invariant still needs holding.
   Memory `phase5_closed` is the precedent: re-verifying 50 "shipped" specs
   found 13 drifts, so a status is a claim, not a fact.
 - **Fix:**
+
+- **Status:** ✅ FIXED 2026-10-08, both halves.
+
+  The PROSE half: `6/37`'s **State** paragraph claimed in present tense that "the seam
+  is built: `db_utils.Open` selects the engine". It now says shipped and names what
+  superseded it, and everything from `## Order` down is explicitly the record of the
+  move. The spec already carried that disclaimer — but it sat BELOW the paragraph, so it
+  covered the ordered steps and not the claim above them.
+
+  The GUARD half, which is the one that mattered: this entry's own line was *"the
+  invariant still holds; the tests that held it do not."* `db_utils/opener_test.go`
+  failed the build on any opener but one, and `objstore/sqlstore`'s refusal covered the
+  engine; both left with the SQL they guarded, and nothing stopped a second one
+  arriving. `TestNoPackageOpensSQL` (`tests/components`) refuses an import of
+  `database/sql` and of five named drivers. `database/sql/driver` stays permitted — the
+  AWS SDK and `google/uuid` reach it transitively and neither opens anything.
+
+  Planting `import "database/sql"` in `core/` fails it. My first probe went in
+  `tmp/_sqlprobe/` and proved nothing, because the go tool ignores a directory whose
+  name starts with `_` — the project's own convention, and it makes a probe invisible as
+  readily as it makes scratch invisible.
 
 ## L347 — rows behind a steered command are never re-fed (2026-09-21, open)
 
