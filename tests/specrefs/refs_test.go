@@ -6,6 +6,7 @@
 package specrefs
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -339,4 +340,79 @@ func TestEveryBareSectionCitationResolves(t *testing.T) {
 			"and an empty set is a guard that cannot fail")
 	}
 	t.Logf("resolved %d bare section citations", checked)
+}
+
+// TestEverySpecCitationInGoResolves checks the citations that live in Go — comments and
+// error strings — not just the markdown links this package already walks.
+//
+// They were unchecked, and there are 64 of them. An error a user reads says "(spec
+// 5/33)" and a reader follows it; `tests/specrefs`'s other tests read markdown links and
+// `depends:` frontmatter, so a citation inside a string literal could name a document
+// that never existed and nothing noticed. That is the open shape of BUGS `L355`: a
+// pointer that resolves and lies is worse than an absent one, and so is one that does
+// not resolve at all.
+//
+// Measured when this test was written: 63 of 64 resolved, and the one that did not was an
+// EXAMPLE inside a comment about citation shapes. That comment now uses placeholders, so
+// this check needs no exclusion list — an exclusion list is the part that rots.
+func TestEverySpecCitationInGoResolves(t *testing.T) {
+	root := filepath.Join("..", "..")
+	// `spec 5/33`, `specs 6/41`, `spec 11/17` — the phase is always written, which is
+	// what makes a citation resolvable at all.
+	//
+	// The id class is the one `tests/webdocs` already proved: one or two digits, or a
+	// letter with an optional digit. A looser class swallows the sentence's full stop
+	// and the slug — my first pass reported six dead citations that were all `6/19.`
+	// and `5/F-topic-lineage.`, which is the pattern being wrong, not the code.
+	cite := regexp.MustCompile(`\bspecs? ([1-9][0-9]?)/([0-9]{1,2}|[A-Za-z][0-9]?)\b`)
+
+	var files []string
+	out, err := exec.Command("git", "-C", root, "ls-files", "*.go").Output()
+	if err != nil {
+		t.Fatalf("git ls-files: %v", err)
+	}
+	for _, f := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if f != "" && !strings.HasPrefix(f, "third_party/") {
+			files = append(files, f)
+		}
+	}
+	if len(files) == 0 {
+		t.Fatal("no Go files found: a check that reads nothing cannot fail")
+	}
+
+	seen := map[string]string{} // citation -> first file:line that makes it
+	for _, rel := range files {
+		body, rerr := os.ReadFile(filepath.Join(root, rel))
+		if rerr != nil {
+			t.Fatalf("read %s: %v", rel, rerr)
+		}
+		for i, line := range strings.Split(string(body), "\n") {
+			for _, m := range cite.FindAllStringSubmatch(line, -1) {
+				key := m[1] + "/" + m[2]
+				if _, dup := seen[key]; !dup {
+					seen[key] = fmt.Sprintf("%s:%d", rel, i+1)
+				}
+			}
+		}
+	}
+	if len(seen) < 20 {
+		t.Fatalf("only %d citations found; the pattern stopped matching", len(seen))
+	}
+
+	for key, where := range seen {
+		phase, id, _ := strings.Cut(key, "/")
+		// A spec is `specs/<phase>/<id>-<slug>.md`, or `<id>.md` for the few with none.
+		hits, gerr := filepath.Glob(filepath.Join(root, "specs", phase, id+"-*.md"))
+		if gerr != nil {
+			t.Fatal(gerr)
+		}
+		if len(hits) == 0 {
+			if _, serr := os.Stat(filepath.Join(root, "specs", phase, id+".md")); serr == nil {
+				continue
+			}
+			t.Errorf("%s cites spec %s, which is not in specs/%s/ — a reader following "+
+				"that pointer finds nothing (BUGS L355)", where, key, phase)
+		}
+	}
+	t.Logf("checked %d distinct spec citations in Go", len(seen))
 }

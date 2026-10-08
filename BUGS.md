@@ -128,8 +128,6 @@ reads those words now.
 **A pointer that resolves and lies.**
 
 
-- `L355` — the comment audit shipped; what is left is 31 citations inside Go
-  string literals (three pinned by tests) and four stale § names.
 
 **Dead code with a price.**
 
@@ -714,7 +712,7 @@ by rotating it for everyone). The silence was not.
   Until then `6/23`'s own sentence is the thing that is wrong, and the operator note
   beside it should say the row is dropped.
 
-## L355 — a bare spec number that resolves can still name the wrong document, and two sit in the authorization path (2026-09-22, open)
+## ✅ FIXED 2026-10-08 L355 — a bare spec number that resolves can still name the wrong document, and two sit in the authorization path (2026-09-22)
 
 `specs/CLAUDE.md` states the hazard and says no test can catch it: "A bare
 `5/5` keeps resolving after a renumber and silently names a different spec —
@@ -801,6 +799,27 @@ across tracked non-test code, and nothing checks that any of them resolves.
 `tests/specrefs` checks markdown links and `depends:` frontmatter — not strings in Go. A
 citation a reader follows to nothing is the defect, and the fix is a check over the
 literals, which is work nobody has claimed.
+
+- **Status:** ✅ FIXED 2026-10-08. `TestEverySpecCitationInGoResolves`
+  (`tests/specrefs`) reads the citations that live in Go — comments and error strings —
+  and fails when one names a document that is not in `specs/<phase>/`. **62 distinct
+  citations, all resolving.** Planting `spec 6/99` in `ipc/connector.go` fails it.
+
+  That was the open shape: `tests/specrefs` walked markdown links and `depends:`
+  frontmatter, so a citation inside a string literal — the kind a USER reads in an error
+  message — could name anything. Nothing checked them.
+
+  Two things the check taught, both recorded at the code:
+
+  1. **My first pattern reported six dead citations and all six were the pattern's
+     fault** — `6/19.`, `5/F-topic-lineage.`, `5/17-openapi-mcp.`: a loose id class
+     swallows the sentence's full stop and the slug. It uses the class
+     `tests/webdocs` already proved.
+  2. **The check needs no exclusion list, and that is deliberate.** The one genuine
+     non-resolver was an EXAMPLE inside a comment about citation shapes
+     (`tests/webdocs/links_test.go`). A real-looking number in a comment IS a citation to
+     every grep that scans for them, so the comment now uses `<phase>/<id>` placeholders.
+     An exclusion list is the part that rots.
 
 ## L350 — spec `6/37` cites six artifacts that no longer exist, four of them the guards it rests on (2026-09-22, open)
 

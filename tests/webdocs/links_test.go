@@ -38,10 +38,14 @@ var (
 	// the slug is left off: "spec 5/17", "spec&nbsp;5/17", "specs/5/17".
 	// All three are in the tree, so all three are checked.
 	specPathRe = regexp.MustCompile(`specs/([1-9][0-9]?)/([0-9A-Za-z][0-9A-Za-z_.-]*)\.md`)
-	// The separator class carries a COLON as well as whitespace: pages write
-	// "Spec:&nbsp;7/F." as readily as "spec 7/F", and a class without it let
-	// five dead IDs through on the one page a public reader hits
+	// The separator class carries a COLON as well as whitespace: a page writes
+	// "Spec:&nbsp;<phase>/<id>." as readily as "spec <phase>/<id>", and a class
+	// without it let five dead IDs through on the one page a public reader hits
 	// (reference/mcp.html, BUGS L43).
+	//
+	// The example is spelled with placeholders on purpose: a real-looking number in
+	// a comment is a citation to every grep that scans for them, and
+	// TestEverySpecCitationInGoResolves counted this line as a dead `7/F`.
 	specIDRe = regexp.MustCompile(`(?i)\bspecs?(?::?(?:[ \t\x{00A0}]+|&nbsp;)|/)([1-9][0-9]?)/([0-9]{1,2}|[A-Za-z][0-9]?)\b`)
 )
 
