@@ -84,15 +84,32 @@ func (l *Loop) folderMeter(ctx context.Context, folder string, capCents int) (st
 	return "", nil
 }
 
-// userMeter reconciles one person's cap and reads today's charge. An uncapped
-// caller costs no call: the gateway meters through the key's user_id whether
-// or not it holds a row, and a row exists only to carry a budget.
+// userMeter reconciles one person's cap and reads today's charge, the same way
+// folderMeter reconciles the folder's.
+//
+// It READS even when the operator's cap is zero, and that is the whole of BUGS
+// `L401`'s sibling `L402`: returning early on `capCents == 0` was right for someone
+// who never had a cap and wrong for someone whose cap was REMOVED. The gateway row
+// already existed, still carried the old `max_budget`, and nothing ever cleared it —
+// so taking a person's cap away left the gateway refusing them, with no cap anywhere
+// in arizuko to explain why. `folderMeter` has always pushed the zero
+// (`b.CapCents != capCents` is true for 0 too); only the user half returned first.
+//
+// The cost is one gateway read per turn for a caller who holds no cap, which is what
+// the early return bought. It is a local call on the compose network, the folder half
+// already pays it on every turn, and the alternative is a second piece of state
+// recording "this person once had a cap" — a worse trade than one read.
 func (l *Loop) userMeter(ctx context.Context, userSub string, capCents int) (string, error) {
-	if userSub == "" || capCents == 0 {
+	if userSub == "" {
 		return "", nil
 	}
 	b, err := l.gateway.userBudget(ctx, userSub)
 	if errors.Is(err, errGatewayNotFound) {
+		// No row and no cap is the common path: a row exists only to carry a budget,
+		// so there is nothing to create and the gateway still meters through user_id.
+		if capCents == 0 {
+			return "", nil
+		}
 		if err := l.gateway.createUser(ctx, userSub, capCents); err != nil {
 			return "", fmt.Errorf("model gateway create user %s: %w", userSub, err)
 		}
@@ -106,7 +123,8 @@ func (l *Loop) userMeter(ctx context.Context, userSub string, capCents int) (str
 			return "", fmt.Errorf("model gateway update user %s: %w", userSub, err)
 		}
 	}
-	if b.SpentCents >= capCents {
+	// An uncapped person is never refused, whatever the row says about yesterday.
+	if capCents > 0 && b.SpentCents >= capCents {
 		slog.Info("budget: user cap exhausted; refusing turn",
 			"user_sub", userSub, "spent_cents", b.SpentCents, "cap_cents", capCents)
 		return budgetMsg("you", b.SpentCents, capCents), nil

@@ -216,3 +216,53 @@ func TestDispatch_AttributesScheduledTaskToRoutd(t *testing.T) {
 		t.Errorf("key user_id = %v, want service:routd", got)
 	}
 }
+
+// TestBudgetGate_RemovingAUserCapClearsItAtTheGateway pins BUGS `L402`. The folder
+// half has always pushed the zero — `b.CapCents != capCents` is true for 0 too — and
+// the user half returned early on `capCents == 0`, so it never read the row and never
+// cleared it.
+//
+// The effect: take a person's cap away and the gateway keeps refusing them, with no cap
+// left anywhere in arizuko to explain why. The sibling test above covers the folder.
+func TestBudgetGate_RemovingAUserCapClearsItAtTheGateway(t *testing.T) {
+	db, loop, _, fake := gatewayLoop(t, "demo")
+	if err := db.SetFolderCap("demo", 1000); err != nil {
+		t.Fatal(err)
+	}
+	fake.setTeam("demo", 0, 1000)
+	// The person held a cap, spent it, and the operator then took the cap away.
+	seedUser(t, db, "google:dave", 0)
+	fake.setUser("google:dave", 30, 30)
+
+	msg, err := loop.budgetGate(context.Background(), "demo", "google:dave")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if msg != "" {
+		t.Errorf("the cap is removed and the gate still refused: %q", msg)
+	}
+	if cap, _ := fake.userCap("google:dave"); cap != 0 {
+		t.Errorf("gateway still enforcing %d cents after the cap was removed", cap)
+	}
+}
+
+// The dual: someone who never held a cap costs no create. A row exists only to carry
+// a budget, so an absent row plus an absent cap is the common path and must stay inert.
+func TestBudgetGate_AnUncappedPersonGetsNoGatewayRow(t *testing.T) {
+	db, loop, _, fake := gatewayLoop(t, "demo")
+	if err := db.SetFolderCap("demo", 1000); err != nil {
+		t.Fatal(err)
+	}
+	fake.setTeam("demo", 0, 1000)
+
+	msg, err := loop.budgetGate(context.Background(), "demo", "google:erin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if msg != "" {
+		t.Errorf("an uncapped person was refused: %q", msg)
+	}
+	if _, ok := fake.userCap("google:erin"); ok {
+		t.Error("a row was created for someone who holds no cap")
+	}
+}

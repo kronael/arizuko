@@ -638,6 +638,51 @@ enough to meet a container restart, a timeout, or an OOM.
   patch: it keeps the disk from filling while leaving every repack still
   failing, so nothing is ever actually packed.
 
+## ✅ FIXED 2026-10-08 L402 — taking a person's spend cap away leaves the gateway refusing them forever (2026-10-08)
+
+Spec `6/39:115`: "the gate pushes both to the gateway". The folder half does.
+`folderMeter` updates the team whenever `b.CapCents != capCents`, and that is true for
+0 too, so removing a folder cap clears it at the gateway —
+`TestBudgetGate_DisablingCapsClearsTheGatewaysBudget` has covered it all along.
+
+`userMeter` returned first:
+
+```go
+if userSub == "" || capCents == 0 {
+    return "", nil
+}
+```
+
+So when an operator takes a person's cap away, the gateway's row survives with the old
+`max_budget` and nothing ever clears it. LiteLLM keeps refusing that person, and there
+is no cap anywhere in arizuko to explain why — the operator looks at
+`arizuko budget`, sees nothing, and the refusal continues.
+
+The early return was right for someone who NEVER held a cap and wrong for someone whose
+cap was removed, and only the second case has a row.
+
+- **Severity:** medium (one person locked out of every turn; no surface explains it)
+- **Scope:** `routd/budget.go`
+- **Affected:** `userMeter`; any `user_sub` whose cap went from non-zero to zero
+- **Source:** the phase 6 audit, 2026-10-08, as an incompleteness against `6/39:115`
+- **Status:** ✅ FIXED 2026-10-08
+- **Fix:** `userMeter` reads the row whatever the cap is, exactly as `folderMeter` does,
+  and pushes the zero on a mismatch. Absent row plus absent cap stays inert — a row
+  exists only to carry a budget, so there is nothing to create and the gateway still
+  meters through `user_id`. And an uncapped person is never refused, whatever the row
+  says about yesterday's spend.
+
+  The cost is one gateway read per turn for an uncapped caller, which is what the early
+  return bought. It is a local call on the compose network, the folder half already pays
+  it every turn, and the alternative is a second piece of state recording "this person
+  once had a cap" — a worse trade than one read. That cost is the reason this is worth
+  stating rather than silently changing.
+
+  Two tests, and the dual matters as much as the fix:
+  `TestBudgetGate_RemovingAUserCapClearsItAtTheGateway` and
+  `TestBudgetGate_AnUncappedPersonGetsNoGatewayRow`. Restoring the early return fails
+  the first with "gateway still enforcing 30 cents after the cap was removed".
+
 ## ✅ FIXED 2026-10-08 L401 — routd cannot boot with an operator `rest` connector: one file, two readers, and the readers disagree (2026-10-08)
 
 `connectors.toml` is one format with two readers (spec `6/19` §"The shape": "One loader

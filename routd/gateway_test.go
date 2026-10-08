@@ -213,6 +213,21 @@ func (g *fakeGateway) snapshot() ([]map[string]any, []string) {
 
 // teamCap reports the cap the gateway now holds for a team, in cents, and
 // whether it holds a team at all.
+// userCap is teamCap for the user half. The two halves of the gate reconcile
+// symmetrically, so the fake exposes both the same way (BUGS `L402`).
+func (g *fakeGateway) userCap(id string) (int, bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	b := g.users[id]
+	if b == nil {
+		return 0, false
+	}
+	if b.maxBudget == nil {
+		return 0, true
+	}
+	return int(*b.maxBudget*100 + 0.5), true
+}
+
 func (g *fakeGateway) teamCap(id string) (int, bool) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
