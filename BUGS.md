@@ -783,6 +783,25 @@ is the reference — do not restate here".
   wrong § inside a right document is a second concern from this entry's.
 - **Fix:** `fc356ac1` (the comment audit).
 
+**RE-MEASURED 2026-10-08, and the two sites this entry singled out are NOT ambiguous.**
+`cmd/arizuko/packages.go` cites `spec 5/5` and `spec 5/33`; both carry their phase, so
+both resolve uniquely — `specs/5/5-worlds-agents-sessions.md` and
+`specs/5/33-paths-roles.md` — and both resolve to the right CONTENT: `5/5` has an
+`Open 2` about a `folder:` principal carrying no JWT claims, and `5/33` has
+subset-of-held. The ambiguity this entry is about needs a BARE number with no phase, and
+these are not that. An audit pass counted them as reused; they are qualified.
+
+One real staleness was there and is fixed: the refusal cited "spec 5/5 Open 2" as though
+the question were open. It was **settled 2026-08-15** (`5/5:235`), so a reader followed a
+pointer to a decision expecting a question. The citation now names the section and the
+date it was settled.
+
+What stays open is the SHAPE, not these two: 35 spec citations live in Go string literals
+across tracked non-test code, and nothing checks that any of them resolves.
+`tests/specrefs` checks markdown links and `depends:` frontmatter — not strings in Go. A
+citation a reader follows to nothing is the defect, and the fix is a check over the
+literals, which is work nobody has claimed.
+
 ## L350 — spec `6/37` cites six artifacts that no longer exist, four of them the guards it rests on (2026-09-22, open)
 
 `specs/6/37-store-model.md` is `status: partial` and its steps 1-2 name the

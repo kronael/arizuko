@@ -341,7 +341,8 @@ func checkGrantPredicate(row resources.ACLRow) error {
 	}
 	return fmt.Errorf("grant %s %q carries predicate %q, and a folder: principal is only ever "+
 		"matched on the agent socket, which carries no JWT claims — the row would never match; "+
-		"drop the predicate or grant a user: principal (spec 5/5 Open 2)",
+		"drop the predicate or grant a user: principal "+
+		"(spec 5/5 §\"Open 2\", settled 2026-08-15)",
 		row.Principal, row.Action, row.Predicate)
 }
 
