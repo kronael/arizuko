@@ -347,3 +347,38 @@ func TestAppSrcDirFallsThroughToTheBinaryDir(t *testing.T) {
 		t.Errorf("AppSrcDir = %q, want the explicit APP_SRC_DIR", got)
 	}
 }
+
+// TestLoadConfigAlwaysSetsAppSrcDir keeps EffectiveAppSrcDir's HostAppDir branch dead in
+// production. That branch exists for the 47 test sites which set only HostAppDir, and a
+// convenience for tests must not become a second source for the release path — the class
+// that cost BUGS `L194`, where routd's own copy of the chain stopped early and resolved
+// an empty app dir while every other reader resolved the binary's.
+//
+// LoadConfig sets AppSrcDir from AppSrcDir(), which ends at execDir(), which ends at
+// mustCwd(). So it is never empty for a config the loader built.
+func TestLoadConfigAlwaysSetsAppSrcDir(t *testing.T) {
+	for _, tc := range []struct{ name, appSrc, hostApp string }{
+		{"nothing set", "", ""},
+		{"only HOST_APP_DIR", "", "/opt/arizuko"},
+		{"both set", "/srv/app-src", "/opt/arizuko"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("APP_SRC_DIR", tc.appSrc)
+			t.Setenv("HOST_APP_DIR", tc.hostApp)
+			t.Setenv("ARIZUKO_DEV", "true")
+
+			cfg, err := LoadConfig()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.AppSrcDir == "" {
+				t.Fatal("LoadConfig left AppSrcDir empty, so EffectiveAppSrcDir's test-only " +
+					"branch is live in production")
+			}
+			// And the method answers the same thing, so the branch changes nothing.
+			if got := cfg.EffectiveAppSrcDir(); got != cfg.AppSrcDir {
+				t.Errorf("EffectiveAppSrcDir() = %q, want AppSrcDir %q", got, cfg.AppSrcDir)
+			}
+		})
+	}
+}

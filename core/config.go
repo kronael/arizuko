@@ -283,9 +283,19 @@ func LoadConfig() (*Config, error) {
 	return c, nil
 }
 
-// EffectiveAppSrcDir returns the in-container source path for reading ant/
-// skills and output-styles. Falls back to HostAppDir so tests that only set
-// HostAppDir work without also needing AppSrcDir explicitly.
+// EffectiveAppSrcDir returns the in-container source path for reading ant/ skills and
+// output-styles.
+//
+// The HostAppDir branch is TEST SCAFFOLDING and cannot fire in production:
+// `LoadConfig` sets AppSrcDir from `AppSrcDir()`, which ends at `execDir()`, which ends
+// at `mustCwd()` — so it is never empty for a config the loader built. 47 test sites set
+// only HostAppDir and rely on this; `TestLoadConfigAlwaysSetsAppSrcDir` is what keeps the
+// branch dead where it matters, so the convenience cannot become a second production
+// source of the release path.
+//
+// Compose sets APP_SRC_DIR explicitly for both daemons that read it
+// (`compose/compose.go:1151,1229`), which is the declaration; this method never has to
+// guess.
 func (c *Config) EffectiveAppSrcDir() string {
 	if c.AppSrcDir != "" {
 		return c.AppSrcDir
