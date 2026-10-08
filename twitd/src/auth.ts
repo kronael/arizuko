@@ -18,6 +18,14 @@ import { createRemoteJWKSet, jwtVerify, type JWTVerifyGetKey } from 'jose';
 // admits only this caller.
 const CallerRoutd = 'service:routd';
 
+// CallerProxyd is the principal proxyd presents when it forwards an operator's
+// browser request. It is the ONLY proof that the X-User-* headers on that request
+// are proxyd's own: proxyd strips the client's copy and stamps its own, so a
+// dashboard that reads the header without verifying this bearer admits anyone who
+// can reach the port and send `X-User-Groups: ["**"]` (BUGS `L400`, and `L270` for
+// the same hole on the Go adapters).
+const CallerProxyd = 'service:proxyd';
+
 // refreshLeadMs re-exchanges this long before expiry, matching the Go source.
 const refreshLeadMs = 60_000;
 
@@ -120,6 +128,29 @@ export async function verifyRoutd(
       issuer: 'authd',
     });
     return payload['typ'] === 'service' && payload.sub === CallerRoutd;
+  } catch {
+    return false;
+  }
+}
+
+// verifyProxyd gates the operator dashboard: with a verifier wired it admits only
+// a valid service:proxyd ES256 token, which is what makes the X-User-* headers
+// trustworthy. With no verifier (local dev) it always admits, mirroring Go's
+// ks==nil branch in auth.RequireOperator.
+export async function verifyProxyd(
+  req: http.IncomingMessage,
+  jwks: RoutdVerifier,
+): Promise<boolean> {
+  if (!jwks) return true; // local dev: no JWKS → gate open
+  const hdr = req.headers.authorization || '';
+  if (!hdr.startsWith('Bearer ')) return false;
+  const token = hdr.slice('Bearer '.length).trim();
+  try {
+    const { payload } = await jwtVerify(token, jwks, {
+      algorithms: ['ES256'],
+      issuer: 'authd',
+    });
+    return payload['typ'] === 'service' && payload.sub === CallerProxyd;
   } catch {
     return false;
   }

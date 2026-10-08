@@ -83,12 +83,13 @@ export function startServer(
     // The operator dashboard (spec 6/31), before the routd gate: it is reached
     // by an operator's browser through proxyd, not by routd's service token.
     if (
-      handleDash(req, res, {
+      await handleDash(req, res, {
         name: 'twitd',
         prefixes: ['twitter:'],
         enforce:
           process.env['AUTHD_URL'] !== undefined &&
           process.env['AUTHD_URL'] !== '',
+        verifier,
         isConnected,
         lastInboundAt,
       })

@@ -18,6 +18,7 @@
 //      the small subset this page uses.
 
 import type * as http from 'node:http';
+import { verifyProxyd, type RoutdVerifier } from './auth.js';
 
 // STALE_SECONDS must equal server.ts's STALE_THRESHOLD_SECONDS, or the page and
 // /health disagree about when the adapter went quiet — the exact drift the Go
@@ -37,7 +38,11 @@ const supportedVerbs = [
   'send-file',
 ];
 
-/** isOperator reads the proxyd-stamped scopes. `**` is the operator scope. */
+/** isOperator reads the proxyd-stamped scopes. `**` is the operator scope.
+ *
+ * This is HALF the gate. The header is only trustworthy behind proxyd's own
+ * service bearer, which handleDash verifies — reading the scope alone admits
+ * anyone who can reach the port (BUGS `L400`). */
 export function isOperator(req: http.IncomingMessage): boolean {
   const hdr = req.headers['x-user-groups'];
   if (typeof hdr !== 'string' || hdr === '') return false;
@@ -118,17 +123,19 @@ nothing to call. The Go adapters probe theirs.</p>
  * operator, so without this the page is visible to anyone signed in. Deployed
  * means AUTHD_URL is set; unset is local dev, where nothing stamps headers.
  */
-export function handleDash(
+export async function handleDash(
   req: http.IncomingMessage,
   res: http.ServerResponse,
   opts: {
     name: string;
     prefixes: string[];
     enforce: boolean;
+    /** verifier proves the X-User-* headers are proxyd's own (BUGS `L400`). */
+    verifier: RoutdVerifier;
     isConnected: () => boolean;
     lastInboundAt: () => number;
   },
-): boolean {
+): Promise<boolean> {
   const path = `/dash/${opts.name}/`;
   if (
     req.method !== 'GET' ||
@@ -136,7 +143,10 @@ export function handleDash(
   ) {
     return false;
   }
-  if (opts.enforce && !isOperator(req)) {
+  if (
+    opts.enforce &&
+    !((await verifyProxyd(req, opts.verifier)) && isOperator(req))
+  ) {
     res.writeHead(403, { 'Content-Type': 'text/html; charset=utf-8' });
     res.end('<p>Operator access required.</p>');
     return true;

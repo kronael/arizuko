@@ -1,6 +1,8 @@
-import { describe, expect, it } from 'bun:test';
+import { beforeAll, describe, expect, it, test } from 'bun:test';
+import { SignJWT, createLocalJWKSet, exportJWK, generateKeyPair } from 'jose';
 import type * as http from 'node:http';
-import { adapterStatus, isOperator, renderDash } from './dash.js';
+import { adapterStatus, handleDash, isOperator, renderDash } from './dash.js';
+import type { RoutdVerifier } from './auth.js';
 
 // The contract's three states (6/31). `stale` is a live process whose platform
 // link has gone quiet — the "healthchecks green but the agent doesn't reply"
@@ -112,5 +114,120 @@ describe('delta sections', () => {
       { title: 'x', rows: [['k', '<script>v</script>']] },
     ]);
     expect(html).not.toContain('<script>v</script>');
+  });
+});
+
+// The operator page needs BOTH halves: proxyd's own service bearer AND the `**`
+// scope it stamps. Reading the scope alone admitted anyone who could reach the
+// port — send `X-User-Groups: ["**"]` to whapd:8080/dash/whapd/ and the operator page
+// came back. BUGS `L400`; `L270` closed the same hole on the Go adapters, where
+// chanlib/dash.go calls auth.RequireOperator.
+describe('handleDash: the transit proof is half the gate', () => {
+  let signKey: CryptoKey;
+  let verifier: ReturnType<typeof createLocalJWKSet>;
+
+  const sign = (sub: string, typ = 'service') =>
+    new SignJWT({ typ })
+      .setProtectedHeader({ alg: 'ES256' })
+      .setSubject(sub)
+      .setIssuer('authd')
+      .setIssuedAt()
+      .setExpirationTime('5m')
+      .sign(signKey);
+
+  beforeAll(async () => {
+    const { publicKey, privateKey } = await generateKeyPair('ES256', {
+      extractable: true,
+    });
+    signKey = privateKey;
+    const jwk = await exportJWK(publicKey);
+    verifier = createLocalJWKSet({ keys: [{ ...jwk, alg: 'ES256' }] });
+  });
+
+  function call(headers: Record<string, string>, v: RoutdVerifier) {
+    const req = {
+      method: 'GET',
+      url: '/dash/whapd/',
+      headers,
+    } as unknown as http.IncomingMessage;
+    let code = 0;
+    let body = '';
+    const res = {
+      writeHead: (c: number) => {
+        code = c;
+      },
+      end: (b?: string) => {
+        body = b ?? '';
+      },
+    } as unknown as http.ServerResponse;
+    return handleDash(req, res, {
+      name: 'whapd',
+      prefixes: ['x:'],
+      enforce: true,
+      verifier: v,
+      isConnected: () => true,
+      lastInboundAt: () => Math.floor(Date.now() / 1000),
+    }).then(() => ({ code, body }));
+  }
+
+  test('the scope alone is refused — this is the hole', async () => {
+    const { code } = await call({ 'x-user-groups': '["**"]' }, verifier);
+    expect(code).toBe(403);
+  });
+
+  test('a routd token is not a proxyd token', async () => {
+    const t = await sign('service:routd');
+    const { code } = await call(
+      { 'x-user-groups': '["**"]', authorization: `Bearer ${t}` },
+      verifier,
+    );
+    expect(code).toBe(403);
+  });
+
+  test('the proxyd bearer without the operator scope is refused', async () => {
+    const t = await sign('service:proxyd');
+    const { code } = await call(
+      { 'x-user-groups': '["atlas"]', authorization: `Bearer ${t}` },
+      verifier,
+    );
+    expect(code).toBe(403);
+  });
+
+  test('both halves together serve the page', async () => {
+    const t = await sign('service:proxyd');
+    const { code, body } = await call(
+      { 'x-user-groups': '["**"]', authorization: `Bearer ${t}` },
+      verifier,
+    );
+    expect(code).toBe(200);
+    expect(body).toContain('whapd');
+  });
+
+  // Local dev is `enforce: false` — AUTHD_URL unset, so nothing stamps a header
+  // and nothing can verify one. Go's auth.RequireOperator opens on ks==nil for
+  // the same reason. With enforce ON and no verifier the scope is still required,
+  // which is why this asserts the flag and not the verifier.
+  test('local dev keeps the page open', async () => {
+    const req = {
+      method: 'GET',
+      url: '/dash/whapd/',
+      headers: {},
+    } as unknown as http.IncomingMessage;
+    let code = 0;
+    const res = {
+      writeHead: (c: number) => {
+        code = c;
+      },
+      end: () => {},
+    } as unknown as http.ServerResponse;
+    await handleDash(req, res, {
+      name: 'whapd',
+      prefixes: ['x:'],
+      enforce: false,
+      verifier: null,
+      isConnected: () => true,
+      lastInboundAt: () => Math.floor(Date.now() / 1000),
+    });
+    expect(code).toBe(200);
   });
 });

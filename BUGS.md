@@ -638,6 +638,51 @@ enough to meet a container restart, a timeout, or an OOM.
   patch: it keeps the disk from filling while leaving every repack still
   failing, so nothing is ever actually packed.
 
+## ✅ FIXED 2026-10-08 L400 — whapd and twitd serve the operator dashboard to anyone who sends `X-User-Groups: ["**"]` (2026-10-08)
+
+`L270` closed this on the Go side: nine dashboards read the stamped scope and nothing
+else, so anything that could reach the port got the operator page. The fix was
+`auth.RequireOperator`, which requires proxyd's own `service:proxyd` ES256 bearer
+BEFORE it believes the header — proxyd strips the client's copy and stamps its own, so
+that bearer is the only thing that makes `X-User-*` mean anything.
+
+**The two TypeScript adapters were never fixed.** Measured 2026-10-08:
+`whapd/src/dash.ts:41` and `twitd/src/dash.ts:41` `isOperator` parse `x-user-groups`
+and return whether it contains `**`. A grep for `proxyd|transit|jwks|bearer` across
+both `src/` trees finds only the routd-token verifier, which gates the routd→adapter
+path and is never consulted for the dashboard. `handleDash` called `isOperator` alone
+(`whapd/src/dash.ts:167`).
+
+So `GET whapd:8080/dash/whapd/` with one forged header returned the operator page,
+which carries the pair-flow state and the adapter's own status. The reachable set is
+the compose network, so the caller must already be a container there — but that is
+exactly the threat `L270` was fixed for, and the Go and TS halves of one spec
+(`6/28` gate 2, `6/31` acceptance 3) disagreed about it.
+
+**And the test file that would have caught it never ran.** `dash.test.ts` exists in
+both adapters, passes, and is absent from both `package.json` `test` scripts, so CI
+has never executed it.
+
+- **Severity:** high (operator surface, two daemons, no proof required)
+- **Scope:** `whapd/src/{auth,dash,server}.ts`, `twitd/src/{auth,dash,server}.ts`,
+  both `package.json`
+- **Affected:** `/dash/whapd/`, `/dash/twitd/`
+- **Source:** the phase 6 audit, 2026-10-08. Found as a drift between `6/28`'s gate 2
+  and the TS implementations; the absent bearer check verified by grep, the hole by a
+  mutation that restores the old gate and fails the new test.
+- **Status:** ✅ FIXED 2026-10-08
+- **Fix:** `verifyProxyd` mirrors the existing `verifyRoutd` — same `jose`
+  `createRemoteJWKSet` over authd's `/v1/keys`, same ES256 and `issuer: authd`, pinned
+  to `sub === 'service:proxyd'` — and `handleDash` admits only
+  `verifyProxyd(req) && isOperator(req)`. The local-dev branch is Go's: no verifier
+  means `AUTHD_URL` is unset, nothing stamps a header and nothing can verify one, so
+  the page stays open exactly as `auth.RequireOperator` opens on `ks == nil`.
+
+  Five tests per adapter, and the one that matters asserts the FORGED header alone is
+  refused. Mutating the gate back to `!isOperator(req)` fails two of them, so the test
+  reproduces the hole rather than describing it. `dash.test.ts` now runs in both CI
+  scripts: a test nobody runs is the reason this survived `L270`.
+
 ## L399 — the helm chart deploys `gated`, a daemon deleted at v0.50.0, across 15 references and a 113-line Deployment (2026-10-08, open — needs a deploy decision)
 
 `L358` removed the chart's crackbox relic. The same chart still carries a bigger one.

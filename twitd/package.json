@@ -6,7 +6,7 @@
   "scripts": {
     "build": "tsc",
     "start": "bun dist/main.js",
-    "test": "bun test src/server.test.ts src/twitter.test.ts src/__tests__/handler.test.ts"
+    "test": "bun test src/dash.test.ts src/server.test.ts src/twitter.test.ts src/__tests__/handler.test.ts"
   },
   "dependencies": {
     "agent-twitter-client": "0.0.18",
