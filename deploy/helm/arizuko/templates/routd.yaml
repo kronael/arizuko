@@ -1,28 +1,27 @@
 {{/*
-gated — the monolith router + execution plane (compose default, CUTOVER_SPLIT
-off). Owns the SQLite WAL DB, the ipc sockets, and spawns the per-turn agent
-container via the node's docker socket. replicas: 1 — single writer on the
-RWO PVC. See README "Agent spawn limitation".
+routd — the canonical router: conversation state on the store, the group tree
+under groups/, and one Unix socket per turn under ipc/ that runed's bridge
+dials. One replica, Recreate: a second routd would bind the same sockets. It
+mounts the whole data volume, as runed does, and so lands on runed's node.
 */}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "arizuko.fullname" . }}-gated
+  name: {{ include "arizuko.fullname" . }}-routd
   labels:
     {{- include "arizuko.labels" . | nindent 4 }}
-    app.kubernetes.io/component: gated
+    app.kubernetes.io/component: routd
 spec:
   replicas: 1
   strategy:
-    # The PVC is RWO and holds a live SQLite WAL — never run two gated pods.
     type: Recreate
   selector:
     matchLabels:
-      {{- include "arizuko.selectorLabels" (dict "ctx" . "daemon" "gated") | nindent 6 }}
+      {{- include "arizuko.selectorLabels" (dict "ctx" . "daemon" "routd") | nindent 6 }}
   template:
     metadata:
       labels:
-        {{- include "arizuko.selectorLabels" (dict "ctx" . "daemon" "gated") | nindent 8 }}
+        {{- include "arizuko.selectorLabels" (dict "ctx" . "daemon" "routd") | nindent 8 }}
     spec:
       serviceAccountName: {{ include "arizuko.serviceAccountName" . }}
       {{- with .Values.imagePullSecrets }}
@@ -41,20 +40,14 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       securityContext:
-        # uid 1000 matches the agent container so shared data-dir files
-        # round-trip. The docker gid is added so gated can use the socket.
         runAsUser: 1000
         runAsGroup: 1000
         fsGroup: 1000
-        {{- if .Values.agentRuntime.dockerSocket }}
-        supplementalGroups:
-          - {{ .Values.agentRuntime.dockerGid }}
-        {{- end }}
       containers:
-        - name: gated
+        - name: routd
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          command: ["gated"]
+          command: ["routd"]
           ports:
             - name: http
               containerPort: 8080
@@ -62,14 +55,13 @@ spec:
             - configMapRef:
                 name: {{ include "arizuko.configMapName" . }}
             - secretRef:
-                name: {{ include "arizuko.secretName" . }}
+                name: {{ include "arizuko.daemonSecretName" (dict "ctx" . "daemon" "routd") }}
+          env:
+            - name: AUTHD_SERVICE_NAME
+              value: routd
           volumeMounts:
             - name: data
               mountPath: /srv/app/home
-            {{- if .Values.agentRuntime.dockerSocket }}
-            - name: docker-sock
-              mountPath: /var/run/docker.sock
-            {{- end }}
           livenessProbe:
             httpGet:
               path: /health
@@ -90,24 +82,23 @@ spec:
         - name: data
           persistentVolumeClaim:
             claimName: {{ include "arizuko.pvcName" . }}
-        {{- if .Values.agentRuntime.dockerSocket }}
-        - name: docker-sock
-          hostPath:
-            path: {{ .Values.agentRuntime.socketPath }}
-            type: Socket
-        {{- end }}
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "arizuko.routerService" . }}
+  name: {{ include "arizuko.fullname" . }}-routd
   labels:
     {{- include "arizuko.labels" . | nindent 4 }}
-    app.kubernetes.io/component: gated
+    app.kubernetes.io/component: routd
 spec:
   selector:
-    {{- include "arizuko.selectorLabels" (dict "ctx" . "daemon" "gated") | nindent 4 }}
+    {{- include "arizuko.selectorLabels" (dict "ctx" . "daemon" "routd") | nindent 4 }}
   ports:
     - name: http
       port: 8080
       targetPort: http
+{{- if not .Values.secrets.external }}
+---
+{{- $keys := dict "SECRETS_KEY" (required "secrets.secretsKey must be set: SECRETS_KEY seals the secrets table routd owns, and routd refuses to start without it (openssl rand -hex 32)" .Values.secrets.secretsKey) }}
+{{ include "arizuko.daemonSecret" (dict "ctx" . "daemon" "routd" "store" true "keys" $keys) }}
+{{- end }}

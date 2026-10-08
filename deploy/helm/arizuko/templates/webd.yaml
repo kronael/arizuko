@@ -1,8 +1,9 @@
 {{- if and .Values.web.enabled .Values.web.webd.enabled }}
 {{/*
-webd — chat widget, operator panel, /api, /me portal. Registers as a channel
-and posts inbound to the router (ROUTER_URL). Reads the shared DB + web tree
-from the data PVC, so it co-schedules with gated on the single writer node.
+webd — chat widget, operator panel, /api, /me portal. Registers as a channel at
+routd (ROUTER_URL) and is called back at WEBD_URL. No volume: it reads routd's
+tables on the store and serves the widget from the binary. One replica: its SSE
+hub is in-process, and routd posts each reply to one webd.
 */}}
 apiVersion: apps/v1
 kind: Deployment
@@ -13,8 +14,6 @@ metadata:
     app.kubernetes.io/component: webd
 spec:
   replicas: 1
-  strategy:
-    type: Recreate
   selector:
     matchLabels:
       {{- include "arizuko.selectorLabels" (dict "ctx" . "daemon" "webd") | nindent 6 }}
@@ -28,17 +27,9 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- if .Values.nodeName }}
-      nodeName: {{ .Values.nodeName }}
-      {{- end }}
-      {{- with .Values.nodeSelector }}
-      nodeSelector:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
       securityContext:
         runAsUser: 1000
         runAsGroup: 1000
-        fsGroup: 1000
       containers:
         - name: webd
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
@@ -51,10 +42,12 @@ spec:
             - configMapRef:
                 name: {{ include "arizuko.configMapName" . }}
             - secretRef:
-                name: {{ include "arizuko.secretName" . }}
-          volumeMounts:
-            - name: data
-              mountPath: /srv/app/home
+                name: {{ include "arizuko.daemonSecretName" (dict "ctx" . "daemon" "webd") }}
+          env:
+            - name: AUTHD_SERVICE_NAME
+              value: webd
+            - name: WEBD_URL
+              value: {{ include "arizuko.daemonURL" (dict "ctx" . "daemon" "webd") | quote }}
           livenessProbe:
             httpGet:
               path: /health
@@ -71,10 +64,6 @@ spec:
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-      volumes:
-        - name: data
-          persistentVolumeClaim:
-            claimName: {{ include "arizuko.pvcName" . }}
 ---
 apiVersion: v1
 kind: Service
@@ -90,4 +79,8 @@ spec:
     - name: http
       port: 8080
       targetPort: http
+{{- if not .Values.secrets.external }}
+---
+{{ include "arizuko.daemonSecret" (dict "ctx" . "daemon" "webd" "store" true "keys" dict) }}
+{{- end }}
 {{- end }}

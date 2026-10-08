@@ -121,6 +121,32 @@ export GOFLAGS += -timeout=20m
 # default, so `make test` - the documented dev loop - could not pass on this host.
 # A gate that always fails teaches people to ignore it (BUGS `L398`). The number is
 # a ceiling for a hang, not a budget: the slowness itself is the finding.
+# lint-helm renders the kubernetes chart. It needs no cluster: `lint` and `template`
+# are template evaluation, and template evaluation is where this chart failed — it
+# rendered a Deployment for `gated`, deleted at v0.50.0, and no routd, runed or authd,
+# so `helm install` built a cluster with no router and no execution plane (BUGS `S1b`).
+#
+# The fixture is required because every must-set value is `required` with no default: a
+# bare lint fails ON PURPOSE, naming the first key an operator has to set. `ci/` is
+# chart-testing's convention for exactly this.
+#
+# A missing helm prints a notice instead of failing, the same shape `lint` takes for
+# golangci-lint: a machine without it still gets the Go gate.
+HELM ?= helm
+lint-helm:
+	@if ! command -v $(HELM) >/dev/null 2>&1; then \
+	  echo "lint-helm: no $(HELM) on PATH — skipping (CI installs it)"; exit 0; fi
+	$(HELM) lint deploy/helm/arizuko -f deploy/helm/arizuko/ci/lint-values.yaml
+	$(HELM) template ci deploy/helm/arizuko -f deploy/helm/arizuko/ci/lint-values.yaml > ./tmp/helm-render.yaml
+	@# The daemon that must not come back, and the three that must be there.
+	@if grep -q gated ./tmp/helm-render.yaml; then \
+	  echo "lint-helm: the render names 'gated', deleted at v0.50.0 (BUGS S1b)" >&2; exit 1; fi
+	@for d in routd runed authd; do \
+	  grep -q "component: $$d" ./tmp/helm-render.yaml || \
+	    { echo "lint-helm: the render has no $$d; a cluster without it has no $$d" >&2; exit 1; }; \
+	done
+	@echo "lint-helm: renders $$(grep -c 'kind: Deployment' ./tmp/helm-render.yaml) deployments, no gated"
+
 test:
 	go test ./... -count=1 -short -timeout 1800s
 	# guest-init is its OWN module (kernel/guest-init/go.mod), so the root ./...

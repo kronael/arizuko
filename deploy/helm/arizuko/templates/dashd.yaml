@@ -1,7 +1,9 @@
 {{- if .Values.dashd.enabled }}
 {{/*
-dashd — operator dashboard (HTMX) served behind proxyd at /dash/. Reads the
-shared DB. DB_PATH + DASH_PORT are pinned to the container-internal values.
+dashd — the operator console, behind proxyd at /dash/. It reads and writes group
+files, so it mounts groups/ and surrogate/ from the data volume and nothing
+else of it. SECRETS_KEY because it writes user secrets with the key routd reads
+with; AUTH_SECRET keys its Connect-GitHub state.
 */}}
 apiVersion: apps/v1
 kind: Deployment
@@ -50,15 +52,19 @@ spec:
             - configMapRef:
                 name: {{ include "arizuko.configMapName" . }}
             - secretRef:
-                name: {{ include "arizuko.secretName" . }}
+                name: {{ include "arizuko.daemonSecretName" (dict "ctx" . "daemon" "dashd") }}
           env:
-            - name: DB_PATH
-              value: /srv/app/home/store/routd/routd.db
+            - name: AUTHD_SERVICE_NAME
+              value: dashd
             - name: DASH_PORT
               value: "8080"
           volumeMounts:
             - name: data
-              mountPath: /srv/app/home
+              mountPath: /srv/app/home/groups
+              subPath: groups
+            - name: data
+              mountPath: /srv/app/home/surrogate
+              subPath: surrogate
           livenessProbe:
             httpGet:
               path: /health
@@ -88,4 +94,12 @@ spec:
     - name: http
       port: 8080
       targetPort: http
+{{- if not .Values.secrets.external }}
+---
+{{- $keys := dict
+    "AUTH_SECRET" (required "secrets.authSecret must be set: AUTH_SECRET signs the web session cookies and the OAuth state (openssl rand -hex 32)" .Values.secrets.authSecret)
+    "SECRETS_KEY" (required "secrets.secretsKey must be set: SECRETS_KEY seals the secrets table routd owns, and dashd writes user secrets with the same key (openssl rand -hex 32)" .Values.secrets.secretsKey)
+}}
+{{ include "arizuko.daemonSecret" (dict "ctx" . "daemon" "dashd" "store" true "keys" $keys) }}
+{{- end }}
 {{- end }}

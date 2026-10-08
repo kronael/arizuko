@@ -44,6 +44,13 @@ jobs:
       - name: Lint
         run: make lint
 
+      # The helm chart renders nothing CI reads, so it drifted until it deployed a
+      # daemon deleted two phases earlier (BUGS `S1b`). `lint` and `template` need no
+      # cluster, so the gate is cheap and it is the only thing standing between the
+      # chart and the next two months.
+      - name: Lint the helm chart
+        run: make lint-helm
+
       - name: Test
         run: make test
 

@@ -1,145 +1,171 @@
 # arizuko Helm chart
 
-> **This chart does not deploy arizuko. Do not install it.** It targets a
-> daemon topology and a storage model the project does not have: it runs
-> `gated`, which no longer exists; it declares no `authd`, `routd` or `runed`,
-> so every adapter exits on its required-env check; and it provisions an RWO
-> PVC for a SQLite WAL, while every owner table lives on the `extenddb` store
-> server the chart never mounts. `Chart.yaml` tracks `appVersion 0.49.0`.
->
-> **To run arizuko on Kubernetes, follow `/pub/arizuko/howto/kubernetes.html`**
-> (source `template/web/pub/arizuko/howto/kubernetes.html`), which is current
-> and maintained. Whether this chart is rewritten or deleted is BUGS `S1b`;
-> either way it needs an owner and a `helm template` gate in CI, because
-> nothing renders it today.
->
-> Everything below describes what this chart CONTAINS. It is not a description
-> of a working deployment.
+The topology `compose/compose.go` generates, on Kubernetes: `authd`, `routd`
+and `runed`, the web plane (`proxyd`, `webd`, `vited`), the operator daemons
+(`dashd`, `onbod`, `timed`, `davd`) and a values-driven set of channel
+adapters — one Deployment + Service + Secret each. One release is one
+instance. Every daemon listens on `:8080` inside its container.
 
-A **starter** Helm chart that maps arizuko's Docker Compose topology onto
-Kubernetes. It is honest about the one hard part — agent spawning — and gives
-you a working single-node deployment you can grow, not a 20-microservice
-monster.
+## What is verified, and what is not
 
-This chart is derived directly from `compose/compose.go` and
-`template/services/*.toml`. The in-cluster port for every daemon is `:8080`
-(the arizuko convention); Services expose `:8080`.
+- `helm lint deploy/helm/arizuko -f deploy/helm/arizuko/ci/lint-values.yaml`
+  is clean, and `helm template` with the same file renders every template
+  (11 Deployments, 10 Services, 9 Secrets, the ConfigMap and the PVC). Each
+  daemon's image, entrypoint, env, mounts and privileges were read off
+  `compose/compose.go` and `template/services/*.yml` at v0.70.2.
+- A bare `helm lint deploy/helm/arizuko` **fails, on purpose**: every value an
+  instance cannot run without is `required`, and the render stops on the
+  first missing one with a sentence naming it (§ Values you must set).
+  `ci/lint-values.yaml` holds placeholders, not an instance.
+- **Nothing has installed this chart.** No cluster has run it and no pod has
+  started from it. What that leaves open is listed under § Unmeasured.
 
 ## What it deploys
 
-| Template        | Daemon                                                 | Role                                                                                  | From compose                       |
-| --------------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------- | ---------------------------------- |
-| `gated.yaml`    | gated                                                  | Router + execution plane; spawns the per-turn agent container; owns the SQLite WAL DB | `gatedService` (CUTOVER_SPLIT off) |
-| `webd.yaml`     | webd                                                   | Chat widget, operator panel, `/api`, `/me` portal                                     | `webdService`                      |
-| `proxyd.yaml`   | proxyd                                                 | Public reverse proxy + auth gate (Ingress target)                                     | `proxydService`                    |
-| `vited.yaml`    | vited                                                  | Static web tree (`/pub`, `/priv`)                                                     | `vitedService`                     |
-| `timed.yaml`    | timed                                                  | Scheduled messages                                                                    | `timedService`                     |
-| `dashd.yaml`    | dashd                                                  | Operator dashboard (`/dash`)                                                          | `dashdService`                     |
-| `onbod.yaml`    | onbod                                                  | Onboarding / admission queue (`/onboard`)                                             | `onbodService`                     |
-| `davd.yaml`     | davd                                                   | WebDAV over `groups/` (`/dav`)                                                        | `davdService`                      |
-| `adapters.yaml` | teled / discd / slakd / bskyd / reditd / emaid / linkd | Channel adapters, one Deployment+Service per enabled `.Values.adapters` entry         | `template/services/*.toml`         |
+| Template        | Daemon                                                 | Role                                                                                     | Volume                  | From compose                |
+| --------------- | ------------------------------------------------------ | ---------------------------------------------------------------------------------------- | ----------------------- | --------------------------- |
+| `authd.yaml`    | authd                                                  | Auth authority: JWKS, service-token exchange, login                                      | none                    | `authdService`              |
+| `routd.yaml`    | routd                                                  | Router: conversation state, group tree, one MCP socket per turn                          | whole                   | `routdService`              |
+| `runed.yaml`    | runed                                                  | Execution plane: one KVM guest per turn                                                  | whole + `/dev/*`        | `runedService`              |
+| `webd.yaml`     | webd                                                   | Chat widget, panel, `/api`, `/me`                                                        | none                    | `webdService`               |
+| `proxyd.yaml`   | proxyd                                                 | Public reverse proxy + auth gate; the Ingress target                                     | none                    | `proxydService`             |
+| `vited.yaml`    | vited                                                  | Static `/pub` + `/priv` tree                                                             | `web/`, read-only       | `vitedService`              |
+| `timed.yaml`    | timed                                                  | Scheduled messages                                                                       | none                    | `timedService`              |
+| `dashd.yaml`    | dashd                                                  | Operator dashboard (`/dash`)                                                             | `groups/`, `surrogate/` | `dashdService`              |
+| `onbod.yaml`    | onbod                                                  | Onboarding / admission queue (`/onboard`)                                                | `groups/`, `web/`       | `onbodService`              |
+| `davd.yaml`     | davd                                                   | WebDAV over `groups/` (`/dav`)                                                           | `groups/`               | `davdService`               |
+| `adapters.yaml` | teled / discd / slakd / bskyd / reditd / emaid / linkd | Channel adapters, one Deployment + Service + Secret per enabled `.Values.adapters` entry | none                    | `template/services/<d>.yml` |
 
-Supporting objects: `pvc.yaml` (the data dir, RWO), `configmap.yaml`
-(non-secret env), `secret.yaml` (signing secrets + platform tokens),
-`serviceaccount.yaml`, `ingress.yaml` (optional).
+`authd`, `routd` and `runed` always render; the rest have an `enabled`
+toggle. Supporting objects: `configmap.yaml` (non-secret env, every daemon
+reads it), `pvc.yaml`, `serviceaccount.yaml`, `ingress.yaml` (optional).
 
-Every data-plane daemon mounts the **same** data PVC at `/srv/app/home`
-(compose's `containerDataMount`) and pins to one node — arizuko's SQLite WAL
-DB has exactly one writer. `replicas: 1`, no HPA, `strategy: Recreate`.
+## The store
 
-### Not included by default
+Every daemon's owner tables live on one DynamoDB-protocol server, reached at
+`DYNAMODB_URL`; no daemon opens a database file. **The chart runs no store.**
+`store.url` names one you run: the `extenddb` pair from
+`template/services/extenddb.yml` (ExtendDB over PostgreSQL), a PostgreSQL in
+another cluster, or Amazon DynamoDB. The daemons speak one protocol and never
+learn which is behind it.
 
-- **whapd (WhatsApp) and twitd (X/Twitter)** use separate images and an
-  auth-dir volume in compose. They're left out of the default `adapters` list
-  — add a custom entry with the right image/volume if you run them.
-- **The split daemons (authd / routd / runed)** behind `CUTOVER_SPLIT` are
-  not modeled — this chart deploys the default gated monolith.
-- **ttsd / kokoro / whisper** transcription and TTS sidecars.
+Two things about it are one-time runs by hand, not chart steps:
 
-## Agent spawn limitation (read this)
+- `extenddb init` creates the databases, generates the server's self-signed
+  certificate and mints one access key per daemon
+  (`INSTALL.md` § The store server). The certificate goes into `store.ca` as
+  base64 (`STORE_CA`): a daemon reads its environment and mounts no file.
+  Each key pair goes into `secrets.daemons.<daemon>.storeKeyId` /
+  `.storeSecret`, so every daemon signs as itself.
+- Which daemons hold a key is `store.StoreReach` (`store/owner_reach.go`):
+  every daemon the chart runs except `timed`, which writes through routd's
+  HTTP API, and `davd`/`vited`, which are not arizuko binaries.
 
-arizuko's `gated` daemon spawns a **fresh `arizuko-ant` container per turn**
-through the host's container-runtime socket (`compose.go` mounts
-`/var/run/docker.sock` and adds gated to the docker group). **Kubernetes pods
-have no docker socket by default.**
+## The data volume
 
-**v1 approach (this chart):** mount the node's container-runtime socket into
-the gated pod via a `hostPath` volume, gated behind `agentRuntime.dockerSocket`.
+One RWO claim, mounted at `/srv/app/home` (compose's `containerDataMount`),
+holding the files and nothing else: `groups/` (the agent homes routd reads
+and runed mounts into each guest), `web/`, `ipc/` (one Unix socket per turn —
+routd binds it, runed's bridge dials it), `app-src/`, `images/` (the kernel
+and rootfs artifacts) and `vms/`. No rows live on it, so it is sized for group
+files and media.
 
-```yaml
-agentRuntime:
-  dockerSocket: true
-  socketPath: /var/run/docker.sock
-  dockerGid: 999 # `stat -c '%g' /var/run/docker.sock` on the node
-```
+It is one volume on one node because the per-turn socket under `ipc/` is an
+inode routd and runed must both see. That is why `routd` and `runed` run one
+replica each with `strategy: Recreate`, and why every pod that mounts the
+volume (routd, runed, onbod, dashd, davd, vited) follows the same `nodeName`
+or `nodeSelector`. Seed it once with `arizuko create` before the first start;
+that is not a per-rollout step.
 
-This works on **single-node / docker-runtime clusters** (Docker Desktop,
-k3s+docker, a kubeadm node using the docker shim) where that socket exists and
-the runtime is docker. The agent containers gated launches are **siblings on
-the node**, not k8s pods — Kubernetes does not see or schedule them, and the
-`arizuko-ant` image must already be present on that node (`docker pull` it, or
-`make agent`).
+## runed needs a KVM node
 
-**It does NOT work** on containerd/cri-o nodes without a docker-compatible
-socket, on managed clusters that block hostPath, or across multiple nodes
-(the spawned containers land wherever the socket lives — pin gated with
-`nodeName`).
+A turn is one `qemu-system-x86_64` guest (`specs/6/41-qemu-substrate.md`).
+`runed.yaml` expresses what `compose/compose.go`'s `runedService` gives the
+container, and each line has a reason there:
 
-**Future work (not built here):** a k8s-native runner where gated/runed
-creates a `Job`/`Pod` per turn via the Kubernetes API (with a ServiceAccount +
-RBAC) instead of the docker socket. That removes the docker-runtime
-requirement and lets the scheduler place agent runs. Tracked as the natural
-next step; this chart deliberately ships the socket model first because it
-mirrors the current, working topology exactly.
+| In the pod                                     | Why                                                                                                                    |
+| ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `/dev/kvm`, `/dev/vhost-vsock`, `/dev/net/tun` | the guest, its vsock channel to the host, and the tap it egresses through — hostPath `CharDevice` mounts from the node |
+| `capabilities.add: [NET_ADMIN, SYS_ADMIN]`     | NET_ADMIN for the tap and its rule set; SYS_ADMIN for the staging tree's bind mounts                                   |
+| `appArmorProfile: Unconfined`                  | the default profile denies `mount(2)` whatever the capabilities, so SYS_ADMIN alone is necessary and not sufficient    |
+| `runAsUser: 0`                                 | virtiofsd carries guest credentials onto host files, and the binds are made in runed's own mount namespace             |
+| `RUNED_KERNEL_DIR`, `RUNED_ROOTFS_DIR`         | the `make kernel` and `make rootfs` artifacts, by the path runed's container sees; runed refuses to start without them |
 
-## Prerequisites
+This pins runed to a node that has `/dev/kvm`, and the data volume pins every
+other file-holding pod to the same node. `runed.nodeSelector` picks that node
+and is merged over the global `nodeSelector`; give the global selector (or
+`nodeName`) the same node so routd lands beside it. **Do not read this as
+portable.** A managed cluster that blocks hostPath, denies `SYS_ADMIN`, or
+runs no KVM-capable nodes cannot run runed, and therefore cannot run a turn.
+runed checks every precondition at start and names each unmet one in its
+first log lines, so a wrong node fails loudly once rather than per turn.
 
-- A Kubernetes cluster, ideally **single-node with a docker runtime** (see
-  above).
-- The two images built and reachable by the node:
-  - `arizuko:latest` — `make images` (or `make build` + image build)
-  - `arizuko-ant:latest` — `make agent`
-  - plus `arizuko-vite:latest` (vited) and, if WebDAV is on,
-    `arizuko-davd:latest`.
-- A `StorageClass` that can provision an RWO `PersistentVolumeClaim`.
+The `appArmorProfile` field is Kubernetes 1.30 or newer.
+
+## Secrets
+
+One Secret per daemon, named `<release>-<daemon>`, holding exactly the keys
+compose scopes into that daemon's env file (`compose/compose.go`
+`daemonKeys`). The chart renders them from `secrets.*`:
+
+| Key                                              | Daemons                                                  | Value                                              |
+| ------------------------------------------------ | -------------------------------------------------------- | -------------------------------------------------- |
+| `AUTHD_SERVICE_KEY`                              | every daemon but authd                                   | `secrets.daemons.<d>.serviceKey`                   |
+| `AUTHD_SERVICE_KEYS`                             | authd — `service:<d>=<key>,…` built from the same values | derived                                            |
+| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`     | every daemon in `store.StoreReach`                       | `secrets.daemons.<d>.storeKeyId/Secret`            |
+| `AUTH_SECRET`                                    | authd, proxyd, dashd                                     | `secrets.authSecret`                               |
+| `SECRETS_KEY`                                    | routd, dashd                                             | `secrets.secretsKey`                               |
+| `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY` | runed                                                    | `secrets.claudeCodeOauthToken` / `anthropicApiKey` |
+| platform tokens                                  | the adapter whose `secretEnv` lists them                 | `secrets.<token>`                                  |
+
+`secrets.external: true` renders no Secret at all. Create each
+`<release>-<daemon>` yourself (External Secrets, sealed-secrets, …) with the
+keys above; the Deployments reference those names unchanged.
+
+Service keys are `openssl rand -hex 32`, one per daemon. The daemon exchanges
+its key at authd for a `service:<daemon>` token and exits without one
+(`chanlib/run.go`); authd recognises the set from `AUTHD_SERVICE_KEYS`. Both
+come from `secrets.daemons`, so a key is declared once and read twice.
+
+## Values you must set
+
+Each of these is `required`; the render stops on the first one missing and
+the error names it.
+
+| Value                                                                | Env                                           | Why                                                     |
+| -------------------------------------------------------------------- | --------------------------------------------- | ------------------------------------------------------- |
+| `config.webHost`                                                     | `WEB_HOST`                                    | the public hostname routd, proxyd and the Ingress serve |
+| `store.url`                                                          | `DYNAMODB_URL`                                | the store server; the chart runs none                   |
+| `runed.kernelDir`, `runed.rootfsDir`                                 | `RUNED_KERNEL_DIR`, `RUNED_ROOTFS_DIR`        | runed refuses to start without the artifacts            |
+| `secrets.authSecret`                                                 | `AUTH_SECRET`                                 | session cookies and OAuth state                         |
+| `secrets.secretsKey`                                                 | `SECRETS_KEY`                                 | routd refuses to start without it                       |
+| `secrets.claudeCodeOauthToken` **or** `secrets.anthropicApiKey`      | the model credential                          | runed hands it to every turn                            |
+| `secrets.daemons.<d>.serviceKey`, for every enabled daemon but authd | `AUTHD_SERVICE_KEY`                           | the daemon exits without one                            |
+| `secrets.daemons.<d>.storeKeyId` / `.storeSecret`, per `StoreReach`  | `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | from `extenddb init`                                    |
+| every `secrets.*` an enabled adapter's `secretEnv` lists             | that env var                                  | the adapter's platform credential                       |
+
+Under `secrets.external: true` only the first three rows apply.
 
 ## Install
 
 ```bash
-# 1. Set the required secrets + your web host. Generate the signing value
-#    with: openssl rand -hex 32
+# One-time, by hand, before the first start: `extenddb init` against your
+# store (INSTALL.md § The store server) and `arizuko create` on the data volume.
 helm install arizuko deploy/helm/arizuko \
   --namespace arizuko --create-namespace \
-  --set config.webHost=arizuko.example.com \
-  --set secrets.authSecret=$(openssl rand -hex 32) \
-  --set secrets.claudeCodeOauthToken=$CLAUDE_CODE_OAUTH_TOKEN \
-  --set agentRuntime.dockerGid=$(stat -c '%g' /var/run/docker.sock)
-```
-
-For anything beyond a couple of `--set`s, use a values file:
-
-```bash
-helm install arizuko deploy/helm/arizuko -n arizuko --create-namespace \
   -f my-values.yaml
 ```
 
-### Values you must set
+`my-values.yaml` carries § Values you must set; `ci/lint-values.yaml` shows
+the shape with placeholders. The images (`make images`) must be reachable
+from the node: `arizuko`, `arizuko-vite`, and `arizuko-davd` if WebDAV is on.
+The agent image is not pulled by any pod — `make rootfs` exports it into
+`runed.rootfsDir` on the volume.
 
-| Value                                                           | Why                                                                                                                                   |
-| --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `config.webHost`                                                | Public hostname; used by webd/proxyd and the Ingress.                                                                                 |
-| `secrets.authSecret`                                            | JWT signing (`AUTH_SECRET`).                                                                                                          |
-| `secrets.claudeCodeOauthToken` **or** `secrets.anthropicApiKey` | The agent's LLM credential — gated forwards it into every spawned `arizuko-ant` container. Without it the agent can't call the model. |
-| `agentRuntime.dockerGid`                                        | GID owning the node's docker socket.                                                                                                  |
+## Adapters
 
-Prefer `secrets.existingSecret: <name>` in production — point it at a Secret
-you manage out-of-band (sealed-secrets, external-secrets, …) carrying the same
-keys (`AUTH_SECRET`, `CLAUDE_CODE_OAUTH_TOKEN`/`ANTHROPIC_API_KEY`, and any
-platform tokens). When set, the chart renders no inline Secret.
-
-### Enabling channel adapters
-
-Adapters are off by default. Enable per adapter and supply its token:
+Adapters are off by default. Enable one, give it a service key and a store key
+pair, and set the `secrets.*` values its `secretEnv` lists:
 
 ```yaml
 adapters:
@@ -149,14 +175,29 @@ adapters:
     secretEnv:
       - TELEGRAM_BOT_TOKEN
 secrets:
-  telegramBotToken: '123:abc...' # -> Secret key TELEGRAM_BOT_TOKEN
+  telegramBotToken: '123:abc...'
+  daemons:
+    teled:
+      serviceKey: '...'
+      storeKeyId: '...'
+      storeSecret: '...'
 ```
 
-`secretEnv` lists Secret keys to inject as env vars of the same name; set the
-matching `secrets.*` value (or provide via `secrets.existingSecret`). The env
-var names match `template/services/<name>.toml` exactly.
+Each adapter gets `ROUTER_URL` at routd, `LISTEN_URL` at its own Service (routd
+calls it back there), and `AUTHD_SERVICE_NAME=<name>` so it exchanges as
+`service:<name>`. The env var names match `template/services/<name>.yml`.
 
-### Ingress
+## proxyd routes
+
+proxyd forwards by the `proxyd_routes` rows on the store, read live per
+request; the chart writes none. `arizuko generate` is the writer, and it
+names backends as `http://<daemon>:8080` — compose's service names
+(`compose/compose.go` `coreProxydRoutes`). This chart's Services are
+`<release>-<daemon>`, so rows seeded that way do not resolve here: the
+backends must name the chart's Services, which `arizuko generate` does not
+do.
+
+## Ingress
 
 ```yaml
 ingress:
@@ -168,36 +209,48 @@ ingress:
       hosts: [arizuko.example.com]
 ```
 
-All public traffic enters at proxyd `/`; proxyd auth-gates and fans out to
-webd / vited / dashd internally.
+All public traffic enters at proxyd `/`; proxyd serves plain HTTP on `:8080`
+and terminates no TLS itself.
 
 ## Verify
 
 ```bash
-# Pods Ready
 kubectl -n arizuko get pods -l app.kubernetes.io/instance=arizuko
-kubectl -n arizuko rollout status deploy/arizuko-gated
+kubectl -n arizuko rollout status deploy/arizuko-routd
+kubectl -n arizuko rollout status deploy/arizuko-runed
 
-# gated /health from inside the cluster
+# runed names every unmet host precondition in its first log lines
+kubectl -n arizuko logs deploy/arizuko-runed
+
+# routd /health from inside the cluster
 kubectl -n arizuko run -it --rm curl --image=curlimages/curl --restart=Never -- \
-  curl -s http://arizuko-gated:8080/health
+  curl -s http://arizuko-routd:8080/health
 
-# proxyd reachable (port-forward if no Ingress)
+# proxyd (port-forward if no Ingress)
 kubectl -n arizuko port-forward svc/arizuko-proxyd 8080:8080
-curl -sI http://localhost:8080/   # proxyd should respond
-
-# Agent spawn working: send a message and watch gated
-kubectl -n arizuko logs deploy/arizuko-gated -f
 ```
 
-Red flags (mirror the root CLAUDE.md "Nothing works" checklist):
+## Not included
 
-- `pull access denied for arizuko-ant` in gated logs → the agent image isn't
-  on the node. `make agent` / pull it.
-- Turns hang with no spawn → `agentRuntime.dockerSocket` off, wrong
-  `socketPath`, wrong `dockerGid`, or a non-docker node runtime.
-- Adapter pod `/health` returns 503 → the platform link is down (token wrong,
-  QR not scanned, stream dropped), not a chart problem.
+- **whapd, twitd, gitd, ttsd, kokoro**: other images and auth volumes in
+  compose; add them as your own entries.
+- **The model gateway** (`MODEL_GATEWAY_URL`, spec 6/23) and **OAuth
+  provider credentials** for authd (`GITHUB_CLIENT_ID`, …): not modeled.
+- **Adapter state volumes**: teled, bskyd, reditd and slakd each keep a small
+  state file under `DATA_DIR` in compose (the Telegram offset, the Bluesky
+  session, the Reddit cursors, Slack's watched messages). The chart mounts no
+  volume into an adapter, so that state dies with the pod.
+
+## Unmeasured
+
+- Whether a hostPath mount of `/dev/kvm`, `/dev/vhost-vsock` and `/dev/net/tun`
+  alone lets runed open them under your container runtime's device cgroup. If
+  it does not, runed says `/dev/kvm does not open` at start and exits; a
+  device plugin that advertises the three nodes, or a privileged container,
+  is yours to add.
+- Whether a remote-attach CSI volume can back a virtiofsd export; the
+  instances arizuko runs on use a local path.
+- Everything after `helm template`: no cluster has run this chart.
 
 ## Uninstall
 

@@ -1,35 +1,14 @@
 {{- if and .Values.web.enabled .Values.web.proxyd.enabled }}
 {{/*
-proxyd — the public reverse proxy + auth gate. The Ingress points here.
-Routes are passed as PROXYD_ROUTES_JSON (compose generates this; here we
-build the core route set from coreProxydRoutes in compose.go, pointed at the
-chart's in-cluster Service DNS names). Adapter inbound webhook routes (e.g.
-/slack/) are not auto-added here — add them to PROXYD_ROUTES_JSON if you run
-a webhook-style adapter.
+proxyd — the public reverse proxy + auth gate; the Ingress points here. No
+volume: its route table is the proxyd_routes rows on the store, read live per
+request, and the chart writes none (README § proxyd routes). AUTH_SECRET is
+its auth-enabled flag.
 */}}
-{{- $full := include "arizuko.fullname" . -}}
-{{- $webd := printf "http://%s-webd:8080" $full -}}
-{{- $dashd := printf "http://%s-dashd:8080" $full -}}
-{{- $vited := printf "http://%s-vited:8080" $full -}}
-{{- $routes := list
-    (dict "path" "/chat/"   "backend" $webd "auth" "public")
-    (dict "path" "/hook/"   "backend" $webd "auth" "public")
-    (dict "path" "/panel/"  "backend" $webd "auth" "user")
-    (dict "path" "/api/"    "backend" $webd "auth" "user")
-    (dict "path" "/me/"     "backend" $webd "auth" "user")
-    (dict "path" "/x/"      "backend" $webd "auth" "user")
-    (dict "path" "/static/" "backend" $webd "auth" "user")
-    (dict "path" "/mcp"     "backend" $webd "auth" "user")
-    (dict "path" "/pub/"    "backend" $vited "auth" "public")
-    (dict "path" "/priv/"   "backend" $vited "auth" "user")
--}}
-{{- if .Values.dashd.enabled }}
-{{- $routes = append $routes (dict "path" "/dash/" "backend" $dashd "auth" "user") }}
-{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ $full }}-proxyd
+  name: {{ include "arizuko.fullname" . }}-proxyd
   labels:
     {{- include "arizuko.labels" . | nindent 4 }}
     app.kubernetes.io/component: proxyd
@@ -48,13 +27,6 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- if .Values.nodeName }}
-      nodeName: {{ .Values.nodeName }}
-      {{- end }}
-      {{- with .Values.nodeSelector }}
-      nodeSelector:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
       securityContext:
         runAsUser: 1000
         runAsGroup: 1000
@@ -70,10 +42,10 @@ spec:
             - configMapRef:
                 name: {{ include "arizuko.configMapName" . }}
             - secretRef:
-                name: {{ include "arizuko.secretName" . }}
+                name: {{ include "arizuko.daemonSecretName" (dict "ctx" . "daemon" "proxyd") }}
           env:
-            - name: PROXYD_ROUTES_JSON
-              value: {{ toJson $routes | quote }}
+            - name: AUTHD_SERVICE_NAME
+              value: proxyd
           livenessProbe:
             httpGet:
               path: /health
@@ -94,7 +66,7 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ $full }}-proxyd
+  name: {{ include "arizuko.fullname" . }}-proxyd
   labels:
     {{- include "arizuko.labels" . | nindent 4 }}
     app.kubernetes.io/component: proxyd
@@ -105,4 +77,9 @@ spec:
     - name: http
       port: 8080
       targetPort: http
+{{- if not .Values.secrets.external }}
+---
+{{- $keys := dict "AUTH_SECRET" (required "secrets.authSecret must be set: AUTH_SECRET signs the web session cookies and the OAuth state (openssl rand -hex 32)" .Values.secrets.authSecret) }}
+{{ include "arizuko.daemonSecret" (dict "ctx" . "daemon" "proxyd" "store" true "keys" $keys) }}
+{{- end }}
 {{- end }}

@@ -1,43 +1,31 @@
-# Default values for the arizuko chart.
-# This is a STARTER chart: it maps the Docker Compose topology onto k8s for
-# a single-node (docker-runtime) cluster. Read deploy/helm/arizuko/README.md
-# before installing — especially the agent-spawn / docker-socket section.
+# Default values for the arizuko chart: the topology compose/compose.go
+# generates, on Kubernetes. Read README.md before installing — the store is a
+# server you run, the data volume pins to one node, and runed needs a KVM node.
 
 # ---------------------------------------------------------------------------
-# Images. The repo ships two images:
-#   - arizuko       (multi-binary: gated, webd, proxyd, timed, dashd, teled, …)
-#   - arizuko-ant   (the per-turn agent container gated/runed spawns)
-# Plus a couple of helper images for the web/storage plane.
+# Images, built by `make images`:
+#   - arizuko       every daemon and Go adapter, one entrypoint each
+#   - arizuko-vite  vited, the /pub + /priv static tree
+#   - arizuko-davd  davd, WebDAV over groups/ (optional)
+# The agent image (arizuko-ant) is a BUILD input, not a runtime setting:
+# `make rootfs` exports its filesystem into runed.rootfsDir and runed boots
+# that tree (spec 6/41).
 # ---------------------------------------------------------------------------
 image:
-  # The multi-binary daemon image. Every core daemon + the Go channel
-  # adapters run from this one image with a different entrypoint.
   repository: arizuko
   tag: latest
   pullPolicy: IfNotPresent
-
-# The agent image `make rootfs` exports the guest's root filesystem from. It is
-# a BUILD input, not a runtime setting: runed boots the exported tree named by
-# RUNED_ROOTFS_DIR and never resolves an image name (spec 6/41).
-agentImage: arizuko-ant:latest
-
-# Helper images for the web/storage plane (built by `make images`).
-viteImage: arizuko-vite:latest # vited — serves the /pub + /priv static tree
-davImage: arizuko-davd:latest # davd  — WebDAV over groups/ (optional)
-
+viteImage: arizuko-vite:latest
+davImage: arizuko-davd:latest
 imagePullSecrets: []
 
-# ---------------------------------------------------------------------------
-# Cluster-wide naming / scheduling.
-# arizuko owns a SQLite WAL DB on a single RWO PVC, so the data-plane
-# daemons (gated, webd, proxyd, vited, timed, dashd, onbod, davd) all schedule
-# onto ONE node and share that PVC. replicas are fixed at 1, no HPA.
-# ---------------------------------------------------------------------------
 nameOverride: ''
 fullnameOverride: ''
 
-# Pin the data-plane pods to one node (they share the RWO PVC). Leave empty
-# for single-node clusters; set a hostname for multi-node.
+# Every pod that mounts the data volume (routd, runed, onbod, dashd, davd,
+# vited) lands on ONE node: the claim is RWO, and routd and runed must see the
+# same Unix socket inode. Name that node here — it is the node runed.nodeSelector
+# picks.
 nodeName: ''
 nodeSelector: {}
 tolerations: []
@@ -48,30 +36,26 @@ serviceAccount:
   annotations: {}
 
 # ---------------------------------------------------------------------------
-# THE HARD PART — agent spawn.
-# gated (monolith) spawns a fresh arizuko-ant container per turn via the
-# node's container-runtime socket. Kubernetes pods have no docker socket by
-# default. v1 approach: hostPath-mount /var/run/docker.sock into the gated
-# pod. This ONLY works on a single-node / docker-runtime cluster where that
-# socket exists and the runtime is docker (not containerd/cri-o without a
-# docker-compatible socket). See README "Agent spawn limitation".
+# The store. Every daemon's owner tables live on one DynamoDB-protocol server;
+# no daemon opens a file. The chart runs no store: point url at the extenddb
+# pair from template/services/extenddb.yml, a PostgreSQL you run, or Amazon
+# DynamoDB. `extenddb init` (INSTALL.md § The store server) is a one-time run
+# by hand; it mints the per-daemon access keys under secrets.daemons.
 # ---------------------------------------------------------------------------
-agentRuntime:
-  # Mount the node's docker socket into gated so it can spawn agent
-  # containers. Turn OFF and gated will start but every turn fails to spawn.
-  dockerSocket: true
-  # Host path of the runtime socket. On most docker nodes this is correct.
-  socketPath: /var/run/docker.sock
-  # GID that owns the socket on the node. gated runs as uid 1000 and must be
-  # in the docker group to use the socket. Find it on the node with:
-  #   stat -c '%g' /var/run/docker.sock
-  dockerGid: 999
+store:
+  url: '' # DYNAMODB_URL (required), e.g. https://extenddb.store.svc:18443
+  region: us-east-1 # AWS_REGION — the signing region
+  # STORE_CA — the endpoint certificate, base64 (`base64 -w0 cert.pem`).
+  # extenddb refuses to serve without TLS and its certificate is self-signed;
+  # leave empty for an endpoint whose certificate the system trusts.
+  ca: ''
 
 # ---------------------------------------------------------------------------
-# Persistent data dir — the HOST_DATA_DIR equivalent. Holds the SQLite DB
-# (store/messages.db, WAL), per-group files, ipc sockets, and the web tree.
-# Mounted at /srv/app/home inside every data-plane container (containerDataMount
-# in compose.go). RWO — one writer node.
+# The data volume: groups/ (the agent homes routd reads and runed mounts),
+# web/, ipc/ (one per-turn Unix socket per folder — routd binds it, runed's
+# bridge dials it), app-src/, images/ (kernel + rootfs) and vms/. No rows live
+# on it. Mounted at /srv/app/home (compose's containerDataMount). Seed it once
+# with `arizuko create` before the first start.
 # ---------------------------------------------------------------------------
 persistence:
   enabled: true
@@ -83,53 +67,119 @@ persistence:
   annotations: {}
 
 # ---------------------------------------------------------------------------
-# Non-secret config — lands in a ConfigMap, mirrored from .env / compose.go.
-# HOST_DATA_DIR is the in-container mount (NOT a host path on k8s).
-# HOST_APP_DIR is the in-image source path (the arizuko image bakes the
-# source under /opt/arizuko — no bind mount needed on k8s).
+# Non-secret config — lands in a ConfigMap every daemon reads.
 # ---------------------------------------------------------------------------
 config:
   assistantName: arizuko
   instance: arizuko # ARIZUKO_INSTANCE — OTLP service.instance.id
-  webHost: arizuko.example.com # WEB_HOST — public hostname
+  webHost: '' # WEB_HOST (required) — the public hostname
   tz: UTC
   logLevel: info
-  # Agent spawn knobs (gated → arizuko-ant).
   containerTimeout: '600000' # CONTAINER_TIMEOUT (ms)
   idleTimeout: '300000' # IDLE_TIMEOUT (ms)
-  maxConcurrentContainers: '3' # MAX_CONCURRENT_CONTAINERS
-  # Optional OTLP export — leave empty for stderr-only logging.
-  otelEndpoint: '' # OTEL_EXPORTER_OTLP_ENDPOINT
-  # Feature toggles (mirrors compose gated_by env-gates).
+  maxConcurrentContainers: '3' # MAX_CONCURRENT_CONTAINERS — live guests at once
+  otelEndpoint: '' # OTEL_EXPORTER_OTLP_ENDPOINT; empty = stderr-only logging
   onboardingEnabled: false # ONBOARDING_ENABLED
   webdavEnabled: true # WEBDAV_ENABLED (davd)
 
 # ---------------------------------------------------------------------------
-# Secrets. Filled into a Secret object. Anything left empty is omitted.
-# Generate the HMAC/secret values with: openssl rand -hex 32
-# In production, prefer secrets.existingSecret over inlining values here.
+# runed — the execution plane. One KVM guest per turn: the pod opens /dev/kvm,
+# /dev/vhost-vsock and /dev/net/tun, holds NET_ADMIN + SYS_ADMIN, runs as root
+# and AppArmor-unconfined (README § runed needs a KVM node).
+# ---------------------------------------------------------------------------
+runed:
+  # Selects the node that has /dev/kvm; merged over the global nodeSelector.
+  nodeSelector: {}
+  # The release artifacts a guest boots, by the path runed's container sees.
+  # Both required. `make kernel` and `make rootfs` write them under
+  # <data dir>/images/, so on the data volume: /srv/app/home/images/<dir>.
+  kernelDir: '' # RUNED_KERNEL_DIR — holds bzImage + initrd.gz
+  rootfsDir: '' # RUNED_ROOTFS_DIR — the exported arizuko-ant tree
+
+# ---------------------------------------------------------------------------
+# Secrets: one Secret per daemon, named <release>-<daemon>, holding exactly the
+# keys compose scopes into that daemon's env file (compose.go daemonKeys). An
+# enabled daemon with a missing value fails the render, naming the value.
 # ---------------------------------------------------------------------------
 secrets:
-  # Use an out-of-band Secret instead of the values below. When set, the
-  # chart references it and renders NO inline Secret. The Secret must carry
-  # the same keys the chart would (AUTH_SECRET, …).
-  existingSecret: ''
+  # true: the chart renders no Secret. Create <release>-<daemon> yourself
+  # (External Secrets, sealed-secrets, …) with the keys README § Secrets lists.
+  external: false
 
-  # Platform-wide signing secret (required). There is no adapter or proxyd
-  # HMAC: spec 5/1 retired both. Adapters exchange a service token as the
-  # daemon principal and proxyd proves identity with a service:proxyd ES256
-  # bearer verified by auth.ProxydTransit, so AUTH_SECRET is the only
-  # platform-wide signing value left.
-  authSecret: '' # AUTH_SECRET — JWT signing
+  # Generate both with: openssl rand -hex 32
+  authSecret: '' # AUTH_SECRET — session cookies and OAuth state (authd, proxyd, dashd)
+  secretsKey: '' # SECRETS_KEY — seals the secrets table (routd, dashd)
 
-  # Agent LLM auth — gated forwards ONE of these into each spawned
-  # arizuko-ant container (container/runner.go readSecrets). Required for the
-  # agent to call the model.
+  # The model credential runed hands to every turn. Set one of the two.
   claudeCodeOauthToken: '' # CLAUDE_CODE_OAUTH_TOKEN
   anthropicApiKey: '' # ANTHROPIC_API_KEY
 
-  # Per-platform tokens. Only the ones for enabled adapters are needed.
-  # Keys mirror compose.go daemonKeys + template/services/*.toml env.
+  # Per daemon. serviceKey is its AUTHD_SERVICE_KEY (openssl rand -hex 32;
+  # authd learns the whole set from these same values). storeKeyId and
+  # storeSecret are its own AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY from
+  # `extenddb init`. timed holds no store key: it writes through routd's HTTP
+  # API. Add an entry for every adapter you enable.
+  daemons:
+    authd:
+      storeKeyId: ''
+      storeSecret: ''
+    routd:
+      serviceKey: ''
+      storeKeyId: ''
+      storeSecret: ''
+    runed:
+      serviceKey: ''
+      storeKeyId: ''
+      storeSecret: ''
+    timed:
+      serviceKey: ''
+    onbod:
+      serviceKey: ''
+      storeKeyId: ''
+      storeSecret: ''
+    dashd:
+      serviceKey: ''
+      storeKeyId: ''
+      storeSecret: ''
+    webd:
+      serviceKey: ''
+      storeKeyId: ''
+      storeSecret: ''
+    proxyd:
+      serviceKey: ''
+      storeKeyId: ''
+      storeSecret: ''
+    teled:
+      serviceKey: ''
+      storeKeyId: ''
+      storeSecret: ''
+    discd:
+      serviceKey: ''
+      storeKeyId: ''
+      storeSecret: ''
+    slakd:
+      serviceKey: ''
+      storeKeyId: ''
+      storeSecret: ''
+    bskyd:
+      serviceKey: ''
+      storeKeyId: ''
+      storeSecret: ''
+    reditd:
+      serviceKey: ''
+      storeKeyId: ''
+      storeSecret: ''
+    emaid:
+      serviceKey: ''
+      storeKeyId: ''
+      storeSecret: ''
+    linkd:
+      serviceKey: ''
+      storeKeyId: ''
+      storeSecret: ''
+
+  # Platform tokens. adapters[].secretEnv names which ones reach which adapter;
+  # a listed key with no value here fails the render.
   telegramBotToken: '' # TELEGRAM_BOT_TOKEN     (teled)
   discordBotToken: '' # DISCORD_BOT_TOKEN      (discd)
   slackBotToken: '' # SLACK_BOT_TOKEN        (slakd)
@@ -150,20 +200,17 @@ secrets:
   linkedinRefreshToken: '' # LINKEDIN_REFRESH_TOKEN (linkd)
 
 # ---------------------------------------------------------------------------
-# Web plane. proxyd is the public entry; webd + vited sit behind it.
-# All listen on :8080 inside the cluster (arizuko convention).
+# Web plane. proxyd is the public entry; webd + vited sit behind it. Every
+# daemon listens on :8080 inside its container.
 # ---------------------------------------------------------------------------
 web:
   enabled: true
-  # proxyd — public reverse proxy + auth gate. The Ingress (below) points here.
   proxyd:
-    enabled: true
-  # webd — chat widget, panel, API, /me portal.
+    enabled: true # public reverse proxy + auth gate; the Ingress points here
   webd:
-    enabled: true
-  # vited — static file server for the /pub + /priv web tree.
+    enabled: true # chat widget, panel, /api, /me portal
   vited:
-    enabled: true
+    enabled: true # static /pub + /priv tree
 
 ingress:
   enabled: false
@@ -176,31 +223,23 @@ ingress:
   #    hosts:
   #      - arizuko.example.com
 
-# ---------------------------------------------------------------------------
-# Optional core daemons (compose full-profile extras).
-# ---------------------------------------------------------------------------
+# Optional core daemons (compose profiles). authd, routd and runed always run.
 timed:
   enabled: true # scheduled messages
 dashd:
   enabled: true # operator dashboard (/dash)
 onbod:
-  enabled: false # onboarding/admission queue
+  enabled: false # onboarding / admission queue
 davd:
   enabled: false # WebDAV over groups/ (needs config.webdavEnabled too)
 
 # ---------------------------------------------------------------------------
 # Channel adapters. The chart ranges over this list and renders one
-# Deployment + Service per enabled entry. Each mirrors template/services/*.toml:
-# the same image, entrypoint, and env. `env` values are literal; `secretEnv`
-# maps a container var to a key in the Secret. Add an adapter by appending an
-# entry — no template edits.
-#
-# All Go adapters use image arizuko:latest with entrypoint [<name>] and post
-# inbound to ROUTER_URL=http://<gated-svc>:8080 (wired by the chart).
-#
-# `secretEnv` is a list of Secret keys to inject as env vars of the same name.
-# Those keys live in the chart Secret (see secrets.* above) — set the matching
-# secrets.* value or provide them via secrets.existingSecret.
+# Deployment + Service + Secret per enabled entry, mirroring
+# template/services/<name>.yml: image arizuko, entrypoint [<name>], ROUTER_URL
+# at routd, LISTEN_URL at its own Service, its service key under
+# secrets.daemons.<name>. `env` values are literal; `secretEnv` lists Secret
+# keys to inject as env vars of the same name, from secrets.* above.
 # ---------------------------------------------------------------------------
 adapters:
   - name: teled

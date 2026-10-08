@@ -1,21 +1,18 @@
 apiVersion: v2
 name: arizuko
 description: |
-  Multitenant Claude agent router (Go daemons, SQLite WAL, MCP over unix
-  socket, Docker per-group agent containers). This starter chart maps the
-  Docker Compose topology onto Kubernetes: a single-node gated router with
-  the data PVC, the web plane (proxyd/webd/vited), and a values-driven set
-  of channel adapters.
-
-  NOTE: agent spawning uses the node's container-runtime socket via a
-  hostPath mount (see values.yaml agentRuntime.dockerSocket and the chart
-  README). A k8s-native Job/Pod runner is future work.
+  Multitenant Claude agent router on Kubernetes: authd, routd and runed, the
+  web plane (proxyd/webd/vited), the operator daemons (dashd/onbod/timed/davd)
+  and a values-driven set of channel adapters — one Deployment + Service +
+  Secret each, mirroring compose/compose.go. The store is a DynamoDB-protocol
+  server you run (DYNAMODB_URL); the data volume holds the group folders; runed
+  boots one KVM guest per turn and needs a node with /dev/kvm.
 type: application
 # Chart version — bump on chart template changes.
-version: 0.1.0
+version: 0.2.0
 
 # Tracks the arizuko app release this chart was written against.
-appVersion: '0.49.0'
+appVersion: '0.70.2'
 
 keywords:
   - arizuko

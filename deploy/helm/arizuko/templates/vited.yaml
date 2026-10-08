@@ -1,7 +1,7 @@
 {{- if and .Values.web.enabled .Values.web.vited.enabled }}
 {{/*
-vited — static file server for the unified web tree (/pub + /priv). In compose
-it mounts <data>/web; here it reads the web subtree from the data PVC.
+vited — static file server for the unified web tree (/pub + /priv): the web/
+directory of the data volume, read-only.
 */}}
 apiVersion: apps/v1
 kind: Deployment
@@ -47,9 +47,9 @@ spec:
               containerPort: 8080
           volumeMounts:
             - name: data
-              # vited serves the web subtree of the data dir.
               mountPath: /web
               subPath: web
+              readOnly: true
           livenessProbe:
             httpGet:
               path: /@vite/client

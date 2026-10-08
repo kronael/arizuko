@@ -1,56 +1,69 @@
 {{/*
-Channel adapters — one Deployment + Service per enabled entry in
-.Values.adapters. Each mirrors template/services/<name>.toml: the same
-arizuko image, entrypoint [<name>], and env. Inbound is posted to ROUTER_URL
-(wired from the ConfigMap). `env` entries are literal; `secretEnv` maps a
-container var to a key in the Secret.
+Channel adapters — one Deployment + Service + Secret per enabled entry in
+.Values.adapters, mirroring template/services/<name>.yml: the arizuko image,
+entrypoint [<name>], ROUTER_URL at routd (ConfigMap), LISTEN_URL at the
+adapter's own Service (routd calls it back there), AUTHD_SERVICE_NAME so it
+exchanges its key as service:<name>. `env` entries are literal; `secretEnv`
+names Secret keys to inject as env vars of the same name, each from the
+secrets.* value $tokens maps it to.
 
-NOTE: WhatsApp (whapd) and X/Twitter (twitd) use separate images + auth-dir
-volumes in compose; they are intentionally NOT in the default adapters list.
-Add them as custom values entries with the right image/volume if you run them.
+WhatsApp (whapd), X/Twitter (twitd) and gitd run other images or need an auth
+volume in compose and are not in the default list.
 */}}
 {{- $ctx := . -}}
 {{- $full := include "arizuko.fullname" . -}}
-{{- $routerURL := include "arizuko.routerURL" . -}}
-{{- $secretName := include "arizuko.secretName" . -}}
 {{- $configMap := include "arizuko.configMapName" . -}}
+{{- $tokens := dict
+    "TELEGRAM_BOT_TOKEN"     "telegramBotToken"
+    "DISCORD_BOT_TOKEN"      "discordBotToken"
+    "SLACK_BOT_TOKEN"        "slackBotToken"
+    "SLACK_SIGNING_SECRET"   "slackSigningSecret"
+    "BLUESKY_IDENTIFIER"     "blueskyIdentifier"
+    "BLUESKY_PASSWORD"       "blueskyPassword"
+    "REDDIT_CLIENT_ID"       "redditClientId"
+    "REDDIT_CLIENT_SECRET"   "redditClientSecret"
+    "REDDIT_USERNAME"        "redditUsername"
+    "REDDIT_PASSWORD"        "redditPassword"
+    "EMAIL_IMAP_HOST"        "emailImapHost"
+    "EMAIL_SMTP_HOST"        "emailSmtpHost"
+    "EMAIL_ACCOUNT"          "emailAccount"
+    "EMAIL_PASSWORD"         "emailPassword"
+    "LINKEDIN_CLIENT_ID"     "linkedinClientId"
+    "LINKEDIN_CLIENT_SECRET" "linkedinClientSecret"
+    "LINKEDIN_ACCESS_TOKEN"  "linkedinAccessToken"
+    "LINKEDIN_REFRESH_TOKEN" "linkedinRefreshToken"
+-}}
 {{- range .Values.adapters }}
 {{- if .enabled }}
+{{- $name := .name }}
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ $full }}-{{ .name }}
+  name: {{ $full }}-{{ $name }}
   labels:
     {{- include "arizuko.labels" $ctx | nindent 4 }}
-    app.kubernetes.io/component: {{ .name }}
+    app.kubernetes.io/component: {{ $name }}
 spec:
   replicas: 1
   selector:
     matchLabels:
-      {{- include "arizuko.selectorLabels" (dict "ctx" $ctx "daemon" .name) | nindent 6 }}
+      {{- include "arizuko.selectorLabels" (dict "ctx" $ctx "daemon" $name) | nindent 6 }}
   template:
     metadata:
       labels:
-        {{- include "arizuko.selectorLabels" (dict "ctx" $ctx "daemon" .name) | nindent 8 }}
+        {{- include "arizuko.selectorLabels" (dict "ctx" $ctx "daemon" $name) | nindent 8 }}
     spec:
       serviceAccountName: {{ include "arizuko.serviceAccountName" $ctx }}
       {{- with $ctx.Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- if $ctx.Values.nodeName }}
-      nodeName: {{ $ctx.Values.nodeName }}
-      {{- end }}
-      {{- with $ctx.Values.nodeSelector }}
-      nodeSelector:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
       securityContext:
         runAsUser: 1000
         runAsGroup: 1000
       containers:
-        - name: {{ .name }}
+        - name: {{ $name }}
           image: "{{ $ctx.Values.image.repository }}:{{ $ctx.Values.image.tag }}"
           imagePullPolicy: {{ $ctx.Values.image.pullPolicy }}
           command: {{ toJson .entrypoint }}
@@ -60,22 +73,18 @@ spec:
           envFrom:
             - configMapRef:
                 name: {{ $configMap }}
+            - secretRef:
+                name: {{ include "arizuko.daemonSecretName" (dict "ctx" $ctx "daemon" $name) }}
           env:
-            - name: ROUTER_URL
-              value: {{ $routerURL | quote }}
+            - name: AUTHD_SERVICE_NAME
+              value: {{ $name }}
             - name: LISTEN_ADDR
               value: ":8080"
+            - name: LISTEN_URL
+              value: {{ include "arizuko.daemonURL" (dict "ctx" $ctx "daemon" $name) | quote }}
             {{- range $k, $v := .env }}
             - name: {{ $k }}
               value: {{ $v | quote }}
-            {{- end }}
-            {{- range $key := .secretEnv }}
-            - name: {{ $key }}
-              valueFrom:
-                secretKeyRef:
-                  name: {{ $secretName }}
-                  key: {{ $key }}
-                  optional: true
             {{- end }}
           livenessProbe:
             httpGet:
@@ -97,16 +106,28 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ $full }}-{{ .name }}
+  name: {{ $full }}-{{ $name }}
   labels:
     {{- include "arizuko.labels" $ctx | nindent 4 }}
-    app.kubernetes.io/component: {{ .name }}
+    app.kubernetes.io/component: {{ $name }}
 spec:
   selector:
-    {{- include "arizuko.selectorLabels" (dict "ctx" $ctx "daemon" .name) | nindent 4 }}
+    {{- include "arizuko.selectorLabels" (dict "ctx" $ctx "daemon" $name) | nindent 4 }}
   ports:
     - name: http
       port: 8080
       targetPort: http
+{{- if not $ctx.Values.secrets.external }}
+---
+{{- $keys := dict }}
+{{- range $key := .secretEnv }}
+{{- $vkey := index $tokens $key }}
+{{- if not $vkey }}
+{{- fail (printf "adapters[%s].secretEnv names %s, which no secrets.* value carries (templates/adapters.yaml $tokens)" $name $key) }}
+{{- end }}
+{{- $_ := set $keys $key (required (printf "secrets.%s must be set: adapters[%s].secretEnv lists %s" $vkey $name $key) (index $ctx.Values.secrets $vkey)) }}
+{{- end }}
+{{ include "arizuko.daemonSecret" (dict "ctx" $ctx "daemon" $name "store" true "keys" $keys) }}
+{{- end }}
 {{- end }}
 {{- end }}

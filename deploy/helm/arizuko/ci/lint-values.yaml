@@ -1,0 +1,63 @@
+# Placeholder values that satisfy every `required` so the chart renders in a
+# lint or CI run: helm lint deploy/helm/arizuko -f deploy/helm/arizuko/ci/lint-values.yaml
+# Every optional daemon and one adapter are enabled so every template renders.
+# Nothing here is a value an instance can run with.
+config:
+  webHost: arizuko.example.com
+store:
+  url: https://extenddb.example.svc:18443
+  ca: bGludC1wbGFjZWhvbGRlcg==
+runed:
+  nodeSelector:
+    kvm: 'true'
+  kernelDir: /srv/app/home/images/kernel-lint
+  rootfsDir: /srv/app/home/images/rootfs-lint
+secrets:
+  authSecret: lint-auth-secret
+  secretsKey: lint-secrets-key
+  claudeCodeOauthToken: lint-oauth-token
+  telegramBotToken: lint-telegram-token
+  daemons:
+    authd:
+      storeKeyId: lint-authd-key
+      storeSecret: lint-authd-secret
+    routd:
+      serviceKey: lint-routd-service-key
+      storeKeyId: lint-routd-key
+      storeSecret: lint-routd-secret
+    runed:
+      serviceKey: lint-runed-service-key
+      storeKeyId: lint-runed-key
+      storeSecret: lint-runed-secret
+    timed:
+      serviceKey: lint-timed-service-key
+    onbod:
+      serviceKey: lint-onbod-service-key
+      storeKeyId: lint-onbod-key
+      storeSecret: lint-onbod-secret
+    dashd:
+      serviceKey: lint-dashd-service-key
+      storeKeyId: lint-dashd-key
+      storeSecret: lint-dashd-secret
+    webd:
+      serviceKey: lint-webd-service-key
+      storeKeyId: lint-webd-key
+      storeSecret: lint-webd-secret
+    proxyd:
+      serviceKey: lint-proxyd-service-key
+      storeKeyId: lint-proxyd-key
+      storeSecret: lint-proxyd-secret
+    teled:
+      serviceKey: lint-teled-service-key
+      storeKeyId: lint-teled-key
+      storeSecret: lint-teled-secret
+onbod:
+  enabled: true
+davd:
+  enabled: true
+adapters:
+  - name: teled
+    enabled: true
+    entrypoint: ['teled']
+    secretEnv:
+      - TELEGRAM_BOT_TOKEN

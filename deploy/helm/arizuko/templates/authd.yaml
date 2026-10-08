@@ -1,0 +1,94 @@
+{{/*
+authd — the auth authority. No volume and nothing it depends on: it serves the
+JWKS every other daemon verifies against and exchanges each daemon's
+AUTHD_SERVICE_KEY for a service token, so it learns the whole key set
+(AUTHD_SERVICE_KEYS) from the same secrets.daemons values each daemon's own
+Secret is rendered from. GRANTS_URL names routd, the ACL owner, so a login
+snapshots its scopes.
+*/}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "arizuko.fullname" . }}-authd
+  labels:
+    {{- include "arizuko.labels" . | nindent 4 }}
+    app.kubernetes.io/component: authd
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "arizuko.selectorLabels" (dict "ctx" . "daemon" "authd") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "arizuko.selectorLabels" (dict "ctx" . "daemon" "authd") | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "arizuko.serviceAccountName" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+      containers:
+        - name: authd
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["authd"]
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: {{ include "arizuko.configMapName" . }}
+            - secretRef:
+                name: {{ include "arizuko.daemonSecretName" (dict "ctx" . "daemon" "authd") }}
+          env:
+            - name: GRANTS_URL
+              value: {{ include "arizuko.daemonURL" (dict "ctx" . "daemon" "routd") | quote }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "arizuko.fullname" . }}-authd
+  labels:
+    {{- include "arizuko.labels" . | nindent 4 }}
+    app.kubernetes.io/component: authd
+spec:
+  selector:
+    {{- include "arizuko.selectorLabels" (dict "ctx" . "daemon" "authd") | nindent 4 }}
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+{{- if not .Values.secrets.external }}
+---
+{{- $keys := dict "AUTH_SECRET" (required "secrets.authSecret must be set: AUTH_SECRET signs the web session cookies and the OAuth state (openssl rand -hex 32)" .Values.secrets.authSecret) }}
+{{- $pairs := list }}
+{{- range $name, $c := .Values.secrets.daemons }}
+{{- with $c }}
+{{- with .serviceKey }}
+{{- $pairs = append $pairs (printf "service:%s=%s" $name .) }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- $_ := set $keys "AUTHD_SERVICE_KEYS" (join "," $pairs) }}
+{{ include "arizuko.daemonSecret" (dict "ctx" . "daemon" "authd" "store" true "keys" $keys) }}
+{{- end }}

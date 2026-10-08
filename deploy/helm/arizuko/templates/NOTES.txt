@@ -1,7 +1,9 @@
 arizuko has been installed as release {{ .Release.Name }}.
 
 Daemons deployed (component label):
-  - gated            router + execution plane (spawns agent containers)
+  - authd            auth authority (JWKS, service tokens, login)
+  - routd            router: conversation state, group tree, per-turn MCP socket
+  - runed            execution plane: one KVM guest per turn
 {{- if and .Values.web.enabled .Values.web.webd.enabled }}
   - webd             chat widget / panel / api / portal
 {{- end }}
@@ -30,24 +32,23 @@ Daemons deployed (component label):
 Verify the rollout:
 
   kubectl -n {{ .Release.Namespace }} get pods -l app.kubernetes.io/instance={{ .Release.Name }}
-  kubectl -n {{ .Release.Namespace }} rollout status deploy/{{ include "arizuko.fullname" . }}-gated
+  kubectl -n {{ .Release.Namespace }} rollout status deploy/{{ include "arizuko.fullname" . }}-routd
+  kubectl -n {{ .Release.Namespace }} rollout status deploy/{{ include "arizuko.fullname" . }}-runed
 
-Check gated health from inside the cluster:
+Check routd's health from inside the cluster:
 
   kubectl -n {{ .Release.Namespace }} run -it --rm curl --image=curlimages/curl --restart=Never -- \
-    curl -s http://{{ include "arizuko.routerService" . }}:8080/health
+    curl -s {{ include "arizuko.daemonURL" (dict "ctx" . "daemon" "routd") }}/health
 
-{{- if .Values.agentRuntime.dockerSocket }}
+runed runs on a node with /dev/kvm, /dev/vhost-vsock and /dev/net/tun, as root,
+with NET_ADMIN + SYS_ADMIN and AppArmor unconfined, and refuses to start while any
+precondition is unmet — it names every one in its first log lines:
 
-AGENT SPAWN: gated mounts the node docker socket ({{ .Values.agentRuntime.socketPath }})
-to spawn the agent image ({{ .Values.agentImage }}). This requires a docker-runtime
-node where that socket exists, and that the arizuko-ant image is present on the node.
-If turns hang, check: `kubectl logs deploy/{{ include "arizuko.fullname" . }}-gated`.
-{{- else }}
+  kubectl -n {{ .Release.Namespace }} logs deploy/{{ include "arizuko.fullname" . }}-runed
 
-WARNING: agentRuntime.dockerSocket is OFF — gated will start but every agent
-turn will FAIL to spawn. Set agentRuntime.dockerSocket=true on a docker-runtime node.
-{{- end }}
+The store at {{ .Values.store.url }} must already hold the owner tables (one-time
+`extenddb init`, INSTALL.md § The store server), and the data volume must be seeded
+once with `arizuko create`.
 
 {{- if not .Values.ingress.enabled }}
 

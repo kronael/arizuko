@@ -1,8 +1,9 @@
 {{- if .Values.onbod.enabled }}
 {{/*
-onbod — onboarding / admission queue. Served behind proxyd at /onboard.
-ONBOARDING_ENABLED is forced true inside the pod; ROUTER_URL is pinned so its
-outbound greeting reaches the router.
+onbod — onboarding / admission queue, behind proxyd at /onboard. SetupGroup
+creates groups/<folder> and its web/pub + web/priv slots, so it mounts those two
+directories of the data volume and nothing else of it. ONBOARDING_ENABLED is
+forced true: the toggle that decides whether onbod runs is onbod.enabled.
 */}}
 apiVersion: apps/v1
 kind: Deployment
@@ -51,15 +52,19 @@ spec:
             - configMapRef:
                 name: {{ include "arizuko.configMapName" . }}
             - secretRef:
-                name: {{ include "arizuko.secretName" . }}
+                name: {{ include "arizuko.daemonSecretName" (dict "ctx" . "daemon" "onbod") }}
           env:
+            - name: AUTHD_SERVICE_NAME
+              value: onbod
             - name: ONBOARDING_ENABLED
               value: "true"
-            - name: ROUTER_URL
-              value: {{ include "arizuko.routerURL" . | quote }}
           volumeMounts:
             - name: data
-              mountPath: /srv/app/home
+              mountPath: /srv/app/home/groups
+              subPath: groups
+            - name: data
+              mountPath: /srv/app/home/web
+              subPath: web
           livenessProbe:
             httpGet:
               path: /health
@@ -89,4 +94,8 @@ spec:
     - name: http
       port: 8080
       targetPort: http
+{{- if not .Values.secrets.external }}
+---
+{{ include "arizuko.daemonSecret" (dict "ctx" . "daemon" "onbod" "store" true "keys" dict) }}
+{{- end }}
 {{- end }}

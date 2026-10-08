@@ -1,3 +1,9 @@
+{{/*
+Non-secret env every daemon reads. The *_URL values name this chart's Services:
+the code defaults are compose's service names (http://routd:8080, …) and
+resolve nowhere here. DATA_DIR is the data volume's mount point; APP_SRC_DIR is
+the ant/ tree the image bakes.
+*/}}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -5,28 +11,33 @@ metadata:
   labels:
     {{- include "arizuko.labels" . | nindent 4 }}
 data:
-  # Non-secret env shared across daemons (mirrors compose.go commonKeys +
-  # gated env). DATA_DIR / HOST_DATA_DIR point at the in-container PVC mount.
-  # HOST_APP_DIR is the in-image source path — the arizuko image bakes the
-  # source under /opt/arizuko, so no bind mount is needed on k8s.
   ASSISTANT_NAME: {{ .Values.config.assistantName | quote }}
   ARIZUKO_INSTANCE: {{ .Values.config.instance | quote }}
-  WEB_HOST: {{ .Values.config.webHost | quote }}
+  WEB_HOST: {{ required "config.webHost must be set: WEB_HOST is the public hostname routd, proxyd and the Ingress serve" .Values.config.webHost | quote }}
   TZ: {{ .Values.config.tz | quote }}
   LOG_LEVEL: {{ .Values.config.logLevel | quote }}
   API_PORT: "8080"
   DATA_DIR: /srv/app/home
-  HOST_DATA_DIR: /srv/app/home
-  HOST_APP_DIR: /opt/arizuko
   APP_SRC_DIR: /opt/arizuko
-  ROUTER_URL: {{ include "arizuko.routerURL" . | quote }}
-  # Agent spawn knobs.
+  AUTHD_URL: {{ include "arizuko.daemonURL" (dict "ctx" . "daemon" "authd") | quote }}
+  ROUTER_URL: {{ include "arizuko.daemonURL" (dict "ctx" . "daemon" "routd") | quote }}
+  RUNED_URL: {{ include "arizuko.daemonURL" (dict "ctx" . "daemon" "runed") | quote }}
+  {{- if .Values.onbod.enabled }}
+  ONBOD_URL: {{ include "arizuko.daemonURL" (dict "ctx" . "daemon" "onbod") | quote }}
+  {{- end }}
+  {{- if and .Values.web.enabled .Values.web.proxyd.enabled }}
+  PROXYD_URL: {{ include "arizuko.daemonURL" (dict "ctx" . "daemon" "proxyd") | quote }}
+  {{- end }}
+  DYNAMODB_URL: {{ required "store.url must be set: DYNAMODB_URL names the store server every daemon opens its owner tables on, and the chart runs none (README § The store)" .Values.store.url | quote }}
+  AWS_REGION: {{ .Values.store.region | quote }}
+  {{- with .Values.store.ca }}
+  STORE_CA: {{ . | quote }}
+  {{- end }}
   CONTAINER_TIMEOUT: {{ .Values.config.containerTimeout | quote }}
   IDLE_TIMEOUT: {{ .Values.config.idleTimeout | quote }}
   MAX_CONCURRENT_CONTAINERS: {{ .Values.config.maxConcurrentContainers | quote }}
-  # Feature toggles.
   ONBOARDING_ENABLED: {{ .Values.config.onboardingEnabled | quote }}
   WEBDAV_ENABLED: {{ .Values.config.webdavEnabled | quote }}
-  {{- if .Values.config.otelEndpoint }}
-  OTEL_EXPORTER_OTLP_ENDPOINT: {{ .Values.config.otelEndpoint | quote }}
+  {{- with .Values.config.otelEndpoint }}
+  OTEL_EXPORTER_OTLP_ENDPOINT: {{ . | quote }}
   {{- end }}

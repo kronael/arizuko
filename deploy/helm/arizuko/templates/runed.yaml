@@ -1,0 +1,146 @@
+{{/*
+runed — the execution plane: one KVM guest per turn (spec 6/41). Root, because
+virtiofsd carries guest credentials onto host files and the staging tree's bind
+mounts are made in runed's own mount namespace. /dev/kvm, /dev/vhost-vsock and
+/dev/net/tun come from the node; NET_ADMIN is for the tap and its rule set,
+SYS_ADMIN for the binds; AppArmor unconfined because the default profile denies
+mount(2) to a container whatever its capabilities (compose.go runedService).
+One replica, Recreate: two runed would reap each other's VM records, and the
+vsock CID space is the node's. It mounts the same volume routd does — the
+per-turn socket under ipc/ is an inode both must see.
+*/}}
+{{- $nodeSelector := mergeOverwrite (deepCopy .Values.nodeSelector) .Values.runed.nodeSelector }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "arizuko.fullname" . }}-runed
+  labels:
+    {{- include "arizuko.labels" . | nindent 4 }}
+    app.kubernetes.io/component: runed
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "arizuko.selectorLabels" (dict "ctx" . "daemon" "runed") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "arizuko.selectorLabels" (dict "ctx" . "daemon" "runed") | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "arizuko.serviceAccountName" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.nodeName }}
+      nodeName: {{ .Values.nodeName }}
+      {{- end }}
+      {{- with $nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        fsGroup: 1000
+      containers:
+        - name: runed
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["runed"]
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+            capabilities:
+              add: ["NET_ADMIN", "SYS_ADMIN"]
+            appArmorProfile:
+              type: Unconfined
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: {{ include "arizuko.configMapName" . }}
+            - secretRef:
+                name: {{ include "arizuko.daemonSecretName" (dict "ctx" . "daemon" "runed") }}
+          env:
+            - name: AUTHD_SERVICE_NAME
+              value: runed
+            - name: RUNED_KERNEL_DIR
+              value: {{ required "runed.kernelDir must be set: RUNED_KERNEL_DIR is the `make kernel` artifact directory (bzImage + initrd.gz) by the path runed's container sees, e.g. /srv/app/home/images/kernel-<hash>; runed refuses to start without it" .Values.runed.kernelDir | quote }}
+            - name: RUNED_ROOTFS_DIR
+              value: {{ required "runed.rootfsDir must be set: RUNED_ROOTFS_DIR is the `make rootfs` export of the agent image by the path runed's container sees, e.g. /srv/app/home/images/rootfs-<hash>; runed refuses to start without it" .Values.runed.rootfsDir | quote }}
+          volumeMounts:
+            - name: data
+              mountPath: /srv/app/home
+            - name: kvm
+              mountPath: /dev/kvm
+            - name: vhost-vsock
+              mountPath: /dev/vhost-vsock
+            - name: net-tun
+              mountPath: /dev/net/tun
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "arizuko.pvcName" . }}
+        - name: kvm
+          hostPath:
+            path: /dev/kvm
+            type: CharDevice
+        - name: vhost-vsock
+          hostPath:
+            path: /dev/vhost-vsock
+            type: CharDevice
+        - name: net-tun
+          hostPath:
+            path: /dev/net/tun
+            type: CharDevice
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "arizuko.fullname" . }}-runed
+  labels:
+    {{- include "arizuko.labels" . | nindent 4 }}
+    app.kubernetes.io/component: runed
+spec:
+  selector:
+    {{- include "arizuko.selectorLabels" (dict "ctx" . "daemon" "runed") | nindent 4 }}
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+{{- if not .Values.secrets.external }}
+---
+{{- $keys := dict }}
+{{- with .Values.secrets.claudeCodeOauthToken }}
+{{- $_ := set $keys "CLAUDE_CODE_OAUTH_TOKEN" . }}
+{{- end }}
+{{- with .Values.secrets.anthropicApiKey }}
+{{- $_ := set $keys "ANTHROPIC_API_KEY" . }}
+{{- end }}
+{{- if not $keys }}
+{{- fail "secrets.claudeCodeOauthToken or secrets.anthropicApiKey must be set: runed hands one of them to every turn, and without it no agent can call the model" }}
+{{- end }}
+{{ include "arizuko.daemonSecret" (dict "ctx" . "daemon" "runed" "store" true "keys" $keys) }}
+{{- end }}
