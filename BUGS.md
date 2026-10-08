@@ -47,9 +47,6 @@ line; none can be answered from the code.
 - `V2` — may `acl_membership` grow a LIST action? It publishes who holds
   authority over whom, on REST and on MCP.
 - `L326` — the honest liveness fix needs a barrier nobody has signed off.
-- `S1b` — the helm chart deploys `gated`, deleted at v0.50.0, across 15 references and a
-  113-line Deployment, so `helm install` cannot bring up arizuko. Port the chart to the
-  split topology, or delete it and say kubernetes is unsupported.
 - `L392` — every daemon on the host network, no `ports:` mapping. The
   loopback binds and the ports above 49000 shipped with v0.70.0; what is
   left is the move itself, which re-addresses every daemon and needs the Go
@@ -4978,7 +4975,7 @@ Still live:
   `9ef99cb1`, F7
   `debe58f4` — all 2026-09-21; F1 and F10b closed as dead / wrong premise
 
-## S1b — the helm chart deploys the deleted `gated` daemon (2026-08-05, PROPOSED — redesign, needs sign-off; RE-MEASURED 2026-09-21)
+## ✅ FIXED 2026-10-08 S1b — the helm chart deploys the deleted `gated` daemon (2026-08-05)
 
 Split out of S1, whose fix ("wire `AUTHD_SERVICE_KEY` instead of the dead
 `CHANNEL_SECRET`") cannot be applied to `deploy/helm` as a config change. The
@@ -5095,6 +5092,33 @@ as of `a01f4d7b`; this half is the larger one and is unchanged.
 you". Ten entries are in that state. The guard now checks for them (same commit), which
 is the actual fix — a queue item invisible to the guard gets re-filed by the next
 reader, as it just was.
+
+- **Status:** ✅ FIXED 2026-10-08 in `a7241d06`. `gated.yaml` and the shared all-tokens
+  `secret.yaml` are deleted; `routd`, `authd` and `runed` are new, written against
+  `compose/compose.go`'s own service builders. `runed` holds `/dev/kvm`,
+  `/dev/vhost-vsock` and `/dev/net/tun` as `CharDevice` hostPaths with
+  `NET_ADMIN`+`SYS_ADMIN` and AppArmor `Unconfined`, and takes a `nodeSelector` because
+  it pins to nodes that have them. One Secret per daemon replaces the shared one, which
+  is what compose's per-daemon env files already are. The volume is the file tree, not
+  the SQLite WAL that has not existed since v0.68.0.
+
+  Every must-set value is `required` with a sentence naming the key and why, so a bare
+  `helm lint` fails on purpose and `ci/lint-values.yaml` is the fixture that renders.
+
+- **And the gate, which is the half that keeps it fixed.** This entry's own re-measurement
+  said a rewrite without a gate drifts again, and it was right: the chart rendered nothing
+  CI read, so it sat two phases behind for two months. `make lint-helm` runs `helm lint`
+  and `helm template` — neither needs a cluster — and asserts the two facts that matter:
+  the render names no `gated`, and it carries routd, runed and authd. It is in
+  `.github/workflows/ci.yml`. Mutating routd's component label fails it.
+
+- **VERIFIED vs NOT.** Verified: lint clean, 11 Deployments, zero `gated`, each `required`
+  triggered by hand. **Not verified: that it deploys.** No cluster exists on this host and
+  the README says so. Three things the port found and did not fix, each named in the
+  README: proxyd's route rows name `http://<daemon>:8080` while the chart's Services are
+  `<release>-<daemon>`; a hostPath device may still be refused by the device cgroup without
+  `privileged`; adapters get no volume for their offset files.
+
 ## V2 — the cockpit split SHIPPED and the duplication is closed; one item is live: dashd has no authority-provenance view (2026-08-04, DUPLICATION CLOSED 2026-09-21)
 
 **Re-measured 2026-09-21 at `f5851f94`. The direction was taken, not
