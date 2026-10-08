@@ -187,9 +187,6 @@ onbod:
   enabled: false # onboarding/admission queue
 davd:
   enabled: false # WebDAV over groups/ (needs config.webdavEnabled too)
-crackbox:
-  enabled: false # egress-isolation proxy (advanced; needs CRACKBOX_* env)
-  image: crackbox:latest
 
 # ---------------------------------------------------------------------------
 # Channel adapters. The chart ranges over this list and renders one

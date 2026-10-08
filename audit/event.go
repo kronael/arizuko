@@ -20,7 +20,6 @@ const (
 	SurfaceCLI           = "cli"
 	SurfaceGateway       = "gateway"
 	SurfaceCron          = "cron"
-	SurfaceCrackbox      = "crackbox"
 	SurfaceAgentPreTool  = "agent_pretool"
 	SurfaceAgentPostTool = "agent_posttool"
 )

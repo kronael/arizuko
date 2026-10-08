@@ -23,9 +23,6 @@ Daemons deployed (component label):
 {{- if .Values.davd.enabled }}
   - davd             WebDAV (/dav)
 {{- end }}
-{{- if .Values.crackbox.enabled }}
-  - crackbox         egress-isolation proxy
-{{- end }}
 {{- range .Values.adapters }}{{- if .enabled }}
   - {{ .name }}            channel adapter
 {{- end }}{{- end }}
