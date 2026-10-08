@@ -6519,6 +6519,19 @@ resreg row (`packages add` applies no rows, `L199`, and generate runs where
 no store is open). `env` already set that precedent; the sign-off is to
 extend it to two more keys.
 
+**One line of this is DONE, 2026-10-08.** `envFileName`'s fallback to the instance's
+shared `.env` is gone: a name with no `daemonKeys` entry now gets "" instead of the file
+that holds `SECRETS_KEY`, every channel token and the model credential. `Generate`
+refuses a rendered compose file in which any service points `env_file` at `.env`
+(`checkNoServiceReadsTheSharedEnv`), and the check reads the RENDERED yaml, so a stanza
+written by a path it does not know about is still caught.
+
+Measured honestly: **nothing took that path.** Restoring the fallback changes no rendered
+service, because every name reaching `envFileFor` has an entry — `davd` and `vited` never
+call it, and `vited` reads nothing at all. So this removed a dangerous DEFAULT, it did not
+close a live leak. The rest of `L200` — the manifest keys that would delete the seven
+tables — still adds code and still needs the design.
+
 ## L202 — a linked package runs the host checkout's compose fragment while generate reads the image's manifest, so one package can come from two versions (2026-09-05, open — needs sign-off; RE-VERIFIED 2026-09-21 at HEAD, no bounded half)
 
 `packages add` links `services/<name>.yml` at `HOST_APP_DIR/template/services/`

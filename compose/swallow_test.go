@@ -67,3 +67,38 @@ func TestRelinkSidecarSkipsWhenCatalogShipsNoManifest(t *testing.T) {
 		t.Fatalf("a catalog with no manifest must be a skip, got %v", err)
 	}
 }
+
+// TestNoServiceReadsTheSharedEnv pins BUGS `L200`'s one deletable line. `envFileName`
+// fell back to the instance's shared `.env` for any service with no `daemonKeys` entry.
+// That file holds every secret the instance has — `SECRETS_KEY`, every channel token,
+// the model credential — so adding a stanza without adding its key list handed that
+// service the lot, and the compose file rendered and the container started.
+//
+// The fallback returns "" now, and Generate refuses the rendered file if any service
+// still points at `.env`.
+func TestNoServiceReadsTheSharedEnv(t *testing.T) {
+	// The real generated file, not a fixture: this is the artifact that ships.
+	out := gen(t, seed(t, ""))
+	if strings.Contains(out, "- .env\n") {
+		t.Errorf("a service reads the shared .env:\n%s", out)
+	}
+
+	// And the refusal fires on the shape, so the guard cannot pass by never running.
+	bad := "services:\n  newd:\n    image: x\n    env_file:\n      - .env\n"
+	err := checkNoServiceReadsTheSharedEnv(bad)
+	if err == nil {
+		t.Fatal("a service reading the shared .env must refuse generation")
+	}
+	for _, want := range []string{"newd", "every secret", "daemonKeys"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the refusal must say %q: %v", want, err)
+		}
+	}
+
+	// A service with its own file is fine, and one with NO env_file is fine too:
+	// vited serves a read-only volume and reads nothing.
+	ok := "services:\n  routd:\n    env_file:\n      - env/routd.env\n  vited:\n    image: y\n"
+	if err := checkNoServiceReadsTheSharedEnv(ok); err != nil {
+		t.Errorf("a scoped file and an absent one are both legal: %v", err)
+	}
+}

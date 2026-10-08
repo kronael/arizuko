@@ -252,9 +252,18 @@ var adapterDaemons = map[string]bool{
 	"gitd": true,
 }
 
-// envFileName returns the env file a service reads: services outside
-// daemonKeys fall back to the shared .env, and `<adapter>-<label>` variants
+// envFileName returns the env file a service reads. `<adapter>-<label>` variants
 // share the base adapter's file (spec 5/R-multi-account).
+//
+// A name with no key list gets NO file, not the shared `.env`. The fallback used to
+// hand a service every secret the instance holds — the whole `.env`, including
+// `SECRETS_KEY` and every channel token — the moment somebody added a stanza without
+// adding its key list, and it would have looked like it worked. Nothing takes that path
+// today (measured: every `svcDef` name has a `daemonKeys` entry), so the fallback was
+// a dead branch whose only possible use was the wrong one.
+//
+// `checkEveryServiceHasKeys` is the loud half: it refuses generation rather than
+// leaving a daemon with no env at all (BUGS `L200`).
 func envFileName(name string) string {
 	if _, ok := daemonKeys[name]; ok {
 		return "env/" + name + ".env"
@@ -264,8 +273,45 @@ func envFileName(name string) string {
 			return "env/" + base + ".env"
 		}
 	}
-	return ".env"
+	return ""
 }
+
+// checkNoServiceReadsTheSharedEnv refuses a rendered compose file in which a service
+// points `env_file` at the instance's shared `.env`.
+//
+// That file holds every secret the instance has — `SECRETS_KEY`, every channel token,
+// the model credential. `envFileName` used to fall back to it for any name with no
+// `daemonKeys` entry, so adding a stanza without adding its key list handed that
+// service the lot, and it looked like it worked. It now returns "" instead, and this
+// is the loud half: `env_file: - .env` in the output is the shape to catch, because it
+// is the one that ships (BUGS `L200`).
+//
+// A service with NO `env_file` is fine and not this check's business: `vited` serves a
+// read-only volume and reads nothing, and forcing a key list on it would invent one.
+func checkNoServiceReadsTheSharedEnv(composeYAML string) error {
+	var cur string
+	var bad []string
+	for _, line := range strings.Split(composeYAML, "\n") {
+		if m := serviceKeyRe.FindStringSubmatch(line); m != nil {
+			cur = m[1]
+			continue
+		}
+		if cur != "" && strings.TrimSpace(line) == "- .env" {
+			bad = append(bad, cur)
+		}
+	}
+	if len(bad) > 0 {
+		sort.Strings(bad)
+		return fmt.Errorf("compose: %s read the shared .env, which holds every secret the "+
+			"instance has: give each an entry in daemonKeys so only its own variables reach it",
+			strings.Join(bad, ", "))
+	}
+	return nil
+}
+
+// serviceKeyRe matches a service name under `services:` — two spaces, a name, a colon,
+// nothing else. Four spaces is a property of the service above it.
+var serviceKeyRe = regexp.MustCompile(`^  ([a-z][a-z0-9_-]*):\s*$`)
 
 // envFileFor returns the scoped env_file block for a daemon stanza.
 func envFileFor(name string) string {
@@ -851,7 +897,13 @@ func Generate(dataDir string) (string, []ProxydRoute, error) {
 	// side of that turn's tap and kills it with the turn (spec 6/41 §"Egress by name,
 	// sealed below the kernel"). There is no image to name: EGRESS_IMAGE went with the
 	// Docker substrate, and runed refuses to start without the proxy binary.
-	return b.String(), routes, nil
+	out := b.String()
+	// The last gate before the file ships: a service nobody declared env keys for
+	// names no env_file and would come up unconfigured (BUGS `L200`).
+	if err := checkNoServiceReadsTheSharedEnv(out); err != nil {
+		return "", nil, err
+	}
+	return out, routes, nil
 }
 
 type svcDef struct {
