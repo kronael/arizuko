@@ -103,12 +103,21 @@ operator gate. All hub + cross-cutting pages are operator-only.
 Checked against the code 2026-10-08. A criteria list that quietly loses its open items
 is a list that reports itself met.
 
-- ⚠ `/dash/services/` lists every daemon with a `/dash/` route, each tile reflecting a
-  live `/health` probe; a down daemon shows `err`, **a scope-denied daemon shows
-  `warn`**. The listing and the probe hold — 18 tiles, and `gitd` is correctly absent
-  because it mounts no `/dash/` route. The `warn` state does **not exist**:
-  `dashd/services.go:78-80` declares three, `ok`, `err` and `unknown`, so a
-  scope-denied daemon is indistinguishable from one that did not answer.
+- ✅ `/dash/services/` lists every daemon with a `/dash/` route, each tile reflecting a
+  live `/health` probe; a down daemon shows `err`. 18 tiles, and `gitd` is correctly
+  absent because it mounts no `/dash/` route.
+- 🚫 **"a scope-denied daemon shows `warn`" is WITHDRAWN, not unbuilt.** The state has
+  no subject: the hub probes `/health`, which is public on every daemon and mounted
+  before auth by design (`routd/server.go:223`, `runed/server.go:50` say so in as many
+  words), so a probe can never be scope-denied. The one tile that overrides the path,
+  `davd` at `/`, answers 200 — measured from inside the compose network 2026-10-08.
+
+  `dashd/services.go:78-80` therefore declares exactly the three states that can
+  happen: `ok`, `err`, `unknown`. Adding a fourth would be a branch no probe reaches,
+  which is the dead code this project deletes rather than the gap it fills. The
+  criterion was written for a hub that probed an auth-gated path; it probes the public
+  one.
+
 - ❌ **No dashd handler opens another daemon's store** or reads a group's FS directly;
   every datum comes from an owning daemon's `/v1`. `dashd/main.go:189` calls
   `store.OpenOwner(store.OwnerRoutd)` and `authz.go`, `usage_page.go`,

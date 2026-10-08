@@ -74,6 +74,11 @@ const healthTimeout = 500 * time.Millisecond
 // statusOK/Err/Unknown classify a tile's status dot. ok = /health 2xx;
 // err = reachable-but-unhealthy OR refused/timeout (daemon down in production);
 // unknown = DNS failure (container not deployed or local-dev name mismatch).
+//
+// Three, not four. `6/29` and `6/30` asked for a `warn` state meaning "up but
+// scope-denied"; it has no subject, because the probe is `/health`, which every daemon
+// mounts before auth by design. Both specs withdraw the criterion rather than leave it
+// open (2026-10-08) — a fourth branch no probe can reach is dead code, not a gap.
 const (
 	statusOK      = "ok"
 	statusErr     = "err"

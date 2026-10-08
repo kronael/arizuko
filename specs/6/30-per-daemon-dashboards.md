@@ -216,12 +216,12 @@ Checked against the code 2026-10-08.
 - ✅ Every page's data flows through the owning daemon's `/v1` handlers or
   helpers — no SQL in any `/dash/` handler (code-review check,
   `6/28` read-path).
-- ⚠ Each daemon's overview renders for an operator behind proxyd; a
-  non-operator gets the themed 403 banner, **and the hub tile shows `warn` (up,
-  scope-denied) rather than `err` (probe failed)**. The render and the 403 hold; the
-  `warn` state does not exist — `dashd/services.go:78-80` declares `ok`, `err` and
-  `unknown`, so a scope-denied daemon is indistinguishable from one that did not
-  answer (`6/29`'s acceptance carries the same item).
+- ✅ Each daemon's overview renders for an operator behind proxyd, and a non-operator
+  gets the themed 403 banner.
+- 🚫 **"the hub tile shows `warn` (up, scope-denied) rather than `err`" is WITHDRAWN.**
+  The hub probes `/health`, which is public on every daemon and mounted before auth by
+  design, so a probe is never scope-denied and the state has no subject. `6/29`'s
+  acceptance carries the same withdrawal with the measurement.
 - ✅ Live-state claims hold against the process: runed's `active_count`
   matches `Manager.ActiveCount()` under concurrency; a killed run leaves
   the folder's breaker count unchanged.
