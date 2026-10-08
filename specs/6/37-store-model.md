@@ -44,20 +44,21 @@ interface (`6/40` names five, and three of them are the hard cases).
 built over the engine already there. Nothing crosses a point of no return to
 begin, and no live data moves.
 
-**State.** Steps 1 to 6 of the order below are done or in progress, and the
-seam is built: `db_utils.Open` selects the engine from the DSN it is given,
-every production site calls it, and `db_utils/opener_test.go` fails the build
-on any other opener. The cap is 4 per Postgres pool — 20 pools exist in a full
-deployment and the budget is set for 24, so 96 against the 97 a stock server
-leaves, which is the number an operator sharing that server with Dex and
-LiteLLM must raise. `db_utils.IsTransient` classifies `40001`, `40P01` and the
-SQLite lock codes; it has no caller yet, because retrying a transaction means
-re-running the caller's closure at 47 sites, and that is step 7. The migration
-runner speaks both dialects, with `pg_advisory_xact_lock` as the Postgres
-critical section — transaction-scoped, so it survives a transaction-mode
-pooler, and it is the working precedent redesign 3 copies.
+**State: SHIPPED, and the whole order below is history.** The move is finished and
+went further than this spec's end state. There is no engine seam to select with,
+because there is one driver: `objstore/dynstore`. Measured 2026-09-26 and again
+2026-10-08 — over non-test Go, `"database/sql"` has zero importers, no SQLite driver is
+imported at all, and `db_utils`, `db_utils/dbtest` and `objstore/sqlstore` are not in
+the tree.
 
-Every daemon still opens SQLite. What stands between here and step 7 is
+So `db_utils.Open`, `db_utils/opener_test.go`, `db_utils.IsTransient`, the Postgres pool
+budget and the two-dialect migration runner describe a seam that no longer exists.
+`6/42` supersedes the design: a DynamoDB-protocol server over PostgreSQL, with arizuko
+one client of it. Read everything from "## Order" down as the record of HOW the move was
+made — each line names a guard that did its job and left with the deletion release
+(`v0.68.0`) — and never as a description of the tree (BUGS `L350`).
+
+Historically, what stood between that state and step 7 was
 measured rather than estimated: 30 migration files are SQLite-only (`L228`,
 two of them FTS5 and therefore step 8's), and 40 `sql.Open` sites across 26
 test files bypass the seam, so the suite cannot yet be pointed at another

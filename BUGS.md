@@ -92,8 +92,6 @@ revoked — see its entry.)
   staged marinade tree. Three options in the entry; one is a deploy.
 - `L307` — seven Slack chats carry traffic and match no route, live on sloth.
   Which route rows to write is yours.
-- `L62` — emaid retries an IMAP auth rejection forever; the marinade half is
-  moot (instance removed 2026-09-25), the code defect is not.
 - `L63` — krons whapd wants a phone re-pair; the recipe is in the entry.
 - `L359` — 11 G of interrupted git repacks, on a disk with 3.9 G free. The
   files are unreferenced and the deletion is live data, so it is yours.
@@ -3471,7 +3469,7 @@ on a decision, the network cleanup need not.
 This entry also gates `L188` (see that entry): backfilling ~12 anteval cases
 against today's harness raises both numbers by about half again.
 
-## L62 — emaid retries an IMAP authentication rejection forever (2026-08-21, re-aimed 2026-09-25, open)
+## ✅ FIXED 2026-10-08 L62 — emaid retries an IMAP authentication rejection forever (2026-08-21, re-aimed 2026-09-25)
 
 Filed against `arizuko_emaid_marinade`, which was `Up (unhealthy)` from
 2026-08-18 and logged once a minute:
@@ -3497,6 +3495,21 @@ loop and surface once. Same cadence class as `L61`.
 - **Source:** `emaid/imap.go:117-124`, read 2026-09-25
 - **Status:** open — a code fix, and it needs a test that a non-transient
   rejection ends the loop.
+
+- **Status:** ✅ FIXED 2026-10-08. `connect` wraps a rejected credential in
+  `errAuthRejected` and `run` returns on it instead of looping. The classification reads
+  the server's own RESPONSE CODE — RFC 5530's `AUTHENTICATIONFAILED` and
+  `AUTHORIZATIONFAILED`, which exist for exactly this — rather than matching the prose,
+  which differs per server.
+
+  **What stays retryable is the point.** A bare `NO` with no code, `UNAVAILABLE`, and a
+  plain dial error all keep the backoff: a server refusing logins during maintenance
+  sends one of those, and ending the loop there would lose a mailbox that recovers on its
+  own. The log names the account, the host and what to fix.
+
+  `TestAuthRejectionEndsThePollLoop` covers both directions and the wrap `connect` adds;
+  mutating the classification to a different code fails it with
+  `permanentAuthFailure(imap: [AUTHENTICATIONFAILED]) = false, want true`.
 
 ## L63 — krons whapd 401-loops, needs a phone re-pair (2026-08-21, open)
 
