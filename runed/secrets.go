@@ -1,8 +1,10 @@
 package runed
 
 import (
+	"log/slog"
 	"maps"
 	"os"
+	"sort"
 
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/store"
@@ -38,8 +40,24 @@ func spawnSecrets(cfg *core.Config, override map[string]string) map[string]strin
 	if cfg.ModelGatewayURL == "" {
 		return s
 	}
+	var dropped []string
 	for k := range store.EnvProfileKeys {
+		if _, held := s[k]; held {
+			dropped = append(dropped, k)
+		}
 		delete(s, k)
+	}
+	// Saying so is the whole of BUGS `L404`. Spec 6/23 §"Tier placement" says a BYOC
+	// row "resolves INTO a gateway virtual key"; nothing builds that translation, so
+	// the key is DROPPED. A person who set their own credential and gets the
+	// operator's gateway instead has no way to learn it from any surface — the turn
+	// just bills somebody else. One line per spawn is not the feature, it is the
+	// refusal to discard a choice in silence.
+	if len(dropped) > 0 {
+		sort.Strings(dropped)
+		slog.Warn("byoc credential dropped: the model gateway holds the credential and "+
+			"nothing translates an env-profile row into a gateway key (spec 6/23, BUGS L404)",
+			"keys", dropped, "gateway", cfg.ModelGatewayURL)
 	}
 	return s
 }

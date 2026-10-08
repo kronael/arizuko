@@ -64,6 +64,8 @@ line; none can be answered from the code.
   wait at all, re-feeding on a 2 s tick. Which of the two is the design is yours;
   three attempts in six seconds against a failing turn is not cosmetic.
 
+- `L404` — a BYOC row is dropped under a gateway and `6/23` says it is translated. The
+  silence is fixed; whether a user's own credential should fund a gateway key is yours.
 - `L398` — the suite's slowness is MEASURED and it is not a slow test: 783 routd tests,
   median 0.61 s, each creating 32 tables through the fixture every daemon shares. Making
   that per-binary instead of per-test is a change to `store.TestOwner`'s contract, so it
@@ -637,6 +639,34 @@ enough to meet a container restart, a timeout, or an OOM.
   it finish. A janitor that deletes `tmp_pack_*` on a timer is the symptom
   patch: it keeps the disk from filling while leaving every repack still
   failing, so nothing is ever actually packed.
+
+## L404 — a person's own model credential is silently discarded under a gateway, and spec `6/23` says it is translated (2026-10-08, open — the translation needs sign-off)
+
+`6/23` §"Tier placement": *"Env-profile rows remain for the BYOC case, but they resolve
+INTO a gateway virtual key rather than into container env."*
+
+`runed/secrets.go` `spawnSecrets` deletes every `store.EnvProfileKeys` entry the moment
+`MODEL_GATEWAY_URL` is set. Nothing builds the translation — `routd/gateway.go` `mint`
+carries no provider credential, and a grep for a BYOC path into the gateway finds none.
+
+So a person who set their own `ANTHROPIC_API_KEY` gets the operator's gateway key
+instead, their turn bills the operator, and **no surface says so**. The delete was right
+(`6/23` Fault 1: a credential in guest env is readable by the agent and revocable only
+by rotating it for everyone). The silence was not.
+
+- **Severity:** medium (a user's explicit choice is discarded; the billing moves)
+- **Scope:** `runed/secrets.go`, `specs/6/23-llm-gateway.md` §"Tier placement"
+- **Affected:** any folder with an env-profile row on an instance with a gateway
+- **Source:** the phase 6 audit, 2026-10-08; the delete read at
+  `runed/secrets.go:36-45`, the absent translation confirmed against
+  `routd/gateway.go`
+- **Status:** the SILENCE is fixed 2026-10-08 — `spawnSecrets` logs one WARN per spawn
+  naming the dropped keys and the gateway, because discarding a choice without a word is
+  the fault whatever the right end state is. **The translation stays open**: making a
+  BYOC row mint a gateway key the user's own credential funds is a new credential path
+  through the gateway's `/key/generate`, which is a contract change needing sign-off.
+  Until then `6/23`'s own sentence is the thing that is wrong, and the operator note
+  beside it should say the row is dropped.
 
 ## ✅ FIXED 2026-10-08 L403 — onbod's approve, deny and reprompt accept a cross-origin write, so a third-party page can admit a group (2026-10-08)
 
