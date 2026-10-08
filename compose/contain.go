@@ -47,7 +47,61 @@ var volumeNameRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*$`)
 // of it, so a package could quietly mount an owner's store, `.env` or the
 // docker socket (BUGS L201), and an `env_file` fails the whole instance at
 // `up` instead of the one install (BUGS L200).
+// platformSecrets are the `.env` keys a sourced fragment may never interpolate. Each
+// one authorises something across the whole instance, not one service:
+//
+//   - SECRETS_KEY decrypts every row in the secrets table.
+//   - AUTH_SECRET and AUTHD_SERVICE_KEY mint tokens any daemon accepts.
+//   - MODEL_GATEWAY_KEY is the gateway's MASTER key, which mints per-turn keys.
+//   - AWS_SECRET_ACCESS_KEY reaches the store.
+//
+// `docker compose` substitutes `${SECRETS_KEY}` from the shared `.env` at parse time
+// with no complaint, so a package could carry one line — `environment: X:
+// '${SECRETS_KEY}'` — and read the instance's master key from inside its own container.
+// `env_file` was the wide door and is already refused; this is the narrow one, and it is
+// narrow enough to look like configuration (BUGS `L339`).
+//
+// The bundled catalog is exempt, which is what makes a denylist safe here: `litellm.yml`
+// legitimately interpolates MODEL_GATEWAY_KEY because it IS the gateway.
+var platformSecrets = []string{
+	"SECRETS_KEY",
+	"AUTH_SECRET",
+	"AUTHD_SERVICE_KEY",
+	"MODEL_GATEWAY_KEY",
+	"AWS_SECRET_ACCESS_KEY",
+}
+
+// interpolatesPlatformSecret finds a `${KEY}` reference to one of them, in any of
+// compose's spellings: bare, `:-default`, `:?message` and the brace-less `$KEY`.
+func interpolatesPlatformSecret(body []byte) string {
+	text := string(body)
+	for _, k := range platformSecrets {
+		for _, form := range []string{"${" + k, "$" + k} {
+			i := strings.Index(text, form)
+			if i < 0 {
+				continue
+			}
+			// `$SECRETS_KEY_SUFFIX` is a different variable; only a terminator counts.
+			rest := text[i+len(form):]
+			if rest == "" || strings.IndexAny(rest[:1], "}:-?") == 0 ||
+				!isEnvNameByte(rest[0]) {
+				return k
+			}
+		}
+	}
+	return ""
+}
+
+func isEnvNameByte(c byte) bool {
+	return c == '_' || (c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')
+}
+
 func CheckSourcedFragment(name, file string, body []byte) error {
+	if k := interpolatesPlatformSecret(body); k != "" {
+		return fmt.Errorf("%s: interpolates ${%s}, a secret that authorises the whole "+
+			"instance rather than one service; a package reads its own keys from its own "+
+			"env or it does not read them (BUGS L339)", file, k)
+	}
 	var f sourcedFragment
 	if err := yaml.Unmarshal(body, &f); err != nil {
 		return fmt.Errorf("%s: %w — a fragment install cannot read is not one it can bound", file, err)

@@ -102,3 +102,52 @@ func TestNoServiceReadsTheSharedEnv(t *testing.T) {
 		t.Errorf("a scoped file and an absent one are both legal: %v", err)
 	}
 }
+
+// TestSourcedFragmentCannotReadAPlatformSecret pins BUGS `L339`. `docker compose`
+// substitutes `${SECRETS_KEY}` from the shared `.env` at parse time with no complaint,
+// so an installed package could carry one line — `environment: X: '${SECRETS_KEY}'` —
+// and read the instance's master key from inside its own container.
+//
+// `env_file` was the wide door and was already refused. This is the narrow one, and it
+// is narrow enough to look like configuration.
+func TestSourcedFragmentCannotReadAPlatformSecret(t *testing.T) {
+	for _, tc := range []struct {
+		name, body string
+		refuse     bool
+	}{
+		{"the master key", "services:\n  p:\n    environment:\n      X: '${SECRETS_KEY}'\n", true},
+		{"with a default", "services:\n  p:\n    environment:\n      X: '${AUTH_SECRET:-x}'\n", true},
+		{"with a required message", "services:\n  p:\n    environment:\n      X: '${MODEL_GATEWAY_KEY:?set it}'\n", true},
+		{"brace-less", "services:\n  p:\n    environment:\n      X: $AUTHD_SERVICE_KEY\n", true},
+		{"the store credential", "services:\n  p:\n    environment:\n      X: '${AWS_SECRET_ACCESS_KEY}'\n", true},
+		// A package's OWN keys stay legal — this check must not become "no
+		// interpolation", which would break every adapter fragment.
+		{"its own key", "services:\n  p:\n    environment:\n      X: '${P_TOKEN}'\n", false},
+		{"the identity vars", "services:\n  p:\n    container_name: ${APP}_p_${FLAVOR}\n", false},
+		// A longer name that merely starts the same way is a different variable.
+		{"a different variable", "services:\n  p:\n    environment:\n      X: '${SECRETS_KEY_ID}'\n", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := CheckSourcedFragment("p", "p.yml", []byte(tc.body))
+			if tc.refuse && err == nil {
+				t.Fatal("a sourced fragment read a platform secret and was accepted")
+			}
+			if !tc.refuse && err != nil {
+				t.Fatalf("a legal fragment was refused: %v", err)
+			}
+			if tc.refuse && !strings.Contains(err.Error(), "L339") {
+				t.Errorf("the refusal must cite the entry: %v", err)
+			}
+		})
+	}
+
+	// The bundled catalog is exempt, which is what makes a denylist safe: litellm
+	// legitimately interpolates MODEL_GATEWAY_KEY because it IS the gateway.
+	body, rerr := os.ReadFile("../template/services/litellm.yml")
+	if rerr != nil {
+		t.Skipf("no bundled litellm fragment: %v", rerr)
+	}
+	if !strings.Contains(string(body), "${MODEL_GATEWAY_KEY") {
+		t.Error("litellm stopped reading the master key; this test's premise is stale")
+	}
+}

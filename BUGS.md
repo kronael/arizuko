@@ -906,6 +906,31 @@ nobody keeps.
   Sign-off because it changes what an author must write.
 - **Fix:**
 
+**The exfiltration half is FIXED 2026-10-08; the "undeclared key" half was never the
+defect.** Measured both:
+
+`CheckSourcedFragment` now refuses a sourced fragment that interpolates `SECRETS_KEY`,
+`AUTH_SECRET`, `AUTHD_SERVICE_KEY`, `MODEL_GATEWAY_KEY` or `AWS_SECRET_ACCESS_KEY`, in
+any of compose's spellings — bare, `:-default`, `:?message`, and the brace-less `$KEY`.
+Each of those authorises the whole instance rather than one service, and `docker compose`
+substitutes them from the shared `.env` at parse time with no complaint, so one line of
+`environment:` read the master key from inside a package's own container. `env_file` was
+the wide door and was already refused; this was the narrow one, narrow enough to look
+like configuration.
+
+The bundled catalog is exempt, which is what makes a denylist safe here: `litellm.yml`
+interpolates `MODEL_GATEWAY_KEY` legitimately, because it IS the gateway.
+
+**What is NOT a defect, re-measured:** eight first-party fragments reference keys absent
+from `daemonKeys` — `BLUESKY_IDENTIFIER`/`_PASSWORD`, `DISCORD_USER_TOKEN`,
+`STORE_DB_PASSWORD`, `ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`,
+`MODEL_GATEWAY_DB_PASSWORD`, `REDDIT_SUBREDDITS`. Each arrives by an explicit
+`environment: KEY: '${KEY}'` line naming exactly one value, which is a second delivery
+path and not a leak — unlike the `.env` fallback closed the same day, it hands over one
+named key rather than the file. `APP`, `FLAVOR` and `DATA_DIR` are compose-managed
+identity, not daemon env. A first pass counted all eleven as undeclared; eight are
+deliberate and three were my grep's false positives.
+
 ## L334 — sloth grants instance-wide operator to a third party's Telegram account, and to none of the operator's (2026-09-21, fixed — the revoke still needs the owner)
 
 On sloth, `role:operator` holds `* :: ** :: allow` and its Telegram member is:
