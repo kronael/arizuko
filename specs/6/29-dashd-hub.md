@@ -98,12 +98,22 @@ and stay here.
 Per `6/28`: proxyd `auth: "user"` transit + `auth/dashauth.go`
 operator gate. All hub + cross-cutting pages are operator-only.
 
-## Acceptance
+## Acceptance — and the two criteria that do NOT hold
 
-- `/dash/services/` lists every daemon with a `/dash/` route, each tile
-  reflecting a live `/health` probe; a down daemon shows `err`, a
-  scope-denied daemon shows `warn`.
-- No dashd handler opens another daemon's SQLite DB or reads a group's FS
-  directly; every datum comes from an owning daemon's `/v1`.
-- Each retained page renders via `/v1`; `4/Q` memory edits and `4/V` ACL
-  writes still work.
+Checked against the code 2026-10-08. A criteria list that quietly loses its open items
+is a list that reports itself met.
+
+- ⚠ `/dash/services/` lists every daemon with a `/dash/` route, each tile reflecting a
+  live `/health` probe; a down daemon shows `err`, **a scope-denied daemon shows
+  `warn`**. The listing and the probe hold — 18 tiles, and `gitd` is correctly absent
+  because it mounts no `/dash/` route. The `warn` state does **not exist**:
+  `dashd/services.go:78-80` declares three, `ok`, `err` and `unknown`, so a
+  scope-denied daemon is indistinguishable from one that did not answer.
+- ❌ **No dashd handler opens another daemon's store** or reads a group's FS directly;
+  every datum comes from an owning daemon's `/v1`. `dashd/main.go:189` calls
+  `store.OpenOwner(store.OwnerRoutd)` and `authz.go`, `usage_page.go`,
+  `proactive_page.go`, `profile.go`, `tools_admin.go` and `dashstore/pages.go` read
+  through it; the memory edits write the filesystem. This is the cut `6/36` S1 names
+  and nobody has taken.
+- ✅ Each retained page renders via `/v1`; `4/Q` memory edits and `4/V` ACL writes still
+  work.

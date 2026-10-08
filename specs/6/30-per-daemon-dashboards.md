@@ -18,17 +18,17 @@ does not generalise.
 
 ## The set
 
-| Daemon | Dashboard                                | Pages                                     | Controls                                                                                                                                                                      |
-| ------ | ---------------------------------------- | ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| routd  | [`routd/dash.go`](../../routd/dash.go)   | overview                                  | retry errored chat (= reset breaker + re-enqueue), replay                                                                                                                     |
-| runed  | [`runed/dash.go`](../../runed/dash.go)   | overview (capacity + breaker + run table) | kill run, stop folder's run ([`runed/server.go:61-70`](../../runed/server.go))                                                                                                |
-| authd  | [`authd/dash.go`](../../authd/dash.go)   | keys, sessions (refresh families)         | rotate key, revoke-all keys, issue token, revoke refresh family                                                                                                               |
-| proxyd | [`proxyd/dash.go`](../../proxyd/dash.go) | routes                                    | route create/delete ([`proxyd/resource.go`](../../proxyd/resource.go))                                                                                                        |
-| onbod  | [`onbod/dash.go`](../../onbod/dash.go)   | admission queue (`/dash/onbod/`)          | approve / deny / reprompt — dash shims over the four `/v1/onboarding` verbs ([`onbod/main.go:167-181`](../../onbod/main.go), [`onbod/admin.go:85-150`](../../onbod/admin.go)) |
-| timed  | [`timed/dash.go`](../../timed/dash.go)   | overview (loop health + task table)       | —                                                                                                                                                                             |
-| webd   | [`webd/dash.go`](../../webd/dash.go)     | SSE hub overview                          | **none** — token revocation and web-route edits are routd-owned                                                                                                               |
-| davd   | none — hub tile only                     | —                                         | **none exist** — dufs has no session list and no disconnect verb; it has no `/health`, so `GET /` 200 is the tile's signal ([`6/29`](29-dashd-hub.md))                        |
-| ttsd   | [`ttsd/dash.go`](../../ttsd/dash.go)     | backend + live probe                      | **none** — backend selection is `TTS_BACKEND_URL`, an env/restart concern                                                                                                     |
+| Daemon | Dashboard                                | Pages                                                                          | Controls                                                                                                                                                                      |
+| ------ | ---------------------------------------- | ------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| routd  | [`routd/dash.go`](../../routd/dash.go)   | overview                                                                       | retry errored chat (= reset breaker + re-enqueue), replay                                                                                                                     |
+| runed  | [`runed/dash.go`](../../runed/dash.go)   | overview (capacity + run table; **no breaker** — `runed/dash.go` renders none) | kill run (`POST /dash/runed/kill`). **"stop folder's run" is not mounted**: `runed/server.go:65-66` has the GET and `kill`, nothing else                                      |
+| authd  | [`authd/dash.go`](../../authd/dash.go)   | keys, sessions (refresh families)                                              | revoke (`POST /dash/authd/revoke`). **rotate key, revoke-all keys and issue token are not mounted**: `authd/http.go:119-120` has the GET and `revoke`, nothing else           |
+| proxyd | [`proxyd/dash.go`](../../proxyd/dash.go) | routes                                                                         | route create/delete ([`proxyd/resource.go`](../../proxyd/resource.go))                                                                                                        |
+| onbod  | [`onbod/dash.go`](../../onbod/dash.go)   | admission queue (`/dash/onbod/`)                                               | approve / deny / reprompt — dash shims over the four `/v1/onboarding` verbs ([`onbod/main.go:167-181`](../../onbod/main.go), [`onbod/admin.go:85-150`](../../onbod/admin.go)) |
+| timed  | [`timed/dash.go`](../../timed/dash.go)   | overview (loop health + task table)                                            | —                                                                                                                                                                             |
+| webd   | [`webd/dash.go`](../../webd/dash.go)     | SSE hub overview                                                               | **none** — token revocation and web-route edits are routd-owned                                                                                                               |
+| davd   | none — hub tile only                     | —                                                                              | **none exist** — dufs has no session list and no disconnect verb; it has no `/health`, so `GET /` 200 is the tile's signal ([`6/29`](29-dashd-hub.md))                        |
+| ttsd   | [`ttsd/dash.go`](../../ttsd/dash.go)     | backend + live probe                                                           | **none** — backend selection is `TTS_BACKEND_URL`, an env/restart concern                                                                                                     |
 
 Route registration follows `6/28`: core daemons get their
 `/dash/<daemon>/` entry in `coreProxydRoutes`
@@ -209,19 +209,30 @@ ttsd's page is read-only **explicitly**, and says so inline so nobody
 hunts for a button: switching backends is an `.env` edit plus restart,
 an operator runbook step. Infra toggles stay in env.
 
-## Acceptance
+## Acceptance — and the one criterion that does not hold
 
-- Every page's data flows through the owning daemon's `/v1` handlers or
+Checked against the code 2026-10-08.
+
+- ✅ Every page's data flows through the owning daemon's `/v1` handlers or
   helpers — no SQL in any `/dash/` handler (code-review check,
   `6/28` read-path).
-- Each daemon's overview renders for an operator behind proxyd; a
-  non-operator gets the themed 403 banner, and the hub tile shows
-  `warn` (up, scope-denied) rather than `err` (probe failed).
-- Live-state claims hold against the process: runed's `active_count`
+- ⚠ Each daemon's overview renders for an operator behind proxyd; a
+  non-operator gets the themed 403 banner, **and the hub tile shows `warn` (up,
+  scope-denied) rather than `err` (probe failed)**. The render and the 403 hold; the
+  `warn` state does not exist — `dashd/services.go:78-80` declares `ok`, `err` and
+  `unknown`, so a scope-denied daemon is indistinguishable from one that did not
+  answer (`6/29`'s acceptance carries the same item).
+- ✅ Live-state claims hold against the process: runed's `active_count`
   matches `Manager.ActiveCount()` under concurrency; a killed run leaves
   the folder's breaker count unchanged.
-- Creating a route from proxyd's page is honoured by the next request
+- ✅ Creating a route from proxyd's page is honoured by the next request
   through proxyd with no restart.
+
+The table above also over-promised two daemons' controls, now corrected in place:
+runed has `kill` and not "stop folder's run", authd has `revoke` and not three more. A
+table that lists a control nobody mounted sends an operator looking for a button that
+is not there.
+
 - No response under `/dash/authd/` or its `/v1` reads contains
   `priv_pem` or any refresh-token material; no onbod surface contains a
   live onboarding `token`.
