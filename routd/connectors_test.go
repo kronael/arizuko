@@ -529,3 +529,92 @@ func TestTemplateConnectorsLoad(t *testing.T) {
 		}
 	}
 }
+
+// TestOneFileFeedsBothLoaders pins BUGS `L401`. `connectors.toml` is one format with
+// two readers: `LoadExtProviders` takes the `rest` blocks and `LoadConnectors` the
+// `mcp` ones. `LoadConnectors` used to decode straight into its OWN output type,
+// `ipc.ConnectorSpec`, which has no `Tools` field — and `decodeConnectors` refuses any
+// key the struct does not declare.
+//
+// A `rest` block MUST declare `[[connector.tool]]`, so every valid operator rest block
+// loaded fine in one reader and killed routd's boot in the other, on the same bytes.
+// Only the embedded providers worked, because nothing hands those to this loader.
+func TestOneFileFeedsBothLoaders(t *testing.T) {
+	dir := t.TempDir()
+	const body = `[[connector]]
+name = "cf"
+transport = "rest"
+url = "https://api.cloudflare.com/client/v4"
+secrets = ["CF_TOKEN"]
+
+[connector.headers]
+Authorization = "Bearer {secret:CF_TOKEN}"
+
+[connector.query]
+account = "{secret:CF_ACCOUNT}"
+
+[[connector.tool]]
+name = "zones"
+method = "GET"
+path = "/zones"
+description = "list zones"
+scope = "read"
+
+[[connector]]
+name = "notion"
+transport = "mcp"
+url = "https://mcp.notion.com/mcp"
+secrets = ["NOTION_TOKEN"]
+
+[connector.headers]
+Authorization = "Bearer {secret:NOTION_TOKEN}"
+`
+	path := filepath.Join(dir, "connectors.toml")
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CONNECTORS_TOML", path)
+
+	// The rest reader takes the rest block and leaves the mcp one.
+	tools, err := LoadExtProviders(context.Background(), dir)
+	if err != nil {
+		t.Fatalf("LoadExtProviders refused a valid file: %v", err)
+	}
+	var found bool
+	for _, tl := range tools {
+		if tl.LocalName == "cf_zones" {
+			found = true
+		}
+		if strings.HasPrefix(tl.LocalName, "notion") {
+			t.Errorf("the mcp connector reached the rest catalogue as %q", tl.LocalName)
+		}
+	}
+	if !found {
+		t.Error("the rest connector's tool is missing from the catalogue")
+	}
+
+	// And the mcp reader takes the mcp block off the SAME file without refusing it.
+	specs, err := LoadConnectors(dir)
+	if err != nil {
+		t.Fatalf("LoadConnectors refused the file the other reader accepted: %v", err)
+	}
+	if len(specs) != 1 || specs[0].Name != "notion" {
+		t.Fatalf("specs = %+v, want just the mcp connector", specs)
+	}
+	// The rest half's sinks are dropped in the projection, not carried: an mcp
+	// connector reads Headers only.
+	if specs[0].Headers["Authorization"] != "Bearer {secret:NOTION_TOKEN}" {
+		t.Errorf("headers did not survive: %+v", specs[0].Headers)
+	}
+
+	// An unknown key is still refused — the loosening is the block SHAPE, never the
+	// strictness that makes a typo loud.
+	bad := filepath.Join(dir, "bad.toml")
+	if err := os.WriteFile(bad, []byte("[[connector]]\nname = \"x\"\nurl = \"https://x\"\nnope = 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CONNECTORS_TOML", bad)
+	if _, err := LoadConnectors(dir); err == nil {
+		t.Error("an unknown key must still fail the boot")
+	}
+}

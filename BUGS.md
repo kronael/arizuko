@@ -638,6 +638,47 @@ enough to meet a container restart, a timeout, or an OOM.
   patch: it keeps the disk from filling while leaving every repack still
   failing, so nothing is ever actually packed.
 
+## ✅ FIXED 2026-10-08 L401 — routd cannot boot with an operator `rest` connector: one file, two readers, and the readers disagree (2026-10-08)
+
+`connectors.toml` is one format with two readers (spec `6/19` §"The shape": "One loader
+reads both"). `LoadExtProviders` takes the `rest` blocks; `LoadConnectors` takes the
+`mcp` ones.
+
+`LoadConnectors` decoded straight into its own OUTPUT type, `[]ipc.ConnectorSpec`,
+whose fields are name/transport/url/secrets/headers — no `tool`, no `query`, no `body`.
+`decodeConnectors` refuses any key the struct does not declare, by design, so a typo is
+loud. And a `rest` block MUST declare `[[connector.tool]]` (`routd/ext.go:181`).
+
+So every valid operator `rest` block was accepted by one reader and fatal to the other,
+on the same bytes, and `routd/cmd/routd/main.go` exits 1 on the error. Only the embedded
+`routd/extproviders/*.toml` worked, because nothing hands those to this loader.
+
+REPRODUCED 2026-10-08 with a Cloudflare-shaped block from `EXTENDING.md`'s own example:
+
+```
+ext providers loaded tools=11
+LoadConnectors on the same file: parse …/connectors.toml:
+  unknown key "connector.tool" — a block is [[connector]] with transport = mcp | rest
+```
+
+- **Severity:** high (routd will not start; the feature is unusable from the operator
+  file, which is the only place an operator can configure it)
+- **Scope:** `routd/connectors.go`
+- **Affected:** every `transport = "rest"` connector an operator declares
+- **Source:** the phase 6 audit, 2026-10-08, as a drift against `6/19` §"The shape";
+  reproduced before any change
+- **Status:** ✅ FIXED 2026-10-08
+- **Fix:** `connectorFile` holds `[]connectorConfig` — the ONE block shape `6/19`
+  defines and the rest reader already used — and `LoadConnectors` PROJECTS the mcp
+  blocks onto `ipc.ConnectorSpec`. One format, two readers, one shape between them. The
+  output type stops doubling as the wire type, which is what made a second format out of
+  one file.
+
+  The loosening is the block shape and nothing else: `TestOneFileFeedsBothLoaders`
+  asserts that an unknown key still fails the boot, so a typo stays loud. Mutating
+  `connectorFile` back to `[]ipc.ConnectorSpec` fails the test with the original
+  message.
+
 ## ✅ FIXED 2026-10-08 L400 — whapd and twitd serve the operator dashboard to anyone who sends `X-User-Groups: ["**"]` (2026-10-08)
 
 `L270` closed this on the Go side: nine dashboards read the stamped scope and nothing

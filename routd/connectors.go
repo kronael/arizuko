@@ -31,9 +31,17 @@ const (
 )
 
 // connectorFile is the TOML wire shape. One file, many [[connector]] blocks.
-// The rest half is read by LoadExtProviders off the same blocks.
+//
+// The block type is `connectorConfig` (ext.go), the ONE declaration shape 6/19
+// defines — NOT `ipc.ConnectorSpec`, which is this loader's own output. Decoding
+// straight into the output type made a second format out of one file: a `rest`
+// block must declare `[[connector.tool]]` (ext.go), `ConnectorSpec` has no such
+// field, and `decodeConnectors` refuses any key the struct does not declare. So
+// `LoadExtProviders` accepted the operator's rest block and this loader killed the
+// boot on the same bytes — one format, two readers, and the readers disagreed
+// (BUGS `L401`).
 type connectorFile struct {
-	Connectors []ipc.ConnectorSpec `toml:"connector"`
+	Connectors []connectorConfig `toml:"connector"`
 }
 
 // LoadConnectors reads connectors.toml and returns the validated specs.
@@ -59,22 +67,31 @@ func LoadConnectors(projectRoot string) ([]ipc.ConnectorSpec, error) {
 	callTimeout := connectorCallTimeout()
 	var out []ipc.ConnectorSpec
 	for i := range f.Connectors {
-		spec := &f.Connectors[i]
-		transport, err := connectorTransport(spec.Name, spec.Transport)
+		blk := &f.Connectors[i]
+		transport, err := connectorTransport(blk.Name, blk.Transport)
 		if err != nil {
 			return nil, err
 		}
 		if transport == transportREST {
 			continue // LoadExtProviders owns the rest half of the same block
 		}
-		spec.Transport = transport
-		if err := validateConnector(spec); err != nil {
+		// The projection onto this loader's output. An mcp connector reads Headers
+		// only, so Query, Body and Tools are the rest half's and are dropped here
+		// rather than refused above.
+		spec := ipc.ConnectorSpec{
+			Name:        blk.Name,
+			Transport:   transport,
+			URL:         blk.URL,
+			Secrets:     blk.Secrets,
+			Headers:     blk.Headers,
+			CallTimeout: callTimeout,
+		}
+		if err := validateConnector(&spec); err != nil {
 			return nil, fmt.Errorf("connector[%d] %q: %w", i, spec.Name, err)
 		}
-		spec.CallTimeout = callTimeout
 		slog.Info("connector configured", "name", spec.Name,
 			"transport", transportMCP, "url", spec.URL, "secrets", spec.Secrets)
-		out = append(out, *spec)
+		out = append(out, spec)
 	}
 	return out, nil
 }
