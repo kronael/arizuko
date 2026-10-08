@@ -159,20 +159,20 @@ Direct non-test arizuko imports, measured 2026-09-05 (`grep` of
 `github.com/kronael/arizuko/` per package; `tests/components` pins the
 shippable set):
 
-| Package                  | internal deps                               | readiness                   | what it is                                  |
-| ------------------------ | ------------------------------------------- | --------------------------- | ------------------------------------------- |
-| `mcpfw`, `egress`, `obs` | 0                                           | **ship now** (`7/25` order) | MCP gate, egress proxy, observability       |
-| `substrate`              | 0                                           | **ship now**                | the capability declaration (`Profile`)      |
-| `groupfolder`            | 0                                           | not published — 73 callers  | the containment predicate (`7/25`)          |
-| `router`                 | 1 (`core`)                                  | near — lift `core` types    | routing-table DSL                           |
-| `resreg`                 | 3 (`audit`, `auth`, `store`)                | roadmap = two-face lib      | two-face API engine (`5/17`)                |
-| `chanlib`                | 4 (`auth`, `db_utils`, `obs`, `theme`)      | near — write the envelope   | the channel layer (`5/34`)                  |
-| `auth`                   | 4 (`core`, `groupfolder`, `store`, `theme`) | **don't extract**           | the grant evaluator reads `acl` via `store` |
-| `container`              | 10                                          | **don't extract**           | the Docker substrate; `container.Profile`   |
-| store, ipc, compose      | 3–9                                         | **don't extract**           | these _are_ the platform                    |
+| Package                  | internal deps                                                                         | readiness                                     | what it is                                                                                               |
+| ------------------------ | ------------------------------------------------------------------------------------- | --------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `mcpfw`, `egress`, `obs` | 0                                                                                     | **ship now** (`7/25` order)                   | MCP gate, egress proxy, observability                                                                    |
+| `substrate`              | 0                                                                                     | **ship now**                                  | the capability declaration (`Profile`)                                                                   |
+| `groupfolder`            | 0                                                                                     | not published — 73 callers                    | the containment predicate (`7/25`)                                                                       |
+| `router`                 | 1 (`core`)                                                                            | near — lift `core` types                      | routing-table DSL                                                                                        |
+| `resreg`                 | 5 (`audit`, `auth`, `core`, `objstore`, `store`)                                      | roadmap = two-face lib                        | two-face API engine (`5/17`)                                                                             |
+| `chanlib`                | 7 (`auth`, `chanlib/chanstore`, `core`, `objstore/dynstore`, `obs`, `store`, `theme`) | far — the store is the cost, not the envelope | the channel layer (`5/34`)                                                                               |
+| `auth`                   | 4 (`core`, `groupfolder`, `store`, `theme`)                                           | **don't extract**                             | the grant evaluator reads `acl` via `store`                                                              |
+| `container`              | 3 (`chanlib`, `core`, `groupfolder`)                                                  | **don't extract**                             | group setup + the egress rule translation; the Docker substrate it was named for is gone (`6/41` step 4) |
+| store, ipc, compose      | 3–9                                                                                   | **don't extract**                             | these _are_ the platform                                                                                 |
 
 The Docker substrate is `container/` and its declaration is
-`container.Profile`; the KVM substrate is unexported code inside `runed/`
+`runed.qemuProfile`; the KVM substrate is unexported code inside `runed/`
 and its declaration is `runed.qemuProfile`
 ([`6/41`](41-qemu-substrate.md)). What either can do is read from those
 values (`6/25` §2), not from this table. Neither is a component: a
@@ -195,11 +195,14 @@ per-folder mounts, no parent inheritance — `5/10`). Nextcloud cannot do that
 because it has no folder-agent. So the move is **shrink toward off-the-shelf and
 publish the grant-scoped mount contract**, not extract a bundle.
 
-**The channel LAYER is near-extractable even though no single adapter is.**
-One adapter alone is inert — a bridge with no router — but `chanlib` imports
-only `auth`, `db_utils`, `obs` and `theme`: JWT verification, migrations, logging, a palette. **No
-`store`, no `core`, no `router`, no `ipc` — zero domain coupling** (`chanreg`
-adds `audit` + `core`). The product is "one normalized envelope, N platforms,
+**The channel LAYER is FAR from extractable, and the reason moved.** One adapter alone
+is inert — a bridge with no router — and `chanlib` now imports `auth`,
+`chanlib/chanstore`, `core`, `objstore/dynstore`, `obs`, `store` and `theme`
+(measured 2026-10-08, production-only direct imports). This section claimed `auth`,
+`db_utils`, `obs`, `theme` and **"no `store`, no `core`, zero domain coupling"**;
+`db_utils` no longer exists and `store` plus `objstore/dynstore` are now direct. The
+store arrived under it with `chanstore` and the dedup ledger, so the gate is no longer
+writing the envelope as a contract — it is that the layer holds its own tables. The product is "one normalized envelope, N platforms,
 with reconnect, declared capabilities and idempotent send"; the gate is
 writing the envelope as a contract rather than "whatever routd accepts"
 (the protocol spec is `5/34`).
@@ -267,7 +270,7 @@ who else routes agents across tenants — is measured by property in
 | -------- | ---------------------------------------------------------------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `authd`  | Keycloak (heavy); Zitadel, Ory Hydra, Dex (light)                            | Apache-2.0              | **the coordinate, yes**: a Keycloak group is a slash-separated path, subgroups inherit role mappings, and a mapper puts the path into the token (keycloak.org server_admin, "Groups"). Not the binding.                                                                                    |
 | `proxyd` | Pomerium                                                                     | Apache-2.0              | **mostly**: an identity-aware proxy whose policy decides route + authorization and whose authorization service "constructs security headers based on JWT claims" for upstreams (pomerium.com/docs/internals/architecture) — proxyd's transit stamp, with a group claim for the path ladder |
-| `runed`  | kubernetes-sigs `agent-sandbox`; Daytona; Anthropic self-hosted sandboxes    | Apache-2.0; AGPL-3.0; — | no: image + workspace in, sandbox out; none derives an egress allowlist from a path. They are occupants for the `ContainerRuntime` seam, not replacements for the folder mount contract.                                                                                                   |
+| `runed`  | kubernetes-sigs `agent-sandbox`; Daytona; Anthropic self-hosted sandboxes    | Apache-2.0; AGPL-3.0; — | no: image + workspace in, sandbox out; none derives an egress allowlist from a path. They are occupants for the `runed.Runtime` seam (`runed/runtime.go:40` — `Run` + `Kill`), not replacements for the folder mount contract.                                                             |
 | `timed`  | `robfig/cron`, `river`; Temporal Schedules at the heavy end                  | MIT                     | no: the only arizuko part is that a tick becomes an Event on the bus with a folder                                                                                                                                                                                                         |
 | `onbod`  | Zitadel organizations + registration; Ory Kratos self-service flows          | Apache-2.0              | no: an org is a flat tenant ("comparable to a tenant", zitadel.com/docs/concepts/structure/organizations); admission into a subtree has no carrier                                                                                                                                         |
 | `ttsd`   | `speaches-ai/speaches` — OpenAI-compatible TTS and STT, self-hosted (README) | MIT                     | there is no tenancy dimension to carry; the cheapest swap in the repo, behind the HTTP seam that already exists                                                                                                                                                                            |

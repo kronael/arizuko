@@ -8,7 +8,10 @@ depends: [16-daemon-standalone-matrix]
 
 Per-folder egress is enforced by the smallest thing that can: **one forward
 proxy per spawn, statically configured, forward mode only.** It is roughly
-**250–300 lines** and no new dependency. That is why it is a cut rather than
+**250–300 lines** and no new dependency. (Shipped at **676** non-test lines in
+`egress/`, measured 2026-10-08: the `--deny`, `--deny-private`, `--allow-loopback`
+and `--allow-all` modes and the health endpoint arrived after this estimate.) That is
+why it is a cut rather than
 an adoption: at that size, taking tinyproxy or iron-proxy would add a C or
 third-party dependency, a config renderer and process supervision to replace
 less code than it costs. The wheel here is `net/http` — already in use, not
@@ -27,8 +30,9 @@ from `r.Host` — the `CONNECT host:443` request line the client sends when
 terminates TLS: no CA, no key material and no request-body access, which is
 what keeps 250 lines auditable by someone who does not trust us.
 
-runed builds the `EgressConfig` from its own config plus the folder's
-static list, once, at spawn (`runed/docker.go:127`); there is no mid-run
+runed renders the proxy's argument list from its own config plus the folder's
+static list, once, at spawn (`runed/vmnet.go` `egressArgs`, over
+`container.EgressRules`); there is no mid-run
 update anywhere in the tree.
 
 ### Why per-spawn
@@ -112,7 +116,7 @@ timed out. TCP is sealed; UDP/53 is not. The residual channel is BUGS
 `L136`.
 
 runed starts the spawn's proxy with its allowlist and sets `HTTP_PROXY`;
-the `EgressConfig` it builds at spawn (`runed/docker.go:127`) is the input.
+the argument list it renders at spawn (`runed/vmnet.go` `egressArgs`) is the input.
 
 ### `--client` and `/health`
 
@@ -144,19 +148,26 @@ from the egress image and stops it with the turn.
 
 | Piece                               | Role                                                                  |
 | ----------------------------------- | --------------------------------------------------------------------- |
-| `EGRESS_IMAGE`                      | **the master switch**; unset reads as "egress not configured"         |
-| `EGRESS_UPLINK_NETWORK`             | the proxy's uplink; compose writes `<project>_default`                |
-| `EGRESS_NETWORK_PREFIX` / `_SUBNET` | per-folder networks                                                   |
+| `EGRESS_IMAGE`                      | _removed with the Docker runtime_ — there is no master switch         |
+| `EGRESS_UPLINK_NETWORK`             | _removed_; the proxy is a host process on the tap, not a container    |
+| `EGRESS_NETWORK_PREFIX` / `_SUBNET` | _removed_; `RUNED_TAP_SUBNET` carves one /30 per guest instead        |
 | `network_rules` table               | source of the allowlist; `arizuko network allow/deny` writes the rows |
 | per-folder semantics                | glob per folder, `*` = open                                           |
 
-**A stale `.env` cannot silently disable filtering.** An instance that
-sets `CRACKBOX_ADMIN_API` and not `EGRESS_IMAGE` would spawn unfiltered
-while looking healthy, so runed REFUSES TO START in that state, naming
-both vars. Loud, once, at deploy — not per turn, and never silent.
+**A stale `.env` cannot silently disable filtering.** Under the Docker substrate an
+instance that set `CRACKBOX_ADMIN_API` and not `EGRESS_IMAGE` would spawn unfiltered
+while looking healthy, so runed refused to start in that state. Both variables are
+gone — `EGRESS_IMAGE` with the Docker runtime, `CRACKBOX_ADMIN_API` with the refusal
+itself (2026-10-08, `a01f4d7b`: the proxy it warned about had not existed for two
+phases and neither instance set it). The guarantee is now structural rather than a
+check: there is no setting that disables filtering, so there is nothing to refuse.
 
-**Filtering is opt-in.** An instance with no egress image configured
-spawns unfiltered — `EgressConfig.active()` gates the whole path.
+**Filtering WAS opt-in, and is not any more.** This section described the Docker
+substrate, where an instance with no egress image spawned unfiltered. `6/41` step 4
+removed that: `qemuPreconditions` refuses to start when the `egress` binary is not
+executable (`runed/qemuhost.go:161-166`), the guest's only route is the tap, and the
+tap accepts that proxy and drops everything else. There is no configuration in which a
+turn runs unfiltered, which is what closed the other half of BUGS `L24`.
 
 **Four of the five settings are Docker facts and retire with the container
 substrate.** `EGRESS_IMAGE`, `EGRESS_UPLINK_NETWORK`, `EGRESS_NETWORK_PREFIX`
@@ -183,6 +194,6 @@ boring rather than to market them.
 ## Ties
 
 [`6/41`](41-qemu-substrate.md) (the VM substrate, which puts this proxy on
-the host side of the tap) · `6/16` (ship one, not seven) · BUGS `L48` (the
+the host side of the tap) · `6/16` (ship one, not seven) · BUGS `L24` (the
 proposal and its measurements) · BUGS `L136` (the DNS channel this design
 does not close, and which the VM case closes by construction).

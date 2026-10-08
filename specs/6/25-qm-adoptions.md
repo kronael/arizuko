@@ -108,12 +108,15 @@ with no reader.
 
 **Adopted.** `substrate.Profile` is the declared ceiling and
 `substrate.Effective` is what a substrate delivers against it
-(`substrate/substrate.go:53,65`); `container.Profile` and `runed.qemuProfile`
-are the two declarations. `EgressConfig.Effective` (`container/egress.go:111`)
-is the one named function where a capability may be found missing, and it
-returns an error rather than delivering less quietly; `runed.Substrate`
-(`runed/docker.go:449`) calls it at boot and `substrateLine`
-(`runed/dash.go:84`) renders the gap on the operator page. The matrix in `6/16`
+(`substrate/substrate.go:53,65`). There is now ONE declaration, not two:
+`runed.qemuProfile` (`runed/qemu.go:100`). `container.Profile` and
+`EgressConfig.Effective` were the Docker substrate's half and went with it at `6/41`
+step 4, which is the stronger form of this adoption — a second declaration cannot
+drift from the first when there is no second. `runed.NewRuntime`
+(`runed/substrate.go:18`) returns the `Effective` at boot and `substrateLine`
+(`runed/dash.go:82`) renders the gap on the operator page. Delivered equals Declared
+or runed does not start, so the gap it renders is informational rather than a
+half-configured turn. The matrix in `6/16`
 is the doc rendering of that value, not a second source of truth.
 
 ## 3 — agent behaviour is testable without a live instance

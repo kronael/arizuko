@@ -138,15 +138,15 @@ The environment is worth occupying only if arizuko supplies what a bare
 harness lacks. Each row is a gap a bare harness has (Hermes is the worked
 example) that the folder coordinate closes for _every_ occupant:
 
-| Service          | arizuko mechanism                                                      | harness gap it closes                              |
-| ---------------- | ---------------------------------------------------------------------- | -------------------------------------------------- |
-| Keys / secrets   | folder-scoped encryption (`8/E`) + injection at the tool edge (`5/13`) | keys plaintext in the runtime; never host-injected |
-| Egress           | per-spawn folder-scoped allowlist (`6/24`, opt-in)                     | one global blocklist; no per-tenant egress         |
-| Identity / authz | folder-containment + grant DSL, injected Gate (`5/17`)                 | admin-vs-user binary; one shared bearer            |
-| Tenant isolation | ephemeral per-turn container per folder                                | one shared long-lived container; users share FS    |
-| Cost / budget    | per-tenant spend gate (`store/cost_log.go`)                            | per-session usage only; no caps                    |
-| Audit / obs      | `audit_log` + `obs` (journald + OTLP)                                  | plaintext logs; no structured audit                |
-| Routing / web    | route table + `/pub` `/priv` + WebDAV                                  | home-channel delivery only; no served web          |
+| Service          | arizuko mechanism                                                                                      | harness gap it closes                              |
+| ---------------- | ------------------------------------------------------------------------------------------------------ | -------------------------------------------------- |
+| Keys / secrets   | folder-scoped encryption (`8/E`) + injection at the tool edge (`5/13`)                                 | keys plaintext in the runtime; never host-injected |
+| Egress           | per-turn folder-scoped allowlist (`6/24`); not opt-in — runed refuses to start without the proxy       | one global blocklist; no per-tenant egress         |
+| Identity / authz | folder-containment + grant DSL, injected Gate (`5/17`)                                                 | admin-vs-user binary; one shared bearer            |
+| Tenant isolation | ephemeral per-turn KVM guest per folder (`6/41`)                                                       | one shared long-lived container; users share FS    |
+| Cost / budget    | per-tenant spend gate (`store/groups.go` cap + `routd/budget.go`; the gateway owns the ledger, `6/39`) | per-session usage only; no caps                    |
+| Audit / obs      | `audit_log` + `obs` (journald + OTLP)                                                                  | plaintext logs; no structured audit                |
+| Routing / web    | route table + `/pub` `/priv` + WebDAV                                                                  | home-channel delivery only; no served web          |
 
 These seven are the moat; never trade them for a harness's model/skill
 breadth. An on-ramp adapter that dilutes any of them is not worth carrying.
