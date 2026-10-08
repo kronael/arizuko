@@ -124,8 +124,6 @@ reads those words now.
 
 - `L40` — the edge must set `X-Forwarded-For` before `TRUSTED_PROXIES` may
   widen. Adding the gateway without that buys nothing.
-- `L136` — the `--internal` network does not seal UDP/53; the decision is what
-  is outstanding, the docs are already true.
 
 **Blocked on another entry.**
 
@@ -562,7 +560,7 @@ that skips the sender reports a healthy chat.
      Telegram side is finished: two of them already name chats neither bot can
      see, so they are dead regardless of the decision above.
 
-## L364 — `route rm <id>` deletes the FIRST row carrying that id, and the merge left six ids duplicated on sloth (2026-09-25, open)
+## L364 — sloth's six duplicated route ids need re-minting; the CODE half is fixed (2026-09-25, open — operator action on live data)
 
 **This destroyed a live route while I was using it.** `arizuko route sloth rm 37`
 printed `removed route 37`, left route 37 in place, and deleted
@@ -631,6 +629,16 @@ and a live agent reads it from `list_routes`.
      then, address a rule on sloth by its `(seq, target, match)` coordinate and
      never by id.
 
+**The code half is FIXED and this entry is now the operator half only, re-verified
+2026-10-08.** `store.ErrRouteIDAmbiguous` (`store/routes.go:45`) and the scan at
+`:273-289` refuse an id two rows carry and name both coordinates; `f1220013` made
+`routd.DB.GetRoute` delegate to `store.RouteByID` instead of re-implementing a
+first-match loop a package up, and `eb4c9d5a` stopped the mint handing out an id a rule
+already holds. `routd/routes_rest_test.go:278` seeds two rows with one id and passes.
+
+So `route rm <id>` no longer deletes an arbitrary row — it refuses with a 409. What is
+left is live data: six ids on sloth that the marinade merge duplicated. Until they are
+re-minted, address a sloth rule by `(seq, target, match)` and never by id.
 ## L359 — 11 G of interrupted git repacks sit in the data tree and nothing prunes them (2026-09-24, open)
 
 The root filesystem is at 99%, 242 G used of 256 G, 3.9 G free.
@@ -5593,113 +5601,6 @@ This entry is about the shape, not a live defect.
   - Answer "correct the spec" → nothing in the code moves, `5/33` gets one
     sentence, and this entry closes as a RECORD. `namespacedAllows`' comment
     already carries the whole argument.
-
-## L136 — the `--internal` network does not seal UDP/53, and the two docs that explain the DNS filter's absence give a reason that does not cover DNS (2026-08-30, open — RE-MEASURED 2026-09-21: channel reproduced, but the TCP-vs-UDP framing is REFUTED; ONE question)
-
-`SECURITY.md:103` states the egress guarantee as "Default-deny; the spawn's
-network has no route out", and `:~300` as "Non-cooperating clients fail
-closed: the internal Docker network". **Measured 2026-08-30, both are true of
-TCP and false of DNS.** On this docker host, a container on a
-`docker network create --internal` network with no proxy environment:
-
-```
-$ getent hosts example.com        → 2606:4700:10::ac42:93f3, exit 0
-$ curl -m 8 http://example.com    → http_code=000, exit 28 (timeout)
-```
-
-`/etc/resolv.conf` in that container is `nameserver 127.0.0.11` — docker's
-embedded resolver, which forwards upstream from the HOST namespace, so it is
-not subject to the container's missing default route. TCP is sealed by
-topology exactly as documented; UDP/53 is not. An agent can therefore emit
-arbitrary query names to a resolver it does not control, regardless of the
-folder's `network_rules` allowlist — the classic low-bandwidth DNS side
-channel, and precisely what a NXDOMAIN filter on UDP/53 filters.
-
-**This is not a regression from `6/24`.** `pkg/dns` was never wired into any
-daemon or compose fragment (see `L135`), so the channel was open before the
-cut on exactly the same terms. What `6/24` changed is the explanation. Two
-live docs now justify having no DNS filter with a claim that does not reach
-DNS:
-
-- `SECURITY.md:345-349` — "a single-tenant proxy already sees every
-  destination in the CONNECT line — a rule expressed twice is a rule that can
-  disagree with itself."
-- `specs/6/24-crackbox-lightest.md` said the same until it was corrected in
-  this pass.
-
-A DNS query never appears in a CONNECT line, so the proxy cannot see it and
-the two rules cannot disagree — they do not overlap. The reasoning would
-license removing a control the proxy does not in fact subsume.
-
-Scoping it honestly: this does **not** breach the boundary `SECURITY.md:49`
-names ("a malicious agent in group A trying to reach group B's data, files, or
-network") — folder isolation is per-network and holds. It defeats the weaker,
-separately stated property at `:332`, "the egress allowlist restricts _where_
-the agent can reach", for anything an attacker can encode in a hostname.
-
-- **Severity:** medium
-- **Scope:** egress / threat model
-- **Affected:** `SECURITY.md`, all instances with `EGRESS_IMAGE` set (krons,
-  sloth, marinade)
-- **Source:** `SECURITY.md:103,300,332,345-349`; `container/network.go:159`
-  (`--internal`); measured docker probe 2026-08-30 (network created and removed)
-- **Status:** open — the DECISION is what is outstanding; the docs are true as
-  of 2026-09-20. Either scope the guarantee to TCP and accept the channel, or
-  add a UDP/53 filter and wire it into `container.Run` (nothing ever wired one).
-- **Docs corrected 2026-09-20 (`ec3a933d`).** Five `SECURITY.md` claims carry a
-  protocol now — the Network-egress table row (`:110`), the § intro (`:317`),
-  the fail-closed bullet (`:329`) and the allowlist caveat (`:362`) all say TCP,
-  and § "No DNS filter" states the 2026-08-30 measurement, why the proxy cannot
-  subsume the control (a DNS query never reaches a CONNECT line), the residual
-  channel and its cost, and both options WITHOUT taking one. The same reason had
-  spread to `template/web/pub/arizuko/security/index.html` §4 and
-  `components/egress.html`; both carry the corrected one.
-  `research/index.html:118` listed DNS filtering as a live defence layer and now
-  names the per-spawn egress proxy. `specs/6/24-crackbox-lightest.md:118-124`
-  was already correct and is the source all of them were written from.
-- **Fix:** docs `ec3a933d`; the decision itself is unmade
-
-- **RE-MEASURED 2026-09-21 on this host at `b3b973e2`. The channel is still
-  open, and the MECHANISM is not what either the entry or `SECURITY.md` says.**
-  Probe: `docker network create --internal … --subnet 10.253.77.0/24`, one
-  container on it from a local image, network removed after.
-  - `/etc/resolv.conf` → `nameserver 127.0.0.11` (unchanged).
-  - `getent hosts example.com` → `2606:4700:10::ac42:93f3`, exit 0 — the SAME
-    address the 2026-08-30 measurement recorded. Reproduced exactly.
-  - **`ip route` shows `default via 10.253.77.1 dev eth0`.** So "the spawn's
-    network has no default route" (`SECURITY.md:110`) is false as literally
-    read. The route is there; something else does the sealing.
-  - **What actually seals it, read from the host:**
-    `iptables -S DOCKER-ISOLATION-STAGE-1` carries, for the probe's bridge,
-    `! -d 10.253.77.0/24 -i br-… -j DROP` and its `-s`/`-o` mirror.
-- **That REFUTES the TCP-versus-UDP framing this entry and `SECURITY.md` now
-  both use.** The DROP rule carries no `-p`, so it covers every FORWARDED
-  protocol — a spawn's UDP to an arbitrary external address is dropped exactly
-  as its TCP is. Nothing "sits outside it" by protocol. What escapes is one
-  address: `127.0.0.11` is docker's embedded resolver, served inside the
-  container's own netns and forwarded upstream from the HOST namespace, so its
-  query never crosses this bridge and this rule never sees it.
-- **Why that changes the decision rather than just the wording.** "Add a UDP/53
-  filter and wire it into `container.Run`" cannot be an iptables rule on the
-  spawn's bridge — that rule already exists and already drops UDP. The only
-  places to filter are what the embedded resolver is allowed to forward, or
-  replacing it (`--dns` at a resolver that holds the folder's allowlist). The
-  residual channel is also narrower than "arbitrary UDP/53": the agent cannot
-  choose a resolver, only the NAMES it asks docker's one for — which is still
-  the NXDOMAIN side channel, and still not visible in any CONNECT line.
-- **Unchanged and still true:** `container/network.go:159` creates the network
-  `--internal`; the docs' § "No DNS filter" states the measurement and both
-  options without taking one.
-
-- **THE ONE QUESTION:** does the egress guarantee cover the NAMES a spawn can
-  make docker's embedded resolver look up, or does it stop at the destinations
-  the spawn can connect to?
-  - Answer "names too" → the spawn gets `--dns` at a resolver that reads the
-    folder's `network_rules`, and `SECURITY.md`'s protocol wording is replaced
-    with the forwarded-versus-resolver distinction above.
-  - Answer "destinations only" → the residual channel is accepted and written
-    as accepted, and `SECURITY.md:110` stops naming an absent default route as
-    the mechanism, because it is not the one doing the work.
 
 ## L137 — `sandbox/` and `crackbox/` are ~2400 lines no arizuko daemon runs (2026-08-30, DECIDED 2026-09-23 — option C, and `crackbox/` left the repo)
 
