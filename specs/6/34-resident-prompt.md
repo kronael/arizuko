@@ -1,5 +1,9 @@
 ---
-status: shipped
+status: defected
+# defects: an OPEN BUGS entry contradicts this spec —
+# guard 1 names five sections that must stay in `ant/CLAUDE.md` until a case exists;
+# all five are gone and none of anteval's 23 cases covers them
+defects: [L188]
 depends:
   [
     ../4/P-personas,

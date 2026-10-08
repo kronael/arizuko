@@ -1,5 +1,9 @@
 ---
 status: shipped
+# defects: an OPEN BUGS entry contradicts this spec —
+# step 9 describes two drivers, `objstore/sqlstore` and `db_utils.Open`; the tree has
+# one driver and neither of those paths exists
+defects: [L350]
 depends:
   [
     22-proxyd-cut,

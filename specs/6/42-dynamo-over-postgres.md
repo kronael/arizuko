@@ -1,5 +1,9 @@
 ---
 status: shipped
+# defects: an OPEN BUGS entry contradicts this spec —
+# §7 says `arizuko create` mints the account, users, policies and keys; the CLI has
+# zero such calls and the minting is a hand procedure in INSTALL.md
+defects: [L318]
 depends:
   [
     37-store-model,
