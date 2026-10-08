@@ -106,8 +106,10 @@ reads those words now.
 - `L171` — one TypeScript channel module for whapd and twitd.
 - `L151` — an adapter with a dead credential restart-loops and nothing pushes the fact
   anywhere a person sees.
-- `L2`, `L75` — a delegated child is never dispatched; a dispatch failure loses the
-  trigger and the retry never retries. Both have a measured cause and an unsigned fix.
+- `L2` — a delegated child is never dispatched; a measured cause and an unsigned fix.
+- `L75` — half (a), the dead retry, SHIPPED. What is left is (b): a re-fed batch resolves
+  by its newest row, so a pending mention is demoted by ordinary chatter, and the fix has
+  to outrank it without breaking `L56` and `L336`.
 - `L13`, `L31`, `L41`, `L134` — a write-only `secret_use_log` with no read surface;
   four of six product payload kinds seed-once so a product never updates; compose
   fragments frozen once they differ by a byte; a `shell:env:` grant that cannot be
@@ -3324,7 +3326,7 @@ inline. `5/B` and `5/F` are the specs to amend.
   is `observe_window_*` still the right budget once the window stops meaning
   "what nobody answered" and starts meaning "the channel"?
 
-## L75 — a dispatch failure loses the trigger silently: the retry never retries, and pending mentions get demoted to "observed" (2026-08-23, (a) FIXED 2026-09-20; (b) needs sign-off)
+## L75 — a re-fed batch resolves by its newest row, so a pending mention is demoted by ordinary chatter (2026-08-21, open — the dead-retry half shipped; this half changes dispatch control flow)
 
 Two faults with one root: a dispatch failure path advances the cursor past the
 work it did not do.
@@ -3447,6 +3449,27 @@ overlaps ordinary chatter.
   resolve changes which route a MIXED batch takes, on every chat. The
   `SweepExpiredRunning` item is a third concern again — a terminal state that
   owes the user a notice.
+
+**RE-MEASURED 2026-10-08: half (a) is SHIPPED, both parts of it, and this entry never
+said so.**
+
+The proposal for (a) was "the retry branch returns the `busy` shape (no advance,
+re-feed) and drops the `AfterFunc` + `ResetTurnForRetry` entirely". Both landed:
+`routd/dispatch.go:489-491` returns `false, false, true` and its comment names this
+entry — *"The re-feed IS the retry: busy=true holds the cursor on this batch. Advancing
+first woke a poll with nothing left to retry (BUGS L75a)"* — and a grep for `AfterFunc`
+and `ResetTurnForRetry` across non-test `routd/` returns nothing, so the parallel retry
+path is gone rather than merely unused.
+
+**(b) is STILL TRUE.** `routd/dispatch.go:39` still takes `newestUserIdx(msgs)` for the
+route, and the comment above it explains why the route and the busy key share that row
+(`L56`, `L336`) — which is correct for those faults and is exactly what demotes a
+pending mention when newer chatter arrives in the same batch. The fix has to make a
+pending mention outrank a newer non-mention row for ROUTE selection without breaking
+either of those two, so it is a dispatch-lifecycle change and stays a proposal.
+
+The heading is re-scoped so the entry stops reading as two open halves. An entry that
+overstates its own remaining work is as misleading as one that understates it.
 
 ## L72 — anteval leaks a group per case and every release pays an LLM turn for each (2026-08-23, proposal)
 
