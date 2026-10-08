@@ -638,6 +638,41 @@ enough to meet a container restart, a timeout, or an OOM.
   patch: it keeps the disk from filling while leaving every repack still
   failing, so nothing is ever actually packed.
 
+## ✅ FIXED 2026-10-08 L403 — onbod's approve, deny and reprompt accept a cross-origin write, so a third-party page can admit a group (2026-10-08)
+
+Spec `6/28:138-139`: "CSRF for writes lives in the same helper (same-origin check)".
+`auth.RequireWrite` is that helper, and its own comment says why: *"a dashboard POST is
+a cookie-authenticated write, so without this a third-party page can drive an
+operator's browser into one."*
+
+`onbod/dash.go` gated all three mutations on `auth.RequireOperator` — the scope alone.
+All three are `POST /dash/onbod/{approve,deny,reprompt}/{jid}`
+(`onbod/main.go:216-218`), authenticated by the operator's cookie through proxyd. authd,
+proxyd, routd and runed have always used `RequireWrite` for their dashboard writes;
+onbod was the one daemon that read the scope and skipped the origin.
+
+**Admission is the worst resource to leave open.** Approving an onboarding request
+creates a group's access; there is no undo that reading a log provides.
+
+MEASURED by mutation after the fix: restoring `RequireOperator` on the approve handler
+makes a request with `Origin: https://evil.example.com` answer **303 and flip the row**,
+instead of 403.
+
+- **Severity:** high (CSRF into an irreversible grant, on an operator's browser)
+- **Scope:** `onbod/dash.go`
+- **Affected:** `handleDashApprove`, `handleDashDeny`, `handleDashReprompt`
+- **Source:** the phase 6 audit, 2026-10-08, as a drift against `6/28:138`
+- **Status:** ✅ FIXED 2026-10-08
+- **Fix:** the three mutations call `auth.RequireWrite`. The GET page keeps
+  `RequireOperator` deliberately — a top-level navigation carries no `Origin`, so
+  requiring same-origin there would refuse an operator who types the URL. I made that
+  mistake first and the test caught it.
+
+  `TestDashWritesRefuseCrossOrigin` covers all three and asserts both halves: 403, AND
+  that the row did not move, because a refused write that already ran the writer is not
+  refused. The pre-existing `TestDashApproveFlipsRow` had to gain an `Origin` header —
+  it was passing because nothing checked one.
+
 ## ✅ FIXED 2026-10-08 L402 — taking a person's spend cap away leaves the gateway refusing them forever (2026-10-08)
 
 Spec `6/39:115`: "the gate pushes both to the gateway". The folder half does.

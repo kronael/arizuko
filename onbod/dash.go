@@ -62,12 +62,19 @@ func actionForms(jid string) string {
 		e, e, e)
 }
 
-// handleDashApprove/Deny/Reprompt are the dash mutation shims: operator-gated,
-// they call the SAME store writers the /v1 handlers use, then redirect back to
-// the queue. The store method is the single writer per resource (root
-// CLAUDE.md § "One renderer, many sinks") — these and the /v1 handlers share it.
+// handleDashApprove/Deny/Reprompt are the dash mutation shims: they call the SAME
+// store writers the /v1 handlers use, then redirect back to the queue. The store
+// method is the single writer per resource (root CLAUDE.md § "One renderer, many
+// sinks") — these and the /v1 handlers share it.
+//
+// The gate is RequireWrite, not RequireOperator. All three are browser POSTs
+// authenticated by the operator's cookie, so without the same-origin half a
+// third-party page can drive that browser into admitting a group — and admission is
+// the one onbod decision nobody can take back by reading a log. authd, proxyd, routd
+// and runed have always used RequireWrite for their dashboard writes; onbod was the
+// daemon that read the scope and skipped the origin (BUGS `L403`, spec `6/28:138`).
 func (a *admin) handleDashApprove(w http.ResponseWriter, r *http.Request) {
-	if !auth.RequireOperator(w, r, a.ks, "onbod") {
+	if !auth.RequireWrite(w, r, a.ks, "onbod") {
 		return
 	}
 	if err := a.st.ApproveOnboarding(r.PathValue("jid")); err != nil {
@@ -79,7 +86,7 @@ func (a *admin) handleDashApprove(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *admin) handleDashDeny(w http.ResponseWriter, r *http.Request) {
-	if !auth.RequireOperator(w, r, a.ks, "onbod") {
+	if !auth.RequireWrite(w, r, a.ks, "onbod") {
 		return
 	}
 	if err := a.st.DenyOnboarding(r.PathValue("jid")); err != nil {
@@ -91,7 +98,7 @@ func (a *admin) handleDashDeny(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *admin) handleDashReprompt(w http.ResponseWriter, r *http.Request) {
-	if !auth.RequireOperator(w, r, a.ks, "onbod") {
+	if !auth.RequireWrite(w, r, a.ks, "onbod") {
 		return
 	}
 	if err := a.st.RepromptOnboarding(r.PathValue("jid")); err != nil {

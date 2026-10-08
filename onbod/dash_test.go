@@ -76,6 +76,10 @@ func TestDashApproveFlipsRow(t *testing.T) {
 	r.SetPathValue("jid", "telegram:user/7")
 	r.Header.Set("X-User-Groups", `["**"]`)
 	r.Header.Set("Authorization", "Bearer "+dashBearer)
+	// Origin is what a browser sends on every dashboard POST. The write gate needs
+	// it (BUGS `L403`); a request carrying neither Origin nor Referer is refused
+	// rather than admitted, because their joint absence is not the ordinary case.
+	r.Header.Set("Origin", "http://"+r.Host)
 	w := httptest.NewRecorder()
 	a.handleDashApprove(w, r)
 
@@ -88,5 +92,52 @@ func TestDashApproveFlipsRow(t *testing.T) {
 	}
 	if len(rows) != 1 || rows[0].JID != "telegram:user/7" {
 		t.Fatalf("approve did not flip row: %+v", rows)
+	}
+}
+
+// TestDashWritesRefuseCrossOrigin pins BUGS `L403`. All three onbod dash mutations are
+// browser POSTs authenticated by the operator's cookie, and they gated on
+// RequireOperator — the scope alone. Without the same-origin half a third-party page
+// can drive an operator's browser into ADMITTING a group, which is the one onbod
+// decision nobody takes back by reading a log.
+//
+// authd, proxyd, routd and runed have always used RequireWrite here; onbod was the one
+// daemon that read the scope and skipped the origin (spec `6/28:138`).
+func TestDashWritesRefuseCrossOrigin(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		call   func(*admin, http.ResponseWriter, *http.Request)
+		target string
+	}{
+		{"approve", (*admin).handleDashApprove, "approve"},
+		{"deny", (*admin).handleDashDeny, "deny"},
+		{"reprompt", (*admin).handleDashReprompt, "reprompt"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a := newDashAdmin(t)
+			if err := a.st.InsertOnboarding("telegram:user/9"); err != nil {
+				t.Fatalf("seed onboarding: %v", err)
+			}
+			r := httptest.NewRequest("POST", "/dash/onbod/"+tc.target+"/telegram:user/9", nil)
+			r.SetPathValue("jid", "telegram:user/9")
+			r.Header.Set("X-User-Groups", `["**"]`)
+			r.Header.Set("Authorization", "Bearer "+dashBearer)
+			r.Header.Set("Origin", "https://evil.example.com")
+			w := httptest.NewRecorder()
+			tc.call(a, w, r)
+
+			if w.Code != http.StatusForbidden {
+				t.Fatalf("cross-origin %s status=%d, want 403", tc.target, w.Code)
+			}
+			// And it changed nothing: a refused write must not have run the writer.
+			// A fresh row is awaiting_message, which is what InsertOnboarding writes.
+			rows, err := a.st.ListOnboarding("")
+			if err != nil {
+				t.Fatalf("list onboarding: %v", err)
+			}
+			if len(rows) != 1 || rows[0].Status != "awaiting_message" {
+				t.Fatalf("the row moved on a refused %s: %+v", tc.target, rows)
+			}
+		})
 	}
 }
