@@ -151,3 +151,37 @@ func TestSourcedFragmentCannotReadAPlatformSecret(t *testing.T) {
 		t.Error("litellm stopped reading the master key; this test's premise is stale")
 	}
 }
+
+// TestGenerationReadsOnlyTheInstanceEnv pins the rule that a generation input comes
+// from the instance's `.env` and nowhere else. `envOr` used to consult the GENERATOR's
+// own process environment in between, and `arizuko generate` runs inside a container
+// (the systemd unit's ExecStartPre), so a key absent from the instance's `.env` could be
+// satisfied by whatever that container carried — and the same instance rendered
+// differently on two runs with nobody able to see why.
+//
+// A default is fine; a second SOURCE is not.
+func TestGenerationReadsOnlyTheInstanceEnv(t *testing.T) {
+	// The ambient value must not reach the render.
+	t.Setenv("WEB_PORT", "9999")
+	if got := envOr(map[string]string{}, "WEB_PORT", "8095"); got != "8095" {
+		t.Errorf("envOr took the generator's own environment: got %q, want the default", got)
+	}
+	// The instance's own value still wins over the default.
+	if got := envOr(map[string]string{"WEB_PORT": "8081"}, "WEB_PORT", "8095"); got != "8081" {
+		t.Errorf("the instance .env must win: got %q", got)
+	}
+	// An empty value in the file is not a value: it takes the default, not "".
+	if got := envOr(map[string]string{"WEB_PORT": ""}, "WEB_PORT", "8095"); got != "8095" {
+		t.Errorf("an empty key must fall to the default: got %q", got)
+	}
+
+	// And the whole render must not move when the generator's environment does. This is
+	// the assertion that would have caught the old behaviour at the file level.
+	dir := seed(t, "WEB_PORT=8081\n")
+	before := gen(t, dir)
+	t.Setenv("DASH_PORT", "7777")
+	t.Setenv("ONBOARDING_ENABLED", "true")
+	if after := gen(t, dir); after != before {
+		t.Error("the rendered compose file moved when only the generator's environment changed")
+	}
+}

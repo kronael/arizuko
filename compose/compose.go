@@ -1384,11 +1384,21 @@ func vitedService(app, flavor, dataDir string) string {
 	return b.String()
 }
 
+// envOr reads a generation input from the INSTANCE's `.env` and nowhere else, falling
+// back only to the literal default the call site names.
+//
+// It used to consult the generator's own process environment in between. That made the
+// rendered compose file depend on ambient state: `arizuko generate` runs inside a
+// container (the systemd unit's ExecStartPre), so a key absent from the instance's
+// `.env` could be satisfied by whatever that container happened to carry, and the same
+// instance rendered differently on two runs with nobody able to see why.
+//
+// A DEFAULT is fine and several call sites need one — a port, a timezone, a boolean's
+// off state. A FALLBACK to a second source is not: the `.env` is the declaration, and
+// `generate` writes every key it needs into it, so a second source can only ever
+// disagree with the first.
 func envOr(env map[string]string, key, fallback string) string {
 	if v, ok := env[key]; ok && v != "" {
-		return v
-	}
-	if v := os.Getenv(key); v != "" {
 		return v
 	}
 	return fallback
