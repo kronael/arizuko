@@ -140,3 +140,66 @@ func TestForwardAuth_RefusesWithoutAuthSecret(t *testing.T) {
 		t.Error("identity stamped with no auth secret configured")
 	}
 }
+
+// TestForwardAuth_OptionalRouteAdmitsAnonymously pins BUGS `L405`. `optional` is the
+// one route class that exists to serve a caller with no credential — `/chat/<token>/`
+// and `/hook/<token>`, where the TOKEN is the credential and a stamped sub only
+// decides attribution.
+//
+// The in-proxyd path has always switched on the class (`main.go` `case "optional"`).
+// The forward-auth hop did not: it 303'd anything without a valid credential to
+// /auth/login, and `proxycfg/caddy.go` `authenticated` sends `optional` through the
+// hop — so the two paths disagreed about the only class meant to be anonymous, and
+// every anonymous chat visitor would have landed on a login page under the Caddy
+// renderer (6/22 §"Why `optional` attaches the transit proof on both paths").
+func TestForwardAuth_OptionalRouteAdmitsAnonymously(t *testing.T) {
+	s, _ := forwardAuthSrv(t)
+	s.rr = newRoutesResource(nil, []Route{
+		{Path: "/chat/", Backend: "http://webd:8080", Auth: "optional"},
+		{Path: "/dash/", Backend: "http://dashd:8080", Auth: "user"},
+	})
+
+	t.Run("anonymous on an optional route gets the transit proof, not a redirect", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/auth/forward", nil)
+		req.Header.Set("X-Forwarded-Uri", "/chat/abc123/")
+		w := httptest.NewRecorder()
+		s.handleForwardAuth(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("anonymous optional status=%d, want 200 — a login redirect here is the bug", w.Code)
+		}
+		if got := w.Header().Get("Authorization"); got != "Bearer "+transitProof {
+			t.Errorf("Authorization = %q, want the transit proof", got)
+		}
+		// Anonymous means anonymous: nothing may claim an identity the caller
+		// did not present.
+		for _, h := range []string{"X-User-Sub", "X-User-Name", "X-User-Groups"} {
+			if v := w.Header().Get(h); v != "" {
+				t.Errorf("%s = %q on an anonymous request", h, v)
+			}
+		}
+	})
+
+	// The dual, and the half that must not loosen: a `user` route still refuses.
+	t.Run("anonymous on a user route still redirects", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/auth/forward", nil)
+		req.Header.Set("X-Forwarded-Uri", "/dash/routd/")
+		w := httptest.NewRecorder()
+		s.handleForwardAuth(w, req)
+		if w.Code != http.StatusSeeOther {
+			t.Fatalf("anonymous user-route status=%d, want 303", w.Code)
+		}
+	})
+
+	// A path proxyd does not serve cannot talk its way past the gate by claiming
+	// to be optional: an unmatched URI takes the stricter answer.
+	t.Run("an unmatched path is not optional", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/auth/forward", nil)
+		req.Header.Set("X-Forwarded-Uri", "/nope/")
+		w := httptest.NewRecorder()
+		s.handleForwardAuth(w, req)
+		if w.Code != http.StatusSeeOther {
+			t.Fatalf("unmatched path status=%d, want 303", w.Code)
+		}
+	})
+}

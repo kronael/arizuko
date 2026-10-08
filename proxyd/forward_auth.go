@@ -44,6 +44,20 @@ func (s *server) handleForwardAuth(w http.ResponseWriter, r *http.Request) {
 	}
 
 	authed := s.decideForwardAuth(r)
+	if authed == nil && s.forwardRouteIsOptional(orig) {
+		// An `optional` route admits an anonymous caller and still carries proxyd's
+		// transit proof — the route-token surface, where the token IS the credential
+		// and a stamped sub only decides attribution (6/22 §"Why `optional` attaches
+		// the transit proof on both paths").
+		//
+		// Without this the hop 303s every anonymous /chat/ and /hook/ visitor to
+		// /auth/login, because the decision above knows nothing about the route class
+		// while the in-proxyd path has always switched on it (main.go `case
+		// "optional"`). The Caddy renderer sends `optional` through the hop
+		// (proxycfg/caddy.go `authenticated`), so the two paths disagreed about the
+		// one class that exists to be anonymous (BUGS `L405`).
+		authed = s.attachTransit(r)
+	}
 	if authed == nil {
 		slog.Warn("forward auth denied", "reason", "no_valid_credential",
 			"route", orig, "remote", clientIP(r))
@@ -82,4 +96,22 @@ func (s *server) decideForwardAuth(r *http.Request) *http.Request {
 	// access token expired is sent through the login flow instead — correct, and
 	// one round trip more than the in-process gate costs.
 	return nil
+}
+
+// forwardRouteIsOptional answers whether the route the CALLER asked for is an
+// `optional` one. It reads the same table and the same longest-prefix matcher the
+// forwarding path uses, so a class cannot mean one thing to the hop and another to
+// the proxy.
+//
+// An unmatched URI is not optional: the fallback is the stricter answer, so a path
+// proxyd does not serve cannot talk its way past the gate.
+func (s *server) forwardRouteIsOptional(uri string) bool {
+	if uri == "" || !strings.HasPrefix(uri, "/") {
+		return false
+	}
+	if i := strings.IndexAny(uri, "?#"); i >= 0 {
+		uri = uri[:i]
+	}
+	rt := MatchRoute(s.routes(), uri)
+	return rt != nil && rt.Auth == "optional"
 }

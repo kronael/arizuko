@@ -640,6 +640,43 @@ enough to meet a container restart, a timeout, or an OOM.
   patch: it keeps the disk from filling while leaving every repack still
   failing, so nothing is ever actually packed.
 
+## ✅ FIXED 2026-10-08 L405 — the forward-auth hop sends every anonymous `/chat/` visitor to a login page (2026-10-08)
+
+`optional` is the one route class that exists to serve a caller with no credential:
+`/chat/<token>/` and `/hook/<token>`, where the TOKEN is the credential and a stamped
+sub only decides attribution. `6/22` §"Why `optional` attaches the transit proof on both
+paths" says it outright — "`optional` therefore attaches the proof on the anonymous path
+too".
+
+The in-proxyd path does exactly that (`proxyd/main.go` `case "optional"`: identify when
+a credential is offered, `attachTransit` when it is not, forward either way).
+
+`handleForwardAuth` did not. It took `decideForwardAuth`'s nil as a refusal and 303'd to
+`/auth/login` whatever the route class was — and `proxycfg/caddy.go` `authenticated`
+returns true for `optional`, so the renderer sends that class THROUGH the hop. The two
+paths disagreed about the only class meant to be anonymous.
+
+**Latent, not live**: compose still fronts with proxyd itself, so nothing takes the
+Caddy path today. It would have broken every anonymous chat and webhook visitor the
+moment step 2 or 3 of `6/22` shipped — the step the spec is written for.
+
+- **Severity:** medium, latent (the whole public chat surface, on the renderer `6/22`
+  exists to produce)
+- **Scope:** `proxyd/forward_auth.go`
+- **Affected:** every `auth: optional` row — `/chat/`, `/hook/`
+- **Source:** the phase 6 audit, 2026-10-08, as a drift against `6/22` step 2/3
+- **Status:** ✅ FIXED 2026-10-08
+- **Fix:** `forwardRouteIsOptional` reads the SAME table and the same longest-prefix
+  matcher the forwarding path uses, so a class cannot mean one thing to the hop and
+  another to the proxy. An anonymous caller on an `optional` route gets 200 plus the
+  transit proof and no `X-User-*` — anonymous means anonymous, and nothing may claim an
+  identity the caller did not present.
+
+  An unmatched URI is NOT optional: the fallback is the stricter answer, so a path
+  proxyd does not serve cannot talk its way past the gate by claiming a class. All
+  three cases are tested, and mutating the branch out fails the first with
+  "anonymous optional status=303, want 200".
+
 ## L404 — a person's own model credential is silently discarded under a gateway, and spec `6/23` says it is translated (2026-10-08, open — the translation needs sign-off)
 
 `6/23` §"Tier placement": *"Env-profile rows remain for the BYOC case, but they resolve
