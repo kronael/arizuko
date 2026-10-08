@@ -4,7 +4,10 @@ import (
 	"bufio"
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
+
+	"github.com/emersion/go-imap/v2"
 	"io"
 	"net"
 	"net/http"
@@ -376,5 +379,45 @@ func serveStuckIMAP(t *testing.T, conn net.Conn, stuck chan struct{}) {
 		default:
 			flush(tag + " BAD unknown command\r\n")
 		}
+	}
+}
+
+// TestAuthRejectionEndsThePollLoop pins BUGS `L62`. `run` looped on every error from
+// `runIdle`, so a rejected credential was retried every 60 s forever, at ERROR — the one
+// failure a person must act on, logged exactly like a flapping network, and nothing ever
+// said the password was wrong.
+//
+// CLAUDE.md's rule: retry only the transient. A wrong password answers the same way on
+// every attempt.
+func TestAuthRejectionEndsThePollLoop(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		err       error
+		permanent bool
+	}{
+		{"authentication failed", &imap.Error{Code: imap.ResponseCodeAuthenticationFailed}, true},
+		{"authorization failed", &imap.Error{Code: imap.ResponseCodeAuthorizationFailed}, true},
+		// A bare NO with no code is retryable: a server refusing logins during
+		// maintenance sends one, and ending the loop there loses a recoverable mailbox.
+		{"no code", &imap.Error{}, false},
+		{"unavailable", &imap.Error{Code: imap.ResponseCodeUnavailable}, false},
+		{"a plain network error", errors.New("dial tcp: connection refused"), false},
+		// Wrapped, because the dial path wraps before `run` sees it.
+		{"wrapped auth failure", fmt.Errorf("login: %w",
+			&imap.Error{Code: imap.ResponseCodeAuthenticationFailed}), true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := permanentAuthFailure(tc.err); got != tc.permanent {
+				t.Errorf("permanentAuthFailure(%v) = %v, want %v", tc.err, got, tc.permanent)
+			}
+		})
+	}
+
+	// And the sentinel survives the wrap `connect` puts on it, which is what `run`
+	// actually tests.
+	wrapped := fmt.Errorf("login: %w: %w", errAuthRejected,
+		&imap.Error{Code: imap.ResponseCodeAuthenticationFailed})
+	if !errors.Is(wrapped, errAuthRejected) {
+		t.Error("the sentinel must survive connect's wrapping, or run retries anyway")
 	}
 }

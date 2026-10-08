@@ -90,6 +90,9 @@ func imapConnect(
 	}
 	if err := c.Login(cfg.Account, cfg.Password).Wait(); err != nil {
 		c.Logout() //nolint:errcheck // the connection is going away either way
+		if permanentAuthFailure(err) {
+			return nil, fmt.Errorf("login: %w: %w", errAuthRejected, err)
+		}
 		return nil, fmt.Errorf("login: %w", err)
 	}
 	if _, err := c.Select("INBOX", nil).Wait(); err != nil {
@@ -97,6 +100,29 @@ func imapConnect(
 		return nil, fmt.Errorf("select: %w", err)
 	}
 	return c, nil
+}
+
+// errAuthRejected marks a credential the server refused. It ends the poll loop
+// instead of feeding it: CLAUDE.md's rule is that only the transient is retried, and a
+// wrong password answers the same way on every attempt.
+var errAuthRejected = errors.New("imap: credential rejected")
+
+// permanentAuthFailure reads the server's own response CODE rather than its prose.
+// RFC 5530 gives AUTHENTICATIONFAILED and AUTHORIZATIONFAILED exactly for this, so a
+// string match on the text would be guessing at what each server writes.
+//
+// Anything else — including a bare NO with no code — stays retryable, because a server
+// that refuses a login during maintenance sends one of those too.
+func permanentAuthFailure(err error) bool {
+	var ie *imap.Error
+	if !errors.As(err, &ie) {
+		return false
+	}
+	switch ie.Code {
+	case imap.ResponseCodeAuthenticationFailed, imap.ResponseCodeAuthorizationFailed:
+		return true
+	}
+	return false
 }
 
 func (p *poller) run(ctx context.Context, rc *chanlib.RouterClient) {
@@ -112,6 +138,17 @@ func (p *poller) run(ctx context.Context, rc *chanlib.RouterClient) {
 		if errors.Is(err, errIdleNotSupported) {
 			slog.Info("imap: IDLE not supported, falling back to poll")
 			p.runPoll(ctx, rc)
+			return
+		}
+		// A rejected credential is not transient and the loop must not eat it. emaid
+		// retried it every 60 s forever, at ERROR, so the one failure a person has to
+		// act on looked exactly like a flapping network — and nothing ever told them
+		// the password was wrong (BUGS `L62`).
+		if errors.Is(err, errAuthRejected) {
+			slog.Error("imap: the server rejected this account's credential; emaid is "+
+				"stopping rather than retrying — fix EMAIL_PASSWORD (or the app password) "+
+				"and restart the instance",
+				"account", p.cfg.Account, "host", p.cfg.IMAPHost, "err", err)
 			return
 		}
 		slog.Error("imap idle error", "err", err)
