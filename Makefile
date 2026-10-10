@@ -16,8 +16,15 @@ DOCKER_BUILD = $(DOCKER_SUDO) env DOCKER_BUILDKIT=1 $(DOCKER_BIN) build
 
 build:
 	go build -o arizuko ./cmd/arizuko/
-	$(foreach d,$(DAEMONS),make -C $(d) build;)
-	$(foreach c,$(COMPONENTS),make -C $(c) build;)
+	@# `foreach ... ;` expands to one recipe LINE whose exit status is the LAST
+	@# command's, so a daemon that fails is masked by any later success. Measured
+	@# 2026-10-09: `make build` returned 0 after dashd failed on a read-only Go
+	@# cache, which makes every "build is green" claim worthless (BUGS
+	@# `BUILD-DAEMON-FAILURE-MASKED`). A shell loop with `|| exit` stops at the
+	@# first failure and names it.
+	@set -e; for d in $(DAEMONS) $(COMPONENTS); do \
+	  $(MAKE) -C $$d build || { echo "build: $$d failed" >&2; exit 1; }; \
+	done
 
 # kernel: the guest kernel arizuko boots per turn (spec 6/41). Its own target and
 # NOT a stage of ant/Dockerfile: ant/ took 130 commits in 60 days while this
@@ -236,8 +243,12 @@ smoke:
 clean:
 	rm -f arizuko
 	rm -rf tmp/
-	$(foreach d,$(DAEMONS),make -C $(d) clean;)
-	$(foreach c,$(COMPONENTS),make -C $(c) clean;)
+	@# A clean that stops at the first failure leaves the rest dirty, so this one
+	@# keeps going and reports at the end — the opposite trade from `build`, and
+	@# deliberate: a half-clean tree is worse than a loud one.
+	@rc=0; for d in $(DAEMONS) $(COMPONENTS); do \
+	  $(MAKE) -C $$d clean || rc=1; \
+	done; exit $$rc
 
 images:
 	$(DOCKER) image prune -f
