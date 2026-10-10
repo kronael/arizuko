@@ -8,29 +8,34 @@ skills  = ["diary", "recall-memories", "users", "issues", "oracle", "web"]
 # tools — never through a channel verb, so every repo-changing act passes the
 # hold gate.
 #
-# REQUIRES gitd, which is specced (specs/6/27) and NOT YET BUILT. Until it
-# ships, the egress half works on its own — the github connector gives the
-# agent its gh tools and the hold gate covers them — but nothing delivers repo
-# events, so steps 4 and 6 below have nothing to route.
-#
 # Operator setup
 #
-# 1. Install the GitHub App on the repos it should watch. An App, not a PAT:
-#    a PAT stamps YOUR identity on every action it takes.
-# 2. Set GITHUB_APP_ID + GITHUB_PRIVATE_KEY + GITHUB_WEBHOOK_SECRET.
-# 3. Enable the github connector so the agent gets the gh tools:
-#      cp template/connectors/github.toml <data-dir>/connectors/
-# 4. Route the repo. One row per level — `**` is NOT a subtree glob and a `**`
-#    row silently matches nothing (specs/6/27 § "no subtree glob"):
-#      arizuko route <inst> add "chat_jid=git:me/proj/pr/* verb=reply"    dev
-#      arizuko route <inst> add "chat_jid=git:me/proj/pr/* verb=message"  dev
-#      arizuko route <inst> add "chat_jid=git:me/proj/pr/*"    dev#observe -s 100
-#      arizuko route <inst> add "chat_jid=git:me/proj/issue/*" dev#observe -s 100
-#      arizuko route <inst> add "chat_jid=git:me/proj"         dev#observe -s 100
-# 5. Hold the acts you want to sign off. Merge is the one that matters:
-#      arizuko group <inst> grant dev "hold:mcp:github_merge_pull_request" dev
-#      arizuko group <inst> grant dev "hold:mcp:github_create_pull_request" dev
-# 6. arizuko run <instance>
+# 1. Seed the group on a running instance:
+#      arizuko group <inst> add web:dev dev --product github
+# 2. Enable gitd through its compose fragment and manifest:
+#      arizuko packages <inst> add gitd
+#    Set WEB_HOST and GITHUB_TOKEN in <data-dir>/.env. gitd posts comments as
+#    the token's user. Use a token with access to the watched repositories.
+# 3. Add template/connectors/github.toml's [[connector]] block to
+#    <data-dir>/connectors.toml once. The hosted MCP server supplies repo tools.
+#    Store its token separately for the broker:
+#      arizuko secret <inst> set folder:dev GITHUB_TOKEN --value <token>
+#    Grant each required tool as mcp:github_<tool>:
+#      arizuko group <inst> grant folder:dev dev "mcp:github_<tool>"
+# 4. Hold merge calls for approval. A hold does not grant tool access:
+#      arizuko group <inst> grant folder:dev dev "hold:mcp:github_merge_pull_request"
+# 5. Register the webhook source:
+#      arizuko github <inst> add repo me/proj dev
+#    Paste the printed URL and secret into the repo's Settings > Webhooks.
+#    Set application/json and select the events the agent should receive.
+#    The secret is sealed in routd's store. Registration seeds github: routes:
+#    comments and new issues/PRs trigger turns; other events go to dev#observe.
+#    Within one repository, each PR or issue uses its own topic, pr/<n> or issue/<n>.
+#    For an installed GitHub App, use add app <slug> dev and paste the URL
+#    and secret into the App's webhook settings. Installation-token issuance
+#    and refresh are not implemented; outbound comments still use GITHUB_TOKEN.
+# 6. Restart the instance:
+#      sudo systemctl restart arizuko_<inst>
 #
 # Approvals reach you two ways with no chat platform running: `/approve <id>`
 # wherever you talk to it, and the link the held notice carries to
@@ -40,21 +45,11 @@ skills  = ["diary", "recall-memories", "users", "issues", "oracle", "web"]
 # turn and re-derives what you already know.
 
 [[env]]
-key      = "GITHUB_APP_ID"
+key      = "GITHUB_TOKEN"
 required = true
-hint     = "GitHub App id — the agent posts as <app>[bot], not as you"
-
-[[env]]
-key      = "GITHUB_PRIVATE_KEY"
-required = true
-hint     = "App private key (PEM) — mints the short-lived installation token"
-
-[[env]]
-key      = "GITHUB_WEBHOOK_SECRET"
-required = true
-hint     = "Shared secret gitd verifies the inbound webhook HMAC against"
+hint     = "Enables gitd comments as the token's user; also store a folder-scoped token for the GitHub connector"
 
 [[env]]
 key      = "WEB_HOST"
-required = false
-hint     = "Set it and every held-call notice carries a link straight to the approval page"
+required = true
+hint     = "Public HTTPS host for GitHub webhook delivery and approval links"

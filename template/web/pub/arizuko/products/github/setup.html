@@ -46,65 +46,81 @@
       <h1>Repo worker setup</h1>
 
       <div class="callout">
-        <strong>Steps 4 and 6 need <code>gitd</code>, which is not built
-        yet.</strong> Everything up to step 3 works today and gives the
-        agent its <code>gh</code> tools behind the hold gate. Repo events
-        &mdash; pushes, issues, review requests &mdash; have nothing to
-        deliver them until <code>gitd</code> ships (<code>specs/6/27</code>).
+        <strong>gitd receives GitHub webhooks.</strong> Register a repo,
+        org or App source to connect events to a group. Outbound comments
+        use <code>GITHUB_TOKEN</code> and carry the token's user identity.
+        GitHub App installation-token issuance and refresh are not implemented.
       </div>
 
-      <h2>1. Install the GitHub App</h2>
+      <h2>1. Seed the group</h2>
 
       <p>
-        Install a GitHub App on the repositories the agent should watch. An
-        App, not a personal access token: a PAT stamps <em>your</em>
-        identity on everything the agent does, so its comments and commits
-        become indistinguishable from yours. The App posts as
-        <code>&lt;app&gt;[bot]</code>.
+        On a running instance, create the group with the GitHub product.
+        The agent's persona and facts belong to that group.
       </p>
 
+      <pre><code>arizuko group &lt;inst&gt; add web:dev dev --product github</code></pre>
+
       <h2>2. Set the environment</h2>
+
+      <pre><code>arizuko packages &lt;inst&gt; add gitd</code></pre>
+
+      <p>The package enables gitd's compose fragment and webhook routes.
+        Set these values in <code>&lt;data-dir&gt;/.env</code>:</p>
 
       <table>
         <thead><tr><th>Variable</th><th>Required</th><th>What it is</th></tr></thead>
         <tbody>
-          <tr><td><code>GITHUB_APP_ID</code></td><td class="req req-y">yes</td><td>the App id</td></tr>
-          <tr><td><code>GITHUB_PRIVATE_KEY</code></td><td class="req req-y">yes</td><td>App private key (PEM); mints the short-lived installation token</td></tr>
-          <tr><td><code>GITHUB_WEBHOOK_SECRET</code></td><td class="req req-y">yes</td><td>shared secret the inbound webhook HMAC is verified against</td></tr>
-          <tr><td><code>WEB_HOST</code></td><td class="req req-n">no</td><td>set it and every held-call notice carries a link straight to the approval page</td></tr>
+          <tr><td><code>GITHUB_TOKEN</code></td><td class="req req-y">yes</td><td>enables comments as the token's user; requires access to the watched repositories</td></tr>
+          <tr><td><code>WEB_HOST</code></td><td class="req req-y">yes</td><td>public HTTPS host for webhook delivery and approval links</td></tr>
         </tbody>
       </table>
 
       <h2>3. Enable the github connector</h2>
 
-      <pre><code>cp template/connectors/github.toml &lt;data-dir&gt;/connectors/</code></pre>
-
       <p>
-        This is what gives the agent its <code>gh</code> tools. The
-        <a href="../../concepts/secrets.html">connector</a> holds the
-        credential; the agent never sees it.
+        Add the <code>[[connector]]</code> block from
+        <code>template/connectors/github.toml</code> to
+        <code>&lt;data-dir&gt;/connectors.toml</code> once.
+        GitHub's hosted MCP server supplies the tools.
+        Store a separate folder-scoped token for the
+        <a href="../../concepts/secrets.html">broker</a>.
+        The agent never receives that credential.
       </p>
 
-      <h2>4. Route the repository</h2>
+      <pre><code>arizuko secret &lt;inst&gt; set folder:dev GITHUB_TOKEN --value &lt;token&gt;
+arizuko group &lt;inst&gt; grant folder:dev dev "mcp:github_&lt;tool&gt;"</code></pre>
+
+      <p>Grant each required tool by its exact name.
+        Scope the token to the repositories and operations the agent needs.</p>
+
+      <h2>4. Register the webhook source</h2>
 
       <p>
-        One row per level. <code>**</code> is <em>not</em> a subtree glob
-        here and a <code>**</code> row silently matches nothing
-        (<code>specs/6/27</code>):
+        Register a source to create a sealed secret and seed its route rows:
       </p>
 
-      <pre><code>arizuko route &lt;inst&gt; add "chat_jid=git:me/proj/pr/* verb=reply"    dev
-arizuko route &lt;inst&gt; add "chat_jid=git:me/proj/pr/* verb=message"  dev
-arizuko route &lt;inst&gt; add "chat_jid=git:me/proj/pr/*"    dev#observe -s 100
-arizuko route &lt;inst&gt; add "chat_jid=git:me/proj/issue/*" dev#observe -s 100
-arizuko route &lt;inst&gt; add "chat_jid=git:me/proj"         dev#observe -s 100</code></pre>
+      <pre><code>arizuko github &lt;inst&gt; add repo me/proj dev</code></pre>
 
       <p>
-        The <code>#observe</code> rows at a low score are what make the
-        agent quiet: a push or a label lands as context it reads and does
-        not answer. The two <code>verb=</code> rows are the ones that let
-        it speak.
+        Paste the printed URL and secret into the repository's
+        Settings &rarr; Webhooks. Select <code>application/json</code>
+        and the events the agent should receive.
+        Comments and new issues or PRs trigger turns.
+        Other events go to <code>dev#observe</code> as context.
+        Addresses use <code>github:me/proj/pr/&lt;n&gt;</code> or
+        <code>github:me/proj/issue/&lt;n&gt;</code>.
+        Within one repository, each PR or issue has its own topic.
       </p>
+
+      <p>For an installed GitHub App, register an App source:</p>
+
+      <pre><code>arizuko github &lt;inst&gt; add app &lt;slug&gt; dev</code></pre>
+
+      <p>Paste the URL and secret into the App's webhook settings.
+        Install the App on the repositories it should watch.
+        One App source receives events from all its installations.
+        Source registration does not supply an outbound App token.</p>
 
       <h2>5. Hold what you want to sign off</h2>
 
@@ -114,8 +130,9 @@ arizuko route &lt;inst&gt; add "chat_jid=git:me/proj"         dev#observe -s 100
         and asks you:
       </p>
 
-      <pre><code>arizuko group &lt;inst&gt; grant dev "hold:mcp:github_merge_pull_request" dev
-arizuko group &lt;inst&gt; grant dev "hold:mcp:github_create_pull_request" dev</code></pre>
+      <pre><code>arizuko group &lt;inst&gt; grant folder:dev dev "hold:mcp:github_merge_pull_request"</code></pre>
+
+      <p>A hold does not grant access to the tool.</p>
 
       <p>
         Approvals reach you two ways with no chat platform running:
@@ -123,10 +140,9 @@ arizuko group &lt;inst&gt; grant dev "hold:mcp:github_create_pull_request" dev</
         link the held notice carries to <code>/dash/approvals/</code>.
       </p>
 
-      <h2>6. Seed the group and run</h2>
+      <h2>6. Restart the instance</h2>
 
-      <pre><code>arizuko group &lt;instance&gt; add telegram:group/-100123 dev --product github
-arizuko run &lt;instance&gt;</code></pre>
+      <pre><code>sudo systemctl restart arizuko_&lt;inst&gt;</code></pre>
 
       <h2>7. Fill in the facts</h2>
 

@@ -53,13 +53,12 @@
 
       <div class="callout">
         <p>
-          <strong>The inbound half is not built yet.</strong> Repo events
-          reach an agent through <code>gitd</code>, which is specified in
-          <code>specs/6/27</code> and not yet written. Until it ships, the
-          outbound half works on its own: the github connector gives the
-          agent its <code>gh</code> tools and the hold gate covers them, so
-          you can drive it from chat. Nothing delivers pushes, issues or
-          review requests on its own.
+          <strong>gitd connects GitHub conversations to a group.</strong>
+          Register a repo, org or App webhook source.
+          Within one repository, each PR or issue has its own topic.
+          The GitHub connector supplies tools behind the hold gate.
+          Outbound comments use the token's user identity.
+          GitHub App installation-token issuance and refresh are not implemented.
         </p>
       </div>
 

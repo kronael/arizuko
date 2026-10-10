@@ -130,6 +130,49 @@ reads those words now.
 **A spec whose status is a claim.**
 
 
+- **GITHUB-PRODUCT-SETUP** (MED, config) — `ant/examples/github/PRODUCT.md`
+  requires `GITHUB_APP_ID`, `GITHUB_PRIVATE_KEY`, and `GITHUB_WEBHOOK_SECRET`,
+  but `gitd.loadConfig` reads none of them. The setup claims gitd is unbuilt,
+  uses the unregistered `git:` JID scheme, and copies a connector to a directory
+  that `LoadConnectors` does not read. CONFIRMED at HEAD `09eef243` on
+  2026-10-09 by comparing the product with `gitd/main.go`,
+  `cmd/arizuko/github.go`, and `template/connectors/github.toml`.
+  No test — config. **Fix:** make the existing product declare the supported
+  token and describe source registration, `github:` routes, and `connectors.toml`.
+  Working-tree correction verified by product seed tests, web link tests, and
+  a before/after manifest check; commit blocked by read-only `.git`.
+
+- **GITHUB-TOPIC-REPOSITORY** (MED, design) — `GitHubJID.Topic` at
+  `chanlib/github_jid.go:75` returns only kind and number; `gitd/event.go:298`
+  copies that value to the message, and `store/sessions.go` keys sessions by
+  folder and topic. Two repositories' PR 12 routed to one group therefore share
+  `pr/12`. Source-traced at HEAD `09eef243` on 2026-10-09; no test — design.
+  **Proposal:** include repository identity in GitHub topics, or route each
+  repository to a distinct group. Needs sign-off because the topic contract and
+  existing conversation keys change.
+
+- **GITHUB-APP-CREDENTIAL-CONTRACT** (MED, design) — `gitd/bot.go` sends
+  comments with a static user token. `routd/mcp.go` resolves connector credentials
+  from user/folder secrets, with no App installation-token provider. The requested
+  installable App therefore cannot act as its bot without a personal token.
+  Source-traced at HEAD `09eef243` on 2026-10-09; no test — design.
+  **Proposal:** one App per instance; one shared token client for gitd and the
+  broker. Resolve the installation through GitHub and restrict each token to the
+  repository in the trusted turn JID. An explicit `GITHUB_INSTALLATION_TOKEN`
+  connector slot selects App credentials; `GITHUB_TOKEN` retains user semantics.
+  App keys stay in daemon env; derived tokens stay outside agent environments
+  and storage. Existing tool grants and holds remain the authority for calls.
+  No relay, credential endpoint, installation table, or wider storage/runtime
+  port. Needs sign-off for the new credential contract.
+
+- **BUILD-DAEMON-FAILURE-MASKED** (MED, ops) — `Makefile:22` runs daemon
+  submakes separated by semicolons. A later success hides an earlier failure.
+  Measured 2026-10-09: `make build` returned zero after dashd failed with a
+  read-only Go cache; the complete output is in
+  `/tmp/arizuko-github-baseline-build.log`. No test — ops.
+  **Proposal:** stop the build on the first failed submake. This is an adjacent
+  build-gate repair; scope approval is pending.
+
 ## Design invariants — intentional, do not re-report
 
 One line per ruling: what was reported, and why it is correct behaviour. These are

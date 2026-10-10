@@ -133,8 +133,8 @@
 
       <div class="tablecard">
         <h3><a href="github/">Repo worker <span class="dim">(Atlas)</span></a></h3>
-        <p class="meta">channel: GitHub &middot; single-developer &middot; inbound half not built yet</p>
-        <p>A solo developer&rsquo;s agent for their own repositories. Reads the diff rather than the description, cites <code>path:line</code>, and acts through its GitHub tools &mdash; but merge, force-push and closing someone else&rsquo;s work are held for you. Repo events need <code>gitd</code> (<code>specs/6/27</code>), which is not written yet; until then the tools work from chat.</p>
+        <p class="meta">channel: GitHub &middot; single-developer &middot; webhook sources</p>
+        <p>A solo developer&rsquo;s agent for their own repositories. Reads the diff rather than the description, cites <code>path:line</code>, and acts through its GitHub tools &mdash; but merge, force-push and closing someone else&rsquo;s work are held for you. gitd delivers repo, org and App webhook events to the group. Within one repository, each PR or issue has its own topic. Outbound comments use the token's user identity.</p>
         <p><a href="github/">intro</a> &middot; <a href="github/setup.html">setup</a></p>
         <p class="dim">Ships as a template: <code>arizuko create &lt;name&gt; --product github</code></p>
       </div>
@@ -220,7 +220,7 @@
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/index.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-08-27">2026-08-27</time>
+        &middot; updated <time class="docs-updated" datetime="2026-09-29">2026-09-29</time>
       </div>
     </main>
 
