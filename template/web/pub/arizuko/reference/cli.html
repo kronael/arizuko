@@ -51,7 +51,7 @@
         <li><a href="#manifest">Config manifests</a> &mdash; <code>export</code>, <code>apply</code>, <code>plan</code>, <code>get</code></li>
         <li><a href="#packages">Packages</a> &mdash; <code>packages install|upgrade|remove|list</code>, <code>products list|apply</code></li>
         <li><a href="#chat">Operator chat &amp; messaging</a> &mdash; <code>chat</code>, <code>send</code>, <code>token</code></li>
-        <li><a href="#group">Groups &amp; grants</a> &mdash; <code>group list|add|rm|grant|ungrant|grants</code></li>
+        <li><a href="#group">Groups &amp; grants</a> &mdash; <code>group list|add|rename|rm|grant|ungrant|grants</code></li>
         <li><a href="#identity">Identities</a> &mdash; <code>identity list|link|unlink</code></li>
         <li><a href="#invite">Invites</a> &mdash; <code>invite create|list|revoke</code></li>
         <li><a href="#gate">Gates (rate limits)</a> &mdash; <code>gate list|add|rm|enable|disable</code></li>
@@ -211,11 +211,12 @@ arizuko packages krons install ./my-local-package</code></pre>
 
     <h2 id="chat" class="group-h2">Operator chat &amp; messaging</h2>
 
-    <h3 id="chat-cmd"><span class="sig">arizuko chat &lt;instance&gt;</span></h3>
-    <p>Launch <code>claude</code> (Claude Code CLI) wired via socat to the instance's root MCP socket at <code>&lt;data-dir&gt;/ipc/main/gated.sock</code>. Writes a temporary <code>mcpServers</code> config pointing at <code>socat STDIO UNIX-CONNECT:&lt;sock&gt;</code> and execs <code>claude --mcp-config &lt;tmp&gt;</code>. Local-operator only &mdash; socket-fs access is the auth.</p>
+    <h3 id="chat-cmd"><span class="sig">arizuko chat &lt;instance&gt; [--folder &lt;folder&gt;]</span></h3>
+    <p>Launch <code>claude</code> (Claude Code CLI) wired via socat to <code>&lt;data-dir&gt;/ipc/&lt;folder&gt;/gated.sock</code>. The folder defaults to <code>main</code>. Writes a temporary <code>mcpServers</code> config and execs <code>claude --mcp-config &lt;tmp&gt;</code>. Local-operator only &mdash; socket-fs access is the auth.</p>
     <p><strong>State touched:</strong> none on disk beyond a deleted-on-exit tempfile. Anything the agent does via MCP tools mutates the store as usual.</p>
     <p>Prereqs: instance running (socket exists), <code>claude</code> and <code>socat</code> on <code>$PATH</code>.</p>
-    <pre><code>arizuko chat krons</code></pre>
+    <pre><code>arizuko chat krons
+arizuko chat sloth --folder sloth/discord</code></pre>
     <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go#L657"><code>cmd/arizuko/main.go:657</code></a></p>
 
     <h3 id="send"><span class="sig">arizuko send &lt;instance&gt; &lt;folder&gt; [&lt;message&gt;] [--wait | --stream] [--stdin] [--topic &lt;t&gt;]</span></h3>
@@ -268,6 +269,13 @@ arizuko token krons revoke web:support</code></pre>
     <pre><code>arizuko group krons add whatsapp:120363042@g.us standup
 arizuko group krons add "discord:guild/123/456" eng --product developer</code></pre>
     <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go#L275"><code>cmd/arizuko/main.go:275</code></a> (v0.40.6 added <code>--product</code>)</p>
+
+    <h3 id="group-rename"><span class="sig">arizuko group &lt;instance&gt; rename &lt;source&gt; &lt;destination&gt;</span></h3>
+    <p>Rename a folder subtree across the instance's stores and files. Use <code>--map old=new</code> for nested exceptions. Stop all writers and guests before execution. Produce a complete private inventory of owner tables and partition counts; the command checks the inventory against the store and owner credentials. Collisions stop preflight. Coordinate operands in ACL Params and Predicate require exact values; wildcard operands stop preflight. Platform chat IDs and historical text stay intact.</p>
+    <pre><code>arizuko group sloth rename main sloth --map main/main=sloth/discord \
+  --inventory /private/sloth-inventory.json --endpoint https://127.0.0.1:18444 --dry-run</code></pre>
+    <p>Execution requires <code>--stopped --yes --journal /private/sloth-rename</code>. The private journal must sit outside the instance directory. Keep writers stopped through verification. To recover an interruption, repeat the original command with <code>--resume</code> or <code>--rollback</code> and the same inventory, mapping and journal. Preserve the journal and an independent store backup.</p>
+    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/group_rename.go"><code>cmd/arizuko/group_rename.go</code></a></p>
 
     <h3 id="group-rm"><span class="sig">arizuko group &lt;instance&gt; rm &lt;folder&gt;</span></h3>
     <p>Delete the group row by folder via <code>store.DeleteGroup</code>. Does not remove the on-disk group directory or routes pointing at it; clean those up manually if needed.</p>
@@ -532,7 +540,7 @@ arizuko secret krons set main CF_API_TOKEN --value cf_xxxxxxxx</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/reference/cli.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-09-13">2026-09-13</time>
+        &middot; updated <time class="docs-updated" datetime="2026-09-19">2026-09-19</time>
       </div>
     </main>
 

@@ -100,3 +100,55 @@ decisions: each is an argument unpack in front of a function that IS covered.
 
 - Top-level `README.md` (Quick Start)
 - `ARCHITECTURE.md`
+
+### Offline group rename
+
+Stop all instance writers, ingress, guests and writable staging mounts. Keep
+only the database service running. Take a complete database backup and retain
+mutable files and keys. A config archive omits runtime state.
+
+```bash
+arizuko group sloth rename main sloth --map main/main=sloth/discord \
+  --inventory /private/rename-inventory.json \
+  --endpoint https://127.0.0.1:18444 --dry-run
+arizuko group sloth rename main sloth --map main/main=sloth/discord \
+  --inventory /private/rename-inventory.json \
+  --endpoint https://127.0.0.1:18444 --stopped --yes \
+  --journal /private/sloth-rename
+```
+
+The inventory is a private `0600` JSON document from the stopped database's
+complete table catalog. `owners` maps each owner to every table, then each
+partition to its exact item count. Include empty tables as `{}`. This evidence
+supplies partition enumeration; the CLI reads and writes through the object
+store. The inventory also carries `instance`, `endpoint`,
+`configured_endpoint`, `ca_sha256`, and `key_ids_sha256` (owner to credential-ID
+hash). Hash decoded `STORE_CA` bytes and each `AWS_ACCESS_KEY_ID` with SHA-256.
+`configured_endpoint` equals generated `DYNAMODB_URL`; `endpoint` equals the
+operator URL passed on the command line. Every `env/<owner>.env` must identify
+the selected instance through `ARIZUKO_INSTANCE`. Credentials come from those
+files, with no process-environment override.
+
+Preflight checks table coverage, counts, destination collisions, active records,
+mounts, sockets and unsupported references. More specific mappings use original
+coordinates. Platform JIDs, including legacy `local:` feeds, opaque IDs,
+ciphertext, cursor positions, historical prose and audit evidence retain their bytes. Directories merge only
+without leaf collisions; unrelated destination files remain intact. Workspace
+files move with their directory. The CLI updates symlink targets, operational
+web URLs, absolute workspace paths and declared agent settings. It refuses
+unclassified folder settings. Unqualified route `room` operands retain platform
+room names; only explicit `platform=web` or `platform=hook` room operands move.
+Coordinate operands in ACL Params and Predicate require exact values; globs
+refuse preflight, including on unchanged ACL rows.
+
+Execution creates a private `0700` journal outside the instance directory.
+`plan.json` contains complete before/after item images and changed file bytes.
+`progress.jl` records durable batch boundaries. Cross-owner work is not one
+transaction. If execution stops, keep the instance fenced and repeat the exact
+command with `--resume` or `--rollback`. Keep the inventory and original mapping
+unchanged. Rollback refuses drift. Verify routing, permissions, feeds, secrets,
+sessions and files before restarting. Signed JWT claims need fresh login if
+those claims carry an old folder.
+
+`arizuko chat <instance> --folder <folder>` selects the group's IPC socket;
+the default folder is `main`.

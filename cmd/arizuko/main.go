@@ -395,6 +395,10 @@ func cmdGroup(args []string) {
 	instance, action := args[0], args[1]
 
 	dataDir := mustInstanceDir(instance)
+	if action == "rename" {
+		cmdGroupRename(instance, dataDir, args[2:])
+		return
+	}
 	// groups/routes/scheduled_tasks/acl live in routd.db post-split, and so does
 	// audit_log (routd migration 0016) — one routd.db handle serves every action
 	// here, reads included. `list` used to read the frozen messages.db and print
@@ -916,10 +920,15 @@ func cmdInvite(args []string) {
 // cmdChat launches `claude` (Claude Code CLI) wired to the instance's root
 // IPC socket via socat. Local-operator only — socket access is the auth.
 func cmdChat(args []string) {
-	need(args, 1, "arizuko chat <instance>")
-	dataDir := mustInstanceDir(args[0])
+	need(args, 1, "arizuko chat <instance> [--folder <folder>]")
+	fs := flag.NewFlagSet("chat", flag.ContinueOnError)
+	folder := fs.String("folder", "main", "group folder for the IPC socket")
+	if err := flexParse(fs, args); err != nil || fs.NArg() != 1 || !groupfolder.IsValidFolder(*folder) {
+		die("usage: arizuko chat <instance> [--folder <folder>]")
+	}
+	dataDir := mustInstanceDir(fs.Arg(0))
 
-	sock := filepath.Join(dataDir, "ipc", "main", "gated.sock")
+	sock := filepath.Join(dataDir, "ipc", *folder, "gated.sock")
 	if _, err := os.Stat(sock); err != nil {
 		die("no IPC socket at %s — is the instance running?", sock)
 	}

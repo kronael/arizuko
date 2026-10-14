@@ -1051,3 +1051,29 @@ third-party ORMs.
 - Archive CLI: `cmd/arizuko/archive.go`
 - Run admission + hold: `runed/manager.go`, `runed/hold.go`,
   `runed/api/v1/types.go`
+
+## Offline group rename
+
+`arizuko group <instance> rename` moves a complete subtree through one
+original-coordinate map. More specific mappings take precedence. External chat
+identities, including legacy `local:` feeds, opaque IDs, ciphertext, cursors and
+historical content keep their bytes. Unqualified route rooms keep platform
+coordinates; explicit `platform=web` or `platform=hook` rooms use folder
+coordinates. The operation changes classified ownership and operational references.
+
+The instance stays stopped through execution, resume or rollback. An operator
+inventory names every owner table and its complete partition counts. This
+inventory supplies enumeration evidence; rows travel through `objstore.Query`
+and `GuardedBatch`. Unknown tables, count mismatches, affected active runs, unsupported
+references and destination collisions refuse the whole preflight. Coordinate
+operands in ACL Params and Predicate require exact values; globs refuse,
+including on unchanged ACL rows.
+
+A private journal records full before/after items and reversible filesystem
+operations before mutation. Each batch commits independently. Resume checks an
+uncertain batch against its recorded images. Rollback requires the same stopped
+state and refuses drift. Filesystem directories merge only when leaf names do
+not collide. Unrelated destination files remain intact.
+
+Implementation: `cmd/arizuko/group_rename.go`,
+`cmd/arizuko/group_rename_rows.go`, `cmd/arizuko/group_rename_files.go`.
