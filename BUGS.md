@@ -269,6 +269,45 @@ was wrong, and the sentence that would have settled it was the part thrown away.
   old behaviour with `"ck frame\n..."` — the same mid-word cut, from the other
   end of the same output.
 
+## L408 — one turn is dispatched up to seven times, seconds apart, and spawns several guests (2026-10-14, open)
+
+MEASURED on sloth, 2026-10-14 18:28-18:29, after a restart on a current image.
+Turn `1559996454418907247` on `sloth/discord`:
+
+```
+dispatch run             × 7   (18:28:59, 18:29:05, 18:29:14, …)
+dispatch capabilities    × 7
+agent self-reported use  × 2
+distinct guest handles for sloth/discord: 4
+```
+
+One trigger, one turn id, seven dispatches within fifteen seconds, and four
+guests actually spawned. Two reached the agent far enough to report usage, so at
+least two did the same work and can both reply.
+
+**It is not steering.** Steering reuses a turn id by design, and the log carries
+no steer line at all for the folder in that window.
+
+**It is not the deadline mismatch of the earlier class.** That one fires minutes
+apart; these are seconds. `RUNED_RUN_TIMEOUT` is unset in both `routd` and
+`runed` on sloth, so both sit on their code defaults.
+
+Four other turn ids in the same window repeat 5-7 times each, including three
+`auto-migrate` turns, so this is not specific to one chat.
+
+The guard the code already names is `SetTurnState(turnID, "done")` on a steered
+turn, whose own comment says "a re-fed poll / recoverPending re-spawns it and
+duplicates the output" (`routd/dispatch.go:468-472`). Something on the ordinary
+path leaves the turn re-dispatchable.
+
+- **Severity:** high — duplicate replies in chat, and several VMs doing one turn's
+  work, which is the "slow and broken" an operator sees
+- **Scope:** `routd/dispatch.go`, the poll loop's claim on a running turn
+- **Affected:** sloth measured; krons runs the same code
+- **Status:** open
+- **Fix:** unknown — the claim that should make a running turn un-dispatchable has
+  to be found before it is changed. The measurement above is the reproduction.
+
 ## L398 — `make test`, the documented dev loop, cannot pass: two packages exceed Go's default 10-minute timeout (2026-10-07, open — the ten minutes is unexplained)
 
 Measured 2026-10-07, a full `go test ./... -count=1 -short` on this host:
