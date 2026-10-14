@@ -457,7 +457,7 @@ func TestSteeredPartialBatchNoRedispatch(t *testing.T) {
 		}
 		_, _ = db.RecordTurnResult(string(req.Folder), req.TurnID, "sess", "success", "")
 		_ = db.SetTurnState(req.TurnID, "done")
-		return runedv1.RunOutcome{Outcome: runedv1.OutcomeOK, SessionID: "sess"}, nil
+		return runedv1.RunOutcome{Outcome: runedv1.OutcomeOK}, nil
 	})
 	loop := NewLoop(db, runner, LoopConfig{})
 	loop.StopQueue()

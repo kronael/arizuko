@@ -70,11 +70,9 @@ type Turn struct {
 	RegisterSteer func(steer func(batch string) bool)
 }
 
-// RunResult is the harness outcome at the turn boundary. NewSessionID is the
-// session id the harness ran/produced. Outcome ∈ ok|error|silent.
+// RunResult is the harness outcome at the turn boundary. Outcome ∈ ok|error|silent.
 type RunResult struct {
 	Outcome      string // ok|error|silent
-	NewSessionID string
 	Error        string
 	ExitCode     int
 	MessageCount int

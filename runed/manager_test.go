@@ -46,7 +46,7 @@ func TestSerializationNoConcurrentDoubleSpawn(t *testing.T) {
 		mu.Unlock()
 		time.Sleep(5 * time.Millisecond) // hold the slot to expose any overlap
 		atomic.AddInt32(&live, -1)
-		return RunResult{Outcome: runedv1.OutcomeOK, NewSessionID: "s"}
+		return RunResult{Outcome: runedv1.OutcomeOK}
 	}}
 	_, mgr := newMgr(t, rt, 5)
 
@@ -77,7 +77,7 @@ func TestSteerWhenLive(t *testing.T) {
 		turn.RegisterSteer(func(string) bool { return true })
 		close(wired)
 		<-release
-		return RunResult{Outcome: runedv1.OutcomeOK, NewSessionID: "s1"}
+		return RunResult{Outcome: runedv1.OutcomeOK}
 	}}
 	_, mgr := newMgr(t, rt, 5)
 
@@ -97,41 +97,6 @@ func TestSteerWhenLive(t *testing.T) {
 	if n := spawns.Load(); n != 1 {
 		t.Fatalf("spawns=%d want exactly 1 container for one busy folder", n)
 	}
-}
-
-// TestFreshRunSteerSeesResolvedSessionID: for a FRESH run (empty
-// req.SessionID), a concurrent Run that steers into the live spawn must see
-// the resolved (minted) session id on the ack — not the empty req.SessionID
-// (Bug 6 — the slot used to store req.SessionID, registered BEFORE spawn
-// minted the id, so a racing steer reported steered:true with an empty id).
-func TestFreshRunSteerSeesResolvedSessionID(t *testing.T) {
-	wired := make(chan struct{})
-	release := make(chan struct{})
-	rt := FakeRuntime{Fn: func(ctx context.Context, turn Turn) RunResult {
-		turn.RegisterSteer(func(string) bool { return true })
-		close(wired)
-		<-release
-		return RunResult{Outcome: runedv1.OutcomeOK, NewSessionID: "minted-by-runtime"}
-	}}
-	_, mgr := newMgr(t, rt, 5)
-
-	done := make(chan struct{})
-	go func() {
-		// fresh run: no SessionID — the Manager must mint one before registering.
-		mgr.Run(context.Background(), runedv1.RunRequest{Folder: "demo", MessageBatch: "first"})
-		close(done)
-	}()
-	<-wired
-
-	out, _ := mgr.Run(context.Background(), runedv1.RunRequest{Folder: "demo", MessageBatch: "second"})
-	if !out.Steered {
-		t.Fatalf("second Run steered=%v want true", out.Steered)
-	}
-	if out.SessionID == "" {
-		t.Fatalf("steered ack carries empty session id — slot registered before spawn resolved one (Bug 6)")
-	}
-	close(release)
-	<-done
 }
 
 // TestConcurrencyCap: with MaxConcurrent=2 and 3 distinct busy folders, at
@@ -195,7 +160,7 @@ func TestCircuitBreakerTripAndReset(t *testing.T) {
 		if failNext.Load() {
 			return RunResult{Outcome: runedv1.OutcomeError, Error: "boom"}
 		}
-		return RunResult{Outcome: runedv1.OutcomeOK, NewSessionID: "ok"}
+		return RunResult{Outcome: runedv1.OutcomeOK}
 	}}
 	_, mgr := newMgr(t, rt, 5)
 
@@ -235,7 +200,7 @@ func TestRunTTLBecomesTheCtxDeadline(t *testing.T) {
 		if dl, ok := ctx.Deadline(); ok {
 			gotTTL.Store(int64(time.Until(dl)))
 		}
-		return RunResult{Outcome: runedv1.OutcomeOK, NewSessionID: "s"}
+		return RunResult{Outcome: runedv1.OutcomeOK}
 	}}
 	db, err := OpenMem()
 	if err != nil {
@@ -397,7 +362,7 @@ func TestKillDoesNotRelabelCompletedRun(t *testing.T) {
 // one (gap 4).
 func TestIsolatedRunNoSessionLineage(t *testing.T) {
 	rt := FakeRuntime{Fn: func(context.Context, Turn) RunResult {
-		return RunResult{Outcome: runedv1.OutcomeOK, NewSessionID: "s"}
+		return RunResult{Outcome: runedv1.OutcomeOK}
 	}}
 	db, mgr := newMgr(t, rt, 5)
 

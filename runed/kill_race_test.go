@@ -25,7 +25,7 @@ func TestSpawnAbortsWhenKilledBeforeStart(t *testing.T) {
 	var launches atomic.Int32
 	rt := FakeRuntime{Fn: func(_ context.Context, _ Turn) RunResult {
 		launches.Add(1)
-		return RunResult{Outcome: runedv1.OutcomeOK, NewSessionID: "s"}
+		return RunResult{Outcome: runedv1.OutcomeOK}
 	}}
 	db, mgr := newMgr(t, rt, 5)
 
@@ -52,8 +52,8 @@ func TestSpawnAbortsWhenKilledBeforeStart(t *testing.T) {
 		t.Errorf("aborted launch outcome=%+v want Busy=true (nothing ran; routd must re-feed, not advance)", out)
 	}
 	// Busy's pinned contract: no run happened, so no run identity rides back.
-	if out.RunID != "" || out.Outcome != "" || out.SessionID != "" {
-		t.Errorf("aborted launch outcome=%+v want empty run_id/outcome/session_id", out)
+	if out.RunID != "" || out.Outcome != "" {
+		t.Errorf("aborted launch outcome=%+v want empty run_id/outcome", out)
 	}
 	if sp, _ := db.SpawnByRunID(t.Context(), c.runID); sp.State != "killed" {
 		t.Errorf("spawn state=%q want killed (row resurrected)", sp.State)
@@ -84,7 +84,7 @@ func TestKilledClaimDoesNotDoubleSpawnFolder(t *testing.T) {
 		default:
 		}
 		<-release
-		return RunResult{Outcome: runedv1.OutcomeOK, NewSessionID: "s"}
+		return RunResult{Outcome: runedv1.OutcomeOK}
 	}}
 	_, mgr := newMgr(t, rt, 5)
 

@@ -10,7 +10,7 @@ import (
 func TestMain(m *testing.M) { dyntest.Main(m) }
 
 // TestDBSpawnLifecycle exercises the spawns + session_log round-trip: create →
-// start → end, then the session close that rolls the session id forward.
+// start → end, then the session close.
 func TestDBSpawnLifecycle(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
@@ -34,7 +34,7 @@ func TestDBSpawnLifecycle(t *testing.T) {
 	if err := db.EndSpawn(t.Context(), "run_1", "exited", "ok", 0); err != nil {
 		t.Fatalf("end spawn: %v", err)
 	}
-	if err := db.CloseSession(t.Context(), "demo", logID, "sess1-new", "ok", "", 3); err != nil {
+	if err := db.CloseSession(t.Context(), "demo", logID, "ok", "", 3); err != nil {
 		t.Fatalf("end session: %v", err)
 	}
 
@@ -46,7 +46,7 @@ func TestDBSpawnLifecycle(t *testing.T) {
 		t.Fatalf("spawn=%+v", sp)
 	}
 	sessions, _ := db.RecentSessions(t.Context(), "demo", 10)
-	if len(sessions) != 1 || sessions[0].SessionID != "sess1-new" || sessions[0].MessageCount != 3 {
+	if len(sessions) != 1 || sessions[0].SessionID != "sess0" || sessions[0].MessageCount != 3 {
 		t.Fatalf("sessions=%+v", sessions)
 	}
 }

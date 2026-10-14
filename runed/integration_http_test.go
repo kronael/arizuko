@@ -44,7 +44,7 @@ func (*turnRecorder) Kill(string) error { return nil }
 // style, wrong egress, missing grants), and the expectations below are literals
 // so a renderer that changes its answer cannot agree with them.
 func TestHTTPRunThreadsFullTurn(t *testing.T) {
-	rec := &turnRecorder{res: RunResult{Outcome: runedv1.OutcomeOK, NewSessionID: "sess-x"}}
+	rec := &turnRecorder{res: RunResult{Outcome: runedv1.OutcomeOK}}
 	// service:routd drives runs (folder=""), so any target folder is allowed.
 	_, srv := serverWith(t, rec, fakeVerifier{scope: []string{"runs:run"}})
 	h := srv.Handler()
@@ -178,7 +178,7 @@ func TestHTTPRunLifecycle(t *testing.T) {
 	rec := &killRecorder{FakeRuntime: FakeRuntime{Fn: func(_ context.Context, _ Turn) RunResult {
 		close(started)
 		<-release
-		return RunResult{Outcome: runedv1.OutcomeOK, NewSessionID: "s-final"}
+		return RunResult{Outcome: runedv1.OutcomeOK}
 	}}}
 	db, srv := serverWith(t, rec, fakeVerifier{scope: []string{"runs:run", "runs:kill"}})
 	h := srv.Handler()
@@ -298,7 +298,7 @@ func TestHTTPRecentSessionsShape(t *testing.T) {
 	db, srv := serverWith(t, FakeRuntime{}, fakeVerifier{scope: []string{"sessions:read"}, folder: "demo"})
 	for _, sid := range []string{"s1", "s2", "s3"} {
 		id, _ := db.OpenSession(t.Context(), "demo", sid)
-		if err := db.CloseSession(t.Context(), "demo", id, sid, "ok", "", 2); err != nil {
+		if err := db.CloseSession(t.Context(), "demo", id, "ok", "", 2); err != nil {
 			t.Fatalf("CloseSession: %v", err)
 		}
 	}

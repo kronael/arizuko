@@ -78,7 +78,7 @@ func bootMediaFed(t *testing.T, enabled bool, whisperURL string, maxBytes int64)
 		f.mu.Lock()
 		f.batches[frame.MessageID] = frame.Prompt
 		f.mu.Unlock()
-		return runed.RunResult{Outcome: runedv1.OutcomeOK, NewSessionID: "sess-" + frame.MessageID}
+		return runed.RunResult{Outcome: runedv1.OutcomeOK}
 	}}
 	root := t.TempDir()
 	rcfg := &core.Config{

@@ -39,7 +39,7 @@ func TestDistinctFoldersRunConcurrently(t *testing.T) {
 		case <-time.After(2 * time.Second):
 		}
 		atomic.AddInt32(&live, -1)
-		return RunResult{Outcome: runedv1.OutcomeOK, NewSessionID: "s"}
+		return RunResult{Outcome: runedv1.OutcomeOK}
 	}}
 	_, mgr := newMgr(t, rt, 5)
 
@@ -76,7 +76,7 @@ func TestConcurrencyCapNoOverAdmit(t *testing.T) {
 		}
 		<-release // hold every admitted slot so all K are concurrently live.
 		atomic.AddInt32(&live, -1)
-		return RunResult{Outcome: runedv1.OutcomeOK, NewSessionID: "s"}
+		return RunResult{Outcome: runedv1.OutcomeOK}
 	}}
 	_, mgr := newMgr(t, rt, cap)
 
@@ -145,7 +145,7 @@ func TestFolderBusySteerFailReturnsBusy(t *testing.T) {
 		spawns.Add(1)
 		close(started)
 		<-release
-		return RunResult{Outcome: runedv1.OutcomeOK, NewSessionID: "s"}
+		return RunResult{Outcome: runedv1.OutcomeOK}
 	}}
 	_, mgr := newMgr(t, rt, 5)
 
@@ -194,7 +194,7 @@ func TestBreakerPersistsToDB(t *testing.T) {
 	// Simulate restart: create a new manager with the same DB.
 	cfg, folders := renderWiring(t)
 	mgr2 := NewManager(db, FakeRuntime{Fn: func(_ context.Context, _ Turn) RunResult {
-		return RunResult{Outcome: runedv1.OutcomeOK, NewSessionID: "s"}
+		return RunResult{Outcome: runedv1.OutcomeOK}
 	}}, ManagerConfig{
 		Instance: "test", MaxConcurrent: 5,
 		Cfg: cfg, Folders: folders,
@@ -259,7 +259,7 @@ func TestKillFreesSlotForNextRun(t *testing.T) {
 			return RunResult{Outcome: runedv1.OutcomeError, Error: "killed"}
 		}
 		close(secondRan)
-		return RunResult{Outcome: runedv1.OutcomeOK, NewSessionID: "s2"}
+		return RunResult{Outcome: runedv1.OutcomeOK}
 	}}}
 	_, mgr := newMgr(t, rt, 1)
 
@@ -293,7 +293,7 @@ func TestSteerWhenNoLiveRunSpawns(t *testing.T) {
 	var spawns int32
 	rt := FakeRuntime{Fn: func(_ context.Context, _ Turn) RunResult {
 		atomic.AddInt32(&spawns, 1)
-		return RunResult{Outcome: runedv1.OutcomeOK, NewSessionID: "s"}
+		return RunResult{Outcome: runedv1.OutcomeOK}
 	}}
 	_, mgr := newMgr(t, rt, 5)
 

@@ -295,7 +295,7 @@ func TestASessionIsOpenedAndClosedOnOneKey(t *testing.T) {
 	if len(rows) != 1 || rows[0].EndedAt != "" || rows[0].SessionID != "sess-a" {
 		t.Fatalf("the open session reads back %+v", rows)
 	}
-	if err := st.CloseSession(ctx, "acme", id, "sess-b", "ok", "boom", 7); err != nil {
+	if err := st.CloseSession(ctx, "acme", id, "ok", "boom", 7); err != nil {
 		t.Fatalf("close: %v", err)
 	}
 	rows, _ = st.RecentSessions(ctx, "acme", 10)
@@ -303,7 +303,7 @@ func TestASessionIsOpenedAndClosedOnOneKey(t *testing.T) {
 		t.Fatalf("closing opened a SECOND item: %+v", rows)
 	}
 	got := rows[0]
-	if got.ID != id || got.SessionID != "sess-b" || got.Result != "ok" ||
+	if got.ID != id || got.SessionID != "sess-a" || got.Result != "ok" ||
 		got.Error != "boom" || got.MessageCount != 7 || got.EndedAt == "" {
 		t.Fatalf("the closed session reads back %+v", got)
 	}
@@ -315,25 +315,12 @@ func TestASessionIsOpenedAndClosedOnOneKey(t *testing.T) {
 
 // An empty new session id leaves the one the run started with, which is the
 // COALESCE the statement carried.
-func TestClosingWithNoNewSessionIDKeepsTheOpenedOne(t *testing.T) {
-	st := newStore(t)
-	ctx := t.Context()
-	id, _ := st.OpenSession(ctx, "acme", "sess-a")
-	if err := st.CloseSession(ctx, "acme", id, "", "ok", "", 1); err != nil {
-		t.Fatal(err)
-	}
-	rows, _ := st.RecentSessions(ctx, "acme", 10)
-	if len(rows) != 1 || rows[0].SessionID != "sess-a" {
-		t.Fatalf("the closed session reads back %+v, want session_id sess-a", rows)
-	}
-}
-
 // Closing a session nobody opened is a caller fault and says so. The old
 // statement affected no rows and reported success, which is how a run's history
 // could go missing with nothing to read.
 func TestClosingASessionThatIsNotThereIsLoud(t *testing.T) {
 	st := newStore(t)
-	err := st.CloseSession(t.Context(), "acme", core.TS(time.Now())+"-00000001", "", "ok", "", 1)
+	err := st.CloseSession(t.Context(), "acme", core.TS(time.Now())+"-00000001", "ok", "", 1)
 	if err == nil {
 		t.Fatal("closing a session nobody opened reported success")
 	}

@@ -45,7 +45,7 @@ func (r *stubRunner) Run(_ context.Context, req runedv1.RunRequest) (runedv1.Run
 	if first {
 		_ = r.srv.db.SetTurnState(req.TurnID, "done")
 	}
-	return runedv1.RunOutcome{RunID: "run-stub", Outcome: runedv1.OutcomeOK, SessionID: "sess-stub"}, nil
+	return runedv1.RunOutcome{RunID: "run-stub", Outcome: runedv1.OutcomeOK}, nil
 }
 
 func newTestRoutd(t *testing.T) (*DB, *Server, *stubRunner) {

@@ -439,7 +439,7 @@ func (r *proactiveSilentRunner) Run(_ context.Context, req runedv1.RunRequest) (
 	if first, _ := r.srv.db.RecordTurnResult(string(req.Folder), req.TurnID, "sess-silent", "success", ""); first {
 		_ = r.srv.db.SetTurnState(req.TurnID, "done")
 	}
-	return runedv1.RunOutcome{RunID: "run-silent", Outcome: runedv1.OutcomeSilent, SessionID: "sess-silent"}, nil
+	return runedv1.RunOutcome{RunID: "run-silent", Outcome: runedv1.OutcomeSilent}, nil
 }
 
 // TestProactiveSilentOutcomeArmsCooldown is acceptance #3: the agent judges

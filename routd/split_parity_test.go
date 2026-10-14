@@ -122,14 +122,13 @@ func TestSessionIdleExpired(t *testing.T) {
 	}
 }
 
-// sidRunner captures the session_id routd ships to runed (the value the spawn
-// resumes from) and echoes it back as the outcome session so the post-run state
-// reflects what was dispatched.
+// sidRunner captures the session_id routd ships to runed, the value the spawn
+// resumes from.
 type sidRunner struct{ gotSID string }
 
 func (r *sidRunner) Run(_ context.Context, req runedv1.RunRequest) (runedv1.RunOutcome, error) {
 	r.gotSID = req.SessionID
-	return runedv1.RunOutcome{RunID: "r", Outcome: runedv1.OutcomeOK, SessionID: req.SessionID}, nil
+	return runedv1.RunOutcome{RunID: "r", Outcome: runedv1.OutcomeOK}, nil
 }
 
 // TestSpawnResetsStaleSession: a 3-day-old cursor with a stored session gets the

@@ -217,15 +217,14 @@ func (m *Manager) admit(ctx context.Context, req runedv1.RunRequest, kind string
 			steer := m.steerFns[active.RunID]
 			steered = steer != nil && steer(req.MessageBatch)
 		}
-		runID, sessionID := active.RunID, active.SessionID
+		runID := active.RunID
 		m.mu.Unlock()
 		if steered {
 			if merr := m.db.MarkSteered(ctx, runID); merr != nil {
 				slog.Error("runed: could not record the steer", "run_id", runID, "err", merr)
 			}
 			return claim{}, runedv1.RunOutcome{
-				RunID: runID, Outcome: runedv1.OutcomeOK,
-				SessionID: sessionID, Steered: true,
+				RunID: runID, Outcome: runedv1.OutcomeOK, Steered: true,
 			}, false, nil
 		}
 		// Steer failed (container exited), not attempted, or not yet wired:
@@ -334,25 +333,20 @@ func (m *Manager) spawn(ctx context.Context, req runedv1.RunRequest, runID, sess
 	if failed {
 		state = "error"
 	}
-	endSession := sessionID
-	if res.NewSessionID != "" {
-		endSession = res.NewSessionID
-	}
 	if err := m.db.EndSpawn(ctx, runID, state, res.Outcome, res.ExitCode); err != nil {
 		// The row stays 'running' if this fails: a zombie that blocks the cap
 		// until an operator resets it.
 		slog.Error("runed: EndSpawn failed — spawn may become zombie", "run_id", runID, "err", err)
 	}
 	if logID != "" {
-		if err := m.db.CloseSession(ctx, folder, logID, res.NewSessionID,
-			res.Outcome, res.Error, res.MessageCount); err != nil {
+		if err := m.db.CloseSession(ctx, folder, logID, res.Outcome, res.Error, res.MessageCount); err != nil {
 			slog.Error("runed: CloseSession failed", "log_id", logID, "err", err)
 		}
 	}
 	breakerTripped := m.endRun(ctx, folder, runID, failed, kind)
 
 	out := runedv1.RunOutcome{
-		RunID: runID, Outcome: res.Outcome, SessionID: endSession, Error: res.Error,
+		RunID: runID, Outcome: res.Outcome, Error: res.Error,
 		Terminal: res.Terminal,
 	}
 	// The run that pushes the folder to the threshold reports breaker_open on

@@ -356,7 +356,7 @@ func fakeAgentRuntime(t *testing.T, f *federation) runed.Runtime {
 		if err := f.agentReply(turn, frame, "agent says: ack "+frame.MessageID); err != nil {
 			return runed.RunResult{Outcome: runedv1.OutcomeError, Error: err.Error()}
 		}
-		return runed.RunResult{Outcome: runedv1.OutcomeOK, NewSessionID: "sess-" + frame.MessageID}
+		return runed.RunResult{Outcome: runedv1.OutcomeOK}
 	}}
 }
 

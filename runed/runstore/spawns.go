@@ -74,8 +74,7 @@ type Spawn struct {
 
 // ActiveSpawn is a live spawn's identifying info for the steer path.
 type ActiveSpawn struct {
-	RunID     string
-	SessionID string
+	RunID string
 }
 
 // spawnKey is the coordinate of one spawn.
@@ -291,7 +290,7 @@ func (s *Store) LiveSpawnInFolder(ctx context.Context, folder string) (*ActiveSp
 	items, err := s.s.Query(ctx, objstore.Query{
 		Entity: Spawns, Partition: spawnPartition,
 		Where:   append([]objstore.Cmp{{Attr: attrFolder, Op: objstore.Eq, Value: folder}}, live()...),
-		Project: []string{attrSessionID, attrCreatedAt},
+		Project: []string{attrCreatedAt},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("read %s's live run: %w", folder, err)
@@ -305,7 +304,7 @@ func (s *Store) LiveSpawnInFolder(ctx context.Context, folder string) (*ActiveSp
 	if newest == nil {
 		return nil, nil
 	}
-	return &ActiveSpawn{RunID: newest.Key.Sort, SessionID: newest.Attrs[attrSessionID]}, nil
+	return &ActiveSpawn{RunID: newest.Key.Sort}, nil
 }
 
 // LiveSpawnCount answers how many spawns of EVERY kind still hold a slot.

@@ -38,7 +38,7 @@ func (r *recRunner) Run(_ context.Context, req runedv1.RunRequest) (runedv1.RunO
 	if r.during != nil {
 		r.during()
 	}
-	return runedv1.RunOutcome{RunID: "r", Outcome: runedv1.OutcomeOK, SessionID: "s"}, nil
+	return runedv1.RunOutcome{RunID: "r", Outcome: runedv1.OutcomeOK}, nil
 }
 
 func recLoop(t *testing.T) (*DB, *Loop, *recRunner) {

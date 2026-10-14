@@ -27,9 +27,9 @@ func (v fakeVerifier) Verify(*http.Request) (string, []string, string, error) {
 // mustClose closes a seeded session and fails loud when it does not land: a
 // history fixture that silently wrote nothing makes the assertion below prove
 // the opposite of what it says.
-func mustClose(t *testing.T, db *DB, folder, id, sessionID, result, errMsg string, msgs int) {
+func mustClose(t *testing.T, db *DB, folder, id, result, errMsg string, msgs int) {
 	t.Helper()
-	if err := db.CloseSession(t.Context(), folder, id, sessionID, result, errMsg, msgs); err != nil {
+	if err := db.CloseSession(t.Context(), folder, id, result, errMsg, msgs); err != nil {
 		t.Fatalf("CloseSession(%s/%s): %v", folder, id, err)
 	}
 }
@@ -112,7 +112,7 @@ func TestStopFolderKillsActiveRun(t *testing.T) {
 	rec := &killRecorder{FakeRuntime: FakeRuntime{Fn: func(_ context.Context, _ Turn) RunResult {
 		close(started)
 		<-release
-		return RunResult{Outcome: runedv1.OutcomeOK, NewSessionID: "s1"}
+		return RunResult{Outcome: runedv1.OutcomeOK}
 	}}}
 	db, srv := serverWith(t, rec, fakeVerifier{scope: []string{"runs:run", "runs:kill"}, folder: "demo"})
 	h := srv.Handler()
@@ -192,9 +192,9 @@ func TestSessionsFolderBound(t *testing.T) {
 	db, srv := serverWith(t, FakeRuntime{}, fakeVerifier{scope: []string{"sessions:read"}, folder: "alice"})
 	// rows for two folders.
 	a, _ := db.OpenSession(t.Context(), "alice", "sa")
-	mustClose(t, db, "alice", a, "sa", "ok", "", 1)
+	mustClose(t, db, "alice", a, "ok", "", 1)
 	b, _ := db.OpenSession(t.Context(), "bob", "sb")
-	mustClose(t, db, "bob", b, "sb", "ok", "", 1)
+	mustClose(t, db, "bob", b, "ok", "", 1)
 	h := srv.Handler()
 
 	// even asking for bob, the token's folder (alice) wins.
@@ -224,7 +224,7 @@ func TestSessionsRequiresScope(t *testing.T) {
 func TestRecentSessionsReturnsRecords(t *testing.T) {
 	db, srv := serverWith(t, FakeRuntime{}, fakeVerifier{scope: []string{"sessions:read"}, folder: "alice"})
 	id, _ := db.OpenSession(t.Context(), "alice", "sa")
-	mustClose(t, db, "alice", id, "sa", "ok", "boom", 7)
+	mustClose(t, db, "alice", id, "ok", "boom", 7)
 	h := srv.Handler()
 
 	rec := req(t, h, "GET", "/v1/spawn_sessions/recent?n=5")
@@ -249,9 +249,9 @@ func TestRecentSessionsReturnsRecords(t *testing.T) {
 func TestRecentSessionsFolderBound(t *testing.T) {
 	db, srv := serverWith(t, FakeRuntime{}, fakeVerifier{scope: []string{"sessions:read"}, folder: "alice"})
 	a, _ := db.OpenSession(t.Context(), "alice", "sa")
-	mustClose(t, db, "alice", a, "sa", "ok", "", 1)
+	mustClose(t, db, "alice", a, "ok", "", 1)
 	b, _ := db.OpenSession(t.Context(), "bob", "sb")
-	mustClose(t, db, "bob", b, "sb", "ok", "", 1)
+	mustClose(t, db, "bob", b, "ok", "", 1)
 
 	rec := req(t, srv.Handler(), "GET", "/v1/spawn_sessions/recent?folder=bob")
 	if rec.Code != 200 {

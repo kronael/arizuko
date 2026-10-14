@@ -91,7 +91,6 @@ type RunRequest struct {
 type RunOutcome struct {
 	RunID       string `json:"run_id"`
 	Outcome     string `json:"outcome"` // ok|error|silent
-	SessionID   string `json:"session_id"`
 	Error       string `json:"error"`
 	Steered     bool   `json:"steered"`
 	Busy        bool   `json:"busy"`

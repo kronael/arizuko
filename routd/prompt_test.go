@@ -257,7 +257,7 @@ func TestRunTurn_WritesSpawnSnapshots(t *testing.T) {
 
 	ipcDir := t.TempDir()
 	runner := runnerFn(func(_ context.Context, _ runedv1.RunRequest) (runedv1.RunOutcome, error) {
-		return runedv1.RunOutcome{Outcome: runedv1.OutcomeOK, SessionID: "sess"}, nil
+		return runedv1.RunOutcome{Outcome: runedv1.OutcomeOK}, nil
 	})
 	loop := NewLoop(db, runner, LoopConfig{IpcDir: ipcDir})
 	loop.StopQueue()

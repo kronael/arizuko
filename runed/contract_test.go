@@ -37,7 +37,7 @@ func TestContractRun(t *testing.T) {
 	var sawTurn Turn
 	rt := FakeRuntime{Fn: func(_ context.Context, turn Turn) RunResult {
 		sawTurn = turn
-		return RunResult{Outcome: runedv1.OutcomeOK, NewSessionID: "sess-runed"}
+		return RunResult{Outcome: runedv1.OutcomeOK}
 	}}
 
 	db, srv := newTestRuned(t, rt)
@@ -56,9 +56,6 @@ func TestContractRun(t *testing.T) {
 	json.Unmarshal(rec.Body.Bytes(), &out)
 	if out.Outcome != runedv1.OutcomeOK {
 		t.Fatalf("outcome=%q want ok", out.Outcome)
-	}
-	if out.SessionID != "sess-runed" {
-		t.Fatalf("session_id=%q want sess-runed", out.SessionID)
 	}
 	if out.RunID == "" {
 		t.Fatal("run_id empty")
@@ -102,7 +99,7 @@ func TestSteerIntoRunning(t *testing.T) {
 	rt := FakeRuntime{Fn: func(ctx context.Context, turn Turn) RunResult {
 		close(started)
 		<-release
-		return RunResult{Outcome: runedv1.OutcomeOK, NewSessionID: "s1"}
+		return RunResult{Outcome: runedv1.OutcomeOK}
 	}}
 	db, srv := newTestRuned(t, rt)
 	_ = db

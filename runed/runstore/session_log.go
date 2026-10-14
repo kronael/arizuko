@@ -116,18 +116,14 @@ func (s *Store) OpenSession(ctx context.Context, folder, sessionID string) (stri
 	return id, nil
 }
 
-// CloseSession records how a run ended on the item OpenSession created.
-// newSessionID is the id the HARNESS emitted, not always the one the run
-// started with; an empty one leaves the opened id alone. A refusal means no
-// such session: a caller fault, since only the run that opened the item
-// closes it.
-func (s *Store) CloseSession(ctx context.Context, folder, id, newSessionID, result, errMsg string,
-	msgs int) error {
+// CloseSession records how a run ended on the item OpenSession created. A
+// refusal means no such session: a caller fault, since only the run that
+// opened the item closes it.
+func (s *Store) CloseSession(ctx context.Context, folder, id, result, errMsg string, msgs int) error {
 	attrs := map[string]string{
 		attrSessEndedAt:  core.NowTS(),
 		attrSessMsgCount: strconv.Itoa(msgs),
 	}
-	set(attrs, attrSessSessionID, newSessionID)
 	set(attrs, attrSessResult, result)
 	set(attrs, attrSessError, errMsg)
 	committed, err := s.s.GuardedBatch(ctx, nil, []objstore.Write{{
