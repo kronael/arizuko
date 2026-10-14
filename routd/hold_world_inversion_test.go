@@ -127,9 +127,8 @@ func containsAll(s string, want ...string) bool {
 
 // TestWorld_HoldsOnlyWhatAPersonShouldSee walks the tools a world turn actually
 // mounts and puts each on one side of the line. A read the agent needs every turn
-// must never wait for a human — a world that has to ask before reading its own
-// notes cannot work — and a write must always wait, which is what the blanket
-// hold is for. A tool added on the wrong side fails here rather than in a chat.
+// must never wait for a human. Messaging and ending the turn's own conversation
+// also skip holds. Other writes wait under the blanket hold.
 func TestWorld_HoldsOnlyWhatAPersonShouldSee(t *testing.T) {
 	d := memDB(t)
 	worldFolder(t, d, "atlas")
@@ -146,11 +145,11 @@ func TestWorld_HoldsOnlyWhatAPersonShouldSee(t *testing.T) {
 		time.Sleep(5 * time.Millisecond)
 	}
 
-	// Everything a turn reads or says, and nothing else.
+	// Reads, messages, and stopping the turn's own conversation.
 	free := map[string]bool{}
 	for _, n := range []string{
 		"reply", "send", "send_file", "send_voice", "post", "forward", "quote",
-		"repost", "like", "dislike", "edit", "delete",
+		"repost", "like", "dislike", "edit", "delete", "disengage",
 		"inspect_routing", "inspect_tasks", "inspect_session", "inspect_identity",
 		"inspect_messages", "find_messages", "get_thread", "fetch_history",
 		"get_work", "set_work",
