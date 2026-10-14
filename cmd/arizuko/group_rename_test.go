@@ -1117,3 +1117,45 @@ func TestGroupRenameACLExactCoordinateMatchers(t *testing.T) {
 		})
 	}
 }
+
+func TestGroupRenameImmutableImagesOutsideSettingsScan(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "images/rootfs-a35045d89e3e/app/node_modules/typescript/lib/_tsc.js")
+	if err := os.MkdirAll(filepath.Dir(path), 0750); err != nil {
+		t.Fatal(err)
+	}
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = file.WriteString("/pub/main/main/ immutable image"); err != nil {
+		t.Fatal(err)
+	}
+	if err = file.Truncate(5 << 20); err != nil {
+		t.Fatal(err)
+	}
+	if err = file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	ops, err := renamePlanFiles(root, renameTestMap(t))
+	if err != nil || len(ops) != 0 {
+		t.Fatalf("immutable image entered rewrite scan: %#v %v", ops, err)
+	}
+	control := filepath.Join(root, "env/settings.json")
+	if err = os.MkdirAll(filepath.Dir(control), 0750); err != nil {
+		t.Fatal(err)
+	}
+	file, err = os.Create(control)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = file.Truncate(5 << 20); err != nil {
+		t.Fatal(err)
+	}
+	if err = file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = renamePlanFiles(root, renameTestMap(t)); err == nil || !strings.Contains(err.Error(), control) {
+		t.Fatalf("oversized operational settings accepted: %v", err)
+	}
+}
