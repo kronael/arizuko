@@ -140,7 +140,9 @@ unclassified folder settings. Unqualified route `room` operands retain platform
 room names; only explicit `platform=web` or `platform=hook` room operands move.
 Hook JIDs and explicit hook rooms retain their source labels.
 Coordinate operands in ACL Params and Predicate require exact values; globs
-refuse preflight, including on unchanged ACL rows.
+refuse preflight, including on unchanged ACL rows. When a token JID changes,
+preflight compares its parsed folder with its recorded target. If the target
+is set and differs, preflight rejects the ambiguous alias.
 
 Execution creates a private `0700` journal outside the instance directory.
 `plan.json` contains complete before/after item images and changed file bytes.

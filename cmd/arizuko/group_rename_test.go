@@ -1190,3 +1190,57 @@ func TestGroupRenameHookRoomRetainsSource(t *testing.T) {
 		t.Fatalf("hook source room lost: %q became %q, cannot match %q", original, mapped, next)
 	}
 }
+
+func TestGroupRenameTokenRecordedOwnership(t *testing.T) {
+	for _, fixture := range []struct {
+		jid, target, want string
+		refuse            bool
+	}{
+		{groupfolder.WebJID("main") + "/main", "main", "", true},
+		{groupfolder.HookJID("main", "main") + "/thread", "main", "", true},
+		{groupfolder.WebJID("main"), "main", groupfolder.WebJID("sloth"), false},
+		{groupfolder.HookJID("main/main", "main"), "main/main", groupfolder.HookJID("sloth/discord", "main"), false},
+		{groupfolder.HookJID("main/trading", "deepdex"), "", groupfolder.HookJID("sloth/trading", "deepdex"), false},
+		{groupfolder.WebJID("other") + "/main", "other", groupfolder.WebJID("other") + "/main", false},
+	} {
+		t.Run(fixture.jid, func(t *testing.T) {
+			ctx := context.Background()
+			inventory, drivers := renameFixture(t)
+			for _, folder := range []string{"main", "main/main", "main/trading", "other"} {
+				renameSeed(t, &inventory, drivers, "routd", store.Groups, objstore.Key{Partition: "routd", Sort: folder}, map[string]string{"added_at": "unchanged"})
+			}
+			attrs := map[string]string{"jid": fixture.jid, "target_folder": fixture.target}
+			key := objstore.Key{Partition: "routd", Sort: "opaque-token-hash"}
+			renameSeed(t, &inventory, drivers, "routd", store.RouteTokens, key, attrs)
+			counter := &renameFaultStore{Store: drivers["routd"]}
+			drivers["routd"] = counter
+			plan, err := renamePreflight(ctx, "fixture", "", renameTestMap(t), inventory, drivers)
+			if counter.Calls != 0 {
+				t.Fatalf("preflight wrote %d batches", counter.Calls)
+			}
+			if counter.Queries > 3 {
+				t.Fatalf("preflight exceeded token/group/marker reads: %d", counter.Queries)
+			}
+			if fixture.refuse {
+				if err == nil || !strings.Contains(err.Error(), "route token") {
+					t.Fatalf("ambiguous token accepted or wrong refusal: %v", err)
+				}
+				_, matches, err := renameRowState(ctx, counter, store.RouteTokens, objstore.Item{Key: key, Attrs: attrs})
+				if err != nil || !matches {
+					t.Fatalf("refused token changed: %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("supported token refused: %v", err)
+			}
+			if err = renameExecute(ctx, filepath.Join(t.TempDir(), "journal"), plan, drivers, false, false); err != nil {
+				t.Fatal(err)
+			}
+			rows, err := counter.Query(ctx, objstore.Query{Entity: store.RouteTokens, Partition: "routd"})
+			if err != nil || len(rows) != 1 || rows[0].Key != key || rows[0].Attrs["jid"] != fixture.want || rows[0].Attrs["target_folder"] != renameTestMap(t).folder(fixture.target) {
+				t.Fatalf("token alias or ownership changed: %#v %v", rows, err)
+			}
+		})
+	}
+}

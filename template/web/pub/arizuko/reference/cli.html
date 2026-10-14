@@ -271,7 +271,7 @@ arizuko group krons add "discord:guild/123/456" eng --product developer</code></
     <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go#L275"><code>cmd/arizuko/main.go:275</code></a> (v0.40.6 added <code>--product</code>)</p>
 
     <h3 id="group-rename"><span class="sig">arizuko group &lt;instance&gt; rename &lt;source&gt; &lt;destination&gt;</span></h3>
-    <p>Rename a folder subtree across the instance's stores and files. Use <code>--map old=new</code> for nested exceptions. Stop all writers and guests before execution. Produce a complete private inventory of owner tables and partition counts; the command checks the inventory against the store and owner credentials. Collisions stop preflight. Coordinate operands in ACL Params and Predicate require exact values; wildcard operands stop preflight. Platform chat IDs and historical text stay intact.</p>
+    <p>Rename a folder subtree across the instance's stores and files. Use <code>--map old=new</code> for nested exceptions. Stop all writers and guests before execution. Produce a complete private inventory of owner tables and partition counts; the command checks the inventory against the store and owner credentials. Collisions stop preflight. Coordinate operands in ACL Params and Predicate require exact values; wildcard operands stop preflight. Ambiguous suffixed token JIDs also stop preflight. Platform chat IDs and historical text stay intact.</p>
     <pre><code>arizuko group sloth rename main sloth --map main/main=sloth/discord \
   --inventory /private/sloth-inventory.json --endpoint https://127.0.0.1:18444 --dry-run</code></pre>
     <p>Execution requires <code>--stopped --yes --journal /private/sloth-rename</code>. The private journal must sit outside the instance directory. Keep writers stopped through verification. To recover an interruption, repeat the original command with <code>--resume</code> or <code>--rollback</code> and the same inventory, mapping and journal. Preserve the journal and an independent store backup.</p>
@@ -540,7 +540,7 @@ arizuko secret krons set main CF_API_TOKEN --value cf_xxxxxxxx</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/reference/cli.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-09-19">2026-09-19</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-14">2026-10-14</time>
       </div>
     </main>
 

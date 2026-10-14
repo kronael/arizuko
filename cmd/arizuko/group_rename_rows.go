@@ -530,6 +530,13 @@ func (mapping renameMap) row(owner, entity string, before objstore.Item, root st
 		}
 		after.Attrs[field] = next
 	}
+
+	if entity == store.RouteTokens && before.Attrs["jid"] != after.Attrs["jid"] {
+		target := before.Attrs["target_folder"]
+		if target != "" && groupfolder.JidFolder(before.Attrs["jid"]) != target {
+			return after, fmt.Errorf("route token %q has unsupported JID ownership: %q disagrees with recorded target %q", before.Key.Sort, before.Attrs["jid"], target)
+		}
+	}
 	if !reflect.DeepEqual(before, after) {
 		state := before.Attrs["state"]
 		switch entity {
