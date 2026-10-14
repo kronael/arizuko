@@ -6690,12 +6690,3 @@ Three shapes, one decision:
   **Fix:** measure instruction/tool exposure and completion behavior, then improve
   the existing declaration so an unambiguous completed task calls the stop tool.
   Do not add a second lifecycle policy or unconditional platform stop hook.
-
-- **RUNED-EMPTY-ROOTFS-CLEANUP** (MED, correctness) — every completed guest
-  leaves its empty `vms/<turn>/rootfs` directory. The fleet eval measures
-  60 Krons and28 Sloth teardown notices since this deployment; newest retained
-  rootfs directories have zero entries. `runed/vmrecord.go:392` removes named
-  pid files but omits `rootfsDirName`, so removing the turn directory fails.
-  **Fix:** remove the named empty rootfs directory only after the existing
-  process/mount proof; preserve nonempty or mounted paths. Extend the existing
-  daemon-owned-pid cleanup regression and prove both refusal controls.
