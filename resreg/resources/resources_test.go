@@ -105,11 +105,21 @@ func TestExport_FreshDB(t *testing.T) {
 	if !ok {
 		t.Fatalf("Export missing acl key")
 	}
-	// The floor: role:operator's root grant, role:member's twelve verbs, and the
-	// twenty-two skip-approval rows that keep those verbs and the always-mounted
-	// reads out of a folder's blanket hold.
-	if len(acl) != 35 {
-		t.Errorf("acl = %d rows, want 35 (the seeded floor)", len(acl))
+	if len(acl) != 37 {
+		t.Errorf("acl = %d rows, want 37 (the seeded floor)", len(acl))
+	}
+	for _, want := range []ACLRow{
+		{Principal: store.RoleMember, Action: "mcp:disengage", Scope: "**", Effect: store.EffectAllow},
+		{Principal: store.RoleMember, Action: "hold:mcp:disengage", Scope: "**", Effect: store.EffectDeny},
+	} {
+		found := slices.ContainsFunc(acl, func(row ACLRow) bool {
+			return row.Principal == want.Principal &&
+				row.Action == want.Action && row.Scope == want.Scope &&
+				row.Effect == want.Effect
+		})
+		if !found {
+			t.Errorf("Export dropped member floor row: %+v", want)
+		}
 	}
 	root := false
 	for _, r := range acl {
