@@ -6701,10 +6701,3 @@ Three shapes, one decision:
   setup instruction, preserving ordinary user routing and correct seed callers.
   Repair measured existing rows with guarded operator writes, retaining IDs and
   schedules. Prove an observe-only external route cannot suppress a seeded reducer.
-
-- **FLEET-STOCK-SKILL-QUARANTINE-REMAINS** (MED, ops) — six active Sloth groups
-  lack 11 or13 stock skill entrypoints. Their `.quarantined` backups remain from
-  the repaired L155 guard incident. Read-only hash evidence matches current stock
-  for65 entries;12 atlas/martin backups differ. **Fix:** restore only missing
-  current stock entrypoints, retaining all quarantined/custom files. No test — ops;
-  verify exact bytes and discovery counts against the recorded hash inventory.
