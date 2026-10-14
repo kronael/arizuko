@@ -237,6 +237,36 @@ enabled `gitd` had no command to run.
 are unaffected — that connector is `transport = "rest"` straight to
 `api.github.com`, and `gitd` is only the inbound receiver.
 
+## L407 — a failed turn reports the LAST 200 bytes of the agent's output, so the sentence naming the cause is cut off mid-word (2026-10-14, open)
+
+MEASURED on sloth, twice today. The error routd recorded and the operator read
+begins mid-word:
+
+```
+Guest exited with code 78: imit · ask your admin to raise it at
+claude.ai/admin-settings/usage · your weekly limit resets Oct 18, 11am (UTC)
+```
+
+`runed/qemu.go:483-486` keeps `tail[len(tail)-200:]`. An agent that fails prints
+its reason FIRST and then whatever follows, so the 200 bytes kept are the end of
+the message and the discarded bytes are the diagnosis. Here the lost text is
+whatever named the limit and whose account holds it — the only part that tells an
+operator what to do.
+
+This cost real time today: with the first line gone I read "weekly limit" and
+asserted a shared quota between instances. The two instances hold different
+tokens (`sha256` prefixes `772560947cb9` and `c3ffbf8a54dc`), so that conclusion
+was wrong, and the sentence that would have settled it was the part thrown away.
+
+- **Severity:** medium — every failed turn reports a mangled cause, and the
+  mangling points the reader at the wrong one
+- **Scope:** `runed/qemu.go`
+- **Affected:** every instance, every non-zero guest exit
+- **Status:** open
+- **Fix:** keep the FIRST line whole and bound the rest, so the reason survives
+  and the bound still holds. A diagnosis that starts mid-word is worse than a
+  truncated one, because it reads as complete.
+
 ## L398 — `make test`, the documented dev loop, cannot pass: two packages exceed Go's default 10-minute timeout (2026-10-07, open — the ten minutes is unexplained)
 
 Measured 2026-10-07, a full `go test ./... -count=1 -short` on this host:
