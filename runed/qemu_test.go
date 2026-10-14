@@ -823,3 +823,21 @@ func TestClampReportsAreNotLoggedAsErrors(t *testing.T) {
 		}
 	}
 }
+
+// An agent that fails says WHY first. Keeping the back of its output cut the
+// reason off mid-word and still read as a whole sentence, which pointed a reader
+// at the wrong cause (BUGS L407).
+func TestFailureReasonKeepsTheFront(t *testing.T) {
+	reason := "usage limit reached · ask your admin to raise it"
+	got := failureReason(reason + "\n" + strings.Repeat("stack frame\n", 60))
+
+	if !strings.HasPrefix(got, reason) {
+		t.Fatalf("failureReason = %q, want it to begin with the agent's own first line", got)
+	}
+	if len(got) > 210 {
+		t.Errorf("failureReason kept %d bytes, want it bounded", len(got))
+	}
+	if short := "died"; failureReason("  died\n") != short {
+		t.Errorf("a short output came back %q, want %q untouched", failureReason("  died\n"), short)
+	}
+}

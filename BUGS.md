@@ -237,7 +237,7 @@ enabled `gitd` had no command to run.
 are unaffected — that connector is `transport = "rest"` straight to
 `api.github.com`, and `gitd` is only the inbound receiver.
 
-## L407 — a failed turn reports the LAST 200 bytes of the agent's output, so the sentence naming the cause is cut off mid-word (2026-10-14, open)
+## ✅ FIXED 2026-10-14 L407 — a failed turn reports the LAST 200 bytes of the agent's output, so the sentence naming the cause is cut off mid-word (2026-10-14)
 
 MEASURED on sloth, twice today. The error routd recorded and the operator read
 begins mid-word:
@@ -262,10 +262,12 @@ was wrong, and the sentence that would have settled it was the part thrown away.
   mangling points the reader at the wrong one
 - **Scope:** `runed/qemu.go`
 - **Affected:** every instance, every non-zero guest exit
-- **Status:** open
-- **Fix:** keep the FIRST line whole and bound the rest, so the reason survives
-  and the bound still holds. A diagnosis that starts mid-word is worse than a
-  truncated one, because it reads as complete.
+- **Status:** fixed
+- **Fix:** `failureReason` keeps the front under the same 200-byte bound and
+  marks the cut with an ellipsis, so the reason arrives whole and a long log
+  still cannot fill an audit row. `TestFailureReasonKeepsTheFront` fails on the
+  old behaviour with `"ck frame\n..."` — the same mid-word cut, from the other
+  end of the same output.
 
 ## L398 — `make test`, the documented dev loop, cannot pass: two packages exceed Go's default 10-minute timeout (2026-10-07, open — the ten minutes is unexplained)
 

@@ -480,11 +480,19 @@ func (q *qemuRuntime) spawn(ctx context.Context, t Turn) RunResult {
 		},
 	})
 
-	tail := logbuf.String()
-	if len(tail) > 200 {
-		tail = tail[len(tail)-200:]
+	return turnResult(end, elapsed, console, failureReason(logbuf.String()))
+}
+
+// failureReason bounds an agent's output for the error routd records. It keeps
+// the FRONT: an agent that fails says why first and prints the aftermath after,
+// so cutting the back off left a reason that began mid-word and still read as a
+// whole sentence (BUGS L407).
+func failureReason(out string) string {
+	out = strings.TrimSpace(out)
+	if len(out) > 200 {
+		return out[:200] + "…"
 	}
-	return turnResult(end, elapsed, console, tail)
+	return out
 }
 
 // turnResult maps how a turn ended onto what routd reads. One place, because
