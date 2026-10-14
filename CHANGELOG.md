@@ -13,6 +13,40 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.70.3] — 2026-10-14
+
+> arizuko v0.70.3 — stop after the task
+>
+> Agents can end a conversation after answering, and operators can rename a
+> folder subtree with a checked inventory and a recovery journal.
+>
+> • disengagement — explicit stops survive final prose and tool replies
+> • thread mentions — bot participation in a human thread adds no automatic mention
+> • engagement control — `ENGAGEMENT_TTL=0` disables automatic windows
+> • folder rename — stores, files and operational links move under one mapping
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Fixed
+
+- Final prose and MCP replies respect a conversation's explicit stop. Fresh
+  addressed tasks can reopen engagement; ordinary members can disengage their
+  owned or current conversations without a hold approval.
+- Ambient thread messages gain mention status only when the recorded root is a
+  bot message. Explicit mentions, direct replies and reactions remain valid.
+- Explicit zero TTL reaches routd through compose and disables automatic opening
+  and renewal. The unset default is 30m. Existing windows retain their deadlines.
+- Typing timer tests use controlled time. Export tests verify the member
+  disengagement grants.
+
+### Added
+
+- `arizuko group <instance> rename <source> <destination>` supports nested
+  mappings, a complete private owner inventory, collision checks, dry-run and a
+  durable journal with resume and rollback. Execution requires stopped writers.
+  Platform chat IDs, human identities, opaque IDs and historical text stay intact.
+- `arizuko chat <instance> --folder <folder>` selects the group's MCP socket.
+
 ## [v0.70.2] — 2026-10-07
 
 > arizuko v0.70.2 — the logs say what happened
