@@ -141,6 +141,10 @@ func TestReapEndsQemuFirstAndTheSharesLast(t *testing.T) {
 // survives SIGKILL keeps the record, and the error says which pid it was.
 func TestReapKeepsTheRecordWhenAPidSurvivesSIGKILL(t *testing.T) {
 	rec, p := fullRecord(t)
+	rootfs := filepath.Join(rec.TurnDir, rootfsDirName)
+	if err := os.Mkdir(rootfs, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	p.immortal[101] = true
 	err := reapVM(rec, p, 20*time.Millisecond, time.Millisecond, nil, nil)
 	if err == nil {
@@ -151,6 +155,9 @@ func TestReapKeepsTheRecordWhenAPidSurvivesSIGKILL(t *testing.T) {
 	}
 	if _, serr := os.Stat(filepath.Join(rec.TurnDir, vmRecordName)); serr != nil {
 		t.Errorf("the record must stay for the next disk scan: %v", serr)
+	}
+	if _, err := os.Stat(rootfs); err != nil {
+		t.Fatalf("live guest rootfs removed: %v", err)
 	}
 	// SIGTERM then SIGKILL, in that order, both to the same pid.
 	if !slices.Contains(p.sent, "101:terminated") || !slices.Contains(p.sent, "101:killed") {
@@ -290,6 +297,9 @@ func TestReapReleasesTheCIDWhenOnlyTheTreeIsStuck(t *testing.T) {
 // evening on krons, and said only "directory not empty".
 func TestReapRemovesTheDaemonsOwnPidFiles(t *testing.T) {
 	rec, p := fullRecord(t)
+	if err := os.Mkdir(filepath.Join(rec.TurnDir, rootfsDirName), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	// Exactly what a finished turn leaves: the two sockets, a pid file beside each,
 	// and QEMU's own.
 	for _, name := range []string{
@@ -312,5 +322,81 @@ func TestReapRemovesTheDaemonsOwnPidFiles(t *testing.T) {
 		}
 		t.Fatalf("the turn dir survived, holding %v: a name the teardown does not know "+
 			"is a directory that leaks once per turn", names)
+	}
+}
+
+func TestReapKeepsRootfsFile(t *testing.T) {
+	rec, p := fullRecord(t)
+	rootfs := filepath.Join(rec.TurnDir, rootfsDirName)
+	if err := os.WriteFile(rootfs, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := reapVM(rec, p, time.Millisecond, time.Millisecond, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	content, err := os.ReadFile(rootfs)
+	if err != nil || string(content) != "keep" {
+		t.Fatalf("rootfs file changed: %q, %v", content, err)
+	}
+}
+
+func TestReapKeepsNonemptyRootfs(t *testing.T) {
+	rec, p := fullRecord(t)
+	rootfs := filepath.Join(rec.TurnDir, rootfsDirName)
+	if err := os.Mkdir(rootfs, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	foreign := filepath.Join(rootfs, "foreign.txt")
+	if err := os.WriteFile(foreign, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := reapVM(rec, p, time.Millisecond, time.Millisecond, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	content, err := os.ReadFile(foreign)
+	if err != nil || string(content) != "keep" {
+		t.Fatalf("nonempty rootfs contents changed: %q, %v", content, err)
+	}
+	if _, err := os.Stat(filepath.Join(rec.TurnDir, vmRecordName)); !os.IsNotExist(err) {
+		t.Fatalf("reaped processes retained their record: %v", err)
+	}
+}
+
+func TestReapKeepsMountedRootfs(t *testing.T) {
+	if os.Geteuid() != 0 {
+		t.Skip("requires mount privilege; run in a private mount namespace")
+	}
+	rec, p := fullRecord(t)
+	rootfs := filepath.Join(rec.TurnDir, rootfsDirName)
+	if err := os.Mkdir(rootfs, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Mount("tmpfs", rootfs, "tmpfs", 0, "size=4096"); err != nil {
+		if err == syscall.EPERM {
+			t.Skip("mount privilege unavailable")
+		}
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := syscall.Unmount(rootfs, 0); err != nil {
+			t.Errorf("unmount test rootfs: %v", err)
+		}
+	})
+	if err := reapVM(rec, p, time.Millisecond, time.Millisecond, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.Open("/proc/self/mountinfo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mounts := mountedUnder(f, rootfs)
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if len(mounts) != 1 || mounts[0] != rootfs {
+		t.Fatalf("cleanup changed live mount: %v", mounts)
+	}
+	if _, err := os.Stat(rec.TurnDir); err != nil {
+		t.Fatalf("mounted turn directory disappeared: %v", err)
 	}
 }

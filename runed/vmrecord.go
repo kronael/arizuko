@@ -384,6 +384,10 @@ func reapVM(rec *vmRecord, p procs, grace, poll time.Duration, tree *turnTree, n
 	// virtiofsd writes `<socket>.pid` next to its socket, which this list did not
 	// name, so every turn left three files and its directory behind: 250 of them in
 	// one evening on krons (BUGS `L376`).
+	rootfs := filepath.Join(rec.TurnDir, rootfsDirName)
+	if err := syscall.Rmdir(rootfs); err != nil && !os.IsNotExist(err) {
+		slog.Warn("vm teardown: rootfs kept", "path", rootfs, "err", err)
+	}
 	for _, name := range []string{
 		qemuPidName,
 		rootSockName, rootSockName + pidSuffix,
