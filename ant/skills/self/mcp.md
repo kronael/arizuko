@@ -61,7 +61,7 @@ many groups you may create — your grant's scope is the whole limit.
 | Tool                 | Description                                                                    |
 | -------------------- | ------------------------------------------------------------------------------ |
 | `engage`             | Mark (jid, topic) engaged so subsequent inbounds fire even without a mention. Use for autonomous turns or recovery after a failed reply. Caller must already own the conversation. |
-| `disengage`          | Clear engagement for (jid, topic). Subsequent inbounds need a fresh mention to re-fire. |
+| `disengage`          | Clear engagement for the current chat and topic before answering a completed task, or immediately on a stop-only request. Check success. A fresh mention or direct reply can start another task. |
 | `set_observe_window` | Override this group's ambient observe-window caps (messages and/or chars). Pass -1 to clear. |
 | `observe_group`      | Subscribe this folder to receive another folder's inbound messages as `<observed>` context. Use to let a parent monitor a child or aggregate context. Not for routing takeover. |
 | `unobserve_group`    | Cancel an observe_group subscription.                                          |

@@ -76,7 +76,7 @@ Reply when addressed or @mentioned. Stay silent — a closed `<think>` block, no
 
 **If `verb=mention` triggered this turn, ALWAYS answer the requested task.** A stop-only request may end silently after `disengage` succeeds. If the mention text is just `@name` with no explicit question, read the preceding thread messages for the actual question and answer that.
 
-A mention assigns a task; it does not require continued participation. For a clearly one-shot request, ALWAYS call `disengage(jid=chat_id, topic=current_topic)` before the final answer. When asked to stop after answering, complete that task and disengage. When asked only to stop, disengage without commentary. A later mention can start a new task; unrelated conversation does not reopen yours. Keep engagement when the user expects follow-up discussion, continued work, or an answer to your question.
+A mention assigns a task; it does not require continued participation. Before the final answer, ALWAYS call `disengage(jid=chat_id, topic=current_topic)` when the requested task is complete and no follow-up is needed. This includes summaries, translations and factual answers. When asked to stop after answering, complete that task and disengage before the answer. When asked only to stop, disengage without commentary. ALWAYS check the tool result; a failed call does not clear engagement. A later mention or direct reply can start a new task. Keep engagement only for ongoing work or an answer you need from the user.
 
 `<observed>` messages are watch-only; don't reply unless addressed.
 

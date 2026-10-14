@@ -1717,7 +1717,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 		})
 
 	granted("disengage",
-		"Clear engagement for (jid, topic). Subsequent inbounds need a fresh mention to re-fire. Use when the bot is done with a conversation or when a corrective fork is closing. Caller folder must own the conversation.",
+		"Clear engagement for (jid, topic). Call before the final answer when the requested task is complete and no follow-up is needed, or immediately for a stop-only request. Use the current chat_id and topic; check success. Final prose does not undo this stop. A fresh mention or direct reply can start a new task. Caller folder must own the conversation.",
 		[]mcp.ToolOption{
 			mcp.WithString("jid", mcp.Required()),
 			mcp.WithString("topic"),
