@@ -6719,3 +6719,12 @@ Three shapes, one decision:
   to trusted catalog entries. **Fix:** preserve the sourced-package containment
   boundary while letting the release's bundled adapter declare its owned routes.
   Require actual catalog-add success and sourced core-route rejection controls.
+
+- **CLI-LOCAL-CATALOG-ORIGIN-COLLISION** (HIGH, hardening) — source installation
+  from a relative directory named `catalog` records the reserved trusted catalog
+  marker as its source. Measured CLI regression installs a harmless local package
+  with Source=`catalog` and Revision=`local`. `installPackage` then skips sourced
+  fragment checks and `reapplyPackage` treats the record as bundled. **Fix:**
+  record local source directories by their resolved absolute path, preserving
+  Git URLs and the existing trusted catalog marker. Prove a local `catalog`
+  source keeps sourced guards on install and upgrade.
