@@ -6710,3 +6710,12 @@ Three shapes, one decision:
   resolve registered folders in the existing scheduled-task handler before
   external JIDs, keeping the same containment gate on the resolved owner.
   Require accepted own-folder and denied foreign/unregistered target controls.
+
+- **CLI-CATALOG-GITD-CORE-ROUTE-REFUSAL** (HIGH, correctness) — enabling bundled
+  GitHub ingress fails before installation. Measured command `arizuko packages
+  sloth add gitd` rejects stock `gitd.yaml` because `/dash/gitd/` falls under
+  `/dash/`. The bundled adapter serves its own dashboard there.
+  `cmd/arizuko/packages.go:600` applies the sourced-package core-surface guard
+  to trusted catalog entries. **Fix:** preserve the sourced-package containment
+  boundary while letting the release's bundled adapter declare its owned routes.
+  Require actual catalog-add success and sourced core-route rejection controls.
