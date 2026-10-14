@@ -52,6 +52,11 @@ line; none can be answered from the code.
   left is the move itself, which re-addresses every daemon and needs the Go
   suite runnable on the host first.
 
+**A measurement to redo before anything is decided.**
+
+- `L408` — the seven-dispatch reproduction is polluted by my own restarts; the
+  entry says so. It needs one clean window on an instance nobody is restarting.
+
 **A contract or design decision, measured since.**
 
 - `L387` — the boot budget is MISSED: p50 1.54 s against the ≤ 1.0 s gate, over 60
@@ -74,6 +79,9 @@ revoked — see its entry.)
 
 - `L318` — the 19 per-daemon store keys. The resource list is declared and
   checked; the ROLLOUT is the live-key rotation.
+- `L406` — `gitd` holds no store key, so enabling it restart-loops the instance.
+  It is removed from sloth and the stack is healthy; minting the key is `L319`,
+  and the refusal that should have stopped the enable is the platform half.
 - `L327` — which Discord channels should answer. The inversion CHECK shipped
   (`/eval` 22); which rows to renumber is your call.
 - `L308`, `L181`, `L131`, `L188`.
@@ -269,7 +277,7 @@ was wrong, and the sentence that would have settled it was the part thrown away.
   old behaviour with `"ck frame\n..."` — the same mid-word cut, from the other
   end of the same output.
 
-## L408 — one turn is dispatched up to seven times, seconds apart, and spawns several guests (2026-10-14, open)
+## L408 — one turn is dispatched up to seven times, seconds apart, and spawns several guests (2026-10-14, open — THE MEASUREMENT IS POLLUTED, see below)
 
 MEASURED on sloth, 2026-10-14 18:28-18:29, after a restart on a current image.
 Turn `1559996454418907247` on `sloth/discord`:
@@ -304,9 +312,19 @@ path leaves the turn re-dispatchable.
   work, which is the "slow and broken" an operator sees
 - **Scope:** `routd/dispatch.go`, the poll loop's claim on a running turn
 - **Affected:** sloth measured; krons runs the same code
-- **Status:** open
-- **Fix:** unknown — the claim that should make a running turn un-dispatchable has
-  to be found before it is changed. The measurement above is the reproduction.
+- **Status:** open — and the reproduction above does NOT hold
+- **Fix:** unknown, and the first step is a clean measurement.
+
+**The measurement is mine and it is polluted.** The reaping line says "reaping a
+guest left by a previous runed", and I had restarted sloth four times in the
+thirty minutes I was measuring. Each restart kills runed mid-turn, orphans its
+guest, and the poll loop re-feeds the unfinished turn — so most of those seven
+dispatches are my own restarts, not a dispatch defect. What survives is ONE real
+`turn deadline reached, stopping guest` on `sloth/discord` at 18:31:54, which is
+not evidence of repeated dispatch.
+
+Re-measure on an instance nobody is restarting before taking this further. The
+related finding that IS real is the session write-back, fixed separately.
 
 ## L398 — `make test`, the documented dev loop, cannot pass: two packages exceed Go's default 10-minute timeout (2026-10-07, open — the ten minutes is unexplained)
 
