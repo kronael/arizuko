@@ -133,7 +133,7 @@ func (r *sidRunner) Run(_ context.Context, req runedv1.RunRequest) (runedv1.RunO
 }
 
 // TestSpawnResetsStaleSession: a 3-day-old cursor with a stored session gets the
-// session cleared before the spawn reads it, so the run starts fresh (empty sid).
+// session cleared before the spawn reads it, so the run starts under a fresh id.
 func TestSpawnResetsStaleSession(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
@@ -159,8 +159,8 @@ func TestSpawnResetsStaleSession(t *testing.T) {
 	if _, err := loop.processGroupMessages(jid); err != nil {
 		t.Fatalf("process: %v", err)
 	}
-	if rr.gotSID != "" {
-		t.Errorf("stale session not reset: spawn resumed sid %q, want fresh", rr.gotSID)
+	if rr.gotSID == "" || rr.gotSID == "sid-week-old" {
+		t.Errorf("stale session not reset: spawn resumed sid %q, want a fresh one", rr.gotSID)
 	}
 }
 

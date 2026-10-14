@@ -536,7 +536,6 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 		return false, false, false, "", nil
 	}
 	recorded := l.db.TurnResultRecorded(folder, turnID)
-	l.persistSessionBackstop(folder, topic, turnID, last.Sender, out, recorded)
 	// Deliberate silence still records a result, so this fires only on a
 	// malfunction: a 0-result SDK run, a config-less spawn, a swallowed
 	// submit_turn. Not transient — never retry; tell the chat.
@@ -610,22 +609,6 @@ func (l *Loop) copyParentSession(folder, parent, childUUID string) bool {
 		return false
 	}
 	return copied
-}
-
-// persistSessionBackstop records the session runed reported as the topic's,
-// unless submit_turn already recorded one or the run was isolated: runed mints
-// a throwaway session for an isolated spawn, and installing it hands the chat
-// a cron's transcript (BUGS L54). recordTurnResult applies the same rule.
-func (l *Loop) persistSessionBackstop(
-	folder, topic, turnID, trigger string, out runedv1.RunOutcome, recorded bool,
-) {
-	if out.SessionID == "" || recorded || core.IsIsolatedSender(trigger) {
-		return
-	}
-	if err := l.db.PutSession(folder, topic, out.SessionID); err != nil {
-		slog.Error("persistSessionBackstop: PutSession failed; the next turn in this topic loses session continuity",
-			"folder", folder, "topic", topic, "turn_id", turnID, "err", err)
-	}
 }
 
 // consecutiveRuns splits msgs into consecutive same-key runs: A,B,A yields
@@ -752,6 +735,16 @@ func (l *Loop) dispatchRun(ctx context.Context, folder, topic, chatJID, turnID, 
 	sessionID := ""
 	if !isolated {
 		sessionID = l.db.SessionID(folder, topic)
+		// Declared and persisted BEFORE the run, never learned from it: a turn
+		// killed before submit_turn — a restart, a deadline, a crash — reports
+		// nothing, and the re-fed turn must still resume the transcript the
+		// killed attempt wrote. The harness creates its session under this id.
+		if sessionID == "" {
+			sessionID = core.NewSessionID()
+			if err := l.db.PutSession(folder, topic, sessionID); err != nil {
+				return runedv1.RunOutcome{}, fmt.Errorf("persist the session of %s#%s: %w", folder, topic, err)
+			}
+		}
 	}
 	model, containerCfg := l.db.GroupConfig(folder)
 	if model == "" {

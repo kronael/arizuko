@@ -48,25 +48,27 @@ export function transcriptPath(sessionId: string): string {
   return path.join(HOME, '.claude', 'projects', '-home-node', `${sessionId}.jsonl`);
 }
 
-// resolveResumeSession maps a stored session id to what `--resume` should get,
-// returning undefined ("start fresh") when the id is not resumable: a non-UUID
-// arizuko placeholder, or a UUID whose transcript is absent on disk. Resuming
-// the latter returns "No conversation found" → error_during_execution and silent
-// context loss.
+// resolveResumeSession maps a stored session id to the SDK's session options:
+// `resume` when its transcript is on disk, else `sessionId`, so the fresh
+// session is created under the id routd already persisted and a turn killed
+// before submit_turn still leaves its transcript where the next turn resumes
+// it. A non-UUID arizuko placeholder gets neither and the SDK picks its own id.
+// Resuming an absent transcript returns "No conversation found" →
+// error_during_execution and silent context loss.
 export function resolveResumeSession(
   sessionId: string | undefined,
   hasTranscript: (id: string) => boolean,
-): string | undefined {
-  if (!sessionId) return sessionId;
+): { resume?: string; sessionId?: string } {
+  if (!sessionId) return {};
   if (!UUID_RE.test(sessionId)) {
     log(`session id ${sessionId} is not a resumable UUID (arizuko placeholder) — starting fresh`);
-    return undefined;
+    return {};
   }
   if (!hasTranscript(sessionId)) {
-    log(`session id ${sessionId} has no transcript on disk (pruned or never persisted) — starting fresh`);
-    return undefined;
+    log(`session id ${sessionId} has no transcript on disk (pruned or never persisted) — starting fresh under it`);
+    return { sessionId };
   }
-  return sessionId;
+  return { resume: sessionId };
 }
 
 // isRateLimitRejected reports whether an SDKRateLimitEvent means the turn is
@@ -460,7 +462,7 @@ async function summarizeMaxTurns(resumeId: string | undefined): Promise<ResultFr
 async function* runClaude(turn: Turn): AsyncGenerator<Frame> {
   const { sessionId, resumeAt } = unpackContinuity(turn.continuity);
   // A lineage placeholder or a pruned transcript starts fresh silently.
-  const resume = resolveResumeSession(sessionId, (id) => fs.existsSync(transcriptPath(id)));
+  const session = resolveResumeSession(sessionId, (id) => fs.existsSync(transcriptPath(id)));
 
   const stream = new MessageStream();
   stream.push(turn.prompt);
@@ -487,10 +489,11 @@ async function* runClaude(turn: Turn): AsyncGenerator<Frame> {
         abortController,
         cwd: turn.cwd,
         additionalDirectories: (() => { const d = extraDirs(turn.env); return d.length > 0 ? d : undefined; })(),
-        resume,
+        resume: session.resume,
+        sessionId: session.sessionId,
         // resumeAt travels only inside the packed token, so a fresh start never carries
         // a stale resume point.
-        resumeSessionAt: resume ? resumeAt : undefined,
+        resumeSessionAt: session.resume ? resumeAt : undefined,
         // The chassis renders the text layers; absent means claude's own preset.
         systemPrompt: turn.systemPrompt ?? { type: 'preset' as const, preset: 'claude_code' as const },
         model: turn.model || DEFAULT_MODEL,

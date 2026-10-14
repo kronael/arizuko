@@ -358,39 +358,6 @@ func TestStatusRowDoesNotSuppressReply(t *testing.T) {
 	}
 }
 
-// TestSubmitTurnSessionWinsOverRunResponse is the session_id-clobber fix: when
-// submit_turn already recorded a session, the run-response's session_id does
-// NOT overwrite it (spec 5/E-routd § Completion reconciliation).
-func TestSubmitTurnSessionWinsOverRunResponse(t *testing.T) {
-	db, err := OpenMem()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	_ = db.PutGroup(core.Group{Folder: "demo"})
-
-	// submit_turn arrives first via the runner stub, recording session "fromsubmit".
-	runner := runnerFn(func(_ context.Context, req runedv1.RunRequest) (runedv1.RunOutcome, error) {
-		_, _ = db.RecordTurnResult(string(req.Folder), req.TurnID, "fromsubmit", "success", "")
-		_ = db.PutSession(string(req.Folder), req.Topic, "fromsubmit")
-		_ = db.SetTurnState(req.TurnID, "done")
-		// the run-response carries a DIFFERENT session_id (the backstop).
-		return runedv1.RunOutcome{Outcome: runedv1.OutcomeOK, SessionID: "fromrun"}, nil
-	})
-	loop := NewLoop(db, runner, LoopConfig{})
-	loop.StopQueue()
-	doSetRoutes(t, db, []core.Route{{Match: "platform=slack", Target: "demo"}})
-	_ = db.PutMessage(core.Message{ID: "z", ChatJID: "slack:T/C/U", Sender: "u1",
-		Content: "hi", Timestamp: time.Now().UTC(), Verb: "message"})
-
-	if _, err := loop.processGroupMessages("slack:T/C/U"); err != nil {
-		t.Fatalf("process: %v", err)
-	}
-	if got := db.SessionID("demo", ""); got != "fromsubmit" {
-		t.Fatalf("session_id=%q want fromsubmit (run-response clobbered submit_turn)", got)
-	}
-}
-
 // TestDispatchTimedTriggerNoUserSecrets: a timed-isolated trigger must NOT
 // ship user-scoped secrets (caller = "service:routd", not a real user sub).
 // Regression guard: if dispatchRun ever resolved the timed sender as a user

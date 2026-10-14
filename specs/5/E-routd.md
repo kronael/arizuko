@@ -74,8 +74,10 @@ The tables and who else reads them:
 | `chat_proactive`                    | per-chat proactive cooldown (5/6)                                                        |
 | `group_watchers`, `system_messages` | cross-folder ambient (5/F); pending system events                                        |
 
-`session_id` is **opaque to routd** — runed produces it, routd persists
-it via `submit_turn`. `pane_sessions` is read by the prompt build but
+`session_id` is routd's: `dispatchRun` mints a UUID for a topic that has
+none and persists it before the run, the harness creates or resumes its
+transcript under that id, and `submit_turn` writes back only an id that
+changed (a resume that failed and started fresh). `pane_sessions` is read by the prompt build but
 owned by runed; routd reads it over runed's `/v1/*`, never by direct SQL.
 
 Every core daemon runs as UID 1000 with the whole data dir mounted rw
@@ -291,7 +293,7 @@ That was a live bug; the key is `strings.TrimPrefix(tc.ChatJID, "web:")`.
 | Arrival                                               | Resolution                                                                                     |
 | ----------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
 | `submit_turn` then run-response                       | `submit_turn` authoritative for `session_id`/`status`; run-response only marks the turn done   |
-| run-response `ok`/`silent`, no `submit_turn`          | run-response's `session_id` persists; cursor advances; turn closed                             |
+| run-response `ok`/`silent`, no `submit_turn`          | the session id routd declared before the run stands; cursor advances; turn closed              |
 | run-response `error`, then late `submit_turn:success` | FIRST terminal signal wins for cursor + delivery; the late one records but does not re-deliver |
 | neither (crash)                                       | state stays `running`; restart re-feeds from the un-advanced cursor; `turn_results` dedups     |
 
@@ -319,7 +321,9 @@ drives the run; runed runs it. **Synchronous for the turn boundary** —
 routd blocks on the HTTP response; the agent's conversation frames
 arrive out-of-band during the run via the in-process MCP socket.
 `submit_turn` is the canonical end-of-turn signal; the response carries
-`outcome` + `session_id` as a **backstop** when the agent never called it.
+`outcome`. routd reads no session id from it: the id is declared and persisted
+BEFORE the run (`dispatchRun`), so a turn killed before `submit_turn` — a
+restart, a deadline, a crash — is resumed by the next turn in its topic.
 
 Three discriminators on the response, each meaning something different:
 

@@ -39,17 +39,19 @@ test('unpackContinuity: a bare platform id is a valid token (cross-spawn shape)'
 // --- resume guard (stale chat-bound session) -----------------------------
 
 test('resolveResumeSession: UUID with a transcript on disk resumes it', () => {
-  expect(resolveResumeSession(UUID, always)).toBe(UUID);
+  expect(resolveResumeSession(UUID, always)).toEqual({ resume: UUID });
 });
 
-test('resolveResumeSession: UUID with NO transcript starts fresh (no --resume)', () => {
+test('resolveResumeSession: UUID with NO transcript is created under that id, not resumed', () => {
   // The pruned/never-persisted case — must not be passed to --resume, which
-  // would return "No conversation found" → error_during_execution.
-  expect(resolveResumeSession(UUID, never)).toBeUndefined();
+  // would return "No conversation found" → error_during_execution. The id is
+  // the one routd persisted before the run, so a turn killed before submit_turn
+  // leaves its transcript where the next turn resumes it.
+  expect(resolveResumeSession(UUID, never)).toEqual({ sessionId: UUID });
 });
 
 test('resolveResumeSession: non-UUID placeholder starts fresh even if a file exists', () => {
-  expect(resolveResumeSession('sess-123abc', always)).toBeUndefined();
+  expect(resolveResumeSession('sess-123abc', always)).toEqual({});
 });
 
 test('resolveResumeSession: a non-UUID short-circuits before the disk check', () => {
@@ -57,7 +59,7 @@ test('resolveResumeSession: a non-UUID short-circuits before the disk check', ()
   // stat call, and must never be resumed regardless of what is on disk.
   let calls = 0;
   const counting = () => { calls++; return true; };
-  expect(resolveResumeSession('sess-placeholder', counting)).toBeUndefined();
+  expect(resolveResumeSession('sess-placeholder', counting)).toEqual({});
   expect(calls).toBe(0);
 });
 
