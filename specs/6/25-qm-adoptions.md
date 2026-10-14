@@ -112,8 +112,8 @@ with no reader.
 `runed.qemuProfile` (`runed/qemu.go:100`). `container.Profile` and
 `EgressConfig.Effective` were the Docker substrate's half and went with it at `6/41`
 step 4, which is the stronger form of this adoption — a second declaration cannot
-drift from the first when there is no second. `runed.NewRuntime`
-(`runed/substrate.go:18`) returns the `Effective` at boot and `substrateLine`
+drift from the first when there is no second. `runed.NewQemuRuntime`
+(`runed/qemu.go`) returns the `Effective` at boot and `substrateLine`
 (`runed/dash.go:82`) renders the gap on the operator page. Delivered equals Declared
 or runed does not start, so the gap it renders is informational rather than a
 half-configured turn. The matrix in `6/16`

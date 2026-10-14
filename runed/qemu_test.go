@@ -242,10 +242,10 @@ func TestVirtiofsdArgsCarryNoIDMap(t *testing.T) {
 		"--cache=always",
 		"--sandbox=none",
 	}
-	if got := virtiofsdArgs(qemuPaths{}, "/vms/h/turn.sock", "/vms/h/tree"); !slices.Equal(got, want) {
+	if got := virtiofsdArgs("/vms/h/turn.sock", "/vms/h/tree"); !slices.Equal(got, want) {
 		t.Errorf("turn share args\ngot:  %v\nwant: %v", got, want)
 	}
-	for _, a := range virtiofsdArgs(qemuPaths{}, "/vms/h/root.sock", "/srv/rootfs") {
+	for _, a := range virtiofsdArgs("/vms/h/root.sock", "/srv/rootfs") {
 		if strings.Contains(a, "-map") || strings.Contains(a, "sandbox=namespace") {
 			t.Errorf("an id map or its namespace sandbox is a daemon that will not start: %v", a)
 		}

@@ -224,11 +224,9 @@ companions) and the guest uid, because both are its own.
   `mounts.go` (the mount table), `settings.go` (`settings.json` + the output
   style) and `secrets.go` (what credential a guest receives)
 - `runtimes.go` — `FakeRuntime`, the test seam
-- `substrate.go` — `NewRuntime`: the one place the substrate is built, its
-  preconditions checked and a previous runed's guests reaped. There is one
-  substrate and no selector — the Docker runtime and `RUNED_SUBSTRATE` went at
-  spec `6/41` step 4
-- `qemu.go` — the KVM substrate: the argument list, the turn, the reap
+- `qemu.go` — the KVM substrate, the only one (spec `6/41`): `NewQemuRuntime`
+  builds it, checks its preconditions and reaps a previous runed's guests; then
+  the argument list, the turn, the reap
 - `qemuhost.go` — what this host can run: every precondition, checked once at
   start, including the uid clamp and guest memory against the concurrency cap
 - `vmrecord.go` — the on-disk VM record (every pid the turn starts) and the

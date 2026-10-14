@@ -158,9 +158,7 @@ type ctlSession struct {
 	done chan struct{}
 	// log receives each {log} line the guest sends: the agent's stderr.
 	log func(string)
-	// ready receives the guest's boot probe, which is what make bench-boot reads.
-	ready chan map[string]string
-	seq   atomic.Int64
+	seq atomic.Int64
 	// closed is set once the read loop ends, so a steer after the guest is gone
 	// returns false instead of blocking for its ack.
 	closed atomic.Bool
@@ -168,12 +166,11 @@ type ctlSession struct {
 
 func newCtlSession(conn io.ReadWriteCloser, logf func(string)) *ctlSession {
 	return &ctlSession{
-		conn:  conn,
-		acks:  map[string]chan struct{}{},
-		exit:  make(chan int, 1),
-		done:  make(chan struct{}),
-		ready: make(chan map[string]string, 1),
-		log:   logf,
+		conn: conn,
+		acks: map[string]chan struct{}{},
+		exit: make(chan int, 1),
+		done: make(chan struct{}),
+		log:  logf,
 	}
 }
 
@@ -221,10 +218,7 @@ func (s *ctlSession) read() error {
 			default:
 			}
 		case ctlReady:
-			select {
-			case s.ready <- f.Probe:
-			default:
-			}
+			// The boot probe has no reader; the case keeps it off the warning below.
 		default:
 			slog.Warn("ctl: unknown frame kind from guest", "kind", f.Kind)
 		}

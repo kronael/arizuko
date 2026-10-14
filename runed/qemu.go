@@ -194,8 +194,6 @@ func guestMAC(cid uint32) string {
 	return fmt.Sprintf("52:54:00:%02x:%02x:%02x", byte(cid>>16), byte(cid>>8), byte(cid))
 }
 
-// virtiofsdArgs renders one share's daemon.
-//
 // virtiofsdArgs renders one share's argument list. Both shares take the same list:
 // the CLAMP is not a flag, it is the daemon's own uid (startVirtiofsd).
 //
@@ -213,7 +211,7 @@ func guestMAC(cid uint32) string {
 //
 // `--sandbox=none` is right for both shares because runed has already made the
 // namespaces; the rootfs share is read-only and exported by root.
-func virtiofsdArgs(p qemuPaths, sock, source string) []string {
+func virtiofsdArgs(sock, source string) []string {
 	return []string{
 		"--socket-path=" + sock,
 		"--shared-dir=" + source,
@@ -451,9 +449,7 @@ func (q *qemuRuntime) spawn(ctx context.Context, t Turn) RunResult {
 	if err := sess.send(ctlFrame{Kind: ctlTurn, Env: env, Stdin: t.Stdin}); err != nil {
 		return fail("send turn frame: %v", err)
 	}
-	if t.RegisterSteer != nil {
-		t.RegisterSteer(func(batch string) bool { return sess.steer(batch, q.paths.Grace) })
-	}
+	t.RegisterSteer(func(batch string) bool { return sess.steer(batch, q.paths.Grace) })
 
 	end := q.await(ctx, sess, qemuDone, served, t)
 	code, timedOut := end.code, end.timedOut
@@ -691,7 +687,7 @@ func exitCodeOf(err error) int {
 // startVirtiofsd starts one share's daemon and records its pid before it can
 // exit unnoticed.
 func (q *qemuRuntime) startVirtiofsd(rec *vmRecord, sock, source string, clamp bool) error {
-	cmd := exec.Command(q.paths.Virtiofsd, virtiofsdArgs(q.paths, sock, source)...)
+	cmd := exec.Command(q.paths.Virtiofsd, virtiofsdArgs(sock, source)...)
 	cmd.Stderr = newPrefixWriter("virtiofsd", rec.Folder)
 	if clamp {
 		// THE CLAMP: the writable share is exported by a daemon running as the
@@ -793,9 +789,6 @@ func mustIpcPath(folders *groupfolder.Resolver, folder string) string {
 // dashboard's kill and the disk scan reap the same way and a runed that
 // restarted mid-turn can still kill what it left.
 func (q *qemuRuntime) Kill(handle string) error {
-	if handle == "" {
-		return nil
-	}
 	dir, err := vmDir(q.paths.VMRoot, handle)
 	if err != nil {
 		return err

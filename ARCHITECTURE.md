@@ -593,7 +593,7 @@ focused context that accumulates only the conversations relevant to it.
 routd resolves the route, derives grants, and dispatches the turn to
 runed (`POST /v1/runs`). runed performs the spawn:
 
-1. `runed.NewRuntime()` (once, at start) — check every substrate
+1. `runed.NewQemuRuntime()` (once, at start) — check every substrate
    precondition (`/dev/kvm` open, the kernel and rootfs artifacts present,
    the clamp, guest memory against the concurrency cap) and reap any guest
    a previous runed left running, from the on-disk VM record

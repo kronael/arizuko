@@ -62,14 +62,14 @@ func main() {
 		os.Exit(1)
 	}
 	folders := &groupfolder.Resolver{GroupsDir: cfg.GroupsDir, IpcDir: cfg.IpcDir}
-	// The turn substrate, chosen once at start where the operator is looking
-	// (RUNED_SUBSTRATE, spec 6/41 §"The seam"), together with what it delivers
-	// on this configuration (spec 6/25 §3). An error is a host that cannot run
+	// The turn substrate, built once at start where the operator is looking
+	// (spec 6/41 §"The seam"), together with what it delivers on this
+	// configuration (spec 6/25 §3). An error is a host that cannot run
 	// a turn as declared — a missing device node, a missing guest kernel or
 	// rootfs, an egress proxy binary that is not there, a virtiofsd that cannot
 	// clamp the guest's uid. Refusing to start is the loud version, once at
 	// deploy instead of per turn.
-	runtime, sub, err := runed.NewRuntime(cfg, folders)
+	runtime, sub, err := runed.NewQemuRuntime(cfg, folders)
 	if err != nil {
 		slog.Error("substrate", "err", err)
 		os.Exit(1)
