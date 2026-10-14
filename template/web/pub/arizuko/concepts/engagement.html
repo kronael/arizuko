@@ -71,6 +71,7 @@
 
     <h2>thread by default on Slack channels</h2>
     <p>The bot&rsquo;s reply to a channel mention opens a Slack thread off the user&rsquo;s message. The engagement window then attaches to that thread. Subsequent thread replies engage automatically and live in-thread, so the main channel stays uncluttered.</p>
+    <p>The thread root decides automatic mention promotion. Ambient messages in a bot-rooted thread can address the bot until it disengages. Joining a human-rooted thread adds no such permission. Explicit mentions and direct replies to bot messages still address the bot.</p>
     <p>Broadcasts (scheduled tasks, migrate announcements, system events) bypass the rule &mdash; they have no parent message to thread under, so they land top-level.</p>
 
     <h2>corrective side-fork</h2>
@@ -128,7 +129,7 @@ curl -X POST -H "Authorization: Bearer $TOKEN" \
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/concepts/engagement.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-09-22">2026-09-22</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-14">2026-10-14</time>
       </div>
     </main>
 

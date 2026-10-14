@@ -757,12 +757,6 @@ func (d *DB) ChatHasRunningTurn(jid string) bool {
 	return d.store().ChatHasRunningTurn(jid)
 }
 
-// ThreadHasBotMessage reports whether the bot has posted in (chatJID, topic).
-// Empty topic → false (main timeline is not a thread).
-func (d *DB) ThreadHasBotMessage(chatJID, topic string) bool {
-	return d.store().ThreadHasBotMessage(chatJID, topic)
-}
-
 // OpenOver serves routd from a handle the caller owns and has made the entities
 // on; there is no chain to run. A caller that answers searches calls
 // StartSearch itself.

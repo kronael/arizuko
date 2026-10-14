@@ -108,6 +108,13 @@ Mention and reply-to-bot already route via the route table plus
 Engagement adds no new gate for them — it only catches inbounds that
 would otherwise not route at all.
 
+## Mention promotion follows root ownership
+
+An ambient message can gain mention status only in a bot-rooted thread.
+Joining a human-rooted thread adds no automatic mention permission.
+Explicit mentions, direct bot replies, and reactions still address the bot.
+The policy lives in [`L-mention-promotion.md`](L-mention-promotion.md).
+
 ## Thread-by-default on Slack
 
 `slakd.Send` threads on the existing thread or a new root

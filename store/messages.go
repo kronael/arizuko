@@ -831,31 +831,6 @@ func (s *Store) LastStatusPlatformID(chatJID, turnID string) string {
 	return items[0].Attrs[AttrMsgPlatformID]
 }
 
-// ThreadHasBotMessage reports whether the bot has posted in one (chat, topic).
-// An empty topic is the main timeline and is not a thread.
-func (s *Store) ThreadHasBotMessage(chatJID, topic string) bool {
-	if topic == "" {
-		return false
-	}
-	// A thread is named by its topic OR its turn_id on the platforms that
-	// thread off a turn. A Cmp list is a conjunction, so the disjunction is
-	// two reads and the first hit answers.
-	for _, c := range []objstore.Cmp{
-		{Attr: attrMsgTopic, Op: objstore.Eq, Value: topic},
-		{Attr: attrMsgTurnID, Op: objstore.Eq, Value: topic},
-	} {
-		items, err := s.Obj().Query(context.Background(), objstore.Query{
-			Entity: Messages, Partition: chatJID,
-			Where: []objstore.Cmp{c, {Attr: attrMsgBot, Op: objstore.Present}},
-			Limit: 1,
-		})
-		if err == nil && len(items) > 0 {
-			return true
-		}
-	}
-	return false
-}
-
 // JIDRoutedToFolder reports whether a chat's default route target is folder or a
 // descendant of it.
 func (s *Store) JIDRoutedToFolder(jid, folder string) bool {

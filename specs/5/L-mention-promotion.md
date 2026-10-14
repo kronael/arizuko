@@ -26,64 +26,29 @@ stay dumb: they ship the raw verb and routd upgrades it at ingest,
 **before `PutMessage` and before routing**, so every downstream path
 (routing, observed window, prompt) sees one truth.
 
-Explicit mentions and replies directed at a bot message can always engage.
-An adapter's thread-root reference counts as thread participation, rather
-than a direct reply. An explicit disengage blocks implicit participation.
-The check reads the thread's reply state, then its root fallback when the
-thread has no live window. A fresh engagement permits follow-ups again.
+Explicit mentions, replies directed at a bot message, and reactions to bot
+messages can engage. An untrusted sender cannot gain mention status.
 
-**The guard is `verb != "untrusted"`, not `!= "mention"`.** An untrusted
-sender (emaid marks unverified senders `verb=untrusted`,
-[`11/17-emaid-auth.md`](../11/17-emaid-auth.md)) must
-not escalate to a mention this way — that would let a spoofed inbound
-drive an agent turn. Re-promoting an already-`mention` inbound is a
-harmless no-op, so no anti-double-promotion guard is needed.
+## The thread root decides implicit mentions
 
-## Thread _participation_, not just thread _root_
+Ambient thread messages promote only when the recorded root belongs to the
+bot. `MessageByID(chat_jid, topic)` resolves the root by stored ID or platform
+ID within that chat. A missing or human root does not promote, even when the
+thread contains bot replies. Bot participation adds no addressing permission.
 
-A platform thread doesn't deliver each in-thread message as an explicit
-reply — it carries a thread anchor (Slack `thread_ts`, Discord parent
-channel). Two refinements, both driven by live debugging:
+Slack sends `Topic = ReplyTo = thread_ts` for ambient thread messages.
+That equal root pointer is implicit participation, not a deliberate reply.
+Discord sends the parent-channel JID and thread-channel Topic; `ReplyTo`
+comes only from an explicit message reference. A Discord root reply remains
+a deliberate reply even when its reference equals Topic.
 
-**Adapters set `ReplyTo` = the thread root for in-thread messages.** The
-adapter is the layer that knows the thread shape. Without it a follow-up
-in a thread the bot started arrives as `verb=message`, so the agent
-re-attends only while the [`G-engagement.md`](G-engagement.md) window is
-open and then goes silent until re-@mentioned. Human-rooted threads don't
-resolve as bot messages, so this never over-triggers.
+An explicit disengage blocks implicit bot-root follow-ups. The stop check
+reads the thread's reply state and its root fallback. A fresh engagement
+retires the stop. Explicit mentions and direct bot replies remain valid.
 
-**Root-only was still too narrow** (atlas/Slack, 2026-06-09). The common
-case is that the bot _joined_ a human-started thread: root is human, so
-later replies arrive `verb=message` and the user experiences "it stopped
-listening mid-thread". Operator's words: _a reply is a mention if it
-replies to a bot message OR lands in a thread the bot started or
-participated in._ Hence the second term,
-`ThreadHasBotMessage(chat_jid, topic)` (`routd/db.go:1220`) — any bot row
-in the thread, which subsumes the root-only rule.
-
-**Keyed on `chat_jid`, not `routed_to`/folder.** In the split the owning
-folder is unresolved at ingest (route resolution runs after the row is
-stored). The chat is the precise thread container anyway — one folder
-serves many chats — and `ChatJID` is present on the inbound.
-
-**Topic inheritance runs BEFORE promotion** (`routd/server.go:475`) so
-the participation check sees the thread topic rather than an empty one.
-
-**Empty topic → false.** The chat's main timeline is not a thread;
-promoting there would re-fire on every root message in any channel the
-bot once spoke in. DMs and no-topic replies fall through to the
-reply-to-bot rule unchanged.
-
-**A bot message that STARTS a thread must be stamped with the thread as
-its topic** (fix 2026-06-14, `routd/turns.go:314`). Such rows were stored
-with `topic=""`, so `ThreadHasBotMessage` never found them and Discord
-threads never promoted.
-
-Adapter models still differ by platform — slakd sets
-`ReplyTo = thread_ts`; discd uses channel-as-thread with the topic
-inherited via `TopicByID`; teled sets `ReplyTo` for explicit replies.
-Telegram forum topics are a known edge case, unaddressed until reported
-broken.
+Topic inheritance runs before promotion. An empty topic names the main
+timeline and adds no implicit mention. Adapter code does not decide root
+ownership; the stored root's `BotMsg` does.
 
 ## What this is NOT
 

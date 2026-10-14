@@ -488,7 +488,8 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 	}
 	m.ReplyToText = truncate(m.ReplyToText, replyExcerptChars)
 	directReply := hasParent && parent.BotMsg &&
-		(verb != "message" || m.ReplyTo != m.Topic)
+		(verb != "message" || m.ReplyTo != m.Topic ||
+			core.JidPlatform(m.ChatJID) != "slack")
 	threadMention := false
 	if verb != "untrusted" && verb != "mention" && !directReply && m.Topic != "" {
 		stopped, err := s.db.store().ThreadDisengaged(m.ChatJID, m.Topic)
@@ -496,7 +497,8 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, 500, "store_error", err.Error())
 			return
 		}
-		threadMention = !stopped && s.db.ThreadHasBotMessage(m.ChatJID, m.Topic)
+		root, exists := s.db.MessageByID(m.ChatJID, m.Topic)
+		threadMention = !stopped && exists && root.BotMsg
 	}
 	if verb != "untrusted" && (directReply || threadMention) {
 		verb = "mention"

@@ -139,10 +139,7 @@ func TestMcpDeliverReplyThreadsSendDoesNot(t *testing.T) {
 	}
 }
 
-// A reply that starts a new thread (threadRoot set) stamps the bot message with
-// Topic = threadRoot so that threadHasBotMessage finds it when subsequent
-// in-thread messages arrive. Without this, the bot's first reply stores Topic=""
-// and later thread participants fail to trigger the mention-promotion (spec 5/L).
+// A reply that starts a thread records the destination topic for thread reads.
 func TestReplyStartsThreadSetsTopic(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
@@ -164,44 +161,6 @@ func TestReplyStartsThreadSetsTopic(t *testing.T) {
 	topic := frames[0].Topic
 	if topic != "root-1" {
 		t.Errorf("bot message topic = %q, want root-1", topic)
-	}
-	// ThreadHasBotMessage must now find it.
-	if !db.ThreadHasBotMessage(jid, "root-1") {
-		t.Error("ThreadHasBotMessage returned false, want true")
-	}
-}
-
-// threadHasBotMessage must find a bot reply whose topic="" but turn_id=thread_ts
-// — the mcp-* path (ipc/recordOutbound) stores turn_id=trigger_id without
-// stamping topic (unlike the REST path's deliverRow). The fix adds OR turn_id=?
-// so the first bot reply in a thread is discoverable even when topic is empty.
-func TestThreadHasBotMessage_MatchesByTurnID(t *testing.T) {
-	db, err := OpenMem()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	jid := "slack:T/channel/C1"
-	threadTS := "1700000100.000100"
-
-	// Bot reply stored with topic="" and turn_id=threadTS (mcp-* path).
-	if err := db.PutMessage(core.Message{
-		ID:      "mcp-abc123",
-		ChatJID: jid,
-		TurnID:  threadTS,
-		BotMsg:  true, Timestamp: time.Now()}); err != nil {
-		t.Fatal(err)
-	}
-	if !db.ThreadHasBotMessage(jid, threadTS) {
-		t.Error("ThreadHasBotMessage must find bot reply matched by turn_id, got false")
-	}
-	// Must not fire for a different thread in the same chat.
-	if db.ThreadHasBotMessage(jid, "1700000999.000100") {
-		t.Error("ThreadHasBotMessage must not match a different thread_ts")
-	}
-	// Must not fire for a different chat with the same thread_ts.
-	if db.ThreadHasBotMessage("slack:T/channel/C2", threadTS) {
-		t.Error("ThreadHasBotMessage must not match a different chat_jid")
 	}
 }
 
@@ -243,11 +202,8 @@ func TestReplyThreadPrefOffKeepsThreadID(t *testing.T) {
 	}
 }
 
-// A message typed in a Discord thread (no explicit replyTo) must still be
-// promoted to verb=mention when the bot has already spoken in that thread.
-// Discord only sets ReplyTo when the user hits the reply arrow; plain thread
-// messages have ReplyTo="". The promotion must not gate on ReplyTo != "".
-func TestThreadPromotionWithoutReplyTo(t *testing.T) {
+// A bot answer in a human thread does not address later ambient messages.
+func TestHumanThreadParticipationDoesNotPromote(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
 		t.Fatal(err)
@@ -284,11 +240,10 @@ func TestThreadPromotionWithoutReplyTo(t *testing.T) {
 		t.Fatalf("inbound status %d", rec.Code)
 	}
 
-	// The stored message must have verb=mention (promoted by threadHasBotMessage).
 	seen, _ := db.MessageByID(jid, "user-msg-1")
 	verb := seen.Verb
-	if verb != "mention" {
-		t.Errorf("verb = %q, want mention (thread promotion without replyTo)", verb)
+	if verb != "message" {
+		t.Errorf("verb = %q, want message (human thread participation)", verb)
 	}
 }
 
