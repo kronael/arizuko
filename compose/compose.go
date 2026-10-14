@@ -119,6 +119,7 @@ var daemonKeys = map[string][]string{
 		// without these a new group is stored, never onboarded.
 		"ONBOARDING_ENABLED", "ONBOARDING_PLATFORMS",
 		"OBSERVE_WINDOW_MESSAGES", "OBSERVE_WINDOW_CHARS",
+		"ENGAGEMENT_TTL",
 		"SEND_DISABLED_CHANNELS", "SEND_DISABLED_GROUPS",
 		// get_web_presence reads the same vhost env proxyd does (spec 5/V-web-vhosts).
 		"HOSTING_DOMAIN", "WEB_VHOST_ALIASES",
