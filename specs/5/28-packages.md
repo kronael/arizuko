@@ -140,7 +140,9 @@ package's rows enter — before the first byte is written:
   from `compose.coreProxydRoutes` (`compose.ReservedRoutePaths`), gates ignored,
   so a route added to a release is reserved by the same commit. `generate` is the
   second reader of the same manifest and applies the same rule, because
-  `upgrade` rewrites a fragment without re-applying its rows.
+  `upgrade` rewrites a fragment without re-applying its rows. At install,
+  only `add` supplies a trusted catalog name to `compose.ReservedRouteClaim`
+  for the daemon's own `/dash/<name>/` console subtree.
 - **Grants are bounded by `--folder`.** `arizuko packages <instance> install
   <source> [--folder <scope>]...` names the ground the package may grant within.
   `**` and `*` are refused whatever the operator named — operator-ness is

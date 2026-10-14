@@ -132,9 +132,10 @@ const catalogOrigin = "catalog"
 // near side of the first write. Then it places the files (linked at hostDir
 // when given, else copied from srcDir), applies the rows through `apply`'s own
 // engine, and records what was installed.
+// bundled comes only from add after reading the release catalog.
 func installPackage(dataDir, inst, name, srcDir string, files []string, hashes map[string]string,
-	bound []string, origin, revision, hostDir string) {
-	frags := parsePkgManifests(name, srcDir, files, bound)
+	bound []string, origin, revision, hostDir, bundled string) {
+	frags := parsePkgManifests(name, srcDir, files, bound, bundled)
 	svcDir := filepath.Join(dataDir, "services")
 	if origin != catalogOrigin {
 		if err := checkSourcedFiles(svcDir, name, srcDir, files, nil); err != nil {
@@ -497,7 +498,7 @@ type pkgFragment struct {
 // authority came from and `remove` can find it. This is the one place a package's
 // rows enter the instance, so it is also where a package is held to what the
 // operator handed it (BUGS L46).
-func parsePkgManifests(name, dir string, files []string, bound []string) []pkgFragment {
+func parsePkgManifests(name, dir string, files []string, bound []string, bundled string) []pkgFragment {
 	bySubsystem := map[string]map[string]any{}
 	var order []string
 	for _, n := range files {
@@ -546,7 +547,7 @@ func parsePkgManifests(name, dir string, files []string, bound []string) []pkgFr
 				case resources.ACLName:
 					rows = stampPkgGrants(name, n, bound, rows)
 				case resources.ProxydRoutesName:
-					rows = stampPkgRoutes(name, n, rows)
+					rows = stampPkgRoutes(name, n, rows, bundled)
 				}
 				merged, merr := r.MergeRows(bySubsystem[subsystem][res], rows)
 				if merr != nil {
@@ -589,7 +590,7 @@ func stampPkgGrants(name, file string, bound []string, rows any) any {
 // its own owner (BUGS L46). The owner is stamped, never read from the file:
 // `arizuko` would let the row pass as core-shipped, and `operator` would opt it
 // out of every later generate.
-func stampPkgRoutes(name, file string, rows any) any {
+func stampPkgRoutes(name, file string, rows any, bundled string) any {
 	routes, ok := rows.([]resources.ProxydRoutesRow)
 	if !ok {
 		die("Failed: %s: proxyd_routes rows have unexpected type %T", file, rows)
@@ -600,7 +601,7 @@ func stampPkgRoutes(name, file string, rows any) any {
 			die("Failed: %s: route %q declares owner %q — a package never names its own owner; "+
 				"install stamps %q (BUGS L46)", file, routes[i].Path, routes[i].Owner, owner)
 		}
-		if claimed := compose.ReservedRouteClaim("", routes[i].Path); claimed != "" {
+		if claimed := compose.ReservedRouteClaim(bundled, routes[i].Path); claimed != "" {
 			die("Failed: %s: route %q claims the core surface %q — a package may not serve "+
 				"core arizuko's own paths (BUGS L46)", file, routes[i].Path, claimed)
 		}
@@ -1049,7 +1050,7 @@ func cmdPackages(args []string) {
 			fmt.Fprintln(os.Stderr, "warning: HOST_APP_DIR not set in .env — installing a local copy instead "+
 				"of a catalog link; it will not receive template fixes automatically. Set HOST_APP_DIR (see INSTALL.md).")
 		}
-		installPackage(dataDir, args[0], name, tmplDir, files, hashes, bound, catalogOrigin, catalogOrigin, hostDir)
+		installPackage(dataDir, args[0], name, tmplDir, files, hashes, bound, catalogOrigin, catalogOrigin, hostDir, name)
 		warnUnsatisfiedDeps(name, fragment, svcDir)
 	case "install":
 		// Spec 5/28-packages: install a package from a source dir or git URL, recording
@@ -1066,7 +1067,7 @@ func cmdPackages(args []string) {
 		if len(files) == 0 {
 			die("Failed: no compose fragment (*.yml) in source %s", origin)
 		}
-		installPackage(dataDir, args[0], name, dir, files, hashes, bound, origin, revision, "")
+		installPackage(dataDir, args[0], name, dir, files, hashes, bound, origin, revision, "", "")
 	case "upgrade":
 		// P3 (spec 5/28-packages): re-install a package's assets from its recorded source,
 		// but REFUSE to overwrite a locally edited (dirty) asset — emit which and
