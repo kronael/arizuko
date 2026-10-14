@@ -1,60 +1,73 @@
-import { describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
 import { TypingRefresher } from './typing';
 
-const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
-const counter = () => {
+function counter() {
   let n = 0;
   const fn: (jid: string) => Promise<void> = async () => {
     n++;
   };
   return { fn, get: () => n };
-};
+}
 
 describe('TypingRefresher', () => {
-  it('sends immediately and repeats until set(false)', async () => {
+  beforeEach(() => jest.useFakeTimers());
+  afterEach(() => {
+    jest.clearAllTimers();
+    jest.useRealTimers();
+  });
+  it('sends immediately and repeats until set(false)', () => {
     const s = counter(),
       c = counter();
     const r = new TypingRefresher(20, 1000, s.fn, c.fn);
 
     r.set('jid1', true);
-    await sleep(75);
-    expect(s.get()).toBeGreaterThanOrEqual(3);
+    expect(s.get()).toBe(1);
+    jest.advanceTimersByTime(19);
+    expect(s.get()).toBe(1);
+    jest.advanceTimersByTime(1);
+    expect(s.get()).toBe(2);
+    jest.advanceTimersByTime(40);
+    expect(s.get()).toBe(4);
 
     r.set('jid1', false);
     expect(c.get()).toBe(1);
     expect(r.activeCount()).toBe(0);
 
     const before = s.get();
-    await sleep(60);
+    jest.advanceTimersByTime(60);
     expect(s.get()).toBe(before);
   });
 
-  it('stops at maxTtl without set(false)', async () => {
+  it('stops at maxTtl without set(false)', () => {
     const s = counter();
-    const r = new TypingRefresher(10, 50, s.fn, null);
+    const r = new TypingRefresher(10, 55, s.fn, null);
 
     r.set('jid1', true);
-    await sleep(200);
+    jest.advanceTimersByTime(54);
+    expect(s.get()).toBe(6);
+    expect(r.activeCount()).toBe(1);
+    jest.advanceTimersByTime(1);
     const got = s.get();
-    expect(got).toBeGreaterThanOrEqual(3);
-    expect(got).toBeLessThanOrEqual(12);
+    expect(got).toBe(6);
     expect(r.activeCount()).toBe(0);
 
-    await sleep(60);
+    jest.advanceTimersByTime(60);
     expect(s.get()).toBe(got);
   });
 
-  it('maxTtl fires clear callback', async () => {
+  it('maxTtl fires clear callback', () => {
     const c = counter();
-    const r = new TypingRefresher(10, 50, async () => {}, c.fn);
+    const r = new TypingRefresher(10, 55, async () => {}, c.fn);
 
     r.set('jid1', true);
-    await sleep(200);
+    jest.advanceTimersByTime(54);
+    expect(c.get()).toBe(0);
+    jest.advanceTimersByTime(1);
     expect(c.get()).toBe(1);
     expect(r.activeCount()).toBe(0);
   });
 
-  it('per-jid isolation', async () => {
+  it('per-jid isolation', () => {
     const sends: Record<string, number> = {};
     const r = new TypingRefresher(
       15,
@@ -67,45 +80,55 @@ describe('TypingRefresher', () => {
 
     r.set('jidA', true);
     r.set('jidB', true);
-    await sleep(60);
+    jest.advanceTimersByTime(60);
     r.set('jidA', false);
-    await sleep(60);
+    jest.advanceTimersByTime(60);
 
     expect(r.activeCount()).toBe(1);
-    expect(sends['jidB'] ?? 0).toBeGreaterThan(sends['jidA'] ?? 0);
+    expect(sends['jidA']).toBe(5);
+    expect(sends['jidB']).toBe(9);
 
     r.set('jidB', false);
     expect(r.activeCount()).toBe(0);
   });
 
-  it('re-entrant set(true) cancels prior loop', async () => {
+  it('re-entrant set(true) cancels prior loop', () => {
     const s = counter();
     const r = new TypingRefresher(20, 1000, s.fn, null);
 
     r.set('jid1', true);
-    await sleep(30);
+    jest.advanceTimersByTime(30);
+    expect(s.get()).toBe(2);
     r.set('jid1', true);
     expect(r.activeCount()).toBe(1);
-    await sleep(30);
+    expect(s.get()).toBe(3);
+    jest.advanceTimersByTime(10);
+    expect(s.get()).toBe(3);
+    jest.advanceTimersByTime(10);
+    expect(s.get()).toBe(4);
+    jest.advanceTimersByTime(960);
+    expect(r.activeCount()).toBe(1);
+    jest.advanceTimersByTime(20);
+    expect(r.activeCount()).toBe(0);
     r.set('jid1', false);
 
     const before = s.get();
-    await sleep(60);
+    jest.advanceTimersByTime(60);
     expect(s.get()).toBe(before);
   });
 
-  it('stop() cancels all active loops', async () => {
+  it('stop() cancels all active loops', () => {
     const s = counter();
     const r = new TypingRefresher(15, 1000, s.fn, null);
 
     r.set('jidA', true);
     r.set('jidB', true);
-    await sleep(30);
+    jest.advanceTimersByTime(30);
     r.stop();
     expect(r.activeCount()).toBe(0);
 
     const before = s.get();
-    await sleep(60);
+    jest.advanceTimersByTime(60);
     expect(s.get()).toBe(before);
   });
 
@@ -122,12 +145,13 @@ describe('TypingRefresher', () => {
     );
 
     r.set('jid1', true);
-    await sleep(50);
+    jest.advanceTimersByTime(50);
     r.set('jid1', false);
-    expect(n).toBeGreaterThanOrEqual(2);
+    expect(n).toBe(4);
+    await Promise.resolve();
   });
 
-  it('rapid on/off does not leak timers', async () => {
+  it('rapid on/off does not leak timers', () => {
     const s = counter(),
       c = counter();
     const r = new TypingRefresher(20, 1000, s.fn, c.fn);
@@ -139,10 +163,11 @@ describe('TypingRefresher', () => {
     expect(c.get()).toBe(1);
 
     r.set('jid1', true);
-    await sleep(30);
-    expect(s.get()).toBeGreaterThanOrEqual(2);
+    jest.advanceTimersByTime(30);
+    expect(s.get()).toBe(3);
     r.set('jid1', false);
     expect(r.activeCount()).toBe(0);
+    expect(jest.getTimerCount()).toBe(0);
   });
 
   it('set(false) on unknown jid fires clear', () => {
