@@ -313,7 +313,7 @@ func (s *Server) mcpSendVoice(turnID, jid, text, voice, folder, threadID string)
 func (s *Server) mcpSubmitTurn(_ string, t ipc.TurnResult) error {
 	req := apiv1.TurnResult{
 		TurnID: t.TurnID, SessionID: t.SessionID, Status: t.Status,
-		Result: t.Result, Error: t.Error, CallerSub: t.CallerSub, TimedOut: t.TimedOut,
+		Result: t.Result, Error: t.Error, TimedOut: t.TimedOut,
 	}
 	if len(t.Models) > 0 {
 		req.Models = make(map[string]apiv1.ModelCost, len(t.Models))

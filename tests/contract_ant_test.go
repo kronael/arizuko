@@ -115,7 +115,6 @@ func TestSubmitTurnDecodeKeepsEveryField(t *testing.T) {
 		"result":     "the answer the user waits for",
 		"error":      "",
 		"timed_out":  true,
-		"caller_sub": "user-7",
 		"models": map[string]any{
 			"opus": map[string]any{"input_tokens": 10, "output_tokens": 20},
 		},
@@ -144,9 +143,6 @@ func TestSubmitTurnDecodeKeepsEveryField(t *testing.T) {
 	}
 	if !got.TimedOut {
 		t.Error("timed_out dropped in decode — a timeout summary reads as a normal completion")
-	}
-	if got.CallerSub == "" {
-		t.Error("caller_sub dropped in decode — spend lands on nobody")
 	}
 	if len(got.Models) == 0 {
 		t.Error("models dropped in decode — the turn costs nothing on the books")

@@ -24,8 +24,6 @@ export interface SubmitTurnPayload {
   // Per-model usage from the SDK's result message. Optional; gated
   // no-ops if absent.
   models?: Record<string, ModelUsage>;
-  // user_sub the turn ran on behalf of. Empty/undefined = channel-scoped.
-  caller_sub?: string;
   // True when this turn's result is the graceful query-timeout summary, not a
   // normal completion. routd logs a WARN annotation; outcome stays OK.
   timed_out?: boolean;

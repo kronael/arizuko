@@ -128,11 +128,6 @@ type TurnResult struct {
 	// report. routd logs it and stores nothing: the model gateway is the
 	// ledger (spec 6/39).
 	Models map[string]ModelUsage `json:"models,omitempty"`
-
-	// CallerSub is the user_sub the turn ran on behalf of (empty for
-	// channel-scoped turns). Spec 11/19-cost-caps uses this for per-user spend
-	// aggregation; spec 5/17-openapi-mcp will replace it with full Caller shape.
-	CallerSub string `json:"caller_sub,omitempty"`
 }
 
 // ModelUsage is one model's tokens + pre-computed cost for a turn.

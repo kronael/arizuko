@@ -66,7 +66,6 @@ type TurnResult struct {
 	Status    string               `json:"status"` // success|error
 	Result    string               `json:"result"`
 	Error     string               `json:"error"`
-	CallerSub string               `json:"caller_sub"`
 	Models    map[string]ModelCost `json:"models"`
 	// TimedOut marks the graceful query-timeout summary. routd logs a WARN;
 	// the outcome stays OK (no breaker trip).
