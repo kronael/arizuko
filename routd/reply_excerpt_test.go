@@ -94,12 +94,7 @@ func TestTruncateKeepsRunesWhole(t *testing.T) {
 	}
 }
 
-// A reaction and a reply name their parent the way teled names it: the chat
-// prefix plus the platform's message id. A row the bot delivered carries the
-// BARE platform id, because that is what Telegram's own API takes back for
-// `like` and `delete`. Both shapes must resolve the same row, or the excerpt is
-// empty, the topic is not inherited, and the mention promotion never fires
-// (BUGS L405).
+// Bare and chat-prefixed bot references inherit the excerpt and topic as mentions.
 func TestPrefixedReferenceResolvesABotRow(t *testing.T) {
 	db, srv, _ := newTestRoutd(t)
 	h := srv.Handler()
@@ -110,23 +105,41 @@ func TestPrefixedReferenceResolvesABotRow(t *testing.T) {
 
 	_ = db.PutMessage(core.Message{ID: "out-abc", PlatformID: "4242", ChatJID: jid,
 		Sender: "nemo", Content: "the bot said this", BotMsg: true,
-		Timestamp: time.Now().UTC()})
+		Timestamp: time.Now().UTC(), Topic: "bot-topic"})
 
-	for _, ref := range []string{"4242", jid + "/4242"} {
-		in := apiv1.Message{
-			ID: "react-" + ref, ChatJID: jid, Sender: "telegram:user/1112184352",
-			Content: "👍", Verb: "like", ReplyTo: ref,
+	for _, verb := range []string{"message", "like"} {
+		for _, ref := range []string{"4242", jid + "/4242"} {
+			in := apiv1.Message{
+				ID: verb + "-" + ref, ChatJID: jid, Sender: "telegram:user/1112184352",
+				Content: "👍", Verb: verb, ReplyTo: ref,
+			}
+			if rec := doJSON(t, h, "POST", "/v1/messages", "", in); rec.Code != 200 {
+				t.Fatalf("ingest %q = %d %s", ref, rec.Code, rec.Body.String())
+			}
+			m := msgByID(t, db, jid, verb+"-"+ref)
+			if m.ReplyToText != "the bot said this" {
+				t.Errorf("reference %q: excerpt = %q, want the bot's own text", ref, m.ReplyToText)
+			}
+			if m.Topic != "bot-topic" || m.ReplyToSender != "nemo" {
+				t.Errorf("reference %q: topic=%q sender=%q", ref, m.Topic, m.ReplyToSender)
+			}
+			if m.Verb != "mention" {
+				t.Errorf("reference %q: verb = %q, want mention — a reaction on a bot "+
+					"message is addressed to the bot", ref, m.Verb)
+			}
 		}
-		if rec := doJSON(t, h, "POST", "/v1/messages", "", in); rec.Code != 200 {
-			t.Fatalf("ingest %q = %d %s", ref, rec.Code, rec.Body.String())
-		}
-		m := msgByID(t, db, jid, "react-"+ref)
-		if m.ReplyToText != "the bot said this" {
-			t.Errorf("reference %q: excerpt = %q, want the bot's own text", ref, m.ReplyToText)
-		}
-		if m.Verb != "mention" {
-			t.Errorf("reference %q: verb = %q, want mention — a reaction on a bot "+
-				"message is addressed to the bot", ref, m.Verb)
-		}
+	}
+	if _, ok := db.MessageByID("telegram:group/other", jid+"/4242"); ok {
+		t.Fatal("reference resolved a parent from another chat")
+	}
+	if _, ok := db.MessageByID(jid, "telegram:group/other/4242"); ok {
+		t.Fatal("foreign chat prefix resolved the local platform id")
+	}
+	if err := db.PutMessage(core.Message{ID: jid + "/4242", ChatJID: jid,
+		Content: "own id wins", Timestamp: time.Now().UTC().Add(time.Second)}); err != nil {
+		t.Fatal(err)
+	}
+	if m, ok := db.MessageByID(jid, jid+"/4242"); !ok || m.Content != "own id wins" {
+		t.Fatalf("own id did not take precedence: %+v, found=%v", m, ok)
 	}
 }

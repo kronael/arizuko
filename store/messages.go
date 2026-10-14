@@ -632,17 +632,14 @@ func (s *Store) MessageByID(chatJID, id string) (core.Message, bool) {
 	if err != nil {
 		return core.Message{}, false
 	}
-	// An adapter names a message two ways and only one can match a given row.
-	// Its inbound reference carries the chat prefix, which IS the own id of a row
-	// it delivered; a row the bot sent carries the platform's bare id, because
-	// that is what the platform's own API takes back. So the prefix is stripped
-	// before the platform id is compared (BUGS L405).
 	bare := strings.TrimPrefix(id, chatJID+"/")
 	for _, it := range items {
 		_, own, ok := MsgCoord(it.Key.Sort)
 		if ok && own == id {
 			return messageFrom(it), true
 		}
+	}
+	for _, it := range items {
 		if p := it.Attrs[AttrMsgPlatformID]; p != "" && (p == id || p == bare) {
 			return messageFrom(it), true
 		}
