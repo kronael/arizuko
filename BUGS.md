@@ -6678,3 +6678,15 @@ Three shapes, one decision:
 - **Status:** open. Shape 1 keeps "a release is an image" and is the one
   the `app-src/` mechanism already argues for; sign-off decides.
 - **Fix:**
+
+
+- **ANT-ONE-SHOT-TOOL-SKIP** (MED, correctness) — the live Sloth one-sentence TLDR
+  completes without `disengage`, despite the completion rule at `ant/CLAUDE.md:79`
+  appearing in the resident manual. Measured at source `4c0b81d4`: private web
+  turn `msg-1791987194289335014`, topic `one-shot-20261014-1414`, completes at
+  14:39:25 UTC; its reply state has no `disengaged_at`. Transcript
+  `40ecf6a7-a8aa-4e85-9e21-351b5e268b04.jsonl` has no tool call. The web
+  message carries no mention verb; explicit-mention behavior remains unmeasured.
+  **Fix:** measure instruction/tool exposure and completion behavior, then improve
+  the existing declaration so an unambiguous completed task calls the stop tool.
+  Do not add a second lifecycle policy or unconditional platform stop hook.
