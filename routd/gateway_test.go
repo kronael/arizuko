@@ -40,8 +40,7 @@ type fakeGateway struct {
 	// daily answers /team/daily/activity: one entry per day, each mapping a
 	// team id to that day's metrics.
 	daily []map[string]map[string]any
-	// calls counts requests per path, so a test can assert that an uncapped
-	// caller costs no round trip at all.
+	// calls counts requests per path for read and mutation assertions.
 	calls map[string]int
 	// mintStatus / teamInfoStatus, when non-zero, is the status that path
 	// answers with instead of doing its job.
@@ -457,18 +456,21 @@ func TestGateRefusesOnTheGatewaysUserMeter(t *testing.T) {
 	}
 }
 
-// An uncapped caller is metered through the key's user_id whether or not the
-// gateway holds a row for them, so the gate must not spend a round trip
-// looking one up. Platform senders are almost all of them.
-func TestGateAsksNothingAboutAnUncappedCaller(t *testing.T) {
+// A missing uncapped caller needs one lookup and no gateway row mutations.
+func TestGateReadsAnUncappedCallerWithoutWriting(t *testing.T) {
 	_, loop, _, fake := gatewayLoop(t, "demo")
 	fake.setTeam("demo", 0, 0)
 
 	if _, err := loop.budgetGate(context.Background(), "demo", "telegram:user/1"); err != nil {
 		t.Fatalf("gate: %v", err)
 	}
-	if n := fake.callCount("/user/info"); n != 0 {
-		t.Errorf("/user/info called %d times for an uncapped caller, want 0", n)
+	if n := fake.callCount("/user/info"); n != 1 {
+		t.Errorf("/user/info called %d times for an uncapped caller, want 1", n)
+	}
+	for _, path := range []string{"/user/new", "/user/update"} {
+		if n := fake.callCount(path); n != 0 {
+			t.Errorf("%s called %d times for a missing uncapped caller, want 0", path, n)
+		}
 	}
 }
 
