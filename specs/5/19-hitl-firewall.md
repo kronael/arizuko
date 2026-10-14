@@ -132,10 +132,13 @@ capability reusable by any agent question.
   ReplyTo = prompt msg id, Sender = the presser's adapter-verified id) on the
   existing ingest — the same way reactions already map platform callbacks. No
   `/v1/answers`, no new event kind.
-- HITL notice buttons carry `data="/approve <id>"` → routd's reserved command
-  stub (`routd/steer.go:146`, today `"HITL not configured"`); the handler gates
-  on `db.IsOperator`, same as `/root`. Button and typed command converge on one
-  parser, consumed before any turn — approvals never burn a model call.
+- HITL notice buttons and typed `/approve`, `/reject`, `/always` commands
+  resolve at ingress through the shared command declaration and
+  `resolveHoldInto`. The sender needs admin on the held call's folder.
+  Verdicts bypass the agent queue so a suspended turn can receive its answer.
+  The pending row records the decision; consumed verdicts do not enter the
+  turn feed or advance past ordinary messages. Atomic resolution admits one
+  answer, including repeated button presses.
 
 Net-new (recon-confirmed absent): per-adapter native button render +
 callback→inbound mapping in teled/discd/slakd, and the dashd review page.

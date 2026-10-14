@@ -131,6 +131,10 @@ var steerCommands = map[string]steerCommand{
 	"/root":   func(l *Loop, chat, folder, arg, sender string) { l.cmdRoot(chat, folder, arg, sender) },
 	"/invite": func(l *Loop, chat, folder, arg, sender string) { l.cmdInvite(chat, folder, arg, sender) },
 	"/gate":   func(l *Loop, chat, folder, arg, sender string) { l.cmdGate(chat, folder, arg, sender) },
+}
+
+// Verdicts must reach the suspended call without waiting for its agent worker.
+var verdictCommands = map[string]steerCommand{
 	"/approve": func(l *Loop, chat, folder, arg, sender string) {
 		l.cmdResolveHold(chat, folder, arg, sender, PendingApproved, false)
 	},
@@ -142,6 +146,26 @@ var steerCommands = map[string]steerCommand{
 	},
 }
 
+func commandHandler(head string) steerCommand {
+	if handler := verdictCommands[head]; handler != nil {
+		return handler
+	}
+	return steerCommands[head]
+}
+
+func (l *Loop) handleVerdictCommand(chatJID string, msg core.Message) bool {
+	if !IsSteerCommand(msg) {
+		return false
+	}
+	head, arg := lookupCommand(msg.Content)
+	handler := verdictCommands[head]
+	if handler == nil {
+		return false
+	}
+	handler(l, chatJID, "", arg, msg.Sender)
+	return true
+}
+
 // IsSteerCommand reports whether this row is a slash command handleCommand
 // would run. PURE — no store, no send — which lets dispatch call it on every
 // row of a batch.
@@ -150,7 +174,7 @@ func IsSteerCommand(msg core.Message) bool {
 		return false
 	}
 	head, _ := lookupCommand(msg.Content)
-	return steerCommands[head] != nil
+	return commandHandler(head) != nil
 }
 
 func (l *Loop) handleCommand(chatJID string, msg core.Message, folder string) bool {
@@ -158,7 +182,7 @@ func (l *Loop) handleCommand(chatJID string, msg core.Message, folder string) bo
 		return false
 	}
 	head, arg := lookupCommand(msg.Content)
-	steerCommands[head](l, chatJID, folder, arg, msg.Sender)
+	commandHandler(head)(l, chatJID, folder, arg, msg.Sender)
 	return true
 }
 

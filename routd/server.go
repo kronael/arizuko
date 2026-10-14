@@ -507,6 +507,11 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 		m.Content, verb = cmd, "mention"
 	}
 	row := buildMessageRow(m, ts, verb)
+	// A held tool blocks the agent worker. Its verdict must not queue behind it.
+	if s.loop != nil && s.loop.handleVerdictCommand(m.ChatJID, row) {
+		writeJSON(w, 200, apiv1.MessageAck{OK: true, ID: m.ID})
+		return
+	}
 	// Engagement is NOT committed at ingress: the folder is unknown until route
 	// resolution. A pre-PutMessage claim with an empty folder would make
 	// Engaged return ("", true) and misroute.

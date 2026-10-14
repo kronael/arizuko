@@ -124,6 +124,9 @@ Endpoints (`server.go`, `channels.go`):
 - MCP-only: `issue_pairing_link(jid)` mints a `kind='pair'` route token
   for a JID that routes to the caller's folder. No REST twin by design
   — no operator mints a pairing for a chat they are not in (spec 5/31)
+- Chat `/approve`, `/reject`, `/always` verdicts resolve at ingress, including
+  native approval buttons. They reach a held call while its agent turn waits;
+  the sender needs admin on the held call's folder.
 - `POST /v1/channels/register`, `POST /v1/channels/deregister` — adapter registry
 - `GET /v1/channels` — adapter list
 - `GET /v1/messages/{inspect,thread,find}` — message reads
