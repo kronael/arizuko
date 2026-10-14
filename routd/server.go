@@ -124,16 +124,12 @@ type Server struct {
 }
 
 // DefaultEngagementTTL is the stay-in-conversation window (spec 5/G-engagement) when
-// ENGAGEMENT_TTL is unset. Sole owner of the number: cmd/routd passes it to
-// NewServer and NewServer re-applies it on a zero, so the operator docs have
-// one value to cite (BUGS F12).
+// ENGAGEMENT_TTL is unset. The caller resolves that default before NewServer;
+// an explicit zero disables automatic engagement.
 const DefaultEngagementTTL = 30 * time.Minute
 
 // NewServer wires the HTTP server. loop may be nil for pure REST tests.
 func NewServer(db *DB, loop *Loop, deliver Deliverer, verify Verifier, engagementTTL time.Duration, webHost string) *Server {
-	if engagementTTL == 0 {
-		engagementTTL = DefaultEngagementTTL
-	}
 	return &Server{db: db, loop: loop, deliver: deliver, verify: verify, engagementT: engagementTTL, webHost: webHost}
 }
 

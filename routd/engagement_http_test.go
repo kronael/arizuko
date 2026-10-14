@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kronael/arizuko/core"
 	apiv1 "github.com/kronael/arizuko/routd/api/v1"
 )
 
@@ -205,9 +206,15 @@ func TestDefaultEngagementTTL(t *testing.T) {
 	}
 	t.Cleanup(func() { db.Close() })
 
-	// A zero TTL means "unset" and must fall to the default...
-	if got := NewServer(db, nil, &recDeliverer{}, nil, 0, "").engagementT; got != 30*time.Minute {
-		t.Errorf("NewServer(ttl=0).engagementT = %v, want 30m", got)
+	t.Setenv("ENGAGEMENT_TTL", "")
+	ttl := core.DurOr("ENGAGEMENT_TTL", DefaultEngagementTTL)
+	if got := NewServer(db, nil, &recDeliverer{}, nil, ttl, "").engagementT; got != 30*time.Minute {
+		t.Errorf("unset ENGAGEMENT_TTL gives %v, want30m", got)
+	}
+	t.Setenv("ENGAGEMENT_TTL", "0")
+	ttl = core.DurOr("ENGAGEMENT_TTL", DefaultEngagementTTL)
+	if got := NewServer(db, nil, &recDeliverer{}, nil, ttl, "").engagementT; got != 0 {
+		t.Errorf("explicit0 ENGAGEMENT_TTL gives %v, want0", got)
 	}
 	// ...but an explicit ENGAGEMENT_TTL must survive, or the env var is dead.
 	if got := NewServer(db, nil, &recDeliverer{}, nil, 90*time.Second, "").engagementT; got != 90*time.Second {

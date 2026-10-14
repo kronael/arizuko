@@ -69,6 +69,8 @@
     </ul>
     <p>The column stores the deadline itself, not the time of the last message, so a read is a plain comparison against the clock. Each bot reply pushes the deadline out again &mdash; a long back-and-forth never times out mid-conversation, but a quiet 30 minutes ends it. Your own messages don&rsquo;t extend it; only the bot&rsquo;s replies do. The window is configured via <code>ENGAGEMENT_TTL</code> (default: <code>30m</code>).</p>
 
+    <p><code>ENGAGEMENT_TTL=0</code> disables automatic opening and renewal of engagement windows. Explicit mentions and direct bot replies still work. Existing windows keep their deadlines until they expire or the bot calls <code>disengage</code>.</p>
+
     <h2>thread by default on Slack channels</h2>
     <p>The bot&rsquo;s reply to a channel mention opens a Slack thread off the user&rsquo;s message. The engagement window then attaches to that thread. Subsequent thread replies engage automatically and live in-thread, so the main channel stays uncluttered.</p>
     <p>The thread root decides automatic mention promotion. Ambient messages in a bot-rooted thread can address the bot until it disengages. Joining a human-rooted thread adds no such permission. Explicit mentions and direct replies to bot messages still address the bot.</p>

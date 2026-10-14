@@ -243,13 +243,12 @@ topic. If the agent skips it, corrections happen inline.
 
 ## Config
 
-`ENGAGEMENT_TTL`, defaulting to `routd.DefaultEngagementTTL` (30m). One
-constant, read by `cmd/routd`'s env fallback and re-applied by `NewServer` on a
-zero, because it was previously spelled in three places — including a
-`core.Config` field nothing read, whose 20m was the number three doc pages
-quoted (BUGS `F12`). That field is deleted; `TestDefaultEngagementTTL` pins the
-survivor as a written-out literal so a change here forces the docs to be
-revisited.
+`ENGAGEMENT_TTL` defaults to `routd.DefaultEngagementTTL` (30m) when unset.
+The command resolves that default before calling `NewServer`.
+Explicit `0` disables automatic opening and renewal of engagement windows.
+It does not change explicit mentions, direct bot replies, or `disengage`.
+Existing windows keep their deadlines until they expire or are disengaged.
+`TestDefaultEngagementTTL` pins the default and explicit-zero behavior.
 
 ## What this is NOT
 

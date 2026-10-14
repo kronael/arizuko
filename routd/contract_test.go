@@ -58,7 +58,7 @@ func newTestRoutd(t *testing.T) (*DB, *Server, *stubRunner) {
 	runner := &stubRunner{}
 	loop := NewLoop(db, runner, LoopConfig{})
 	loop.StopQueue() // drive processGroupMessages directly; no async dispatch races
-	srv := NewServer(db, loop, nil, nil, 0, "https://example.test")
+	srv := NewServer(db, loop, nil, nil, DefaultEngagementTTL, "https://example.test")
 	runner.srv = srv
 	return db, srv, runner
 }
