@@ -127,7 +127,8 @@ func TestResourceName_NoStringLiteral(t *testing.T) {
 			// Skip vendored code and dot-dirs — .claude/worktrees holds whole
 			// copies of this repo, which would scan foreign trees as if they
 			// were ours.
-			if strings.HasPrefix(d.Name(), ".") || d.Name() == "third_party" {
+			if path != root &&
+				(strings.HasPrefix(d.Name(), ".") || d.Name() == "third_party") {
 				return fs.SkipDir
 			}
 			return nil
@@ -200,7 +201,8 @@ func TestResourceLiteral_OnlyInCatalog(t *testing.T) {
 			return err
 		}
 		if d.IsDir() {
-			if strings.HasPrefix(d.Name(), ".") || d.Name() == "third_party" {
+			if path != root &&
+				(strings.HasPrefix(d.Name(), ".") || d.Name() == "third_party") {
 				return fs.SkipDir
 			}
 			return nil
