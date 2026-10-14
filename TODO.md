@@ -301,3 +301,7 @@ that closure is load-bearing or ceremony. Settling the class settles that
 field too.
 
 Parked as direction. Not started.
+
+## Later
+
+- Explore [Plannotator](https://docs.plannotator.ai/open-source/reference/hooks) for browser review of specs and HTML, JSON feedback into Arizuko, and reusable UI components with GitHub as the review record store
