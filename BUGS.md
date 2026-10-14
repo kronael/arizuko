@@ -6701,3 +6701,12 @@ Three shapes, one decision:
   setup instruction, preserving ordinary user routing and correct seed callers.
   Repair measured existing rows with guarded operator writes, retaining IDs and
   schedules. Prove an observe-only external route cannot suppress a seeded reducer.
+
+- **ROUTD-SCHEDULE-INTERNAL-FOLDER-TARGET** (MED, correctness) — scheduling
+  cannot resolve the same registered bare folder that runtime dispatch accepts.
+  `routd/scheduled_tasks_resource.go:89` uses only external route resolution;
+  `DefaultFolderForJID` has no registered-folder branch. Silent reducers require
+  that internal target to avoid mention-only external observe routes. **Fix:**
+  resolve registered folders in the existing scheduled-task handler before
+  external JIDs, keeping the same containment gate on the resolved owner.
+  Require accepted own-folder and denied foreign/unregistered target controls.
