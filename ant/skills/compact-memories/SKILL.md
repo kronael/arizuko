@@ -196,7 +196,10 @@ Override arg forces overwrite if output exists (still validates).
 ## Cron setup
 
 On-demand. Check existing tasks first — don't duplicate.
-All tasks use `contextMode: "isolated"`. `chat_jid` = group JID.
+Set `targetJid` to the registered owner folder from `<autocalls>.folder`.
+Use `contextMode: "isolated"`. The task's `owner` and `chat_jid` must equal
+that folder. Do not use the triggering message's external `chat_id` for
+silent reducers; its route can observe the scheduled message without running it.
 
 | Prompt                             | Cron        | When               |
 | ---------------------------------- | ----------- | ------------------ |

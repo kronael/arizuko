@@ -391,3 +391,57 @@ func TestScheduledTasksMCP_AuditRowLands(t *testing.T) {
 		t.Fatalf("the audit trail holds %d scheduled_tasks:schedule rows, want 1", n)
 	}
 }
+
+func TestScheduledTasksMCP_InternalFolderTarget(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	const owner = "world/a"
+	const foreign = "world/b"
+	for _, folder := range []string{owner, foreign} {
+		if err := db.PutGroup(core.Group{Folder: folder}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	grantMCPTools(t, db, owner, "schedule_task")
+	sock := serveTasksMCP(t, db, owner, "folder:"+owner)
+	schedule := func(target, prompt string) (map[string]any, string) {
+		return callToolOverSock(t, sock, "schedule_task", map[string]any{
+			"targetJid": target, "prompt": prompt, "cron": "0 2 * * *", "contextMode": "isolated",
+		})
+	}
+	res, e := schedule(owner, "/compact-memories episodes day")
+	if e != "" {
+		t.Fatalf("registered owner folder without external routes: %s", e)
+	}
+	task, ok := db.GetTask(res["taskId"].(string))
+	if !ok || task.Owner != owner || task.ChatJID != owner || task.ContextMode != "isolated" {
+		t.Fatalf("internal task: %+v", task)
+	}
+	loop := NewLoop(db, nopRunner{}, LoopConfig{})
+	loop.StopQueue()
+	if route := loop.resolve(task.ChatJID, core.Message{ChatJID: task.ChatJID, Verb: "message"}); !route.ok || route.Folder != owner {
+		t.Fatalf("internal reducer did not directly reach owner: %+v", route)
+	}
+	doSetRoutes(t, db, []core.Route{{Match: "", Target: owner}})
+	for _, target := range []string{foreign, "world/missing"} {
+		if _, e := schedule(target, "denied "+target); e == "" {
+			t.Fatalf("target %s accepted through caller's catch-all route", target)
+		}
+	}
+	if got := len(db.Tasks(owner, false)); got != 1 {
+		t.Fatalf("denied targets wrote tasks: %d", got)
+	}
+	doSetRoutes(t, db, []core.Route{{Match: "platform=slack", Target: owner}})
+	const external = "slack:T012/channel/C1"
+	res, e = schedule(external, "external reminder")
+	if e != "" {
+		t.Fatalf("external chat route rejected: %s", e)
+	}
+	task, ok = db.GetTask(res["taskId"].(string))
+	if !ok || task.Owner != owner || task.ChatJID != external {
+		t.Fatalf("external target changed: %+v", task)
+	}
+}

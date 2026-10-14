@@ -156,6 +156,8 @@ Endpoints (`server.go`, `channels.go`):
 - `POST /v1/secrets`, `DELETE /v1/secrets/{key}` — secret write/delete (`secrets:write`)
 - `POST /v1/pane` — Slack pane context (`messages:write`)
 - `GET|PATCH|DELETE /v1/tasks[/{id}]` — scheduled-task CRUD, shared with the agent's task tools (`tasks:read`/`tasks:write`)
+  `schedule_task(targetJid=...)` accepts a registered folder for internal work
+  or a routed external chat. Silent memory reducers target their owner folder.
 - `GET /v1/tasks/due` — claim due tasks (`tasks:read`)
 - `POST /v1/tasks/runlog`, `POST /v1/tasks/{id}/reschedule` — task logs/reschedule (`tasks:write`)
 - `GET /v1/dead_letters` — outbound routd gave up on, with the lost content

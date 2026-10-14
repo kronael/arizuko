@@ -12,6 +12,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 	"uuid"
 
@@ -86,7 +87,12 @@ func (s *Server) scheduledTasksHandler(ctx context.Context, x resreg.Execution, 
 		if contextMode != "isolated" {
 			contextMode = "group"
 		}
-		targetFolder := s.db.DefaultFolderForJID(targetJid)
+		var targetFolder string
+		if strings.Contains(targetJid, ":") {
+			targetFolder = s.db.DefaultFolderForJID(targetJid)
+		} else if s.db.GroupExists(targetJid) {
+			targetFolder = targetJid
+		}
 		if targetFolder == "" {
 			return nil, resreg.Errorf(http.StatusBadRequest, "target group not registered")
 		}
