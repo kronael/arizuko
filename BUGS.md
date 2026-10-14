@@ -197,6 +197,46 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
   hits, 56 under `-test`; nine survived verification and were filed separately. Kept so
   the next sweep does not re-report the same ~135.
 
+## L406 — enabling a store-reading daemon without a store identity restart-loops the whole instance (2026-10-14, open — the mint is an operator action)
+
+MEASURED on sloth. `gitd` was enabled at 17:16 and no store identity was minted
+for it, so it exits at boot with
+`dynstore: endpoint "https://extenddb:18443" takes an access key and a secret`.
+Its exit ends the `docker compose up` that systemd supervises, systemd restarts
+the unit, and the instance cycles: `NRestarts=2`, two containers up out of
+fifteen, `systemctl is-active` stuck on `activating`.
+
+`env/gitd.env` carries `DYNAMODB_URL`, `AWS_REGION`, `STORE_CA` and
+`SECRETS_KEY` but neither `AWS_ACCESS_KEY_ID` nor `AWS_SECRET_ACCESS_KEY`;
+`dashd.env` carries all three. `gitd` IS listed in `compose.daemonKeys` and in
+the set that reaches the store, so nothing is missing from the code —
+`mergeStoreCredentials` reads a key out of the daemon's own env file and there
+was none to read.
+
+**The guard already names it, at the right moment and in the right words.**
+`arizuko generate sloth` reports `store enrolment is partial: these daemons
+reach the store and hold no key... missing="[cmd/arizuko gitd]" enrolled=18
+need=16` and exits 1. What it does not do is stop the enable, so the fault
+reaches a live stack as an outage rather than a refusal.
+
+Minting the identity is `L319`: arizuko has no enrolment subcommand, so every
+key on this fleet was created by hand against the store server, and whoever
+enabled `gitd` had no command to run.
+
+- **Severity:** high — a package enable takes the whole instance down, and the
+  cause reads as a store outage rather than a missing key
+- **Scope:** `cmd/arizuko/packages.go`, `compose/compose.go`
+- **Affected:** sloth, measured; any instance enabling a store-reading package
+- **Status:** open — the mint is an operator action (`L319`), the refusal is not
+- **Fix (proposal):** `packages enable` refuses a daemon that reaches the store
+  and holds no key, naming the same thing `generate` already names. The check
+  exists; it runs one step too late to prevent anything.
+
+**Recovery, for the record:** `arizuko packages sloth remove gitd` then
+`generate` then restart. All fifteen containers healthy. The morha GitHub tools
+are unaffected — that connector is `transport = "rest"` straight to
+`api.github.com`, and `gitd` is only the inbound receiver.
+
 ## L398 — `make test`, the documented dev loop, cannot pass: two packages exceed Go's default 10-minute timeout (2026-10-07, open — the ten minutes is unexplained)
 
 Measured 2026-10-07, a full `go test ./... -count=1 -short` on this host:
