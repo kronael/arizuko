@@ -6690,3 +6690,17 @@ Three shapes, one decision:
   **Fix:** measure instruction/tool exposure and completion behavior, then improve
   the existing declaration so an unambiguous completed task calls the stop tool.
   Do not add a second lifecycle policy or unconditional platform stop hook.
+
+
+- **ROUTD-APPROVAL-BUSY-TURN-DEADLOCK** (HIGH, correctness) — live Telegram
+  approval buttons deliver commands, but the held call receives no verdict.
+  Rhias pending `854967a6` stays held while `/always` presses at15:33:37–57
+  and `/approve` at15:33:58 are stored. The hold times out and the bot reports
+  no approval at15:42:35. Sender `telegram:user/1112184352` holds role:operator.
+  `steerRowIdx` already selects the oldest command; that batch-selection premise
+  is ruled out. Ingress stores and enqueues, `GroupQueue.EnqueueMessageCheck`
+  returns for an active chat, and `processGroupMessages` waits synchronously for
+  the turn whose MCP hold waits for that verdict. **Fix:** process held-action
+  verdicts through the existing command/auth mechanism while the worker is busy;
+  preserve actor authorization, exact pending-action targeting and replay dedup.
+  Require a failing busy-turn callback regression covering relevant adapters.
