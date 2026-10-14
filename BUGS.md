@@ -6691,25 +6691,7 @@ Three shapes, one decision:
   the existing declaration so an unambiguous completed task calls the stop tool.
   Do not add a second lifecycle policy or unconditional platform stop hook.
 
-- **STORE-MEMORY-TASK-OBSERVE-TARGET** (MED, correctness) — ten Rhias Nemo/content
-  memory reducers target Telegram chats whose ordinary messages hit observe.
-  Today's successful timed dispatch records no agent spawn; compact logs stop
-  in September despite October transcripts. `ant/skills/compact-memories/SKILL.md:199`
-  calls the target "group JID", which can mean the external Telegram chat. All
-  current `SeedDefaultTasks` callers already pass the internal owner folder.
-  **Fix:** name the registered owner folder explicitly in the existing cron
-  setup instruction, preserving ordinary user routing and correct seed callers.
-  Repair measured existing rows with guarded operator writes, retaining IDs and
-  schedules. Prove an observe-only external route cannot suppress a seeded reducer.
 
-- **ROUTD-SCHEDULE-INTERNAL-FOLDER-TARGET** (MED, correctness) — scheduling
-  cannot resolve the same registered bare folder that runtime dispatch accepts.
-  `routd/scheduled_tasks_resource.go:89` uses only external route resolution;
-  `DefaultFolderForJID` has no registered-folder branch. Silent reducers require
-  that internal target to avoid mention-only external observe routes. **Fix:**
-  resolve registered folders in the existing scheduled-task handler before
-  external JIDs, keeping the same containment gate on the resolved owner.
-  Require accepted own-folder and denied foreign/unregistered target controls.
 
 - **CLI-CATALOG-GITD-CORE-ROUTE-REFUSAL** (HIGH, correctness) — enabling bundled
   GitHub ingress fails before installation. Measured command `arizuko packages
