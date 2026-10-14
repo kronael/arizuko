@@ -6694,9 +6694,11 @@ Three shapes, one decision:
 - **STORE-MEMORY-TASK-OBSERVE-TARGET** (MED, correctness) — ten Rhias Nemo/content
   memory reducers target Telegram chats whose ordinary messages hit observe.
   Today's successful timed dispatch records no agent spawn; compact logs stop
-  in September despite October transcripts. `store/tasks.go:486` also seeds
-  these silent internal tasks with the external chat JID. **Fix:** seed memory
-  reducers to their registered owner folder, preserving ordinary user routing.
+  in September despite October transcripts. `ant/skills/compact-memories/SKILL.md:199`
+  calls the target "group JID", which can mean the external Telegram chat. All
+  current `SeedDefaultTasks` callers already pass the internal owner folder.
+  **Fix:** name the registered owner folder explicitly in the existing cron
+  setup instruction, preserving ordinary user routing and correct seed callers.
   Repair measured existing rows with guarded operator writes, retaining IDs and
   schedules. Prove an observe-only external route cannot suppress a seeded reducer.
 
