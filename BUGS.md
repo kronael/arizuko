@@ -197,42 +197,6 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
   hits, 56 under `-test`; nine survived verification and were filed separately. Kept so
   the next sweep does not re-report the same ~135.
 
-## ✅ FIXED 2026-10-14 L405 — a reaction or reply to a bot message never resolves its parent on Telegram, so it is never promoted to a mention (2026-10-14)
-
-teled names a message two ways and the two never meet. Every inbound reference
-carries the chat prefix — `handleReaction` sets
-`ReplyTo: jid + "/" + strconv.Itoa(r.MessageID)` (`teled/bot.go:264`), and the
-reply path does the same at `:379`. A delivered bot row stores the BARE platform
-id, `strconv.Itoa(sent.MessageID)` (`teled/bot.go:482`), which is correct: the
-agent hands `platform_id` straight back to Telegram as `message_id` for `like`
-and `delete`, so a prefix there would break those calls.
-
-`MessageByID` matches a row whose own id equals the reference, or whose
-`platform_id` equals it (`store/messages.go:637`). An inbound user row's own id
-IS prefixed, so a reply to a person resolves. A bot row's own id is `out-<hex>`
-and its `platform_id` is bare, so a reference to it matches neither.
-
-Three things fail together when the parent does not resolve
-(`routd/server.go:468-488`): the reply excerpt is empty, the topic is not
-inherited, and `directReply` stays false — so the mention promotion never fires.
-A reaction on a bot message can only reach the `#observe` lane.
-
-**The test cannot see it.** `routd/reply_excerpt_test.go:52` seeds
-`PlatformID: "bot-pid"` and replies with that same string, so both sides share
-one value and no format mismatch is possible. It passes on the broken code.
-
-- **Severity:** high — reply-to-bot and reaction mentions are both dead on Telegram
-- **Scope:** `store/messages.go`, `teled/bot.go`
-- **Affected:** krons rhias groups measured as the report; every Telegram chat by code
-- **Status:** fixed
-- **Fix:** `MessageByID` strips the chat prefix before it compares the platform
-  id, so both shapes resolve the same row. It is the one place the two meet, and
-  neither side can be made to match the other: the prefixed form is teled's
-  message identity, and the bare form is what Telegram's API takes back.
-  `TestPrefixedReferenceResolvesABotRow` posts a reaction under both shapes and
-  asserts the excerpt and the mention promotion. It fails on the unfixed lookup
-  with `verb = "like"` and an empty excerpt.
-
 ## L398 — `make test`, the documented dev loop, cannot pass: two packages exceed Go's default 10-minute timeout (2026-10-07, open — the ten minutes is unexplained)
 
 Measured 2026-10-07, a full `go test ./... -count=1 -short` on this host:
@@ -6726,23 +6690,3 @@ Three shapes, one decision:
   **Fix:** measure instruction/tool exposure and completion behavior, then improve
   the existing declaration so an unambiguous completed task calls the stop tool.
   Do not add a second lifecycle policy or unconditional platform stop hook.
-
-
-
-- **CLI-CATALOG-GITD-CORE-ROUTE-REFUSAL** (HIGH, correctness) — enabling bundled
-  GitHub ingress fails before installation. Measured command `arizuko packages
-  sloth add gitd` rejects stock `gitd.yaml` because `/dash/gitd/` falls under
-  `/dash/`. The bundled adapter serves its own dashboard there.
-  `cmd/arizuko/packages.go:600` applies the sourced-package core-surface guard
-  to trusted catalog entries. **Fix:** preserve the sourced-package containment
-  boundary while letting the release's bundled adapter declare its owned routes.
-  Require actual catalog-add success and sourced core-route rejection controls.
-
-- **CLI-LOCAL-CATALOG-ORIGIN-COLLISION** (HIGH, hardening) — source installation
-  from a relative directory named `catalog` records the reserved trusted catalog
-  marker as its source. Measured CLI regression installs a harmless local package
-  with Source=`catalog` and Revision=`local`. `installPackage` then skips sourced
-  fragment checks and `reapplyPackage` treats the record as bundled. **Fix:**
-  record local source directories by their resolved absolute path, preserving
-  Git URLs and the existing trusted catalog marker. Prove a local `catalog`
-  source keeps sourced guards on install and upgrade.
