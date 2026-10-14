@@ -197,6 +197,39 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
   hits, 56 under `-test`; nine survived verification and were filed separately. Kept so
   the next sweep does not re-report the same ~135.
 
+## L405 — a reaction or reply to a bot message never resolves its parent on Telegram, so it is never promoted to a mention (2026-10-14, open)
+
+teled names a message two ways and the two never meet. Every inbound reference
+carries the chat prefix — `handleReaction` sets
+`ReplyTo: jid + "/" + strconv.Itoa(r.MessageID)` (`teled/bot.go:264`), and the
+reply path does the same at `:379`. A delivered bot row stores the BARE platform
+id, `strconv.Itoa(sent.MessageID)` (`teled/bot.go:482`), which is correct: the
+agent hands `platform_id` straight back to Telegram as `message_id` for `like`
+and `delete`, so a prefix there would break those calls.
+
+`MessageByID` matches a row whose own id equals the reference, or whose
+`platform_id` equals it (`store/messages.go:637`). An inbound user row's own id
+IS prefixed, so a reply to a person resolves. A bot row's own id is `out-<hex>`
+and its `platform_id` is bare, so a reference to it matches neither.
+
+Three things fail together when the parent does not resolve
+(`routd/server.go:468-488`): the reply excerpt is empty, the topic is not
+inherited, and `directReply` stays false — so the mention promotion never fires.
+A reaction on a bot message can only reach the `#observe` lane.
+
+**The test cannot see it.** `routd/reply_excerpt_test.go:52` seeds
+`PlatformID: "bot-pid"` and replies with that same string, so both sides share
+one value and no format mismatch is possible. It passes on the broken code.
+
+- **Severity:** high — reply-to-bot and reaction mentions are both dead on Telegram
+- **Scope:** `store/messages.go`, `teled/bot.go`
+- **Affected:** krons rhias groups measured as the report; every Telegram chat by code
+- **Status:** open
+- **Fix:** `MessageByID` resolves a reference that names the platform id with or
+  without the chat prefix. It is the one place the two shapes already meet, and
+  neither side can be made to match the other: the prefixed form is teled's
+  message identity, and the bare form is what Telegram's API takes.
+
 ## L398 — `make test`, the documented dev loop, cannot pass: two packages exceed Go's default 10-minute timeout (2026-10-07, open — the ten minutes is unexplained)
 
 Measured 2026-10-07, a full `go test ./... -count=1 -short` on this host:
