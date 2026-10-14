@@ -13,6 +13,7 @@ import (
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/authd/authstore"
 	"github.com/kronael/arizuko/chanlib/chanstore"
+	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/emaid/emaistore"
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/objstore"
@@ -70,7 +71,15 @@ func (mapping renameMap) folder(value string) string {
 }
 
 func (mapping renameMap) identity(value string) string {
-	for _, prefix := range []string{"web:", "hook:", "agent:", "folder:"} {
+	if folder := groupfolder.JidFolder(value); folder != "" {
+		next := mapping.folder(folder)
+		if value == groupfolder.WebJID(folder) {
+			return groupfolder.WebJID(next)
+		}
+		before := strings.TrimSuffix(groupfolder.HookJID(folder, ""), "/")
+		return strings.TrimSuffix(groupfolder.HookJID(next, ""), "/") + strings.TrimPrefix(value, before)
+	}
+	for _, prefix := range []string{"agent:", "folder:"} {
 		if strings.HasPrefix(value, prefix) {
 			return prefix + mapping.folder(strings.TrimPrefix(value, prefix))
 		}
@@ -244,7 +253,8 @@ func (mapping renameMap) hasReference(text string) bool {
 
 func (mapping renameMap) match(raw string) (string, error) {
 	terms := strings.Fields(raw)
-	folderRoom := slices.Contains(terms, "platform=web") || slices.Contains(terms, "platform=hook")
+	webRoom := slices.Contains(terms, "platform=web")
+	hookRoom := slices.Contains(terms, "platform=hook")
 	changed := false
 	for i, term := range terms {
 		field, value, ok := strings.Cut(term, "=")
@@ -259,8 +269,11 @@ func (mapping renameMap) match(raw string) (string, error) {
 		case "chat_jid":
 			next = mapping.identity(value)
 		case "room":
-			if folderRoom {
-				next = mapping.folder(value)
+			if webRoom {
+				next = core.JidRoom(mapping.identity(groupfolder.WebJID(value)))
+			} else if hookRoom {
+				jid := strings.TrimSuffix(groupfolder.HookJID(value, ""), "/")
+				next = core.JidRoom(mapping.identity(jid))
 			}
 		case "sender":
 			if strings.HasPrefix(value, "agent:") || strings.HasPrefix(value, "folder:") {
@@ -296,7 +309,7 @@ func renameExactACLCoordinates(raw string) error {
 		case "folder", "group_folder", "owner", "owner_folder", "target_folder", "routed_to", "scope", "scope_id", "target_glob", "route", "path", "path_prefix", "redirect_to", "url", "host_path":
 			coordinate = true
 		case "jid", "chat_jid", "context_jid", "return_to":
-			coordinate = !strings.Contains(value, ":") || strings.HasPrefix(value, "web:") || strings.HasPrefix(value, "hook:") || strings.HasPrefix(value, "agent:") || strings.HasPrefix(value, "folder:")
+			coordinate = !strings.Contains(value, ":") || groupfolder.JidFolder(value) != "" || strings.HasPrefix(value, "agent:") || strings.HasPrefix(value, "folder:")
 		case "principal", "child", "parent", "sub", "sender", "trigger_sender":
 			coordinate = strings.HasPrefix(value, "agent:") || strings.HasPrefix(value, auth.FolderPrincipal(""))
 		}

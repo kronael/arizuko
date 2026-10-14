@@ -16,6 +16,7 @@ import (
 	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/objstore/dynstore/dyntest"
 	"github.com/kronael/arizuko/router"
@@ -884,7 +885,7 @@ func TestGroupRenameLegacyLocalFeedsAndRouting(t *testing.T) {
 			t.Fatalf("feed count changed: %#v %v", rows, err)
 		}
 	}
-	for before, want := range map[string]string{"room=main": "room=main", "platform=local room=main": "platform=local room=main", "platform=web room=main": "platform=web room=sloth", "platform=hook room=main/main": "platform=hook room=sloth/discord", "chat_jid=local:main": "chat_jid=local:main", "chat_jid=web:main/main": "chat_jid=web:sloth/discord", "sender=main": "sender=main"} {
+	for before, want := range map[string]string{"room=main": "room=main", "platform=local room=main": "platform=local room=main", "platform=web room=main": "platform=web room=sloth", "platform=hook room=main/main": "platform=hook room=sloth/main", "chat_jid=local:main": "chat_jid=local:main", "chat_jid=web:main/main": "chat_jid=web:sloth/discord", "sender=main": "sender=main"} {
 		got, err := mapping.match(before)
 		if err != nil || got != want {
 			t.Fatalf("route %q became %q want %q: %v", before, got, want, err)
@@ -1157,5 +1158,35 @@ func TestGroupRenameImmutableImagesOutsideSettingsScan(t *testing.T) {
 	}
 	if _, err = renamePlanFiles(root, renameTestMap(t)); err == nil || !strings.Contains(err.Error(), control) {
 		t.Fatalf("oversized operational settings accepted: %v", err)
+	}
+}
+
+func TestGroupRenameCanonicalJIDOwnership(t *testing.T) {
+	mapping := renameTestMap(t)
+	for before, want := range map[string]string{
+		groupfolder.WebJID("main/main"):             groupfolder.WebJID("sloth/discord"),
+		groupfolder.HookJID("main", "main"):         groupfolder.HookJID("sloth", "main"),
+		groupfolder.HookJID("main/main", "main"):    groupfolder.HookJID("sloth/discord", "main"),
+		groupfolder.HookJID("main/trading", "main"): groupfolder.HookJID("sloth/trading", "main"),
+	} {
+		if got := mapping.identity(before); got != want {
+			t.Errorf("canonical JID %q became %q, want %q", before, got, want)
+		}
+	}
+}
+
+func TestGroupRenameHookRoomRetainsSource(t *testing.T) {
+	before := groupfolder.HookJID("main", "main")
+	next := groupfolder.HookJID("sloth", "main")
+	original := "platform=hook room=" + core.JidRoom(before)
+	mapped, err := renameTestMap(t).match(original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !router.RouteMatches(core.Route{Match: original}, core.Message{ChatJID: before}) {
+		t.Fatal("native hook fixture did not match")
+	}
+	if !router.RouteMatches(core.Route{Match: mapped}, core.Message{ChatJID: next}) {
+		t.Fatalf("hook source room lost: %q became %q, cannot match %q", original, mapped, next)
 	}
 }

@@ -1059,7 +1059,8 @@ original-coordinate map. More specific mappings take precedence. External chat
 identities, including legacy `local:` feeds, opaque IDs, ciphertext, cursors and
 historical content keep their bytes. Unqualified route rooms keep platform
 coordinates; explicit `platform=web` or `platform=hook` rooms use folder
-coordinates. The operation changes classified ownership and operational references.
+coordinates. Hook source labels retain their bytes. The operation changes
+classified ownership and operational references.
 
 The instance stays stopped through execution, resume or rollback. An operator
 inventory names every owner table and its complete partition counts. This

@@ -138,6 +138,7 @@ files move with their directory. The CLI updates symlink targets, operational
 web URLs, absolute workspace paths and declared agent settings. It refuses
 unclassified folder settings. Unqualified route `room` operands retain platform
 room names; only explicit `platform=web` or `platform=hook` room operands move.
+Hook JIDs and explicit hook rooms retain their source labels.
 Coordinate operands in ACL Params and Predicate require exact values; globs
 refuse preflight, including on unchanged ACL rows.
 
