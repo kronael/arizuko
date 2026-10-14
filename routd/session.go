@@ -21,11 +21,8 @@ type httpSessions struct {
 	c *runedv1.Client
 }
 
-// NewSessionResolver wraps the runed client; nil client → nil resolver.
+// NewSessionResolver wraps the runed client.
 func NewSessionResolver(c *runedv1.Client) SessionResolver {
-	if c == nil {
-		return nil
-	}
 	return &httpSessions{c: c}
 }
 

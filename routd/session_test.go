@@ -75,11 +75,3 @@ func TestSessionResolver_Unreachable(t *testing.T) {
 		t.Fatalf("unreachable runed: want nil, got %+v", got)
 	}
 }
-
-// TestNewSessionResolver_NilClient: a nil runed client → nil resolver, so the
-// new_session hint / inspect_session render "no prior session".
-func TestNewSessionResolver_NilClient(t *testing.T) {
-	if r := NewSessionResolver(nil); r != nil {
-		t.Fatalf("nil client → want nil resolver, got %v", r)
-	}
-}
