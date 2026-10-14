@@ -191,7 +191,9 @@ record**, one entry per installed package per install target:
 - the **install target**: `(folder, name)` is the key, folder `''` meaning
   instance-wide. A package installed against the whole instance and a product
   blended into one group are the same kind of fact, so they share one lock;
-- **source** + resolved **immutable revision**;
+- **source** + resolved **immutable revision**; local sources are stored as
+  absolute paths, while Git URLs retain their identity. `catalog` names only
+  packages added from the release catalog;
 - the **manifest as installed** — the exact identities this install owns (route
   paths, acl keys, skill dirs, files, fragment names);
 - a per-asset **content hash** (what was written).

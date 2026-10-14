@@ -219,12 +219,16 @@ func isGitURL(src string) bool {
 }
 
 // fetchSource resolves a package source to a local directory + a revision. A
-// local path is used as-is (revision "local"); a git URL is shallow-cloned to a
+// local path is made absolute (revision "local"); a git URL is shallow-cloned to a
 // temp dir and its HEAD commit recorded. cleanup removes any temp clone (noop
 // for a local path). Recursive removal is of arizuko's OWN temp dir only.
 func fetchSource(src string) (dir, revision string, cleanup func()) {
 	if !isGitURL(src) {
-		return strings.TrimRight(src, "/"), "local", func() {}
+		dir, err := filepath.Abs(src)
+		if err != nil {
+			die("Failed: resolve source %s: %v", src, err)
+		}
+		return dir, "local", func() {}
 	}
 	url := strings.TrimPrefix(src, "git+")
 	if strings.HasPrefix(url, "github.com/") {
@@ -1055,6 +1059,9 @@ func cmdPackages(args []string) {
 		mustPkgName(name)
 		dir, revision, cleanup := fetchSource(origin)
 		defer cleanup()
+		if !isGitURL(origin) {
+			origin = dir
+		}
 		files, hashes := readFragmentAssets(dir)
 		if len(files) == 0 {
 			die("Failed: no compose fragment (*.yml) in source %s", origin)
