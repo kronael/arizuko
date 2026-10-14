@@ -6690,3 +6690,19 @@ Three shapes, one decision:
   **Fix:** measure instruction/tool exposure and completion behavior, then improve
   the existing declaration so an unambiguous completed task calls the stop tool.
   Do not add a second lifecycle policy or unconditional platform stop hook.
+
+- **STORE-MEMORY-TASK-OBSERVE-TARGET** (MED, correctness) — ten Rhias Nemo/content
+  memory reducers target Telegram chats whose ordinary messages hit observe.
+  Today's successful timed dispatch records no agent spawn; compact logs stop
+  in September despite October transcripts. `store/tasks.go:486` also seeds
+  these silent internal tasks with the external chat JID. **Fix:** seed memory
+  reducers to their registered owner folder, preserving ordinary user routing.
+  Repair measured existing rows with guarded operator writes, retaining IDs and
+  schedules. Prove an observe-only external route cannot suppress a seeded reducer.
+
+- **FLEET-STOCK-SKILL-QUARANTINE-REMAINS** (MED, ops) — six active Sloth groups
+  lack 11 or13 stock skill entrypoints. Their `.quarantined` backups remain from
+  the repaired L155 guard incident. Read-only hash evidence matches current stock
+  for65 entries;12 atlas/martin backups differ. **Fix:** restore only missing
+  current stock entrypoints, retaining all quarantined/custom files. No test — ops;
+  verify exact bytes and discovery counts against the recorded hash inventory.
