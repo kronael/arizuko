@@ -6704,3 +6704,13 @@ Three shapes, one decision:
   verdicts through the existing command/auth mechanism while the worker is busy;
   preserve actor authorization, exact pending-action targeting and replay dedup.
   Require a failing busy-turn callback regression covering relevant adapters.
+
+
+- **RUNED-EMPTY-ROOTFS-CLEANUP** (MED, correctness) — every completed guest
+  leaves its empty `vms/<turn>/rootfs` directory. The fleet eval measures
+  60 Krons and28 Sloth teardown notices since this deployment; newest retained
+  rootfs directories have zero entries. `runed/vmrecord.go:392` removes named
+  pid files but omits `rootfsDirName`, so removing the turn directory fails.
+  **Fix:** remove the named empty rootfs directory only after the existing
+  process/mount proof; preserve nonempty or mounted paths. Extend the existing
+  daemon-owned-pid cleanup regression and prove both refusal controls.
