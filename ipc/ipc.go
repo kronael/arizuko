@@ -190,9 +190,8 @@ type StoreFns struct {
 	// topic). Always called on outbound; BumpEngagement is the separate
 	// timed-aware bump. Spec 5/G-engagement.
 	SetLastReply func(jid, topic, replyID, folder string) error
-	// BumpEngagement upserts engaged_until + engaged_folder. Callers MUST
-	// skip the call when the triggering inbound sender is timed-* (spec
-	// 5/G-engagement: scheduled / autonomous turns do not extend engagement).
+	// BumpEngagement renews the active turn through store.RenewEngagement.
+	// Explicit disengage takes precedence over that turn's later answers.
 	BumpEngagement      func(jid, topic, folder string, until time.Time) error
 	MessagesBefore      func(jid string, before time.Time, limit int) ([]core.Message, error)
 	MessagesByThread    func(jid, topic string, before time.Time, limit int) ([]core.Message, error)
@@ -777,7 +776,8 @@ func putOutboundRow(gated GatedFns, db StoreFns, jid, text, platformID, folder, 
 	// Key last-reply + engagement under the active turn's topic — same
 	// key the gateway seeds (SetLastReply at turn start). "" would chain
 	// the next in-thread reply off the wrong (root) key.
-	topic := activeTopic(db, folder)
+	turnTopic := activeTopic(db, folder)
+	topic := turnTopic
 	// A reply that ROOTED a platform thread lands in that thread, and for a
 	// parent-channel turn the active topic is "" — so without this the row said
 	// nothing about where it went. The turn's own topic still wins when it has
@@ -798,7 +798,7 @@ func putOutboundRow(gated GatedFns, db StoreFns, jid, text, platformID, folder, 
 			triggerSender = db.CurrentTriggerSender(folder)
 		}
 		if !strings.HasPrefix(triggerSender, "timed-") {
-			_ = db.BumpEngagement(jid, topic, folder, time.Now().Add(gated.EngagementTTL))
+			_ = db.BumpEngagement(jid, turnTopic, folder, time.Now().Add(gated.EngagementTTL))
 		}
 	}
 	turnID := ""
@@ -1667,15 +1667,9 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 			})
 		})
 
-	// Spec 5/G-engagement engagement primitives. Both MCP sockets are per-folder, so the
-	// agent passes (jid, topic) explicitly. The caller folder must own the
-	// conversation. Three authz arms:
-	//   1. EngagedFolder match — caller already owns the active engagement.
-	//   2. JIDRoutedToFolder — caller is the default route target.
-	//   3. No current engagement — a fresh autonomous turn can claim the chat,
-	//      so scheduled jobs have a path to engage. Stealing an active
-	//      engagement still requires arm 1 or 2.
-	engagementAuthz := func(jid, topic string) error {
+	// Engage can claim a fresh conversation. Disengage needs active ownership
+	// or a route/source-turn binding (spec 5/G-engagement).
+	engagementAuthz := func(action, jid, topic string) error {
 		if identity.Folder == "" {
 			return fmt.Errorf("engagement: caller folder unresolved")
 		}
@@ -1689,14 +1683,14 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 		if db.JIDRoutedToFolder != nil && db.JIDRoutedToFolder(jid, identity.Folder) {
 			return nil
 		}
-		if currentOwner == "" {
+		if action == "engage" && currentOwner == "" {
 			return nil
 		}
 		return fmt.Errorf("engagement: %q owned by %q, not caller %q", jid, currentOwner, identity.Folder)
 	}
 
 	granted("engage",
-		"Mark (jid, topic) engaged for the spec 5/G TTL so subsequent inbounds fire even when the route table wouldn't route them here. Use for scheduled / autonomous turns or recovery after a failed reply. Caller folder must already own the conversation (last reply here OR default route here).",
+		"Mark (jid, topic) engaged for the spec 5/G TTL so subsequent inbounds fire even when the route table wouldn't route them here. Use for scheduled / autonomous turns or recovery after a failed reply. Fresh conversations can be claimed; active ones require ownership.",
 		[]mcp.ToolOption{
 			mcp.WithString("jid", mcp.Required()),
 			mcp.WithString("topic"),
@@ -1707,7 +1701,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 			if jid == "" {
 				return toolErr("engage: jid required")
 			}
-			if err := engagementAuthz(jid, topic); err != nil {
+			if err := engagementAuthz("engage", jid, topic); err != nil {
 				return toolErr(err.Error())
 			}
 			if db.SetEngagement == nil || gated.EngagementTTL <= 0 {
@@ -1734,7 +1728,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 			if jid == "" {
 				return toolErr("disengage: jid required")
 			}
-			if err := engagementAuthz(jid, topic); err != nil {
+			if err := engagementAuthz("disengage", jid, topic); err != nil {
 				return toolErr(err.Error())
 			}
 			if db.SetEngagement == nil {

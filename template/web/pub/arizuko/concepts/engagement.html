@@ -96,6 +96,8 @@
 
     <div class="note"><strong>Note:</strong> engagement overrides the entire route table. When a <code>(chat, topic)</code> is engaged, <code>routd</code> delivers to the engaged folder and fires a turn regardless of what the route table says &mdash; including <code>#observe</code> targets, trigger routes pointing elsewhere, or no matching route at all. The bot is mid-conversation; the route table is irrelevant until the TTL expires or <code>disengage()</code> is called.</div>
 
+    <p>A mention requests a task. After a one-shot task, the agent calls <code>disengage</code> and delivers its answer. The answer does not reopen the conversation. An explicit stop also blocks automatic mentions from old thread replies. A fresh mention or a direct reply can request another task.</p>
+
     <h2>seeing who is engaged, and ending it</h2>
     <p>Engagement is invisible from the outside &mdash; the bot answering a message that carried no @mention is the only clue you get. The dashboard answers it at a glance: <strong><code>/dash/engagement/</code></strong> lists every conversation the bot is currently staying in, with the group it belongs to and how long the window has left. It is operator-only, because it covers the whole instance rather than one folder.</p>
     <p>Each row carries a <strong>disengage</strong> button. Most windows need nothing &mdash; they wear off on their own. Use it when the bot is talking in a chat it should stay out of: the window ends immediately and the bot will not speak there again until someone names it. It asks you to confirm first, because the people in that chat see the effect straight away.</p>
@@ -126,7 +128,7 @@ curl -X POST -H "Authorization: Bearer $TOKEN" \
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/concepts/engagement.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-08-07">2026-08-07</time>
+        &middot; updated <time class="docs-updated" datetime="2026-09-22">2026-09-22</time>
       </div>
     </main>
 

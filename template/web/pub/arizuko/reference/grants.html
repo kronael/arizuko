@@ -144,11 +144,11 @@ predicate: discord:guild=G123       # only when the caller's token carries that 
 
     <h2>6. Two seeded roles</h2>
 
-    <p><strong><code>role:member</code></strong> is the floor. Every folder is bound to it the moment it is created (<code>assignDefaultRole</code>, <a href="https://github.com/kronael/arizuko/blob/main/store/seed.go"><code>routd/seed_grants.go</code></a>), and it carries the twelve messaging verbs and nothing else:</p>
+    <p><strong><code>role:member</code></strong> is the floor. Every folder is bound to it the moment it is created (<code>assignDefaultRole</code>, <a href="https://github.com/kronael/arizuko/blob/main/store/seed.go"><code>routd/seed_grants.go</code></a>), and it carries the twelve messaging verbs plus <code>disengage</code>:</p>
 
     <pre><code>reply, send, send_file, send_voice,
 post, forward, quote, repost,
-like, dislike, edit, delete</code></pre>
+like, dislike, edit, delete, disengage</code></pre>
 
     <p>Read tools and <code>set_work</code> are always on and need no grant. Everything else &mdash; <code>register_group</code>, the route tools, <code>network_*</code>, <code>schedule_*</code>, <code>observe_*</code>, <code>invite_*</code>, token minting, writing <code>acl</code> itself &mdash; is an explicit row somebody delegated. The floor is seeded with <code>grant_option = 0</code>: it is not re-delegable, because every new folder is born a member directly. Seed: <a href="https://github.com/kronael/arizuko/blob/main/routd/migrations/0023-4r-role-member.sql">migration 0023</a>.</p>
 
@@ -248,7 +248,7 @@ grant_option: 0</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/reference/grants.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-09-18">2026-09-18</time>
+        &middot; updated <time class="docs-updated" datetime="2026-09-29">2026-09-29</time>
       </div>
     </main>
 

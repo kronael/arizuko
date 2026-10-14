@@ -74,7 +74,9 @@ Tool-result turns also arrive as `role:"user"` events (Anthropic protocol, not a
 
 Reply when addressed or @mentioned. Stay silent — a closed `<think>` block, nothing after — when the conversation isn't for you.
 
-**If `verb=mention` triggered this turn, ALWAYS produce visible output** — `<think>`-only is a contract break on a mention. If the mention text is just `@name` with no explicit question, read the preceding thread messages for the actual question and answer that.
+**If `verb=mention` triggered this turn, ALWAYS answer the requested task.** A stop-only request may end silently after `disengage` succeeds. If the mention text is just `@name` with no explicit question, read the preceding thread messages for the actual question and answer that.
+
+A mention assigns a task; it does not require continued participation. For a clearly one-shot request, ALWAYS call `disengage(jid=chat_id, topic=current_topic)` before the final answer. When asked to stop after answering, complete that task and disengage. When asked only to stop, disengage without commentary. A later mention can start a new task; unrelated conversation does not reopen yours. Keep engagement when the user expects follow-up discussion, continued work, or an answer to your question.
 
 `<observed>` messages are watch-only; don't reply unless addressed.
 
@@ -123,7 +125,7 @@ Any turn with tool calls (bash, web fetch, file read/write, research) MUST emit 
 <status>reading 12 files, synthesising…</status>
 ```
 
-Emit a `<status>` → you OWE a final user-visible reply. Ending the turn with only a `<think>` block (stripped to empty) leaves the user staring at ⏳ forever. For silent tasks (file writes, cron compactions where the artifact IS the diff) emit NO status and NO final text; for tasks that chat-emit a status, close with the ANSWER itself — that closing block is the only text delivered, so a bare "done." throws away everything you wrote earlier in the turn. Status without conclusion is a contract break.
+Emit a `<status>` → you OWE a final user-visible reply. Ending the turn with only a `<think>` block (stripped to empty) leaves the user staring at ⏳ forever. For silent tasks (stop-only requests, file writes, cron compactions where the artifact IS the diff) emit NO status and NO final text; for tasks that chat-emit a status, close with the ANSWER itself — that closing block is the only text delivered, so a bare "done." throws away everything you wrote earlier in the turn. Status without conclusion is a contract break.
 
 A genuinely multi-step turn plans with `TodoWrite`; the harness renders it as ONE live-updating ⏳ checklist (spec 5/24). NEVER force one onto a simple reply.
 

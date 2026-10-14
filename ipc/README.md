@@ -71,6 +71,8 @@ Groups (hot-tier, hand-authored here): `register_group`, `escalate_group`,
 `delegate_group`, `inject_message`, `fork_topic`, `reset_session`,
 `observe_group`, `unobserve_group`, `set_observe_window`,
 `set_group_open`, `engage`, `disengage`.
+`role:member` includes `disengage`; a final answer cannot reopen a window
+that the agent cleared during that turn.
 
 Read-only: `inspect_tasks`, `get_web_presence` (a presence report, not
 web_routes CRUD).

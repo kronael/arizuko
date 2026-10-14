@@ -67,7 +67,7 @@
       <tr><td><code>message_delivery</code></td><td>the delivery status, then the message's position</td><td>attempts. <code>sent</code> is the absence of an item, so the entity holds only what still owes a delivery.</td></tr>
       <tr><td><code>chats</code></td><td>the chat jid</td><td><code>agent_cursor</code> (the dispatch watermark), sticky group and topic</td></tr>
       <tr><td><code>sessions</code></td><td>folder and topic</td><td>session id, parent topic, fork instant, <code>observed_cursor</code></td></tr>
-      <tr><td><code>chat_reply_state</code></td><td>jid and topic</td><td>last reply, engagement window and the folder holding it</td></tr>
+      <tr><td><code>chat_reply_state</code></td><td>jid and topic</td><td>reply anchor, engagement window, owner and explicit stop time</td></tr>
       <tr><td><code>chat_proactive</code></td><td>the chat jid</td><td>the instant that chat last spoke unprompted &mdash; the cooldown</td></tr>
       <tr><td><code>system_messages</code></td><td>the folder, then the instant</td><td>one queued system event</td></tr>
     </table>
@@ -149,7 +149,7 @@
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/reference/schema.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-09-13">2026-09-13</time>
+        &middot; updated <time class="docs-updated" datetime="2026-09-16">2026-09-16</time>
       </div>
     </main>
 

@@ -28,7 +28,8 @@ import (
 // The attributes a reply-state item carries. `jid` and `topic` are the
 // coordinate and are not among them.
 const (
-	attrReplyLastID = "last_reply_id"
+	attrReplyLastID       = "last_reply_id"
+	attrReplyDisengagedAt = "disengaged_at"
 	// Exported because folder_scope.go reads the folder to decide a purge and
 	// the move that carries these rows names the instant it re-renders.
 	AttrReplyEngagedUntil  = "engaged_until"
@@ -150,6 +151,11 @@ func (s *Store) bumpEngagement(ctx context.Context,
 	}
 	attrs := map[string]string{}
 	var remove []string
+	if !until.After(time.Now()) {
+		attrs[attrReplyDisengagedAt] = core.NowTS()
+	} else {
+		remove = append(remove, attrReplyDisengagedAt)
+	}
 	if until.IsZero() {
 		remove = append(remove, AttrReplyEngagedUntil)
 	} else {
@@ -171,6 +177,103 @@ func (s *Store) bumpEngagement(ctx context.Context,
 		return fmt.Errorf("move the engagement window on %s#%s: %w", jid, topic, err)
 	}
 	return nil
+}
+
+// RenewEngagement extends a delivered answer's window unless its turn started
+// before an explicit disengage. The source conversation also gates replies
+// that create a thread. Timed turns never renew engagement.
+func (s *Store) RenewEngagement(turnID, jid, topic, folder string, until time.Time) error {
+	tc, ok := s.TurnContextOf(turnID)
+	if !ok || tc.StartedAt.IsZero() {
+		return fmt.Errorf("renew engagement: turn %q has no dispatch time", turnID)
+	}
+	if strings.HasPrefix(tc.Trigger, "timed-") {
+		return nil
+	}
+	key, err := replyStateKey(jid, topic)
+	if err != nil {
+		return err
+	}
+	ctx := context.Background()
+	it, exists, err := s.replyStateItem(ctx, jid, topic)
+	if err != nil {
+		return err
+	}
+	cond, blocked, err := renewalCondition(it, tc.StartedAt)
+	if err != nil || blocked {
+		return err
+	}
+	w := objstore.Write{
+		Op: objstore.Update, Entity: ChatReplyState, Key: key, Cond: cond,
+		Attrs:  map[string]string{AttrReplyEngagedUntil: core.TS(until)},
+		Remove: []string{attrReplyDisengagedAt},
+	}
+	if folder != "" {
+		w.Attrs[AttrReplyEngagedFolder] = folder
+	} else {
+		w.Remove = append(w.Remove, AttrReplyEngagedFolder)
+	}
+	if !exists {
+		w.Op = objstore.Put
+		w.Remove = nil
+		w.Cond = objstore.Cond{Item: objstore.ItemAbsent}
+	}
+	var checks []objstore.Check
+	if tc.ChatJID != jid || tc.Topic != topic {
+		source, _, err := s.replyStateItem(ctx, tc.ChatJID, tc.Topic)
+		if err != nil {
+			return err
+		}
+		sourceCond, blocked, err := renewalCondition(source, tc.StartedAt)
+		if err != nil || blocked {
+			return err
+		}
+		sourceKey, err := replyStateKey(tc.ChatJID, tc.Topic)
+		if err != nil {
+			return err
+		}
+		checks = append(checks, objstore.Check{Entity: ChatReplyState, Key: sourceKey, Cond: sourceCond})
+	}
+	// A concurrent disengage refuses renewal and leaves the explicit choice intact.
+	_, err = s.TryWriteEntities(ctx, checks, w)
+	return err
+}
+
+func renewalCondition(it objstore.Item, startedAt time.Time) (objstore.Cond, bool, error) {
+	stamp := it.Attrs[attrReplyDisengagedAt]
+	cmp := objstore.Cmp{Attr: attrReplyDisengagedAt, Op: objstore.Absent}
+	if stamp != "" {
+		cleared, err := time.Parse(time.RFC3339Nano, stamp)
+		if err != nil {
+			return objstore.Cond{}, false, fmt.Errorf("read disengage time: %w", err)
+		}
+		if !cleared.Before(startedAt) {
+			return objstore.Cond{}, true, nil
+		}
+		cmp.Op, cmp.Value = objstore.Eq, stamp
+	}
+	return objstore.Cond{Where: []objstore.Cmp{cmp}}, false, nil
+}
+
+// ThreadDisengaged reports whether an explicit stop blocks implicit thread
+// participation. A live thread window overrides a root stop.
+func (s *Store) ThreadDisengaged(jid, topic string) (bool, error) {
+	for _, keyTopic := range []string{topic, ""} {
+		it, _, err := s.replyStateItem(context.Background(), jid, keyTopic)
+		if err != nil {
+			return false, err
+		}
+		if _, live := engagementFrom(it.Key.Sort, it.Attrs, time.Now()); live {
+			return false, nil
+		}
+		if it.Attrs[attrReplyDisengagedAt] != "" {
+			return true, nil
+		}
+		if keyTopic == "" {
+			break
+		}
+	}
+	return false, nil
 }
 
 // Engagement answers the LIVE window on (jid, topic). Not live is: no row, no

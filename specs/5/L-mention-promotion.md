@@ -26,15 +26,11 @@ stay dumb: they ship the raw verb and routd upgrades it at ingest,
 **before `PutMessage` and before routing**, so every downstream path
 (routing, observed window, prompt) sees one truth.
 
-`routd/server.go:480`:
-
-```go
-if verb != "untrusted" &&
-    ((m.ReplyTo != "" && s.db.ReplyTargetIsBot(m.ReplyTo)) ||
-        s.db.ThreadHasBotMessage(m.ChatJID, m.Topic)) {
-    verb = "mention"
-}
-```
+Explicit mentions and replies directed at a bot message can always engage.
+An adapter's thread-root reference counts as thread participation, rather
+than a direct reply. An explicit disengage blocks implicit participation.
+The check reads the thread's reply state, then its root fallback when the
+thread has no live window. A fresh engagement permits follow-ups again.
 
 **The guard is `verb != "untrusted"`, not `!= "mention"`.** An untrusted
 sender (emaid marks unverified senders `verb=untrusted`,

@@ -74,8 +74,9 @@ func (s *Server) appendAndDeliver(turnID, jid, text string) {
 
 	row := s.outboundRow(tc, jid, clean, s.db.LastReplyID(jid, tc.Topic))
 	_ = s.db.SetLastReply(jid, tc.Topic, row.ID, tc.Folder)
-	if !strings.HasPrefix(tc.Trigger, "timed-") {
-		_ = s.db.SetEngagement(tc.ChatJID, tc.Topic, tc.Folder, s.engagementT)
+	until := time.Now().Add(s.engagementT)
+	if err := s.db.store().RenewEngagement(turnID, tc.ChatJID, tc.Topic, tc.Folder, until); err != nil {
+		slog.Error("renew reply engagement", "turn_id", turnID, "err", err)
 	}
 	status := s.deliverTurn(tc, jid, &row)
 	if s.deliver != nil {

@@ -145,6 +145,8 @@ Endpoints (`server.go`, `channels.go`):
   widen it), so it can never reach a window the list would not show, and it
   lands its `audit_log` row inside the write's own transaction
   (`DB.SetEngagementAudited`) — `engagement.set` / `engagement.clear`.
+  Disengagement survives the current turn's final answer and implicit thread
+  mentions. A fresh mention or explicit engagement can start another task.
 - `GET /v1/topic_sessions` — the resume Claude-session id for (folder, topic)
 - `GET /v1/users/{sub}/scopes` — login-time scope snapshot (`grants:read`)
 - `POST /v1/acl`, `DELETE /v1/acl` — acl grant/revoke (`acl:write`)

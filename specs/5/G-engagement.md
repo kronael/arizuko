@@ -36,26 +36,29 @@ is applied once at write time, so every read is a plain comparison.
 so the pair can never drift, and so the routing fallback resolves on the
 first mention rather than only after a prior bot reply succeeded.
 
-## Write sites — one policy, two calls
+## Write sites — explicit choice and automatic renewal
 
-`store/messages.go:504` `SetLastReply` and `:525` `BumpEngagement` are
-deliberately split:
+`SetLastReply(jid, topic, replyID, folder)` records the reply anchor.
+`BumpEngagement(jid, topic, folder, until)` makes an explicit choice.
+A zero or expired deadline records `disengaged_at` on the same reply-state row.
+Explicit engagement can open a window at any time. Explicit engagement and
+accepted fresh renewal remove the prior stop marker atomically. Natural TTL
+expiry does not restore that prior stop.
 
-- `SetLastReply(jid, topic, replyID, folder)` — **always** on
-  conversational outbound. Writes the thread anchor + `engaged_folder`.
-- `BumpEngagement(jid, topic, folder, until)` — **only** when the active
-  turn's trigger sender is not `timed-*`. Writes `engaged_until` +
-  `engaged_folder`.
+`RenewEngagement(turnID, jid, topic, folder, until)` handles every automatic
+renewal from final prose and delivered MCP answers. It reads the turn's stored
+`started_at`. A disengage at or after dispatch blocks renewal for that turn,
+including replies that create a thread from the source conversation.
+The write guards the source and destination clear timestamps atomically.
+A concurrent disengage refuses renewal. A fresh mention starts a new turn and
+can engage again. Clear state stays scoped to its `(jid, topic)`.
 
-Audit invariant: every `BumpEngagement` call site is guarded by
-`!strings.HasPrefix(triggerSender, "timed-")` and by a non-empty
-platform reply id (`ipc/ipc.go:630`) — a scheduled broadcast or a failed
-send must not open an engagement window the user didn't ask for.
+Timed turns never renew engagement. An empty platform reply id cannot renew
+an MCP answer. The reply anchor survives disengage.
 
-Why not bump inside `MarkMessageDelivered`: its signature is
-`(id, platformID)` with no jid/topic in scope, and it is called
-unconditionally on the empty-text early-exit — that would falsely engage
-a never-delivered row.
+The agent calls `disengage` when the user asks it to stop or when a clearly
+bounded request is complete. The agent can send the answer before or after
+that call. The answer cannot cancel the explicit choice to stop.
 
 ## Engagement is claimed at DISPATCH, not at ingress
 
@@ -91,7 +94,8 @@ reduce noise on cold messages.
 the root topic (`topic=""`) when the agent answers an @mention, but
 thread replies arrive with `topic="<thread_ts>"`. `resolve` falls back to
 the root when the thread topic has no record of its own; without it
-every threaded follow-up misses its own engagement.
+every threaded follow-up misses its own engagement. An explicit clear on the
+thread blocks root fallback, even while the root window stays live.
 
 **Precedence over onboarding.** The route-miss branch also fires
 onboarding. Engagement is checked first — engaged means skip onboarding
@@ -124,14 +128,17 @@ wrapping `SetEngagement` (zero time clears). Both args are **required**:
 MCP sockets are per-folder, not per-conversation, so there is no
 implicit "current" jid to default to.
 
-**Three-arm authorization** — an agent may engage only its own
-conversations. Accept if any holds:
+**Ownership** — either tool requires the caller's live engagement, a route
+binding, or the active turn's immutable source-chat binding. A turn can stop
+its source conversation before its first answer, even when the default route
+points elsewhere. The source binding adds no access to another chat.
 
-1. `EngagedFolder(jid, topic) == callerFolder` — already owns it.
-2. `JIDRoutedToFolder(jid, callerFolder)` — is the jid's route target.
-3. `EngagedFolder(jid, topic) == ""` — fresh chat. Escape hatch so an
-   autonomous turn can bootstrap a conversation with no pre-existing
-   route. Stealing an _active_ engagement still needs arm 1 or 2.
+Only `engage` can claim a conversation with no current owner. `disengage`
+cannot place a persistent stop on a fresh foreign conversation or thread.
+
+`role:member` grants `disengage` and skips approval for it. Each responding
+agent can end its own conversation. `engage` still needs an explicit grant.
+The ownership check applies to both tools.
 
 ## The read surface
 

@@ -487,12 +487,18 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	m.ReplyToText = truncate(m.ReplyToText, replyExcerptChars)
-	// Mention promotion: a reply to a bot row, or a thread the bot took part in
-	// (spec 5/L), becomes verb=mention so the agent re-attends after its
-	// engagement window closes. An untrusted sender (verb=untrusted, spec 11/17-emaid-auth)
-	// must NOT escalate this way — a spoofed inbound would drive a turn.
-	if verb != "untrusted" &&
-		((hasParent && parent.BotMsg) || s.db.ThreadHasBotMessage(m.ChatJID, m.Topic)) {
+	directReply := hasParent && parent.BotMsg &&
+		(verb != "message" || m.ReplyTo != m.Topic)
+	threadMention := false
+	if verb != "untrusted" && verb != "mention" && !directReply && m.Topic != "" {
+		stopped, err := s.db.store().ThreadDisengaged(m.ChatJID, m.Topic)
+		if err != nil {
+			writeErr(w, 500, "store_error", err.Error())
+			return
+		}
+		threadMention = !stopped && s.db.ThreadHasBotMessage(m.ChatJID, m.Topic)
+	}
+	if verb != "untrusted" && (directReply || threadMention) {
 		verb = "mention"
 	}
 	// A ✅/❌ reaction on a held notice IS the verdict: rewrite it into the

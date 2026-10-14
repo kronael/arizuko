@@ -639,13 +639,7 @@ func (l *Loop) resolve(chatJID string, last core.Message) resolution {
 	if err == nil {
 		rt := router.ResolveRouteTarget(last, routes)
 		if rt.Folder != "" {
-			// Engagement overrides the route. It is recorded on the root topic
-			// (topic=""); a thread reply arrives with topic="<thread>", so
-			// normalize thread→root when the thread has no own record.
 			engTopic := l.effectiveTopic(chatJID, last.Topic)
-			if engTopic != "" && !l.db.IsEngaged(chatJID, engTopic) {
-				engTopic = ""
-			}
 			if folder, ok := l.engaged(chatJID, engTopic); ok {
 				return resolution{Folder: folder, ok: true}
 			}
@@ -657,9 +651,6 @@ func (l *Loop) resolve(chatJID string, last core.Message) resolution {
 	}
 	// 3. Engagement fallback on a route miss (topic-root normalized).
 	engTopic := l.effectiveTopic(chatJID, last.Topic)
-	if engTopic != "" && !l.db.IsEngaged(chatJID, engTopic) {
-		engTopic = ""
-	}
 	if folder, ok := l.engaged(chatJID, engTopic); ok {
 		return resolution{Folder: folder, ok: true}
 	}
@@ -680,6 +671,16 @@ func (l *Loop) effectiveTopic(chatJID, msgTopic string) string {
 // falls through instead of dispatching to "".
 func (l *Loop) engaged(chatJID, topic string) (string, bool) {
 	folder, ok := l.db.Engaged(chatJID, topic)
+	if !ok && topic != "" {
+		stopped, err := l.db.store().ThreadDisengaged(chatJID, topic)
+		if err != nil {
+			slog.Error("read thread engagement", "jid", chatJID, "topic", topic, "err", err)
+			return "", false
+		}
+		if !stopped {
+			folder, ok = l.db.Engaged(chatJID, "")
+		}
+	}
 	if !ok || folder == "" {
 		return "", false
 	}

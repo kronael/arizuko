@@ -431,11 +431,6 @@ func scopeRoutes(all func() ([]core.Route, error)) func(folder string, isRoot bo
 // state lives elsewhere federate over HTTP (identity → authd, session_log →
 // runed); graceful-absent → empty.
 func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
-	// Set and Bump engagement are the same write; the tool layer distinguishes
-	// the names, the store does not.
-	setEngagement := func(jid, topic, folder string, until time.Time) error {
-		return s.db.SetEngagement(jid, topic, folder, time.Until(until))
-	}
 	return ipc.StoreFns{
 		// An elevated /root turn is the operator acting directly — holding their
 		// own call for their own approval is a deadlock (spec 5/19).
@@ -456,7 +451,12 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 		ListRoutes:          scopeRoutes(func() ([]core.Route, error) { return s.db.Routes() }),
 		DefaultFolderForJID: s.db.DefaultFolderForJID,
 		RouteTokenTarget:    s.db.RouteTokenTarget,
-		JIDRoutedToFolder:   s.db.JIDRoutedToFolder,
+		JIDRoutedToFolder: func(jid, folder string) bool {
+			if t.chatJID != "" && jid == t.chatJID && folder == t.folder {
+				return true
+			}
+			return s.db.JIDRoutedToFolder(jid, folder)
+		},
 		JIDRoutableToFolder: s.db.JIDRoutableToFolder,
 		MessagesBefore: func(jid string, before time.Time, limit int) ([]core.Message, error) {
 			return s.db.MessagesBefore(jid, beforeStr(before), limit)
@@ -490,12 +490,14 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 			}
 			return out
 		},
-		PutMessage:           s.db.PutMessage,
-		PutOutbound:          s.db.PutOutbound,
-		GetLastReplyID:       s.db.LastReplyID,
-		SetLastReply:         s.db.SetLastReply,
-		SetEngagement:        setEngagement,
-		BumpEngagement:       setEngagement,
+		PutMessage:     s.db.PutMessage,
+		PutOutbound:    s.db.PutOutbound,
+		GetLastReplyID: s.db.LastReplyID,
+		SetLastReply:   s.db.SetLastReply,
+		SetEngagement:  s.db.store().BumpEngagement,
+		BumpEngagement: func(jid, topic, folder string, until time.Time) error {
+			return s.db.store().RenewEngagement(t.turnID, jid, topic, folder, until)
+		},
 		EngagedFolder:        func(jid, topic string) string { f, _ := s.db.Engaged(jid, topic); return f },
 		CurrentTriggerSender: func(_ string) string { return t.trigger },
 		CurrentTopic:         func(_ string) string { return t.topic },

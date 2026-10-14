@@ -33,6 +33,7 @@ var memberVerbs = []string{
 	"mcp:reply", "mcp:send", "mcp:send_file", "mcp:send_voice",
 	"mcp:post", "mcp:forward", "mcp:quote", "mcp:repost",
 	"mcp:like", "mcp:dislike", "mcp:edit", "mcp:delete",
+	"mcp:disengage",
 }
 
 // alwaysMountedTools are the READS every turn mounts, plus the memory

@@ -16,7 +16,7 @@ with no matching allow row is denied. There is no fallback and no
 default derived from where a folder sits.
 
 Default power is a seeded role, not a position: every folder is bound to
-`role:member` at create, carrying the messaging verbs. Everything else —
+`role:member` at create, carrying the messaging verbs and `disengage`. Everything else —
 `register_group`, `routes`, `network_*`, `schedule_*`, `observe_*`,
 `invite_*`, token mint, `acl` itself — is an explicit `acl` row.
 `role:operator` holds `*` on `**` WITH GRANT OPTION and roots every

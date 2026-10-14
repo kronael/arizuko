@@ -64,8 +64,8 @@ the tier axis was net cost.
    is nothing to gate.
 
 7. **One default role: `role:member`, a functional floor.** The four per-depth
-   bundles (`role:tier0..3`) collapsed to a single seeded role carrying the 12
-   messaging verbs (`routd/migrations/0023-4r-role-member.sql`); every folder is
+   bundles (`role:tier0..3`) collapsed to a single seeded role carrying the
+   messaging verbs and `disengage` (`store/seed.go`); every folder is
    bound to it at create (`routd/seed_grants.go:16` `assignDefaultRole`). Read
    tools and `set_work` are always-on, no grant. Everything else — `register_group`,
    `routes`, `network_*`, `schedule_*`, `observe_*`, `invite_*`, token mint, `acl`

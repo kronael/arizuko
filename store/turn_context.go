@@ -64,6 +64,7 @@ func init() { objstore.OrderedAttr(TurnContexts, AttrTurnStartedAt, tsWidth) }
 // TurnContext is a turn's bound run-start context.
 type TurnContext struct {
 	TurnID       string
+	StartedAt    time.Time
 	Folder       string
 	Topic        string
 	ChatJID      string
@@ -97,6 +98,7 @@ func turnFrom(it objstore.Item) TurnContext {
 		State:        it.Attrs[attrTurnState],
 		RunReturned:  it.Attrs[attrTurnRunReturned] == flagSet,
 	}
+	tc.StartedAt, _ = time.Parse(time.RFC3339Nano, it.Attrs[AttrTurnStartedAt])
 	tc.RetryCount, _ = strconv.Atoi(it.Attrs[attrTurnRetryCount])
 	return tc
 }
