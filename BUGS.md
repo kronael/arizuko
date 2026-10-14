@@ -197,7 +197,7 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
   hits, 56 under `-test`; nine survived verification and were filed separately. Kept so
   the next sweep does not re-report the same ~135.
 
-## L405 — a reaction or reply to a bot message never resolves its parent on Telegram, so it is never promoted to a mention (2026-10-14, open)
+## ✅ FIXED 2026-10-14 L405 — a reaction or reply to a bot message never resolves its parent on Telegram, so it is never promoted to a mention (2026-10-14)
 
 teled names a message two ways and the two never meet. Every inbound reference
 carries the chat prefix — `handleReaction` sets
@@ -224,11 +224,14 @@ one value and no format mismatch is possible. It passes on the broken code.
 - **Severity:** high — reply-to-bot and reaction mentions are both dead on Telegram
 - **Scope:** `store/messages.go`, `teled/bot.go`
 - **Affected:** krons rhias groups measured as the report; every Telegram chat by code
-- **Status:** open
-- **Fix:** `MessageByID` resolves a reference that names the platform id with or
-  without the chat prefix. It is the one place the two shapes already meet, and
+- **Status:** fixed
+- **Fix:** `MessageByID` strips the chat prefix before it compares the platform
+  id, so both shapes resolve the same row. It is the one place the two meet, and
   neither side can be made to match the other: the prefixed form is teled's
-  message identity, and the bare form is what Telegram's API takes.
+  message identity, and the bare form is what Telegram's API takes back.
+  `TestPrefixedReferenceResolvesABotRow` posts a reaction under both shapes and
+  asserts the excerpt and the mention promotion. It fails on the unfixed lookup
+  with `verb = "like"` and an empty excerpt.
 
 ## L398 — `make test`, the documented dev loop, cannot pass: two packages exceed Go's default 10-minute timeout (2026-10-07, open — the ten minutes is unexplained)
 

@@ -93,3 +93,40 @@ func TestTruncateKeepsRunesWhole(t *testing.T) {
 		t.Fatalf("truncate shortened a fitting string: %q", got)
 	}
 }
+
+// A reaction and a reply name their parent the way teled names it: the chat
+// prefix plus the platform's message id. A row the bot delivered carries the
+// BARE platform id, because that is what Telegram's own API takes back for
+// `like` and `delete`. Both shapes must resolve the same row, or the excerpt is
+// empty, the topic is not inherited, and the mention promotion never fires
+// (BUGS L405).
+func TestPrefixedReferenceResolvesABotRow(t *testing.T) {
+	db, srv, _ := newTestRoutd(t)
+	h := srv.Handler()
+	_ = db.PutGroup(core.Group{Folder: "nemo"})
+	doJSON(t, h, "PUT", "/v1/routes", "", map[string]any{
+		"routes": []apiv1.Route{{Match: "platform=telegram", Target: "nemo"}}})
+	const jid = "telegram:group/5229089286"
+
+	_ = db.PutMessage(core.Message{ID: "out-abc", PlatformID: "4242", ChatJID: jid,
+		Sender: "nemo", Content: "the bot said this", BotMsg: true,
+		Timestamp: time.Now().UTC()})
+
+	for _, ref := range []string{"4242", jid + "/4242"} {
+		in := apiv1.Message{
+			ID: "react-" + ref, ChatJID: jid, Sender: "telegram:user/1112184352",
+			Content: "👍", Verb: "like", ReplyTo: ref,
+		}
+		if rec := doJSON(t, h, "POST", "/v1/messages", "", in); rec.Code != 200 {
+			t.Fatalf("ingest %q = %d %s", ref, rec.Code, rec.Body.String())
+		}
+		m := msgByID(t, db, jid, "react-"+ref)
+		if m.ReplyToText != "the bot said this" {
+			t.Errorf("reference %q: excerpt = %q, want the bot's own text", ref, m.ReplyToText)
+		}
+		if m.Verb != "mention" {
+			t.Errorf("reference %q: verb = %q, want mention — a reaction on a bot "+
+				"message is addressed to the bot", ref, m.Verb)
+		}
+	}
+}
