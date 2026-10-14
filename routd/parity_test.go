@@ -333,11 +333,7 @@ func TestNoEngagementOnMentionIngress(t *testing.T) {
 	}
 }
 
-// TestThreadParticipationPromotion: a reply landing in a thread the bot has
-// already spoken in is promoted to verb=mention even when the reply target is a
-// human message — so the agent re-attends a thread it joined instead of going
-// silent once its 5/G-engagement window closes (spec 5/L). A thread the bot never spoke in
-// is not promoted; a no-topic reply to a topic-less message is not promoted.
+// Human-root thread participation stays ambient; direct bot replies address the bot.
 func TestThreadParticipationPromotion(t *testing.T) {
 	db, srv, _ := newTestRoutd(t)
 	h := srv.Handler()
@@ -349,7 +345,7 @@ func TestThreadParticipationPromotion(t *testing.T) {
 	// is a topic-less message in the same chat.
 	_ = db.PutMessage(core.Message{ID: "bot-1", ChatJID: "slack:T/C1/U", Sender: "bot",
 		Content: "answer", Timestamp: now, BotMsg: true, Topic: "th1", RoutedTo: "demo"})
-	_ = db.PutMessage(core.Message{ID: "human-root", ChatJID: "slack:T/C1/U", Sender: "u1",
+	_ = db.PutMessage(core.Message{ID: "human-root", PlatformID: "th1", ChatJID: "slack:T/C1/U", Sender: "u1",
 		Content: "question", Timestamp: now, Topic: "th1"})
 	_ = db.PutMessage(core.Message{ID: "dm-human", ChatJID: "slack:T/C1/U", Sender: "u1",
 		Content: "ping", Timestamp: now})
@@ -361,7 +357,8 @@ func TestThreadParticipationPromotion(t *testing.T) {
 	cases := []struct {
 		name, id, chat, topic, replyTo, want string
 	}{
-		{"participated-thread", "m1", "slack:T/C1/U", "th1", "human-root", "mention"},
+		{"participated-thread", "m1", "slack:T/C1/U", "th1", "human-root", "message"},
+		{"direct-bot-reply", "m4", "slack:T/C1/U", "th1", "bot-1", "mention"},
 		{"silent-thread", "m2", "slack:T/C2/U", "untouched", "human-root", "message"},
 		{"no-topic-reply", "m3", "slack:T/C1/U", "", "dm-human", "message"},
 	}
