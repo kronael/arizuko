@@ -55,7 +55,7 @@
       <h1>runed</h1>
 
     <h2>What it is</h2>
-    <p>In plain terms, runed is the thing that runs the agent. When a turn needs to happen, runed starts one fresh, empty KVM guest with <code>qemu-system-x86_64</code>, lets the agent work inside it, then throws the guest away. There is one substrate and no selector &mdash; the container substrate <code>RUNED_SUBSTRATE</code> used to pick between is gone, because a setting with one legal value stops applying without saying so.</p>
+    <p>In plain terms, runed is the thing that runs the agent. When a turn needs to happen, runed starts one fresh, empty KVM guest with <code>qemu-system-x86_64</code>, lets the agent work inside it, then throws the guest away. There is one substrate and no setting that selects it.</p>
 
     <p>runed is the execution plane. It serves the work queue, starts one KVM guest per turn, and enforces the run timeout. It holds <code>/dev/kvm</code>, <code>/dev/vhost-vsock</code> and <code>/dev/net/tun</code> plus the <code>NET_ADMIN</code> and <code>SYS_ADMIN</code> capabilities, and mounts no Docker socket at all. It never appends a message (<a href="routd.html">routd</a> is the sole appender), and it neither signs nor mints a token: <a href="authd.html">authd</a> is the sole signer, and runed reads authd&rsquo;s public keys only to verify the callers of its own <code>/v1</code>.</p>
 
@@ -125,7 +125,7 @@ export RUNED_ROOTFS_DIR=/srv/data/myinstance/images/rootfs-a35045d89e3e
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/components/runed.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-09-25">2026-09-25</time>
+        &middot; updated <time class="docs-updated" datetime="2026-09-29">2026-09-29</time>
       </div>
     </main>
 

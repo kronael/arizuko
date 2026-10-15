@@ -109,7 +109,7 @@ WEB_HOST=localhost:9001 \
       <li><code>WEBD_URL</code> &mdash; URL routd should call back on (default <code>http://webd:8080</code>).</li>
       <li><code>ROUTER_URL</code> &mdash; where routd is reachable (default <code>http://routd:8080</code>).</li>
       <li><code>AUTHD_URL</code>, <code>AUTHD_SERVICE_KEY</code> &mdash; exchanged for the <code>service:webd</code> ES256 token webd presents on <code>/v1/*</code>, and the JWKS it verifies routd&rsquo;s callbacks against on <code>/send</code> + <code>/typing</code>.</li>
-      <li><code>PROXYD_HMAC_SECRET</code> &mdash; verifies identity headers forwarded by proxyd for <code>/api/*</code>, <code>/x/*</code>, <code>/mcp</code>.</li>
+      <li>No shared secret with proxyd. The identity headers on <code>/api/*</code>, <code>/x/*</code> and <code>/mcp</code> are trusted only behind proxyd&rsquo;s <code>service:proxyd</code> bearer, which webd checks against that same JWKS (<code>auth.ProxydTransit</code>).</li>
       <li><code>WEB_HOST</code>, <code>ASSISTANT_NAME</code> &mdash; rendered into the chat widget and issued URLs.</li>
     </ul>
 
@@ -130,7 +130,7 @@ WEB_HOST=localhost:9001 \
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/components/webd.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-09-19">2026-09-19</time>
+        &middot; updated <time class="docs-updated" datetime="2026-09-29">2026-09-29</time>
       </div>
     </main>
 
