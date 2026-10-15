@@ -1,53 +1,65 @@
 # arizuko
 
-<p align="center">
-  arizuko hosts many specialized agents on one platform — each a folder (persona, memory, skills, routing) you shape by talking to it: an LLM edits the files that are the agent, and compartmentalized daemons keep that shaping bounded to your permissions. Every change lands as plain files on your own box — diff them, tar the directory for a complete backup, put them under git if you want history. What you ship is products you own — a Slack team agent, an AWS SRE, a company brain.
-</p>
+arizuko runs many AI agents on one Linux server you own. Each agent is a
+folder of plain files: who it is, what it remembers, what it can do, and which
+chats reach it. You change an agent by talking to it, and you read the result
+as a diff on disk. Small daemons around the folders decide which chats reach
+which agent and what each agent may do beyond its own folder.
 
-<p align="center">
-  <a href="#run-agents-in-real-channels">Use cases</a> •
-  <a href="#overview">Overview</a> •
-  <a href="#when-to-use-arizuko">When to use</a> •
-  <a href="#getting-started">Getting Started</a> •
-  <a href="#security-model">Security</a> •
-  <a href="#docs">Docs</a>
-</p>
+[Install](INSTALL.md) • [How it works](ARCHITECTURE.md) •
+[Security](SECURITY.md) • [Routing](ROUTING.md) • [Extending](EXTENDING.md) •
+[Web docs](template/web/pub/arizuko/) (served at `/pub/arizuko/` on every
+instance)
 
-## Run agents in real channels
+Self-hosted only, on one Linux host with Docker and KVM. Sized for agent teams,
+not consumer traffic.
 
-- **Team agent in Slack / Discord / Telegram** — mention-based or DM, with per-channel persona and memory
-- **Long-running personal assistant** — persists conversation history, diary, and user profile across restarts
-- **Multi-channel orchestrator** — one agent across Slack + Discord + email + WhatsApp + web chat, same database
-- **Scheduler / cron-bot** — `timed` injects turns into the message bus on a schedule, no webhook needed
-- **Email or webhook agent** — `emaid` ingests IMAP with DMARC filtering; arbitrary callers POST to `/hook/<token>`
-- **RAG over team docs** — mount your repo via WebDAV (`davd`) and let the agent grep, read, and cite; `find_messages` adds ranked full-text search over conversation history
-- **Multi-tenant agent platform** — one deployment, arbitrary folder depth; `corp/eng/sre` and `solo/inbox` run the same code
+## What you can run with it
 
-## Overview
+- A team agent in Slack, Discord or Telegram that answers on mention or in DMs,
+  with its own persona and memory per channel.
+- A personal assistant that keeps conversation history, a diary and a profile
+  of you across restarts.
+- One agent across several channels at once. Slack, Discord, email, WhatsApp
+  and web chat all feed the same store.
+- Scheduled work. `timed` fires a turn on a cron schedule; no webhook needed.
+- An email or webhook agent. `emaid` reads IMAP and checks DMARC; any caller
+  can POST to `/hook/<token>`.
+- Search over your own documents. Mount a tree over WebDAV (`davd`) and the
+  agent reads and cites it; `find_messages` ranks past conversation by
+  content.
+- Many tenants on one deployment. `corp/eng/sre` and `solo/inbox` run the
+  same code at any folder depth.
 
-A folder is an agent. It has a `PERSONA.md`, a `skills/` directory, a `MEMORY.md`, a conversation diary, and an ACL. Folders form a hierarchy (`corp/sales`, `corp/eng/sre`) — each node is an independent agent that accumulates only the conversations relevant to it.
+## How a message becomes a reply
 
-Models and agent harnesses keep improving — that isn't the race arizuko runs. The gap is the layer above them: managing users, context, and organization across many agents, built as composable primitives you own rather than one platform you rent — a web-native Linux, where publishing a page is a file write, not a deploy. See [`specs/5/A`](specs/5/A-primitives-framing.md) for the framing.
+A folder is an agent. It holds `PERSONA.md`, a `skills/` directory,
+`MEMORY.md`, a diary and its permission rows. Folders nest (`corp/sales`,
+`corp/eng/sre`), and each one keeps only the conversations routed to it.
 
 ```
 # A message arrives in Slack.
 @andy can you summarize the open PRs?
 
-# 1. slakd posts to routd  →  the message store
-# 2. routd resolves folder via route table, builds the prompt, calls runed
-# 3. runed boots a KVM guest for that group's turn
-# 4. routd hosts the agent's MCP socket in-process; socat bridges it in
-# 5. Claude Code agent runs, calls tools, submits turn
-# 6. routd delivers reply back to Slack via slakd
+# 1. slakd posts it to routd, which appends it to the message store
+# 2. routd matches the route table, builds the prompt, calls runed
+# 3. runed boots one KVM guest for that folder's turn
+# 4. routd serves the agent's MCP socket; runed bridges it into the guest over vsock
+# 5. the agent runs, calls tools, submits its turn
+# 6. routd delivers the reply back to Slack through slakd
 ```
 
-Agents coordinate through the same conversation plane they serve users on. A guest can route to a sibling, delegate to a child, schedule a cron task, or ingest webhooks — by posting to `routd`. No separate coordination bus.
+Agents coordinate on the same conversation plane they serve people on. A turn
+can route to a sibling, delegate to a child, schedule a task or publish a web
+page by posting to `routd`. There is no second coordination bus.
 
-Conversation state lives in routd's tables; per-group agent state — the Claude Code session, skills, memory, diary — lives in the mounted group folder. Guests are ephemeral: `runed` boots one per turn, mounts the group folder, runs it, and tears it down.
+Conversation state lives in routd's tables. Agent state lives in the folder:
+the session transcript, skills, memory, diary. A guest is ephemeral: `runed`
+boots one per turn, shares the folder into it, runs the turn and powers it
+off. The session id is declared before the run, so a turn killed by a restart
+is resumed by the next one in that topic.
 
-## The shape
-
-Everything reduces to six primitives in a fixed pipeline. Trace one event top to bottom:
+Every event runs the same six steps:
 
 ```
 Slack @mention in #eng
@@ -55,98 +67,120 @@ Slack @mention in #eng
   → Routing        → corp/eng/oncall
   → Agent          folder loaded: persona, skills, memory
   → Authorization  may it read / send / delegate here?
-  → Turn           one ephemeral guest run (runed)
-  → State          DB rows written + folder edits
+  → Turn           one KVM guest (runed)
+  → State          rows written, folder files edited
   → reply in the Slack thread
 ```
 
-It looks like feature sprawl until you trace one example — then it's six steps every time. Channels, tasks, webhooks, secrets, delegation, workflows are all recompositions of these six (plus identity as the coordinate system they're addressed in), never new machinery ([specs/5/A](specs/5/A-primitives-framing.md)).
-
-Those primitives stack into what you deploy and ship:
+Channels, tasks, webhooks, secrets, delegation and workflows are all
+compositions of these six, with identity (folders, JIDs, roles, scopes) as the
+coordinate system they are addressed in ([specs/5/A](specs/5/A-primitives-framing.md)).
 
 | Layer      | What it is           | Examples                                                          |
 | ---------- | -------------------- | ----------------------------------------------------------------- |
-| Primitives | invariant concepts   | Event, Routing, Agent, Authorization, Turn, State (+ Identity)    |
+| Primitives | the concepts         | Event, Routing, Agent, Authorization, Turn, State                 |
 | Components | Go packages          | `store`, `router`, `auth`, `ipc`, `runed`, `groupfolder`          |
 | Daemons    | deployable processes | `authd` + `routd` + `runed`; `webd`, `timed`, `onbod`, `slakd`, … |
 | Products   | installable agents   | Slack team agent, reality agent, company brain                    |
 
-A product is the bottom layer: the same pipeline, a different folder. The public docs collapse Components into Daemons (you deploy daemons, not packages) — operators see three layers, the spec names all four.
-
-## Direction
-
-The proposed [single-world composition](specs/7/26-single-world-deployment.md)
-combines the core modules in one binary and process. It keeps module ownership,
-agent isolation, and Dynamo-compatible storage. Packages supply capabilities
-and skills; package import adapters use the same lifecycle. This design is not
-an available installation mode.
-
-That's what arizuko is today: a single-host, multi-tenant agent router with channels, folders, and one store behind every daemon. Three frames describe where it's heading.
-
-**Multi-tenant by primitive.** The same code runs `solo/inbox` and `corp/eng/sre/oncall`. Folder hierarchies have no fixed depth. Every primitive — grants, channels, secrets, routes, scheduled work — scales from one-user-one-channel to a fleet of agents under shared admin. Adding tenants is adding rows + folders; the daemon graph is invariant.
-
-**Agent-as-data.** Each agent is a folder of values — `PERSONA.md`, `skills/`, `MEMORY.md`, `.diary/`, ACL rules, route rows, secret references. The runtime is an interpreter over those values. The plan is to move cold-tier config (ACL, routes, persona, skills, scheduled tasks, invites) toward git as the source of truth ([specs/5/8](specs/5/8-yaml-manifests.md)), with the store as a rebuildable cache. Forking, auditing, and distributing an agent then ride native git verbs instead of bespoke ones.
-
-**Agent-first managed (target state).** The agent and the operator will speak the same language. The plan ([specs/5/17](specs/5/17-openapi-mcp.md), rolled out by [specs/5/16](specs/5/16-mcp-rest-unification.md)) is one handler per cold-tier resource with two faces — REST authored for humans + external tools, MCP derived for in-guest agents — over one auth gate (`auth.Authorize`) and one tx-bound audit row. Most cold-tier resources already run that pattern; the remaining REST twins and one-owner federation follow incrementally. Declarative intent is then carried by YAML manifests dispatched through the same gate ([specs/5/8](specs/5/8-yaml-manifests.md)): operator writes the YAML, `arizuko apply` walks it row by row, daemons see resreg-shaped mutations identical to any other call.
-
-Nothing in this direction breaks what already runs. The migration is incremental: resource by resource, daemon by daemon, the surface unifies, the cold tier moves to git, the manifest format absorbs the imperative knobs. The turn substrate, channel adapters, the message bus, the per-folder runtime — all unchanged.
+A product is a folder's contents. The same pipeline runs every product.
 
 ## When to use arizuko
 
-Use arizuko if the agent needs to live in real channels and keep a separate identity per team, customer, or workflow.
+Use it when an agent has to live in real chat channels and keep a separate
+identity per team, customer or workflow:
 
-Choose arizuko when you need:
+- one agent per folder, each with its own persona, memory, skills and
+  permission rows
+- Slack, Discord, Telegram, email, web chat and webhooks as first-class inputs
+- scheduled work, delegation between agents and long-running background jobs
+- one machine, inspectable as files, routes and store rows
 
-- one agent per folder, with separate persona, memory, skills, and ACL
-- channel-native operation in Slack, Discord, Telegram, email, web chat, or webhooks
-- scheduled work, delegation, and long-running background behavior
-- self-hosting on one machine with Docker and KVM
-- a system you can inspect as files, routes, and database rows
+Do not pick it for enterprise document search. There is no connector sync and
+no vector index; pair it with a retrieval system and let arizuko act on the
+results (see [What arizuko does not include](#what-arizuko-does-not-include)).
+For a coding assistant on one developer machine, a single-user tool is a
+closer fit. arizuko is for agents that sit behind channels and serve teams.
 
-Do not choose arizuko if your main problem is enterprise document search — it has no connector sync pipeline or vector index. Pair it with a retrieval system and use arizuko as the agent layer that acts on the results (see [What arizuko does not include](#what-arizuko-does-not-include)).
+## Getting started
 
-If you want a local coding assistant for one developer machine, a single-user tool (brainpro, Hermes) is a closer fit. arizuko is built for persistent agents that sit behind channels and serve teams.
-
-## Getting Started
-
-**You need:** Docker, KVM, a Linux host, credentials for at least one channel adapter, and write access to `/srv/data/`.
+You need a Linux x86_64 host with `/dev/kvm`, Docker with the compose plugin,
+Go, write access to `/srv/data/`, and a token for one channel.
 
 ```bash
-make build                                 # ./arizuko + daemon binaries
-arizuko create foo                         # seed /srv/data/arizuko_foo + .env
-vim /srv/data/arizuko_foo/.env             # set AUTH_SECRET, WEB_HOST, …
-arizuko group foo add tg:-123456789 main   # register first group
-arizuko run foo                            # generate compose + docker compose up
+make build                                        # ./arizuko + daemon binaries
+sudo make images DATA_DIR=/srv/data/arizuko_foo   # daemon images + the guest rootfs
+sudo make kernel DATA_DIR=/srv/data/arizuko_foo   # the guest kernel, built once
+./arizuko create foo                              # /srv/data/arizuko_foo + .env
+./arizuko packages foo add extenddb               # the store server (then init it: INSTALL.md)
+vim /srv/data/arizuko_foo/.env                    # ASSISTANT_NAME, a model key, a bot token, RUNED_*_DIR
+./arizuko packages foo add teled                  # one channel adapter
+./arizuko group foo add telegram:group/123456789 main
+./arizuko run foo                                 # generate compose, docker compose up
 ```
 
-Full walkthrough — prerequisites, blocker fixes, per-adapter tokens, troubleshooting: [INSTALL.md](INSTALL.md).
+[INSTALL.md](INSTALL.md) has the full walk: prerequisites, the store server
+and its per-daemon access keys, adapter tokens, and the "healthchecks green
+but no reply" checklist.
 
-A first deployment runs the core plane — `authd` (token authority), `routd` (conversation/router), `runed` (agent execution) — plus one adapter (`teled`, `slakd`, `discd`, `webd`, or `emaid`). Core runs standalone with no channel adapter at all — `routd`, `dashd`, `onbod` and `timed` are reachable over REST and MCP on their own; an adapter is what adds a chat surface, not a requirement to run. Add `dashd` for operator UI, `timed` for scheduled tasks, and `onbod` for invite flows. Egress is default-deny by construction — no setting turns it off. Each adapter ships as a package — `template/services/<name>.yml`, added with `arizuko packages <instance> add <name>`; no Go edits required. `arizuko packages <instance> install <git-or-dir>` installs a third-party package (compose fragment, proxyd route, grant, or skills) onto a running instance, with `upgrade`/`remove` tracked by an `installed_packages` record. One group can be built from several products at once — list them in `~/products.toml` and run `arizuko products <instance> apply <folder>`; blending is per kind of file, and two products claiming the same file stops the apply rather than quietly dropping one. See [EXTENDING.md](EXTENDING.md) for wiring new channels and packages.
+A first deployment runs the core plane, `authd` (token authority), `routd`
+(conversation and routing) and `runed` (turn execution), plus one adapter.
+Core also runs with no adapter at all; `routd`, `dashd`, `onbod` and `timed`
+answer over REST and MCP on their own, and an adapter adds a chat surface.
+`dashd` adds the operator UI, `timed` scheduled tasks, `onbod` invite flows.
 
-A tar of `/srv/data/arizuko_<name>/` is a complete instance backup — the store (the server's database directory under `store/`, or the owner files), group folders, per-user memory, secrets, agent files.
+Every daemon's tables live on one store server, and every daemon that reaches
+the store signs with its own access key, kept in its own `env/<daemon>.env`.
+A daemon that has the server's address and no key refuses to start, and
+because `docker compose up` runs under systemd, that one exit restart-loops the
+whole instance. `arizuko generate` names such a daemon before you deploy it
+(`store enrolment is partial: these daemons reach the store and hold no key`)
+and exits 1. Mint the key before you enable a package: INSTALL.md § The
+per-daemon store keys.
+
+Each adapter ships as a package: a compose fragment under `template/services/`
+that `arizuko packages <instance> add <name>` enables, with no Go edits.
+`arizuko packages <instance> install <git-or-dir>` installs a third-party
+package (compose fragment, proxyd route, grant, skills) onto a running
+instance; `upgrade` and `remove` work from the `installed_packages` record.
+One group can blend several products: list them in `~/products.toml` and run
+`arizuko products <instance> apply <folder>`. Two products claiming the same
+file stop the apply rather than silently dropping one. See
+[EXTENDING.md](EXTENDING.md).
+
+A tar of `/srv/data/arizuko_<name>/` is a complete backup when the instance is
+stopped: the store server's data under `store/extenddb_db/`, the group
+folders, memory, secrets and agent files.
 
 ## How it works
 
 ```
 adapter (teled/discd/slakd/…) --HTTP--> routd (conversation plane)
                                           │     └── messages, routes, acl, secrets, tasks
-                                          │     └── hosts agent MCP socket in-process (ipc)
+                                          │     └── hosts the agent MCP socket in-process (ipc)
                                           ├──HTTP--> runed (execution plane)
-                                          │           └── spawns, session_log; one KVM guest + per-turn egress
+                                          │           └── spawns, session_log; one KVM guest + egress proxy per turn
                                           └──HTTP--> authd (token authority)
                                                       └── signing_keys; ES256 minter + JWKS
 
-timed   — scheduler, federates due tasks over routd
+timed   — scheduler, fires due tasks through routd
 onbod   — onboarding, OAuth, admission queue
-webd    — web chat channel adapter + SSE hub
+webd    — web chat adapter + SSE hub
 proxyd  — auth-gated reverse proxy (`proxyd_routes`, read per request)
-davd    — WebDAV workspace (per-group, dufs)
+davd    — WebDAV workspace (per group, dufs)
 dashd   — operator dashboards + admin CRUD
 ```
 
-Each core daemon owns its own tables and creates them at boot; no daemon touches another's. `DYNAMODB_URL` names where they live: one DynamoDB-protocol store server per instance, holding every owner's tables under its own prefix. Adapters, `webd`, `proxyd`, and `timed` reach `routd`; `routd` reaches `runed`; every daemon verifies tokens minted by `authd`.
+Each core daemon owns its tables and creates them at boot; no daemon touches
+another's. `DYNAMODB_URL` names the store server they all open their own
+tables on: ExtendDB speaking the DynamoDB protocol over PostgreSQL, one server
+per instance or one shared by several ([specs/6/42](specs/6/42-dynamo-over-postgres.md),
+[specs/6/43](specs/6/43-shared-store-server.md)). Adapters, `webd`, `proxyd`
+and `timed` call `routd`; `routd` calls `runed`; every daemon verifies tokens
+minted by `authd`.
 
-Full package graph, message flow, guest lifecycle, and schema in [ARCHITECTURE.md](ARCHITECTURE.md).
+Package graph, message flow, guest lifecycle and the table list are in
+[ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Channel adapters
 
@@ -163,54 +197,94 @@ Full package graph, message flow, guest lifecycle, and schema in [ARCHITECTURE.m
 | linkd   | LinkedIn           |
 | gitd    | GitHub (webhooks)  |
 
-Optional capability hooks: Whisper transcription (`WHISPER_BASE_URL`), TTS (`ttsd` + `TTS_BASE_URL`), second LLM (`OPENAI_API_KEY`/`CODEX_API_KEY` in the host `.env` or a user's own `/dash/me/env` row — these are model keys, so the store rejects them at folder scope), model gateway (`litellm` package + `MODEL_GATEWAY_URL`/`MODEL_GATEWAY_KEY` — the gateway holds the model credential, each turn gets its own virtual key charged to its folder and caller, and the gateway is the only ledger of what was spent; `specs/6/23-llm-gateway.md`, `specs/6/39-gateway-owns-spend.md`).
-
-Full daemon and library tables in [ARCHITECTURE.md](ARCHITECTURE.md).
+Optional hooks: Whisper transcription (`WHISPER_BASE_URL`), text to speech
+(`ttsd` + `TTS_BASE_URL`), a second model (`OPENAI_API_KEY` or
+`CODEX_API_KEY` in the host `.env` or a user's own `/dash/me/env` row), and a
+model gateway (the `litellm` package). With the gateway, the model credential
+stays in the gateway container; each turn gets a virtual key charged to its
+folder and caller, and the gateway is the only ledger of spend
+([specs/6/23](specs/6/23-llm-gateway.md), [specs/6/39](specs/6/39-gateway-owns-spend.md)).
 
 ## What arizuko does not include
 
-- connector crawlers for Confluence, Notion, Google Drive, Jira, or Salesforce
-- a built-in embedding pipeline or vector database
+- connector crawlers for Confluence, Notion, Google Drive, Jira or Salesforce
+- an embedding pipeline or a vector database
 - permission sync from external systems into per-document ACLs
-- multi-model routing across providers (the agent runtime is Claude Code)
-- a managed control plane or hosted SaaS path
+- multi-model routing across providers; the agent runtime is Claude Code
+- a managed control plane or a hosted service
 
-Documents can be mounted or written into a group's workspace; agents can read them directly. For large-scale retrieval, pair arizuko with a separate retrieval stack and use it as the part that receives messages, keeps per-group memory, enforces grants, schedules tasks, and takes actions across channels.
+You can mount or write documents into a group's folder, and the agent reads
+them directly. For large-scale retrieval, pair arizuko with a retrieval stack
+and let it do what it does: receive messages, keep per-group memory, enforce
+grants, schedule tasks, act across channels.
 
 ## Security model
 
-- **VM isolation**: each group runs in a separate KVM guest on a separate tap. Sibling groups never share a context window.
-- **Egress isolation**: every turn gets its own `egress` proxy holding its folder's allowlist, on a tap with no other route out. Default-deny; the proxy never terminates TLS (MITM declined 2026-08-18). Spec `specs/6/41`.
-- **ACL**: `auth.Authorize` — one `acl` table, deny-wins, no fallback. Capability comes from granted rows, never from a folder's depth; `role:member` is the seeded default and everything above it is delegated. MCP tools gated per-action per-principal.
-- **Secret injection**: secrets are AES-256-GCM encrypted at rest. Only model credentials reach the guest env, and with a model gateway configured (`MODEL_GATEWAY_URL`) not even those: the guest receives a virtual key minted for that one turn and never the provider credential — an API token for a tool is resolved on the host for the one call that needs it and never crosses into the agent's environment.
-- **Identity relay**: `proxyd` stamps `X-User-*` headers, proving the channel with a `service:proxyd` ES256 bearer (verified via `auth.ProxydTransit`); backends trust the headers only when that proof holds. Client-supplied `X-User-*` headers are stripped.
+- One KVM guest per turn, on its own tap. Sibling groups never share a guest
+  or a context window.
+- Egress is default-deny by construction. Each turn gets its own `egress`
+  proxy holding the folder's allowlist; the tap drops every packet that is not
+  addressed to that proxy, and the proxy never terminates TLS
+  ([specs/6/41](specs/6/41-qemu-substrate.md)).
+- Authorization is one table and one function: `acl` rows evaluated by
+  `auth.Authorize`, deny wins, no fallback. Capability comes from granted rows,
+  never from a folder's depth; `role:member` is the seeded default.
+- Secrets are AES-256-GCM encrypted at rest. Only model credentials reach the
+  guest, and with a model gateway not even those. A connector's token is
+  resolved on the host for the one call that needs it and never enters the
+  guest.
+- `proxyd` is the sole stamper of `X-User-*` headers and proves itself to
+  backends with a `service:proxyd` ES256 bearer. Client-supplied identity
+  headers are stripped.
 
-Full threat model in [SECURITY.md](SECURITY.md).
+Threat model and boundary table: [SECURITY.md](SECURITY.md).
 
-## What's planned
+## Direction
 
-- End-user agent provisioning — POST a definition, get a tenant + chat token ([spec](specs/5/5-worlds-agents-sessions.md))
-- Renaming `group`/`folder` → `path` across code, DB, and MCP tool names ([spec](specs/5/33-paths-roles.md) decision 9, not started)
+- Operator and agent speak the same language: one handler per cold-tier
+  resource with a REST face for people and tools and an MCP face for agents,
+  over one auth gate ([specs/5/17](specs/5/17-openapi-mcp.md),
+  [specs/5/16](specs/5/16-mcp-rest-unification.md)). Most resources run that
+  pattern today; the remaining REST twins are listed in ARCHITECTURE.md § Cold
+  tier vs hot tier.
+- The store is authoritative. YAML manifests are a dump and import format for
+  the cold tier (`arizuko export`, `arizuko apply`), not a synced source of
+  truth ([specs/5/8](specs/5/8-yaml-manifests.md)).
+- Single-world composition ([specs/7/26](specs/7/26-single-world-deployment.md))
+  describes the core daemons in one process. It is a design, not an
+  installation mode.
 
-## Build & test
+Planned and not started: end-user agent provisioning, POST a definition and
+get a tenant plus a chat token ([specs/5/5](specs/5/5-worlds-agents-sessions.md));
+renaming `group`/`folder` to `path` across code, store and tool names
+([specs/5/33](specs/5/33-paths-roles.md) decision 9).
 
-Build, test, image, and smoke targets: [INSTALL.md](INSTALL.md).
+## Build and test
 
-Beyond unit/e2e tests, [`anteval/`](anteval/) is the **agent-capability gate** — a
-black-box prober that runs real tasks through the public surfaces (REST/HTTP/MCP +
-a callback sink) against a _live_ instance and grades observable effects, proving
-the in-guest agent can self-modify, spawn+grant subagents, publish web, and
-build chat apps reachable over REST and MCP. Spec: [`specs/5/9`](specs/5/9-agent-capability-eval.md).
+Build, test, image and smoke targets: [INSTALL.md](INSTALL.md).
 
-## Docs
+[`anteval/`](anteval/) is the agent-capability gate. It runs real tasks through
+the public REST, HTTP and MCP surfaces of a live instance and grades the
+observable effects: can the agent change its own files, spawn and grant a
+subagent, publish a page, build a chat app reachable over REST and MCP
+([specs/5/9](specs/5/9-agent-capability-eval.md)).
 
-- [ARCHITECTURE.md](ARCHITECTURE.md) — package graph, message flow, full daemon/library tables, schema
-- [ROUTING.md](ROUTING.md) — route table syntax and examples
-- [SECURITY.md](SECURITY.md) — full threat model, egress isolation, secrets boundaries
-- [EXTENDING.md](EXTENDING.md) — add channels, skills, autocalls, connectors, actions
-- [GRANTS.md](GRANTS.md) — ACL model, principal namespaces, action lattice
-- [CHANGELOG.md](CHANGELOG.md) — shipped changes
-- [specs/](specs/) — per-phase specifications
+## How to read this
+
+| Order | File                                             | The question it answers                                               |
+| ----- | ------------------------------------------------ | --------------------------------------------------------------------- |
+| 1     | this file                                        | What is it, and how do I start?                                       |
+| 2     | [INSTALL.md](INSTALL.md)                         | How do I get an instance running, and what do I do when it is silent? |
+| 3     | [ARCHITECTURE.md](ARCHITECTURE.md)               | Where does each piece live, and how does a turn run?                  |
+| 4     | [ROUTING.md](ROUTING.md)                         | Which folder answers a message, and how does the reply get back?      |
+| 5     | [SECURITY.md](SECURITY.md)                       | What is isolated from what, and by which mechanism?                   |
+| 6     | [GRANTS.md](GRANTS.md)                           | Who may do what, and where is that decided?                           |
+| 7     | [EXTENDING.md](EXTENDING.md)                     | How do I add a channel, a connector, a package or a skill?            |
+| 8     | [CHANGELOG.md](CHANGELOG.md)                     | What shipped, and when?                                               |
+|       | [`cmd/arizuko/README.md`](cmd/arizuko/README.md) | What does each `arizuko` subcommand do?                               |
+|       | [`specs/`](specs/)                               | Which change is in flight, and why?                                   |
+|       | [`BUGS.md`](BUGS.md)                             | What is open, and what waits on a person?                             |
+|       | [LICENSE](LICENSE)                               | MIT.                                                                  |
 
 ## Thanks
 
@@ -224,7 +298,3 @@ build chat apps reachable over REST and MCP. Spec: [`specs/5/9`](specs/5/9-agent
 | [Muaddib](https://github.com/pasky/muaddib)              | Petr Baudis   | QEMU micro-VM isolation, 3-tier chronicle memory    |
 | [Hermes](https://github.com/NousResearch/hermes-agent)   | Nous Research | Self-improving skill learning across sessions       |
 | [takopi](https://github.com/banteg/takopi)               | banteg        | Telegram dispatch, progress streaming               |
-
-## License
-
-[MIT](LICENSE).
