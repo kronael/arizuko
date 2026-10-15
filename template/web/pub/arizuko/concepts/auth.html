@@ -100,7 +100,7 @@ local:alice</code></pre>
     <p>The same applies to logging out. Clicking log out kills the chain, and a refresh already in flight cannot outrun it: the spend step refuses a chain that is already dead, rather than only checking whether the token itself was used.</p>
 
     <h2>seeing sessions, and ending one</h2>
-    <p>An operator can ask <code>authd</code> two questions it used to answer only through a database shell.</p>
+    <p>An operator can ask <code>authd</code> two questions over HTTP, without a database shell.</p>
     <ul>
       <li><strong>Which key is signing?</strong> <code>GET /v1/signing_keys</code> lists each key's id, when it was created, when it was retired, and when a retired key stops verifying the tokens it already signed. The public JWKS at <code>/v1/keys</code> carries none of that &mdash; it holds what a verifier needs and nothing more &mdash; so "did the rotation actually take" had no answer. This one is metadata only; no private key is reachable through it by any argument.</li>
       <li><strong>Who is logged in?</strong> <code>GET /v1/sessions</code> lists one row per login: the account, the scope it was granted, when it started, how many times it has rotated since, and whether it is active, revoked or expired. Token values never appear &mdash; only a hash is stored, and not even the hash is served.</li>
@@ -127,7 +127,7 @@ local:alice</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/concepts/auth.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-08-07">2026-08-07</time>
+        &middot; updated <time class="docs-updated" datetime="2026-09-22">2026-09-22</time>
       </div>
     </main>
 

@@ -135,9 +135,8 @@
           mounts in its own mount namespace and exports it with
           <code>virtiofsd</code>, which is <code>runed</code>&rsquo;s own child
           rather than a daemon on the node &mdash; so nothing translates a path
-          and <code>HOST_DATA_DIR</code> no longer enters a turn at all
-          (<code>runed/mounts.go</code> <code>buildMounts</code>; the old
-          <code>hp()</code> rewrite is gone with the Docker substrate). What
+          and <code>HOST_DATA_DIR</code> never enters a turn
+          (<code>runed/mounts.go</code> <code>buildMounts</code>). What
           this does demand is that <code>runed</code> can <em>open</em> every
           path a turn mounts: the group folder, the kernel and rootfs
           directories, and any root you allow under
