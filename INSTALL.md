@@ -299,9 +299,9 @@ access key and a secret`), the daemon exits at boot, and because `docker
 compose up` runs under systemd, that one exit restart-loops the whole instance:
 two containers up out of fifteen and `systemctl is-active` stuck on
 `activating` (BUGS `L406`, measured on sloth). `arizuko generate` names every
-such daemon before you deploy, as `store enrolment is partial: these daemons
-reach the store and hold no key`, and exits 1. Read that line before you
-restart. The reach table above says who needs a key: every daemon but `timed`
+such daemon before you deploy, at ERROR in its log (`store enrolment is
+partial: these daemons reach the store and hold no key`), and then continues
+and writes the compose file anyway. Read that line before you restart. The reach table above says who needs a key: every daemon but `timed`
 and `ttsd`, adapters included.
 
 TLS is mandatory — the server refuses to start without it — so every daemon

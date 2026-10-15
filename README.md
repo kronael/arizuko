@@ -133,10 +133,10 @@ Every daemon's tables live on one store server, and every daemon that reaches
 the store signs with its own access key, kept in its own `env/<daemon>.env`.
 A daemon that has the server's address and no key refuses to start, and
 because `docker compose up` runs under systemd, that one exit restart-loops the
-whole instance. `arizuko generate` names such a daemon before you deploy it
-(`store enrolment is partial: these daemons reach the store and hold no key`)
-and exits 1. Mint the key before you enable a package: INSTALL.md § The
-per-daemon store keys.
+whole instance. `arizuko generate` names such a daemon before you deploy it,
+at ERROR in its log (`store enrolment is partial: these daemons reach the
+store and hold no key`), and then continues. Mint the key before you enable a
+package: INSTALL.md § The per-daemon store keys.
 
 Each adapter ships as a package: a compose fragment under `template/services/`
 that `arizuko packages <instance> add <name>` enables, with no Go edits.
