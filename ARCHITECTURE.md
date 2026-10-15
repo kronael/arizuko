@@ -4,7 +4,8 @@
 
 arizuko is built as a **core** of always-present primitives plus
 **integrations** that plug into the core per deployment. The split is
-visible throughout this document and in the [README](README.md) tables.
+visible throughout this document and in the [README](README.md) adapter
+table.
 New integrations are added via the extension points described in
 [EXTENDING.md](EXTENDING.md); the core evolves as a unit.
 
@@ -110,7 +111,7 @@ capabilities" for the pattern + the current list.
 ## Message Flow
 
 Ingest, routing, prompt assembly, and channel egress live in `routd`;
-container spawn lives in `runed`. The hand-off is one HTTP call
+the guest spawn lives in `runed`. The hand-off is one HTTP call
 (`routd → runed POST /v1/runs`); everything else is in-process to one
 of the two planes.
 
@@ -248,14 +249,14 @@ Two management surfaces, one handler, an injected gate per surface:
   is used only for a cross-daemon resource (`proxyd_routes` — proxyd owns
   the table, webd serves the MCP face). Spec
   [`5/17`](specs/5/17-openapi-mcp.md); rollout
-  [`5/16`](specs/5/16-mcp-rest-unification.md). Migrated so far: all seven
-  agent-MCP faces (`web_routes`, `acl`, `routes`, `scheduled_tasks`,
-  `network_rules`, `route_tokens`, `groups`) ride one `resreg.Resource`;
-  the REST second face is folded onto the same handler for `web_routes`,
-  `acl`, `routes`, `scheduled_tasks`, and `secrets` (routd), plus onbod's
-  `/v1/invites` and `/v1/gates` (`network_rules` is agent-only, no REST
-  twin). Still pending: the `route_tokens` REST fold (still hand-rolled),
-  the `groups` REST twin, and one-owner + federation.
+  [`5/16`](specs/5/16-mcp-rest-unification.md). All seven agent-MCP faces
+  (`web_routes`, `acl`, `routes`, `scheduled_tasks`, `network_rules`,
+  `route_tokens`, `groups`) ride one `resreg.Resource`; the REST second
+  face is folded onto the same handler for `web_routes`, `acl`, `routes`,
+  `scheduled_tasks` and `secrets` (routd), plus onbod's `/v1/invites` and
+  `/v1/gates` (`network_rules` is agent-only, no REST twin). Not yet folded:
+  the hand-rolled `route_tokens` REST face, the `groups` REST twin, and
+  one-owner federation.
 - **Hot tier** — agent runtime actions (`reply`, `send`, `like`, `delete`,
   `engage`, `inspect_*`). **MCP-only by design** in `ipc/ipc.go`; no REST
   twin — an operator doesn't `reply` to a chat.
@@ -322,10 +323,10 @@ mint/downscope tokens rather than minting themselves.
 Durable rules the package layout obeys.
 
 - **Naming.** Daemons end in `d` (`routd`, `runed`, `authd`, `proxyd`,
-  `webd`, channel adapters). A daemon is a process, owns at most one DB,
-  exposes REST and/or MCP. Short names use a ≤4-letter root + `d` — the
-  router/executor products are `routd`, `runed` (MCP host folded into
-  `routd`), **not** `routerd`/`agent-runnerd`. Libraries don't end in
+  `webd`, channel adapters). A daemon is a process, owns at most one set
+  of tables, exposes REST and/or MCP. Short names use a ≤4-letter root +
+  `d`: `routd` and `runed`, not `routerd`/`agent-runnerd`; the agent MCP
+  host lives inside `routd`. Libraries don't end in
   `d` (`auth`, `audit`, `obs`, `resreg`, `chanlib`, `grants`, `core`,
   `types`): imported, never run. Utility packages follow Go convention
   (`httputil/`, not `http_utils/`). One Go module
@@ -345,7 +346,7 @@ Durable rules the package layout obeys.
   named types — no behavior, no methods, zero arizuko-internal imports.
   It exists to break import cycles between each `<daemon>/api/v1/` and
   `core/`. Richer semantics (JID parsing, hierarchy, scope evaluation)
-  stay in `core/` or the owning daemon. Landed (`types/identity.go`).
+  stay in `core/` or the owning daemon (`types/identity.go`).
 
 - **Per-daemon `<daemon>/api/v1/` contract.** Each daemon publishes a
   tiny `api/v1/` sub-package: wire types + a thin HTTP client (no
@@ -366,9 +367,8 @@ Durable rules the package layout obeys.
   Cross-daemon data access goes through the receiving daemon's `api/v1/`
   (REST for sync, MCP for agents). The `store/` package is the shared
   schema library, and ownership is enforced by what a daemon can reach:
-  its own access key under a policy bounded to the owners it needs when
-  the instance is served, one bind-mounted `store/<owner>/` subdir when it
-  is not.
+  its own access key under a server policy bounded to the owners it
+  needs.
 
   **One named exception: the hot path.** A daemon may read another owner's
   tables directly when the read is per-request on a serving
@@ -408,7 +408,7 @@ servers. Full protocol: `specs/5/34-channel-protocol.md`.
   every chat a finished run owned (`turn_context.run_id`), which covers a
   follow-up steered into that run from a different chat of the same folder. The
   adapter TTL is the backstop and is 90% of `RUNED_RUN_TIMEOUT` — strictly
-  below the wall, or it only fires once the container is already dead (BUGS
+  below the wall, or it only fires once the guest is already dead (BUGS
   `T1`).
 
 Packages: `chanreg/` (registry, health, `HTTPChannel`, the egress
@@ -423,7 +423,7 @@ Deliverer), `routd/` (router-side `/v1/*` handlers), `chanlib/`
    calls routd `EnrichMessage` to prepend
    `<attachment path="..." mime="..." filename="..."/>` and clear column
 4. Voice (`audio/*`) → Whisper if `VOICE_TRANSCRIPTION_ENABLED=true`
-5. Container path: `/home/node/media/...`
+5. Guest path: `/home/node/media/...`
 
 teled serves `GET /files/{fileID}` as Telegram CDN proxy (bot-token URLs are
 ephemeral). discd uses direct CDN URLs.
@@ -457,19 +457,19 @@ Four decisions, each with its spec:
 
 1. **The engine is a server, not a library.** ExtendDB over PostgreSQL speaks
    the DynamoDB wire protocol, and arizuko is one client of it through a
-   driver on the official SDK (`specs/6/42`). SQLite left entirely, FTS5
-   included, so no component holds a state of record on local disk. The
-   protocol was chosen because it is the one with transactions, conditional
-   writes and a second implementation to fall back to — and because the same
-   driver reaches Amazon's service by changing one `BaseEndpoint`.
+   driver on the official SDK (`specs/6/42`). No component holds a state of
+   record on local disk. The protocol was chosen because it is the one with
+   transactions, conditional writes and a second implementation to fall back
+   to, and because the same driver reaches Amazon's service by changing one
+   `BaseEndpoint`.
 2. **There is no database layer.** `objstore.Store` is TWO methods, `Query`
    and `GuardedBatch` (`objstore/objstore.go:47`), and `specs/6/40` derives
    them from the five operations arizuko actually needs: containment by path
    prefix, the guarded batch, the versioned replace, the reachability guard
    and the claim-and-return. A caller states a coordinate and a condition; it
    never states a plan. That is what lets the engine change without a
-   rewrite, and it is why `go list -deps ./...` reaches `database/sql` from
-   nothing — measured, not asserted.
+   rewrite. `tests/components/imports_test.go` `TestNoPackageOpensSQL`
+   fails the build if any package reaches `database/sql`.
 3. **A deployment is an account, not a database.** The `tables` registry is
    keyed `(account_id, table_name)`, so one server can hold every instance on
    a host and keep them apart on the account (`specs/6/43`). A PostgreSQL
@@ -605,16 +605,14 @@ runed (`POST /v1/runs`). runed performs the spawn:
      the mounts as one virtio-fs share assembled from a staging tree, the env
      layered over the release image's own, the stdin as a ctl frame
    - `seedSkills()` — copy `ant/skills/` (re-seeds every run); seed `.claude.json`
-   - Name: `arizuko-<instance>-<folder>-<ts_ms>` or overridden by caller
-     (e.g. task containers set `timed-isolated:<id>` sender)
    - Env: `WEB_PREFIX` (`pub` for an elevated `/root` turn, world subdomain for children),
      `ARIZUKO_IS_ROOT`, `ARIZUKO_DELEGATE_DEPTH`, `WEB_HOST`,
      `ARIZUKO_ASSISTANT_NAME`, plus group overrides
    - boot the guest and wait for its `{exit}` frame. Per-turn results arrive
      over MCP (`submit_turn`), not stdout.
-   - Output: `{ status, error }` from the runner; `newSessionId` and
-     `result` flow back to routd via `submit_turn` callbacks, and the
-     run outcome returns on the `/v1/runs` response.
+   - Output: the agent's `submit_turn` carries the result, and a session id
+     only when the harness changed it; the run outcome returns on the
+     `/v1/runs` response.
    - Run timeout (`RUNED_RUN_TIMEOUT`): graceful stop then kill
    - Log: `groups/<folder>/logs/container-<ts>.log`
 
@@ -628,11 +626,11 @@ delivery paths:
   model a spawn talks to. The operator default lives in the host `.env`
   (`runed/secrets.go:readSecrets()`); a user's own key (BYOA) at user
   scope in the `secrets` table overrides it. **Spawn-inject** — merged into
-  the container env at start. This is the only table-backed credential that
+  the guest env at start. This is the only table-backed credential that
   gets there, because the key is spent by the Claude Code SDK subprocess and
   there is no tool call to attach a broker to.
 - **Capability credentials** (per-service tokens like `GITHUB_TOKEN`) —
-  **brokered on the host at call time, never in container env.** The tool
+  **brokered on the host at call time, never in the guest env.** The tool
   call resolves them through `routd/mcp.go:ResolveConnectorSecrets` →
   `ConnectorSecrets(folder, callerSub, required)` (user rows win over folder
   for real user triggers; timed/system use `service:routd` → folder scope),
@@ -649,18 +647,21 @@ delivery paths:
   credentials) — instance-wide, host `.env` only, never in the `secrets`
   table.
 
-`mergeSecrets(anchors, userEnvProfileKeys)` builds the container env, and
+`mergeSecrets(anchors, userEnvProfileKeys)` builds the guest env, and
 `routd/sibling_db.go:EnvProfileSecrets(userSub)` is what supplies the second
 argument — a `scope_kind='user'` query filtered to the four model keys, so no
-folder row and no capability credential can reach the container. See
+folder row and no capability credential can reach the guest. A folder secret
+and a daemon env var can share a name (`GH_TOKEN` in `.env`, `GH_TOKEN` in
+the folder's `secrets` rows) and hold different values; a connector reads the
+folder's row through the broker and never the daemon's environment. See
 `SECURITY.md § Secret injection`, [`5/14`](specs/5/14-credentials.md), and
 [`5/13`](specs/5/13-ext-mcp.md).
 
 **Model gateway** ([`6/23`](specs/6/23-llm-gateway.md)) — with the
 `litellm` package installed, the model credential stops at the gateway
 container: `template/services/litellm.yml` reads `ANTHROPIC_API_KEY` (or
-`CLAUDE_CODE_OAUTH_TOKEN`) straight from the instance `.env`, and the agent
-container receives `MODEL_GATEWAY_URL` + `MODEL_GATEWAY_KEY` instead — a
+`CLAUDE_CODE_OAUTH_TOKEN`) straight from the instance `.env`, and the guest
+receives `MODEL_GATEWAY_URL` + `MODEL_GATEWAY_KEY` instead — a
 virtual key litellm checks, worth nothing anywhere else. One key per TURN:
 routd mints it with the run ceiling as its TTL, carrying the folder as its
 team and the caller as its user, hands it to runed with the run, and deletes
@@ -682,9 +683,13 @@ With no gateway there is no meter: the dashboard says so rather than showing
 a number the agent chose, and a cap set on such an instance is enforced by
 nothing, which the gate says in the log.
 
-Session: new session ID updates routd's `sessions` table. Error with no
-output → evict session (cursor rolled back, retry). Error with output →
-cursor advances (partial work preserved).
+Session: routd mints the topic's session id when it has none and persists it
+in `sessions` BEFORE dispatch (`routd/dispatch.go`), and the harness opens
+its session under that id. A turn killed before `submit_turn` by a restart, a
+deadline or a crash is therefore resumed by the next turn in that topic
+(`routd/session_continuity_test.go`). Error with no output → evict session
+(cursor rolled back, retry). Error with output → cursor advances (partial
+work preserved).
 
 ## IPC (ipc package)
 
@@ -721,10 +726,11 @@ routd-side `GroupQueue`:
 - per-group active flag + container name; `EnqueueMessageCheck(jid)` is
   signal-only — the queue calls back into routd's
   `HasPendingMessages`/`processGroupMessages`
-- `SendMessages(jid, []string)` — steer batch into a running container
-  (write one IPC input file per message, signal once). Agent drains via
-  `PostToolUse` hook for mid-loop injection, with `pollIpcDuringQuery` as
-  next-turn fallback; `drainIpcInputMutex` prevents double-drain
+- a follow-up for a folder with a live turn is steered into it: routd
+  dispatches to runed again, runed sends a `steer` ctl frame over vsock and
+  waits for the guest's `steer_ack` (`runed/vmctl.go`), `guest-init` writes
+  the batch as files under `/run/ipc/input`, and ant drains them between
+  tool calls (`ant/src/index.ts` `pollIpcDuringQuery`)
 
 runed Manager (`runed/manager.go`):
 
@@ -822,11 +828,10 @@ only built-in service granted `/dev/kvm`, `/dev/vhost-vsock`, `/dev/net/tun`
 and `NET_ADMIN`/`SYS_ADMIN` (spec `6/41` §"The runed deploy topology");
 `authd` exposes JWKS for offline verification by the rest.
 
-Bundled catalog at `template/services/` (ships in image, Ansible extracts to
-`/srv/app/arizuko/template/services/`): `teled.yml`, `whapd.yml`, `discd.yml`,
-`slakd.yml` (+ `slakd.yaml`), `gitd.yml` (+ `gitd.yaml`), `bskyd.yml`, `reditd.yml`,
-`linkd.yml`, `emaid.yml`, `twitd.yml`, `ttsd.yml`, `kokoro.yml`,
-`litellm.yml`.
+Bundled catalog at `template/services/`: a `<name>.yml` compose fragment and
+a `<name>.yaml` manifest for each of `bskyd`, `discd`, `emaid`, `extenddb`,
+`gitd`, `linkd`, `litellm`, `reditd`, `slakd`, `teled`, `ttsd`, `twitd` and
+`whapd`, plus `kokoro.yml` alone.
 
 Fragment format — a plain partial compose file:
 
@@ -844,15 +849,14 @@ services:
 ```
 
 Container naming: `<app>_<service>_<flavor>` (e.g. `arizuko_teled_krons`).
-`arizuko packages <instance> add <name>` copies a fragment (plus its
-`<name>.yaml` manifest, if any) into `/srv/data/arizuko_<flavor>/services/`;
-Ansible via `arizuko_instances[].extra_services`. A package ships exactly two
-file kinds: `.yml`, a partial compose file docker `include`s, and `.yaml`, the
-`5/8` manifest whose rows `arizuko apply` installs.
+`arizuko packages <instance> add <name>` links a fragment (plus its
+`<name>.yaml` manifest, if any) into `/srv/data/arizuko_<flavor>/services/`.
+A package ships exactly two file kinds: `.yml`, a partial compose file docker
+`include`s, and `.yaml`, the `5/8` manifest whose rows `arizuko apply`
+installs.
 
-All Go daemons listen on :8080 internally except ttsd at :8880 —
-historical default that predates the invariant. The third-party images keep
-their own: kokoro :8880, litellm :4000.
+All Go daemons listen on :8080 internally except ttsd at :8880. The
+third-party images keep their own: kokoro :8880, litellm :4000.
 
 Third-party fragments (`kokoro.yml`, `litellm.yml`) never read the shared
 `.env`. kokoro gets a generated `env/kokoro.env` holding its one key;
@@ -964,32 +968,29 @@ per-chat quarantine.
 - Turn timeout: a `{stop}` frame (`SIGTERM` to the agent, then power-off) →
   `SIGKILL` on the QEMU pid if the deadline still passes.
 
-## Long-running tasks — the 900s guest timeout
+## Long-running tasks — the turn deadline
 
-The Claude Code SDK inside the agent guest hard-aborts any single
-turn at **900 seconds (15 min) of wall time**. This is a property of
-the upstream SDK, not arizuko — there is no platform-side knob to
-raise it. Observed 4+ times in May 2026 (atlas 2026-05-07/19/25,
-krons 2026-05-25, atlas-support 2026-05-19).
-
-In logs:
+A turn has one deadline. `RUNED_RUN_TIMEOUT` (default 20m) is the run
+ceiling, lowered by the group's `container_config` timeout when one is set
+(`runed/manager.go` `turnTTL`). runed hands the guest a query timeout 30
+seconds under that ceiling, floored at 60 seconds, as
+`ARIZUKO_QUERY_TIMEOUT_MS` (`runed/render.go` `queryTimeoutMs`), so the
+harness aborts and reports before runed kills the guest under it. With the
+default ceiling the log line reads:
 
 ```
-Query timeout (900000ms) reached, aborting
-Container exited with code 1
+Query timeout (1170000ms) reached, aborting
 ```
 
-User-visible impact: the in-flight reply is dropped; any inbound
-messages that arrived during the timing-out turn get tagged
-`errored=1` in `messages`. The agent typically recovers on the next
-inbound (cursor advanced, fresh guest), but the errored rows
-stay flagged in the DB and surface as failed turns in the UI.
+User-visible impact: the in-flight reply is dropped, and inbound messages
+that arrived during the timed-out turn are tagged `errored=1` in `messages`.
+The next inbound gets a fresh guest; the errored rows stay flagged and show
+as failed turns in the dashboard.
 
-Mitigations available to skill authors and agents (no platform
-change required):
+Mitigations for skill authors and agents (no platform change required):
 
 - **Split into multiple turns** — emit partial results, ask the user
-  for "continue" rather than packing a 15-minute job into one turn.
+  for "continue" rather than packing a 20-minute job into one turn.
 - **Checkpoint progress** — write intermediate state to `~/facts/`
   or `~/tmp/` between subtasks so a fresh guest can resume
   instead of restarting from zero.
@@ -1002,7 +1003,7 @@ change required):
 - **Self-terminate agentic loops** — count actual iterations and
   stop well before the cap; a loop that ran 28 of an intended 30
   iterations and saved partial output is better than one that hit
-  900s mid-iteration 30 and dropped everything.
+  the deadline mid-iteration 30 and dropped everything.
 
 ## Prompt Assembly
 
@@ -1086,13 +1087,13 @@ rules), channels (env-var trivial, dashd-managed), secrets (folder-scoped
 by default, user-scoped when needed). Don't force structure where it isn't
 needed; don't fight it where it is.
 
-## Container mount layout (v0.45.11+)
+## Guest mount layout
 
 Platform mounts follow FHS canonical locations; per-group web slots
 live under `~` in the agent's home. Full spec:
 `specs/5/V-web-vhosts.md`.
 
-| Container              | Host                           | Mode                                   |
+| Guest                  | Host                           | Mode                                   |
 | ---------------------- | ------------------------------ | -------------------------------------- |
 | `/opt/arizuko`         | `<data>/app-src/`              | RO                                     |
 | `/var/lib/www`         | `<data>/web/pub/`              | RO whole tree, `web:publish` grant     |
@@ -1119,7 +1120,7 @@ subdir and a child subgroup is resolved by visibility through the
 `ValidateAdditionalMounts` validates group-configured mounts against a
 caller-supplied `Allowlist`. `ValidateFilePath` guards inbound paths (MCP
 tool arguments) against symlink escapes and a blocklist (`.ssh`, `.gnupg`,
-`.env`, credentials, private keys). Container path: `/mnt/<name>`.
+`.env`, credentials, private keys). Guest path: `/mnt/<name>`.
 
 ## Mount paths inside runed's own container
 
