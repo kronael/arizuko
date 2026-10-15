@@ -45,10 +45,11 @@ arizuko packages &lt;instance&gt; list</code></pre>
       channel adapter, needs that daemon&rsquo;s own store key minted and written to
       <code>env/&lt;daemon&gt;.env</code> before the next <code>generate</code>
       (<a href="https://github.com/kronael/arizuko/blob/main/INSTALL.md">INSTALL.md</a>
-      &sect; The per-daemon store keys). Without it the daemon starts, fails at its
-      first store call, and takes the instance into a restart loop while every
-      health check reads green; <code>generate</code> logs
-      <code>store enrolment is partial</code> and names it.</p>
+      &sect; The per-daemon store keys). Without it the daemon refuses to dial the
+      store and exits at boot, and that one exit takes the whole instance into a
+      restart loop under systemd (BUGS <code>L406</code>); <code>generate</code>
+      logs <code>store enrolment is partial</code> at ERROR, names it, and then
+      continues.</p>
 
       <p><code>sync</code> is <code>upgrade</code> for every installed package in
       one pass — useful after pulling new revisions of several sources. It prints
