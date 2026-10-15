@@ -59,19 +59,20 @@
       <p>
         Small daemons keep that bounded: <code>routd</code> routes and
         authorizes, <code>runed</code> runs each turn in a fresh virtual machine,
-        <code>authd</code> issues identity &mdash; hard walls around what
-        language can reshape. Agent content lands as plain files; routes,
-        grants, and secrets are rows in the store right next to them &mdash; one
-        directory on your server holds both. You change an agent in chat,
-        then read the diff on disk.
+        <code>authd</code> issues identity. Those are the hard walls around what
+        language can reshape. Agent content lands as plain files. Routes,
+        grants and secrets are rows on the instance&rsquo;s own store server,
+        and one directory on your server holds both. You change an agent in
+        chat, then read the diff on disk.
       </p>
       <p class="dim">
-        (Daemons: small programs that run in the background all the time
-        &mdash; the trailing &ldquo;d&rdquo; is the naming convention.)
+        A daemon is a small program that runs in the background all the time.
+        The trailing &ldquo;d&rdquo; is the naming convention.
       </p>
       <pre><code># pick a product, make it yours
 arizuko create demo --product slack-team
 $EDITOR /srv/data/arizuko_demo/.env    # paste the tokens the checklist asks for
+# bring up the store server once: setup guide, step 4
 arizuko run demo                       # compose up; @mention the bot in a channel</code></pre>
       <p>
         <a href="howto/">Setup guide</a> &middot;
@@ -114,31 +115,31 @@ arizuko run demo                       # compose up; @mention the bot in a chann
         </div>
       </div>
       <p>
-        Twelve more &mdash; a support desk, a personal assistant with
-        memory, a PM board, a domain researcher, a public price bot &mdash;
-        in <a href="products/">the catalog</a>. Each is the same engine with
+        Twelve more sit in <a href="products/">the catalog</a>: a support
+        desk, a personal assistant with memory, a PM board, a domain
+        researcher, a public price bot. Each is the same engine with
         different folder contents.
       </p>
 
       <h2>many agents, one platform</h2>
       <p>
         Those three aren&rsquo;t three installs. On one instance they&rsquo;re
-        three folders in one tree &mdash; and that&rsquo;s the bet: an agent
-        does its job well when it&rsquo;s specialized. A focused persona with
-        a tight set of skills holds intent; a do-everything assistant
-        drifts. The platform&rsquo;s work is making specialization cheap and
+        three folders in one tree, and that&rsquo;s the bet: an agent does
+        its job well when it&rsquo;s specialized. A focused persona with a
+        tight set of skills holds intent. A do-everything assistant drifts.
+        The platform&rsquo;s work is making specialization cheap and
         coexistence safe.
       </p>
       <ul>
         <li><strong>Isolation that keeps memory.</strong> Each folder has its
-          own persona, memory, and secrets, and runs in a fresh per-turn
-          KVM guest; outbound traffic leaves through that guest&rsquo;s own
+          own persona, memory and secrets, and every turn runs in a fresh
+          KVM guest. Outbound traffic leaves through that guest&rsquo;s own
           <a href="components/egress.html">egress</a> proxy, which reaches the
-          host names the folder allowed and nothing else, and the guest&rsquo;s
-          one network interface drops every packet that tries to skip it. A
-          support agent can face strangers on a public channel and still
-          remember its own history &mdash; another folder&rsquo;s home is never
-          shared into its guest.</li>
+          host names the folder allowed and nothing else. The guest&rsquo;s one
+          network interface drops every packet that tries to skip the proxy.
+          A support agent can face strangers on a public channel and still
+          remember its own history, because another folder&rsquo;s home is
+          never shared into its guest.</li>
         <li><strong>Agents hand work along the tree.</strong> Each
           department shapes its own agent. An agent delegates down to a
           child, escalates up to its parent, and can subscribe to another
@@ -146,8 +147,8 @@ arizuko run demo                       # compose up; @mention the bot in a chann
           and permission-checked &mdash; not a free-for-all mesh.</li>
         <li><strong>People move between agents.</strong> Send
           <code>@acme/sales</code> on its own and the chat is pinned to the
-          sales agent &mdash; for everyone in it; a bare <code>@</code> takes
-          it back. Change agents without changing the app you chat in.</li>
+          sales agent, for everyone in it. A bare <code>@</code> takes it
+          back. Change agents without changing the app you chat in.</li>
       </ul>
 
       <h2>trace one event</h2>
@@ -169,9 +170,9 @@ arizuko run demo                       # compose up; @mention the bot in a chann
         A scheduled task is the same six steps &mdash; the event is a clock
         tick. A webhook is the same six steps &mdash; the event is a POST.
         An email, a WebDAV file drop, a reaction: rows in the same inbox,
-        through the same pipeline. (Some events stop earlier on purpose
-        &mdash; an observe route files the message and ends there.) Nothing
-        is a special case, so the parts don&rsquo;t multiply.
+        through the same pipeline. Some events stop earlier on purpose: an
+        observe route files the message and ends there. Nothing is a
+        special case, so the parts don&rsquo;t multiply.
       </p>
 
       <h2>the six primitives</h2>
@@ -188,17 +189,17 @@ arizuko run demo                       # compose up; @mention the bot in a chann
         <li><strong>Authorization</strong> &mdash; one question: may this
           principal do this action here?</li>
         <li><strong>Turn</strong> &mdash; a fresh virtual machine runs the
-          agent once; platform actions are permission-checked tool calls, and
-          file and network reach is bounded by what is shared in and by the
-          guest&rsquo;s own egress proxy; then the guest is powered off.</li>
+          agent once, then powers off. Platform actions are permission-checked
+          tool calls. File reach is what was shared in, and network reach is
+          what the guest&rsquo;s own egress proxy allows.</li>
         <li><strong>State</strong> &mdash; two durable stores, by design:
           the tables and the agent&rsquo;s folder on disk.</li>
       </ul>
       <p>
-        Identity is the coordinate system the six are addressed in &mdash;
+        Identity is the coordinate system the six are addressed in:
         folders, JIDs, roles, scopes. The primitives aren&rsquo;t
-        independent; they&rsquo;re layered on purpose. The claim is smaller
-        and it holds: one job each, fixed pipeline, no special cases.
+        independent. They&rsquo;re layered on purpose, and the claim that
+        holds is smaller: one job each, fixed pipeline, no special cases.
         <a href="concepts/primitives.html">The six primitives, in full &rarr;</a>
       </p>
 
@@ -209,7 +210,7 @@ arizuko run demo                       # compose up; @mention the bot in a chann
         <tr><td>Primitives</td><td>the concepts</td><td>Event, Routing, Agent, Authorization, Turn, State</td></tr>
         <tr><td>Components</td><td>Go packages</td><td><code>store</code>, <code>router</code>, <code>auth</code>, <code>runed</code></td></tr>
         <tr><td>Daemons</td><td>running processes</td><td><code>authd</code> + <code>routd</code> + <code>runed</code>; <code>webd</code>, <code>timed</code>, <code>slakd</code></td></tr>
-        <tr><td>Products</td><td>agents you install</td><td>Slack team agent, Argus, company brain</td></tr>
+        <tr><td>Products</td><td>agents you install</td><td>Slack team agent, repo worker, company brain</td></tr>
       </table>
       <p>
         A product sits at the bottom: the same pipeline, a different folder.
@@ -221,12 +222,10 @@ arizuko run demo                       # compose up; @mention the bot in a chann
       <h2>you own the files</h2>
       <p>An instance is one directory. Everything the system is lives in it:</p>
       <pre><code>/srv/data/arizuko_demo/
-&#9500;&#9472;&#9472; .env                 tokens + config
-&#9500;&#9472;&#9472; store/               every row, one owner at a time
-&#9474;   &#9500;&#9472;&#9472; routd/           chats, routes, grants
-&#9474;   &#9500;&#9472;&#9472; runed/           agent runs
-&#9474;   &#9500;&#9472;&#9472; authd/           logins + signing keys
-&#9474;   &#9492;&#9472;&#9472; onbod/           onboarding
+&#9500;&#9472;&#9472; .env                 tokens and config
+&#9500;&#9472;&#9472; store/               every row, on the instance&rsquo;s own store server
+&#9474;   &#9500;&#9472;&#9472; extenddb/        the server&rsquo;s config and certificate
+&#9474;   &#9492;&#9472;&#9472; extenddb_db/     its PostgreSQL data
 &#9500;&#9472;&#9472; groups/
 &#9474;   &#9500;&#9472;&#9472; main/            one agent
 &#9474;   &#9474;   &#9500;&#9472;&#9472; PERSONA.md   who it is
@@ -238,39 +237,43 @@ arizuko run demo                       # compose up; @mention the bot in a chann
 &#9474;   &#9492;&#9472;&#9472; ops/             a second agent &mdash; same shape, its own memory
 &#9492;&#9472;&#9472; web/pub/             the public site &mdash; these docs included</code></pre>
       <p>
-        Change the persona by editing a file; the next turn picks it up.
-        One <code>tar</code> of the directory is a complete backup &mdash;
-        databases, memory, secrets, the site (stop the instance first for a
-        clean copy). Want history? It&rsquo;s plain files: put
-        <code>groups/</code> under git yourself and review the
-        agent&rsquo;s changes as commits (the agent image ships git and a
-        commit skill; the platform doesn&rsquo;t version the folder for
-        you). The files need no export step &mdash; they&rsquo;re already
-        yours, on your disk.
+        Change the persona by editing a file and the next turn picks it up.
+        Stop the instance, and one <code>tar</code> of the directory is a
+        complete backup: every row, memory, secrets, the site. Want history?
+        It&rsquo;s plain files. Put <code>groups/</code> under git yourself
+        and review the agent&rsquo;s changes as commits. The agent image
+        ships git and a commit skill, and the platform doesn&rsquo;t version
+        the folder for you. The files need no export step. They&rsquo;re
+        already yours, on your disk.
       </p>
 
       <h2>honest constraints</h2>
       <ul>
-        <li><strong>Linux, Docker, and KVM.</strong> One host: the daemons are
+        <li><strong>Linux, Docker and KVM.</strong> One host: the daemons are
           compose services, and a turn is a KVM guest, so the box needs
-          <code>/dev/kvm</code>. No Kubernetes, no Redis. All four owners live
-          on one store server, and its data sits inside this directory like
-          everything else.</li>
+          <code>/dev/kvm</code>. No Kubernetes, no Redis. Every daemon&rsquo;s
+          tables live on one store server, and its data sits inside this
+          directory like everything else.</li>
         <li><strong>Self-hosted only.</strong> There&rsquo;s no managed
           control plane. That&rsquo;s the feature, not an oversight.</li>
         <li><strong>The split is the topology.</strong> A minimal deploy is
-          the three core daemons (<code>authd</code>, <code>routd</code>,
-          <code>runed</code>) plus one channel adapter; <code>dashd</code>,
-          <code>timed</code> and <code>onbod</code> are add-ons you attach
-          as needed, and <code>egress</code> is a switch you set.</li>
-        <li><strong>Default-deny egress.</strong> With
-          <a href="components/egress.html"><code>egress</code></a> on, an
-          agent reaches only the hosts you allowlist &mdash; a compromised
-          turn can only call hosts you already approved.</li>
-        <li><strong>MCP first, REST converging.</strong> Every platform
-          action is an MCP tool call. The matching REST endpoint arrives
-          resource by resource &mdash; the two faces are converging, not
-          finished.</li>
+          the store server, the three core daemons (<code>authd</code>,
+          <code>routd</code>, <code>runed</code>), <code>timed</code> and one
+          channel adapter. The web layer (<code>proxyd</code>,
+          <code>webd</code>, <code>vited</code>, <code>dashd</code>) comes up
+          when you set <code>WEB_PORT</code>, and <code>onbod</code> when you
+          turn onboarding on.</li>
+        <li><strong>Egress is not a switch.</strong> runed starts one
+          <a href="components/egress.html"><code>egress</code></a> proxy per
+          turn and refuses to start without the binary. The guest has no
+          resolver, and its tap drops every packet not addressed to that
+          proxy, so a compromised turn can only call the hosts you already
+          allowlisted.</li>
+        <li><strong>MCP and REST from one handler.</strong> Every platform
+          action is an MCP tool call. Every management resource also answers
+          on REST at <code>/v1/&lt;name&gt;</code>, from the same handler.
+          Only the verbs an agent uses inside a turn, <code>reply</code> and
+          <code>send</code>, stay MCP-only.</li>
         <li><strong>Connectors, with the credential kept back.</strong> One
           TOML block gives an agent somebody else&rsquo;s API as a tool. The
           call goes out from the host, the secret is filled in on the way,
@@ -308,7 +311,7 @@ arizuko run demo                       # compose up; @mention the bot in a chann
       <p class="dim" style="margin-top: 2em; font-size: 0.9em">
         MIT &middot; Go, Docker and KVM.
       </p>
-      <p class="docs-footer">updated <time class="docs-updated" datetime="2026-09-22">2026-09-22</time></p>
+      <p class="docs-footer">updated <time class="docs-updated" datetime="2026-09-29">2026-09-29</time></p>
     </div>
     <button class="theme-toggle">&#127769;</button>
     <script src="assets/hub.js"></script>
