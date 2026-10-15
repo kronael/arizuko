@@ -1,6 +1,6 @@
 # Extending arizuko
 
-Catalog of extension points. Keep current as the system evolves.
+Catalog of extension points.
 
 Extension points are how you **add an integration** — a new channel
 adapter, a TTS backend, an oracle skill, a per-folder mount, a custom
@@ -14,24 +14,24 @@ extension points. See
 
 ## Extension points
 
-| Point         | Location                        | Extensible by  | Mechanism                                          |
-| ------------- | ------------------------------- | -------------- | -------------------------------------------------- |
-| Channels      | external containers             | Developer      | HTTP protocol (latest: `slakd/`)                   |
-| Proxyd routes | `template/services/<name>.yaml` | Daemon author  | `proxyd_routes` block of the manifest, no Go edits |
-| Slink         | `webd/slink*.go`                | External agent | Chat UI + MCP transport at `/slink/<token>`        |
-| Slink SDK     | `webd/assets/arizuko-client.js` | Page author    | Embedded JS served at `/assets/`                   |
-| Actions       | MCP tools                       | Agent/Plugin   | Registry + MCP                                     |
-| Autocalls     | `routd/prompt.go`               | Router dev     | Registry slice                                     |
-| Routing rules | `router/`                       | Agent          | MCP tools; `target=<folder>[#mode]` fragment       |
-| Mounts        | `container/`                    | Agent          | Container config                                   |
-| Skills        | `ant/skills/`                   | Agent          | File-based                                         |
-| Tasks         | `timed/`                        | Agent          | IPC actions                                        |
-| Diary         | `diary/`                        | Agent          | File-based                                         |
-| Network rules | `store/network.go`              | Operator       | CLI + DB rows                                      |
-| Web routes    | `store/web_routes.go`           | Agent          | MCP tools (`set_web_route` / `del_web_route`)      |
-| Public pages  | `template/web/pub/`             | Operator       | Plain HTML, copied into `<data-dir>/web/pub/`      |
-| Output styles | `ant/output-styles/`            | Channel author | `<channel>-<surface>.md`; picked per-session       |
-| Agent harness | the ant protocol (MCP socket)   | Developer      | Replace ant with a process that speaks it          |
+| Point         | Location                             | Extensible by  | Mechanism                                              |
+| ------------- | ------------------------------------ | -------------- | ------------------------------------------------------ |
+| Channels      | external containers                  | Developer      | HTTP protocol (latest: `slakd/`)                       |
+| Proxyd routes | `template/services/<name>.yaml`      | Daemon author  | `proxyd_routes` block of the manifest, no Go edits     |
+| Chat links    | `webd/route_token.go`, `webd/mcp.go` | External agent | `/chat/<token>/` widget and MCP at `/chat/<token>/mcp` |
+| Chat SDK      | `webd/assets/arizuko-client.js`      | Page author    | Embedded JS served at `/assets/`                       |
+| Actions       | MCP tools                            | Agent/Plugin   | Registry + MCP                                         |
+| Autocalls     | `routd/prompt.go`                    | Router dev     | Registry slice                                         |
+| Routing rules | `router/`                            | Agent          | MCP tools; `target=<folder>[#mode]` fragment           |
+| Mounts        | `container/`                         | Agent          | Container config                                       |
+| Skills        | `ant/skills/`                        | Agent          | File-based                                             |
+| Tasks         | `timed/`                             | Agent          | IPC actions                                            |
+| Diary         | `diary/`                             | Agent          | File-based                                             |
+| Network rules | `store/network.go`                   | Operator       | CLI + DB rows                                          |
+| Web routes    | `store/web_routes.go`                | Agent          | MCP tools (`set_web_route` / `del_web_route`)          |
+| Public pages  | `template/web/pub/`                  | Operator       | Plain HTML, copied into `<data-dir>/web/pub/`          |
+| Output styles | `ant/output-styles/`                 | Channel author | `<channel>-<surface>.md`; picked per-session           |
+| Agent harness | the ant protocol (MCP socket)        | Developer      | Replace ant with a process that speaks it              |
 
 ## Adding an output-style file
 
@@ -196,7 +196,7 @@ the proxyd host without redeploying. Three MCP tools, registered in
 
 `access` values: `public` (no auth), `auth` (require login), `deny` (403),
 `redirect` (302 to `redirect_to`). proxyd evaluates longest-prefix first
-via `store.MatchWebRoute`. These rows only take effect if proxyd is
+(`matchWebRoute`, `proxyd/main.go`). These rows only take effect if proxyd is
 configured with a store (`s.st != nil`); they have no effect on channel
 routing.
 
@@ -434,27 +434,22 @@ by each. Reference: `specs/5/7-proxyd-standalone.md`,
 
 ## Adding an MCP connector
 
-**Connector scope (2026-07-27):** Connectors are **global and operator-defined**.
-All `[[connector]]` blocks register at the deployment level — there is no
-per-group `MCP.json`. Groups get access to connectors via grant rows
-(`mcp:<connector>:*`), not by registering their own MCP endpoints. The
-`connectors.toml` loader is the current mechanism; migration to a
-`mcp_connectors` resreg resource (routd, REST + agent MCP face) is tracked
-in `specs/5/16`.
+Connectors are global and operator-defined. Every `[[connector]]` block in
+`<data_dir>/connectors.toml` registers at the deployment level, and a group
+reaches a connector's tools through grant rows (`mcp:<connector>:*`), never
+by registering an MCP endpoint of its own.
 
-Third-party MCP servers (GitHub's hosted server, linear-mcp, …) plug
-in via `<data_dir>/connectors.toml`. Each `[[connector]]` block with
-`transport = "mcp"` declares one HTTPS endpoint (`url` + a `headers`
-map whose `{secret:KEY}` placeholders the broker renders per call);
-routd discovers its tools per folder with that folder's credential,
-namespaces them `<connector>_<remote_tool>`, and registers each
-through the broker chain. Per-call invocation resolves the declared
-secrets, renders the headers, proxies `tools/call`, and scrubs the
-result. The loader refuses any other table name or transport value,
-so a block under an old name fails routd's boot instead of configuring
-nothing. Specs `specs/5/13-ext-mcp.md` § "Shape 2 — MCP HTTP connector (shipped)",
-`specs/6/19-unified-tool-declaration.md`; operator copies in
-`template/connectors/`.
+A block with `transport = "mcp"` declares one HTTPS endpoint: `url`, the
+`secrets` the broker may resolve for it, and a `headers` map whose
+`{secret:KEY}` placeholders the broker renders per call. routd discovers the
+server's tools per folder with that folder's credential, names them
+`<connector>_<remote_tool>`, and registers each through the broker chain. A
+call resolves the declared secrets, renders the headers, proxies
+`tools/call`, and scrubs every resolved value out of the result. The loader
+refuses any other table name or transport value, so a misspelt block fails
+routd's boot instead of configuring nothing. Specs: `specs/5/13-ext-mcp.md`
+§ "Shape 2 — MCP HTTP connector", `specs/6/19-unified-tool-declaration.md`;
+operator copies in `template/connectors/`.
 
 ```toml
 [[connector]]
@@ -467,71 +462,84 @@ secrets   = ["GITHUB_TOKEN"]
 Authorization = "Bearer {secret:GITHUB_TOKEN}"
 ```
 
-- `secrets` lists the broker keys the connector needs; resolved at
-  call time via `user(caller.Sub)` → `folder(caller.Folder)` fallback.
-- `env_template` keys are the env vars the subprocess sees;
-  `{secret:KEY}` references the corresponding entry in `secrets`.
-  Nothing else from routd's env leaks in.
-- `scope = "per_call"` is the only v1 mode — subprocess lives one
-  call. `per_session` (pool keyed by `(connector, caller.Sub)`) is
-  reserved for a future spec.
-- Result scrubbing: any non-empty resolved secret value is
-  exact-string-replaced with `«redacted»` in the
-  `mcp.CallToolResult` before the agent sees it.
-- `CONNECTOR_CALL_TIMEOUT_MS` (env) caps each call (default 30 s).
-- Connector subprocess stderr sinks into routd's `slog.Debug` under
-  the connector name; never reaches the agent.
+- `secrets` names the broker keys this connector may see; the folder's
+  other secrets are never visible to it. Resolution is `user(caller.Sub)`
+  first, then `folder(caller.Folder)`.
+- The credential is a request header, never a process environment. There is
+  no subprocess, so an endpoint needs no runtime inside routd's image.
+- Result scrubbing replaces every non-empty resolved secret value with
+  `«redacted»` in the `mcp.CallToolResult` before the agent sees it.
+- `CONNECTOR_CALL_TIMEOUT_MS` caps each call (default 30 s).
 
-Operator writes per-user tokens via `arizuko user-secret <inst> set
-<sub> KEY --value V` or by handing the user `/dash/me/secrets`.
+A folder secret and a daemon environment variable can share a name and hold
+different values. `GH_TOKEN` in the instance `.env` belongs to a daemon;
+`GH_TOKEN` in a folder's `secrets` rows is what the broker renders into the
+connector's request. Identify a credential by the door that uses it, not by
+the first place its name appears.
 
-## Adding an `[[ext]]` REST provider
+The operator writes a folder's token with `arizuko secret <inst> set
+<folder> KEY --value V`, a user's with `arizuko user-secret <inst> set <sub>
+KEY --value V`, or hands the user `/dash/me/secrets`.
 
-An external HTTP API with no MCP server of its own (Cloudflare, Porkbun,
-Gandi, Namecheap…) plugs in as a REST descriptor. An operator declares one
-`[[ext]]` block; `routd/ext.go:LoadExtProviders` reads them at boot and each
-`[[ext.tool]]` becomes one REST-backed MCP tool (`ipc/extcall.go` `ExtTool`)
-that maps a tool call to one outbound HTTP request. This is **shape 3** of
-the credential model (`specs/5/13-ext-mcp.md`); the MCP connector above is
-shape 2.
+## Adding a REST connector
+
+An HTTP API with no MCP server of its own (Cloudflare, Porkbun, Gandi,
+Namecheap) plugs in as the same `[[connector]]` block with
+`transport = "rest"` and one `[[connector.tool]]` per endpoint.
+`routd/ext.go` `LoadExtProviders` reads the blocks at boot, and each tool
+becomes one REST-backed MCP tool (`ipc/extcall.go` `ExtTool`) that maps a
+tool call to one outbound HTTP request. This is shape 3 of the credential
+model (`specs/5/13-ext-mcp.md`); the MCP connector above is shape 2. The
+block below is the first two tools of the shipped
+`routd/extproviders/cloudflare.toml`:
 
 ```toml
-[[ext]]
-name = "cloudflare"
-base = "https://api.cloudflare.com/client/v4"
+[[connector]]
+name      = "cloudflare"
+transport = "rest"
+url       = "https://api.cloudflare.com/client/v4"
+secrets   = ["CF_API_TOKEN"]
+headers   = { Authorization = "Bearer {secret:CF_API_TOKEN}" }
 
-  [ext.auth]
-  method = "bearer"        # bearer | apikey-header | apikey-query | basic | json-body
-  secret = "CF_API_TOKEN"  # key in the secrets table (user- or folder-scoped)
-  # apikey-header: header = "X-Api-Key"
-  # apikey-query:  param  = "api_key"      (scrubbed from the URL in the response)
-  # basic:         secret = user, secret2 = pass
-  # json-body:     header/header2 = JSON body field names, secret/secret2 = values
+  [[connector.tool]]
+  name        = "dns_list"
+  description = "List DNS records for a Cloudflare zone."
+  scope       = "ext:cloudflare:dns:read"
+  method      = "GET"
+  path        = "/zones/{zone_id}/dns_records"
 
-  [[ext.tool]]
-  name   = "dns_set"
-  scope  = "ext:cloudflare:dns:write"
-  method = "POST"
-  path   = "/zones/{zone_id}/dns_records"
+  [[connector.tool]]
+  name        = "dns_create"
+  description = "Create a DNS record in a Cloudflare zone."
+  scope       = "ext:cloudflare:dns:write"
+  method      = "POST"
+  path        = "/zones/{zone_id}/dns_records"
+
+    [[connector.tool.param]]
+    name        = "type"
+    required    = true
+    description = "Record type: A, AAAA, CNAME, TXT, MX, ..."
 ```
 
-- **Auth method** (`[ext.auth].method`) — one of `bearer`, `apikey-header`,
-  `apikey-query`, `basic`, `json-body`. The credential comes from `secret`
-  (plus `secret2` for two-part auth like basic or a paired key). Resolved
-  from the `secrets` table at call time (user rows win over folder), on the
-  host — never injected into the guest. The resolved value is
-  exact-string-scrubbed from the HTTP response before the agent sees it,
-  including the query string for `apikey-query`.
-- **Path-param substitution** — `{name}` segments in `path` are filled from
-  the tool call's arguments (`{zone_id}` ← the `zone_id` arg); consumed args
-  are removed before the rest become the query/body.
-- **Grant scope** — each tool's `scope` (`ext:<service>:<operation>`) is the
-  ACL scope an agent must hold to call it. Grant it like any other:
-  `ext:cloudflare:*` or the exact `ext:cloudflare:dns:write`.
+- **Three credential sinks, one vocabulary.** `headers`, `query` and `body`
+  each carry `{secret:KEY}` placeholders, rendered per call against the
+  broker-resolved values (user rows win over folder rows). A placeholder that
+  resolves to nothing is dropped rather than sent blank. Every resolved value
+  is scrubbed from the response before the agent sees it.
+- **Path placeholders are arguments.** `{zone_id}` in `path` becomes a
+  required string argument on the tool without a `param` block; a
+  `[[connector.tool.param]]` adds a typed body or query argument.
+- **Grant scope.** Each tool's `scope` (`ext:<service>:<operation>`) is the
+  ACL scope an agent must hold to call it: `ext:cloudflare:*` or the exact
+  `ext:cloudflare:dns:write`.
+- **Built-ins and shadowing.** `routd/extproviders/*.toml` ships with routd.
+  An operator block with the same `<connector>_<tool>` name replaces the
+  built-in and logs the shadow; two declarations of one name inside a single
+  file are refused.
 
-Operator sets the credential via `arizuko secret <inst> set <folder> KEY
---value V` (folder) or the user via `/dash/me/secrets` (user). Spec
-`specs/5/13-ext-mcp.md`.
+The folder-secret rule from the MCP connector above applies unchanged: the
+token comes from the folder's `secrets` row, and a same-named daemon env var
+is a different value.
 
 ## Add an OAuth provider
 
@@ -574,19 +582,17 @@ The token then reads like any other secret — reference `secret_key` from an
 `[[connector]]` block, `transport = "rest"` or `"mcp"` (above), to give agents tools
 backed by the user's OAuth grant. `github` and `google` ship as built-ins.
 
-## Adding a slink-driven page
+## Adding a chat-SDK page
 
-Third-party pages talk to a slink via the embedded JS SDK at
-`/assets/arizuko-client.js`. The SDK wraps the `POST → SSE` round-
-handle dance; pages call `Arizuko.connect(token)` and stream frames.
+Third-party pages talk to a chat link via the embedded JS SDK at
+`/assets/arizuko-client.js`. The SDK wraps the `POST` and SSE round trip;
+pages call `Arizuko.connect(token)` and stream frames.
 
-- SDK source: `webd/assets/arizuko-client.js` (baked into `webd` via
-  `embed.FS`, served with `Cache-Control: public, max-age=3600`,
-  CORS `*`).
-- Sample page: `template/web/pub/examples/slink-sdk.html` — copy to
-  `<data-dir>/web/pub/<app>/index.html`, swap the token.
-- Agent skill: `ant/skills/slink/SKILL.md` (drop-in HTML template
-  - API table). Sibling skill `slink-mcp/` covers MCP-over-HTTP.
+- SDK source: `webd/assets/arizuko-client.js`, embedded in `webd`.
+- Walkthrough and sample page:
+  `template/web/pub/arizuko/howto/chat-sdk.html` and
+  `template/web/pub/arizuko/examples/chat-sdk.html`. Copy the sample to
+  `<data-dir>/web/pub/<app>/index.html` and swap the token.
 - Spec: `specs/1/Z2-slink-sdk.md`.
 
 For agent-written pages, the slot itself (`~/public_html/`) is
@@ -642,7 +648,7 @@ Three scopes, no inheritance:
 - `groups/<folder>/.claude/skills/` — per-group, persistent
 - `.claude/skills/` — per-session, seeded from global on first spawn
 
-**Operator boundary (2026-07-27):** Skills define the capability surface.
+**Operator boundary:** Skills define the capability surface.
 In multi-tenant deployments, users cannot add or modify skills — only the
 operator can. A user changing skills = expanding their own capability surface,
 which bypasses the grants model. Single-user deployments: the user IS the
@@ -734,19 +740,17 @@ speaking that protocol as its own process — the agent tools it publishes
 via `tools/list`, plus the `submit_turn` method that reports the turn. No
 arizuko code change, any language.
 
-What that process owes: read the JSON container input on stdin, run the
-turn against the socket, call `submit_turn` exactly once. Mid-turn
-steering is the harness's own business — ant drains `/run/ipc/input` from
-a Claude Code `PostToolUse` hook (`ant/src/claude.ts`); another harness
-maps it to whatever its protocol offers.
+What that process owes: read the JSON turn input on stdin, run the turn
+against the socket, call `submit_turn` exactly once. Mid-turn steering is
+the harness's own business. ant drains `/run/ipc/input` between tool calls
+(`ant/src/index.ts` `pollIpcDuringQuery`); another harness maps it to
+whatever its protocol offers.
 
-Short of a wholesale replacement, ant ships a **harness chassis**
-(the harness
-seam"): its runtime half (stdin parse, IPC steering, the `<status>`
-pipeline, idempotent `submit_turn`) is reused, and the harness half is
-one requirements-shaped interface (`Turn` in, `Frame`s out, one `run()`
-plus a capability profile) plus one
-file per backend — `ant/src/claude.ts` (default), `codex.ts`, `pi.ts`.
+Short of a wholesale replacement, ant ships a harness chassis: its runtime
+half (stdin parse, IPC steering, the `<status>` pipeline, idempotent
+`submit_turn`) is reused, and the harness half is one interface (`Turn` in,
+`Frame`s out, one `run()` plus a capability profile) plus one file per
+backend — `ant/src/claude.ts` (default), `codex.ts`, `pi.ts`.
 Select with `ARIZUKO_BACKEND=codex|pi` in the instance `.env`; the CLI
 must be baked into the agent image. What each backend can and cannot do
 (MCP tools, skills, the skill-guard) is the spec's conformance matrix —
