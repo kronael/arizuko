@@ -62,7 +62,7 @@ kind     := first segment of rest before &quot;/&quot;</code></pre>
 
     <h2>3. Per-platform schemas</h2>
 
-    <p>Each adapter owns its <code>&lt;rest&gt;</code> shape. From <a href="https://github.com/kronael/arizuko/blob/main/specs/5/S-jid-format.md"><code>specs/5/S-jid-format.md</code></a> &sect;&nbsp;"Per-platform schemas" plus the rewriter rules in <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0042-typed-jids.sql"><code>0042-typed-jids.sql</code></a>:</p>
+    <p>Each adapter owns its <code>&lt;rest&gt;</code> shape. From <a href="https://github.com/kronael/arizuko/blob/main/specs/5/S-jid-format.md"><code>specs/5/S-jid-format.md</code></a> &sect;&nbsp;"Per-platform schemas":</p>
 
     <table>
       <tr><th>platform</th><th>kind</th><th>shape</th><th>example</th></tr>
@@ -91,7 +91,7 @@ kind     := first segment of rest before &quot;/&quot;</code></pre>
       <tr><td><code>slack</code></td><td>&mdash;</td><td>per adapter; <code>slack:</code> JIDs handled by <a href="https://github.com/kronael/arizuko/tree/main/slakd"><code>slakd</code></a></td><td></td></tr>
     </table>
 
-    <p class="meta"><strong>Discord placeholder.</strong> Legacy rows with no stored guild_id migrated to <code>discord:_/&lt;channel&gt;</code> (placeholder kind). New inbound from <code>discd</code> carries the real guild ID. See <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0042-typed-jids.sql#L107"><code>0042-typed-jids.sql:107</code></a>.</p>
+    <p class="meta"><strong>Discord placeholder.</strong> A guild-channel row with no known guild id reads <code>discord:_/&lt;channel&gt;</code>; <code>discd</code> accepts that shape and writes the real guild id on every new inbound (<a href="https://github.com/kronael/arizuko/blob/main/discd/bot.go"><code>discd/bot.go</code></a> <code>chanID</code>).</p>
     <p class="meta"><strong>Web is folder-keyed.</strong> The chat JID is the folder (with optional <code>/&lt;suffix&gt;</code>); the URL token is a separate row in <code>route_tokens</code> that maps to this JID. See <a href="../concepts/tokens.html">route tokens</a> and <a href="https://github.com/kronael/arizuko/blob/main/specs/5/W-webhook-routes.md">spec 5/W</a>.</p>
 
     <h2>4. Routing &amp; glob matching</h2>
@@ -164,46 +164,17 @@ match='chat_jid=telegram:group/*'  # route: only telegram groups (path.Match: * 
 
     <p>For top-level platform globs both forms agree (<code>telegram:*/*</code> in routes vs <code>telegram:*</code> in grants); both mean "anything telegram." For grant params there's only one trailing segment to match against, so the wider <code>*</code> is harmless.</p>
 
-    <h2>7. Hard cutover &amp; migration history</h2>
-
-    <p>Migrations <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0042-typed-jids.sql"><code>0042-typed-jids.sql</code></a> and <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0043-typed-jids-tail.sql"><code>0043-typed-jids-tail.sql</code></a> rewrote every JID-shaped value in the store to the typed form. Affected columns:</p>
-
-    <ul>
-      <li><code>messages.chat_jid</code>, <code>messages.sender</code>, <code>messages.reply_to_sender</code></li>
-      <li><code>chats.jid</code> (PK)</li>
-      <li><code>onboarding.jid</code></li>
-      <li>(pre-0053: <code>user_jids.jid</code> and vestigial <code>grants.jid</code> were rewritten too, before being dropped by the ACL unification)</li>
-      <li><code>routes.match</code> &mdash; <code>chat_jid=</code> / <code>sender=</code> / <code>room=</code> predicates</li>
-      <li><code>scheduled_tasks.chat_jid</code></li>
-      <li><code>chat_reply_state.jid</code></li>
-    </ul>
-
-    <p>Every <code>UPDATE</code> is guarded by a <code>NOT LIKE</code> on the new shape, so re-running is idempotent. Rules:</p>
-
-    <ul>
-      <li><strong>Telegram</strong> &mdash; signed integer split: positive &rarr; <code>telegram:user/&lt;id&gt;</code>, negative &rarr; <code>telegram:group/&lt;|id|&gt;</code> (sign dropped).</li>
-      <li><strong>Discord</strong> &mdash; split via <code>chats.is_group</code>: DMs &rarr; <code>discord:dm/&lt;channel&gt;</code>, guild channels &rarr; <code>discord:_/&lt;channel&gt;</code> (placeholder).</li>
-      <li><strong>Reddit</strong> &mdash; thing-prefix lookup: <code>t1_</code>&rarr;<code>comment</code>, <code>t2_</code>&rarr;<code>user</code>, <code>t3_</code>&rarr;<code>submission</code>.</li>
-      <li><strong>Bluesky</strong> &mdash; percent-encode the embedded <code>:</code> in <code>did:plc:&lt;rest&gt;</code> &rarr; <code>bluesky:user/did%3Aplc%3A&lt;rest&gt;</code>.</li>
-      <li><strong>Email</strong> &mdash; senders rewritten to <code>email:address/&lt;addr&gt;</code>; <code>chat_jid</code> rewrite deferred until <code>emaid</code> emits typed form.</li>
-      <li><strong>LinkedIn</strong> &mdash; <code>&lt;urn&gt;</code> &rarr; <code>user/&lt;urn&gt;</code>.</li>
-      <li><strong>WhatsApp + Twitter</strong> &mdash; already conformant; not touched.</li>
-      <li><strong>Web</strong> &mdash; <code>web:&lt;folder&gt;[/&lt;suffix&gt;]</code> remains folder-keyed; the URL token is decoupled into the <code>route_tokens</code> table (one row per URL, JID per row).</li>
-      <li><strong>Hook</strong> &mdash; new top-level platform <code>hook:&lt;folder&gt;/&lt;source&gt;[/&lt;suffix&gt;]</code> for webhook ingest via <code>route_tokens</code>; <code>&lt;folder&gt;</code> is the destination folder, <code>sender</code> on inbound is the <code>&lt;source&gt;</code> segment.</li>
-      <li><strong>Routes</strong> &mdash; bare <code>platform:*</code> globs rewritten to <code>platform:*/*</code> so segment-aware <code>path.Match</code> still matches anything on that platform.</li>
-    </ul>
-
-    <h2>8. Design discipline</h2>
+    <h2>7. Design discipline</h2>
 
     <ul>
       <li><strong>Kind in the path.</strong> The first segment after the colon discriminates resource kind on the wire. The role (chat vs sender) is which message field holds the string &mdash; <code>ChatJID</code> or <code>Sender</code> &mdash; not a distinct Go type.</li>
       <li><strong>Adapter owns its schema.</strong> Core only splits <code>&lt;platform&gt;:&lt;rest&gt;</code> via <code>JidPlatform</code>/<code>JidRoom</code>. Each adapter constructs and parses <code>&lt;rest&gt;</code> per its own declared shape.</li>
       <li><strong>URI-clean.</strong> Adapters percent-encode reserved chars in <code>&lt;rest&gt;</code> (a Bluesky DID's colons, for example) so the platform/rest split holds.</li>
       <li><strong>One URL = one resource.</strong> No sign-bit hacks, no <code>t1_</code>/<code>t2_</code>/<code>t3_</code> prefix soup, no in-band server suffixes for code (WhatsApp keeps <code>@server</code> because its existing shape already encodes kind).</li>
-      <li><strong>Adding a kind later is one string.</strong> A new platform kind earns its place when an adapter, the gateway, or the agent treats it differently from siblings. No system-wide format change, no DB migration of existing rows.</li>
+      <li><strong>Adding a kind later is one string.</strong> A new platform kind earns its place when an adapter, the gateway, or the agent treats it differently from siblings. No system-wide format change and no rewrite of existing rows.</li>
     </ul>
 
-    <h2>9. Go deeper</h2>
+    <h2>8. Go deeper</h2>
     <ul>
       <li><a href="https://github.com/kronael/arizuko/blob/main/core/types.go"><code>core/types.go</code></a> &mdash; <code>JidPlatform</code>, <code>JidRoom</code>, the <code>Message</code> struct (string <code>ChatJID</code> / <code>Sender</code> fields)</li>
       <li><a href="https://github.com/kronael/arizuko/blob/main/router/router.go"><code>router/router.go</code></a> &mdash; <code>RouteMatches</code>, <code>msgField</code>, <code>ResolveRoute</code></li>
@@ -218,7 +189,7 @@ match='chat_jid=telegram:group/*'  # route: only telegram groups (path.Match: * 
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/reference/jid.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-08-13">2026-08-13</time>
+        &middot; updated <time class="docs-updated" datetime="2026-09-13">2026-09-13</time>
       </div>
     </main>
 

@@ -34,11 +34,21 @@
       <code>specs/5/28</code>.</p>
 
       <h2>Commands</h2>
-      <pre><code>arizuko packages &lt;instance&gt; install github.com/org/pkg   # or a local dir
+      <pre><code>arizuko packages &lt;instance&gt; add gitd                     # a bundled package, from template/services/
+arizuko packages &lt;instance&gt; install github.com/org/pkg   # or a local dir
 arizuko packages &lt;instance&gt; upgrade pkg                   # refuses locally-edited assets
 arizuko packages &lt;instance&gt; sync                          # re-apply every package at once
 arizuko packages &lt;instance&gt; remove  pkg                   # deletes exactly what it owns
 arizuko packages &lt;instance&gt; list</code></pre>
+
+      <p>A package that adds a daemon which reads the store, <code>gitd</code> or a
+      channel adapter, needs that daemon&rsquo;s own store key minted and written to
+      <code>env/&lt;daemon&gt;.env</code> before the next <code>generate</code>
+      (<a href="https://github.com/kronael/arizuko/blob/main/INSTALL.md">INSTALL.md</a>
+      &sect; The per-daemon store keys). Without it the daemon starts, fails at its
+      first store call, and takes the instance into a restart loop while every
+      health check reads green; <code>generate</code> logs
+      <code>store enrolment is partial</code> and names it.</p>
 
       <p><code>sync</code> is <code>upgrade</code> for every installed package in
       one pass — useful after pulling new revisions of several sources. It prints

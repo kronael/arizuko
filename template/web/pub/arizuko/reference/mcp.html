@@ -809,11 +809,11 @@
     <p>A call the agent makes <em>outside</em> the gateway &mdash; <code>codex</code> for <code>/oracle</code>, say &mdash; is metered by nobody, and no spend cap covers it. The operator sees it on that provider&rsquo;s invoice.</p>
 
     <h2 id="ext">external REST tools</h2>
-    <p>Beyond the hand-written MCP tools above, arizuko can expose a REST API as an MCP tool from a declarative <code>[[connector]]</code> TOML descriptor &mdash; no Go code per endpoint. A descriptor maps a tool name to one HTTP call; when the agent invokes it, <code>routd</code> makes the request directly on the host, injects the credential from the <code>secrets</code> table, and hands back only the response body. The token never enters the container. Loader: <a href="https://github.com/kronael/arizuko/blob/main/routd/ext.go"><code>routd/ext.go</code></a>; dispatcher: <a href="https://github.com/kronael/arizuko/blob/main/ipc/extcall.go"><code>ipc/extcall.go CallExtTool</code></a>.</p>
+    <p>Beyond the hand-written MCP tools above, arizuko can expose a REST API as an MCP tool from a declarative <code>[[connector]]</code> TOML descriptor &mdash; no Go code per endpoint. A descriptor maps a tool name to one HTTP call; when the agent invokes it, <code>routd</code> makes the request directly on the host, injects the credential from the <code>secrets</code> table, and hands back only the response body. The token never enters the guest. Loader: <a href="https://github.com/kronael/arizuko/blob/main/routd/ext.go"><code>routd/ext.go</code></a>; dispatcher: <a href="https://github.com/kronael/arizuko/blob/main/ipc/extcall.go"><code>ipc/extcall.go CallExtTool</code></a>.</p>
 
     <h3 id="ext-descriptor">the descriptor</h3>
     <p>Each provider is one <code>[[connector]]</code> block with <code>transport = "rest"</code>: a URL, the secret keys it may read, where those secrets go, and one <code>[[connector.tool]]</code> per endpoint. The tool's MCP name is <code>&lt;provider&gt;_&lt;tool&gt;</code> (e.g. <code>cloudflare_dns_list</code>). Path params in <code>{braces}</code> are filled from the call arguments; remaining args become the query string on GET/DELETE or the JSON body on POST/PUT/PATCH.</p>
-    <pre><code># connectors.toml (operator) or a built-in extproviders/*.toml
+    <pre><code># connectors.toml (operator) or a built-in routd/extproviders/*.toml
 [[connector]]
 name      = "cloudflare"
 transport = "rest"
@@ -844,14 +844,14 @@ headers   = { Authorization = "Bearer {secret:CF_API_TOKEN}" }
     <p>arizuko ships descriptors for four DNS registrars, ready to use once the operator sets the provider's token: <strong>Cloudflare</strong> (<code>CF_API_TOKEN</code>), <strong>Porkbun</strong>, <strong>Gandi</strong>, and <strong>Namecheap</strong>. Each covers the list/create/delete DNS operations. Operators add their own providers by dropping a <code>[[connector]]</code> block into <code>connectors.toml</code> in the instance dir.</p>
 
     <h3 id="ext-grants">grant gating</h3>
-    <p>Every <code>[[ext.tool]]</code> carries a <code>scope</code> of the form <code>ext:&lt;service&gt;:&lt;operation&gt;</code> (e.g. <code>ext:cloudflare:dns:write</code>). Registration is grant-filtered like every other tool: the tool joins <code>tools/list</code> only when <code>Authorize(folder, scope)</code> passes, so an agent sees an external tool only where its folder is granted that scope. A call-time grant check stays as defense in depth.</p>
+    <p>Every <code>[[connector.tool]]</code> carries a <code>scope</code> of the form <code>ext:&lt;service&gt;:&lt;operation&gt;</code> (e.g. <code>ext:cloudflare:dns:write</code>). Registration is grant-filtered like every other tool: the tool joins <code>tools/list</code> only when <code>Authorize(folder, scope)</code> passes, so an agent sees an external tool only where its folder is granted that scope. A call-time grant check stays as defense in depth.</p>
 
     <h2 id="notes">notes &amp; gotchas</h2>
     <ul>
       <li><strong>Registration is filtered by grants.</strong> <code>registerRaw</code> consults <code>db.Visible</code> &mdash; <code>auth.EffectiveActions</code> over the caller's <code>acl</code> rows, asking whether the caller holds <code>mcp:&lt;name&gt;</code> at any scope. Hold it nowhere and the tool is never added to <code>tools/list</code>. The call-time check still runs, so a tool that shows can still refuse a particular target.</li>
       <li><strong>Some tools need no grant.</strong> The <code>inspect_*</code> reads and <code>set_work</code> are registered unconditionally &mdash; they're the agent's view of its own folder, and gating them would only blind it. An elevated <code>/root</code> turn skips the visibility filter entirely and sees everything.</li>
       <li><strong>Route ownership is checked on top of the grant.</strong> Most JID-targeted tools call <code>authorizeJID</code> after the grant check: a caller cannot dispatch to a JID whose <code>DefaultFolderForJID</code> resolves outside its own folder subtree, even when the grant would otherwise permit it. That's why <code>role:member</code> can carry the messaging verbs at scope <code>**</code> without letting a folder message the whole instance. A <code>/root</code> turn bypasses it.</li>
-      <li><strong>The secret broker is live.</strong> An <code>mcp</code> or <code>rest</code> connector that needs a capability token has it resolved on the host at call time for the triggering user (their own key overrides the folder default), so the token never enters the container. Registration itself is per-call: <code>registerRaw</code>, <code>granted</code>, <code>regSocial</code>, raw <code>srv.AddTool</code>.</li>
+      <li><strong>The secret broker is live.</strong> An <code>mcp</code> or <code>rest</code> connector that needs a capability token has it resolved on the host at call time for the triggering user (their own key overrides the folder default), so the token never enters the guest. Registration itself is per-call: <code>registerRaw</code>, <code>granted</code>, <code>regSocial</code>, raw <code>srv.AddTool</code>.</li>
       <li><strong>Optional registration paths.</strong> Several tools are nil-guarded on the backing store function and silently absent if not wired: <code>inspect_routing</code>, <code>inspect_tasks</code>, <code>inspect_session</code>, <code>inspect_identity</code>, <code>inspect_messages</code>, <code>find_messages</code> (requires <code>db.FindMessages</code>), <code>get_thread</code>, <code>fetch_history</code>, all <code>*_task</code> tools (require <code>db.GetTask</code>).</li>
       <li><strong>Cold-tier resources are a separate surface.</strong> Groups, <code>acl</code>, routes, <code>web_routes</code>, secrets, scheduled tasks and the like are not per-group MCP tools &mdash; they are CRUD resources driven by the <code>resreg</code> engine and reachable over REST, MCP, YAML manifests, and <code>/openapi.json</code> from one struct. The registry lives in <code>routd</code>. See <a href="openapi.html">OpenAPI</a>.</li>
       <li><strong>Route tools are delegated, never default.</strong> <code>list_routes</code>, <code>set_routes</code>, <code>add_route</code> and <code>delete_route</code> are not in <code>role:member</code>, so a fresh folder holds none of them. Someone with the grant and a grant option has to hand them over, scoped to a subtree. See <a href="grants.html">grants</a>.</li>
@@ -863,7 +863,7 @@ headers   = { Authorization = "Bearer {secret:CF_API_TOKEN}" }
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/reference/mcp.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-09-20">2026-09-20</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-14">2026-10-14</time>
       </div>
     </main>
 

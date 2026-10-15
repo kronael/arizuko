@@ -44,7 +44,7 @@
 
     <h2>1. Four owners</h2>
 
-    <p>An owner is a daemon and the tables it alone creates. On a served instance the tables are named <code>&lt;owner&gt;.&lt;entity&gt;</code> and each daemon signs with its own access key, so a policy can bound what it reaches; on a file instance each owner gets one bind-mounted directory. Either way a daemon reads another owner's tables only where this page says so.</p>
+    <p>An owner is a daemon and the tables it alone creates. On the server a table is named <code>&lt;owner&gt;.&lt;entity&gt;</code>, and each daemon signs with its own access key, so the server&rsquo;s policy bounds what it reaches. <a href="https://github.com/kronael/arizuko/blob/main/store/owner_reach.go"><code>store/owner_reach.go</code></a> declares which owners each daemon opens, and a test fails when the code opens one the table does not list. A daemon reads another owner&rsquo;s tables only where this page says so.</p>
 
     <table>
       <tr><th>owner</th><th>declared in</th><th>holds</th></tr>
@@ -55,6 +55,8 @@
     </table>
 
     <p><code>audit_log</code> is in all four. One declaration lives in <code>audit</code>, every owner creates it, and each serves its own read-only at <code>GET /v1/audit</code>; <code>/dash/audit/</code> merges those four answers rather than reading anybody's tables.</p>
+
+    <p>Beside the four, each channel adapter keeps three small tables under its own name, declared in <a href="https://github.com/kronael/arizuko/blob/main/chanlib/chanstore/chanstore.go"><code>chanlib/chanstore</code></a>: <code>outbound_dedup</code>, one item per delivery routd asked it to make; <code>inbound_pending</code>, one per inbound routd has not yet accepted; <code>file_urls</code>, one per attachment behind its <code>/files/&lt;id&gt;</code> proxy.</p>
 
     <h2>2. routd &mdash; messages</h2>
 
@@ -149,7 +151,7 @@
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/reference/schema.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-09-16">2026-09-16</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-14">2026-10-14</time>
       </div>
     </main>
 
