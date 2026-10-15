@@ -224,8 +224,13 @@ was none to read.
 **The guard already names it, at the right moment and in the right words.**
 `arizuko generate sloth` reports `store enrolment is partial: these daemons
 reach the store and hold no key... missing="[cmd/arizuko gitd]" enrolled=18
-need=16` and exits 1. What it does not do is stop the enable, so the fault
-reaches a live stack as an outage rather than a refusal.
+need=16`. It does NOT exit 1 — `warnPartialEnrolment` only logs
+(`compose/compose.go:1015`) and `cmdGenerate` dies solely on `Generate`'s own
+error (`cmd/arizuko/main.go:162`). So the warning scrolls past and the enable
+proceeds, and the fault reaches a live stack as an outage rather than a refusal.
+
+(The "exits 1" above was my own misreading, and it reached README and INSTALL
+before a docs pass caught it. Corrected 2026-10-15.)
 
 Minting the identity is `L319`: arizuko has no enrolment subcommand, so every
 key on this fleet was created by hand against the store server, and whoever
@@ -235,7 +240,8 @@ enabled `gitd` had no command to run.
   cause reads as a store outage rather than a missing key
 - **Scope:** `cmd/arizuko/packages.go`, `compose/compose.go`
 - **Affected:** sloth, measured; any instance enabling a store-reading package
-- **Status:** open — the mint is an operator action (`L319`), the refusal is not
+- **Status:** fixed for sloth 2026-10-15 — gitd holds a key and runs; the
+  REFUSAL is still open, and is the platform half
 - **Fix (proposal):** `packages enable` refuses a daemon that reaches the store
   and holds no key, naming the same thing `generate` already names. The check
   exists; it runs one step too late to prevent anything.
