@@ -15,9 +15,8 @@ Three isolation axes:
    edge; `auth.Authorize` enforces.
 3. **Daemon isolation** — adapters reach routd only over the internal
    docker network using ES256 service tokens minted by `authd`, and each
-   daemon reaches only its own owner's tables: its own store access key
-   under a server policy bounded to the owners it needs, or one
-   bind-mounted `store/<owner>/` subdir on a file instance.
+   daemon reaches only the tables its own store access key is allowed,
+   under a server policy bounded to the owners it needs.
 
 ### The group is the tenant boundary
 
@@ -62,9 +61,8 @@ the agent decides to do with its shell.
 
 **What runed's own privilege means.** `runed` runs as root, holding
 `/dev/kvm`, `/dev/vhost-vsock`, `/dev/net/tun` and `NET_ADMIN`/`SYS_ADMIN`
-explicitly, in place of the docker socket it held before (spec `6/41`
-§"The runed deploy topology"); QEMU inherits that root credential when
-runed execs it. That privilege does not cross the tap or the virtio-fs
+explicitly (spec `6/41` §"The runed deploy topology"); QEMU inherits that
+root credential when runed execs it. That privilege does not cross the tap or the virtio-fs
 share boundary that separates group A from group B — a compromised guest
 faces the VM boundary, not a shared container kernel — but the write a
 guest can ask its own share for is bounded by a separate control, the
@@ -117,7 +115,7 @@ tenant's routes or tasks.
 | Secret injection    | The guest's env carries model credentials ONLY: operator anchors from host `.env`, overridden by the triggering user's own `store.EnvProfileKeys` (BYOA). Capability credentials are broker-only — resolved on the host per tool call, narrowed to the keys that call declares, scrubbed from the result (`specs/5/13-ext-mcp.md`, `specs/5/14-credentials.md`). | `routd/sibling_db.go` (`EnvProfileSecrets`), `runed/secrets.go` (`mergeSecrets`), `routd/mcp.go` (`ResolveConnectorSecrets`) |
 | Onboarding rate cap | Per-gate daily limit from `onboarding_gates` table                                                                                                                                                                                                                                                                                                               | `onbod/main.go` (`admitFromQueue`)                                                                                           |
 | Network egress      | Default-deny for TCP: the turn's tap has no route but to its own proxy, which holds the per-folder allowlist and serves that turn's address only. UDP/53 has nowhere to go (§ No DNS filter) and IPv6 is taken off the tap before the link comes up                                                                                                              | `egress/`, `store/network.go`, `runed/vmnet.go`                                                                              |
-| Store access        | One access key per daemon, signed as itself over TLS; the server's policy bounds each key to the owner prefixes that daemon reaches (`<owner>.<entity>`). A file instance binds one `store/<owner>/` subdir per container instead                                                                                                                                | `objstore/dynstore/env.go`, `compose/compose.go`, INSTALL.md § The store server                                              |
+| Store access        | One access key per daemon, signed as itself over TLS; the server's policy bounds each key to the owner prefixes that daemon reaches (`<owner>.<entity>`). A daemon with the address and no key refuses to start                                                                                                                                                  | `objstore/dynstore/env.go`, `compose/compose.go`, INSTALL.md § The store server                                              |
 
 Anything not in this table is not a security boundary. In particular:
 socket filesystem permissions alone do not separate guests, and
@@ -282,17 +280,16 @@ Spec: [`specs/5/23-skill-guard.md`](specs/5/23-skill-guard.md).
 
 ## Why a tool call beats a raw socket
 
-arizuko's credential story is not "we hide secrets well". It is that **the tool
-call is a chokepoint and a raw socket is not**, and four properties hang off
-that one fact. For anything the agent reaches as a tool:
+The credential model does not rest on hiding secrets well. It rests on one
+fact, **the tool call is a chokepoint and a raw socket is not**, and four
+properties hang off it. For anything the agent reaches as a tool:
 
 1. **The credential never enters the guest.** A connector's secret is
-   rendered into the subprocess environment **host-side**, in routd's
-   in-process MCP host (`ipc/connector.go` `renderEnv`, `ipc/extcall.go`), and
-   the value is scrubbed from the result before the agent sees it. The guest's
-   env carries no capability credential at all (BUGS `X1`, closed 2026-08-09).
-   This is the same property competitors buy with a TLS-terminating proxy, and
-   it costs us no CA and no man-in-the-middle.
+   rendered into the outbound request on the host, in routd's in-process MCP
+   host (`ipc/connector.go` `RenderSecrets`, `ipc/extcall.go` `CallExtTool`),
+   and the value is scrubbed from the result before the agent sees it. The
+   guest's env carries no capability credential at all. No TLS termination and
+   no CA in the middle are needed for this.
 2. **Every call passes one authorization evaluator.** `auth.Authorize` over
    `acl` rows — the row's scope glob IS the containment, read live so a revoke
    applies to the next call inside the same turn.
@@ -307,19 +304,19 @@ A raw HTTP client inside the guest — `aws`, `gh`, a script the agent just
 wrote — gets **none** of the four. It never crosses the socket, so no grant, no
 hold, and no per-call audit applies; only the host allowlist below does.
 
-Two consequences we state rather than paper over:
+Two consequences follow:
 
-- **Shrinking the raw-socket surface is a security measure**, not just tidiness.
+- **Shrinking the raw-socket surface is a security measure**, not tidiness.
   Every capability that becomes a declared connector gains all four properties
-  at once. That is why the connector path is the primary one and the egress
-  proxy covers the residue — DECLINED 2026-08-20 along with every other
-  tier of it: credentials reach a client through the MCP broker or not at all,
-  and an opaque in-guest client is out of scope by decision.
-- **Scrubbing is substring replacement** (`ipc/connector.go` `scrubResult`).
-  It protects against a credential appearing incidentally in output; it is not
-  a defence against a caller that chooses its own command and encodes the value.
-  That is precisely why arizuko has no generic "run this with a credential
-  injected" tool — the flexibility and the leak would be the same property.
+  at once. The connector path is the primary one and the egress proxy covers
+  the residue: a credential reaches a client through the MCP broker or not at
+  all, and an opaque in-guest client holding one is out of scope by decision.
+- **Scrubbing is substring replacement** (`ipc/connector.go` `scrubCallResult`,
+  `ipc/extcall.go` `scrubSecrets`). It protects against a credential appearing
+  incidentally in output; it is not a defence against a caller that chooses its
+  own command and encodes the value. That is why arizuko has no generic "run
+  this with a credential injected" tool: the flexibility and the leak would be
+  the same property.
 
 ## Network egress isolation
 
@@ -327,9 +324,8 @@ Isolation is not a setting. The turn runs in a KVM guest whose only network
 interface is one tap, and that tap's rule set accepts the guest's own proxy and
 drops everything else in both directions (spec `6/41` §"Egress by name, sealed
 below the kernel"). runed starts the proxy before the guest exists, as one
-process per turn, and it dies with the turn. There is no `EGRESS_IMAGE` switch
-and no unfiltered mode to fall back to: runed refuses to start when the proxy
-binary is absent.
+process per turn, and it dies with the turn. There is no switch and no
+unfiltered mode: runed refuses to start when the proxy binary is absent.
 
 - The guest receives `HTTPS_PROXY=http://<the tap's host side>:3128` plus
   `NODE_OPTIONS=--require=/app/proxy-shim.js` so Node's built-in fetch honors
@@ -374,30 +370,23 @@ Caveats:
   budget and the run ceiling, and deletes it when the turn ends, so a key
   read out of a guest's environment buys one turn of one folder's
   tokens and then nothing.
-- The tool-level secret broker is **shipped** (v0.57.0;
-  `specs/5/13-ext-mcp.md`, `specs/5/14-credentials.md`): the broker
-  middleware (`ipc/ipc.go` `injectSecretsAdapter`) resolves
-  `user(caller.Sub)` then `folder(caller.Folder)` at tool-call time, with
-  audit rows in `secret_use_log`, so a secret is spent only on the call that
-  needs it rather than for the whole spawn. The connector path
-  (a `[[connector]]` TOML block + a per-call HTTPS request whose Authorization header
-  the broker renders) is part of the same shape; the endpoint set is operator-
-  written and immutable after boot, so the agent picks a tool, never a host.
-  MCP's own OAuth 2.1 is reachable now that the transport is HTTP but is not
-  wired — see `specs/5/13-ext-mcp.md` §"OAuth is the next step, not this one".
-- IPv6 is not redirected by the entrypoint script.
+- The tool-level secret broker (`specs/5/13-ext-mcp.md`,
+  `specs/5/14-credentials.md`) resolves `user(caller.Sub)` then
+  `folder(caller.Folder)` at tool-call time, with audit rows in
+  `secret_use_log`, so a secret is spent only on the call that needs it rather
+  than for the whole spawn. A connector is a `[[connector]]` TOML block plus a
+  per-call HTTPS request whose credential the broker renders in; the endpoint
+  set is operator-written and immutable after boot, so the agent picks a
+  tool, never a host. MCP's own OAuth 2.1 is not wired
+  (`specs/5/13-ext-mcp.md` §"OAuth is the next step, not this one").
 
-**No DNS filter, because the guest has no resolver.** Under the earlier
-Docker substrate, `/etc/resolv.conf` inside an agent container named docker's
-own embedded resolver, which forwarded upstream from the HOST namespace and
-so ignored the container's missing default route — an agent could emit
-arbitrary query names to a resolver it did not control, whatever the folder's
-`network_rules` allowlist said. The KVM guest ships no resolver at all: a
-host name is meaningful only inside a `CONNECT` line to the proxy, so a DNS
-query has nowhere to go — the tap drops UDP/53 with everything else that is
-not to the proxy (spec `6/41` §"Egress by name, sealed below the kernel").
-That closes the side channel by construction rather than by a filter added on
-top.
+**No DNS filter, because the guest has no resolver.** The guest ships no
+resolver: a host name is meaningful only inside a `CONNECT` line to the
+proxy, so a DNS query has nowhere to go, and the tap drops UDP/53 with
+everything else that is not addressed to the proxy (spec `6/41` §"Egress by
+name, sealed below the kernel"). A resolver the agent could reach would be a
+side channel for arbitrary query names, whatever the folder's `network_rules`
+allowlist said; there is none to filter.
 
 **One address family, because the rule set only has one.** The tap's rule set is
 `iptables`, so it says nothing about IPv6, and the guest kernel carries a full
@@ -406,9 +395,9 @@ IPv6 stack. `runed` therefore takes the family off the device — it writes
 `sealIPv6`), and a write it cannot make fails the turn. Without the seal, the
 guest and the host side of the tap each take a link-local address and the guest
 reaches every IPv6 listener in runed's namespace, runed's own `:8080` among them,
-in a table the drops are not written in. Docker happens to close it by setting
-`disable_ipv6=1` in a container on a v4-only network; a boundary that rests on
-somebody else's default is not a boundary (BUGS `L383`).
+in a table the drops are not written in. runed writes the seal itself rather
+than relying on a container runtime's default, because a boundary that rests
+on somebody else's default is not a boundary (BUGS `L383`).
 
 ## Per-daemon docs
 
@@ -485,16 +474,7 @@ no per-backend access logging is required.
 **Do not use `docker logs`** — the `none` log driver means Docker has
 no stored logs. `journalctl` is the only source.
 
-## Incident log
-
-**2026-04-17 → 2026-04-19 — MCP token preamble outage.** Commit
-`2774394` added a server-side token preamble to `ipc.ServeMCP` with no
-matching client (ant's socat bridge cannot write a preamble). Every MCP
-call rejected for ~48h; agents appeared amnesic. Fixed v0.29.3 (disable)
-and replaced v0.29.4 with `SO_PEERCRED`. Full writeup:
-[`ipc/SECURITY.md`](ipc/SECURITY.md).
-
 ## Reporting
 
-Log to `bugs.md` with reproducer and severity. No public channel —
-arizuko is single-operator per instance.
+Log to `BUGS.md` with a reproducer and a severity. There is no public
+channel: arizuko is single-operator per instance.
