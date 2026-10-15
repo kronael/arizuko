@@ -301,7 +301,7 @@ When a message arrives, routd resolves which group handles it
 through several layers. The full resolution in `resolveTarget`:
 
 ```
-1. Engagement   — resolveOrEngaged checks chat_reply_state.engaged_until;
+1. Engagement   — routd checks chat_reply_state.engaged_until;
                   if active, routes to engaged_folder and fires a turn,
                   bypassing all layers below
 2. Reply chain  — msg.ReplyToID set → look up routed_to on the
@@ -365,7 +365,7 @@ its own Claude session, reply chain, and message history.
   session leaves others untouched. `/new #support` resets only the
   `#support` session.
 
-- **Reply chain isolation**: `store.GetLastReplyID(jid, topic)` — each
+- **Reply chain isolation**: `store.LastReplyID(jid, topic)` — each
   topic tracks its own last-sent message ID for reply threading.
 
 - **Web topic batching**: `processWebTopics` splits web messages by
@@ -468,12 +468,12 @@ Bot:  "Sure, what's up?"       (reply_to=100, sent_id=201)
 Bot:  "I can help with..."     (reply_to=201, sent_id=202)
 ```
 
-`store.GetLastReplyID(jid, topic)` provides the anchor for the next
+`store.LastReplyID(jid, topic)` provides the anchor for the next
 reply. Updated in three cases:
 
-1. **Bot sends a chunk** — `SetLastReplyID` to the bot's sent message ID
-2. **Steering message** — when a follow-up is injected into a running
-   container, routd sets `lastReplyID` to the steering message's ID
+1. **Bot sends a chunk** — `SetLastReply` to the bot's sent message ID
+2. **Steering message** — when a follow-up is steered into a live turn,
+   routd sets `lastReplyID` to the steering message's ID
 3. **New agent run** — starts from `firstMsgID` (triggering user message),
    then re-reads `GetLastReplyID` before each chunk to pick up mid-run
    steering updates
@@ -536,18 +536,20 @@ applies a default auth-gate.
 
 ### Fixed prefixes (evaluated first, in order)
 
-| Path prefix                                             | Behaviour                                                                                            |
-| ------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| `/chat/`, `/hook/`                                      | route-token surfaces — no auth required                                                              |
-| `/pair/`                                                | identity pairing — JWT-gated; an anonymous visitor bounces through OAuth and returns to the same URL |
-| `/pub/`                                                 | Vite public assets — no auth required; serves `<data>/web/pub/`                                      |
-| `/assets/`                                              | webd's baked-in browser SDK — no auth required; the path `/chat/<token>/config` advertises           |
-| `/priv/`                                                | JWT-gated; serves `<data>/web/priv/` (v0.45.11+, separate tree)                                      |
-| `/panel/`, `/api/`, `/x/`, `/static/`, `/auth/`, `/mcp` | auth-gated, forwarded upstream                                                                       |
+| Path prefix         | Behaviour                                                                                            |
+| ------------------- | ---------------------------------------------------------------------------------------------------- |
+| `/chat/`, `/hook/`  | route-token surfaces — no auth required                                                              |
+| `/pair/`            | identity pairing — JWT-gated; an anonymous visitor bounces through OAuth and returns to the same URL |
+| `/pub/`             | the public web tree, served by vited — no auth required; `<data>/web/pub/`                           |
+| `/assets/`          | webd's embedded browser SDK — no auth required; `/chat/<token>/config` advertises the path           |
+| `/priv/`            | JWT-gated; serves `<data>/web/priv/`, a separate tree                                                |
+| `/auth/`, `/health` | proxyd's own login flow and liveness                                                                 |
+| `/dav/`             | JWT-gated WebDAV, group-scoped, with write-blocked paths (`davAllow`)                                |
 
-For `/api/` and `/x/` paths (and any request with `Accept: application/json`),
-`requireAuth` returns `{"error":"unauthorized"}` with HTTP 401 instead of
-redirecting to login.
+Every other path goes through the `proxyd_routes` rows, then the `web_routes`
+table below, then the default auth gate. A request with no valid credential
+is redirected to `/auth/login`, with the original path kept in an
+`auth_return` cookie for ten minutes.
 
 ### web_routes (dynamic, store-backed)
 
@@ -620,7 +622,7 @@ Prefix layer (in routd code, not table):
    - Agent processes, produces output
    - makeOutputCallback sends reply via ch.Send("telegram:12345", text, replyTo, topic)
      and records it via store.PutMessage (is_bot_message=1, routed_to=atlas)
-   - store.SetLastReplyID("telegram:12345", "", sentMsgID)
+   - store.SetLastReply("telegram:12345", "", sentMsgID, "atlas")
 5. teled receives POST /send, delivers to Telegram API
 ```
 
