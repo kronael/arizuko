@@ -104,6 +104,7 @@ headers   = { Authorization = "Bearer {secret:CF_API_TOKEN}" }
       <li>It is <strong>scrubbed out of the response</strong> before the text reaches the agent, so an API that echoes your key back does not leak it into the transcript.</li>
       <li>A declared key the store resolves to nothing has its <strong>whole entry dropped</strong>. An unset secret sends no header at all, rather than sending the literal text <code>{secret:CF_API_TOKEN}</code> upstream and getting a confusing 401.</li>
     </ul>
+    <p>The key is a row in routd&rsquo;s <code>secrets</code> table, set with <code>arizuko secret</code> or at <code>/dash/me/secrets</code>. It is not the daemon environment. One name can live in both places with different values: <code>GH_TOKEN</code> in the instance <code>.env</code> is what a daemon process holds, and <code>GH_TOKEN</code> in a folder&rsquo;s secrets is what the connector sends. The connector reads only the folder&rsquo;s row, through the broker, so a token found in <code>.env</code> says nothing about what the connector has.</p>
 
     <h2>the grant decides who sees it</h2>
     <p>Each tool carries a <code>scope</code> shaped <code>ext:&lt;service&gt;:&lt;operation&gt;</code>. Registration is grant-filtered like every other MCP tool: the tool joins <code>tools/list</code> only where <code>Authorize(folder, scope)</code> passes. A folder without the grant does not see a refusal &mdash; it sees no such tool. The call-time check runs anyway, as defence in depth.</p>
@@ -129,7 +130,7 @@ headers   = { Authorization = "Bearer {secret:CF_API_TOKEN}" }
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/concepts/ext-mcp.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-09-22">2026-09-22</time>
+        &middot; updated <time class="docs-updated" datetime="2026-09-29">2026-09-29</time>
       </div>
     </main>
 

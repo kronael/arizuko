@@ -51,7 +51,7 @@
       <li>A Linux host you can <code>sudo</code> on. arizuko is tested on Debian 12.</li>
       <li>Docker (with the <code>docker compose</code> plugin), for the daemon fleet.</li>
       <li>Hardware virtualization with <code>/dev/kvm</code> reachable. Every turn is one KVM guest that <code>runed</code> starts with <code>qemu-system-x86_64</code>; runed refuses to start without it.</li>
-      <li>Go 1.22+ to install the <code>arizuko</code> CLI (<code>go install</code>) or build from source.</li>
+      <li>Go 1.27 to install the <code>arizuko</code> CLI (<code>go install</code>) or build from source.</li>
       <li>About 4 GB of free disk under <code>/srv/data/</code> per instance.</li>
       <li>A public domain and TLS, only if you want web chat, OAuth login, or inbound webhooks from Slack/Discord. A local-only instance needs neither.</li>
       <li>No ports open to the internet by default. Channel adapters listen on the docker network; <code>webd</code> + <code>proxyd</code> bind <code>:80</code>/<code>:443</code> only when you turn on the web layer.</li>
@@ -73,21 +73,38 @@ sudo install -m 0755 arizuko /usr/local/bin/arizuko</code></pre>
     <p>This seeds <code>/srv/data/arizuko_demo/</code> with:</p>
     <ul>
       <li><code>.env</code> &mdash; instance config with a fresh <code>AUTH_SECRET</code> and <code>SECRETS_KEY</code>. Mode <code>0600</code>. Edit it to add API keys later.</li>
-      <li><code>store/</code> &mdash; one directory per owner daemon (<code>routd/</code>, <code>runed/</code>, <code>authd/</code>, <code>onbod/</code>), holding what that owner writes as files and mounted into that daemon alone, so none can reach another's data. The four owners' TABLES live on one store server, each daemon holding its own key for it (<a href="https://github.com/kronael/arizuko/blob/main/INSTALL.md">INSTALL.md</a> &sect; The store server). Either way you get one default group called <code>main</code>.</li>
+      <li><code>store/</code> &mdash; empty until the store server runs. It then holds the server&rsquo;s config and certificate under <code>store/extenddb/</code> and its PostgreSQL data under <code>store/extenddb_db/</code>, so one copy of the data dir carries every row. The rows themselves are written by their owner daemon at its first boot: routd seeds the ACL floor, the egress floor and the default group <code>main</code>.</li>
       <li><code>groups/main/</code> &mdash; the first agent's home: <code>PERSONA.md</code>, <code>.claude/</code> session dir, <code>facts/</code>, <code>diary/</code>.</li>
       <li><code>ipc/main/</code> &mdash; placeholder for the MCP unix socket the agent will use.</li>
       <li><code>web/pub/</code> &mdash; a copy of these docs, served by <code>vited</code>.</li>
     </ul>
     <p>Pass <code>--product &lt;name&gt;</code> (for example <code>--product assistant</code>) to seed skills and a checklist of API keys to fill in. See <a href="../products/">products</a> for the catalog.</p>
 
-    <h2>4. Run it</h2>
+    <h2>4. Bring up the store server</h2>
+    <p>Every daemon keeps its tables on one DynamoDB-protocol server, ExtendDB over PostgreSQL, and refuses to start without <code>DYNAMODB_URL</code>. The <code>extenddb</code> package brings both containers. The server&rsquo;s one-off <code>init</code> is yours to run, because it prints an admin password once:</p>
+    <pre><code>sudo arizuko packages demo add extenddb    # mints STORE_DB_PASSWORD and STORE_APP_PASSWORD
+sudo arizuko generate demo
+cd /srv/data/arizuko_demo
+sudo docker compose up -d extenddb_db
+sudo docker compose run --rm extenddb init \
+  --pg-host extenddb_db --pg-port 5432 \
+  --pg-user arizuko_demo --pg-pass "$STORE_DB_PASSWORD" \
+  --extenddb-user arizuko_demo_app --extenddb-pass "$STORE_APP_PASSWORD" \
+  --bind-addr 0.0.0.0 --tls-san extenddb \
+  --config /var/lib/extenddb/extenddb.toml</code></pre>
+    <p><code>init</code> prints the admin password and the account id once. Put them in <code>.env</code> as <code>STORE_ADMIN_PASSWORD</code> and <code>STORE_ACCOUNT_ID</code>, start the server, then give the daemons the certificate:</p>
+    <pre><code>sudo docker compose up -d extenddb
+echo "STORE_CA=$(sudo base64 -w0 store/extenddb/.extenddb/tls/cert.pem)" | sudo tee -a .env</code></pre>
+    <p>Each daemon signs into the server as itself, with its own access key in <code>env/&lt;daemon&gt;.env</code> and a policy bounded to the tables it opens. Minting those keys is a hand procedure with <code>extenddb manage</code>, one per daemon: <a href="https://github.com/kronael/arizuko/blob/main/INSTALL.md">INSTALL.md</a> &sect; The per-daemon store keys lists the daemons and the exact commands. A daemon with no key starts, then fails at its first store call while every health check reads green. <code>arizuko generate</code> logs <code>store enrolment is partial</code> and names the daemons still missing one; read that line before you move on.</p>
+
+    <h2>5. Run it</h2>
     <p><code>arizuko run</code> generates <code>docker-compose.yml</code> from the instance state and brings the stack up in the foreground.</p>
     <pre><code>sudo arizuko run demo</code></pre>
-    <p>You should see <code>authd</code>, <code>routd</code>, <code>runed</code>, <code>timed</code>, <code>onbod</code>, <code>dashd</code>, and the agent runner come up. In another shell, check status:</p>
+    <p>You should see <code>extenddb</code>, <code>authd</code>, <code>routd</code>, <code>runed</code> and <code>timed</code> come up. <code>onbod</code> joins when onboarding is on, and the web layer when <code>WEB_PORT</code> is set. In another shell, check status:</p>
     <pre><code>sudo arizuko status demo</code></pre>
     <p>For production, run arizuko as a systemd service named <code>arizuko_demo</code> instead of in the foreground. Logs then live in <code>journalctl -u arizuko_demo</code> &mdash; the docker log driver is <code>none</code> on purpose, so <code>docker logs</code> shows nothing.</p>
 
-    <h2>5. Wire your first channel</h2>
+    <h2>6. Wire your first channel</h2>
     <p>An instance with no channel adapter has no way to receive messages from the outside. Pick one platform to start. Each guide covers the platform's app/bot setup, the env vars to drop into <code>.env</code>, and the <code>arizuko group add</code> command that binds a chat to a folder.</p>
     <ul>
       <li><a href="../howto/slack.html">Slack</a> &mdash; Slack App, signing secret, Events API.</li>
@@ -96,12 +113,12 @@ sudo install -m 0755 arizuko /usr/local/bin/arizuko</code></pre>
     </ul>
     <p>Telegram, WhatsApp, Slack, Discord, Bluesky, Reddit, Email, X, and LinkedIn adapters ship in the repo. Their setup follows the same shape; see the <code>README.md</code> next to each daemon (<code>teled/</code>, <code>whapd/</code>, &hellip;).</p>
 
-    <h2>6. Invite your first user</h2>
+    <h2>7. Invite your first user</h2>
     <p>Mint a one-time invite link. <code>target_glob</code> decides which folders the new user will be granted access to. <code>main/**</code> means &ldquo;the <code>main</code> group and any sub-group under it.&rdquo;</p>
     <pre><code>sudo arizuko invite demo create 'main/**' --max-uses 1 --expires 24h</code></pre>
     <p>The command prints a token. Share <code>https://&lt;your-host&gt;/onboarding/&lt;token&gt;</code>. The recipient signs in with one of the configured OAuth providers, lands on a confirmation page, and their <code>auth_users.sub</code> is granted admin on the matched folders. List and revoke with <code>arizuko invite demo list</code> and <code>arizuko invite demo revoke &lt;token&gt;</code>.</p>
 
-    <h2>7. Verify the agent responds</h2>
+    <h2>8. Verify the agent responds</h2>
     <p>Two ways to confirm the loop is live.</p>
     <p><strong>From the host</strong>, inject a message and wait for the reply:</p>
     <pre><code>sudo arizuko send demo main "ping" --wait</code></pre>
@@ -115,7 +132,7 @@ sudo install -m 0755 arizuko /usr/local/bin/arizuko</code></pre>
       <li><code>circuit breaker open</code> &mdash; one folder failed too many turns in a row.</li>
     </ul>
 
-    <h2>8. Back up &amp; restore the setup</h2>
+    <h2>9. Back up and restore the setup</h2>
     <p>An agent is data, so the configuration is too. Export the whole instance config to one YAML manifest, keep it in git as a backup, and re-apply it to rebuild &mdash; on this host or another.</p>
     <pre><code>arizuko export demo &gt; demo.yaml   # groups, routes, grants, ACL, web routes, schedules…
 git add demo.yaml &amp;&amp; git commit -m "demo config"
@@ -135,7 +152,7 @@ arizuko apply demo demo.yaml        # apply the manifest back</code></pre>
       <dt>skill</dt>
       <dd>A markdown file under <code>groups/&lt;folder&gt;/.claude/skills/</code> the agent loads on start. One file, one capability.</dd>
       <dt>route token</dt>
-      <dd>A URL-bound credential mapping to a group. <code>/chat/&lt;token&gt;/</code> opens the guest chat widget; <code>/hook/&lt;token&gt;</code> accepts fire-and-forget webhooks. Legacy <code>/slink/&lt;token&gt;</code> 301s to the new paths. See <a href="../concepts/tokens.html">route tokens</a>.</dd>
+      <dd>A URL-bound credential mapping to a group. <code>/chat/&lt;token&gt;/</code> opens the guest chat widget; <code>/hook/&lt;token&gt;</code> accepts fire-and-forget webhooks. <code>/slink/&lt;token&gt;</code> answers a 301 to <code>/chat/&lt;token&gt;/</code>. See <a href="../concepts/tokens.html">route tokens</a>.</dd>
     </dl>
 
     <p>More guides:</p>
@@ -169,7 +186,7 @@ arizuko apply demo demo.yaml        # apply the manifest back</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/howto/index.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-09-25">2026-09-25</time>
+        &middot; updated <time class="docs-updated" datetime="2026-09-29">2026-09-29</time>
       </div>
     </main>
 

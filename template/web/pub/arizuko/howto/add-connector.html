@@ -114,6 +114,12 @@ headers   = { Authorization = "OAuth {secret:STATUSPAGE_TOKEN}" }
         folder default for turns they trigger:
       </p>
       <pre><code>arizuko user-secret &lt;instance&gt; set 'slack:user/U123' STATUSPAGE_TOKEN --value 'sp_live_…'</code></pre>
+      <p>
+        This row is the only place the connector looks. The instance
+        <code>.env</code> is the daemons&rsquo; environment, and a
+        <code>STATUSPAGE_TOKEN</code> there is never sent by the connector,
+        valid or not. The two can hold different values under one name.
+      </p>
 
       <h2>4. grant the scope</h2>
       <p>
@@ -150,7 +156,8 @@ arizuko group &lt;instance&gt; grant main/infra 'ext:statuspage:incident:write' 
         </li>
         <li>
           <strong>The upstream returns 401.</strong> Check the secret is
-          actually set for the folder or the user. An unset key does not
+          set for the folder or the user, in the <code>secrets</code> table
+          and not in <code>.env</code>. An unset key does not
           send a placeholder &mdash; the whole header is dropped, so the
           request arrives with no credential at all.
         </li>
@@ -184,7 +191,7 @@ arizuko group &lt;instance&gt; grant main/infra 'ext:statuspage:incident:write' 
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/howto/add-connector.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-09-22">2026-09-22</time>
+        &middot; updated <time class="docs-updated" datetime="2026-09-29">2026-09-29</time>
       </div>
     </main>
 
