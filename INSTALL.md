@@ -1,7 +1,7 @@
 # Installing arizuko
 
-LLM-friendly installation guide. An AI assistant reading this should have
-everything needed to guide a user through setup.
+From a bare Linux host to a first reply. Written so a person, or an assistant
+helping one, can follow it top to bottom without another document open.
 
 ## Prerequisites checklist
 
@@ -61,24 +61,18 @@ go version   # verify: go1.26.5 linux/amd64
 `g` adds itself and Go to `~/.local/bin` (or `~/go` by default). No sudo
 needed, no system Go touched.
 
-`go.mod` pins `toolchain go1.27rc2` — a **release candidate**, because arizuko
-adopted Go 1.27's stdlib ahead of GA. `g` carries only stable releases, so
-install the latest stable as above and let `GOTOOLCHAIN=auto` (Go's default)
-fetch the RC on the first `go build`. That fetch is the only thing standing
-between a stable Go and a working build.
+`go.mod` pins `toolchain go1.27rc2`, a release candidate, because arizuko uses
+Go 1.27's standard library ([`specs/5/36`](specs/5/36-go-1.27-adoption.md)).
+`g` carries only stable releases, so install the latest stable as above and
+let `GOTOOLCHAIN=auto` (Go's default) fetch the pinned toolchain on the first
+`go build`.
 
-Two cases where it does not apply, and you must install the RC by hand:
-`GOTOOLCHAIN=local` is set, or the machine has no network to `go.dev`.
+Two cases get no auto-fetch, and you install the toolchain by hand: the
+machine sets `GOTOOLCHAIN=local`, or it has no network to `go.dev`.
 
 ```bash
 go install golang.org/dl/go1.27rc2@latest && go1.27rc2 download
 ```
-
-This pin moves to `go 1.27.0` once Go 1.27 ships GA (expected August 2026);
-see [`specs/5/36-go-1.27-adoption.md`](specs/5/36-go-1.27-adoption.md).
-
-Offline/air-gapped builds get no auto-fetch — install the RC toolchain
-explicitly before building.
 
 ### Docker Compose v2 missing
 
@@ -144,8 +138,6 @@ make build                  # ./arizuko CLI + daemon binaries
 make test                   # sanity check (go test ./... -short)
 ```
 
-Note: host builds use `modernc.org/sqlite` (pure Go, no CGO). No gcc needed.
-
 ## Build Docker images
 
 `DATA_DIR` names the directory the guest kernel and the release rootfs land
@@ -172,7 +164,6 @@ rebuilding all:
 ```bash
 sudo make agent             # just arizuko-ant:latest (Claude Code agent)
 sudo make -C whapd image    # just WhatsApp adapter
-sudo DOCKER_BUILDKIT=1 docker build -t arizuko-egress -f egress/Dockerfile . # just the egress proxy
 ```
 
 ## Create instance
@@ -298,9 +289,20 @@ sudo docker exec -e EXTENDDB_PASSWORD=$STORE_ADMIN_PASSWORD arizuko_extenddb_<na
 
 Write the printed pair into `env/routd.env` as `AWS_ACCESS_KEY_ID` and
 `AWS_SECRET_ACCESS_KEY`; a later `generate` carries them forward. A daemon whose
-policy is too narrow does NOT fail at deploy — it fails the first time it
-touches the table it was never granted, so roll one daemon at a time and watch
+policy is too narrow does NOT fail at deploy. It fails the first time it
+touches a table it was never granted, so roll one daemon at a time and watch
 it answer.
+
+A daemon with the server's address and no key at all fails differently, and
+harder. `dynstore` refuses to dial (`endpoint "https://extenddb:18443" takes an
+access key and a secret`), the daemon exits at boot, and because `docker
+compose up` runs under systemd, that one exit restart-loops the whole instance:
+two containers up out of fifteen and `systemctl is-active` stuck on
+`activating` (BUGS `L406`, measured on sloth). `arizuko generate` names every
+such daemon before you deploy, as `store enrolment is partial: these daemons
+reach the store and hold no key`, and exits 1. Read that line before you
+restart. The reach table above says who needs a key: every daemon but `timed`
+and `ttsd`, adapters included.
 
 TLS is mandatory — the server refuses to start without it — so every daemon
 needs the certificate the init run generated:
@@ -417,9 +419,9 @@ deployment by hand. That is four rows, and nothing else.
    It must print `HEALTHY: All checks passed`.
 
 An instance then joins with its own account and its own key pair, and points
-`DYNAMODB_URL` at this server instead of its own. Creating that account and
-minting that key is still by hand through `extenddb manage`: `arizuko` has no
-enrolment subcommand (BUGS `L319`).
+`DYNAMODB_URL` at this server. Creating that account and minting that key is a
+hand procedure through `extenddb manage`; `arizuko` has no enrolment
+subcommand (BUGS `L319`).
 
 ## Configure .env
 
@@ -454,12 +456,10 @@ WEB_HOST=myhost.example.com
 # SECRETS_KEY=...
 
 # Host path of the arizuko checkout (this repo). `arizuko packages add`
-# links an adapter's compose fragment straight at this path instead of
-# copying it, so a template fix reaches this instance on the next
-# `arizuko generate` with no manual step. Required if `arizuko generate`
-# ever runs via the containerized systemd pattern (ExecStartPre `docker run
-# arizuko:latest arizuko generate <name>`, see Troubleshooting) — that
-# container cannot see the checkout to derive it on its own.
+# links an adapter's compose fragment at this path rather than copying it,
+# so a template fix reaches this instance on the next `arizuko generate`.
+# Required when `arizuko generate` runs inside a container, which cannot
+# see the checkout on its own.
 HOST_APP_DIR=/path/to/arizuko
 ```
 
@@ -491,8 +491,13 @@ Add the package for your chosen adapter to the instance:
 ./arizuko packages <name> add gitd       # GitHub webhooks (then `arizuko github <name> add …`)
 ```
 
-Without this step, no adapter will start. Each adapter needs its package in
+Without this step, no adapter starts. Each adapter needs its package in
 `services/`.
+
+Every adapter but `ttsd` reads the store, so mint its access key into
+`env/<adapter>.env` BEFORE you enable it (§ The per-daemon store keys). An
+adapter enabled without a key exits at boot and restart-loops the whole
+instance; `arizuko generate` names it first.
 
 ## Optional: model gateway
 
@@ -631,6 +636,13 @@ Image/compose mismatch, or the `arizuko` image is missing `iptables`,
 
 **Adapter shows `(unhealthy)`:**
 Platform credentials wrong or expired. Check adapter-specific logs.
+
+**The instance restart-loops after `packages add`:** two containers up out of
+fifteen, `systemctl is-active` says `activating`, and the journal shows
+`dynstore: endpoint "https://extenddb:18443" takes an access key and a secret`
+from the daemon you enabled. It has the server's address and no key. Recover
+with `./arizuko packages <name> remove <pkg>`, `./arizuko generate <name>`,
+restart; then mint the key (§ The per-daemon store keys) and enable it again.
 
 **Permission denied on /srv/data:**
 Either chown it or set `PREFIX` env var before all commands.
