@@ -46,11 +46,8 @@ is identity pairing, where the account owner confirms in a browser
   patterns (user-bot, channel-bot, hybrid), examples, anti-patterns.
 - **Code**: `auth/authorize.go` (the single entry point),
   `auth/delegate.go` (`Delegate`, subset-of-held), `auth/acl.go`,
-  `store/acl.go`, `store/membership.go`,
-  `routd/migrations/0007-acl.sql`,
-  `routd/migrations/0021-acl-grant-option.sql`,
-  `routd/migrations/0022-seed-operator-grant-option.sql`,
-  `routd/migrations/0023-4r-role-member.sql`.
+  `store/acl.go`, `store/membership.go`, and `store/seed.go`
+  (`SeedRoutdFloor`, the seeded `role:member` and `role:operator` rows).
 
 ## Related specs
 
