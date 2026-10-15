@@ -99,9 +99,9 @@ Shipped today (see `server.go`):
   consent is the boundary").
 - `/chat/<token>/*` and `/hook/<token>` stay unauthenticated; the URL
   route-token IS the capability. webd resolves it (`lookupRouteToken` →
-  `route_tokens`), and is the ONLY resolver: proxyd used to resolve the same
-  token and stamp `X-Chat-Token` + `X-Folder` beside it, two readers of one row
-  (specs/6/22 step 1 cut the second). proxyd's route carries `auth: optional`,
+  `route_tokens`), and is the ONLY resolver: proxyd forwards the token and
+  reads no row, so one row has one reader (specs/6/22 step 1). proxyd's route
+  carries `auth: optional`,
   so a caller who offers a bearer arrives identified and gets the message
   attributed to them; everyone else arrives anonymous.
 - `GET /chat/stream` asks for one thing more: `transited(r)`, proxyd's

@@ -72,9 +72,9 @@ the sandbox network or from the uplink side.
 
 This is a bind scope, not an identity lookup. Nothing is registered, nothing
 is resolved, and a second client is refused rather than served from some
-other rule set. It matters because a per-spawn proxy shares a network with
-the folder's other spawns, and those spawns do not all hold the same
-allowlist — an elevated turn's is unrestricted.
+other rule set. It matters because the proxy listens on the host side, where
+more than one turn's traffic could arrive, and those turns do not all hold
+the same allowlist — an elevated turn's is unrestricted.
 
 ## `/health`
 
@@ -93,11 +93,13 @@ probe of this process, not traffic to forward.
 
 ## This proxy is half the enforcement
 
-The other half is topological and lives in whoever starts the sandbox:
-
-- the sandbox's network is `--internal` — it has no route out at all;
-- the proxy is the only thing attached to both that network and an uplink;
-- the sandbox is attached to the internal network ONLY.
+The other half is topological and lives in whoever starts the sandbox. In
+arizuko that is runed: the guest's only interface is one tap, and the tap's
+rule set accepts the guest's traffic to this proxy and drops everything else
+in both directions (spec `6/41` §"Egress by name, sealed below the kernel").
+A docker-based caller gets the same property with an `--internal` network
+that has no route out, the proxy as the only member with an uplink, and the
+sandbox attached to that network ONLY.
 
 So a sandbox that ignores `HTTP_PROXY` and opens a raw socket to an IP
 literal reaches nothing — not because this proxy refuses it, but because
@@ -125,7 +127,7 @@ egress/
 image (`RUNED_EGRESS_BIN`, default `egress`). runed starts one process per
 turn on the tap's host side; if the binary is missing, runed refuses to
 start rather than running a turn unfiltered (spec `6/41`). A standalone
-`arizuko-egress` Docker image still builds from `egress/Dockerfile` for a
+`arizuko-egress` Docker image also builds from `egress/Dockerfile`, for a
 Docker-based caller outside arizuko's own turn path.
 
 ## The address check
@@ -141,9 +143,9 @@ by its address rather than by a name list), the IPv6 IMDS address, unspecified,
 and multicast. A host is refused when ANY of its answers is blocked, so the
 outcome never depends on resolver ordering.
 
-Why here and not in the sandbox: the spawn's network is `--internal`, so the
-agent has nowhere to send a packet. This proxy is the one process on that path
-with an uplink, which makes it the deputy worth confusing.
+Why here and not in the sandbox: the sandbox has no route out, so the agent
+has nowhere to send a packet. This proxy is the one process on that path with
+an uplink, which makes it the deputy worth confusing.
 
 Private addresses are NOT refused by default — a per-spawn proxy shares the
 compose network with the daemons, so private is an ordinary neighbour here.

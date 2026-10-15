@@ -4,10 +4,10 @@ Per-group concurrency for container runs.
 
 ## Purpose
 
-Serializes agent invocations per group: one container per group at a
+Serializes agent invocations per group: one live turn per group at a
 time, global cap `MAX_CONCURRENT_CONTAINERS`. Steers mid-flight messages
-into the running container via IPC input files instead of spawning a new
-one. Circuit-breaks after 3 consecutive failures.
+into the live turn through its IPC input files rather than starting a
+second guest. Circuit-breaks after 3 consecutive failures.
 
 ## Public API
 

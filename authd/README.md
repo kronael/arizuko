@@ -39,8 +39,8 @@ daemon's.
 Two of the six carry an invariant a column could not:
 
 - **`signing_key_slot`** holds ONE item naming the kid that signs. "Exactly one
-  active key" used to be a partial-unique index, which no key-value engine has;
-  as a slot, two signers are unrepresentable.
+  active key" is a slot rather than a partial-unique index, which no key-value
+  engine has; as a slot, two signers are unrepresentable.
 - **`refresh_families`** holds one item per login, carrying `revoked_at` plus
   the rotation count and start instant a session listing reports. Killing a
   family is one guarded write instead of an UPDATE across every row the login

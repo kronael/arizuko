@@ -6,7 +6,7 @@ subsystem inside the `routd` process, one socket per turn.
 ## Purpose
 
 One MCP server per group at `ipc/<folder>/gated.sock`, JSON-RPC over a
-unix socket, one connection per agent container. Concurrent connections
+unix socket, one connection per agent guest. Concurrent connections
 bounded to 8 per socket. Hot-tier action tools (send/reply/post/like/…,
 `register_group`, `inject_message`, `engage`, …) mutate state; the
 `inspect_*` family is read-only introspection. Cold-tier management
@@ -114,7 +114,6 @@ Read-only introspection: `inspect_messages`, `inspect_routing`,
 `inspect_tasks`, `inspect_session`, `inspect_identity`, `find_messages`.
 An elevated `/root` turn sees every folder; an ordinary turn is scoped to
 its own folder subtree.
-Replaces ad-hoc `Bash sqlite3 …` audits.
 
 `find_messages` is ranked search over routd's in-memory BM25 index
 (specs 5/C, 6/42 §8): terms that must all appear, `"exact phrase"`,

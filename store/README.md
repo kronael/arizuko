@@ -121,8 +121,6 @@ driver refusal every caller reports and no test provokes.
 - `chats.go`, `sessions.go`, `chat_reply_state.go`, `chat_proactive.go`, `system_messages.go`, `user_profiles.go`, `turn_results.go`, `group_watchers.go`, `task_run_logs.go`, `turn_context.go`, `invite_redemptions.go` — the hot tier, one file per entity
 - `cursor.go` — the forward-only guarded transition the two cursors share
 - `inspect.go`, `turn_frames.go` — the two `messages` reads an operator page and a browser stream ask for
-- `import_routd.go`, `import_hot.go` — the target halves of the two moves
-- `migrations/NNNN-*.sql` — the chain a file instance runs
 
 ## Related docs
 

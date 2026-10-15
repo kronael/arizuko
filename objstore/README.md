@@ -1,6 +1,6 @@
 # objstore
 
-The object store arizuko's daemons address instead of per-daemon SQL. A second
+The object store every arizuko daemon addresses. A second
 engine is a second driver and no daemon changes (spec
 [`6/37`](../specs/6/37-store-model.md), surface
 [`6/40`](../specs/6/40-store-surface.md)).

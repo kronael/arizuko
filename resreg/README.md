@@ -225,9 +225,9 @@ reflection cannot see what an action answers with; `Resource.Responses` maps an
 action to the Go type its handler returns (or a slice of it) and that type is
 what `components/schemas` carries. An action with no entry documents `"OK"` and
 **no body schema at all** — a stated gap, which a generated client handles, in
-place of a wrong struct, which it silently mis-decodes. The emitter used to pick
-the shape off the verb (list → `array<RowType>`, GET/POST → `RowType`) and 22
-mounted operations answered with something else: `GET /v1/routes` with
+place of a wrong struct, which it silently mis-decodes. The shape is never
+derived from the verb (list → `array<RowType>`, GET/POST → `RowType`),
+because mounted operations answer with other types: `GET /v1/routes` with
 `[]router.RouteView`, `GET /v1/tasks` with `[]core.Task` (Go field names — that
 struct has no json tags), the route-token mints with `{token,jid,url}`, onbod's
 mutations with `{"ok":true}` (BUGS `L120`).
@@ -255,9 +255,9 @@ Aggregator landing: `/pub/arizuko/reference/openapi.html`.
 `OpenAPI(daemon, baseURL, resources)` is the underlying emitter, taking
 resources directly; tests use it with `resregtest.Mounted(...)`. One operation
 per declared `Endpoint` and nothing else — a resource with no `Endpoints`
-contributes only its schema. The PK-CRUD convention that used to invent
-`/v1/<name>` operations for such a resource is deleted:
-`resources.TestEveryResourceDeclaresEndpoints` keeps the case from arising.
+contributes only its schema. No `/v1/<name>` operation is invented from a
+PK-CRUD convention; `resources.TestEveryResourceDeclaresEndpoints` keeps the
+case from arising.
 
 Per-action derivation: MCP tools are `deriveMCPTools`'d from the
 `Endpoints` whose `Action` has an `MCPDoc` entry, and each tool's args

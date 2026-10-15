@@ -1,12 +1,12 @@
 # ant
 
-The agent container runtime for arizuko. Wraps Claude Code (via
+The agent runtime for arizuko. Wraps Claude Code (via
 `@anthropic-ai/claude-agent-sdk`), injects group identity + skills +
 memory, and exposes MCP tools over a gated unix socket.
 
 ## What it does
 
-Every arizuko group runs in a fresh Docker container on each turn.
+Every turn runs in a fresh KVM guest booted from this image's exported rootfs (spec 6/41).
 `ant/src/index.ts` is the entrypoint: it reads stdin for the prompt,
 loads the group's `PERSONA.md` / `CLAUDE.md` / `~/.claude/settings.json`,
 assembles MCP servers (core `arizuko` server via socat to `gated.sock` +
@@ -61,7 +61,7 @@ so a turn's tool list is everything the turn may call.
 
 ## Folder layout (agent view)
 
-The container mounts the group folder at `/home/node/`:
+The guest mounts the group folder at `/home/node/`:
 
 ```
 /home/node/

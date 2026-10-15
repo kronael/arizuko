@@ -23,7 +23,7 @@ arizuko token krons issue bearer eval --scope messages:write,messages:read,cost:
   --chat  web:eval \              # chat JID tasks are injected into (folder must own it)
   --folder eval \                # folder owning --chat; anchors the root-session reset
   --sink-addr :9099 \            # local bind for the callback sink (routable iface)
-  --sink  http://172.22.0.1:9099 \# URL the agent containers call back to (docker-gateway IP works host-local)
+  --sink  http://<host>:9099 \     # URL the agent guests call back to; a KVM guest cannot reach a docker-gateway address (BUGS L379)
   --smoke                         # gate subset (9 cases); omit for all 22
 # selectors: --dimension web | --case pub-200 ; output: --md report.md --json report.json
 ./anteval dash report.json      # re-render a saved report
@@ -32,7 +32,7 @@ make validate                     # load+validate the case catalog (no target)
 
 Live preconditions (spec § "Live-run preconditions"): the eval folder exists
 (`arizuko group <inst> add web:eval eval`), it holds the grants the cases need,
-its egress allows the sink, and the sink URL answers from an agent container.
+its egress allows the sink, and the sink URL answers from an agent guest.
 The operator recipe, with the commands and the two traps that abort a run, is
 `.claude/skills/eval/gates.md` § "Bringing `anteval` up on an instance that has
 never run it".
@@ -141,7 +141,7 @@ and `role` is the bot flag REST spells `is_bot_message`. Without `--mcp` the
 read answers "surface not configured" and an mcp or parity case fails loudly
 instead of passing on nothing.
 
-The callback sink binds locally; the agent containers must be able to reach
+The callback sink binds locally; the agent guests must be able to reach
 `--sink`, so the eval host has to be on the target folder's egress
 allowlist (or run on an already-allowed host). A default-deny refusal there is a
 deploy gap, not a capability failure.
