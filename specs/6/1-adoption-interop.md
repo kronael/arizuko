@@ -55,7 +55,7 @@ reply not auto-posted.
 Two readings, both required:
 
 - **Properties b, c and d are commodity.** openclaw has all three of them (d
-  as an opt-in mode with fallbacks — `7/23`), qm has b and d, Paperclip has b
+  as an opt-in mode with fallbacks), qm has b and d, Paperclip has b
   and d. Claiming any of the three as arizuko's difference is claiming a
   commodity, which `5/A` forbids.
 - **Property a is unshipped anywhere found.** The nearest are Paperclip's fixed
@@ -176,6 +176,6 @@ code to write. Vendor rows date — re-measure a row before citing it.
 ## Ties
 
 [`6/16`](16-daemon-standalone-matrix.md) (the four layers; the counterpart per
-commodity part) · `7/23` (the ingress/egress asymmetry and its precedents) ·
+commodity part) · [`7/23`](../7/23-agent-habitat.md) (the shared ingress and outbound action model) ·
 `specs/5/A` (positioning) · `USELESS.md` (honest gaps) · the Agent Research
 Hub · `specs/5/22` self-learning (the loop, turned outward).

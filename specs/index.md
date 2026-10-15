@@ -20,15 +20,11 @@ arizuko's self-learning pointed outward. Since 2026-08-27 it also
 carries the operator cockpit (`6/28`–`6/33`): a daemon nobody can watch
 alone has not shipped alone.
 
-**Phase 7** is the cloud track: what a part may be written in (`7/22`),
-what it is a participant in (`7/23`), how the agent inside it finds its
-skills (`7/24`), and the package contract that lets an outsider ship one
-(`7/25`). It sits after 6 because putting arizuko in the cloud comes after
-splitting it into parts, and you cannot deploy a part you have not
-separated. The operator cockpit (`6/28`–`6/33`) and the store model
-(`6/37`) both sit with the split for the same reason: a part that cannot
-be watched, or has not settled what it stores, has not shipped alone.
-Products are phase 17.
+**Phase 7** defines single-world deployment: the agent habitat, native packages
+and package import adapters, shared skill discovery, and the functional minimum.
+The core modules share one binary and process while retaining their boundaries.
+Persistence uses the Dynamo-compatible storage contract. This is a target
+composition; the current installation uses separate daemons.
 
 **Phase 8** layers enterprise hardening: encryption at rest, audit
 stream, per-daemon secrets, SSO/SAML, tool-level secret broker,
@@ -58,7 +54,7 @@ combination is the platform thesis arizuko ships toward.
 | [4/](4/)   | dashboards, memory, scheduler, personas — core architecture (channel protocol → `5/34`, ACL → `5/32`·`5/33`)                                                                                                                                  | shipped    |
 | [5/](5/)   | platform core — surfaces, identity, routing, tenancy, runtime                                                                                                                                                                                 | shipped    |
 | [6/](6/)   | split arizuko into parts — the environment contracts (`6/1`), the ship-in-parts catalogue (`6/16`), crackbox, the operator cockpit (`6/28`–`6/33`), the store model (`6/37`) , the QEMU substrate (`6/41`), DynamoDB over PostgreSQL (`6/42`) | **active** |
-| [7/](7/)   | the cloud track — the Rust track, the habitat reframing, skill search, the package contract, the lambda target, and the minimum arizuko (`7/27`: a folder as files, four verbs, a skill); the cockpit and the store model sit with the split  | queued     |
+| [7/](7/)   | single-world deployment — habitat, packages and skill discovery, one core process, and the functional minimum                                                                                                                                 | queued     |
 | [8/](8/)   | enterprise hardening — encryption, audit, SSO, secret broker                                                                                                                                                                                  | queued     |
 | [9/](9/)   | the data model — cold / warm / hot tier separation, and operator-extensible `<autocalls>`; git-as-truth is declined (`5/8`) and MCP+REST unification ships in `5/16`·`5/17`                                                                   | drafting   |
 | [10/](10/) | self-healing — Aeon mechanism incorporation                                                                                                                                                                                                   | queued     |
@@ -84,18 +80,15 @@ being designed; `planned` is a placeholder with no specs written. Phase 5
 closed 2026-08-15 (its last two carve-outs, `5/5` Open 2 and `5/28`'s
 migrations, shipped as decisions); phase 6 took `active` the same day.
 
-**The re-cut of 6 and 7, applied 2026-08-27.** Because phase 6 took `active`
-the day phase 5 closed, every later arrival landed there whatever its subject,
-and phase 7 held two tracks that shared a number and nothing else. The
-operator's re-cut, refined 2026-08-16 to the order the work actually runs in:
-**6 = split arizuko into parts** (the tools, the components, the contracts that
-let a part ship alone), **7 = put the parts in the cloud.** Splitting comes
-first because you cannot deploy a part you have not separated.
+**Composition boundaries.** Phase 6 defines independently usable components.
+Phase 7 composes the core modules into one process for a single world.
+A component boundary does not require a deployment boundary.
 
-The cockpit is `6/28`–`6/33` and the store model `6/37`: an engine
-decision settles what a part stores, which is a condition of shipping it
-alone rather than of deploying it. The contracts, the strategy and the
-ship-in-parts map are in phase 6 for the same reason. Destination numbers
-start at 28 because every number below it has been used in phase 6 before —
-reusing one turns an old pointer into a confidently wrong one, which is the
-failure `L43` measured.
+## Single-world specs
+
+| Spec                                                               | Status  | Summary                                                                       |
+| ------------------------------------------------------------------ | ------- | ----------------------------------------------------------------------------- |
+| [7/23-agent-habitat.md](7/23-agent-habitat.md)                     | draft   | Shared message, routing, permission, and turn model                           |
+| [7/25-publish-plan.md](7/25-publish-plan.md)                       | partial | Packages, package import adapters, and skill discovery; defects L199 and L200 |
+| [7/26-single-world-deployment.md](7/26-single-world-deployment.md) | draft   | One core process with Dynamo-compatible storage                               |
+| [7/27-minimum-arizuko.md](7/27-minimum-arizuko.md)                 | draft   | Writable files, messaging, and skills                                         |

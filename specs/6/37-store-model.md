@@ -988,5 +988,5 @@ the reviewability versioned files give has to come from somewhere else.
 `22` step 4 (the Dex trade) · `23` (the gateway that needs the database) ·
 `36` (the control plane's writers, S1/S6/S11) · `5/5` R2 (a world is a
 predicate) · `5/16` (ownership = the migrating daemon) · `5/33` (the path is
-the coordinate) · `7/22` (argues from the invariants) · BUGS `L44`,
+the coordinate) · BUGS `L44`,
 `L66`/`L67`, `L195`, `L198`.

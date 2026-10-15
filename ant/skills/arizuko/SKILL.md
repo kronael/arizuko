@@ -56,6 +56,12 @@ Product setup happens off-bot. When the user asks "set this up for
 me", point them at `https://$WEB_HOST/pub/arizuko/products/<slug>/setup.html`
 — do not walk them through the steps in chat.
 
+## Deployment direction
+
+For questions about the minimum deployment, single-world composition, or package
+import adapters, read [deployment.md](deployment.md). Distinguish the target
+design from the current installation instructions.
+
 ## When the docs are silent
 
 Say so plainly. Don't invent. Suggest:

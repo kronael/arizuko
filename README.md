@@ -75,6 +75,12 @@ A product is the bottom layer: the same pipeline, a different folder. The public
 
 ## Direction
 
+The proposed [single-world composition](specs/7/26-single-world-deployment.md)
+combines the core modules in one binary and process. It keeps module ownership,
+agent isolation, and Dynamo-compatible storage. Packages supply capabilities
+and skills; package import adapters use the same lifecycle. This design is not
+an available installation mode.
+
 That's what arizuko is today: a single-host, multi-tenant agent router with channels, folders, and one store behind every daemon. Three frames describe where it's heading.
 
 **Multi-tenant by primitive.** The same code runs `solo/inbox` and `corp/eng/sre/oncall`. Folder hierarchies have no fixed depth. Every primitive — grants, channels, secrets, routes, scheduled work — scales from one-user-one-channel to a fleet of agents under shared admin. Adding tenants is adding rows + folders; the daemon graph is invariant.
