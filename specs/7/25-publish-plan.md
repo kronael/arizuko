@@ -1,6 +1,6 @@
 ---
 status: partial
-defects: [L199, L200]
+defects: [L200]
 depends:
   [../5/28-packages, ../5/27-compose-native-packaging, ../5/8-yaml-manifests]
 relates-to: [23-agent-habitat, 26-single-world-deployment]

@@ -35,7 +35,7 @@ credible to regulated buyers.
 is the vocabulary `CLAUDE.md` leans on for "every cold-tier entity is a resreg
 resource". That is its one remaining action. MCP+REST unification belongs to
 phase 5 (`5/17` the mechanism, `5/16` the rollout), and both ship. Git as
-truth is DECLINED: `5/8` makes the SQLite database authoritative and YAML a
+truth is DECLINED: `5/8` makes the store authoritative and YAML a
 transport dump, so committing an `export` to git is fine and a
 continuously-synced working tree is not the model (`specs/9/index.md`).
 
@@ -86,9 +86,9 @@ A component boundary does not require a deployment boundary.
 
 ## Single-world specs
 
-| Spec                                                               | Status  | Summary                                                                       |
-| ------------------------------------------------------------------ | ------- | ----------------------------------------------------------------------------- |
-| [7/23-agent-habitat.md](7/23-agent-habitat.md)                     | draft   | Shared message, routing, permission, and turn model                           |
-| [7/25-publish-plan.md](7/25-publish-plan.md)                       | partial | Packages, package import adapters, and skill discovery; defects L199 and L200 |
-| [7/26-single-world-deployment.md](7/26-single-world-deployment.md) | draft   | One core process with Dynamo-compatible storage                               |
-| [7/27-minimum-arizuko.md](7/27-minimum-arizuko.md)                 | draft   | Writable files, messaging, and skills                                         |
+| Spec                                                               | Status  | Summary                                                             |
+| ------------------------------------------------------------------ | ------- | ------------------------------------------------------------------- |
+| [7/23-agent-habitat.md](7/23-agent-habitat.md)                     | draft   | Shared message, routing, permission, and turn model                 |
+| [7/25-publish-plan.md](7/25-publish-plan.md)                       | partial | Packages, package import adapters, and skill discovery; defect L200 |
+| [7/26-single-world-deployment.md](7/26-single-world-deployment.md) | draft   | One core process with Dynamo-compatible storage                     |
+| [7/27-minimum-arizuko.md](7/27-minimum-arizuko.md)                 | draft   | Writable files, messaging, and skills                               |
