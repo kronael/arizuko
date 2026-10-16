@@ -239,13 +239,25 @@ cannot until the token exists.
 - **Severity:** high — a turn runs, bills and produces nothing a user sees
 - **Scope:** `env/gitd.env` on sloth; `gitd/main.go:18` for the advertisement
 - **Affected:** sloth measured; any instance whose gitd has no token
-**The credential is NOT missing. It is on the other door.** The same turn ran
-with `shell_env:["GH_TOKEN"]` and `gh_write=true`, so the agent held a working
-GitHub token in its shell and could have posted the comment with `gh`. What is
-unset is `GITHUB_TOKEN` in gitd's own environment, which is a different door
-holding a different value ([[credential_by_its_door]]). `gitd/README.md`
-§Reply states it: without that var gitd is ingress-only and `reply` on a
-`github:` JID returns an Unsupported hint.
+**Three doors, and only one of them is gitd's.** `GITHUB_TOKEN` in gitd's own
+environment is unset, so gitd is ingress-only and `reply` on a `github:` JID
+returns an Unsupported hint (`gitd/README.md` §Reply). That is the door this
+entry opened on.
+
+The turn also logged `shell_env:["GH_TOKEN"]` and `gh_write=true`, and I read
+that as the agent holding a working token in its shell. It does not. The
+operator measured an empty shell — no `GITHUB_TOKEN`, no `GH_TOKEN`,
+`ARIZUKO_GH_WRITE` empty — because the broker keeps the value OUTSIDE the
+shell. `shell_env` names a grant; it does not prove a value resolved.
+
+The third door is the folder secret the connector actually reads:
+`{secret:GH_TOKEN}` resolved through the broker against the FOLDER
+(`ipc/connector.go:162,187`), never the daemon env var. `sloth/discord` and
+`sloth/morha` each hold `GH_TOKEN` and `GITHUB_TOKEN`, sealed seconds apart on
+2026-10-15. A read of morha issues has been proven to work through the broker
+from `sloth/discord`, while the pair on `sloth/morha` is believed to be
+`sloth-goth`'s, which 404s on the repo. Which identity each pair resolves to
+is UNMEASURED and is the next thing to measure.
 
 So the agent took the `reply` verb when its granted door was `gh`. Whether
 gitd should hold a token at all, or whether the agent's shell credential is
