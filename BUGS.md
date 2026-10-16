@@ -209,6 +209,72 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
   hits, 56 under `-test`; nine survived verification and were filed separately. Kept so
   the next sweep does not re-report the same ~135.
 
+## L410 — gitd has no GitHub token on sloth, so every agent reply to a PR is written, paid for and then thrown away (2026-10-16, open — operator action)
+
+MEASURED on sloth, 2026-10-16. The GitHub delivery of `L409` ran its turn and
+the reply never reached the pull request:
+
+```
+13:48:26 ERROR deliver send failed  jid=github:vumilan/morha/pr/278
+         err="channel github: send_text not supported"
+13:48:26 INFO  agent self-reported model usage  model=claude-opus-4-8
+         input=16 output=1712 cost_cents=94
+13:49:05 WARN retry outbound: delivery failed  attempts=1  max=10
+         … retried to attempts=10
+```
+
+The agent wrote 1712 output tokens, the turn cost 94 cents, and the text was
+discarded. `GITHUB_TOKEN` is ABSENT from `arizuko_gitd_sloth`'s environment —
+`docker inspect` finds no such key at all, not an empty one.
+
+`capsFor` (`gitd/main.go:18`) is `map[string]bool{"send_text": token != ""}`,
+so with no token gitd registers the `github` channel advertising NO verb. The
+channel registers successfully at boot and looks healthy; only a delivery
+discovers it can say nothing.
+
+**This corrects `L409`.** That entry says "every step of the path is now
+proven". Ingress is proven. Egress has never worked on this instance and
+cannot until the token exists.
+
+- **Severity:** high — a turn runs, bills and produces nothing a user sees
+- **Scope:** `env/gitd.env` on sloth; `gitd/main.go:18` for the advertisement
+- **Affected:** sloth measured; any instance whose gitd has no token
+- **Status:** open — the token is an operator action, the platform half is `L411`
+- **Fix:** set `GITHUB_TOKEN` in sloth's `.env` and restart. The token needs
+  `issues:write` on `vumilan/morha` to post a PR comment.
+
+## L411 — a channel that advertises no send verb still takes the turn, so the cost is paid before anyone checks the reply can be delivered (2026-10-16, open — proposal, needs sign-off)
+
+Separated from `L410`, which is the missing token. This is the platform half:
+nothing between the inbound delivery and the guest boot asks whether the
+channel that must carry the answer can carry one.
+
+The capability is known at registration. `routd` logs `channel registered
+name=github prefixes=["github:"]` with the verb map in hand, and gitd's own
+`capsFor` already decides `send_text` from the token. The check happens
+instead at `chanreg/httpchan.go:150`, after the agent has run.
+
+On sloth that cost 94 cents and ten retries for one comment nobody received.
+An instance with a dead channel credential pays that on every inbound message.
+
+Two shapes, neither chosen:
+
+1. Refuse the turn at dispatch when the reply channel advertises no
+   `send_text`, and say so on the inbound path, loudly. Cheapest, and it
+   turns an invisible drop into a visible refusal.
+2. Let the turn run but mark the outbound undeliverable before the retries
+   start, so the operator sees one error and not ten.
+
+Shape 1 changes what `routd` does with an inbound message, so it is a contract
+change and needs sign-off before anyone writes it.
+
+- **Severity:** medium — it wastes a turn's cost and hides a dead credential
+- **Scope:** `routd/dispatch.go`, `chanreg`
+- **Affected:** every channel whose verbs depend on a credential
+- **Status:** open — proposal, needs sign-off
+- **Related:** `L410` is the live instance of it; `L151` is the same silence
+  for an adapter whose credential is dead
+
 ## L409 — a plain repository webhook posted to an App source's path is refused, and no end-to-end GitHub ingress has ever been measured (2026-10-16, open — TEMPORARY BYPASS SHIPPED, the real fix is next week)
 
 MEASURED on sloth. A comment was posted on `https://github.com/vumilan/morha/pull/278`
@@ -274,9 +340,10 @@ routd: dispatch run folder=sloth/morha topic=pr/278 turn_id=gh-c6216852106
        egress=true gh_write=true shell_env=[GH_TOKEN]
 ```
 
-This is the first GitHub delivery arizuko has accepted. Every step of the path
-is now proven: the proxyd route, the signature, the secret unseal, the JID, the
-topic, the route match, the folder, and the capability resolution.
+This is the first GitHub delivery arizuko has accepted. Every INGRESS step is
+proven: the proxyd route, the signature, the secret unseal, the JID, the topic,
+the route match, the folder, and the capability resolution. The reply is NOT:
+gitd holds no token, so the answer this turn wrote was discarded. See `L410`.
 
 The same turn_id dispatched twice, 13:44:55 and 13:44:59, with no restart
 between them — a clean observation for `L408`, whose own reproduction is
@@ -371,7 +438,7 @@ was wrong, and the sentence that would have settled it was the part thrown away.
   old behaviour with `"ck frame\n..."` — the same mid-word cut, from the other
   end of the same output.
 
-## L408 — one turn is dispatched up to seven times on a doubling backoff that never stops (2026-10-14, open — RE-MEASURED CLEAN 2026-10-16)
+## L408 — one turn is dispatched up to seven times, seconds apart (2026-10-14, NOT A DEFECT — re-measured twice; the repeats are Busy refusals)
 
 MEASURED on sloth, 2026-10-14 18:28-18:29, after a restart on a current image.
 Turn `1559996454418907247` on `sloth/discord`:
@@ -406,8 +473,8 @@ path leaves the turn re-dispatchable.
   work, which is the "slow and broken" an operator sees
 - **Scope:** `routd/dispatch.go`, the poll loop's claim on a running turn
 - **Affected:** sloth measured; krons runs the same code
-- **Status:** open — CONFIRMED by the clean re-measurement below
-- **Fix:** unknown; the interval shape names a retry loop, not a duplicate trigger.
+- **Status:** NOT A DEFECT — one turn ran once; see the correction below
+- **Fix:** none needed. Two real findings it exposed are `L410` and `L411`.
 
 **The measurement is mine and it is polluted.** The reaping line says "reaping a
 guest left by a previous runed", and I had restarted sloth four times in the
@@ -434,8 +501,22 @@ seconds, which is the shape of a retry loop, not of a repeated trigger. Two
 auto-migrate turns in the same window repeat 9 and 8 times, so the defect is
 not specific to the GitHub path.
 
-The earlier reading stands corrected: the seven dispatches are real, and the
-restarts only hid the interval that names the cause.
+**CORRECTED the same day. The seven dispatches are six refusals and one run.**
+`sloth/morha` booted exactly ONE guest, at 13:48:05 on the seventh dispatch,
+and produced exactly ONE `agent self-reported model usage` line. Dispatches 1
+to 6 got `Busy` from runed and spawned nothing.
+
+runed caps concurrent agent runs at 2 (`runed/manager.go:244`, `activeCount >=
+m.maxRun`) and answers `Busy`. `routd/dispatch.go:458` returns on that outcome
+without recording a run id, and `noteBusy` (`routd/dispatch.go:255`) doubles
+the wait from a 4-second base to a 60-second cap. That is the 4, 10, 18, 35,
+61, 62 sequence exactly. The auto-migrate burst that the 13:43:50 restart
+queued held both slots until 13:45:58.
+
+A `dispatch run` line therefore does NOT mean a turn ran. The entry counted
+log lines and called it duplicate execution, twice: once on 2026-10-14
+(retracted in `28157de5`) and once on 2026-10-16. The guest count is the
+measurement that settles it.
 
 ## L398 — `make test`, the documented dev loop, cannot pass: two packages exceed Go's default 10-minute timeout (2026-10-07, open — the ten minutes is unexplained)
 
