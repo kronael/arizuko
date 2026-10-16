@@ -13,6 +13,68 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.70.4] — 2026-10-16
+
+> arizuko v0.70.4 — the agent answers on GitHub
+>
+> An agent can now be mentioned on a pull request and answer there, and an
+> inline review comment gets its reply under the code line it is about.
+>
+> • GitHub ingress and reply — a comment, review comment or review request
+> reaches the agent and its answer posts back as the bot
+> • Tag it for review — a review request, an assignment or an @-mention wakes
+> the agent; a push or a label no longer does
+> • Email reaches Gmail — emaid speaks SASL XOAUTH2, so an access token works
+> where Google stopped accepting passwords
+> • A failed turn says why — the agent's own last line is the reason, instead
+> of the boot noise that followed it
+> • The operator docs are one design system, guarded by a test that fails on a
+> page-local style
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Added
+
+- GitHub channel: a comment, inline review comment, review or review request
+  on a bound repository reaches the agent, and `reply` posts back as the
+  token's own account (spec `6/27`).
+- `review_requested`, `assigned` and an @-mention of the bot arrive as
+  `mention`, so being asked wakes the agent regardless of recent activity.
+- `GITHUB_TOKEN` on gitd enables `send_text` and the self-drop that stops the
+  agent answering itself; without it gitd stays ingress-only.
+- `GITHUB_APP_ACCEPTS_REPO=1` lets an App-kind source take a delivery that
+  carries no installation. The secret still verifies; the binding is what it
+  gives up. Set it on one instance only.
+- emaid: SASL `XOAUTH2` on IMAP and SMTP via `EMAIL_ACCESS_TOKEN`. Exactly one
+  of `EMAIL_ACCESS_TOKEN` and `EMAIL_PASSWORD` may be set; nothing refreshes
+  the token, and a refusal stops the poller rather than retrying.
+- `tests/webdocs/design_test.go` fails on a page-local `<style>`, a colour in
+  a style attribute, a missing docs shell or a sidebar missing a section.
+
+### Changed
+
+- An inline review reply is addressed by `ReplyTo` and posts to the thread's
+  root comment. The topic stays `pr/<n>`: one session per pull request.
+- emaid's five auth keys (`EMAIL_TRUSTED_AUTHSERV`, `EMAIL_TRUSTED_DOMAINS`,
+  `EMAIL_STRICT_AUTH`, `EMAIL_UNVERIFIED_SUBJECT_PREFIX`, `EMAIL_VERIFY_DKIM`)
+  now reach the generated `env/emaid.env`. Before this they were dropped, so
+  every inbound stayed untrusted and `EMAIL_STRICT_AUTH` never took effect.
+- Every operator docs page draws from `hub.css`; no page carries its own
+  style, and all nine sections appear in every sidebar.
+
+### Fixed
+
+- gitd no longer reports a transport error as not-delivered, which released
+  the dedup claim and made a retry post the comment twice.
+- A webhook is answered 5xx when neither routd nor retention took it, so
+  GitHub's redelivery still means something.
+- A GitHub token refused at boot degrades gitd to ingress-only instead of
+  exiting, which used to restart-loop the whole instance.
+- A failed turn reports the agent's last line; it previously kept the first
+  200 bytes of the guest log, which is boot noise.
+- A turn's session id is declared before the run, so a turn killed by a
+  restart keeps its transcript.
+
 ## [v0.70.3] — 2026-10-14
 
 > arizuko v0.70.3 — stop after the task
