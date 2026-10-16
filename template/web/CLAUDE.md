@@ -376,7 +376,7 @@ Real top-level moves (only these): `crackbox/` → `components/crackbox.html`;
 
 ## Current state
 
-`pub/arizuko/` holds 121 files. The counts move, so read the tree rather than
+`pub/arizuko/` holds 123 files. The counts move, so read the tree rather than
 a number here: `find template/web/pub/arizuko -type f | wc -l` against
 `find <data-dir>/web/pub/arizuko -type f | wc -l` tells you whether live and
 source agree, and `comm -13` on the two sorted lists names anything live is
@@ -519,7 +519,8 @@ The callout's quiet-inset rule and the nav current-item rule are in
 
 - A per-page `<style>` block. The value belongs in `hub.css` under a class
   name, or the page does not need it.
-- An inline `style=` carrying a colour. Use a token.
+- An inline `style=` carrying a colour, a token included. Move the rule into
+  `assets/hub.css` under a class.
 - A Title Case heading. Headings are sentence case, and most are one word.
 - A gradient box.
 - A left-accent bar on any box.
