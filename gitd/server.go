@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -93,6 +94,13 @@ func (s *server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		chanlib.WriteJSON(w, map[string]any{"ok": true, "id": msg.ID, "jid": msg.ChatJID, "verb": msg.Verb})
 	case chanlib.PermanentIngress(err):
 		chanlib.WriteErr(w, 400, "routd refused: "+err.Error())
+	case errors.Is(err, chanlib.ErrInboundLost):
+		// GitHub never redelivers on its own and this response IS its
+		// acknowledgement, so a 202 here retires the only copy of the message.
+		// A 5xx leaves the redeliver button in GitHub's UI meaningful.
+		slog.Error("github webhook neither delivered nor retained",
+			"source", key, "id", msg.ID, "chat_jid", msg.ChatJID, "err", err)
+		chanlib.WriteErr(w, http.StatusServiceUnavailable, "neither routd nor retention took the message: "+err.Error())
 	default:
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusAccepted)

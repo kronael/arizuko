@@ -3,6 +3,7 @@ package chanlib
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -76,8 +77,12 @@ func TestRetainedInboundIsDeliveredAfterRoutdRecovers(t *testing.T) {
 	rc.RetainInbound(context.Background(), st)
 
 	msg := InboundMsg{ID: "slack:c/1/17", ChatJID: "slack:c/1", Content: "hello"}
-	if err := rc.SendMessage(msg); err == nil {
+	err := rc.SendMessage(msg)
+	if err == nil {
 		t.Fatal("SendMessage reported success while routd answered 503")
+	}
+	if errors.Is(err, ErrInboundLost) {
+		t.Fatalf("a retained message was reported lost: %v", err)
 	}
 	if n := pendingRows(t, st); n != 1 {
 		t.Fatalf("retained inbound = %d, want 1 — the message was dropped", n)
@@ -240,5 +245,25 @@ func dueNow(t *testing.T, st *chanstore.Store, id string) {
 	if err := st.Reschedule(t.Context(), id, 0, core.TS(time.Now().Add(-time.Hour)),
 		"forced due by a test"); err != nil {
 		t.Fatalf("force due: %v", err)
+	}
+}
+
+// Neither routd nor the retention store took the message, which is ONE event:
+// both ride the same store. SendMessage must say so, because an adapter whose
+// HTTP response acknowledges the platform cannot otherwise tell this apart
+// from a retained message and answers success for a message nothing holds
+// (BUGS L415).
+func TestInboundNeitherDeliveredNorRetainedIsReportedLost(t *testing.T) {
+	_, srv := newRoutdStub(503)
+	defer srv.Close()
+	st := testStore(t)
+	rc := NewRouterClient(srv.URL)
+	rc.RetainInbound(context.Background(), st)
+	// The store goes away under the adapter, the way extenddb does.
+	dropAdapterEntities("testadapter")
+
+	err := rc.SendMessage(InboundMsg{ID: "slack:c/1/18", ChatJID: "slack:c/1", Content: "hello"})
+	if !errors.Is(err, ErrInboundLost) {
+		t.Fatalf("SendMessage err = %v, want ErrInboundLost", err)
 	}
 }

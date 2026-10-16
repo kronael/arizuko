@@ -245,3 +245,20 @@ func dropGitdEntities() {
 		_ = h.DropEntity(ctx, e)
 	}
 }
+
+// GitHub never redelivers on its own, so the webhook response is the only
+// acknowledgement: when routd refuses the message AND the retention store is
+// gone — one outage, both ride extenddb — the answer must be a 5xx, not a
+// 202 that claims retention (BUGS L415).
+func TestWebhook_LostWhenRoutdAndRetentionBothFail(t *testing.T) {
+	e := newTestEnv(t, secretMap{"org/kronael": "s3cret"})
+	e.up.Close()
+	dropGitdEntities()
+	w := e.deliver(t, "/github/org/kronael", "s3cret", "push", "d-lost", fixture(t, "push"))
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status=%d body=%s, want 503", w.Code, w.Body.String())
+	}
+	if strings.Contains(w.Body.String(), `"retained":true`) {
+		t.Fatalf("body claims retention for a message nothing holds: %s", w.Body.String())
+	}
+}

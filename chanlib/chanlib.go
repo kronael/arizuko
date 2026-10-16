@@ -227,11 +227,17 @@ func (r *RouterClient) Deregister() error {
 // SendMessage delivers one inbound to routd. With RetainInbound wired, a
 // transient failure is ALSO retained for the sweep (spec 5/34-channel-protocol, BUGS L25). The
 // error still returns: an adapter that gates a platform cursor on delivery
-// must keep seeing the failure.
+// must keep seeing the failure. When the retention write fails too — routd and
+// the adapter store ride the same store, so one outage fails both — nothing
+// holds the message and the error says ErrInboundLost, the fact an adapter
+// whose response acknowledges the platform has to answer with.
 func (r *RouterClient) SendMessage(msg InboundMsg) error {
 	err := r.postInbound(msg)
-	if err != nil {
-		r.retainInbound(msg, err)
+	if err == nil {
+		return nil
+	}
+	if !r.retainInbound(msg, err) {
+		return fmt.Errorf("%w: %w", ErrInboundLost, err)
 	}
 	return err
 }

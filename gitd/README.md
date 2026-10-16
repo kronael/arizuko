@@ -89,7 +89,8 @@ GitHub's "Recent deliveries" tab shows gitd's answer: `200 {"ok":true,"id",
 "jid","verb"}` delivered, `202 {"retained":true}` routd was down and the row
 waits in gitd's own tables for re-delivery, `200 {"dropped":"bot"|"self"}` ignored,
 `401` bad signature, `404` unknown source, `400` payload outside the source or
-refused by routd. `GET /dash/gitd/` — mounted by `chanlib.NewAdapterMux` from
+refused by routd, `503` neither routd nor the retention store took the message —
+GitHub's redeliver button is then the recovery path. `GET /dash/gitd/` — mounted by `chanlib.NewAdapterMux` from
 the one renderer in `chanlib/dash.go` (spec 6/31) — lists the last accepted
 delivery per source.
 
@@ -101,5 +102,5 @@ issue_comment on a PR and on an issue of a second repo, review comment reply,
 ping, bot; two repos on one secret; observe-vs-trigger through
 `router.ResolveRouteTarget`), `server_test.go` (end to end against a fake
 routd: signature, unknown source, containment, bot/self drops, retention when
-routd is down, no retention on a permanent refusal), `bot_test.go` (comment
-POST against a fake GitHub API).
+routd is down, 503 when the retention write fails too, no retention on a
+permanent refusal), `bot_test.go` (comment POST against a fake GitHub API).

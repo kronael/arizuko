@@ -68,30 +68,38 @@ func PermanentIngress(err error) bool {
 	return false
 }
 
-// retainInbound holds msg so the sweep can re-deliver it. A permanent refusal
-// is NOT retained — replaying it would fail identically forever — but logged
-// at ERROR, because that message is now lost.
-func (r *RouterClient) retainInbound(msg InboundMsg, cause error) {
+// ErrInboundLost marks an inbound neither routd nor the retention store took.
+// Nothing holds the message any more, so an adapter whose HTTP response IS the
+// platform's acknowledgement must answer a failure and leave the platform's
+// own redelivery meaningful.
+var ErrInboundLost = errors.New("inbound neither delivered nor retained")
+
+// retainInbound holds msg so the sweep can re-deliver it, and reports whether
+// anything still holds it. Without a retention store the adapter's platform
+// cursor does, so there is nothing to answer for here. A permanent refusal is
+// NOT retained — replaying it would fail identically forever — but logged at
+// ERROR, because that message is now lost.
+func (r *RouterClient) retainInbound(msg InboundMsg, cause error) (held bool) {
 	st := r.pendingStore()
 	if st == nil {
-		return
+		return true
 	}
 	if PermanentIngress(cause) {
 		slog.Error("inbound refused by routd and dropped; a retry cannot repair it",
 			"id", msg.ID, "chat_jid", msg.ChatJID, "err", cause)
-		return
+		return false
 	}
 	if msg.ID == "" {
 		// Retention keys on the id routd stores; without one a re-delivery
 		// would post the message twice. A wiring bug, not a runtime condition.
 		slog.Error("inbound has no id and cannot be retained; a re-delivery would duplicate it",
 			"chat_jid", msg.ChatJID, "err", cause)
-		return
+		return false
 	}
 	payload, err := json.Marshal(msg)
 	if err != nil {
 		slog.Error("inbound retain: encode failed", "id", msg.ID, "err", err)
-		return
+		return false
 	}
 	now := time.Now().UTC()
 	// Retain leaves a message already held as it is, so a platform that
@@ -100,9 +108,10 @@ func (r *RouterClient) retainInbound(msg InboundMsg, cause error) {
 		rfc(now), rfc(now.Add(inboundBackoffBase)), cause.Error()); err != nil {
 		slog.Error("inbound retain failed; the message is lost",
 			"id", msg.ID, "chat_jid", msg.ChatJID, "err", err, "cause", cause)
-		return
+		return false
 	}
 	slog.Warn("inbound retained for re-delivery", "id", msg.ID, "chat_jid", msg.ChatJID, "err", cause)
+	return true
 }
 
 func rfc(t time.Time) string { return core.TS(t) }

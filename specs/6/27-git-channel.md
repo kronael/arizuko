@@ -422,8 +422,10 @@ and topic contract is implemented.
 ## Delivery and gaps
 
 `chanlib.RetainInbound` attempts to retain transient routd failures in gitd's adapter
-store; `gitd/server.go` answers 202. Retention failure is logged and does not change
-that response, so durable acknowledgement remains an acceptance requirement.
+store; `gitd/server.go` answers 202. When the retention write fails too — routd and
+the adapter store ride the same store, so one outage fails both — `SendMessage`
+reports `chanlib.ErrInboundLost` and the answer is 503, which keeps GitHub's own
+redelivery available as the recovery path.
 Permanent refusals return an error. A gitd outage still requires GitHub
 redelivery. Stable comment/delivery IDs give routd's message store its replay boundary;
 GitHub's HMAC does not attest a timestamp. `mapEvent` drops Bot senders, and token-backed
