@@ -371,7 +371,7 @@ was wrong, and the sentence that would have settled it was the part thrown away.
   old behaviour with `"ck frame\n..."` — the same mid-word cut, from the other
   end of the same output.
 
-## L408 — one turn is dispatched up to seven times, seconds apart, and spawns several guests (2026-10-14, open — THE MEASUREMENT IS POLLUTED, see below)
+## L408 — one turn is dispatched up to seven times on a doubling backoff that never stops (2026-10-14, open — RE-MEASURED CLEAN 2026-10-16)
 
 MEASURED on sloth, 2026-10-14 18:28-18:29, after a restart on a current image.
 Turn `1559996454418907247` on `sloth/discord`:
@@ -406,8 +406,8 @@ path leaves the turn re-dispatchable.
   work, which is the "slow and broken" an operator sees
 - **Scope:** `routd/dispatch.go`, the poll loop's claim on a running turn
 - **Affected:** sloth measured; krons runs the same code
-- **Status:** open — and the reproduction above does NOT hold
-- **Fix:** unknown, and the first step is a clean measurement.
+- **Status:** open — CONFIRMED by the clean re-measurement below
+- **Fix:** unknown; the interval shape names a retry loop, not a duplicate trigger.
 
 **The measurement is mine and it is polluted.** The reaping line says "reaping a
 guest left by a previous runed", and I had restarted sloth four times in the
@@ -419,6 +419,23 @@ not evidence of repeated dispatch.
 
 Re-measure on an instance nobody is restarting before taking this further. The
 related finding that IS real is the session write-back, fixed separately.
+
+**RE-MEASURED CLEAN, 2026-10-16.** sloth last restarted at 13:43:50. Every
+dispatch below falls after it, so no restart orphans a guest and no re-feed is
+mine. Turn `gh-c6216852106`, the GitHub delivery of `L409`:
+
+```
+13:44:55  13:44:59  13:45:09  13:45:27  13:46:02  13:47:03  13:48:05
+   +4s       +10s      +18s      +35s      +61s      +62s
+```
+
+Seven dispatches of one turn id. The gap doubles and then caps near 60
+seconds, which is the shape of a retry loop, not of a repeated trigger. Two
+auto-migrate turns in the same window repeat 9 and 8 times, so the defect is
+not specific to the GitHub path.
+
+The earlier reading stands corrected: the seven dispatches are real, and the
+restarts only hid the interval that names the cause.
 
 ## L398 — `make test`, the documented dev loop, cannot pass: two packages exceed Go's default 10-minute timeout (2026-10-07, open — the ten minutes is unexplained)
 
