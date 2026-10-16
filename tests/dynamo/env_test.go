@@ -252,7 +252,7 @@ func TestOnbodBootsFromTheEnvironment(t *testing.T) {
 	}
 	rdb, err := routd.Open()
 	if err != nil {
-		t.Fatalf("routd.OpenAt: %v", err)
+		t.Fatalf("routd.Open: %v", err)
 	}
 	defer rdb.Close() //nolint:errcheck // the test is ending
 	if err := rdb.PutGroup(core.Group{Folder: "acme"}); err != nil {
