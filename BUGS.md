@@ -209,6 +209,42 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
   hits, 56 under `-test`; nine survived verification and were filed separately. Kept so
   the next sweep does not re-report the same ~135.
 
+## L412 — an inline review comment reaches the agent, and its reply has nowhere to go (2026-10-16, open)
+
+MEASURED on `vumilan/morha` PR 277, 2026-10-16 17:01. A submitted inline
+review comment on `BUGS.md:2358` IS ingested — `gitd/event.go:269` maps
+`pull_request_review_comment` and routd dispatched it:
+
+```
+17:01:09 dispatch run folder=sloth/morha topic=pr/277 turn_id=gh-c4297154186
+17:01:44 usage output=4997 cost_cents=93
+17:01:45 guest exited code=0 duration=35s
+```
+
+The turn ran to completion and **no comment exists anywhere afterwards** —
+`GET /pulls/277/comments` still returns only the human's, and the issue
+stream has nothing either. The answer was written, billed and discarded.
+
+The JID is `github:vumilan/morha/pr/277`. It names the pull request and
+carries no thread component, while a review reply posts to
+`POST /pulls/<n>/comments/<comment_id>/replies` — it needs the id of the
+comment that rooted the thread. `send_text` posts "a comment on the PR or
+issue the JID names" (`gitd/README.md` §Reply), so there is no address for
+the reply to use.
+
+Same shape as `L410`: the turn's cost is paid before anything checks that
+the answer can be delivered, which is what `L411` proposes to fix.
+
+- **Severity:** high — code-line review is the main reason to put an agent
+  on a PR, and it is exactly the case that silently produces nothing
+- **Scope:** the JID vocabulary (`chanlib/github_jid.go`), `gitd/bot.go` Send
+- **Affected:** sloth measured; any instance, the behaviour is in the code
+- **Status:** open — a JID that can address a thread is a contract change
+- **Fix (not chosen):** either extend the JID to carry a thread id, which
+  changes what a `github:` JID means for every reader of it, or let the
+  agent answer inline comments only through the MCP connector and have
+  `reply` refuse with a hint instead of succeeding into nothing.
+
 ## L410 — gitd has no GitHub token on sloth, so every agent reply to a PR is written, paid for and then thrown away (2026-10-16, ✅ FIXED 2026-10-16 — the round trip is still unmeasured)
 
 MEASURED on sloth, 2026-10-16. The GitHub delivery of `L409` ran its turn and
