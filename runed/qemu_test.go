@@ -824,20 +824,39 @@ func TestClampReportsAreNotLoggedAsErrors(t *testing.T) {
 	}
 }
 
-// An agent that fails says WHY first. Keeping the back of its output cut the
-// reason off mid-word and still read as a whole sentence, which pointed a reader
-// at the wrong cause (BUGS L407).
-func TestFailureReasonKeepsTheFront(t *testing.T) {
-	reason := "usage limit reached · ask your admin to raise it"
-	got := failureReason(reason + "\n" + strings.Repeat("stack frame\n", 60))
+// ant writes the reason on the LAST line it prints, after its startup lines.
+// The front of the whole output is boot noise, and the tail of a long last line
+// begins mid-word and drops the cause (BUGS L407).
+func TestFailureReasonIsTheLastLineFront(t *testing.T) {
+	startup := []string{
+		"[ant] Received input for group sloth/eng",
+		"[ant] backend: claude",
+		"[ant] Starting turn 3f2a9c1e (session resumed)",
+	}
+	reason := "[ant] Turn failed (terminal): You've hit your individual spend limit · ask your admin to raise it" +
+		strings.Repeat(" and here is a long explanation of what that means for this workspace", 4) +
+		"; exiting so the run is recorded as a failure"
+	got := failureReason(strings.Join(startup, "\n") + "\n" + reason + "\n")
 
-	if !strings.HasPrefix(got, reason) {
-		t.Fatalf("failureReason = %q, want it to begin with the agent's own first line", got)
+	if !strings.HasPrefix(got, "[ant] Turn failed (terminal): You've hit your individual spend limit") {
+		t.Fatalf("failureReason = %q, want it to begin with the last line's first words", got)
 	}
-	if len(got) > 210 {
-		t.Errorf("failureReason kept %d bytes, want it bounded", len(got))
+	for _, line := range startup {
+		if strings.Contains(got, line) {
+			t.Errorf("failureReason = %q, want no startup line %q", got, line)
+		}
 	}
-	if short := "died"; failureReason("  died\n") != short {
-		t.Errorf("a short output came back %q, want %q untouched", failureReason("  died\n"), short)
+	if len(got) > 200+len("…") || !strings.HasSuffix(got, "…") {
+		t.Errorf("failureReason kept %d bytes %q, want at most 200 and the cut marked", len(got), got)
+	}
+
+	short := "[ant] Turn failed (retryable): overloaded"
+	if got := failureReason(strings.Join(startup, "\n") + "\n" + short + "\n\n"); got != short {
+		t.Errorf("a short last line came back %q, want %q whole", got, short)
+	}
+
+	runes := strings.Repeat("a", 199) + "·tail"
+	if got := failureReason(runes); got != strings.Repeat("a", 199)+"…" {
+		t.Errorf("a cut through a rune came back %q, want it cut before the rune", got)
 	}
 }

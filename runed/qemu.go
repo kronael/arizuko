@@ -17,6 +17,7 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	"unicode/utf8"
 
 	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/container"
@@ -479,16 +480,21 @@ func (q *qemuRuntime) spawn(ctx context.Context, t Turn) RunResult {
 	return turnResult(end, elapsed, console, failureReason(logbuf.String()))
 }
 
-// failureReason bounds an agent's output for the error routd records. It keeps
-// the FRONT: an agent that fails says why first and prints the aftermath after,
-// so cutting the back off left a reason that began mid-word and still read as a
-// whole sentence (BUGS L407).
+// failureReason picks the error routd records out of an agent's output. ant
+// writes the reason on the LAST line it prints, after its startup lines, so the
+// reason is that line. A long one keeps its first 200 bytes, which name the
+// cause, and is marked where it is cut (BUGS L407).
 func failureReason(out string) string {
 	out = strings.TrimSpace(out)
-	if len(out) > 200 {
-		return out[:200] + "…"
+	line := strings.TrimSpace(out[strings.LastIndexByte(out, '\n')+1:])
+	if len(line) <= 200 {
+		return line
 	}
-	return out
+	n := 200
+	for !utf8.RuneStart(line[n]) {
+		n--
+	}
+	return line[:n] + "…"
 }
 
 // turnResult maps how a turn ended onto what routd reads. One place, because
