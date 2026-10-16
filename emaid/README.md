@@ -53,7 +53,11 @@ References/In-Reply-To headers.
 
 - `EMAIL_IMAP_HOST`, `EMAIL_IMAP_PORT` (default `993`)
 - `EMAIL_SMTP_HOST`, `EMAIL_SMTP_PORT` (default `587`)
-- `EMAIL_ACCOUNT`, `EMAIL_PASSWORD`
+- `EMAIL_ACCOUNT`
+- `EMAIL_PASSWORD` or `EMAIL_ACCESS_TOKEN` — set exactly one. Both set, or neither,
+  stops the boot. The password uses IMAP `LOGIN` and SMTP `PLAIN`; the token uses
+  SASL `XOAUTH2` on both (format: `xoauth2.go`), which is what Gmail and other
+  OAuth-only mailboxes require.
 - `EMAIL_TRUSTED_AUTHSERV` — upstream MTA whose Authentication-Results headers we trust (e.g. `mx.google.com`); empty = fail-closed
 - `EMAIL_TRUSTED_DOMAINS` — comma-separated From-domain allowlist (optional; DMARC pass alone is sufficient when unset)
 - `EMAIL_STRICT_AUTH` — `true` drops untrusted inbound; default `false` (deliver with `untrusted` Verb)
@@ -62,13 +66,23 @@ References/In-Reply-To headers.
 - `CHANNEL_NAME` (default `email`)
 - `ROUTER_URL`, `AUTHD_URL`, `AUTHD_SERVICE_KEY`, `AUTHD_SERVICE_NAME`, `LISTEN_ADDR` (default `:8080`), `LISTEN_URL` (default `http://email:9003`), `DATA_DIR` (default `/srv/data/emaid`), `MEDIA_MAX_FILE_BYTES` (default 20 MiB)
 
+## Access token expiry
+
+`EMAIL_ACCESS_TOKEN` is read once and never refreshed. An access token lasts about an
+hour (Google). When it expires the next IMAP login, on a reconnect, is refused: the
+poller stops, `/health` returns 503 and the log names the rejected credential. An SMTP
+send with an expired token returns the server's 535 to the sender. Nothing retries or
+falls back. To recover, set a new token and restart the instance. A refresh path (for
+example a Google service account) is not built.
+
 ## Health signal
 
 `GET /health` returns 503 when IMAP login failed or poll loop is erroring.
 
 ## Files
 
-- `main.go` — wiring, config
+- `main.go` — wiring, config, the one-credential check
+- `xoauth2.go` — XOAUTH2 initial response for IMAP and SMTP
 - `imap.go` — IMAP poll loop, IDLE support, attachment registry
 - `smtp.go` — SMTP outbound
 - `storage.go` — opens emaid's own tables on the instance's store server

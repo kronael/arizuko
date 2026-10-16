@@ -88,7 +88,7 @@ func imapConnect(
 	if err != nil {
 		return nil, fmt.Errorf("dial: %w", err)
 	}
-	if err := c.Login(cfg.Account, cfg.Password).Wait(); err != nil {
+	if err := imapAuth(c, cfg); err != nil {
 		c.Logout() //nolint:errcheck // the connection is going away either way
 		if permanentAuthFailure(err) {
 			return nil, fmt.Errorf("login: %w: %w", errAuthRejected, err)
@@ -100,6 +100,15 @@ func imapConnect(
 		return nil, fmt.Errorf("select: %w", err)
 	}
 	return c, nil
+}
+
+// imapAuth logs in with the one credential checkAuth allowed: the password via
+// LOGIN, or the access token via AUTHENTICATE XOAUTH2.
+func imapAuth(c *imapclient.Client, cfg config) error {
+	if cfg.AccessToken != "" {
+		return c.Authenticate(xoauth2IMAP{cfg.Account, cfg.AccessToken})
+	}
+	return c.Login(cfg.Account, cfg.Password).Wait()
 }
 
 // errAuthRejected marks a credential the server refused. It ends the poll loop
@@ -146,8 +155,8 @@ func (p *poller) run(ctx context.Context, rc *chanlib.RouterClient) {
 		// the password was wrong (BUGS `L62`).
 		if errors.Is(err, errAuthRejected) {
 			slog.Error("imap: the server rejected this account's credential; emaid is "+
-				"stopping rather than retrying — fix EMAIL_PASSWORD (or the app password) "+
-				"and restart the instance",
+				"stopping rather than retrying — fix EMAIL_PASSWORD (or the app password), or "+
+				"replace an expired EMAIL_ACCESS_TOKEN, and restart the instance",
 				"account", p.cfg.Account, "host", p.cfg.IMAPHost, "err", err)
 			return
 		}
