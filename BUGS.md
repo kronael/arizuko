@@ -209,7 +209,7 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
   hits, 56 under `-test`; nine survived verification and were filed separately. Kept so
   the next sweep does not re-report the same ~135.
 
-## L413 — a GitHub timeout releases the dedup claim, so the retry posts the comment twice (2026-10-16, open)
+## L413 — a GitHub timeout releases the dedup claim, so the retry posts the comment twice (2026-10-16, ✅ FIXED 2026-10-16 — `80b71cb6`)
 
 `gitd/bot.go:126` wraps EVERY `http.Client.Do` error — including a 15-second
 timeout fired after the request body went out — in `chanlib.ErrNotDelivered`.
@@ -224,7 +224,10 @@ response may have sent the message". gitd is the one adapter that asserts it.
 
 - **Severity:** high — a duplicate comment on a public PR, from a timeout
 - **Scope:** `gitd/bot.go:126`
-- **Status:** open
+- **Status:** ✅ FIXED — only a response GitHub sent is classified; a transport
+  error returns bare, so the claim stays inflight and routd dead-letters.
+  `gitd/bot_test.go` `TestSend_TransportFailureIsUnclassified` (a handler that
+  outlives the client timeout).
 - **Fix:** wrap only `>=500` and `429` in `ErrNotDelivered`; return a transport
   error bare so the claim stays inflight and routd dead-letters visibly.
 
@@ -248,7 +251,7 @@ others return `ErrInvalidRequest`, which maps to 400.
 - **Status:** open — mapping `ErrPermanent` to 400 fixes it for every adapter
   at once, which makes it a contract change worth your sign-off
 
-## L415 — a webhook is answered 202 "retained" when the retention write itself failed (2026-10-16, open)
+## L415 — a webhook is answered 202 "retained" when the retention write itself failed (2026-10-16, ✅ FIXED 2026-10-16 — `27fc7ec2`)
 
 `chanlib/chanlib.go:231` returns only routd's error; `chanlib/inbound.go:101`
 logs "inbound retain failed; the message is lost" and swallows it.
@@ -262,7 +265,11 @@ correct and would leave a redeliver button in GitHub's UI.
 
 - **Severity:** high — the comment reaches no turn and every surface says fine
 - **Scope:** `chanlib/inbound.go`, `gitd/server.go:96`
-- **Status:** open
+- **Status:** ✅ FIXED — `retainInbound` reports whether anything still holds
+  the message and `SendMessage` wraps the cause in `chanlib.ErrInboundLost`
+  when nothing does; gitd answers 503 on it. `chanlib/inbound_test.go`
+  `TestInboundNeitherDeliveredNorRetainedIsReportedLost` and
+  `gitd/server_test.go` `TestWebhook_LostWhenRoutdAndRetentionBothFail`.
 - **Fix:** `retainInbound` returns its outcome; answer 5xx when neither routd
   nor the retention store took the message.
 
@@ -316,7 +323,7 @@ these actions.
 - **Fix:** the delivery id keys the row, the object id keys the thread — the
   shape `6/27`'s proposal section already prescribes.
 
-## L419 — a token GitHub refuses at boot restart-loops the whole instance (2026-10-16, open)
+## L419 — a token GitHub refuses at boot restart-loops the whole instance (2026-10-16, ✅ FIXED 2026-10-16 — `1f52b893`)
 
 `gitd/main.go:54` returns the `GET /user` error and `chanlib/run.go:65`
 exits 1. `L406` measured that a daemon exiting at boot cycles the whole
@@ -329,7 +336,11 @@ registration for a dead adapter until the heartbeat expires.
 
 - **Severity:** high — instance-wide outage from one optional credential
 - **Scope:** `gitd/main.go:54`
-- **Status:** open
+- **Status:** ✅ FIXED — `verifyToken` logs at ERROR, keeps ingress, and
+  withdraws `send_text` through `RouterClient.SetCaps`, which re-registers from
+  the saved parameters the heartbeat refreshes from. `gitd/main_test.go`
+  `TestVerifyToken_RefusedTokenDegradesToIngress` and
+  `TestVerifyToken_GoodTokenKeepsRegistration`.
 - **Fix:** degrade to ingress-only with `send_text` unadvertised, loud at
   ERROR. Same shape as `L151`.
 
