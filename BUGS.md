@@ -209,7 +209,7 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
   hits, 56 under `-test`; nine survived verification and were filed separately. Kept so
   the next sweep does not re-report the same ~135.
 
-## L410 — gitd has no GitHub token on sloth, so every agent reply to a PR is written, paid for and then thrown away (2026-10-16, open — operator action)
+## L410 — gitd has no GitHub token on sloth, so every agent reply to a PR is written, paid for and then thrown away (2026-10-16, ✅ FIXED 2026-10-16 — the round trip is still unmeasured)
 
 MEASURED on sloth, 2026-10-16. The GitHub delivery of `L409` ran its turn and
 the reply never reached the pull request:
@@ -263,7 +263,28 @@ So the agent took the `reply` verb when its granted door was `gh`. Whether
 gitd should hold a token at all, or whether the agent's shell credential is
 the only intended reply path, is undecided — `specs/6/27` does not say.
 
-- **Status:** open — the open part is WHICH door posts, not a missing token
+**FIXED 2026-10-16 15:13.** Measured, not assumed: all four folder secrets —
+`sloth/discord` and `sloth/morha`, `GH_TOKEN` and `GITHUB_TOKEN` — resolve to
+the SAME `ghp_` token, identity `sloth-goth`, and that identity now answers
+`200` on `vumilan/morha` with `push triage pull`. The 404 that drove the
+earlier invite hunt is gone, so no secret needed copying between folders.
+
+The only gap was gitd's own door. `GITHUB_TOKEN` is set in
+`/srv/data/arizuko_sloth/.env` (backup `.env.bak-20261016-gitd`), which
+`compose/compose.go:233` copies into the generated `env/gitd.env`. After the
+restart gitd logs `github token verified login=sloth-goth`, so `send_text` is
+advertised and the self-drop has an identity to compare against.
+
+A probe that reads these secrets must call `SetSecretKeys` first. Mine did not
+on its first run, so `store.open()` returned the `v2:` ciphertext unchanged
+and every token read as a dead 401 — see [[attempt_line_is_not_work]] for the
+same shape of error.
+
+**Still unmeasured:** a comment actually reaching the PR. No delivery has
+arrived since the fix, and the pre-fix outbound row spent its 10 retries, so
+it will not self-heal. The next inbound comment closes it.
+
+- **Status:** ✅ FIXED — platform verified; the round trip awaits one delivery
 - **Fix:** undecided, two doors. Either give gitd its own `GITHUB_TOKEN` so
   `reply` works for every folder, or state that the shell `GH_TOKEN` is the
   reply path and make `reply` on a `github:` JID say so to the agent instead
