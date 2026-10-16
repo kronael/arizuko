@@ -13,5 +13,9 @@ services:
       ROUTER_URL: 'http://routd:8080'
       LISTEN_ADDR: ':8080'
       LISTEN_URL: 'http://gitd:8080'
+      # Lets an App-kind source also accept a plain repository delivery, which
+      # carries no installation. Empty everywhere unless the instance .env sets
+      # it. BUGS L409.
+      GITHUB_APP_ACCEPTS_REPO: '${GITHUB_APP_ACCEPTS_REPO:-}'
     depends_on: [routd]
     restart: on-failure
