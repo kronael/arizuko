@@ -52,11 +52,6 @@ line; none can be answered from the code.
   left is the move itself, which re-addresses every daemon and needs the Go
   suite runnable on the host first.
 
-**A measurement to redo before anything is decided.**
-
-- `L408` — the seven-dispatch reproduction is polluted by my own restarts; the
-  entry says so. It needs one clean window on an instance nobody is restarting.
-
 **A contract or design decision, measured since.**
 
 - `L387` — the boot budget is MISSED: p50 1.54 s against the ≤ 1.0 s gate, over 60
@@ -72,6 +67,36 @@ line; none can be answered from the code.
   median 0.61 s, each creating 32 tables through the fixture every daemon shares. Making
   that per-binary instead of per-test is a change to `store.TestOwner`'s contract, so it
   is yours.
+
+**The GitHub channel, opened 2026-10-16 when the path first ran end to end.**
+Three siblings were fixed the same day (`L413`, `L415`, `L419`); these are the
+ones no measurement can settle.
+
+- `L417` — an App source seeds `github:*/*`, so an instruction injected into a
+  comment body reaches any repository the token can see. Narrowing the seed
+  breaks enrolment; refusing an unknown JID breaks the agent opening an issue.
+  The tension is in the capability, not the code, and it is a security
+  boundary.
+- `L416` — engagement promotes an observe-only PR event to a turn for 30
+  minutes, so a push or a label wakes the agent. What SHOULD wake it is policy:
+  a push that breaks CI probably yes, a label probably no, same event class.
+- `L420` — the self-drop holds because one identity happens to serve both
+  doors on sloth. Dropping a SET of known bot logins works only while every
+  identity the agent can post as is enumerable, and a credential granted later
+  is not.
+- `L411` — nothing checks the reply channel can send before the turn is paid
+  for. Cheap to answer for a dead channel, undecidable for one failing
+  intermittently.
+- `L414` — gitd's `ErrPermanent` leaves as 502, so a 401 is retried for four
+  hours and the MCP path tells the agent "queued: do NOT send it again". The
+  fix is clear — map it to 400 in `writeBotResult` — and it changes the error
+  path of every adapter at once.
+- `L418` — an edited or deleted comment carries the object id, so the row is a
+  duplicate no-op and nothing logs it. Re-keying rows on the delivery id is
+  prescribed in `6/27` and touches ingest for every event type.
+- `L421` — `replyThreadRoot` returns "" whenever a turn has a topic, and routd
+  fills `ThreadID` from the topic. Both are wrong; repairing either changes
+  what teled, discd and slakd receive.
 
 **An operator action on live data.** The platform side is done in each.
 (`L334` is closed and carries one too: the third party's `**` on sloth is not
