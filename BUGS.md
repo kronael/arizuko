@@ -236,6 +236,52 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
   hits, 56 under `-test`; nine survived verification and were filed separately. Kept so
   the next sweep does not re-report the same ~135.
 
+## L422 — thirteen daemons read env keys generation never delivers, so setting them in .env does nothing (2026-10-16, open — needs sign-off)
+
+MEASURED 2026-10-16 with a guard written for this entry and parked at
+`/tmp/.../scratchpad/daemon_env_test.go.draft` (not committed, see below). It
+collects every key each daemon reads through `MustEnv`/`EnvOr`/`Getenv`,
+subtracts `daemonKeys`, `commonKeys` and the keys its own
+`template/services/<d>.yml` sets, and reports the rest:
+
+```
+onbod  ROUTER_URL                 authd   LISTEN_ADDR
+dashd  APP_SRC_DIR AUTH_BASE_URL DASH_ACCENT_COLOR DATA_DIR WHATSAPP_PHONE
+routd  CONNECTORS_TOML CONNECTOR_CALL_TIMEOUT_MS
+webd   PROXYD_URL WEBD_LISTEN WEBD_URL
+proxyd PROXYD_LISTEN PUB_REDIRECT_URL TRUSTED_PROXIES VITE_ADDR
+reditd CHANNEL_NAME REDDIT_POLL_INTERVAL REDDIT_USER_AGENT
+linkd  CHANNEL_NAME LINKEDIN_API_BASE LINKEDIN_OAUTH_BASE
+gitd   CHANNEL_NAME GITHUB_API_URL
+teled discd slakd emaid  CHANNEL_NAME
+```
+
+`compose.go:73` already names the class: "a var a daemon reads and compose
+never emits is silently dead, and this one left `6/44`'s gate armed over a
+counter nothing could increment". The operator sets the key, generation drops
+it, the daemon takes its code default, and every surface reports healthy.
+
+**The emaid instance of this is FIXED** in the same pass: its five auth keys
+(`EMAIL_TRUSTED_AUTHSERV`, `EMAIL_TRUSTED_DOMAINS`, `EMAIL_STRICT_AUTH`,
+`EMAIL_UNVERIFIED_SUBJECT_PREFIX`, `EMAIL_VERIFY_DKIM`) were all missing, so
+every inbound stayed untrusted and `EMAIL_STRICT_AUTH` could never take
+effect — the whole trust model unreachable.
+
+**Not every row is a defect.** `CHANNEL_NAME` is likely delivered by a
+mechanism the guard does not model, and a key that is only ever a code default
+(`GITHUB_API_URL`, `LINKEDIN_API_BASE`) may be deliberate. Each row needs a
+yes or no before the guard can ship green, which is why the guard is parked
+rather than committed: a test landed with a thirteen-entry exception list
+names its scope by hand and stops covering what moves
+([[guard_names_its_scope]]).
+
+- **Severity:** medium — silent, and it already cost `6/44` a dead gate and
+  emaid its entire trust configuration
+- **Scope:** `compose/compose.go` `daemonKeys`, thirteen daemons
+- **Status:** open — the triage is yours; the guard ships once the real set is
+  known
+- **Related:** [[ant_env_delivery]] is the same class on the agent side
+
 ## L413 — a GitHub timeout releases the dedup claim, so the retry posts the comment twice (2026-10-16, ✅ FIXED 2026-10-16 — `80b71cb6`)
 
 `gitd/bot.go:126` wraps EVERY `http.Client.Do` error — including a 15-second
