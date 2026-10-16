@@ -74,7 +74,7 @@ func (s *server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		chanlib.WriteErr(w, 400, "missing X-GitHub-Event")
 		return
 	}
-	msg, drop, err := mapEvent(kind, name, event, delivery, body, s.now())
+	msg, drop, err := mapEvent(kind, name, event, delivery, body, s.now(), s.bot.Login())
 	if err != nil {
 		slog.Warn("github webhook: rejected", "source", key, "event", event, "err", err)
 		chanlib.WriteErr(w, 400, err.Error())

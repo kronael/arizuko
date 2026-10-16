@@ -78,7 +78,9 @@ ones no measurement can settle.
   The tension is in the capability, not the code, and it is a security
   boundary.
 - `L416` — engagement promotes an observe-only PR event to a turn for 30
-  minutes, so a push or a label wakes the agent. What SHOULD wake it is policy:
+  minutes, so a push or a label wakes the agent. Being asked is now mechanical
+  (a review request or assignment to the bot, an @-mention: `verb=mention`, a
+  turn at any time). What stays yours is what else may wake an engaged agent:
   a push that breaks CI probably yes, a label probably no, same event class.
 - `L420` — the self-drop holds because one identity happens to serve both
   doors on sloth. Dropping a SET of known bot logins works only while every
@@ -309,8 +311,19 @@ content like "kronael synchronize PR #278", as if a person had spoken.
 Spec `6/27` names the engagement mechanism as intended, but it was written
 before gitd gave the agent a 30-minute wake-up on every state change.
 
+**Done 2026-10-16: being asked.** `gitd/event.go` `mapEvent` sets `verb=mention`
+for a review requested from gitd's own login (`requested_reviewer.login`), for an
+issue or PR assigned to it (`assignee.login`), and for an `@<login>` of the bot in
+a comment, review, review comment, or PR or issue body (a longer login such as
+`@<login>-helper` is not a mention). The same events aimed at another account,
+and `synchronize`, `labeled`, `closed`, stay ambient. routd does not rewrite the
+verb: `routd/server.go` only promotes to `mention`, and the seeded rows already
+route `verb=mention` to the folder. The window above is unchanged and still
+applies to every ambient event.
+
 - **Severity:** medium — the agent comments on a push or a label, one turn each
-- **Status:** open — which events may promote is yours to decide
+- **Status:** open — which ambient events may promote inside the window is yours
+  to decide; being asked no longer depends on it
 
 ## L417 — an App-kind source lets the agent send to any repository on GitHub (2026-10-16, open — needs sign-off)
 

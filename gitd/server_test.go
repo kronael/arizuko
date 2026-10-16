@@ -262,3 +262,18 @@ func TestWebhook_LostWhenRoutdAndRetentionBothFail(t *testing.T) {
 		t.Fatalf("body claims retention for a message nothing holds: %s", w.Body.String())
 	}
 }
+
+// The login the server hands mapEvent is the one GET /user taught the bot.
+func TestWebhook_ReviewRequestFromBotIsMention(t *testing.T) {
+	e := newTestEnv(t, secretMap{"app/x": "s3cret"})
+	e.srv.bot.login.Store("arizuko-bot")
+	payload := body(`"action":"review_requested","requested_reviewer":{"login":"arizuko-bot"},` + strings.Replace(prFields, "%s", "", 1))
+	w := e.deliver(t, "/github/app/x", "s3cret", "pull_request", "r1", payload)
+	if w.Code != 200 {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+	}
+	got := e.routd.messages()
+	if len(got) != 1 || got[0].Verb != "mention" || got[0].Topic != "pr/5" {
+		t.Fatalf("routd got %+v", got)
+	}
+}

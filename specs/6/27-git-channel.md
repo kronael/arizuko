@@ -83,6 +83,8 @@ repository/account level. `store/sessions.go` keys conversations by folder and t
 Two repositories' PR 12 routed to one group therefore share a conversation.
 
 `mapEvent` marks human comments, new/reopened issues, and new/reopened/ready PRs as messages.
+Any of them that @-mentions the bot's login, a review requested from the bot, and an
+issue or PR assigned to it are mentions, the verb that wakes the agent in a Discord guild.
 Other events retain their GitHub event verb. `store.GitHubSourceRoutes` seeds message
 and mention triggers; other events go to `#observe`. Narrow repo routes precede org
 routes and the App default. Operators change that split through the existing route table.

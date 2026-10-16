@@ -27,7 +27,7 @@ var fixedNow = time.Date(2026, 9, 5, 12, 0, 0, 0, time.UTC)
 
 func mapFixture(t *testing.T, kind, name, event, file string) chanlib.InboundMsg {
 	t.Helper()
-	msg, drop, err := mapEvent(kind, name, event, "d-"+file, fixture(t, file), fixedNow)
+	msg, drop, err := mapEvent(kind, name, event, "d-"+file, fixture(t, file), fixedNow, "")
 	if err != nil || drop != "" {
 		t.Fatalf("%s: err=%v drop=%q", file, err, drop)
 	}
@@ -156,39 +156,39 @@ func resolve(routes []core.Route, msg chanlib.InboundMsg) core.RouteTarget {
 
 func TestMapEvent_SourceContainment(t *testing.T) {
 	arizuko := fixture(t, "issue_comment_created")
-	if _, _, err := mapEvent(store.GitHubSourceRepo, "kronael/arizuko", "issue_comment", "d", arizuko, fixedNow); err != nil {
+	if _, _, err := mapEvent(store.GitHubSourceRepo, "kronael/arizuko", "issue_comment", "d", arizuko, fixedNow, ""); err != nil {
 		t.Errorf("own repo rejected: %v", err)
 	}
-	if _, _, err := mapEvent(store.GitHubSourceRepo, "Kronael/Arizuko", "issue_comment", "d", arizuko, fixedNow); err != nil {
+	if _, _, err := mapEvent(store.GitHubSourceRepo, "Kronael/Arizuko", "issue_comment", "d", arizuko, fixedNow, ""); err != nil {
 		t.Errorf("case-insensitive repo rejected: %v", err)
 	}
-	if _, _, err := mapEvent(store.GitHubSourceRepo, "kronael/crackbox", "issue_comment", "d", arizuko, fixedNow); !errors.Is(err, errSourceMismatch) {
+	if _, _, err := mapEvent(store.GitHubSourceRepo, "kronael/crackbox", "issue_comment", "d", arizuko, fixedNow, ""); !errors.Is(err, errSourceMismatch) {
 		t.Errorf("other repo err = %v, want mismatch", err)
 	}
-	if _, _, err := mapEvent(store.GitHubSourceOrg, "kronael", "issue_comment", "d", arizuko, fixedNow); err != nil {
+	if _, _, err := mapEvent(store.GitHubSourceOrg, "kronael", "issue_comment", "d", arizuko, fixedNow, ""); err != nil {
 		t.Errorf("own org rejected: %v", err)
 	}
-	if _, _, err := mapEvent(store.GitHubSourceOrg, "rhias", "issue_comment", "d", arizuko, fixedNow); !errors.Is(err, errSourceMismatch) {
+	if _, _, err := mapEvent(store.GitHubSourceOrg, "rhias", "issue_comment", "d", arizuko, fixedNow, ""); !errors.Is(err, errSourceMismatch) {
 		t.Errorf("other org err = %v, want mismatch", err)
 	}
-	if _, _, err := mapEvent(store.GitHubSourceApp, "x", "ping", "d", fixture(t, "ping"), fixedNow); err != nil {
+	if _, _, err := mapEvent(store.GitHubSourceApp, "x", "ping", "d", fixture(t, "ping"), fixedNow, ""); err != nil {
 		t.Errorf("app ping (sent before any installation) rejected: %v", err)
 	}
 	noInstall := []byte(`{"action":"opened","sender":{"login":"a","type":"User"},"issue":{"number":1,"title":"t"},
 		"repository":{"name":"r","full_name":"a/r","owner":{"login":"a"}}}`)
-	if _, _, err := mapEvent(store.GitHubSourceApp, "x", "issues", "d", noInstall, fixedNow); err == nil {
+	if _, _, err := mapEvent(store.GitHubSourceApp, "x", "issues", "d", noInstall, fixedNow, ""); err == nil {
 		t.Error("app source accepted a delivery without an installation")
 	}
-	if _, _, err := mapEvent(store.GitHubSourceApp, "x", "issue_comment", "d", []byte(`{"sender":`), fixedNow); err == nil {
+	if _, _, err := mapEvent(store.GitHubSourceApp, "x", "issue_comment", "d", []byte(`{"sender":`), fixedNow, ""); err == nil {
 		t.Error("invalid json accepted")
 	}
-	if _, _, err := mapEvent(store.GitHubSourceApp, "x", "issues", "d", []byte(`{"action":"opened","sender":{"login":"a"},"installation":{"id":1}}`), fixedNow); err == nil {
+	if _, _, err := mapEvent(store.GitHubSourceApp, "x", "issues", "d", []byte(`{"action":"opened","sender":{"login":"a"},"installation":{"id":1}}`), fixedNow, ""); err == nil {
 		t.Error("issues event without issue accepted")
 	}
 }
 
 func TestMapEvent_DropsBots(t *testing.T) {
-	_, drop, err := mapEvent(store.GitHubSourceApp, "x", "issue_comment", "d", fixture(t, "issue_comment_bot"), fixedNow)
+	_, drop, err := mapEvent(store.GitHubSourceApp, "x", "issue_comment", "d", fixture(t, "issue_comment_bot"), fixedNow, "")
 	if err != nil || drop != "bot" {
 		t.Fatalf("drop=%q err=%v", drop, err)
 	}
@@ -197,16 +197,16 @@ func TestMapEvent_DropsBots(t *testing.T) {
 func TestMapEvent_UnknownEventLandsOnRepo(t *testing.T) {
 	body := []byte(`{"action":"created","sender":{"login":"kronael","type":"User"},"installation":{"id":1},
 		"repository":{"name":"arizuko","full_name":"kronael/arizuko","owner":{"login":"kronael"}}}`)
-	msg, _, err := mapEvent(store.GitHubSourceApp, "x", "release", "d1", body, fixedNow)
+	msg, _, err := mapEvent(store.GitHubSourceApp, "x", "release", "d1", body, fixedNow, "")
 	if err != nil || msg.ChatJID != "github:kronael/arizuko" || msg.Verb != "release" || msg.Content != "kronael release created" || msg.ID != "gh-dd1" {
 		t.Fatalf("release: %+v err=%v", msg, err)
 	}
 	orgOnly := []byte(`{"action":"member_added","sender":{"login":"kronael","type":"User"},"installation":{"id":1},"organization":{"login":"kronael-org"}}`)
-	msg, _, err = mapEvent(store.GitHubSourceApp, "x", "organization", "d2", orgOnly, fixedNow)
+	msg, _, err = mapEvent(store.GitHubSourceApp, "x", "organization", "d2", orgOnly, fixedNow, "")
 	if err != nil || msg.ChatJID != "github:kronael-org" || msg.Topic != "" {
 		t.Fatalf("organization: %+v err=%v", msg, err)
 	}
-	if _, _, err := mapEvent(store.GitHubSourceApp, "x", "organization", "", orgOnly, fixedNow); err != nil {
+	if _, _, err := mapEvent(store.GitHubSourceApp, "x", "organization", "", orgOnly, fixedNow, ""); err != nil {
 		t.Fatalf("missing delivery id: %v", err)
 	}
 }
@@ -219,18 +219,146 @@ func TestMapEvent_AppAcceptsRepoWhenFlagged(t *testing.T) {
 		"issue":{"number":7,"title":"t"},"comment":{"body":"hello"},
 		"repository":{"name":"r","full_name":"a/r","owner":{"login":"a"}}}`)
 
-	if _, _, err := mapEvent(store.GitHubSourceApp, "x", "issue_comment", "d", noInstall, fixedNow); err == nil {
+	if _, _, err := mapEvent(store.GitHubSourceApp, "x", "issue_comment", "d", noInstall, fixedNow, ""); err == nil {
 		t.Fatal("app source accepted a delivery without an installation while the flag is off")
 	}
 
 	appAcceptsRepo = true
 	t.Cleanup(func() { appAcceptsRepo = false })
 
-	msg, drop, err := mapEvent(store.GitHubSourceApp, "x", "issue_comment", "d", noInstall, fixedNow)
+	msg, drop, err := mapEvent(store.GitHubSourceApp, "x", "issue_comment", "d", noInstall, fixedNow, "")
 	if err != nil || drop != "" {
 		t.Fatalf("flagged delivery refused: drop=%q err=%v", drop, err)
 	}
 	if want := "github:a/r/issue/7"; msg.ChatJID != want {
 		t.Errorf("ChatJID = %q, want %q", msg.ChatJID, want)
+	}
+}
+
+const botLogin = "arizuko-bot"
+
+// body builds a webhook payload around one event's own fields.
+func body(extra string) []byte {
+	return []byte(`{` + extra + `,"sender":{"login":"rhias","type":"User"},"installation":{"id":1},
+		"repository":{"name":"arizuko","full_name":"kronael/arizuko","owner":{"login":"kronael"}}}`)
+}
+
+const prFields = `"pull_request":{"number":5,"title":"t","body":"%s","head":{"ref":"a"},"base":{"ref":"main"}}`
+
+// What an event IS decides its verb: being asked wakes the agent (mention),
+// ambient repository traffic does not (the GitHub event name).
+func TestMapEvent_VerbIsWhatTheEventIs(t *testing.T) {
+	pr := func(body string) string { return strings.Replace(prFields, "%s", body, 1) }
+	cases := []struct {
+		name, event, payload, verb string
+	}{
+		{"review requested from the bot", "pull_request",
+			`"action":"review_requested","requested_reviewer":{"login":"arizuko-bot"},` + pr(""), "mention"},
+		{"review requested from the bot, other case", "pull_request",
+			`"action":"review_requested","requested_reviewer":{"login":"Arizuko-Bot"},` + pr(""), "mention"},
+		{"review requested from someone else", "pull_request",
+			`"action":"review_requested","requested_reviewer":{"login":"alice"},` + pr(""), "pull_request"},
+		{"review requested from a login holding the bot's name", "pull_request",
+			`"action":"review_requested","requested_reviewer":{"login":"arizuko-bot2"},` + pr(""), "pull_request"},
+		{"review requested from a team", "pull_request",
+			`"action":"review_requested","requested_team":{"name":"arizuko-bot"},` + pr(""), "pull_request"},
+		{"review request removed from the bot", "pull_request",
+			`"action":"review_request_removed","requested_reviewer":{"login":"arizuko-bot"},` + pr(""), "pull_request"},
+		{"PR assigned to the bot", "pull_request",
+			`"action":"assigned","assignee":{"login":"arizuko-bot"},` + pr(""), "mention"},
+		{"PR assigned to someone else", "pull_request",
+			`"action":"assigned","assignee":{"login":"alice"},` + pr(""), "pull_request"},
+		{"issue assigned to the bot", "issues",
+			`"action":"assigned","assignee":{"login":"arizuko-bot"},"issue":{"number":9,"title":"t"}`, "mention"},
+		{"issue assigned to someone else", "issues",
+			`"action":"assigned","assignee":{"login":"alice"},"issue":{"number":9,"title":"t"}`, "issues"},
+		{"PR unassigned from the bot", "pull_request",
+			`"action":"unassigned","assignee":{"login":"arizuko-bot"},` + pr(""), "pull_request"},
+		{"PR synchronized", "pull_request", `"action":"synchronize",` + pr(""), "pull_request"},
+		{"PR labeled", "pull_request", `"action":"labeled",` + pr(""), "pull_request"},
+		{"PR closed unmerged", "pull_request", `"action":"closed",` + pr(""), "pull_request"},
+		{"PR opened", "pull_request", `"action":"opened",` + pr("hello"), "message"},
+		{"PR opened naming the bot", "pull_request", `"action":"opened",` + pr("cc @arizuko-bot please look"), "mention"},
+		{"PR opened naming a longer login", "pull_request", `"action":"opened",` + pr("cc @arizuko-bot2 please look"), "message"},
+		{"issue opened naming the bot", "issues",
+			`"action":"opened","issue":{"number":9,"title":"t","body":"@arizuko-bot ?"}`, "mention"},
+		{"issue labeled naming the bot", "issues",
+			`"action":"labeled","issue":{"number":9,"title":"t","body":"@arizuko-bot ?"}`, "issues"},
+		{"comment", "issue_comment",
+			`"action":"created","issue":{"number":9,"title":"t"},"comment":{"id":1,"body":"hello"}`, "message"},
+		{"comment naming the bot", "issue_comment",
+			`"action":"created","issue":{"number":9,"title":"t"},"comment":{"id":1,"body":"hey @arizuko-bot, look"}`, "mention"},
+		{"comment naming the bot in other case", "issue_comment",
+			`"action":"created","issue":{"number":9,"title":"t"},"comment":{"id":1,"body":"@ARIZUKO-BOT look"}`, "mention"},
+		{"comment ending on the bot's name", "issue_comment",
+			`"action":"created","issue":{"number":9,"title":"t"},"comment":{"id":1,"body":"ping @arizuko-bot"}`, "mention"},
+		{"comment naming a longer login", "issue_comment",
+			`"action":"created","issue":{"number":9,"title":"t"},"comment":{"id":1,"body":"hey @arizuko-bot2 look"}`, "message"},
+		{"comment naming a longer login with a suffix", "issue_comment",
+			`"action":"created","issue":{"number":9,"title":"t"},"comment":{"id":1,"body":"hey @arizuko-botany look"}`, "message"},
+		{"comment naming a hyphenated longer login", "issue_comment",
+			`"action":"created","issue":{"number":9,"title":"t"},"comment":{"id":1,"body":"hey @arizuko-bot-helper look"}`, "message"},
+		{"comment naming a login the bot's name ends", "issue_comment",
+			`"action":"created","issue":{"number":9,"title":"t"},"comment":{"id":1,"body":"hey @not-arizuko-bot look"}`, "message"},
+		{"comment with an address", "issue_comment",
+			`"action":"created","issue":{"number":9,"title":"t"},"comment":{"id":1,"body":"mail me@arizuko-bot.dev"}`, "message"},
+		{"comment without the @", "issue_comment",
+			`"action":"created","issue":{"number":9,"title":"t"},"comment":{"id":1,"body":"arizuko-bot look"}`, "message"},
+		{"edited comment naming the bot", "issue_comment",
+			`"action":"edited","issue":{"number":9,"title":"t"},"comment":{"id":1,"body":"@arizuko-bot"}`, "issue_comment"},
+		{"review comment naming the bot", "pull_request_review_comment",
+			`"action":"created",` + pr("") + `,"comment":{"id":2,"path":"a.go","body":"@arizuko-bot why?"}`, "mention"},
+		{"review comment", "pull_request_review_comment",
+			`"action":"created",` + pr("") + `,"comment":{"id":2,"path":"a.go","body":"why?"}`, "message"},
+		{"review naming the bot", "pull_request_review",
+			`"action":"submitted",` + pr("") + `,"review":{"id":3,"state":"commented","body":"@arizuko-bot fix"}`, "mention"},
+		{"review with text", "pull_request_review",
+			`"action":"submitted",` + pr("") + `,"review":{"id":3,"state":"commented","body":"fix"}`, "message"},
+		{"approval without text", "pull_request_review",
+			`"action":"submitted",` + pr("") + `,"review":{"id":3,"state":"approved","body":""}`, "pull_request_review"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			msg, drop, err := mapEvent(store.GitHubSourceApp, "x", c.event, "d", body(c.payload), fixedNow, botLogin)
+			if err != nil || drop != "" {
+				t.Fatalf("err=%v drop=%q", err, drop)
+			}
+			if msg.Verb != c.verb {
+				t.Errorf("verb = %q, want %q", msg.Verb, c.verb)
+			}
+		})
+	}
+}
+
+// Without a login (ingress-only gitd) nothing is a mention, and an empty login
+// does not match an empty reviewer.
+func TestMapEvent_NoLoginNoMention(t *testing.T) {
+	for event, payload := range map[string]string{
+		"pull_request":  `"action":"review_requested","requested_reviewer":{"login":""},` + strings.Replace(prFields, "%s", "@ cc", 1),
+		"issue_comment": `"action":"created","issue":{"number":9,"title":"t"},"comment":{"id":1,"body":"@ hi"}`,
+	} {
+		msg, _, err := mapEvent(store.GitHubSourceApp, "x", event, "d", body(payload), fixedNow, "")
+		if err != nil || msg.Verb == "mention" {
+			t.Errorf("%s: verb=%q err=%v", event, msg.Verb, err)
+		}
+	}
+}
+
+// A mention reaches the folder through the rows `add` seeds, and the ambient
+// events beside it still observe.
+func TestMapEvent_MentionTriggersAmbientObserves(t *testing.T) {
+	routes, err := store.GitHubSourceRoutes("app/x", "eng")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for action, want := range map[string]string{"review_requested": "", "synchronize": "observe"} {
+		payload := `"action":"` + action + `","requested_reviewer":{"login":"arizuko-bot"},` + strings.Replace(prFields, "%s", "", 1)
+		msg, _, err := mapEvent(store.GitHubSourceApp, "x", "pull_request", "d", body(payload), fixedNow, botLogin)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := resolve(routes, msg); got.Folder != "eng" || got.Mode != want {
+			t.Errorf("%s resolved to %+v, want eng mode %q", action, got, want)
+		}
 	}
 }

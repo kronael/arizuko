@@ -51,9 +51,13 @@ login and PR comment are one identity.
 ## Observe vs trigger
 
 `add` seeds route rows: human content — a comment, a new PR or issue
-(`verb=message`, or `verb=mention` once the agent has spoken in the thread) —
-triggers a turn; every other event (push, merge, label, CI) lands as
-`<folder>#observe` context. Repo rows sit at seq 10/100, org at 20/200, app at
+(`verb=message`) — triggers a turn; every other event (push, merge, label, CI)
+lands as `<folder>#observe` context. Being asked is `verb=mention`, as in a
+Discord guild: an `@<login>` of the bot in a comment, review, or PR or issue
+body; a review requested from the bot; an issue or PR assigned to it. A review
+request carries no text, so the verb is its only signal. The same event aimed at
+someone else stays ambient. `verb=mention` also arrives once the agent has
+spoken in the thread (routd promotes it). Repo rows sit at seq 10/100, org at 20/200, app at
 30/300, so a narrower registration wins. Edit the rows (`arizuko routes`,
 `/dash/routd/`) to change the split; gitd never decides it.
 
