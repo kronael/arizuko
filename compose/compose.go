@@ -1034,7 +1034,7 @@ func warnPartialEnrolment(enrolled []string) {
 	}
 	slices.Sort(missing)
 	slog.Error("store enrolment is partial: these daemons reach the store and hold "+
-		"no key, so each fails at its first store call while the instance looks healthy",
+		"no key, so each exits at its first store open and the instance restart-loops (BUGS L406)",
 		"missing", missing, "enrolled", len(enrolled), "need", len(need))
 }
 
