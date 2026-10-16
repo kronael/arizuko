@@ -17,7 +17,7 @@ func TestCapImplConsistency(t *testing.T) {
 	}
 	for cap := range capsFor("ghp_x") {
 		if cap != "send_text" {
-			t.Errorf("gitd advertises %q; send_text is the only verb (spec 6/27 decision 2)", cap)
+			t.Errorf("gitd advertises %q; send_text is the only verb (specs/6/27-git-channel.md § Channel messages and repository tools)", cap)
 		}
 	}
 }

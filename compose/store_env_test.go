@@ -291,10 +291,10 @@ func TestNoOnboardSubtreeRouteWithoutASubtreeHandler(t *testing.T) {
 	}
 }
 
-// An enrolment that stopped half way is the L45 class: the daemons without a
-// key fail at their first store call while the instance looks healthy. NONE
-// enrolled is a fresh `arizuko create` and must stay silent, or the warning
-// fires on every new instance and nobody reads it again (BUGS L319).
+// An enrolment that stopped half way leaves daemons with no key: each exits at
+// boot and the instance restart-loops (BUGS L406). NONE enrolled is a fresh
+// `arizuko create` and must stay silent, or the warning fires on every new
+// instance and nobody reads it again (BUGS L319).
 func TestPartialStoreEnrolmentIsLoudAndAFreshInstanceIsNot(t *testing.T) {
 	// The "complete" case needs the whole set, so it is derived. The membership
 	// this test actually depends on is NAMED, so a change to that predicate

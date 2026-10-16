@@ -68,7 +68,8 @@ That agreement lets paired grants apply to both surfaces
 The webhook URL selects a signing source, not a folder supplied by the payload.
 Registration seeds that source's routes; an explicit repository route can override
 an App's broad default without changing the webhook URL. An App URL requires an App
-delivery; a repository webhook uses a registered `repo/<owner>/<repo>` source.
+delivery unless `GITHUB_APP_ACCEPTS_REPO=1`; a repository webhook uses a registered
+`repo/<owner>/<repo>` source.
 
 ## Conversations and routing
 
@@ -200,8 +201,8 @@ that the root belongs to the same repository and PR. It resolves missing root da
 through GitHub before dispatch. `pull_request_review_thread` resolution events map to
 the same root; a filename, line number, review ID or resolution state is never the key.
 Labels can show file and line without changing topic identity. Resolution retains the
-topic and does not close the PR group. A review containing several inline discussions
-does not combine them into its summary topic.
+topic and does not close the PR group. A review with several inline comments adds one
+`gh-rc<id>` reply target per comment inside the one PR topic.
 
 The first explicit trigger hydrates the PR description, current head and that topic's
 paginated history through the existing message store and prompt renderer. Imported

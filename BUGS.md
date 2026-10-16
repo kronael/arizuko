@@ -1072,7 +1072,7 @@ was wrong, and the sentence that would have settled it was the part thrown away.
 - **Status:** fixed
 - **Fix:** `failureReason` keeps the front under the same 200-byte bound and
   marks the cut with an ellipsis, so the reason arrives whole and a long log
-  still cannot fill an audit row. `TestFailureReasonKeepsTheFront` fails on the
+  still cannot fill an audit row. `TestFailureReasonIsTheLastLineFront` fails on the
   old behaviour with `"ck frame\n..."` — the same mid-word cut, from the other
   end of the same output.
 
