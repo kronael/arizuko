@@ -91,6 +91,10 @@ Two rules the tree enforces:
   `components/index.html`, and a line in the nav every component page carries.
   Miss the third and the page exists but nothing links to it.
 - `hub.js` holds `ARIZUKO_VERSION`, the only copy. Bump it when you tag.
+- A new top-level section needs one `<li>` in the sidebar of every page that
+  carries one. The site has no build step, so each page holds its own copy;
+  `tests/webdocs` `TestWebDocsNavListsEverySection` names each page that is
+  missing an entry.
 
 ## Section purposes
 
@@ -266,15 +270,12 @@ The docs are served from a subpath (`/pub/arizuko/`) and absolute paths
 break navigation. Use `../assets/hub.css`, `../../assets/hub.js`, etc.
 based on the file's depth under `pub/`.
 
-```html
-<div class="hub-container prose">
-  <p class="dim back"><a href="../">arizuko</a> › section › page</p>
-  <h1>Page title</h1>
-  …
-</div>
-<button class="theme-toggle">🌙</button>
-<script src="../assets/hub.js"></script>
-```
+Every page copies the shell in §"Visual design system" below. Only the landing
+page and the four redirect stubs (`examples/chat-sdk.html`,
+`components/crackbox.html`, `crackbox/index.html`, `crackbox/reference/index.html`)
+are shell-less, in a bare `.hub-container`; `tests/webdocs`
+`TestWebDocsShellLessPagesAreTheKnownFive` fails on any other page without the
+shell.
 
 Breadcrumb: always present, links to parent sections. Format: `arizuko › components › gated`.
 
@@ -523,3 +524,7 @@ The callout's quiet-inset rule and the nav current-item rule are in
 - A gradient box.
 - A left-accent bar on any box.
 - A raw hex, rgb or px colour anywhere outside the `:root` token blocks.
+
+`tests/webdocs` `TestWebDocsPagesCarryNoStyleOfTheirOwn` fails the build on a
+`<style>` tag and on a `style=` attribute carrying a colour. Its exception list
+is empty.

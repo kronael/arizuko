@@ -5,11 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>arizuko &middot; how it&rsquo;s built</title>
   <link rel="stylesheet" href="../assets/hub.css">
-  <style>
-    .loop { list-style: none; margin: 0.6em 0 1.2em; padding: 0; }
-    .loop li { margin: 0.7em 0; }
-    .loop .step { font-weight: 600; color: var(--accent); }
-  </style>
 </head>
 <body>
   <header class="docs-topbar">
@@ -55,6 +50,10 @@
         <li><a class="nav-section" href="../howto/">How-to</a></li>
         <li><a class="nav-section" href="../components/">Components</a></li>
         <li><a class="nav-section" href="../products/">Products</a></li>
+        <li><a class="nav-section" href="../security/">Security</a></li>
+        <li><a class="nav-section" href="../strategy/">Strategy</a></li>
+        <li><a class="nav-section" href="../research/">Research</a></li>
+        <li><a class="nav-section" href="../changelog/">Changelog</a></li>
       </ul>
     </nav>
 
@@ -84,18 +83,18 @@
 
       <h2>The build loop</h2>
       <p>Each step is a concrete artifact on disk:</p>
-      <ul class="loop">
-        <li><span class="step">Design is a spec.</span> It lands as a file under
+      <ul>
+        <li><strong>Design is a spec.</strong> It lands as a file under
           <code>specs/</code> with a tracked <code>status:</code> (draft,
           partial, ready, shipped) &mdash; reviewable and diffable, not buried in
           a chat log.</li>
-        <li><span class="step">A second opinion is one command.</span>
+        <li><strong>A second opinion is one command.</strong>
           <code>codex exec</code> asks an independent model to check a non-obvious
           design before it&rsquo;s committed.</li>
-        <li><span class="step">The decision is written down.</span>
+        <li><strong>The decision is written down.</strong>
           <code>/diary</code> records it to <code>.diary/&lt;date&gt;.md</code> at
           the moment it&rsquo;s made.</li>
-        <li><span class="step">The next session remembers.</span>
+        <li><strong>The next session remembers.</strong>
           <code>/recall-memories</code> reads the diary and a file-based memory
           store to recover context &mdash; the same durable
           <a href="primitives.html">state</a> primitive an agent uses in
@@ -105,21 +104,21 @@
       <h2>ship, then harden</h2>
       <p>The first cut is small and lands fast; the same agents then harden it
         with repeated passes:</p>
-      <ul class="loop">
-        <li><span class="step">Two adversaries read the change.</span>
+      <ul>
+        <li><strong>Two adversaries read the change.</strong>
           <code>codex exec</code> hunts the finished code for bugs the author
           missed, and <code>assess</code> attacks the change from a fixed
           adversarial role &mdash; a CEO, CTO, or CISO hunting for the worst
           weakness.</li>
-        <li><span class="step">One change ripples, so a sweep re-aligns it.</span>
+        <li><strong>One change ripples, so a sweep re-aligns it.</strong>
           <code>sweep-fix-verify</code> walks every call site and reference at
           once &mdash; renaming the spec phases re-pointed roughly sixty files in
           a single sweep, so nothing is left dangling.</li>
-        <li><span class="step">Refine cuts until there&rsquo;s nothing to cut.</span>
+        <li><strong>Refine cuts until there&rsquo;s nothing to cut.</strong>
           <code>/refine</code> runs improve and simplify together to kill
           duplication and minimize the diff, and runs again until a pass finds
           nothing to change.</li>
-        <li><span class="step">A bug found mid-task waits its turn.</span>
+        <li><strong>A bug found mid-task waits its turn.</strong>
           It lands in <code>bugs.md</code>, a review queue, and is fixed when
           it&rsquo;s prioritized &mdash; not opportunistically in the middle of
           unrelated work.</li>
@@ -145,7 +144,7 @@
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/concepts/built.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-09-22">2026-09-22</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-16">2026-10-16</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

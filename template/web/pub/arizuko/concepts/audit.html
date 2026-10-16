@@ -51,6 +51,10 @@
         <li><a class="nav-section" href="../howto/">How-to</a></li>
         <li><a class="nav-section" href="../components/">Components</a></li>
         <li><a class="nav-section" href="../products/">Products</a></li>
+        <li><a class="nav-section" href="../security/">Security</a></li>
+        <li><a class="nav-section" href="../strategy/">Strategy</a></li>
+        <li><a class="nav-section" href="../research/">Research</a></li>
+        <li><a class="nav-section" href="../changelog/">Changelog</a></li>
       </ul>
     </nav>
 
@@ -104,7 +108,7 @@
     <pre><code>curl -s -H "Authorization: Bearer $TOKEN" \
   "https://&lt;host&gt;/v1/audit?category=authz&amp;limit=50" | jq .</code></pre>
     Filters: <code>folder</code> (that folder and everything under it), <code>category</code>, <code>actor</code> (substring), <code>limit</code> (default 50, maximum 200), and <code>before_id</code> to page backwards. An agent can ask the same question about its own folder with the <code>query_audit</code> tool.
-    <p style="margin-bottom:0">One daemon is still missing: <code>onbod</code>, which records admissions and invites, has the table but not yet the endpoint.</p></div>
+    <p>One daemon is still missing: <code>onbod</code>, which records admissions and invites, has the table but not yet the endpoint.</p></div>
 
     <h2>what is deliberately not audited</h2>
     <p>A table that already <em>is</em> the record does not get audited twice. The clearest case is a turn: <code>spawns</code> already holds its kind, state, outcome, exit code and every timestamp, and the dashboard renders it, so runed writes no extra row per turn. Chat messages are the same &mdash; the <code>messages</code> table is the record of what was said.</p>
@@ -127,7 +131,7 @@
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/concepts/audit.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-09-29">2026-09-29</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-16">2026-10-16</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

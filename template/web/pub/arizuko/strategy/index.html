@@ -1,541 +1,300 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="light">
+<html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Arizuko Research — GitOps for Agents</title>
-<link rel="stylesheet" href="../assets/hub.css">
-<style>
-/* Strategy-page components (arizuko palette via shared vars) */
-.back-btn {
-  position: fixed; top: 1em; left: 1em;
-  background: var(--card); border: 1px solid var(--border);
-  border-radius: 3px; padding: 0.5em 0.8em; font-size: 1em;
-  z-index: 1000; transition: all 0.2s;
-  color: var(--fg); text-decoration: none;
-}
-.back-btn:hover {
-  background: var(--code-bg); border-color: var(--accent);
-  color: var(--accent); text-decoration: none;
-}
-.hub-subtitle { color: var(--dim); font-size: 0.9em; margin-bottom: 2em; }
-.hub-footer {
-  margin-top: 3em; padding-top: 1em; border-top: 1px solid var(--border);
-  color: var(--dim); font-size: 0.8em;
-}
-
-.insights-box {
-  background: var(--card);
-  border: 1px solid var(--accent);
-  border-left: 4px solid var(--accent);
-  border-radius: 3px;
-  padding: 1.5em;
-  margin: 2em 0;
-}
-
-.insights-box h3 {
-  color: var(--accent2);
-  margin: 0 0 1em 0;
-  font-size: 1.1em;
-}
-
-.insights-box ul {
-  margin: 0;
-  padding-left: 1.2em;
-}
-
-.insights-box li {
-  margin: 0.8em 0;
-  line-height: 1.6;
-}
-
-.tldr-box {
-  background: color-mix(in srgb, var(--accent) 6%, var(--bg));
-  border: 1px solid var(--accent);
-  border-radius: 3px;
-  padding: 1.2em 1.5em;
-  margin: 1.5em 0;
-}
-
-.tldr-label {
-  color: var(--accent2);
-  font-weight: bold;
-  font-size: 0.85em;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  margin-bottom: 0.5em;
-}
-
-.tldr-text {
-  font-size: 1.05em;
-  line-height: 1.6;
-  margin: 0;
-}
-
-.section-title {
-  font-size: 1.3em;
-  margin: 2.5em 0 1em;
-  color: var(--accent2);
-  border-bottom: 1px solid var(--border);
-  padding-bottom: 0.3em;
-}
-
-.tier-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr));
-  gap: 1.2em;
-  margin: 1.5em 0;
-}
-
-.tier-card {
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  padding: 1.5em;
-  transition: all 0.15s;
-}
-
-.tier-card:hover {
-  border-color: var(--accent);
-  box-shadow: 0 4px 12px color-mix(in srgb, var(--accent) 12%, transparent);
-}
-
-.tier-header {
-  display: flex;
-  align-items: center;
-  gap: 0.8em;
-  margin-bottom: 1em;
-}
-
-.tier-icon {
-  font-size: 1.8em;
-}
-
-.tier-title {
-  font-size: 1.2em;
-  color: var(--accent);
-  margin: 0;
-}
-
-.tier-meta {
-  color: var(--dim);
-  font-size: 0.85em;
-  margin-bottom: 1em;
-}
-
-.tier-items {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-
-.tier-items li {
-  padding: 0.5em 0;
-  border-bottom: 1px solid var(--border);
-  font-size: 0.9em;
-  line-height: 1.5;
-}
-
-.tier-items li:last-child {
-  border-bottom: none;
-}
-
-.landscape-table {
-  width: 100%;
-  border-collapse: collapse;
-  margin: 1.5em 0;
-  font-size: 0.9em;
-}
-
-.landscape-table th,
-.landscape-table td {
-  text-align: left;
-  padding: 0.8em;
-  border-bottom: 1px solid var(--border);
-}
-
-.landscape-table th {
-  color: var(--accent2);
-  font-weight: bold;
-  border-bottom: 2px solid var(--accent);
-}
-
-.landscape-table tr:hover {
-  background: color-mix(in srgb, var(--accent) 6%, var(--bg));
-}
-
-.arch-diagram {
-  background: var(--code-bg);
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  padding: 1.5em;
-  margin: 1.5em 0;
-  font-family: 'SF Mono', 'Monaco', 'Inconsolata', monospace;
-  font-size: 0.85em;
-  line-height: 1.6;
-  overflow-x: auto;
-}
-
-.arch-layer {
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  padding: 1em;
-  margin: 0.5em 0;
-}
-
-.arch-label {
-  color: var(--accent2);
-  font-weight: bold;
-  margin-bottom: 0.5em;
-}
-
-.arch-items {
-  color: var(--dim);
-}
-
-.bridge-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr));
-  gap: 1em;
-  margin: 1.5em 0;
-}
-
-.bridge-card {
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-left: 3px solid var(--accent);
-  border-radius: 3px;
-  padding: 1.2em;
-}
-
-.bridge-title {
-  color: var(--accent2);
-  font-weight: bold;
-  margin-bottom: 0.5em;
-}
-
-.bridge-arrow {
-  color: var(--accent);
-  margin: 0.5em 0;
-  font-weight: bold;
-}
-
-.bridge-feature {
-  color: var(--fg);
-  font-size: 0.9em;
-  line-height: 1.5;
-}
-
-@media (max-width: 768px) {
-  .tier-grid { gap: 0.8em; }
-  .tier-card { padding: 1em; }
-  .tier-title { font-size: 1em; }
-  .bridge-grid { gap: 0.8em; }
-}
-</style>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>arizuko &middot; strategy</title>
+  <link rel="stylesheet" href="../assets/hub.css">
 </head>
 <body>
-<a href="../" class="back-btn">&larr; arizuko</a>
-<button class="theme-toggle" aria-label="Toggle theme"></button>
+  <header class="docs-topbar">
+    <button class="docs-navtoggle" aria-label="Toggle navigation" aria-expanded="false">&#9776;</button>
+    <a class="docs-wordmark" href="../">arizuko</a>
+  </header>
+  <div class="docs-layout">
+    <nav class="docs-nav" aria-label="Strategy">
+      <ul>
+        <li><a class="nav-section" href="../concepts/">Concepts</a></li>
+        <li><a class="nav-section" href="../reference/">Reference</a></li>
+        <li><a class="nav-section" href="../howto/">How-to</a></li>
+        <li><a class="nav-section" href="../components/">Components</a></li>
+        <li><a class="nav-section" href="../products/">Products</a></li>
+        <li><a class="nav-section" href="../security/">Security</a></li>
+        <li><a class="nav-section" href="./">Strategy</a></li>
+        <li><a class="nav-section" href="../research/">Research</a></li>
+        <li><a class="nav-section" href="../changelog/">Changelog</a></li>
+      </ul>
+    </nav>
 
-<div class="hub-container">
+    <main class="docs-content">
+      <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; strategy</p>
+      <h1>strategy</h1>
 
-<h1>Arizuko Research</h1>
-<p class="hub-subtitle">GitOps for agents · From multi-channel orchestration to declarative product platform<br>
-<span style="color: var(--accent)">Last updated: 2026-09-13</span></p>
+      <p class="lede">GitOps for agents: from multi-channel orchestration to a declarative product platform.</p>
 
-<div class="tldr-box">
-  <div class="tldr-label">One Sentence</div>
-  <p class="tldr-text"><strong>Arizuko is GitOps for agents.</strong> Persona, skills, ACL, routes, secrets, diaries, decisions — all in git. The gateway commits per turn. Containers run against the working tree. The store is derived cache. Audit, fork, distribute — native git verbs.</p>
-</div>
+      <div class="callout"><strong>One sentence:</strong> <strong>Arizuko is GitOps for agents.</strong> Persona, skills, ACL, routes, secrets, diaries, decisions — all in git. The gateway commits per turn. Containers run against the working tree. The store is derived cache. Audit, fork, distribute — native git verbs.</div>
 
-<p style="line-height: 1.7; margin: 1.5em 0;">This page documents the research direction: from today's multi-channel orchestration platform to tomorrow's declarative product platform. Four tiers map competitive gaps to shippable features. Each agent research topic (<a href="/pub/krons/agents/tools/">tools/security</a>, <a href="/pub/krons/agents/memory/">memory</a>, <a href="/pub/krons/agents/subagents/">subagents</a>, <a href="/pub/krons/agents/project-management/">project management</a>) projects into concrete platform capabilities.</p>
+      <p>This page documents the research direction: from today's multi-channel orchestration platform to tomorrow's declarative product platform. Four tiers map competitive gaps to shippable features. Each agent research topic (<a href="/pub/krons/agents/tools/">tools/security</a>, <a href="/pub/krons/agents/memory/">memory</a>, <a href="/pub/krons/agents/subagents/">subagents</a>, <a href="/pub/krons/agents/project-management/">project management</a>) projects into concrete platform capabilities.</p>
 
-<div class="insights-box">
-<h3>Why GitOps?</h3>
-<ul>
-<li><strong>State lives in git, not the database.</strong> <code>agents.toml</code> (products + deployments), <code>acl/</code>, <code>routes/</code>, <code>skills/</code>, <code>personas/</code>, <code>MEMORY.md</code>, <code>.diary/</code>, <code>decisions/</code>, secrets (age-encrypted). The store becomes an operational cache — rebuildable from git + inbound message log.</li>
-<li><strong>Gateway is the only writer.</strong> Agents act through MCP; gateway sees every state-changing call and commits at turn boundary. Prevents "agent forgot to commit" bugs. One commit per turn with JSON sidecar listing events.</li>
-<li><strong>Audit = <code>git log</code>. Fork = <code>git worktree</code>. Distribute = <code>git push</code>.</strong> No bespoke versioning machinery. Signed commits + branch protection = compliance trail.</li>
-<li><strong>Products are TOML files in shared repos.</strong> Same shape as Terraform modules. <code>arizuko product fetch &lt;url&gt;</code> includes via submodule. One repo per instance (krons, marinade, sloth); products defined elsewhere.</li>
-</ul>
-</div>
+      <h2>Why GitOps?</h2>
+      <ul>
+        <li><strong>State lives in git, not the database.</strong> <code>agents.toml</code> (products + deployments), <code>acl/</code>, <code>routes/</code>, <code>skills/</code>, <code>personas/</code>, <code>MEMORY.md</code>, <code>.diary/</code>, <code>decisions/</code>, secrets (age-encrypted). The store becomes an operational cache — rebuildable from git + inbound message log.</li>
+        <li><strong>Gateway is the only writer.</strong> Agents act through MCP; gateway sees every state-changing call and commits at turn boundary. Prevents "agent forgot to commit" bugs. One commit per turn with JSON sidecar listing events.</li>
+        <li><strong>Audit = <code>git log</code>. Fork = <code>git worktree</code>. Distribute = <code>git push</code>.</strong> No bespoke versioning machinery. Signed commits + branch protection = compliance trail.</li>
+        <li><strong>Products are TOML files in shared repos.</strong> Same shape as Terraform modules. <code>arizuko product fetch &lt;url&gt;</code> includes via submodule. One repo per instance (krons, marinade, sloth); products defined elsewhere.</li>
+      </ul>
 
-<h2 class="section-title">Competitive Landscape</h2>
+      <h2>Competitive landscape</h2>
+      <p class="dim">Replacement candidates by buyer segment. Every competitor is strong on 1-2 axes; none have the combination.</p>
 
-<p style="color: var(--dim); margin-bottom: 1em;">Replacement candidates by buyer segment. Every competitor is strong on 1-2 axes; none have the combination.</p>
+      <table>
+        <tr>
+          <th>Buyer</th>
+          <th>Threat</th>
+          <th>Why they win</th>
+          <th>Why we can win</th>
+        </tr>
+        <tr>
+          <td>SMB long-tail</td>
+          <td><strong>Zapier Agents</strong></td>
+          <td>Gravity. SOC2/SAML shipped, 1M+ existing Zapier users</td>
+          <td>Multi-channel + per-folder identity + BYOC</td>
+        </tr>
+        <tr>
+          <td>Slack+Notion buyer</td>
+          <td><strong>Dust.tt</strong></td>
+          <td>Only credible full substitute, SOC2+HIPAA, optional self-host</td>
+          <td>12 adapters vs 3, product templates, single-host footprint</td>
+        </tr>
+        <tr>
+          <td>Enterprise CX</td>
+          <td><strong>Sierra</strong> (50k+/yr)<br><strong>Salesforce Agentforce</strong><br><strong>Cohere North</strong> (air-gap)</td>
+          <td>Enterprise sales motion, compliance theater, air-gap for Cohere</td>
+          <td>Go daemons + one store endpoint vs PostgreSQL+ClickHouse+Redis, operator-owned infra</td>
+        </tr>
+        <tr>
+          <td>Dev-leaning self-host</td>
+          <td><strong>n8n + Anthropic Skills</strong><br>assembled <strong>OpenHands+Langfuse+E2B</strong></td>
+          <td>Familiar primitives, composable</td>
+          <td>6-12 engineer-months to assemble + ongoing drift vs one binary</td>
+        </tr>
+        <tr>
+          <td>Most threatening</td>
+          <td><strong>CrewAI Enterprise (AMP)</strong></td>
+          <td>One product decision (add Slack/Teams adapters) from covering 70% of our pitch</td>
+          <td>Speed to Tier A+B before they ship adapters</td>
+        </tr>
+      </table>
 
-<table class="landscape-table">
-<tr>
-  <th>Buyer</th>
-  <th>Threat</th>
-  <th>Why They Win</th>
-  <th>Why We Can Win</th>
-</tr>
-<tr>
-  <td>SMB long-tail</td>
-  <td><strong>Zapier Agents</strong></td>
-  <td>Gravity. SOC2/SAML shipped, 1M+ existing Zapier users</td>
-  <td>Multi-channel + per-folder identity + BYOC</td>
-</tr>
-<tr>
-  <td>Slack+Notion buyer</td>
-  <td><strong>Dust.tt</strong></td>
-  <td>Only credible full substitute, SOC2+HIPAA, optional self-host</td>
-  <td>12 adapters vs 3, product templates, single-host footprint</td>
-</tr>
-<tr>
-  <td>Enterprise CX</td>
-  <td><strong>Sierra</strong> ($150k+/yr)<br><strong>Salesforce Agentforce</strong><br><strong>Cohere North</strong> (air-gap)</td>
-  <td>Enterprise sales motion, compliance theater, air-gap for Cohere</td>
-  <td>Go daemons + one store endpoint vs PostgreSQL+ClickHouse+Redis, operator-owned infra</td>
-</tr>
-<tr>
-  <td>Dev-leaning self-host</td>
-  <td><strong>n8n + Anthropic Skills</strong><br>assembled <strong>OpenHands+Langfuse+E2B</strong></td>
-  <td>Familiar primitives, composable</td>
-  <td>6-12 engineer-months to assemble + ongoing drift vs one binary</td>
-</tr>
-<tr>
-  <td>Most threatening</td>
-  <td><strong>CrewAI Enterprise (AMP)</strong></td>
-  <td>One product decision (add Slack/Teams adapters) from covering 70% of our pitch</td>
-  <td>Speed to Tier A+B before they ship adapters</td>
-</tr>
-</table>
+      <h2>Defensible wedge</h2>
+      <p>The <em>combination</em>, not any single axis. Each axis has a stronger specialist alone; nobody has all four:</p>
 
-<h2 class="section-title">Defensible Wedge</h2>
+      <ol>
+        <li><strong>Multi-channel persistent team agent</strong> — 11 adapters in tree (Telegram, Discord, WhatsApp, Slack, email, Bluesky, Reddit, X/Twitter, LinkedIn, web chat, webhooks)</li>
+        <li><strong>Per-folder agent identity</strong> — PERSONA + skills + MEMORY + .diary + ACL + secrets; filesystem as tenant boundary</li>
+        <li><strong>Operator-owned footprint</strong> — Go daemons in Docker, one KVM guest per turn, one store endpoint the operator runs or rents; no ClickHouse, no Redis, no managed control plane</li>
+        <li><strong>Uniform MCP+REST per resource</strong> — agent-first protocol, REST as impedance match for external tools</li>
+      </ol>
 
-<p style="line-height: 1.7; margin: 1em 0;">The <em>combination</em>, not any single axis. Each axis has a stronger specialist alone; nobody has all four:</p>
+      <h2>Real gaps (we lose today)</h2>
+      <ul>
+        <li><strong>Observability</strong> — every daemon exports OTLP when <code>OTEL_EXPORTER_OTLP_ENDPOINT</code> is set, but journalctl + dashd is still not Langfuse.</li>
+        <li><strong>Sandbox strength</strong> — the turn runs in one KVM guest, so the boundary is a hypervisor and the agent's kernel is not the host's. The gap is <code>runed</code>'s <em>own</em> container, which compose runs as root with <code>NET_ADMIN</code>, <code>SYS_ADMIN</code> and <code>apparmor=unconfined</code> because AppArmor's default denies the staging tree's <code>mount(2)</code>. A profile that permits just that one mount is unwritten.</li>
+        <li><strong>Product abstraction</strong> — no <code>arizuko product clone</code>, no manifest, no registry.</li>
+        <li><strong>No K8s / cloud-provider templates</strong> — no Helm chart, no operator; the turn path still pins <code>routd</code> and <code>runed</code> to one node.</li>
+        <li><strong>Evals at scale</strong> — specs/10/1-self-healing-loop.md is a draft; none of the judge/evaluate/repair loop is built.</li>
+      </ul>
 
-<ol style="line-height: 1.8; margin: 1em 0 1em 1.5em;">
-<li><strong>Multi-channel persistent team agent</strong> — 11 adapters in tree (Telegram, Discord, WhatsApp, Slack, email, Bluesky, Reddit, X/Twitter, LinkedIn, web chat, webhooks)</li>
-<li><strong>Per-folder agent identity</strong> — PERSONA + skills + MEMORY + .diary + ACL + secrets; filesystem as tenant boundary</li>
-<li><strong>Operator-owned footprint</strong> — Go daemons in Docker, one KVM guest per turn, one store endpoint the operator runs or rents; no ClickHouse, no Redis, no managed control plane</li>
-<li><strong>Uniform MCP+REST per resource</strong> — agent-first protocol, REST as impedance match for external tools</li>
-</ol>
+      <h2>GitOps architecture</h2>
+      <p class="dim">Three layers. Truth shifted out of the database.</p>
 
-<h2 class="section-title">Real Gaps (We Lose Today)</h2>
+      <pre><code>GIT TREE   source of truth: versioned, signed, distributed
+  agents.toml            products + deployments
+  acl/ routes/ skills/ personas/
+  MEMORY.md  .diary/  decisions/
+  secrets/               age-encrypted blobs or vault refs
+  turns/                 per-turn markdown, the trace
+    &darr; derive
+STORE      operational cache: one endpoint, rebuildable from git + input log
+  messages queue + cursors
+  indexes                fast routing and dispatch
+  in-flight turn state
+  materialized projections (graph view)
+    &darr; projects
+GUESTS     ephemeral: a projection of git@HEAD into runtime
+  read the working tree at turn start
+  MCP over vsock to routd's per-group socket
+  gateway commits state changes at turn end</code></pre>
 
-<ul style="line-height: 1.8; margin: 1em 0 1em 1.5em;">
-<li><strong>Observability</strong> — every daemon exports OTLP when <code>OTEL_EXPORTER_OTLP_ENDPOINT</code> is set, but journalctl + dashd is still not Langfuse.</li>
-<li><strong>Sandbox strength</strong> — the turn runs in one KVM guest, so the boundary is a hypervisor and the agent's kernel is not the host's. The gap is <code>runed</code>'s <em>own</em> container, which compose runs as root with <code>NET_ADMIN</code>, <code>SYS_ADMIN</code> and <code>apparmor=unconfined</code> because AppArmor's default denies the staging tree's <code>mount(2)</code>. A profile that permits just that one mount is unwritten.</li>
-<li><strong>Product abstraction</strong> — no <code>arizuko product clone</code>, no manifest, no registry.</li>
-<li><strong>No K8s / cloud-provider templates</strong> — no Helm chart, no operator; the turn path still pins <code>routd</code> and <code>runed</code> to one node.</li>
-<li><strong>Evals at scale</strong> — specs/10/1-self-healing-loop.md is a draft; none of the judge/evaluate/repair loop is built.</li>
-</ul>
+      <p><code>arizuko apply</code> = read <code>agents.toml</code> from git → diff against the store → reconcile.<br>
+      Audit = <code>git log</code>. Fork = <code>git worktree</code>. Distribute = <code>git push</code>.</p>
 
-<h2 class="section-title">GitOps Architecture</h2>
+      <h2>The path forward</h2>
+      <p class="dim">Four tiers map gaps to shippable capabilities. GitOps direction influences every tier.</p>
 
-<p style="color: var(--dim); margin-bottom: 1em;">Three layers. Truth shifted out of the database.</p>
+      <div class="grid wide">
+        <div class="card">
+          <div class="card-title">Tier A</div>
+          <div class="card-meta">4 weeks · Declarative composition</div>
+          <ul>
+            <li><code>agents.toml</code> schema (products + deployments) — committed to git, source of truth</li>
+            <li><code>arizuko plan</code> / <code>arizuko apply</code> verbs (Terraform-for-agents)</li>
+            <li><code>deployments</code> table in the store (cache; rebuildable from git)</li>
+            <li>Three canonical product templates: oncall, support, sales-assist</li>
+            <li>Folder/user-scope secrets layering (BYOA primitive) — specs/5/14-credentials.md</li>
+            <li><strong>Spec:</strong> specs/5/8-yaml-manifests.md — it decides the opposite of this card: the store is authoritative, the YAML manifest is a dump/import artifact, and no <code>agents.toml</code> is a source of truth</li>
+          </ul>
+        </div>
 
-<div class="arch-diagram">
-<div class="arch-layer">
-<div class="arch-label">GIT TREE (source of truth — versioned, signed, distributed)</div>
-<div class="arch-items">• agents.toml (products + deployments)<br>
-• acl/, routes/, skills/, personas/<br>
-• MEMORY.md, .diary/, decisions/<br>
-• secrets/ (age-encrypted blobs or vault refs)<br>
-• turns/ (per-turn markdown — the trace)</div>
-</div>
-<div style="text-align: center; margin: 0.5em 0; color: var(--accent2);">↓ derive ↓</div>
-<div class="arch-layer">
-<div class="arch-label">STORE (operational cache — one endpoint, rebuildable from git+input log)</div>
-<div class="arch-items">• messages queue + cursors<br>
-• indexes (fast routing/dispatch)<br>
-• in-flight turn state<br>
-• materialized projections (graph view)</div>
-</div>
-<div style="text-align: center; margin: 0.5em 0; color: var(--accent2);">↓ projects ↓</div>
-<div class="arch-layer">
-<div class="arch-label">GUESTS (ephemeral — projection of git@HEAD into runtime)</div>
-<div class="arch-items">• read working tree at turn start<br>
-• MCP over vsock to routd's per-group socket<br>
-• gateway commits state changes at turn end</div>
-</div>
-</div>
+        <div class="card">
+          <div class="card-title">Tier B</div>
+          <div class="card-meta">6 weeks · Monitoring + sandbox + git-as-event-log</div>
+          <ul>
+            <li><strong>Drop the bespoke events table.</strong> Gateway becomes the only git writer; commits per turn with sidecar event list</li>
+            <li>Projection function over working tree + the store's hot path → graph view for plan/dashd/fork/OTLP</li>
+            <li>OTLP-out via OpenLLMetry → Langfuse self-host (operator's choice)</li>
+            <li><s>gVisor RuntimeClass under existing Docker</s> — superseded. The turn is a KVM guest as of 6/41 step 4; the unwritten piece is a narrow AppArmor profile for <code>runed</code> itself.</li>
+          </ul>
+        </div>
 
-<p style="font-size: 0.9em; line-height: 1.6; color: var(--dim); margin-top: 1em;"><code>arizuko apply</code> = read <code>agents.toml</code> from git → diff against the store → reconcile.<br>
-Audit = <code>git log</code>. Fork = <code>git worktree</code>. Distribute = <code>git push</code>.</p>
+        <div class="card">
+          <div class="card-title">Tier C</div>
+          <div class="card-meta">10 weeks · Distribution + proof product</div>
+          <ul>
+            <li>Product registry = git repo of TOML files</li>
+            <li><code>arizuko fork &lt;folder&gt; --at &lt;commit&gt;</code> = <code>git worktree add</code> + spawn container against that worktree</li>
+            <li>Eval primitive — Haiku-judge as gated post-turn hook</li>
+            <li><strong>Ship oncall agent end-to-end</strong> through the whole pipeline as the proof</li>
+          </ul>
+        </div>
 
-<h2 class="section-title">The Path Forward</h2>
+        <div class="card">
+          <div class="card-title">Tier D</div>
+          <div class="card-meta">When deals demand it · Enterprise</div>
+          <ul>
+            <li>Helm + multi-node — federation via <code>git remote</code> basically free</li>
+            <li>Signed product manifests + cosigned images</li>
+            <li>OPA/Rego as policy alternative</li>
+          </ul>
+        </div>
+      </div>
 
-<p style="color: var(--dim); margin-bottom: 1em;">Four tiers map gaps to shippable capabilities. GitOps direction influences every tier.</p>
+      <h2>Bridge: agent research → platform features</h2>
+      <p class="dim">For each major research topic, how it becomes a shippable arizuko feature and which tier it slots into.</p>
 
-<div class="tier-grid">
+      <div class="grid wide">
+        <div class="card">
+          <div class="card-title"><a href="/pub/krons/agents/tools/">Tools &amp; security</a></div>
+          <ul>
+            <li><strong>Tier A:</strong> Per-product tool profiles in <code>agents.toml</code> (minimal/coding/messaging/full)</li>
+            <li><strong>Tier B:</strong> Hermes threat-pattern scanner (932 LOC) → product sandbox profiles with gVisor. Tap (credential injection proxy) already exists in specs/5/T — ships with Tier B.</li>
+            <li><strong>Research insight:</strong> Muaddib's host/guest tool split is cleanest privilege model; smolagents' code-first approach eliminates schemas. NanoClaw's IPC proxy = tap component.</li>
+          </ul>
+        </div>
 
-<div class="tier-card">
-  <div class="tier-header">
-    <div class="tier-icon">🎯</div>
-    <h3 class="tier-title">Tier A</h3>
+        <div class="card">
+          <div class="card-title"><a href="/pub/krons/agents/memory/">Memory</a></div>
+          <ul>
+            <li><strong>Tier A Phase C:</strong> BYOA primitive = bring-your-own-pgvector as alternative to in-folder markdown. ElizaOS pgvector pattern, OpenClaw hybrid (vector + BM25).</li>
+            <li><strong>Tier C:</strong> Memory projection function: <code>MEMORY.md</code> + <code>.diary/</code> + <code>facts/</code> → unified queryable surface across all products.</li>
+            <li><strong>Research insight:</strong> All converge on markdown as substrate; differ on write safety (LLM-editable vs operator-only).</li>
+          </ul>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><a href="/pub/krons/agents/subagents/">Subagents</a></div>
+          <ul>
+            <li><strong>Tier A:</strong> Product mixins in <code>agents.toml</code>. Compose a support product from (base-agent + slack-responder + escalation-child) fragments.</li>
+            <li><strong>Already shipped:</strong> <code>delegate_group</code>, <code>escalate_group</code>, <code>observe_group</code> MCP tools. Per-folder isolation is one guest per turn, per folder.</li>
+            <li><strong>Research insight:</strong> Six trust models compared; we already ship the strongest (a hypervisor boundary per turn, per folder).</li>
+          </ul>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><a href="/pub/krons/agents/project-management/">Project management</a></div>
+          <ul>
+            <li><strong>Tier C:</strong> Oncall agent proof — autonomous PM loop (Stripe ships 1,300 PRs/week from Slack messages, zero human interaction).</li>
+            <li><strong>Tier B:</strong> Git-as-event-log enables post-turn eval hooks (Aeon's Haiku-scores-Opus quality gate).</li>
+            <li><strong>Research insight:</strong> Autonomy spectrum maps to isolation strength. More autonomous = stronger boundaries needed.</li>
+          </ul>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><a href="/pub/krons/agents/patterns/">Building blocks</a></div>
+          <ul>
+            <li><strong>Tier A:</strong> Doom loop prevention (max-turns cap, explicit continue required). Network isolation (per-spawn egress allowlist).</li>
+            <li><strong>Tier B:</strong> Harness engineering — per-product test harness in TOML. Blueprints = product templates.</li>
+            <li><strong>Research insight:</strong> 13 patterns distilled; most map directly to <code>agents.toml</code> declarative config.</li>
+          </ul>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><a href="/pub/krons/agents/aeon/">Aeon</a></div>
+          <ul>
+            <li><strong>Tier C:</strong> Self-healing batch loop = git-as-database (already Tier B direction) + Haiku quality gate (eval primitive) + reactive triggers (scheduled tasks already exist) + category repair playbooks (product templates).</li>
+            <li><strong>All mechanisms already designed.</strong> Tier C integrates them.</li>
+            <li><strong>Research insight:</strong> GitHub Actions runtime is the container orchestration we already have (Docker Compose).</li>
+          </ul>
+        </div>
+      </div>
+
+      <h2>What we will not do</h2>
+      <ul>
+        <li><strong>Runtime-graph fantasy</strong> — The interior of an agent is Turing-complete; don't model it. The organizational layer (products + deployments + folders + ACL + channels) IS a graph, expressed as files in git. No bespoke projection beyond <code>git checkout</code>.</li>
+        <li><strong>Pure event-sourcing</strong> — ActiveGraph (arxiv:2605.21997) overreaches. Hard parts (bit-perfect replay across stochastic LLM calls, cheap-prefix-share fork, schema migration via events) are future work. We need enough history to analyze + improve + audit — not bit-perfect replay. Git already ships this.</li>
+        <li><strong>K8s pre-emptive</strong> — Docker on a host the operator owns wins on operator burden until deals demand multi-node; <a href="../howto/kubernetes.html">the Kubernetes page</a> says which daemons can move and which cannot. Federation via <code>git remote</code> is Tier D (when revenue forces it).</li>
+      </ul>
+
+      <h2>Open questions</h2>
+      <ol>
+        <li><strong>Inbound message storage</strong> — Per-day JSONL in git, or fully hot in the store? Lean per-day in git for replay-enough.</li>
+        <li><strong>Crash recovery</strong> — Between a store write and a git commit, what's the recovery protocol? Idempotent reapply on restart?</li>
+        <li><strong>Fork lifecycle</strong> — Does forked branch get its own container? Same DB? Separate cache? Spec the lifecycle.</li>
+        <li><strong>Operator UX</strong> — <code>arizuko log</code>, <code>arizuko diff</code>, <code>arizuko revert</code> wrappers — what's the surface?</li>
+        <li><strong>dashd admin write</strong> — Currently writes the store directly. Under GitOps: commit → apply, or commit-immediate-apply? Pick a default.</li>
+        <li><strong>Tracing granularity vs audit granularity</strong> — Commit-per-turn loses sub-turn lineage; sidecar restores it; is sidecar enough or do we need per-event commits on a side branch?</li>
+        <li><strong>Is "GitOps" the right term?</strong> Too K8s-coded? Substitute "git-native"? Sharper positioning vs Argo CD ("Argo CD for AI agent fleets") or against it?</li>
+      </ol>
+
+      <h2>Three-lens synthesis</h2>
+      <table>
+        <tr>
+          <th>Lens</th>
+          <th>Status under GitOps</th>
+        </tr>
+        <tr>
+          <td><strong>agent is data</strong></td>
+          <td>Data lives in git ✓</td>
+        </tr>
+        <tr>
+          <td><strong>agent-first platform</strong></td>
+          <td>MCP/REST verbs are git-aware mutations ✓</td>
+        </tr>
+        <tr>
+          <td><strong>agent is a graph</strong></td>
+          <td>Working tree IS the graph; commit DAG IS the lineage; no bespoke projection needed beyond <code>git checkout</code> ✓</td>
+        </tr>
+      </table>
+
+      <p><strong>Trace vs projection distinction:</strong></p>
+      <ul>
+        <li>Trace = <code>git log</code> (history, queryable)</li>
+        <li>Projection = working tree at HEAD (current shape, queryable as graph)</li>
+        <li>Fork = <code>git worktree add</code> on a sha + spawn container</li>
+        <li>Replay-enough = <code>git checkout &lt;sha&gt;</code> + walk the tree</li>
+        <li>Audit = signed commits + branch protection</li>
+      </ul>
+
+      <p class="note">Research direction for <a href="../">arizuko</a>. Cross-references the <a href="/pub/krons/agents/">agent research hub</a> (11 systems dissected). Framing session: ondrej × claude, 2026-05-23. Source: <code>/home/node/research/agent-hub-arizuko-next-steps.md</code>.</p>
+
+      <div class="docs-footer">
+        <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/strategy/index.html">Edit this page</a>
+        &middot; updated <time class="docs-updated" datetime="2026-10-15">2026-10-15</time>
+      </div>
+    </main>
+    <aside class="docs-toc" aria-label="On this page"></aside>
   </div>
-  <div class="tier-meta">4 weeks · Declarative composition</div>
-  <ul class="tier-items">
-    <li><code>agents.toml</code> schema (products + deployments) — committed to git, source of truth</li>
-    <li><code>arizuko plan</code> / <code>arizuko apply</code> verbs (Terraform-for-agents)</li>
-    <li><code>deployments</code> table in the store (cache; rebuildable from git)</li>
-    <li>Three canonical product templates: oncall, support, sales-assist</li>
-    <li>Folder/user-scope secrets layering (BYOA primitive) — specs/5/14-credentials.md</li>
-    <li><strong>Spec:</strong> specs/5/8-yaml-manifests.md — it decides the opposite of this card: the store is authoritative, the YAML manifest is a dump/import artifact, and no <code>agents.toml</code> is a source of truth</li>
-  </ul>
-</div>
-
-<div class="tier-card">
-  <div class="tier-header">
-    <div class="tier-icon">📊</div>
-    <h3 class="tier-title">Tier B</h3>
-  </div>
-  <div class="tier-meta">6 weeks · Monitoring + sandbox + git-as-event-log</div>
-  <ul class="tier-items">
-    <li><strong>Drop the bespoke events table.</strong> Gateway becomes the only git writer; commits per turn with sidecar event list</li>
-    <li>Projection function over working tree + the store's hot path → graph view for plan/dashd/fork/OTLP</li>
-    <li>OTLP-out via OpenLLMetry → Langfuse self-host (operator's choice)</li>
-    <li><s>gVisor RuntimeClass under existing Docker</s> — superseded. The turn is a KVM guest as of 6/41 step 4; the unwritten piece is a narrow AppArmor profile for <code>runed</code> itself.</li>
-  </ul>
-</div>
-
-<div class="tier-card">
-  <div class="tier-header">
-    <div class="tier-icon">📦</div>
-    <h3 class="tier-title">Tier C</h3>
-  </div>
-  <div class="tier-meta">10 weeks · Distribution + proof product</div>
-  <ul class="tier-items">
-    <li>Product registry = git repo of TOML files</li>
-    <li><code>arizuko fork &lt;folder&gt; --at &lt;commit&gt;</code> = <code>git worktree add</code> + spawn container against that worktree</li>
-    <li>Eval primitive — Haiku-judge as gated post-turn hook</li>
-    <li><strong>Ship oncall agent end-to-end</strong> through the whole pipeline as the proof</li>
-  </ul>
-</div>
-
-<div class="tier-card">
-  <div class="tier-header">
-    <div class="tier-icon">☸️</div>
-    <h3 class="tier-title">Tier D</h3>
-  </div>
-  <div class="tier-meta">When deals demand it · Enterprise</div>
-  <ul class="tier-items">
-    <li>Helm + multi-node — federation via <code>git remote</code> basically free</li>
-    <li>Signed product manifests + cosigned images</li>
-    <li>OPA/Rego as policy alternative</li>
-  </ul>
-</div>
-
-</div>
-
-<h2 class="section-title">Bridge: Agent Research → Platform Features</h2>
-
-<p style="color: var(--dim); margin-bottom: 1em;">For each major research topic, show how it becomes a shippable arizuko feature and which tier it slots into.</p>
-
-<div class="bridge-grid">
-
-<div class="bridge-card">
-  <div class="bridge-title"><a href="/pub/krons/agents/tools/">Tools & Security</a></div>
-  <div class="bridge-arrow">↓</div>
-  <div class="bridge-feature"><strong>Tier A:</strong> Per-product tool profiles in <code>agents.toml</code> (minimal/coding/messaging/full)<br><br>
-  <strong>Tier B:</strong> Hermes threat-pattern scanner (932 LOC) → product sandbox profiles with gVisor. Tap (credential injection proxy) already exists in specs/5/T — ships with Tier B.<br><br>
-  <strong>Research insight:</strong> Muaddib's host/guest tool split is cleanest privilege model; smolagents' code-first approach eliminates schemas. NanoClaw's IPC proxy = tap component.</div>
-</div>
-
-<div class="bridge-card">
-  <div class="bridge-title"><a href="/pub/krons/agents/memory/">Memory</a></div>
-  <div class="bridge-arrow">↓</div>
-  <div class="bridge-feature"><strong>Tier A Phase C:</strong> BYOA primitive = bring-your-own-pgvector as alternative to in-folder markdown. ElizaOS pgvector pattern, OpenClaw hybrid (vector + BM25).<br><br>
-  <strong>Tier C:</strong> Memory projection function: <code>MEMORY.md</code> + <code>.diary/</code> + <code>facts/</code> → unified queryable surface across all products.<br><br>
-  <strong>Research insight:</strong> All converge on markdown as substrate; differ on write safety (LLM-editable vs operator-only).</div>
-</div>
-
-<div class="bridge-card">
-  <div class="bridge-title"><a href="/pub/krons/agents/subagents/">Subagents</a></div>
-  <div class="bridge-arrow">↓</div>
-  <div class="bridge-feature"><strong>Tier A:</strong> Product mixins in <code>agents.toml</code>. Compose a support product from (base-agent + slack-responder + escalation-child) fragments.<br><br>
-  <strong>Already shipped:</strong> <code>delegate_group</code>, <code>escalate_group</code>, <code>observe_group</code> MCP tools. Per-folder isolation is one guest per turn, per folder.<br><br>
-  <strong>Research insight:</strong> Six trust models compared; we already ship the strongest (a hypervisor boundary per turn, per folder).</div>
-</div>
-
-<div class="bridge-card">
-  <div class="bridge-title"><a href="/pub/krons/agents/project-management/">Project Management</a></div>
-  <div class="bridge-arrow">↓</div>
-  <div class="bridge-feature"><strong>Tier C:</strong> Oncall agent proof — autonomous PM loop (Stripe ships 1,300 PRs/week from Slack messages, zero human interaction).<br><br>
-  <strong>Tier B:</strong> Git-as-event-log enables post-turn eval hooks (Aeon's Haiku-scores-Opus quality gate).<br><br>
-  <strong>Research insight:</strong> Autonomy spectrum maps to isolation strength. More autonomous = stronger boundaries needed.</div>
-</div>
-
-<div class="bridge-card">
-  <div class="bridge-title"><a href="/pub/krons/agents/patterns/">Building Blocks</a></div>
-  <div class="bridge-arrow">↓</div>
-  <div class="bridge-feature"><strong>Tier A:</strong> Doom loop prevention (max-turns cap, explicit continue required). Network isolation (per-spawn egress allowlist).<br><br>
-  <strong>Tier B:</strong> Harness engineering — per-product test harness in TOML. Blueprints = product templates.<br><br>
-  <strong>Research insight:</strong> 13 patterns distilled; most map directly to <code>agents.toml</code> declarative config.</div>
-</div>
-
-<div class="bridge-card">
-  <div class="bridge-title"><a href="/pub/krons/agents/aeon/">Aeon</a></div>
-  <div class="bridge-arrow">↓</div>
-  <div class="bridge-feature"><strong>Tier C:</strong> Self-healing batch loop = git-as-database (already Tier B direction) + Haiku quality gate (eval primitive) + reactive triggers (scheduled tasks already exist) + category repair playbooks (product templates).<br><br>
-  <strong>All mechanisms already designed.</strong> Tier C integrates them.<br><br>
-  <strong>Research insight:</strong> GitHub Actions runtime is the container orchestration we already have (Docker Compose).</div>
-</div>
-
-</div>
-
-<h2 class="section-title">What We Will NOT Do</h2>
-
-<ul style="line-height: 1.8; margin: 1em 0 1em 1.5em;">
-<li><strong>Runtime-graph fantasy</strong> — The interior of an agent is Turing-complete; don't model it. The organizational layer (products + deployments + folders + ACL + channels) IS a graph, expressed as files in git. No bespoke projection beyond <code>git checkout</code>.</li>
-<li><strong>Pure event-sourcing</strong> — ActiveGraph (arxiv:2605.21997) overreaches. Hard parts (bit-perfect replay across stochastic LLM calls, cheap-prefix-share fork, schema migration via events) are future work. We need enough history to analyze + improve + audit — not bit-perfect replay. Git already ships this.</li>
-<li><strong>K8s pre-emptive</strong> — Docker on a host the operator owns wins on operator burden until deals demand multi-node; <a href="../howto/kubernetes.html">the Kubernetes page</a> says which daemons can move and which cannot. Federation via <code>git remote</code> is Tier D (when revenue forces it).</li>
-</ul>
-
-<h2 class="section-title">Open Questions</h2>
-
-<ol style="line-height: 1.8; margin: 1em 0 1em 1.5em;">
-<li><strong>Inbound message storage</strong> — Per-day JSONL in git, or fully hot in the store? Lean per-day in git for replay-enough.</li>
-<li><strong>Crash recovery</strong> — Between a store write and a git commit, what's the recovery protocol? Idempotent reapply on restart?</li>
-<li><strong>Fork lifecycle</strong> — Does forked branch get its own container? Same DB? Separate cache? Spec the lifecycle.</li>
-<li><strong>Operator UX</strong> — <code>arizuko log</code>, <code>arizuko diff</code>, <code>arizuko revert</code> wrappers — what's the surface?</li>
-<li><strong>dashd admin write</strong> — Currently writes the store directly. Under GitOps: commit → apply, or commit-immediate-apply? Pick a default.</li>
-<li><strong>Tracing granularity vs audit granularity</strong> — Commit-per-turn loses sub-turn lineage; sidecar restores it; is sidecar enough or do we need per-event commits on a side branch?</li>
-<li><strong>Is "GitOps" the right term?</strong> Too K8s-coded? Substitute "git-native"? Sharper positioning vs Argo CD ("Argo CD for AI agent fleets") or against it?</li>
-</ol>
-
-<h2 class="section-title">Three-Lens Synthesis</h2>
-
-<table class="landscape-table">
-<tr>
-  <th>Lens</th>
-  <th>Status Under GitOps</th>
-</tr>
-<tr>
-  <td><strong>agent is data</strong></td>
-  <td>Data lives in git ✓</td>
-</tr>
-<tr>
-  <td><strong>agent-first platform</strong></td>
-  <td>MCP/REST verbs are git-aware mutations ✓</td>
-</tr>
-<tr>
-  <td><strong>agent is a graph</strong></td>
-  <td>Working tree IS the graph; commit DAG IS the lineage; no bespoke projection needed beyond <code>git checkout</code> ✓</td>
-</tr>
-</table>
-
-<p style="font-size: 0.9em; line-height: 1.6; color: var(--dim); margin-top: 1em;"><strong>Trace vs projection distinction:</strong><br>
-• Trace = <code>git log</code> (history, queryable)<br>
-• Projection = working tree at HEAD (current shape, queryable as graph)<br>
-• Fork = <code>git worktree add</code> on a sha + spawn container<br>
-• Replay-enough = <code>git checkout &lt;sha&gt;</code> + walk the tree<br>
-• Audit = signed commits + branch protection</p>
-
-<div class="hub-footer" style="margin-top: 3em; padding-top: 2em; border-top: 1px solid var(--border);">
-<p style="color: var(--dim); font-size: 0.9em; line-height: 1.6;">
-Research direction for <a href="../">arizuko</a>. Cross-references <a href="/pub/krons/agents/">agent research hub</a> (11 systems dissected). Framing session: ondrej × claude, 2026-05-23. Source: <code>/home/node/research/agent-hub-arizuko-next-steps.md</code>.
-</p>
-<p style="margin-top: 1em;"><a href="../">← back to arizuko</a> &middot; <a href="/pub/krons/agents/">agent research hub</a></p>
-</div>
-
-</div>
-
-<script src="../assets/hub.js"></script>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="../assets/hub.js"></script>
 </body>
 </html>

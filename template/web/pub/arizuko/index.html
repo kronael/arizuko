@@ -9,46 +9,9 @@
     />
     <title>arizuko — many specialized agents, one self-hosted platform</title>
     <link rel="stylesheet" href="assets/hub.css" />
-    <style>
-      .prose p {
-        margin: 0.6em 0;
-      }
-      .prose ul {
-        margin: 0.4em 0 0.8em 1.2em;
-      }
-      .prose li {
-        margin: 0.3em 0;
-      }
-      .prose pre {
-        margin: 0.6em 0;
-      }
-      .prose .grid {
-        margin: 0.8em 0;
-      }
-      .lede {
-        font-size: 1.05em;
-        color: var(--fg);
-        margin: 0.4em 0 1em;
-      }
-      .layer-table {
-        width: 100%;
-        border-collapse: collapse;
-        font-size: 0.9em;
-        margin: 0.8em 0;
-      }
-      .layer-table th, .layer-table td {
-        text-align: left;
-        padding: 0.4em 0.7em;
-        border-bottom: 1px solid var(--border, #333);
-      }
-      .layer-table th {
-        color: var(--dim, #888);
-        font-weight: normal;
-      }
-    </style>
   </head>
   <body>
-    <div class="hub-container prose">
+    <div class="hub-container">
       <h1>arizuko</h1>
       <p class="lede">
         arizuko hosts many specialized agents on one platform &mdash; each a
@@ -205,7 +168,7 @@ arizuko run demo                       # compose up; @mention the bot in a chann
 
       <h2>the stack</h2>
       <p>Those primitives stack into what you deploy and what you ship:</p>
-      <table class="layer-table">
+      <table>
         <tr><th>Layer</th><th>What it is</th><th>Examples</th></tr>
         <tr><td>Primitives</td><td>the concepts</td><td>Event, Routing, Agent, Authorization, Turn, State</td></tr>
         <tr><td>Components</td><td>Go packages</td><td><code>store</code>, <code>router</code>, <code>auth</code>, <code>runed</code></td></tr>
@@ -302,13 +265,17 @@ arizuko run demo                       # compose up; @mention the bot in a chann
         <li><a href="howto/">howto</a> &mdash; install, first channel,
           first message.</li>
         <li><a href="changelog/">changelog</a> &mdash; what shipped, dated.</li>
+        <li><a href="security/">security</a> &mdash; the threat model and the
+          operator&rsquo;s side of it.</li>
+        <li><a href="strategy/">strategy</a> &mdash; positioning and direction.</li>
+        <li><a href="research/">research</a> &mdash; longer write-ups.</li>
         <li>Threat model:
           <a href="https://github.com/kronael/arizuko/blob/main/SECURITY.md">SECURITY.md</a>;
           routing rules:
           <a href="https://github.com/kronael/arizuko/blob/main/ROUTING.md">ROUTING.md</a>.</li>
       </ul>
 
-      <p class="dim" style="margin-top: 2em; font-size: 0.9em">
+      <p class="dim">
         MIT &middot; Go, Docker and KVM.
       </p>
       <p class="docs-footer">updated <time class="docs-updated" datetime="2026-10-15">2026-10-15</time></p>

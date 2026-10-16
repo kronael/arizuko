@@ -245,7 +245,7 @@ h3 {
   align-items: start;
 }
 
-/* A page with no shell: landing, changelog, the section indexes. */
+/* A page with no shell: the landing page, and the redirect stubs. */
 .hub-container {
   max-width: var(--w-prose);
   margin: 0 auto;
@@ -317,16 +317,17 @@ h3 {
 .hub-container > ol,
 .hub-container > .lede { max-width: var(--measure); }
 
-.docs-content .lede {
+:is(.docs-content, .hub-container) .lede {
   font-size: var(--fs-lg);
   color: var(--fg);
   margin: var(--sp-1) 0 var(--sp-4);
 }
 
-.docs-content p { margin: var(--sp-2) 0; }
-.docs-content ul, .docs-content ol { margin: var(--sp-1) 0 var(--sp-3) 1.2em; }
-.docs-content li { margin: var(--sp-1) 0; }
-.docs-content pre { margin: var(--sp-2) 0; }
+:is(.docs-content, .hub-container) p { margin: var(--sp-2) 0; }
+:is(.docs-content, .hub-container) ul,
+:is(.docs-content, .hub-container) ol { margin: var(--sp-1) 0 var(--sp-3) 1.2em; }
+:is(.docs-content, .hub-container) li { margin: var(--sp-1) 0; }
+:is(.docs-content, .hub-container) pre { margin: var(--sp-2) 0; }
 .docs-content dl { margin: var(--sp-1) 0 var(--sp-4); }
 .docs-content dt { font-weight: 600; margin: var(--sp-2) 0 var(--sp-0); }
 .docs-content dd { margin: 0 0 var(--sp-1) 1.2em; }
@@ -441,19 +442,20 @@ pre code { background: none; padding: 0; border-radius: 0; font-size: inherit; }
 
 /* ==================== COMPONENT: TABLE ==================== */
 
-.docs-content table {
+:is(.docs-content, .hub-container) table {
   border-collapse: collapse;
   width: 100%;
   margin: var(--sp-2) 0;
   font-size: var(--fs-md);
 }
-.docs-content th, .docs-content td {
+:is(.docs-content, .hub-container) th,
+:is(.docs-content, .hub-container) td {
   border: 1px solid var(--border);
   padding: var(--sp-1) var(--sp-2);
   text-align: left;
   vertical-align: top;
 }
-.docs-content th { background: var(--code-bg); font-weight: 600; }
+:is(.docs-content, .hub-container) th { background: var(--code-bg); font-weight: 600; }
 .docs-content td.n {
   text-align: right;
   font-variant-numeric: tabular-nums;
@@ -494,6 +496,7 @@ pre code { background: none; padding: 0; border-radius: 0; font-size: inherit; }
   margin: var(--sp-3) 0;
   background: var(--card);
 }
+.docs-content .grid > .card { margin: 0; }
 .docs-content .card h2 {
   margin: 0 0 var(--sp-1);
   font-size: 1.1em;
