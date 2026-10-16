@@ -78,26 +78,3 @@ func (j GitHubJID) Topic() string {
 	}
 	return j.Kind + "/" + strconv.Itoa(j.Number)
 }
-
-const reviewTopicSeg = "/review/"
-
-// ReviewTopic is the Topic of one inline review discussion on this PR: the PR
-// topic plus the id of the comment that opened it. It is the thread id routd
-// hands back to the adapter as SendRequest.ThreadID.
-func (j GitHubJID) ReviewTopic(root int64) string {
-	return j.Topic() + reviewTopicSeg + strconv.FormatInt(root, 10)
-}
-
-// ReviewRoot returns the root comment id when topic is a ReviewTopic of this
-// PR; ok is false for any other topic.
-func (j GitHubJID) ReviewRoot(topic string) (root int64, ok bool) {
-	if j.Kind != "pr" {
-		return 0, false
-	}
-	rest, found := strings.CutPrefix(topic, j.Topic()+reviewTopicSeg)
-	if !found {
-		return 0, false
-	}
-	root, err := strconv.ParseInt(rest, 10, 64)
-	return root, err == nil && root > 0
-}

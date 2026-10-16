@@ -198,7 +198,6 @@ func mapEvent(kind, name, event, delivery string, body []byte, now time.Time) (m
 		Verb:       event,
 		IsGroup:    true,
 	}
-	var reviewRoot int64
 	switch event {
 	case "ping":
 		msg.Content = "ping: " + p.Zen
@@ -274,9 +273,7 @@ func mapEvent(kind, name, event, delivery string, body []byte, now time.Time) (m
 		jid.Kind, jid.Number = "pr", p.PullRequest.Number
 		msg.ID = "gh-c" + strconv.FormatInt(p.Comment.ID, 10)
 		msg.Timestamp = parseTime(p.Comment.CreatedAt, now).Unix()
-		reviewRoot = p.Comment.ID
 		if p.Comment.InReplyToID != 0 {
-			reviewRoot = p.Comment.InReplyToID
 			msg.ReplyTo = "gh-c" + strconv.FormatInt(p.Comment.InReplyToID, 10)
 		}
 		if p.Action == "created" {
@@ -306,9 +303,6 @@ func mapEvent(kind, name, event, delivery string, body []byte, now time.Time) (m
 	}
 	msg.ChatJID = jid.String()
 	msg.Topic = jid.Topic()
-	if reviewRoot != 0 {
-		msg.Topic = jid.ReviewTopic(reviewRoot)
-	}
 	msg.ChatName = strings.TrimPrefix(msg.ChatJID, "github:")
 	return msg, "", nil
 }

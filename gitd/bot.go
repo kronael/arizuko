@@ -93,11 +93,8 @@ func (b *bot) decorate(req *http.Request) {
 }
 
 // Send posts a comment on the issue or PR the JID names. GitHub keeps PR and
-// issue comments on one endpoint; a ThreadID that is a review topic
-// (GitHubJID.ReviewTopic) posts under that inline review thread instead, and
-// GitHub's refusal of a missing or foreign root is returned as is. Returns
-// "gh-c<id>", the id inbound uses for the same comment, so a later reply_to
-// resolves to this row.
+// issue comments on one endpoint. Returns "gh-c<id>", the id inbound uses for
+// the same comment, so a later reply_to resolves to this row.
 func (b *bot) Send(req chanlib.SendRequest) (string, error) {
 	j, ok := chanlib.ParseGitHubJID(req.ChatJID)
 	if !ok {
@@ -112,9 +109,6 @@ func (b *bot) Send(req chanlib.SendRequest) (string, error) {
 	}
 	body, _ := json.Marshal(map[string]string{"body": req.Content})
 	url := fmt.Sprintf("%s/repos/%s/%s/issues/%d/comments", b.cfg.APIBase, j.Owner, j.Repo, j.Number)
-	if root, ok := j.ReviewRoot(req.ThreadID); ok {
-		url = fmt.Sprintf("%s/repos/%s/%s/pulls/%d/comments/%d/replies", b.cfg.APIBase, j.Owner, j.Repo, j.Number, root)
-	}
 	hreq, err := http.NewRequest("POST", url, bytes.NewReader(body))
 	if err != nil {
 		return "", err
