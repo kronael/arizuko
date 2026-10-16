@@ -239,9 +239,23 @@ cannot until the token exists.
 - **Severity:** high — a turn runs, bills and produces nothing a user sees
 - **Scope:** `env/gitd.env` on sloth; `gitd/main.go:18` for the advertisement
 - **Affected:** sloth measured; any instance whose gitd has no token
-- **Status:** open — the token is an operator action, the platform half is `L411`
-- **Fix:** set `GITHUB_TOKEN` in sloth's `.env` and restart. The token needs
-  `issues:write` on `vumilan/morha` to post a PR comment.
+**The credential is NOT missing. It is on the other door.** The same turn ran
+with `shell_env:["GH_TOKEN"]` and `gh_write=true`, so the agent held a working
+GitHub token in its shell and could have posted the comment with `gh`. What is
+unset is `GITHUB_TOKEN` in gitd's own environment, which is a different door
+holding a different value ([[credential_by_its_door]]). `gitd/README.md`
+§Reply states it: without that var gitd is ingress-only and `reply` on a
+`github:` JID returns an Unsupported hint.
+
+So the agent took the `reply` verb when its granted door was `gh`. Whether
+gitd should hold a token at all, or whether the agent's shell credential is
+the only intended reply path, is undecided — `specs/6/27` does not say.
+
+- **Status:** open — the open part is WHICH door posts, not a missing token
+- **Fix:** undecided, two doors. Either give gitd its own `GITHUB_TOKEN` so
+  `reply` works for every folder, or state that the shell `GH_TOKEN` is the
+  reply path and make `reply` on a `github:` JID say so to the agent instead
+  of failing at delivery after the turn is paid for.
 
 ## L411 — a channel that advertises no send verb still takes the turn, so the cost is paid before anyone checks the reply can be delivered (2026-10-16, open — proposal, needs sign-off)
 
