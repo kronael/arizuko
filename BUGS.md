@@ -55,6 +55,16 @@ line; none can be answered from the code.
   a key set in `.env` takes its code default and every surface reads healthy.
   emaid's five auth keys are delivered; each remaining row needs a yes or no
   before the guard can ship.
+- `L423` — a GitHub outage at gitd's boot withdraws `send_text` until restart
+  while `/health` says ok: degrade only on a 401/403, retry on the heartbeat,
+  or exit and accept the compose cycle?
+- `L425` — emaid's XOAUTH2 refusal is pinned against a fake shaped to the code:
+  treat Google's bare `NO` as permanent now, or measure a Gmail mailbox first?
+- `L430` — a verdict handled at ingress skips message-id dedup and the
+  transcript and holds the inbound request on the ack's send: store the row
+  first, ack asynchronously, or state the shape in `specs/5/E-routd.md`?
+- `L431` — `inject_message` lets an agent write `/approve` as any sender: mark
+  injected rows so `handleCommand` skips them, or drop the `sender` parameter?
 
 **A contract or design decision, measured since.**
 
@@ -104,6 +114,19 @@ ones no measurement can settle.
   fills `ThreadID` from the topic. Both are wrong; repairing either changes
   what teled, discd and slakd receive.
 
+**Small fixes awaiting a go.** Each is bounded, and its entry names the fix.
+
+- `L426` — a failed thread-root lookup holds the dedup claim for a reply that
+  was never sent.
+- `L427` — gitd marks a delivery accepted before it knows the outcome.
+- `L428` — the web design guard passes shapes it should refuse, and a site that
+  loses fifteen sidebars.
+- `L429` — four classes the pages use have no rule in `hub.css`.
+- `L432` — codex and pi start fresh under the declared session id and
+  `submit_turn` overwrites it.
+- `L433` — nothing fails when an isolated turn's session is written back, or
+  when ant stops passing the declared id.
+
 **An operator action on live data.** The platform side is done in each.
 (`L334` is closed and carries one too: the third party's `**` on sloth is not
 revoked — see its entry.)
@@ -111,12 +134,11 @@ revoked — see its entry.)
 - `L318` — the 19 per-daemon store keys. The resource list is declared and
   checked; the ROLLOUT is the live-key rotation.
 - `L406` — `gitd` holds no store key, so enabling it restart-loops the instance.
-  It is removed from sloth and the stack is healthy; minting the key is `L319`,
-  and the refusal that should have stopped the enable is the platform half.
-- `L409` — the `vumilan/morha` webhook posts to sloth's App path and gitd refuses
-  it, so no GitHub delivery has ever been accepted. Repointing the repository
-  webhook needs admin on a repository `kronael` cannot administer; a flagged
-  bypass ships meanwhile so the path can be measured end to end.
+  gitd holds a key and runs on sloth; what is left is the refusal that should
+  stop an enable without a key, and the mint is `L319`.
+- `L409` — the `vumilan/morha` webhook posts to sloth's App path and gitd
+  refuses it without the flagged bypass. Deliveries are accepted behind the
+  bypass; repointing the webhook needs admin on `vumilan/morha`.
 - `L327` — which Discord channels should answer. The inversion CHECK shipped
   (`/eval` 22); which rows to renumber is your call.
 - `L308`, `L181`, `L131`, `L188`.
@@ -243,7 +265,7 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
 ## L422 — thirteen daemons read env keys generation never delivers, so setting them in .env does nothing (2026-10-16, open — needs sign-off)
 
 MEASURED 2026-10-16 with a guard written for this entry and parked at
-`/tmp/.../scratchpad/daemon_env_test.go.draft` (not committed, see below). It
+a session scratchpad draft, not committed (see below). It
 collects every key each daemon reads through `MustEnv`/`EnvOr`/`Getenv`,
 subtracts `daemonKeys`, `commonKeys` and the keys its own
 `template/services/<d>.yml` sets, and reports the rest:
@@ -260,10 +282,17 @@ gitd   CHANNEL_NAME GITHUB_API_URL
 teled discd slakd emaid  CHANNEL_NAME
 ```
 
-`compose.go:73` already names the class: "a var a daemon reads and compose
-never emits is silently dead, and this one left `6/44`'s gate armed over a
-counter nothing could increment". The operator sets the key, generation drops
-it, the daemon takes its code default, and every surface reports healthy.
+The census counts `MustEnv`/`EnvOr`/`Getenv` only; `EnvInt`/`EnvDur` readers
+are missed, so it is a lower bound — webd also reads `WEBHOOK_RATE_HOOK`,
+`WEBHOOK_RATE_WEB`, `CHAT_ANON_DOS_RPM` (`webd/main.go:48-50`) and slakd
+`SLAKD_STALE_SECONDS`, `SLAKD_WATCHDOG_SECONDS`, `SLAKD_STALE_FAIL_LIMIT`
+(`slakd/main.go:106-108`).
+
+`compose/compose.go:73-77` already names the class: "a var a daemon reads and
+compose never emits is silently dead, and this one left `6/44`'s gate armed
+over a counter nothing could scrape". The operator sets the key, generation
+drops it, the daemon takes its code default, and every surface reports
+healthy.
 
 **The emaid instance of this is FIXED** in the same pass: its five auth keys
 (`EMAIL_TRUSTED_AUTHSERV`, `EMAIL_TRUSTED_DOMAINS`, `EMAIL_STRICT_AUTH`,
@@ -286,17 +315,246 @@ names its scope by hand and stops covering what moves
   known
 - **Related:** [[ant_env_delivery]] is the same class on the agent side
 
+## L423 — a GitHub outage at gitd's boot withdraws `send_text` for the life of the process, and `/health` says ok (2026-10-16, open — needs a decision)
+
+`gitd/bot.go:65-67` returns the raw `http.Client.Do` error from `GET /user`, so a
+DNS failure, a timeout or a refused connection at boot reaches `verifyToken`
+(`gitd/main.go:73-83`) the same way a 401 does. It logs "github token refused",
+calls `SetCaps(capsFor(""))`, and nothing calls `start` again: `send_text` stays
+withdrawn until the process restarts. `bot.go:56` stores `connected=true` in a
+defer that runs on failure too, and `chanlib/handler.go` `handleHealth` reads
+only that flag, so `/health` answers 200 for an adapter that cannot post and
+has no login to drop its own comments with.
+
+The degraded mode is not the clean refusal the code claims. `gitd/main.go:13-16`
+and `gitd/README.md` say a withdrawn `send_text` gives the agent "a clean
+Unsupported hint". `chanreg/httpchan.go:150,188` return a plain
+`fmt.Errorf("send_text not supported")` — only voice, post, like, delete, pin,
+unpin, forward, quote and repost go through `chanlib.Unsupported` — and
+`ipc/ipc.go:759` then records the row `pending` and tells the agent "queued: the
+router re-sends this message — do NOT send it again". `L411` measured that
+state on sloth: 94 cents and ten retries for one comment nobody received.
+
+Before `1f52b893` the same transport error exited the daemon and compose
+restarted it, which was the retry; `L419` removed the exit because it cycled the
+whole project (`L406`).
+
+- **Severity:** medium — one transient at boot is a silent outage of replies
+  until someone restarts gitd
+- **Scope:** `gitd/bot.go:55-86`, `gitd/main.go:73-83`
+- **Options:** (a) degrade only on an HTTP 401/403 from `/user`; on a transport
+  error keep `send_text` advertised and let each `Send` fail and retry on its own
+  dedup claim; (b) retry `GET /user` on the heartbeat until it answers, then
+  restore the caps; (c) exit on a transport error as before and accept the
+  compose cycle.
+- **Default if nothing is decided:** the current behaviour stands — degraded
+  until restart, with the ERROR line as the only signal.
+- **Status:** open — needs a decision; no test — the right behaviour is the
+  decision
+
+## L425 — emaid's XOAUTH2 refusal is pinned against a fake shaped to the code, not to Google's documented exchange (2026-10-16, open — needs a decision)
+
+Google's XOAUTH2 page (developers.google.com/workspace/gmail/imap/xoauth2-protocol)
+ends the IMAP failure with `A01 NO SASL authentication failed` — no bracketed
+response code. `permanentAuthFailure` (`emaid/imap.go:119-135`) returns true
+only for `AUTHENTICATIONFAILED` or `AUTHORIZATIONFAILED`, so the documented
+refusal is retried through the backoff (`imap.go:162-168`), not stopped as
+`emaid/xoauth2.go:19-21`, `emaid/README.md` §"Access token expiry" and
+`TestIMAPAuthXOAUTH2RefusalIsPermanent` state. The test's fake server sends
+`NO [AUTHENTICATIONFAILED]` (`emaid/xoauth2_test.go:107`), which is the shape
+the code accepts, not the shape Google documents. go-imap writes the empty
+error-challenge response as `=`; Google's page shows a bare line; the test
+accepts either (`xoauth2_test.go:158-159`), so it passes whichever the client
+sends.
+
+SMTP: `emaid/server.go:183` returns `sendReply`'s plain error, so an expired
+token's 535 is a retryable failure to routd — ten attempts, and the agent told
+"queued" — where the README said "returns the server's 535 to the sender.
+Nothing retries".
+
+No instance runs emaid, so what Gmail actually answers is unmeasured; the
+encoder itself matches Google's worked example byte for byte
+(`TestXOAUTH2ResponseExact`, recomputed with `printf | base64`).
+
+- **Severity:** low — a daemon no instance runs; medium the day one does
+- **Scope:** `emaid/imap.go:119-135`, `emaid/server.go:183`, `emaid/xoauth2_test.go`
+- **Options:** (a) treat a bare `NO` that follows an XOAUTH2 error challenge as
+  permanent, and wrap the SMTP 535 in `chanlib.ErrPermanent`; (b) measure
+  against a Gmail mailbox first and pin the fake to what it sends.
+- **Default if nothing is decided:** the README states the code's behaviour
+  (retried on a bare NO; the 535 retried by routd) — done in this pass.
+- **Status:** open — needs a decision
+
+## L426 — a failed thread-root lookup holds the dedup claim as if a comment may have been posted (2026-10-16, open)
+
+`gitd/bot.go:155-160` `threadRoot` resolves an inline reply's root through the
+same `call` as the POST. `call` leaves a transport error unclassified on
+purpose: a lost response to a POST may have created the comment, so releasing
+the claim could post it twice (`L413`). A GET creates nothing, so the same
+treatment on the lookup holds the claim for a reply that was never sent; routd
+answers 502, `ClaimInflight` returns `ErrDeliveryUnresolved` on every sweep,
+and the row dead-letters after about an hour (`routd/loop.go:364-373`:
+30 s doubling to a 1 h cap, measured from the row's own timestamp) having
+posted nothing.
+
+- **Severity:** medium — a reply lost to one timeout on a read
+- **Scope:** `gitd/bot.go:112-160`
+- **Fix:** a transport error on the GET wraps `chanlib.ErrNotDelivered`; only
+  the POST stays unclassified. One branch in `call` keyed on the method, with a
+  test that times the lookup out and asserts the claim is released.
+- **Status:** open — small; fix with its test
+
+## L427 — gitd records a delivery as accepted before it knows the outcome (2026-10-16, open)
+
+`gitd/server.go:86` `markDelivery` runs before `SendMessage` (`:91`), so
+`lastInboundAt` and the dash's last-accepted-delivery advance for a webhook
+answered 400 ("routd refused") or 503 (`L415`). The timestamp predates the
+range (`989c440c:gitd/server.go:85`).
+
+- **Severity:** low — an operator reads "delivering" on a source whose
+  deliveries are refused
+- **Scope:** `gitd/server.go:86`
+- **Fix:** mark after the 202 branch. no test — ops
+- **Status:** open
+
+## L428 — the web design guard passes on a page that carries its own colour, and on a site that loses fifteen sidebars (2026-10-16, open)
+
+`tests/webdocs/design_test.go` detects a `<style` tag and a colour inside a
+quoted `style="…"` attribute. It passes on: a named colour (`style="color:
+white"`); `background: url(…)`; an unquoted `style=color:red`; an SVG
+`fill="#…"`/`stroke="#…"`; `<font color>`; a second `<link rel="stylesheet">`;
+`<style/media=all>`; an entity-hidden `#` (`&#35;ff0000`); `oklch(`, `lab(`,
+`light-dark(`. `TestWebDocsNavListsEverySection` skips a page with no
+`<nav class="docs-nav"` and its floor is 100 against 115 sidebars, so fifteen
+sidebars can vanish and the suite stays green (measured on a copy: 15 pass, 16
+fail). `hub.css` itself is read by no test: a raw hex outside `:root`, a
+gradient and a `border-left` accent — all in `template/web/CLAUDE.md`
+§Forbidden — pass. None of these shapes is on the live site today (0 `style=`
+attributes, 0 `<svg`, 120/120 pages link `hub.css`).
+
+- **Severity:** low — coverage gap, nothing live
+- **Scope:** `tests/webdocs/design_test.go`, `template/web/CLAUDE.md` §Forbidden
+- **Fix:** floors at the measured counts less a small slack; named colours and
+  the attribute shapes in `colourRe`; a hub.css check for a colour literal
+  outside the token blocks. no test — the entry is about the test
+- **Status:** open
+
+## L429 — four classes the pages use are defined nowhere, so the elements render unstyled (2026-10-16, open)
+
+`class="docs-updated"` on 114 pages, `group-header` on `reference/stats.html`,
+`tbl` on `reference/packages.html` and `docs-main` on `components/gitd.html`
+have no rule in `template/web/pub/arizuko/assets/hub.css`. All four predate the
+conversion (`989c440c`). `docs-updated` is part of the shell in
+`template/web/CLAUDE.md`, so it may be a deliberate unstyled hook; the other
+three read as leftovers.
+
+- **Severity:** low
+- **Scope:** `template/web/pub/arizuko/assets/hub.css`, the four pages
+- **Fix:** define or drop each; a test that every `class="…"` token resolves to
+  a hub.css rule would hold it. no test — docs
+- **Status:** open
+
+## L430 — a verdict handled at ingress skips message-id dedup and the transcript, and the inbound request waits on the ack's send (2026-10-16, open — needs a decision)
+
+`5c096b17` runs `/approve`, `/reject` and `/always` in `handleMessages`
+(`routd/server.go:511`, `routd/steer.go:156`) before `PutMessage`, so the held
+call is answered while the agent worker is busy (`L271`'s deadlock). Three
+things moved with it. `PutMessage` is where a duplicate id is a no-op
+(`store/messages.go:234`), so a redelivered verdict — the adapter's second
+attempt (`chanlib/chanlib.go:268`) or the retention sweep — runs again and
+acks "Failed: pending action … already resolved (by someone else)"; the state
+stays right because the conditional write refuses, the operator reads a wrong
+message. The verdict row is never stored, so it is absent from `find_messages`
+and the transcript (the pending_actions row keeps reviewer, time and note). And
+`l.ack` (`routd/steer.go:32`) calls `deliver.Send` synchronously inside the
+inbound handler, so the adapter's 10 s client timeout to routd
+(`chanlib/chanlib.go:98`) now covers an outbound send with a 30 s timeout of its
+own (`chanreg/httpchan.go:118`). `TestApprovalIngressWhileChatIsBusy` uses a nil
+deliverer and cannot see the ack or the timing. The set of people who may
+answer is unchanged — `resolveHoldInto` authorizes on the held row's folder —
+while the set of chats widens to unrouted ones.
+
+- **Severity:** medium — a correct state with a misleading ack, and a request
+  that can time out on the way to it
+- **Scope:** `routd/server.go:507-513`, `routd/steer.go:150-170`
+- **Options:** (a) `PutMessage` first, then the verdict, so the id dedups and
+  the transcript keeps the row; (b) ack asynchronously; (c) keep the shape and
+  state it in `specs/5/E-routd.md`.
+- **Default if nothing is decided:** the shape stands as shipped.
+- **Status:** open — needs a decision; no test — design
+
+## L431 — `inject_message` lets an agent write a `/approve` as any sender, so a folder holding that grant can answer its own held call (2026-10-16, open — needs sign-off)
+
+`ipc/ipc.go:1918` takes `sender` from the agent and `routd/mcp.go:113-116`
+stores the row with it. A row `Sender: telegram:user/<admin>`, content
+`/approve <id>`, reaches `handleCommand` at dispatch — the one path verdicts
+still take there after `5c096b17` consumed chat verdicts at ingress — and
+`resolveHoldInto` authorizes the forged sender against the held row's folder.
+Measured on an overlay test by the review sub: `status="approved"
+reviewed_by="telegram:user/operator"`. The same sender field authorizes
+`/root`, `/gate` and `/invite`. No default grant carries `inject_message`
+(`store/seed.go` seeds none); the grant is the only control. Predates the range.
+
+- **Severity:** high where the grant is held, none where it is not — a
+  hold is the gate that stops an agent acting alone, and this reopens it
+- **Scope:** `routd/mcp.go:113-116`, `routd/steer.go` `handleCommand`
+- **Options:** (a) mark injected rows (a `Sender` the agent cannot forge, e.g.
+  the `agent:` principal, or an attribute) and have `handleCommand` skip them;
+  (b) drop the `sender` parameter from `inject_message`.
+- **Default if nothing is decided:** no change; do not grant `inject_message`
+  to a folder that also holds admin-answerable holds.
+- **Status:** open — needs sign-off; a test asserting the injected `/approve`
+  leaves the hold `held` is the pin, written with the fix
+
+## L432 — the declared session id holds for claude only; codex and pi start fresh under it and `submit_turn` overwrites it (2026-10-16, open)
+
+`50fe8823` mints the topic's session id in routd before the run and ant's
+claude path creates the SDK session under it (`ant/src/claude.ts:493`,
+SDK 0.3.278 `sessionId`). codex runs `exec resume <id>` (`ant/src/codex.ts:41,80`)
+and pi `--session <id>` (`ant/src/pi.ts:52`) on an id that names no thread, so
+each reports a resume miss, starts fresh, and `recordTurnResult`
+(`routd/turns.go:236`) overwrites the stored id with the harness's own. A
+codex or pi turn killed before `submit_turn` still loses its thread, and the
+session_log records routd's id, not the harness's. `50fe8823`'s message says
+so; ARCHITECTURE.md's "the harness opens its session under that id" did not
+(corrected in this pass). Two smaller facts from the same change: the mint
+(`routd/dispatch.go:742`) is an unconditional upsert, so two dispatches that
+read "" together each mint and the last write wins — narrow under the
+per-folder queue; and a `PutSession` failure before the run surfaces as a WARN
+plus a queue ERROR and a re-feed, nothing in the chat.
+
+- **Severity:** low — continuity on codex and pi is what it was before the change
+- **Scope:** `ant/src/codex.ts`, `ant/src/pi.ts`, `routd/dispatch.go:735-747`
+- **Status:** open; no test — the harnesses are not run in the suite
+
+## L433 — nothing fails when an isolated turn's session is written back to the chat, or when ant stops passing the declared id (2026-10-16, open)
+
+`routd/turns.go:236` guards the write-back with `&& !isolated` (`L54`: a cron's
+throwaway transcript handed to the chat). Removing the guard passes the whole
+routd suite (`go test -overlay … ./routd/ -count=1 -short`, 495 s, ok); the
+three `persistSessionBackstop` tests that covered the backstop half went with
+the function in `50fe8823` and `routd/isolated_session_test.go` exercises
+`dispatchRun` only. On the ant side, deleting `sessionId: session.sessionId`
+(`ant/src/claude.ts:493`) fails no test (`bun test src/`, same result as the
+unmutated copy).
+
+- **Severity:** medium — the two halves of the session contract this release
+  rests on have no guard
+- **Scope:** `routd/turns_test.go` (a `recordTurnResult` case with an isolated
+  trigger asserting `SessionID(folder, topic)` unchanged), `ant/src/claude.test.ts`
+- **Status:** open — tests to write; this entry is the pin until they exist
+
 ## L413 — a GitHub timeout releases the dedup claim, so the retry posts the comment twice (2026-10-16, ✅ FIXED 2026-10-16 — `80b71cb6`)
 
 `gitd/bot.go:126` wraps EVERY `http.Client.Do` error — including a 15-second
 timeout fired after the request body went out — in `chanlib.ErrNotDelivered`.
-`chanlib/dedup.go:363` reads that sentinel as proof nothing was posted and
+`chanlib/dedup.go:90` reads that sentinel as proof nothing was posted and
 releases the claim. routd sees 502, keeps the row `pending`, and the sweep
 (`routd/loop.go:396`) re-sends the same key, which wins a fresh claim and
 POSTs again.
 
 teled and discd deliberately leave a transport error unclassified for exactly
-this reason: `teled/bot.go:503` and `discd/bot.go:735` both say "a lost
+this reason: `teled/bot_test.go:437` and `discd/bot.go:735` both say "a lost
 response may have sent the message". gitd is the one adapter that asserts it.
 
 - **Severity:** high — a duplicate comment on a public PR, from a timeout
@@ -310,23 +568,29 @@ response may have sent the message". gitd is the one adapter that asserts it.
 
 ## L414 — gitd's permanent refusal goes on the wire as 502, so it is retried ten times and the agent is told it is queued (2026-10-16, open)
 
-`gitd/bot.go:136` returns `ErrPermanent` for 401, 403, 404, 410 and 422 — a
+`gitd/bot.go:147` returns `ErrPermanent` for 401, 403, 404, 410 and 422 — a
 revoked token, a deleted or foreign review root. `chanlib/handler.go:490-520`
 has branches for Unsupported and `ErrInvalidRequest` only, so `ErrPermanent`
 falls through to 502, and `chanreg/httpchan.go:60` maps 502 to a transient
 error.
 
 Two consequences. `routd/loop.go:408` spends all 10 attempts on a doubling
-backoff, about four hours, before dead-lettering. On the MCP path
+backoff, about an hour (`routd/loop.go:364`: 30 s doubling to a 1 h cap,
+measured from the row's own timestamp), before dead-lettering. On the MCP path
 `ipc/ipc.go:750` records `pending` and tells the agent "queued: the router
 re-sends this message — do NOT send it again" about a message that will never
 send. gitd is the only adapter returning `ErrPermanent` from `Send`; the
 others return `ErrInvalidRequest`, which maps to 400.
 
 - **Severity:** high — the agent is told the opposite of what happened
-- **Scope:** `chanlib/handler.go` writeBotResult, or `gitd/bot.go:136`
+- **Scope:** `chanlib/handler.go` writeBotResult, or `gitd/bot.go:147`
 - **Status:** open — mapping `ErrPermanent` to 400 fixes it for every adapter
   at once, which makes it a contract change worth your sign-off
+
+Before `ErrPermanent` maps to 400, split the 403 rate-limit case: GitHub
+answers a primary or secondary rate limit with 403 or 429 (`retry-after`,
+`x-ratelimit-remaining: 0`), and `call` (`gitd/bot.go:112-148`) treats every
+403 as permanent, so the mapping alone would dead-letter a rate-limited reply.
 
 ## L415 — a webhook is answered 202 "retained" when the retention write itself failed (2026-10-16, ✅ FIXED 2026-10-16 — `27fc7ec2`)
 
@@ -395,18 +659,18 @@ the SEED, not by the operator.
 
 ## L418 — an edited, deleted or dismissed comment is dropped as a duplicate and nothing says so (2026-10-16, open)
 
-`gitd/event.go:262,275,293` give every action on a comment the OBJECT id, so
+`gitd/event.go:296,309,325` give every action on a comment the OBJECT id, so
 `issue_comment.edited` arrives as the same `gh-c<id>` as the create.
 `store/messages.go:236` makes a duplicate id a no-op, `GuardedBatch` returns
 `(false, nil)`, routd answers 200 and gitd answers 200. No row, no log line.
 
 Even stored, the mapping carries "login edited a comment" without the new
-body (`event.go:267`). A person who edits a comment to add an instruction gets
+body (`gitd/event.go:302`). A person who edits a comment to add an instruction gets
 nothing, and a deleted comment stays in the agent's context. No test covers
 these actions.
 
 - **Severity:** medium — silent, and editing a comment is ordinary behaviour
-- **Scope:** `gitd/event.go:262`
+- **Scope:** `gitd/event.go:296`
 - **Status:** open
 - **Fix:** the delivery id keys the row, the object id keys the thread — the
   shape `6/27`'s proposal section already prescribes.
@@ -434,8 +698,8 @@ registration for a dead adapter until the heartbeat expires.
 
 ## L420 — the agent's own comments re-enter as human events when the connector identity differs from gitd's (2026-10-16, open)
 
-The only loop guard is `gitd/server.go:82`, `sender.login` equal to gitd's own
-token login, plus the `type == "Bot"` check at `event.go:185`, which a PAT
+The only loop guard is `gitd/server.go:83-84`, `sender.login` equal to gitd's own
+token login, plus the `type == "Bot"` check at `gitd/event.go:213`, which a PAT
 user is not. A folder whose `GH_TOKEN` resolves to a DIFFERENT account than
 gitd's `GITHUB_TOKEN` gets a turn for every comment the agent posts through
 `gh` or the connector, and answering it posts again.
@@ -444,7 +708,7 @@ On sloth today all four secrets are one identity (`L410`), so no loop exists
 there. The guard holds by operational coincidence, not by rule.
 
 - **Severity:** high when it triggers — an unbounded self-reply loop that bills
-- **Scope:** `gitd/server.go:82`
+- **Scope:** `gitd/server.go:83-84`
 - **Status:** open
 - **Fix:** drop on a SET of known bot logins (gitd's plus each folder's
   connector identity), or record outbound comment ids and drop their echo.
@@ -597,7 +861,7 @@ earlier invite hunt is gone, so no secret needed copying between folders.
 
 The only gap was gitd's own door. `GITHUB_TOKEN` is set in
 `/srv/data/arizuko_sloth/.env` (backup `.env.bak-20261016-gitd`), which
-`compose/compose.go:233` copies into the generated `env/gitd.env`. After the
+`compose/compose.go:237` copies into the generated `env/gitd.env`. After the
 restart gitd logs `github token verified login=sloth-goth`, so `send_text` is
 advertised and the self-drop has an identity to compare against.
 
@@ -691,14 +955,15 @@ this widens nothing but the App path, and only when the flag is set.
 flag off and accepted with it on. The test fails when the guard is hard-coded
 either way.
 
-**The flag is set in `env/gitd.env` on sloth and nowhere else.** It is not in
-`template/services/gitd.yml`, so no other instance can inherit it, and
-`arizuko generate sloth` rewrites that file and drops it. A regenerate is
-therefore the undo.
+**The flag is set in `/srv/data/arizuko_sloth/.env`.**
+`template/services/gitd.yml:19` passes `GITHUB_APP_ACCEPTS_REPO:
+'${GITHUB_APP_ACCEPTS_REPO:-}'` to the container and defaults it to empty, so an
+instance carries the bypass only when its own `.env` sets it. The undo is
+removing it from `.env`.
 
 - **Severity:** medium — the bypass narrows an authorization check on one
   instance behind an explicit flag; leaving it set past the test is the risk
-- **Scope:** `gitd/event.go`, `env/gitd.env` on sloth
+- **Scope:** `gitd/event.go`, `template/services/gitd.yml`, `.env` on sloth
 - **Affected:** sloth only
 - **Status:** open — the bypass is LIVE on sloth and the path is PROVEN; the
   decision is which permanent shape wins, and the flag comes out when it lands
@@ -779,7 +1044,7 @@ enabled `gitd` had no command to run.
 are unaffected — that connector is `transport = "rest"` straight to
 `api.github.com`, and `gitd` is only the inbound receiver.
 
-## ✅ FIXED 2026-10-14 L407 — a failed turn reports the LAST 200 bytes of the agent's output, so the sentence naming the cause is cut off mid-word (2026-10-14)
+## ✅ FIXED 2026-10-16 L407 — a failed turn reports the LAST 200 bytes of the agent's output, so the sentence naming the cause is cut off mid-word (2026-10-14)
 
 MEASURED on sloth, twice today. The error routd recorded and the operator read
 begins mid-word:
@@ -810,6 +1075,10 @@ was wrong, and the sentence that would have settled it was the part thrown away.
   still cannot fill an audit row. `TestFailureReasonKeepsTheFront` fails on the
   old behaviour with `"ck frame\n..."` — the same mid-word cut, from the other
   end of the same output.
+
+`068d3170` kept the front of the whole buffer and lost the reason entirely
+(ant's startup lines come first); `3d4f0302` keeps the last line's first 200
+bytes. `runed/qemu_test.go` pins ant's order.
 
 ## L408 — one turn is dispatched up to seven times, seconds apart (2026-10-14, NOT A DEFECT — re-measured twice; the repeats are Busy refusals)
 
