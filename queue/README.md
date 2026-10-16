@@ -12,8 +12,8 @@ second guest. Circuit-breaks after 3 consecutive failures.
 ## Public API
 
 - `New(maxConcurrent int, ipcDir string) *GroupQueue`
-- `(*GroupQueue).SetProcessMessagesFn`, `SetHasPendingFn`, `SetNotifyErrorFn` — wired by gateway
-- `(*GroupQueue).EnqueueMessageCheck(groupJid)` — signal-only; queue calls back into gateway
+- `(*GroupQueue).SetProcessMessagesFn`, `SetFolderForJidFn` — wired by routd (`routd/loop.go:235-236`)
+- `(*GroupQueue).EnqueueMessageCheck(groupJid)` — signal-only; queue calls back into routd
 - `(*GroupQueue).RegisterProcess(groupJid, containerName, groupFolder)` — container started
 - `(*GroupQueue).SendMessages(groupJid, texts) bool` — steer into running container (writes one IPC input file per message)
 - `(*GroupQueue).ActiveCount() int`

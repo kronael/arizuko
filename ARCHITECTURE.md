@@ -220,7 +220,7 @@ packages add`); no proxyd or compose.go edits.
 - Telegram widget: rejects `auth_date` > 5min (replay protection)
 - OAuth: Google (optional `GOOGLE_ALLOWED_EMAILS`), GitHub (optional
   `GITHUB_ALLOWED_ORG`), Discord, Telegram widget; shared
-  `createOAuthSession` path in `auth/oauth.go`
+  `issueSession` path in `authd/oauth.go`
 
 ## Discoverability
 
@@ -610,9 +610,9 @@ runed (`POST /v1/runs`). runed performs the spawn:
      `ARIZUKO_ASSISTANT_NAME`, plus group overrides
    - boot the guest and wait for its `{exit}` frame. Per-turn results arrive
      over MCP (`submit_turn`), not stdout.
-   - Output: the agent's `submit_turn` carries the result, and a session id
-     only when the harness changed it; the run outcome returns on the
-     `/v1/runs` response.
+   - Output: the agent's `submit_turn` carries the result and the session id
+     the harness ran under; routd stores it (`routd/turns.go:236`) unless the
+     turn was isolated; the run outcome returns on the `/v1/runs` response.
    - Run timeout (`RUNED_RUN_TIMEOUT`): graceful stop then kill
    - Log: `groups/<folder>/logs/container-<ts>.log`
 
@@ -684,12 +684,16 @@ a number the agent chose, and a cap set on such an instance is enforced by
 nothing, which the gate says in the log.
 
 Session: routd mints the topic's session id when it has none and persists it
-in `sessions` BEFORE dispatch (`routd/dispatch.go`), and the harness opens
-its session under that id. A turn killed before `submit_turn` by a restart, a
-deadline or a crash is therefore resumed by the next turn in that topic
-(`routd/session_continuity_test.go`). Error with no output → evict session
-(cursor rolled back, retry). Error with output → cursor advances (partial
-work preserved).
+in `sessions` BEFORE dispatch (`routd/dispatch.go`). Claude opens its session
+under that id (SDK `sessionId`, `ant/src/claude.ts:493`), so a turn killed
+before `submit_turn` by a restart, a deadline or a crash is resumed by the next
+turn in that topic (`routd/session_continuity_test.go`). Codex and pi resume an
+id that names no thread, start fresh and report their own id, which
+`submit_turn` then stores (BUGS `L432`). Error with no reply → the cursor stays
+on the batch and the next poll re-feeds it, up to `maxTurnRetry` times and
+never after a terminal failure. Error with a reply, with retries exhausted or
+terminal → the messages are marked errored, the chat gets a failure notice and
+the cursor advances (`runTurn`, `routd/dispatch.go`).
 
 ## IPC (ipc package)
 
@@ -724,8 +728,8 @@ concurrency cap, circuit breaker, and steer at the spawn boundary.
 routd-side `GroupQueue`:
 
 - per-group active flag + container name; `EnqueueMessageCheck(jid)` is
-  signal-only — the queue calls back into routd's
-  `HasPendingMessages`/`processGroupMessages`
+  signal-only — the queue calls back into routd's `processGroupMessages`
+  (`routd/loop.go:235`, set with `SetProcessMessagesFn`)
 - a follow-up for a folder with a live turn is steered into it: routd
   dispatches to runed again, runed sends a `steer` ctl frame over vsock and
   waits for the guest's `steer_ack` (`runed/vmctl.go`), `guest-init` writes
@@ -798,7 +802,7 @@ row in `acl` (directly or via membership).
 
 Open design questions for proactive-operator delivery (not yet shipped):
 
-- Error / health-check trigger plumbing (`InsertSysMsg` from routd).
+- Error / health-check trigger plumbing.
 - Dedup / rate-limit policy for error bursts.
 - Listener-digest delivery format.
 

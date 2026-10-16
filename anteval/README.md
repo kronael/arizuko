@@ -24,7 +24,7 @@ arizuko token krons issue bearer eval --scope messages:write,messages:read,cost:
   --folder eval \                # folder owning --chat; anchors the root-session reset
   --sink-addr :9099 \            # local bind for the callback sink (routable iface)
   --sink  http://<host>:9099 \     # URL the agent guests call back to; a KVM guest cannot reach a docker-gateway address (BUGS L379)
-  --smoke                         # gate subset (9 cases); omit for all 22
+  --smoke                         # gate subset (9 cases); omit for all 23
 # selectors: --dimension web | --case pub-200 ; output: --md report.md --json report.json
 ./anteval dash report.json      # re-render a saved report
 make validate                     # load+validate the case catalog (no target)
@@ -41,7 +41,7 @@ never run it".
 noted in place in `cases/anteval.toml`): `--smoke` is the per-release gate —
 9 cases, ~10 min measured on a healthy run (krons 2026-08-21: passing cases
 22–156s, avg ~50s), bounded by the wall caps at ~21 min. The full catalog —
-22 cases, ~30 min healthy, ≤~55 min cap-bounded per backend — runs before a
+23 cases, ~30 min healthy, ≤~55 min cap-bounded per backend — runs before a
 tag and when certifying a backend (`ARIZUKO_BACKEND` = claude | codex | pi).
 The suite's cost is failure-dominated: a failing case burns its whole
 `max_wall_ms` (a misconfigured sink once made the catalog read ~4 min/case),

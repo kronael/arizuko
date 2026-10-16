@@ -342,8 +342,9 @@ unfiltered mode: runed refuses to start when the proxy binary is absent.
   Without the pin, a second guest on the same host could borrow a concurrent
   elevated turn's unrestricted allowlist.
 - A proxy that fails to start or never reports healthy FAILS THE TURN.
-- Allowlist baked into the proxy by runed at turn start from
-  `store.ResolveAllowlist(folder)` (folder ancestry walk + dedupe).
+- routd resolves the allowlist at dispatch (`routd/dispatch.go:755`, folder
+  ancestry walk + dedupe) and carries it in `RunRequest.EgressAllowlist`; runed
+  bakes that list into the proxy at turn start.
 - Default seed: `anthropic.com`, `api.anthropic.com`. Operators add
   rules via `arizuko network <instance> allow <folder> <target>`.
 - Unknown source IP or unmatched host → connection closed silently.

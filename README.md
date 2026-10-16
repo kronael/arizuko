@@ -169,11 +169,13 @@ webd    — web chat adapter + SSE hub
 proxyd  — auth-gated reverse proxy (`proxyd_routes`, read per request)
 davd    — WebDAV workspace (per group, dufs)
 dashd   — operator dashboards + admin CRUD
+vited   — web origin for `/pub/` pages behind proxyd (`vited/`)
 ```
 
-Each core daemon owns its tables and creates them at boot; no daemon touches
-another's. `DYNAMODB_URL` names the store server they all open their own
-tables on: ExtendDB speaking the DynamoDB protocol over PostgreSQL, one server
+Each daemon owns and creates its own tables; the daemons that also read
+routd's open its store under their own key, and `store/owner_reach.go`
+declares which daemon may reach which tables. `DYNAMODB_URL` names the store
+server they all open their tables on: ExtendDB speaking the DynamoDB protocol over PostgreSQL, one server
 per instance or one shared by several ([specs/6/42](specs/6/42-dynamo-over-postgres.md),
 [specs/6/43](specs/6/43-shared-store-server.md)). Adapters, `webd`, `proxyd`
 and `timed` call `routd`; `routd` calls `runed`; every daemon verifies tokens

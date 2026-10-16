@@ -58,7 +58,7 @@ body; a review requested from the bot; an issue or PR assigned to it. A review
 request carries no text, so the verb is its only signal. The same event aimed at
 someone else stays ambient. `verb=mention` also arrives once the agent has
 spoken in the thread (routd promotes it). Repo rows sit at seq 10/100, org at 20/200, app at
-30/300, so a narrower registration wins. Edit the rows (`arizuko routes`,
+30/300, so a narrower registration wins. Edit the rows (`arizuko route`,
 `/dash/routd/`) to change the split; gitd never decides it.
 
 ## Reply
@@ -74,21 +74,27 @@ opened the thread (GitHub accepts only that one) and posts to
 issue-comments endpoint, returning `gh-c<id>`. The topic stays `pr/<n>` either
 way — it names the session, never the address. The token's own
 comments are dropped at ingest (`sender.login` == the token's login), as is
-any `sender.type == "Bot"`. Without a token gitd is ingress-only and `reply`
-on a `github:` JID returns an Unsupported hint. A token GitHub REFUSES at boot
-lands in the same place: gitd logs the refusal at ERROR, withdraws `send_text`
+any `sender.type == "Bot"`. Without a token gitd is ingress-only: a `reply` on a
+`github:` JID fails with a plain `channel github: send_text not supported`
+(`chanreg/httpchan.go:150`), and on the MCP path `ipc/ipc.go:759` records the
+row pending and tells the agent it is queued (BUGS `L423`). Any `GET /user`
+failure at boot, a transport error included, lands in the same place (BUGS
+`L423`): gitd logs the failure at ERROR, withdraws `send_text`
 from the registration that already ran, and keeps serving ingress — exiting
 would cycle every daemon on the instance (BUGS `L406`).
 
 ## Env
 
-| var              | default                  | note                                          |
-| ---------------- | ------------------------ | --------------------------------------------- |
-| `ROUTER_URL`     | required                 |                                               |
-| `SECRETS_KEY`    | required                 | the keyring routd seals `github_sources` with |
-| `GITHUB_TOKEN`   | unset                    | enables `send_text`                           |
-| `GITHUB_API_URL` | `https://api.github.com` |                                               |
-| `LISTEN_ADDR`    | `:8080`                  |                                               |
+| var                       | default                  | note                                                                                   |
+| ------------------------- | ------------------------ | -------------------------------------------------------------------------------------- |
+| `ROUTER_URL`              | required                 |                                                                                        |
+| `SECRETS_KEY`             | required                 | the keyring routd seals `github_sources` with                                          |
+| `GITHUB_TOKEN`            | unset                    | enables `send_text`                                                                    |
+| `GITHUB_API_URL`          | `https://api.github.com` |                                                                                        |
+| `LISTEN_ADDR`             | `:8080`                  |                                                                                        |
+| `CHANNEL_NAME`            | `github`                 | the channel name gitd registers under                                                  |
+| `LISTEN_URL`              | `http://gitd:8080`       | the URL gitd registers with routd                                                      |
+| `GITHUB_APP_ACCEPTS_REPO` | unset                    | `1` lets an App source accept a repository delivery with no installation (BUGS `L409`) |
 
 ## Delivery response
 

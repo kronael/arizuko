@@ -64,16 +64,19 @@ References/In-Reply-To headers.
 - `EMAIL_UNVERIFIED_SUBJECT_PREFIX` — `true` prefixes `[UNVERIFIED]` on untrusted subjects; default `false` (signal in Verb only)
 - `EMAIL_VERIFY_DKIM` — tier-3 independent DKIM verification (pre-wired, not yet implemented)
 - `CHANNEL_NAME` (default `email`)
-- `ROUTER_URL`, `AUTHD_URL`, `AUTHD_SERVICE_KEY`, `AUTHD_SERVICE_NAME`, `LISTEN_ADDR` (default `:8080`), `LISTEN_URL` (default `http://email:9003`), `DATA_DIR` (default `/srv/data/emaid`), `MEDIA_MAX_FILE_BYTES` (default 20 MiB)
+- `ROUTER_URL`, `AUTHD_URL`, `AUTHD_SERVICE_KEY`, `AUTHD_SERVICE_NAME`, `LISTEN_ADDR` (default `:9003`), `LISTEN_URL` (default `http://email:9003`), `MEDIA_MAX_FILE_BYTES` (default 20 MiB)
 
 ## Access token expiry
 
 `EMAIL_ACCESS_TOKEN` is read once and never refreshed. An access token lasts about an
-hour (Google). When it expires the next IMAP login, on a reconnect, is refused: the
-poller stops, `/health` returns 503 and the log names the rejected credential. An SMTP
-send with an expired token returns the server's 535 to the sender. Nothing retries or
-falls back. To recover, set a new token and restart the instance. A refresh path (for
-example a Google service account) is not built.
+hour (Google). When it expires the next IMAP login, on a reconnect, is refused. The
+poller stops, `/health` returns 503 and the log names the rejected credential only when
+the refusal carries the response code `AUTHENTICATIONFAILED` or `AUTHORIZATIONFAILED`
+(`emaid/imap.go:119-135`). Google documents a bare `NO SASL authentication failed`,
+which the backoff retries (BUGS `L425`). An SMTP send with an expired token returns
+`sendReply`'s plain error (`emaid/server.go:183`), so routd retries the reply ten times
+and tells the agent it is queued (BUGS `L425`). To recover, set a new token and restart
+the instance. A refresh path (for example a Google service account) is not built.
 
 ## Health signal
 

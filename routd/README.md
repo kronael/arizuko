@@ -49,7 +49,7 @@ Spec: `specs/5/E`.
 ## Tables owned
 
 The `routd` owner — every one an objstore entity, made at boot by routd
-itself (`OpenAt` → `store.PrepareOwner`):
+itself (`Open` → `store.PrepareOwner`):
 
 - Message store: `messages` plus the four read-shaped indexes an append fans
   out into (`message_folders`, `message_folder_counts`, `message_activity`,

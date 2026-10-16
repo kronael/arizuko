@@ -368,8 +368,9 @@ its own Claude session, reply chain, and message history.
 - **Reply chain isolation**: `store.LastReplyID(jid, topic)` — each
   topic tracks its own last-sent message ID for reply threading.
 
-- **Web topic batching**: `processWebTopics` splits web messages by
-  topic and runs one agent per topic, serially.
+- **Web topic batching**: `groupByTopic` (on `consecutiveRuns`,
+  `routd/dispatch.go:616`) splits web messages into consecutive same-topic
+  runs and dispatches one turn per run, serially.
 
 - **Lineage (spec 5/F)**: every non-main topic carries
   `parent_topic`, `forked_at`, `observed_cursor` in `sessions`. New
@@ -474,9 +475,9 @@ reply. Updated in three cases:
 1. **Bot sends a chunk** — `SetLastReply` to the bot's sent message ID
 2. **Steering message** — when a follow-up is steered into a live turn,
    routd sets `lastReplyID` to the steering message's ID
-3. **New agent run** — starts from `firstMsgID` (triggering user message),
-   then re-reads `GetLastReplyID` before each chunk to pick up mid-run
-   steering updates
+3. **New agent run** — `SetLastReply` seeds the batch's last user message
+   (`routd/dispatch.go:364`), then `GetLastReplyID` is re-read before each
+   chunk to pick up mid-run steering updates
 
 Topics forked via `fork_topic` inherit the parent's last-reply context as
 their starting anchor but advance the child's `lastReplyID` independently.
@@ -530,26 +531,33 @@ The chat's own item carries it: `chats.sticky_group` (a group folder) and
 
 ## HTTP Routing (proxyd)
 
-proxyd evaluates each inbound HTTP request against a fixed list of path
-prefixes, then falls through to a DB-backed `web_routes` table, then
-applies a default auth-gate.
+proxyd answers a few hard-wired prefixes in `proxyd/main.go`, then matches the
+seeded `proxyd_routes` rows, and redirects a path nothing matched to `/pub<path>`.
 
-### Fixed prefixes (evaluated first, in order)
+### Hard-wired prefixes (`proxyd/main.go`)
 
-| Path prefix         | Behaviour                                                                                            |
-| ------------------- | ---------------------------------------------------------------------------------------------------- |
-| `/chat/`, `/hook/`  | route-token surfaces — no auth required                                                              |
-| `/pair/`            | identity pairing — JWT-gated; an anonymous visitor bounces through OAuth and returns to the same URL |
-| `/pub/`             | the public web tree, served by vited — no auth required; `<data>/web/pub/`                           |
-| `/assets/`          | webd's embedded browser SDK — no auth required; `/chat/<token>/config` advertises the path           |
-| `/priv/`            | JWT-gated; serves `<data>/web/priv/`, a separate tree                                                |
-| `/auth/`, `/health` | proxyd's own login flow and liveness                                                                 |
-| `/dav/`             | JWT-gated WebDAV, group-scoped, with write-blocked paths (`davAllow`)                                |
+| Path prefix | Behaviour                                                                                   |
+| ----------- | ------------------------------------------------------------------------------------------- |
+| `/health`   | proxyd's own liveness                                                                       |
+| `/pub/`     | the public web tree, served by vited — no auth required; `<data>/web/pub/`                  |
+| `/priv`     | JWT-gated; serves `<data>/web/priv/`, a separate tree                                       |
+| `/dav/`     | JWT-gated WebDAV, group-scoped, with write-blocked paths (`davAllow`)                       |
+| `/auth/`    | proxyd's own login flow; a path under it that no handler answers goes through `requireAuth` |
 
-Every other path goes through the `proxyd_routes` rows, then the `web_routes`
-table below, then the default auth gate. A request with no valid credential
-is redirected to `/auth/login`, with the original path kept in an
-`auth_return` cookie for ten minutes.
+### Seeded `proxyd_routes` rows (`compose/compose.go:519-536`)
+
+These are rows in the table, not code in `proxyd/main.go`; an operator can edit them.
+
+| Path prefix        | Behaviour                                                                                            |
+| ------------------ | ---------------------------------------------------------------------------------------------------- |
+| `/chat/`, `/hook/` | route-token surfaces — no auth required                                                              |
+| `/pair/`           | identity pairing — JWT-gated; an anonymous visitor bounces through OAuth and returns to the same URL |
+| `/assets/`         | webd's embedded browser SDK — no auth required; `/chat/<token>/config` advertises the path           |
+
+A path no row matches redirects to `/pub<path>` (`proxyd/main.go:614`). Only
+`/auth/*` falls to `requireAuth` (`proxyd/main.go:602-606`); the request is
+redirected to `/auth/login` when it carries no valid credential, with the
+original path kept in an `auth_return` cookie for ten minutes.
 
 ### web_routes (dynamic, store-backed)
 

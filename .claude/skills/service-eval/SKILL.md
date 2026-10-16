@@ -1,6 +1,6 @@
 ---
 name: service-eval
-description: Evaluate the live arizuko fleet and named tenant groups through the canonical operational checks. NOT for product adoption or adversarial review; use cto-eval, ceo-eval or red-eval.
+description: Evaluate the live arizuko fleet and named tenant groups through the canonical operational checks. NOT for product adoption or adversarial review; use the `eval` skill's CTO, CEO or red lens.
 when_to_use: "service eval, eval all, eval rhias, evaluate fleet health, understand current agent behavior"
 user-invocable: true
 ---
