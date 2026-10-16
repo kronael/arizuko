@@ -350,11 +350,11 @@ there. The guard holds by operational coincidence, not by rule.
 - **Fix:** drop on a SET of known bot logins (gitd's plus each folder's
   connector identity), or record outbound comment ids and drop their echo.
 
-## L412 — an answer to an inline review comment lands in the conversation tab, not under the code line (2026-10-16, open)
+## L412 — an answer to an inline review comment lands in the conversation tab, not under the code line (2026-10-16, ✅ FIXED 2026-10-16 — `e60b890b`)
 
 MEASURED on `vumilan/morha` PR 277, 2026-10-16. An inline review comment IS
-ingested — `gitd/event.go:269` maps `pull_request_review_comment` — and the
-agent answers it correctly:
+ingested — `gitd/event.go` maps `pull_request_review_comment` — and the agent
+answered it correctly:
 
 ```
 17:00:14 inline review comment on BUGS.md:2358 (kronael)
@@ -363,31 +363,78 @@ agent answers it correctly:
          not an issue comment."
 ```
 
-The answer is right and it is in the WRONG PLACE. It appears in the PR
-conversation tab, detached from the code line that prompted it, while
-`/pulls/277/comments` still shows only the human's comment. A reviewer
-reading the diff never sees it.
+The answer was right and in the WRONG PLACE: the PR conversation tab, detached
+from the code line that prompted it, while `/pulls/277/comments` showed only the
+human's comment. A reviewer reading the diff never saw it. `gitd/bot.go` always
+posted to `/repos/<o>/<r>/issues/<n>/comments`.
 
-`gitd/bot.go:98` always posts to `/repos/<o>/<r>/issues/<n>/comments`. A
-review reply needs `POST /pulls/<n>/comments/<root_id>/replies`, where
-`root_id` is the comment that opened the thread.
+**The shape that shipped.** `SendRequest.ReplyTo` is the address, and gitd reads
+it. Review comments carry their own id namespace, `gh-rc<id>`, inbound and
+outbound: GitHub keeps review comments and issue comments in separate id spaces
+behind separate endpoints, and a bare number cannot say which one it names. A
+`gh-rc` reply target on a `pr` JID posts to `pulls/<n>/comments/<root>/replies`;
+everything else keeps the issue-comments endpoint. The topic stays `pr/<n>` —
+one session per pull request.
 
-**No new vocabulary is needed.** `chanlib.SendRequest` already carries
-`ThreadID` and `ThreadRoot`, whose documented meaning is exactly this, and
-`mapEvent` already sets `msg.ReplyTo` for a reply within a thread. The gap
-is that the thread root is dropped for the FIRST comment of a thread
-(`InReplyToID == 0`), and that `Send` ignores the thread fields.
+`Send` resolves the thread root with a GET before posting, which costs one extra
+API call per inline reply. It is not avoidable: GitHub takes only a top-level
+review comment as a reply target ("replies to replies are not supported"), while
+the anchor routd hands back is `last.ID`, the comment that triggered the turn —
+a reply as often as the root.
 
-- **Severity:** medium — code review is the main use and the answer misses
-  its target; nothing is lost, it is misplaced
-- **Scope:** `gitd/event.go` mapEvent, `gitd/bot.go` Send, the routd hop
-  that fills `SendRequest.ThreadID`
-- **Affected:** any instance; the behaviour is in the code
-- **Status:** open
-- **Correction:** this entry first said the reply was DISCARDED. It was not.
-  I checked `/pulls/277/comments` and never `/issues/277/comments`, and read
-  the wrong place as nowhere — the same error shape as
-  [[attempt_line_is_not_work]].
+**TRIED AND REVERTED: encoding the thread root in the topic.** `17c48337` made
+the topic `pr/<n>/review/<root>` and had `Send` parse the root back out of it.
+A topic is a SESSION key — which conversation this belongs to — not an ADDRESS.
+Overloading it cost two things at once:
+
+- every inline thread became its own session, so one submitted review of N
+  inline comments cost N+1 turns in N sessions that each opened blind;
+- repairing that took a second commit, `c8755c15`, which taught
+  `routd/dispatch.go` to fork a topic from its nearest `/`-prefix holding a
+  session — giving `/` a global meaning in the topic namespace for EVERY
+  adapter, to serve one channel's addressing need.
+
+Both are reverted (`3420d45e`, `34533e4e`). Do not put an address in a session
+key; the threading primitive already existed.
+
+- **Severity:** medium — code review is the main use and the answer missed its
+  target; nothing was lost, it was misplaced
+- **Scope:** `gitd/event.go` mapEvent, `gitd/bot.go` Send
+- **Affected:** any instance; the behaviour was in the code
+- **Status:** ✅ FIXED — `gitd/bot_test.go`
+  `TestSend_InlineReviewReplyTargetsThreadRoot` (root and mid-thread anchors)
+  and `TestSend_OrdinaryCommentTargetsIssueComments`
+- **Correction:** this entry first said the reply was DISCARDED. It was not. I
+  checked `/pulls/277/comments` and never `/issues/277/comments`, and read the
+  wrong place as nowhere — the same error shape as [[attempt_line_is_not_work]].
+
+## L421 — routd never hands an adapter the inbound message's own thread identity (2026-10-16, open)
+
+Found while fixing `L412`. Two sites, both real, both left alone because the
+repair is a cross-adapter contract change:
+
+- `routd/turns.go:98` `replyThreadRoot` returns `""` whenever the turn has a
+  topic, so a topic-carrying channel never sees `ThreadRoot` at all.
+- `deliverRow` and `mcp.go` `mcpDeliver` fill `SendRequest.ThreadID` from the
+  turn's TOPIC, not from the thread the inbound message arrived on.
+
+The second is not a bug for teled, discd or slakd: their topic IS the native
+thread id (telegram `message_thread_id`, a discord thread channel, a slack
+`thread_ts`), so topic and thread identity are the same string by construction.
+gitd is the first channel where a conversation has a session key and a thread
+address that are different things, which is what exposed the gap.
+
+Changing either site changes what all four adapters receive, so it needs a
+decision rather than a patch. `InboundMsg` has no thread field to carry the
+answer today, so the options are: add one and fill `ThreadID` from it, or accept
+that a channel whose thread address differs from its topic addresses replies
+through `ReplyTo`, as gitd now does.
+
+- **Severity:** low — nothing is broken today; it is a contract that only one
+  channel has needed
+- **Scope:** `routd/turns.go` replyThreadRoot, `routd/turns.go` deliverRow,
+  `routd/mcp.go` mcpDeliver, `chanlib/handler.go` SendRequest
+- **Status:** open — needs the owner; a redesign, per the standing policy
 
 ## L410 — gitd has no GitHub token on sloth, so every agent reply to a PR is written, paid for and then thrown away (2026-10-16, ✅ FIXED 2026-10-16 — the round trip is still unmeasured)
 
