@@ -72,3 +72,27 @@ func TestGitHubJIDTopic(t *testing.T) {
 		}
 	}
 }
+
+func TestGitHubJIDReviewTopic(t *testing.T) {
+	pr, _ := ParseGitHubJID("github:kronael/arizuko/pr/12")
+	topic := pr.ReviewTopic(5678901200)
+	if topic != "pr/12/review/5678901200" {
+		t.Fatalf("ReviewTopic = %q", topic)
+	}
+	if root, ok := pr.ReviewRoot(topic); !ok || root != 5678901200 {
+		t.Errorf("ReviewRoot(%q) = %d, %v", topic, root, ok)
+	}
+	other, _ := ParseGitHubJID("github:kronael/arizuko/pr/13")
+	issue, _ := ParseGitHubJID("github:kronael/arizuko/issue/12")
+	for _, c := range []struct {
+		j     GitHubJID
+		topic string
+	}{
+		{pr, "pr/12"}, {pr, ""}, {pr, "#triage"}, {pr, "pr/12/review/"}, {pr, "pr/12/review/x"},
+		{pr, "pr/12/review/0"}, {pr, "pr/12/review/-3"}, {other, topic}, {issue, "issue/12/review/5"},
+	} {
+		if root, ok := c.j.ReviewRoot(c.topic); ok {
+			t.Errorf("%v.ReviewRoot(%q) = %d, want not a review topic", c.j, c.topic, root)
+		}
+	}
+}

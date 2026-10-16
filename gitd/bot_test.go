@@ -56,6 +56,39 @@ func TestSend_PostsComment(t *testing.T) {
 	}
 }
 
+func TestSend_Endpoint(t *testing.T) {
+	cases := []struct{ name, jid, threadID, path string }{
+		{"review thread", "github:kronael/arizuko/pr/12", "pr/12/review/5678901200",
+			"/repos/kronael/arizuko/pulls/12/comments/5678901200/replies"},
+		{"pr topic", "github:kronael/arizuko/pr/12", "pr/12", "/repos/kronael/arizuko/issues/12/comments"},
+		{"no thread", "github:kronael/arizuko/pr/12", "", "/repos/kronael/arizuko/issues/12/comments"},
+		{"issue topic", "github:kronael/arizuko/issue/3", "issue/3", "/repos/kronael/arizuko/issues/3/comments"},
+		{"review topic of another pr", "github:kronael/arizuko/pr/12", "pr/13/review/5678901200",
+			"/repos/kronael/arizuko/issues/12/comments"},
+		{"sticky topic", "github:kronael/arizuko/pr/12", "#triage", "/repos/kronael/arizuko/issues/12/comments"},
+	}
+	for _, c := range cases {
+		gh, reqs, _ := fakeGitHub(t, 201, `{"id":888}`)
+		b := newBot(config{Token: "ghp_test", APIBase: gh.URL})
+		id, err := b.Send(chanlib.SendRequest{ChatJID: c.jid, ThreadID: c.threadID, Content: "x"})
+		if err != nil || id != "gh-c888" {
+			t.Fatalf("%s: Send = %q, %v", c.name, id, err)
+		}
+		if r := (*reqs)[0]; r.Method != "POST" || r.URL.Path != c.path {
+			t.Errorf("%s: request = %s %s, want POST %s", c.name, r.Method, r.URL.Path, c.path)
+		}
+	}
+}
+
+func TestSend_ReviewRootRefused(t *testing.T) {
+	gh, _, _ := fakeGitHub(t, 404, `{"message":"Not Found"}`)
+	b := newBot(config{Token: "ghp_test", APIBase: gh.URL})
+	_, err := b.Send(chanlib.SendRequest{ChatJID: "github:kronael/arizuko/pr/12", ThreadID: "pr/12/review/1", Content: "x"})
+	if !errors.Is(err, chanlib.ErrPermanent) {
+		t.Errorf("404 on a review root err = %v, want ErrPermanent", err)
+	}
+}
+
 func TestSend_Refusals(t *testing.T) {
 	gh, _, _ := fakeGitHub(t, 422, `{"message":"Validation Failed"}`)
 	b := newBot(config{Token: "ghp_test", APIBase: gh.URL})

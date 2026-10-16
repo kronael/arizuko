@@ -39,6 +39,7 @@ refused with 400 even when the signature is valid.
 github:<owner>                    account/org-level event (no repository)
 github:<owner>/<repo>             repo-level event (push, release, …)
 github:<owner>/<repo>/pr/<n>      one pull request   topic=pr/<n>
+                                  inline review thread   topic=pr/<n>/review/<root-comment-id>
 github:<owner>/<repo>/issue/<n>   one issue          topic=issue/<n>
 ```
 
@@ -61,7 +62,10 @@ triggers a turn; every other event (push, merge, label, CI) lands as
 
 `send_text` is the only verb, advertised only when `GITHUB_TOKEN` is set: it
 posts the agent's reply as a comment on the PR or issue the JID names and
-returns `gh-c<id>`, the id the same comment carries inbound. The token's own
+returns `gh-c<id>`, the id the same comment carries inbound. A turn on an
+inline review thread (topic `pr/<n>/review/<root>`) replies under that thread
+through `POST /pulls/<n>/comments/<root>/replies`; GitHub's refusal of a
+missing or foreign root is returned, never redirected to the conversation. The token's own
 comments are dropped at ingest (`sender.login` == the token's login), as is
 any `sender.type == "Bot"`. Without a token gitd is ingress-only and `reply`
 on a `github:` JID returns an Unsupported hint.

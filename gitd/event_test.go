@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"errors"
 	"os"
 	"slices"
@@ -60,7 +61,7 @@ func TestMapEvent_Fixtures(t *testing.T) {
 		{"issue_comment_created_crackbox", "issue_comment", "github:kronael/crackbox/issue/7", "message", "issue/7", "gh-c4567890999",
 			"github:rhias", "", "Reproduced on 6.1; the proxy PID file is stale.",
 			time.Date(2026, 9, 5, 10, 6, 0, 0, time.UTC).Unix()},
-		{"pull_request_review_comment_created", "pull_request_review_comment", "github:kronael/arizuko/pr/12", "message", "pr/12", "gh-c5678901234",
+		{"pull_request_review_comment_created", "pull_request_review_comment", "github:kronael/arizuko/pr/12", "message", "pr/12/review/5678901200", "gh-c5678901234",
 			"github:kronael", "gh-c5678901200", "on gitd/verify.go:\n\nConstant-time compare — good. Also reject an empty secret.",
 			time.Date(2026, 9, 5, 10, 7, 15, 0, time.UTC).Unix()},
 	}
@@ -81,6 +82,23 @@ func TestMapEvent_Fixtures(t *testing.T) {
 		if _, ok := chanlib.ParseGitHubJID(msg.ChatJID); !ok {
 			t.Errorf("%s: %q does not parse as a GitHub JID", c.file, msg.ChatJID)
 		}
+	}
+}
+
+// The first comment of an inline review thread roots its own topic; a reply
+// carries the root's id, so every comment of one thread lands on one topic.
+func TestMapEvent_ReviewThreadRoot(t *testing.T) {
+	reply := fixture(t, "pull_request_review_comment_created")
+	root := bytes.Replace(reply, []byte(`"in_reply_to_id": 5678901200,`), nil, 1)
+	if bytes.Equal(root, reply) {
+		t.Fatal("fixture has no in_reply_to_id to strip")
+	}
+	msg, drop, err := mapEvent(store.GitHubSourceApp, "arizuko-krons", "pull_request_review_comment", "d-root", root, fixedNow)
+	if err != nil || drop != "" {
+		t.Fatalf("err=%v drop=%q", err, drop)
+	}
+	if msg.Topic != "pr/12/review/5678901234" || msg.ReplyTo != "" {
+		t.Errorf("root comment: topic=%q reply_to=%q", msg.Topic, msg.ReplyTo)
 	}
 }
 

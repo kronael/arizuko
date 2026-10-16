@@ -88,8 +88,9 @@ routes and the App default. Operators change that split through the existing rou
 Route globs use `path.Match`; `*` does not cross `/`.
 Live engagement can trigger later events on that thread before the observe route applies
 ([`Q-unified-routing.md`](../5/Q-unified-routing.md)). Review replies retain `gh-c<id>` reply pointers.
-`gitd/bot.go` ignores `SendRequest.ThreadID` and `ReplyTo`: every outbound comment uses
-the issue-comments endpoint, including replies to inline review comments.
+`gitd/bot.go` ignores `ReplyTo`. A review comment's topic is `pr/<n>/review/<root-comment-id>`
+(`GitHubJID.ReviewTopic`), and routd returns it as `SendRequest.ThreadID`: that reply uses the
+review-comment reply endpoint, every other outbound comment the issue-comments endpoint.
 
 ## Repository workspace proposal — unapproved
 
