@@ -82,6 +82,10 @@ revoked — see its entry.)
 - `L406` — `gitd` holds no store key, so enabling it restart-loops the instance.
   It is removed from sloth and the stack is healthy; minting the key is `L319`,
   and the refusal that should have stopped the enable is the platform half.
+- `L409` — the `vumilan/morha` webhook posts to sloth's App path and gitd refuses
+  it, so no GitHub delivery has ever been accepted. Repointing the repository
+  webhook needs admin on a repository `kronael` cannot administer; a flagged
+  bypass ships meanwhile so the path can be measured end to end.
 - `L327` — which Discord channels should answer. The inversion CHECK shipped
   (`/eval` 22); which rows to renumber is your call.
 - `L308`, `L181`, `L131`, `L188`.
@@ -204,6 +208,67 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
 - **`L15` — the 2026-08-11 dead-code sweep's rejected hits.** `deadcode ./...` gave 149
   hits, 56 under `-test`; nine survived verification and were filed separately. Kept so
   the next sweep does not re-report the same ~135.
+
+## L409 — a plain repository webhook posted to an App source's path is refused, and no end-to-end GitHub ingress has ever been measured (2026-10-16, open — TEMPORARY BYPASS SHIPPED, the real fix is next week)
+
+MEASURED on sloth. A comment was posted on `https://github.com/vumilan/morha/pull/278`
+(`issuecomment-6215829896`). GitHub delivered it, proxyd passed it, and gitd
+answered 400:
+
+```
+POST /github/app/sloth → 400
+gitd: "github webhook: rejected" source=app/sloth event=issue_comment
+      err="not an App delivery: no installation in payload"
+```
+
+The 400 and not a 401 is the material fact: the signature verified, so the
+repository holds the `app/sloth` secret. `checkSource` then refused the body
+because an App-kind source demands an `installation` (`gitd/event.go`).
+
+Two sources exist for sloth (`arizuko get sloth github_sources`):
+
+| source | path | kind |
+| --- | --- | --- |
+| `app/sloth` | `/github/app/sloth` | App — demands an installation |
+| `repo/vumilan/morha` | `/github/repo/vumilan/morha` | repo — binds on owner/login |
+
+The repository posts to the first. `last_inbound_at` is `0`: gitd has accepted
+no delivery since it was enabled on 2026-10-14, so the whole ingress path —
+proxyd route, secret unseal, JID, route match, turn — is unproven in production.
+
+**The operator fix needs repository admin.** Changing the webhook URL to
+`https://sloth.quantblue.tech/github/repo/vumilan/morha` costs nothing and
+needs no code, but `kronael` has push and not admin on `vumilan/morha`.
+
+**The bypass, shipped to unblock the end-to-end measurement.**
+`GITHUB_APP_ACCEPTS_REPO=1` makes an App-kind source also accept a delivery
+with no installation. The secret still has to verify, so the sender holds the
+credential. What it gives up is the binding: an App source no longer proves the
+delivery belongs to an installation the App owns, so any repository holding
+that secret can speak on that path. A repo-kind source keeps its own binding —
+this widens nothing but the App path, and only when the flag is set.
+
+`TestMapEvent_AppAcceptsRepoWhenFlagged` pins both halves, refused with the
+flag off and accepted with it on. The test fails when the guard is hard-coded
+either way.
+
+**The flag is set in `env/gitd.env` on sloth and nowhere else.** It is not in
+`template/services/gitd.yml`, so no other instance can inherit it, and
+`arizuko generate sloth` rewrites that file and drops it. A regenerate is
+therefore the undo.
+
+- **Severity:** medium — the bypass narrows an authorization check on one
+  instance behind an explicit flag; leaving it set past the test is the risk
+- **Scope:** `gitd/event.go`, `env/gitd.env` on sloth
+- **Affected:** sloth only
+- **Status:** open — the bypass ships for the end-to-end test; the decision is
+  which permanent shape wins
+- **Fix (the two candidates, neither chosen):**
+  1. The operator repoints the repository webhook at its repo-kind path and the
+     flag is deleted. No code survives.
+  2. The receiver stops making the path's KIND decide what a payload must
+     carry, and resolves the source by what the payload names. That changes the
+     containment contract `6/27` states, so it is a redesign and needs sign-off.
 
 ## L406 — enabling a store-reading daemon without a store identity restart-loops the whole instance (2026-10-14, open — the mint is an operator action)
 

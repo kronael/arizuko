@@ -89,6 +89,13 @@ type payload struct {
 
 var errSourceMismatch = errors.New("payload repository outside the registered source")
 
+// appAcceptsRepo lets an App-kind source also accept a plain repository
+// delivery, which carries no installation. GITHUB_APP_ACCEPTS_REPO sets it.
+// The secret still has to verify, so the sender holds the credential, but the
+// delivery is no longer bound to an installation the App owns: any repository
+// holding that secret can speak on the source's path. Spec 6/27 and BUGS L409.
+var appAcceptsRepo = chanlib.EnvOr("GITHUB_APP_ACCEPTS_REPO", "") == "1"
+
 // checkSource binds the payload to the registered source the path named: a
 // repo hook may only speak for its repo, an org hook for its org's repos, and
 // an App delivery must carry an installation (its ping precedes any install).
@@ -113,7 +120,7 @@ func checkSource(kind, name, event string, p *payload) error {
 			return errSourceMismatch
 		}
 	case store.GitHubSourceApp:
-		if p.Installation == nil && event != "ping" {
+		if p.Installation == nil && event != "ping" && !appAcceptsRepo {
 			return errors.New("not an App delivery: no installation in payload")
 		}
 	default:

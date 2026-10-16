@@ -210,3 +210,27 @@ func TestMapEvent_UnknownEventLandsOnRepo(t *testing.T) {
 		t.Fatalf("missing delivery id: %v", err)
 	}
 }
+
+// TestMapEvent_AppAcceptsRepoWhenFlagged pins the GITHUB_APP_ACCEPTS_REPO
+// bypass: an App-kind source takes a plain repository delivery, which carries
+// no installation, and the JID still names the repository. BUGS L409.
+func TestMapEvent_AppAcceptsRepoWhenFlagged(t *testing.T) {
+	noInstall := []byte(`{"action":"created","sender":{"login":"a","type":"User"},
+		"issue":{"number":7,"title":"t"},"comment":{"body":"hello"},
+		"repository":{"name":"r","full_name":"a/r","owner":{"login":"a"}}}`)
+
+	if _, _, err := mapEvent(store.GitHubSourceApp, "x", "issue_comment", "d", noInstall, fixedNow); err == nil {
+		t.Fatal("app source accepted a delivery without an installation while the flag is off")
+	}
+
+	appAcceptsRepo = true
+	t.Cleanup(func() { appAcceptsRepo = false })
+
+	msg, drop, err := mapEvent(store.GitHubSourceApp, "x", "issue_comment", "d", noInstall, fixedNow)
+	if err != nil || drop != "" {
+		t.Fatalf("flagged delivery refused: drop=%q err=%v", drop, err)
+	}
+	if want := "github:a/r/issue/7"; msg.ChatJID != want {
+		t.Errorf("ChatJID = %q, want %q", msg.ChatJID, want)
+	}
+}
