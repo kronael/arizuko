@@ -531,3 +531,20 @@ func TestHandlerSend_BodyIsCapped(t *testing.T) {
 		t.Fatalf("bot.Send saw %+v; an oversize body must never reach the adapter", bot.sendReq)
 	}
 }
+
+// bot.Send returning ErrPermanent — a revoked credential, a deleted thread —
+// must produce 400 too. At 502 chanreg read the refusal as transient: routd
+// spent all ten attempts on it and the MCP path told the agent the router
+// would re-send a message that never sends (BUGS L414).
+func TestHandlerSendPermanentRefusal(t *testing.T) {
+	bot := &mockBot{sendErr: fmt.Errorf("%w: github 401 Unauthorized", ErrPermanent)}
+	h := mux(bot)
+	body, _ := json.Marshal(map[string]string{"chat_jid": "test:1", "content": "hi"})
+	req := httptest.NewRequest("POST", "/send", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer secret")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != 400 {
+		t.Fatalf("status = %d, want 400: routd reads 4xx as the refusal it is", w.Code)
+	}
+}

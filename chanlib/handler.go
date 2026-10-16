@@ -513,7 +513,11 @@ func writeBotResult(w http.ResponseWriter, id string, err error) {
 		WriteErr(w, 501, "unsupported")
 		return
 	}
-	if errors.Is(err, ErrInvalidRequest) {
+	// Both say a retry cannot repair this, and 400 is the one status routd
+	// reads that way (chanreg classifyStatus). Left at 502 a permanent refusal
+	// read as transient: routd spent all ten attempts on it and the MCP path
+	// told the agent the router would re-send a message that never sends.
+	if errors.Is(err, ErrInvalidRequest) || errors.Is(err, ErrPermanent) {
 		WriteErr(w, 400, err.Error())
 		return
 	}

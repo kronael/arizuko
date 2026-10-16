@@ -114,13 +114,16 @@ claim-release does for the Go adapters.
 
 **The adapter classifies its own platform failures** — the site that
 sees the platform response holds the proof (same rule as runed's
-terminal-vs-retryable, `12-turn-retry.md`). Three sentinel classes in
+terminal-vs-retryable, `12-turn-retry.md`). Four sentinel classes in
 `chanlib`: `ErrInvalidRequest`/`ErrUnsupported` (caller-side, → 400/501,
-routd dead-letters at once), `ErrNotDelivered` (a TRANSIENT refusal that
-proves nothing was posted — a 429, an application-level `ok:false` — the
-dedup claim is released and the 502 lets the sweep retry on a fresh
-claim), and everything else (ambiguous: a 5xx or a transport error may
-have posted, the claim stays held, resends are refused until routd
+routd dead-letters at once), `ErrPermanent` (the platform refuses this
+message for good — a revoked credential, a deleted thread — also → 400,
+because 4xx is the one answer routd reads as a refusal),
+`ErrNotDelivered` (a TRANSIENT refusal that proves nothing was posted —
+a 429, an application-level `ok:false` — the dedup claim is released
+and the 502 lets the sweep retry on a fresh claim), and everything
+else (ambiguous: a 5xx or a transport error may have posted, the claim
+stays held, resends are refused until routd
 dead-letters). Without the middle class every adapter-side rate limit
 poisoned the claim and turned the sweep's whole backoff budget into
 refusals — a plain 429 became a guaranteed dead-letter. Chunked senders
