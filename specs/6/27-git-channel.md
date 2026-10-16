@@ -430,6 +430,9 @@ Permanent refusals return an error. A gitd outage still requires GitHub
 redelivery. Stable comment/delivery IDs give routd's message store its replay boundary;
 GitHub's HMAC does not attest a timestamp. `mapEvent` drops Bot senders, and token-backed
 startup learns the token user's login so `handleWebhook` also drops that user's comments.
+A token GitHub refuses at startup is not fatal: gitd withdraws `send_text` through
+`RouterClient.SetCaps` and serves ingress only, because exiting cycles the whole
+compose project. Without that login the self-drop is inactive.
 
 GitHub logins are mutable, so login-based principals can transfer after a rename.
 App JWTs, token refresh, App bot replies, and App-token discovery are absent.

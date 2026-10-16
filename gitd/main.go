@@ -51,14 +51,35 @@ func main() {
 			// restarting must not lose the event: retain and re-deliver.
 			rc.RetainInbound(ctx, as.Chan)
 			b := newBot(cfg)
-			if err := b.start(ctx); err != nil {
-				slog.Error("github token check failed", "err", err)
-				return nil, nil, err
-			}
+			verifyToken(ctx, b, rc)
 			srv := newServer(cfg, b, st, as.Chan, rc)
 			return srv.handler(), func() { b.stop(); _ = as.Close(); _ = st.Close() }, nil
 		},
 	})
+}
+
+// capSetter is the registration gitd revises when its token turns out dead.
+type capSetter interface {
+	SetCaps(map[string]bool) error
+}
+
+// verifyToken learns the token's login so ingest can drop gitd's own comments.
+// A refusal is NOT fatal: chanlib.Run exits on a Start error, and a daemon
+// that exits at boot cycles the whole compose project (BUGS L406), so one
+// credential gating ONE verb would take every daemon on the instance down.
+// gitd degrades to ingress-only and withdraws send_text: rc.Register already
+// ran, so routd would otherwise keep routing replies to an adapter that
+// cannot post them.
+func verifyToken(ctx context.Context, b *bot, rc capSetter) {
+	err := b.start(ctx)
+	if err == nil {
+		return
+	}
+	slog.Error("github token refused; gitd runs ingress-only, send_text is withdrawn, and gitd's own comments are no longer dropped at ingest",
+		"err", err)
+	if rerr := rc.SetCaps(capsFor("")); rerr != nil {
+		slog.Error("withdrawing send_text failed; routd still routes replies to gitd", "err", rerr)
+	}
 }
 
 type config struct {

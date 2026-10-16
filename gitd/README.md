@@ -71,7 +71,10 @@ issue-comments endpoint, returning `gh-c<id>`. The topic stays `pr/<n>` either
 way — it names the session, never the address. The token's own
 comments are dropped at ingest (`sender.login` == the token's login), as is
 any `sender.type == "Bot"`. Without a token gitd is ingress-only and `reply`
-on a `github:` JID returns an Unsupported hint.
+on a `github:` JID returns an Unsupported hint. A token GitHub REFUSES at boot
+lands in the same place: gitd logs the refusal at ERROR, withdraws `send_text`
+from the registration that already ran, and keeps serving ingress — exiting
+would cycle every daemon on the instance (BUGS `L406`).
 
 ## Env
 

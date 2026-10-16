@@ -169,6 +169,19 @@ func (r *RouterClient) Register(name, url string, prefixes []string, caps map[st
 	return resp.Token, nil
 }
 
+// SetCaps re-registers with caps in place of the ones Register carried, so
+// routd stops routing a verb this adapter turned out not to be able to
+// honour. The saved registration is what the heartbeat refreshes from, so the
+// change survives every refresh.
+func (r *RouterClient) SetCaps(caps map[string]bool) error {
+	name, url, prefixes, _ := r.savedRegistration()
+	if name == "" {
+		return fmt.Errorf("set caps: no saved registration (Register was never called)")
+	}
+	_, err := r.Register(name, url, prefixes, caps)
+	return err
+}
+
 // savedRegistration returns the parameters of the last successful Register.
 // An empty name means Register never ran.
 func (r *RouterClient) savedRegistration() (name, url string, prefixes []string, caps map[string]bool) {
