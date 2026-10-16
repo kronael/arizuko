@@ -10,10 +10,9 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
-// capsFor advertises send_text only when a token can post the comment, so a
-// tokenless ingress-only gitd returns a clean Unsupported hint on `reply`
-// instead of failing the call. Every other verb is Unsupported: repo state
-// changes go through the GitHub MCP connector (spec 6/27 decision 2).
+// capsFor advertises send_text only when a token can post the comment; every
+// other verb is Unsupported: repo state changes go through the GitHub MCP
+// connector (specs/6/27-git-channel.md § Channel messages and repository tools).
 func capsFor(token string) map[string]bool {
 	return map[string]bool{"send_text": token != ""}
 }
