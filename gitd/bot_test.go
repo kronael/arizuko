@@ -216,3 +216,66 @@ func TestSend_TransportFailureIsUnclassified(t *testing.T) {
 		t.Errorf("timeout err = %v, want unclassified: a retry can still deliver it", err)
 	}
 }
+
+// A GET creates nothing, so a lost response cannot have posted the reply.
+// Leaving the thread lookup unclassified holds the dedup claim for a comment
+// GitHub never saw, and routd dead-letters it an hour later having posted
+// nothing (BUGS L426).
+func TestSend_ThreadLookupTimeoutReleasesTheClaim(t *testing.T) {
+	block := make(chan struct{})
+	gh := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			<-block
+			return
+		}
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"id":888}`))
+	}))
+	// LIFO: the handler is released BEFORE Close waits for it to return.
+	defer gh.Close()
+	defer close(block)
+	b := newBot(config{Token: "ghp_test", APIBase: gh.URL})
+	b.http = &http.Client{Timeout: 50 * time.Millisecond}
+
+	_, err := b.Send(chanlib.SendRequest{ChatJID: "github:kronael/arizuko/pr/12",
+		ReplyTo: "gh-rc5678901200", Content: "x"})
+
+	if !errors.Is(err, chanlib.ErrNotDelivered) {
+		t.Errorf("thread lookup timeout err = %v, want ErrNotDelivered: nothing was posted", err)
+	}
+}
+
+// GitHub answers a rate limit with 403 as well as 429, and a permanent refusal
+// dead-letters the reply at once, so the two 403s must not read the same.
+func TestCall_RateLimited403IsRetryable(t *testing.T) {
+	for _, c := range []struct {
+		name    string
+		headers map[string]string
+		want    error
+	}{
+		{"a refused credential", nil, chanlib.ErrPermanent},
+		{"a primary rate limit", map[string]string{"X-RateLimit-Remaining": "0"}, chanlib.ErrNotDelivered},
+		{"a secondary rate limit", map[string]string{"Retry-After": "60"}, chanlib.ErrNotDelivered},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			gh := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				for k, v := range c.headers {
+					w.Header().Set(k, v)
+				}
+				w.WriteHeader(http.StatusForbidden)
+				_, _ = w.Write([]byte(`{"message":"Forbidden"}`))
+			}))
+			defer gh.Close()
+			b := newBot(config{Token: "ghp_test", APIBase: gh.URL})
+
+			_, err := b.Send(chanlib.SendRequest{ChatJID: "github:kronael/arizuko/pr/12", Content: "x"})
+
+			if !errors.Is(err, c.want) {
+				t.Errorf("403 err = %v, want %v", err, c.want)
+			}
+			if c.want == chanlib.ErrNotDelivered && errors.Is(err, chanlib.ErrPermanent) {
+				t.Errorf("403 err = %v is permanent too; the reply dead-letters", err)
+			}
+		})
+	}
+}

@@ -109,11 +109,20 @@ func reviewCommentID(replyTo string) (int64, bool) {
 	return id, err == nil && id > 0
 }
 
+// isRateLimited answers whether GitHub refused this response to slow the client
+// down rather than for good. Both the primary and the secondary limit answer
+// 403 as well as 429, and the signals the REST reference names are a
+// retry-after header or x-ratelimit-remaining: 0
+// (docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api).
+func isRateLimited(h http.Header) bool {
+	return h.Get("Retry-After") != "" || h.Get("X-RateLimit-Remaining") == "0"
+}
+
 // call makes one GitHub request and classifies the refusal the way the outbound
-// sweep reads it: 429 and 5xx are worth another attempt, every other status is
-// permanent. It is the ONE place gitd turns a status into an error, so the reply
-// and the thread lookup cannot read the same status differently. Only a
-// response GitHub actually sent is classified at all.
+// sweep reads it: 429, 5xx and a rate-limited 403 are worth another attempt,
+// every other status is permanent. It is the ONE place gitd turns a status into
+// an error, so the reply and the thread lookup cannot read the same status
+// differently.
 func (b *bot) call(method, url string, body []byte, want int) ([]byte, error) {
 	var rdr io.Reader
 	if body != nil {
@@ -129,11 +138,15 @@ func (b *bot) call(method, url string, body []byte, want int) ([]byte, error) {
 	}
 	resp, err := b.http.Do(hreq)
 	if err != nil {
-		// Unclassified: the client timeout fires after the request body went
-		// out, so a lost response may have created the comment. ErrNotDelivered
-		// would release the dedup claim and the sweep would post a second one,
+		// A GET creates nothing, so a lost response cannot have posted a
+		// comment and the dedup claim is free to release. On a POST the client
+		// timeout fires after the request body went out, so a lost response may
+		// have created the comment: releasing the claim would post a second one
 		// on a public PR. teled and discd leave a transport error unclassified
 		// for the same reason; the claim stays and routd dead-letters visibly.
+		if method == http.MethodGet {
+			return nil, fmt.Errorf("%w: github request: %w", chanlib.ErrNotDelivered, err)
+		}
 		return nil, fmt.Errorf("github request: %w", err)
 	}
 	defer resp.Body.Close() //nolint:errcheck
@@ -141,7 +154,8 @@ func (b *bot) call(method, url string, body []byte, want int) ([]byte, error) {
 	switch {
 	case resp.StatusCode == want:
 		return raw, nil
-	case resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500:
+	case resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 ||
+		(resp.StatusCode == http.StatusForbidden && isRateLimited(resp.Header)):
 		return nil, fmt.Errorf("%w: github %s: %s", chanlib.ErrNotDelivered, resp.Status, bytes.TrimSpace(raw))
 	default:
 		return nil, fmt.Errorf("%w: github %s: %s", chanlib.ErrPermanent, resp.Status, bytes.TrimSpace(raw))
