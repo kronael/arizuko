@@ -3,7 +3,7 @@ status: shipped
 depends: [B-route-mode-ingestion]
 relates-to:
   [4/23-topic-routing, 3/Y-thread-routing, 3/a-sticky-routing, G-engagement]
-revision: 6
+revision: 7
 ---
 
 # specs/5/F — topic lineage: forks + per-topic observed cursor
@@ -49,6 +49,11 @@ Trigger sites, all one function
    session.
 3. When the trigger message has a `reply_to_id`, the parent is
    `TopicByMessageID(reply_to_id)` rather than main.
+4. When that gives no parent (no `reply_to_id`, or one whose message sits on
+   main or in the child topic itself), the parent is the nearest proper
+   prefix of the child's `/`-separated path that already has a session
+   (`pr/5/review/77` → `pr/5`), else main. A prefix without a session is
+   skipped; none is created.
 
 Only the parent argument differs.
 

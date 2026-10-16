@@ -217,3 +217,121 @@ func TestInheritParentSession_ExplicitForkWithNoParentKeepsObservedWindow(t *tes
 			line.ObservedCursor)
 	}
 }
+
+// A first turn in a nested topic (`a/b/c`) with no reply to inherit from forks
+// from the nearest session above it on its path, through the real dispatch
+// path. An inline GitHub review thread (`pr/5/review/77`) has no reply_to on
+// its root comment; it opened blind to the PR it is on.
+func TestRunTurn_PathTopicForksFromNearestSessionAbove(t *testing.T) {
+	const (
+		jid         = "github:o/r/pr/5"
+		reviewTopic = "pr/5/review/77"
+	)
+	cases := []struct {
+		name    string
+		replyTo string
+		seedMsg bool
+	}{
+		{name: "no reply"},
+		{name: "reply to the thread's own ambient root", replyTo: "root77", seedMsg: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			db, loop := newForkLoop(t)
+			folder := "demo"
+			if err := db.PutGroup(core.Group{Folder: folder}); err != nil {
+				t.Fatal(err)
+			}
+			doSetRoutes(t, db, []core.Route{{Match: "platform=github", Target: folder}})
+			projDir := seedParentSession(t, loop, db, folder, "pr/5", "pr-uuid", []byte("pr history\n"))
+			if tc.seedMsg {
+				if err := db.PutMessage(core.Message{ID: tc.replyTo, ChatJID: jid, Sender: "u1",
+					Content: "root", Topic: reviewTopic, Timestamp: time.Now().UTC().Add(-time.Minute),
+					Verb: "message"}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := db.PutMessage(core.Message{ID: "m1", ChatJID: jid, Sender: "u1",
+				Content: "on a.go:\nwhy?", Topic: reviewTopic, ReplyToID: tc.replyTo,
+				Timestamp: time.Now().UTC(), Verb: "message"}); err != nil {
+				t.Fatal(err)
+			}
+
+			if _, err := loop.processGroupMessages(jid); err != nil {
+				t.Fatalf("process: %v", err)
+			}
+
+			childUUID := db.SessionID(folder, reviewTopic)
+			if childUUID == "" {
+				t.Fatal("review topic has no session row")
+			}
+			got, err := os.ReadFile(filepath.Join(projDir, childUUID+".jsonl"))
+			if err != nil {
+				t.Fatalf("review topic did not inherit the PR session: %v", err)
+			}
+			if string(got) != "pr history\n" {
+				t.Errorf("review topic transcript = %q, want the PR's", got)
+			}
+			if line, _ := db.TopicLineage(folder, reviewTopic); line.ParentTopic == nil || *line.ParentTopic != "pr/5" {
+				t.Errorf("parent topic = %v, want pr/5", line.ParentTopic)
+			}
+		})
+	}
+}
+
+// The first event on a PR is an inline comment, so no `pr/5` session exists:
+// the review topic forks from main as any parentless topic does, and no row is
+// invented for a prefix.
+func TestRunTurn_PathTopicWithNoSessionAboveForksFromMain(t *testing.T) {
+	const (
+		jid         = "github:o/r/pr/5"
+		reviewTopic = "pr/5/review/77"
+	)
+	db, loop := newForkLoop(t)
+	folder := "demo"
+	if err := db.PutGroup(core.Group{Folder: folder}); err != nil {
+		t.Fatal(err)
+	}
+	doSetRoutes(t, db, []core.Route{{Match: "platform=github", Target: folder}})
+	projDir := seedParentSession(t, loop, db, folder, "", "main-uuid", []byte("main history\n"))
+	if err := db.PutMessage(core.Message{ID: "m1", ChatJID: jid, Sender: "u1",
+		Content: "on a.go:\nwhy?", Topic: reviewTopic, Timestamp: time.Now().UTC(),
+		Verb: "message"}); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := loop.processGroupMessages(jid); err != nil {
+		t.Fatalf("process: %v", err)
+	}
+
+	childUUID := db.SessionID(folder, reviewTopic)
+	if childUUID == "" {
+		t.Fatal("review topic has no session row")
+	}
+	got, err := os.ReadFile(filepath.Join(projDir, childUUID+".jsonl"))
+	if err != nil || string(got) != "main history\n" {
+		t.Errorf("review topic transcript = %q (err %v), want main's", got, err)
+	}
+	for _, prefix := range []string{"pr/5", "pr/5/review", "pr"} {
+		if _, ok := db.GetSession(folder, prefix); ok {
+			t.Errorf("a session was invented for %q", prefix)
+		}
+	}
+}
+
+// The nearest session wins, and a topic with no "/" has no path to climb.
+func TestPathParent_NearestWins(t *testing.T) {
+	db, loop := newForkLoop(t)
+	folder := "demo"
+	for _, topic := range []string{"pr/5", "pr/5/review"} {
+		if err := db.PutSession(folder, topic, topic+"-uuid"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := loop.pathParent(folder, "pr/5/review/77"); got != "pr/5/review" {
+		t.Errorf("pathParent = %q, want pr/5/review", got)
+	}
+	if got := loop.pathParent(folder, "#deploy"); got != "" {
+		t.Errorf("pathParent of a flat topic = %q, want main", got)
+	}
+}

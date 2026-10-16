@@ -323,10 +323,14 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 	// BEFORE the prompt build, so FlushSysMsgs renders them this turn.
 	l.emitSystemEvents(folder, chatJID)
 	// The first turn in a new topic forks lineage from the topic of the message
-	// it replies to; "" is main.
+	// it replies to; with no such parent it forks from the nearest session
+	// above it on its own path; "" is main.
 	parent := ""
 	if last.ReplyToID != "" {
 		parent = l.db.TopicByID(last.ChatJID, last.ReplyToID)
+	}
+	if parent == "" || parent == topic {
+		parent = l.pathParent(folder, topic)
 	}
 	l.ensureTopicWithFork(folder, topic, parent)
 	// Enrichment rewrites the trigger rows and persists them, so later turns'
@@ -556,6 +560,23 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 			"folder", folder, "turn_id", turnID, "err", err)
 	}
 	return out.Outcome != runedv1.OutcomeSilent, false, false, observedMark, nil
+}
+
+// pathParent is the lineage parent of a topic that has no reply to inherit
+// from: the nearest proper prefix of its "/"-separated path that already has a
+// session, or "" (main) when none has. It reads sessions and never creates one,
+// so a prefix with no session of its own is skipped, not invented.
+func (l *Loop) pathParent(folder, topic string) string {
+	for {
+		i := strings.LastIndexByte(topic, '/')
+		if i < 0 {
+			return ""
+		}
+		topic = topic[:i]
+		if _, ok := l.db.GetSession(folder, topic); ok {
+			return topic
+		}
+	}
 }
 
 // ensureTopicWithFork ensures (folder, topic) has a sessions row and, when
