@@ -380,3 +380,146 @@ a number here: `find template/web/pub/arizuko -type f | wc -l` against
 `find <data-dir>/web/pub/arizuko -type f | wc -l` tells you whether live and
 source agree, and `comm -13` on the two sorted lists names anything live is
 carrying that source does not.
+
+## Visual design system
+
+`assets/hub.css` is the one stylesheet and the one place a value is written.
+A page carries classes and nothing else. The reference page every other page
+copies is `concepts/primitives.html`.
+
+### Tokens
+
+Every token is a custom property on `:root` in `assets/hub.css`. Light is the
+base. Dark is redefined twice: under `@media (prefers-color-scheme: dark)` for
+the paint before `hub.js` runs, and under `:root[data-theme="dark"]` for the
+toggle. Edit both when you change a dark value.
+
+Colour — these are the palette and they do not change:
+
+| Token       | Holds                                                     |
+| ----------- | --------------------------------------------------------- |
+| `--bg`      | the page background                                       |
+| `--card`    | a raised box: card, tablecard, top-bar control            |
+| `--code-bg` | code span, `pre`, table head, hover wash                  |
+| `--border`  | every hairline                                            |
+| `--bright`  | the one word on a page that must win                      |
+| `--fg`      | body text                                                 |
+| `--dim`     | metadata, captions, an inactive nav link                  |
+| `--accent`  | gold: `h1`, links, the active nav link, the callout label |
+| `--accent2` | blue: secondary emphasis inside prose                     |
+| `--accent3` | pale blue: `h2`, card titles, section headers             |
+
+Type — the body face is monospace and stays monospace:
+
+| Token                    | Holds                                          |
+| ------------------------ | ---------------------------------------------- |
+| `--font-mono`            | the one family                                 |
+| `--fs-root`              | body size; every size below is relative to it  |
+| `--fs-xs`                | badge, TOC label, table head                   |
+| `--fs-sm`                | caption, meta, note, footer, pager             |
+| `--fs-md`                | table body, nav, secondary prose               |
+| `--fs-base`              | body copy                                      |
+| `--fs-lg`                | lede, `h3`                                     |
+| `--fs-xl`                | `h2`                                           |
+| `--fs-2xl`               | `h1`                                           |
+| `--lh-tight`/`--lh-base` | heading and code line height; body line height |
+
+Spacing is one scale, `--sp-0` (0.15em) through `--sp-7` (3em). A gap that is
+not on the scale is a mistake.
+
+Radius is three steps: `--r-sm` for a badge, a code span and a small control,
+`--r-md` for a callout, a `pre` and a tablecard, `--r-lg` for a card.
+
+Shadow is `--shadow-1` and `--shadow-2`. Only a floating element casts one.
+
+Layout: `--measure` is the prose line length, `--w-content` the content
+column, `--w-nav` and `--w-toc` the two rails, `--w-page`/`--w-guide`/
+`--w-prose` the three container widths, `--topbar-h` the top bar, `--tap` the
+minimum touch target.
+
+### The shell a page copies
+
+```html
+<body>
+  <header class="docs-topbar">
+    <button
+      class="docs-navtoggle"
+      aria-label="Toggle navigation"
+      aria-expanded="false"
+    >
+      &#9776;
+    </button>
+    <a class="docs-wordmark" href="../">arizuko</a>
+  </header>
+  <div class="docs-layout">
+    <nav class="docs-nav" aria-label="Concepts">
+      <ul>
+        <li>
+          <a class="nav-section" href="./">Concepts</a>
+          <ul class="nav-children">
+            <li><a href="primitives.html">Primitives</a></li>
+          </ul>
+        </li>
+        <li><a class="nav-section" href="../reference/">Reference</a></li>
+      </ul>
+    </nav>
+    <main class="docs-content">
+      <p class="docs-crumb">
+        <a href="../">arizuko</a> &rsaquo; concepts &rsaquo; primitives
+      </p>
+      <h1>primitives</h1>
+      <p class="lede">One sentence that says what the page answers.</p>
+      <h2>A section</h2>
+      <nav class="docs-pager" aria-label="Pager">
+        <a rel="prev" href="./">&larr; Concepts</a>
+        <a rel="next" href="built.html">How it&rsquo;s built &rarr;</a>
+      </nav>
+      <div class="docs-footer">
+        <a
+          href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/concepts/primitives.html"
+          >Edit this page</a
+        >
+        &middot; updated
+        <time class="docs-updated" datetime="2026-10-16">2026-10-16</time>
+      </div>
+    </main>
+    <aside class="docs-toc" aria-label="On this page"></aside>
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="../assets/hub.js"></script>
+</body>
+```
+
+`hub.js` fills four things, so a page never writes them: the right rail from
+the page's own `h2` and `h3`, `aria-current="page"` on the matching nav link,
+the version and the search slot in the top bar, and the move of
+`.theme-toggle` into the bar. Leave `.docs-toc` empty and leave
+`aria-current` out of the markup — a hand-written copy of either drifts.
+
+The sidebar lists every section of the site and expands the one the reader is
+in. The top bar is sticky at every width. Below 1200px the sidebar collapses
+behind `.docs-navtoggle` and the right rail drops.
+
+### Components
+
+| Component  | Markup                                                                   |
+| ---------- | ------------------------------------------------------------------------ |
+| callout    | `<div class="callout"><strong>Label:</strong> text.</div>`               |
+| code block | `<pre><code>…</code></pre>` — the box scrolls, the page does not         |
+| table      | a plain `<table>`; `hub.js` wraps it in `.table-scroll`                  |
+| card       | `<div class="card"><div class="card-title">…</div>…</div>`, in a `.grid` |
+| pager      | `<nav class="docs-pager"><a rel="prev" …><a rel="next" …></nav>`         |
+| badge      | `<span class="tier">core</span>`                                         |
+
+The callout's quiet-inset rule and the nav current-item rule are in
+§"Style rules" above. Read them before you touch either.
+
+### Forbidden
+
+- A per-page `<style>` block. The value belongs in `hub.css` under a class
+  name, or the page does not need it.
+- An inline `style=` carrying a colour. Use a token.
+- A Title Case heading. Headings are sentence case, and most are one word.
+- A gradient box.
+- A left-accent bar on any box.
+- A raw hex, rgb or px colour anywhere outside the `:root` token blocks.

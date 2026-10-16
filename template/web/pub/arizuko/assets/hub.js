@@ -245,6 +245,52 @@
     });
   }
 
+  // The top bar's right side has one renderer: this function. A page's
+  // markup carries the bar, the drawer button and the wordmark; the version,
+  // the search slot and the theme button are filled here, so adding a page
+  // never means copying a second version string into HTML.
+  function fillTopbar() {
+    var bar = document.querySelector('.docs-topbar');
+    if (!bar) return;
+
+    if (!bar.querySelector('.docs-search')) {
+      var form = document.createElement('form');
+      form.className = 'docs-search';
+      form.setAttribute('role', 'search');
+      var input = document.createElement('input');
+      input.type = 'search';
+      input.name = 'q';
+      input.placeholder = 'Search the docs';
+      input.setAttribute('aria-label', 'Search the docs');
+      form.appendChild(input);
+      // There is no index to query. The agent holds the docs in context, so
+      // a query goes to the same chat surface the ask pill opens.
+      form.addEventListener('submit', function (e) {
+        e.preventDefault();
+        var q = input.value.trim();
+        if (!q) return;
+        window.open(
+          chatURL('sel=' + encodeURIComponent(q)),
+          '_blank',
+          'noopener',
+        );
+      });
+      bar.appendChild(form);
+    }
+
+    if (!bar.querySelector('.docs-version')) {
+      var v = document.createElement('span');
+      v.className = 'docs-version';
+      v.textContent = ARIZUKO_VERSION;
+      bar.appendChild(v);
+    }
+
+    // Move the page's own toggle into the bar. Moving the node keeps the
+    // click listener already bound to it; a page with no bar keeps it fixed.
+    var t = document.querySelector('.theme-toggle');
+    if (t && t.parentElement !== bar) bar.appendChild(t);
+  }
+
   function init() {
     initTheme();
     var btn = document.querySelector('.theme-toggle');
@@ -256,6 +302,7 @@
     buildTOC();
     markCurrentNav();
     initNavDrawer();
+    fillTopbar();
     injectFooter();
     injectAskAgent();
     injectSelectionPopup();

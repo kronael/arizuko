@@ -1,267 +1,323 @@
+/* arizuko operator docs — one stylesheet, no build step.
+ *
+ * Every value a page needs is a token on :root. Pages carry classes, never
+ * declarations: a <style> block or an inline colour is a defect the
+ * tests/webdocs guard rejects.
+ *
+ * Light is the base. Dark is redefined under prefers-color-scheme for the
+ * paint that happens before hub.js runs, and again under [data-theme="dark"]
+ * for the toggle. */
+
+/* ==================== TOKENS ==================== */
+
 :root {
-  /* Dark theme - Arizuko gold/blue (recovered from live krons) */
+  /* Surfaces, back to front. */
+  --bg: #fafaf8;          /* page */
+  --card: #ffffff;        /* raised box: card, tablecard, topbar control */
+  --code-bg: #f0f0ec;     /* code span, pre, table head, hover wash */
+
+  /* Lines. */
+  --border: #d4d4d0;      /* every hairline */
+
+  /* Text, brightest to quietest. */
+  --bright: #0a0a0a;      /* the one word that must win */
+  --fg: #1a1a1a;          /* body */
+  --dim: #404040;         /* metadata, captions, inactive nav */
+
+  /* Accents. Gold is arizuko; the two blues are the supporting pair. */
+  --accent: #8b6914;      /* h1, links, active nav, callout label */
+  --accent2: #1d4ed8;     /* secondary emphasis inside prose */
+  --accent3: #1e40af;     /* h2, card titles, section headers */
+
+  /* Type. Monospace body is the house face — do not swap it for a UI sans. */
+  --font-mono: "SF Mono", "Fira Code", "JetBrains Mono", Consolas, monospace;
+  --fs-root: 14px;        /* body; everything below is relative to it */
+  --fs-xs: 0.78em;        /* badge, toc label, table head */
+  --fs-sm: 0.85em;        /* caption, meta, note, footer, pager */
+  --fs-md: 0.9em;         /* table body, nav, secondary prose */
+  --fs-base: 1em;         /* body copy */
+  --fs-lg: 1.05em;        /* lede, h3 */
+  --fs-xl: 1.25em;        /* h2 */
+  --fs-2xl: 1.8em;        /* h1 */
+  --lh-tight: 1.3;
+  --lh-base: 1.6;
+
+  /* Spacing. One scale; a gap not on it is a mistake. */
+  --sp-0: 0.15em;
+  --sp-1: 0.3em;
+  --sp-2: 0.5em;
+  --sp-3: 0.8em;
+  --sp-4: 1em;
+  --sp-5: 1.5em;
+  --sp-6: 2em;
+  --sp-7: 3em;
+
+  /* Radius. Three steps, inherited from the live site. */
+  --r-sm: 3px;            /* badge, code span, small control */
+  --r-md: 4px;            /* callout, pre, tablecard */
+  --r-lg: 6px;            /* card */
+
+  /* Shadow. Only floating things cast one. */
+  --shadow-1: 0 2px 6px rgba(0, 0, 0, 0.18);
+  --shadow-2: 0 6px 20px rgba(0, 0, 0, 0.14);
+
+  /* Layout. */
+  --measure: 80ch;        /* prose line length — terminal measure */
+  --w-content: 56rem;     /* content column, centred between the rails */
+  --w-nav: 16em;          /* left navigation pane */
+  --w-toc: 14em;          /* right on-page contents rail */
+  --w-page: 1400px;       /* three-pane shell */
+  --w-guide: 1180px;      /* two-pane shell */
+  --w-prose: 1120px;      /* shell-less page */
+  --topbar-h: 3rem;
+  --tap: 44px;            /* minimum touch target */
+
+  color-scheme: light;
+}
+
+/* Dark: the pre-script paint, for a reader whose system says dark. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0a0e1a;
+    --card: #151b28;
+    --code-bg: #1a2332;
+    --border: #1a2332;
+    --bright: #f8f9fa;
+    --fg: #f5f5f0;
+    --dim: #a0a8b8;
+    --accent: #d4af37;
+    --accent2: #4a90e2;
+    --accent3: #87ceeb;
+    --shadow-1: 0 2px 6px rgba(0, 0, 0, 0.45);
+    --shadow-2: 0 6px 20px rgba(0, 0, 0, 0.55);
+    color-scheme: dark;
+  }
+}
+
+/* Dark: the toggle. hub.js writes data-theme on <html> and persists it. */
+:root[data-theme="dark"] {
   --bg: #0a0e1a;
-  --fg: #f5f5f0;
+  --card: #151b28;
+  --code-bg: #1a2332;
+  --border: #1a2332;
   --bright: #f8f9fa;
+  --fg: #f5f5f0;
   --dim: #a0a8b8;
   --accent: #d4af37;
   --accent2: #4a90e2;
   --accent3: #87ceeb;
-  --border: #1a2332;
-  --card: #151b28;
-  --code-bg: #1a2332;
+  --shadow-1: 0 2px 6px rgba(0, 0, 0, 0.45);
+  --shadow-2: 0 6px 20px rgba(0, 0, 0, 0.55);
+  color-scheme: dark;
 }
 
-[data-theme="light"] {
-  /* Light theme - Arizuko deeper gold/blue */
-  --bg: #fafaf8;
-  --fg: #1a1a1a;
-  --bright: #0a0a0a;
-  --dim: #404040;
-  --accent: #8b6914;
-  --accent2: #1d4ed8;
-  --accent3: #1e40af;
-  --border: #d4d4d0;
-  --card: #ffffff;
-  --code-bg: #f0f0ec;
-}
+/* ==================== RESET & BASE ==================== */
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
+html { scroll-behavior: smooth; }
+html, body { max-width: 100vw; overflow-x: hidden; }
+
 body {
-  font-family: "SF Mono", "Fira Code", "JetBrains Mono", Consolas, monospace;
-  font-size: 14px;
-  line-height: 1.6;
+  font-family: var(--font-mono);
+  font-size: var(--fs-root);
+  line-height: var(--lh-base);
   color: var(--fg);
   background: var(--bg);
   overflow-wrap: break-word;
-  padding-bottom: 4em;
+  padding-bottom: var(--sp-7);
 }
 
-.hub-container {
-  max-width: 1120px;
-  margin: 0 auto;
-  padding: 2em 1.5em;
-}
-
-h1 { font-size: 1.8em; color: var(--accent); margin-bottom: 0.2em; }
-h2 {
-  font-size: 1.25em;
-  margin: 1.5em 0 0.8em;
-  padding-bottom: 0.3em;
-  border-bottom: 1px solid var(--border);
-  color: var(--accent3);
-}
+/* A linked heading lands below the sticky top bar, not under it. */
+:target { scroll-margin-top: calc(var(--topbar-h) + var(--sp-4)); }
 
 a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
 
-.dim { color: var(--dim); font-size: 0.85em; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-.grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 0.8em;
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after { transition: none !important; }
 }
-.grid.wide { grid-template-columns: repeat(auto-fit, minmax(28em, 1fr)); }
-.docs-content .grid, .hub-container .grid { margin: 0.8em 0; }
 
-.card {
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 1.1em;
+/* ==================== TYPOGRAPHY ==================== */
+
+h1 {
+  font-size: var(--fs-2xl);
+  color: var(--accent);
+  margin-bottom: var(--sp-0);
+  line-height: var(--lh-tight);
 }
-.card-title {
+
+h2 {
+  font-size: var(--fs-xl);
   color: var(--accent3);
-  font-weight: bold;
-  font-size: 0.95em;
-}
-.card-meta { color: var(--dim); font-size: 0.8em; }
-
-code {
-  background: var(--code-bg);
-  padding: 0.15em 0.4em;
-  border-radius: 3px;
-  font-size: 0.9em;
+  margin: var(--sp-5) 0 var(--sp-3);
+  padding-bottom: var(--sp-1);
+  border-bottom: 1px solid var(--border);
+  line-height: var(--lh-tight);
 }
 
-pre {
-  background: var(--code-bg);
-  padding: 1em;
-  border-radius: 4px;
-  overflow-x: auto;
-}
-
-.theme-toggle {
-  position: fixed;
-  top: 1em;
-  right: 1em;
-  z-index: 21; /* .docs-topbar is 20 */
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: 50%;
-  width: 2.2em;
-  height: 2.2em;
-  cursor: pointer;
-  font-size: 1em;
-  transition: transform 0.3s;
-}
-.theme-toggle:hover { transform: rotate(20deg); }
-
-.ask-agent {
-  position: fixed;
-  bottom: 1em;
-  right: 1em;
-  background: var(--card);
+h3 {
+  font-size: var(--fs-lg);
   color: var(--fg);
-  border: 1px solid var(--border);
-  border-radius: 2px;
-  padding: 0.5em 0.8em;
-  font-size: 0.85em;
-  text-decoration: none;
-  z-index: 10;
-  transition: background 0.15s, border-color 0.15s;
-}
-.ask-agent:hover {
-  background: var(--bg-alt);
-  border-color: var(--accent);
-  color: var(--accent);
+  margin: var(--sp-4) 0 var(--sp-1);
+  line-height: var(--lh-tight);
 }
 
-.ask-selection {
-  position: absolute;
-  background: var(--card);
-  color: var(--fg);
-  border: 1px solid var(--accent);
-  border-radius: 2px;
-  padding: 0.25em 0.55em;
-  font-size: 0.78em;
-  text-decoration: none;
-  z-index: 100;
-  white-space: nowrap;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.18);
-}
-.ask-selection:hover {
-  background: var(--accent);
-  color: var(--bg);
-}
+.dim { color: var(--dim); font-size: var(--fs-sm); }
 
-.hub-footer {
-  max-width: 920px;
-  margin: 3em auto 2em;
-  padding: 1em 1.5em 0;
-  border-top: 1px solid var(--border);
-  color: var(--dim);
-  font-size: 0.85em;
-  text-align: center;
-}
-.hub-footer a {
-  color: var(--dim);
-  margin: 0 0.4em;
-}
-.hub-footer a:hover {
-  color: var(--accent);
-}
-
-@media (max-width: 768px) {
-  .hub-container { padding: 1.5em 1em; }
-}
-@media (max-width: 480px) {
-  body { font-size: 15px; }
-  .hub-container { padding: 1em 0.8em; }
-}
-
-/* ── docs three-pane chrome (layout only; reuses theme tokens above) ── */
+/* ==================== SHELL: TOP BAR ==================== */
 
 .docs-topbar {
-  display: none;
   position: sticky;
   top: 0;
   z-index: 20;
+  display: flex;
   align-items: center;
-  gap: 0.6em;
-  padding: 0.6em 1em;
+  gap: var(--sp-3);
+  min-height: var(--topbar-h);
+  padding: 0 var(--sp-4);
   background: var(--bg);
   border-bottom: 1px solid var(--border);
 }
+
 .docs-topbar .docs-wordmark {
   color: var(--accent);
   font-weight: bold;
+  flex: none;
 }
-.docs-navtoggle {
+
+/* hub.js fills the version and the search slot, so a page's markup carries
+   the bar and never a second copy of what the script renders. */
+.docs-version {
+  color: var(--dim);
+  font-size: var(--fs-xs);
+  flex: none;
+}
+
+.docs-search {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 24em;
+  margin-left: auto;
+}
+
+.docs-search input {
+  width: 100%;
+  min-width: 0;
+  font: inherit;
+  font-size: var(--fs-md);
+  color: var(--fg);
   background: var(--card);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--r-sm);
+  padding: var(--sp-1) var(--sp-2);
+}
+
+.docs-search input::placeholder { color: var(--dim); }
+.docs-search input:focus { border-color: var(--accent); }
+
+.docs-navtoggle {
+  flex: none;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
   color: var(--fg);
   cursor: pointer;
   font: inherit;
-  font-size: 1.1em;
+  font-size: var(--fs-lg);
   line-height: 1;
-  padding: 0.2em 0.5em;
+  padding: var(--sp-0) var(--sp-2);
 }
 
+/* ==================== SHELL: PANES ==================== */
+
+/* Three panes: navigation, content, on-page contents. The reference shape. */
 .docs-layout {
   display: grid;
-  grid-template-columns: 16em minmax(0, 1fr) 14em;
-  gap: 2em;
-  max-width: 1400px;
+  grid-template-columns: var(--w-nav) minmax(0, 1fr) var(--w-toc);
+  gap: var(--sp-6);
+  max-width: var(--w-page);
   margin: 0 auto;
-  padding: 2em 1.5em;
+  padding: var(--sp-6) var(--sp-5);
   align-items: start;
 }
 
-/* GUIDE layout (Style 2: Go-Tour). Thin lesson-nav + a readable single
-   content column, no right TOC — for linear-learning sections (concepts,
-   howto, products). Reuses .docs-nav/.docs-content/.docs-crumb/.docs-pager/
-   .docs-footer + the drawer JS; the only new piece is this 2-col container. */
+/* Two panes: a thinner navigation and one content column, for the linear
+   sections where a reader goes page to page instead of looking a fact up. */
 .guide-layout {
   display: grid;
   grid-template-columns: 13em minmax(0, 1fr);
   gap: 2.5em;
-  max-width: 1180px;
+  max-width: var(--w-guide);
   margin: 0 auto;
-  padding: 2em 1.5em;
+  padding: var(--sp-6) var(--sp-5);
   align-items: start;
 }
 
+/* A page with no shell: landing, changelog, the section indexes. */
+.hub-container {
+  max-width: var(--w-prose);
+  margin: 0 auto;
+  padding: var(--sp-6) var(--sp-5);
+}
+
+/* ==================== SHELL: LEFT NAVIGATION ==================== */
+
 .docs-nav {
   position: sticky;
-  top: 1em;
+  top: calc(var(--topbar-h) + var(--sp-4));
   align-self: start;
-  max-height: calc(100vh - 2em);
+  max-height: calc(100vh - var(--topbar-h) - var(--sp-6));
   overflow-y: auto;
-  font-size: 0.9em;
+  font-size: var(--fs-md);
 }
-/* The drawer JS sets [hidden] for the <1200px collapse; above that the nav is
-   always a pane, so force it visible regardless of a stale hidden attribute. */
+
+/* The drawer script sets [hidden] for the narrow collapse. Above the
+   breakpoint the nav is a pane, so a stale attribute must not hide it. */
 .docs-nav[hidden] { display: block; }
+
 .docs-nav ul { list-style: none; margin: 0; padding: 0; }
-.docs-nav > ul > li { margin: 0.1em 0; }
+.docs-nav > ul > li { margin: var(--sp-0) 0; }
+
 .docs-nav .nav-section {
   display: block;
   color: var(--accent3);
   font-weight: bold;
-  margin: 0.9em 0 0.2em;
+  margin: var(--sp-3) 0 var(--sp-0);
 }
 .docs-nav .nav-section:first-child { margin-top: 0; }
-.docs-nav .nav-children { margin: 0 0 0.3em 0.8em; }
-.docs-nav .nav-children li { margin: 0.05em 0; }
+
+.docs-nav .nav-children { margin: 0 0 var(--sp-1) var(--sp-3); }
+.docs-nav .nav-children li { margin: 0; }
+
 .docs-nav a {
   display: block;
   color: var(--dim);
-  padding: 0.12em 0.5em;
-  border-radius: 3px;
+  padding: var(--sp-0) var(--sp-2);
+  border-radius: var(--r-sm);
 }
 .docs-nav a:hover { color: var(--accent); text-decoration: none; }
-.docs-nav a[aria-current="page"] {
-  color: var(--accent);
-  font-weight: 600;
+
+/* The current page is a weight and colour shift. Never a fill, never a bar. */
+.docs-nav a[aria-current="page"] { color: var(--accent); font-weight: 600; }
+
+/* ==================== SHELL: CONTENT COLUMN ==================== */
+
+/* width:100% keeps the column stretched to its track. An auto inline margin
+   switches a grid item to fit-content sizing, and the widest table then sets
+   the column's width instead of the viewport. */
+.docs-content {
+  min-width: 0;
+  width: 100%;
+  max-width: var(--w-content);
+  justify-self: center;
 }
 
-.docs-content { min-width: 0; }
-/* Prose reads at 80 columns — terminal measure. Code, tables, diagrams and
-   card grids are deliberately not capped: they are what wide screens are for. */
+/* Prose reads at the terminal measure. Code, tables, diagrams and card grids
+   are deliberately uncapped — they are what a wide screen is for. */
 .docs-content > p,
 .docs-content > ul,
 .docs-content > ol,
@@ -271,138 +327,275 @@ pre {
 .hub-container > p,
 .hub-container > ul,
 .hub-container > ol,
-.hub-container > .lede { max-width: 80ch; }
+.hub-container > .lede { max-width: var(--measure); }
+
 .docs-content .lede {
-  font-size: 1.05em;
+  font-size: var(--fs-lg);
   color: var(--fg);
-  margin: 0.4em 0 1em;
+  margin: var(--sp-1) 0 var(--sp-4);
 }
-.docs-content p { margin: 0.6em 0; }
-.docs-content ul, .docs-content ol { margin: 0.4em 0 0.8em 1.2em; }
-.docs-content li { margin: 0.3em 0; }
-.docs-content pre { margin: 0.6em 0; }
-.docs-content dl { margin: 0.4em 0 1em; }
-.docs-content dt { font-weight: 600; margin: 0.6em 0 0.1em; }
-.docs-content dd { margin: 0 0 0.3em 1.2em; }
+
+.docs-content p { margin: var(--sp-2) 0; }
+.docs-content ul, .docs-content ol { margin: var(--sp-1) 0 var(--sp-3) 1.2em; }
+.docs-content li { margin: var(--sp-1) 0; }
+.docs-content pre { margin: var(--sp-2) 0; }
+.docs-content dl { margin: var(--sp-1) 0 var(--sp-4); }
+.docs-content dt { font-weight: 600; margin: var(--sp-2) 0 var(--sp-0); }
+.docs-content dd { margin: 0 0 var(--sp-1) 1.2em; }
 
 .docs-crumb {
   color: var(--dim);
-  font-size: 0.85em;
-  margin: 0 0 0.4em;
+  font-size: var(--fs-sm);
+  margin: 0 0 var(--sp-1);
 }
 .docs-crumb a { color: var(--dim); }
 .docs-crumb a:hover { color: var(--accent); }
 
-.docs-content table {
-  border-collapse: collapse;
-  width: 100%;
-  margin: 0.6em 0;
-  font-size: 0.9em;
-}
-.docs-content th, .docs-content td {
-  border: 1px solid var(--border);
-  padding: 0.3em 0.5em;
-  text-align: left;
-  vertical-align: top;
-}
-.docs-content th { background: var(--code-bg); font-weight: 600; }
-.docs-content td.n { text-align: right; font-variant-numeric: tabular-nums; color: var(--dim); }
+/* ==================== SHELL: ON-PAGE CONTENTS ==================== */
 
-/* Tables get the same treatment as pre (overflow-x: auto): the containing
-   box scrolls. .wide (4+ columns, set by hub.js) also gets a floor so
-   columns stop collapsing before the scroll takes over. Placed after the
-   .docs-content table rules so the margin reset wins the cascade. */
-.table-scroll { overflow-x: auto; margin: 0.6em 0; }
-.table-scroll > table { margin: 0; }
-.table-scroll.wide > table { min-width: 30rem; }
+.docs-toc {
+  position: sticky;
+  top: calc(var(--topbar-h) + var(--sp-4));
+  align-self: start;
+  max-height: calc(100vh - var(--topbar-h) - var(--sp-6));
+  overflow-y: auto;
+  font-size: var(--fs-sm);
+  padding-bottom: var(--sp-7);
+}
 
-.docs-content .caption {
+.docs-toc .toc-label {
   color: var(--dim);
-  font-size: 0.8em;
-  text-transform: lowercase;
-  margin: 0.6em 0 -0.2em;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: var(--fs-xs);
+  margin-bottom: var(--sp-1);
 }
-.docs-content .meta { font-size: 0.85em; color: var(--dim); }
-.docs-content .meta strong { color: var(--fg); }
-.docs-content .note { font-size: 0.85em; color: var(--dim); }
 
-.docs-content .callout {
+.docs-toc ul { list-style: none; margin: 0; padding: 0; }
+.docs-toc li { margin: var(--sp-0) 0; }
+.docs-toc li.toc-h3 { margin-left: var(--sp-3); }
+.docs-toc a { color: var(--dim); }
+.docs-toc a:hover { color: var(--accent); text-decoration: none; }
+
+/* ==================== SHELL: PAGER & FOOTER ==================== */
+
+.docs-pager {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  margin: 2.5em 0 var(--sp-4);
+  padding-top: var(--sp-4);
+  border-top: 1px solid var(--border);
+  font-size: var(--fs-md);
+}
+.docs-pager a { max-width: 48%; }
+.docs-pager a[rel="next"] { margin-left: auto; text-align: right; }
+
+.docs-footer {
+  margin: var(--sp-4) 0 0;
+  color: var(--dim);
+  font-size: var(--fs-sm);
+}
+.docs-footer a { color: var(--dim); }
+.docs-footer a:hover { color: var(--accent); }
+
+/* Site footer, injected by hub.js on every page. */
+.hub-footer {
+  max-width: 920px;
+  margin: var(--sp-7) auto var(--sp-6);
+  padding: var(--sp-4) var(--sp-5) 0;
+  border-top: 1px solid var(--border);
+  color: var(--dim);
+  font-size: var(--fs-sm);
+  text-align: center;
+}
+.hub-footer a { color: var(--dim); margin: 0 var(--sp-1); }
+.hub-footer a:hover { color: var(--accent); }
+
+/* ==================== COMPONENT: CALLOUT ==================== */
+
+/* A hairline-bordered inset tint. The leading <strong> is the only accent.
+   Never a solid fill, never a left bar. */
+.callout {
   border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
-  border-radius: 4px;
-  padding: 0.7em 1em;
-  margin: 1em 0;
+  border-radius: var(--r-md);
+  padding: 0.7em var(--sp-4);
+  margin: var(--sp-4) 0;
   background: color-mix(in srgb, var(--accent) 7%, var(--bg));
 }
-.docs-content .callout > strong:first-child {
+.callout > strong:first-child {
   display: inline-block;
-  margin-right: 0.4em;
+  margin-right: var(--sp-1);
   color: var(--accent);
   font-weight: 600;
   letter-spacing: 0.02em;
 }
+.callout p:last-child { margin-bottom: 0; }
+
+/* ==================== COMPONENT: CODE ==================== */
+
+code {
+  background: var(--code-bg);
+  padding: var(--sp-0) var(--sp-1);
+  border-radius: var(--r-sm);
+  font-size: var(--fs-md);
+}
+
+pre {
+  background: var(--code-bg);
+  padding: var(--sp-4);
+  border-radius: var(--r-md);
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  line-height: var(--lh-tight);
+}
+pre code { background: none; padding: 0; border-radius: 0; font-size: inherit; }
+
+/* ==================== COMPONENT: TABLE ==================== */
+
+.docs-content table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: var(--sp-2) 0;
+  font-size: var(--fs-md);
+}
+.docs-content th, .docs-content td {
+  border: 1px solid var(--border);
+  padding: var(--sp-1) var(--sp-2);
+  text-align: left;
+  vertical-align: top;
+}
+.docs-content th { background: var(--code-bg); font-weight: 600; }
+.docs-content td.n {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--dim);
+}
+
+/* hub.js wraps every table so the box scrolls, the way pre does. A table of
+   four or more columns also gets a floor, so the columns stop collapsing
+   before the scroll takes over. These follow the rules above on purpose —
+   the margin reset has to win the cascade. */
+.table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; margin: var(--sp-2) 0; }
+.table-scroll > table { margin: 0; }
+.table-scroll.wide > table { min-width: 30rem; }
+
+/* ==================== COMPONENT: CARD & GRID ==================== */
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr));
+  gap: var(--sp-3);
+}
+.grid.wide { grid-template-columns: repeat(auto-fit, minmax(min(28em, 100%), 1fr)); }
+.docs-content .grid, .hub-container .grid { margin: var(--sp-3) 0; }
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: 1.1em;
+}
+.card-title { color: var(--accent3); font-weight: bold; font-size: var(--fs-md); }
+.card-meta { color: var(--dim); font-size: var(--fs-sm); }
+
+/* A card inside the content column is a quieter box than a grid card. */
+.docs-content .card {
+  border-radius: var(--r-md);
+  padding: var(--sp-2) 0.9em;
+  margin: var(--sp-3) 0;
+  background: var(--card);
+}
+.docs-content .card h2 {
+  margin: 0 0 var(--sp-1);
+  font-size: 1.1em;
+  border-bottom: none;
+  padding-bottom: 0;
+}
+.docs-content .card p { margin: var(--sp-0) 0; }
 
 .docs-content .tablecard {
   border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 0.6em 1em;
-  margin: 1em 0;
+  border-radius: var(--r-md);
+  padding: var(--sp-2) var(--sp-4);
+  margin: var(--sp-4) 0;
 }
-.docs-content .tablecard h3 { margin-top: 0.2em; }
+.docs-content .tablecard h3 { margin-top: var(--sp-0); }
+
+/* ==================== COMPONENT: BADGE ==================== */
 
 .tier {
   display: inline-block;
   border: 1px solid var(--border);
-  border-radius: 3px;
-  padding: 0 0.4em;
-  font-size: 0.78em;
+  border-radius: var(--r-sm);
+  padding: 0 var(--sp-1);
+  font-size: var(--fs-xs);
   color: var(--accent3);
+  white-space: nowrap;
 }
-.docs-content h3 .tier { margin-left: 0.4em; vertical-align: middle; }
+.docs-content h3 .tier { margin-left: var(--sp-1); vertical-align: middle; }
 
-/* catalogue-page content classes (folded in from per-page inline <style>) */
+/* ==================== COMPONENT: SMALL PROSE MARKS ==================== */
 
-/* in-page "Contents"/"Index" list — distinct from the right-rail .docs-toc */
-.docs-content .toc { columns: 2; column-gap: 2em; font-size: 0.9em; margin: 0.6em 0 1.2em; }
+.docs-content .caption {
+  color: var(--dim);
+  font-size: var(--fs-sm);
+  text-transform: lowercase;
+  margin: var(--sp-2) 0 -0.2em;
+}
+.docs-content .meta { font-size: var(--fs-sm); color: var(--dim); }
+.docs-content .meta strong { color: var(--fg); }
+.docs-content .note { font-size: var(--fs-sm); color: var(--dim); }
+
+hr { border: none; border-top: 1px solid var(--border); margin: var(--sp-6) 0; }
+
+blockquote { margin: var(--sp-5) 0; color: var(--dim); font-style: italic; }
+
+/* ==================== CONTENT CLASSES BY PAGE FAMILY ==================== */
+
+/* An in-page "Contents" list in the body — distinct from the .docs-toc rail. */
+.docs-content .toc {
+  columns: 2;
+  column-gap: var(--sp-6);
+  font-size: var(--fs-md);
+  margin: var(--sp-2) 0 1.2em;
+}
 .docs-content .toc ul { list-style: none; margin: 0; padding-left: 0; }
-.docs-content .toc li { break-inside: avoid; margin: 0.15em 0; }
+.docs-content .toc li { break-inside: avoid; margin: var(--sp-0) 0; }
 .docs-content .toc a { display: block; }
 @media (max-width: 640px) { .docs-content .toc { columns: 1; } }
 
-/* cli.html — command signature + source citation + group separator */
-.docs-content .sig { font-size: 1em; }
+/* cli.html — command signature, source citation, group separator. */
+.docs-content .sig { font-size: var(--fs-base); }
 .docs-content h3 .sig { font-weight: 600; }
-.docs-content .src { font-size: 0.8em; color: var(--dim); }
-.docs-content .group-h2 { margin-top: 2em; }
+.docs-content .src { font-size: var(--fs-xs); color: var(--dim); }
+.docs-content .group-h2 { margin-top: var(--sp-6); }
 
-/* env.html — per-var field block */
+/* env.html — one field block per variable. */
 .docs-content .env-entry { margin: 1.1em 0 1.4em; }
-.docs-content .env-entry h3 { margin: 0 0 0.2em; font-size: 1em; }
-.docs-content .env-entry .effect { margin: 0.1em 0 0.4em; }
+.docs-content .env-entry h3 { margin: 0 0 var(--sp-0); font-size: var(--fs-base); }
+.docs-content .env-entry .effect { margin: var(--sp-0) 0 var(--sp-1); }
 .docs-content .env-entry th { width: 8em; color: var(--dim); font-weight: normal; }
-.docs-content .env-entry th, .docs-content .env-entry td { border: none; padding: 0.25em 0.6em 0.25em 0; }
+.docs-content .env-entry th,
+.docs-content .env-entry td { border: none; padding: var(--sp-0) var(--sp-2) var(--sp-0) 0; }
 .docs-content code.example { word-break: break-all; }
 
-/* mcp.html — param tables + required markers + returns line */
+/* mcp.html — parameter tables, required markers, the returns line. */
 .docs-content table.params { font-size: 0.88em; }
 .docs-content table.params td.name { white-space: nowrap; }
 .docs-content table.params td.type { color: var(--dim); white-space: nowrap; }
 .docs-content table.params td.req { white-space: nowrap; }
 .docs-content .req-y { color: var(--accent); font-weight: 600; }
 .docs-content .req-n { color: var(--dim); }
-.docs-content .returns { font-size: 0.9em; margin: 0.2em 0 0.4em; }
+.docs-content .returns { font-size: var(--fs-md); margin: var(--sp-0) 0 var(--sp-1); }
 .docs-content h3 code { font-size: inherit; padding: 0; background: transparent; }
 
-/* openapi.html — card boxes */
-.docs-content .card { border: 1px solid var(--border); border-radius: 4px; padding: 0.6em 0.9em; margin: 0.8em 0; }
-.docs-content .card h2 { margin: 0 0 0.3em; font-size: 1.1em; border-bottom: none; padding-bottom: 0; }
-.docs-content .card p { margin: 0.2em 0; }
+/* schema.html — the vestigial-table note. */
+.docs-content .dead { font-size: var(--fs-sm); color: var(--dim); font-style: italic; }
 
-/* schema.html — vestigial-table note */
-.docs-content .dead { font-size: 0.85em; color: var(--dim); font-style: italic; }
-
-/* numbered walkthrough list; pairs with a diagram inside .grid.wide */
-.tour { list-style: none; margin: 0.6em 0 1.2em; padding: 0; counter-reset: step; }
-.tour li { margin: 0.5em 0; padding-left: 2.2em; position: relative; }
+/* A numbered walkthrough; pairs with a diagram inside .grid.wide. */
+.tour { list-style: none; margin: var(--sp-2) 0 1.2em; padding: 0; counter-reset: step; }
+.tour li { margin: var(--sp-2) 0; padding-left: 2.2em; position: relative; }
 .tour li::before {
   counter-increment: step;
   content: counter(step);
@@ -412,84 +605,134 @@ pre {
   width: 1.5em;
   text-align: right;
   color: var(--dim);
-  font-size: 0.9em;
+  font-size: var(--fs-md);
 }
 .tour a { font-weight: 600; }
 
-.docs-toc {
-  position: sticky;
-  top: 1em;
-  align-self: start;
-  max-height: calc(100vh - 2em);
-  overflow-y: auto;
-  font-size: 0.85em;
-  padding-bottom: 4em;
-}
-.docs-toc .toc-label {
-  color: var(--dim);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  font-size: 0.78em;
-  margin-bottom: 0.4em;
-}
-.docs-toc ul { list-style: none; margin: 0; padding: 0; }
-.docs-toc li { margin: 0.15em 0; }
-.docs-toc li.toc-h3 { margin-left: 0.9em; }
-.docs-toc a { color: var(--dim); }
-.docs-toc a:hover { color: var(--accent); text-decoration: none; }
+/* ==================== FLOATING CONTROLS ==================== */
 
-.docs-pager {
-  display: flex;
-  justify-content: space-between;
-  gap: 1em;
-  margin: 2.5em 0 1em;
-  padding-top: 1em;
-  border-top: 1px solid var(--border);
-  font-size: 0.9em;
+/* hub.js moves this button into the top bar when a page has one. A page with
+   no shell keeps it pinned to the corner. */
+.theme-toggle {
+  position: fixed;
+  top: var(--sp-4);
+  right: var(--sp-4);
+  z-index: 21;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  width: 2.2em;
+  height: 2.2em;
+  cursor: pointer;
+  font-size: var(--fs-base);
+  transition: transform 0.3s;
 }
-.docs-pager a { max-width: 48%; }
-.docs-pager a[rel="next"] { margin-left: auto; text-align: right; }
+.theme-toggle:hover { transform: rotate(20deg); }
 
-.docs-footer {
-  margin: 1em 0 0;
-  color: var(--dim);
-  font-size: 0.82em;
+.docs-topbar .theme-toggle {
+  position: static;
+  flex: none;
+  width: 2em;
+  height: 2em;
+  font-size: var(--fs-md);
 }
-.docs-footer a { color: var(--dim); }
-.docs-footer a:hover { color: var(--accent); }
 
+.ask-agent {
+  position: fixed;
+  bottom: var(--sp-4);
+  right: var(--sp-4);
+  z-index: 10;
+  background: var(--card);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: var(--sp-2) var(--sp-3);
+  font-size: var(--fs-sm);
+  text-decoration: none;
+  transition: background 0.15s, border-color 0.15s;
+}
+.ask-agent:hover {
+  background: var(--code-bg);
+  border-color: var(--accent);
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.ask-selection {
+  position: absolute;
+  z-index: 100;
+  background: var(--card);
+  color: var(--fg);
+  border: 1px solid var(--accent);
+  border-radius: var(--r-sm);
+  padding: var(--sp-0) 0.55em;
+  font-size: var(--fs-xs);
+  text-decoration: none;
+  white-space: nowrap;
+  box-shadow: var(--shadow-1);
+}
+.ask-selection:hover { background: var(--accent); color: var(--bg); }
+
+/* ==================== RESPONSIVE ==================== */
+
+/* Below the wide breakpoint the panes stack: the navigation collapses into
+   the top bar's drawer and the on-page contents rail drops. */
 @media (max-width: 1200px) {
-  .docs-layout, .guide-layout { grid-template-columns: minmax(0, 1fr); gap: 0; padding: 1.5em 1em; }
-  .docs-topbar { display: flex; }
+  .docs-layout, .guide-layout {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+    padding: var(--sp-5) var(--sp-4);
+  }
   .docs-nav {
     position: static;
     max-height: none;
     overflow: visible;
-    margin-bottom: 1.5em;
-    padding-bottom: 1em;
+    margin-bottom: var(--sp-5);
+    padding-bottom: var(--sp-4);
     border-bottom: 1px solid var(--border);
   }
   .docs-nav[hidden] { display: none; }
   .docs-toc { display: none; }
   .docs-pager a { max-width: 100%; }
-  /* The ask pill docks as a full-width bottom bar; body reserves its strip
-     so the bar never covers content that cannot scroll clear of it. */
+
+  /* The ask pill docks as a full-width bar; the body reserves its strip so
+     the bar never covers content that cannot scroll clear of it. */
   .ask-agent {
     left: 0;
     right: 0;
     bottom: 0;
     text-align: center;
-    min-height: 44px;
-    line-height: 44px;
-    padding: 0 0.8em;
+    min-height: var(--tap);
+    line-height: var(--tap);
+    padding: 0 var(--sp-3);
   }
   body { padding-bottom: 5em; }
 }
 
-/* Touch: 44px minimum hit target. Desktop pointer sizes are unchanged.
-   Last in the file so these win the cascade over the base rules above. */
+/* Above it the navigation is a pane, so the drawer button has no job. */
+@media (min-width: 1201px) {
+  .docs-navtoggle { display: none; }
+}
+
+@media (max-width: 768px) {
+  .hub-container { padding: var(--sp-5) var(--sp-4); }
+  .docs-topbar { padding: 0 var(--sp-3); gap: var(--sp-2); }
+  .docs-version { display: none; }
+}
+
+@media (max-width: 480px) {
+  :root { --fs-root: 15px; --sp-6: 1.5em; }
+  .hub-container { padding: var(--sp-4) var(--sp-3); }
+  .docs-layout, .guide-layout { padding: var(--sp-4) var(--sp-3); }
+  .docs-search { max-width: none; }
+}
+
+/* Touch: every control clears the minimum target. Last in the file so these
+   win over the pointer sizes above. */
 @media (pointer: coarse), (max-width: 768px) {
-  .theme-toggle  { width: 44px; height: 44px; top: 0.15em; right: 0.5em; }
-  .docs-navtoggle { min-width: 44px; min-height: 44px; }
-  .docs-nav a    { min-height: 44px; display: flex; align-items: center; }
+  .theme-toggle { width: var(--tap); height: var(--tap); top: var(--sp-0); right: var(--sp-2); }
+  .docs-topbar .theme-toggle { width: var(--tap); height: var(--tap); }
+  .docs-navtoggle { min-width: var(--tap); min-height: var(--tap); }
+  .docs-nav a { min-height: var(--tap); display: flex; align-items: center; }
+  .docs-search input { min-height: var(--tap); }
 }
