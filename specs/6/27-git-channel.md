@@ -49,6 +49,9 @@ The `/github/<kind>/<name>` path selects the registered signing secret before ma
 The payload never selects its verifier. `checkSource` binds a repo source to its full
 repository name and an org source to its owner. An App delivery requires an installation
 object, except for ping; the current check does not validate a positive installation ID.
+`GITHUB_APP_ACCEPTS_REPO=1` lets an App source also accept a repository delivery with no
+installation; the secret still has to verify. It is the temporary bypass BUGS `L409`
+records.
 
 `store/github_sources.go` owns sealed source secrets and the route renderer.
 gitd reads sealed secrets from routd's store through `store.OpenOwner`.
@@ -185,11 +188,11 @@ the checkout path, branch name, PR title or sender.
 Transport JIDs retain the existing grammar. Topics use the repository ID, which also
 keeps an ordinary route carrying several repositories safe:
 
-| GitHub conversation                                 | Topic                                              |
-| --------------------------------------------------- | -------------------------------------------------- |
-| PR description, general comments and review summary | `github:repo/<id>/pr/<n>`                          |
-| One inline review discussion                        | `github:repo/<id>/pr/<n>/review/<root-comment-id>` |
-| Issue description and comments                      | `github:repo/<id>/issue/<n>`                       |
+| GitHub conversation                                 | Topic                                                                                      |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| PR description, general comments and review summary | `github:repo/<id>/pr/<n>`                                                                  |
+| One inline review discussion                        | `github:repo/<id>/pr/<n>` (shared; the thread is addressed by `ReplyTo`, never by a topic) |
+| Issue description and comments                      | `github:repo/<id>/issue/<n>`                                                               |
 
 These are topic names, not new JID forms. The session key remains `(folder, topic)`.
 A review reply uses `comment.in_reply_to_id`; a root uses its own ID. gitd validates
@@ -204,9 +207,10 @@ The first explicit trigger hydrates the PR description, current head and that to
 paginated history through the existing message store and prompt renderer. Imported
 comments are context, never pending work. Later webhooks update that stored context;
 turns do not scrape the full PR again. A hundred comments therefore remain one shared
-checkout with separate review topics, not a hundred agent tasks or subgroups.
+checkout with one PR topic, not a hundred agent tasks or subgroups.
 
-`send_text` uses the existing `ThreadID` for that topic. General PR/issue replies use
+`send_text` reads `SendRequest.ReplyTo`; the topic names the session, never
+the address. General PR/issue replies use
 the issue-comments endpoint. Inline replies use the review-comment reply endpoint
 with the root ID; GitHub accepts only a top-level review comment as the reply target.
 An unknown, deleted or foreign root fails visibly, without posting to the general PR.
@@ -232,9 +236,8 @@ history never changes dispatch cursors or creates pending tasks.
 Existing mixed sessions and ambiguous comment references stay historical; cutover
 starts new qualified topics and never guesses how to split their transcripts.
 
-Topic lineage uses the existing session renderer. A new review topic forks the PR
-overview when that session exists; otherwise it starts fresh. Replies resume their
-own topic, never a sibling discussion. Each PR has at most one live writer through
+Topic lineage uses the existing session renderer: a pull request is one topic and
+one session, and every reply resumes it. Each PR has at most one live writer through
 the existing folder queue. Another topic waits instead of steering its text into the active topic.
 `runed/manager.go:admit` currently steers by folder alone. The shared admission path
 requires matching topics before steering; a different topic returns the existing busy
