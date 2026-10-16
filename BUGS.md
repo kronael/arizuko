@@ -209,6 +209,147 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
   hits, 56 under `-test`; nine survived verification and were filed separately. Kept so
   the next sweep does not re-report the same ~135.
 
+## L413 — a GitHub timeout releases the dedup claim, so the retry posts the comment twice (2026-10-16, open)
+
+`gitd/bot.go:126` wraps EVERY `http.Client.Do` error — including a 15-second
+timeout fired after the request body went out — in `chanlib.ErrNotDelivered`.
+`chanlib/dedup.go:363` reads that sentinel as proof nothing was posted and
+releases the claim. routd sees 502, keeps the row `pending`, and the sweep
+(`routd/loop.go:396`) re-sends the same key, which wins a fresh claim and
+POSTs again.
+
+teled and discd deliberately leave a transport error unclassified for exactly
+this reason: `teled/bot.go:503` and `discd/bot.go:735` both say "a lost
+response may have sent the message". gitd is the one adapter that asserts it.
+
+- **Severity:** high — a duplicate comment on a public PR, from a timeout
+- **Scope:** `gitd/bot.go:126`
+- **Status:** open
+- **Fix:** wrap only `>=500` and `429` in `ErrNotDelivered`; return a transport
+  error bare so the claim stays inflight and routd dead-letters visibly.
+
+## L414 — gitd's permanent refusal goes on the wire as 502, so it is retried ten times and the agent is told it is queued (2026-10-16, open)
+
+`gitd/bot.go:136` returns `ErrPermanent` for 401, 403, 404, 410 and 422 — a
+revoked token, a deleted or foreign review root. `chanlib/handler.go:490-520`
+has branches for Unsupported and `ErrInvalidRequest` only, so `ErrPermanent`
+falls through to 502, and `chanreg/httpchan.go:60` maps 502 to a transient
+error.
+
+Two consequences. `routd/loop.go:408` spends all 10 attempts on a doubling
+backoff, about four hours, before dead-lettering. On the MCP path
+`ipc/ipc.go:750` records `pending` and tells the agent "queued: the router
+re-sends this message — do NOT send it again" about a message that will never
+send. gitd is the only adapter returning `ErrPermanent` from `Send`; the
+others return `ErrInvalidRequest`, which maps to 400.
+
+- **Severity:** high — the agent is told the opposite of what happened
+- **Scope:** `chanlib/handler.go` writeBotResult, or `gitd/bot.go:136`
+- **Status:** open — mapping `ErrPermanent` to 400 fixes it for every adapter
+  at once, which makes it a contract change worth your sign-off
+
+## L415 — a webhook is answered 202 "retained" when the retention write itself failed (2026-10-16, open)
+
+`chanlib/chanlib.go:231` returns only routd's error; `chanlib/inbound.go:101`
+logs "inbound retain failed; the message is lost" and swallows it.
+`gitd/server.go:96` then answers GitHub 202 `{"retained": true}`. GitHub
+records a success and never redelivers.
+
+The trigger is one event, not two: routd and the adapter store ride the same
+store, so extenddb being unavailable fails both at once. gitd is the one
+adapter whose HTTP response IS the platform's ack, so a 5xx here would be
+correct and would leave a redeliver button in GitHub's UI.
+
+- **Severity:** high — the comment reaches no turn and every surface says fine
+- **Scope:** `chanlib/inbound.go`, `gitd/server.go:96`
+- **Status:** open
+- **Fix:** `retainInbound` returns its outcome; answer 5xx when neither routd
+  nor the retention store took the message.
+
+## L416 — while the agent is engaged on a PR, every observe-only event becomes a turn (2026-10-16, open — needs a decision)
+
+`routd/loop.go:640` checks engagement BEFORE `rt.Mode == "observe"`, and
+`DefaultEngagementTTL` is 30 minutes (`routd/server.go:129`). Any reply renews
+it on `(chat, pr/<n>)`. Inside that window a `synchronize`, `labeled`,
+`review_requested`, `closed` or empty-body approval dispatches a turn with
+content like "kronael synchronize PR #278", as if a person had spoken.
+
+Spec `6/27` names the engagement mechanism as intended, but it was written
+before gitd gave the agent a 30-minute wake-up on every state change.
+
+- **Severity:** medium — the agent comments on a push or a label, one turn each
+- **Status:** open — which events may promote is yours to decide
+
+## L417 — an App-kind source lets the agent send to any repository on GitHub (2026-10-16, open — needs sign-off)
+
+`store/github_sources.go:142,146` seed `chat_jid=github:*/*/pr/*` and the
+`issue/*` twin. `ipc/ipc.go:935` authorizes a `send` or `reply` JID through
+`DefaultFolderForJID` (`store/groups.go:374`), which is plain route
+resolution, so `github:victim/repo/issue/1` resolves to the folder and gitd
+posts with the instance token. A PAT can comment on any public repository.
+
+The realistic trigger is prompt injection: the comment body that starts the
+turn is untrusted text from any GitHub user. The `*/*` scope is declared by
+the SEED, not by the operator.
+
+- **Severity:** high — an injected instruction reaches any repo the token sees
+- **Scope:** `store/github_sources.go:142`, `ipc/ipc.go:935`
+- **Status:** open — narrowing the seed changes the enrolment contract
+- **Fix (not chosen):** seed App routes per installed repository, or refuse a
+  JID no inbound has ever been stored for.
+
+## L418 — an edited, deleted or dismissed comment is dropped as a duplicate and nothing says so (2026-10-16, open)
+
+`gitd/event.go:262,275,293` give every action on a comment the OBJECT id, so
+`issue_comment.edited` arrives as the same `gh-c<id>` as the create.
+`store/messages.go:236` makes a duplicate id a no-op, `GuardedBatch` returns
+`(false, nil)`, routd answers 200 and gitd answers 200. No row, no log line.
+
+Even stored, the mapping carries "login edited a comment" without the new
+body (`event.go:267`). A person who edits a comment to add an instruction gets
+nothing, and a deleted comment stays in the agent's context. No test covers
+these actions.
+
+- **Severity:** medium — silent, and editing a comment is ordinary behaviour
+- **Scope:** `gitd/event.go:262`
+- **Status:** open
+- **Fix:** the delivery id keys the row, the object id keys the thread — the
+  shape `6/27`'s proposal section already prescribes.
+
+## L419 — a token GitHub refuses at boot restart-loops the whole instance (2026-10-16, open)
+
+`gitd/main.go:54` returns the `GET /user` error and `chanlib/run.go:65`
+exits 1. `L406` measured that a daemon exiting at boot cycles the whole
+compose project under systemd. A revoked PAT, or GitHub being unreachable
+during a restart, therefore takes down every daemon on the instance for a
+credential that gates ONE verb.
+
+`rc.Register` (`run.go:57`) already ran, so routd holds a `send_text`
+registration for a dead adapter until the heartbeat expires.
+
+- **Severity:** high — instance-wide outage from one optional credential
+- **Scope:** `gitd/main.go:54`
+- **Status:** open
+- **Fix:** degrade to ingress-only with `send_text` unadvertised, loud at
+  ERROR. Same shape as `L151`.
+
+## L420 — the agent's own comments re-enter as human events when the connector identity differs from gitd's (2026-10-16, open)
+
+The only loop guard is `gitd/server.go:82`, `sender.login` equal to gitd's own
+token login, plus the `type == "Bot"` check at `event.go:185`, which a PAT
+user is not. A folder whose `GH_TOKEN` resolves to a DIFFERENT account than
+gitd's `GITHUB_TOKEN` gets a turn for every comment the agent posts through
+`gh` or the connector, and answering it posts again.
+
+On sloth today all four secrets are one identity (`L410`), so no loop exists
+there. The guard holds by operational coincidence, not by rule.
+
+- **Severity:** high when it triggers — an unbounded self-reply loop that bills
+- **Scope:** `gitd/server.go:82`
+- **Status:** open
+- **Fix:** drop on a SET of known bot logins (gitd's plus each folder's
+  connector identity), or record outbound comment ids and drop their echo.
+
 ## L412 — an answer to an inline review comment lands in the conversation tab, not under the code line (2026-10-16, open)
 
 MEASURED on `vumilan/morha` PR 277, 2026-10-16. An inline review comment IS
