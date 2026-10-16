@@ -30,7 +30,8 @@ it does not approve the proposed lifecycle or claim a deployment.
 A comment is a message in the conversation. A merge, label, or review changes repository
 state. `gitd/bot.go` implements only `send_text`; `gitd/main.go:capsFor` advertises it
 when `GITHUB_TOKEN` is set. The token's user posts the comment and the returned identity
-is `gh-c<id>`, matching inbound comment IDs. Without that token, gitd is ingress-only.
+is `gh-c<id>`, or `gh-rc<id>` for an inline review comment, matching inbound comment IDs.
+Without that token, gitd is ingress-only.
 Other channel verbs return Unsupported.
 
 State changes use `template/connectors/github.toml` through the hosted HTTP broker
@@ -87,9 +88,17 @@ and mention triggers; other events go to `#observe`. Narrow repo routes precede 
 routes and the App default. Operators change that split through the existing route table.
 Route globs use `path.Match`; `*` does not cross `/`.
 Live engagement can trigger later events on that thread before the observe route applies
-([`Q-unified-routing.md`](../5/Q-unified-routing.md)). Review replies retain `gh-c<id>` reply pointers.
-`gitd/bot.go` ignores `SendRequest.ThreadID` and `ReplyTo`: every outbound comment uses
-the issue-comments endpoint, including replies to inline review comments.
+([`Q-unified-routing.md`](../5/Q-unified-routing.md)).
+
+An inline review comment is a thread, and `SendRequest.ReplyTo` is how gitd addresses it:
+the topic stays `pr/<n>`, one session per pull request. Review comments carry the `gh-rc<id>`
+namespace inbound and outbound because GitHub keeps them in a different id space behind a
+different endpoint, and a bare number cannot say which. `gitd/bot.go` reads that prefix: it
+resolves the comment that opened the thread — GitHub takes only that one as a reply target —
+and posts to `pulls/<n>/comments/<root>/replies`. Every other reply uses the issue-comments
+endpoint. A missing or foreign thread is reported, never redirected to the conversation tab.
+`SendRequest.ThreadID` carries the turn's topic, which is a session key and not an address,
+so gitd does not read it.
 
 ## Repository workspace proposal — unapproved
 

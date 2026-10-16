@@ -271,10 +271,10 @@ func mapEvent(kind, name, event, delivery string, body []byte, now time.Time) (m
 			return msg, "", errors.New("review comment event without pull_request or comment")
 		}
 		jid.Kind, jid.Number = "pr", p.PullRequest.Number
-		msg.ID = "gh-c" + strconv.FormatInt(p.Comment.ID, 10)
+		msg.ID = reviewIDPrefix + strconv.FormatInt(p.Comment.ID, 10)
 		msg.Timestamp = parseTime(p.Comment.CreatedAt, now).Unix()
 		if p.Comment.InReplyToID != 0 {
-			msg.ReplyTo = "gh-c" + strconv.FormatInt(p.Comment.InReplyToID, 10)
+			msg.ReplyTo = reviewIDPrefix + strconv.FormatInt(p.Comment.InReplyToID, 10)
 		}
 		if p.Action == "created" {
 			msg.Verb = "message"

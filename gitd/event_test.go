@@ -60,8 +60,8 @@ func TestMapEvent_Fixtures(t *testing.T) {
 		{"issue_comment_created_crackbox", "issue_comment", "github:kronael/crackbox/issue/7", "message", "issue/7", "gh-c4567890999",
 			"github:rhias", "", "Reproduced on 6.1; the proxy PID file is stale.",
 			time.Date(2026, 9, 5, 10, 6, 0, 0, time.UTC).Unix()},
-		{"pull_request_review_comment_created", "pull_request_review_comment", "github:kronael/arizuko/pr/12", "message", "pr/12", "gh-c5678901234",
-			"github:kronael", "gh-c5678901200", "on gitd/verify.go:\n\nConstant-time compare — good. Also reject an empty secret.",
+		{"pull_request_review_comment_created", "pull_request_review_comment", "github:kronael/arizuko/pr/12", "message", "pr/12", "gh-rc5678901234",
+			"github:kronael", "gh-rc5678901200", "on gitd/verify.go:\n\nConstant-time compare — good. Also reject an empty secret.",
 			time.Date(2026, 9, 5, 10, 7, 15, 0, time.UTC).Unix()},
 	}
 	for _, c := range cases {

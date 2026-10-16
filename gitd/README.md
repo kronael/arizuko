@@ -61,7 +61,14 @@ triggers a turn; every other event (push, merge, label, CI) lands as
 
 `send_text` is the only verb, advertised only when `GITHUB_TOKEN` is set: it
 posts the agent's reply as a comment on the PR or issue the JID names and
-returns `gh-c<id>`, the id the same comment carries inbound. The token's own
+returns the id the same comment carries inbound.
+
+`ReplyTo` decides which comment stream. A `gh-rc<id>` names an inline review
+comment, so the reply goes under that code line: gitd resolves the comment that
+opened the thread (GitHub accepts only that one) and posts to
+`pulls/<n>/comments/<root>/replies`, returning `gh-rc<id>`. Anything else is the
+issue-comments endpoint, returning `gh-c<id>`. The topic stays `pr/<n>` either
+way — it names the session, never the address. The token's own
 comments are dropped at ingest (`sender.login` == the token's login), as is
 any `sender.type == "Bot"`. Without a token gitd is ingress-only and `reply`
 on a `github:` JID returns an Unsupported hint.
