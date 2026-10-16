@@ -261,8 +261,31 @@ therefore the undo.
   instance behind an explicit flag; leaving it set past the test is the risk
 - **Scope:** `gitd/event.go`, `env/gitd.env` on sloth
 - **Affected:** sloth only
-- **Status:** open — the bypass ships for the end-to-end test; the decision is
-  which permanent shape wins
+- **Status:** open — the bypass is LIVE on sloth and the path is PROVEN; the
+  decision is which permanent shape wins, and the flag comes out when it lands
+
+**MEASURED END TO END, 2026-10-16 13:44:55Z.** A second comment on the same PR
+(`issuecomment-6216852106`) with the flag set:
+
+```
+POST /github/app/sloth → 200 (44ms)
+routd: dispatch run folder=sloth/morha topic=pr/278 turn_id=gh-c6216852106
+       chat_jid=github:vumilan/morha/pr/278 trigger=github:kronael
+       egress=true gh_write=true shell_env=[GH_TOKEN]
+```
+
+This is the first GitHub delivery arizuko has accepted. Every step of the path
+is now proven: the proxyd route, the signature, the secret unseal, the JID, the
+topic, the route match, the folder, and the capability resolution.
+
+The same turn_id dispatched twice, 13:44:55 and 13:44:59, with no restart
+between them — a clean observation for `L408`, whose own reproduction is
+polluted.
+
+The flag is set in `/srv/data/arizuko_sloth/.env` and reaches the container
+through `template/services/gitd.yml`, which defaults it to empty. The generated
+`env/gitd.env` is rewritten on EVERY restart, not only on an explicit
+`generate`, so it could not hold the flag.
 - **Fix (the two candidates, neither chosen):**
   1. The operator repoints the repository webhook at its repo-kind path and the
      flag is deleted. No code survives.
