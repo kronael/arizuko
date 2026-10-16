@@ -245,18 +245,6 @@ h3 {
   align-items: start;
 }
 
-/* Two panes: a thinner navigation and one content column, for the linear
-   sections where a reader goes page to page instead of looking a fact up. */
-.guide-layout {
-  display: grid;
-  grid-template-columns: 13em minmax(0, 1fr);
-  gap: 2.5em;
-  max-width: var(--w-guide);
-  margin: 0 auto;
-  padding: var(--sp-6) var(--sp-5);
-  align-items: start;
-}
-
 /* A page with no shell: landing, changelog, the section indexes. */
 .hub-container {
   max-width: var(--w-prose);
@@ -678,7 +666,7 @@ blockquote { margin: var(--sp-5) 0; color: var(--dim); font-style: italic; }
 /* Below the wide breakpoint the panes stack: the navigation collapses into
    the top bar's drawer and the on-page contents rail drops. */
 @media (max-width: 1200px) {
-  .docs-layout, .guide-layout {
+  .docs-layout {
     grid-template-columns: minmax(0, 1fr);
     gap: 0;
     padding: var(--sp-5) var(--sp-4);
@@ -723,7 +711,7 @@ blockquote { margin: var(--sp-5) 0; color: var(--dim); font-style: italic; }
 @media (max-width: 480px) {
   :root { --fs-root: 15px; --sp-6: 1.5em; }
   .hub-container { padding: var(--sp-4) var(--sp-3); }
-  .docs-layout, .guide-layout { padding: var(--sp-4) var(--sp-3); }
+  .docs-layout { padding: var(--sp-4) var(--sp-3); }
   .docs-search { max-width: none; }
 }
 
