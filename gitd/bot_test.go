@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/objstore/dynstore/dyntest"
@@ -189,5 +190,29 @@ func TestStart_LearnsLogin(t *testing.T) {
 	ingress := newBot(config{APIBase: gh.URL})
 	if err := ingress.start(context.Background()); err != nil || ingress.Login() != "" || !ingress.isConnected() {
 		t.Errorf("ingress-only start: err=%v login=%q connected=%v", err, ingress.Login(), ingress.isConnected())
+	}
+}
+
+// A transport failure leaves the outcome unknown: the client timeout fires
+// after the request body went out, so GitHub may already hold the comment.
+// ErrNotDelivered releases the dedup claim and the sweep posts a SECOND
+// comment (BUGS L413). Unclassified, the claim stays and routd dead-letters.
+func TestSend_TransportFailureIsUnclassified(t *testing.T) {
+	block := make(chan struct{})
+	gh := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { <-block }))
+	// LIFO: the handler is released BEFORE Close waits for it to return.
+	defer gh.Close()
+	defer close(block)
+	b := newBot(config{Token: "ghp_test", APIBase: gh.URL})
+	b.http = &http.Client{Timeout: 50 * time.Millisecond}
+	_, err := b.Send(chanlib.SendRequest{ChatJID: "github:kronael/arizuko/pr/12", Content: "x"})
+	if err == nil {
+		t.Fatal("Send reported success on a timeout")
+	}
+	if errors.Is(err, chanlib.ErrNotDelivered) {
+		t.Errorf("timeout err = %v, want unclassified: a lost response may have posted the comment", err)
+	}
+	if errors.Is(err, chanlib.ErrPermanent) {
+		t.Errorf("timeout err = %v, want unclassified: a retry can still deliver it", err)
 	}
 }

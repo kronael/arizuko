@@ -112,7 +112,8 @@ func reviewCommentID(replyTo string) (int64, bool) {
 // call makes one GitHub request and classifies the refusal the way the outbound
 // sweep reads it: 429 and 5xx are worth another attempt, every other status is
 // permanent. It is the ONE place gitd turns a status into an error, so the reply
-// and the thread lookup cannot read the same status differently.
+// and the thread lookup cannot read the same status differently. Only a
+// response GitHub actually sent is classified at all.
 func (b *bot) call(method, url string, body []byte, want int) ([]byte, error) {
 	var rdr io.Reader
 	if body != nil {
@@ -128,7 +129,12 @@ func (b *bot) call(method, url string, body []byte, want int) ([]byte, error) {
 	}
 	resp, err := b.http.Do(hreq)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", chanlib.ErrNotDelivered, err)
+		// Unclassified: the client timeout fires after the request body went
+		// out, so a lost response may have created the comment. ErrNotDelivered
+		// would release the dedup claim and the sweep would post a second one,
+		// on a public PR. teled and discd leave a transport error unclassified
+		// for the same reason; the claim stays and routd dead-letters visibly.
+		return nil, fmt.Errorf("github request: %w", err)
 	}
 	defer resp.Body.Close() //nolint:errcheck
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
