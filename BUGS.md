@@ -51,6 +51,10 @@ line; none can be answered from the code.
   loopback binds and the ports above 49000 shipped with v0.70.0; what is
   left is the move itself, which re-addresses every daemon and needs the Go
   suite runnable on the host first.
+- `L422` — thirteen daemons read env keys that generation never delivers, so
+  a key set in `.env` takes its code default and every surface reads healthy.
+  emaid's five auth keys are delivered; each remaining row needs a yes or no
+  before the guard can ship.
 
 **A contract or design decision, measured since.**
 
