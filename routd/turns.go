@@ -85,9 +85,6 @@ func (s *Server) appendAndDeliver(turnID, jid, text string) {
 		}
 	}
 	status := s.deliverTurn(tc, jid, &row)
-	if s.deliver != nil {
-		_ = s.deliver.Typing(jid, false)
-	}
 	if err := s.db.PutOutbound(row, status); err != nil {
 		slog.Error("appendAndDeliver: PutOutbound failed; reply was delivered but not persisted, will be missing from history/audit",
 			"folder", tc.Folder, "turn_id", turnID, "err", err)
@@ -233,10 +230,7 @@ func (s *Server) recordTurnResult(turnID string, req apiv1.TurnResult) (bool, er
 			}
 		}
 		logSelfReportedCost(s.gateway() != nil, tc.Folder, turnID, req.Models)
-		if err := s.db.SetTurnState(turnID, "done"); err != nil {
-			slog.Error("recordTurnResult: SetTurnState(done) failed; turn may appear stuck in-progress",
-				"folder", tc.Folder, "turn_id", turnID, "err", err)
-		}
+		finishTurn(s.db, s.deliver, turnID, endDone)
 		if s.loop != nil {
 			// VERBATIM — webd's hub keys on it as-is; a TrimPrefix here hung
 			// every suffixed hook: widget (BUGS L30).

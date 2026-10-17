@@ -94,10 +94,8 @@ type steeringRunner struct {
 func (r *steeringRunner) Run(_ context.Context, req runedv1.RunRequest) (runedv1.RunOutcome, error) {
 	if r.deliverContent {
 		r.srv.appendAndDeliver(req.TurnID, req.ChatJID, "hello steered")
-		first, _ := r.srv.db.RecordTurnResult(string(req.Folder), req.TurnID, "sess-steered", "success", "")
-		if first {
-			_ = r.srv.db.SetTurnState(req.TurnID, "done")
-		}
+		_, _ = r.srv.recordTurnResult(req.TurnID, apiv1.TurnResult{
+			TurnID: req.TurnID, SessionID: "sess-steered", Status: "success"})
 	}
 	return runedv1.RunOutcome{RunID: "run-steered", Steered: true}, nil
 }
@@ -152,7 +150,7 @@ func seedTypingMsg(t *testing.T, db *DB, srv *Server, jid string) {
 }
 
 // TestTyping_Normal verifies that a non-steered run with content emits
-// Typing(true) before the run and Typing(false) after content lands.
+// Typing(true) before the run and Typing(false) once the turn ends.
 func TestTyping_Normal(t *testing.T) {
 	dl := &typingDeliverer{}
 	sr := &stubRunner{}
@@ -202,8 +200,8 @@ func TestTyping_Steered_NoImmediateOff(t *testing.T) {
 }
 
 // TestTyping_Steered_ClearsOnContent verifies that when a steered run delivers
-// content via appendAndDeliver, Typing(false) fires at content-delivery time
-// and not from the dispatch path.
+// content and records its result, Typing(false) fires when the turn ends
+// (finishTurn), not from the dispatch path.
 func TestTyping_Steered_ClearsOnContent(t *testing.T) {
 	dl := &typingDeliverer{}
 	runner := &steeringRunner{deliverContent: true}

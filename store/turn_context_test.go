@@ -315,3 +315,21 @@ func TestATurnWithNoIdIsRefused(t *testing.T) {
 		t.Fatalf("%d turns landed (err=%v)", n, err)
 	}
 }
+
+// finishTurn clears presence on every chat the turn's run owns, and it finds
+// that run through the turn itself.
+func TestATurnReadsBackItsRunID(t *testing.T) {
+	s := openEntities(t)
+	if _, err := s.OpenTurnContext("t1", "demo", "", "tg:1", "u1", ""); err != nil {
+		t.Fatal(err)
+	}
+	if tc, _ := s.TurnContextOf("t1"); tc.RunID != "" {
+		t.Fatalf("a turn nobody ran reads run id %q, want empty", tc.RunID)
+	}
+	if err := s.SetTurnRunID("t1", "run-1"); err != nil {
+		t.Fatal(err)
+	}
+	if tc, _ := s.TurnContextOf("t1"); tc.RunID != "run-1" {
+		t.Fatalf("run id = %q, want run-1", tc.RunID)
+	}
+}

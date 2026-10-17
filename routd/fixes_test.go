@@ -54,6 +54,8 @@ type recDeliverer struct {
 	// history + nil err → an empty-but-valid response.
 	history    []byte
 	historyErr error
+	// typings records every Typing call, in order.
+	typings []typingEvent
 }
 
 // sentMsgs is the safe read of what landed: the gate appends from another
@@ -133,7 +135,12 @@ func (d *recDeliverer) CanEdit(_ string) bool           { return !d.noEdit }
 func (d *recDeliverer) Delete(_, _ string) error        { return nil }
 func (d *recDeliverer) Pin(_, _ string) error           { return nil }
 func (d *recDeliverer) Unpin(_, _ string, _ bool) error { return nil }
-func (d *recDeliverer) Typing(_ string, _ bool) error   { return nil }
+func (d *recDeliverer) Typing(jid string, on bool) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.typings = append(d.typings, typingEvent{jid, on})
+	return nil
+}
 func (d *recDeliverer) Document(jid, _, _, _, replyTo, threadID, idem string) (string, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()

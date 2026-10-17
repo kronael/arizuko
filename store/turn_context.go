@@ -72,6 +72,7 @@ type TurnContext struct {
 	TriggerMsgID string
 	ReturnTo     string
 	State        string
+	RunID        string
 	RunReturned  bool
 	RetryCount   int
 }
@@ -96,6 +97,7 @@ func turnFrom(it objstore.Item) TurnContext {
 		TriggerMsgID: it.Attrs[attrTurnTriggerMsg],
 		ReturnTo:     it.Attrs[attrTurnReturnTo],
 		State:        it.Attrs[attrTurnState],
+		RunID:        it.Attrs[attrTurnRunID],
 		RunReturned:  it.Attrs[attrTurnRunReturned] == flagSet,
 	}
 	tc.StartedAt, _ = time.Parse(time.RFC3339Nano, it.Attrs[AttrTurnStartedAt])

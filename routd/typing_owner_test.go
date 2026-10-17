@@ -68,9 +68,7 @@ func TestChatsOwnedByAlwaysIncludesPrimaryAndDeduplicates(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	l := &Loop{db: db}
-
-	if got := l.chatsOwnedBy("slack:T/A/U", ""); len(got) != 1 || got[0] != "slack:T/A/U" {
+	if got := db.chatsOwnedBy("slack:T/A/U", ""); len(got) != 1 || got[0] != "slack:T/A/U" {
 		t.Fatalf("no run id: got %v, want [slack:T/A/U]", got)
 	}
 
@@ -80,7 +78,7 @@ func TestChatsOwnedByAlwaysIncludesPrimaryAndDeduplicates(t *testing.T) {
 	if err := db.SetTurnRunID("t", "run-3"); err != nil {
 		t.Fatalf("set run id: %v", err)
 	}
-	if got := l.chatsOwnedBy("slack:T/A/U", "run-3"); len(got) != 1 {
+	if got := db.chatsOwnedBy("slack:T/A/U", "run-3"); len(got) != 1 {
 		t.Fatalf("got %v, want the chat listed once", got)
 	}
 }

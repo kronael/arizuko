@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"slices"
 	"time"
 
 	"github.com/kronael/arizuko/audit"
@@ -555,6 +556,22 @@ func (d *DB) SetTurnRunID(turnID, runID string) error {
 // chat is not always the running turn's chat (BUGS T1).
 func (d *DB) TypingJIDsForRun(runID string) []string {
 	return d.store().TypingJIDsForRun(runID)
+}
+
+// chatsOwnedBy lists the chats a finished run owed something to: primary plus
+// every chat of a turn recorded against runID, deduplicated. The presence
+// clear and the failure notice both read it and must agree.
+func (d *DB) chatsOwnedBy(primary, runID string) []string {
+	jids := []string{primary}
+	if runID == "" {
+		return jids
+	}
+	for _, jid := range d.TypingJIDsForRun(runID) {
+		if jid != "" && !slices.Contains(jids, jid) {
+			jids = append(jids, jid)
+		}
+	}
+	return jids
 }
 
 // IncrementRetryCount moves a turn to its next attempt and returns which. The

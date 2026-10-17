@@ -434,15 +434,8 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 	}
 	l.beginProgress(typingJID)
 	out, derr := l.dispatchRun(ctx, folder, topic, chatJID, turnID, last.Sender, rendered, elevated, gwKey.Key)
-	// A steered turn's indicator is appendAndDeliver's. Otherwise clear it for
-	// EVERY chat this run owns: steering is by FOLDER, so a steered turn's chat
-	// is not always this one (BUGS T1).
-	if l.deliver != nil && !out.Steered {
-		for _, jid := range l.chatsOwnedBy(typingJID, out.RunID) {
-			_ = l.deliver.Typing(jid, false)
-		}
-	}
 	if derr != nil {
+		l.pauseProgress(typingJID, out.RunID)
 		slog.Warn("dispatch run transport failure", "folder", folder, "turn_id", turnID, "err", derr)
 		if runedUnreachable(derr) {
 			// Nothing ran: the queue's breaker leaves the folder's streak alone
@@ -452,6 +445,7 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 		return false, false, false, "", derr
 	}
 	if out.Busy {
+		l.pauseProgress(typingJID, out.RunID)
 		// runed keeps no internal queue: leave turn_context running and the
 		// cursor un-advanced, not counted toward the breaker.
 		slog.Debug("dispatch run busy — runed at capacity, retry next poll", "folder", folder, "turn_id", turnID)
@@ -464,10 +458,7 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 		// The original run owns the batch and submits under ITS turn_id. THIS
 		// turn is done, or a re-fed poll / recoverPending re-spawns it and
 		// duplicates the output.
-		if err := l.db.SetTurnState(turnID, "done"); err != nil {
-			slog.Error("processGroupMessages: SetTurnState(done) failed on steer; turn may appear stuck and be re-dispatched, duplicating output",
-				"turn_id", turnID, "err", err)
-		}
+		finishTurn(l.db, l.deliver, turnID, endSteered)
 		_ = l.db.SetRunReturned(turnID)
 		return true, true, false, "", nil
 	}
@@ -486,6 +477,7 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 					"folder", folder, "turn_id", turnID, "retry", newCount, "max", l.maxTurnRetry)
 				// The re-feed IS the retry: busy=true holds the cursor on this batch.
 				// Advancing first woke a poll with nothing left to retry (BUGS L75a).
+				l.pauseProgress(typingJID, out.RunID)
 				return false, false, true, "", nil
 			}
 		}
@@ -515,7 +507,7 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 			// Only the primary carries the topic — a thread id is local to its
 			// chat. The idempotency key is per destination, or the adapter dedups
 			// the fan-out into one delivery.
-			for _, jid := range l.chatsOwnedBy(chatJID, out.RunID) {
+			for _, jid := range l.db.chatsOwnedBy(chatJID, out.RunID) {
 				thread := ""
 				if jid == chatJID {
 					thread = topic
@@ -523,16 +515,14 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 				_, _ = l.deliver.Send(jid, notice, "", thread, "", "fail-"+turnID+"-"+jid)
 			}
 		}
-		if err := l.db.SetTurnState(turnID, "done"); err != nil {
-			slog.Error("processGroupMessages: SetTurnState(done) failed on terminal failure; turn may appear stuck in-progress",
-				"turn_id", turnID, "err", err)
-		}
+		finishTurn(l.db, l.deliver, turnID, endFailed)
 		// The breaker rides only on the run that trips it.
 		if out.BreakerOpen {
 			l.onCircuitBreakerOpen(chatJID, folder)
 		}
 		return false, false, false, "", nil
 	}
+	end := endDone
 	recorded := l.db.TurnResultRecorded(folder, turnID)
 	// Deliberate silence still records a result, so this fires only on a
 	// malfunction: a 0-result SDK run, a config-less spawn, a swallowed
@@ -541,6 +531,7 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 		slog.Error("silent turn: clean run delivered nothing",
 			"folder", folder, "turn_id", turnID, "jid", chatJID)
 		obs.RecordSilentTurn(folder)
+		end = endFailed
 		if l.deliver != nil {
 			_, _ = l.deliver.Send(chatJID, silentTurnNotice, "", topic, "", "silent-"+turnID)
 		}
@@ -549,10 +540,7 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 	// The errored flag is a claim about NOW; without this dual it is monotonic
 	// for the life of the instance (BUGS L304).
 	_ = l.db.ClearChatErrored(chatJID)
-	if err := l.db.SetTurnState(turnID, "done"); err != nil {
-		slog.Error("processGroupMessages: SetTurnState(done) failed on clean completion; turn may appear stuck in-progress",
-			"folder", folder, "turn_id", turnID, "err", err)
-	}
+	finishTurn(l.db, l.deliver, turnID, end)
 	return out.Outcome != runedv1.OutcomeSilent, false, false, observedMark, nil
 }
 
@@ -627,22 +615,6 @@ func consecutiveRuns(msgs []core.Message, key func(core.Message) string) [][]cor
 
 func groupByTopic(msgs []core.Message) [][]core.Message {
 	return consecutiveRuns(msgs, func(m core.Message) string { return m.Topic })
-}
-
-// chatsOwnedBy lists the chats a finished run owed something to: primary plus
-// every chat of a turn recorded against runID, deduplicated. The typing clear
-// and the failure notice both read it and must agree.
-func (l *Loop) chatsOwnedBy(primary, runID string) []string {
-	jids := []string{primary}
-	if runID == "" {
-		return jids
-	}
-	for _, jid := range l.db.TypingJIDsForRun(runID) {
-		if jid != "" && !slices.Contains(jids, jid) {
-			jids = append(jids, jid)
-		}
-	}
-	return jids
 }
 
 // runFailureNotice is sent when a run returns outcome:error with no usable output.
