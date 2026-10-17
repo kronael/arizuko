@@ -39,6 +39,10 @@ line; none can be answered from the code.
 - `L436` — measure whether a route target holding `..` resolves, then fix the
   gate in every resource that takes a folder.
 
+- `L437` — emit `WHISPER_BASE_URL` into the turn and hand every guest an
+  ungated host service, or drop the self-transcription claim from the two
+  skills that make it.
+
 - `L434` — may gitd hold the dedup claim on a 5xx and dead-letter visibly?
   It changes delivery semantics for every adapter.
 
@@ -261,6 +265,48 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
 - **`L15` — the 2026-08-11 dead-code sweep's rejected hits.** `deadcode ./...` gave 149
   hits, 56 under `-test`; nine survived verification and were filed separately. Kept so
   the next sweep does not re-report the same ~135.
+
+## L437 — two shipped skills tell the agent to call `$WHISPER_BASE_URL`, and the guest never gets it (2026-10-17, open)
+
+MEASURED 2026-10-17 while sweeping `specs/3/0-agent-capabilities.md`, which
+claims "`WHISPER_BASE_URL` env var passed to container. Agent transcribes audio
+it downloads (yt-dlp, podcast episodes) without going through gateway IPC."
+
+The guest's whole env is `turnEnv` (`runed/render.go:102`), and it emits `TZ`,
+`ARIZUKO_MODEL`, `ARIZUKO_EFFORT`, `ARIZUKO_QUERY_TIMEOUT_MS`,
+`ARIZUKO_BACKEND`, `MODEL_GATEWAY_URL`, `MODEL_GATEWAY_KEY`,
+`ARIZUKO_IS_ROOT`, `ARIZUKO_GH_WRITE` — and nothing else. `git grep WHISPER --
+runed/ container/ ant/` returns no producer: the only hits are the two
+consumers below. `WHISPER_BASE_URL` reaches routd
+(`routd/cmd/routd/main.go:224`) and the daemon env lists
+(`compose/compose.go:142,174`), which is the inbound enrichment path, not the
+agent's.
+
+Two consumers read it inside the guest and get an empty string:
+
+- `ant/skills/acquire/SKILL.md:41` — `curl -F "file=@audio.ogg"
+  "$WHISPER_BASE_URL/inference" | jq -r '.text'`
+- `ant/skills/self/migrations/031-rich-container-tooling.md:15` — the same
+  line, announced to every group as a capability
+
+So the documented self-transcription path has never worked: the curl goes to
+`/inference`, which resolves to nothing, and the agent reports a failed
+download rather than a missing grant.
+
+This is [[ant_env_delivery]] — the agent-side instance of the class `L422`
+names and leaves unfiled on this side.
+
+- **Severity:** medium — silent, and it is advertised to agents in a migration
+  broadcast, so the failure reads as the audio being unreachable
+- **Scope:** `runed/render.go` `turnEnv`, `ant/skills/acquire/SKILL.md`,
+  `ant/skills/self/migrations/031-rich-container-tooling.md`
+- **Status:** open — needs a decision, because the two honest fixes differ in
+  what they grant. Emitting `WHISPER_BASE_URL` into `turnEnv` hands every turn
+  a host service the egress allowlist does not gate (the URL is internal, so
+  the turn's proxy is not in the path); dropping the claim from both skills
+  keeps the surface as built and loses the capability. Either way the spec's
+  claim goes.
+- **Related:** `L422` (the daemon-side census), [[ant_env_delivery]]
 
 ## L436 — the github_sources target passes containment with `..` in it (2026-10-17, open)
 
