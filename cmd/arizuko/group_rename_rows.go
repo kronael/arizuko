@@ -459,7 +459,7 @@ func (mapping renameMap) row(owner, entity string, before objstore.Item, root st
 		after.Key.Partition = mapping.identity(before.Key.Partition)
 	case runstore.SessionLog:
 		after.Key.Partition = mapping.folder(before.Key.Partition)
-	case store.RouteTokens, store.ScheduledTasks, store.PendingActions, store.GitHubSources, store.PaneSessions, store.Counters, store.UserProfiles, store.TaskRunLogs, store.TurnContexts, store.MessageActivity, store.MessageDelivery, store.OnboardingGates, store.Invites, store.InviteRedemptions, store.ScopeEntity, runstore.Spawns, authstore.SigningKeys, authstore.SigningKeySlot, authstore.AuthUsers, authstore.OAuthIdentities, authstore.RefreshTokens, authstore.RefreshFamilies, chanstore.OutboundDedup, chanstore.InboundPending, chanstore.FileURL, emaistore.EmailThreads, emaistore.EmailMsgIDs:
+	case store.RouteTokens, store.ScheduledTasks, store.PendingActions, store.GitHubSources, store.GDriveFiles, store.PaneSessions, store.Counters, store.UserProfiles, store.TaskRunLogs, store.TurnContexts, store.MessageActivity, store.MessageDelivery, store.OnboardingGates, store.Invites, store.InviteRedemptions, store.ScopeEntity, runstore.Spawns, authstore.SigningKeys, authstore.SigningKeySlot, authstore.AuthUsers, authstore.OAuthIdentities, authstore.RefreshTokens, authstore.RefreshFamilies, chanstore.OutboundDedup, chanstore.InboundPending, chanstore.FileURL, emaistore.EmailThreads, emaistore.EmailMsgIDs:
 	case runstore.CircuitBreaker:
 		after.Key.Partition = mapping.folder(before.Key.Partition)
 		after.Key.Sort = mapping.folder(before.Key.Sort)

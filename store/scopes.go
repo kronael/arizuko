@@ -62,7 +62,7 @@ var scopedEntities = map[string]string{
 	OnboardingGates: OwnerOnbod,
 	Invites:         OwnerOnbod,
 
-	// routd's thirteen. Counters is absent: the write that USES a drawn number
+	// routd's fourteen. Counters is absent: the write that USES a drawn number
 	// moves the marker itself.
 	ACL:               OwnerRoutd,
 	ACLMembership:     OwnerRoutd,
@@ -77,6 +77,7 @@ var scopedEntities = map[string]string{
 	WebRoutes:         OwnerRoutd,
 	InstalledPackages: OwnerRoutd,
 	GitHubSources:     OwnerRoutd,
+	GDriveFiles:       OwnerRoutd,
 }
 
 // EntityScope answers the scope an entity's writes move, and whether it has one.

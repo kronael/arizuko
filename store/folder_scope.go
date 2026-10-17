@@ -90,6 +90,8 @@ var entityScopePurge = []entityScope{
 	{entity: WebRoutes, seps: []string{"/"}, folderOf: attrScope(AttrWebFolder)},
 	{entity: RouteTokens, seps: []string{"/"}, folderOf: attrScope(attrTokOwnerFolder)},
 	{entity: GitHubSources, seps: []string{"/"}, folderOf: attrScope(attrGHOwnerFolder)},
+	{entity: GDriveFiles, seps: []string{"/"}, folderOf: attrScope(attrGDOwnerFolder)},
+	{entity: GDriveFiles, seps: []string{"/"}, folderOf: attrScope(attrGDTargetFolder)},
 
 	// Owned assets.
 	{entity: InstalledPackages, seps: []string{"/"}, folderOf: func(it objstore.Item) (string, bool) {

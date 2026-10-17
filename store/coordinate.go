@@ -51,6 +51,7 @@ var keyFields = map[string][]string{
 	WebRoutes:         {"path_prefix"},
 	InstalledPackages: {"folder", "name"},
 	GitHubSources:     {"source"},
+	GDriveFiles:       {"file_id"},
 	Chats:             {"jid"},
 	Sessions:          {"group_folder", "topic"},
 	ChatReplyState:    {"jid", "topic"},
@@ -115,6 +116,8 @@ func entityKey(entity string, key []string) (objstore.Key, error) {
 		return InstalledPackageKey(key[0], key[1])
 	case GitHubSources:
 		return githubSourceKey(key[0])
+	case GDriveFiles:
+		return gdriveFileKey(key[0])
 	case Chats:
 		return chatKey(key[0])
 	case Sessions:

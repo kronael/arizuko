@@ -33,7 +33,7 @@ const (
 	// by the person who followed it and the instant they did.
 	InviteRedemptions = "invite_redemptions"
 
-	// routd's thirteen registered resources. A wrong coordinate collides two
+	// routd's fourteen registered resources. A wrong coordinate collides two
 	// rows onto one item (BUGS L260); six of them join on KeySep.
 
 	// ACL holds one grant, addressed by the six fields that ARE the grant:
@@ -66,6 +66,8 @@ const (
 	InstalledPackages = "installed_packages"
 	// GitHubSources holds one webhook source, addressed by its source key.
 	GitHubSources = "github_sources"
+	// GDriveFiles holds one bound Drive file, addressed by its file id.
+	GDriveFiles = "gdrive_files"
 
 	// The hot tier: runtime state no resreg resource projects, so nothing
 	// exports it and no version marker moves with it (scopes.go).
@@ -160,7 +162,7 @@ var EntitiesByOwner = map[string][]string{
 		PaneSessions, SecretUseLog, Counters,
 		ACL, ACLMembership, Groups, Routes, RouteTokens, ScheduledTasks, Secrets,
 		PendingActions, NetworkRules, ProxydRoutes, WebRoutes, InstalledPackages,
-		GitHubSources,
+		GitHubSources, GDriveFiles,
 		Chats, Sessions, ChatReplyState, ChatProactive, SystemMessages, UserProfiles,
 		TurnResults, GroupWatchers, TaskRunLogs, TurnContexts,
 		Messages, MessageFolders, MessageFolderCounts, MessageActivity, MessageDelivery,
