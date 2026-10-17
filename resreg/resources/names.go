@@ -11,6 +11,7 @@ const (
 	ACLMembershipName     = "acl_membership"
 	AuditName             = "audit"
 	DeadLettersName       = "dead_letters"
+	GDriveFilesName       = "gdrive_files"
 	GitHubSourcesName     = "github_sources"
 	GroupsName            = "groups"
 	InstalledPackagesName = "installed_packages"

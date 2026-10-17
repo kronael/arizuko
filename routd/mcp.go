@@ -586,10 +586,11 @@ func (s *Server) ServeTurnMCP(t turnMCP, ipcDir string) (func(), error) {
 	acl := s.aclPostBuild(t.folder, callerSub, authorize, visible, callerID)
 	routeTokens := s.routeTokensPostBuild(t.folder, callerSub, authorize, visible)
 	githubSources := s.githubSourcesPostBuild(t.folder, callerSub, authorize, visible)
+	gdriveFiles := s.gdriveFilesPostBuild(t.folder, callerSub, authorize, visible)
 	groups := s.groupsPostBuild(t.folder, callerSub, authorize, visible, callerID)
 	membership := s.membershipPostBuild(t.folder, callerSub, authorize, visible)
 	packages := s.installedPackagesPostBuild(t.folder, callerSub, authorize, visible)
 	auditTools := s.auditPostBuild(t.folder, callerSub, authorize, visible)
 	deadLetters := s.deadLettersPostBuild(t.folder, callerSub, authorize, visible)
-	return ipc.ServeMCP(sockPath, s.buildGatedFns(t), s.buildStoreFns(t), t.folder, callerID.IsRoot, expectedUID, callerSub, webRoutes, networkRules, scheduledTasks, routes, acl, routeTokens, githubSources, groups, membership, packages, auditTools, deadLetters)
+	return ipc.ServeMCP(sockPath, s.buildGatedFns(t), s.buildStoreFns(t), t.folder, callerID.IsRoot, expectedUID, callerSub, webRoutes, networkRules, scheduledTasks, routes, acl, routeTokens, githubSources, gdriveFiles, groups, membership, packages, auditTools, deadLetters)
 }

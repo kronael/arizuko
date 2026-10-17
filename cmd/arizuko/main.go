@@ -79,6 +79,7 @@ func main() {
 		"proxy-config": cmdProxyConfig,
 		"create":       cmdCreate,
 		"github":       cmdGithub,
+		"gdrive":       cmdGdrive,
 		"group":        cmdGroup,
 		"gate":         cmdGate,
 		"invite":       cmdInvite,
