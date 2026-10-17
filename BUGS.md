@@ -43,6 +43,12 @@ line; none can be answered from the code.
   ungated host service, or drop the self-transcription claim from the two
   skills that make it.
 
+- `L440` — may `/send` key its frame on the row id so a live frame and a
+  replayed one agree? It changes `platform_id`, which other readers compare.
+
+- `L439` — the first status frame has no topic because routd writes the row
+  with no reply-to; the fix is in the send path, not inside webd.
+
 - `L438` — a repeated `<status>` posts twice on a channel without `edit`: the
   narrow check in `deliverStatus` now, or `6/46`'s renderer that subsumes it.
 
@@ -268,6 +274,34 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
 - **`L15` — the 2026-08-11 dead-code sweep's rejected hits.** `deadcode ./...` gave 149
   hits, 56 under `-test`; nine survived verification and were filed separately. Kept so
   the next sweep does not re-report the same ~135.
+
+## L440 — webd's live frame id and its replayed id differ, so an edit appends instead of replacing (2026-10-17, open)
+
+FOUND 2026-10-17 while building `specs/6/46-turn-progress.md` step 4
+(`eddce204`). A live `/send` frame carries webd's minted `bot-…` id, which
+equals `platform_id`; the same row replayed through `TurnFrames` carries the
+row's `out-…` id. `POST /edit` publishes the live id, so a browser that
+loaded the status through replay has no `msg-<id>` to replace and appends a
+second element. Measured by reading both id sites, not by driving a browser.
+
+**What needs you:** `/send` could key the frame on its `idempotency_key`,
+which is the row id, and the two would agree. That changes `platform_id`,
+which other readers compare against, so it is a contract change rather than
+a fix.
+
+## L439 — webd's first status frame lands on a topicless hub key and no live subscriber sees it (2026-10-17, open)
+
+FOUND 2026-10-17 while building `specs/6/46-turn-progress.md` step 4
+(`eddce204`). `handleSend` takes its topic only from the `reply_to` message.
+routd writes a status row with no reply-to and `chanreg` sends webd no
+`thread_id`, so the first live frame publishes to hub key `jid/` and a
+topic subscriber never matches. The first edit carries the row's topic and
+shows as a new frame, so progress still appears, one update late.
+
+The cause is in the send path rather than in webd alone, which is why this
+is recorded instead of patched inside webd. Unconfirmed on a running
+instance: the reasoning is from the code, and the browser behaviour has not
+been watched.
 
 ## L438 — a `<status>` in the agent's final message is delivered twice, and on a channel without `edit` that is two public comments (2026-10-17, open)
 
