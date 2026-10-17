@@ -49,6 +49,7 @@ stay thin — `main.go` calls `chanlib.Run` with a `Start` hook.
 - `CapImplReport(b, caps) []string` — drift report: advertised caps vs actual verb stubs
 - `SlackJID`, `ParseSlackJID`, `FormatSlackJID` — Slack JID parsing (format: `slack:<workspace>/<kind>/<id>`)
 - `TypingRefresher` — presence re-sender with hard TTL
+- `AckMark` — the `👀` mark for adapters with no native presence (slakd, gitd): pins the trigger message, persists the mark in `ack_marks`, removes it at turn end, backstop TTL, `Sweep` at boot
 - `URLCache` — 12-hex LRU short-ID proxy (cap 4096) shared by discd/reditd
 - `FileProxyHandler(opts)` — /files/<id> handler with opaque-id→CDN resolution
 - `WriteJSON`, `WriteErr`, `Chunk`, `ProxyFile`, `LogMiddleware`
@@ -74,7 +75,7 @@ Docker `HEALTHCHECK` marks containers `(unhealthy)` on 503.
 ## Storage
 
 chanlib holds NO SQL and no `CREATE TABLE`. Its storage is `chanlib/chanstore`,
-which is `objstore`'s two primitives over two entities.
+which is `objstore`'s two primitives over four entities.
 
 `OpenAdapterStore(service)` is the door and it reaches the same server every
 other owner does, under the adapter's own table prefix. The prefix is the
@@ -90,6 +91,8 @@ would put itself in all of them at once.
 | ----------------- | ----------------------------------- | -------------------------------------------------------------------------------------------------------- |
 | `outbound_dedup`  | the idempotency key, as both halves | every read is a point read and the ledger never drains, so a constant partition would grow without bound |
 | `inbound_pending` | one constant, then the message id   | the sweep and the health count both ask about the WHOLE queue, and the queue drains                      |
+| `file_urls`       | the attachment id, as both halves   | every read is a point read by the id in a `/files/<id>` path                                             |
+| `ack_marks`       | one constant, then the chat JID     | the boot sweep reads the WHOLE set, and a mark is deleted when its turn ends, so the set drains          |
 
 The message id is the sort key because id-uniqueness is the guarantee: a Put
 under `ItemAbsent` is what keeps a platform's re-delivery of the same event from
@@ -117,6 +120,7 @@ sorted into the wrong place (BUGS `L97`).
 - `auth.go` — `Auth` middleware (ES256 service:routd verification)
 - `retry.go` — outbound retry policy
 - `typing.go` — `TypingRefresher`
+- `mark.go` — `AckMark`
 - `urlcache.go` — `URLCache`
 - `emoji.go` — `ClassifyEmoji`
 - `slack_jid.go` — `SlackJID`, `ParseSlackJID`, `FormatSlackJID`

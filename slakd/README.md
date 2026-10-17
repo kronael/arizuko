@@ -71,11 +71,13 @@ and `assistant_thread_context_changed`:
 - `assistant_thread_context_changed` → updates
   `pane_sessions.context_jid` with the workspace channel the user is
   viewing. No synthetic turn (context drift isn't a user action).
-- `Typing()` adds a 👀 reaction to the last inbound message for the JID
-  (on=true) and removes it (on=false). Same path for pane and regular
+- `Typing()` adds a 👀 reaction to the newest turn-starting inbound for the JID
+  (on=true) and removes it from that same message (on=false). The state is
+  `chanlib.AckMark`'s: the mark is recorded in the adapter store, a boot sweep
+  clears a mark older than `chanlib.DefaultTypingMaxTTL`, and a mark a restart
+  left is removed when the turn ends. Same path for pane and regular
   channels — no `conversations.typing` (RTM-only, discontinued) and no
-  `assistant.threads.setStatus`. Silent no-op when no prior inbound
-  message is known.
+  `assistant.threads.setStatus`. Silent no-op when no inbound is known.
 - `Send()` into a pane channel drains pending prompts/title staged
   via the MCP tools below and fires `assistant.threads.setSuggestedPrompts`
   / `setTitle` after the `chat.postMessage` succeeds.
@@ -113,8 +115,7 @@ AUTHD_SERVICE_NAME=slakd      exchange principal — the DAEMON, not CHANNEL_NAM
 LISTEN_ADDR=:8080             internal HTTP listener
 LISTEN_URL=http://slakd:8080  URL the router uses to reach slakd
 ASSISTANT_NAME=...            shown in pane title (<name> — chat); omit → "chat"
-DATA_DIR=...                  slakd's own state dir; holds eyes.json, the
-                              watched-message record
+DATA_DIR=...                  slakd's own state dir; holds the watched-message record
 SLAKD_USERS_CACHE_TTL=900     users.info + conversations.info TTL (seconds)
 MEDIA_MAX_FILE_BYTES=20971520 file-proxy cap
 CHANNEL_NAME=slack            registration name

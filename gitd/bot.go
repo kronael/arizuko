@@ -30,11 +30,11 @@ type bot struct {
 	connected     atomic.Bool
 	lastInboundAt atomic.Int64
 	deliveries    sync.Map
-	typing        typingState
+	mark          *chanlib.AckMark
 }
 
 func newBot(cfg config) *bot {
-	return &bot{cfg: cfg, http: &http.Client{Timeout: 15 * time.Second}, typing: newTypingState()}
+	return &bot{cfg: cfg, http: &http.Client{Timeout: 15 * time.Second}}
 }
 
 func (b *bot) isConnected() bool    { return b.connected.Load() }
@@ -90,7 +90,9 @@ func (b *bot) start(ctx context.Context) error {
 
 func (b *bot) stop() {
 	b.connected.Store(false)
-	b.clearAllEyes()
+	if b.mark != nil {
+		b.mark.Stop()
+	}
 }
 
 func (b *bot) decorate(req *http.Request) {

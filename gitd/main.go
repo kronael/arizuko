@@ -55,6 +55,11 @@ func main() {
 			// restarting must not lose the event: retain and re-deliver.
 			rc.RetainInbound(ctx, as.Chan)
 			b := newBot(cfg)
+			b.useMark(rc, as.Chan)
+			if cfg.Token != "" {
+				// A mark a crash left standing: find it by its record and clear it.
+				go b.mark.Sweep(ctx)
+			}
 			verifyToken(ctx, b, rc, verifyEvery)
 			srv := newServer(cfg, b, st, as.Chan, rc)
 			return srv.handler(), func() { b.stop(); _ = as.Close(); _ = st.Close() }, nil

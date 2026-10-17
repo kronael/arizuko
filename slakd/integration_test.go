@@ -8,11 +8,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/kronael/arizuko/chanlib"
+	"github.com/kronael/arizuko/chanlib/chanstore"
 	"github.com/kronael/arizuko/objstore/dynstore/dyntest"
 	"github.com/kronael/arizuko/store"
 	"github.com/kronael/arizuko/tests/testutils"
@@ -324,8 +327,20 @@ func newRouterMock(t *testing.T, st *store.Store) *routerMock {
 
 func setupBot(t *testing.T, mock *slackMock) (*bot, *routerMock) {
 	t.Helper()
-	st := testutils.NewRoutdStore(t)
-	rm := newRouterMock(t, st)
+	return setupBotOn(t, mock, markStore(t))
+}
+
+// markStore is an adapter store in a namespace of its own. Two bots built over
+// one are a restart of slakd.
+func markStore(t *testing.T) *chanstore.Store {
+	t.Helper()
+	return chanstore.New(dyntest.Store(t, chanstore.Entities...))
+}
+
+func setupBotOn(t *testing.T, mock *slackMock, st *chanstore.Store) (*bot, *routerMock) {
+	t.Helper()
+	routdStore := testutils.NewRoutdStore(t)
+	rm := newRouterMock(t, routdStore)
 	cfg := config{
 		Name:          "slack",
 		BotToken:      "xoxb-test",
@@ -337,12 +352,14 @@ func setupBot(t *testing.T, mock *slackMock) (*bot, *routerMock) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	b.store = st
+	b.store = routdStore
 	rc := chanlib.NewRouterClient(rm.Srv.URL)
 	// Side calls to routd (/v1/pane, /v1/messages) present the adapter's
 	// service:<adapter> token. "tok" stands in for that ES256 JWT here.
 	rc.SetServiceToken(func(context.Context) (string, error) { return "tok", nil })
 	b.rc = rc
+	b.useMark(rc, st)
+	t.Cleanup(b.stop)
 	b.botUserID.Store("Ubot")
 	b.teamID.Store("T012")
 	b.connected.Store(true)
@@ -1001,7 +1018,7 @@ func TestTyping_Reaction(t *testing.T) {
 	defer mock.Close()
 	b, _ := setupBot(t, mock)
 
-	// Inbound message establishes lastMsgTS for the JID.
+	// The inbound message is the trigger the mark is pinned to.
 	body := []byte(`{
 	  "type": "event_callback",
 	  "team_id": "T012",
@@ -1070,6 +1087,105 @@ func TestTyping_Reaction(t *testing.T) {
 	}
 	if len(mock.statuses) != 0 {
 		t.Errorf("setStatus should not be called, got %d calls", len(mock.statuses))
+	}
+}
+
+// dmEvent is an inbound DM event with the given ts.
+func dmEvent(ts string) []byte {
+	return []byte(`{"type":"event_callback","team_id":"T012","event":{"type":"message",` +
+		`"channel_type":"im","channel":"D0XY","user":"U99","text":"hi","ts":"` + ts + `"}}`)
+}
+
+func (m *slackMock) reactions() (added, removed []map[string]string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append(added, m.reacted...), append(removed, m.unreacted...)
+}
+
+// The 👀 comes off the message it was set on, not the newest one.
+func TestTyping_OffTargetsTheMarkedMessage(t *testing.T) {
+	mock := newSlackMock()
+	defer mock.Close()
+	b, _ := setupBot(t, mock)
+	const jid = "slack:T012/dm/D0XY"
+
+	b.handleEvent(dmEvent("1700000001.000100"), httptest.NewRecorder())
+	b.Typing(jid, true)
+	b.handleEvent(dmEvent("1700000002.000100"), httptest.NewRecorder())
+	b.Typing(jid, false)
+
+	added, removed := mock.reactions()
+	if len(added) != 1 || added[0]["ts"] != "1700000001.000100" {
+		t.Fatalf("reactions.add = %v, want one on 1700000001.000100", added)
+	}
+	if len(removed) != 1 || removed[0]["ts"] != "1700000001.000100" || removed[0]["channel"] != "D0XY" {
+		t.Fatalf("reactions.remove = %v, want one on D0XY 1700000001.000100", removed)
+	}
+}
+
+// The end of a turn reaches a slakd that restarted since the start: the mark is
+// found in the adapter store, not in memory.
+func TestTyping_OffAfterARestartRemovesTheReaction(t *testing.T) {
+	mock := newSlackMock()
+	defer mock.Close()
+	st := markStore(t)
+	first, _ := setupBotOn(t, mock, st)
+	const jid = "slack:T012/dm/D0XY"
+	first.handleEvent(dmEvent("1700000001.000100"), httptest.NewRecorder())
+	first.Typing(jid, true)
+
+	second, _ := setupBotOn(t, mock, st)
+	second.Typing(jid, false)
+
+	_, removed := mock.reactions()
+	if len(removed) != 1 || removed[0]["ts"] != "1700000001.000100" {
+		t.Fatalf("reactions.remove = %v, want the first process's mark removed", removed)
+	}
+}
+
+// A slakd killed with a 👀 standing: the next boot finds it by its record and
+// removes it. It does not scan reactions.list.
+func TestSweep_ClearsAReactionAKilledProcessLeft(t *testing.T) {
+	mock := newSlackMock()
+	defer mock.Close()
+	st := markStore(t)
+	first, _ := setupBotOn(t, mock, st)
+	const jid = "slack:T012/dm/D0XY"
+	first.handleEvent(dmEvent("1700000001.000100"), httptest.NewRecorder())
+	first.Typing(jid, true)
+
+	prev := chanlib.DefaultTypingMaxTTL
+	chanlib.DefaultTypingMaxTTL = 50 * time.Millisecond
+	t.Cleanup(func() { chanlib.DefaultTypingMaxTTL = prev })
+	time.Sleep(100 * time.Millisecond)
+	second, _ := setupBotOn(t, mock, st)
+	second.mark.Sweep(t.Context())
+
+	_, removed := mock.reactions()
+	if len(removed) != 1 || removed[0]["ts"] != "1700000001.000100" {
+		t.Fatalf("reactions.remove = %v, want the stale mark removed", removed)
+	}
+}
+
+// The mark's state lives in the adapter store alone; nothing writes a file.
+func TestNoEyesFile(t *testing.T) {
+	needle := "eyes" + ".json"
+	files, err := filepath.Glob("*.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	files = append(files, "README.md")
+	for _, f := range files {
+		if strings.HasSuffix(f, "_test.go") {
+			continue
+		}
+		raw, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(raw), needle) {
+			t.Errorf("%s still names %s; the 👀 state is chanstore's", f, needle)
+		}
 	}
 }
 

@@ -65,10 +65,12 @@ spoken in the thread (routd promotes it). Repo rows sit at seq 10/100, org at 20
 
 With a token, a running turn shows an 👀 reaction on the comment that started it
 (`typing` is advertised with `send_text`); it comes off when the turn ends, at the
-`chanlib.DefaultTypingMaxTTL` backstop, or at a graceful shutdown. The token needs
+`chanlib.DefaultTypingMaxTTL` backstop. The token needs
 Issues write (conversation comments) and Pull requests write (inline review
-comments). A refused reaction is logged at warn and never fails the turn. A crash
-leaves the 👀 on its comment. Spec: `specs/6/27-git-channel.md` § Typing indicator.
+comments). A refused reaction is logged at warn and never fails the turn. The mark is
+`chanlib.AckMark`, recorded in the adapter store: a crash leaves the 👀 and its
+record, and the next boot removes a record older than the backstop. Spec:
+`specs/6/27-git-channel.md` § Typing indicator.
 
 ## Reply
 

@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/chanlib"
+	"github.com/kronael/arizuko/chanlib/chanstore"
+	"github.com/kronael/arizuko/objstore/dynstore/dyntest"
 )
 
 // reactionAPI is a fake GitHub that records every request and answers the
@@ -22,9 +24,11 @@ type reactionAPI struct {
 	calls      []string
 	bodies     []string
 	postStatus int
-	postReply  string
-	deleted    chan struct{}
-	nextID     int
+	// deleteStatus is what a DELETE answers; zero is 204.
+	deleteStatus int
+	postReply    string
+	deleted      chan struct{}
+	nextID       int
 }
 
 func newReactionAPI(t *testing.T) (*reactionAPI, string) {
@@ -40,12 +44,15 @@ func (a *reactionAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	a.mu.Lock()
 	a.calls = append(a.calls, r.Method+" "+r.URL.Path)
 	a.bodies = append(a.bodies, string(raw))
-	status, reply := a.postStatus, a.postReply
+	status, reply, delStatus := a.postStatus, a.postReply, a.deleteStatus
 	a.nextID++
 	id := a.nextID
 	a.mu.Unlock()
 	if r.Method == "DELETE" {
-		w.WriteHeader(204)
+		if delStatus == 0 {
+			delStatus = 204
+		}
+		w.WriteHeader(delStatus)
 		a.deleted <- struct{}{}
 		return
 	}
@@ -62,12 +69,42 @@ func (a *reactionAPI) seen() []string {
 	return append([]string(nil), a.calls...)
 }
 
-func typingBot(url string) *bot {
-	return newBot(config{Token: "ghp_test", APIBase: url})
+// typingEnv is one gitd process as far as the 👀 is concerned: a bot with its
+// mark, the client every inbound passes through, and the adapter store. Two
+// envs over one store and one fake GitHub are a restart.
+type typingEnv struct {
+	b  *bot
+	rc *chanlib.RouterClient
+	st *chanstore.Store
 }
 
-func comment(jid, id, verb string) chanlib.InboundMsg {
-	return chanlib.InboundMsg{ChatJID: jid, ID: id, Verb: verb}
+func adapterStore(t *testing.T) *chanstore.Store {
+	t.Helper()
+	return chanstore.New(dyntest.Store(t, chanstore.Entities...))
+}
+
+func newTypingEnv(t *testing.T, st *chanstore.Store, cfg config) *typingEnv {
+	t.Helper()
+	routd := httptest.NewServer(&fakeRoutd{})
+	t.Cleanup(routd.Close)
+	e := &typingEnv{b: newBot(cfg), rc: chanlib.NewRouterClient(routd.URL), st: st}
+	e.b.useMark(e.rc, st)
+	t.Cleanup(e.b.stop)
+	return e
+}
+
+// typingBot is one process over a fresh store.
+func typingBot(t *testing.T, url string) *typingEnv {
+	t.Helper()
+	return newTypingEnv(t, adapterStore(t), config{Token: "ghp_test", APIBase: url})
+}
+
+// comment is an inbound as ingest hands it to routd.
+func (e *typingEnv) comment(t *testing.T, jid, id, verb string) {
+	t.Helper()
+	if err := e.rc.SendMessage(chanlib.InboundMsg{ChatJID: jid, ID: id, Verb: verb}); err != nil {
+		t.Fatalf("deliver %s: %v", id, err)
+	}
 }
 
 func wantCalls(t *testing.T, api *reactionAPI, want ...string) {
@@ -90,10 +127,10 @@ func TestTyping_ReactsOnTheTriggerComment(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			api, url := newReactionAPI(t)
-			b := typingBot(url)
-			b.noteTrigger(comment(prJID, c.id, "mention"))
-			b.Typing(prJID, true)
-			b.Typing(prJID, false)
+			e := typingBot(t, url)
+			e.comment(t, prJID, c.id, "mention")
+			e.b.Typing(prJID, true)
+			e.b.Typing(prJID, false)
 			wantCalls(t, api, "POST "+c.path, "DELETE "+c.path+"/101")
 			if api.bodies[0] != `{"content":"eyes"}` {
 				t.Errorf("reaction body = %s", api.bodies[0])
@@ -106,33 +143,33 @@ func TestTyping_ReactsOnTheTriggerComment(t *testing.T) {
 // the agent worked.
 func TestTyping_OffRemovesTheReactionSet(t *testing.T) {
 	api, url := newReactionAPI(t)
-	b := typingBot(url)
-	b.noteTrigger(comment(prJID, "gh-c1", "message"))
-	b.Typing(prJID, true)
-	b.noteTrigger(comment(prJID, "gh-c2", "message"))
-	b.Typing(prJID, false)
+	e := typingBot(t, url)
+	e.comment(t, prJID, "gh-c1", "message")
+	e.b.Typing(prJID, true)
+	e.comment(t, prJID, "gh-c2", "message")
+	e.b.Typing(prJID, false)
 	wantCalls(t, api,
 		"POST /repos/kronael/arizuko/issues/comments/1/reactions",
 		"DELETE /repos/kronael/arizuko/issues/comments/1/reactions/101")
 }
 
 // A message that cannot start a turn must not retarget the indicator, and one
-// that can but has no reactable comment (a review) must clear the old target
-// rather than leave the 👀 on an older comment.
+// that can but has no reactable comment (a review) must not leave the 👀 on an
+// older comment.
 func TestTyping_TargetFollowsTheTrigger(t *testing.T) {
 	api, url := newReactionAPI(t)
-	b := typingBot(url)
-	b.noteTrigger(comment(prJID, "gh-c1", "message"))
-	b.noteTrigger(comment(prJID, "gh-c2", "issue_comment"))
-	b.Typing(prJID, true)
-	b.Typing(prJID, false)
+	e := typingBot(t, url)
+	e.comment(t, prJID, "gh-c1", "message")
+	e.comment(t, prJID, "gh-c2", "issue_comment")
+	e.b.Typing(prJID, true)
+	e.b.Typing(prJID, false)
 	wantCalls(t, api,
 		"POST /repos/kronael/arizuko/issues/comments/1/reactions",
 		"DELETE /repos/kronael/arizuko/issues/comments/1/reactions/101")
 
-	b.noteTrigger(comment(prJID, "gh-r77", "message"))
-	b.Typing(prJID, true)
-	b.Typing(prJID, false)
+	e.comment(t, prJID, "gh-r77", "message")
+	e.b.Typing(prJID, true)
+	e.b.Typing(prJID, false)
 	if got := len(api.seen()); got != 2 {
 		t.Errorf("a review trigger sent %d more requests, want none", got-2)
 	}
@@ -140,10 +177,10 @@ func TestTyping_TargetFollowsTheTrigger(t *testing.T) {
 
 func TestTyping_NoTokenSendsNothing(t *testing.T) {
 	api, url := newReactionAPI(t)
-	b := newBot(config{APIBase: url})
-	b.noteTrigger(comment(prJID, "gh-c1", "message"))
-	b.Typing(prJID, true)
-	b.Typing(prJID, false)
+	e := newTypingEnv(t, adapterStore(t), config{APIBase: url})
+	e.comment(t, prJID, "gh-c1", "message")
+	e.b.Typing(prJID, true)
+	e.b.Typing(prJID, false)
 	wantCalls(t, api)
 }
 
@@ -151,10 +188,10 @@ func TestTyping_NoTokenSendsNothing(t *testing.T) {
 func TestTyping_AlreadyReactedIsSuccess(t *testing.T) {
 	api, url := newReactionAPI(t)
 	api.postStatus = 200
-	b := typingBot(url)
-	b.noteTrigger(comment(prJID, "gh-c1", "message"))
-	b.Typing(prJID, true)
-	b.Typing(prJID, false)
+	e := typingBot(t, url)
+	e.comment(t, prJID, "gh-c1", "message")
+	e.b.Typing(prJID, true)
+	e.b.Typing(prJID, false)
 	if got := api.seen(); len(got) != 2 || !strings.HasPrefix(got[1], "DELETE ") {
 		t.Errorf("requests = %q", got)
 	}
@@ -171,30 +208,40 @@ func TestTyping_RefusalIsLoggedNotRaised(t *testing.T) {
 	api, url := newReactionAPI(t)
 	api.postStatus = 403
 	api.postReply = `{"message":"Resource not accessible by integration"}`
-	b := typingBot(url)
-	b.noteTrigger(comment(prJID, "gh-c1", "message"))
-	b.Typing(prJID, true)
-	b.Typing(prJID, false)
+	e := typingBot(t, url)
+	e.comment(t, prJID, "gh-c1", "message")
+	e.b.Typing(prJID, true)
+	e.b.Typing(prJID, false)
 
 	wantCalls(t, api, "POST /repos/kronael/arizuko/issues/comments/1/reactions")
-	for _, want := range []string{"level=WARN", "github typing reaction failed", "Resource not accessible by integration"} {
+	for _, want := range []string{"level=WARN", "ack mark: add failed", "Resource not accessible by integration"} {
 		if !strings.Contains(logs.String(), want) {
 			t.Errorf("log lacks %q:\n%s", want, logs.String())
 		}
 	}
 }
 
+// 404 on the delete is the reaction already gone, which is what was wanted.
+func TestTyping_AlreadyGoneIsSuccess(t *testing.T) {
+	api, url := newReactionAPI(t)
+	e := typingBot(t, url)
+	e.comment(t, prJID, "gh-c1", "message")
+	e.b.Typing(prJID, true)
+	api.deleteStatus = 404
+	e.b.Typing(prJID, false)
+	if marks, _ := e.st.Marks(t.Context()); len(marks) != 0 {
+		t.Errorf("a 404 on the delete kept the record: %+v", marks)
+	}
+}
+
 // With no Typing(off), the reaction goes at the same backstop the other
 // adapters' indicators stop at.
 func TestTyping_BackstopRemovesALostOff(t *testing.T) {
-	prev := chanlib.DefaultTypingMaxTTL
-	chanlib.DefaultTypingMaxTTL = 20 * time.Millisecond
-	t.Cleanup(func() { chanlib.DefaultTypingMaxTTL = prev })
-
+	shortBackstop(t)
 	api, url := newReactionAPI(t)
-	b := typingBot(url)
-	b.noteTrigger(comment(prJID, "gh-c1", "message"))
-	b.Typing(prJID, true)
+	e := typingBot(t, url)
+	e.comment(t, prJID, "gh-c1", "message")
+	e.b.Typing(prJID, true)
 	select {
 	case <-api.deleted:
 	case <-time.After(5 * time.Second):
@@ -205,37 +252,63 @@ func TestTyping_BackstopRemovesALostOff(t *testing.T) {
 		"DELETE /repos/kronael/arizuko/issues/comments/1/reactions/101")
 }
 
-// A backstop armed for an earlier reaction must not remove a newer one.
-func TestTyping_StaleBackstopLeavesTheNewerReaction(t *testing.T) {
-	api, url := newReactionAPI(t)
-	b := typingBot(url)
-	b.noteTrigger(comment(prJID, "gh-c1", "message"))
-	b.Typing(prJID, true)
-	b.typing.mu.Lock()
-	old := b.typing.live[prJID]
-	b.typing.mu.Unlock()
-	b.Typing(prJID, true)
-	if err := b.removeEyes(prJID, old); err != nil {
-		t.Fatal(err)
-	}
-	b.typing.mu.Lock()
-	_, standing := b.typing.live[prJID]
-	b.typing.mu.Unlock()
-	if !standing {
-		t.Errorf("the stale backstop removed the newer reaction; requests %q", api.seen())
-	}
+func shortBackstop(t *testing.T) {
+	t.Helper()
+	prev := chanlib.DefaultTypingMaxTTL
+	chanlib.DefaultTypingMaxTTL = 50 * time.Millisecond
+	t.Cleanup(func() { chanlib.DefaultTypingMaxTTL = prev })
 }
 
-// A graceful shutdown takes the standing reactions down.
-func TestStop_RemovesStandingReactions(t *testing.T) {
+// A graceful shutdown leaves the reaction: the turn it marks may still be
+// running, and routd's off removes it.
+func TestStop_KeepsTheStandingReaction(t *testing.T) {
 	api, url := newReactionAPI(t)
-	b := typingBot(url)
-	b.noteTrigger(comment(prJID, "gh-c1", "message"))
-	b.Typing(prJID, true)
-	b.stop()
+	e := typingBot(t, url)
+	e.comment(t, prJID, "gh-c1", "message")
+	e.b.Typing(prJID, true)
+	e.b.stop()
+	wantCalls(t, api, "POST /repos/kronael/arizuko/issues/comments/1/reactions")
+}
+
+// The case the maps could not survive: the process dies with a turn running,
+// and the end of the turn reaches a process that never saw the start.
+func TestTyping_OffAfterARestartRemovesTheReaction(t *testing.T) {
+	api, url := newReactionAPI(t)
+	st := adapterStore(t)
+	first := newTypingEnv(t, st, config{Token: "ghp_test", APIBase: url})
+	first.comment(t, prJID, "gh-c1", "message")
+	first.b.Typing(prJID, true)
+
+	second := newTypingEnv(t, st, config{Token: "ghp_test", APIBase: url})
+	second.b.Typing(prJID, false)
+
 	wantCalls(t, api,
 		"POST /repos/kronael/arizuko/issues/comments/1/reactions",
 		"DELETE /repos/kronael/arizuko/issues/comments/1/reactions/101")
+}
+
+// The residue the in-memory maps left: SIGKILL with a 👀 standing and nobody to
+// remove it. The first process is never stopped; a second one boots after the
+// backstop would have fired, sweeps, and the reaction comes off.
+func TestSweep_ClearsAReactionAKilledProcessLeft(t *testing.T) {
+	api, url := newReactionAPI(t)
+	st := adapterStore(t)
+	first := newTypingEnv(t, st, config{Token: "ghp_test", APIBase: url})
+	first.comment(t, prJID, "gh-rc9", "mention")
+	first.b.Typing(prJID, true)
+	wantCalls(t, api, "POST /repos/kronael/arizuko/pulls/comments/9/reactions")
+
+	shortBackstop(t)
+	time.Sleep(100 * time.Millisecond)
+	second := newTypingEnv(t, st, config{Token: "ghp_test", APIBase: url})
+	second.b.mark.Sweep(t.Context())
+
+	wantCalls(t, api,
+		"POST /repos/kronael/arizuko/pulls/comments/9/reactions",
+		"DELETE /repos/kronael/arizuko/pulls/comments/9/reactions/101")
+	if marks, _ := st.Marks(t.Context()); len(marks) != 0 {
+		t.Errorf("records left after the sweep: %+v", marks)
+	}
 }
 
 // Ingest is what tells gitd which comment to react to: a delivered comment is

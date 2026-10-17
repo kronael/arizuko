@@ -26,6 +26,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/kronael/arizuko/chanlib"
+	"github.com/kronael/arizuko/chanlib/chanstore"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -61,9 +62,11 @@ type bot struct {
 
 	connected     atomic.Bool
 	lastInboundAt atomic.Int64
-	lastMsgTS     sync.Map // jid → Slack TS of last inbound message
-	activeEyesTS  sync.Map // jid → Slack TS that currently has 👀 on it
-	sentTS        sync.Map // our own outbound Slack TS → unix sent-time. Slack
+
+	// mark is the 👀 on the message that started a turn.
+	mark *chanlib.AckMark
+
+	sentTS sync.Map // our own outbound Slack TS → unix sent-time. Slack
 	// echoes the bot's own posts back through the Events API; dropping any
 	// inbound carrying a TS we just sent stops self-replies regardless of
 	// token mode or a stale botUserID (the identity filter's blind spot).
@@ -151,95 +154,65 @@ func newBotWithBase(cfg config, base string) (*bot, error) {
 	return b, nil
 }
 
-// clearOrphanEyes calls reactions.list on startup and removes any 👀 the bot
-// left on messages (e.g. from a crash mid-processing). Runs once; no stored
-// state needed.
-func (b *bot) clearOrphanEyes(ctx context.Context) {
-	type reactionItem struct {
-		Type    string `json:"type"`
-		Channel string `json:"channel"`
-		Message struct {
-			TS        string `json:"ts"`
-			Reactions []struct {
-				Name  string   `json:"name"`
-				Users []string `json:"users"`
-			} `json:"reactions"`
-		} `json:"message"`
-	}
-	botID := b.BotUserID()
-	var resp struct {
-		OK    bool           `json:"ok"`
-		Items []reactionItem `json:"items"`
-	}
-	if err := b.postForm(ctx, "/reactions.list", url.Values{"full": {"true"}, "limit": {"200"}}, &resp); err != nil || !resp.OK {
-		return
-	}
-	for _, item := range resp.Items {
-		if item.Type != "message" {
-			continue
-		}
-		for _, r := range item.Message.Reactions {
-			if r.Name != "eyes" {
-				continue
-			}
-			for _, u := range r.Users {
-				if u != botID {
-					continue
-				}
-				rm := url.Values{"channel": {item.Channel}, "name": {"eyes"}, "timestamp": {item.Message.TS}}
-				var rmResp struct{ OK bool }
-				if err := b.postForm(ctx, "/reactions.remove", rm, &rmResp); err != nil {
-					slog.Debug("clear orphan eyes failed", "ts", item.Message.TS, "err", err)
-				}
-			}
-		}
-	}
+// useMark wires the shared acknowledgement mark (chanlib.AckMark) over the
+// adapter store. The mark decides when to set and clear the 👀; addEyes and
+// removeEyes are the two Slack calls it makes.
+func (b *bot) useMark(rc *chanlib.RouterClient, st *chanstore.Store) {
+	b.mark = chanlib.NewAckMark(rc, st, b.addEyes, b.removeEyes)
 }
 
-// setTypingReaction adds (on=true) or removes (on=false) the 👀 reaction on
-// the trigger message for jid. On add we snapshot the current lastMsgTS into
-// activeEyesTS so that removal always targets the same message even if new
-// inbound messages arrive and update lastMsgTS before the agent finishes.
-// State is persisted to DATA_DIR/eyes.json so orphans are cleaned on restart.
-func (b *bot) setTypingReaction(jid string, on bool) {
-	var ts any
-	var ok bool
-	if on {
-		ts, ok = b.lastMsgTS.Load(jid)
-		if !ok {
-			return
-		}
-		b.activeEyesTS.Store(jid, ts)
-	} else {
-		ts, ok = b.activeEyesTS.Load(jid)
-		if !ok {
-			return
-		}
-		b.activeEyesTS.Delete(jid)
+// addEyes puts the 👀 on the message target names. Slack removes a reaction by
+// coordinate, so there is no handle.
+func (b *bot) addEyes(jid, target string) (string, error) {
+	channel, ts, err := markCoordinate(jid, target)
+	if err != nil {
+		return "", err
+	}
+	return "", b.reaction("/reactions.add", channel, ts, "already_reacted")
+}
+
+// removeEyes takes the 👀 off the message target names.
+func (b *bot) removeEyes(jid, target, _ string) error {
+	channel, ts, err := markCoordinate(jid, target)
+	if err != nil {
+		return err
+	}
+	return b.reaction("/reactions.remove", channel, ts, "no_reaction")
+}
+
+// markCoordinate answers the Slack channel and message ts a mark target names.
+// slakd builds every inbound id as jid + "/" + ts.
+func markCoordinate(jid, target string) (channel, ts string, err error) {
+	ts, ok := strings.CutPrefix(target, jid+"/")
+	if !ok || ts == "" {
+		return "", "", fmt.Errorf("slack mark target %q is not a message of %s", target, jid)
 	}
 	parts, err := parseJID(jid)
 	if err != nil {
-		return
+		return "", "", err
 	}
+	return parts.ID, ts, nil
+}
+
+// reaction calls reactions.add or reactions.remove for the 👀. gone is the
+// Slack error that means the reaction already stands (add) or is already off
+// (remove), which is the state the caller asked for.
+func (b *bot) reaction(endpoint, channel, ts, gone string) error {
 	form := url.Values{}
-	form.Set("channel", parts.ID)
+	form.Set("channel", channel)
 	form.Set("name", "eyes")
-	form.Set("timestamp", ts.(string))
+	form.Set("timestamp", ts)
 	var resp struct {
 		OK    bool   `json:"ok"`
 		Error string `json:"error"`
 	}
-	endpoint := "/reactions.add"
-	if !on {
-		endpoint = "/reactions.remove"
-	}
 	if err := b.postForm(context.Background(), endpoint, form, &resp); err != nil {
-		slog.Debug("slack typing reaction failed", "jid", jid, "on", on, "err", err)
-		return
+		return err
 	}
-	if !resp.OK && resp.Error != "already_reacted" && resp.Error != "no_reaction" {
-		slog.Debug("slack typing reaction error", "jid", jid, "on", on, "error", resp.Error)
+	if !resp.OK && resp.Error != gone {
+		return fmt.Errorf("slack %s: %s", endpoint, resp.Error)
 	}
+	return nil
 }
 
 func (b *bot) start(ctx context.Context, rc *chanlib.RouterClient) error {
@@ -252,7 +225,6 @@ func (b *bot) start(ctx context.Context, rc *chanlib.RouterClient) error {
 	b.teamID.Store(team)
 	b.connected.Store(true)
 	slog.Info("slack connected", "bot_user_id", user, "team_id", team)
-	go b.clearOrphanEyes(ctx)
 	// Slack's Events API has no persistent socket to watch, so /health would
 	// otherwise report "ok" forever even after the token is revoked. Re-probe
 	// auth.test periodically and flip connected on the result. Bound the probe
@@ -374,6 +346,9 @@ func (b *bot) healthProbe(ctx context.Context, interval time.Duration) {
 
 func (b *bot) stop() {
 	b.connected.Store(false)
+	if b.mark != nil {
+		b.mark.Stop()
+	}
 }
 
 func verifySignature(secret, sigHeader, tsHeader string, body []byte, now time.Time) error {
@@ -617,7 +592,6 @@ func (b *bot) handleMessage(teamID string, raw json.RawMessage, verb string) {
 		return
 	}
 	b.lastInboundAt.Store(time.Now().Unix())
-	b.lastMsgTS.Store(jid, m.TS)
 	slog.Debug("inbound", "chat_jid", jid, "sender_jid", "slack:user/"+m.User, "message_id", m.TS, "content_len", len(content))
 }
 
@@ -1440,7 +1414,9 @@ func (b *bot) SendFile(jid, path, name, caption, replyTo, threadID string) (stri
 // Typing adds (on=true) or removes (on=false) the 👀 reaction on the trigger
 // message for any channel type — pane or regular. One path, no setStatus.
 func (b *bot) Typing(jid string, on bool) {
-	go b.setTypingReaction(jid, on)
+	if b.mark != nil {
+		b.mark.Typing(jid, on)
+	}
 }
 
 // paneWrite POSTs one pane mutation to routd's POST /v1/pane (routd OWNS

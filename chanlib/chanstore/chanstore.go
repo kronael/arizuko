@@ -9,13 +9,14 @@
 // the storage is asking the driver for the entities this package declares, and
 // asking twice is a no-op.
 //
-// Three entities, three questions, and they share nothing. `outbound_dedup`
+// Four entities, four questions, and they share nothing. `outbound_dedup`
 // answers "was this message already sent"; `inbound_pending` answers "which
 // messages is this adapter still holding"; `file_urls` answers "what platform
-// URL does this proxied attachment id stand for". No operation spans them, so
-// they get a file each (6/37 rule 1) and no file needs another's coordinate.
+// URL does this proxied attachment id stand for"; `ack_marks` answers "which
+// message carries this chat's acknowledgement mark". No operation spans them,
+// so they get a file each (6/37 rule 1) and no file needs another's coordinate.
 //
-// One database per adapter holds all three. chanlib SHIPS the entities; the FILE
+// One database per adapter holds all four. chanlib SHIPS the entities; the FILE
 // belongs to the adapter daemon, one per service, so an adapter stays
 // outage-resistant on its own and no library owns a database.
 package chanstore
@@ -40,6 +41,9 @@ const (
 	// FileURL holds one item per attachment published behind the adapter's
 	// `/files/<id>` proxy, addressed by that opaque id.
 	FileURL = "file_urls"
+	// AckMark holds one item per chat that stands under an acknowledgement mark,
+	// addressed by the chat JID and deleted when its turn ends.
+	AckMark = "ack_marks"
 )
 
 // Entities is the set a driver must be able to serve before an adapter boots.
@@ -47,7 +51,7 @@ const (
 // holds the driver — chanlib's opener for a running adapter, import.go for a
 // test fixture. One declaration, two readers; an engine with no DDL applies
 // nothing and still answers every query below.
-var Entities = []string{OutboundDedup, InboundPending, FileURL}
+var Entities = []string{OutboundDedup, InboundPending, FileURL, AckMark}
 
 // The two timestamps the sweep COMPARES are declared ordered, so every driver
 // refuses a value of another width before it can sort into the wrong place.

@@ -92,6 +92,10 @@ type RouterClient struct {
 
 	// pending holds the retained inbound; nil until RetainInbound wires it.
 	pending *chanstore.Store
+
+	// mark is told of every inbound on its way to routd; nil until NewAckMark
+	// attaches it.
+	mark *AckMark
 }
 
 func NewRouterClient(url string) *RouterClient {
@@ -259,10 +263,17 @@ func (r *RouterClient) SendMessage(msg InboundMsg) error {
 // monolith 401. It is the ONLY place an InboundMsg goes on the wire — the live
 // path and the retention sweep both call it, so neither can drift.
 func (r *RouterClient) postInbound(msg InboundMsg) error {
+	r.regMu.Lock()
 	if msg.Source == "" {
-		r.regMu.Lock()
 		msg.Source = r.regName
-		r.regMu.Unlock()
+	}
+	mark := r.mark
+	r.regMu.Unlock()
+	// Before routd hears of it: routd may start the turn, and ask for the mark,
+	// before this call returns. A replay from retention passes here too, so its
+	// turn is marked as well.
+	if mark != nil {
+		mark.note(msg)
 	}
 	var last error
 	for attempt := range 2 {

@@ -82,6 +82,7 @@ func newTestEnv(t *testing.T, secrets secretMap) *testEnv {
 	rc.RetainInbound(ctx, as.Chan)
 	cfg := config{Name: "github", APIBase: "http://gh.invalid"}
 	b := newBot(cfg)
+	b.useMark(rc, as.Chan)
 	b.connected.Store(true)
 	s := newServer(cfg, b, secrets, as.Chan, rc)
 	s.now = func() time.Time { return fixedNow }

@@ -38,12 +38,10 @@ rendering per adapter:
 The renderings disagree, and two of them lie:
 
 - Three adapters render `Typing` natively (teled `sendChatAction`, discd
-  `ChannelTyping`, whapd composing). slakd and gitd each render it as an `👀`
-  reaction on the message that started the turn, from a private copy of the
-  same idea: slakd persists its marks to `DATA_DIR/eyes.json` and sweeps
-  orphans at boot (`slakd/bot.go:204`), gitd keeps two in-memory maps and loses
-  them on a crash (`gitd/typing.go`). Six adapters and webd render nothing;
-  webd advertises `typing` and answers `ok` (`webd/channel.go:71`).
+  `ChannelTyping`, whapd composing). slakd and gitd render it as an `👀`
+  reaction on the message that started the turn, through one chanlib helper
+  (`chanlib/mark.go`, §"The mark, implemented once"). Six adapters and webd
+  render nothing; webd advertises `typing` and answers `ok` (`webd/channel.go:71`).
 - The progress message is edited in place only where the channel advertises
   `edit`. Everywhere else `mcpSubmitStatus` falls back to a fresh send, so the
   one-message rule of `specs/5/24-live-tasklist-status.md §"Design"` holds on
@@ -156,28 +154,39 @@ to catch, and `typing` is the one verb it does not probe.
 
 ## The mark, implemented once
 
-The `👀` rendering moves out of slakd and gitd into one chanlib helper the
-adapter calls from its `Typing`. The helper owns the state slakd and gitd
-each keep today:
+The `👀` rendering is one chanlib helper, `AckMark` (`chanlib/mark.go`), that
+slakd and gitd call from their `Typing`. The helper owns the mark's state:
 
 - the message the mark stands on, and the handle the platform needs to remove
-  it (GitHub's reaction id; Slack's `(channel, ts)`), per chat JID;
-- persisted in the adapter store (`chanlib.OpenAdapterStore`), one entity
-  beside the dedup claims, so an adapter restart finds its marks;
-- a boot sweep that removes every persisted mark older than
-  `chanlib.DefaultTypingMaxTTL`, which is what retires the crash residue
-  `specs/6/27-git-channel.md §"Typing indicator"` describes;
+  it (GitHub's reaction id; Slack removes by `(channel, ts)` and has none), per
+  chat JID;
+- persisted in the adapter store (`chanlib.OpenAdapterStore`) as the
+  `ack_marks` entity, so an adapter restart finds its marks. No existing entity
+  fits: `outbound_dedup` is keyed by idempotency key and never deleted,
+  `inbound_pending` is a queue of payloads, `file_urls` is an id-to-URL map
+  nothing sweeps, while a mark is keyed by chat, deleted when its turn ends and
+  read as a whole at boot;
+- a boot sweep (`AckMark.Sweep`) that removes every persisted mark older than
+  `chanlib.DefaultTypingMaxTTL`, which clears the residue a crash leaves
+  (`specs/6/27-git-channel.md §"Typing indicator"`), and re-arms the backstop of
+  a younger one, because its turn may still be running and routd's
+  `Typing(off)` will come;
 - the same TTL backstop per mark while the process lives.
 
-The platform calls (add, remove) are the adapter's; the helper decides when.
-`DATA_DIR/eyes.json` and `gitd/typing.go`'s maps are deleted.
+The platform calls (add, remove) are the adapter's; the helper decides when. A
+record is dropped only after the platform confirmed the removal, and a graceful
+shutdown removes no mark.
 
-Which message the mark lands on is the one fact the helper cannot know on
-its own: `Typing(jid, on)` carries no message id, so slakd records the last
-inbound `ts` per chat (`slakd/bot.go:620`) and gitd the last reactable comment
-(`gitd/typing.go` `noteTrigger`), and both guess under two inbound messages
-in one chat. routd holds the fact (`last.ID` at dispatch). Decision D3 below
-settles whether the port carries it.
+Which message the mark lands on is the one fact the helper cannot read from
+`Typing(jid, on)`, which carries no message id (D3 is declined). The helper
+therefore records, per chat, the newest inbound with verb `message` or
+`mention` at the one site every inbound passes on its way to routd,
+`RouterClient.postInbound`: the live delivery and the retention sweep both call
+it, so a message replayed from retention is recorded too. `Typing(on)` pins
+that message and the adapter's `add` refuses one that cannot carry the mark
+(`ErrNoMarkTarget`); `Typing(off)` removes the mark from the pinned message.
+Under two inbound messages in one chat the newest wins, while routd holds the
+batch's `last.ID`; that guess is what D3 would remove.
 
 ## Decisions for the owner
 
@@ -218,11 +227,9 @@ body `{chat_jid, on, trigger_id}`. This is a port change to `BotHandler` and
 is the owner's to approve (root `CLAUDE.md`, "A port is two methods and stays
 two"). The case for it:
 
-- It carries a fact routd holds to the sink that renders it, and deletes the
-  two per-adapter guesses (`lastMsgTS`, `noteTrigger`) and the gap
-  `specs/6/27-git-channel.md §"Typing indicator"` records for a message
-  replayed from retention. Reconstructing an identity the system already knows
-  is the bug class `identity_derived_not_read` names.
+- It carries a fact routd holds to the sink that renders it, and replaces the
+  helper's per-chat guess of the newest inbound (`AckMark.note`).
+  Reconstructing an identity the system already knows is the bug class `identity_derived_not_read` names.
 - Eleven of the fourteen verbs already take a request struct; `Typing`,
   `SendFile` and `SendVoice` are positional. The change makes `Typing` the
   shape its neighbours have, not a new convenience.
@@ -232,8 +239,8 @@ two"). The case for it:
 
 Default if nothing is decided: the port stays `Typing(jid, on)` and the
 helper records the trigger candidate at the one chanlib site every inbound
-passes (`RouterClient.SendMessage`), which closes the retention gap and keeps
-the two-messages-in-one-chat guess.
+passes (`RouterClient.postInbound`), which covers a message replayed from
+retention and keeps the two-messages-in-one-chat guess.
 
 ## What this changes in 6/27 and 6/45
 

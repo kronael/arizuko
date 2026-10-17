@@ -61,6 +61,9 @@ func main() {
 			// so Slack will never hand the message over again and a routd that
 			// is restarting used to drop it (BUGS L25).
 			rc.RetainInbound(ctx, as.Chan)
+			b.useMark(rc, as.Chan)
+			// A mark a crash left standing: find it by its record and clear it.
+			go b.mark.Sweep(ctx)
 			srv := newServer(cfg, b, as.Chan, b.isConnected, b.LastInboundAt)
 			b.files = srv.files
 			if err := b.start(ctx, rc); err != nil {
