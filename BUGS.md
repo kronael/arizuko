@@ -36,6 +36,9 @@ line; none can be answered from the code.
   its entry.
 - `L339`, `L167`, `L200` — proposals too. `L200` and `L133` were re-measured
   2026-09-21 and each came back narrower than filed.
+- `L436` — measure whether a route target holding `..` resolves, then fix the
+  gate in every resource that takes a folder.
+
 - `L434` — may gitd hold the dedup claim on a 5xx and dead-letter visibly?
   It changes delivery semantics for every adapter.
 
@@ -258,6 +261,33 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
 - **`L15` — the 2026-08-11 dead-code sweep's rejected hits.** `deadcode ./...` gave 149
   hits, 56 under `-test`; nine survived verification and were filed separately. Kept so
   the next sweep does not re-report the same ~135.
+
+## L436 — the github_sources target passes containment with `..` in it (2026-10-17, open)
+
+`routd/github_sources_resource.go:69` gates the target with
+`groupfolder.Contains(folder, target)` alone. `Contains` is a prefix test, so
+`eng/../ops` is contained in `eng` and the register answers 201, seeding four
+route rules whose target is the literal string `eng/../ops`.
+`groupfolder.IsValidFolder` exists and refuses `..` (`groupfolder/folder.go:74`),
+and this handler never calls it.
+
+Measured while writing the gdrive handler, which now calls `IsValidFolder`
+before `Contains` and answers 400. I did not change github.
+
+What the stored rule then does is NOT measured. Whether a target holding `..`
+ever resolves to a real folder decides whether this is a cross-folder reach or
+only a dead rule that looks live on the dashboard. Measure before fixing.
+
+- **Severity:** unknown until the resolution is measured — a cross-folder reach
+  if the target resolves, cosmetic if it cannot
+- **Scope:** `routd/github_sources_resource.go:69`; the same gate shape is in
+  every resource that resolves a folder parameter, so the sweep is the fix
+- **Measurement:** read the handler 2026-10-17; `Contains` is
+  `strings.HasPrefix` plus a separator check, and no call site validates the
+  folder first
+- **Status:** open — one probe answers it: seed the rule and ask routd to route
+  a message for that repository
+- **Related:** `L435` (the same file, the revoke path), `L417`
 
 ## L435 — a github source bound below its owner keeps its routes after a revoke (2026-10-17, open)
 
