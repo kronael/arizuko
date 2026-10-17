@@ -55,9 +55,6 @@ line; none can be answered from the code.
   a key set in `.env` takes its code default and every surface reads healthy.
   emaid's five auth keys are delivered; each remaining row needs a yes or no
   before the guard can ship.
-- `L423` — a GitHub outage at gitd's boot withdraws `send_text` until restart
-  while `/health` says ok: degrade only on a 401/403, retry on the heartbeat,
-  or exit and accept the compose cycle?
 - `L425` — emaid's XOAUTH2 refusal is pinned against a fake shaped to the code:
   treat Google's bare `NO` as permanent now, or measure a Gmail mailbox first?
 - `L430` — a verdict handled at ingress skips message-id dedup and the
@@ -103,10 +100,6 @@ ones no measurement can settle.
 - `L411` — nothing checks the reply channel can send before the turn is paid
   for. Cheap to answer for a dead channel, undecidable for one failing
   intermittently.
-- `L414` — gitd's `ErrPermanent` leaves as 502, so a 401 is retried for four
-  hours and the MCP path tells the agent "queued: do NOT send it again". The
-  fix is clear — map it to 400 in `writeBotResult` — and it changes the error
-  path of every adapter at once.
 - `L418` — an edited or deleted comment carries the object id, so the row is a
   duplicate no-op and nothing logs it. Re-keying rows on the delivery id is
   prescribed in `6/27` and touches ingest for every event type.
@@ -116,8 +109,6 @@ ones no measurement can settle.
 
 **Small fixes awaiting a go.** Each is bounded, and its entry names the fix.
 
-- `L426` — a failed thread-root lookup holds the dedup claim for a reply that
-  was never sent.
 - `L427` — gitd marks a delivery accepted before it knows the outcome.
 - `L428` — the web design guard passes shapes it should refuse, and a site that
   loses fifteen sidebars.
@@ -315,7 +306,7 @@ names its scope by hand and stops covering what moves
   known
 - **Related:** [[ant_env_delivery]] is the same class on the agent side
 
-## L423 — a GitHub outage at gitd's boot withdraws `send_text` for the life of the process, and `/health` says ok (2026-10-16, open — needs a decision)
+## L423 — a GitHub outage at gitd's boot withdraws `send_text` for the life of the process, and `/health` says ok (2026-10-16, ✅ FIXED 2026-10-17 — `46cb5578`)
 
 `gitd/bot.go:65-67` returns the raw `http.Client.Do` error from `GET /user`, so a
 DNS failure, a timeout or a refused connection at boot reaches `verifyToken`
@@ -341,16 +332,29 @@ whole project (`L406`).
 
 - **Severity:** medium — one transient at boot is a silent outage of replies
   until someone restarts gitd
-- **Scope:** `gitd/bot.go:55-86`, `gitd/main.go:73-83`
-- **Options:** (a) degrade only on an HTTP 401/403 from `/user`; on a transport
-  error keep `send_text` advertised and let each `Send` fail and retry on its own
-  dedup claim; (b) retry `GET /user` on the heartbeat until it answers, then
-  restore the caps; (c) exit on a transport error as before and accept the
-  compose cycle.
-- **Default if nothing is decided:** the current behaviour stands — degraded
-  until restart, with the ERROR line as the only signal.
-- **Status:** open — needs a decision; no test — the right behaviour is the
-  decision
+- **Scope:** `gitd/bot.go`, `gitd/main.go`
+- **Status:** ✅ FIXED — option (b). `start` classifies its own refusal through
+  `statusErr`, the one place gitd turns a status into an error, and
+  `verifyToken` withdraws `send_text` on any failure but spawns `reverify`
+  only when the failure is NOT `chanlib.ErrPermanent`. `reverify` re-asks
+  `/user` every minute until it answers, restores the cap through `SetCaps`
+  and returns; a refusal that arrives later ends it too.
+  `gitd/main_test.go` `TestVerifyToken_UnreachableGitHubRestoresSendText`
+  (a hijacked, closed connection, then a live `/user`) and
+  `TestVerifyToken_RefusedTokenDegradesToIngress` (a 401 is probed once and
+  never again).
+- **Why not (a) or (c):** (c) exits, and a daemon that exits at boot cycles
+  the whole compose project under systemd (`L406`) — the reason `L419` removed
+  the exit in the first place. (a) leaves `send_text` advertised with the
+  login unknown, and `gitd/server.go` drops gitd's own comments at ingest only
+  when `Login()` is non-empty, so the agent's own reply re-enters as a human
+  event on a public PR. `send_text` therefore stays off for exactly as long as
+  the login is unknown.
+- **`/health` stays 200 on purpose:** `handleHealth` reads `connected`, and
+  `disconnected` deregisters the channel after three probes
+  (`specs/5/34-channel-protocol.md`), which would take ingress down too. The
+  daemon IS up and ingesting; what is degraded is one verb, and the
+  registration — not the health probe — is what says so.
 
 ## L425 — emaid's XOAUTH2 refusal is pinned against a fake shaped to the code, not to Google's documented exchange (2026-10-16, open — needs a decision)
 
@@ -385,7 +389,7 @@ encoder itself matches Google's worked example byte for byte
   (retried on a bare NO; the 535 retried by routd) — done in this pass.
 - **Status:** open — needs a decision
 
-## L426 — a failed thread-root lookup holds the dedup claim as if a comment may have been posted (2026-10-16, open)
+## L426 — a failed thread-root lookup holds the dedup claim as if a comment may have been posted (2026-10-16, ✅ FIXED 2026-10-17 — `cfee9ad9`)
 
 `gitd/bot.go:155-160` `threadRoot` resolves an inline reply's root through the
 same `call` as the POST. `call` leaves a transport error unclassified on
@@ -398,11 +402,17 @@ and the row dead-letters after about an hour (`routd/loop.go:364-373`:
 posted nothing.
 
 - **Severity:** medium — a reply lost to one timeout on a read
-- **Scope:** `gitd/bot.go:112-160`
-- **Fix:** a transport error on the GET wraps `chanlib.ErrNotDelivered`; only
-  the POST stays unclassified. One branch in `call` keyed on the method, with a
-  test that times the lookup out and asserts the claim is released.
-- **Status:** open — small; fix with its test
+- **Scope:** `gitd/bot.go`
+- **Status:** ✅ FIXED — a transport error on a GET wraps
+  `chanlib.ErrNotDelivered`; only the POST stays unclassified.
+  `gitd/bot_test.go` `TestSend_ThreadLookupTimeoutReleasesTheClaim`.
+- **Also fixed here, the 403 split `L414` named:** GitHub answers a primary or
+  secondary rate limit with 403 as well as 429, and the documented signals are
+  a `retry-after` header or `x-ratelimit-remaining: 0`
+  (docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api,
+  re-read 2026-10-16). `isRateLimited` reads exactly those two, and a 403
+  carrying either joins the retryable class instead of dead-lettering.
+  `TestCall_RateLimited403IsRetryable` pins all three 403s.
 
 ## L427 — gitd records a delivery as accepted before it knows the outcome (2026-10-16, open)
 
@@ -566,7 +576,7 @@ response may have sent the message". gitd is the one adapter that asserts it.
 - **Fix:** wrap only `>=500` and `429` in `ErrNotDelivered`; return a transport
   error bare so the claim stays inflight and routd dead-letters visibly.
 
-## L414 — gitd's permanent refusal goes on the wire as 502, so it is retried ten times and the agent is told it is queued (2026-10-16, open)
+## L414 — gitd's permanent refusal goes on the wire as 502, so it is retried ten times and the agent is told it is queued (2026-10-16, ✅ FIXED 2026-10-17 — `3bd0e193`)
 
 `gitd/bot.go:147` returns `ErrPermanent` for 401, 403, 404, 410 and 422 — a
 revoked token, a deleted or foreign review root. `chanlib/handler.go:490-520`
@@ -583,14 +593,21 @@ send. gitd is the only adapter returning `ErrPermanent` from `Send`; the
 others return `ErrInvalidRequest`, which maps to 400.
 
 - **Severity:** high — the agent is told the opposite of what happened
-- **Scope:** `chanlib/handler.go` writeBotResult, or `gitd/bot.go:147`
-- **Status:** open — mapping `ErrPermanent` to 400 fixes it for every adapter
-  at once, which makes it a contract change worth your sign-off
-
-Before `ErrPermanent` maps to 400, split the 403 rate-limit case: GitHub
-answers a primary or secondary rate limit with 403 or 429 (`retry-after`,
-`x-ratelimit-remaining: 0`), and `call` (`gitd/bot.go:112-148`) treats every
-403 as permanent, so the mapping alone would dead-letter a rate-limited reply.
+- **Scope:** `chanlib/handler.go` writeBotResult
+- **Status:** ✅ FIXED — `writeBotResult` answers 400 for `ErrPermanent` beside
+  `ErrInvalidRequest`. `chanlib/handler_test.go`
+  `TestHandlerSendPermanentRefusal`; `specs/5/34-channel-protocol.md` now
+  names the sentinel and its status.
+- **What it changes for the other adapters: nothing, measured.** gitd is the
+  only producer — `git ls-files '*.go' | xargs grep -n ErrPermanent` returns,
+  outside `chanlib`'s declaration and `chanreg`'s routd-side alias, only
+  `gitd/bot.go` (and tests). bskyd, discd, emaid, linkd, reditd, slakd and
+  teled return `ErrInvalidRequest`, `ErrNotDelivered` or `ErrUnsupported` and
+  never reach the new branch; whapd answers routd over HTTP of its own and
+  does not use `writeBotResult`. The whole adapter set was run green at
+  `3bd0e193`.
+- **The 403 split this entry required landed first**, in `cfee9ad9` (`L426`),
+  so the 400 mapping cannot dead-letter a rate-limited reply.
 
 ## L415 — a webhook is answered 202 "retained" when the retention write itself failed (2026-10-16, ✅ FIXED 2026-10-16 — `27fc7ec2`)
 
