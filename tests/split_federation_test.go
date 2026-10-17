@@ -170,6 +170,7 @@ func (fedDeliverer) Repost(_, _ string) (string, error)                 { return
 func (fedDeliverer) Dislike(_, _ string) error                          { return nil }
 func (fedDeliverer) SetSuggestions(_ string, _ []core.PanePrompt) error { return nil }
 func (fedDeliverer) SetName(_, _ string) error                          { return nil }
+func (fedDeliverer) CanEdit(_ string) bool                              { return false }
 func (fedDeliverer) RoundDone(_, _, _, _ string) error                  { return nil }
 func (fedDeliverer) FetchHistory(_ string, _ time.Time, _ int) ([]byte, error) {
 	return nil, nil

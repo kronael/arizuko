@@ -39,6 +39,10 @@ type Deliverer interface {
 	SendVia(channel, jid, text string) (platformID string, err error)
 	React(jid, platformID, reaction string) error
 	Edit(jid, platformID, content string) error
+	// CanEdit reports whether the channel owning jid advertises `edit`: the
+	// capability map decides where a progress message may live, never a
+	// platform error (routd/progress.go).
+	CanEdit(jid string) bool
 	Delete(jid, platformID string) error
 	Pin(jid, platformID string) error
 	Unpin(jid, platformID string, all bool) error

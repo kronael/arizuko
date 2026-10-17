@@ -432,9 +432,7 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 	if last.ForwardedFrom != "" {
 		typingJID = last.ForwardedFrom
 	}
-	if l.deliver != nil {
-		_ = l.deliver.Typing(typingJID, true)
-	}
+	l.beginProgress(typingJID)
 	out, derr := l.dispatchRun(ctx, folder, topic, chatJID, turnID, last.Sender, rendered, elevated, gwKey.Key)
 	// A steered turn's indicator is appendAndDeliver's. Otherwise clear it for
 	// EVERY chat this run owns: steering is by FOLDER, so a steered turn's chat

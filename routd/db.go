@@ -609,11 +609,25 @@ func (d *DB) TurnHasBotReply(chatJID, turnID string) bool {
 	return d.store().TurnHasBotReply(chatJID, turnID)
 }
 
-// LastStatusPlatformID returns the platform id of the newest delivered
-// verb="status" row for the turn, or ""; submit_status edits it in place
-// instead of streaming a new notice (spec 5/24).
-func (d *DB) LastStatusPlatformID(chatJID, turnID string) string {
-	return d.store().LastStatusPlatformID(chatJID, turnID)
+// LastStatusRow returns the turn's newest verb="status" row, delivered or not
+// (routd/progress.go).
+func (d *DB) LastStatusRow(chatJID, turnID string) (core.Message, bool) {
+	return d.store().LastStatusRow(chatJID, turnID)
+}
+
+// SetMessageContent rewrites a held message's content in the log and the
+// search index, so a row edited on the platform reads as the user sees it.
+func (d *DB) SetMessageContent(m core.Message, content string) error {
+	if err := d.store().SetMessageContent(m, content); err != nil {
+		return err
+	}
+	m.Content = content
+	row, err := store.IndexedFrom(m)
+	if err != nil {
+		return err
+	}
+	d.search.Put(row)
+	return nil
 }
 
 // TurnResultRecorded reports whether submit_turn already recorded an outcome

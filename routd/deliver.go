@@ -41,12 +41,16 @@ func NewChannelDeliverer(reg *chanreg.Registry, disabled []string, lookupSource 
 // resolve picks the channel for jid in the order spec 5/34-channel-protocol fixes: an explicit
 // pin (only POST /v1/outbound carries one) → the latest inbound source for the
 // jid → the registry's prefix owner. nil when no adapter owns the jid.
-func (d *chanDeliverer) resolve(channel, jid string) *chanreg.HTTPChannel {
+func (d *chanDeliverer) resolveEntry(channel, jid string) *chanreg.Entry {
 	name := channel
 	if name == "" {
 		name = d.latestSource(jid)
 	}
-	entry := d.reg.Resolve(name, jid)
+	return d.reg.Resolve(name, jid)
+}
+
+func (d *chanDeliverer) resolve(channel, jid string) *chanreg.HTTPChannel {
+	entry := d.resolveEntry(channel, jid)
 	if entry == nil {
 		return nil
 	}
@@ -134,6 +138,14 @@ func (d *chanDeliverer) Edit(jid, platformID, content string) error {
 		return fmt.Errorf("no channel for jid %s", jid)
 	}
 	return ch.Edit(context.Background(), jid, platformID, content)
+}
+
+func (d *chanDeliverer) CanEdit(jid string) bool {
+	if d.disabled(jid) {
+		return false
+	}
+	entry := d.resolveEntry("", jid)
+	return entry != nil && entry.HasCap("edit")
 }
 
 func (d *chanDeliverer) Delete(jid, platformID string) error {

@@ -2,7 +2,6 @@ package routd
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -325,14 +324,10 @@ func (s *Server) mcpSubmitTurn(_ string, t ipc.TurnResult) error {
 	return err
 }
 
-// mcpSubmitStatus delivers a mid-turn <status> notice as an interim "⏳ ..."
-// message without ending the turn. Serialized per turn_id like the other turn
-// writes; a closed turn is a no-op.
+// mcpSubmitStatus hands a mid-turn <status> text to the progress renderer
+// without ending the turn. Serialized per turn_id like the other turn writes;
+// a closed turn is a no-op.
 func (s *Server) mcpSubmitStatus(turnID, text string) error {
-	text = strings.TrimSpace(text)
-	if text == "" {
-		return nil
-	}
 	unlock := lockTurn(turnID)
 	defer unlock()
 	tc, ok := s.db.GetTurnContext(turnID)
@@ -342,22 +337,7 @@ func (s *Server) mcpSubmitStatus(turnID, text string) error {
 	if s.callbackClosed(tc) {
 		return nil
 	}
-	jid := returnTarget(tc, tc.ChatJID)
-	// Edit the turn's live ⏳ message in place (its id is the last persisted
-	// verb=status row). SEND a fresh notice only on the first status or when
-	// the adapter cannot edit (ErrUnsupported). A real edit failure surfaces,
-	// never silently re-posted as a duplicate (spec 5/24).
-	if id := s.db.LastStatusPlatformID(tc.ChatJID, turnID); id != "" && s.deliver != nil {
-		err := s.deliver.Edit(jid, id, "⏳ "+text)
-		if err == nil {
-			return nil
-		}
-		if !errors.Is(err, chanlib.ErrUnsupported) {
-			return err
-		}
-	}
-	s.deliverStatus(tc, jid, text)
-	return nil
+	return s.updateProgress(tc, returnTarget(tc, tc.ChatJID), text)
 }
 
 // fetchPlatformHistory backs the fetch_history MCP tool: proxy to the owning

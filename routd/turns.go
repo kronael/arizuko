@@ -43,9 +43,10 @@ func returnTarget(tc TurnContext, jid string) string {
 }
 
 // appendAndDeliver renders the agent's raw output and appends + delivers it as
-// the turn's threaded reply: strip <think>, surface each <status> as a
-// separate message, FormatOutbound the rest. A pure-think output produces no
-// row. A turn whose run already returned delivers nothing.
+// the turn's threaded reply: strip <think>, hand each <status> to the progress
+// renderer, FormatOutbound the rest. A pure-think output produces no row. A
+// turn whose run already returned delivers nothing. A failed progress update is
+// logged and the reply goes out regardless: the reply is the product.
 func (s *Server) appendAndDeliver(turnID, jid, text string) {
 	unlock := lockTurn(turnID)
 	defer unlock()
@@ -63,7 +64,10 @@ func (s *Server) appendAndDeliver(turnID, jid, text string) {
 
 	stripped, statuses := router.ExtractStatusBlocks(router.StripThinkBlocks(text))
 	for _, st := range statuses {
-		s.deliverStatus(tc, jid, st)
+		if err := s.updateProgress(tc, jid, st); err != nil {
+			slog.Error("appendAndDeliver: progress update failed; reply continues",
+				"folder", tc.Folder, "turn_id", turnID, "err", err)
+		}
 	}
 
 	clean := router.FormatOutbound(stripped)
@@ -120,17 +124,6 @@ func (s *Server) outboundRow(tc TurnContext, jid, content, replyToID string) cor
 // here (mcp.go mcpDeliver).
 func (s *Server) deliverTurn(tc TurnContext, jid string, row *core.Message) string {
 	return s.deliverRow(tc, jid, row, s.replyThreadRoot(tc, jid), tc.Topic)
-}
-
-// deliverStatus is the ONE renderer for an interim progress notice, shared by
-// appendAndDeliver's status loop and the mid-turn submit_status path so the
-// two cannot drift. The row is verb="status": excluded from TurnHasBotReply,
-// and the row submit_status edits in place (spec 5/24).
-func (s *Server) deliverStatus(tc TurnContext, jid, text string) {
-	row := s.outboundRow(tc, jid, "⏳ "+text, "")
-	row.Verb = "status"
-	status := s.deliverTurn(tc, jid, &row)
-	_ = s.db.PutOutbound(row, status)
 }
 
 // deliverRow attempts the send, stamps platform_id on success, and ANSWERS the

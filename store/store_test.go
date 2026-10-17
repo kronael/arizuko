@@ -704,3 +704,37 @@ func engagedNow(s *Store, jid, topic string) bool {
 	_, live := s.Engagement(jid, topic)
 	return live
 }
+
+func TestStatusRow_FoundBeforeDeliveryAndRewritten(t *testing.T) {
+	s := openMem(t)
+	defer s.Close()
+
+	owed := core.Message{
+		ID: "st1", ChatJID: "tg:1", Sender: "demo", Content: "⏳ one", Verb: "status",
+		TurnID: "t1", BotMsg: true, FromMe: true, Timestamp: time.Now(),
+	}
+	if err := s.PutOutbound(context.Background(), owed, core.MessageStatusPending); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := s.LastStatusRow("tg:1", "t2"); ok {
+		t.Fatal("another turn's status row was found")
+	}
+	row, ok := s.LastStatusRow("tg:1", "t1")
+	if !ok || row.ID != "st1" || row.PlatformID != "" {
+		t.Fatalf("an undelivered status row must be found: ok=%v row=%+v", ok, row)
+	}
+	if err := s.SetMessageContent(row, "⏳ two"); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := s.LastStatusRow("tg:1", "t1")
+	if got.Content != "⏳ two" {
+		t.Fatalf("content = %q, want %q", got.Content, "⏳ two")
+	}
+	feed, err := s.RecentActivity(context.Background(), "", 10)
+	if err != nil || len(feed) != 1 || feed[0].Preview != "⏳ two" {
+		t.Fatalf("feed preview not rewritten with the content: %+v err=%v", feed, err)
+	}
+	if err := s.SetMessageContent(core.Message{ID: "nobody", ChatJID: "tg:1", Timestamp: time.Now()}, "x"); err == nil {
+		t.Fatal("rewriting a message nobody appended must be refused")
+	}
+}

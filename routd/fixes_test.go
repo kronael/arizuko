@@ -23,10 +23,13 @@ type recDeliverer struct {
 	// that is what a hold IS — so the notice lands from there while the test
 	// reads it, and the read used to find an empty slice (index out of range on
 	// a loaded host, and a data race under -race).
-	mu       sync.Mutex
-	sends    []sentMsg
-	edits    []sentEdit
-	editErr  error
+	mu      sync.Mutex
+	sends   []sentMsg
+	edits   []sentEdit
+	editErr error
+	// noEdit makes the channel not advertise `edit`: a progress update is
+	// dropped, never sent as a fresh message.
+	noEdit   bool
 	docs     []sentMsg
 	voices   []sentVoice
 	reacts   int
@@ -126,6 +129,7 @@ func (d *recDeliverer) Edit(jid, platformID, content string) error {
 	d.edits = append(d.edits, sentEdit{jid, platformID, content})
 	return d.editErr
 }
+func (d *recDeliverer) CanEdit(_ string) bool           { return !d.noEdit }
 func (d *recDeliverer) Delete(_, _ string) error        { return nil }
 func (d *recDeliverer) Pin(_, _ string) error           { return nil }
 func (d *recDeliverer) Unpin(_, _ string, _ bool) error { return nil }
@@ -277,32 +281,6 @@ func TestSubmitStatusEditsLiveMessageInPlace(t *testing.T) {
 	}
 	if dl.edits[0].platformID != "pid-"+dl.sends[0].idem {
 		t.Fatalf("edit did not target the first status message: edit=%q send=pid-%q", dl.edits[0].platformID, dl.sends[0].idem)
-	}
-}
-
-// TestSubmitStatusFallsBackToSendWhenEditUnsupported: adapters that can't edit
-// (email/WhatsApp/Reddit → ErrUnsupported) get a fresh ⏳ notice instead.
-func TestSubmitStatusFallsBackToSendWhenEditUnsupported(t *testing.T) {
-	db, err := OpenMem()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	dl := &recDeliverer{editErr: chanlib.ErrUnsupported}
-	srv := NewServer(db, nil, dl, nil, 0, "")
-	db.PutTurnContext("t1", "demo", "", "slack:T/C/U", "u1", "")
-
-	if err := srv.mcpSubmitStatus("t1", "a"); err != nil {
-		t.Fatal(err)
-	}
-	if err := srv.mcpSubmitStatus("t1", "b"); err != nil {
-		t.Fatal(err)
-	}
-	if len(dl.edits) != 1 {
-		t.Fatalf("expected one (failed) edit attempt, got %+v", dl.edits)
-	}
-	if len(dl.sends) != 2 {
-		t.Fatalf("edit-unsupported should fall back to a fresh send: sends=%+v", dl.sends)
 	}
 }
 

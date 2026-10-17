@@ -815,26 +815,49 @@ func (s *Store) TurnHasBotReply(chatJID, turnID string) bool {
 	return err == nil && len(items) > 0
 }
 
-// verbStatus is the interim ⏳ row's verb. submit_status edits that message in
-// place rather than streaming a new notice (spec 5/24).
+// verbStatus is the verb of a turn's progress row (routd/progress.go).
 const verbStatus = "status"
 
-// LastStatusPlatformID answers the platform id of the newest delivered status
-// row of one turn, or empty when none landed yet.
-func (s *Store) LastStatusPlatformID(chatJID, turnID string) string {
+// LastStatusRow answers the newest status row of one turn, delivered or not.
+// A row whose first send is still owed has no platform id yet, and the caller
+// has to find it all the same, or it would write a second row for the turn.
+func (s *Store) LastStatusRow(chatJID, turnID string) (core.Message, bool) {
 	items, err := s.Obj().Query(context.Background(), objstore.Query{
 		Entity: Messages, Partition: chatJID,
 		Where: []objstore.Cmp{
 			{Attr: attrMsgTurnID, Op: objstore.Eq, Value: turnID},
 			{Attr: attrMsgVerb, Op: objstore.Eq, Value: verbStatus},
-			{Attr: AttrMsgPlatformID, Op: objstore.Present},
 		},
 		Descending: true, Limit: 1,
 	})
 	if err != nil || len(items) == 0 {
-		return ""
+		return core.Message{}, false
 	}
-	return items[0].Attrs[AttrMsgPlatformID]
+	return messageFrom(items[0]), true
+}
+
+// SetMessageContent rewrites the content of a message the caller holds, and
+// the feed preview cut from it, in one batch: a row that says one thing while
+// its preview says another is two answers to "what was sent". A message
+// nobody appended is refused.
+func (s *Store) SetMessageContent(m core.Message, content string) error {
+	key, err := messageKeyOf(m)
+	if err != nil {
+		return err
+	}
+	err = s.WriteEntities(context.Background(), nil,
+		objstore.Write{
+			Op: objstore.Update, Entity: Messages, Key: key,
+			Attrs: map[string]string{attrMsgContent: content},
+		},
+		objstore.Write{
+			Op: objstore.Update, Entity: MessageActivity, Key: activityKey(key),
+			Attrs: map[string]string{attrActPreview: truncateRunes(content, activityPreviewChars)},
+		})
+	if err != nil {
+		return fmt.Errorf("rewrite %s: %w", m.ID, err)
+	}
+	return nil
 }
 
 // JIDRoutedToFolder reports whether a chat's default route target is folder or a
