@@ -20,18 +20,27 @@ type frame struct {
 	TurnID    string `json:"turn_id"`
 }
 
+// verbStatus is the verb of a turn's progress row (routd/progress.go). The
+// row's verb, not its text, says it is progress: the text is the agent's.
+const verbStatus = "status"
+
+// frameKind is the one place a row becomes a frame kind. Replay
+// (messageFrames) and the live replace frame (handleEdit) both call it.
+func frameKind(m core.Message) string {
+	if m.Verb == verbStatus {
+		return "status"
+	}
+	return "message"
+}
+
 func messageFrames(msgs []core.Message) []frame {
 	out := make([]frame, 0, len(msgs))
 	for _, m := range msgs {
-		kind := "message"
-		if strings.HasPrefix(m.Content, "⏳ ") {
-			kind = "status"
-		}
 		out = append(out, frame{
 			ID:        m.ID,
 			Content:   m.Content,
 			CreatedAt: m.Timestamp.Format(time.RFC3339),
-			Kind:      kind,
+			Kind:      frameKind(m),
 			TurnID:    m.TurnID,
 		})
 	}

@@ -11,7 +11,16 @@ chat) and exposes MCP endpoints used by agents running against web JIDs.
 
 ## Responsibilities
 
-- Register as channel `web` with caps `send_text` + `typing` (`main.go`).
+- Register as channel `web` with caps `send_text` + `edit` (`webCaps` in
+  `channel.go`). `typing` is not advertised: webd renders no presence;
+  `POST /typing` still answers `ok`.
+- Edit a frame by replacing it. `POST /edit` publishes a `message` frame
+  with the id of the frame being edited and the new content on the hub key
+  of the chat JID from the wire; a consumer that holds that id replaces the
+  frame, one that does not appends it. The frame's `kind` is `status` when
+  the row's verb is `status`, else `message` (`frameKind`, `turn.go`); the
+  text never decides. An unknown target is 404, a row of another chat 404,
+  a user message 403.
 - Run the SSE hub that fans agent output to subscribers, keyed on
   the chat JID verbatim + topic (`hub.go`).
 - Serve guest chat pages: public widget, token-scoped chat at
@@ -46,7 +55,7 @@ proxyd (`<world>.<HOSTING_DOMAIN>` → `/pub/<world>/`), not stored
 
 Shipped today (see `server.go`):
 
-- `POST /send`, `POST /typing`, `POST /v1/round_done` — channel adapter
+- `POST /send`, `POST /edit`, `POST /typing`, `POST /v1/round_done` — channel adapter
   inbound from routd, verified via `chanlib.Auth` (ES256 `service:routd` token
   when `AUTHD_URL` set, open in local dev).
 - `GET /api/groups`, `GET|POST /api/groups/{rest...}` — authed chat UI JSON
@@ -89,7 +98,7 @@ Shipped today (see `server.go`):
   boot). The stamped header IS the identity, authenticated by the bearer.
   When `AUTHD_URL` unset (nil KeySet, local dev), the stamped header is
   trusted directly (no verifier, no proxyd). webd never signs tokens.
-- `/send`, `/typing`, `/v1/round_done` are gated by `chanlib.Auth`:
+- `/send`, `/edit`, `/typing`, `/v1/round_done` are gated by `chanlib.Auth`:
   ES256 `service:routd` token when `AUTHD_URL` is set, open in local dev.
 - `/pair/<token>` is the exception among token surfaces: proxyd gates it
   `user`, so an anonymous visitor is bounced through OAuth and returns to
@@ -132,7 +141,7 @@ Shipped today (see `server.go`):
 - Binary: `webd/main.go`
 - Listen: `WEBD_LISTEN` (default `:8080`)
 - Routes wired in `server.go`
-- Registers with routd as channel `web`, prefix `web:`, caps `send_text` + `typing`
+- Registers with routd as channel `web`, prefix `web:`, caps `send_text` + `edit`
 
 ## Dependencies
 
@@ -159,7 +168,7 @@ delivered messages.
 
 - `main.go`, `server.go` — wiring + routes + auth middleware
 - `hub.go` — SSE fan-out keyed on chat JID + topic
-- `channel.go` — routd→webd callbacks (`/send`, `/typing`, `/v1/round_done`)
+- `channel.go` — routd→webd callbacks (`/send`, `/edit`, `/typing`, `/v1/round_done`)
 - `route_token.go` — route-token lookup + `/chat/<token>` + `/hook/<token>` handlers
 - `turn.go` — round-handle endpoints (`/chat/<token>/<id>{,/status,/sse}`)
 - `me.go` — authed per-user chat console (`/me/*`)

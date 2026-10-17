@@ -126,7 +126,7 @@ func main() {
 		rc.SetServiceToken(svc.Token)
 	}
 	_, err = rc.Register("web", cfg.listenURL,
-		[]string{"web:"}, map[string]bool{"send_text": true, "typing": true},
+		[]string{"web:"}, webCaps,
 	)
 	if err != nil {
 		slog.Error("router registration failed", "err", err)

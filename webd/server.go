@@ -80,6 +80,7 @@ func (s *server) handler() http.Handler {
 	mux.HandleFunc("OPTIONS /assets/{path...}", s.handleAssets)
 
 	mux.HandleFunc("POST /send", chanlib.Auth(s.handleSend))
+	mux.HandleFunc("POST /edit", chanlib.Auth(s.handleEdit))
 	mux.HandleFunc("POST /typing", chanlib.Auth(s.handleTyping))
 	mux.HandleFunc("POST /v1/round_done", chanlib.Auth(s.handleRoundDone))
 	mux.HandleFunc("GET /health", s.handleHealth)

@@ -643,9 +643,12 @@ async function openThread(t){
 }
 
 function addMsg(role,content,id){
+  var html=esc(content).replace(/\n/g,'<br>');
+  var old=id&&document.getElementById('msg-'+id);
+  if(old){old.innerHTML=html;return}
   var d=document.createElement('div');d.className='msg '+role;
   if(id)d.id='msg-'+id;
-  d.innerHTML=esc(content).replace(/\n/g,'<br>');
+  d.innerHTML=html;
   document.getElementById('thread').appendChild(d);
   d.scrollIntoView({behavior:'smooth'});
 }
@@ -661,7 +664,6 @@ function connect(topic){
     if(!cur||cur.topic!==topic)return;
     try{
       var m=JSON.parse(e.data);
-      if(document.getElementById('msg-'+m.id))return;
       var el=document.querySelector('.typing');if(el)el.remove();
       addMsg(m.role||'assistant',m.content,m.id);
     }catch(x){}
