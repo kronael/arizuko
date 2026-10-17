@@ -75,8 +75,8 @@ and `assistant_thread_context_changed`:
   (on=true) and removes it from that same message (on=false). The state is
   `chanlib.AckMark`'s: the mark is recorded in the adapter store, a boot sweep
   clears a mark older than `chanlib.DefaultTypingMaxTTL`, and a mark a restart
-  left is removed when the turn ends. Same path for pane and regular
-  channels — no `conversations.typing` (RTM-only, discontinued) and no
+  or a graceful shutdown left is removed when the turn ends. Same path for pane
+  and regular channels — no `conversations.typing` (RTM-only, discontinued) and no
   `assistant.threads.setStatus`. Silent no-op when no inbound is known.
 - `Send()` into a pane channel drains pending prompts/title staged
   via the MCP tools below and fires `assistant.threads.setSuggestedPrompts`

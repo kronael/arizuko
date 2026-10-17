@@ -61,8 +61,9 @@ type GatedFns struct {
 	ListInvites          func(issuedBy string) ([]InviteInfo, error)
 	RevokeInvite         func(ref string) error
 	SubmitTurn           func(folder string, t TurnResult) error
-	// SubmitStatus delivers a mid-turn progress notice immediately as an interim
-	// "⏳ ..." message without ending the turn. Nil = method unconfigured.
+	// SubmitStatus delivers a mid-turn progress notice as the turn's one "⏳ ..."
+	// message, without ending the turn. A channel that cannot edit receives
+	// nothing. Nil = method unconfigured.
 	SubmitStatus func(folder, turnID, text string) error
 	// Per-group ambient controls (spec 5/F-topic-lineage).
 	SetGroupOpen          func(folder string, open bool) error
@@ -604,8 +605,8 @@ func handleSubmitTurn(raw []byte, id any, gated GatedFns, folder string, write f
 }
 
 // handleSubmitStatus is the mid-turn progress hook: it delivers the agent's
-// interim <status> text immediately (as a "⏳ ..." notice) without ending the
-// turn. Hidden from tools/list, same as submit_turn.
+// <status> text as the turn's one "⏳ ..." message, without ending the turn.
+// Hidden from tools/list, same as submit_turn.
 func handleSubmitStatus(raw []byte, id any, gated GatedFns, folder string, write func(any)) {
 	var req struct {
 		Params struct {

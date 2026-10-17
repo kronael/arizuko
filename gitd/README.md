@@ -68,15 +68,21 @@ With a token, a running turn shows an 👀 reaction on the comment that started 
 `chanlib.DefaultTypingMaxTTL` backstop. The token needs
 Issues write (conversation comments) and Pull requests write (inline review
 comments). A refused reaction is logged at warn and never fails the turn. The mark is
-`chanlib.AckMark`, recorded in the adapter store: a crash leaves the 👀 and its
-record, and the next boot removes a record older than the backstop. Spec:
+`chanlib.AckMark`, recorded in the adapter store: a crash or a graceful shutdown
+leaves the 👀 and its record, because the turn may still be running. The turn's
+own `Typing(off)` removes it, or the next boot when the record is older than the
+backstop. Spec:
 `specs/6/27-git-channel.md` § Typing indicator.
 
 ## Reply
 
-`send_text` is the only verb, advertised only when `GITHUB_TOKEN` is set: it
-posts the agent's reply as a comment on the PR or issue the JID names and
-returns the id the same comment carries inbound.
+`send_text` and `edit` are the verbs, advertised only when `GITHUB_TOKEN` is
+set. `send_text` posts the agent's reply as a comment on the PR or issue the JID
+names and returns the id the same comment carries inbound. `edit` replaces the
+text of a comment gitd wrote, so a turn's progress is one comment changed in
+place (`specs/6/46-turn-progress.md`): `gh-c<id>` through `issues/comments`,
+`gh-rc<id>` through `pulls/comments`. It reads the comment first and refuses one
+another login wrote, and refuses any other id shape.
 
 `ReplyTo` decides which comment stream. A `gh-rc<id>` names an inline review
 comment, so the reply goes under that code line: gitd resolves the comment that

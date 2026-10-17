@@ -92,7 +92,7 @@ the one that already holds everywhere.
 A turn **delivers** when it produces a bot row that is not a status row —
 `reply`, `send`, `send_file`, `send_voice`, `like`, `dislike`, `delete`. That
 predicate exists: `TurnHasBotReply` (`store/messages.go:930`), and
-`deliverStatus` stamps `verb="status"` (`routd/turns.go:135`) precisely so an
+`updateProgress` stamps `verb="status"` (`routd/progress.go`) precisely so an
 interim ⏳ never counts as an answer.
 
 Three outcomes at `submit_turn`, and no fourth:
@@ -343,8 +343,8 @@ the experiment.
 - `ipc/ipc.go:1194` the `reply` description, `:1216` the send error the agent
   sees, `:584` the `submit_turn` response — the contract's other declaration,
   and where the nudge rides back.
-- `store/messages.go:930` `TurnHasBotReply`, `routd/turns.go:135`
-  `deliverStatus` — the predicate and the reason a status is not an answer.
+- `store/messages.go:930` `TurnHasBotReply`, `routd/progress.go`
+  `updateProgress` — the predicate and the reason a status is not an answer.
 - `container/runner.go:369` and `runed/docker.go:246` — two writers, one format.
 - `ant/src/index.ts:145` `NUDGE_TEXT`, `:232` the exact-text filter, `:238`
   `checkIpcMessage`; `ant/src/policy.ts:82` the `steering` row;

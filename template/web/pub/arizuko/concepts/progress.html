@@ -78,7 +78,7 @@
       <li><strong>&#9203;</strong> &mdash; working on it right now. If the plan supplies an in-progress phrasing (&ldquo;Cross-checking the timestamps&rdquo;), that&rsquo;s what shows; otherwise you get the plain item text.</li>
       <li><strong>&#9744;</strong> &mdash; not started.</li>
     </ul>
-    <p>The leading &#9203; on the first line belongs to the message, not to an item &mdash; every status message carries it so a glance tells you the agent is still going.</p>
+    <p>The leading &#9203; on the first line belongs to the message, not to an item &mdash; every status message carries it so a glance tells you the agent is still going. When the turn ends, that one mark changes: &#9203; becomes &#10003; if the turn finished, &#10007; if it failed. The rest of the message stays as the agent left it, so nothing ever says &ldquo;in progress&rdquo; after the work stopped.</p>
 
     <h2>why the agent can&rsquo;t forget</h2>
     <p>The agent plans with the SDK&rsquo;s <code>TodoWrite</code> tool. It writes that list to organise itself, not to report to you &mdash; it would write it whether anyone were watching or not. arizuko hangs a hook on that tool: every time the list changes, the hook reads the list the agent just wrote, renders it, and sends it. Nothing ever asks the model to report progress, so there is nothing for it to skip.</p>
@@ -87,8 +87,11 @@
     <h2>one message, edited</h2>
     <p>The first update of a turn sends a new message. Every later one edits that same message. <code>routd</code> finds which message to edit by looking up the last status row it stored for the turn &mdash; there is no in-memory table of live messages, so a <code>routd</code> restart in the middle of a long turn doesn&rsquo;t strand the checklist. It picks the message back up from the database and keeps editing.</p>
 
+    <h2>the typing indicator</h2>
+    <p>Alongside the message, the channel shows that the agent is busy. Telegram, Discord and WhatsApp use their own typing indicator. Slack and GitHub have none, so they put an eyes reaction (&#128064;) on the message that started the turn. Either one stays on until the turn ends &mdash; not until the first reply &mdash; so an agent that answers and then keeps working still looks busy. The reaction is also still there if the adapter restarts mid-turn: the adapter remembers it, and removes it when the turn ends.</p>
+
     <h2>channels that can&rsquo;t edit</h2>
-    <p>Email, WhatsApp and Reddit have no edit-a-sent-message operation. On those, each update arrives as a fresh message &mdash; the fallback is deliberate and only fires when the adapter reports the operation as unsupported.</p>
+    <p>Email, Bluesky, LinkedIn and X have no edit-a-sent-message operation. On those, the agent&rsquo;s status updates are dropped and you get the answer alone. A stream of separate &ldquo;still working&rdquo; posts is the thing this page exists to avoid, so there is no fallback to one. Google Drive comments work the same way for now: the adapter does not edit its replies yet.</p>
     <p>An edit that fails for a <em>real</em> reason &mdash; expired token, adapter timeout, a 500 from the platform &mdash; surfaces as an error instead. It is never quietly re-posted as a new message, because a silent duplicate looks exactly like the ping-spam this replaced.</p>
 
     <h2>the checklist is never the answer</h2>
@@ -103,7 +106,7 @@
     <p>A long turn that never planned still isn&rsquo;t silent: roughly every 90 seconds the harness inside the guest nudges the agent for a one-line <code>&lt;status&gt;</code>, and that feeds the same one-message-edited path. It&rsquo;s the floor, not the main route.</p>
 
     <h2>go deeper</h2>
-    <p>The design and the two decisions that carry it: <a href="https://github.com/kronael/arizuko/blob/main/specs/5/24-live-tasklist-status.md">specs/5/24</a>. The hook that renders the list lives in <a href="https://github.com/kronael/arizuko/blob/main/ant/src/todo-status.ts"><code>ant/src/todo-status.ts</code></a>; the edit-or-send half is <code>mcpSubmitStatus</code> in <a href="https://github.com/kronael/arizuko/blob/main/routd/mcp.go"><code>routd/mcp.go</code></a>. What happens when the turn dies before it can finish the list: <a href="retries.html">retries</a>.</p>
+    <p>The design and the two decisions that carry it: <a href="https://github.com/kronael/arizuko/blob/main/specs/5/24-live-tasklist-status.md">specs/5/24</a>. The hook that renders the list lives in <a href="https://github.com/kronael/arizuko/blob/main/ant/src/todo-status.ts"><code>ant/src/todo-status.ts</code></a>; the create-or-edit half and the end-of-turn mark are in <a href="https://github.com/kronael/arizuko/blob/main/routd/progress.go"><code>routd/progress.go</code></a>, specified in <a href="https://github.com/kronael/arizuko/blob/main/specs/6/46-turn-progress.md">specs/6/46</a>. What happens when the turn dies before it can finish the list: <a href="retries.html">retries</a>.</p>
 
       <nav class="docs-pager" aria-label="Pager">
         <a rel="prev" href="topics.html">&larr; Topics</a>

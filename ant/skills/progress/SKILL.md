@@ -28,5 +28,5 @@ never force a task list onto a one-line answer.
 
 - A quick turn with no task list still reports via `<status>…</status>`
   blocks (ant/CLAUDE.md § Status updates) — the floor.
-- On platforms without message editing (email, WhatsApp, Reddit) the
-  harness falls back to separate `⏳` notices automatically. Nothing to do.
+- On a channel that cannot edit a sent message the harness shows no progress
+  message at all; the answer is the only message. Nothing to do.

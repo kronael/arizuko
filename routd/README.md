@@ -25,15 +25,20 @@ Spec: `specs/5/E`.
   tool visibility via `auth.EffectiveActions`; resreg-served cold-tier
   resources reuse that injected gate instead of their default operator
   gate.
-- Own the turn's live status message. `submit_status` (`mcp.go`
-  `mcpSubmitStatus`) renders one `⏳` message per turn and EDITS it in
-  place on every later call; the message id is read back from the last
-  persisted `verb="status"` row, so edit-in-place survives a routd
-  restart. `deliverStatus` (`turns.go`) is the one renderer for both the
-  ant `TodoWrite` hook and `<status>` blocks, and stamps `verb="status"`
-  so `TurnHasBotReply` excludes it — a status must never count as the
-  agent's reply. Only `chanlib.ErrUnsupported` (email/WhatsApp/Reddit)
-  falls back to a fresh send; a real edit failure surfaces (spec 5/24).
+- Own the turn's progress (`progress.go`, `specs/6/46-turn-progress.md`): the
+  only code that calls `Typing` or creates or edits a `verb="status"` row.
+  `submit_status` (`mcpSubmitStatus`) and each `<status>` block in a result
+  both call `updateProgress`: the first update sends one `⏳` message, a later
+  one EDITS it and rewrites the row, an update whose text the row already holds
+  does nothing. A channel that does not advertise `edit` gets no progress
+  message; a real edit failure surfaces and is never re-posted (spec 5/24). The
+  message id is the newest `verb="status"` row's `platform_id`, so
+  edit-in-place survives a restart; the row is stamped `verb="status"` so
+  `TurnHasBotReply` excludes it — a status must never count as the agent's
+  reply. `Typing(on)` fires at dispatch and `Typing(off)` when the turn ends
+  (`finishTurn`, the one writer of `done`), not at the first reply; `finishTurn`
+  also edits the message's leading `⏳` to `✓` or `✗`. A run that returns
+  without ending its turn clears `Typing` and leaves the message `⏳`.
 - Channel egress via the `chanreg` Deliverer (adapters register their
   egress URL + owned JID prefixes).
 - Answer ranked message search — `find_messages` and

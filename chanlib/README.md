@@ -49,7 +49,7 @@ stay thin — `main.go` calls `chanlib.Run` with a `Start` hook.
 - `CapImplReport(b, caps) []string` — drift report: advertised caps vs actual verb stubs
 - `SlackJID`, `ParseSlackJID`, `FormatSlackJID` — Slack JID parsing (format: `slack:<workspace>/<kind>/<id>`)
 - `TypingRefresher` — presence re-sender with hard TTL
-- `AckMark` — the `👀` mark for adapters with no native presence (slakd, gitd): pins the trigger message, persists the mark in `ack_marks`, removes it at turn end, backstop TTL, `Sweep` at boot
+- `AckMark` — the `👀` mark for adapters with no native presence (slakd, gitd): pins the trigger message, persists the mark in `ack_marks`, removes it at turn end, backstop TTL, `Sweep` at boot; `Stop` removes no mark
 - `URLCache` — 12-hex LRU short-ID proxy (cap 4096) shared by discd/reditd
 - `FileProxyHandler(opts)` — /files/<id> handler with opaque-id→CDN resolution
 - `WriteJSON`, `WriteErr`, `Chunk`, `ProxyFile`, `LogMiddleware`

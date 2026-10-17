@@ -61,15 +61,12 @@ Credentials resolve on the host and results scrub their values
 ## Typing indicator
 
 While a turn runs, gitd shows an 👀 (`eyes`) reaction on the comment that started it
-and removes it when the turn ends. chanreg sends `/typing` only to an adapter that
-advertises `typing`, so gitd advertises it with `send_text`. `Typing(jid, on)` carries
-no comment id, so the mark is `chanlib.AckMark` (`specs/6/46-turn-progress.md`
-§"The mark, implemented once"): at the one place every inbound passes on its way to
-routd, live or replayed from retention, chanlib records per chat JID the newest comment
-that can start a turn (`verb` message or mention). `Typing(on)` pins that comment and
-posts the reaction; `Typing(off)` removes it from the comment it was pinned to, even
-when newer comments arrived. gitd supplies only the two GitHub calls, in
-`gitd/typing.go`:
+and removes it when the turn ends, not when the first reply lands. chanreg sends
+`/typing` only to an adapter that advertises `typing`, so gitd advertises it with
+`send_text`. The mark is `chanlib.AckMark`: which comment it stands on, how it
+persists, the backstop and the boot sweep are specified once in
+`specs/6/46-turn-progress.md` §"The mark, implemented once". gitd supplies only the
+two GitHub calls, in `gitd/typing.go`:
 
 - Conversation comment (`gh-c`): `POST /repos/{o}/{r}/issues/comments/{id}/reactions`,
   then `DELETE` on that path plus `/{reaction_id}`.
@@ -80,19 +77,9 @@ Create answers 201, or 200 when the reaction already stands. Delete answers 204,
 404 (the reaction or its comment already gone) counts as removed. The token needs
 Issues write for the first row and Pull requests write for the second
 (docs.github.com/en/rest/reactions/reactions). A trigger with no reactable comment (a
-review, an issue or PR body) gets no mark, and never the 👀 of an older comment.
-
-The mark (chat JID, pinned comment, GitHub's reaction id, time) is recorded in the
-adapter store before `Typing(on)` returns, so `Typing(off)` finds it after a restart.
-A refusal from GitHub is logged at warn with GitHub's reason and goes no further. The
-port returns nothing, and the reply is the product; the indicator is decoration. It is
-not retried. If `Typing(off)` never arrives, a timer removes the reaction after
-`chanlib.DefaultTypingMaxTTL`, the backstop the other adapters use. At boot gitd
-removes every recorded mark older than that, which clears what a crash or SIGKILL
-left, and re-arms the timer of a younger one. A graceful shutdown removes nothing: the
-turn it marks may still be running, and routd's `Typing(off)` removes the reaction. A
-record is dropped only after GitHub confirmed the removal, so a refused delete is tried
-again at the next boot.
+review, an issue or PR body) gets no mark, and never the 👀 of an older comment. A
+refusal from GitHub is logged at warn with GitHub's reason and goes no further: the
+port returns nothing, the reply is the product, and the indicator is decoration.
 
 ## Sources and identity
 

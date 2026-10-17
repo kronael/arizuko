@@ -124,14 +124,14 @@ Use the right store — NEVER write `facts/*.md` by hand:
 
 # Status updates
 
-Any turn with tool calls (bash, web fetch, file read/write, research) MUST emit at least one `<status>` block. The gateway strips it and delivers it immediately as an ⏳ interim message. Under 100 chars, lowercase, no period, no preamble ("checking X", not "I'm checking X now"). Multiple fine — emit before each major step.
+Any turn with tool calls (bash, web fetch, file read/write, research) MUST emit at least one `<status>` block. The gateway strips it and delivers it immediately as an ⏳ interim message on a channel that can edit it; elsewhere it is dropped. Under 100 chars, lowercase, no period, no preamble ("checking X", not "I'm checking X now"). Multiple fine — emit before each major step.
 
 ```
 <status>searching facts for antenna models…</status>
 <status>reading 12 files, synthesising…</status>
 ```
 
-Emit a `<status>` → you OWE a final user-visible reply. Ending the turn with only a `<think>` block (stripped to empty) leaves the user staring at ⏳ forever. For silent tasks (stop-only requests, file writes, cron compactions where the artifact IS the diff) emit NO status and NO final text; for tasks that chat-emit a status, close with the ANSWER itself — that closing block is the only text delivered, so a bare "done." throws away everything you wrote earlier in the turn. Status without conclusion is a contract break.
+Emit a `<status>` → you OWE a final user-visible reply. Ending with only a `<think>` block (stripped to empty) leaves the user a bare ✗ and no answer. For silent tasks (stop-only requests, file writes, cron compactions where the artifact IS the diff) emit NO status and NO final text; for tasks that chat-emit a status, close with the ANSWER itself — that closing block is the only text delivered, so a bare "done." throws away everything you wrote earlier in the turn. Status without conclusion is a contract break.
 
 A genuinely multi-step turn plans with `TodoWrite`; the harness renders it as ONE live-updating ⏳ checklist (spec 5/24). NEVER force one onto a simple reply.
 

@@ -32,7 +32,9 @@ changes turn that structured list into a live status message:
    agent-facing surface** — the hook reads the tool input the agent
    already writes, so there is nothing for the model to skip.
 2. **routd — `submit_status` edits one message per turn.** First status
-   sends `⏳ …`; subsequent ones `deliver.Edit`.
+   sends `⏳ …`; subsequent ones `deliver.Edit`. `routd/progress.go` does
+   this and owns the rest of the turn's progress (presence, the terminal
+   `✓`/`✗` edit); `specs/6/46-turn-progress.md` specifies that renderer.
 
 Two decisions inside (2) carry the weight:
 
@@ -43,9 +45,9 @@ Two decisions inside (2) carry the weight:
 - **The live message id is the last persisted `verb="status"` row's
   `platform_id`, not an in-memory map.** Nothing to leak, nothing to
   clean up, and edit-in-place survives a routd restart.
-- **Only `ErrUnsupported` (email/WhatsApp/Reddit) falls back to a fresh
-  send.** A real edit failure (401/500/timeout) surfaces — never a silent
-  duplicate.
+- **A channel without `edit` receives no progress message.** A status the
+  agent sends there is dropped and logged at debug. A real edit failure
+  (401/500/timeout) surfaces — never a silent duplicate.
 
 Both paths feed the same `submitStatus` sink, so `<status>` blocks get the
 one-live-message behavior too. They remain the floor for turns without a
@@ -61,10 +63,11 @@ its manual-checklist paragraph.
 - `ant/src/todo-status.ts` — render + the `TodoWrite` PostToolUse hook.
 - `ant/src/claude.ts` — hook registration (`matcher: 'TodoWrite'`)
   - the `Turn.turnID` plumb.
-- `routd/mcp.go` `mcpSubmitStatus` — edit-or-send.
-- `routd/turns.go` `deliverStatus` — stamps `verb="status"`.
-- `routd/db.go` — `TurnHasBotReply` (excludes status),
-  `LastStatusPlatformID`.
+- `routd/progress.go` `updateProgress` — create-or-edit, stamps
+  `verb="status"`; `mcpSubmitStatus` (`routd/mcp.go`) and
+  `appendAndDeliver` (`routd/turns.go`) both call it.
+- `routd/db.go` — `TurnHasBotReply` (excludes status), `LastStatusRow`
+  (the live message is the newest status row).
 
 ## Tier
 

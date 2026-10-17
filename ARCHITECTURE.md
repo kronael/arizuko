@@ -133,6 +133,9 @@ Channel adapter → POST /v1/messages (routd) → PutMessage (sole appender)
       from its own CID (the CID IS the turn credential, spec 6/41)
   → agent runs the turn; per-turn results return over MCP (submit_turn)
     and the run outcome returns on the /v1/runs response
+  → routd/progress.go: Typing(on) at dispatch; one ⏳ message created by the
+    first status and edited after, only on a channel that advertises edit;
+    finishTurn clears Typing and edits ⏳ to ✓ or ✗
   → routd: chanreg Deliverer → POST <adapter>/send (channel egress)
 ```
 
@@ -404,9 +407,15 @@ servers. Full protocol: `specs/5/34-channel-protocol.md`.
   secret.
 - **Typing**: `/typing` handlers route through `TypingRefresher`
   (`chanlib.TypingRefresher` / `whapd/src/typing.ts`) — re-sends presence on
-  short interval with hard TTL. routd owns the terminator: it clears typing for
-  every chat a finished run owned (`turn_context.run_id`), which covers a
-  follow-up steered into that run from a different chat of the same folder. The
+  short interval with hard TTL. routd owns the terminator (`routd/progress.go`):
+  it clears typing when the turn ends, not at the first reply, for every chat
+  the finished run owned (`turn_context.run_id`), which covers a follow-up
+  steered into that run from a different chat of the same folder. A run that
+  returns without ending its turn clears it too. slakd and gitd, which have no
+  native indicator, render typing as a `👀` reaction on the trigger message
+  (`chanlib.AckMark`); a graceful shutdown leaves it standing, because the
+  turn may still be running, and the next boot removes a recorded one older than
+  the TTL. The
   adapter TTL is the backstop and is 90% of `RUNED_RUN_TIMEOUT` — strictly
   below the wall, or it only fires once the guest is already dead (BUGS
   `T1`).

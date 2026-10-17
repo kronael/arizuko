@@ -167,13 +167,13 @@ concrete hint.
 | `quote`      |       |       | ✓     |        |       |       |       |       | ✓     |      |
 | `repost`     |       |       | ✓     |        |       |       |       |       | ✓     |      |
 | `dislike`    |       | ✓     |       | ✓      |       |       |       |       |       |      |
-| `edit`       | ✓     | ✓     |       |        | ✓     |       |       | ✓     |       |      |
+| `edit`       | ✓     | ✓     |       | ✓      | ✓     |       |       | ✓     |       | ✓¹   |
 | `pin`        | ✓     | ✓     |       |        | ✓     |       |       |       |       |      |
 | `unpin`      | ✓     | ✓     |       |        | ✓     |       |       |       |       |      |
 | `unpin_all`  |       | ✓     |       |        | ✓     |       |       |       |       |      |
 
-¹ gitd posts a comment on the PR/issue the JID names, only when `GITHUB_TOKEN`
-is set; repo state changes (merge, label, review) are GitHub connector tools
+¹ gitd posts a comment on the PR/issue the JID names, and edits a comment it
+wrote, only when `GITHUB_TOKEN` is set; repo state changes (merge, label, review) are GitHub connector tools
 (spec `6/27`).
 
 `delete` and `edit` are own-message by default — the platform enforces
@@ -333,6 +333,30 @@ via-`reactions.add`). Steps:
    `chanlib.Unsupported(tool, platform, hint)` for the rest.
 4. Spec under `specs/2/<letter>-<name>.md`; per-platform native
    support belongs in the verb matrix above.
+
+### Showing progress (the `typing` and `edit` capabilities)
+
+`routd` shows a running turn through two capabilities in the adapter's
+registration, and sends a channel nothing it did not advertise
+(`specs/6/46-turn-progress.md`). Advertise only what you implement:
+`chanlib.CapImplReport` checks every verb in the map except `typing`.
+
+- `typing` commits `POST /typing {chat_jid, on}` to show presence while a turn
+  runs. `on` arrives at dispatch and `off` when the turn ends, not at the first
+  reply, so the indicator outlives a mid-turn `reply`. `off` can fail to arrive,
+  so a native indicator goes through `chanlib.TypingRefresher`, which stops by
+  itself at `chanlib.DefaultTypingMaxTTL`. A platform with no indicator uses
+  `chanlib.AckMark` instead: you supply the reaction's add and remove calls, it
+  keeps the mark in the adapter store and removes a stale one at boot. The
+  reaction must carry no social meaning (`👀`, never a like or an upvote), and
+  `Typing` returns nothing: a failed indicator never fails the turn.
+- `edit` commits `POST /edit` to replace the text of a message this adapter
+  sent, named by the id its `/send` returned; any other id is
+  `chanlib.ErrInvalidRequest`, and an adapter never edits another party's
+  message. With `edit`, routd posts one `⏳` message on the turn's first status,
+  edits it on each later one and edits it to `✓` or `✗` when the turn ends.
+- Neither: routd sends the channel no presence and no progress message. That is
+  the right map for a platform where a second post is a public statement.
 
 ### Pickable answers (the `buttons` capability)
 
