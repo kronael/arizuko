@@ -1,0 +1,302 @@
+---
+status: draft
+depends:
+  [
+    27-git-channel,
+    45-gdrive-comments-channel,
+    31-adapter-contract,
+    ../5/24-live-tasklist-status,
+    ../5/34-channel-protocol,
+  ]
+---
+
+# specs/6/46 — turn progress: one declaration, two renderings, a declared degradation per sink
+
+routd declares that a turn is running, what it is doing, and that it ended.
+Every channel renders that declaration with the two primitives it has — an
+ephemeral presence mark and one message edited in place — and a channel that
+has neither says so in its capability map and renders nothing. No adapter
+decides on its own what "the agent is working" looks like, and no channel
+receives a second progress message for one turn.
+
+`status: draft`: three decisions in §"Decisions for the owner" are the owner's,
+and one fact the Drive rendering rests on is unverified (§"Unverified").
+
+## Problem
+
+"The agent is working" is one fact with five declaration sites in routd and a
+rendering per adapter:
+
+| Site                                | What it declares                                                                                    |
+| ----------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `routd/dispatch.go:436`             | `Typing(on)` when the run is dispatched                                                             |
+| `routd/dispatch.go:444`             | `Typing(off)` for every chat the run owns, after the run returns                                    |
+| `routd/turns.go:85`                 | `Typing(off)` after the prose reply is delivered                                                    |
+| `routd/mcp.go` `mcpSubmitStatus`    | the text of a `submit_status` call: edit the last `verb=status` row, else send a fresh `⏳` message |
+| `routd/turns.go` `appendAndDeliver` | every `<status>` block left in the final result, each as a fresh `⏳` message                       |
+
+The renderings disagree, and two of them lie:
+
+- Three adapters render `Typing` natively (teled `sendChatAction`, discd
+  `ChannelTyping`, whapd composing). slakd and gitd each render it as an `👀`
+  reaction on the message that started the turn, from a private copy of the
+  same idea: slakd persists its marks to `DATA_DIR/eyes.json` and sweeps
+  orphans at boot (`slakd/bot.go:204`), gitd keeps two in-memory maps and loses
+  them on a crash (`gitd/typing.go`). Six adapters and webd render nothing;
+  webd advertises `typing` and answers `ok` (`webd/channel.go:71`).
+- The progress message is edited in place only where the channel advertises
+  `edit`. Everywhere else `mcpSubmitStatus` falls back to a fresh send, so the
+  one-message rule of `specs/5/24-live-tasklist-status.md §"Design"` holds on
+  five adapters and fails on seven. Measured on `vumilan/morha` 2026-10-16
+  through `gitd`: PR 277 carries two `⏳` comments before the review
+  (`6223825595`, `6223840016`); PR 278 carries three, two of them the same
+  text one second apart (`6223728182` 20:06:35Z, `6223728470` 20:06:36Z, BUGS
+  `L438`). Each stands above the answer forever, still saying `⏳`.
+- A status row keeps the FIRST text it was sent with; the edits reach the
+  platform and never the row, so history and the web frames show a text the
+  user no longer sees.
+- webd decides a row is a status by its glyph (`webd/turn.go:28`,
+  `strings.HasPrefix(m.Content, "⏳ ")`) while the row carries
+  `verb="status"`: two declarations of one fact.
+
+The Drive channel makes the gap unavoidable rather than untidy: the Drive
+comments API has no reaction. Verified 2026-10-17 on Google's reference pages
+— the Comment resource (`replies`, `mentionedEmailAddresses`, `id`, `kind`,
+`createdTime`, `modifiedTime`, `resolved`, `anchor`, `author`, `deleted`,
+`htmlContent`, `content`, `quotedFileContent`, `assigneeEmailAddress`), the
+Reply resource, the Docs API `CommentThread`/`Post`/`PostAuthor` objects and
+the "Manage comments and replies" guide name no reaction, emoji or like. A
+reaction-shaped indicator cannot exist on `gdrive:`; the only rendering Drive
+offers is a reply, edited.
+
+## The declaration
+
+routd owns the turn, so routd declares its progress. One renderer,
+`routd/progress.go`, has three entry points and is the only code that calls
+`Typing`, or sends or edits a `verb=status` row:
+
+| Event             | Called from                                                                                                     | Carries                      |
+| ----------------- | --------------------------------------------------------------------------------------------------------------- | ---------------------------- |
+| `Begin(turn)`     | the dispatch, once, before the run                                                                              | chat JID, trigger message id |
+| `Update(turn, t)` | `submit_status` (the `TodoWrite` hook and streamed `<status>` blocks), and each `<status>` block in the result  | the text                     |
+| `End(turn, o)`    | `finishTurn`, the one function every state→`done` site calls (result recorded, terminal failure, silent, clean) | outcome ∈ {`done`, `failed`} |
+
+The renderer emits two renderings and nothing else.
+
+**Presence** is `Typing(on)` at `Begin` and `Typing(off)` at `End`, on the
+chat that receives the reply and, at `End`, on every chat the run owns
+(`chatsOwnedBy`). The wire is `POST /typing` unchanged. What the sink does
+with it is the sink's declaration (§"The sink's declaration").
+
+**The progress message** is one `verb=status` row per `(turn, chat)`:
+
+- It is created by the FIRST `Update`, never by `Begin`: a turn that reports
+  nothing posts nothing.
+- It is created only on a channel that advertises `edit`. On any other channel
+  the update is dropped and logged at debug with the turn id. The fallback to
+  a fresh send is removed: a stream of `⏳` posts is the defect this spec
+  exists for, not a degradation.
+- Each later `Update` edits it. An `Update` whose text equals the row's current
+  text is a no-op, which is what makes the two extraction sites (ant's
+  `statusBlocks` and routd's `ExtractStatusBlocks`) safe to keep.
+- The row's content is rewritten on every edit, so the row is the message as
+  the user sees it.
+- `End` edits it once more into its terminal form: the leading `⏳ ` becomes
+  `✓ ` on `done` and `✗ ` on `failed`; the body is untouched. No message says
+  in progress after its turn ended. The failure notice stays its own message,
+  because a notice must notify and an edit does not.
+- A real edit failure (not `ErrUnsupported`) surfaces to the caller, as
+  `specs/5/24-live-tasklist-status.md §"Design"` already requires; nothing is
+  re-posted.
+
+The live message id is the newest `verb=status` row's `platform_id`
+(`store/messages.go` `LastStatusPlatformID`), so the message survives a routd
+restart: `recoverPending` re-enqueues the running turn, the turn reaches
+`finishTurn`, and `End` finds the row. `TurnHasBotReply` keeps excluding
+status rows. A `(turn, chat)` never has two status rows.
+
+`End` fires when the turn ends, not when the reply lands: an agent that
+replies through the `reply` tool and then writes its diary is still working,
+and the message says so until it is not.
+
+## The sink's declaration
+
+An adapter's capability map says what it renders. routd reads it; it never
+probes a platform error to find out.
+
+| Capability | Meaning under this spec                                                                          |
+| ---------- | ------------------------------------------------------------------------------------------------ |
+| `typing`   | the sink renders presence: a native indicator, or an acknowledgement mark on the trigger message |
+| `edit`     | a progress message may live here; the sink edits its own posts                                   |
+| neither    | the sink renders nothing for progress; routd sends it nothing for progress                       |
+
+**The acknowledgement mark** is a reaction that carries no social meaning —
+`👀` on Slack and GitHub. A like, an upvote or a heart is a public statement
+and is never used as a mark: bskyd, linkd and reditd advertise `like` and
+render no presence. A sink with a native indicator does not add a mark.
+
+| Sink   | Native presence | Mark | `edit`                                             | Begin renders   | Update renders             | End renders              |
+| ------ | --------------- | ---- | -------------------------------------------------- | --------------- | -------------------------- | ------------------------ |
+| teled  | yes             | —    | yes                                                | typing          | one `⏳` message, edited   | typing off, `✓`/`✗` edit |
+| discd  | yes             | —    | yes                                                | typing          | same                       | same                     |
+| whapd  | yes             | —    | yes                                                | typing          | same                       | same                     |
+| slakd  | no              | `👀` | yes                                                | `👀` on trigger | same                       | `👀` removed, edit       |
+| gitd   | no              | `👀` | after this spec                                    | `👀` on trigger | one `⏳` comment, edited   | `👀` removed, edit       |
+| gdrid  | no              | none | after this spec, if `replies.update` edits content | nothing         | one `⏳` reply, edited     | edit                     |
+| reditd | no              | none | yes                                                | nothing         | one `⏳` comment, edited   | edit                     |
+| webd   | declared, no-op | none | after this spec (replace frame by id)              | nothing         | one status frame, replaced | replaced                 |
+| bskyd  | no              | none | no                                                 | nothing         | dropped                    | nothing                  |
+| linkd  | no              | none | no                                                 | nothing         | dropped                    | nothing                  |
+| twitd  | no              | none | no                                                 | nothing         | dropped                    | nothing                  |
+| emaid  | no              | none | no                                                 | nothing         | dropped                    | nothing                  |
+
+The `typing` capability leaves webd's map until webd renders presence; a
+declared capability with a no-op behind it is the drift `CapImplReport` exists
+to catch, and `typing` is the one verb it does not probe.
+
+## The mark, implemented once
+
+The `👀` rendering moves out of slakd and gitd into one chanlib helper the
+adapter calls from its `Typing`. The helper owns the state slakd and gitd
+each keep today:
+
+- the message the mark stands on, and the handle the platform needs to remove
+  it (GitHub's reaction id; Slack's `(channel, ts)`), per chat JID;
+- persisted in the adapter store (`chanlib.OpenAdapterStore`), one entity
+  beside the dedup claims, so an adapter restart finds its marks;
+- a boot sweep that removes every persisted mark older than
+  `chanlib.DefaultTypingMaxTTL`, which is what retires the crash residue
+  `specs/6/27-git-channel.md §"Typing indicator"` describes;
+- the same TTL backstop per mark while the process lives.
+
+The platform calls (add, remove) are the adapter's; the helper decides when.
+`DATA_DIR/eyes.json` and `gitd/typing.go`'s maps are deleted.
+
+Which message the mark lands on is the one fact the helper cannot know on
+its own: `Typing(jid, on)` carries no message id, so slakd records the last
+inbound `ts` per chat (`slakd/bot.go:620`) and gitd the last reactable comment
+(`gitd/typing.go` `noteTrigger`), and both guess under two inbound messages
+in one chat. routd holds the fact (`last.ID` at dispatch). Decision D3 below
+settles whether the port carries it.
+
+## Decisions for the owner
+
+### D1 — a progress message is visible content on a pull request and in a document
+
+Three shapes, costed. `N` is the number of distinct statuses a turn reports;
+measured 1–2 per GitHub turn on 2026-10-16.
+
+| Shape                                                        | Posts per turn beyond the reply | Residue after the turn        | Code                                                                       |
+| ------------------------------------------------------------ | ------------------------------- | ----------------------------- | -------------------------------------------------------------------------- |
+| A — today: every status a fresh post                         | `N`, plus duplicates            | `N` comments, each still `⏳` | none                                                                       |
+| B — one message, edited, terminal edit at end                | 1 when the turn reports, else 0 | one `✓ <last status>` comment | renderer (~200 lines, deletes the five sites); `edit` on gitd, gdrid, webd |
+| C — artefact channels render the mark only; statuses dropped | 0                               | none                          | B's renderer; gitd and gdrid do not advertise `edit`                       |
+
+Recommendation: **B**, with C available per channel by leaving `edit` out of
+its capability map. B is strictly quieter than A on every channel and is the
+owner's stated shape ("progress as edits on messages"). C is the right answer
+for a channel where any extra post is unwanted; its cost is that the agent's
+own `edit` tool is also absent there, which `specs/6/27-git-channel.md` and
+`specs/6/45-gdrive-comments-channel.md` already accept.
+
+What this does not build: a per-folder switch (`progress_messages`, the shape
+of `thread_replies`). The capability map decides per channel; a folder that
+wants a different answer per channel is a case that has not occurred.
+
+### D2 — terminal form: edit or delete
+
+Edit (`⏳` → `✓`/`✗`) is recommended over delete. Five of twelve sinks lack
+`delete`, so deletion cannot be the uniform rule; the edit uses the one verb
+the message already depends on; and the edited line is a true record of what
+the agent reported, where a deletion erases it. Delete stays available as a
+later per-channel choice; it is not designed here.
+
+### D3 — `Typing` carries the trigger message id
+
+Proposed: `Typing(req TypingRequest)` with `ChatJID`, `On`, `TriggerID`; wire
+body `{chat_jid, on, trigger_id}`. This is a port change to `BotHandler` and
+is the owner's to approve (root `CLAUDE.md`, "A port is two methods and stays
+two"). The case for it:
+
+- It carries a fact routd holds to the sink that renders it, and deletes the
+  two per-adapter guesses (`lastMsgTS`, `noteTrigger`) and the gap
+  `specs/6/27-git-channel.md §"Typing indicator"` records for a message
+  replayed from retention. Reconstructing an identity the system already knows
+  is the bug class `identity_derived_not_read` names.
+- Eleven of the fourteen verbs already take a request struct; `Typing`,
+  `SendFile` and `SendVoice` are positional. The change makes `Typing` the
+  shape its neighbours have, not a new convenience.
+- Cost: one signature in `chanlib`, `chanreg`, routd's `Deliverer`, nine Go
+  `BotHandler` implementations and the two TypeScript adapters' `/typing`
+  handlers, each a one-line edit; the compiler names every missed sink.
+
+Default if nothing is decided: the port stays `Typing(jid, on)` and the
+helper records the trigger candidate at the one chanlib site every inbound
+passes (`RouterClient.SendMessage`), which closes the retention gap and keeps
+the two-messages-in-one-chat guess.
+
+## What this changes in 6/27 and 6/45
+
+The two channel specs disagree about what the channel may do to a thread.
+`specs/6/27-git-channel.md §"Channel messages and repository tools"` has gitd
+post AND react; `specs/6/45-gdrive-comments-channel.md §"Decision 3 — one
+verb, the thread reply"` has gdrid post and nothing else, with `Typing` a
+no-op and a test that the capability map holds exactly one entry. Both get
+one line, and it is the same line:
+
+> The channel creates, edits and reacts to ITS OWN posts in the thread it was
+> addressed in. Every change to another party's state — resolve, reopen,
+> merge, label, a new thread, the document body — is the connector's, under
+> its own grant and hold.
+
+Under that line a progress message, its edits and the `👀` mark are channel
+plumbing with the authority the reply already has; `comments.update` on a
+human's comment and `action=resolve` are not. Concretely:
+
+- `6/27`: `capsFor` advertises `send_text`, `typing` and `edit` with the
+  token. `Edit` PATCHes the comment the id names — `gh-c<id>` through
+  `/repos/{o}/{r}/issues/comments/{id}`, `gh-rc<id>` through
+  `/repos/{o}/{r}/pulls/comments/{id}` (both `200`, body `{"body"}`;
+  docs.github.com/en/rest/issues/comments, docs.github.com/en/rest/pulls/comments)
+  — and refuses an id gitd did not mint. §"Typing indicator" shrinks to the
+  rendering (`👀` through the shared helper) and points here for the
+  mechanism; the crash-residue sentence goes with the boot sweep.
+- `6/45`: `capsFor` advertises `send_text` and, when the probe below passes,
+  `edit`; `Edit` is `replies.update` on a reply whose id gdrid minted
+  (`gd-r<fileId>.<commentId>.<replyId>`), `{"content"}` only, and the
+  one-verb test becomes "the serialized body of every call has no `action`
+  key". `Typing` stays a no-op and `typing` stays out of the map: there is
+  nothing to render. The §"Not built" row "a second channel verb" names
+  resolve, reopen, a new thread and the body, not an edit of the agent's own
+  reply.
+
+## Tier
+
+Hot-tier per-turn output, as `specs/5/24-live-tasklist-status.md §"Tier"`: no
+REST twin, no resreg resource. The mark's persisted state is adapter-local
+plumbing in the adapter store, not a managed entity.
+
+## Acceptance
+
+- One turn on a channel with `edit` that reports three statuses, two of them
+  equal, leaves exactly one `verb=status` row, one platform message, two
+  edits, and a terminal `✓` edit; the row's content equals the last text.
+- The same turn on a channel without `edit` leaves no status row and no
+  platform message, and a debug log line per dropped update.
+- A turn whose final result repeats a streamed `<status>` posts it once
+  (`L438`).
+- A failed turn's message ends `✗`; the failure notice is a separate message.
+- gitd and slakd set and remove the `👀` through the shared helper; a
+  persisted mark older than `DefaultTypingMaxTTL` at boot is removed; no
+  `eyes.json` is written.
+- `CapImplReport` is clean for gitd (`send_text`, `typing`, `edit`), gdrid
+  (`send_text`, `edit` when credentialed and the probe passed) and webd
+  (`send_text`, `edit`).
+- Every existing `routd/typing_test.go` and `routd/fixes_test.go` case passes
+  or is rewritten against the renderer, never deleted.
+
+## Unverified
+
+| Claim                                                                                                                             | Probe                                              | If false                                                                                        |
+| --------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `replies.update` changes a reply's `content` (the guide says the creator "can … edit … a reply"; the method page lists no fields) | PATCH one reply gdrid posted, then list the thread | gdrid advertises no `edit` and renders nothing; the Drive row of the sink table reads "dropped" |

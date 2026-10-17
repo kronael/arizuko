@@ -43,6 +43,9 @@ line; none can be answered from the code.
   ungated host service, or drop the self-transcription claim from the two
   skills that make it.
 
+- `L438` — a repeated `<status>` posts twice on a channel without `edit`: the
+  narrow check in `deliverStatus` now, or `6/46`'s renderer that subsumes it.
+
 - `L434` — may gitd hold the dedup claim on a 5xx and dead-letter visibly?
   It changes delivery semantics for every adapter.
 
@@ -265,6 +268,51 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
 - **`L15` — the 2026-08-11 dead-code sweep's rejected hits.** `deadcode ./...` gave 149
   hits, 56 under `-test`; nine survived verification and were filed separately. Kept so
   the next sweep does not re-report the same ~135.
+
+## L438 — a `<status>` in the agent's final message is delivered twice, and on a channel without `edit` that is two public comments (2026-10-17, open)
+
+MEASURED 2026-10-17 on `vumilan/morha` PR 278: `sloth-goth` comments
+`6223728182` (2026-10-16T20:06:35Z) and `6223728470` (20:06:36Z) carry the
+same body, `⏳ verified against pr head and merge-base; writing review`, and
+the reply follows at 20:06:37Z (`6223728734`). PR 277 shows the same turn
+shape without the duplicate (`6223825595`, `6223840016`, then the review).
+
+Two sites extract `<status>` blocks from one text and neither knows about the
+other:
+
+- ant streams every block of every assistant frame through `submit_status`
+  (`ant/src/index.ts:339` `streamStatuses`, dedup set `seenStatuses` — on
+  ant's own path only). routd's `mcpSubmitStatus` (`routd/mcp.go:331`) finds
+  the turn's earlier status row, calls `deliver.Edit`, gets `ErrUnsupported`
+  because gitd advertises no `edit`, and falls back to `deliverStatus`: a new
+  comment.
+- the final assistant frame is also the result; `recordTurnResult` hands it
+  to `appendAndDeliver`, which runs `router.ExtractStatusBlocks` and calls
+  `deliverStatus` for each block it finds (`routd/turns.go:63-66`): the same
+  text, a second new comment.
+
+On a channel with `edit` the second delivery is an edit with identical text,
+invisible. On every channel without it — gitd, gdrid, bskyd, linkd, twitd,
+emaid, webd — it is a second post. The fix is one rule in routd: a status
+whose text equals the turn's last delivered status is a no-op. It is step 1 of
+`specs/6/46-turn-progress.md` (the renderer's idempotent `Update`) and can
+also ship alone as a four-line check in `deliverStatus` against
+`LastStatusPlatformID`'s row content.
+
+- **Severity:** medium — a duplicate public comment on a pull request on every
+  turn whose final message carries a status; silent
+- **Scope:** `routd/turns.go` `appendAndDeliver`, `routd/mcp.go`
+  `mcpSubmitStatus`
+- **Measured:** the GitHub comment ids above; the test the fix carries is
+  `routd` `TestProgress_EqualTextIsNoOp` (plan
+  `~/.claude/projects/-home-onvos-app-arizuko/ship/plan-turn-progress-20261017.md`
+  step 1). No test exists yet; recorded during a design task that writes no
+  code.
+- **Status:** open — one question: the narrow four-line check now, or the
+  renderer of `specs/6/46-turn-progress.md` that subsumes it.
+  **Default if nothing is decided:** ships with `6/46` step 1.
+- **Related:** `specs/5/24-live-tasklist-status.md` (the one-message rule this
+  breaks), `specs/6/46-turn-progress.md`
 
 ## L437 — two shipped skills tell the agent to call `$WHISPER_BASE_URL`, and the guest never gets it (2026-10-17, open)
 
