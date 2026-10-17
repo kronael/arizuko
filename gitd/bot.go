@@ -57,6 +57,7 @@ func (b *bot) markDelivery(source string, at time.Time) {
 func (b *bot) start(ctx context.Context) error {
 	defer b.connected.Store(true)
 	if b.cfg.Token == "" {
+		slog.Warn(noLoginConsequence("GITHUB_TOKEN is unset"))
 		return nil
 	}
 	req, err := http.NewRequestWithContext(ctx, "GET", b.cfg.APIBase+"/user", nil)
@@ -86,6 +87,14 @@ func (b *bot) start(ctx context.Context) error {
 	b.login.Store(u.Login)
 	slog.Info("github token verified", "login", u.Login)
 	return nil
+}
+
+// noLoginConsequence names what an empty bot login costs. Seeded routes
+// trigger on mentions only, and a mention needs the login, so the agent is
+// never woken while the login is empty.
+func noLoginConsequence(cause string) string {
+	return cause + ": gitd has no bot login, so no event can be a mention of the agent or an assignment to it; " +
+		"every event is observed and the agent is never woken"
 }
 
 func (b *bot) stop() {

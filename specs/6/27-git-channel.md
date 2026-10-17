@@ -126,11 +126,18 @@ Current `GitHubJID.Topic` returns `pr/<n>` or `issue/<n>`, with an empty topic a
 repository/account level. `store/sessions.go` keys conversations by folder and topic.
 Two repositories' PR 12 routed to one group therefore share a conversation.
 
-`mapEvent` marks human comments, new/reopened issues, and new/reopened/ready PRs as messages.
-Any of them that @-mentions the bot's login, a review requested from the bot, and an
-issue or PR assigned to it are mentions, the verb that wakes the agent in a Discord guild.
-Other events retain their GitHub event verb. `store.GitHubSourceRoutes` seeds message
-and mention triggers; other events go to `#observe`. Narrow repo routes precede org
+`mapEvent` marks human content (a comment, a new or reopened issue, a new, reopened or ready PR)
+`mention` when it @-mentions the bot's login OR when the conversation's assignee set
+(`issue.assignees`, `pull_request.assignees`) holds that login, and `message` otherwise.
+A review requested from the bot and an assignment to it are mentions on their own event;
+`requested_teams` is not read, and `issue_comment` carries no `requested_reviewers`, so
+assignment is the only claim that reads the same on every event family. Other events retain
+their GitHub event verb. `store.GitHubSourceRoutes` seeds mention triggers; `message` and
+everything else go to `#observe`. Being asked is what wakes the agent: a human comment on a
+conversation nobody assigned to it is context, not work. Without `GITHUB_TOKEN`, or until
+`GET /user` answers, the login is empty, nothing can be a mention, and gitd observes
+everything; gitd logs that at startup.
+Narrow repo routes precede org
 routes and the App default. Operators change that split through the existing route table.
 Route globs use `path.Match`; `*` does not cross `/`.
 Live engagement can trigger later events on that thread before the observe route applies

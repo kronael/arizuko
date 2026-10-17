@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"slices"
 	"strings"
@@ -92,6 +93,7 @@ func TestMapEvent_TwoReposOneSecret(t *testing.T) {
 	if a.ChatJID == b.ChatJID || a.ChatJID != "github:kronael/arizuko/pr/12" || b.ChatJID != "github:kronael/crackbox/issue/7" {
 		t.Fatalf("jids: %q vs %q", a.ChatJID, b.ChatJID)
 	}
+	a.Verb, b.Verb = "mention", "mention"
 	routes, err := store.GitHubSourceRoutes("app/arizuko-krons", "eng")
 	if err != nil {
 		t.Fatal(err)
@@ -115,6 +117,34 @@ func TestMapEvent_TwoReposOneSecret(t *testing.T) {
 	}
 }
 
+// GitHub keeps a pull request's assignees in the issue object, so a general
+// comment on a PR assigned to the bot reads issue.assignees. This payload is
+// issue_comment_created with the bot assigned and no @-mention in the text.
+func TestMapEvent_PRCommentReadsIssueAssignees(t *testing.T) {
+	raw := fixture(t, "issue_comment_created_assigned")
+	cases := []struct {
+		name, login, verb string
+	}{
+		{"bot assigned", botLogin, "mention"},
+		{"another login", "alice", "message"},
+		{"login unresolved", "", "message"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			msg, drop, err := mapEvent(store.GitHubSourceRepo, "kronael/arizuko", "issue_comment", "d", raw, fixedNow, c.login)
+			if err != nil || drop != "" {
+				t.Fatalf("err=%v drop=%q", err, drop)
+			}
+			if msg.ChatJID != "github:kronael/arizuko/pr/12" {
+				t.Errorf("chat_jid = %q, want the pull request", msg.ChatJID)
+			}
+			if msg.Verb != c.verb {
+				t.Errorf("verb = %q, want %q", msg.Verb, c.verb)
+			}
+		})
+	}
+}
+
 // Observe vs trigger is the route's decision: the same registration observes
 // a push and triggers on a comment (spec 6/27 decision 4).
 func TestMapEvent_ObserveVersusTrigger(t *testing.T) {
@@ -131,16 +161,36 @@ func TestMapEvent_ObserveVersusTrigger(t *testing.T) {
 		t.Errorf("merge resolved to %+v, want eng#observe", got)
 	}
 	opened := mapFixture(t, store.GitHubSourceRepo, "kronael/arizuko", "pull_request", "pull_request_opened")
-	if got := resolve(routes, opened); got.Folder != "eng" || got.Mode != "" {
-		t.Errorf("PR opened resolved to %+v, want eng trigger", got)
+	if got := resolve(routes, opened); got.Folder != "eng" || got.Mode != "observe" {
+		t.Errorf("unassigned PR opened resolved to %+v, want eng#observe", got)
 	}
 	comment := mapFixture(t, store.GitHubSourceRepo, "kronael/arizuko", "issue_comment", "issue_comment_created")
-	if got := resolve(routes, comment); got.Folder != "eng" || got.Mode != "" {
-		t.Errorf("comment resolved to %+v, want eng trigger", got)
+	if got := resolve(routes, comment); got.Folder != "eng" || got.Mode != "observe" {
+		t.Errorf("comment on an unassigned PR resolved to %+v, want eng#observe", got)
 	}
-	comment.Verb = "mention"
-	if got := resolve(routes, comment); got.Folder != "eng" || got.Mode != "" {
-		t.Errorf("mention-promoted comment resolved to %+v, want eng trigger", got)
+	assignedComment, drop, err := mapEvent(store.GitHubSourceRepo, "kronael/arizuko", "issue_comment", "d",
+		fixture(t, "issue_comment_created_assigned"), fixedNow, botLogin)
+	if err != nil || drop != "" {
+		t.Fatalf("err=%v drop=%q", err, drop)
+	}
+	if got := resolve(routes, assignedComment); got.Folder != "eng" || got.Mode != "" {
+		t.Errorf("comment on a PR assigned to the bot resolved to %+v, want eng trigger", got)
+	}
+	assignedOpened, _, err := mapEvent(store.GitHubSourceRepo, "kronael/arizuko", "pull_request", "d",
+		body(`"action":"opened",`+assigned("hello", botLogin)), fixedNow, botLogin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := resolve(routes, assignedOpened); got.Folder != "eng" || got.Mode != "" {
+		t.Errorf("PR opened assigned to the bot resolved to %+v, want eng trigger", got)
+	}
+	named, _, err := mapEvent(store.GitHubSourceRepo, "kronael/arizuko", "issue_comment", "d",
+		body(`"action":"created","issue":{"number":9,"title":"t"},"comment":{"id":1,"body":"@arizuko-bot look"}`), fixedNow, botLogin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := resolve(routes, named); got.Folder != "eng" || got.Mode != "" {
+		t.Errorf("comment naming the bot resolved to %+v, want eng trigger", got)
 	}
 	ping := mapFixture(t, store.GitHubSourceRepo, "kronael/arizuko", "ping", "ping")
 	if got := resolve(routes, ping); got.Folder != "eng" || got.Mode != "observe" {
@@ -245,6 +295,20 @@ func body(extra string) []byte {
 
 const prFields = `"pull_request":{"number":5,"title":"t","body":"%s","head":{"ref":"a"},"base":{"ref":"main"}}`
 
+// prAssigned is prFields with the assignee set GitHub sends on every
+// pull_request-carrying event.
+const prAssigned = `"pull_request":{"number":5,"title":"t","body":"%s","head":{"ref":"a"},"base":{"ref":"main"},"assignees":[{"login":"%s","type":"User"}]}`
+
+func assigned(prBody, login string) string {
+	return fmt.Sprintf(prAssigned, prBody, login)
+}
+
+// issueAssigned is the issue object of an issue_comment or issues delivery
+// with an assignee set. GitHub keeps a pull request's assignees here too.
+func issueAssigned(login string) string {
+	return `"issue":{"number":9,"title":"t","assignees":[{"login":"` + login + `","type":"User"}]}`
+}
+
 // What an event IS decides its verb: being asked wakes the agent (mention),
 // ambient repository traffic does not (the GitHub event name).
 func TestMapEvent_VerbIsWhatTheEventIs(t *testing.T) {
@@ -314,6 +378,40 @@ func TestMapEvent_VerbIsWhatTheEventIs(t *testing.T) {
 			`"action":"submitted",` + pr("") + `,"review":{"id":3,"state":"commented","body":"@arizuko-bot fix"}`, "mention"},
 		{"review with text", "pull_request_review",
 			`"action":"submitted",` + pr("") + `,"review":{"id":3,"state":"commented","body":"fix"}`, "message"},
+		{"comment on an issue assigned to the bot", "issue_comment",
+			`"action":"created",` + issueAssigned("arizuko-bot") + `,"comment":{"id":1,"body":"hello"}`, "mention"},
+		{"comment on an issue assigned to someone else", "issue_comment",
+			`"action":"created",` + issueAssigned("alice") + `,"comment":{"id":1,"body":"hello"}`, "message"},
+		{"comment on an unassigned issue", "issue_comment",
+			`"action":"created","issue":{"number":9,"title":"t","assignees":[]},"comment":{"id":1,"body":"hello"}`, "message"},
+		{"comment on an issue assigned to the bot in other case", "issue_comment",
+			`"action":"created",` + issueAssigned("Arizuko-Bot") + `,"comment":{"id":1,"body":"hello"}`, "mention"},
+		{"comment on an issue assigned to a longer login", "issue_comment",
+			`"action":"created",` + issueAssigned("arizuko-bot2") + `,"comment":{"id":1,"body":"hello"}`, "message"},
+		{"edited comment on an issue assigned to the bot", "issue_comment",
+			`"action":"edited",` + issueAssigned("arizuko-bot") + `,"comment":{"id":1,"body":"hello"}`, "issue_comment"},
+		{"issue opened already assigned to the bot", "issues",
+			`"action":"opened",` + issueAssigned("arizuko-bot") + `,"assignee":{"login":"arizuko-bot"}`, "mention"},
+		{"issue labeled while assigned to the bot", "issues",
+			`"action":"labeled",` + issueAssigned("arizuko-bot"), "issues"},
+		{"review comment on a PR assigned to the bot", "pull_request_review_comment",
+			`"action":"created",` + assigned("", "arizuko-bot") + `,"comment":{"id":2,"path":"a.go","body":"why?"}`, "mention"},
+		{"review comment on a PR assigned to someone else", "pull_request_review_comment",
+			`"action":"created",` + assigned("", "alice") + `,"comment":{"id":2,"path":"a.go","body":"why?"}`, "message"},
+		{"review with text on a PR assigned to the bot", "pull_request_review",
+			`"action":"submitted",` + assigned("", "arizuko-bot") + `,"review":{"id":3,"state":"commented","body":"fix"}`, "mention"},
+		{"review without text on a PR assigned to the bot", "pull_request_review",
+			`"action":"submitted",` + assigned("", "arizuko-bot") + `,"review":{"id":3,"state":"approved","body":""}`, "pull_request_review"},
+		{"PR opened already assigned to the bot", "pull_request",
+			`"action":"opened",` + assigned("hello", "arizuko-bot"), "mention"},
+		{"PR opened assigned to someone else", "pull_request",
+			`"action":"opened",` + assigned("hello", "alice"), "message"},
+		{"PR synchronized while assigned to the bot", "pull_request",
+			`"action":"synchronize",` + assigned("", "arizuko-bot"), "pull_request"},
+		{"PR labeled while assigned to the bot", "pull_request",
+			`"action":"labeled",` + assigned("", "arizuko-bot"), "pull_request"},
+		{"PR closed unmerged while assigned to the bot", "pull_request",
+			`"action":"closed",` + assigned("", "arizuko-bot"), "pull_request"},
 		{"approval without text", "pull_request_review",
 			`"action":"submitted",` + pr("") + `,"review":{"id":3,"state":"approved","body":""}`, "pull_request_review"},
 	}
@@ -340,6 +438,18 @@ func TestMapEvent_NoLoginNoMention(t *testing.T) {
 		msg, _, err := mapEvent(store.GitHubSourceApp, "x", event, "d", body(payload), fixedNow, "")
 		if err != nil || msg.Verb == "mention" {
 			t.Errorf("%s: verb=%q err=%v", event, msg.Verb, err)
+		}
+	}
+}
+
+// An unresolved login makes assignment unreadable too: a conversation assigned
+// to the bot, or to an account with an empty login, is a message.
+func TestMapEvent_NoLoginAssignedIsMessage(t *testing.T) {
+	for _, login := range []string{"arizuko-bot", ""} {
+		payload := `"action":"created",` + issueAssigned(login) + `,"comment":{"id":1,"body":"hello"}`
+		msg, _, err := mapEvent(store.GitHubSourceApp, "x", "issue_comment", "d", body(payload), fixedNow, "")
+		if err != nil || msg.Verb != "message" {
+			t.Errorf("assignee %q: verb=%q err=%v, want message", login, msg.Verb, err)
 		}
 	}
 }

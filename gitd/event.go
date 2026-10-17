@@ -47,21 +47,23 @@ type payload struct {
 	RequestedReviewer *account `json:"requested_reviewer"`
 	Assignee          *account `json:"assignee"`
 	Issue             *struct {
-		Number      int    `json:"number"`
-		Title       string `json:"title"`
-		Body        string `json:"body"`
-		HTMLURL     string `json:"html_url"`
+		Number      int       `json:"number"`
+		Title       string    `json:"title"`
+		Body        string    `json:"body"`
+		HTMLURL     string    `json:"html_url"`
+		Assignees   []account `json:"assignees"`
 		PullRequest *struct {
 			URL string `json:"url"`
 		} `json:"pull_request"`
 	} `json:"issue"`
 	PullRequest *struct {
-		Number    int    `json:"number"`
-		Title     string `json:"title"`
-		Body      string `json:"body"`
-		HTMLURL   string `json:"html_url"`
-		Merged    bool   `json:"merged"`
-		UpdatedAt string `json:"updated_at"`
+		Number    int       `json:"number"`
+		Title     string    `json:"title"`
+		Body      string    `json:"body"`
+		HTMLURL   string    `json:"html_url"`
+		Merged    bool      `json:"merged"`
+		UpdatedAt string    `json:"updated_at"`
+		Assignees []account `json:"assignees"`
 		Head      struct {
 			Ref string `json:"ref"`
 			SHA string `json:"sha"`
@@ -161,9 +163,16 @@ func mentions(login, text string) bool {
 	return regexp.MustCompile(`(?i)(?:^|[^A-Za-z0-9])@` + regexp.QuoteMeta(login) + `(?:[^A-Za-z0-9-]|$)`).MatchString(text)
 }
 
-func speech(login, text string) string {
+// speech is the verb of human content: a mention when text @-mentions login or
+// assignees hold it, a message otherwise.
+func speech(login, text string, assignees []account) string {
 	if mentions(login, text) {
 		return "mention"
+	}
+	for i := range assignees {
+		if assignees[i].hasLogin(login) {
+			return "mention"
+		}
 	}
 	return "message"
 }
@@ -193,7 +202,7 @@ func parseTime(s string, fallback time.Time) time.Time {
 
 // mapEvent turns one delivery into the InboundMsg routd ingests. Human-authored
 // content (a comment, a new PR or issue) carries verb=message, or verb=mention
-// when it @-mentions botLogin. A review requested from botLogin or an
+// when it @-mentions botLogin or its conversation is assigned to botLogin. A review requested from botLogin or an
 // assignment to it carries no text but is a direct ask, so it is a mention
 // too. Every other event carries its GitHub event name as the verb and a
 // one-line body, so a route row can trigger on the former and observe the
@@ -256,7 +265,7 @@ func mapEvent(kind, name, event, delivery string, body []byte, now time.Time, bo
 		jid.Kind, jid.Number = "issue", p.Issue.Number
 		head := fmt.Sprintf("%s issue #%d: %s", p.Action, p.Issue.Number, p.Issue.Title)
 		if p.Action == "opened" || p.Action == "reopened" {
-			msg.Verb = speech(botLogin, p.Issue.Body)
+			msg.Verb = speech(botLogin, p.Issue.Body, p.Issue.Assignees)
 			msg.Content = withBody(head+"\n"+p.Issue.HTMLURL, p.Issue.Body)
 		} else {
 			if p.Action == "assigned" && p.Assignee.hasLogin(botLogin) {
@@ -274,7 +283,7 @@ func mapEvent(kind, name, event, delivery string, body []byte, now time.Time, bo
 		head := fmt.Sprintf("%s PR #%d: %s (%s → %s)", p.Action, pr.Number, pr.Title, pr.Head.Ref, pr.Base.Ref)
 		switch {
 		case p.Action == "opened" || p.Action == "reopened" || p.Action == "ready_for_review":
-			msg.Verb = speech(botLogin, pr.Body)
+			msg.Verb = speech(botLogin, pr.Body, pr.Assignees)
 			msg.Content = withBody(head+"\n"+pr.HTMLURL, pr.Body)
 		case p.Action == "closed" && pr.Merged:
 			msg.Content = fmt.Sprintf("%s merged PR #%d: %s", login, pr.Number, pr.Title)
@@ -296,7 +305,7 @@ func mapEvent(kind, name, event, delivery string, body []byte, now time.Time, bo
 		msg.ID = issueIDPrefix + strconv.FormatInt(p.Comment.ID, 10)
 		msg.Timestamp = parseTime(p.Comment.CreatedAt, now).Unix()
 		if p.Action == "created" {
-			msg.Verb = speech(botLogin, p.Comment.Body)
+			msg.Verb = speech(botLogin, p.Comment.Body, p.Issue.Assignees)
 			msg.Content = p.Comment.Body
 		} else {
 			msg.Content = fmt.Sprintf("%s %s a comment", login, p.Action)
@@ -312,7 +321,7 @@ func mapEvent(kind, name, event, delivery string, body []byte, now time.Time, bo
 			msg.ReplyTo = reviewIDPrefix + strconv.FormatInt(p.Comment.InReplyToID, 10)
 		}
 		if p.Action == "created" {
-			msg.Verb = speech(botLogin, p.Comment.Body)
+			msg.Verb = speech(botLogin, p.Comment.Body, p.PullRequest.Assignees)
 			msg.Content = withBody("on "+p.Comment.Path+":", p.Comment.Body)
 		} else {
 			msg.Content = fmt.Sprintf("%s %s a review comment on %s", login, p.Action, p.Comment.Path)
@@ -326,7 +335,7 @@ func mapEvent(kind, name, event, delivery string, body []byte, now time.Time, bo
 		msg.Timestamp = parseTime(p.Review.SubmittedAt, now).Unix()
 		head := fmt.Sprintf("%s review (%s) on PR #%d", login, p.Review.State, p.PullRequest.Number)
 		if p.Action == "submitted" && strings.TrimSpace(p.Review.Body) != "" {
-			msg.Verb = speech(botLogin, p.Review.Body)
+			msg.Verb = speech(botLogin, p.Review.Body, p.PullRequest.Assignees)
 		}
 		msg.Content = withBody(head, p.Review.Body)
 	default:

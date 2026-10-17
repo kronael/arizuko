@@ -1,8 +1,11 @@
 package main
 
 import (
+	"bytes"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -125,5 +128,50 @@ func TestVerifyToken_UnreachableGitHubRestoresSendText(t *testing.T) {
 	}
 	if b.Login() != "arizuko-bot" {
 		t.Errorf("login = %q; gitd's own comments re-enter as human events", b.Login())
+	}
+}
+
+func captureLogs(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	var logs bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+	return &logs
+}
+
+// The seeded routes trigger on mentions only, and a mention needs the bot's
+// login. Without GITHUB_TOKEN the login stays empty and the agent answers
+// nothing while /health reads green, so startup must say so.
+func TestVerifyToken_NoTokenSaysTheAgentIsNeverWoken(t *testing.T) {
+	logs := captureLogs(t)
+	b := newBot(config{})
+
+	verifyToken(t.Context(), b, &capRecorder{}, time.Millisecond)
+
+	for _, want := range []string{"level=WARN", "GITHUB_TOKEN is unset", "no bot login", "the agent is never woken"} {
+		if !strings.Contains(logs.String(), want) {
+			t.Errorf("log lacks %q:\n%s", want, logs.String())
+		}
+	}
+}
+
+// A /user that fails leaves the login empty too: the error line carries the
+// same consequence, not only the withdrawn send_text.
+func TestVerifyToken_FailedUserSaysTheAgentIsNeverWoken(t *testing.T) {
+	logs := captureLogs(t)
+	gh := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"message":"Bad credentials"}`))
+	}))
+	defer gh.Close()
+	b := newBot(config{Token: "ghp_revoked", APIBase: gh.URL})
+
+	verifyToken(t.Context(), b, &capRecorder{}, time.Millisecond)
+
+	for _, want := range []string{"level=ERROR", "github /user failed", "no bot login", "the agent is never woken"} {
+		if !strings.Contains(logs.String(), want) {
+			t.Errorf("log lacks %q:\n%s", want, logs.String())
+		}
 	}
 }

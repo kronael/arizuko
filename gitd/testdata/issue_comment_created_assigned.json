@@ -1,0 +1,71 @@
+{
+  "action": "created",
+  "issue": {
+    "id": 3456789012,
+    "number": 12,
+    "state": "open",
+    "title": "feat(gitd): GitHub as an ingress channel",
+    "body": "Webhooks land as messages on `github:` JIDs.",
+    "html_url": "https://github.com/kronael/arizuko/pull/12",
+    "user": {
+      "login": "rhias",
+      "id": 7654321,
+      "type": "User"
+    },
+    "pull_request": {
+      "url": "https://api.github.com/repos/kronael/arizuko/pulls/12",
+      "html_url": "https://github.com/kronael/arizuko/pull/12",
+      "merged_at": null
+    },
+    "assignee": {
+      "login": "arizuko-bot",
+      "id": 8800112,
+      "type": "User",
+      "site_admin": false
+    },
+    "assignees": [
+      {
+        "login": "arizuko-bot",
+        "id": 8800112,
+        "type": "User",
+        "site_admin": false
+      }
+    ]
+  },
+  "comment": {
+    "id": 4567890123,
+    "node_id": "IC_kwDOA5",
+    "html_url": "https://github.com/kronael/arizuko/pull/12#issuecomment-4567890123",
+    "body": "can you review the signature check in verify.go?",
+    "user": {
+      "login": "kronael",
+      "id": 1234567,
+      "type": "User"
+    },
+    "created_at": "2026-09-05T10:05:30Z",
+    "updated_at": "2026-09-05T10:05:30Z",
+    "author_association": "OWNER"
+  },
+  "repository": {
+    "id": 901234567,
+    "name": "arizuko",
+    "full_name": "kronael/arizuko",
+    "private": false,
+    "owner": {
+      "login": "kronael",
+      "id": 1234567,
+      "type": "User"
+    },
+    "html_url": "https://github.com/kronael/arizuko",
+    "default_branch": "main"
+  },
+  "sender": {
+    "login": "kronael",
+    "id": 1234567,
+    "type": "User"
+  },
+  "installation": {
+    "id": 77001122,
+    "node_id": "MDIzOkludGVncmF0aW9uSW5zdGFsbGF0aW9uNzcwMDExMjI="
+  }
+}

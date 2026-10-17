@@ -121,11 +121,10 @@ func ParseGitHubSourceKey(key string) (kind, name string, err error) {
 	return kind, name, nil
 }
 
-// GitHubSourceRoutes renders the route rows a registration seeds. Human content
-// (a comment, a new PR or issue: verb message, or mention once the agent has
-// spoken in the thread) triggers a turn; every other event observes. Repo rows
-// sit at lower seq than org rows than app rows, so a narrower registration
-// wins. `*` never crosses `/` in a route glob, so each JID level gets a row.
+// GitHubSourceRoutes renders the route rows a registration seeds. A mention
+// (human content that names the agent or sits in a conversation assigned to it)
+// triggers a turn; every other verb observes. Repo rows sit at lower seq than
+// org rows than app rows, so a narrower registration wins. `*` never crosses `/` in a route glob, so each JID level gets a row.
 func GitHubSourceRoutes(key, folder string) ([]core.Route, error) {
 	kind, name, err := ParseGitHubSourceKey(key)
 	if err != nil {
@@ -143,9 +142,7 @@ func GitHubSourceRoutes(key, folder string) ([]core.Route, error) {
 	}
 	observe := folder + "#observe"
 	rows := []core.Route{
-		{Seq: seq, Match: "chat_jid=" + repo + "/pr/* verb=message", Target: folder},
 		{Seq: seq, Match: "chat_jid=" + repo + "/pr/* verb=mention", Target: folder},
-		{Seq: seq, Match: "chat_jid=" + repo + "/issue/* verb=message", Target: folder},
 		{Seq: seq, Match: "chat_jid=" + repo + "/issue/* verb=mention", Target: folder},
 		{Seq: seq * 10, Match: "chat_jid=" + repo + "/pr/*", Target: observe},
 		{Seq: seq * 10, Match: "chat_jid=" + repo + "/issue/*", Target: observe},

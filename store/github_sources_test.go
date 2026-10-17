@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/objstore"
 )
 
@@ -42,33 +43,53 @@ func TestGitHubSourceKey(t *testing.T) {
 	}
 }
 
+// The whole seeded set, in order: a wildcard or a verb that drifts in any one
+// row changes which folder a repository's traffic reaches (BUGS L417).
 func TestGitHubSourceRoutes(t *testing.T) {
-	rows, err := GitHubSourceRoutes("repo/kronael/arizuko", "eng")
-	if err != nil {
-		t.Fatal(err)
+	cases := []struct {
+		key  string
+		want []core.Route
+	}{
+		{"repo/kronael/arizuko", []core.Route{
+			{Seq: 10, Match: "chat_jid=github:kronael/arizuko/pr/* verb=mention", Target: "eng"},
+			{Seq: 10, Match: "chat_jid=github:kronael/arizuko/issue/* verb=mention", Target: "eng"},
+			{Seq: 100, Match: "chat_jid=github:kronael/arizuko/pr/*", Target: "eng#observe"},
+			{Seq: 100, Match: "chat_jid=github:kronael/arizuko/issue/*", Target: "eng#observe"},
+			{Seq: 100, Match: "chat_jid=github:kronael/arizuko", Target: "eng#observe"},
+		}},
+		{"org/kronael", []core.Route{
+			{Seq: 20, Match: "chat_jid=github:kronael/*/pr/* verb=mention", Target: "eng"},
+			{Seq: 20, Match: "chat_jid=github:kronael/*/issue/* verb=mention", Target: "eng"},
+			{Seq: 200, Match: "chat_jid=github:kronael/*/pr/*", Target: "eng#observe"},
+			{Seq: 200, Match: "chat_jid=github:kronael/*/issue/*", Target: "eng#observe"},
+			{Seq: 200, Match: "chat_jid=github:kronael/*", Target: "eng#observe"},
+			{Seq: 200, Match: "chat_jid=github:kronael", Target: "eng#observe"},
+		}},
+		{"app/arizuko-krons", []core.Route{
+			{Seq: 30, Match: "chat_jid=github:*/*/pr/* verb=mention", Target: "eng"},
+			{Seq: 30, Match: "chat_jid=github:*/*/issue/* verb=mention", Target: "eng"},
+			{Seq: 300, Match: "chat_jid=github:*/*/pr/*", Target: "eng#observe"},
+			{Seq: 300, Match: "chat_jid=github:*/*/issue/*", Target: "eng#observe"},
+			{Seq: 300, Match: "chat_jid=github:*/*", Target: "eng#observe"},
+			{Seq: 300, Match: "chat_jid=github:*", Target: "eng#observe"},
+		}},
 	}
-	if len(rows) != 7 {
-		t.Fatalf("repo rows = %d, want 7", len(rows))
-	}
-	if rows[0].Match != "chat_jid=github:kronael/arizuko/pr/* verb=message" || rows[0].Target != "eng" || rows[0].Seq != 10 {
-		t.Errorf("repo trigger row = %+v", rows[0])
-	}
-	if rows[6].Match != "chat_jid=github:kronael/arizuko" || rows[6].Target != "eng#observe" || rows[6].Seq != 100 {
-		t.Errorf("repo observe row = %+v", rows[6])
-	}
-	rows, err = GitHubSourceRoutes("org/kronael", "eng")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(rows) != 8 || rows[7].Match != "chat_jid=github:kronael" || rows[0].Seq != 20 {
-		t.Errorf("org rows = %+v", rows)
-	}
-	rows, err = GitHubSourceRoutes("app/arizuko-krons", "eng")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(rows) != 8 || rows[0].Match != "chat_jid=github:*/*/pr/* verb=message" || rows[7].Match != "chat_jid=github:*" || rows[0].Seq != 30 {
-		t.Errorf("app rows = %+v", rows)
+	for _, c := range cases {
+		t.Run(c.key, func(t *testing.T) {
+			got, err := GitHubSourceRoutes(c.key, "eng")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(got) != len(c.want) {
+				t.Fatalf("rows = %d, want %d: %+v", len(got), len(c.want), got)
+			}
+			for i, w := range c.want {
+				if got[i].Seq != w.Seq || got[i].Match != w.Match || got[i].Target != w.Target {
+					t.Errorf("row %d = {%d %q %q}, want {%d %q %q}", i,
+						got[i].Seq, got[i].Match, got[i].Target, w.Seq, w.Match, w.Target)
+				}
+			}
+		})
 	}
 }
 
@@ -112,8 +133,8 @@ func TestGitHubSource_AddListSecretRemove(t *testing.T) {
 		t.Fatalf("list other = %+v", other)
 	}
 	routes := s.AllRoutes()
-	if len(routes) != 8 {
-		t.Fatalf("seeded routes = %d, want 8: %+v", len(routes), routes)
+	if len(routes) != 6 {
+		t.Fatalf("seeded routes = %d, want 6: %+v", len(routes), routes)
 	}
 	if _, err := s.AddGitHubSource(GitHubSource{Source: "org/kronael", OwnerFolder: "eng"}, "eng"); !errors.Is(err, ErrGitHubSourceExists) {
 		t.Fatalf("duplicate register err = %v", err)

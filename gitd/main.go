@@ -93,7 +93,8 @@ func verifyToken(ctx context.Context, b *bot, rc capSetter, every time.Duration)
 	if err == nil {
 		return
 	}
-	slog.Error("github /user failed; gitd runs ingress-only, send_text is withdrawn, and gitd's own comments are no longer dropped at ingest",
+	slog.Error(noLoginConsequence("github /user failed")+
+		"; gitd runs ingress-only, send_text is withdrawn, and gitd's own comments are no longer dropped at ingest",
 		"err", err)
 	setCaps(rc, capsFor(""))
 	if errors.Is(err, chanlib.ErrPermanent) {
