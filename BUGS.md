@@ -253,6 +253,30 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
   hits, 56 under `-test`; nine survived verification and were filed separately. Kept so
   the next sweep does not re-report the same ~135.
 
+## L434 — gitd calls every 5xx not-delivered, and its own spec calls 5xx ambiguous (2026-10-17, open — needs sign-off)
+
+Found while fixing `L426`, in the same function, and left alone there on
+purpose. `gitd/bot.go` `call` wraps every `>=500` in `chanlib.ErrNotDelivered`,
+and `chanlib/dedup.go` reads that sentinel as proof nothing was posted, so it
+releases the claim and routd re-sends.
+
+`specs/5/34-channel-protocol.md` puts a 5xx in the AMBIGUOUS class for the
+opposite reason: a proxy 502 on a POST may already have created the comment
+upstream. Both cannot be right.
+
+This is the inverse risk of `L413`. There the fix stopped a duplicate comment
+by refusing to classify a transport error; here the code still asserts
+not-delivered on a response that says nothing about whether the write landed.
+gitd is the adapter whose posts are public, so the cost of being wrong is a
+double comment on someone's pull request.
+
+- **Severity:** medium — one duplicate per 5xx that actually wrote, and
+  nothing reports it
+- **Scope:** `gitd/bot.go` `call`, against `specs/5/34-channel-protocol.md`
+- **Status:** open — the honest shape is to leave the claim held and dead-letter
+  visibly, which changes delivery semantics and needs your sign-off
+- **Related:** `L413` is the same seam from the other side
+
 ## L422 — thirteen daemons read env keys generation never delivers, so setting them in .env does nothing (2026-10-16, open — needs sign-off)
 
 MEASURED 2026-10-16 with a guard written for this entry and parked at
