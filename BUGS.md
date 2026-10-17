@@ -36,6 +36,12 @@ line; none can be answered from the code.
   its entry.
 - `L339`, `L167`, `L200` — proposals too. `L200` and `L133` were re-measured
   2026-09-21 and each came back narrower than filed.
+- `L434` — may gitd hold the dedup claim on a 5xx and dead-letter visibly?
+  It changes delivery semantics for every adapter.
+
+- `L435` — store the target on the `github_sources` row and migrate, or accept
+  that a revoke below the owner leaves its routes.
+
 - `L133` — one question after that re-measure: `ext:` is a third namespace the
   proposal would break.
 - `L152` — the record is written: the reconciler has no oracle, because arizuko
@@ -252,6 +258,34 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
 - **`L15` — the 2026-08-11 dead-code sweep's rejected hits.** `deadcode ./...` gave 149
   hits, 56 under `-test`; nine survived verification and were filed separately. Kept so
   the next sweep does not re-report the same ~135.
+
+## L435 — a github source bound below its owner keeps its routes after a revoke (2026-10-17, open)
+
+Found while writing `store/gdrive_files.go` against `github_sources` as the
+model. `AddGitHubSourceInto` renders the seeded rules from its `target`
+parameter (`store/github_sources.go:177`), and `RemoveGitHubSourceInto`
+renders them from `ownerFolder` (`store/github_sources.go:238`). The removal
+deletes rules BY MATCH, so when the target differs from the owner the two
+renderings disagree and the delete matches nothing.
+
+The row holds no target, which is why the remove path has nothing better to
+use. A revoke then reports success, drops the source item, and leaves four
+route rules pointing at a folder nobody bound any more; a later inbound event
+for that repository still routes.
+
+`gdrive_files` does not inherit this: the item carries `target_folder` and the
+remove path renders from the row.
+
+- **Severity:** medium — a revoked binding keeps routing, and the CLI says it
+  worked
+- **Scope:** `store/github_sources.go` `AddGitHubSourceInto` /
+  `RemoveGitHubSourceInto`
+- **Measurement:** read both call sites 2026-10-17; the add takes `target`, the
+  remove takes `ownerFolder`, and `deleteRoutesMatchingInto` matches on the
+  rendered `match` string
+- **Status:** open — the fix is to store the target on the row, as
+  `gdrive_files` does, and migrate the existing items
+- **Related:** `L417` (the github seed's reach), `specs/6/45-gdrive-comments-channel.md`
 
 ## L434 — gitd calls every 5xx not-delivered, and its own spec calls 5xx ambiguous (2026-10-17, open — needs sign-off)
 
