@@ -293,7 +293,7 @@ func mapEvent(kind, name, event, delivery string, body []byte, now time.Time, bo
 		if p.Issue.PullRequest != nil {
 			jid.Kind = "pr"
 		}
-		msg.ID = "gh-c" + strconv.FormatInt(p.Comment.ID, 10)
+		msg.ID = issueIDPrefix + strconv.FormatInt(p.Comment.ID, 10)
 		msg.Timestamp = parseTime(p.Comment.CreatedAt, now).Unix()
 		if p.Action == "created" {
 			msg.Verb = speech(botLogin, p.Comment.Body)

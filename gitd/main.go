@@ -12,11 +12,13 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
-// capsFor advertises send_text only when a token can post the comment; every
-// other verb is Unsupported: repo state changes go through the GitHub MCP
-// connector (specs/6/27-git-channel.md § Channel messages and repository tools).
+// capsFor advertises send_text and typing only when a token can post the
+// comment and react to it; every other verb is Unsupported: repo state changes
+// go through the GitHub MCP connector
+// (specs/6/27-git-channel.md § Channel messages and repository tools). chanreg
+// sends /typing to an adapter only when it advertises typing.
 func capsFor(token string) map[string]bool {
-	return map[string]bool{"send_text": token != ""}
+	return map[string]bool{"send_text": token != "", "typing": token != ""}
 }
 
 func main() {

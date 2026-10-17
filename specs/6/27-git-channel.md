@@ -28,8 +28,8 @@ it does not approve the proposed lifecycle or claim a deployment.
 ## Channel messages and repository tools
 
 A comment is a message in the conversation. A merge, label, or review changes repository
-state. `gitd/bot.go` implements only `send_text`; `gitd/main.go:capsFor` advertises it
-when `GITHUB_TOKEN` is set. The token's user posts the comment and the returned identity
+state. `gitd/bot.go` implements `send_text` and the typing indicator below;
+`gitd/main.go:capsFor` advertises both when `GITHUB_TOKEN` is set. The token's user posts the comment and the returned identity
 is `gh-c<id>`, or `gh-rc<id>` for an inline review comment, matching inbound comment IDs.
 Without that token, gitd is ingress-only.
 Other channel verbs return Unsupported.
@@ -40,6 +40,36 @@ in `ipc/connector.go`. Each tool uses its `mcp:github_<tool>` grant and the sock
 approval. A second channel path for repository mutations would bypass that boundary.
 Credentials resolve on the host and results scrub their values
 ([`13-ext-mcp.md`](../5/13-ext-mcp.md), [`19-hitl-firewall.md`](../5/19-hitl-firewall.md)).
+
+## Typing indicator
+
+While a turn runs, gitd shows an 👀 (`eyes`) reaction on the comment that started it
+and removes it when the turn ends. chanreg sends `/typing` only to an adapter that
+advertises `typing`, so gitd advertises it with `send_text`. `Typing(jid, on)` carries
+no comment id, so gitd keeps two in-memory maps in `gitd/typing.go`: ingest records,
+per chat JID, the reactions path of the latest comment that can start a turn
+(`verb` message or mention; `gh-c<id>` or `gh-rc<id>`), and `Typing(on)` posts the
+reaction and keeps the reaction id GitHub returns, which the delete needs.
+
+- Conversation comment (`gh-c`): `POST /repos/{o}/{r}/issues/comments/{id}/reactions`,
+  then `DELETE` on that path plus `/{reaction_id}`.
+- Inline review comment (`gh-rc`): `POST /repos/{o}/{r}/pulls/comments/{id}/reactions`,
+  then `DELETE` on that path plus `/{reaction_id}`.
+
+Create answers 201, or 200 when the reaction already stands. Delete answers 204. The
+token needs Issues write for the first row and Pull requests write for the second
+(docs.github.com/en/rest/reactions/reactions). A trigger with no reactable comment (a
+review, an issue or PR body) clears the record: it gets no indicator, and never the
+👀 of an older comment.
+
+A refusal from GitHub is logged at warn with GitHub's reason and goes no further. The
+port returns nothing, and the reply is the product; the indicator is decoration. It is
+not retried. If `Typing(off)` never arrives, a timer removes the reaction after
+`chanlib.DefaultTypingMaxTTL`, the backstop the other adapters use. A graceful
+shutdown removes the standing reactions. A crash or SIGKILL loses the maps, and the 👀
+stays on its comment until a person removes it; no sweep looks for it. A message
+replayed from retention after a restart skips ingest's recording, so its turn shows
+no indicator.
 
 ## Sources and identity
 

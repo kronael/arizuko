@@ -12,12 +12,14 @@ func TestCapImplConsistency(t *testing.T) {
 			t.Errorf("token=%q cap/impl drift: %v", token, drift)
 		}
 	}
-	if capsFor("")["send_text"] || !capsFor("ghp_x")["send_text"] {
-		t.Error("send_text must follow GITHUB_TOKEN presence")
+	for _, cap := range []string{"send_text", "typing"} {
+		if capsFor("")[cap] || !capsFor("ghp_x")[cap] {
+			t.Errorf("%s must follow GITHUB_TOKEN presence", cap)
+		}
 	}
 	for cap := range capsFor("ghp_x") {
-		if cap != "send_text" {
-			t.Errorf("gitd advertises %q; send_text is the only verb (specs/6/27-git-channel.md § Channel messages and repository tools)", cap)
+		if cap != "send_text" && cap != "typing" {
+			t.Errorf("gitd advertises %q; send_text and typing are all it has (specs/6/27-git-channel.md § Channel messages and repository tools)", cap)
 		}
 	}
 }

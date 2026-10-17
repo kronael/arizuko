@@ -88,6 +88,9 @@ func (s *server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		chanlib.WriteJSON(w, map[string]any{"ok": true, "dropped": drop})
 		return
 	}
+	// Before routd hears of it: routd may start the turn, and ask for the
+	// indicator, before this handler returns.
+	s.bot.noteTrigger(msg)
 	err = s.rc.SendMessage(msg)
 	switch {
 	case err == nil:

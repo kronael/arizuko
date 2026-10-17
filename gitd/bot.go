@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -29,10 +30,11 @@ type bot struct {
 	connected     atomic.Bool
 	lastInboundAt atomic.Int64
 	deliveries    sync.Map
+	typing        typingState
 }
 
 func newBot(cfg config) *bot {
-	return &bot{cfg: cfg, http: &http.Client{Timeout: 15 * time.Second}}
+	return &bot{cfg: cfg, http: &http.Client{Timeout: 15 * time.Second}, typing: newTypingState()}
 }
 
 func (b *bot) isConnected() bool    { return b.connected.Load() }
@@ -86,7 +88,10 @@ func (b *bot) start(ctx context.Context) error {
 	return nil
 }
 
-func (b *bot) stop() { b.connected.Store(false) }
+func (b *bot) stop() {
+	b.connected.Store(false)
+	b.clearAllEyes()
+}
 
 func (b *bot) decorate(req *http.Request) {
 	req.Header.Set("Authorization", "Bearer "+b.cfg.Token)
@@ -99,15 +104,28 @@ func (b *bot) decorate(req *http.Request) {
 // so a bare number cannot say which one it names and the id says it instead.
 const reviewIDPrefix = "gh-rc"
 
+// issueIDPrefix namespaces an issue or PR conversation comment's id.
+const issueIDPrefix = "gh-c"
+
 // reviewCommentID answers the review comment a reply_to names, and ok=false
 // for an issue comment, a review, or no reply target at all.
 func reviewCommentID(replyTo string) (int64, bool) {
-	rest, found := strings.CutPrefix(replyTo, reviewIDPrefix)
+	return prefixedID(reviewIDPrefix, replyTo)
+}
+
+// issueCommentID answers the conversation comment an inbound id names, and
+// ok=false for a review comment, a review, or any other id.
+func issueCommentID(msgID string) (int64, bool) {
+	return prefixedID(issueIDPrefix, msgID)
+}
+
+func prefixedID(prefix, id string) (int64, bool) {
+	rest, found := strings.CutPrefix(id, prefix)
 	if !found {
 		return 0, false
 	}
-	id, err := strconv.ParseInt(rest, 10, 64)
-	return id, err == nil && id > 0
+	n, err := strconv.ParseInt(rest, 10, 64)
+	return n, err == nil && n > 0
 }
 
 // isRateLimited answers whether GitHub refused this response to slow the client
@@ -134,7 +152,7 @@ func statusErr(resp *http.Response, raw []byte) error {
 
 // call makes one GitHub request and returns its body, or the refusal
 // statusErr classifies.
-func (b *bot) call(method, url string, body []byte, want int) ([]byte, error) {
+func (b *bot) call(method, url string, body []byte, want []int) ([]byte, error) {
 	var rdr io.Reader
 	if body != nil {
 		rdr = bytes.NewReader(body)
@@ -162,7 +180,7 @@ func (b *bot) call(method, url string, body []byte, want int) ([]byte, error) {
 	}
 	defer resp.Body.Close() //nolint:errcheck
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if resp.StatusCode != want {
+	if !slices.Contains(want, resp.StatusCode) {
 		return nil, statusErr(resp, raw)
 	}
 	return raw, nil
@@ -175,7 +193,7 @@ func (b *bot) call(method, url string, body []byte, want int) ([]byte, error) {
 func (b *bot) threadRoot(j chanlib.GitHubJID, id int64) (int64, error) {
 	raw, err := b.call("GET",
 		fmt.Sprintf("%s/repos/%s/%s/pulls/comments/%d", b.cfg.APIBase, j.Owner, j.Repo, id),
-		nil, http.StatusOK)
+		nil, []int{http.StatusOK})
 	if err != nil {
 		return 0, err
 	}
@@ -212,7 +230,7 @@ func (b *bot) Send(req chanlib.SendRequest) (string, error) {
 		return "", fmt.Errorf("%w: GITHUB_TOKEN unset; post through the github connector", chanlib.ErrPermanent)
 	}
 	url := fmt.Sprintf("%s/repos/%s/%s/issues/%d/comments", b.cfg.APIBase, j.Owner, j.Repo, j.Number)
-	prefix := "gh-c"
+	prefix := issueIDPrefix
 	if id, ok := reviewCommentID(req.ReplyTo); ok && j.Kind == "pr" {
 		root, err := b.threadRoot(j, id)
 		if err != nil {
@@ -223,7 +241,7 @@ func (b *bot) Send(req chanlib.SendRequest) (string, error) {
 		prefix = reviewIDPrefix
 	}
 	body, _ := json.Marshal(map[string]string{"body": req.Content})
-	raw, err := b.call("POST", url, body, http.StatusCreated)
+	raw, err := b.call("POST", url, body, []int{http.StatusCreated})
 	if err != nil {
 		return "", err
 	}
@@ -235,8 +253,6 @@ func (b *bot) Send(req chanlib.SendRequest) (string, error) {
 	}
 	return prefix + strconv.FormatInt(created.ID, 10), nil
 }
-
-func (b *bot) Typing(string, bool) {}
 
 // DashSections lists each source's last accepted delivery, the one fact an
 // operator wiring a webhook needs from this page.
