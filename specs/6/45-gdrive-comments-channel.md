@@ -12,11 +12,11 @@ depends:
   ]
 ---
 
-# specs/6/45 — gdrid: Google Drive comment threads as a channel
+# specs/6/45 — googd: Google Drive comment threads as a channel
 
 A Google Docs, Sheets or Slides file bound to a folder delivers each of its
 comment threads to that folder's agent as a topic, and the agent answers inside
-the thread — through one adapter, `gdrid`, that polls the Drive comments API
+the thread — through one adapter, `googd`, that polls the Drive comments API
 with a service-account credential and posts its replies with the same
 credential.
 
@@ -113,7 +113,7 @@ A routd outage costs nothing but delay.
 | `GDRIVE_POLL_INTERVAL`                                        | default `30s`, floor `10s`                                           | one list call is 100 units; see the arithmetic below         |
 | page size                                                     | 100                                                                  | the API maximum                                              |
 | per-file backoff on `403 userRateLimitExceeded` / `429` / 5xx | 30 s doubling to 15 min                                              | the same bounds `chanlib/inbound.go` uses for a routd outage |
-| a `403` or `404` on one file                                  | that file's status on `/dash/gdrid/`, polling continues for the rest | a forgotten share is the operator's, not the daemon's        |
+| a `403` or `404` on one file                                  | that file's status on `/dash/googd/`, polling continues for the rest | a forgotten share is the operator's, not the daemon's        |
 
 Quota arithmetic at 30 s: one file costs 2 × 100 = 200 units per minute. The
 per-user cap (325,000 per minute, one service account is one user) allows
@@ -123,7 +123,7 @@ Latency is at most one interval plus the sweep.
 
 ## Decision 2 — the credential is a service account, shared per document
 
-`gdrid` authenticates as a service account with the scope
+`googd` authenticates as a service account with the scope
 `https://www.googleapis.com/auth/drive`. The operator shares each document
 with the account's address as Commenter; that share is the precondition of a
 binding and is Google's own authorization. The key is an infra credential
@@ -232,7 +232,7 @@ thread, engagement keeps that thread flowing to the folder without a route
 The adapter reads the binding set from routd's store each sweep
 (`store.OpenOwner(store.OwnerRoutd)`, as `gitd/main.go:34`), polls exactly
 those files, and keeps the per-file cursor and last status in its own prefix
-(`chanlib.OpenAdapterStore("gdrid")`, `chanlib/dedup.go:31`). A revoke drops
+(`chanlib.OpenAdapterStore("googd")`, `chanlib/dedup.go:31`). A revoke drops
 the routes; the adapter stops polling the file at the next sweep. A share the
 operator forgot shows as that file's `403` on the dashboard.
 
@@ -326,13 +326,13 @@ anchored comments render reliably.
 | `LISTEN_ADDR`           | `:8080`                      |                                                                    |
 
 `compose/compose.go:233` lists which host `.env` keys each daemon's generated
-env file receives; the `gdrid` entry names `AUTHD_URL`, `AUTHD_SERVICE_KEY`,
+env file receives; the `googd` entry names `AUTHD_URL`, `AUTHD_SERVICE_KEY`,
 `GDRIVE_SA_EMAIL`, `GDRIVE_SA_PRIVATE_KEY`, `GDRIVE_IMPERSONATE`. The compose
 fragment has the shape of `template/services/gitd.yml` without `SECRETS_KEY`.
 
 ## Dashboard
 
-`/dash/gdrid/` is the shared renderer (`chanlib.NewAdapterMux`,
+`/dash/googd/` is the shared renderer (`chanlib.NewAdapterMux`,
 `chanlib/handler.go:290`; `specs/6/31-adapter-contract.md` §"One renderer in
 chanlib") plus one delta section: a row per bound file — file id, name, last
 poll, last status (`ok`, `403`, `404`, `429`), cursor. The `403` row is the
@@ -341,7 +341,7 @@ know whom to share with.
 
 ## Cost
 
-- Code: gitd is 679 non-test lines at `c8c687eb` (`wc -l gitd/*.go`); gdrid
+- Code: gitd is 679 non-test lines at `c8c687eb` (`wc -l gitd/*.go`); googd
   drops HMAC verification and the webhook event zoo and adds a poll loop and a
   service-account JWT signer. Estimate 500–700 lines, plus ~200 for the
   resource and CLI. An estimate, not a measurement.

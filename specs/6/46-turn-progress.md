@@ -34,7 +34,7 @@ the measurement on krons (§"Acceptance").
 | 4    | webd `edit` as a replace frame; `typing` out of its map                     | built, `eddce204`; open: `L439`, `L440` in `BUGS.md`                        | `webd/channel.go`                                     |
 | 5    | the `👀` mark once in chanlib; slakd and gitd on it                         | built, `68fc2895`                                                           | `chanlib/mark.go`                                     |
 | 6    | `Typing(req TypingRequest)` carrying the trigger id (D3)                    | not built; declined                                                         | —                                                     |
-| 7    | gdrid `edit` on its own reply                                               | not built; the probe has not run, the Drive API is off in the key's project | §"Unverified"                                         |
+| 7    | googd `edit` on its own reply                                               | not built; the probe has not run, the Drive API is off in the key's project | §"Unverified"                                         |
 | —    | the acceptance list measured on krons                                       | not measured                                                                | §"Acceptance"                                         |
 
 ## Problem
@@ -161,7 +161,7 @@ render no presence. A sink with a native indicator does not add a mark.
 | whapd  | yes             | —    | yes                                                | typing          | same                                        | same                      |
 | slakd  | no              | `👀` | yes                                                | `👀` on trigger | same                                        | `👀` removed, edit        |
 | gitd   | no              | `👀` | yes, its own comments                              | `👀` on trigger | one `⏳` comment, edited                    | `👀` removed, edit        |
-| gdrid  | no              | none | no; yes if `replies.update` edits content (step 7) | nothing         | dropped; one `⏳` reply, edited with `edit` | nothing; edit with `edit` |
+| googd  | no              | none | no; yes if `replies.update` edits content (step 7) | nothing         | dropped; one `⏳` reply, edited with `edit` | nothing; edit with `edit` |
 | reditd | no              | none | yes                                                | nothing         | one `⏳` comment, edited                    | edit                      |
 | webd   | no              | none | yes (replace frame)                                | nothing         | one status frame, replaced                  | replaced                  |
 | bskyd  | no              | none | no                                                 | nothing         | dropped                                     | nothing                   |
@@ -171,7 +171,7 @@ render no presence. A sink with a native indicator does not add a mark.
 
 `typing` is not in webd's map: webd renders no presence, and a declared
 capability with a no-op behind it is the drift `CapImplReport` exists to catch,
-`typing` being the one verb it does not probe. gdrid advertises `send_text` alone
+`typing` being the one verb it does not probe. googd advertises `send_text` alone
 today, so routd drops its updates and Drive shows nothing between the question
 and the answer; the Drive cells that read "with `edit`" apply once step 7 gives it
 that capability.
@@ -222,8 +222,8 @@ measured 1–2 per GitHub turn on 2026-10-16.
 | Shape                                                        | Posts per turn beyond the reply | Residue after the turn        | Code                                                                       |
 | ------------------------------------------------------------ | ------------------------------- | ----------------------------- | -------------------------------------------------------------------------- |
 | A — before the renderer: every status a fresh post           | `N`, plus duplicates            | `N` comments, each still `⏳` | none                                                                       |
-| B — one message, edited, terminal edit at end                | 1 when the turn reports, else 0 | one `✓ <last status>` comment | renderer (~200 lines, deletes the five sites); `edit` on gitd, gdrid, webd |
-| C — artefact channels render the mark only; statuses dropped | 0                               | none                          | B's renderer; gitd and gdrid do not advertise `edit`                       |
+| B — one message, edited, terminal edit at end                | 1 when the turn reports, else 0 | one `✓ <last status>` comment | renderer (~200 lines, deletes the five sites); `edit` on gitd, googd, webd |
+| C — artefact channels render the mark only; statuses dropped | 0                               | none                          | B's renderer; gitd and googd do not advertise `edit`                       |
 
 Built: **B**, with C available per channel by leaving `edit` out of
 its capability map. B is strictly quieter than A on every channel and is the
@@ -270,7 +270,7 @@ retention and keeps the two-messages-in-one-chat guess.
 The two channel specs disagree about what the channel may do to a thread.
 `specs/6/27-git-channel.md §"Channel messages and repository tools"` has gitd
 post AND react; `specs/6/45-gdrive-comments-channel.md §"Decision 3 — one
-verb, the thread reply"` has gdrid post and nothing else, with `Typing` a
+verb, the thread reply"` has googd post and nothing else, with `Typing` a
 no-op and a test that the capability map holds exactly one entry. Both get
 one line, and it is the same line (`6/27` carries it; `6/45` takes it with step 7):
 
@@ -295,7 +295,7 @@ human's comment and `action=resolve` are not. Concretely:
   edit. §"Typing indicator" there is the rendering (`👀` through the shared
   helper, the two reaction endpoints) and points here for the mechanism.
 - `6/45`, with step 7 (not built): `capsFor` advertises `send_text` and, when the probe below passes,
-  `edit`; `Edit` is `replies.update` on a reply whose id gdrid minted
+  `edit`; `Edit` is `replies.update` on a reply whose id googd minted
   (`gd-r<fileId>.<commentId>.<replyId>`), `{"content"}` only, and the
   one-verb test becomes "the serialized body of every call has no `action`
   key". `Typing` stays a no-op and `typing` stays out of the map: there is
@@ -314,7 +314,7 @@ plumbing in the adapter store, not a managed entity.
 The routd items are pinned by `routd/progress_test.go`, the mark items by
 `chanlib/mark_test.go`, `gitd/typing_test.go` and `slakd/integration_test.go`, the
 edit items by `gitd/bot_test.go` and `webd/edit_test.go`. None has been measured
-on krons; that run is what holds this spec at `partial`. The gdrid clause waits
+on krons; that run is what holds this spec at `partial`. The googd clause waits
 on step 7.
 
 - One turn on a channel with `edit` that reports three statuses, two of them
@@ -328,7 +328,7 @@ on step 7.
 - gitd and slakd set and remove the `👀` through the shared helper; a
   persisted mark older than `DefaultTypingMaxTTL` at boot is removed; no
   `eyes.json` is written.
-- `CapImplReport` is clean for gitd (`send_text`, `typing`, `edit`), gdrid
+- `CapImplReport` is clean for gitd (`send_text`, `typing`, `edit`), googd
   (`send_text`, `edit` when credentialed and the probe passed) and webd
   (`send_text`, `edit`).
 - Every existing `routd/typing_test.go` and `routd/fixes_test.go` case passes
@@ -338,8 +338,8 @@ on step 7.
 
 | Claim                                                                                                                             | Probe                                              | If false                                                                    |
 | --------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- | --------------------------------------------------------------------------- |
-| `replies.update` changes a reply's `content` (the guide says the creator "can … edit … a reply"; the method page lists no fields) | PATCH one reply gdrid posted, then list the thread | gdrid keeps `send_text` alone and renders nothing, which is its state today |
+| `replies.update` changes a reply's `content` (the guide says the creator "can … edit … a reply"; the method page lists no fields) | PATCH one reply googd posted, then list the thread | googd keeps `send_text` alone and renders nothing, which is its state today |
 
 The probe has not run: it waits on the Drive API being enabled in the Cloud
-project of the service-account key. Until it runs and passes, gdrid renders
+project of the service-account key. Until it runs and passes, googd renders
 nothing for progress.

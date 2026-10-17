@@ -19,7 +19,7 @@ import (
 //
 // add binds one Drive file to <folder> and seeds the route rows that deliver its
 // comments there. The binding holds no secret, so the store opens without a
-// keyring. Share the file with gdrid's service account before adding it.
+// keyring. Share the file with googd's service account before adding it.
 func cmdGdrive(args []string) {
 	need(args, 2, "arizuko gdrive <instance> <add|list|rm> ...")
 	instance, sub := args[0], args[1]
@@ -91,7 +91,7 @@ func runGDriveRm(s *store.Store, fileID string, w io.Writer) error {
 		if _, err := s.RemoveGDriveFile(fileID, f.OwnerFolder); err != nil {
 			return fmt.Errorf("unbind %s: %w", fileID, err)
 		}
-		_, _ = fmt.Fprintf(w, "unbound %s (gdrid stops polling it; seeded routes removed)\n", fileID)
+		_, _ = fmt.Fprintf(w, "unbound %s (googd stops polling it; seeded routes removed)\n", fileID)
 		return nil
 	}
 	return fmt.Errorf("no file %s is bound", fileID)

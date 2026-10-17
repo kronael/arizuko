@@ -32,7 +32,7 @@ beyond `docker` for `run` and `pair`).
   - `arizuko user-secret <inst> set <user_sub> KEY --value V | list <user_sub> | delete <user_sub> KEY` — user-scoped secrets
   - `arizuko token <inst> issue chat <folder> [<suffix>] | issue webhook <folder> <label> | list <folder> | revoke <jid> [<owner_folder>]` — manage `route_tokens` (chat / webhook capability URLs)
   - `arizuko github <inst> add <repo|org|app> <name> <folder> | list [<folder>] | rm <kind>/<name> <folder>` — manage `github_sources` (gitd webhook secrets, spec `6/27`): `add` prints the delivery URL + secret once and seeds the route rows that deliver the source's events to `<folder>`
-  - `arizuko gdrive <inst> add <file_id> <folder> | list [<folder>] | rm <file_id>` — manage `gdrive_files` (gdrid bindings, spec `6/45`): `add` binds one Drive file and seeds the route rows that deliver its comments to `<folder>`; share the file with gdrid's service account first
+  - `arizuko gdrive <inst> add <file_id> <folder> | list [<folder>] | rm <file_id>` — manage `gdrive_files` (googd bindings, spec `6/45`): `add` binds one Drive file and seeds the route rows that deliver its comments to `<folder>`; share the file with googd's service account first
   - `arizuko token <inst> issue bearer <folder> --scope|-s s1,s2 [--ttl|-t 1h] [--sub SUB]` — mint a folder-scoped ES256 access JWT signed with authd's active key (read from authd's `signing_keys`; operator-only). E.g. `--scope messages:write,messages:read` for anteval's inject+inspect
   - `arizuko invite <inst> create <target_glob> [--max-uses N] [--expires DURATION]`
   - `arizuko invite <inst> list [--issued-by SUB]`
@@ -77,7 +77,7 @@ beyond `docker` for `run` and `pair`).
 - `talk.go` / `talk_config.go` — `talk`: argument grammar, the MCP+SSE turn, and the `~/.config/arizuko/talk.toml` reader
 - `token.go` — `token` route-token management
 - `github.go` — `github` webhook-source management for gitd (spec `6/27`)
-- `gdrive.go` — `gdrive` file-binding management for gdrid (spec `6/45`)
+- `gdrive.go` — `gdrive` file-binding management for googd (spec `6/45`)
 
 ## Coverage
 

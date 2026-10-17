@@ -170,17 +170,17 @@ func captureErrorLogs(t *testing.T) *bytes.Buffer {
 	return &buf
 }
 
-// assertDegraded is the shape every refused credential must take: gdrid stays
+// assertDegraded is the shape every refused credential must take: googd stays
 // up, withdraws send_text from the registration that already ran, logs at
 // ERROR, and says why on the dashboard.
 func assertDegraded(t *testing.T, b *bot, rc *capRecorder, logs *bytes.Buffer, dashHas string) {
 	t.Helper()
 	if !b.isConnected() {
-		t.Error("gdrid stopped serving over a credential that gates only itself")
+		t.Error("googd stopped serving over a credential that gates only itself")
 	}
 	calls, sendText := rc.read()
 	if calls != 1 {
-		t.Fatalf("SetCaps calls = %d, want 1: routd still routes send_text to gdrid", calls)
+		t.Fatalf("SetCaps calls = %d, want 1: routd still routes send_text to googd", calls)
 	}
 	if sendText {
 		t.Error("send_text was left advertised on a dead credential")
@@ -199,9 +199,9 @@ func assertDegraded(t *testing.T, b *bot, rc *capRecorder, logs *bytes.Buffer, d
 	}
 }
 
-// With no key gdrid can neither read nor reply. Returning an error from Start
+// With no key googd can neither read nor reply. Returning an error from Start
 // exits chanlib.Run, and a daemon that exits at boot cycles the whole compose
-// project (BUGS L406, L419), so gdrid stays up and withdraws send_text.
+// project (BUGS L406, L419), so googd stays up and withdraws send_text.
 func TestCredential_MissingKeyDegradesToIngress(t *testing.T) {
 	logs := captureErrorLogs(t)
 	b := newBot(t.Context(), config{})
@@ -401,7 +401,7 @@ func TestCredential_KeySurvivesDotenvWhenSingleQuoted(t *testing.T) {
 }
 
 // chanlib.MustEnv calls os.Exit(1) (BUGS L406, L419), which cycles the whole
-// compose project. ROUTER_URL is the one variable gdrid cannot start without.
+// compose project. ROUTER_URL is the one variable googd cannot start without.
 func TestConfig_NeverCallsMustEnv(t *testing.T) {
 	files, err := filepath.Glob("*.go")
 	if err != nil {
@@ -435,7 +435,7 @@ func TestConfig_NeverCallsMustEnv(t *testing.T) {
 			case "MustEnv":
 				mustEnv[name] = true
 			case "Exit", "Fatal", "Fatalf":
-				t.Errorf("%s: %s exits the process; gdrid degrades instead", fset.Position(call.Pos()), sel.Sel.Name)
+				t.Errorf("%s: %s exits the process; googd degrades instead", fset.Position(call.Pos()), sel.Sel.Name)
 			}
 			return true
 		})

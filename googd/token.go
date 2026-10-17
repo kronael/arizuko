@@ -196,11 +196,11 @@ func (c *credential) status() string {
 	case credOK:
 		return "ok"
 	case credMissing:
-		return "no key: " + c.err.Error() + "; gdrid reads nothing and replies to nothing"
+		return "no key: " + c.err.Error() + "; googd reads nothing and replies to nothing"
 	case credMalformed:
-		return "key will not parse; fix GDRIVE_SA_KEY_JSON and restart gdrid: " + c.err.Error()
+		return "key will not parse; fix GDRIVE_SA_KEY_JSON and restart googd: " + c.err.Error()
 	case credRefused, credUnreachable:
-		return c.err.Error() + "; gdrid keeps asking"
+		return c.err.Error() + "; googd keeps asking"
 	}
 	return "not checked yet"
 }

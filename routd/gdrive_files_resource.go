@@ -1,6 +1,6 @@
 package routd
 
-// gdrive_files_resource.go is the one renderer for gdrid's file bindings
+// gdrive_files_resource.go is the one renderer for googd's file bindings
 // (specs/6/45-gdrive-comments-channel.md): the agent's three tools and the
 // operator REST face share this handler. Registering a binding seeds route
 // rows, so the REST gate is the routes gate; owner_folder is ALWAYS the

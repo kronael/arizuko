@@ -18,7 +18,7 @@ func TestCapImplConsistency(t *testing.T) {
 	for _, credentialed := range []bool{false, true} {
 		caps := capsFor(credentialed)
 		if len(caps) != 1 {
-			t.Errorf("credentialed=%v: gdrid advertises %v; send_text is the only verb (specs/6/45-gdrive-comments-channel.md §\"Decision 3 — one verb, the thread reply\")",
+			t.Errorf("credentialed=%v: googd advertises %v; send_text is the only verb (specs/6/45-gdrive-comments-channel.md §\"Decision 3 — one verb, the thread reply\")",
 				credentialed, caps)
 		}
 		if _, ok := caps["send_text"]; !ok {

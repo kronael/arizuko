@@ -42,7 +42,7 @@ func main() {
 // belongs to once the poll loop exists.
 const credentialRetryEvery = 30 * time.Second
 
-// capSetter is the registration gdrid revises when its key turns out dead.
+// capSetter is the registration googd revises when its key turns out dead.
 type capSetter interface {
 	SetCaps(map[string]bool) error
 }
@@ -51,7 +51,7 @@ type capSetter interface {
 // chanlib.Run exits on a Start error, and a daemon that exits at boot cycles
 // the whole compose project (BUGS L406, L419), so one credential must never
 // take every other daemon on the instance down. A key gates BOTH reading and
-// replying here, so gdrid advertises no send_text and says why on its
+// replying here, so googd advertises no send_text and says why on its
 // dashboard. rc.Register already ran, so routd would otherwise keep routing
 // replies to an adapter that cannot post them.
 //
@@ -64,7 +64,7 @@ func verifyCredential(ctx context.Context, b *bot, rc capSetter, every time.Dura
 		slog.Info("service account verified", "account", b.cred.account())
 		return
 	}
-	slog.Error("service account credential unusable; gdrid runs without send_text and reads nothing until it is fixed",
+	slog.Error("service account credential unusable; googd runs without send_text and reads nothing until it is fixed",
 		"err", err)
 	setCaps(rc, capsFor(false))
 	if b.cred.isRetryable() {
@@ -95,7 +95,7 @@ func reacquire(ctx context.Context, b *bot, rc capSetter, every time.Duration) {
 
 func setCaps(rc capSetter, caps map[string]bool) {
 	if err := rc.SetCaps(caps); err != nil {
-		slog.Error("revising the registration failed; routd's view of gdrid's verbs is stale",
+		slog.Error("revising the registration failed; routd's view of googd's verbs is stale",
 			"caps", caps, "err", err)
 	}
 }
@@ -117,7 +117,7 @@ func newBot(ctx context.Context, cfg config) *bot {
 func (b *bot) isConnected() bool    { return b.connected.Load() }
 func (b *bot) LastInboundAt() int64 { return b.lastInboundAt.Load() }
 
-// start verifies the credential. gdrid is connected whatever the answer: the
+// start verifies the credential. googd is connected whatever the answer: the
 // key gates one daemon's reading and replying, never its liveness.
 func (b *bot) start(ctx context.Context) error {
 	defer b.connected.Store(true)
@@ -128,7 +128,7 @@ func (b *bot) stop() { b.connected.Store(false) }
 
 // Send has no reply path yet.
 func (b *bot) Send(chanlib.SendRequest) (string, error) {
-	return "", fmt.Errorf("%w: gdrid cannot post a reply", chanlib.ErrInvalidRequest)
+	return "", fmt.Errorf("%w: googd cannot post a reply", chanlib.ErrInvalidRequest)
 }
 
 func (b *bot) Typing(string, bool) {}
@@ -167,6 +167,6 @@ func loadConfig() config {
 		APIBase:    chanlib.EnvOr("GDRIVE_API_URL", "https://www.googleapis.com"),
 		RouterURL:  chanlib.MustEnv("ROUTER_URL"),
 		ListenAddr: chanlib.EnvOr("LISTEN_ADDR", ":8080"),
-		ListenURL:  chanlib.EnvOr("LISTEN_URL", "http://gdrid:8080"),
+		ListenURL:  chanlib.EnvOr("LISTEN_URL", "http://googd:8080"),
 	}
 }
