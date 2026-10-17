@@ -6,7 +6,6 @@ status: shipped
 
 | Spec                                                 | Status             | Hook                                                            |
 | ---------------------------------------------------- | ------------------ | --------------------------------------------------------------- |
-| [0-agent-capabilities.md](0-agent-capabilities.md)   | shipped            | container tooling inventory, media flow                         |
 | [1-atlas.md](1-atlas.md)                             | shipped            | facts corpus; why the public leaf can't research                |
 | [7-user-context.md](7-user-context.md)               | shipped            | per-user memory files; identity tag, not content                |
 | [E-memory-session.md](E-memory-session.md)           | shipped            | session switching; why 2-day idle expiry is a hallucination fix |
@@ -18,7 +17,6 @@ status: shipped
 | [b-control-chat.md](b-control-chat.md)               | shipped            | why there is _no_ control chat; notify is not wired             |
 | [c-audit-log.md](c-audit-log.md)                     | shipped            | one row shape for in/out; what `source` is actually for         |
 | [5-tool-authorization.md](5-tool-authorization.md)   | superseded-in-part | tier tables kept as the source for `5/33`'s role bundles        |
-| [d-dashboards.md](d-dashboards.md)                   | superseded-in-part | tile model + HTMX conventions; live surface is `6/28`           |
 | [l-linkedin.md](l-linkedin.md)                       | shipped            | LinkedIn adapter; N+1 polling and the auto-publish default      |
 
 Merged or moved out of this phase:

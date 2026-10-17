@@ -68,8 +68,7 @@
     <p>One directory under <code>ant/skills/</code>. Every skill has a <code>SKILL.md</code> with YAML frontmatter and a body:</p>
     <pre><code>---
 name: skill-name
-description: one-line summary
-triggers: [keyword1, keyword2]
+description: one-line summary; say in prose when the skill applies
 ---
 
 Skill instructions here...</code></pre>
@@ -84,7 +83,7 @@ Skill instructions here...</code></pre>
     <p>Built-in skills get refreshed on every <code>/migrate</code> run; user skills are never overwritten.</p>
 
     <h2>discovery: dispatch is explicit</h2>
-    <p>LLMs do not reliably auto-trigger skills by reading their descriptions. The agent runs <code>/dispatch</code> as the first step on each turn: dispatch scans every skill&rsquo;s <code>description</code> + <code>triggers</code>, matches the current message, and tells the agent which skill to load. Without dispatch, skills sit there unused.</p>
+    <p>LLMs do not reliably auto-trigger skills by reading their descriptions. The agent runs <code>/dispatch</code> as the first step on each turn: dispatch scans every skill&rsquo;s <code>description</code>, matches the current message, and tells the agent which skill to load. Without dispatch, skills sit there unused.</p>
     <p><code>/reconcile</code> handles the late case &mdash; if the agent produced output and then realized a skill applied, reconcile re-runs the work under the correct skill so the output doesn&rsquo;t contradict the skill&rsquo;s rules.</p>
 
     <h2>migration and versioning</h2>
@@ -96,7 +95,7 @@ Skill instructions here...</code></pre>
     <p>Each version bump has a corresponding <code>ant/skills/self/migrations/NNN-vX.Y.Z-summary.md</code> file. The file&rsquo;s existence is what fires the broadcast; an empty stub body is fine for docs-only releases.</p>
 
     <h2>go deeper</h2>
-    <p>How a group gets its initial skill set: <a href="../concepts/onboarding.html">onboarding</a>. Format rules and the per-skill layout: <a href="https://github.com/kronael/arizuko/blob/main/specs/1/B-extend-skills.md">specs/1/B-extend-skills.md</a>. The shipping flow that bumps <code>MIGRATION_VERSION</code> and writes a migration file: <a href="https://github.com/kronael/arizuko/blob/main/CLAUDE.md">CLAUDE.md</a> &mdash; &ldquo;Shipping changes&rdquo; section. What ships in each version: <a href="../changelog/">changelog</a>.</p>
+    <p>How a group gets its initial skill set: <a href="../concepts/onboarding.html">onboarding</a>. Format rules and the per-skill layout: <a href="https://github.com/kronael/arizuko/blob/main/EXTENDING.md">EXTENDING.md</a> &mdash; &ldquo;Skills&rdquo; section. The shipping flow that bumps <code>MIGRATION_VERSION</code> and writes a migration file: <a href="https://github.com/kronael/arizuko/blob/main/CLAUDE.md">CLAUDE.md</a> &mdash; &ldquo;Shipping changes&rdquo; section. What ships in each version: <a href="../changelog/">changelog</a>.</p>
 
       <nav class="docs-pager" aria-label="Pager">
         <a rel="prev" href="audit.html">&larr; Audit trail</a>

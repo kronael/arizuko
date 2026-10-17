@@ -124,5 +124,5 @@ is a list that reports itself met.
   `proactive_page.go`, `profile.go`, `tools_admin.go` and `dashstore/pages.go` read
   through it; the memory edits write the filesystem. This is the cut `6/36` S1 names
   and nobody has taken.
-- ✅ Each retained page renders via `/v1`; `4/Q` memory edits and `4/V` ACL writes still
+- ✅ Each retained page renders via `/v1`; the memory edits and `4/V`'s ACL writes still
   work.

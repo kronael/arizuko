@@ -16,11 +16,9 @@ narrowed to the decision that outlived the implementation.
 | [N-memory-messages.md](N-memory-messages.md) | shipped | Stdin XML envelope, 100-msg window, new-session injection   |
 | [Y-system-messages.md](Y-system-messages.md) | shipped | `<system origin=... event=...>` piggyback queue             |
 | [L-memory-diary.md](L-memory-diary.md)       | shipped | Two-layer (MEMORY.md + diary); why rollups aren't injected  |
-| [M-memory-managed.md](M-memory-managed.md)   | shipped | Claude Code managed CLAUDE.md + MEMORY.md, 200-line cap     |
 | [Q-mime.md](Q-mime.md)                       | shipped | Serial enrichment; why the rewrite is persisted             |
 | [H-introspection.md](H-introspection.md)     | shipped | `.gateway-caps` TOML, `.whisper-language` contract          |
 | [9-extend-agent.md](9-extend-agent.md)       | shipped | settings.json merge order; hooks hardcoded                  |
-| [B-extend-skills.md](B-extend-skills.md)     | shipped | SKILL.md frontmatter, naming, migration semantics           |
 | [f-auth-oauth.md](f-auth-oauth.md)           | shipped | Account linking + the seven-case collision table            |
 | [Z2-slink-sdk.md](Z2-slink-sdk.md)           | shipped | `/assets/*` `embed.FS` hosting; why not `template/web/pub/` |
 

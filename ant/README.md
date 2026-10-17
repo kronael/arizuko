@@ -112,6 +112,13 @@ The image is `FROM node:22-bookworm-slim`, installs `claude` CLI +
 `socat` + runtimes (uv/bun/go/rust), copies `skills/` to
 `/opt/arizuko/ant/skills/`, and sets `ENTRYPOINT ["node", "dist/index.js"]`.
 
+`ant/Dockerfile` is the one inventory of what else the agent can reach —
+chromium and `agent-browser` for the web, `ffmpeg` and `yt-dlp` for media,
+`gh`, `git`, `jq`, `ripgrep`, `imagemagick`, `pandoc` and the build
+toolchains. Read it there; a second list in prose drifts. Media the platform
+receives is transcribed before the turn starts, by routd rather than by the
+agent: `ARCHITECTURE.md` § "Inbound Media Pipeline".
+
 ## Layout
 
 ```

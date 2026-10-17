@@ -284,7 +284,11 @@ optional observability webhook — not the source of truth.
 - `enrich.go` — inbound media download + Whisper transcription
 - `tts.go` — send_voice synthesis via TTS service
 - `dash.go`, `dash_reads_http.go` — `/dash/routd/`: the overview plus the retry
-  and dead-letter replay forms, and the reads behind them (spec 6/30)
+  and dead-letter replay forms, and the reads behind them (spec 6/30). Message
+  bodies are cut to 80 characters before they render, here and in the
+  `/v1/messages/activity` preview dashd reads. The cut is privacy, not layout:
+  an operator traces routing without reading the conversation. The owner cuts
+  it, so no consumer can widen it.
 - `pending_actions.go`, `pending_actions_http.go` — the HITL hold queue (spec 5/19)
 - `unrouted.go`, `dead_letters_db.go` — the two holds an operator has to see:
   a chat no rule claims, and a message delivery gave up on

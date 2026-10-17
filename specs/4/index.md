@@ -14,7 +14,6 @@ status: shipped
 
 - [2-proxyd.md](2-proxyd.md) — public-facing auth proxy; route order; fail-closed rule
 - [3-chat-ui.md](3-chat-ui.md) — webd: chat widget, JID model, auth planes, `/me/*` portal
-- [Q-dash-memory.md](Q-dash-memory.md) — dashd memory browser + path allow-list
 
 ## Authorization
 

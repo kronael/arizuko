@@ -16,7 +16,7 @@ demand when the corpus is too large to inject.
 | -------- | ---------------------- | ------- | --------- |
 | Messages | 1/N-memory-messages.md | shipped | DB (SQL)  |
 | Session  | 3/E-memory-session.md  | shipped | SDK (.jl) |
-| Managed  | 1/M-memory-managed.md  | shipped | Files     |
+| Managed  | Claude Code native     | shipped | Files     |
 | Diary    | 1/L-memory-diary.md    | shipped | Files     |
 | User ctx | 3/7-user-context.md    | shipped | Files     |
 | Facts    | 3/1-atlas.md           | shipped | Files     |

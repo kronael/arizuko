@@ -899,7 +899,7 @@ routd picks the message up via normal poll. See `timed/README.md`.
 
 HTMX portal over routd's data plus a write surface (routes
 editor, groups CRUD, per-user secrets) requiring authenticated access.
-Spec: `specs/3/d-dashboards.md`. See `dashd/README.md`.
+Spec: `specs/6/28-cockpit-index.md`. See `dashd/README.md`.
 
 Operator-only pages reached from `/dash/services/` are the per-daemon control
 planes: `/dash/routd/`, `/dash/runed/`, `/dash/proxyd/` and `/dash/authd/`

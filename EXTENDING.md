@@ -672,6 +672,12 @@ Skill layout:
   migrations/           # optional numbered upgrade scripts
 ```
 
+A skill directory name must match `^[a-z0-9-]+$`; `seedSkills` checks it
+(`container/runner.go`) and skips the directory otherwise. `SKILL.md` carries
+YAML frontmatter with `name` and `description`; the description is what the
+model reads to decide whether the skill applies, so it names the triggers in
+prose rather than in a separate field.
+
 ## Session opening ritual
 
 When a new Claude Code session starts, routd injects a
