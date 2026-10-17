@@ -66,15 +66,16 @@ func (b *bot) start(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	// body fully read below
+	// body read below
 	defer resp.Body.Close() //nolint:errcheck
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("github /user: %s", resp.Status)
+		return statusErr(resp, raw)
 	}
 	var u struct {
 		Login string `json:"login"`
 	}
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&u); err != nil {
+	if err := json.Unmarshal(raw, &u); err != nil {
 		return err
 	}
 	if u.Login == "" {
@@ -118,11 +119,21 @@ func isRateLimited(h http.Header) bool {
 	return h.Get("Retry-After") != "" || h.Get("X-RateLimit-Remaining") == "0"
 }
 
-// call makes one GitHub request and classifies the refusal the way the outbound
-// sweep reads it: 429, 5xx and a rate-limited 403 are worth another attempt,
-// every other status is permanent. It is the ONE place gitd turns a status into
-// an error, so the reply and the thread lookup cannot read the same status
-// differently.
+// statusErr turns a status GitHub answered into the error its reader acts on:
+// 429, 5xx and a rate-limited 403 are worth another attempt, every other
+// status is permanent. It is the ONE place gitd turns a status into an error,
+// so the reply, the thread lookup and the boot probe cannot read the same
+// status differently.
+func statusErr(resp *http.Response, raw []byte) error {
+	if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 ||
+		(resp.StatusCode == http.StatusForbidden && isRateLimited(resp.Header)) {
+		return fmt.Errorf("%w: github %s: %s", chanlib.ErrNotDelivered, resp.Status, bytes.TrimSpace(raw))
+	}
+	return fmt.Errorf("%w: github %s: %s", chanlib.ErrPermanent, resp.Status, bytes.TrimSpace(raw))
+}
+
+// call makes one GitHub request and returns its body, or the refusal
+// statusErr classifies.
 func (b *bot) call(method, url string, body []byte, want int) ([]byte, error) {
 	var rdr io.Reader
 	if body != nil {
@@ -151,15 +162,10 @@ func (b *bot) call(method, url string, body []byte, want int) ([]byte, error) {
 	}
 	defer resp.Body.Close() //nolint:errcheck
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	switch {
-	case resp.StatusCode == want:
-		return raw, nil
-	case resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 ||
-		(resp.StatusCode == http.StatusForbidden && isRateLimited(resp.Header)):
-		return nil, fmt.Errorf("%w: github %s: %s", chanlib.ErrNotDelivered, resp.Status, bytes.TrimSpace(raw))
-	default:
-		return nil, fmt.Errorf("%w: github %s: %s", chanlib.ErrPermanent, resp.Status, bytes.TrimSpace(raw))
+	if resp.StatusCode != want {
+		return nil, statusErr(resp, raw)
 	}
+	return raw, nil
 }
 
 // threadRoot answers the comment that OPENED the inline review thread id sits

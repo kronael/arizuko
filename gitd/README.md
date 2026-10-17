@@ -76,12 +76,20 @@ way — it names the session, never the address. The token's own
 comments are dropped at ingest (`sender.login` == the token's login), as is
 any `sender.type == "Bot"`. Without a token gitd is ingress-only: a `reply` on a
 `github:` JID fails with a plain `channel github: send_text not supported`
-(`chanreg/httpchan.go:150`), and on the MCP path `ipc/ipc.go:759` records the
-row pending and tells the agent it is queued (BUGS `L423`). Any `GET /user`
-failure at boot, a transport error included, lands in the same place (BUGS
-`L423`): gitd logs the failure at ERROR, withdraws `send_text`
-from the registration that already ran, and keeps serving ingress — exiting
-would cycle every daemon on the instance (BUGS `L406`).
+(`chanreg/httpchan.go`), and on the MCP path `ipc/ipc.go` records the row
+pending and tells the agent it is queued.
+
+A `GET /user` that fails at boot lands in the same place: gitd logs it at
+ERROR, withdraws `send_text` from the registration that already ran, and keeps
+serving ingress — exiting would cycle every daemon on the instance (BUGS
+`L406`). What follows depends on the answer. GitHub REFUSING the token is
+permanent, so nothing asks again and a new credential is the only repair.
+GitHub not answering — a dropped connection, a 5xx, a rate limit — is not, so
+gitd re-asks `/user` every minute and puts `send_text` back the moment it
+answers; it stays withdrawn in between because the login that drops gitd's own
+comments at ingest is still unknown. `/health` reads 200 throughout: the daemon
+is up and ingesting, and a `disconnected` 503 would have routd deregister the
+channel after three probes and take ingress with it.
 
 ## Env
 
