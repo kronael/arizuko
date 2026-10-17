@@ -43,6 +43,10 @@ line; none can be answered from the code.
   ungated host service, or drop the self-transcription claim from the two
   skills that make it.
 
+- `L441` — may a revoke delete every route under the source's JID prefix,
+  including rows an operator added by hand? Otherwise a migration must name
+  the two rows the renderer no longer produces.
+
 - `L440` — may `/send` key its frame on the row id so a live frame and a
   replayed one agree? It changes `platform_id`, which other readers compare.
 
@@ -271,6 +275,27 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
 - **`L15` — the 2026-08-11 dead-code sweep's rejected hits.** `deadcode ./...` gave 149
   hits, 56 under `-test`; nine survived verification and were filed separately. Kept so
   the next sweep does not re-report the same ~135.
+
+## L441 — revoking a source registered before the seed narrowed leaves its reply routes behind (2026-10-17, open)
+
+FOUND 2026-10-17 while narrowing the seeded route set so the agent answers
+only where it is mentioned or assigned. `RemoveGitHubSourceInto` deletes a
+source's routes by matching the rows `GitHubSourceRoutes` renders now. A
+source registered before the change seeded two extra rows,
+`chat_jid=<repo>/pr/* verb=message` and `chat_jid=<repo>/issue/* verb=message`.
+The renderer no longer produces them, so the revoke does not match them and
+they stay.
+
+An orphan reply route keeps waking the folder for a source the operator
+believes is gone. Same shape as `L435`, which is about a revoke below the
+owner, and distinct from it: this one is about rows the renderer stopped
+rendering.
+
+**What needs you:** a revoke that deletes by the rendered set cannot remove
+a row the renderer has forgotten. Either the removal matches on the source's
+JID prefix instead of the exact rendered rows, which deletes operator-added
+rows under that prefix too, or a migration removes the two known rows. Both
+change what a revoke means.
 
 ## L440 — webd's live frame id and its replayed id differ, so an edit appends instead of replacing (2026-10-17, open)
 
