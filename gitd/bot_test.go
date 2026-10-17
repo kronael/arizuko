@@ -279,3 +279,165 @@ func TestCall_RateLimited403IsRetryable(t *testing.T) {
 		})
 	}
 }
+
+// editFake is a GitHub that holds comments by path, each with an author, and
+// records every request. A path it does not hold answers 404.
+type editFake struct {
+	srv     *httptest.Server
+	authors map[string]string
+	seen    []string
+	bodies  []string
+}
+
+func newEditFake(t *testing.T, authors map[string]string) *editFake {
+	t.Helper()
+	f := &editFake{authors: authors}
+	f.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		f.seen = append(f.seen, r.Method+" "+r.URL.Path)
+		f.bodies = append(f.bodies, string(raw))
+		author, ok := f.authors[r.URL.Path]
+		if !ok {
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"message":"Not Found"}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"id":1,"user":{"login":"` + author + `"}}`))
+	}))
+	t.Cleanup(f.srv.Close)
+	return f
+}
+
+func editBot(f *editFake) *bot {
+	b := newBot(config{Token: "ghp_test", APIBase: f.srv.URL})
+	b.login.Store("arizuko-bot")
+	return b
+}
+
+const editJID = "github:kronael/arizuko/pr/12"
+
+// The id prefix picks the endpoint, as it does for a reaction: a conversation
+// comment and an inline review comment are separate id spaces.
+func TestEdit_PicksEndpointByIDPrefix(t *testing.T) {
+	for _, c := range []struct{ id, path string }{
+		{"gh-c777", "/repos/kronael/arizuko/issues/comments/777"},
+		{"gh-rc888", "/repos/kronael/arizuko/pulls/comments/888"},
+	} {
+		t.Run(c.id, func(t *testing.T) {
+			f := newEditFake(t, map[string]string{c.path: "arizuko-bot"})
+			err := editBot(f).Edit(chanlib.EditRequest{ChatJID: editJID, TargetID: c.id, Content: "✓ done"})
+			if err != nil {
+				t.Fatalf("Edit = %v; requests %v", err, f.seen)
+			}
+			want := []string{"GET " + c.path, "PATCH " + c.path}
+			if strings.Join(f.seen, ",") != strings.Join(want, ",") {
+				t.Errorf("requests = %v, want %v", f.seen, want)
+			}
+			if got := f.bodies[1]; got != `{"body":"✓ done"}` {
+				t.Errorf("PATCH body = %s, want only {\"body\":\"✓ done\"}", got)
+			}
+		})
+	}
+}
+
+// An id gitd did not mint as a comment is refused before any call.
+func TestEdit_ForeignIDIsInvalidRequest(t *testing.T) {
+	for _, id := range []string{"", "777", "gh-r777", "gh-c", "gh-c0", "gh-cx", "gh-rc-1"} {
+		t.Run("id="+id, func(t *testing.T) {
+			f := newEditFake(t, nil)
+			err := editBot(f).Edit(chanlib.EditRequest{ChatJID: editJID, TargetID: id, Content: "x"})
+			if !errors.Is(err, chanlib.ErrInvalidRequest) {
+				t.Errorf("Edit(%q) = %v, want ErrInvalidRequest", id, err)
+			}
+			if len(f.seen) != 0 {
+				t.Errorf("Edit(%q) called GitHub: %v", id, f.seen)
+			}
+		})
+	}
+}
+
+// gitd edits only a comment it wrote. A token with write access may edit
+// anyone's comment on GitHub's side, so the refusal is gitd's: the comment is
+// read, its author differs, and no PATCH is sent.
+func TestEdit_RefusesACommentGitdDidNotWrite(t *testing.T) {
+	const path = "/repos/kronael/arizuko/issues/comments/777"
+	for _, c := range []struct{ name, author string }{
+		{"another user", "octocat"},
+		{"a login that only prefixes ours", "arizuko-bot-2"},
+		{"a deleted account", ""},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			f := newEditFake(t, map[string]string{path: c.author})
+			err := editBot(f).Edit(chanlib.EditRequest{ChatJID: editJID, TargetID: "gh-c777", Content: "x"})
+			if !errors.Is(err, chanlib.ErrPermanent) {
+				t.Fatalf("Edit = %v, want ErrPermanent", err)
+			}
+			for _, r := range f.seen {
+				if strings.HasPrefix(r, "PATCH") {
+					t.Errorf("gitd sent %q on a comment it did not write", r)
+				}
+			}
+		})
+	}
+	t.Run("no token", func(t *testing.T) {
+		f := newEditFake(t, map[string]string{path: "arizuko-bot"})
+		b := editBot(f)
+		b.cfg.Token = ""
+		err := b.Edit(chanlib.EditRequest{ChatJID: editJID, TargetID: "gh-c777", Content: "x"})
+		if !errors.Is(err, chanlib.ErrUnsupported) || len(f.seen) != 0 {
+			t.Errorf("Edit = %v, requests %v; want ErrUnsupported and no call", err, f.seen)
+		}
+	})
+	t.Run("login not learned", func(t *testing.T) {
+		f := newEditFake(t, map[string]string{path: "arizuko-bot"})
+		b := editBot(f)
+		b.login.Store("")
+		err := b.Edit(chanlib.EditRequest{ChatJID: editJID, TargetID: "gh-c777", Content: "x"})
+		if !errors.Is(err, chanlib.ErrPermanent) || len(f.seen) != 0 {
+			t.Errorf("Edit = %v, requests %v; want ErrPermanent and no call", err, f.seen)
+		}
+	})
+}
+
+// GitHub's own refusal of the edit is classified as a response GitHub sent.
+func TestEdit_GitHubRefusalIsClassified(t *testing.T) {
+	gh := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "PATCH" {
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			return
+		}
+		_, _ = w.Write([]byte(`{"user":{"login":"arizuko-bot"}}`))
+	}))
+	defer gh.Close()
+	b := newBot(config{Token: "ghp_test", APIBase: gh.URL})
+	b.login.Store("arizuko-bot")
+	err := b.Edit(chanlib.EditRequest{ChatJID: editJID, TargetID: "gh-c777", Content: "x"})
+	if !errors.Is(err, chanlib.ErrPermanent) {
+		t.Errorf("Edit = %v, want ErrPermanent for a 422", err)
+	}
+}
+
+// A lost response leaves the outcome unknown, so a transport failure carries no
+// class, as for Send.
+func TestEdit_TransportFailureIsUnclassified(t *testing.T) {
+	block := make(chan struct{})
+	gh := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "GET" {
+			_, _ = w.Write([]byte(`{"user":{"login":"arizuko-bot"}}`))
+			return
+		}
+		<-block
+	}))
+	defer gh.Close()
+	defer close(block)
+	b := newBot(config{Token: "ghp_test", APIBase: gh.URL})
+	b.login.Store("arizuko-bot")
+	b.http = &http.Client{Timeout: 50 * time.Millisecond}
+	err := b.Edit(chanlib.EditRequest{ChatJID: editJID, TargetID: "gh-c777", Content: "x"})
+	if err == nil {
+		t.Fatal("Edit reported success on a timeout")
+	}
+	if errors.Is(err, chanlib.ErrNotDelivered) || errors.Is(err, chanlib.ErrPermanent) {
+		t.Errorf("timeout err = %v, want unclassified", err)
+	}
+}

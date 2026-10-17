@@ -258,7 +258,11 @@ human's comment and `action=resolve` are not. Concretely:
   `/repos/{o}/{r}/issues/comments/{id}`, `gh-rc<id>` through
   `/repos/{o}/{r}/pulls/comments/{id}` (both `200`, body `{"body"}`;
   docs.github.com/en/rest/issues/comments, docs.github.com/en/rest/pulls/comments)
-  — and refuses an id gitd did not mint. §"Typing indicator" shrinks to the
+  — and edits only a comment gitd wrote. The id grammar cannot carry that:
+  a human comment arrives as `gh-c<id>` too, and a token with write access
+  may edit anyone's comment. So `Edit` reads the comment first and compares
+  `user.login` with the login `/user` returned, at the cost of one GET per
+  edit. §"Typing indicator" shrinks to the
   rendering (`👀` through the shared helper) and points here for the
   mechanism; the crash-residue sentence goes with the boot sweep.
 - `6/45`: `capsFor` advertises `send_text` and, when the probe below passes,

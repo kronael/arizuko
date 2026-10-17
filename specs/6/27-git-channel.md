@@ -28,11 +28,28 @@ it does not approve the proposed lifecycle or claim a deployment.
 ## Channel messages and repository tools
 
 A comment is a message in the conversation. A merge, label, or review changes repository
-state. `gitd/bot.go` implements `send_text` and the typing indicator below;
-`gitd/main.go:capsFor` advertises both when `GITHUB_TOKEN` is set. The token's user posts the comment and the returned identity
+state. `gitd/bot.go` implements `send_text`, `edit` and the typing indicator below;
+`gitd/main.go:capsFor` advertises all three when `GITHUB_TOKEN` is set. The token's user posts the comment and the returned identity
 is `gh-c<id>`, or `gh-rc<id>` for an inline review comment, matching inbound comment IDs.
 Without that token, gitd is ingress-only.
 Other channel verbs return Unsupported.
+
+> The channel creates, edits and reacts to ITS OWN posts in the thread it was
+> addressed in. Every change to another party's state — resolve, reopen,
+> merge, label, a new thread, the document body — is the connector's, under
+> its own grant and hold.
+
+`Edit` replaces the text of one of gitd's own comments, which is how routd keeps one
+progress comment per turn (`specs/6/46-turn-progress.md` §"What this changes in 6/27 and 6/45").
+The id prefix picks the endpoint, as it does for the reaction: `gh-c<id>` is
+`PATCH /repos/{owner}/{repo}/issues/comments/{id}`, `gh-rc<id>` is
+`PATCH /repos/{owner}/{repo}/pulls/comments/{id}`, each with the body `{"body"}` and
+answered `200` (docs.github.com/en/rest/issues/comments,
+docs.github.com/en/rest/pulls/comments). Any other id (a bare number, a review `gh-r<id>`,
+an empty id) is `ErrInvalidRequest` before any call. The id grammar cannot say who wrote a
+comment, and a token with write access may edit anyone's, so gitd reads the comment first
+and refuses unless its `user.login` is the login `GET /user` returned at start. The refusal is
+`ErrPermanent`, and no `PATCH` is sent. A transport error stays unclassified, as for `send_text`.
 
 State changes use `template/connectors/github.toml` through the hosted HTTP broker
 in `ipc/connector.go`. Each tool uses its `mcp:github_<tool>` grant and the socket's

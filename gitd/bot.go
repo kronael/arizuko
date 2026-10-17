@@ -254,6 +254,66 @@ func (b *bot) Send(req chanlib.SendRequest) (string, error) {
 	return prefix + strconv.FormatInt(created.ID, 10), nil
 }
 
+// commentPath answers the API path of the comment id names, and ok=false for
+// any id gitd did not mint as a comment: a bare number, a review (gh-r) or an
+// empty id. The two comment kinds live in separate id spaces behind separate
+// endpoints, the same split reactionsPath makes; the id prefix picks the path.
+func commentPath(j chanlib.GitHubJID, id string) (string, bool) {
+	if n, ok := reviewCommentID(id); ok {
+		return fmt.Sprintf("/repos/%s/%s/pulls/comments/%d", j.Owner, j.Repo, n), true
+	}
+	if n, ok := issueCommentID(id); ok {
+		return fmt.Sprintf("/repos/%s/%s/issues/comments/%d", j.Owner, j.Repo, n), true
+	}
+	return "", false
+}
+
+// Edit replaces the text of a comment gitd wrote, so a progress message is one
+// comment changed in place (specs/6/46-turn-progress.md). The id grammar alone
+// cannot say who wrote a comment, and a token with write access may edit
+// anyone's, so the comment is read first and refused unless its author is the
+// login gitd acts as. A refusal is permanent: no retry makes a comment gitd did
+// not write gitd's.
+func (b *bot) Edit(req chanlib.EditRequest) error {
+	if b.cfg.Token == "" {
+		// Ingress-only: capsFor withdraws edit with the token, and the verb
+		// says the same, so CapImplReport sees one answer both ways.
+		return chanlib.ErrUnsupported
+	}
+	j, ok := chanlib.ParseGitHubJID(req.ChatJID)
+	if !ok || j.Kind == "" {
+		return fmt.Errorf("%w: %q has no comment thread to edit in", chanlib.ErrInvalidRequest, req.ChatJID)
+	}
+	path, ok := commentPath(j, req.TargetID)
+	if !ok {
+		return fmt.Errorf("%w: %q names no comment gitd wrote (want gh-c<id> or gh-rc<id>)",
+			chanlib.ErrInvalidRequest, req.TargetID)
+	}
+	me := b.Login()
+	if me == "" {
+		return fmt.Errorf("%w: gitd has not learned its own login; cannot tell its comments from others", chanlib.ErrPermanent)
+	}
+	raw, err := b.call("GET", b.cfg.APIBase+path, nil, []int{http.StatusOK})
+	if err != nil {
+		return err
+	}
+	var c struct {
+		User *struct {
+			Login string `json:"login"`
+		} `json:"user"`
+	}
+	if err := json.Unmarshal(raw, &c); err != nil {
+		return fmt.Errorf("%w: github comment %s: %v", chanlib.ErrPermanent, req.TargetID, err)
+	}
+	if c.User == nil || !strings.EqualFold(c.User.Login, me) {
+		return fmt.Errorf("%w: %s was not written by %s; gitd edits only its own comments",
+			chanlib.ErrPermanent, req.TargetID, me)
+	}
+	body, _ := json.Marshal(map[string]string{"body": req.Content})
+	_, err = b.call("PATCH", b.cfg.APIBase+path, body, []int{http.StatusOK})
+	return err
+}
+
 // DashSections lists each source's last accepted delivery, the one fact an
 // operator wiring a webhook needs from this page.
 func (b *bot) DashSections() []chanlib.DashSection {
