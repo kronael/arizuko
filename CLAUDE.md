@@ -257,6 +257,19 @@ round that finds nothing commits nothing.
   fragment + a `<daemon>.yaml` manifest if it needs inbound web paths; no
   edit to `proxyd/main.go` or `compose/compose.go` (`EXTENDING.md` §Adding
   a channel adapter).
+- **NEVER hand-edit an installed `<data_dir>/services/*.yml`.** An edited
+  fragment is FROZEN: `arizuko generate` leaves it alone for good, so it never
+  takes a mount, env var or timeout the template later gains. Three sloth
+  fragments sat frozen for months and each had lost `RUNED_RUN_TIMEOUT`, which
+  drops the typing indicator before a long turn's reply lands (BUGS `L41`).
+  Change the template and relink; where an instance genuinely differs,
+  parameterise through `.env` — `STORE_HOST_PORT` exists so a second instance
+  takes its own store port without an edit (`L311`).
+- **A second account on one platform is its own fragment**,
+  `template/services/<kind>-<label>.yml` with a distinct `CHANNEL_NAME`, never
+  an edit to the base fragment. The variant reads `env/<kind>-<label>.env`, and
+  `<KEY>_<LABEL>` in `.env` overrides `<KEY>` there, so each account holds its
+  own credential (`specs/5/R-multi-account.md`).
 - **Daemon HTTP port: `:8080` inside the container, always.** Every
   daemon's `LISTEN_ADDR` code-default is `:8080` and every fragment in
   `template/services/` declares it explicitly, so neither drifts. Backend
