@@ -1,5 +1,5 @@
 ---
-status: draft
+status: planned
 depends:
   [
     44-delivery-contract,

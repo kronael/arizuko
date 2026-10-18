@@ -1,5 +1,5 @@
 ---
-status: draft
+status: reference
 depends:
   [
     34-resident-prompt,
