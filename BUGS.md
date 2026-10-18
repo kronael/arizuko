@@ -276,6 +276,49 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
   hits, 56 under `-test`; nine survived verification and were filed separately. Kept so
   the next sweep does not re-report the same ~135.
 
+## L445 — the engagement scope narrows the REPLY, not the TURN: an unmentioned comment still runs the agent and costs 160 cents (2026-10-18, open — needs sign-off)
+
+FOUND 2026-10-18 by a live gating check on `vumilan/morha` PR 293. The pull
+request has NO assignees, and the comment `gh-c6252699006` names no bot. Both
+halves of the `14e8d5ad` condition are false, so the agent should not engage.
+
+What happened instead, from the journal:
+
+    17:07:44  dispatch run            turn_id=gh-c6252699006 topic=pr/293
+    17:07:45  dispatch capabilities resolved
+    17:08:04  agent self-reported model usage  model=claude-opus-4-8
+              input=38 output=6295 cost_cents=160
+
+And from the reaction watcher:
+
+    17:07:47  eyes present on 6252699006
+    17:08:09  eyes gone
+
+So the turn ran, the model was spent, the 👀 was shown to everyone reading the
+pull request, and nothing was posted. Replies after that comment: zero.
+
+The silence is correct — `14e8d5ad` stopped the reply. The cost is not. The
+owner's words were that the agent should not review every pull request, only
+the ones it is assigned to or mentioned in. The narrowing reached the output
+half only.
+
+Two user-visible consequences, not one. Every passer-by comment on a watched
+repository spends a full turn, and every passer-by comment makes the bot
+visibly look at it and then drop it without a word, which reads as the agent
+ignoring someone.
+
+Measured contrast in the same session: the MENTIONED turn `gh-c6252651263`
+dispatched five times (`L443`); this unmentioned one dispatched once. So the
+two faults are separate.
+
+**What needs you:** whether an unmentioned comment should reach the agent at
+all. It currently arrives as `#observe` context, and context is the reason the
+route exists — an agent that never sees the thread cannot answer the mention
+that follows. Dropping the turn costs that context; keeping it costs a turn per
+comment. A third shape, batching observed comments into the next real turn
+rather than running one each, changes dispatch lifecycle. All three are
+redesigns.
+
 ## L443 — one GitHub comment dispatched the same turn five times, and the 👀 flickered once per dispatch (2026-10-18, open — needs sign-off)
 
 FOUND 2026-10-18 by the end-to-end run on `vumilan/morha` PR 293. One comment,
