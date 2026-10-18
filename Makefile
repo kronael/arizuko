@@ -354,36 +354,74 @@ rootfs-stale:
 	  for d in $$stale; do echo "  $(DATA_DIR)/images/$$d"; done; \
 	  echo "rootfs-stale: a turn may still have one mounted, so removal is yours"
 
-# bench-boot reports the boot split the gate is written against: kernel entry,
-# mounts done, ctl up, and QEMU exit (spec 6/41 §"The image and the guest kernel").
-#
-# It drives the ACCEPTANCE TEST rather than a second boot driver. One renderer,
-# many sinks: a separate benchmark harness would render its own argument list and
-# then measure a guest the substrate does not start. The test already logs the
-# guest's probe map and both host-side times, so -v is the whole report.
-#
-# Needs /dev/kvm and root. sudo strips PATH, so the toolchain is named explicitly
-# — a bare `sudo go` picks an older Go and dies on go.mod's `toolchain` directive.
+BENCH_PAIRS ?= 20
+BENCH_MODE ?= microvm
+BENCH_ARTIFACT_DIR ?= $(abspath tmp/bench-boot)
+
+# The test binary runs with the release's QEMU and virtiofsd in its own network
+# and mount namespaces. Its kernel and rootfs are mounted read-only.
 bench-boot:
 	@if [ -z "$(DATA_DIR)" ]; then echo "bench-boot: set DATA_DIR=<instance data dir>" >&2; exit 1; fi
 	@if [ ! -f "$(KERNEL_DIR)/bzImage" ]; then \
 	  echo "bench-boot: no kernel at $(KERNEL_DIR) — run \`make kernel DATA_DIR=$(DATA_DIR)\`" >&2; exit 1; fi
-	@echo "bench-boot: kernel $(KERNEL_DIR), rootfs $(ROOTFS_DIR)"
-	@mkdir -p tmp
-	sudo -E RUNED_SUBSTRATE=qemu \
-	  RUNED_KERNEL_DIR=$(KERNEL_DIR) RUNED_ROOTFS_DIR=$(ROOTFS_DIR) \
-	  DATA_DIR=$(DATA_DIR) \
-	  $$(command -v go) test ./runed/ -count=1 -v \
-	  -run TestGuestBootsAndReportsOverCtl > tmp/bench-boot.log 2>&1 || true
-	@grep -E "ctl up|guest probe|qemu exited|FAIL" tmp/bench-boot.log || true
-	@# A SKIP exits 0 and would read as a measurement. Print what the host is
-	@# missing and fail: a benchmark that measured nothing is not a green one.
-	@if ! grep -q "ctl up" tmp/bench-boot.log; then \
-	  echo "bench-boot: NOTHING WAS MEASURED. The test did not reach a booted guest:"; \
-	  sed -n '/SKIP\|cannot run the QEMU substrate/,$$p' tmp/bench-boot.log | sed -n '1,12p'; \
-	  echo "bench-boot: full output in tmp/bench-boot.log"; \
-	  exit 1; \
-	fi
+	@if [ ! -f "$(KERNEL_DIR)/initrd.gz" ] || [ ! -d "$(ROOTFS_DIR)" ]; then \
+	  echo "bench-boot: kernel initrd or rootfs missing" >&2; exit 1; fi
+	@mkdir -p tmp/_bootbench $(BENCH_ARTIFACT_DIR)
+	CGO_ENABLED=0 go test -c -o tmp/_bootbench/runed.test ./runed
+	@set -eu; \
+	  bench_id=arizuko-boot-$$$$; db=$$bench_id-db; net=$$bench_id-net; \
+	  cid=$$((1000000 + $$$$)); port=$$((20000 + $$$$ % 20000)); \
+	  printf '%s\n' "$$bench_id" > $(BENCH_ARTIFACT_DIR)/runner-name; \
+	  runner_pid=; \
+	  cleanup() { status=$$?; trap '' INT TERM; trap - EXIT; \
+	    for name in "$$bench_id" "$$db"; do \
+	      ids=$$($(DOCKER) ps -aq --filter "name=^/$$name$$") || { status=1; continue; }; \
+	      if [ -n "$$ids" ]; then $(DOCKER) rm -f "$$name" >/dev/null || status=1; fi; \
+	    done; \
+	    if [ -n "$$runner_pid" ]; then wait "$$runner_pid" 2>/dev/null || :; fi; \
+	    ids=$$($(DOCKER) network ls -q --filter "name=^$$net$$") || status=1; \
+	    if [ -n "$$ids" ]; then $(DOCKER) network rm "$$net" >/dev/null || status=1; fi; \
+	    exit "$$status"; }; \
+	  trap cleanup EXIT; trap 'exit 130' INT; trap 'exit 143' TERM; \
+	  $(DOCKER) network create --internal "$$net" >/dev/null; \
+	  $(DOCKER) run -d --rm --name "$$db" --network "$$net" \
+	    -e EXTENDDB__SERVER__BIND_ADDR=0.0.0.0 \
+	    -e EXTENDDB__SERVER__PORT=18080 \
+	    -e EXTENDDB__STORAGE__SQLITE__PATH=/var/lib/extenddb/extenddb.sqlite \
+	    -e EXTENDDB_DEV_ALLOW_ANY_BIND=1 \
+	    ghcr.io/extenddb/extenddb-dev:0.1.11 serve --foreground >/dev/null; \
+	  { date -u +%Y-%m-%dT%H:%M:%SZ; cat /proc/loadavg; \
+	    awk '/^(MemAvailable|SwapTotal|SwapFree):/ {print}' /proc/meminfo; \
+	    for metric in cpu memory io; do echo "$$metric"; cat /proc/pressure/$$metric; done; \
+	  } > $(BENCH_ARTIFACT_DIR)/host-before.txt; \
+	  $(DOCKER) run --rm --name "$$bench_id" --privileged --network "$$net" \
+	    --read-only --tmpfs /tmp:exec,size=2g \
+	    --sysctl net.ipv6.conf.default.disable_ipv6=1 \
+	    -v $(abspath tmp/_bootbench/runed.test):/bench/runed.test:ro \
+	    -v $(abspath $(KERNEL_DIR)):/bench/kernel:ro \
+	    -v $(abspath $(ROOTFS_DIR)):/bench/rootfs:ro \
+	    -v $(BENCH_ARTIFACT_DIR):/bench/out:rw \
+	    -e ARIZUKO_TEST_DYNAMO_ENDPOINT=http://"$$db":18080 \
+	    -e RUNED_BENCH_DB_HOST="$$db" \
+	    -e RUNED_BENCH_ID="$$bench_id" -e RUNED_BENCH_PAIRS=$(BENCH_PAIRS) \
+	    -e RUNED_BENCH_OUTPUT_DIR=/bench/out -e RUNED_BENCH_MODE=$(BENCH_MODE) \
+	    -e RUNED_KERNEL_DIR=/bench/kernel -e RUNED_ROOTFS_DIR=/bench/rootfs \
+	    -e RUNED_VSOCK_CID_BASE="$$cid" -e RUNED_VSOCK_PORT_BASE="$$port" \
+	    -e RUNED_TAP_SUBNET=198.19.0.0/24 \
+	    arizuko:latest sh -c 'i=0; until nc -z "$$RUNED_BENCH_DB_HOST" 18080; do \
+	      i=$$((i+1)); if [ "$$i" -ge 30 ]; then echo "bench-boot: test store did not start" >&2; exit 1; fi; \
+	      sleep 1; done; exec /bench/runed.test -test.v -test.timeout=10m -test.run "^TestGuest(BootsAndReportsOverCtl|TurnOverCtl)$$"' \
+	      > $(BENCH_ARTIFACT_DIR)/bench-boot.log 2>&1 & runner_pid=$$!; \
+	  if ! wait "$$runner_pid"; then \
+	    cat $(BENCH_ARTIFACT_DIR)/bench-boot.log; exit 1; fi; \
+	  { date -u +%Y-%m-%dT%H:%M:%SZ; cat /proc/loadavg; \
+	    awk '/^(MemAvailable|SwapTotal|SwapFree):/ {print}' /proc/meminfo; \
+	    for metric in cpu memory io; do echo "$$metric"; cat /proc/pressure/$$metric; done; \
+	  } > $(BENCH_ARTIFACT_DIR)/host-after.txt; \
+	  samples=$$(grep -c 'BENCH_SAMPLE' $(BENCH_ARTIFACT_DIR)/bench-boot.log); \
+	  if [ "$$samples" -ne "$$((2 * $(BENCH_PAIRS)))" ]; then \
+	    echo "bench-boot: $$samples samples, want $$((2 * $(BENCH_PAIRS)))" >&2; exit 1; fi; \
+	  grep -E 'BENCH_SAMPLE|BENCH_SUMMARY' $(BENCH_ARTIFACT_DIR)/bench-boot.log
 
 vite-image:
 	$(DOCKER_BUILD) -f ant/Dockerfile.vite -t arizuko-vite:latest .
