@@ -33,8 +33,8 @@ func TestGitHubSources_RESTRoundTrip(t *testing.T) {
 	if got, ok, _ := db.secretStore().GitHubSourceSecret("app/arizuko-krons"); !ok || got != issued.Secret {
 		t.Fatalf("stored secret %q ok=%v != issued %q", got, ok, issued.Secret)
 	}
-	if n := routeCount(t, db); n != 8 {
-		t.Fatalf("seeded routes = %d, want 8", n)
+	if n := routeCount(t, db); n != 6 {
+		t.Fatalf("seeded routes = %d, want 6", n)
 	}
 
 	rec = doJSON(t, h, "GET", "/v1/github_sources?owner_folder=eng", "", nil)
