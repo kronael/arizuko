@@ -1,8 +1,11 @@
 package runed
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net"
 	"os"
 	"path/filepath"
@@ -14,6 +17,7 @@ import (
 
 	"github.com/kronael/arizuko/core"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
+	"golang.org/x/sys/unix"
 )
 
 // The measured modern MMIO machine must bind shared memory, expose both shares,
@@ -447,7 +451,7 @@ func TestAwaitTakesTheExitFrameWhenQemuExitsInTheSameMoment(t *testing.T) {
 	q := &qemuRuntime{paths: qemuPaths{Grace: 50 * time.Millisecond}}
 	for i := range 50 {
 		host, guest := net.Pipe()
-		sess := newCtlSession(host, nil)
+		sess := newCtlSession(host, nil, nil)
 		served := make(chan error, 1)
 		frame, err := encodeCtlFrame(ctlFrame{Kind: ctlExit, Code: 78})
 		if err != nil {
@@ -475,13 +479,94 @@ func TestAwaitTakesTheExitFrameWhenQemuExitsInTheSameMoment(t *testing.T) {
 	}
 }
 
+func TestReadyIsMeasuredOnceBeforeExit(t *testing.T) {
+	q := &qemuRuntime{paths: qemuPaths{Grace: 50 * time.Millisecond}}
+	for _, tc := range []struct {
+		name  string
+		kinds []ctlFrame
+		want  int
+	}{
+		{"ready then exit", []ctlFrame{
+			{Kind: ctlReady, Probe: map[string]string{"ctl_up_uptime": "0.72"}},
+			{Kind: ctlReady, Probe: map[string]string{"ctl_up_uptime": "9.99"}},
+			{Kind: ctlExit, Code: 78},
+		}, 1},
+		{"exit without ready", []ctlFrame{{Kind: ctlExit, Code: 78}}, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fds, err := unix.Socketpair(unix.AF_UNIX, unix.SOCK_STREAM|unix.SOCK_CLOEXEC, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			host := os.NewFile(uintptr(fds[0]), "ctl-host")
+			guest := os.NewFile(uintptr(fds[1]), "ctl-guest")
+			defer host.Close()
+			defer guest.Close()
+			var output bytes.Buffer
+			logger := slog.New(slog.NewJSONHandler(&output, nil))
+			sess := newCtlSession(host, nil, &bootLog{
+				start: time.Now().Add(-1250 * time.Millisecond), logger: logger,
+				folder: "solo/inbox", handle: "boot-test",
+			})
+			served := make(chan error, 1)
+			go func() { served <- sess.serve() }()
+			for _, f := range tc.kinds {
+				b, err := encodeCtlFrame(f)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := guest.Write(b); err != nil {
+					t.Fatal(err)
+				}
+			}
+			guest.Close()
+			qemuDone := make(chan error, 1)
+			qemuDone <- nil
+			end := q.await(context.Background(), sess, qemuDone, served, Turn{Folder: "solo/inbox"})
+			if !end.framed || end.code != 78 {
+				t.Fatalf("await = %+v, want guest exit 78", end)
+			}
+			<-sess.done
+			logs := strings.TrimSpace(output.String())
+			if tc.want == 0 {
+				if logs != "" {
+					t.Fatalf("ready log without ready frame: %s", logs)
+				}
+				return
+			}
+			if logs == "" {
+				t.Fatal("ready frame produced no boot log")
+			}
+			lines := strings.Split(logs, "\n")
+			if len(lines) != 1 {
+				t.Fatalf("ready log has %d records, want one: %s", len(lines), logs)
+			}
+			var sample struct {
+				Message string            `json:"msg"`
+				BootMS  int64             `json:"boot_ms"`
+				Folder  string            `json:"folder"`
+				Handle  string            `json:"handle"`
+				Probe   map[string]string `json:"probe"`
+			}
+			if err := json.Unmarshal([]byte(lines[0]), &sample); err != nil {
+				t.Fatal(err)
+			}
+			if sample.Message != "guest ready" || sample.BootMS < 1250 ||
+				sample.Folder != "solo/inbox" || sample.Handle != "boot-test" ||
+				sample.Probe["ctl_up_uptime"] != "0.72" {
+				t.Fatalf("first ready log = %+v", sample)
+			}
+		})
+	}
+}
+
 // A turn whose guest never sent an exit frame has no result, and that is an
 // error: QEMU's status says the VMM ended, never how the agent did.
 func TestAwaitReportsAGuestThatNeverSaidHowItExited(t *testing.T) {
 	q := &qemuRuntime{paths: qemuPaths{Grace: 20 * time.Millisecond}}
 	host, guest := net.Pipe()
 	defer host.Close()
-	sess := newCtlSession(host, nil)
+	sess := newCtlSession(host, nil, nil)
 	served := make(chan error, 1)
 	go func() { served <- sess.serve() }()
 	guest.Close()
