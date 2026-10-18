@@ -16,7 +16,15 @@ for shipped milestones.
   shape can all be driven by a scripted harness, while "did the agent
   understand the question" cannot. Decide the split before writing any of it;
   a test that stubs the model and still calls itself a smoke test is the
-  `gate_cannot_fail` failure with a bigger budget. See
+  `gate_cannot_fail` failure with a bigger budget.
+
+  The owner's second option is cheaper and keeps a real model in the loop:
+  run the existing cases on HAIKU instead of the turn's usual model. That
+  keeps "a live agent answered" true, which is the whole value of gate 5,
+  and cuts the bill rather than the coverage. It needs one measurement
+  first — whether the eval's cases still pass on haiku, because a case that
+  only a larger model answers would turn the gate red for a reason that is
+  not a regression. Measure before adopting. See
   `.claude/skills/eval/gates.md` and `anteval/`.
 
 - **Deploy pending** — Phase B+D of 5/5 (invites + chats.is_group),
