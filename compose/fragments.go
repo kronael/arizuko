@@ -175,7 +175,7 @@ func relinkSidecar(servicesDir, readableCatalogDir, hostCatalogDir, name string)
 
 // catalogTemplate resolves an installed fragment name to its catalog template;
 // a multi-account variant falls back to the base kind, the same `<kind>-<label>`
-// split envFileName uses.
+// split variantOf uses.
 func catalogTemplate(tmplDir, name string) (kind string, body []byte, ok bool) {
 	for _, k := range candidateKinds(name) {
 		b, err := os.ReadFile(filepath.Join(tmplDir, k+".yml"))

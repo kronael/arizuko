@@ -248,17 +248,42 @@ var daemonKeys = map[string][]string{
 // the shared .env opened. Their env file is daemonKeys only.
 var foreignImages = map[string]bool{"kokoro": true}
 
-// adapterDaemons is the set of message-posting channel adapters; multi-account
-// variants (`<adapter>-<label>`) resolve to the base. Keep in sync with authd
-// serviceGrants.
+// adapterDaemons is the set of message-posting channel adapters; a multi-account
+// variant (`<adapter>-<label>`) takes its keys and service identity from the
+// base. Keep in sync with authd serviceGrants.
 var adapterDaemons = map[string]bool{
 	"teled": true, "whapd": true, "discd": true, "slakd": true,
 	"bskyd": true, "reditd": true, "emaid": true, "twitd": true, "linkd": true,
 	"gitd": true,
 }
 
-// envFileName returns the env file a service reads. `<adapter>-<label>` variants
-// share the base adapter's file (spec 5/R-multi-account).
+// variantOf splits a multi-account variant `<adapter>-<label>` (spec
+// 5/R-multi-account) into its base adapter and label. Only a name in
+// adapterDaemons is a variant.
+func variantOf(name string) (base, label string, ok bool) {
+	base, label, ok = strings.Cut(name, "-")
+	return base, label, ok && label != "" && adapterDaemons[base]
+}
+
+// variantKey names the `.env` variable that overrides key for the variant with
+// this label: the label upper-cased, every non-alphanumeric byte an underscore,
+// appended to key (`TELEGRAM_BOT_TOKEN` + `jynx` -> `TELEGRAM_BOT_TOKEN_JYNX`).
+func variantKey(key, label string) string {
+	suffix := strings.Map(func(r rune) rune {
+		switch {
+		case r >= 'a' && r <= 'z':
+			return r - 'a' + 'A'
+		case r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+			return r
+		}
+		return '_'
+	}, label)
+	return key + "_" + suffix
+}
+
+// envFileName returns the env file a service reads. A multi-account variant
+// `<adapter>-<label>` reads its OWN file (spec 5/R-multi-account): two services on
+// the base adapter's file would poll one account twice.
 //
 // A name with no key list gets NO file, not the shared `.env`. The fallback used to
 // hand a service every secret the instance holds — the whole `.env`, including
@@ -270,6 +295,9 @@ var adapterDaemons = map[string]bool{
 // `checkEveryServiceHasKeys` is the loud half: it refuses generation rather than
 // leaving a daemon with no env at all (BUGS `L200`).
 func envFileName(name string) string {
+	if _, _, ok := variantOf(name); ok {
+		return "env/" + name + ".env"
+	}
 	if _, ok := daemonKeys[name]; ok {
 		return "env/" + name + ".env"
 	}
@@ -340,40 +368,65 @@ func mkdirOwned(dir string, uid int) error {
 
 // writeEnvFiles emits env/<daemon>.env with only the keys each daemon needs;
 // perDaemon holds keys scoped to a single daemon that must NOT leak across
-// the shared env map.
-func writeEnvFiles(dataDir string, env map[string]string, perDaemon map[string]map[string]string) error {
-	dir := filepath.Join(dataDir, "env")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+// the shared env map. Each multi-account variant in services gets its own
+// env/<adapter>-<label>.env: the base adapter's file, except that a daemonKeys
+// entry the operator set as `<KEY>_<LABEL>` in .env replaces `<KEY>` (variantKey).
+func writeEnvFiles(dataDir string, env map[string]string, perDaemon map[string]map[string]string, services []string) error {
+	if err := os.MkdirAll(filepath.Join(dataDir, "env"), 0o755); err != nil {
 		return err
 	}
-	for daemon, keys := range daemonKeys {
-		var all []string
-		if !foreignImages[daemon] {
-			all = append(all, commonKeys...)
-		}
-		all = append(all, keys...)
-		if daemon == "runed" {
-			for key := range store.EnvProfileKeys {
-				all = append(all, key)
-			}
-		}
-		sort.Strings(all)
-		var b strings.Builder
-		fmt.Fprintf(&b, "# Generated per-daemon env for %s. Do not edit by hand.\n", daemon)
-		for _, k := range all {
-			if v, ok := perDaemon[daemon][k]; ok && v != "" {
-				fmt.Fprintf(&b, "%s=%s\n", k, v)
-				continue
-			}
-			if v, ok := env[k]; ok && v != "" {
-				fmt.Fprintf(&b, "%s=%s\n", k, v)
-			}
-		}
-		if err := os.WriteFile(filepath.Join(dir, daemon+".env"), []byte(b.String()), 0o600); err != nil {
+	for daemon := range daemonKeys {
+		if err := writeEnvFile(dataDir, daemon, daemon, "", env, perDaemon); err != nil {
 			return err
 		}
 	}
+	for _, name := range services {
+		if base, label, ok := variantOf(name); ok {
+			if err := writeEnvFile(dataDir, name, base, label, env, perDaemon); err != nil {
+				return err
+			}
+		}
+	}
 	return nil
+}
+
+// writeEnvFile writes the env file of service name, which runs daemon's keys.
+// A non-empty label makes it a variant: the per-daemon identity keys in perDaemon
+// still win, so every account of one adapter signs as the same service.
+func writeEnvFile(dataDir, name, daemon, label string, env map[string]string, perDaemon map[string]map[string]string) error {
+	var all []string
+	if !foreignImages[daemon] {
+		all = append(all, commonKeys...)
+	}
+	all = append(all, daemonKeys[daemon]...)
+	if daemon == "runed" {
+		for key := range store.EnvProfileKeys {
+			all = append(all, key)
+		}
+	}
+	sort.Strings(all)
+	own := map[string]bool{}
+	for _, k := range daemonKeys[daemon] {
+		own[k] = true
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "# Generated per-daemon env for %s. Do not edit by hand.\n", name)
+	for _, k := range all {
+		if v, ok := perDaemon[daemon][k]; ok && v != "" {
+			fmt.Fprintf(&b, "%s=%s\n", k, v)
+			continue
+		}
+		if label != "" && own[k] {
+			if v := env[variantKey(k, label)]; v != "" {
+				fmt.Fprintf(&b, "%s=%s\n", k, v)
+				continue
+			}
+		}
+		if v, ok := env[k]; ok && v != "" {
+			fmt.Fprintf(&b, "%s=%s\n", k, v)
+		}
+	}
+	return os.WriteFile(filepath.Join(dataDir, envFileName(name)), []byte(b.String()), 0o600)
 }
 
 // storeService is the compose service name of the store server; a
@@ -817,7 +870,7 @@ func Generate(dataDir string) (string, []ProxydRoute, error) {
 	}
 
 	// Each message-posting adapter in services/ gets a service:<adapter> key
-	// (spec 5/1); multi-account variants reuse the base adapter's env file.
+	// (spec 5/1); multi-account variants share the base adapter's key.
 	for _, name := range services {
 		base, _, _ := strings.Cut(name, "-")
 		if adapterDaemons[base] {
@@ -851,7 +904,7 @@ func Generate(dataDir string) (string, []ProxydRoute, error) {
 
 	// Fatal on failure: a silent one lets generation succeed while a daemon's
 	// env file goes stale — the `/login` outage class (BUGS C11).
-	if werr := writeEnvFiles(dataDir, env, perDaemon); werr != nil {
+	if werr := writeEnvFiles(dataDir, env, perDaemon, services); werr != nil {
 		return "", nil, fmt.Errorf("write per-daemon env files: %w", werr)
 	}
 	// Same shape one door along: silence leaves every `arizuko <cmd> <inst>`

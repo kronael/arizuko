@@ -403,7 +403,7 @@ func TestFragmentEnvFilesAreGenerated(t *testing.T) {
 		for svcName, svc := range readFragment(t, strings.TrimSuffix(e.Name(), ".yml")).Services {
 			for _, f := range svc.EnvFile {
 				daemon := strings.TrimSuffix(strings.TrimPrefix(f, "../env/"), ".env")
-				if _, ok := daemonKeys[daemon]; !ok {
+				if _, ok := daemonKeys[daemon]; !ok && envFileName(svcName) != "env/"+daemon+".env" {
 					t.Errorf("%s: %s reads env/%s.env, which writeEnvFiles never emits", e.Name(), svcName, daemon)
 				}
 			}

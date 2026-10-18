@@ -12,7 +12,16 @@ Each account gets its own service block in the adapter's compose
 fragment (`template/services/<daemon>.yml`, `include`d verbatim per
 [`27-compose-native-packaging.md`](27-compose-native-packaging.md)) with
 a distinct `container_name`, `env_file`, `LISTEN_URL`, and a distinct
-`CHANNEL_NAME`. `LISTEN_ADDR` stays `:8080` — docker network
+`CHANNEL_NAME`.
+
+The `env_file` is `env/<adapter>-<label>.env`, which `arizuko generate`
+writes for every installed `<adapter>-<label>.yml`: the base adapter's keys,
+except that a key the operator sets in `.env` as `<KEY>_<LABEL>` replaces
+`<KEY>`. Label upper-cased, each non-alphanumeric byte an underscore, so the
+`teled-jynx` token is `TELEGRAM_BOT_TOKEN_JYNX`. Only the adapter's own keys
+(`daemonKeys`) can be overridden; the service identity is not. A variant with
+no override reads the base value, so it polls the same account as the base.
+Each account also needs its own state mount for its offset or cursor. `LISTEN_ADDR` stays `:8080` — docker network
 namespacing makes per-container ports collision-free.
 
 **`CHANNEL_NAME` is what distinguishes accounts, not the auth
