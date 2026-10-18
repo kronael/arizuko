@@ -43,6 +43,17 @@ line; none can be answered from the code.
   ungated host service, or drop the self-transcription claim from the two
   skills that make it.
 
+- `L445` — should an unmentioned comment reach the agent at all? It arrives as
+  `#observe` context today, which is what lets it answer the mention that
+  follows, and it costs a full turn per comment either way.
+
+- `L443` — should a dispatch retry re-run the 👀 mark? Making the mark
+  idempotent hides the retries; stopping the retry needs to know why the first
+  four did not count as done.
+
+- `L442` — should the observed window key on the trigger's chat instead of the
+  folder? Re-keying it changes what every agent on every channel sees.
+
 - `L441` — may a revoke delete every route under the source's JID prefix,
   including rows an operator added by hand? Otherwise a migration must name
   the two rows the renderer no longer produces.
