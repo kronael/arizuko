@@ -24,7 +24,14 @@ for shipped milestones.
   and cuts the bill rather than the coverage. It needs one measurement
   first — whether the eval's cases still pass on haiku, because a case that
   only a larger model answers would turn the gate red for a reason that is
-  not a regression. Measure before adopting. See
+  not a regression. Measure before adopting.
+
+  Two levels, both of which think — haiku 5.5 runs adaptive thinking ON by
+  default at effort `medium`, so the gate loses no reasoning by dropping to
+  it. Set `effort` EXPLICITLY on both levels: haiku 5.5 defaults to `medium`
+  and sonnet 5.5 defaults to `high`, so an unset comparison is not
+  like-for-like. Prices per MTok: haiku 5.5 $0.10/$0.50, sonnet 5.5
+  $2.00/$10.00 — a 20x cut on both halves. See
   `.claude/skills/eval/gates.md` and `anteval/`.
 
 - **Deploy pending** — Phase B+D of 5/5 (invites + chats.is_group),
