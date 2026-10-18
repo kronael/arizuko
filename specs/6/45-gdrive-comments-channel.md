@@ -1,5 +1,5 @@
 ---
-status: draft
+status: partial
 depends:
   [
     27-git-channel,
@@ -20,11 +20,17 @@ the thread — through one adapter, `googd`, that polls the Drive comments API
 with a service-account credential and posts its replies with the same
 credential.
 
-`status: draft`: the owner's framing — a document is a group, a comment thread
-is a topic — holds only in part (§"The owner's framing, tested"), the credential
-is an operator decision (§"Decision 2"), and nine facts the design rests on are
-marked unverified until a probe against a real file measures them
-(§"Unverified"). Nothing here is built.
+`status: partial`: the credential (`googd/token.go`), the JID
+(`chanlib/gdrive_jid.go`), the `gdrive_files` binding and its resource, routd
+handler and CLI are built. The poll loop, the mapper and `Send` are not, googd
+has no compose fragment and cannot start as a container, and the Drive API is
+off on the only project that holds a key — so the channel has nothing to
+deliver and must say so rather than advertise a verb
+(§"Capabilities follow the enabled APIs, never the key's presence"). The
+owner's framing — a document is a group, a comment thread is a topic — holds
+only in part (§"The owner's framing, tested"), and nine facts the design rests
+on are marked unverified until a probe against a real file measures them
+(§"Unverified").
 
 ## Problem
 
@@ -143,10 +149,12 @@ and `permissionId`; the email decides `verb=mention`
 (§"Wire shapes") and shows on the dashboard. Self-drop needs no lookup at all:
 every post carries `author.me`, Google's own answer to "did I write this". gitd
 has to learn its login from `/user` and skips the check without a token
-(`gitd/bot.go:54`, `gitd/server.go:83`) — the gap BUGS `L410` found. Here
-there is no credential-less mode: without the key `Start` returns an error
-and the process exits, so a healthy daemon that can read but not answer cannot
-exist.
+(`gitd/bot.go:54`, `gitd/server.go:83`) — the gap BUGS `L410` found. googd
+does not exit on a bad key. One daemon that exits at boot cycles the whole
+compose project (BUGS `L406`, `L419`), so a key one Google project refuses must
+never take the instance's other daemons down: googd stays up, advertises the
+verbs the probe below earned, and says on `/dash/googd/` why the rest are
+absent.
 
 `GDRIVE_IMPERSONATE=<user@domain>` (domain-wide delegation) is optional and
 reaches only a Workspace domain whose super administrator granted the account
@@ -155,9 +163,43 @@ reads everything that user reads — the owner's call per instance, not the
 default. Unverified: how the editors render a service account's display name
 (§"Unverified").
 
+## Capabilities follow the enabled APIs, never the key's presence
+
+One daemon, one credential, one capability per API the project has enabled.
+googd probes each API in its table before it registers with routd, and the
+answer — not the key's presence — decides what it advertises.
+
+| API    | Scope the JWT carries          | Probe: the call whose failure code is the answer    | What a pass earns                      |
+| ------ | ------------------------------ | --------------------------------------------------- | -------------------------------------- |
+| Drive  | `…/auth/drive`                 | `GET /drive/v3/about?fields=user`                   | the channel's `send_text` and the poll |
+| Sheets | `…/auth/spreadsheets.readonly` | `GET /v4/spreadsheets/<a syntactically invalid id>` | the `sheets` passthrough prefix        |
+
+A `403` whose `reason` is `SERVICE_DISABLED` means the API is off for the
+project; any other answer, `404` included, means the API answered and is on.
+
+A probe that stops at the token exchange proves nothing. Google mints a token
+for a scope whose API is disabled, so a credential check that ends there
+reports a dead project as healthy — the shape BUGS `L369` paid for, where a
+`LookPath` for `ip` passed against a BusyBox that has no `tuntap`.
+
+Two consequences the design turns on:
+
+- **`capsFor` keys on the Drive probe and runs before `Register`.**
+  `chanlib.Run` registers with `opts.Caps` and only then calls `Start`, so a
+  capability derived inside `Start` is advertised wrongly for the window in
+  between. With Drive off, routd must never learn of a `send_text` googd
+  cannot perform.
+- **A disabled API is named, not absent.** `/dash/googd/` carries a row per
+  API: its state, Google's own reason, and the console URL that enables it.
+  Silence here is what sends an operator to debug routd.
+
+The probe re-runs on the credential retry tick, so enabling an API in the
+console returns its capability without a restart.
+
 ## Decision 3 — one verb, the thread reply
 
-`capsFor` advertises `send_text` alone, and `Send` is `replies.create` on the
+`capsFor` advertises `send_text` alone, and only when the Drive probe earned
+it. `Send` is `replies.create` on the
 thread the JID names, with `fields=id`. A send to a file-level JID returns
 `ErrInvalidRequest`, as gitd's does for a repository JID (`gitd/bot.go:104`).
 The adapter never sets `action`, never calls `comments.create`, never edits a
@@ -182,6 +224,42 @@ are Developer Preview and carry no comment tool today; any MCP server over the
 writes fills its slot — its scope list is `drive.readonly` today
 (`auth/surrogate/providers/google.toml:11`), so a connector that edits needs a
 wider scope there; that change belongs to the connector, not to this spec.
+
+### The connector runs on googd's key, through googd
+
+A `[[connector]]` block renders a STATIC secret into a request header
+(`ipc/connector.go`). A service-account access token lives an hour and is
+minted from a signed assertion, so no header template can carry one: the
+connector's endpoint must be the process that holds the key. That process is
+googd. It serves one authenticated passthrough,
+
+    ANY /google/<api>/<path…>   →   https://<api host>/<path…>
+
+and the connector declares NARROW tools over it with the `rest` transport
+(`routd/ext.go`), each one a method and a path template, each gated as
+`mcp:<connector>_<tool>` with the `acl` row's `param=glob` naming the document.
+This is how reading a sheet reaches an agent without a channel: a read is a
+tool call, not a message, so it needs no verb, no JID and no route.
+
+**The authority cost, plainly.** One passthrough reaches every endpoint of
+every API in googd's table, on every file the service account can see. googd
+knows no folder, so the containment is entirely routd's: the declared tool list
+in `connectors.toml` and the `acl` row's glob. That is the boundary every
+connector already has — `template/connectors/github.toml`'s PAT bounds nothing
+per folder either — with one difference that matters. GitHub's token is a
+per-folder `secrets` row, so two folders can hold two identities; one
+service-account key serves the whole instance, so every granted folder reads
+the same Google account's files.
+
+Three bounds keep that cost paid:
+
+- The API table is **compiled in**, not configured. An API nobody added cannot
+  be signed, so enabling Gmail in the console does not silently widen googd.
+- Each API's token carries **only that API's scope**, so the Sheets prefix
+  cannot spend Drive authority even where both are enabled.
+- The passthrough is **not published through proxyd**. It is reachable on the
+  compose network and demands a bearer; `template/services/googd.yaml` carries
+  `/dash/googd/` and nothing else, and that absence is load-bearing.
 
 Reply bodies are plain text: `content` "is used for setting the content" and
 `htmlContent` is output only, so markdown lands as its source characters. The
@@ -314,21 +392,23 @@ anchored comments render reliably.
 
 ## Env (proposed)
 
-| Var                     | Default                      | Note                                                               |
-| ----------------------- | ---------------------------- | ------------------------------------------------------------------ |
-| `ROUTER_URL`            | required                     |                                                                    |
-| `GDRIVE_SA_EMAIL`       | required                     | the service account's `client_email`; the daemon exits without it  |
-| `GDRIVE_SA_PRIVATE_KEY` | required                     | the key's `private_key` PEM, `\n`-escaped; signs the JWT assertion |
-| `GDRIVE_IMPERSONATE`    | unset                        | domain-wide delegation subject                                     |
-| `GDRIVE_POLL_INTERVAL`  | `30s`                        | floor `10s`                                                        |
-| `GDRIVE_API_URL`        | `https://www.googleapis.com` | tests point it at a fake                                           |
-| `CHANNEL_NAME`          | `gdrive`                     |                                                                    |
-| `LISTEN_ADDR`           | `:8080`                      |                                                                    |
+| Var                     | Default                      | Note                                                                                                                                                                                           |
+| ----------------------- | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ROUTER_URL`            | required                     |                                                                                                                                                                                                |
+| `GDRIVE_SA_KEY_JSON`    | unset                        | the downloaded service-account key, whole, as JSON. Unset leaves a running daemon with no capability, never an exit (§"Decision 2 — the credential is a service account, shared per document") |
+| `GOOGD_CONNECTOR_TOKEN` | unset                        | the bearer routd's connector presents to the passthrough; unset refuses every passthrough call                                                                                                 |
+| `GDRIVE_IMPERSONATE`    | unset                        | domain-wide delegation subject                                                                                                                                                                 |
+| `GDRIVE_POLL_INTERVAL`  | `30s`                        | floor `10s`                                                                                                                                                                                    |
+| `GDRIVE_API_URL`        | `https://www.googleapis.com` | tests point it at a fake                                                                                                                                                                       |
+| `CHANNEL_NAME`          | `gdrive`                     |                                                                                                                                                                                                |
+| `LISTEN_ADDR`           | `:8080`                      |                                                                                                                                                                                                |
 
-`compose/compose.go:233` lists which host `.env` keys each daemon's generated
-env file receives; the `googd` entry names `AUTHD_URL`, `AUTHD_SERVICE_KEY`,
-`GDRIVE_SA_EMAIL`, `GDRIVE_SA_PRIVATE_KEY`, `GDRIVE_IMPERSONATE`. The compose
-fragment has the shape of `template/services/gitd.yml` without `SECRETS_KEY`.
+`compose/compose.go` lists which host `.env` keys each daemon's generated env
+file receives; the `googd` entry names `AUTHD_URL`, `AUTHD_SERVICE_KEY`,
+`GDRIVE_SA_KEY_JSON`, `GDRIVE_IMPERSONATE` and `GOOGD_CONNECTOR_TOKEN`. The
+compose fragment has the shape of `template/services/gitd.yml` without
+`SECRETS_KEY`: googd unseals no row, so the key that opens every secret on the
+instance has no reader here.
 
 ## Dashboard
 
