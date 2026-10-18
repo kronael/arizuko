@@ -276,6 +276,48 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
   hits, 56 under `-test`; nine survived verification and were filed separately. Kept so
   the next sweep does not re-report the same ~135.
 
+## L442 — the observed window is keyed on the folder, so repository CI events crowd out the conversation the turn is answering (2026-10-18, open — needs sign-off)
+
+FOUND 2026-10-18 reading the sloth transcript
+`groups/sloth/morha/.claude/projects/-home-node/1107fda3-a67b-4258-bdc1-452c1dd25211.jsonl`,
+the turn triggered by `gh-c4306255487` at 2026-10-18T07:57:41Z.
+
+`routd/prompt.go:34` calls `l.db.ObservedSince(folder, cursor, maxN, maxC)`.
+The key is the FOLDER. The trigger's own chat is
+`github:vumilan/morha/pr/293`, and the repository chat `github:vumilan/morha`
+sits in the same folder, so both feed one capped window.
+
+Measured on that turn: the window held 11 `<observed>` rows. Ten were
+repository CI events — four `workflow_run`, three `workflow_job`, one
+`check_run`, one `check_suite`. One row named the pull request, and it was
+the bare summary `kronael review (commented) on PR #293`.
+
+What the window did NOT carry, while the trigger read "on .python-version:
+But what about all the other oporjects in the tree?":
+
+- the pull request's title, description or diff,
+- the inline review comment the trigger replies to, so the question has no
+  referent,
+- any earlier comment on PR 293.
+
+A cap plus a firehose is a silent context drop. The agent answers a
+follow-up question with the follow-up alone, and nothing reports a miss.
+
+Second fault in the same transcript, recorded here because it shares the
+cause: the two turns before the GitHub one are web-chat turns from
+2026-10-14 and 2026-10-15 in `web:sloth/morha`. The pull-request turn
+resumed that session. So `--resume` handed the agent an unrelated
+conversation while the relevant one stayed out of the window. Same class as
+`topic_fork_context_loss`, and distinct from it: there the session id was
+unusable, here the session is usable and wrong.
+
+**What needs you:** narrowing the window to the trigger's chat changes what
+every agent on every channel sees, so it is a redesign and not a fix. The
+choices are a window keyed on `(folder, chat_jid)` with a folder-wide
+remainder, a per-verb weight that keeps conversation above CI, or a
+thread-scoped session for a pull request. Each costs a different thing and
+`specs/5/24` does not settle it.
+
 ## L441 — revoking a source registered before the seed narrowed leaves its reply routes behind (2026-10-17, open)
 
 FOUND 2026-10-17 while narrowing the seeded route set so the agent answers
