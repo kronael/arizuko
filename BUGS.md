@@ -276,6 +276,58 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
   hits, 56 under `-test`; nine survived verification and were filed separately. Kept so
   the next sweep does not re-report the same ~135.
 
+## L443 — one GitHub comment dispatched the same turn five times, and the 👀 flickered once per dispatch (2026-10-18, open — needs sign-off)
+
+FOUND 2026-10-18 by the end-to-end run on `vumilan/morha` PR 293. One comment,
+`gh-c6252651263`, posted at 17:03:10. routd logged `dispatch run` for that one
+`turn_id` five times:
+
+    17:03:07.091  17:03:12.939  17:03:23.207  17:03:41.870  17:04:17.080
+
+Each line carries the same `folder=sloth/morha topic=pr/293
+turn_id=gh-c6252651263 chat_jid=github:vumilan/morha/pr/293`, and each is
+followed by its own `dispatch capabilities resolved`.
+
+The reaction watcher shows the user-visible cost, polling every five seconds:
+
+    17:03:23  eyes present
+    17:03:30  eyes gone
+    17:04:17  eyes present
+    17:04:57  reply posted, eyes gone
+
+So the mark is set and cleared once per dispatch. A human watching the pull
+request sees the agent start, stop, and start again. The mark is the one signal
+that says a turn is alive, and it currently says the opposite twice.
+
+One reply was produced (`6252670123`), so the dedup claim held at the delivery
+end. The dispatch end did not.
+
+The intervals grow — 5s, 10s, 18s, 35s — which reads as a backoff, so the
+likely shape is a retry whose success is not recorded, not five independent
+triggers. That is a guess from the timing and nothing in this entry rests on
+it.
+
+**What needs you:** whether a dispatch retry should re-run the mark at all.
+Making the mark idempotent hides the retries; making the retry stop needs to
+know why the first four did not count as done. Both change dispatch lifecycle,
+so neither is a fix to make uninvited.
+
+## L444 — gitd posted no progress comment on a live turn: ruled NOT a defect (2026-10-18, closed)
+
+FOUND and CLOSED 2026-10-18 in the same pass. On PR 293 the only comment
+sloth-goth wrote is `6252670123`, `created_at == updated_at`. No `/u23f3` comment
+appeared although gitd advertises `edit`.
+
+The measurement that settles it: the turn's transcript
+`groups/sloth/morha/.claude/projects/-home-node/1107fda3-a67b-4258-bdc1-452c1dd25211.jsonl`
+holds ZERO `submit_status` calls. A turn that streams no status frame has
+nothing to render, so `specs/6/46` producing no comment is correct.
+
+Kept as a closed entry because the absence reads exactly like the defect would,
+and the next person to see it should not have to re-measure. The open question
+`6/46` still owes is whether a turn SHOULD emit a status frame on a channel
+that can edit; that is a product question, not this bug.
+
 ## L442 — the observed window is keyed on the folder, so repository CI events crowd out the conversation the turn is answering (2026-10-18, open — needs sign-off)
 
 FOUND 2026-10-18 reading the sloth transcript
