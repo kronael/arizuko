@@ -346,9 +346,16 @@ func checkNoServiceReadsTheSharedEnv(composeYAML string) error {
 // nothing else. Four spaces is a property of the service above it.
 var serviceKeyRe = regexp.MustCompile(`^  ([a-z][a-z0-9_-]*):\s*$`)
 
-// envFileFor returns the scoped env_file block for a daemon stanza.
+// envFileFor returns the scoped env_file block for a daemon stanza. A name with
+// no key list has no file, and an empty path reads as the project directory, so
+// refuse it here. Adding a stanza without its `daemonKeys` entry is the way in
+// (BUGS `L200`, `L446`).
 func envFileFor(name string) string {
-	return fmt.Sprintf("    env_file:\n      - %s\n", envFileName(name))
+	file := envFileName(name)
+	if file == "" {
+		panic("compose: service " + name + " has no daemonKeys entry, so no env file")
+	}
+	return fmt.Sprintf("    env_file:\n      - %s\n", file)
 }
 
 // containerUID is the uid every daemon and agent container runs as.
@@ -426,7 +433,11 @@ func writeEnvFile(dataDir, name, daemon, label string, env map[string]string, pe
 			fmt.Fprintf(&b, "%s=%s\n", k, v)
 		}
 	}
-	return os.WriteFile(filepath.Join(dataDir, envFileName(name)), []byte(b.String()), 0o600)
+	file := envFileName(name)
+	if file == "" {
+		return fmt.Errorf("compose: service %s has no daemonKeys entry, so no env file", name)
+	}
+	return os.WriteFile(filepath.Join(dataDir, file), []byte(b.String()), 0o600)
 }
 
 // storeService is the compose service name of the store server; a
