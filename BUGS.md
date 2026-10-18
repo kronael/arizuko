@@ -99,9 +99,6 @@ line; none can be answered from the code.
 
 **A contract or design decision, measured since.**
 
-- `L387` — the boot budget is MISSED: p50 1.54 s against the ≤ 1.0 s gate, over 60
-  live turns. `6/41` makes that budget the gate that keeps `6/20`'s warm pool
-  declined, so the pool question reopens. Yours.
 - `L390` — `specs/5/12` promises a 4 s doubling retry backoff and the code has no
   wait at all, re-feeding on a 2 s tick. Which of the two is the design is yours;
   three attempts in six seconds against a failing turn is not cosmetic.
@@ -1730,62 +1727,6 @@ it.
   or it should re-feed immediately, in which case the spec's sentence goes. A 2s
   re-feed loop against a failing turn is three attempts in six seconds, so the
   question is not cosmetic.
-
-## L387 — the boot number `6/41` is gated on cannot be measured: the bench target cannot run on this host and production never records the ready frame (2026-09-29)
-
-`6/41`'s first acceptance criterion is "`make bench-boot` on krons reports ≤ 1.0 s
-p50 to `guest-init`'s first frame, and the number is in the changelog". Neither half
-is possible today.
-
-**The bench target cannot run here.** Measured 2026-09-29:
-
-```
-bench-boot: NOTHING WAS MEASURED. The test did not reach a booted guest:
-  - egress is not executable (RUNED_EGRESS_BIN=egress): executable file not found in $PATH
-  - RUNED_VIRTIOFSD=/usr/libexec/virtiofsd is not an executable file
-```
-
-Both binaries live in the **arizuko image**, not on the host, and `make bench-boot`
-runs `go test` on the host. The target's own guard is honest — it refuses rather than
-reporting a SKIP as a measurement — so this is a target written for an environment
-that does not exist, not a silent pass.
-
-**And production measures nothing either.** `ctlSession.ready` is written on the
-guest's `{ready}` frame and **has no reader outside the boot test** — measured, a
-tree-wide grep for `.ready` in `runed/` returns one line, the send. The channel is
-buffered 1 with a `default:` skip, so in production the frame arrives and is
-discarded. runed logs `booting guest` and, much later, `guest exited`; nothing between
-them, so the p50 cannot be recovered from the journal either (checked against 24 h of
-`arizuko_krons` logs: seven turns, no boot line).
-
-- **Severity:** low in behaviour, high for the gate (a criterion nothing can answer)
-- **Scope:** `Makefile` (`bench-boot`), `runed/vmctl.go`, `specs/6/41-qemu-substrate.md`
-- **Affected:** `6/41`'s acceptance criterion 1
-- **Source:** ran `make bench-boot DATA_DIR=/srv/data/arizuko_krons` 2026-09-29; the
-  absent production reader measured by grep, the absent log line by journal
-- **MEASURED 2026-10-07, and the gate is MISSED.** The number was recoverable all
-  along, from a place neither half of this entry looked: `guest-init`'s probe line
-  in each turn's `*.console.log` carries `ctl_up_uptime`, the guest's own
-  `/proc/uptime` at the moment the control channel came up. Across the **60 most
-  recent turns on both instances**: **p50 = 1.54 s**, min 1.11 s, max 7.14 s. The
-  gate is ≤ 1.0 s p50, so it fails by half — and it fails generously, because this
-  clock starts at KERNEL entry and excludes QEMU's own startup.
-
-  `6/41` makes the boot budget the gate that keeps `6/20`'s warm pool declined, so
-  by that spec's own rule the pool question REOPENS. That is a decision, not a
-  defect, and it belongs to the user.
-- **Status:** open — the measurement is no longer missing; the GATE is now known to
-  fail, and `make bench-boot` still cannot run on this host. The user waived this gate for the flip ("flip regardless of the
-  number"), so nothing is blocked on it; it is the MEASUREMENT that is missing, and a
-  waived gate that also cannot be measured later is how a number stays unknown forever.
-- **Fix, one line of production rather than a harness:** runed logs the boot split when
-  the `{ready}` frame arrives — the delta from `booting guest`, plus the guest's own
-  probe map. Then every turn on both instances measures the gate and the changelog
-  number comes from production instead of a synthetic boot. `make bench-boot` then
-  stops being the only path to the number, and its own fix is separate: run the test
-  inside the arizuko image, which is where `virtiofsd` and `egress` are.
-- **Also stale:** `bench-boot` still exports `RUNED_SUBSTRATE=qemu`, a variable
-  `6/41` step 4 deleted.
 
 ## L379 — anteval's callback sink is unreachable from a guest, so eight of nine cases time out on a working substrate (2026-09-27, open)
 

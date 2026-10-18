@@ -129,6 +129,76 @@ Tunables: `RUNED_GUEST_SMP` (2), `RUNED_VSOCK_PORT_BASE` (5555),
 `RUNED_VM_DIR` (`<data>/vms`), `RUNED_BOOT_TIMEOUT` (30s),
 `RUNED_REAP_GRACE` (5s).
 
+The machine uses ACPI microvm with modern virtio-MMIO transports and a shared
+memfd bound through `memory-backend=mem`. ACPI supplies device discovery and
+poweroff. The kernel command line uses `loglevel=5`, which retains warnings
+and errors. The pinned kernel uses LZ4 compression.
+
+PID 1 is the static Go `guest-init` binary in the initrd. The release rootfs
+supplies the Debian/Node userspace and agent tools. Each turn uses that rootfs
+read-only with a temporary writable overlay.
+
+### Boot timing measures the first ready frame
+
+Production logs `guest ready` once per turn with `boot_ms` and the guest's probe
+map. A monotonic host clock starts immediately before QEMU process start and
+stops at the first decoded ready frame. This frame precedes root assembly and
+agent startup. Guest uptime excludes QEMU startup and measures a different
+interval.
+
+`make bench-boot` compares q35 and microvm in alternating pairs through the
+production argument renderer. It uses the release image's tools, an owned
+internal network and test database, and private process and mount namespaces.
+It checks boot poweroff, both visible pre-control failures, and normal, Kill,
+and cancelled turns. The turn proof checks two CPUs, stdin, steering, MCP,
+UID 1000 writes, read-only root, the final 1 MiB shared write, proxy policy,
+blocked direct traffic, zero host-received guest DNS packets, and cleanup.
+
+The untraced run on 2026-10-18 used source
+`8649d24d0c257079112fd913eb1d00bc48de9f4a`, QEMU 9.0.2, virtiofsd 1.10.1,
+two CPUs and 2 GiB per guest. This command produced all 40 samples:
+
+```sh
+env -u GOROOT PATH=/home/onvos/sdk/go1.27.2/bin:$PATH make bench-boot \
+  DATA_DIR=/srv/data/arizuko_krons \
+  KERNEL_DIR=/srv/data/arizuko_krons/images/kernel-6.1.112-lz4-5551dd2fac39 \
+  ROOTFS_DIR=/srv/data/arizuko_krons/images/rootfs-90121c059c96 \
+  BENCH_MODE=microvm BENCH_PAIRS=20 \
+  BENCH_ARTIFACT_DIR=/home/onvos/app/arizuko/.qemu-startup/tmp/phase6-startup-20261018-pairs
+```
+
+| Machine                   | Samples | First ready p50 | First ready p90 |
+| ------------------------- | ------- | --------------- | --------------- |
+| q35                       | 20      | 1263 ms         | 1354 ms         |
+| ACPI microvm, modern MMIO | 20      | 1085 ms         | 1157 ms         |
+
+Independent calculations use the logged integer milliseconds and nearest-rank
+p90. Microvm was faster in 19 of 20 pairs. The median paired saving was
+206.5 ms. The ratio of medians gives a 14.09% reduction. All functional and
+cleanup assertions passed without skips. Both owned containers and the owned
+network were absent after the run.
+
+Host load changed from 2.50/1.63/4.03 to 2.75/1.94/3.96 during the run.
+CPU pressure `some avg10` changed from 6.67% to 18.15%. Memory pressure
+`some avg10` changed from 0% to 0.09%, with full pressure at 0%.
+I/O pressure `some avg10` stayed at 0%. These are shared-host measurements.
+
+Three separate turn observations detected the probe agent's entrypoint marker
+at 1300, 1200 and 1100 ms from host `Run`, for normal, Kill and cancel.
+The host polls every 50 ms. These observations measure probe startup, not model
+response latency. They do not form a latency distribution.
+
+Retained raw samples, consoles, host pressure, independent calculations and
+parent acceptance:
+`/home/onvos/.claude/projects/-home-onvos-app-arizuko/ship/qemu-startup-proof-20261018/pairs`.
+The initial native smoke evidence lives in the sibling `smoke` directory.
+Source evidence:
+[boot test](qemu_boot_test.go), [turn proof](qemu_turn_boot_test.go),
+[argument checks](qemu_boot_profile_test.go), and [control tests](vmctl_test.go).
+The real vsock loopback CID test does not prove isolation between two real VMs.
+Live guest-observable smoke and abrupt runed-crash recovery remain separate
+acceptance gaps.
+
 ## Health signal
 
 `GET /health` returns 200 once the process is up. Red flag: spawns stuck

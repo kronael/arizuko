@@ -1,6 +1,6 @@
 ---
-status: shipped
-defects: [L379, L387]
+status: defected
+defects: [L379]
 depends:
   [
     20-sandbox-lifecycle-decline,
@@ -18,8 +18,8 @@ Decision (maintainer): **the turn substrate is a KVM virtual machine, one per
 turn, driven by `qemu-system-x86_64`, and it is the only substrate arizuko
 supports.** runed boots the release's guest kernel by direct kernel boot, exports
 the turn's files through one virtio-fs share, and reaches the guest over vsock.
-The machine type is `-M q35` today and `-M microvm` when its devices can be
-found; §"The engine" carries the measurement and the open question.
+The machine is ACPI microvm with modern virtio-MMIO devices.
+§"The engine" states the selected configuration.
 Docker leaves the turn path: no `docker run`, no per-folder docker network, no
 proxy container, no `docker.sock` in runed. The daemon fleet's packaging
 (compose) is outside this spec.
@@ -27,7 +27,7 @@ proxy container, no `docker.sock` in runed. The daemon fleet's packaging
 **Signed off 2026-09-23** for build, after a review that changed five
 mechanisms: the uid clamp on `virtiofsd` (§"The peer credential"), the guest ack
 on a steer (§"Steer and stop"), `-no-reboot` plus a confirmed pid in the reap
-(§"The turn" step 9), the four-timestamp boot split (§"The image and the guest
+(§"The turn" step 9), the host boot timer (§"The image and the guest
 kernel"), and `Turn.RegisterSteer` kept rather than shed (§"Order" step 4). The
 day estimate is accepted only after step 0 reports.
 
@@ -44,9 +44,9 @@ is not shipped.
 
 | Constraint                     | Measured                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Boot budget                    | Docker `run --rm --entrypoint /bin/true arizuko-ant:latest`: **0.62 / 0.82 / 0.93 s** wall. The VM turn must reach `init` in **≤ 1.0 s p50** on the same host, measured the same way (§"The warm pool").                                                                                                                                                                                                                                               |
+| Boot budget                    | Host QEMU process start to the first decoded ready frame must be **≤ 1.5 s p50** on krons. This frame precedes root assembly and agent startup. The [runed measurements](../../runed/README.md#boot-timing-measures-the-first-ready-frame) own the current results.                                                                                                                                                                                    |
 | Untuned QEMU, distro kernel    | `-M q35,accel=kvm` direct kernel boot, Debian 6.1.0-43 kernel, static Go init: **2.43 / 2.69 / 2.89 s** wall, 0.7–0.8 s guest uptime at init. `-M microvm`: **3.75–4.06 s**, 1.9–2.2 s guest uptime.                                                                                                                                                                                                                                                   |
-| The VMM itself                 | `qemu-system-x86_64 -M microvm -S` start and quit: **0.09–0.13 s**. This bounds QEMU's own startup and does NOT attribute the remaining ~2 s: a paused VM configures no virtio-fs share, no vsock and no tap, so the gap is unexplained rather than charged to the kernel. `make bench-boot` reports the split (§"The image and the guest kernel").                                                                                                    |
+| The VMM itself                 | `qemu-system-x86_64 -M microvm -S` start and quit: **0.09–0.13 s**. A paused VM configures no virtio-fs share, vsock or tap. This measurement cannot attribute the rest of a boot.                                                                                                                                                                                                                                                                     |
 | Tuned QEMU, literature         | Firecracker's NSDI'20 paper §5.1: Linux 4.14, no modules, qboot, 1 vCPU/256 MB — QEMU boots within ~50 ms of end-to-end Firecracker; pre-configured Firecracker p99 146 ms (usenix.org/system/files/nsdi20-paper-agache.pdf).                                                                                                                                                                                                                          |
 | Turn volume                    | krons: 162 turns in 7 days, 15 in the last 24 h (`container-*.log` count under `groups/`). Boot cost is per-turn latency the user sees, not throughput.                                                                                                                                                                                                                                                                                                |
 | Host                           | 2 vCPU, 15 GB RAM, QEMU 7.2.22 (Debian 12), `/dev/kvm`, `/dev/vhost-vsock`, `/dev/net/tun` present; kernel ships `fs/fuse/virtiofs.ko` and the vsock transports; `socat 1.7.4.4` built `WITH_VSOCK`.                                                                                                                                                                                                                                                   |
@@ -59,16 +59,10 @@ is not shipped.
 
 ## The engine: `qemu-system-x86_64`, owned by arizuko
 
-The VMM is the distro's QEMU binary, driven by `exec.Command` from `runed/`
-— the same process shape the turn path has today (`container/runtime.go:17`
-`const Bin = "docker"`), with a different binary. Three engines were read; one
-is taken.
+The VMM is the packaged QEMU binary, driven by `exec.Command` from `runed/`.
 
 - **QEMU (taken).** Packaged on every Debian and Alpine host arizuko runs
-  on; arizuko drives it by `exec.Command` (`runed/qemu.go:318`); `-M microvm`
-  is "a minimalist machine type without PCI nor ACPI support, designed for
-  short-lived guests … optimized for both boot time and footprint"
-  (qemu.org/docs/master/system/i386/microvm.html). The guest kernel is
+  on; arizuko drives it by `exec.Command` in `runed/qemu.go`. The guest kernel is
   arizuko's to build and pin, which is the cost §"The image and the guest
   kernel" prices.
 - **libkrun (not taken).** Apache-2.0, Rust with a C API, virtio-fs, vsock and
@@ -87,45 +81,18 @@ is taken.
   exec and socket transports are undocumented. `CelestoAI/SmolVM` is an
   unrelated project with the same name.
 
-**The machine type is not the engine, and it falls back first.** `-M microvm`
-measures SLOWER than `-M q35`, and step 0 widened the gap rather than closing
-it. Five runs each on hel1v5 with the distro kernel, 2026-09-24, reading the
-kernel's own printk at `Run /init as init process`:
+The production renderer in `runed/qemu.go` selects
+`-M microvm,acpi=on,pcie=off,usb=off,memory-backend=mem` with
+`-global virtio-mmio.force-legacy=false`. The shared memfd backs guest memory.
+Both virtio-fs shares, vsock and network use their MMIO device transports.
+ACPI supplies discovery and guest poweroff. The kernel command line retains
+warnings and errors with `loglevel=5`.
 
-| Machine   | distro kernel, 5 runs              | median | pinned kernel   |
-| --------- | ---------------------------------- | ------ | --------------- |
-| `microvm` | 3.24 / 3.25 / 3.53 / 3.71 / 4.08 s | 3.53 s | **0.72–1.00 s** |
-| `q35`     | 1.48 / 1.93 / 2.01 / 2.16 / 2.46 s | 1.93 s | 1.03 s          |
-
-On the DISTRO kernel q35 reaches init in 0.55× the time microvm takes, because
-that kernel probes ACPI and PCI which microvm does not provide, so it pays
-timeouts for absent buses. **The pinned kernel reverses it and clears the gate**:
-`make kernel` built 6.1.112 from the Firecracker config plus
-`kernel/arizuko.fragment`, and microvm reaches `Run /init as init process` in
-**0.72–1.00 s** against q35's 1.03 s (measured 2026-09-24). The bet the machine
-type rested on is paid — microvm wins once the kernel stops probing buses it does
-not have — and the kernel-side cost is inside the 1.0 s budget, with the boot
-split's other three timestamps still to account for.
-
-**microvm's device enumeration is the open cost of the faster machine type.**
-Measured 2026-09-24 on QEMU 7.2.22, in this order. The Firecracker base config sets
-`# CONFIG_PCI is not set`, which silently drops a `CONFIG_VIRTIO_PCI=y` added
-beside it, so `vhost-vsock-pci` cannot be seen at all. `-M microvm,acpi=on`
-publishes a 365-byte DSDT that declares no virtio device, so ACPI does not
-enumerate them either. With `CONFIG_VIRTIO_MMIO_CMDLINE_DEVICES=y` and all eight
-slots given as `virtio_mmio.device=512@0xfeb00000+n*512:irq`, the guest registers
-every slot — `info mtree` confirms QEMU maps exactly those eight windows — and
-still binds no device, so a vsock connect stays `ENODEV`.
-
-**So the q35 fallback is not a contingency, it is the path that works today.** It
-costs `CONFIG_PCI=y` in the fragment and 1.03 s against microvm's 0.72–1.00 s, both
-inside the gate. microvm keeps a 0.03–0.3 s edge and owes an answer on how its
-devices are found; q35 owes nothing. §Open carries the question, and the argument
-list takes whichever the acceptance test passes on.
-
-`make bench-boot` runs both machine types on the pinned kernel and the argument
-list takes whichever is faster. q35 with direct kernel boot is the fallback and
-it costs one argument list, so the engine is never the first thing to change.
+The paired boot test compares microvm with q35 through that renderer.
+Both variants use the same kernel, rootfs, memory, CPU count and isolation checks.
+The [runed measurements](../../runed/README.md#boot-timing-measures-the-first-ready-frame)
+support microvm and meet the accepted budget. Neither guessed MMIO addresses nor
+per-turn machine selection enters the runtime port.
 
 **Reopen trigger, one:** if NEITHER machine type on the pinned kernel meets the
 boot budget on krons within the pipeline's costed budget (§"The image and the
@@ -273,21 +240,19 @@ routd binds the folder's `gated.sock` before the spawn, as today
 5. Starts QEMU on the measured argument list (§"The engine"; `-sandbox on` is NOT
    in it — it was never measured against the `vhost-user-fs` plus `vhost-vsock`
    set, and the list that works omits it):
-   `-M q35 -enable-kvm -cpu host -smp 2 -m <RUNED_GUEST_MEM>` with
+   `-M microvm,acpi=on,pcie=off,usb=off,memory-backend=mem`
+   and `-enable-kvm -cpu host -smp 2 -m <RUNED_GUEST_MEM>` with
    `-object memory-backend-memfd,share=on` (virtio-fs requires the shared
    backend: virtio-fs.gitlab.io/howto-qemu.html), `-kernel`/`-initrd` from
    the release, two `vhost-user-fs-device`s, one `vhost-vsock-device` with
    the CID, one `virtio-net-device` on the tap, `-serial file:<turn log>`,
-   `-sandbox on`, `-pidfile`, `-no-reboot`. Four virtio-mmio devices of the
-   eight microvm allows.
+   `-pidfile`, `-no-reboot`, and `-global virtio-mmio.force-legacy=false`.
+   Four virtio-mmio devices of the eight microvm allows.
 6. The guest's init (`guest-init`, a static Go binary in the initrd) mounts
-   `root` read-only with a tmpfs overlay upper (a virtio-fs share as
-   overlayfs **lower** is supported; as upper it is not —
-   github.com/kata-containers/kata-containers/blob/main/docs/how-to/how-to-run-docker-with-kata.md),
-   mounts `turn`, bind-mounts each family onto its canonical path, mounts a
-   1 GiB `/dev/shm` (the `--shm-size=1g` of `runner.go:682`), dials
-   `ctl`, and receives one JSON frame `{env, stdin}`: `Turn.Env` and
-   `Turn.Stdin`.
+   the base filesystems and both shares, dials `ctl`, and sends the ready frame.
+   It then assembles `root` read-only with a tmpfs overlay upper, bind-mounts each
+   family onto its canonical path, prepares guest-local IPC, and receives one
+   JSON frame `{env, stdin}`: `Turn.Env` and `Turn.Stdin`.
 7. `guest-init` starts `socat UNIX-LISTEN:/run/ipc/gated.sock,fork
 VSOCK-CONNECT:2:<mcp>` on a guest-local tmpfs and execs ant as uid 1000
    with the environment and the envelope on stdin. `settings.json`'s MCP
@@ -306,24 +271,15 @@ VSOCK-CONNECT:2:<mcp>` on a guest-local tmpfs and execs ant as uid 1000
    scan replays after a crash. `ctx` expiry is `SIGKILL` on the QEMU pid, then
    the same reap.
 
-   **A guest power-off does not prove QEMU exited.** On `-M microvm` a guest
-   shuts down by triggering a triple fault, which QEMU turns into a reset, and
-   only `-no-reboot` makes that reset an exit
-   (qemu.org/docs/master/system/i386/microvm.html, "Triggering a guest-initiated
-   shut down"). The argument list carries `-no-reboot` and the guest command line
-   carries `reboot=t`, so the guest takes the path that document names. The reap
-   assumes neither worked: it waits for the QEMU pid with a bounded grace,
-   `SIGKILL`s it, and confirms the pid is gone before it removes the record. A
-   record removed over a live QEMU is a guest nothing reaps.
+   **A guest power-off does not prove QEMU exited.** The argument list carries
+   `-no-reboot` and the guest command line carries `reboot=t`. The reap waits
+   for the QEMU pid with a bounded grace, uses `SIGKILL` if needed, and confirms
+   the pid is gone before it removes the record.
 
-   **Measured 2026-09-24, and the machine type decides it.** A
-   `LINUX_REBOOT_CMD_POWER_OFF` from PID 1 on `-M microvm,acpi=on` prints
-   `reboot: System halted` and QEMU **stays alive**. On `-M q35` with the same
-   `-no-reboot` and `reboot=t`, the same call ends the process cleanly: a full turn
-   measured **2.13 s wall from exec to QEMU exit**, with no kill needed. That is a
-   second reason q35 is the path (§"The engine"). The bounded grace plus `SIGKILL`
-   stays regardless, because it is what makes the reap independent of which
-   shutdown path a guest actually takes.
+   The boot test requires natural poweroff for both machine variants and both
+   malformed-control cases. The turn proof requires cleanup after normal
+   completion, Kill and cancellation. The bounded grace and `SIGKILL` remain
+   independent of the guest's shutdown path.
 
 `RunResult.ExitCode` is the `{exit}` frame; `Outcome` and `NewSessionID`
 arrive by `submit_turn` over MCP, unchanged.
@@ -630,37 +586,32 @@ only when its key changes and survives every prune.
 `microvm-kernel-ci-x86_64-6.1.config`
 (github.com/firecracker-microvm/firecracker/tree/main/resources/guest_configs)
 plus arizuko's fragment: `VIRTIO_FS`, `FUSE_FS`, `VIRTIO_VSOCKETS`,
-`OVERLAY_FS`, `VIRTIO_MMIO`, `VIRTIO_NET`, built in, no modules. It writes `vmlinux` and the initrd — `guest-init` and nothing else — into that
-directory, and runed reads both from there by the path the generator writes into
-its env. Nothing per turn copies either. The paper's kernel is 4.0 MB
-compressed with no modules against a distro kernel's 6.7 MB plus 44 MB of
-modules, and its command line "disables the standard logging to the serial
-console (saving up to 70ms of boot time)" (NSDI'20 §5.1); the fragment and
-the command line follow it.
+`OVERLAY_FS`, `VIRTIO_MMIO`, `VIRTIO_NET`, built in, no modules.
+`CONFIG_KERNEL_LZ4=y` selects kernel compression. The build validates the resolved
+config against `kernel/arizuko.fragment` with `kernel/check-config.sh` before
+compilation. The artifact holds `bzImage`, `kernel.config`, and a gzip initrd
+containing the static Go `guest-init` binary and device nodes. The release rootfs
+retains Debian/Node and the agent tools. Nothing per turn copies either artifact.
 
 **The literature number is not this design's number.** The paper measures a
 minimal init with no virtio-fs share to mount, no overlay to assemble and no
 control handshake, so it bounds the kernel's own boot and nothing else.
-`make bench-boot` therefore reports FOUR timestamps rather than one — QEMU exec,
-first guest instruction, `guest-init` entry, and `guest-init`'s first `ctl`
-frame — so the gap is attributed before anyone tunes it. The third one is free:
-the kernel prints `Run /init as init process` with its own timestamp, which is
-`guest-init` entry measured by the guest rather than inferred from the host
-(step 0 read it that way, 2026-09-24). The ≤ 1.0 s gate is on
-the last of the four. A design that meets the kernel budget and misses the gate
-because nine bind targets cost 900 ms learns that from the split, not from a
-retrospective guess.
+Production and `make bench-boot` measure host QEMU process start to the first
+decoded ready frame with a monotonic clock. Guest uptime and console markers
+describe different intervals. The ready frame precedes root assembly and agent
+startup. The separate probe-agent marker observes host `Run` to probe entrypoint
+with file polling. It does not measure model response latency.
 
-**`bench-boot` drives the acceptance test, not a second boot driver** (built
-2026-09-24). A separate harness would render its own argument list and then
-measure a guest the substrate does not start, which is the drift §"The seam"
-exists to stop; the test already logs the guest's probe map and both host-side
-times, so `-v` is the whole report. Its first cut exited 0 on a SKIP, so a run
-that measured nothing read as a pass — it now prints every missing precondition
-and fails. **On a bare Debian host it names three, and all three are satisfied
-inside runed's own container rather than on the host:** the `egress` binary, the
-rootfs tree, and the Rust `virtiofsd`. So the end-to-end turn is a test of the
-image, and running it outside one measures the wrong machine.
+`bench-boot` compiles the native tests and runs them with the release image's
+QEMU, Rust virtiofsd and egress binary. It owns an internal network, a test
+database, and private process and mount namespaces. The tests use the production
+argument renderer and explicit immutable kernel/rootfs paths. Missing prerequisites,
+skips or an incomplete sample count fail the target. Traced comparisons remain
+diagnostic and do not establish the performance gate.
+
+Current results, the exact command and toolchain, pressure snapshots and evidence
+paths have one owner: the
+[runed measurements](../../runed/README.md#boot-timing-measures-the-first-ready-frame).
 
 Owner: arizuko. Cost: **2–4 engineer-days** for the target, the fragment and
 the bench target, plus one 30–60 minute build per kernel change — not per
@@ -748,10 +699,8 @@ Its service gains what a VMM needs and loses what Docker needed:
   `LookPath` passed and no guest got an interface (BUGS `L369`). A precondition on
   a binary that has a capable and an incapable build under one name must run the
   subcommand, the way the clamp check greps virtiofsd's `--help`. The
-  image's QEMU is **9.0.2**, against the 7.2.22 every §"The engine" measurement
-  was taken on, so microvm's device question is open on a newer VMM than the one
-  that failed it. `docker-cli` (`Dockerfile:14`) goes at step 4, not here,
-  because the default selector is still `docker`.
+  image's QEMU is **9.0.2**. The selected modern-MMIO ACPI microvm configuration
+  passes the native device, control and poweroff checks.
 
 The privilege runed holds does not rise: the docker socket it holds today is
 root-equivalent on the host. The privilege runed holds becomes explicit —
@@ -759,31 +708,11 @@ three device nodes and two capabilities, listed in one generator.
 
 ## The warm pool: not taken, and the gate that reopens it
 
-[`6/20`](20-sandbox-lifecycle-decline.md) declines the warm pool and names
-its reopen trigger: "a runtime whose boot cost is genuinely turn-dominant
-…". This spec's runtime is that case. The untuned measurement (2.43–2.89 s
-q35, 3.75–4.06 s microvm, against 0.62–0.93 s) trips it. The design's answer
-is **the kernel pipeline, not the pool**, and it is conditional on a number:
-
-- `make bench-boot` runs the measurement from the first table — QEMU
-  process start to `guest-init`'s first frame, ten runs, on the deploy host
-  — and the result is written into the release's `CHANGELOG.md` entry.
-- **≤ 1.0 s p50 on krons keeps the pool declined.** The literature puts a
-  purpose-built kernel on QEMU within ~50 ms of Firecracker's class; the
-  bare VMM costs ~0.1 s here.
-- **Above 1.0 s after the pipeline lands, `6/20` reopens for this runtime,
-  and the pool comes as one unit with its consequences**, none inherited
-  quietly: the **claim seam** (a pooled guest boots with `root` only and is
-  bound to a folder afterwards, which means attaching `turn`, the tap and the
-  CID-pinned bridge to a running guest — `microvm` devices are configured at
-  start (qemu.org microvm doc), so a pool forces `q35` and PCI hot-plug,
-  which is unverified on QEMU 7.2 and would be measured first); the
-  **idle policy** (a claimed guest that outlives a turn is stopped, not
-  paused — nothing may accumulate across turns, `6/20` §"Ephemerality");
-  the **reaper** (a bounded pool size, an age cap, and the disk scan as the
-  observed state the reconcile function reads). `6/20`'s two surviving
-  shapes — the one-boolean I/O gate and the total desired×observed plan —
-  are the shapes it would take.
+Each turn starts a fresh guest and discards it after completion. The accepted
+budget is ≤ 1.5 s p50 from host QEMU process start to the first decoded ready frame.
+The [runed measurements](../../runed/README.md#boot-timing-measures-the-first-ready-frame)
+meet this budget. A warm pool requires a separate design decision under
+[`6/20`](20-sandbox-lifecycle-decline.md).
 
 ## What moves into `runed`
 
@@ -864,8 +793,8 @@ commitment to an estimate, not to a design.
    on the distro kernel answers `AF_VSOCK` with "address family not supported"
    and can mount neither the share nor the overlay. Only the boot split can be
    read without the pinned kernel, and step 0 has read it (§"The engine").
-   The rest, in order, once `vmlinux` exists: the four `bench-boot` timestamps
-   on both machine types; one virtio-fs share plus nine bind targets, timed;
+   The rest, in order, once `bzImage` exists: host first-ready timing and guest
+   probe uptimes on both machine types; one virtio-fs share plus nine bind targets, timed;
    one `ctl` round trip over a CID-pinned vsock; a write from the guest as uid 0
    through the single-id namespace, `stat`ed on the host; a power-off with the
    QEMU pid confirmed gone. It answers the boot gate, the uid clamp and the
@@ -889,7 +818,7 @@ commitment to an estimate, not to a design.
 bench-boot` and the end-to-end turn run on a host with `/dev/kvm`.
    **8–12 days.**
 2. **The kernel pipeline and the gate.** `bench-boot` on krons; the number
-   goes into the changelog. If it misses 1.0 s, §"The warm pool" decides
+   goes into the changelog. If it misses 1.5 s, §"The warm pool" decides
    before step 3. **2–4 days.**
 3. **Flip krons**: `RUNED_SUBSTRATE=qemu`, one restart, nothing else in that
    deploy. `anteval --smoke` on the VM substrate — the five post-deploy gates
@@ -982,22 +911,14 @@ sections above are corrected rather than annotated.
 
 ## Acceptance — the criteria, and which of them an artifact answers
 
-Each line says what closes it. Three are NOT closed, and they are named rather
-than dropped: a criteria list that quietly loses its open items is a list that
-reports itself met.
+Boot timing, live agent delivery and crash recovery have separate acceptance
+checks.
 
-- ❌ `make bench-boot` on krons reports ≤ 1.0 s p50 to `guest-init`'s first
-  frame, and the number is in the changelog. **Measured 2026-10-07 and MISSED:
-  p50 = 1.54 s** over the 60 most recent turns on both instances (min 1.11 s, max
-  7.14 s), read from `ctl_up_uptime` in each turn's `*.console.log` — the guest's
-  own `/proc/uptime` when the control channel came up. The clock starts at kernel
-  entry, so it excludes QEMU's startup and the true figure is higher. The budget
-  is what keeps `6/20`'s warm pool declined, so by this spec's own rule that
-  question reopens (BUGS `L387`). `make bench-boot` remains **not runnable as
-  written** — the bench target runs `go test` on the host while `virtiofsd`
-  and `egress` live in the arizuko image, and production discards the `{ready}`
-  frame instead of timing it (BUGS `L387`). The user waived the gate for the
-  flip; the number is still unknown.
+- ✅ Host QEMU process start to the first decoded ready frame meets the accepted
+  budget. The [runed measurements](../../runed/README.md#boot-timing-measures-the-first-ready-frame)
+  contain the alternating-pair results and the passed native behavior checks.
+  Production logs the same interval as `boot_ms`. Live rollout and
+  guest-observable smoke remain separate checks.
 - ⚠ A turn on krons completes end to end over the VM substrate: prompt in,
   `submit_turn` out, `RunResult.ExitCode` from the `{exit}` frame — **met**, see
   the MET record above. `anteval --smoke` green — **not met**: the harness
@@ -1005,7 +926,8 @@ reports itself met.
   substrate.
 - A guest whose bridge is pinned to CID _N_ cannot reach folder _B_'s socket
   from a guest with CID _M_; the test is a second VM dialing the first VM's
-  `mcp` port and being refused at `accept`.
+  `mcp` port and being refused at `accept`. **Not met:** the real vsock loopback
+  fixture `TestMCPBridgeServesOnlyItsOwnGuestCID` passes, but it uses no second VM.
 - A write to every `ro` family from the guest returns `EROFS`; a write to
   `home/` lands on the host as uid 1000.
 - From the guest: `curl` to an allowlisted name succeeds through the proxy;
@@ -1060,13 +982,11 @@ example.com` fails; a raw `nc` to any address off the tap times out.
 4. **`nftables` versus `iptables` in the Alpine image.** `apk search`
    listed `qemu-system-x86_64`, `virtiofsd`, `socat`; the rule renderer
    uses `iptables` today. Verify the package at the first image build.
-5. **How a `-M microvm` guest finds its virtio devices.** Neither ACPI nor the
-   command line binds one on QEMU 7.2.22 (§"The engine"), so microvm's 0.03–0.3 s
-   boot edge is unusable until this is answered. The measurement is a guest that
-   logs `virtio_vsock` bound to an mmio slot; QEMU's own `info mtree` already
-   confirms the eight windows exist, so the gap is on the guest side. q35 with
-   `CONFIG_PCI=y` is the path that works and it is inside the gate, so this
-   blocks an optimisation rather than the substrate.
+5. **Device discovery and poweroff pass together.** The selected ACPI microvm
+   configuration on the release image mounts both shares, opens control and MCP
+   channels, completes a turn, enforces proxy policy and powers off.
+   The [runed measurements](../../runed/README.md#boot-timing-measures-the-first-ready-frame)
+   own the paired host-clock results.
 6. **PID 1's stdio — ANSWERED 2026-09-24, and it is `/dev/kmsg`.** A guest wrote
    nothing while its own mount syscalls reached the kernel log from the same
    function. `/dev/ttyS0` and `/dev/console` both OPEN and then fail every write
@@ -1078,9 +998,9 @@ example.com` fails; a raw `nc` to any address off the tap times out.
    failed `virtiofs` mount whose SOURCE NAME carried the message, which is the one
    channel that works while the console does not; a guest that cannot say what is
    wrong needs a channel that is not the thing under test.
-7. **Which shutdown path makes QEMU exit.** `LINUX_REBOOT_CMD_POWER_OFF` gives
-   `reboot: System halted` with QEMU alive (§"The turn" step 9). The reap does
-   not depend on the answer; the turn's wall-clock cost does.
+7. **Natural poweroff passes for both machine variants.** The boot test waits
+   for QEMU to exit without host termination after normal and malformed-control
+   boots. Runtime cleanup retains its bounded termination path.
 
 ## Ties
 

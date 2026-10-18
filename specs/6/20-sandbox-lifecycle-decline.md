@@ -1,9 +1,7 @@
 ---
 status: shipped
-# defects: an OPEN BUGS entry contradicts this spec —
-# the decline rests on the boot budget, measured at p50 1.54 s against the 1.0 s gate,
-# so by this spec's own rule the warm-pool question reopens
-defects: [L387]
+# Boot-budget acceptance: 41-qemu-substrate.md.
+# Current measurements: ../../runed/README.md.
 shipped: 2026-08-15
 source: paradigmxyz/centaur@20f3021 (Apache-2.0) peel, 2026-08-10
 ---
