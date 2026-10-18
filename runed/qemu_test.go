@@ -16,14 +16,8 @@ import (
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 )
 
-// The argument list is the substrate's whole machine, and every value in it was
-// measured on hel1v5 on 2026-09-24 (spec 6/41 §"The engine", §"The turn" step 5).
-// So the expectation is spelled out rather than derived from qemuArgs: a test that
-// asked the renderer what it renders would pass any change to it, including the
-// ones that are known not to work — microvm (which binds no virtio device on QEMU
-// 7.2.22, so vsock stays ENODEV), a missing -numa node (which breaks the share
-// silently), or a dropped -no-reboot (without which a guest power-off leaves QEMU
-// alive).
+// The measured modern MMIO machine must bind shared memory, expose both shares,
+// preserve addressing and egress, and support guest poweroff.
 func TestQemuArgsRendersTheMeasuredMachine(t *testing.T) {
 	got := qemuArgs(qemuSpec{
 		Kernel: "/srv/images/k/bzImage", Initrd: "/srv/images/k/initrd.gz",
@@ -34,13 +28,13 @@ func TestQemuArgsRendersTheMeasuredMachine(t *testing.T) {
 		GuestIP: "10.97.0.17", HostIP: "10.97.0.18",
 	})
 	want := []string{
-		"-M", "q35",
+		"-M", "microvm,acpi=on,pcie=off,usb=off,memory-backend=mem",
 		"-enable-kvm",
 		"-cpu", "host",
 		"-smp", "2",
 		"-m", "2G",
 		"-object", "memory-backend-memfd,id=mem,size=2G,share=on",
-		"-numa", "node,memdev=mem",
+		"-global", "virtio-mmio.force-legacy=false",
 		"-kernel", "/srv/images/k/bzImage",
 		"-initrd", "/srv/images/k/initrd.gz",
 		// ip= is how the guest gets an address and a default route AT ALL: nothing in
@@ -49,14 +43,14 @@ func TestQemuArgsRendersTheMeasuredMachine(t *testing.T) {
 		// there (BUGS `L377`). The gateway is the tap's host side, which is where
 		// this turn's proxy listens and the only address its rule set accepts.
 		"-append", "console=ttyS0 reboot=t panic=-1 ARIZUKO_CTL=5563 ARIZUKO_MCP=5564 " +
-			"ip=10.97.0.17::10.97.0.18:255.255.255.252::eth0:off",
+			"ip=10.97.0.17::10.97.0.18:255.255.255.252::eth0:off loglevel=5",
 		"-chardev", "socket,id=vfs0,path=/srv/vms/h1/root.sock",
-		"-device", "vhost-user-fs-pci,queue-size=1024,chardev=vfs0,tag=root",
+		"-device", "vhost-user-fs-device,queue-size=1024,chardev=vfs0,tag=root",
 		"-chardev", "socket,id=vfs1,path=/srv/vms/h1/turn.sock",
-		"-device", "vhost-user-fs-pci,queue-size=1024,chardev=vfs1,tag=turn",
-		"-device", "vhost-vsock-pci,guest-cid=7",
+		"-device", "vhost-user-fs-device,queue-size=1024,chardev=vfs1,tag=turn",
+		"-device", "vhost-vsock-device,guest-cid=7",
 		"-netdev", "tap,id=net0,ifname=arz-ab12-t04,script=no,downscript=no",
-		"-device", "virtio-net-pci,netdev=net0,mac=52:54:00:00:00:07",
+		"-device", "virtio-net-device,netdev=net0,mac=52:54:00:00:00:07",
 		"-nodefaults",
 		"-no-reboot",
 		"-serial", "file:/g/logs/container-x.console.log",

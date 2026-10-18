@@ -130,33 +130,15 @@ type qemuSpec struct {
 	McpPort uint32
 }
 
-// qemuArgs renders the machine.
-//
-// q35, not microvm, and that is measured rather than preferred: on QEMU 7.2.22
-// microvm registers every virtio-mmio slot the kernel command line names and
-// binds no device, so a vsock connect stays ENODEV and ACPI publishes a 365-byte
-// DSDT declaring nothing. q35 with virtio-vsock-pci and vhost-user-fs-pci works,
-// and it exits cleanly on a guest power-off where microvm prints "reboot: System
-// halted" and QEMU stays alive (spec 6/41 §"The engine").
-//
-// The memfd backend AND the -numa line are both required for virtio-fs: the
-// share needs the guest's memory shared, and omitting the numa node leaves the
-// backend unused, which breaks the share silently.
-//
-// The two ports travel on the command line, UNDOTTED, because the kernel adds an
-// unrecognised KEY=VALUE to init's environment and silently DISCARDS one whose key
-// contains a dot as an unused module parameter (init/main.c unknown_bootoption,
-// v6.1). They are the substrate's own addressing, not the turn's: the turn's env
-// and payload arrive on ctl, never on a command line or a file.
 func qemuArgs(s qemuSpec) []string {
 	return []string{
-		"-M", "q35",
+		"-M", "microvm,acpi=on,pcie=off,usb=off,memory-backend=mem",
 		"-enable-kvm",
 		"-cpu", "host",
 		"-smp", strconv.Itoa(s.SMP),
 		"-m", s.Mem,
 		"-object", "memory-backend-memfd,id=mem,size=" + s.Mem + ",share=on",
-		"-numa", "node,memdev=mem",
+		"-global", "virtio-mmio.force-legacy=false",
 		"-kernel", s.Kernel,
 		"-initrd", s.Initrd,
 		// ip= is the kernel's own ipconfig, and it is how the guest gets an address
@@ -171,15 +153,15 @@ func qemuArgs(s qemuSpec) []string {
 		// rule set drops everything else — so a default route through it grants
 		// nothing the proxy does not.
 		"-append", fmt.Sprintf(
-			"console=ttyS0 reboot=t panic=-1 ARIZUKO_CTL=%d ARIZUKO_MCP=%d ip=%s::%s:%s::eth0:off",
+			"console=ttyS0 reboot=t panic=-1 ARIZUKO_CTL=%d ARIZUKO_MCP=%d ip=%s::%s:%s::eth0:off loglevel=5",
 			s.CtlPort, s.McpPort, s.GuestIP, s.HostIP, net.IP(net.CIDRMask(tapPrefix, 32)).String()),
 		"-chardev", "socket,id=vfs0,path=" + s.RootSock,
-		"-device", "vhost-user-fs-pci,queue-size=1024,chardev=vfs0,tag=" + shareRoot,
+		"-device", "vhost-user-fs-device,queue-size=1024,chardev=vfs0,tag=" + shareRoot,
 		"-chardev", "socket,id=vfs1,path=" + s.TurnSock,
-		"-device", "vhost-user-fs-pci,queue-size=1024,chardev=vfs1,tag=" + shareTurn,
-		"-device", fmt.Sprintf("vhost-vsock-pci,guest-cid=%d", s.CID),
+		"-device", "vhost-user-fs-device,queue-size=1024,chardev=vfs1,tag=" + shareTurn,
+		"-device", fmt.Sprintf("vhost-vsock-device,guest-cid=%d", s.CID),
 		"-netdev", "tap,id=net0,ifname=" + s.Tap + ",script=no,downscript=no",
-		"-device", "virtio-net-pci,netdev=net0,mac=" + s.MAC,
+		"-device", "virtio-net-device,netdev=net0,mac=" + s.MAC,
 		"-nodefaults",
 		"-no-reboot",
 		"-serial", "file:" + s.Console,
