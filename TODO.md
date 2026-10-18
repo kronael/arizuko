@@ -26,12 +26,22 @@ for shipped milestones.
   only a larger model answers would turn the gate red for a reason that is
   not a regression. Measure before adopting.
 
-  Two levels, both of which think — haiku 5.5 runs adaptive thinking ON by
-  default at effort `medium`, so the gate loses no reasoning by dropping to
-  it. Set `effort` EXPLICITLY on both levels: haiku 5.5 defaults to `medium`
-  and sonnet 5.5 defaults to `high`, so an unset comparison is not
-  like-for-like. Prices per MTok: haiku 5.5 $0.10/$0.50, sonnet 5.5
-  $2.00/$10.00 — a 20x cut on both halves. See
+  Two levels, assigned by what each case actually tests:
+  - **haiku 5.5 at effort `low`** for the cases that are mostly code —
+    the answer is checkable and the reasoning is shallow.
+  - **sonnet 5.5 at effort `medium`** for the cases that test whether the
+    agent SEES its tools and reacts correctly — tool choice is the thing
+    under test, so the model has to be good enough that a miss means a
+    platform regression and not a model limit.
+
+  Both levels think: haiku 5.5 runs adaptive thinking ON by default. Set
+  `effort` EXPLICITLY on both, because haiku 5.5 defaults to `medium` and
+  sonnet 5.5 to `high`, so an unset comparison is not like-for-like — and
+  both named levels are a step DOWN from those defaults. Prices per MTok:
+  haiku 5.5 $0.10/$0.50, sonnet 5.5 $2.00/$10.00. The open question stays
+  the same: run the cases at these levels first and see which fail, because
+  a case that only a bigger model passes turns the gate red for a reason
+  that is not a regression. See
   `.claude/skills/eval/gates.md` and `anteval/`.
 
 - **Deploy pending** — Phase B+D of 5/5 (invites + chats.is_group),

@@ -7,11 +7,11 @@ depends:
     ../5/31-identity-pairing,
     ../5/32-acl-unified,
     ../5/13-ext-mcp,
-    ../6/23-agent-habitat,
+    23-agent-habitat,
   ]
 ---
 
-# specs/7/28 — credentials held by an identity, spending on the turn it initiates
+# specs/7/28 — a user subscription pays for the turn that user initiates
 
 `status: queued`: FILED, NOT STARTED. The owner asked for it to be written
 down and held until he says to begin, and he asked that phase 6 finish first.
@@ -20,16 +20,33 @@ Nothing below is approved, and no step of it runs before that word.
 ## What the owner asked for
 
 Users already authenticate, and authentication already collects their chat
-JIDs into one OAuth identity. From there:
+JIDs into one OAuth identity. From there, a user connects a MODEL
+SUBSCRIPTION — Claude, codex, OpenRouter — through OAuth, and the token that
+yields POWERS THE TURNS THAT USER INITIATES, instead of the instance's own
+model credential.
 
-- an identity carries TOOLS, added to it rather than to a folder;
-- an identity carries SUBSCRIPTIONS — Claude, codex, and OpenRouter — attached
-  through OAuth wherever the vendor allows it;
-- the tokens those subscriptions yield POWER THE TURNS THAT USER INITIATES,
-  rather than the instance's own model credential.
+A turn a user starts should spend that user's plan, not the operator's. That
+is the whole of this spec.
 
-The last line is the whole point and the rest serves it. A turn a user starts
-should spend that user's plan, not the operator's.
+## This spec is NOT about tool credentials
+
+The owner drew the line and it is load-bearing:
+
+> normally the agent should use its own logins for tools, and acting on
+> behalf of users should be explicitly granted anyway, so that is a
+> different spec than the oauth for users' subscription to tokens.
+
+Two different questions, two different answers:
+
+- **Who pays for the model** — this spec. The subscription is the user's, the
+  turn is the user's, and the bill follows the initiator.
+- **Whose account a tool acts as** — `29-identity-held-tools.md`. The agent
+  uses ITS OWN login by default, and acting as a human is a grant that
+  `../5/15-surrogate-oauth.md` already defines and ships.
+
+A design that routes both through one mechanism would make "the user pays for
+the tokens" silently imply "the tool acts as the user", which is a privilege
+escalation nobody asked for.
 
 ## The notion of an initiating turn exists, and it is not yet an identity
 
@@ -94,13 +111,10 @@ that pretends otherwise is wrong on day one.
 2. **What happens when the initiator holds no subscription.** Falling back to
    the instance credential silently is the failure this project calls a
    best-effort swallow. The alternative is a visible refusal.
-3. **Whether a tool added to an identity is an `acl` row or a new table.**
-   `5/32` says one primitive, three principals. A fourth store would need to
-   justify itself against that sentence.
-4. **OpenRouter's OAuth shape** is unmeasured. No vendor page has been read.
-5. **Revocation.** A user who disconnects mid-turn: does the running turn keep
+3. **OpenRouter's OAuth shape** is unmeasured. No vendor page has been read.
+4. **Revocation.** A user who disconnects mid-turn: does the running turn keep
    spending? Nothing today answers this.
-6. **The container never holds the real credential** under the gateway model —
+5. **The container never holds the real credential** under the gateway model —
    but `runed.env` carries `store.EnvProfileKeys` today. Which of the two is
    the reader after this change is undecided.
 
