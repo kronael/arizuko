@@ -16,7 +16,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-	"unicode"
 	"unicode/utf8"
 
 	"github.com/kronael/arizuko/chanlib"
@@ -305,13 +304,12 @@ func fileComment(name, caption, text string) string {
 	if caption != "" {
 		sb.WriteString(caption + "\n\n")
 	}
+	// One sanitisation, two readers: the label and the fence's language hint both
+	// come from it, so neither can carry a backtick or a newline out of the name.
 	label := strings.NewReplacer("`", "'", "\n", " ", "\r", " ").Replace(name)
 	sb.WriteString("`" + label + "`\n\n")
 	fence := strings.Repeat("`", max(3, longestBackticks(text)+1))
-	lang := strings.ToLower(strings.TrimPrefix(filepath.Ext(name), "."))
-	if strings.IndexFunc(lang, func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) }) >= 0 {
-		lang = ""
-	}
+	lang := strings.ToLower(strings.TrimPrefix(filepath.Ext(label), "."))
 	sb.WriteString(fence + lang + "\n" + text)
 	if !strings.HasSuffix(text, "\n") {
 		sb.WriteString("\n")
