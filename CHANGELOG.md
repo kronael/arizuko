@@ -13,6 +13,8 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+- A multi-account adapter variant (`teled-jynx`) reads its own `env/<name>.env`; `<KEY>_<LABEL>` in `.env` replaces `<KEY>` there. Two Telegram services no longer poll one bot. Bundled `template/services/teled-jynx.yml`.
+
 ## [v0.70.5] — 2026-10-18
 
 > arizuko v0.70.5 — one progress message, and a file on GitHub

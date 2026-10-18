@@ -1,0 +1,23 @@
+# teled-jynx — the second Telegram account, a multi-account variant of teled
+# (specs/5/R-multi-account.md). Its token is TELEGRAM_BOT_TOKEN_JYNX in the
+# instance's .env; generate writes it as TELEGRAM_BOT_TOKEN into
+# env/teled-jynx.env, and every other key is the base adapter's. DATA_DIR is its
+# own state mount: it holds this account's getUpdates offset, and losing it makes
+# Telegram re-deliver its ~24h backlog, which the agent answers all over again.
+services:
+  teled-jynx:
+    container_name: ${APP}_teled_jynx_${FLAVOR}
+    image: arizuko:latest
+    entrypoint: ['teled']
+    volumes:
+      - '${DATA_DIR}/store/teled-jynx:/srv/app/home/store/teled'
+    env_file: ['../env/teled-jynx.env']
+    environment:
+      ROUTER_URL: 'http://routd:8080'
+      LISTEN_ADDR: ':8080'
+      LISTEN_URL: 'http://teled-jynx:8080'
+      CHANNEL_NAME: 'jynx'
+      DATA_DIR: '/srv/app/home/store/teled'
+      RUNED_RUN_TIMEOUT: '${RUNED_RUN_TIMEOUT:-20m}'
+    depends_on: [routd]
+    restart: on-failure
