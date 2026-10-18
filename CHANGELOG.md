@@ -13,6 +13,63 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.70.5] — 2026-10-18
+
+> arizuko v0.70.5 — one progress message, and a file on GitHub
+>
+> The agent shows its work as a single message it keeps rewriting, and it can
+> hand you a file on a pull request.
+>
+> • One progress message — a status is created once and edited in place,
+> ending ✓ or ✗, instead of a trail of interim notices
+> • Marked as reading — the message that started a turn carries a 👀 until
+> the turn ends, set in one place for every channel that can react
+> • Send a file on GitHub — `send_file` posts the file's text as a comment,
+> and refuses a binary or an oversize file before anything is sent
+> • Answers only where wanted — a GitHub comment reaches the agent when it
+> names it or the assignees include it, not on every pull request
+> • googd holds the Google credential — the daemon is named for the key it
+> carries, not for one of the APIs it reaches
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Added
+
+- GitHub `send_file`: the file's text becomes a comment — caption, file name,
+  then a fenced block whose fence outgrows any backtick run in the content.
+  GitHub publishes no attachment API, so a binary file, a file over the 65536
+  character comment cap, an unreadable file and a missing token are each
+  refused before any request, naming the `github` connector instead
+  (spec `6/27`).
+- One turn-progress renderer in routd: `Begin`/`Update`/`End` is the only
+  declarer of "the agent is working", rendered as presence and as one
+  `verb=status` message edited in place (spec `6/46`).
+- The 👀 mark lives once in `chanlib`, over an `ack_marks` entity, with a boot
+  sweep for marks a crash left standing.
+- gitd edits its own comments, verified by reading the comment's author before
+  the `PATCH` rather than trusting the id grammar.
+- webd renders an edit as a replace frame keyed on the chat JID.
+- googd: the Google service-account credential, degrading rather than exiting
+  when the key cannot reach an API.
+
+### Changed
+
+- gitd answers only where the comment names the bot or the conversation's
+  assignees contain it. Everything else on a watched repository is context.
+- `gdrid` is `googd`: the daemon holds the Google credential, and the
+  credential is not Drive's. The JID stays `gdrive:<fileId>`.
+- A rate-limited 403 and a timed-out thread lookup are retryable; a permanent
+  refusal answers 400 rather than 502.
+
+### Known limits
+
+- An unmentioned comment on a watched repository still runs a turn and spends
+  the model before posting nothing (`BUGS.md` `L445`).
+- The observed-context window is keyed on the folder, so repository CI events
+  can crowd out the conversation a turn is answering (`L442`).
+- googd cannot start as a container yet: no compose fragment, and `Send`
+  refuses (spec `6/45`, `partial`).
+
 ## [v0.70.4] — 2026-10-16
 
 > arizuko v0.70.4 — the agent answers on GitHub
