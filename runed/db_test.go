@@ -1,13 +1,19 @@
 package runed
 
 import (
+	"os"
 	"testing"
 	"time"
 
 	"github.com/kronael/arizuko/objstore/dynstore/dyntest"
 )
 
-func TestMain(m *testing.M) { dyntest.Main(m) }
+func TestMain(m *testing.M) {
+	if code, bridge := MCPBridgeMain(); bridge {
+		os.Exit(code)
+	}
+	dyntest.Main(m)
+}
 
 // TestDBSpawnLifecycle exercises the spawns + session_log round-trip: create →
 // start → end, then the session close.

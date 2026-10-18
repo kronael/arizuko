@@ -157,20 +157,29 @@ type ctlSession struct {
 	// dead guest, cost a lost steer that read as delivered.
 	done chan struct{}
 	// log receives each {log} line the guest sends: the agent's stderr.
-	log func(string)
-	seq atomic.Int64
+	log  func(string)
+	boot *bootLog
+	seq  atomic.Int64
 	// closed is set once the read loop ends, so a steer after the guest is gone
 	// returns false instead of blocking for its ack.
 	closed atomic.Bool
 }
 
-func newCtlSession(conn io.ReadWriteCloser, logf func(string)) *ctlSession {
+type bootLog struct {
+	start  time.Time
+	logger *slog.Logger
+	folder string
+	handle string
+}
+
+func newCtlSession(conn io.ReadWriteCloser, logf func(string), boot *bootLog) *ctlSession {
 	return &ctlSession{
 		conn: conn,
 		acks: map[string]chan struct{}{},
 		exit: make(chan int, 1),
 		done: make(chan struct{}),
 		log:  logf,
+		boot: boot,
 	}
 }
 
@@ -218,7 +227,11 @@ func (s *ctlSession) read() error {
 			default:
 			}
 		case ctlReady:
-			// The boot probe has no reader; the case keeps it off the warning below.
+			if s.boot != nil {
+				s.boot.logger.Info("guest ready", "folder", s.boot.folder, "handle", s.boot.handle,
+					"boot_ms", time.Since(s.boot.start).Milliseconds(), "probe", f.Probe)
+				s.boot = nil
+			}
 		default:
 			slog.Warn("ctl: unknown frame kind from guest", "kind", f.Kind)
 		}

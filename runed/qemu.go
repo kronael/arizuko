@@ -374,6 +374,7 @@ func (q *qemuRuntime) spawn(ctx context.Context, t Turn) RunResult {
 	slog.Debug("qemu args", "folder", t.Folder, "args", strings.Join(args, " "))
 	qemu := exec.Command(q.paths.Qemu, args...)
 	qemu.Stderr = newPrefixWriter("qemu", t.Folder)
+	bootStart := time.Now()
 	if err := qemu.Start(); err != nil {
 		// The VMM did not launch. A retry spawns nothing, so the turn is
 		// terminal rather than re-fed.
@@ -442,7 +443,7 @@ func (q *qemuRuntime) spawn(ctx context.Context, t Turn) RunResult {
 	sess := newCtlSession(conn, func(line string) {
 		slog.Debug("guest", "folder", t.Folder, "line", line)
 		logbuf.add(line)
-	})
+	}, &bootLog{start: bootStart, logger: slog.Default(), folder: t.Folder, handle: t.Handle})
 	served := make(chan error, 1)
 	go func() { served <- sess.serve() }()
 

@@ -1,13 +1,17 @@
 package runed
 
 import (
+	"errors"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -235,37 +239,44 @@ func TestVsockListenRefusesASquattedPort(t *testing.T) {
 // acceptance test's own case (spec 6/41 §Acceptance).
 func TestMCPBridgeServesOnlyItsOwnGuestCID(t *testing.T) {
 	requireVsock(t)
+	requireVsockLoopback(t)
 	socket := filepath.Join(t.TempDir(), "gated.sock")
 	ul, err := net.Listen("unix", socket)
 	if err != nil {
 		t.Fatalf("folder socket: %v", err)
 	}
-	defer ul.Close()
 	// The folder socket echoes, standing in for routd's MCP server.
+	echoDone := make(chan struct{})
 	go func() {
+		defer close(echoDone)
 		for {
 			c, err := ul.Accept()
 			if err != nil {
 				return
 			}
-			go func() {
-				defer c.Close()
-				buf := make([]byte, 64)
-				n, _ := c.Read(buf)
-				c.Write(buf[:n]) //nolint:errcheck // the test reads it or times out
-			}()
+			buf := make([]byte, 64)
+			n, _ := c.Read(buf)
+			c.Write(buf[:n]) //nolint:errcheck // the test reads it or times out
+			if err := c.Close(); err != nil {
+				t.Errorf("close echo connection: %v", err)
+			}
 		}
 	}()
+	t.Cleanup(func() {
+		if err := ul.Close(); err != nil {
+			t.Errorf("close folder socket: %v", err)
+		}
+		<-echoDone
+	})
 
 	t.Run("its own guest reaches the folder socket", func(t *testing.T) {
 		l, err := vsockListen(61002)
 		if err != nil {
 			t.Fatalf("listen: %v", err)
 		}
-		defer l.Close()
 		// Loopback traffic carries CID 1, which is this test's stand-in for the
 		// one guest the bridge was started for.
-		go runMCPBridge(unix.VMADDR_CID_LOCAL, socket, l)
+		runMCPBridgeFixture(t, unix.VMADDR_CID_LOCAL, socket, l)
 		conn := vsockDial(t, unix.VMADDR_CID_LOCAL, 61002)
 		defer conn.Close()
 		if _, err := conn.Write([]byte("ping")); err != nil {
@@ -286,9 +297,8 @@ func TestMCPBridgeServesOnlyItsOwnGuestCID(t *testing.T) {
 		if err != nil {
 			t.Fatalf("listen: %v", err)
 		}
-		defer l.Close()
 		// A bridge pinned to a CID this dialer does not have.
-		go runMCPBridge(unix.VMADDR_CID_LOCAL+9, socket, l)
+		runMCPBridgeFixture(t, unix.VMADDR_CID_LOCAL+9, socket, l)
 		conn := vsockDial(t, unix.VMADDR_CID_LOCAL, 61003)
 		defer conn.Close()
 		conn.Write([]byte("ping"))                            //nolint:errcheck // the refusal may close first
@@ -300,6 +310,37 @@ func TestMCPBridgeServesOnlyItsOwnGuestCID(t *testing.T) {
 	})
 }
 
+func runMCPBridgeFixture(t *testing.T, cid uint32, socket string, l *os.File) {
+	t.Helper()
+	t.Cleanup(func() {
+		if err := l.Close(); err != nil {
+			t.Errorf("close bridge listener: %v", err)
+		}
+	})
+	cmd := exec.Command(os.Args[0], mcpBridgeFlag,
+		strconv.FormatUint(uint64(cid), 10), socket)
+	cmd.ExtraFiles = []*os.File{l}
+	cmd.Stderr = os.Stderr
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start bridge: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := cmd.Process.Kill(); err != nil {
+			t.Errorf("stop bridge: %v", err)
+		}
+		err := cmd.Wait()
+		var exit *exec.ExitError
+		if !errors.As(err, &exit) {
+			t.Errorf("wait for killed bridge: %v", err)
+			return
+		}
+		status, ok := exit.Sys().(syscall.WaitStatus)
+		if !ok || status.Signal() != syscall.SIGKILL {
+			t.Errorf("bridge exit = %v, want SIGKILL", err)
+		}
+	})
+}
+
 // ctlPair is a session over an in-memory duplex pair: the host end and the
 // guest's.
 func ctlPair(t *testing.T) (*ctlSession, net.Conn) { return ctlPairWith(t, nil) }
@@ -307,7 +348,7 @@ func ctlPair(t *testing.T) (*ctlSession, net.Conn) { return ctlPairWith(t, nil) 
 func ctlPairWith(t *testing.T, logf func(string)) (*ctlSession, net.Conn) {
 	t.Helper()
 	host, guest := net.Pipe()
-	sess := newCtlSession(host, logf)
+	sess := newCtlSession(host, logf, nil)
 	go func() { _ = sess.serve() }()
 	t.Cleanup(func() { host.Close(); guest.Close() })
 	return sess, guest
@@ -338,6 +379,20 @@ func requireVsock(t *testing.T) {
 		t.Skipf("this kernel has no AF_VSOCK: %v", err)
 	}
 	unix.Close(fd)
+}
+
+func requireVsockLoopback(t *testing.T) {
+	t.Helper()
+	const port = 61004
+	l, err := vsockListen(port)
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer l.Close()
+	conn := vsockDial(t, unix.VMADDR_CID_LOCAL, port)
+	if err := conn.Close(); err != nil {
+		t.Fatalf("close loopback probe: %v", err)
+	}
 }
 
 // vsockDial connects to a host-side vsock port over the local transport.
