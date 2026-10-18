@@ -5,6 +5,20 @@ for shipped milestones.
 
 ## Now
 
+- **An automated gate that proves a live agent works, without the $5
+  (owner-gated, after 2026-10-18 21:00).** `anteval --smoke` is the only one
+  of the five post-deploy gates that costs money, because it is the only one
+  that drives real agent turns — and it is also the only one that catches a
+  fleet whose agents answer nothing (`L149` shipped green through the other
+  four). The ask is to bundle what it proves into an automated integration
+  test. The open question is which half is reachable without a model: the
+  dispatch path, the MCP socket, `submit_turn`, delivery and the reply's
+  shape can all be driven by a scripted harness, while "did the agent
+  understand the question" cannot. Decide the split before writing any of it;
+  a test that stubs the model and still calls itself a smoke test is the
+  `gate_cannot_fail` failure with a bigger budget. See
+  `.claude/skills/eval/gates.md` and `anteval/`.
+
 - **Deploy pending** — Phase B+D of 5/5 (invites + chats.is_group),
   cli-chat, doc refresh, web UI gaps, and the verb-taxonomy work all
   sit on detached HEAD. krons is the test target; `sudo make images
