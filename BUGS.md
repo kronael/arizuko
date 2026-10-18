@@ -284,6 +284,39 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
   hits, 56 under `-test`; nine survived verification and were filed separately. Kept so
   the next sweep does not re-report the same ~135.
 
+## L446 — ✅ FIXED `387befde` — a comment named `checkEveryServiceHasKeys` as the guard that refuses generation, and no such function existed (2026-10-18)
+
+FOUND 2026-10-18 while adding multi-account credentials. `compose/compose.go`
+carries this, above `envFileName`:
+
+> `checkEveryServiceHasKeys` is the loud half: it refuses generation rather
+> than leaving a daemon with no env at all (BUGS `L200`).
+
+`grep -rn 'func checkEveryServiceHasKeys' --include='*.go' .` returns nothing,
+in this tree and in all nine worktrees. The comment documents a protection
+that was never written, or was deleted with the comment left behind.
+
+What the absence costs. `envFileName` returns `""` for a service with no key
+list, and two callers use the result without checking:
+
+- the compose renderer writes `env_file:\n      - ` with an empty path;
+- the env writer calls `os.WriteFile(filepath.Join(dataDir, ""), ...)`, which
+  targets the data directory itself.
+
+`checkNoServiceReadsTheSharedEnv` is real and catches the OTHER shape — a
+service pointed at the shared `.env`. It cannot catch a service pointed at
+nothing, which is the shape the missing function is named for.
+
+Nothing takes that path today: every `svcDef` name has a `daemonKeys` entry,
+and the multi-account work added `variantOf` so a variant resolves too. So
+this is latent, not live. It is recorded because the comment makes a reader
+believe a check runs, and a believed guard is worse than a missing one.
+
+**Fixed** `387befde`: both callers refuse an empty path — `envFileFor` panics
+during rendering, the writer returns an error. `compose/env_file_required_test.go`
+proves it, and removing the panic turns that test red (mutated and checked).
+The dead comment is replaced by the guard it described.
+
 ## L445 — the engagement scope narrows the REPLY, not the TURN: an unmentioned comment still runs the agent and costs 160 cents (2026-10-18, open — needs sign-off)
 
 FOUND 2026-10-18 by a live gating check on `vumilan/morha` PR 293. The pull
