@@ -53,16 +53,27 @@ KERNEL_KEY = $(KVER)-$(shell cat kernel/Dockerfile kernel/arizuko.fragment \
 KERNEL_DIR ?= $(DATA_DIR)/images/kernel-$(KERNEL_KEY)
 
 kernel:
-	@if [ -z "$(DATA_DIR)" ]; then echo "kernel: set DATA_DIR=<instance data dir>" >&2; exit 1; fi
-	@if [ -f "$(KERNEL_DIR)/bzImage" ]; then \
-	  echo "kernel: $(KERNEL_DIR) is current for $(KERNEL_KEY)"; exit 0; \
-	fi
-	$(DOCKER_BUILD) --target out -t arizuko-kernel:$(KERNEL_KEY) \
-	  --build-arg KVER=$(KVER) kernel/
-	$(DOCKER_SUDO) mkdir -p $(KERNEL_DIR)
-	$(DOCKER) run --rm -v $(KERNEL_DIR):/dst arizuko-kernel:$(KERNEL_KEY) \
-	  sh -c 'cp /out/bzImage /out/initrd.gz /out/kernel.config /dst/'
-	@echo "kernel: $(KERNEL_DIR)"
+	@set -eu; \
+	  if [ -z "$(DATA_DIR)" ]; then echo "kernel: set DATA_DIR=<instance data dir>" >&2; exit 1; fi; \
+	  if [ -e "$(KERNEL_DIR)" ] || [ -L "$(KERNEL_DIR)" ]; then \
+	    if [ -s "$(KERNEL_DIR)/bzImage" ] && [ -s "$(KERNEL_DIR)/initrd.gz" ] && \
+	      [ -s "$(KERNEL_DIR)/kernel.config" ] && gzip -t "$(KERNEL_DIR)/initrd.gz"; then \
+	      echo "kernel: $(KERNEL_DIR) is current for $(KERNEL_KEY)"; exit 0; fi; \
+	    echo "kernel: $(KERNEL_DIR) is incomplete; keep it for inspection" >&2; exit 1; fi; \
+	  $(DOCKER_BUILD) --target out -t arizuko-kernel:$(KERNEL_KEY) \
+	    --build-arg KVER=$(KVER) kernel/; \
+	  $(DOCKER_SUDO) mkdir -p "$(dir $(KERNEL_DIR))"; \
+	  stage=$$($(DOCKER_SUDO) mktemp -d "$(dir $(KERNEL_DIR)).kernel-partial.XXXXXX"); \
+	  echo "kernel: exporting to $$stage"; \
+	  $(DOCKER) run --rm -v "$$stage:/dst" arizuko-kernel:$(KERNEL_KEY) \
+	    sh -c 'cp /out/bzImage /out/initrd.gz /out/kernel.config /dst/'; \
+	  if ! { test -s "$$stage/bzImage" && test -s "$$stage/kernel.config" && \
+	    test -s "$$stage/initrd.gz" && gzip -t "$$stage/initrd.gz"; }; then \
+	    echo "kernel: incomplete export at $$stage" >&2; exit 1; fi; \
+	  if [ -e "$(KERNEL_DIR)" ] || [ -L "$(KERNEL_DIR)" ]; then \
+	    echo "kernel: $(KERNEL_DIR) appeared during export; $$stage kept" >&2; exit 1; fi; \
+	  $(DOCKER_SUDO) mv -T "$$stage" "$(KERNEL_DIR)"; \
+	  echo "kernel: $(KERNEL_DIR)"
 .PHONY: kernel
 
 OUT ?= .
@@ -288,26 +299,40 @@ ROOTFS_KEY = $(shell $(DOCKER) image inspect --format '{{.Id}}' arizuko-ant:late
 ROOTFS_DIR ?= $(DATA_DIR)/images/rootfs-$(ROOTFS_KEY)
 
 rootfs:
-	@if [ -z "$(DATA_DIR)" ]; then echo "rootfs: set DATA_DIR=<instance data dir>" >&2; exit 1; fi
-	@if [ -z "$(ROOTFS_KEY)" ]; then echo "rootfs: no arizuko-ant:latest image — run \`make agent\` first" >&2; exit 1; fi
-	@if [ -d "$(ROOTFS_DIR)/usr" ]; then echo "rootfs: $(ROOTFS_DIR) is current for $(ROOTFS_KEY)"; exit 0; fi
-	$(DOCKER_SUDO) mkdir -p $(ROOTFS_DIR)
-	# One container, created and exported, never started. `create` takes no --rm,
-	# so the id is captured and dropped on exit even when tar fails.
-	set -e; \
-	  cid=$$($(DOCKER) create arizuko-ant:latest true); \
-	  trap "$(DOCKER) rm -f $$cid >/dev/null" EXIT; \
-	  $(DOCKER) export $$cid | $(DOCKER_SUDO) tar -x -C $(ROOTFS_DIR)
-	# A rootfs tree carries no image CONFIG, and docker is what applies it today:
-	# PATH, HOME and every ENV line of ant/Dockerfile come from the image, which
-	# `runed/env_contract_test.go` records as the owner. Under the VM substrate
-	# nothing applies them, so the export captures them beside the tree and runed
-	# merges them UNDER the rendered turn env. One declaration (the image), one
-	# more reader — never a second copy of the values.
-	$(DOCKER) image inspect --format '{{json .Config.Env}}' arizuko-ant:latest \
-	  | $(DOCKER_SUDO) tee $(ROOTFS_DIR)/.image-env.json > /dev/null
-	@echo "rootfs: $(ROOTFS_DIR)"
-	@$(MAKE) --no-print-directory rootfs-stale DATA_DIR=$(DATA_DIR)
+	@set -eu; \
+	  if [ -z "$(DATA_DIR)" ]; then echo "rootfs: set DATA_DIR=<instance data dir>" >&2; exit 1; fi; \
+	  if [ -z "$(ROOTFS_KEY)" ]; then echo "rootfs: no arizuko-ant:latest image — run \`make agent\` first" >&2; exit 1; fi; \
+	  image_id=$$($(DOCKER) image inspect --format '{{.Id}}' arizuko-ant:latest); \
+	  case "$$image_id" in sha256:$(ROOTFS_KEY)*) ;; *) \
+	    echo "rootfs: arizuko-ant:latest moved after the cache key was selected" >&2; exit 1;; esac; \
+	  image_env=$$($(DOCKER) image inspect --format '{{json .Config.Env}}' "$$image_id"); \
+	  if [ -z "$$image_env" ] || [ "$$image_env" = null ] || [ "$$image_env" = '[]' ]; then \
+	    echo "rootfs: image has no environment metadata" >&2; exit 1; fi; \
+	  if [ -e "$(ROOTFS_DIR)" ] || [ -L "$(ROOTFS_DIR)" ]; then \
+	    if [ -d "$(ROOTFS_DIR)/usr" ] && [ -s "$(ROOTFS_DIR)/app/entrypoint.sh" ] && \
+	      [ -s "$(ROOTFS_DIR)/usr/local/bin/node" ] && [ -s "$(ROOTFS_DIR)/.image-env.json" ] && \
+	      [ "$$(cat "$(ROOTFS_DIR)/.image-env.json")" = "$$image_env" ]; then \
+	      echo "rootfs: $(ROOTFS_DIR) is current for $(ROOTFS_KEY)"; \
+	      $(MAKE) --no-print-directory rootfs-stale DATA_DIR=$(DATA_DIR); exit 0; fi; \
+	    echo "rootfs: $(ROOTFS_DIR) is incomplete; keep it for inspection" >&2; exit 1; fi; \
+	  $(DOCKER_SUDO) mkdir -p "$(dir $(ROOTFS_DIR))"; \
+	  stage=$$($(DOCKER_SUDO) mktemp -d "$(dir $(ROOTFS_DIR)).rootfs-partial.XXXXXX"); \
+	  echo "rootfs: exporting to $$stage"; \
+	  cid=$$($(DOCKER) create "$$image_id" true); \
+	  trap 'exit 143' HUP INT TERM; \
+	  trap 'rc=$$?; if [ -n "$$cid" ]; then $(DOCKER) rm -f "$$cid" >/dev/null || rc=1; fi; exit $$rc' EXIT; \
+	  bash -o pipefail -c '$(DOCKER) export "$$1" | $(DOCKER_SUDO) tar -x -C "$$2"' _ "$$cid" "$$stage"; \
+	  $(DOCKER) rm -f "$$cid" >/dev/null; cid=; trap - EXIT HUP INT TERM; \
+	  printf '%s\n' "$$image_env" | $(DOCKER_SUDO) tee "$$stage/.image-env.json" >/dev/null; \
+	  if ! { test -d "$$stage/usr" && test -s "$$stage/app/entrypoint.sh" && \
+	    test -s "$$stage/usr/local/bin/node" && test -s "$$stage/.image-env.json" && \
+	    test "$$(cat "$$stage/.image-env.json")" = "$$image_env"; }; then \
+	    echo "rootfs: incomplete export at $$stage" >&2; exit 1; fi; \
+	  if [ -e "$(ROOTFS_DIR)" ] || [ -L "$(ROOTFS_DIR)" ]; then \
+	    echo "rootfs: $(ROOTFS_DIR) appeared during export; $$stage kept" >&2; exit 1; fi; \
+	  $(DOCKER_SUDO) mv -T "$$stage" "$(ROOTFS_DIR)"; \
+	  echo "rootfs: $(ROOTFS_DIR)"; \
+	  $(MAKE) --no-print-directory rootfs-stale DATA_DIR=$(DATA_DIR)
 
 # rootfs-stale NAMES the trees beyond the newest two: the one a running turn may
 # still have mounted, and the one before it, so a rollback needs no re-export. At
