@@ -7,6 +7,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -439,5 +441,85 @@ func TestEdit_TransportFailureIsUnclassified(t *testing.T) {
 	}
 	if errors.Is(err, chanlib.ErrNotDelivered) || errors.Is(err, chanlib.ErrPermanent) {
 		t.Errorf("timeout err = %v, want unclassified", err)
+	}
+}
+
+func writeTemp(t *testing.T, name string, data []byte) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), name)
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestSendFile_PostsTextAsFencedBlock(t *testing.T) {
+	gh, reqs, bodies := fakeGitHub(t, 201, `{"id":901}`)
+	b := newBot(config{Token: "ghp_test", APIBase: gh.URL})
+	path := writeTemp(t, "main.go", []byte("package main\n\n// ``` inside\nfunc main() {}\n"))
+	id, err := b.SendFile("github:kronael/arizuko/pr/12", path, "main.go", "the entrypoint", "", "")
+	if err != nil || id != "gh-c901" {
+		t.Fatalf("SendFile = %q, %v", id, err)
+	}
+	if r := (*reqs)[0]; r.Method != "POST" || r.URL.Path != "/repos/kronael/arizuko/issues/12/comments" {
+		t.Errorf("request = %s %s", r.Method, r.URL.Path)
+	}
+	var body map[string]string
+	_ = json.Unmarshal([]byte((*bodies)[0]), &body)
+	want := "the entrypoint\n\n`main.go`\n\n````go\npackage main\n\n// ``` inside\nfunc main() {}\n````"
+	if body["body"] != want {
+		t.Errorf("body = %q\nwant   %q", body["body"], want)
+	}
+}
+
+func TestSendFile_RefusesBeforeAnyRequest(t *testing.T) {
+	gh, reqs, _ := fakeGitHub(t, 201, `{"id":1}`)
+	b := newBot(config{Token: "ghp_test", APIBase: gh.URL})
+	jid := "github:kronael/arizuko/pr/12"
+
+	t.Run("oversize", func(t *testing.T) {
+		path := writeTemp(t, "big.txt", []byte(strings.Repeat("x", 65536)))
+		_, err := b.SendFile(jid, path, "big.txt", "", "", "")
+		if !errors.Is(err, chanlib.ErrInvalidRequest) {
+			t.Fatalf("err = %v, want ErrInvalidRequest", err)
+		}
+		if !strings.Contains(err.Error(), "github connector") {
+			t.Errorf("refusal names no connector tool: %v", err)
+		}
+	})
+	t.Run("fits exactly at the cap", func(t *testing.T) {
+		overhead := len(fileComment("a.txt", "", ""))
+		path := writeTemp(t, "a.txt", []byte(strings.Repeat("x", 65536-overhead-1)+"\n"))
+		if _, err := b.SendFile(jid, path, "a.txt", "", "", ""); err != nil {
+			t.Fatalf("a file that fits was refused: %v", err)
+		}
+	})
+	*reqs = (*reqs)[:0]
+
+	t.Run("binary", func(t *testing.T) {
+		for name, data := range map[string][]byte{
+			"x.png": {0x89, 'P', 'N', 'G', 0, 1, 2},
+			"x.bin": {0xff, 0xfe, 'a'},
+		} {
+			path := writeTemp(t, name, data)
+			_, err := b.SendFile(jid, path, name, "", "", "")
+			if !errors.Is(err, chanlib.ErrUnsupported) {
+				t.Fatalf("%s: err = %v, want Unsupported", name, err)
+			}
+			if !strings.Contains(err.Error(), "github connector") {
+				t.Errorf("%s: refusal names no connector tool: %v", name, err)
+			}
+		}
+	})
+	if len(*reqs) != 0 {
+		t.Errorf("refusals made %d request(s) to GitHub", len(*reqs))
+	}
+}
+
+func TestSendFile_WithoutTokenIsUnsupported(t *testing.T) {
+	b := newBot(config{})
+	_, err := b.SendFile("github:kronael/arizuko/pr/12", "x.txt", "x.txt", "", "", "")
+	if !errors.Is(err, chanlib.ErrUnsupported) {
+		t.Fatalf("err = %v, want Unsupported", err)
 	}
 }

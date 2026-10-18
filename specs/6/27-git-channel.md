@@ -28,8 +28,8 @@ it does not approve the proposed lifecycle or claim a deployment.
 ## Channel messages and repository tools
 
 A comment is a message in the conversation. A merge, label, or review changes repository
-state. `gitd/bot.go` implements `send_text`, `edit` and the typing indicator below;
-`gitd/main.go:capsFor` advertises all three when `GITHUB_TOKEN` is set. The token's user posts the comment and the returned identity
+state. `gitd/bot.go` implements `send_text`, `send_file`, `edit` and the typing indicator below;
+`gitd/main.go:capsFor` advertises all four when `GITHUB_TOKEN` is set. The token's user posts the comment and the returned identity
 is `gh-c<id>`, or `gh-rc<id>` for an inline review comment, matching inbound comment IDs.
 Without that token, gitd is ingress-only.
 Other channel verbs return Unsupported.
@@ -50,6 +50,11 @@ an empty id) is `ErrInvalidRequest` before any call. The id grammar cannot say w
 comment, and a token with write access may edit anyone's, so gitd reads the comment first
 and refuses unless its `user.login` is the login `GET /user` returned at start. The refusal is
 `ErrPermanent`, and no `PATCH` is sent. A transport error stays unclassified, as for `send_text`.
+
+`SendFile` posts a text file as a fenced block in a comment under the same rules as
+`send_text`, because GitHub has no API that attaches a file to a comment. A binary file is
+`Unsupported`, and one that makes a comment over 65536 characters is `ErrInvalidRequest`, both
+before any call and both naming the `github` connector as the way to commit the file instead.
 
 State changes use `template/connectors/github.toml` through the hosted HTTP broker
 in `ipc/connector.go`. Each tool uses its `mcp:github_<tool>` grant and the socket's

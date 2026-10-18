@@ -76,13 +76,16 @@ backstop. Spec:
 
 ## Reply
 
-`send_text` and `edit` are the verbs, advertised only when `GITHUB_TOKEN` is
-set. `send_text` posts the agent's reply as a comment on the PR or issue the JID
+`send_text`, `send_file` and `edit` are the verbs, advertised only when
+`GITHUB_TOKEN` is set. `send_text` posts the agent's reply as a comment on the PR or issue the JID
 names and returns the id the same comment carries inbound. `edit` replaces the
 text of a comment gitd wrote, so a turn's progress is one comment changed in
 place (`specs/6/46-turn-progress.md`): `gh-c<id>` through `issues/comments`,
 `gh-rc<id>` through `pulls/comments`. It reads the comment first and refuses one
 another login wrote, and refuses any other id shape.
+`send_file` posts a text file as a fenced block in a comment (GitHub has no API that
+attaches a file to one); a binary or over-cap file is refused before any request, naming
+the `github` connector, which can commit it to a branch.
 
 `ReplyTo` decides which comment stream. A `gh-rc<id>` names an inline review
 comment, so the reply goes under that code line: gitd resolves the comment that
@@ -114,7 +117,7 @@ channel after three probes and take ingress with it.
 | ------------------------- | ------------------------ | -------------------------------------------------------------------------------------- |
 | `ROUTER_URL`              | required                 |                                                                                        |
 | `SECRETS_KEY`             | required                 | the keyring routd seals `github_sources` with                                          |
-| `GITHUB_TOKEN`            | unset                    | enables `send_text`                                                                    |
+| `GITHUB_TOKEN`            | unset                    | enables `send_text`, `send_file`, `edit`                                               |
 | `GITHUB_API_URL`          | `https://api.github.com` |                                                                                        |
 | `LISTEN_ADDR`             | `:8080`                  |                                                                                        |
 | `CHANNEL_NAME`            | `github`                 | the channel name gitd registers under                                                  |

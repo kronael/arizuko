@@ -8,19 +8,22 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/kronael/arizuko/chanlib"
 )
 
 type bot struct {
 	chanlib.NoSocial
-	chanlib.NoFileSender
 	chanlib.NoVoiceSender
 
 	cfg  config
@@ -263,6 +266,71 @@ func (b *bot) Send(req chanlib.SendRequest) (string, error) {
 		return "", fmt.Errorf("github comment response without id: %s", bytes.TrimSpace(raw))
 	}
 	return prefix + strconv.FormatInt(created.ID, 10), nil
+}
+
+const maxCommentChars = 65536
+
+const uploadHint = "commit it to a branch with the github connector and link it here"
+
+// SendFile posts a text file as a comment: the caption, the file name, then
+// the content in a fenced block. GitHub has no API that attaches a file to a
+// comment, so a file that is not text, or does not fit the comment cap, is
+// refused before any request with the connector tool that can hold it.
+func (b *bot) SendFile(jid, path, name, caption, replyTo, _ string) (string, error) {
+	if b.cfg.Token == "" {
+		return "", chanlib.Unsupported("send_file", "github", "GITHUB_TOKEN unset; "+uploadHint)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("%w: read %s: %v", chanlib.ErrInvalidRequest, path, err)
+	}
+	if name == "" {
+		name = path
+	}
+	name = filepath.Base(name)
+	if !utf8.Valid(data) || slices.Contains(data, 0) {
+		return "", chanlib.Unsupported("send_file", "github",
+			"a comment holds text only, and "+name+" is not text; "+uploadHint)
+	}
+	body := fileComment(name, caption, string(data))
+	if n := utf8.RuneCountInString(body); n > maxCommentChars {
+		return "", fmt.Errorf("%w: %s makes a %d character comment and GitHub caps a comment at %d; %s",
+			chanlib.ErrInvalidRequest, name, n, maxCommentChars, uploadHint)
+	}
+	return b.Send(chanlib.SendRequest{ChatJID: jid, Content: body, ReplyTo: replyTo})
+}
+
+func fileComment(name, caption, text string) string {
+	var sb strings.Builder
+	if caption != "" {
+		sb.WriteString(caption + "\n\n")
+	}
+	label := strings.NewReplacer("`", "'", "\n", " ", "\r", " ").Replace(name)
+	sb.WriteString("`" + label + "`\n\n")
+	fence := strings.Repeat("`", max(3, longestBackticks(text)+1))
+	lang := strings.ToLower(strings.TrimPrefix(filepath.Ext(name), "."))
+	if strings.IndexFunc(lang, func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) }) >= 0 {
+		lang = ""
+	}
+	sb.WriteString(fence + lang + "\n" + text)
+	if !strings.HasSuffix(text, "\n") {
+		sb.WriteString("\n")
+	}
+	sb.WriteString(fence)
+	return sb.String()
+}
+
+func longestBackticks(text string) int {
+	longest, run := 0, 0
+	for _, r := range text {
+		if r == '`' {
+			run++
+			longest = max(longest, run)
+		} else {
+			run = 0
+		}
+	}
+	return longest
 }
 
 // commentPath answers the API path of the comment id names, and ok=false for
