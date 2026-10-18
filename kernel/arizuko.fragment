@@ -3,6 +3,8 @@
 # guest-init and nothing else, so a module has nothing to load it.
 # Measured 2026-09-24: the distro kernel ships these three as =m and a guest on
 # it answers AF_VSOCK with "address family not supported".
+# CONFIG_KERNEL_GZIP is not set
+CONFIG_KERNEL_LZ4=y
 CONFIG_VIRTIO=y
 CONFIG_VIRTIO_MENU=y
 CONFIG_VIRTIO_MMIO=y
@@ -49,6 +51,7 @@ CONFIG_SERIAL_8250_CONSOLE=y
 # write to /dev/console lands on an invisible CGA text screen. Measured
 # 2026-09-24: guest-init's every line vanished while its mount syscalls appeared
 # in the kernel log from the same function.
+CONFIG_EXPERT=y
 # CONFIG_VT is not set
 # CONFIG_VGA_CONSOLE is not set
 CONFIG_PRINTK=y

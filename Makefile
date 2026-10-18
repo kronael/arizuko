@@ -48,7 +48,7 @@ KVER ?= 6.1.112
 # 30-60 minute kernel rebuild. It earlier missed guest-init and then the
 # Dockerfile, and both times shipped a stale bzImage — so the rule is every input
 # the artifact has, and nothing that is not one.
-KERNEL_KEY = $(KVER)-$(shell cat kernel/Dockerfile kernel/arizuko.fragment \
+KERNEL_KEY = $(KVER)-$(shell cat kernel/Dockerfile kernel/arizuko.fragment kernel/check-config.sh \
   $(filter-out %_test.go,$(wildcard kernel/guest-init/*.go)) | sha256sum | cut -c1-12)
 KERNEL_DIR ?= $(DATA_DIR)/images/kernel-$(KERNEL_KEY)
 
@@ -173,6 +173,8 @@ test:
 	# separate on purpose: it is PID 1 in an initrd holding one binary and it
 	# takes no dependency it can avoid, so it carries no go.sum.
 	cd kernel/guest-init && go test ./... -count=1 -short
+	bash tests/artifact_cache_test.sh
+	bash kernel/check-config_test.sh
 
 # integration: pure integration tests in tests/ (no -short; hits real DBs,
 # real HTTP between daemons). Excluded from `make test` due to setup cost.

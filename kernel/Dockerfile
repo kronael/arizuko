@@ -9,7 +9,7 @@ ARG KVER=6.1.112
 ARG FC_REF=v1.10.1
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential flex bison bc libelf-dev libssl-dev \
+    build-essential flex bison bc libelf-dev libssl-dev lz4 \
     curl xz-utils ca-certificates
 
 WORKDIR /src
@@ -20,9 +20,11 @@ RUN curl -fsSL "https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-${KVER}.tar.x
 # Both land in the artifact so its key covers what produced it.
 ADD "https://raw.githubusercontent.com/firecracker-microvm/firecracker/${FC_REF}/resources/guest_configs/microvm-kernel-ci-x86_64-6.1.config" /src/.config
 COPY arizuko.fragment /src/arizuko.fragment
+COPY check-config.sh /src/check-config.sh
 
 RUN ./scripts/kconfig/merge_config.sh -m .config arizuko.fragment \
     && make olddefconfig \
+    && ./check-config.sh arizuko.fragment .config /src \
     && make -j"$(nproc)" bzImage
 
 # The guest's whole userspace: one static binary as /init.
