@@ -55,10 +55,6 @@ line; none can be answered from the code.
   is faster on the random reads a boot makes, and costs one fragment line plus
   one builder stage — this repo compiles its own kernel, so neither is new.
 
-- `L445` — should an unmentioned comment reach the agent at all? It arrives as
-  `#observe` context today, which is what lets it answer the mention that
-  follows, and it costs a full turn per comment either way.
-
 - `L443` — should a dispatch retry re-run the 👀 mark? Making the mark
   idempotent hides the retries; stopping the retry needs to know why the first
   four did not count as done.
@@ -131,11 +127,6 @@ ones no measurement can settle.
   breaks enrolment; refusing an unknown JID breaks the agent opening an issue.
   The tension is in the capability, not the code, and it is a security
   boundary.
-- `L416` — engagement promotes an observe-only PR event to a turn for 30
-  minutes, so a push or a label wakes the agent. Being asked is now mechanical
-  (a review request or assignment to the bot, an @-mention: `verb=mention`, a
-  turn at any time). What stays yours is what else may wake an engaged agent:
-  a push that breaks CI probably yes, a label probably no, same event class.
 - `L420` — the self-drop holds because one identity happens to serve both
   doors on sloth. Dropping a SET of known bot logins works only while every
   identity the agent can post as is enumerable, and a credential granted later
@@ -143,18 +134,14 @@ ones no measurement can settle.
 - `L411` — nothing checks the reply channel can send before the turn is paid
   for. Cheap to answer for a dead channel, undecidable for one failing
   intermittently.
-- `L418` — an edited or deleted comment carries the object id, so the row is a
-  duplicate no-op and nothing logs it. Re-keying rows on the delivery id is
-  prescribed in `6/27` and touches ingest for every event type.
+- `L418` — keep immutable comment history with edit/delete notices, or approve
+  object revisions and deletion markers for future context.
 - `L421` — `replyThreadRoot` returns "" whenever a turn has a topic, and routd
   fills `ThreadID` from the topic. Both are wrong; repairing either changes
   what teled, discd and slakd receive.
 
 **Small fixes awaiting a go.** Each is bounded, and its entry names the fix.
 
-- `L427` — gitd marks a delivery accepted before it knows the outcome.
-- `L455` — inconsistent repository coordinates can escape a registered GitHub source.
-- `L456` — mixed CI fanout failures lose retention and retry status through joined errors.
 - `L428` — the web design guard passes shapes it should refuse, and a site that
   loses fifteen sidebars.
 - `L429` — four classes the pages use have no rule in `hub.css`.
@@ -499,55 +486,6 @@ believe a check runs, and a believed guard is worse than a missing one.
 during rendering, the writer returns an error. `compose/env_file_required_test.go`
 proves it, and removing the panic turns that test red (mutated and checked).
 The dead comment is replaced by the guard it described.
-
-## L445 — the engagement scope narrows the REPLY, not the TURN: an unmentioned comment still runs the agent and costs 160 cents (2026-10-18, open — needs sign-off)
-
-Reproduced at `1aac43d3313c747829a880067a3359d45b6332a1` by
-`routd/github_trigger_test.go::TestGitHubObserveAndRouteMissCannotInheritEngagement`:
-an observe-only GitHub comment resolves to the engaged foreign owner.
-The owner authorized PR-only explicit requests and assigned-PR state actions on
-2026-10-19; bystander comments must remain observations, including on assigned PRs.
-
-FOUND 2026-10-18 by a live gating check on `vumilan/morha` PR 293. The pull
-request has NO assignees, and the comment `gh-c6252699006` names no bot. Both
-halves of the `14e8d5ad` condition are false, so the agent should not engage.
-
-What happened instead, from the journal:
-
-    17:07:44  dispatch run            turn_id=gh-c6252699006 topic=pr/293
-    17:07:45  dispatch capabilities resolved
-    17:08:04  agent self-reported model usage  model=claude-opus-4-8
-              input=38 output=6295 cost_cents=160
-
-And from the reaction watcher:
-
-    17:07:47  eyes present on 6252699006
-    17:08:09  eyes gone
-
-So the turn ran, the model was spent, the 👀 was shown to everyone reading the
-pull request, and nothing was posted. Replies after that comment: zero.
-
-The silence is correct — `14e8d5ad` stopped the reply. The cost is not. The
-owner's words were that the agent should not review every pull request, only
-the ones it is assigned to or mentioned in. The narrowing reached the output
-half only.
-
-Two user-visible consequences, not one. Every passer-by comment on a watched
-repository spends a full turn, and every passer-by comment makes the bot
-visibly look at it and then drop it without a word, which reads as the agent
-ignoring someone.
-
-Measured contrast in the same session: the MENTIONED turn `gh-c6252651263`
-dispatched five times (`L443`); this unmentioned one dispatched once. So the
-two faults are separate.
-
-**What needs you:** whether an unmentioned comment should reach the agent at
-all. It currently arrives as `#observe` context, and context is the reason the
-route exists — an agent that never sees the thread cannot answer the mention
-that follows. Dropping the turn costs that context; keeping it costs a turn per
-comment. A third shape, batching observed comments into the next real turn
-rather than running one each, changes dispatch lifecycle. All three are
-redesigns.
 
 ## L443 — one GitHub comment dispatched the same turn five times, and the 👀 flickered once per dispatch (2026-10-18, open — needs sign-off)
 
@@ -974,49 +912,6 @@ posted nothing.
   carrying either joins the retryable class instead of dead-lettering.
   `TestCall_RateLimited403IsRetryable` pins all three 403s.
 
-## L427 — gitd records a delivery as accepted before it knows the outcome (2026-10-16, open)
-
-2026-10-19 verification: `TestCIWebhookUsesCurrentAssignmentAndBoundedFanout`
-returns 503 for an assignment lookup failure or excessive PR fanout, but
-`LastInboundAt` advances. The same delivery can recover after an API failure;
-`markDelivery` records source status and does not deduplicate delivery IDs.
-
-`gitd/server.go:86` `markDelivery` runs before `SendMessage` (`:91`), so
-`lastInboundAt` and the dash's last-accepted-delivery advance for a webhook
-answered 400 ("routd refused") or 503 (`L415`). The timestamp predates the
-range (`989c440c:gitd/server.go:85`).
-
-- **Severity:** low — an operator reads "delivering" on a source whose
-  deliveries are refused
-- **Scope:** `gitd/server.go:86`
-- **Fix:** mark after the 202 branch. no test — ops
-- **Status:** open
-
-## L455 — inconsistent repository fields escape a registered GitHub source (2026-10-19, open)
-
-`gitd/event.go::checkSource` checks `repository.full_name`, while JIDs and API
-paths use `repository.owner.login` and `repository.name`. A signed delivery
-can name the registered full name and a different repository name.
-`TestCIWebhookUsesCurrentAssignmentAndBoundedFanout` with the consistency
-guard removed issues `GET /repos/kronael/foreign/pulls/5` for source
-`repo/kronael/arizuko`.
-
-- **Severity:** high — a source credential crosses its repository boundary
-- **Scope:** `gitd/event.go::checkSource`
-- **Status:** open — require matching, valid repository coordinates before mapping or API reads
-
-## L456 — joined CI fanout errors misclassify retained and lost messages (2026-10-19, open)
-
-`TestCIFanoutAcknowledgesMixedDeliveryOutcomes` measures a retained transient
-failure plus permanent refusal returning 400 or 503 depending on send order.
-A permanent refusal first also hides a later unretained transient behind 400.
-`PermanentIngress` inspects only the first status inside `errors.Join`; permanent
-refusals also carry `ErrInboundLost` because retention deliberately rejects them.
-
-- **Severity:** high — webhook acknowledgements misstate durability and retryability
-- **Scope:** `gitd/server.go::handleWebhook`
-- **Status:** open — classify each send before combining fanout outcomes
-
 ## L428 — the web design guard passes on a page that carries its own colour, and on a site that loses fifteen sidebars (2026-10-16, open)
 
 `tests/webdocs/design_test.go` detects a `<style` tag and a colour inside a
@@ -1221,38 +1116,6 @@ correct and would leave a redeliver button in GitHub's UI.
 - **Fix:** `retainInbound` returns its outcome; answer 5xx when neither routd
   nor the retention store took the message.
 
-## L416 — while the agent is engaged on a PR, every observe-only event becomes a turn (2026-10-16, open — needs a decision)
-
-`TestGitHubSourceRoutes` also measures issue mention routes in all three
-source kinds, contrary to the owner's 2026-10-19 PR-only trigger contract.
-
-The 2026-10-19 PR-only contract also needs typed state classification before
-actor filtering. `TestAutomatedPRStateUsesAssignmentWithoutCommentLoops`
-measures bot-authored closures and head updates dropping before watch checks.
-
-`routd/loop.go:640` checks engagement BEFORE `rt.Mode == "observe"`, and
-`DefaultEngagementTTL` is 30 minutes (`routd/server.go:129`). Any reply renews
-it on `(chat, pr/<n>)`. Inside that window a `synchronize`, `labeled`,
-`review_requested`, `closed` or empty-body approval dispatches a turn with
-content like "kronael synchronize PR #278", as if a person had spoken.
-
-Spec `6/27` names the engagement mechanism as intended, but it was written
-before gitd gave the agent a 30-minute wake-up on every state change.
-
-**Done 2026-10-16: being asked.** `gitd/event.go` `mapEvent` sets `verb=mention`
-for a review requested from gitd's own login (`requested_reviewer.login`), for an
-issue or PR assigned to it (`assignee.login`), and for an `@<login>` of the bot in
-a comment, review, review comment, or PR or issue body (a longer login such as
-`@<login>-helper` is not a mention). The same events aimed at another account,
-and `synchronize`, `labeled`, `closed`, stay ambient. routd does not rewrite the
-verb: `routd/server.go` only promotes to `mention`, and the seeded rows already
-route `verb=mention` to the folder. The window above is unchanged and still
-applies to every ambient event.
-
-- **Severity:** medium — the agent comments on a push or a label, one turn each
-- **Status:** open — which ambient events may promote inside the window is yours
-  to decide; being asked no longer depends on it
-
 ## L417 — an App-kind source lets the agent send to any repository on GitHub (2026-10-16, open — needs sign-off)
 
 `store/github_sources.go:142,146` seed `chat_jid=github:*/*/pr/*` and the
@@ -1271,27 +1134,18 @@ the SEED, not by the operator.
 - **Fix (not chosen):** seed App routes per installed repository, or refuse a
   JID no inbound has ever been stored for.
 
-## L418 — an edited, deleted or dismissed comment is dropped as a duplicate and nothing says so (2026-10-16, open)
+## L418 — edit and deletion notices preserve the original stored comment (2026-10-16, open — needs a decision)
 
-Reproduced at `1aac43d3313c747829a880067a3359d45b6332a1` by
-`gitd/pr_policy_test.go::TestCommentActionDeliveryIdentitySurvivesOriginalObject`:
-distinct edit/delete/dismiss deliveries reuse `gh-c42`, `gh-rc42` or `gh-r7`.
+`gitd/event.go` emits independent edit/delete/dismiss notifications. An edit
+includes its new body. `store/messages.go` retains the original comment row,
+so context can contain both versions or text that GitHub deleted.
 
-`gitd/event.go:296,309,325` give every action on a comment the OBJECT id, so
-`issue_comment.edited` arrives as the same `gh-c<id>` as the create.
-`store/messages.go:236` makes a duplicate id a no-op, `GuardedBatch` returns
-`(false, nil)`, routd answers 200 and gitd answers 200. No row, no log line.
-
-Even stored, the mapping carries "login edited a comment" without the new
-body (`gitd/event.go:302`). A person who edits a comment to add an instruction gets
-nothing, and a deleted comment stays in the agent's context. No test covers
-these actions.
-
-- **Severity:** medium — silent, and editing a comment is ordinary behaviour
-- **Scope:** `gitd/event.go:296`
-- **Status:** open
-- **Fix:** the delivery id keys the row, the object id keys the thread — the
-  shape `6/27`'s proposal section already prescribes.
+- **Severity:** medium — historical text remains visible in future context
+- **Scope:** `gitd/event.go`, `store/messages.go`
+- **Status:** open — no test, design
+- **Options:** retain immutable history with notices, or approve object
+  revisions and deletion markers from `specs/6/27-git-channel.md`.
+- **Default if nothing is decided:** preserve history and deliver notices.
 
 ## L419 — a token GitHub refuses at boot restart-loops the whole instance (2026-10-16, ✅ FIXED 2026-10-16 — `1f52b893`)
 
