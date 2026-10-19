@@ -78,9 +78,10 @@ it) or when its filename encodes a multi-account variant
 (`specs/5/R-multi-account.md`): `<adapter>-<label>.yml` (e.g.
 `teled-work.yml`) carries its own `container_name`/env and reads its own
 `env/teled-work.env`: the base adapter's keys, except that a key the
-operator sets as `<KEY>_<LABEL>` in `.env` (`TELEGRAM_BOT_TOKEN_WORK`)
-replaces `<KEY>`, so per-daemon secret isolation extends across accounts
-and two accounts never share a credential. Converting it to a symlink at the base template would
+operator sets as a non-empty `<KEY>_<LABEL>` in `.env` (`TELEGRAM_BOT_TOKEN_WORK`)
+replaces `<KEY>`. An unset or empty override keeps the base value, so each
+variant needs a non-empty override to use a separate credential.
+Converting it to a symlink at the base template would
 collide two services on one `container_name`.
 
 Routes stay out of the fragment on purpose: proxyd, not docker, is their
