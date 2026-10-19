@@ -16,12 +16,17 @@ import (
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/chanreg"
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/ipc"
 	apiv1 "github.com/kronael/arizuko/routd/api/v1"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 	"github.com/kronael/arizuko/store"
 )
 
 const progressJID = "slack:T/C/U"
+
+func (s *Server) mcpSubmitStatus(turnID, text string) error {
+	return s.submitStatus(ipc.TurnStatus{TurnID: turnID, Text: text})
+}
 
 func newProgressTurn(t *testing.T, dl *recDeliverer, returnTo string) (*DB, *Server) {
 	t.Helper()

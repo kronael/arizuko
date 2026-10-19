@@ -32,3 +32,28 @@ func TestTurnHasBotReplyRejectsFailedDelivery(t *testing.T) {
 		})
 	}
 }
+
+func TestLastBotMessageExcludesProgressOnlyRows(t *testing.T) {
+	s := openMem(t)
+	defer s.Close()
+	const jid = "telegram:555"
+	now := time.Now()
+	for i, verb := range []string{verbStatus, VerbStatusSummary} {
+		row := core.Message{ID: verb, ChatJID: jid, BotMsg: true,
+			Verb: verb, Content: "work announcement", Timestamp: now.Add(time.Duration(i) * time.Second)}
+		if err := s.PutOutbound(t.Context(), row, core.MessageStatusSent); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if row, ok, err := s.LastBotMessage(t.Context(), jid); err != nil || ok {
+		t.Fatalf("progress answered a waiting person: row=%+v exists=%v err=%v", row, ok, err)
+	}
+	answer := core.Message{ID: "answer", ChatJID: jid, BotMsg: true,
+		Content: "the result", Timestamp: now.Add(-time.Second)}
+	if err := s.PutOutbound(t.Context(), answer, core.MessageStatusSent); err != nil {
+		t.Fatal(err)
+	}
+	if row, ok, err := s.LastBotMessage(t.Context(), jid); err != nil || !ok || row.ID != answer.ID {
+		t.Fatalf("real answer lost behind progress: row=%+v exists=%v err=%v", row, ok, err)
+	}
+}

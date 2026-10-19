@@ -178,9 +178,10 @@ async function streamStatuses(
   if (!turnID) return;
   for (const s of statusBlocks(text)) {
     if (seen.has(s)) continue;
-    seen.add(s);
+    const kind = seen.size === 0 ? 'summary' : 'progress';
     try {
-      await send({ turn_id: turnID, text: s });
+      await send({ turn_id: turnID, text: s, kind });
+      seen.add(s);
     } catch (err) {
       log(`submit_status failed: ${err instanceof Error ? err.message : String(err)}`);
     }

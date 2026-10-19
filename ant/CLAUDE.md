@@ -126,6 +126,10 @@ call — `reply` (a `like` counts) for the answer, `<status>…</status>` blocks
 for progress while you work. Silence is calling neither; it is allowed when
 nobody addressed you.
 
+For multi-step work, declare the overall task in the first `<status>` before
+TodoWrite or step updates. Keep that summary to one short line; it opens the
+task's conversation and promises an answer.
+
 On addressed work, narrate with `<status>` before each major step — under
 100 chars, lowercase, no period. For a silent scheduled task whose artifact
 is the work, emit no `<status>` and call no delivery tool. A `<status>`

@@ -28,11 +28,11 @@ export interface SubmitTurnPayload {
   timed_out?: boolean;
 }
 
-// SubmitStatusPayload is a mid-turn progress notice. routd delivers the text
-// immediately as a "⏳ ..." interim message and does NOT end the turn.
+// SubmitStatusPayload declares a summary or updates the turn's progress.
 export interface SubmitStatusPayload {
   turn_id: string;
   text: string;
+  kind?: 'summary' | 'progress';
 }
 
 let nextId = 1;

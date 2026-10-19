@@ -808,6 +808,7 @@ func (s *Store) TurnHasBotReply(chatJID, turnID string) bool {
 			{Attr: attrMsgTurnID, Op: objstore.Eq, Value: turnID},
 			{Attr: attrMsgBot, Op: objstore.Present},
 			{Attr: attrMsgVerb, Op: objstore.Ne, Value: verbStatus},
+			{Attr: attrMsgVerb, Op: objstore.Ne, Value: VerbStatusSummary},
 		},
 	})
 	if err != nil {
@@ -827,6 +828,8 @@ func (s *Store) TurnHasBotReply(chatJID, turnID string) bool {
 
 // verbStatus is the verb of a turn's progress row (routd/progress.go).
 const verbStatus = "status"
+
+const VerbStatusSummary = "status_summary"
 
 // LastStatusRow answers the newest status row of one turn, delivered or not.
 // A row whose first send is still owed has no platform id yet, and the caller
@@ -1190,5 +1193,9 @@ func (s *Store) LastHumanMessage(ctx context.Context, jid string) (core.Message,
 // answered, a different fact from an answer that arrived before the question.
 func (s *Store) LastBotMessage(ctx context.Context, jid string) (core.Message, bool, error) {
 	return s.lastMessageWhere(ctx, jid, "bot",
-		[]objstore.Cmp{{Attr: attrMsgBot, Op: objstore.Present}})
+		[]objstore.Cmp{
+			{Attr: attrMsgBot, Op: objstore.Present},
+			{Attr: attrMsgVerb, Op: objstore.Ne, Value: verbStatus},
+			{Attr: attrMsgVerb, Op: objstore.Ne, Value: VerbStatusSummary},
+		})
 }

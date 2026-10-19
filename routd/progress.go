@@ -50,6 +50,26 @@ func (l *Loop) beginProgress(jid string) {
 	_ = l.deliver.Typing(jid, true)
 }
 
+func summaryID(turnID string) string { return "summary-" + turnID }
+
+func (s *Server) declareSummary(tc TurnContext, jid, text string) error {
+	text = strings.TrimSpace(text)
+	if text == "" || strings.ContainsAny(text, "\r\n") {
+		return errors.New("task summary must be one nonempty line")
+	}
+	if tc.State == store.TurnDone {
+		return nil
+	}
+	if _, ok := s.db.MessageByID(jid, summaryID(tc.TurnID)); ok {
+		return nil
+	}
+	row := s.outboundRow(tc, jid, "🤖 "+text, "")
+	row.ID = summaryID(tc.TurnID)
+	row.Verb = store.VerbStatusSummary
+	status := s.deliverRow(tc, jid, &row, "", tc.Topic)
+	return s.db.PutOutbound(row, status)
+}
+
 // updateProgress is the only code that creates or edits a turn's verb=status
 // row. The first update sends the message, a later one edits it and rewrites
 // the row, and an update whose text the row already holds does nothing.
@@ -60,11 +80,6 @@ func (l *Loop) beginProgress(jid string) {
 func (s *Server) updateProgress(tc TurnContext, jid, text string) error {
 	text = strings.TrimSpace(text)
 	if text == "" {
-		return nil
-	}
-	if s.deliver == nil || s.mutedGroup(tc.Folder) || !s.deliver.CanEdit(jid) {
-		slog.Debug("progress update dropped: no editable message here",
-			"turn_id", tc.TurnID, "jid", jid)
 		return nil
 	}
 	if tc.State == store.TurnDone {

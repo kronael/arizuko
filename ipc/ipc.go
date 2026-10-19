@@ -62,10 +62,9 @@ type GatedFns struct {
 	RevokeInvite         func(ref string) error
 	SubmitTurn           func(folder string, t TurnResult) (TurnAck, error)
 	CheckTurn            func(folder, turnID string) (TurnCheck, error)
-	// SubmitStatus delivers a mid-turn progress notice as the turn's one "⏳ ..."
-	// message, without ending the turn. A channel that cannot edit receives
-	// nothing. Nil = method unconfigured.
-	SubmitStatus func(folder, turnID, text string) error
+	// SubmitStatus declares the task summary or updates progress without ending
+	// the turn. Nil = method unconfigured.
+	SubmitStatus func(folder string, status TurnStatus) error
 	// Per-group ambient controls (spec 5/F-topic-lineage).
 	SetGroupOpen          func(folder string, open bool) error
 	SetGroupObserveWindow func(folder string, msgs, chars int) error
@@ -646,15 +645,23 @@ func handleSubmitTurn(raw []byte, id any, gated GatedFns, folder string, write f
 	})
 }
 
-// handleSubmitStatus is the mid-turn progress hook: it delivers the agent's
-// <status> text as the turn's one "⏳ ..." message, without ending the turn.
-// Hidden from tools/list, same as submit_turn.
+type StatusKind string
+
+const (
+	StatusSummary  StatusKind = "summary"
+	StatusProgress StatusKind = "progress"
+)
+
+type TurnStatus struct {
+	TurnID string     `json:"turn_id"`
+	Text   string     `json:"text"`
+	Kind   StatusKind `json:"kind,omitempty"`
+}
+
+// handleSubmitStatus is hidden from tools/list, like submit_turn.
 func handleSubmitStatus(raw []byte, id any, gated GatedFns, folder string, write func(any)) {
 	var req struct {
-		Params struct {
-			TurnID string `json:"turn_id"`
-			Text   string `json:"text"`
-		} `json:"params"`
+		Params TurnStatus `json:"params"`
 	}
 	if err := json.Unmarshal(raw, &req); err != nil {
 		write(map[string]any{
@@ -670,6 +677,11 @@ func handleSubmitStatus(raw []byte, id any, gated GatedFns, folder string, write
 		})
 		return
 	}
+	if req.Params.Kind != "" && req.Params.Kind != StatusSummary && req.Params.Kind != StatusProgress {
+		write(map[string]any{"jsonrpc": "2.0", "id": id,
+			"error": map[string]any{"code": -32602, "message": "kind must be summary or progress"}})
+		return
+	}
 	if gated.SubmitStatus == nil {
 		write(map[string]any{
 			"jsonrpc": "2.0", "id": id,
@@ -677,7 +689,7 @@ func handleSubmitStatus(raw []byte, id any, gated GatedFns, folder string, write
 		})
 		return
 	}
-	if err := gated.SubmitStatus(folder, req.Params.TurnID, req.Params.Text); err != nil {
+	if err := gated.SubmitStatus(folder, req.Params); err != nil {
 		write(map[string]any{
 			"jsonrpc": "2.0", "id": id,
 			"error": map[string]any{"code": -32603, "message": err.Error()},

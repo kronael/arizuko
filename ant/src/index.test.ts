@@ -4,6 +4,7 @@
 import { describe, test, expect } from 'bun:test';
 import { NUDGE_TEXT, buildSystemPrompt, checkIpcMessage, runTurn, statusBlocks } from './index.js';
 import type { Frame, Harness } from './backend.js';
+import type { SubmitStatusPayload } from './mcp.js';
 import { STEER_SPOOL, appendLines, drainLines } from './spool.js';
 
 test('statusBlocks: extracts each trimmed block in order', () => {
@@ -53,6 +54,19 @@ function spy(): { deliveries: Delivered[]; deliver: (turnID: string, out: Delive
 }
 
 const INPUT = { prompt: 'p', groupFolder: 'g', chatJid: 'j' };
+
+test('runTurn declares the first model status as summary and later statuses as progress', async () => {
+  const sent: SubmitStatusPayload[] = [];
+  await runTurn(scripted([
+    { kind: 'status', text: '<status>verify the release</status>' },
+    { kind: 'status', text: '<status>running the tests</status>' },
+    { kind: 'result', ok: true },
+  ]), 'p', undefined, INPUT, {}, 'turn-1', async () => {}, async p => { sent.push(p); });
+  expect(sent).toEqual([
+    { turn_id: 'turn-1', text: 'verify the release', kind: 'summary' },
+    { turn_id: 'turn-1', text: 'running the tests', kind: 'progress' },
+  ]);
+});
 
 test('runTurn: retryFresh on a resumed turn is not delivered — the caller retries', async () => {
   const { deliveries, deliver } = spy();

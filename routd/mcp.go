@@ -136,11 +136,11 @@ func (s *Server) buildGatedFns(t turnMCP) ipc.GatedFns {
 			}
 			return s.mcpCheckTurn(turnID)
 		},
-		SubmitStatus: func(_ string, turnID, text string) error {
-			if err := requireTurn(turnID); err != nil {
+		SubmitStatus: func(_ string, status ipc.TurnStatus) error {
+			if err := requireTurn(status.TurnID); err != nil {
 				return err
 			}
-			return s.mcpSubmitStatus(turnID, text)
+			return s.submitStatus(status)
 		},
 		CreateInvite: func(targetGlob, issuedBySub string, maxUses int, expiresAt *time.Time) (ipc.InviteInfo, error) {
 			oc := s.onbodClient()
@@ -342,6 +342,9 @@ func (s *Server) mcpCheckTurn(turnID string) (ipc.TurnCheck, error) {
 func (s *Server) checkTurn(tc TurnContext) (ipc.TurnCheck, error) {
 	jid := returnTarget(tc, tc.ChatJID)
 	_, statusRow := s.db.LastStatusRow(jid, tc.TurnID)
+	if _, summary := s.db.MessageByID(jid, summaryID(tc.TurnID)); summary {
+		statusRow = true
+	}
 	delivered, err := s.turnDelivered(tc)
 	if err != nil {
 		return ipc.TurnCheck{}, err
@@ -375,20 +378,34 @@ func (s *Server) mcpSubmitTurn(_ string, t ipc.TurnResult) (ipc.TurnAck, error) 
 	return s.recordTurnResult(t.TurnID, req)
 }
 
-// mcpSubmitStatus hands a mid-turn <status> text to the progress renderer
+// submitStatus hands a mid-turn declaration to the progress renderer
 // without ending the turn. Serialized per turn_id like the other turn writes;
 // a closed turn is a no-op.
-func (s *Server) mcpSubmitStatus(turnID, text string) error {
-	unlock := lockTurn(turnID)
+func (s *Server) submitStatus(status ipc.TurnStatus) error {
+	unlock := lockTurn(status.TurnID)
 	defer unlock()
-	tc, ok := s.db.GetTurnContext(turnID)
+	tc, ok := s.db.GetTurnContext(status.TurnID)
 	if !ok {
 		return fmt.Errorf("no turn context for turn_id")
 	}
 	if s.callbackClosed(tc) {
 		return nil
 	}
-	return s.updateProgress(tc, returnTarget(tc, tc.ChatJID), text)
+	jid := returnTarget(tc, tc.ChatJID)
+	if s.deliver == nil || s.mutedGroup(tc.Folder) || !s.deliver.CanEdit(jid) {
+		slog.Debug("progress update dropped: no editable message here",
+			"turn_id", tc.TurnID, "jid", jid)
+		return nil
+	}
+	if status.Kind == ipc.StatusSummary {
+		return s.declareSummary(tc, jid, status.Text)
+	}
+	if status.Kind == ipc.StatusProgress {
+		if _, ok := s.db.MessageByID(jid, summaryID(tc.TurnID)); !ok {
+			return fmt.Errorf("declare the overall task summary before progress")
+		}
+	}
+	return s.updateProgress(tc, jid, status.Text)
 }
 
 // fetchPlatformHistory backs the fetch_history MCP tool: proxy to the owning

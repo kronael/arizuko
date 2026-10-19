@@ -34,7 +34,7 @@ test('the policy sends the rendered checklist on TodoWrite', async () => {
   await todoStatus('turn-1', async p => { sent.push(p); })(
     todoInput([{ content: 'a', status: 'completed' }, { content: 'b', status: 'pending' }]),
   );
-  expect(sent).toEqual([{ turn_id: 'turn-1', text: '☑ a\n☐ b' }]);
+  expect(sent).toEqual([{ turn_id: 'turn-1', text: '☑ a\n☐ b', kind: 'progress' }]);
 });
 
 test('the policy ignores non-TodoWrite tools and an empty turn id', async () => {
