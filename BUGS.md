@@ -139,8 +139,6 @@ ones no measurement can settle.
 
 **Small fixes awaiting a go.** Each is bounded, and its entry names the fix.
 
-- `L468` — retry a thread-creating reply with its original root when no task
-  summary exists; a transient create failure currently becomes a channel send.
 - `L469` — CUZK Chromium runs as a host process rather than inside Rhias's
   QEMU sandbox; host browser stopped and disabled pending guest replacement.
 
@@ -304,23 +302,6 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
   composition. Reuse the host SSH tunnel through a private fixed transport
   relay; preserve usage history and low operational access limits. Do not
   add host execution or a host browser/CDP service.
-
-## L468 — retry loses thread-creation intent for a reply without a task summary (2026-10-19, open)
-
-- **Status:** measured; bounded repair required before release.
-- **Severity:** HIGH, correctness.
-- **Measured:** native socket `reply` persists a pending outbound row after a
-  transient send failure. `maybeRetryOutbound` in `routd/loop.go:398` passes
-  its saved topic as an existing thread and `reply=false`. With no summary,
-  `placeTurnDelivery` leaves `threadID=human-root` and clears `threadRoot`.
-  Discord then skips thread creation and sends to the nonexistent channel.
-- **Test:** temporary overlay `TestReviewNoSummaryThreadStartRetry` in
-  `/tmp/arizuko-review-thread-retry_test.go`; parent race reproduction fails
-  without-summary and passes with-summary. Evidence:
-  `/tmp/sloth-parent-no-summary-retry-red.log`.
-- **Fix:** preserve the original thread-creation destination on replay through
-  the shared placement mechanism. Keep idempotency, existing threads, explicit
-  destinations and summary behavior. No storage or runtime-port expansion.
 
 ## L448 — the custom guest kernel is justified by BOOT TIME, not by the reason written in the fragment (2026-10-19, open — needs sign-off)
 
