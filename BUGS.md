@@ -44,8 +44,8 @@ line; none can be answered from the code.
   skills that make it.
 
 - `L447` — carry the rootfs from squashfs to EROFS, or stop at squashfs? EROFS
-  is faster on the random reads a boot makes, and costs a guest kernel option
-  plus a tar-to-image tool bookworm does not package.
+  is faster on the random reads a boot makes, and costs one fragment line plus
+  one builder stage — this repo compiles its own kernel, so neither is new.
 
 - `L445` — should an unmentioned comment reach the agent at all? It arrives as
   `#observe` context today, which is what lets it answer the mention that
@@ -323,15 +323,25 @@ comparison, NOT from a benchmark run here:
 Treat those as indicative. No controlled comparison was run on this host, and
 the honest next step is `fio` over two images built from the same tree.
 
-What squashfs still gets right today, and why it goes first: it is already in
-the built kernel, EROFS is not; and `squashfs-tools` ships `sqfstar`, which
-streams a tar straight into an image, while bookworm's `erofs-utils` 1.5 has no
-tar importer. So EROFS costs a kernel option AND a tar-to-image step that does
-not exist in this distribution.
+What squashfs gets right today: it is already in the built kernel and EROFS is
+not, and `squashfs-tools` ships `sqfstar`, which streams a tar straight into an
+image.
+
+The "no packaged tar importer" cost does NOT stand, and this entry claimed it
+did. `kernel/Dockerfile` already compiles Linux 6.1.112 from source in a
+`debian:12-slim` builder stage, because the distro kernel ships virtio as
+modules and the initrd carries only `guest-init`, so a module has nothing to
+load it. A repository that builds its own kernel can build `erofs-utils` in a
+stage beside the one already there. Arguing from what bookworm packages is the
+wrong frame here.
+
+So EROFS costs one line in `kernel/arizuko.fragment` plus one builder stage,
+against squashfs's zero. Both are small, and the question is whether the
+random-read profile is worth either.
 
 **What needs you:** whether to carry the EROFS move at all. It buys random-read
-speed on the one path that is pure random read, and it costs a guest kernel
-rebuild plus a build step with no packaged tool. Two cheaper things come first
+speed on the one path that is pure random read, and it costs one fragment line
+plus one builder stage. Two cheaper things come first
 and may remove the pressure entirely: the shared rootfs directory both
 instances already point at by the same name, and the 4.5 GB in the tree that
 uid 1000 cannot open.
