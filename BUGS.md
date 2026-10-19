@@ -28,9 +28,6 @@ marker every entry carries. Ten entries said open in the heading and carried no
 **A contract or design decision.** Each names the question in its own Status
 line; none can be answered from the code.
 
-- `L465` — preserve failed completion when a terminal progress edit retries at
-  run return; the existing result status can carry the decision.
-
 - `L347` — may the cursor stay put when a steered turn does not run? Changes
   the consume contract (`L104`).
 - `L317` — may `/stop` drop the backlog older than itself, and is that drop
@@ -285,30 +282,6 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
 - **`L15` — the 2026-08-11 dead-code sweep's rejected hits.** `deadcode ./...` gave 149
   hits, 56 under `-test`; nine survived verification and were filed separately. Kept so
   the next sweep does not re-report the same ~135.
-
-## L465 — a failed terminal edit retries as success after a clean run returns (2026-10-19, open)
-
-`routd/turns.go` chooses `endFailed` for timeout or continued silence, but
-records the incoming success status. If the terminal platform edit fails,
-`routd/progress.go` correctly keeps the row in progress. The real run-return
-path in `routd/dispatch.go` then retries with its default `endDone` and writes
-`✓` after a turn whose completion required `✗`.
-
-Measured at `b9cc593402f29d812774275755a44c4c71171f82` with
-`TestReviewTerminalFailureSurvivesRunReturn` through the production Loop and
-result handler. Both timeout and continued silence attempt `✗ working`, fail
-that edit, then successfully write `✓ working` on run return. The successful
-delivery positive control correctly writes `✓`. Overlay test and race log:
-`/tmp/terminal-mark-measure-jsct0175/`.
-
-- **Severity:** medium
-- **Scope:** completion outcome and progress retry
-- **Affected:** routd
-- **Status:** minimal repair proposal under review; no production change.
-- **Options:** (a) record failed completion in the existing result status and
-  let run return read that status; (b) leave the incorrect retry outcome.
-- **Default if nothing is decided:** retain current behavior and keep the
-  measured regression as a release blocker.
 
 ## L448 — the custom guest kernel is justified by BOOT TIME, not by the reason written in the fragment (2026-10-19, open — needs sign-off)
 
