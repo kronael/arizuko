@@ -98,8 +98,16 @@ type RouterClient struct {
 	mark *AckMark
 }
 
+// routerTimeout bounds one call to routd. It is above the store's worst
+// observed write, not below it: at 10s a loaded extenddb logging 1.9s
+// statements made `POST /v1/messages` time out, and every Discord inbound on
+// sloth retained and retried a write that would have finished (2026-10-19).
+// The retry path is correct and unbounded (`inbound.go`), so a tight timeout
+// buys nothing and costs the user a 30s-to-15m wait for a delivered message.
+const routerTimeout = 60 * time.Second
+
 func NewRouterClient(url string) *RouterClient {
-	return &RouterClient{url: url, client: &http.Client{Timeout: 10 * time.Second}}
+	return &RouterClient{url: url, client: &http.Client{Timeout: routerTimeout}}
 }
 
 // SetServiceToken installs the adapter's service-token source (spec 5/1);
