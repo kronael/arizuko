@@ -43,6 +43,10 @@ line; none can be answered from the code.
   ungated host service, or drop the self-transcription claim from the two
   skills that make it.
 
+- `L447` — carry the rootfs from squashfs to EROFS, or stop at squashfs? EROFS
+  is faster on the random reads a boot makes, and costs a guest kernel option
+  plus a tar-to-image tool bookworm does not package.
+
 - `L445` — should an unmentioned comment reach the agent at all? It arrives as
   `#observe` context today, which is what lets it answer the mention that
   follows, and it costs a full turn per comment either way.
@@ -283,6 +287,54 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
 - **`L15` — the 2026-08-11 dead-code sweep's rejected hits.** `deadcode ./...` gave 149
   hits, 56 under `-test`; nine survived verification and were filed separately. Kept so
   the next sweep does not re-report the same ~135.
+
+## L447 — squashfs is the wrong compressed rootfs for a random-read boot, and this kernel builds it in its slowest mode (2026-10-19, open — needs sign-off)
+
+FOUND 2026-10-19 while costing a packed read-only rootfs
+(`specs/7/30-permanent-vms.md`). squashfs is reachable today and EROFS is not,
+so squashfs is the right FIRST step; this entry records that it is not the
+right last one.
+
+Measured in the built guest kernel,
+`/srv/data/arizuko_krons/images/kernel-6.1.112-40e1508980d0/kernel.config`:
+
+    CONFIG_SQUASHFS=y
+    CONFIG_SQUASHFS_ZSTD=y
+    CONFIG_SQUASHFS_DECOMP_SINGLE=y
+    CONFIG_SQUASHFS_FILE_CACHE=y
+    CONFIG_ZSTD_DECOMPRESS=y
+    CONFIG_VIRTIO_BLK=y
+
+`DECOMP_SINGLE` is the single-decompressor option: every reader serialises
+through one decompression context. `FILE_CACHE` is the older of the two cache
+modes. Both are the slow end of squashfs's own choices, and a rootfs serving a
+booting agent is random-read heavy, which is squashfs's weak case.
+
+Why EROFS is better for this shape, from its own documentation and a published
+comparison, NOT from a benchmark run here:
+
+- EROFS uses block-sized physical clusters, 4 KiB by default; squashfs uses
+  128 KiB. EROFS's FAQ says large clusters significantly degrade random reads.
+- A 2022 sigma-star comparison found EROFS ahead on reads at a 4 KiB block
+  size whatever the compressor, because squashfs's compressed blocks rarely
+  align with device blocks, so each read pulls neighbouring data it discards.
+- OSS NA 2024 slides show EROFS ahead on random I/O at every cluster size.
+
+Treat those as indicative. No controlled comparison was run on this host, and
+the honest next step is `fio` over two images built from the same tree.
+
+What squashfs still gets right today, and why it goes first: it is already in
+the built kernel, EROFS is not; and `squashfs-tools` ships `sqfstar`, which
+streams a tar straight into an image, while bookworm's `erofs-utils` 1.5 has no
+tar importer. So EROFS costs a kernel option AND a tar-to-image step that does
+not exist in this distribution.
+
+**What needs you:** whether to carry the EROFS move at all. It buys random-read
+speed on the one path that is pure random read, and it costs a guest kernel
+rebuild plus a build step with no packaged tool. Two cheaper things come first
+and may remove the pressure entirely: the shared rootfs directory both
+instances already point at by the same name, and the 4.5 GB in the tree that
+uid 1000 cannot open.
 
 ## L446 — ✅ FIXED `387befde` — a comment named `checkEveryServiceHasKeys` as the guard that refuses generation, and no such function existed (2026-10-18)
 
