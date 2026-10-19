@@ -142,8 +142,6 @@ ones no measurement can settle.
 
 **Small fixes awaiting a go.** Each is bounded, and its entry names the fix.
 
-- `L460` — addressed web-chat detection spells a guarded scheme literal.
-
 - `L428` — the web design guard passes shapes it should refuse, and a site that
   loses fifteen sidebars.
 - `L429` — four classes the pages use have no rule in `hub.css`.
@@ -286,18 +284,6 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
 - **`L15` — the 2026-08-11 dead-code sweep's rejected hits.** `deadcode ./...` gave 149
   hits, 56 under `-test`; nine survived verification and were filed separately. Kept so
   the next sweep does not re-report the same ~135.
-
-## L460 — addressed web-chat detection bypasses the shared platform classifier (2026-10-19, open)
-
-`groupfolder/TestSchemeLiteralsLiveHere` fails at
-`routd/loop.go::resolveFolder`: its addressed predicate spells `"web:"`
-outside the allowed conversion owners. The combined full suite reproduces
-the failure at `680f31862e61fca1b5bef387e6d85975c4067a97`.
-
-- **Severity:** low — the release gate fails
-- **Scope:** direct web-chat address detection
-- **Fix:** use the existing platform classifier for the same surface check.
-- **Status:** authorized release repair; keep the scheme guard unchanged.
 
 ## L458 — a queued follow-up loses its turn identity at the guest input boundary (2026-10-19, open — needs sign-off)
 
