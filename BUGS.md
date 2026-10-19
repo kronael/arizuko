@@ -28,8 +28,6 @@ marker every entry carries. Ten entries said open in the heading and carried no
 **A contract or design decision.** Each names the question in its own Status
 line; none can be answered from the code.
 
-- `L462` — carry the explicit thread destination through message edits.
-
 - `L347` — may the cursor stay put when a steered turn does not run? Changes
   the consume contract (`L104`).
 - `L317` — may `/stop` drop the backlog older than itself, and is that drop
@@ -284,20 +282,6 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
 - **`L15` — the 2026-08-11 dead-code sweep's rejected hits.** `deadcode ./...` gave 149
   hits, 56 under `-test`; nine survived verification and were filed separately. Kept so
   the next sweep does not re-report the same ~135.
-
-## L462 — threaded progress edits target the parent channel (2026-10-19, open)
-
-The native raw-HTTP fixture `discd/TestEditHTTPUsesExplicitThreadDestination`
-posts `/edit` with `thread_id=th-7` and reaches
-`PATCH /channels/ch-1/messages/msg-1`. `EditRequest` drops the field and
-Discord edits the parent channel. The same fixture confirms that an omitted
-thread must retain parent-channel behavior.
-
-- **Severity:** medium — threaded progress cannot update its actual message.
-- **Scope:** existing edit request and delivery path.
-- **Fix:** carry optional thread context through the normal edit path;
-  Discord uses the explicit destination and Slack retains parent addressing.
-- **Status:** authorized prerequisite for the separate task summary opener.
 
 ## L448 — the custom guest kernel is justified by BOOT TIME, not by the reason written in the fragment (2026-10-19, open — needs sign-off)
 
