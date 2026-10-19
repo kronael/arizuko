@@ -120,8 +120,7 @@ type TurnResult struct {
 	SessionID string `json:"session_id,omitempty"`
 	Status    string `json:"status"` // success | error
 	Error     string `json:"error,omitempty"`
-	// TimedOut marks a result that is the graceful query-timeout summary
-	// rather than a normal completion. routd logs a WARN; outcome stays OK.
+	// TimedOut reports harness time or turn-limit exhaustion.
 	TimedOut bool `json:"timed_out,omitempty"`
 
 	// Models carries per-model token usage + pre-computed cost, as the

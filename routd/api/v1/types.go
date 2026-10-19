@@ -66,8 +66,7 @@ type TurnResult struct {
 	Status    string               `json:"status"` // success|error
 	Error     string               `json:"error"`
 	Models    map[string]ModelCost `json:"models"`
-	// TimedOut marks the graceful query-timeout summary. routd logs a WARN;
-	// the outcome stays OK (no breaker trip).
+	// TimedOut reports harness time or turn-limit exhaustion.
 	TimedOut bool `json:"timed_out"`
 }
 
