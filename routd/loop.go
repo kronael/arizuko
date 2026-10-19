@@ -642,7 +642,7 @@ func (l *Loop) resolveFolder(chatJID string, last core.Message) resolution {
 	if direct := l.directFolder(chatJID); direct != "" && l.db.GroupExists(direct) {
 		// Only a person typing in a web chat is a question; a hook is an event
 		// and a bare folder is a system turn.
-		return resolution{Folder: direct, ok: true, Addressed: strings.HasPrefix(chatJID, "web:")}
+		return resolution{Folder: direct, ok: true, Addressed: core.JidPlatform(chatJID) == "web"}
 	}
 	// 2. Route table.
 	routes, err := l.db.Routes()
