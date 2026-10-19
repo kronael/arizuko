@@ -689,6 +689,9 @@ func (l *Loop) effectiveTopic(chatJID, msgTopic string) string {
 // engaged folder (a stale ingress claim) is NOT a route: false, so resolve
 // falls through instead of dispatching to "".
 func (l *Loop) engaged(chatJID, topic string) (string, bool) {
+	if strings.HasPrefix(chatJID, "github:") {
+		return "", false
+	}
 	folder, ok := l.db.Engaged(chatJID, topic)
 	if !ok && topic != "" {
 		stopped, err := l.db.store().ThreadDisengaged(chatJID, topic)

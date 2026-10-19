@@ -2,7 +2,7 @@
 
 A GitHub repository's events reach the agent as ordinary messages. gitd is a
 channel adapter like `slakd`: it receives signed webhook deliveries, maps each
-to one `chanlib.InboundMsg` and POSTs it to routd. Everything the agent does
+to `chanlib.InboundMsg` rows and POSTs them to routd. Everything the agent does
 BACK to the repo — merge, label, review, close — goes through the GitHub MCP
 connector (`template/connectors/github.toml`), not through channel verbs.
 Spec: [`specs/6/27-git-channel.md`](../specs/6/27-git-channel.md).
@@ -50,16 +50,41 @@ login and PR comment are one identity.
 
 ## Observe vs trigger
 
-`add` seeds route rows: human content — a comment, a new PR or issue
-(`verb=message`) — triggers a turn; every other event (push, merge, label, CI)
-lands as `<folder>#observe` context. Being asked is `verb=mention`, as in a
-Discord guild: an `@<login>` of the bot in a comment, review, or PR or issue
-body; a review requested from the bot; an issue or PR assigned to it. A review
-request carries no text, so the verb is its only signal. The same event aimed at
-someone else stays ambient. `verb=mention` also arrives once the agent has
-spoken in the thread (routd promotes it). Repo rows sit at seq 10/100, org at 20/200, app at
-30/300, so a narrower registration wins. Edit the rows (`arizuko route`,
-`/dash/routd/`) to change the split; gitd never decides it.
+`add` seeds mention routes and `<folder>#observe` fallbacks. The bot's login
+comes from `GITHUB_TOKEN`. Assign the bot to each PR it should watch.
+
+| Event                                                                       | Default result |
+| --------------------------------------------------------------------------- | -------------- |
+| PR body, comment or review explicitly mentions `@<login>`                   | Turn           |
+| Inline PR comment directly replies to a stored bot comment                  | Turn           |
+| PR assignment or individual review request targets the bot                  | Turn           |
+| Watched PR changes state, head, labels or review status                     | Turn           |
+| Completed check, suite or workflow names a PR currently assigned to the bot | Turn           |
+| Plain comment or discussion, including on a watched PR                      | Observe        |
+| Assignment or review request targets someone else                           | Observe        |
+| Issue-only, repository-only, queued or in-progress event                    | Observe        |
+
+Review requests are one-time asks. The PR's assignees declare the watch.
+GitHub engagement and bot-started threads do not promote incidental comments
+or fill a missing route. Repo rows sit at seq 10/100, org at 20/200, app at
+30/300, so a narrower registration wins. Operators can edit the route rows.
+For an existing source, remove any `verb=message` trigger rows and issue
+mention trigger rows. Keep its PR mention route and observation fallbacks.
+
+Subscribe to `issue_comment`, `pull_request`, `pull_request_review`,
+`pull_request_review_comment` and `pull_request_review_thread` for PR conversations
+and state. For CI, add `check_run`, `check_suite` and `workflow_run` events.
+Each completed delivery reads current assignees through `GET /repos/{owner}/{repo}/pulls/{number}`.
+The token needs Pull requests read access. An unassociated event performs no
+API lookup. A delivery allows at most ten distinct PRs and ten seconds for
+lookups. Failed or incomplete lookups return 503 before forwarding any row;
+use GitHub's redeliver button after recovery. Associated PR rows use stable
+delivery-and-PR IDs, so routd deduplicates a replay.
+Fork checks with empty PR associations remain observations.
+
+Created comments keep their replyable object IDs. Edits, deletions and review
+dismissals use delivery IDs, so their notifications survive ingestion.
+Those notifications do not rewrite or remove the original stored text.
 
 ## Typing
 
@@ -94,7 +119,8 @@ opened the thread (GitHub accepts only that one) and posts to
 issue-comments endpoint, returning `gh-c<id>`. The topic stays `pr/<n>` either
 way — it names the session, never the address. The token's own
 comments are dropped at ingest (`sender.login` == the token's login), as is
-any `sender.type == "Bot"`. Without a token gitd is ingress-only: a `reply` on a
+other bot comments. Typed PR state and CI events from automation remain eligible.
+Without a token gitd is ingress-only: a `reply` on a
 `github:` JID fails with a plain `channel github: send_text not supported`
 (`chanreg/httpchan.go`), and on the MCP path `ipc/ipc.go` records the row
 pending and tells the agent it is queued.
@@ -130,7 +156,7 @@ GitHub's "Recent deliveries" tab shows gitd's answer: `200 {"ok":true,"id",
 "jid","verb"}` delivered, `202 {"retained":true}` routd was down and the row
 waits in gitd's own tables for re-delivery, `200 {"dropped":"bot"|"self"}` ignored,
 `401` bad signature, `404` unknown source, `400` payload outside the source or
-refused by routd, `503` neither routd nor the retention store took the message —
+refused by routd, `503` CI lookup failed or neither routd nor retention took the message —
 GitHub's redeliver button is then the recovery path. `GET /dash/gitd/` — mounted by `chanlib.NewAdapterMux` from
 the one renderer in `chanlib/dash.go` (spec 6/31) — lists the last accepted
 delivery per source.

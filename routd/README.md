@@ -202,7 +202,7 @@ Core vars:
 Behavior:
 
 - `ASSISTANT_NAME` — instance identity (default "Andy")
-- `ENGAGEMENT_TTL` — reply-state engagement window (default 30m; `0` disables automatic engagement)
+- `ENGAGEMENT_TTL` — reply-state engagement window (default 30m; `0` disables automatic engagement). GitHub uses explicit routes; see [gitd's trigger policy](../gitd/README.md#observe-vs-trigger).
 - `SESSION_IDLE_EXPIRY` — session reset threshold (default 2d)
 - `ARIZUKO_DEFAULT_MODEL` — fallback when group has none (default "claude-opus-4-8")
 - `COST_CAPS_ENABLED` — pre-spawn budget gate (default "true")

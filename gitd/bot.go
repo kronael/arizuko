@@ -166,11 +166,15 @@ func statusErr(resp *http.Response, raw []byte) error {
 // call makes one GitHub request and returns its body, or the refusal
 // statusErr classifies.
 func (b *bot) call(method, url string, body []byte, want []int) ([]byte, error) {
+	return b.callContext(context.Background(), method, url, body, want)
+}
+
+func (b *bot) callContext(ctx context.Context, method, url string, body []byte, want []int) ([]byte, error) {
 	var rdr io.Reader
 	if body != nil {
 		rdr = bytes.NewReader(body)
 	}
-	hreq, err := http.NewRequest(method, url, rdr)
+	hreq, err := http.NewRequestWithContext(ctx, method, url, rdr)
 	if err != nil {
 		return nil, err
 	}

@@ -80,30 +80,46 @@ func (s *server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		chanlib.WriteErr(w, 400, err.Error())
 		return
 	}
-	if login := s.bot.Login(); drop == "" && login != "" && msg.Sender == "github:"+login {
-		drop = "self"
-	}
-	s.bot.markDelivery(key, s.now())
 	if drop != "" {
+		s.bot.markDelivery(key, s.now())
 		chanlib.WriteJSON(w, map[string]any{"ok": true, "dropped": drop})
 		return
 	}
-	err = s.rc.SendMessage(msg)
+	messages, err := s.ciMessages(r.Context(), event, body, msg)
+	if err != nil {
+		slog.Warn("github CI assignment lookup failed", "source", key, "event", event, "err", err)
+		chanlib.WriteErr(w, http.StatusServiceUnavailable, "CI assignment lookup failed")
+		return
+	}
+	lost, retained := false, false
+	for _, message := range messages {
+		sendErr := s.rc.SendMessage(message)
+		if sendErr != nil && !chanlib.PermanentIngress(sendErr) {
+			if errors.Is(sendErr, chanlib.ErrInboundLost) {
+				lost = true
+			} else {
+				retained = true
+			}
+		}
+		err = errors.Join(err, sendErr)
+	}
 	switch {
-	case err == nil:
-		chanlib.WriteJSON(w, map[string]any{"ok": true, "id": msg.ID, "jid": msg.ChatJID, "verb": msg.Verb})
-	case chanlib.PermanentIngress(err):
-		chanlib.WriteErr(w, 400, "routd refused: "+err.Error())
-	case errors.Is(err, chanlib.ErrInboundLost):
+	case lost:
 		// GitHub never redelivers on its own and this response IS its
 		// acknowledgement, so a 202 here retires the only copy of the message.
 		// A 5xx leaves the redeliver button in GitHub's UI meaningful.
 		slog.Error("github webhook neither delivered nor retained",
 			"source", key, "id", msg.ID, "chat_jid", msg.ChatJID, "err", err)
 		chanlib.WriteErr(w, http.StatusServiceUnavailable, "neither routd nor retention took the message: "+err.Error())
-	default:
+	case retained:
+		s.bot.markDelivery(key, s.now())
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusAccepted)
 		chanlib.WriteJSON(w, map[string]any{"ok": true, "retained": true, "id": msg.ID, "jid": msg.ChatJID})
+	case err != nil:
+		chanlib.WriteErr(w, 400, "routd refused: "+err.Error())
+	default:
+		s.bot.markDelivery(key, s.now())
+		chanlib.WriteJSON(w, map[string]any{"ok": true, "id": msg.ID, "jid": msg.ChatJID, "verb": msg.Verb})
 	}
 }

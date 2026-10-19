@@ -488,11 +488,17 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	m.ReplyToText = truncate(m.ReplyToText, replyExcerptChars)
-	directReply := hasParent && parent.BotMsg &&
+	canPromoteReply := true
+	github := strings.HasPrefix(m.ChatJID, "github:")
+	if github {
+		jid, valid := chanlib.ParseGitHubJID(m.ChatJID)
+		canPromoteReply = valid && jid.Kind == "pr" && (verb == "message" || verb == "mention")
+	}
+	directReply := canPromoteReply && hasParent && parent.BotMsg &&
 		(verb != "message" || m.ReplyTo != m.Topic ||
 			core.JidPlatform(m.ChatJID) != "slack")
 	threadMention := false
-	if verb != "untrusted" && verb != "mention" && !directReply && m.Topic != "" {
+	if !github && verb != "untrusted" && verb != "mention" && !directReply && m.Topic != "" {
 		stopped, err := s.db.store().ThreadDisengaged(m.ChatJID, m.Topic)
 		if err != nil {
 			writeErr(w, 500, "store_error", err.Error())

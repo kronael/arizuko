@@ -24,9 +24,10 @@ func (m secretMap) GitHubSourceSecret(key string) (string, bool, error) {
 
 // fakeRoutd records every /v1/messages POST; status is what it answers.
 type fakeRoutd struct {
-	mu     sync.Mutex
-	got    []chanlib.InboundMsg
-	status int
+	mu        sync.Mutex
+	got       []chanlib.InboundMsg
+	status    int
+	statusFor func(chanlib.InboundMsg) int
 }
 
 func (f *fakeRoutd) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -40,8 +41,12 @@ func (f *fakeRoutd) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	f.got = append(f.got, m)
 	f.mu.Unlock()
 	w.Header().Set("Content-Type", "application/json")
-	if f.status != 0 {
-		w.WriteHeader(f.status)
+	status := f.status
+	if f.statusFor != nil {
+		status = f.statusFor(m)
+	}
+	if status != 0 && status != http.StatusOK {
+		w.WriteHeader(status)
 		_, _ = w.Write([]byte(`{"ok":false,"error":"refused"}`))
 		return
 	}

@@ -110,12 +110,22 @@ arizuko group &lt;inst&gt; grant folder:dev dev "mcp:github_&lt;tool&gt;"</code>
         Paste the printed URL and secret into the repository's
         Settings &rarr; Webhooks. Select <code>application/json</code>
         and the events the agent should receive.
-        Comments and new issues or PRs trigger turns.
-        Other events go to <code>dev#observe</code> as context.
+        PR mentions, direct replies and requests trigger turns.
+        Assign the token's user to each PR to watch its state and completed CI.
+        Plain comments and issue-only events go to <code>dev#observe</code>.
         Addresses use <code>github:me/proj/pr/&lt;n&gt;</code> or
         <code>github:me/proj/issue/&lt;n&gt;</code>.
         Within one repository, each PR or issue has its own topic.
       </p>
+
+      <p>Select <code>issue_comment</code>, <code>pull_request</code>,
+        <code>pull_request_review</code>, <code>pull_request_review_comment</code>
+        and <code>pull_request_review_thread</code> for PR conversations and state.
+        Add <code>check_run</code>, <code>check_suite</code> and <code>workflow_run</code>
+        for completed CI. The token needs Pull requests read access for assignment lookups.
+        Review requests are one-time asks; assignees declare the watch.
+        For existing sources, remove message and issue mention trigger rows.
+        Keep the PR mention route and observation fallbacks.</p>
 
       <p>For an installed GitHub App, register an App source:</p>
 

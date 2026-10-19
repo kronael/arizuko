@@ -150,6 +150,8 @@ ones no measurement can settle.
 **Small fixes awaiting a go.** Each is bounded, and its entry names the fix.
 
 - `L427` — gitd marks a delivery accepted before it knows the outcome.
+- `L455` — inconsistent repository coordinates can escape a registered GitHub source.
+- `L456` — mixed CI fanout failures lose retention and retry status through joined errors.
 - `L428` — the web design guard passes shapes it should refuse, and a site that
   loses fifteen sidebars.
 - `L429` — four classes the pages use have no rule in `hub.css`.
@@ -470,6 +472,12 @@ proves it, and removing the panic turns that test red (mutated and checked).
 The dead comment is replaced by the guard it described.
 
 ## L445 — the engagement scope narrows the REPLY, not the TURN: an unmentioned comment still runs the agent and costs 160 cents (2026-10-18, open — needs sign-off)
+
+Reproduced at `1aac43d3313c747829a880067a3359d45b6332a1` by
+`routd/github_trigger_test.go::TestGitHubObserveAndRouteMissCannotInheritEngagement`:
+an observe-only GitHub comment resolves to the engaged foreign owner.
+The owner authorized PR-only explicit requests and assigned-PR state actions on
+2026-10-19; bystander comments must remain observations, including on assigned PRs.
 
 FOUND 2026-10-18 by a live gating check on `vumilan/morha` PR 293. The pull
 request has NO assignees, and the comment `gh-c6252699006` names no bot. Both
@@ -939,6 +947,11 @@ posted nothing.
 
 ## L427 — gitd records a delivery as accepted before it knows the outcome (2026-10-16, open)
 
+2026-10-19 verification: `TestCIWebhookUsesCurrentAssignmentAndBoundedFanout`
+returns 503 for an assignment lookup failure or excessive PR fanout, but
+`LastInboundAt` advances. The same delivery can recover after an API failure;
+`markDelivery` records source status and does not deduplicate delivery IDs.
+
 `gitd/server.go:86` `markDelivery` runs before `SendMessage` (`:91`), so
 `lastInboundAt` and the dash's last-accepted-delivery advance for a webhook
 answered 400 ("routd refused") or 503 (`L415`). The timestamp predates the
@@ -949,6 +962,31 @@ range (`989c440c:gitd/server.go:85`).
 - **Scope:** `gitd/server.go:86`
 - **Fix:** mark after the 202 branch. no test — ops
 - **Status:** open
+
+## L455 — inconsistent repository fields escape a registered GitHub source (2026-10-19, open)
+
+`gitd/event.go::checkSource` checks `repository.full_name`, while JIDs and API
+paths use `repository.owner.login` and `repository.name`. A signed delivery
+can name the registered full name and a different repository name.
+`TestCIWebhookUsesCurrentAssignmentAndBoundedFanout` with the consistency
+guard removed issues `GET /repos/kronael/foreign/pulls/5` for source
+`repo/kronael/arizuko`.
+
+- **Severity:** high — a source credential crosses its repository boundary
+- **Scope:** `gitd/event.go::checkSource`
+- **Status:** open — require matching, valid repository coordinates before mapping or API reads
+
+## L456 — joined CI fanout errors misclassify retained and lost messages (2026-10-19, open)
+
+`TestCIFanoutAcknowledgesMixedDeliveryOutcomes` measures a retained transient
+failure plus permanent refusal returning 400 or 503 depending on send order.
+A permanent refusal first also hides a later unretained transient behind 400.
+`PermanentIngress` inspects only the first status inside `errors.Join`; permanent
+refusals also carry `ErrInboundLost` because retention deliberately rejects them.
+
+- **Severity:** high — webhook acknowledgements misstate durability and retryability
+- **Scope:** `gitd/server.go::handleWebhook`
+- **Status:** open — classify each send before combining fanout outcomes
 
 ## L428 — the web design guard passes on a page that carries its own colour, and on a site that loses fifteen sidebars (2026-10-16, open)
 
@@ -1156,6 +1194,13 @@ correct and would leave a redeliver button in GitHub's UI.
 
 ## L416 — while the agent is engaged on a PR, every observe-only event becomes a turn (2026-10-16, open — needs a decision)
 
+`TestGitHubSourceRoutes` also measures issue mention routes in all three
+source kinds, contrary to the owner's 2026-10-19 PR-only trigger contract.
+
+The 2026-10-19 PR-only contract also needs typed state classification before
+actor filtering. `TestAutomatedPRStateUsesAssignmentWithoutCommentLoops`
+measures bot-authored closures and head updates dropping before watch checks.
+
 `routd/loop.go:640` checks engagement BEFORE `rt.Mode == "observe"`, and
 `DefaultEngagementTTL` is 30 minutes (`routd/server.go:129`). Any reply renews
 it on `(chat, pr/<n>)`. Inside that window a `synchronize`, `labeled`,
@@ -1198,6 +1243,10 @@ the SEED, not by the operator.
   JID no inbound has ever been stored for.
 
 ## L418 — an edited, deleted or dismissed comment is dropped as a duplicate and nothing says so (2026-10-16, open)
+
+Reproduced at `1aac43d3313c747829a880067a3359d45b6332a1` by
+`gitd/pr_policy_test.go::TestCommentActionDeliveryIdentitySurvivesOriginalObject`:
+distinct edit/delete/dismiss deliveries reuse `gh-c42`, `gh-rc42` or `gh-r7`.
 
 `gitd/event.go:296,309,325` give every action on a comment the OBJECT id, so
 `issue_comment.edited` arrives as the same `gh-c<id>` as the create.

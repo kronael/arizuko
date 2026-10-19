@@ -101,7 +101,7 @@ func TestMapEvent_TwoReposOneSecret(t *testing.T) {
 	if got := resolve(routes, a); got.Folder != "eng" || got.Mode != "" {
 		t.Errorf("arizuko comment resolved to %+v", got)
 	}
-	if got := resolve(routes, b); got.Folder != "eng" || got.Mode != "" {
+	if got := resolve(routes, b); got.Folder != "eng" || got.Mode != "observe" {
 		t.Errorf("crackbox comment resolved to %+v", got)
 	}
 	narrower, err := store.GitHubSourceRoutes("repo/kronael/crackbox", "ops")
@@ -109,23 +109,20 @@ func TestMapEvent_TwoReposOneSecret(t *testing.T) {
 		t.Fatal(err)
 	}
 	routes = append(routes, narrower...)
-	if got := resolve(routes, b); got.Folder != "ops" || got.Mode != "" {
-		t.Errorf("crackbox comment with a repo registration resolved to %+v, want ops", got)
+	if got := resolve(routes, b); got.Folder != "ops" || got.Mode != "observe" {
+		t.Errorf("crackbox comment with a repo registration resolved to %+v, want ops#observe", got)
 	}
 	if got := resolve(routes, a); got.Folder != "eng" {
 		t.Errorf("arizuko comment after crackbox registration resolved to %+v, want eng", got)
 	}
 }
 
-// GitHub keeps a pull request's assignees in the issue object, so a general
-// comment on a PR assigned to the bot reads issue.assignees. This payload is
-// issue_comment_created with the bot assigned and no @-mention in the text.
-func TestMapEvent_PRCommentReadsIssueAssignees(t *testing.T) {
+func TestMapEvent_PRCommentRequiresMentionDespiteAssignees(t *testing.T) {
 	raw := fixture(t, "issue_comment_created_assigned")
 	cases := []struct {
 		name, login, verb string
 	}{
-		{"bot assigned", botLogin, "mention"},
+		{"bot assigned", botLogin, "message"},
 		{"another login", "alice", "message"},
 		{"login unresolved", "", "message"},
 	}
@@ -173,8 +170,8 @@ func TestMapEvent_ObserveVersusTrigger(t *testing.T) {
 	if err != nil || drop != "" {
 		t.Fatalf("err=%v drop=%q", err, drop)
 	}
-	if got := resolve(routes, assignedComment); got.Folder != "eng" || got.Mode != "" {
-		t.Errorf("comment on a PR assigned to the bot resolved to %+v, want eng trigger", got)
+	if got := resolve(routes, assignedComment); got.Folder != "eng" || got.Mode != "observe" {
+		t.Errorf("comment on a PR assigned to the bot resolved to %+v, want eng observe", got)
 	}
 	assignedOpened, _, err := mapEvent(store.GitHubSourceRepo, "kronael/arizuko", "pull_request", "d",
 		body(`"action":"opened",`+assigned("hello", botLogin)), fixedNow, botLogin)
@@ -185,7 +182,7 @@ func TestMapEvent_ObserveVersusTrigger(t *testing.T) {
 		t.Errorf("PR opened assigned to the bot resolved to %+v, want eng trigger", got)
 	}
 	named, _, err := mapEvent(store.GitHubSourceRepo, "kronael/arizuko", "issue_comment", "d",
-		body(`"action":"created","issue":{"number":9,"title":"t"},"comment":{"id":1,"body":"@arizuko-bot look"}`), fixedNow, botLogin)
+		body(`"action":"created","issue":{"number":9,"title":"t","pull_request":{}},"comment":{"id":1,"body":"@arizuko-bot look"}`), fixedNow, botLogin)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -333,7 +330,7 @@ func TestMapEvent_VerbIsWhatTheEventIs(t *testing.T) {
 		{"PR assigned to someone else", "pull_request",
 			`"action":"assigned","assignee":{"login":"alice"},` + pr(""), "pull_request"},
 		{"issue assigned to the bot", "issues",
-			`"action":"assigned","assignee":{"login":"arizuko-bot"},"issue":{"number":9,"title":"t"}`, "mention"},
+			`"action":"assigned","assignee":{"login":"arizuko-bot"},"issue":{"number":9,"title":"t"}`, "message"},
 		{"issue assigned to someone else", "issues",
 			`"action":"assigned","assignee":{"login":"alice"},"issue":{"number":9,"title":"t"}`, "issues"},
 		{"PR unassigned from the bot", "pull_request",
@@ -345,31 +342,31 @@ func TestMapEvent_VerbIsWhatTheEventIs(t *testing.T) {
 		{"PR opened naming the bot", "pull_request", `"action":"opened",` + pr("cc @arizuko-bot please look"), "mention"},
 		{"PR opened naming a longer login", "pull_request", `"action":"opened",` + pr("cc @arizuko-bot2 please look"), "message"},
 		{"issue opened naming the bot", "issues",
-			`"action":"opened","issue":{"number":9,"title":"t","body":"@arizuko-bot ?"}`, "mention"},
+			`"action":"opened","issue":{"number":9,"title":"t","body":"@arizuko-bot ?"}`, "message"},
 		{"issue labeled naming the bot", "issues",
 			`"action":"labeled","issue":{"number":9,"title":"t","body":"@arizuko-bot ?"}`, "issues"},
 		{"comment", "issue_comment",
 			`"action":"created","issue":{"number":9,"title":"t"},"comment":{"id":1,"body":"hello"}`, "message"},
 		{"comment naming the bot", "issue_comment",
-			`"action":"created","issue":{"number":9,"title":"t"},"comment":{"id":1,"body":"hey @arizuko-bot, look"}`, "mention"},
+			`"action":"created","issue":{"number":9,"title":"t","pull_request":{}},"comment":{"id":1,"body":"hey @arizuko-bot, look"}`, "mention"},
 		{"comment naming the bot in other case", "issue_comment",
-			`"action":"created","issue":{"number":9,"title":"t"},"comment":{"id":1,"body":"@ARIZUKO-BOT look"}`, "mention"},
+			`"action":"created","issue":{"number":9,"title":"t","pull_request":{}},"comment":{"id":1,"body":"@ARIZUKO-BOT look"}`, "mention"},
 		{"comment ending on the bot's name", "issue_comment",
-			`"action":"created","issue":{"number":9,"title":"t"},"comment":{"id":1,"body":"ping @arizuko-bot"}`, "mention"},
+			`"action":"created","issue":{"number":9,"title":"t","pull_request":{}},"comment":{"id":1,"body":"ping @arizuko-bot"}`, "mention"},
 		{"comment naming a longer login", "issue_comment",
-			`"action":"created","issue":{"number":9,"title":"t"},"comment":{"id":1,"body":"hey @arizuko-bot2 look"}`, "message"},
+			`"action":"created","issue":{"number":9,"title":"t","pull_request":{}},"comment":{"id":1,"body":"hey @arizuko-bot2 look"}`, "message"},
 		{"comment naming a longer login with a suffix", "issue_comment",
-			`"action":"created","issue":{"number":9,"title":"t"},"comment":{"id":1,"body":"hey @arizuko-botany look"}`, "message"},
+			`"action":"created","issue":{"number":9,"title":"t","pull_request":{}},"comment":{"id":1,"body":"hey @arizuko-botany look"}`, "message"},
 		{"comment naming a hyphenated longer login", "issue_comment",
-			`"action":"created","issue":{"number":9,"title":"t"},"comment":{"id":1,"body":"hey @arizuko-bot-helper look"}`, "message"},
+			`"action":"created","issue":{"number":9,"title":"t","pull_request":{}},"comment":{"id":1,"body":"hey @arizuko-bot-helper look"}`, "message"},
 		{"comment naming a login the bot's name ends", "issue_comment",
-			`"action":"created","issue":{"number":9,"title":"t"},"comment":{"id":1,"body":"hey @not-arizuko-bot look"}`, "message"},
+			`"action":"created","issue":{"number":9,"title":"t","pull_request":{}},"comment":{"id":1,"body":"hey @not-arizuko-bot look"}`, "message"},
 		{"comment with an address", "issue_comment",
-			`"action":"created","issue":{"number":9,"title":"t"},"comment":{"id":1,"body":"mail me@arizuko-bot.dev"}`, "message"},
+			`"action":"created","issue":{"number":9,"title":"t","pull_request":{}},"comment":{"id":1,"body":"mail me@arizuko-bot.dev"}`, "message"},
 		{"comment without the @", "issue_comment",
-			`"action":"created","issue":{"number":9,"title":"t"},"comment":{"id":1,"body":"arizuko-bot look"}`, "message"},
+			`"action":"created","issue":{"number":9,"title":"t","pull_request":{}},"comment":{"id":1,"body":"arizuko-bot look"}`, "message"},
 		{"edited comment naming the bot", "issue_comment",
-			`"action":"edited","issue":{"number":9,"title":"t"},"comment":{"id":1,"body":"@arizuko-bot"}`, "issue_comment"},
+			`"action":"edited","issue":{"number":9,"title":"t","pull_request":{}},"comment":{"id":1,"body":"@arizuko-bot"}`, "mention"},
 		{"review comment naming the bot", "pull_request_review_comment",
 			`"action":"created",` + pr("") + `,"comment":{"id":2,"path":"a.go","body":"@arizuko-bot why?"}`, "mention"},
 		{"review comment", "pull_request_review_comment",
@@ -379,39 +376,39 @@ func TestMapEvent_VerbIsWhatTheEventIs(t *testing.T) {
 		{"review with text", "pull_request_review",
 			`"action":"submitted",` + pr("") + `,"review":{"id":3,"state":"commented","body":"fix"}`, "message"},
 		{"comment on an issue assigned to the bot", "issue_comment",
-			`"action":"created",` + issueAssigned("arizuko-bot") + `,"comment":{"id":1,"body":"hello"}`, "mention"},
+			`"action":"created",` + issueAssigned("arizuko-bot") + `,"comment":{"id":1,"body":"hello"}`, "message"},
 		{"comment on an issue assigned to someone else", "issue_comment",
 			`"action":"created",` + issueAssigned("alice") + `,"comment":{"id":1,"body":"hello"}`, "message"},
 		{"comment on an unassigned issue", "issue_comment",
 			`"action":"created","issue":{"number":9,"title":"t","assignees":[]},"comment":{"id":1,"body":"hello"}`, "message"},
 		{"comment on an issue assigned to the bot in other case", "issue_comment",
-			`"action":"created",` + issueAssigned("Arizuko-Bot") + `,"comment":{"id":1,"body":"hello"}`, "mention"},
+			`"action":"created",` + issueAssigned("Arizuko-Bot") + `,"comment":{"id":1,"body":"hello"}`, "message"},
 		{"comment on an issue assigned to a longer login", "issue_comment",
 			`"action":"created",` + issueAssigned("arizuko-bot2") + `,"comment":{"id":1,"body":"hello"}`, "message"},
 		{"edited comment on an issue assigned to the bot", "issue_comment",
 			`"action":"edited",` + issueAssigned("arizuko-bot") + `,"comment":{"id":1,"body":"hello"}`, "issue_comment"},
 		{"issue opened already assigned to the bot", "issues",
-			`"action":"opened",` + issueAssigned("arizuko-bot") + `,"assignee":{"login":"arizuko-bot"}`, "mention"},
+			`"action":"opened",` + issueAssigned("arizuko-bot") + `,"assignee":{"login":"arizuko-bot"}`, "message"},
 		{"issue labeled while assigned to the bot", "issues",
 			`"action":"labeled",` + issueAssigned("arizuko-bot"), "issues"},
 		{"review comment on a PR assigned to the bot", "pull_request_review_comment",
-			`"action":"created",` + assigned("", "arizuko-bot") + `,"comment":{"id":2,"path":"a.go","body":"why?"}`, "mention"},
+			`"action":"created",` + assigned("", "arizuko-bot") + `,"comment":{"id":2,"path":"a.go","body":"why?"}`, "message"},
 		{"review comment on a PR assigned to someone else", "pull_request_review_comment",
 			`"action":"created",` + assigned("", "alice") + `,"comment":{"id":2,"path":"a.go","body":"why?"}`, "message"},
 		{"review with text on a PR assigned to the bot", "pull_request_review",
-			`"action":"submitted",` + assigned("", "arizuko-bot") + `,"review":{"id":3,"state":"commented","body":"fix"}`, "mention"},
+			`"action":"submitted",` + assigned("", "arizuko-bot") + `,"review":{"id":3,"state":"commented","body":"fix"}`, "message"},
 		{"review without text on a PR assigned to the bot", "pull_request_review",
-			`"action":"submitted",` + assigned("", "arizuko-bot") + `,"review":{"id":3,"state":"approved","body":""}`, "pull_request_review"},
+			`"action":"submitted",` + assigned("", "arizuko-bot") + `,"review":{"id":3,"state":"approved","body":""}`, "mention"},
 		{"PR opened already assigned to the bot", "pull_request",
 			`"action":"opened",` + assigned("hello", "arizuko-bot"), "mention"},
 		{"PR opened assigned to someone else", "pull_request",
 			`"action":"opened",` + assigned("hello", "alice"), "message"},
 		{"PR synchronized while assigned to the bot", "pull_request",
-			`"action":"synchronize",` + assigned("", "arizuko-bot"), "pull_request"},
+			`"action":"synchronize",` + assigned("", "arizuko-bot"), "mention"},
 		{"PR labeled while assigned to the bot", "pull_request",
-			`"action":"labeled",` + assigned("", "arizuko-bot"), "pull_request"},
+			`"action":"labeled",` + assigned("", "arizuko-bot"), "mention"},
 		{"PR closed unmerged while assigned to the bot", "pull_request",
-			`"action":"closed",` + assigned("", "arizuko-bot"), "pull_request"},
+			`"action":"closed",` + assigned("", "arizuko-bot"), "mention"},
 		{"approval without text", "pull_request_review",
 			`"action":"submitted",` + pr("") + `,"review":{"id":3,"state":"approved","body":""}`, "pull_request_review"},
 	}
