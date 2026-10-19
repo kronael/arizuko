@@ -52,6 +52,19 @@ func (l *Loop) beginProgress(jid string) {
 
 func summaryID(turnID string) string { return "summary-" + turnID }
 
+func readTaskSummary(db *DB, jid, turnID string) (core.Message, bool, error) {
+	rows, err := db.MessagesSince(jid, "")
+	if err != nil {
+		return core.Message{}, false, err
+	}
+	for _, row := range rows {
+		if row.ID == summaryID(turnID) {
+			return row, true, nil
+		}
+	}
+	return core.Message{}, false, nil
+}
+
 func (s *Server) declareSummary(tc TurnContext, jid, text string) error {
 	text = strings.TrimSpace(text)
 	if text == "" || strings.ContainsAny(text, "\r\n") {
@@ -63,7 +76,11 @@ func (s *Server) declareSummary(tc TurnContext, jid, text string) error {
 	if !summaryThreadEnabled(s.db, s.deliver, tc, jid) {
 		return s.updateProgress(tc, jid, text)
 	}
-	if _, ok := s.db.MessageByID(jid, summaryID(tc.TurnID)); ok {
+	_, ok, err := readTaskSummary(s.db, jid, tc.TurnID)
+	if err != nil {
+		return err
+	}
+	if ok {
 		return nil
 	}
 	row := s.outboundRow(tc, jid, "🤖 "+text, "")

@@ -347,7 +347,11 @@ func (s *Server) mcpCheckTurn(turnID string) (ipc.TurnCheck, error) {
 func (s *Server) checkTurn(tc TurnContext) (ipc.TurnCheck, error) {
 	jid := returnTarget(tc, tc.ChatJID)
 	_, statusRow := s.db.LastStatusRow(jid, tc.TurnID)
-	if _, summary := s.db.MessageByID(jid, summaryID(tc.TurnID)); summary {
+	_, summary, err := readTaskSummary(s.db, jid, tc.TurnID)
+	if err != nil {
+		return ipc.TurnCheck{}, err
+	}
+	if summary {
 		statusRow = true
 	}
 	delivered, err := s.turnDelivered(tc)
@@ -406,7 +410,11 @@ func (s *Server) submitStatus(status ipc.TurnStatus) error {
 		return s.declareSummary(tc, jid, status.Text)
 	}
 	if status.Kind == ipc.StatusProgress && summaryThreadEnabled(s.db, s.deliver, tc, jid) {
-		if _, ok := s.db.MessageByID(jid, summaryID(tc.TurnID)); !ok {
+		_, ok, err := readTaskSummary(s.db, jid, tc.TurnID)
+		if err != nil {
+			return err
+		}
+		if !ok {
 			return fmt.Errorf("declare the overall task summary before progress")
 		}
 	}

@@ -43,7 +43,11 @@ func placeTurnDelivery(db *DB, dl Deliverer, tc TurnContext, jid, explicitThread
 		return p, nil
 	}
 	if summaryThreadEnabled(db, dl, tc, p.jid) {
-		if row, ok := db.MessageByID(p.jid, summaryID(tc.TurnID)); ok {
+		row, ok, err := readTaskSummary(db, p.jid, tc.TurnID)
+		if err != nil {
+			return p, fmt.Errorf("%w: task summary could not be read; this message was not delivered; retry after storage recovers: %v", chanlib.ErrPermanent, err)
+		}
+		if ok {
 			if p.threadID != "" && p.threadID != row.PlatformID {
 				return p, nil
 			}
