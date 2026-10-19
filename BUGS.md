@@ -28,8 +28,6 @@ marker every entry carries. Ten entries said open in the heading and carried no
 **A contract or design decision.** Each names the question in its own Status
 line; none can be answered from the code.
 
-- `L466` — thread failure must not send the child in the parent conversation.
-
 - `L347` — may the cursor stay put when a steered turn does not run? Changes
   the consume contract (`L104`).
 - `L317` — may `/stop` drop the backlog older than itself, and is that drop
@@ -284,19 +282,6 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
 - **`L15` — the 2026-08-11 dead-code sweep's rejected hits.** `deadcode ./...` gave 149
   hits, 56 under `-test`; nine survived verification and were filed separately. Kept so
   the next sweep does not re-report the same ~135.
-
-## L466 — failed thread sends escape to the parent conversation (2026-10-19, open)
-
-Native fixtures `discd/TestSendThreadFailureNeverPostsAtParent` and
-`slakd/TestSendMissingThreadNeverPostsAtParent` fail: Discord thread creation
-returns 403 and sends the child inline; Slack rejects the saved thread and
-retries without `thread_ts`. Both report successful delivery in the wrong place.
-
-- **Severity:** medium — task progress and answers escape their conversation.
-- **Scope:** existing text-send thread routing, including saved-topic replay.
-- **Fix:** return the platform thread failure through the normal delivery error
-  path; never resend at the parent after a refused thread destination.
-- **Status:** authorized by the separate summary opener and strict placement request.
 
 ## L448 — the custom guest kernel is justified by BOOT TIME, not by the reason written in the fragment (2026-10-19, open — needs sign-off)
 
