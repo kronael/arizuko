@@ -128,7 +128,7 @@ Channel adapter → POST /v1/messages (routd) → PutMessage (sole appender)
     + acl lookup → typed ShareReadOnly/Egress/WebPublish on the run request
   → routd stands up the per-turn MCP socket in-process (ipc.ServeMCP)
   → routd → runed: POST /v1/runs (dispatch the turn)
-    → runed: steer into a live guest (a ctl frame over vsock) OR boot a new one
+    → runed: reject a busy folder for refeed, or boot a new guest
     → runed exports the ipc dir over virtio-fs and bridges the guest's MCP port
       from its own CID (the CID IS the turn credential, spec 6/41)
   → agent runs the turn; per-turn results return over MCP (submit_turn)
@@ -409,8 +409,7 @@ servers. Full protocol: `specs/5/34-channel-protocol.md`.
   (`chanlib.TypingRefresher` / `whapd/src/typing.ts`) — re-sends presence on
   short interval with hard TTL. routd owns the terminator (`routd/progress.go`):
   it clears typing when the turn ends, not at the first reply, for every chat
-  the finished run owned (`turn_context.run_id`), which covers a follow-up
-  steered into that run from a different chat of the same folder. A run that
+  the finished run owned (`turn_context.run_id`). A run that
   returns without ending its turn clears it too. slakd and gitd, which have no
   native indicator, render typing as a `👀` reaction on the trigger message
   (`chanlib.AckMark`); a graceful shutdown leaves it standing, because the
@@ -735,18 +734,16 @@ second hand-rolled check.
 
 Two layers serialize work. routd's `GroupQueue` serializes inbound
 dispatch per folder; runed's Manager enforces the guest
-concurrency cap, circuit breaker, and steer at the spawn boundary.
+concurrency cap and circuit breaker at the spawn boundary.
 
 routd-side `GroupQueue`:
 
 - per-group active flag + container name; `EnqueueMessageCheck(jid)` is
   signal-only — the queue calls back into routd's `processGroupMessages`
   (`routd/loop.go:235`, set with `SetProcessMessagesFn`)
-- a follow-up for a folder with a live turn is steered into it: routd
-  dispatches to runed again, runed sends a `steer` ctl frame over vsock and
-  waits for the guest's `steer_ack` (`runed/vmctl.go`), `guest-init` writes
-  the batch as files under `/run/ipc/input`, and ant drains them between
-  tool calls (`ant/src/index.ts` `pollIpcDuringQuery`)
+- a fresh follow-up waits until the active run ends, then dispatches with
+  its own turn context and MCP binding; a runed busy refusal leaves the
+  cursor unchanged for the existing refeed path
 
 runed Manager (`runed/manager.go`):
 
@@ -755,8 +752,8 @@ runed Manager (`runed/manager.go`):
 - circuit breaker: 3 consecutive folder failures opens; reset by a new run
 - run TTL (`RUNED_RUN_TIMEOUT`, default 20m); hourly sweep of spawns past a
   seven-day retention, which is what keeps their one partition a window
-- steer into a live spawn via a `{steer}` ctl frame over vsock, acked by
-  the guest before the closure returns true (spec `6/41` §"Steer and stop")
+- a live folder returns `busy=true` without feeding its guest; `/stop`
+  uses the separate stop endpoint
 
 Delegation, escalation, and `#topic` routing are not special — each writes
 a row via `PutMessage` and calls `EnqueueMessageCheck`.

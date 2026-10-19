@@ -150,9 +150,9 @@ is a future spec.
 
 ### Consistency contract
 
-- **Serialized per folder.** At most one turn per folder. Concurrent
-  inbounds are absorbed into the running turn (steered) or queued behind
-  it; duplicate enqueues for one chat collapse.
+- **Serialized per folder.** At most one turn per folder. Fresh inbounds
+  wait until the active run ends, then use their own turn context and MCP
+  binding; duplicate enqueues for one chat collapse.
 - **Per-turn callback serialization.** routd serializes
   `/v1/turns/{turn_id}/*` append-and-deliver per `turn_id`. Each new
   `reply` chains `reply_to_id` to the prior reply's `platform_id`; while
@@ -330,15 +330,15 @@ Three discriminators on the response, each meaning something different:
 - **`outcome`** — `ok` (ran; advance, record), `error` (run failed;
   advance past the batch, mark errored, notify), `silent` (ran, nothing
   to deliver — logged, not an error).
-- **`busy`** — runed did **not** admit the run (folder busy with a dead
-  container, or the global `MAX_CONCURRENT_CONTAINERS` cap) and keeps no
+- **`busy`** — runed did **not** admit the run (folder busy, or the global
+  `MAX_CONCURRENT_CONTAINERS` cap) and keeps no
   internal queue. A **retryable reject, not a turn boundary and not a
   failure**: do not advance the cursor, do not count it toward the queue
   circuit breaker, leave `turn_context` running so the re-dispatch is
   live. Because runed's cap is the same one that bounds routd's queue,
   the poll re-feed clears it within one `POLL_INTERVAL`.
-- **`steered`** — a steer ack: the original run governs the batch, so
-  don't advance.
+- **`steered`** — a guest-input acknowledgement discriminator. Fresh
+  inbound admission returns `busy` for an active folder.
 
 `terminal` rides only on `outcome:error`: runed decided that a retry
 cannot repair the failure (the container invocation itself failed — a

@@ -73,10 +73,10 @@ queues drift. `runed` is now a **pure claim-or-reject executor** — when
 the folder is busy or the cap is hit it returns `busy=true` on the pinned
 response and `routd` re-feeds the batch. `routd` does not advance the
 `agent_cursor` and does not count the reject toward the circuit breaker
-(busy ≠ error); the retry is bounded by routd's poll interval. Exception:
-a busy folder with a _live_ container takes the new batch as a **steer**,
-not a reject — addressed deterministically from the `spawns` row
-(container name + `IPC_DIR/<folder>/`), never from a stored closure.
+(busy ≠ error). A live folder also returns `busy=true`: a fresh follow-up
+waits until that run ends, then starts with its own turn context and MCP
+binding. The existing routd backoff bounds the retry. `/stop` uses the
+separate stop endpoint and does not wait for admission.
 
 `busy=true` also covers a claim that was **admitted and then killed before
 it launched**: `DB.StartSpawn` reports whether its `state='queued'` guard

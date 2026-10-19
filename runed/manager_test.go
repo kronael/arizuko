@@ -65,37 +65,41 @@ func TestSerializationNoConcurrentDoubleSpawn(t *testing.T) {
 	}
 }
 
-// TestSteerWhenLive: a second Run for a folder that is already running, with
-// the steer callback wired (as the prod Runtime does), steers into the live
-// container and returns steered:true — no second spawn.
-func TestSteerWhenLive(t *testing.T) {
+// A fresh turn waits for the active run, then starts under its own identity.
+func TestFollowupWaitsForActiveRun(t *testing.T) {
 	var spawns atomic.Int32
+	var steers atomic.Int32
 	wired := make(chan struct{})
 	release := make(chan struct{})
 	rt := FakeRuntime{Fn: func(ctx context.Context, turn Turn) RunResult {
-		spawns.Add(1)
-		turn.RegisterSteer(func(string) bool { return true })
-		close(wired)
-		<-release
+		if spawns.Add(1) == 1 {
+			turn.RegisterSteer(func(string) bool { steers.Add(1); return true })
+			close(wired)
+			select {
+			case <-release:
+			case <-ctx.Done():
+			}
+		}
 		return RunResult{Outcome: runedv1.OutcomeOK}
 	}}
 	_, mgr := newMgr(t, rt, 5)
 
 	done := make(chan struct{})
 	go func() {
-		mgr.Run(context.Background(), runedv1.RunRequest{Folder: "demo", MessageBatch: "first"})
+		mgr.Run(t.Context(), runedv1.RunRequest{Folder: "demo", TurnID: "first", MessageBatch: "first"})
 		close(done)
 	}()
-	<-wired // first run is live and its steer callback is registered.
+	<-wired
 
-	out, _ := mgr.Run(context.Background(), runedv1.RunRequest{Folder: "demo", MessageBatch: "second"})
-	if !out.Steered {
-		t.Fatalf("second Run steered=%v want true (out=%+v)", out.Steered, out)
-	}
+	out, err := mgr.Run(t.Context(), runedv1.RunRequest{Folder: "demo", TurnID: "second", MessageBatch: "second"})
 	close(release)
 	<-done
-	if n := spawns.Load(); n != 1 {
-		t.Fatalf("spawns=%d want exactly 1 container for one busy folder", n)
+	if err != nil || !out.Busy || out.Steered || out.RunID != "" || steers.Load() != 0 {
+		t.Fatalf("fresh turn entered the active run: out=%+v err=%v steers=%d", out, err, steers.Load())
+	}
+	out, err = mgr.Run(t.Context(), runedv1.RunRequest{Folder: "demo", TurnID: "second", MessageBatch: "second"})
+	if err != nil || out.Busy || out.Steered || out.RunID == "" || spawns.Load() != 2 {
+		t.Fatalf("follow-up did not start after release: out=%+v err=%v spawns=%d", out, err, spawns.Load())
 	}
 }
 

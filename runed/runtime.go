@@ -64,9 +64,8 @@ type Turn struct {
 	// Egress is the proxy allowlist, grants applied.
 	Egress []string
 	// RegisterSteer is the Manager's hook the substrate calls ONCE the guest
-	// and its ipc dir are up, handing back a steer closure so a concurrent
-	// POST /v1/runs steers into this live guest (spec 5/P-runed). The closure
-	// returns false when the guest has already exited.
+	// and its ipc dir are up. The callback returns false after the guest exits;
+	// fresh Run requests are queued by routd and do not invoke it.
 	RegisterSteer func(steer func(batch string) bool)
 }
 

@@ -25,7 +25,11 @@ fixtureFS.renameSync = (from, to) => originalFS.renameSync(mapped(from) as strin
 mock.module('fs', () => ({ ...fixtureFS, default: fixtureFS }));
 const fixtureNet = {
   ...originalNet,
-  createConnection: (socket: string) => originalNet.createConnection(mapped(socket) as string),
+  createConnection: (socket: string) => originalNet.createConnection(
+    socket === '/run/ipc/gated.sock' && process.env.VOLUNTARY_FIXTURE_SOCKET
+      ? process.env.VOLUNTARY_FIXTURE_SOCKET
+      : mapped(socket) as string,
+  ),
 };
 mock.module('net', () => ({ ...fixtureNet, default: fixtureNet }));
 
@@ -38,7 +42,12 @@ mock.module(path.join(source, 'backend.ts'), () => ({
       runs++;
       const { rpc } = await import(path.join(source, 'mcp.ts'));
       yield { kind: 'continuity', token: 'fixture-token', sessionId: 'fixture-session' };
-      if ((mode === 'queued' && runs === 1) || (mode === 'submit-nudge' && runs === 2)) {
+      if (mode === 'lifecycle') {
+        const check = await rpc('check_turn', { turn_id: turn.turnID }) as { nudge?: string };
+        if (!check.nudge) throw new Error(`missing addressed Stop nudge for ${turn.turnID}`);
+        await rpc('tools/call', { name: 'reply', arguments: { chatJid: 'telegram:1', text: `${turn.turnID} answer` } });
+      }
+      if (mode === 'submit-nudge' && runs === 2) {
         await rpc('tools/call', { name: 'reply', arguments: { chatJid: 'tg:1', text: 'first answer' } });
       }
       if (mode === 'submit-nudge' && runs === 1) {

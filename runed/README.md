@@ -15,6 +15,8 @@ in-process `ServeMCP`. Spec: `specs/5/P-runed.md`.
 ## Responsibilities
 
 - Serve `POST /v1/runs` (the routd↔runed contract): claim, spawn, return.
+  A live folder returns `busy=true`; routd retains the batch for refeed after
+  the active run ends, then dispatches it with its own turn identity.
 - Serve `POST /v1/holds`: claim a folder's run slot for an external,
   folder-exclusive job (a filesystem restore, a vacuum, a migration) so
   no agent turn can start in that folder until it is released.

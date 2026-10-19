@@ -22,8 +22,8 @@ round, it does not make the rule true.
 
 `status: partial`: the addressed fact, shared nudge decision, submission
 inversion, harness hooks and explicit delivery contract are built. Fresh
-follow-ups accepted by steering lose their authoritative turn identity
-(`BUGS.md` L458); the lifecycle policy and fleet acceptance remain pending.
+follow-ups wait until the active run ends, then use their own turn identity
+and MCP binding. Fleet acceptance remains pending.
 `44-delivery-contract` holds the analysis and is `reference`.
 
 ## Problem
