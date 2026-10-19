@@ -298,8 +298,10 @@ func TestProgress_EndEditsTerminalDone(t *testing.T) {
 	dl := &recDeliverer{}
 	db, srv := progressWithRow(t, dl)
 
-	if _, err := srv.recordTurnResult("t1", apiv1.TurnResult{TurnID: "t1", SessionID: "s", Status: "success"}); err != nil {
-		t.Fatal(err)
+	srv.replyForTest(t, "t1", progressJID, "done")
+	ack, err := srv.recordTurnResult("t1", apiv1.TurnResult{TurnID: "t1", SessionID: "s", Status: "success"})
+	if err != nil || !ack.OK || ack.Nudge != "" {
+		t.Fatalf("delivered completion: ack=%+v err=%v", ack, err)
 	}
 	if len(dl.edits) != 1 || dl.edits[0].content != "✓ working" {
 		t.Fatalf("edits=%+v, want one edit reading %q", dl.edits, "✓ working")
@@ -535,8 +537,10 @@ func TestProgress_RecoveredTurnEditsItsRowWhenItCompletes(t *testing.T) {
 	}
 
 	srv := NewServer(db, loop, after, nil, 0, "")
-	if _, err := srv.recordTurnResult("t1", apiv1.TurnResult{TurnID: "t1", SessionID: "s", Status: "success"}); err != nil {
-		t.Fatal(err)
+	srv.replyForTest(t, "t1", progressJID, "done")
+	ack, err := srv.recordTurnResult("t1", apiv1.TurnResult{TurnID: "t1", SessionID: "s", Status: "success"})
+	if err != nil || !ack.OK || ack.Nudge != "" {
+		t.Fatalf("delivered completion after restart: ack=%+v err=%v", ack, err)
 	}
 	if len(after.edits) != 1 || after.edits[0].content != "✓ working" {
 		t.Fatalf("edits after the restart = %+v, want one ✓ edit of the persisted message", after.edits)
