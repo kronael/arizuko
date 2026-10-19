@@ -139,7 +139,6 @@ ones no measurement can settle.
 
 **Small fixes awaiting a go.** Each is bounded, and its entry names the fix.
 
-- `L467` — an opener read failure sends the answer in the human-trigger thread.
 
 - `L428` — the web design guard passes shapes it should refuse, and a site that
   loses fifteen sidebars.
@@ -283,22 +282,6 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
 - **`L15` — the 2026-08-11 dead-code sweep's rejected hits.** `deadcode ./...` gave 149
   hits, 56 under `-test`; nine survived verification and were filed separately. Kept so
   the next sweep does not re-report the same ~135.
-
-## L467 — summary lookup errors become false absence and misplace answers (2026-10-19, open)
-
-After a valid opener, a failing Messages query makes `MessageByID` return
-`exists=false`. `placeTurnDelivery` then sends the answer with
-`threadRoot=human-trigger`; the real MCP reply reports success even though the
-answer leaves the opener thread and row persistence fails.
-
-- **Severity:** medium — a storage fault changes the conversation destination.
-- **Scope:** summary readers in placement, declaration and reply obligation.
-- **Measured:** `routd/summary_read_failure_test.go::TestTaskSummaryReadFailureCannotMoveTheAnswer`
-  fails under race at `2c619abf2dba8787bedd0587513b102030e0c9a1`;
-  `/tmp/l467-baseline.log` records the wrong send and successful tool result.
-- **Fix:** read the declared summary through an error-aware reader; propagate
-  query failures before sending or deciding that no declaration exists.
-- **Status:** measured; bounded reader proposal awaits parent review.
 
 ## L448 — the custom guest kernel is justified by BOOT TIME, not by the reason written in the fragment (2026-10-19, open — needs sign-off)
 
