@@ -1,0 +1,13 @@
+[Unit]
+Description=Fixed loopback SOCKS transport
+Requires=cuzk-socks@%i.socket
+After=cuzk-socks@%i.socket
+
+[Service]
+ExecStart=/lib/systemd/systemd-socket-proxyd 127.0.0.1:1080
+DynamicUser=yes
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
