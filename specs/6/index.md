@@ -61,6 +61,12 @@ at it. `24` (the per-spawn egress proxy) and
 2026-08-10): `18` and `20` are decision records (decline, costed, with
 reopen triggers); `19` shipped.
 
+## GitHub feature workflow review
+
+| Spec                                                                 | Status | Covers                                                                                            |
+| -------------------------------------------------------------------- | ------ | ------------------------------------------------------------------------------------------------- |
+| [48-github-feature-improvement.md](48-github-feature-improvement.md) | draft  | Placement proposals, decision owners, GitHub feature experiments, and package revision boundaries |
+
 ## Ties
 
 `specs/5/A` (positioning) · `5/9` (`anteval` — the agent conformance

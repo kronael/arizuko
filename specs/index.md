@@ -44,6 +44,12 @@ trust); phase 9 gives **operationally minimal** (one storage
 discipline, git as the universal versioned-data primitive). The
 combination is the platform thesis arizuko ships toward.
 
+## Draft for review
+
+| Spec                                                                     | Status | Covers                                                                       |
+| ------------------------------------------------------------------------ | ------ | ---------------------------------------------------------------------------- |
+| [6/48-github-feature-improvement.md](6/48-github-feature-improvement.md) | draft  | GitHub feature workflow placement, adoption decisions, and package revisions |
+
 ## Phase table
 
 | Phase      | Description                                                                                                                                                                                                                                   | Status     |
