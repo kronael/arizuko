@@ -43,9 +43,10 @@ line; none can be answered from the code.
   ungated host service, or drop the self-transcription claim from the two
   skills that make it.
 
-- `L448` — keep building a guest kernel, or boot the stock one? The written
-  reason for building it is contradicted by three boots on the same QEMU
-  version; `make bench-boot` against a stock-kernel guest settles it.
+- `L448` — does the 1.5 s boot gate hold when the fleet measures 3.15 s? The
+  custom kernel is 2.03x faster than stock and so earns its place, but the
+  reason written in the fragment is dead config, and production already misses
+  the gate it is defending.
 
 - `L447` — carry the rootfs from squashfs to EROFS, or stop at squashfs? EROFS
   is faster on the random reads a boot makes, and costs one fragment line plus
@@ -292,7 +293,7 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
   hits, 56 under `-test`; nine survived verification and were filed separately. Kept so
   the next sweep does not re-report the same ~135.
 
-## L448 — the measurement that justifies the custom guest kernel is contradicted on the same QEMU version (2026-10-19, open — needs sign-off)
+## L448 — the custom guest kernel is justified by BOOT TIME, not by the reason written in the fragment (2026-10-19, open — needs sign-off)
 
 FOUND 2026-10-19. `kernel/arizuko.fragment:11-15` justifies
 `CONFIG_VIRTIO_MMIO_CMDLINE_DEVICES` like this:
@@ -339,9 +340,43 @@ deletes `kernel/Dockerfile` and makes `EROFS_FS` free (`L447`). Neither is
 decided by this entry — what this entry says is that the reason written down
 for the current choice does not survive re-measurement.
 
-The measurement that settles the whole question is `make bench-boot` against a
-stock-kernel guest: `specs/6/41-qemu-substrate.md:47` sets 1.5 s p50 from QEMU
-start to first ready frame, and nothing has measured the stock path against it.
+**That measurement has now run, and it answers the question the other way.**
+Eight paired boots, same initrd, host QEMU 7.2.22, back to back under equal
+load:
+
+- The stock kernel loses `+3.174 s` to one driver before reaching `/init`:
+  `rtc_cmos rtc_cmos: broken or not accessible`. Debian sets
+  `CONFIG_RTC_DRV_CMOS=y`; the owned kernel does not set `RTC_CLASS` at all.
+  `rtc=off` on the machine does NOT remove it; `initcall_blacklist=cmos_init`
+  does, 7.48 s to 3.16 s.
+- Even with that fixed, stock is **2.03x wall** — 8365 ms against 4113 ms — and
+  1.82x on uptime-at-init. Part of it is the payload: the stock bzImage is
+  65,904,788 bytes and XZ decodes single-threaded in 0.71-0.81 s on this CPU.
+- Against the bench's 1085 ms microvm p50 that predicts ~2.1-2.2 s, a miss of
+  about 0.6 s on a 1.5 s gate.
+
+So the custom kernel earns its place. It just does not earn it for the reason
+the fragment gives.
+
+**Two things that ARE wrong and should be fixed.** The fragment's
+`CONFIG_VIRTIO_MMIO_CMDLINE_DEVICES` is dead config: no renderer emits
+`virtio_mmio.device=` anywhere, the 20 bench microvm boots all enumerated via
+ACPI, and stock `virtio_mmio.ko` already carries the `acpi*:LNRO0005:*` alias.
+The comment beside it describes a failure that the same QEMU version does not
+reproduce.
+
+**The finding that should worry you more.** The deployed krons build reaches
+`/init` at a **3.15 s median across 216 console logs**. The 1.5 s gate in
+`specs/6/41-qemu-substrate.md:47` is measured to first ready frame on a bench
+that sees 1085 ms, so production is already about 3x the bench and past the
+gate. The gate and the fleet disagree, and nobody noticed because only the
+bench is measured.
+
+**What needs you:** whether to keep the gate at 1.5 s when the fleet sits at
+3.15 s. If the gate moves, the stock kernel comes back into range and
+`kernel/Dockerfile` can go, which also makes `EROFS_FS` free (`L447`). If the
+gate holds, the kernel stays and the fragment's comment needs correcting
+rather than the design.
 
 ## L447 — squashfs is the wrong compressed rootfs for a random-read boot, and this kernel builds it in its slowest mode (2026-10-19, open — needs sign-off)
 
