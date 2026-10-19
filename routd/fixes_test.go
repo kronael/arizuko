@@ -77,6 +77,7 @@ type sentVoice struct {
 
 type sentEdit struct {
 	jid, platformID, content string
+	threadID                 string
 }
 
 func (d *recDeliverer) Send(jid, text, replyTo, threadID, threadRoot, idem string) (string, error) {
@@ -125,10 +126,10 @@ func (d *recDeliverer) React(_, _, _ string) error {
 	d.reacts++
 	return nil
 }
-func (d *recDeliverer) Edit(jid, platformID, content string) error {
+func (d *recDeliverer) Edit(jid, platformID, content, threadID string) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	d.edits = append(d.edits, sentEdit{jid, platformID, content})
+	d.edits = append(d.edits, sentEdit{jid, platformID, content, threadID})
 	return d.editErr
 }
 func (d *recDeliverer) CanEdit(_ string) bool           { return !d.noEdit }

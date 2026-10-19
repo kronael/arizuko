@@ -796,12 +796,13 @@ func TestOutbound_Edit(t *testing.T) {
 	b, _ := setupBot(t, mock)
 	if err := b.Edit(chanlib.EditRequest{
 		ChatJID: "slack:T012/channel/C0HJK", TargetID: "1700000222.000100", Content: "edited",
+		ThreadID: "1700000111.000100",
 	}); err != nil {
 		t.Fatal(err)
 	}
 	mock.mu.Lock()
 	defer mock.mu.Unlock()
-	if len(mock.updated) != 1 || mock.updated[0]["text"] != "edited" {
+	if len(mock.updated) != 1 || mock.updated[0]["text"] != "edited" || mock.updated[0]["channel"] != "C0HJK" {
 		t.Errorf("updated = %+v", mock.updated)
 	}
 }

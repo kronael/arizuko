@@ -641,7 +641,11 @@ func (b *bot) Dislike(chanlib.DislikeRequest) error {
 }
 
 func (b *bot) Edit(req chanlib.EditRequest) error {
-	if _, err := b.session.ChannelMessageEdit(chanID(req.ChatJID), req.TargetID, req.Content); err != nil {
+	channel := chanID(req.ChatJID)
+	if req.ThreadID != "" {
+		channel = req.ThreadID
+	}
+	if _, err := b.session.ChannelMessageEdit(channel, req.TargetID, req.Content); err != nil {
 		return fmt.Errorf("discord edit: %w", err)
 	}
 	return nil

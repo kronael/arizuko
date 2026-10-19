@@ -154,7 +154,7 @@ func (fedDeliverer) SendOptions(_, _ string, _ []chanlib.Option, _, _ string) (s
 	return "platform-fed-1", nil
 }
 func (fedDeliverer) React(_, _, _ string) error      { return nil }
-func (fedDeliverer) Edit(_, _, _ string) error       { return nil }
+func (fedDeliverer) Edit(_, _, _, _ string) error    { return nil }
 func (fedDeliverer) Delete(_, _ string) error        { return nil }
 func (fedDeliverer) Pin(_, _ string) error           { return nil }
 func (fedDeliverer) Unpin(_, _ string, _ bool) error { return nil }

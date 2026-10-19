@@ -486,11 +486,15 @@ func (h *HTTPChannel) Dislike(ctx context.Context, jid, targetID string) error {
 	return err
 }
 
-func (h *HTTPChannel) Edit(ctx context.Context, jid, targetID, content string) error {
+func (h *HTTPChannel) Edit(ctx context.Context, jid, targetID, content, threadID string) error {
 	if !h.entry.HasCap("edit") {
 		return chanlib.Unsupported("edit", h.entry.Name, "adapter does not advertise capability")
 	}
-	_, err := h.postVerb(ctx, "edit", "/edit", makeBody(map[string]string{"chat_jid": jid, "target_id": targetID, "content": content}))
+	body := map[string]string{"chat_jid": jid, "target_id": targetID, "content": content}
+	if threadID != "" {
+		body["thread_id"] = threadID
+	}
+	_, err := h.postVerb(ctx, "edit", "/edit", makeBody(body))
 	return err
 }
 

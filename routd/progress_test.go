@@ -132,6 +132,28 @@ func TestProgress_HardEditErrorSurfaces(t *testing.T) {
 	}
 }
 
+func TestProgress_ThreadContextReachesUpdatesAndCompletion(t *testing.T) {
+	dl := &recDeliverer{}
+	db, srv := newProgressTurn(t, dl, "")
+	if _, err := db.PutTurnContext("threaded", "demo", "th-7", progressJID, "u1", ""); err != nil {
+		t.Fatal(err)
+	}
+	for _, text := range []string{"first", "second"} {
+		if err := srv.mcpSubmitStatus("threaded", text); err != nil {
+			t.Fatal(err)
+		}
+	}
+	finishTurn(db, dl, "threaded", endDone)
+	if len(dl.edits) != 2 {
+		t.Fatalf("edits=%+v", dl.edits)
+	}
+	for _, edit := range dl.edits {
+		if edit.threadID != "th-7" {
+			t.Fatalf("edit lost its persisted thread: %+v", edit)
+		}
+	}
+}
+
 func TestProgress_RefusedEditPostsNothing(t *testing.T) {
 	dl := &recDeliverer{editErr: chanlib.ErrUnsupported}
 	db, srv := newProgressTurn(t, dl, "")

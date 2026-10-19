@@ -425,7 +425,7 @@ func (d *fakeDeliverer) SendOptions(_, _ string, _ []chanlib.Option, _, _ string
 	return d.platformID, nil
 }
 func (d *fakeDeliverer) React(_, _, _ string) error      { return nil }
-func (d *fakeDeliverer) Edit(_, _, _ string) error       { return nil }
+func (d *fakeDeliverer) Edit(_, _, _, _ string) error    { return nil }
 func (d *fakeDeliverer) CanEdit(_ string) bool           { return false }
 func (d *fakeDeliverer) Delete(_, _ string) error        { return nil }
 func (d *fakeDeliverer) Pin(_, _ string) error           { return nil }

@@ -61,7 +61,7 @@ func TestHTTPChannelEditCarriesAdapterError(t *testing.T) {
 				Capabilities: map[string]bool{"edit": true},
 			}, nil)
 
-			err := ch.Edit(context.Background(), "discord:g/c", "m1", "done")
+			err := ch.Edit(context.Background(), "discord:g/c", "m1", "done", "")
 			if err == nil {
 				t.Fatal("edit must return the adapter error")
 			}
@@ -90,7 +90,7 @@ func TestHTTPChannelEditUnsupportedHint(t *testing.T) {
 		Capabilities: map[string]bool{"edit": true},
 	}, nil)
 
-	err := ch.Edit(context.Background(), "discord:g/c", "m1", "done")
+	err := ch.Edit(context.Background(), "discord:g/c", "m1", "done", "")
 	var unsupported *chanlib.UnsupportedError
 	if !errors.As(err, &unsupported) {
 		t.Fatalf("want structured unsupported error, got %v", err)

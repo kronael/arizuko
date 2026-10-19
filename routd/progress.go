@@ -92,7 +92,7 @@ func (s *Server) updateProgress(tc TurnContext, jid, text string) error {
 // leaves the row as the user still sees it.
 func rewriteStatusRow(db *DB, dl Deliverer, turnID, jid string, row core.Message, content string) error {
 	if row.PlatformID != "" {
-		err := dl.Edit(jid, row.PlatformID, content)
+		err := dl.Edit(jid, row.PlatformID, content, row.Topic)
 		if errors.Is(err, chanlib.ErrUnsupported) {
 			slog.Warn("progress edit refused although the channel advertises edit",
 				"turn_id", turnID, "jid", jid, "err", err)

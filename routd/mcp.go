@@ -75,7 +75,7 @@ func (s *Server) buildGatedFns(t turnMCP) ipc.GatedFns {
 		},
 		Edit: func(jid, target, content string) error {
 			return s.socialTool(t, "message.edit", jid, target, nil,
-				func() error { return s.deliver.Edit(jid, target, content) })
+				func() error { return s.deliver.Edit(jid, target, content, "") })
 		},
 		Pin: func(jid, target string) error {
 			return s.socialTool(t, "message.pin", jid, target, nil,

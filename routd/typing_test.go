@@ -29,7 +29,7 @@ func (d *typingDeliverer) SendOptions(_, _ string, _ []chanlib.Option, _, _ stri
 	return "pid-1", nil
 }
 func (d *typingDeliverer) React(_, _, _ string) error      { return nil }
-func (d *typingDeliverer) Edit(_, _, _ string) error       { return nil }
+func (d *typingDeliverer) Edit(_, _, _, _ string) error    { return nil }
 func (d *typingDeliverer) CanEdit(_ string) bool           { return false }
 func (d *typingDeliverer) Delete(_, _ string) error        { return nil }
 func (d *typingDeliverer) Pin(_, _ string) error           { return nil }

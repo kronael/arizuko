@@ -132,12 +132,12 @@ func (d *chanDeliverer) React(jid, platformID, reaction string) error {
 	return ch.Like(context.Background(), jid, platformID, reaction)
 }
 
-func (d *chanDeliverer) Edit(jid, platformID, content string) error {
+func (d *chanDeliverer) Edit(jid, platformID, content, threadID string) error {
 	ch := d.resolve("", jid)
 	if ch == nil {
 		return fmt.Errorf("no channel for jid %s", jid)
 	}
-	return ch.Edit(context.Background(), jid, platformID, content)
+	return ch.Edit(context.Background(), jid, platformID, content, threadID)
 }
 
 func (d *chanDeliverer) CanEdit(jid string) bool {

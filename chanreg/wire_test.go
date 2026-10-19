@@ -109,8 +109,17 @@ func TestEveryVerbPostsItsDocumentedPathAndBody(t *testing.T) {
 		},
 		{
 			verb: "edit", cap: "edit", wantPath: "/edit",
-			call:     func(h *HTTPChannel) error { return h.Edit(ctx, "x:1", "m1", "new text") },
+			call:     func(h *HTTPChannel) error { return h.Edit(ctx, "x:1", "m1", "new text", "") },
 			wantBody: map[string]any{"chat_jid": "x:1", "target_id": "m1", "content": "new text"},
+		},
+		{
+			verb: "thread edit", cap: "edit", wantPath: "/edit",
+			call: func(h *HTTPChannel) error {
+				return h.Edit(ctx, "x:1", "m1", "new text", "th-7")
+			},
+			wantBody: map[string]any{
+				"chat_jid": "x:1", "target_id": "m1", "content": "new text", "thread_id": "th-7",
+			},
 		},
 		{
 			verb: "pin", cap: "pin", wantPath: "/pin",

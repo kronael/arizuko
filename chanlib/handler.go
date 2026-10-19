@@ -114,6 +114,7 @@ type EditRequest struct {
 	ChatJID  string `json:"chat_jid"`
 	TargetID string `json:"target_id"`
 	Content  string `json:"content"`
+	ThreadID string `json:"thread_id,omitempty"`
 }
 
 type PinRequest struct {
