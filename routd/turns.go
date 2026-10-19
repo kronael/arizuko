@@ -209,7 +209,11 @@ func (s *Server) recordTurnResult(turnID string, req apiv1.TurnResult) (ipc.Turn
 			}
 		}
 	}
-	first, err := s.db.RecordTurnResult(tc.Folder, turnID, req.SessionID, req.Status, req.Error)
+	status, failure := req.Status, req.Error
+	if notice != "" {
+		status, failure = "error", notice
+	}
+	first, err := s.db.RecordTurnResult(tc.Folder, turnID, req.SessionID, status, failure)
 	if err != nil {
 		return ipc.TurnAck{}, err
 	}

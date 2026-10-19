@@ -526,7 +526,14 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, addressed bool, tr
 		return false, false, false, "", nil
 	}
 	end := endDone
-	recorded := l.db.TurnResultRecorded(folder, turnID)
+	result, err := l.db.store().GetTurnResult(folder, turnID)
+	if err != nil {
+		return false, false, false, "", err
+	}
+	if result.Status == "error" {
+		end = endFailed
+	}
+	recorded := result.Status != "pending"
 	// Deliberate silence still records a result, so this fires only on a
 	// malfunction: a 0-result SDK run, a config-less spawn, a swallowed
 	// submit_turn. Not transient — never retry; tell the chat.
