@@ -43,6 +43,10 @@ line; none can be answered from the code.
   ungated host service, or drop the self-transcription claim from the two
   skills that make it.
 
+- `L448` — keep building a guest kernel, or boot the stock one? The written
+  reason for building it is contradicted by three boots on the same QEMU
+  version; `make bench-boot` against a stock-kernel guest settles it.
+
 - `L447` — carry the rootfs from squashfs to EROFS, or stop at squashfs? EROFS
   is faster on the random reads a boot makes, and costs one fragment line plus
   one builder stage — this repo compiles its own kernel, so neither is new.
@@ -287,6 +291,57 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
 - **`L15` — the 2026-08-11 dead-code sweep's rejected hits.** `deadcode ./...` gave 149
   hits, 56 under `-test`; nine survived verification and were filed separately. Kept so
   the next sweep does not re-report the same ~135.
+
+## L448 — the measurement that justifies the custom guest kernel is contradicted on the same QEMU version (2026-10-19, open — needs sign-off)
+
+FOUND 2026-10-19. `kernel/arizuko.fragment:11-15` justifies
+`CONFIG_VIRTIO_MMIO_CMDLINE_DEVICES` like this:
+
+> Measured 2026-09-24 on QEMU 7.2.22: `-M microvm,acpi=on` publishes a 365-byte
+> DSDT that declares no virtio device at all, and the guest logs no virtio-mmio
+> line, so a vsock connect fails with ENODEV.
+
+An adversarial check ran three real KVM boots on THIS host, whose QEMU is the
+same `7.2.22 (Debian 1:7.2+dfsg-7+deb12u18)`, against the STOCK Debian
+`linux-image-6.1.0-43-amd64` and its unmodified modules. Artifacts in
+`/tmp/virtio-mmio-proof.C3h6zv/`:
+
+- `acpi-off.log` — control. The kernel command line carries
+  `virtio_mmio.device=512@0xfeb00e00:12` and nothing binds, which is correct:
+  the stock kernel does not compile that parser, and `/sbin/modinfo` shows
+  `virtio_mmio.ko` with ZERO parameters against `virtio_net.ko`'s four.
+- `acpi-on.log` — `-M microvm,acpi=on`, stock modules only. ACPI enumerates
+  `/sys/bus/platform/devices/LNRO0005:00`, the stock `virtio_mmio` driver binds
+  to it, `/sys/bus/virtio/devices/virtio0` appears, `virtio_rng` binds and a
+  read returns 32 bytes.
+- `runtime-helper.log` — a small out-of-tree module calling
+  `platform_device_register_full()` registers the device at runtime and the
+  stock driver binds. A second path, needing a compiled helper.
+
+So the missing option gates the `device=` COMMAND-LINE PARSER, not
+platform-driver probing. Two independent paths discover the device without it.
+
+**The inference I have NOT confirmed:** QEMU's microvm declares virtio-mmio in
+an SSDT, not the DSDT. Measuring the DSDT's size and concluding "no virtio
+device" would miss them. Dumping both tables settles it, and nobody has.
+
+Why it matters beyond one comment. `kernel/Dockerfile` builds Linux 6.1.112
+from source on every image build, and the fragment's stated reason is that the
+distro kernel cannot boot the guest. Every driver the guest needs is `m` in
+stock Debian — `VIRTIO_PCI`, `VIRTIO_BLK`, `VIRTIO_NET`, `VIRTIO_FS`,
+`VSOCKETS`, `VIRTIO_VSOCKETS`, `SQUASHFS`, `EROFS_FS`, `OVERLAY_FS` — and an
+initramfs can load modules. If ACPI discovery works, the one option that an
+initramfs genuinely cannot supply is supplied by the firmware instead.
+
+**What needs you:** whether to keep building a kernel. Keeping it buys a fixed
+`6.1.112` whose capabilities do not move when the host upgrades; dropping it
+deletes `kernel/Dockerfile` and makes `EROFS_FS` free (`L447`). Neither is
+decided by this entry — what this entry says is that the reason written down
+for the current choice does not survive re-measurement.
+
+The measurement that settles the whole question is `make bench-boot` against a
+stock-kernel guest: `specs/6/41-qemu-substrate.md:47` sets 1.5 s p50 from QEMU
+start to first ready frame, and nothing has measured the stock path against it.
 
 ## L447 — squashfs is the wrong compressed rootfs for a random-read boot, and this kernel builds it in its slowest mode (2026-10-19, open — needs sign-off)
 
