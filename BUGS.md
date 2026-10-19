@@ -141,6 +141,8 @@ ones no measurement can settle.
 
 - `L468` — retry a thread-creating reply with its original root when no task
   summary exists; a transient create failure currently becomes a channel send.
+- `L469` — CUZK Chromium runs as a host process rather than inside Rhias's
+  QEMU sandbox; host browser stopped and disabled pending guest replacement.
 
 - `L428` — the web design guard passes shapes it should refuse, and a site that
   loses fifteen sidebars.
@@ -284,6 +286,24 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
 - **`L15` — the 2026-08-11 dead-code sweep's rejected hits.** `deadcode ./...` gave 149
   hits, 56 under `-test`; nine survived verification and were filed separately. Kept so
   the next sweep does not re-report the same ~135.
+
+## L469 — CUZK browser runs outside the agent sandbox (2026-10-19, open)
+
+- **Status:** owner requires browser and command execution inside Rhias's QEMU
+  sandbox; replacement package is authorized. Host browser is stopped and disabled.
+- **Severity:** HIGH, ops.
+- **Measured:** `/srv/data/cuzk-browser/cuzk-browser.service` executes a host
+  `agent-browser` binary under `User=onvos` and Xvfb. `ProtectSystem=strict`
+  and `ProtectHome=read-only` do not place Chromium in the agent VM. Broker
+  authentication controls tool calls, not the browser process boundary.
+- **Test:** no test — ops; inspect service ExecStart/User, MainPID and the
+  process/VM boundary. Replacement acceptance requires an actual guest Chromium
+  process and command, private transport only on the host, and a real parcel
+  observation. Existing owner/rights CAPTCHA remains unresolved.
+- **Fix:** package a guest command and browser skill using existing group
+  composition. Reuse the host SSH tunnel through a private fixed transport
+  relay; preserve usage history and low operational access limits. Do not
+  add host execution or a host browser/CDP service.
 
 ## L468 — retry loses thread-creation intent for a reply without a task summary (2026-10-19, open)
 
