@@ -20,6 +20,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -405,8 +406,8 @@ func TestARetryReplacesTheAddressedFactOfItsLastAttempt(t *testing.T) {
 func TestMarkingAnUnboundTurnAddressedBindsNothing(t *testing.T) {
 	s := openEntities(t)
 	for _, addressed := range []bool{true, false} {
-		if err := s.SetTurnAddressed("ghost", addressed); err != nil {
-			t.Fatal(err)
+		if err := s.SetTurnAddressed("ghost", addressed); !errors.Is(err, ErrRefused) {
+			t.Fatalf("marking an unbound turn addressed=%v returned %v, want ErrRefused", addressed, err)
 		}
 		if _, ok := s.TurnContextOf("ghost"); ok {
 			t.Fatalf("marking an unbound turn addressed=%v created a context", addressed)
