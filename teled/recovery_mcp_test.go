@@ -53,7 +53,10 @@ func TestNativeTelegramMissingTargetReachesMCPAndAllowsRecovery(t *testing.T) {
 					pid, err := deliver.Send(jid, text, replyTo, "", "", id)
 					return pid, "", err
 				},
-				SendMessage: func(jid, text, id string) (string, error) { return deliver.Send(jid, text, "", "", "", id) },
+				SendMessage: func(jid, text, id string) (string, string, error) {
+					pid, err := deliver.Send(jid, text, "", "", "", id)
+					return pid, "", err
+				},
 			}
 			statuses := make(chan string, 2)
 			fns := ipc.StoreFns{

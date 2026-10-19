@@ -47,19 +47,17 @@ func (s *Server) buildGatedFns(t turnMCP) ipc.GatedFns {
 		GroupsDir:            s.groupsDir,
 		Audit:                s.audit,
 		FetchPlatformHistory: s.fetchPlatformHistory,
-		SendMessage: func(jid, text, msgID string) (string, error) {
-			// send roots no thread, so it has no root to report.
-			pid, _, err := s.mcpDeliver(t.turnID, jid, text, "", msgID, false)
-			return pid, err
+		SendMessage: func(jid, text, msgID string) (string, string, error) {
+			return s.mcpDeliver(t.turnID, jid, text, "", msgID, false)
 		},
 		SendReply: func(jid, text, replyTo, msgID string) (string, string, error) {
 			return s.mcpDeliver(t.turnID, jid, text, replyTo, msgID, true)
 		},
-		SendDocument: func(jid, path, filename, caption, replyTo, threadID, msgID string) (string, error) {
-			return s.mcpAppendDoc(t.turnID, jid, path, filename, caption, replyTo, threadID, msgID)
+		SendDocument: func(jid, path, filename, caption, replyTo, _, msgID string) (string, string, error) {
+			return s.mcpAppendDoc(t.turnID, jid, path, filename, caption, replyTo, "", msgID)
 		},
-		SendVoice: func(jid, text, voice, folder, threadID string) (string, error) {
-			return s.mcpSendVoice(t.turnID, jid, text, voice, folder, threadID)
+		SendVoice: func(jid, text, voice, folder, _ string) (string, string, error) {
+			return s.mcpSendVoice(t.turnID, jid, text, voice, folder, "")
 		},
 		Like: func(jid, target, reaction string) error {
 			return s.socialTool(t, "message.like", jid, target, reactionParams(reaction),
@@ -277,15 +275,18 @@ func (s *Server) mcpDeliver(turnID, jid, text, replyTo, msgID string, threaded b
 	}
 	topic, threadRoot := "", ""
 	if tc, ok := s.db.GetTurnContext(turnID); ok {
-		jid = returnTarget(tc, jid)
-		topic = tc.Topic
-		if threaded {
-			threadRoot = s.replyThreadRoot(tc, jid)
+		place, err := placeTurnDelivery(s.db, s.deliver, tc, jid, "", threaded)
+		if err != nil {
+			return "", "", err
 		}
+		jid, topic, threadRoot = place.jid, place.threadID, place.threadRoot
 	}
 	pid, err := s.deliver.Send(jid, text, replyTo, topic, threadRoot, msgID)
 	if err != nil {
 		slog.Warn("mcp deliver failed", "turn_id", turnID, "jid", jid, "err", err)
+	}
+	if topic != "" {
+		return pid, topic, err
 	}
 	return pid, threadRoot, err
 }
@@ -293,38 +294,42 @@ func (s *Server) mcpDeliver(turnID, jid, text, replyTo, msgID string, threaded b
 // mcpAppendDoc is the in-process send_file: deliver-only (recordOutbound
 // persists the row, keyed on the platform id so a later human reply
 // re-promotes). An empty threadID falls back to the turn's topic.
-func (s *Server) mcpAppendDoc(turnID, jid, path, name, caption, replyTo, threadID, msgID string) (string, error) {
+func (s *Server) mcpAppendDoc(turnID, jid, path, name, caption, replyTo, threadID, msgID string) (string, string, error) {
 	if s.deliver == nil {
-		return "", nil
+		return "", "", nil
 	}
+	place := deliveryPlace{jid: jid, threadID: threadID}
 	if tc, ok := s.db.GetTurnContext(turnID); ok {
-		jid = returnTarget(tc, jid)
-		if threadID == "" {
-			threadID = tc.Topic
+		var err error
+		place, err = placeTurnDelivery(s.db, s.deliver, tc, jid, threadID, false)
+		if err != nil {
+			return "", "", err
 		}
 	}
-	pid, err := s.deliver.Document(jid, path, name, caption, replyTo, threadID, msgID)
+	pid, err := s.deliver.Document(place.jid, path, name, caption, replyTo, place.threadID, msgID, place.threadRoot)
 	if err != nil {
 		slog.Warn("mcp deliver document failed", "turn_id", turnID, "jid", jid, "err", err)
 	}
-	return pid, err
+	return pid, place.topic(), err
 }
 
 // mcpSendVoice is the in-process send_voice: synthesize via TTS (tts.go) and
 // deliver as a voice note. Deliver-only, and a delegated turn is redirected to
 // its origin, as in mcpDeliver.
-func (s *Server) mcpSendVoice(turnID, jid, text, voice, folder, threadID string) (string, error) {
+func (s *Server) mcpSendVoice(turnID, jid, text, voice, folder, threadID string) (string, string, error) {
+	place := deliveryPlace{jid: jid, threadID: threadID}
 	if tc, ok := s.db.GetTurnContext(turnID); ok {
-		jid = returnTarget(tc, jid)
-		if threadID == "" {
-			threadID = tc.Topic
+		var err error
+		place, err = placeTurnDelivery(s.db, s.deliver, tc, jid, threadID, false)
+		if err != nil {
+			return "", "", err
 		}
 	}
-	pid, err := s.sendVoice(jid, text, voice, folder, threadID)
+	pid, err := s.sendVoice(place.jid, text, voice, folder, place.threadID, place.threadRoot)
 	if err != nil {
 		slog.Warn("mcp send voice failed", "turn_id", turnID, "jid", jid, "err", err)
 	}
-	return pid, err
+	return pid, place.topic(), err
 }
 
 // mcpCheckTurn hands out at most one delivery nudge across all turn-end readers.
@@ -392,7 +397,7 @@ func (s *Server) submitStatus(status ipc.TurnStatus) error {
 		return nil
 	}
 	jid := returnTarget(tc, tc.ChatJID)
-	if s.deliver == nil || s.mutedGroup(tc.Folder) || !s.deliver.CanEdit(jid) {
+	if s.deliver == nil || s.mutedGroup(tc.Folder) || !s.deliver.HasCapability(jid, "edit") {
 		slog.Debug("progress update dropped: no editable message here",
 			"turn_id", tc.TurnID, "jid", jid)
 		return nil
@@ -400,7 +405,7 @@ func (s *Server) submitStatus(status ipc.TurnStatus) error {
 	if status.Kind == ipc.StatusSummary {
 		return s.declareSummary(tc, jid, status.Text)
 	}
-	if status.Kind == ipc.StatusProgress {
+	if status.Kind == ipc.StatusProgress && summaryThreadEnabled(s.db, s.deliver, tc, jid) {
 		if _, ok := s.db.MessageByID(jid, summaryID(tc.TurnID)); !ok {
 			return fmt.Errorf("declare the overall task summary before progress")
 		}

@@ -38,10 +38,10 @@ type GatedFns struct {
 	// minted inside the send would never match it, so the adapter opened a fresh
 	// claim and posted the message a second time (BUGS L106). The caller mints
 	// it before the send, so a failed send records the same id it tried.
-	SendMessage          func(jid, text, msgID string) (string, error)
+	SendMessage          func(jid, text, msgID string) (platformID, threadRoot string, err error)
 	SendReply            func(jid, text, replyToId, msgID string) (platformID, threadRoot string, err error)
-	SendDocument         func(jid, path, filename, caption, replyTo, threadID, msgID string) (string, error)
-	SendVoice            func(jid, text, voice, folder, threadID string) (string, error)
+	SendDocument         func(jid, path, filename, caption, replyTo, threadID, msgID string) (platformID, threadRoot string, err error)
+	SendVoice            func(jid, text, voice, folder, threadID string) (platformID, threadRoot string, err error)
 	Post                 func(jid, content string, mediaPaths []string) (string, error)
 	Like                 func(jid, targetID, reaction string) error
 	Delete               func(jid, targetID string) error
@@ -775,11 +775,10 @@ func activeTopic(db StoreFns, folder string) string {
 
 // recordOutbound appends the durable row for a DELIVERED outbound message.
 func recordOutbound(gated GatedFns, db StoreFns, jid, text, platformID, folder, msgID string) {
-	putOutboundRow(gated, db, jid, text, platformID, folder, "", "", msgID, core.MessageStatusSent)
+	putOutboundRow(gated, db, jid, text, platformID, folder, "", activeTopic(db, folder), msgID, core.MessageStatusSent)
 }
 
-// recordOutboundReply is recordOutbound for the verb that can ROOT a thread. The
-// root is the reply's own, so only the reply path has one to pass.
+// recordOutboundReply records the thread resolved by the delivery path.
 func recordOutboundReply(gated GatedFns, db StoreFns, jid, text, platformID, folder, threadRoot, msgID string) {
 	putOutboundRow(gated, db, jid, text, platformID, folder, "", threadRoot, msgID, core.MessageStatusSent)
 }
@@ -827,14 +826,7 @@ func putOutboundRow(gated GatedFns, db StoreFns, jid, text, platformID, folder, 
 	// key the gateway seeds (SetLastReply at turn start). "" would chain
 	// the next in-thread reply off the wrong (root) key.
 	turnTopic := activeTopic(db, folder)
-	topic := turnTopic
-	// A reply that ROOTED a platform thread lands in that thread, and for a
-	// parent-channel turn the active topic is "" — so without this the row said
-	// nothing about where it went. The turn's own topic still wins when it has
-	// one: this is deliverRow's policy (routd/turns.go), not a second one.
-	if topic == "" {
-		topic = threadRoot
-	}
+	topic := threadRoot
 	if platformID != "" && db.SetLastReply != nil {
 		_ = db.SetLastReply(jid, topic, platformID, folder)
 	}
@@ -901,11 +893,11 @@ func internalSend(gated GatedFns, db StoreFns, folder, jid, text string, files [
 			return "", fmt.Errorf("send not configured")
 		}
 		msgID := core.MsgID("mcp")
-		platformID, err := gated.SendMessage(jid, text, msgID)
+		platformID, thread, err := gated.SendMessage(jid, text, msgID)
 		if err != nil {
-			return "", recordOutboundFailure(gated, db, jid, text, folder, "", "", msgID, true, err)
+			return "", recordOutboundFailure(gated, db, jid, text, folder, "", thread, msgID, true, err)
 		}
-		recordOutbound(gated, db, jid, text, platformID, folder, msgID)
+		recordOutboundReply(gated, db, jid, text, platformID, folder, thread, msgID)
 		return platformID, nil
 	}
 	if gated.SendDocument == nil {
@@ -915,11 +907,11 @@ func internalSend(gated GatedFns, db StoreFns, folder, jid, text string, files [
 	for _, f := range files {
 		// One id per file: each file is its own delivery and its own row.
 		msgID := core.MsgID("mcp")
-		platformID, err := gated.SendDocument(jid, f.LocalPath, f.Filename, text, f.ReplyTo, f.ThreadID, msgID)
+		platformID, thread, err := gated.SendDocument(jid, f.LocalPath, f.Filename, text, f.ReplyTo, f.ThreadID, msgID)
 		if err != nil {
-			return "", recordOutboundFailure(gated, db, jid, text, folder, f.ReplyTo, "", msgID, false, err)
+			return "", recordOutboundFailure(gated, db, jid, text, folder, f.ReplyTo, thread, msgID, false, err)
 		}
-		recordOutbound(gated, db, jid, text, platformID, folder, msgID)
+		recordOutboundReply(gated, db, jid, text, platformID, folder, thread, msgID)
 		lastID = platformID
 	}
 	return lastID, nil
@@ -1424,11 +1416,11 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 			slog.Info("send_voice", "folder", folder, "jid", jid, "voice", voice, "text", snippet)
 			// Thread the voice reply to the active turn's topic so it lands
 			// in the originating thread, not the channel root (bug-1 mirror).
-			platformID, err := gated.SendVoice(jid, text, voice, folder, activeTopic(db, folder))
+			platformID, thread, err := gated.SendVoice(jid, text, voice, folder, activeTopic(db, folder))
 			if err != nil {
 				return toolMaybeUnsupported(err)
 			}
-			recordOutbound(gated, db, jid, text, platformID, folder, "")
+			recordOutboundReply(gated, db, jid, text, platformID, folder, thread, "")
 			return toolJSON(map[string]any{"ok": true, "id": platformID})
 		})
 

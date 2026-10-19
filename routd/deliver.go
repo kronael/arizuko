@@ -102,7 +102,7 @@ func (d *chanDeliverer) send(channel, jid, text string, options []chanlib.Option
 	return ch.SendOptionsCtx(context.Background(), jid, text, options, replyToID, threadID, threadRoot, idempotencyKey)
 }
 
-func (d *chanDeliverer) Document(jid, path, name, caption, replyToID, threadID, idempotencyKey string) (string, error) {
+func (d *chanDeliverer) Document(jid, path, name, caption, replyToID, threadID, idempotencyKey, threadRoot string) (string, error) {
 	if d.disabled(jid) {
 		return "", nil
 	}
@@ -110,10 +110,10 @@ func (d *chanDeliverer) Document(jid, path, name, caption, replyToID, threadID, 
 	if ch == nil {
 		return "", fmt.Errorf("no channel for jid %s", jid)
 	}
-	return ch.SendFile(jid, path, name, caption, replyToID, threadID, idempotencyKey)
+	return ch.SendFile(jid, path, name, caption, replyToID, threadID, idempotencyKey, threadRoot)
 }
 
-func (d *chanDeliverer) SendVoice(jid, audioPath, caption, threadID string) (string, error) {
+func (d *chanDeliverer) SendVoice(jid, audioPath, caption, threadID, threadRoot string) (string, error) {
 	if d.disabled(jid) {
 		return "", nil
 	}
@@ -121,7 +121,7 @@ func (d *chanDeliverer) SendVoice(jid, audioPath, caption, threadID string) (str
 	if ch == nil {
 		return "", fmt.Errorf("no channel for jid %s", jid)
 	}
-	return ch.SendVoice(jid, audioPath, caption, threadID)
+	return ch.SendVoice(jid, audioPath, caption, threadID, threadRoot)
 }
 
 func (d *chanDeliverer) React(jid, platformID, reaction string) error {
@@ -140,12 +140,12 @@ func (d *chanDeliverer) Edit(jid, platformID, content, threadID string) error {
 	return ch.Edit(context.Background(), jid, platformID, content, threadID)
 }
 
-func (d *chanDeliverer) CanEdit(jid string) bool {
+func (d *chanDeliverer) HasCapability(jid, capability string) bool {
 	if d.disabled(jid) {
 		return false
 	}
 	entry := d.resolveEntry("", jid)
-	return entry != nil && entry.HasCap("edit")
+	return entry != nil && entry.HasCap(capability)
 }
 
 func (d *chanDeliverer) Delete(jid, platformID string) error {

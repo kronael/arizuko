@@ -174,7 +174,7 @@ func (h *HTTPChannel) trySend(ctx context.Context, m outMsg) (string, error) {
 		if !h.entry.HasCap("send_file") {
 			return "", fmt.Errorf("channel %s: send_file not supported", h.entry.Name)
 		}
-		resp, err := h.uploadMultipart(ctx, "/send-file", m.JID, m.Path, m.Name, m.Caption, m.FileReplyTo, m.ThreadID, m.IdempotencyKey)
+		resp, err := h.uploadMultipart(ctx, "/send-file", m.JID, m.Path, m.Name, m.Caption, m.FileReplyTo, m.ThreadID, m.IdempotencyKey, m.ThreadRoot)
 		if err == nil {
 			defer func() { _ = resp.Body.Close() }()
 			if resp.StatusCode == http.StatusOK {
@@ -215,27 +215,27 @@ func (h *HTTPChannel) trySend(ctx context.Context, m outMsg) (string, error) {
 	return "", fmt.Errorf("channel %s send: %w", h.entry.Name, err)
 }
 
-func (h *HTTPChannel) SendFile(jid, path, name, caption, replyTo, threadID, idempotencyKey string) (string, error) {
-	return h.SendFileCtx(context.Background(), jid, path, name, caption, replyTo, threadID, idempotencyKey)
+func (h *HTTPChannel) SendFile(jid, path, name, caption, replyTo, threadID, idempotencyKey, threadRoot string) (string, error) {
+	return h.SendFileCtx(context.Background(), jid, path, name, caption, replyTo, threadID, idempotencyKey, threadRoot)
 }
 
-func (h *HTTPChannel) SendFileCtx(ctx context.Context, jid, path, name, caption, replyTo, threadID, idempotencyKey string) (string, error) {
+func (h *HTTPChannel) SendFileCtx(ctx context.Context, jid, path, name, caption, replyTo, threadID, idempotencyKey, threadRoot string) (string, error) {
 	if !h.entry.HasCap("send_file") {
 		return "", fmt.Errorf("channel %s: send_file not supported", h.entry.Name)
 	}
-	m := outMsg{JID: jid, IsFile: true, Path: path, Name: name, Caption: caption, FileReplyTo: replyTo, ThreadID: threadID, IdempotencyKey: idempotencyKey}
+	m := outMsg{JID: jid, IsFile: true, Path: path, Name: name, Caption: caption, FileReplyTo: replyTo, ThreadID: threadID, IdempotencyKey: idempotencyKey, ThreadRoot: threadRoot}
 	return h.trySend(ctx, m)
 }
 
-func (h *HTTPChannel) SendVoice(jid, audioPath, caption, threadID string) (string, error) {
-	return h.SendVoiceCtx(context.Background(), jid, audioPath, caption, threadID)
+func (h *HTTPChannel) SendVoice(jid, audioPath, caption, threadID, threadRoot string) (string, error) {
+	return h.SendVoiceCtx(context.Background(), jid, audioPath, caption, threadID, threadRoot)
 }
 
-func (h *HTTPChannel) SendVoiceCtx(ctx context.Context, jid, audioPath, caption, threadID string) (string, error) {
+func (h *HTTPChannel) SendVoiceCtx(ctx context.Context, jid, audioPath, caption, threadID, threadRoot string) (string, error) {
 	if !h.entry.HasCap("send_voice") {
 		return "", chanlib.Unsupported("send_voice", h.entry.Name, "adapter does not advertise voice capability")
 	}
-	resp, err := h.uploadMultipart(ctx, "/send-voice", jid, audioPath, filepath.Base(audioPath), caption, "", threadID, "")
+	resp, err := h.uploadMultipart(ctx, "/send-voice", jid, audioPath, filepath.Base(audioPath), caption, "", threadID, "", threadRoot)
 	if err != nil {
 		return "", fmt.Errorf("channel %s send-voice: %w", h.entry.Name, err)
 	}
@@ -264,7 +264,7 @@ func decodeSentID(body io.Reader, channel, verb string) string {
 }
 
 // uploadMultipart builds a multipart body and POSTs to endpoint.
-func (h *HTTPChannel) uploadMultipart(ctx context.Context, endpoint, jid, path, name, caption, replyTo, threadID, idempotencyKey string) (*http.Response, error) {
+func (h *HTTPChannel) uploadMultipart(ctx context.Context, endpoint, jid, path, name, caption, replyTo, threadID, idempotencyKey, threadRoot string) (*http.Response, error) {
 	var buf bytes.Buffer
 	w := multipart.NewWriter(&buf)
 	// chat_jid and filename go out even when empty — the adapters read both by
@@ -273,7 +273,7 @@ func (h *HTTPChannel) uploadMultipart(ctx context.Context, endpoint, jid, path, 
 	fields := [][2]string{{"chat_jid", jid}, {"filename", name}}
 	for _, kv := range [][2]string{
 		{"idempotency_key", idempotencyKey}, {"caption", caption},
-		{"reply_to", replyTo}, {"thread_id", threadID},
+		{"reply_to", replyTo}, {"thread_id", threadID}, {"thread_root", threadRoot},
 	} {
 		if kv[1] != "" {
 			fields = append(fields, kv)

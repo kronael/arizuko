@@ -21,10 +21,10 @@ func TestDeliveryTextRefusedBeforeSideEffects(t *testing.T) {
 	calls, writes := 0, 0
 	gated := GatedFns{
 		GroupsDir:    dir,
-		SendMessage:  func(_, _, _ string) (string, error) { calls++; return "sent", nil },
+		SendMessage:  func(_, _, _ string) (string, string, error) { calls++; return "sent", "", nil },
 		SendReply:    func(_, _, _, _ string) (string, string, error) { calls++; return "sent", "", nil },
-		SendDocument: func(_, _, _, _, _, _, _ string) (string, error) { calls++; return "sent", nil },
-		SendVoice:    func(_, _, _, _, _ string) (string, error) { calls++; return "sent", nil },
+		SendDocument: func(_, _, _, _, _, _, _ string) (string, string, error) { calls++; return "sent", "", nil },
+		SendVoice:    func(_, _, _, _, _ string) (string, string, error) { calls++; return "sent", "", nil },
 		Post:         func(_, _ string, _ []string) (string, error) { calls++; return "sent", nil },
 		Edit:         func(_, _, _ string) error { calls++; return nil },
 	}

@@ -281,12 +281,12 @@ func TestProgress_IsTheOnlyProgressWriter(t *testing.T) {
 	}
 }
 
-func TestChanDeliverer_CanEditReadsTheCapabilityMap(t *testing.T) {
+func TestChanDeliverer_HasCapabilityReadsTheCapabilityMap(t *testing.T) {
 	t.Setenv("CHANNEL_REGISTER_ALLOW_PUBLIC", "1")
 	a := newFakeAdapter(t, "pid")
 	reg := chanreg.New()
 	for name, caps := range map[string]map[string]bool{
-		"editd":  {"send_text": true, "edit": true},
+		"editd":  {"send_text": true, "edit": true, "thread_root": true},
 		"plaind": {"send_text": true},
 	} {
 		prefix := name + ":"
@@ -302,8 +302,13 @@ func TestChanDeliverer_CanEditReadsTheCapabilityMap(t *testing.T) {
 		"nobody:1": false,
 		"muted:1":  false,
 	} {
-		if got := d.CanEdit(jid); got != want {
-			t.Errorf("CanEdit(%s) = %v, want %v", jid, got, want)
+		for _, capability := range []string{"edit", "thread_root"} {
+			if got := d.HasCapability(jid, capability); got != want {
+				t.Errorf("HasCapability(%s, %s) = %v, want %v", jid, capability, got, want)
+			}
+		}
+		if d.HasCapability(jid, "thread_id") {
+			t.Errorf("undeclared capability accepted for %s", jid)
 		}
 	}
 }

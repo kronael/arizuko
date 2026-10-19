@@ -19,8 +19,8 @@ func TestEveryUnimplementedVerbRefusesWithAHint(t *testing.T) {
 	post, postErr := s.Post(chanlib.PostRequest{})
 	fwd, fwdErr := s.Forward(chanlib.ForwardRequest{})
 	quote, quoteErr := s.Quote(chanlib.QuoteRequest{})
-	file, fileErr := s.SendFile("", "", "", "", "", "")
-	voice, voiceErr := s.SendVoice("", "", "", "")
+	file, fileErr := s.SendFile("", "", "", "", "", "", "")
+	voice, voiceErr := s.SendVoice("", "", "", "", "")
 
 	byVerb := map[string]error{
 		"post":       postErr,

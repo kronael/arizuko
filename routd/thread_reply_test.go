@@ -8,6 +8,14 @@ import (
 	"github.com/kronael/arizuko/core"
 )
 
+func (s *Server) replyThreadRoot(tc TurnContext, jid string) string {
+	place, err := placeTurnDelivery(s.db, s.deliver, tc, jid, "", true)
+	if err != nil {
+		return ""
+	}
+	return place.threadRoot
+}
+
 // threadTurn seeds a turn for the reply-into-thread tests: context + the
 // trigger message id the dispatch path records via SetTurnTriggerMsg.
 func threadTurn(t *testing.T, db *DB, turnID, folder, jid, trigger string) {
@@ -260,7 +268,7 @@ func TestDocumentThreadsOnTopic(t *testing.T) {
 	if _, err := db.PutTurnContext("t1", "demo", "th-9", jid, "u1", ""); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := srv.mcpAppendDoc("t1", jid, "/tmp/report.pdf", "report.pdf", "", "", "", "mcp-3"); err != nil {
+	if _, _, err := srv.mcpAppendDoc("t1", jid, "/tmp/report.pdf", "report.pdf", "", "", "", "mcp-3"); err != nil {
 		t.Fatal(err)
 	}
 	if len(dl.docs) != 1 || dl.docs[0].threadID != "th-9" {

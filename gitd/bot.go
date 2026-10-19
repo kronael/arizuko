@@ -279,7 +279,7 @@ const uploadHint = "commit it to a branch with the github connector and link it 
 // the content in a fenced block. GitHub has no API that attaches a file to a
 // comment, so a file that is not text, or does not fit the comment cap, is
 // refused before any request with the connector tool that can hold it.
-func (b *bot) SendFile(jid, path, name, caption, replyTo, _ string) (string, error) {
+func (b *bot) SendFile(jid, path, name, caption, replyTo, _, _ string) (string, error) {
 	if b.cfg.Token == "" {
 		return "", chanlib.Unsupported("send_file", "github", "GITHUB_TOKEN unset; "+uploadHint)
 	}

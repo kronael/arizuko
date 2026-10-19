@@ -30,14 +30,14 @@ func (d *typingDeliverer) SendOptions(_, _ string, _ []chanlib.Option, _, _ stri
 }
 func (d *typingDeliverer) React(_, _, _ string) error      { return nil }
 func (d *typingDeliverer) Edit(_, _, _, _ string) error    { return nil }
-func (d *typingDeliverer) CanEdit(_ string) bool           { return false }
+func (d *typingDeliverer) HasCapability(_, _ string) bool  { return false }
 func (d *typingDeliverer) Delete(_, _ string) error        { return nil }
 func (d *typingDeliverer) Pin(_, _ string) error           { return nil }
 func (d *typingDeliverer) Unpin(_, _ string, _ bool) error { return nil }
-func (d *typingDeliverer) Document(_, _, _, _, _, _, _ string) (string, error) {
+func (d *typingDeliverer) Document(_, _, _, _, _, _, _, _ string) (string, error) {
 	return "", nil
 }
-func (d *typingDeliverer) SendVoice(_, _, _, _ string) (string, error)        { return "", nil }
+func (d *typingDeliverer) SendVoice(_, _, _, _, _ string) (string, error)     { return "", nil }
 func (d *typingDeliverer) Post(_, _ string, _ []string) (string, error)       { return "", nil }
 func (d *typingDeliverer) Forward(_, _, _ string) (string, error)             { return "", nil }
 func (d *typingDeliverer) Quote(_, _, _ string) (string, error)               { return "", nil }

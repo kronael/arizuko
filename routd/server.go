@@ -39,10 +39,7 @@ type Deliverer interface {
 	SendVia(channel, jid, text string) (platformID string, err error)
 	React(jid, platformID, reaction string) error
 	Edit(jid, platformID, content, threadID string) error
-	// CanEdit reports whether the channel owning jid advertises `edit`: the
-	// capability map decides where a progress message may live, never a
-	// platform error (routd/progress.go).
-	CanEdit(jid string) bool
+	HasCapability(jid, capability string) bool
 	Delete(jid, platformID string) error
 	Pin(jid, platformID string) error
 	Unpin(jid, platformID string, all bool) error
@@ -50,10 +47,10 @@ type Deliverer interface {
 	Typing(jid string, on bool) error
 	// Document delivers a file at path on the shared group volume both routd
 	// and the adapter mount.
-	Document(jid, path, name, caption, replyToID, threadID, idempotencyKey string) (platformID string, err error)
+	Document(jid, path, name, caption, replyToID, threadID, idempotencyKey, threadRoot string) (platformID string, err error)
 	// SendVoice delivers a synthesized voice note (Opus/Ogg); routd synthesizes
 	// via TTS first (tts.go).
-	SendVoice(jid, audioPath, caption, threadID string) (platformID string, err error)
+	SendVoice(jid, audioPath, caption, threadID, threadRoot string) (platformID string, err error)
 	// The social/feed surface; SetSuggestions/SetName stage Slack assistant-pane
 	// controls.
 	Post(jid, content string, mediaPaths []string) (platformID string, err error)

@@ -11,7 +11,7 @@ import (
 )
 
 // newThreadDiscordServer mimics the two REST calls the reply-into-thread path
-// makes: POST .../messages/<root>/threads (start thread → channel th-9) and
+// makes: POST .../messages/<root>/threads (start thread → channel root-1) and
 // POST /channels/<ch>/messages (send). threadStatus/threadBody override the
 // thread-start response for the already-has-thread case.
 func newThreadDiscordServer(t *testing.T, rec *recorded, threadStatus int, threadBody string) *httptest.Server {
@@ -35,7 +35,7 @@ func newThreadDiscordServer(t *testing.T, rec *recorded, threadStatus int, threa
 // lives in the parent channel) is dropped.
 func TestSend_ThreadRootCreatesThread(t *testing.T) {
 	rec := &recorded{}
-	srv := newThreadDiscordServer(t, rec, http.StatusOK, `{"id":"th-9"}`)
+	srv := newThreadDiscordServer(t, rec, http.StatusOK, `{"id":"root-1"}`)
 	defer srv.Close()
 	defer mockAllDiscordEndpoints(srv.URL)()
 
@@ -51,7 +51,7 @@ func TestSend_ThreadRootCreatesThread(t *testing.T) {
 		t.Errorf("id = %q", id)
 	}
 	assertPath(t, rec, "POST", "/channels/ch-1/messages/root-1/threads")
-	assertPath(t, rec, "POST", "/channels/th-9/messages")
+	assertPath(t, rec, "POST", "/channels/root-1/messages")
 	for _, r := range rec.snapshot() {
 		if strings.HasSuffix(r.Path, "/threads") {
 			var ts struct {
@@ -62,7 +62,7 @@ func TestSend_ThreadRootCreatesThread(t *testing.T) {
 				t.Errorf("thread name = %q, want first line of reply", ts.Name)
 			}
 		}
-		if r.Path == "/channels/th-9/messages" && strings.Contains(r.Body, "message_reference") {
+		if r.Path == "/channels/root-1/messages" && strings.Contains(r.Body, "message_reference") {
 			t.Errorf("reply-reference to parent-channel root must be dropped: %s", r.Body)
 		}
 	}
@@ -133,6 +133,24 @@ func TestThreadName(t *testing.T) {
 	for _, c := range cases {
 		if got := threadName(c.in); got != c.want {
 			t.Errorf("threadName(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+func TestSendThreadFailureNeverPostsAtParent(t *testing.T) {
+	rec := &recorded{}
+	srv := newThreadDiscordServer(t, rec, http.StatusForbidden, `{"message":"Missing Permissions","code":50013}`)
+	defer srv.Close()
+	defer mockAllDiscordEndpoints(srv.URL)()
+	b := &bot{session: newTestSession(t)}
+	if id, err := b.Send(chanlib.SendRequest{
+		ChatJID: "discord:g1/ch-1", Content: "the result", ThreadRoot: "root-1",
+	}); err == nil || id != "" {
+		t.Fatalf("thread failure must refuse delivery: id=%q err=%v", id, err)
+	}
+	for _, request := range rec.snapshot() {
+		if request.Path == "/channels/ch-1/messages" {
+			t.Fatal("child escaped to parent after thread creation failed")
 		}
 	}
 }

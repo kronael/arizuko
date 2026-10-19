@@ -60,6 +60,9 @@ func (s *Server) declareSummary(tc TurnContext, jid, text string) error {
 	if tc.State == store.TurnDone {
 		return nil
 	}
+	if !summaryThreadEnabled(s.db, s.deliver, tc, jid) {
+		return s.updateProgress(tc, jid, text)
+	}
 	if _, ok := s.db.MessageByID(jid, summaryID(tc.TurnID)); ok {
 		return nil
 	}
@@ -92,7 +95,11 @@ func (s *Server) updateProgress(tc TurnContext, jid, text string) error {
 	if !ok {
 		row = s.outboundRow(tc, jid, content, "")
 		row.Verb = verbStatus
-		status := s.deliverTurn(tc, jid, &row)
+		place, err := placeTurnDelivery(s.db, s.deliver, tc, jid, "", true)
+		if err != nil {
+			return err
+		}
+		status := s.deliverRow(tc, place.jid, &row, place.threadRoot, place.threadID)
 		return s.db.PutOutbound(row, status)
 	}
 	if row.Content == content {

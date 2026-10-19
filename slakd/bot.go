@@ -1220,19 +1220,6 @@ func (b *bot) Send(req chanlib.SendRequest) (string, error) {
 	if err := b.postForm(context.Background(), "/chat.postMessage", body, &resp); err != nil {
 		return "", fmt.Errorf("slack send: %w", err)
 	}
-	// A threaded reply whose parent Slack can't find is NOT a transport fault.
-	// Left as a bare error it becomes a 502 that routd retries until it drops
-	// the reply — so threaded replies silently vanish while root sends land
-	// (marinade 2026-07-15). Retry once at channel root so the reply lands.
-	if !resp.OK && body.Get("thread_ts") != "" && slackThreadGoneErrors[resp.Error] {
-		slog.Warn("slack thread gone; retrying at channel root",
-			"channel", parts.ID, "thread_ts", body.Get("thread_ts"), "slack_err", resp.Error)
-		body.Del("thread_ts")
-		resp.OK, resp.Error, resp.TS = false, "", ""
-		if err := b.postForm(context.Background(), "/chat.postMessage", body, &resp); err != nil {
-			return "", fmt.Errorf("slack send (root fallback): %w", err)
-		}
-	}
 	if !resp.OK {
 		// Loud: the Slack reason was previously discarded, leaving routd with a
 		// bare "status 502" and no way to diagnose (marinade 2026-07-15).
@@ -1341,7 +1328,7 @@ func (b *bot) setPanePending(team, user, thread string, prompts []panePrompt, ti
 	}
 }
 
-func (b *bot) SendFile(jid, path, name, caption, replyTo, threadID string) (string, error) {
+func (b *bot) SendFile(jid, path, name, caption, replyTo, threadID, threadRoot string) (string, error) {
 	parts, err := parseJID(jid)
 	if err != nil {
 		return "", err
@@ -1393,7 +1380,7 @@ func (b *bot) SendFile(jid, path, name, caption, replyTo, threadID string) (stri
 	if caption != "" {
 		complete.Set("initial_comment", caption)
 	}
-	if threadTS := cmp.Or(threadID, replyTo); threadTS != "" {
+	if threadTS := cmp.Or(threadID, threadRoot, replyTo); threadTS != "" {
 		complete.Set("thread_ts", threadTS)
 	}
 	var done struct {
@@ -1510,18 +1497,7 @@ var slackSendClientErrors = map[string]bool{
 	// The target message no longer accepts replies (deleted, or the sender's
 	// own visibility/permission changed) — permanent, not transient.
 	"cannot_reply_to_message": true,
-	// Thread parent gone: permanent, not transient. Send retries these once at
-	// channel root first; if that still fails they land here as a 400.
-	"thread_not_found":  true,
-	"message_not_found": true,
-}
-
-// slackThreadGoneErrors are chat.postMessage failures meaning the target
-// thread's parent no longer exists. A threaded reply hitting one is retried
-// once at channel root (see Send) instead of being treated as a retryable
-// transport fault — otherwise the reply vanishes behind endless 502s
-// (marinade 2026-07-15).
-var slackThreadGoneErrors = map[string]bool{
+	// A missing thread target is a permanent refusal.
 	"thread_not_found":  true,
 	"message_not_found": true,
 }

@@ -362,7 +362,7 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, addressed bool, tr
 	if err := l.db.SetTurnAddressed(turnID, addressed); err != nil {
 		return false, false, false, "", err
 	}
-	// A threaded reply roots its platform thread on the trigger (replyThreadRoot).
+	// A threaded reply can root its platform thread on the trigger.
 	_ = l.db.SetTurnTriggerMsg(turnID, last.ID)
 	_ = l.db.SetLastReply(chatJID, topic, last.ID, folder)
 

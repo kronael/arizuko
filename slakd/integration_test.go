@@ -835,20 +835,20 @@ func TestOutbound_SendFile(t *testing.T) {
 	path := dir + "/hello.png"
 	writeFile(t, path, []byte("PNGDATA"))
 
-	// threadID set → file must complete into that thread_ts (was the leak).
-	if _, err := b.SendFile("slack:T012/channel/C0HJK", path, "hello.png", "caption", "", "1716900000.001"); err != nil {
-		t.Fatal(err)
+	for _, threadID := range []string{"", "1716900000.001"} {
+		if _, err := b.SendFile("slack:T012/channel/C0HJK", path, "hello.png", "caption", "", threadID, "1716900000.002"); err != nil {
+			t.Fatal(err)
+		}
 	}
 	mock.mu.Lock()
 	defer mock.mu.Unlock()
-	if len(mock.completed) != 1 {
+	if len(mock.completed) != 2 {
 		t.Fatalf("completed = %d", len(mock.completed))
 	}
-	if mock.completed[0]["initial_comment"] != "caption" {
-		t.Errorf("caption = %q", mock.completed[0]["initial_comment"])
-	}
-	if mock.completed[0]["thread_ts"] != "1716900000.001" {
-		t.Errorf("thread_ts = %q, want 1716900000.001 (file leaked to channel root)", mock.completed[0]["thread_ts"])
+	for i, want := range []string{"1716900000.002", "1716900000.001"} {
+		if mock.completed[i]["initial_comment"] != "caption" || mock.completed[i]["thread_ts"] != want {
+			t.Errorf("upload %d = %+v, want caption in thread %s", i, mock.completed[i], want)
+		}
 	}
 }
 
@@ -1568,11 +1568,7 @@ func writeFile(t *testing.T, path string, data []byte) {
 	}
 }
 
-// TestSendThreadGoneFallsBackToRoot reproduces the marinade 2026-07-15 outage:
-// a threaded reply whose parent Slack can't find (thread_not_found) must NOT
-// become a retryable 502 that drops the reply — it retries once at channel root
-// so the reply still lands.
-func TestSendThreadGoneFallsBackToRoot(t *testing.T) {
+func TestSendMissingThreadNeverPostsAtParent(t *testing.T) {
 	mock := newSlackMock()
 	defer mock.srv.Close()
 	mock.threadGone = true
@@ -1590,20 +1586,14 @@ func TestSendThreadGoneFallsBackToRoot(t *testing.T) {
 		ThreadID: "1700000000.000100",
 		Content:  "reply into a dead thread",
 	})
-	if err != nil {
-		t.Fatalf("Send: want root-fallback success, got error: %v", err)
+	if err == nil || ts != "" {
+		t.Fatalf("missing thread must refuse delivery: id=%q err=%v", ts, err)
 	}
-	if ts != "1700000099.000200" {
-		t.Fatalf("ts = %q, want the root-post ts (reply landed at root)", ts)
-	}
-	if len(mock.posted) != 2 {
-		t.Fatalf("posted %d times, want 2 (thread attempt + root retry)", len(mock.posted))
+	if len(mock.posted) != 1 {
+		t.Fatalf("posted %d times, want one attempt in the saved thread", len(mock.posted))
 	}
 	if mock.posted[0]["thread_ts"] == "" {
 		t.Errorf("first attempt must carry thread_ts")
-	}
-	if mock.posted[1]["thread_ts"] != "" {
-		t.Errorf("root retry must drop thread_ts, got %q", mock.posted[1]["thread_ts"])
 	}
 }
 

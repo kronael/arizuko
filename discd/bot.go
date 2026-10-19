@@ -392,25 +392,13 @@ func (b *bot) onPress(_ *discordgo.Session, i *discordgo.InteractionCreate) {
 var neverFailOnReference = false
 
 func (b *bot) Send(req chanlib.SendRequest) (string, error) {
-	chID := chanID(req.ChatJID)
+	chID, err := b.threadDestination(req.ChatJID, req.ThreadID, req.ThreadRoot, req.Content)
+	if err != nil {
+		return "", err
+	}
 	replyTo := req.ReplyTo
-	switch {
-	case req.ThreadID != "":
-		chID = req.ThreadID
-	case req.ThreadRoot != "" && !strings.HasPrefix(req.ChatJID, "discord:dm/"):
-		// Reply into a thread rooted on the trigger message: start one (or
-		// reuse the existing one) and post there. The root lives in the
-		// parent channel, so a reply-reference to it can't follow into the
-		// thread — drop it (the thread itself already anchors the root).
-		if thID, err := b.threadFrom(chID, req.ThreadRoot, req.Content); err == nil {
-			chID = thID
-			if replyTo == req.ThreadRoot {
-				replyTo = ""
-			}
-		} else {
-			slog.Warn("discord thread start failed; sending inline",
-				"chat_jid", req.ChatJID, "root", req.ThreadRoot, "err", err)
-		}
+	if req.ThreadID == "" && req.ThreadRoot != "" && replyTo == req.ThreadRoot && chID != chanID(req.ChatJID) {
+		replyTo = ""
 	}
 	var firstID string
 	chunks := chanlib.Chunk(req.Content, 2000)
@@ -475,6 +463,21 @@ func (b *bot) threadFrom(chID, rootID, content string) (string, error) {
 	return th.ID, nil
 }
 
+func (b *bot) threadDestination(jid, threadID, threadRoot, title string) (string, error) {
+	if threadID != "" {
+		return threadID, nil
+	}
+	channel := chanID(jid)
+	if threadRoot == "" || strings.HasPrefix(jid, "discord:dm/") {
+		return channel, nil
+	}
+	thread, err := b.threadFrom(channel, threadRoot, title)
+	if err != nil {
+		return "", classifySendErr(err, "")
+	}
+	return thread, nil
+}
+
 // threadName derives a new thread's title from the reply's first line,
 // clamped to Discord's 100-char limit.
 func threadName(content string) string {
@@ -493,10 +496,10 @@ func threadName(content string) string {
 // (.ogg/.opus) play with a built-in player, which is the closest
 // equivalent. The agent picks send_voice when the persona is voice-first
 // or the inbound was voice; we deliver a clickable audio bubble.
-func (b *bot) SendVoice(jid, audioPath, caption, threadID string) (string, error) {
-	chID := chanID(jid)
-	if threadID != "" {
-		chID = threadID
+func (b *bot) SendVoice(jid, audioPath, caption, threadID, threadRoot string) (string, error) {
+	chID, err := b.threadDestination(jid, threadID, threadRoot, caption)
+	if err != nil {
+		return "", err
 	}
 	f, err := os.Open(audioPath)
 	if err != nil {
@@ -517,10 +520,10 @@ func (b *bot) SendVoice(jid, audioPath, caption, threadID string) (string, error
 	return "", nil
 }
 
-func (b *bot) SendFile(jid, path, name, caption, _, threadID string) (string, error) {
-	chID := chanID(jid)
-	if threadID != "" {
-		chID = threadID
+func (b *bot) SendFile(jid, path, name, caption, _, threadID, threadRoot string) (string, error) {
+	chID, err := b.threadDestination(jid, threadID, threadRoot, caption)
+	if err != nil {
+		return "", err
 	}
 	f, err := os.Open(path)
 	if err != nil {

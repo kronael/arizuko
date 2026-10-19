@@ -393,7 +393,16 @@ func (l *Loop) maybeRetryOutbound(now time.Time) {
 		if now.Sub(m.Timestamp) < backoffDelay(p.Attempts) {
 			continue
 		}
-		pid, derr := l.deliver.Send(m.ChatJID, m.Content, m.ReplyToID, m.Topic, "", m.ID)
+		place := deliveryPlace{jid: m.ChatJID, threadID: m.Topic}
+		if tc, ok := l.db.GetTurnContext(m.TurnID); ok && m.Verb != store.VerbStatusSummary {
+			resolved, err := placeTurnDelivery(l.db, l.deliver, tc, m.ChatJID, m.Topic, false)
+			if err != nil {
+				slog.Warn("retry outbound: resolve thread", "id", m.ID, "err", err)
+				continue
+			}
+			place = resolved
+		}
+		pid, derr := l.deliver.Send(place.jid, m.Content, m.ReplyToID, place.threadID, place.threadRoot, m.ID)
 		switch {
 		case derr == nil:
 			if err := l.db.MarkDelivered(m, pid); err != nil {

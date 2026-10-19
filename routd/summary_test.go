@@ -7,9 +7,19 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
+func newSummaryTurn(t *testing.T, dl *recDeliverer) (*DB, *Server) {
+	t.Helper()
+	dl.canThread = true
+	db, srv := newProgressTurn(t, dl, "")
+	if err := db.SetChatIsGroup(progressJID, true); err != nil {
+		t.Fatal(err)
+	}
+	return db, srv
+}
+
 func TestTaskSummaryIsImmutableAndOwedWithoutDelivery(t *testing.T) {
 	dl := &recDeliverer{}
-	db, srv := newProgressTurn(t, dl, "")
+	db, srv := newSummaryTurn(t, dl)
 	for _, text := range []string{"review the release", "changed title"} {
 		if err := srv.submitStatus(ipc.TurnStatus{TurnID: "t1", Text: text, Kind: ipc.StatusSummary}); err != nil {
 			t.Fatal(err)
@@ -35,7 +45,7 @@ func TestTaskSummaryIsImmutableAndOwedWithoutDelivery(t *testing.T) {
 
 func TestTaskSummaryRequiresDeclarationBeforeChecklist(t *testing.T) {
 	dl := &recDeliverer{}
-	_, srv := newProgressTurn(t, dl, "")
+	_, srv := newSummaryTurn(t, dl)
 	progress := ipc.TurnStatus{TurnID: "t1", Text: "☐ build\n☐ test", Kind: ipc.StatusProgress}
 	if err := srv.submitStatus(progress); err == nil || len(dl.sends) != 0 {
 		t.Fatal("a first checklist must not become the summary")

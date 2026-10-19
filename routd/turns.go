@@ -60,21 +60,6 @@ func returnTarget(tc TurnContext, jid string) string {
 	return jid
 }
 
-// replyThreadRoot resolves the trigger id a REPLY roots a new platform thread
-// on, or "" when it must not: the turn is already in a thread, the delivery is
-// redirected off the trigger chat, no trigger id is recorded, or the group's
-// thread_replies preference (default: the chat's multi-user flag) is off. send
-// never calls this — it posts top-level.
-func (s *Server) replyThreadRoot(tc TurnContext, jid string) string {
-	if tc.Topic != "" || tc.TriggerMsgID == "" || jid != tc.ChatJID {
-		return ""
-	}
-	if !s.db.ThreadReplies(tc.Folder, s.db.ChatIsGroup(jid)) {
-		return ""
-	}
-	return tc.TriggerMsgID
-}
-
 // outboundRow builds a fresh pending bot row for the turn's folder/topic.
 func (s *Server) outboundRow(tc TurnContext, jid, content, replyToID string) core.Message {
 	return core.Message{
@@ -83,13 +68,6 @@ func (s *Server) outboundRow(tc TurnContext, jid, content, replyToID string) cor
 		ReplyToID: replyToID, Topic: tc.Topic, RoutedTo: tc.Folder,
 		TurnID: tc.TurnID,
 	}
-}
-
-// deliverTurn sends row as a threaded reply: threadRoot from replyThreadRoot,
-// threadID the turn's topic. The top-level `send` verb never comes through
-// here (mcp.go mcpDeliver).
-func (s *Server) deliverTurn(tc TurnContext, jid string, row *core.Message) string {
-	return s.deliverRow(tc, jid, row, s.replyThreadRoot(tc, jid), tc.Topic)
 }
 
 // deliverRow attempts the send, stamps platform_id on success, and ANSWERS the
@@ -229,8 +207,7 @@ func (s *Server) recordTurnResult(turnID string, req apiv1.TurnResult) (ipc.Turn
 			obs.RecordNudgedTurn(tc.Folder, outcome)
 		}
 		if notice != "" && s.deliver != nil {
-			jid := returnTarget(tc, tc.ChatJID)
-			if _, err := s.deliver.Send(jid, notice, "", tc.Topic, "", "silent-"+turnID); err != nil {
+			if err := s.sendTurnNotice(tc, notice); err != nil {
 				slog.Error("turn completion notice failed", "folder", tc.Folder, "turn_id", turnID, "err", err)
 			}
 		}

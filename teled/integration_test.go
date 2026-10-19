@@ -31,6 +31,7 @@ type tgMock struct {
 	lastSent    []map[string]any
 	fileMethods []string
 	fileReplyTo []string // reply_to_message_id seen on each file-method call
+	fileThreads []string
 	actionHits  int32
 	// force an error on the next sendMessage call (for 400 fallback)
 	failMarkdownOnce atomic.Int32
@@ -78,6 +79,7 @@ func newTGMock() *tgMock {
 				"text":                r.Form.Get("text"),
 				"reply_to_message_id": r.Form.Get("reply_to_message_id"),
 				"reply_markup":        r.Form.Get("reply_markup"),
+				"message_thread_id":   r.Form.Get("message_thread_id"),
 			})
 			idx := len(m.lastSent)
 			m.mu.Unlock()
@@ -99,6 +101,7 @@ func newTGMock() *tgMock {
 			m.mu.Lock()
 			m.fileMethods = append(m.fileMethods, method)
 			m.fileReplyTo = append(m.fileReplyTo, r.Form.Get("reply_to_message_id"))
+			m.fileThreads = append(m.fileThreads, r.Form.Get("message_thread_id"))
 			idx := len(m.fileMethods)
 			m.mu.Unlock()
 			writeTGOK(w, map[string]any{
@@ -257,11 +260,11 @@ func TestBotSendFile_DispatchesByExtension(t *testing.T) {
 			defer os.Remove(tmp.Name())
 
 			if tc.isVoice {
-				if _, err := b.SendVoice("telegram:123", tmp.Name(), "", ""); err != nil {
+				if _, err := b.SendVoice("telegram:123", tmp.Name(), "", "", ""); err != nil {
 					t.Fatalf("SendVoice: %v", err)
 				}
 			} else {
-				if _, err := b.SendFile("telegram:123", tmp.Name(), filepath.Base(tmp.Name()), "", "", ""); err != nil {
+				if _, err := b.SendFile("telegram:123", tmp.Name(), filepath.Base(tmp.Name()), "", "", "", ""); err != nil {
 					t.Fatalf("SendFile: %v", err)
 				}
 			}
@@ -345,13 +348,39 @@ func TestBotSendFile_ThreadsReplyTo(t *testing.T) {
 	tmp.Close()
 	defer os.Remove(tmp.Name())
 
-	if _, err := b.SendFile("telegram:123", tmp.Name(), filepath.Base(tmp.Name()), "cap", "55", ""); err != nil {
+	if _, err := b.SendFile("telegram:123", tmp.Name(), filepath.Base(tmp.Name()), "cap", "55", "", ""); err != nil {
 		t.Fatalf("SendFile: %v", err)
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if len(m.fileReplyTo) != 1 || m.fileReplyTo[0] != "55" {
 		t.Errorf("file reply_to_message_id = %v, want [55]", m.fileReplyTo)
+	}
+}
+
+func TestBotExistingForumTopicCarriesTextFileAndVoice(t *testing.T) {
+	m := newTGMock()
+	defer m.close()
+	b := newTestBot(t, m, config{Name: "telegram"})
+	defer b.typing.Stop()
+	if _, err := b.Send(chanlib.SendRequest{ChatJID: "telegram:123", Content: "the task", ThreadID: "42"}); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "result.txt")
+	if err := os.WriteFile(path, []byte("result"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.SendFile("telegram:123", path, "result.txt", "result", "", "42", ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.SendVoice("telegram:123", path, "result", "42", ""); err != nil {
+		t.Fatal(err)
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.lastSent) != 1 || m.lastSent[0]["message_thread_id"] != "42" ||
+		len(m.fileThreads) != 2 || m.fileThreads[0] != "42" || m.fileThreads[1] != "42" {
+		t.Fatalf("forum placement: text=%+v attachments=%v", m.lastSent, m.fileThreads)
 	}
 }
 

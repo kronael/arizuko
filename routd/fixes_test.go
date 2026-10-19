@@ -29,13 +29,14 @@ type recDeliverer struct {
 	editErr error
 	// noEdit makes the channel not advertise `edit`: a progress update is
 	// dropped, never sent as a fresh message.
-	noEdit   bool
-	docs     []sentMsg
-	voices   []sentVoice
-	reacts   int
-	posts    int
-	dislikes int
-	failSend bool
+	noEdit    bool
+	canThread bool
+	docs      []sentMsg
+	voices    []sentVoice
+	reacts    int
+	posts     int
+	dislikes  int
+	failSend  bool
 	// failIdem fails ONLY the send whose idempotency key (the message id)
 	// matches, so a test can put one dead row among healthy ones.
 	failIdem string
@@ -73,6 +74,7 @@ type sentMsg struct {
 
 type sentVoice struct {
 	jid, audioPath, caption, threadID string
+	threadRoot                        string
 }
 
 type sentEdit struct {
@@ -132,7 +134,12 @@ func (d *recDeliverer) Edit(jid, platformID, content, threadID string) error {
 	d.edits = append(d.edits, sentEdit{jid, platformID, content, threadID})
 	return d.editErr
 }
-func (d *recDeliverer) CanEdit(_ string) bool           { return !d.noEdit }
+func (d *recDeliverer) HasCapability(_, capability string) bool {
+	if capability == "edit" {
+		return !d.noEdit
+	}
+	return d.canThread && (capability == "thread_root" || capability == "thread_id")
+}
 func (d *recDeliverer) Delete(_, _ string) error        { return nil }
 func (d *recDeliverer) Pin(_, _ string) error           { return nil }
 func (d *recDeliverer) Unpin(_, _ string, _ bool) error { return nil }
@@ -142,16 +149,16 @@ func (d *recDeliverer) Typing(jid string, on bool) error {
 	d.typings = append(d.typings, typingEvent{jid, on})
 	return nil
 }
-func (d *recDeliverer) Document(jid, _, _, _, replyTo, threadID, idem string) (string, error) {
+func (d *recDeliverer) Document(jid, _, _, _, replyTo, threadID, idem, threadRoot string) (string, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	d.docs = append(d.docs, sentMsg{jid: jid, replyTo: replyTo, threadID: threadID, idem: idem})
+	d.docs = append(d.docs, sentMsg{jid: jid, replyTo: replyTo, threadID: threadID, threadRoot: threadRoot, idem: idem})
 	return d.pid, nil
 }
-func (d *recDeliverer) SendVoice(jid, audioPath, caption, threadID string) (string, error) {
+func (d *recDeliverer) SendVoice(jid, audioPath, caption, threadID, threadRoot string) (string, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	d.voices = append(d.voices, sentVoice{jid, audioPath, caption, threadID})
+	d.voices = append(d.voices, sentVoice{jid, audioPath, caption, threadID, threadRoot})
 	return d.pid, nil
 }
 func (d *recDeliverer) Post(_, _ string, _ []string) (string, error) {

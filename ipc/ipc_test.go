@@ -19,8 +19,10 @@ import (
 
 func TestBuildMCPServer(t *testing.T) {
 	gated := GatedFns{
-		SendMessage:  func(jid, text, msgID string) (string, error) { return "", nil },
-		SendDocument: func(jid, path, fn, caption, replyTo, threadID, msgID string) (string, error) { return "", nil },
+		SendMessage: func(jid, text, msgID string) (string, string, error) { return "", "", nil },
+		SendDocument: func(jid, path, fn, caption, replyTo, threadID, msgID string) (string, string, error) {
+			return "", "", nil
+		},
 		ClearSession: func(f string) {},
 		GroupsDir:    "/tmp/groups",
 	}
@@ -34,8 +36,10 @@ func TestBuildMCPServer(t *testing.T) {
 
 func TestBuildMCPServer_NoTools(t *testing.T) {
 	gated := GatedFns{
-		SendMessage:  func(jid, text, msgID string) (string, error) { return "", nil },
-		SendDocument: func(jid, path, fn, caption, replyTo, threadID, msgID string) (string, error) { return "", nil },
+		SendMessage: func(jid, text, msgID string) (string, string, error) { return "", "", nil },
+		SendDocument: func(jid, path, fn, caption, replyTo, threadID, msgID string) (string, string, error) {
+			return "", "", nil
+		},
 		ClearSession: func(f string) {},
 		GroupsDir:    "/tmp/groups",
 	}
@@ -49,8 +53,10 @@ func TestBuildMCPServer_NoTools(t *testing.T) {
 
 func TestAllToolsRegistered(t *testing.T) {
 	gated := GatedFns{
-		SendMessage:         func(jid, text, msgID string) (string, error) { return "", nil },
-		SendDocument:        func(jid, path, fn, caption, replyTo, threadID, msgID string) (string, error) { return "", nil },
+		SendMessage: func(jid, text, msgID string) (string, string, error) { return "", "", nil },
+		SendDocument: func(jid, path, fn, caption, replyTo, threadID, msgID string) (string, string, error) {
+			return "", "", nil
+		},
 		ClearSession:        func(f string) {},
 		EnqueueMessageCheck: func(jid string) {},
 		InjectMessage:       func(j, c, s, n string) (string, error) { return "", nil },
@@ -107,10 +113,12 @@ func TestSocialActionsRegistered(t *testing.T) {
 
 func TestSendReply(t *testing.T) {
 	gated := GatedFns{
-		SendMessage:  func(jid, text, msgID string) (string, error) { return "", nil },
-		SendDocument: func(jid, path, fn, caption, replyTo, threadID, msgID string) (string, error) { return "", nil },
-		SendReply:    func(jid, text, rid, msgID string) (string, string, error) { return "", "", nil },
-		GroupsDir:    "/tmp/groups",
+		SendMessage: func(jid, text, msgID string) (string, string, error) { return "", "", nil },
+		SendDocument: func(jid, path, fn, caption, replyTo, threadID, msgID string) (string, string, error) {
+			return "", "", nil
+		},
+		SendReply: func(jid, text, rid, msgID string) (string, string, error) { return "", "", nil },
+		GroupsDir: "/tmp/groups",
 	}
 	srv := buildMCPServer(gated, StoreFns{}, "world", false, "")
 	if srv == nil {
@@ -777,9 +785,9 @@ func TestServeMCP_SendFile_ThreadsViaActiveTopic(t *testing.T) {
 	}
 	gated := GatedFns{
 		GroupsDir: dir,
-		SendDocument: func(jid, path, name, caption, replyTo, threadID, msgID string) (string, error) {
+		SendDocument: func(jid, path, name, caption, replyTo, threadID, msgID string) (string, string, error) {
 			sentThreadID = threadID
-			return wantPlatformID, nil
+			return wantPlatformID, threadID, nil
 		},
 	}
 	stop, err := ServeMCP(sock, gated, db, "world", true, 0, "")
@@ -827,9 +835,9 @@ func TestServeMCP_SendVoice_ThreadsViaActiveTopic(t *testing.T) {
 		DefaultFolderForJID: func(jid string) string { return "world" },
 	}
 	gated := GatedFns{
-		SendVoice: func(jid, text, voice, folder, threadID string) (string, error) {
+		SendVoice: func(jid, text, voice, folder, threadID string) (string, string, error) {
 			sentThreadID = threadID
-			return "voice-id", nil
+			return "voice-id", threadID, nil
 		},
 	}
 	stop, err := ServeMCP(sock, gated, db, "world", true, 0, "")

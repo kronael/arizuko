@@ -21,7 +21,7 @@ var caps = map[string]bool{
 	"pin": true,
 	// buttons is a render capability on send_text, not a verb: chanreg passes
 	// SendRequest.Options through instead of folding them into the text.
-	"buttons": true,
+	"buttons": true, "thread_root": true, "thread_id": true,
 }
 
 func main() {

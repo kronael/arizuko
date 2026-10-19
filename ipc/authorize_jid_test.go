@@ -148,21 +148,20 @@ func TestRecordOutboundReply_RecordsTheThreadItRooted(t *testing.T) {
 	}
 }
 
-// The turn's own topic still wins. A reply inside a thread the turn is already
-// on must not be re-keyed onto a root the platform handed back, or the next
-// in-thread reply chains off the wrong key. This is deliverRow's policy
-// (routd/turns.go) and not a second one.
-func TestRecordOutboundReply_TheTurnsTopicWinsOverTheRoot(t *testing.T) {
+// The delivery path resolves the destination. The source turn's topic must
+// not move an explicit foreign-chat send into an unrelated thread.
+func TestRecordOutboundReply_RecordsTheResolvedDestinationTopic(t *testing.T) {
 	var got core.Message
 	db := StoreFns{
 		PutOutbound:  func(m core.Message, _ string) error { got = m; return nil },
 		CurrentTopic: func(folder string) string { return "turn-topic" },
 	}
 
-	recordOutboundReply(GatedFns{}, db, "discord:g/channel/C1", "answer", "m-9", "sloth/desk", "rooted-elsewhere", "")
-
-	if got.Topic != "turn-topic" {
-		t.Fatalf("Topic = %q, want the turn's own topic", got.Topic)
+	for _, topic := range []string{"", "destination-topic"} {
+		recordOutboundReply(GatedFns{}, db, "discord:g/channel/C1", "answer", "m-9", "sloth/desk", topic, "")
+		if got.Topic != topic {
+			t.Fatalf("Topic = %q, want resolved destination %q", got.Topic, topic)
+		}
 	}
 }
 
