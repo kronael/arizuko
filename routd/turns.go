@@ -28,6 +28,17 @@ func lockTurn(turnID string) func() {
 	return mu.Unlock
 }
 
+// turnNudge is the one renderer shared by Stop hooks and turn submission.
+func turnNudge(tc TurnContext, statusRow bool) string {
+	if tc.Addressed {
+		return "[deliver] You were addressed and delivered nothing. Call reply now (a like counts), or stay silent on purpose."
+	}
+	if statusRow {
+		return "[deliver] You posted a status and delivered nothing. Call reply with the answer, or stay silent on purpose."
+	}
+	return ""
+}
+
 // callbackClosed reports whether a turn's outbound surface is closed: only
 // AFTER POST /v1/runs returns, so a live run's trailing frames stay valid past
 // an early submit_turn that flipped state→done.

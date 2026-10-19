@@ -119,6 +119,12 @@ func (s *Server) buildGatedFns(t turnMCP) ipc.GatedFns {
 			return id, err
 		},
 		SubmitTurn: s.mcpSubmitTurn,
+		CheckTurn: func(_ string, turnID string) (ipc.TurnCheck, error) {
+			if turnID != t.turnID {
+				return ipc.TurnCheck{}, fmt.Errorf("turn_id does not match this socket")
+			}
+			return s.mcpCheckTurn(turnID)
+		},
 		SubmitStatus: func(_ string, turnID, text string) error {
 			return s.mcpSubmitStatus(turnID, text)
 		},
@@ -305,6 +311,34 @@ func (s *Server) mcpSendVoice(turnID, jid, text, voice, folder, threadID string)
 		slog.Warn("mcp send voice failed", "turn_id", turnID, "jid", jid, "err", err)
 	}
 	return pid, err
+}
+
+// mcpCheckTurn hands out at most one delivery nudge across all turn-end readers.
+func (s *Server) mcpCheckTurn(turnID string) (ipc.TurnCheck, error) {
+	unlock := lockTurn(turnID)
+	defer unlock()
+	tc, ok := s.db.GetTurnContext(turnID)
+	if !ok {
+		return ipc.TurnCheck{}, fmt.Errorf("no turn context for turn_id")
+	}
+	return s.checkTurn(tc)
+}
+
+// checkTurn's caller holds lockTurn until it has acted on the decision.
+func (s *Server) checkTurn(tc TurnContext) (ipc.TurnCheck, error) {
+	jid := returnTarget(tc, tc.ChatJID)
+	_, statusRow := s.db.LastStatusRow(jid, tc.TurnID)
+	check := ipc.TurnCheck{
+		Delivered: s.db.TurnHasBotReply(jid, tc.TurnID),
+		Owed:      tc.Addressed || statusRow,
+	}
+	if !check.Delivered && check.Owed && tc.Nudged == 0 && tc.State == "running" && !tc.RunReturned {
+		check.Nudge = turnNudge(tc, statusRow)
+		if err := s.db.IncrementNudged(tc.TurnID); err != nil {
+			return ipc.TurnCheck{}, err
+		}
+	}
+	return check, nil
 }
 
 // mcpSubmitTurn maps the ipc.TurnResult agent payload onto routd's apiv1

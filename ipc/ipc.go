@@ -61,6 +61,7 @@ type GatedFns struct {
 	ListInvites          func(issuedBy string) ([]InviteInfo, error)
 	RevokeInvite         func(ref string) error
 	SubmitTurn           func(folder string, t TurnResult) error
+	CheckTurn            func(folder, turnID string) (TurnCheck, error)
 	// SubmitStatus delivers a mid-turn progress notice as the turn's one "⏳ ..."
 	// message, without ending the turn. A channel that cannot edit receives
 	// nothing. Nil = method unconfigured.
@@ -129,6 +130,13 @@ type TurnResult struct {
 	// report. routd logs it and stores nothing: the model gateway is the
 	// ledger (spec 6/39).
 	Models map[string]ModelUsage `json:"models,omitempty"`
+}
+
+// TurnCheck is the shared delivery decision returned to a harness Stop hook.
+type TurnCheck struct {
+	Delivered bool   `json:"delivered"`
+	Owed      bool   `json:"owed"`
+	Nudge     string `json:"nudge"`
 }
 
 // ModelUsage is one model's tokens + pre-computed cost for a turn.
@@ -528,6 +536,10 @@ func serveConn(ctx context.Context, c net.Conn, srv *server.MCPServer, gated Gat
 			handleSubmitStatus(raw, head.ID, gated, folder, reply)
 			continue
 		}
+		if head.Method == "check_turn" {
+			handleCheckTurn(raw, head.ID, gated, folder, reply)
+			continue
+		}
 
 		// mcp_tool span (spec 5/O-observability): every tools/call funnels through
 		// HandleMessage. Parse the tool name for the span attr; non-tool methods
@@ -561,6 +573,31 @@ func serveConn(ctx context.Context, c net.Conn, srv *server.MCPServer, gated Gat
 			reply(resp)
 		}
 	}
+}
+
+func handleCheckTurn(raw []byte, id any, gated GatedFns, folder string, write func(any)) {
+	var req struct {
+		Params struct {
+			TurnID string `json:"turn_id"`
+		} `json:"params"`
+	}
+	if err := json.Unmarshal(raw, &req); err != nil || req.Params.TurnID == "" {
+		write(map[string]any{"jsonrpc": "2.0", "id": id,
+			"error": map[string]any{"code": -32602, "message": "turn_id required"}})
+		return
+	}
+	if gated.CheckTurn == nil {
+		write(map[string]any{"jsonrpc": "2.0", "id": id,
+			"error": map[string]any{"code": -32603, "message": "check_turn not configured"}})
+		return
+	}
+	check, err := gated.CheckTurn(folder, req.Params.TurnID)
+	if err != nil {
+		write(map[string]any{"jsonrpc": "2.0", "id": id,
+			"error": map[string]any{"code": -32603, "message": err.Error()}})
+		return
+	}
+	write(map[string]any{"jsonrpc": "2.0", "id": id, "result": check})
 }
 
 func handleSubmitTurn(raw []byte, id any, gated GatedFns, folder string, write func(any)) {

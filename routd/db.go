@@ -524,6 +524,11 @@ func (d *DB) SetTurnAddressed(turnID string, addressed bool) error {
 	return d.store().SetTurnAddressed(turnID, addressed)
 }
 
+// IncrementNudged records the delivery nudge handed out under lockTurn.
+func (d *DB) IncrementNudged(turnID string) error {
+	return d.store().IncrementNudged(turnID)
+}
+
 // TurnContext is a turn's bound run-start context.
 type TurnContext = store.TurnContext
 
