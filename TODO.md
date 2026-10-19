@@ -5,6 +5,26 @@ for shipped milestones.
 
 ## Now
 
+- **Automate the version bumps, keep the pins (owner asked 2026-10-19).**
+  Measured: 13 hand-pinned tool versions in `ant/Dockerfile` plus `KVER` and
+  `FC_REF` in `kernel/Dockerfile`, and six base images. Every one moves by hand
+  today. The owner wants latest everywhere automatically.
+
+  The answer is a bot that MOVES the pin, not `latest` tags that remove it.
+  `ant/Dockerfile:4` states a reproducibility contract, and `KVER=6.1.112` is
+  what keeps a guest stable when the host kernel moves — a floating tag would
+  make a rebuild silently differ from the last one with nothing to bisect.
+
+  One constraint decides the shape: the GitHub token on this host has NO
+  `workflow` scope, so `.github/workflows` cannot be pushed (LOCAL.md). That
+  points at a `make update-pins` target or a host cron rather than a GitHub
+  Action.
+
+  Two drifts to fix on the way: three Go versions live in one repo
+  (`GO_VERSION=1.24.1`, `golang:1.25-bookworm`, `golang:1.27rc2-alpine`), and
+  the contract is already half-broken because the Anthropic SDK and
+  `@anthropic-ai/claude-code` auto-update on every build.
+
 - **An automated gate that proves a live agent works, without the $5
   (owner-gated, after 2026-10-18 21:00).** `anteval --smoke` is the only one
   of the five post-deploy gates that costs money, because it is the only one
