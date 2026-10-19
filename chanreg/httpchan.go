@@ -392,7 +392,7 @@ func (h *HTTPChannel) postVerb(ctx context.Context, verb, endpoint string, body 
 		return "", decodeUnsupported(resp.Body, verb, h.entry.Name)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("channel %s %s: status %d", h.entry.Name, verb, resp.StatusCode)
+		return "", fmt.Errorf("channel %s %s: %w", h.entry.Name, verb, adapterErr(resp))
 	}
 	return decodeSentID(resp.Body, h.entry.Name, verb), nil
 }
