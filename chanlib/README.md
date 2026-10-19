@@ -58,6 +58,11 @@ stay thin — `main.go` calls `chanlib.Run` with a `Start` hook.
 - `EnvOr`, `EnvInt`, `EnvDur`, `EnvBytes`, `MustEnv` — env helpers
 - `InboundMsg`, `InboundAttachment`, `SendRequest`, `PostRequest`, etc.
 
+Text, file and voice sends carry optional `thread_id` and `thread_root`.
+Adapters advertise each supported placement in their capability map.
+`EditRequest.ThreadID` carries the existing thread context for edits.
+Protocol: [channel adapter contract](../specs/5/34-channel-protocol.md).
+
 ## Health: `disconnected` > `stale` > `ok`
 
 `/health` returns:

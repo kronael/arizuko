@@ -4,9 +4,9 @@ status: shipped
 
 # Live tasklist status — harness-driven, one edited message per turn
 
-Progress reporting moves from an LLM-invoked skill to a **harness hook on
-the structured tasklist**, delivered as **one message edited in place** per
-turn instead of a stream of ⏳ pings.
+Progress uses a harness hook on the structured task list, delivered as one
+editable checklist beside the declared task summary. Placement belongs to
+`../6/46-turn-progress.md`.
 
 ## Problem
 
@@ -23,25 +23,26 @@ should not be something the model can forget.
 
 ## Design
 
-The agent already plans with the SDK **`TodoWrite`** tool. Two orthogonal
-changes turn that structured list into a live status message:
+The agent declares the overall task in its first one-line `<status>` before
+planning with the SDK's `TodoWrite` tool.
 
 1. **ant — a `TodoWrite` PostToolUse hook** (`ant/src/todo-status.ts`). On
    each `TodoWrite`, render the whole list (`☑`/`⏳`/`☐`) and call
-   `submitStatus({turn_id, text})`. **No new MCP tool, no new
-   agent-facing surface** — the hook reads the tool input the agent
-   already writes, so there is nothing for the model to skip.
-2. **routd — `submit_status` edits one message per turn.** First status
-   sends `⏳ …`; subsequent ones `deliver.Edit`. `routd/progress.go` does
-   this and owns the rest of the turn's progress (presence, the terminal
-   `✓`/`✗` edit); `specs/6/46-turn-progress.md` specifies that renderer.
+   `submitStatus({turn_id, text, kind: "progress"})`. The hook reads the
+   list already written by the agent.
+2. **ant — streamed `<status>` declarations.** The first successful model
+   status uses `kind: "summary"`; later statuses use `kind: "progress"`.
+   A first task list never substitutes for the summary.
+3. **routd — one renderer.** `routd/progress.go` persists an immutable `🤖`
+   summary and edits one `⏳` checklist. Compatible channels place progress
+   and answers in the opener thread. Existing threads take precedence;
+   unsupported new threads keep one editable progress card.
 
-Two decisions inside (2) carry the weight:
+The renderer keeps these boundaries:
 
-- **Interim rows carry `verb="status"` and are excluded from
-  `TurnHasBotReply`.** A status must never count as the agent's reply, or
-  `recordTurnResult` skips delivering the real answer — the reply-swallow
-  regression codex caught pre-deploy.
+- **Interim rows carry `verb="status"` or `verb="status_summary"`.** Both
+  confer a reply obligation. Neither satisfies final delivery or last-answer
+  tracking.
 - **The live message id is the last persisted `verb="status"` row's
   `platform_id`, not an in-memory map.** Nothing to leak, nothing to
   clean up, and edit-in-place survives a routd restart.
@@ -49,25 +50,19 @@ Two decisions inside (2) carry the weight:
   agent sends there is dropped and logged at debug. A real edit failure
   (401/500/timeout) surfaces — never a silent duplicate.
 
-Both paths feed the same `submitStatus` sink, so `<status>` blocks get the
-one-live-message behavior too. They remain the floor for turns without a
-task list; the 90 s `nudgeProgress` self-nudge stays for planless long
-turns but is no longer the primary path.
-
-Consequence: the `progress` skill collapses to a one-line pointer ("plan
-with a task list; the harness shows it live") and `ant/CLAUDE.md` loses
-its manual-checklist paragraph.
+Both inputs use the existing hidden `submit_status` method. Omitted `kind`
+keeps the legacy progress behavior. Neither source sends checklist messages
+directly or creates an extra status protocol.
 
 ## Code pointers
 
 - `ant/src/todo-status.ts` — render + the `TodoWrite` PostToolUse hook.
-- `ant/src/claude.ts` — hook registration (`matcher: 'TodoWrite'`)
-  - the `Turn.turnID` plumb.
-- `routd/progress.go` `updateProgress` — create-or-edit, stamps
-  `verb="status"`; `mcpSubmitStatus` (`routd/mcp.go`) and
-  `appendAndDeliver` (`routd/turns.go`) both call it.
-- `routd/db.go` — `TurnHasBotReply` (excludes status), `LastStatusRow`
-  (the live message is the newest status row).
+- `ant/src/claude.ts` — `TodoWrite` hook registration.
+- `ant/src/index.ts` — streamed status declaration kinds.
+- `routd/progress.go` — summary declaration and checklist rendering.
+- `routd/placement.go` — common placement for progress and answers.
+- `routd/db.go` — `TurnHasBotReply` excludes progress-only rows;
+  `LastStatusRow` finds the persisted checklist.
 
 ## Tier
 

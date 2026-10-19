@@ -334,9 +334,9 @@ via-`reactions.add`). Steps:
 4. Spec under `specs/2/<letter>-<name>.md`; per-platform native
    support belongs in the verb matrix above.
 
-### Showing progress (the `typing` and `edit` capabilities)
+### Showing progress and placing threads
 
-`routd` shows a running turn through two capabilities in the adapter's
+`routd` shows a running turn through capabilities in the adapter's
 registration, and sends a channel nothing it did not advertise
 (`specs/6/46-turn-progress.md`). Advertise only what you implement:
 `chanlib.CapImplReport` checks every verb in the map except `typing`.
@@ -353,9 +353,16 @@ registration, and sends a channel nothing it did not advertise
 - `edit` commits `POST /edit` to replace the text of a message this adapter
   sent, named by the id its `/send` returned; any other id is
   `chanlib.ErrInvalidRequest`, and an adapter never edits another party's
-  message. With `edit`, routd posts one `⏳` message on the turn's first status,
-  edits it on each later one and edits it to `✓` or `✗` when the turn ends.
-- Neither: routd sends the channel no presence and no progress message. That is
+  message. The optional `thread_id` supplies edit context where the platform
+  requires it. Progress edits change one `⏳` message, then mark it `✓` or `✗`.
+- `thread_id` places text, files and voice in an existing thread.
+- `thread_root` creates or reuses a thread rooted at a message before sending
+  text, files or voice. A refused thread destination returns an error;
+  the adapter never sends the child at the parent instead.
+- With `edit` and compatible thread placement, routd posts an immutable `🤖`
+  summary opener and keeps progress and answers in its thread. An existing
+  thread wins. Without new-thread support, it keeps one editable progress card.
+- With neither `typing` nor `edit`, routd sends no presence or progress message. That is
   the right map for a platform where a second post is a public statement.
 
 ### Pickable answers (the `buttons` capability)

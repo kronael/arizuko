@@ -133,9 +133,9 @@ Channel adapter → POST /v1/messages (routd) → PutMessage (sole appender)
       from its own CID (the CID IS the turn credential, spec 6/41)
   → agent runs the turn; per-turn results return over MCP (submit_turn)
     and the run outcome returns on the /v1/runs response
-  → routd/progress.go: Typing(on) at dispatch; one ⏳ message created by the
-    first status and edited after, only on a channel that advertises edit;
-    finishTurn clears Typing and edits ⏳ to ✓ or ✗
+  → routd/progress.go: immutable 🤖 task summary; one editable ⏳ checklist;
+    routd/placement.go keeps progress and answers in the summary thread
+    where supported; finishTurn clears Typing and edits only ⏳ to ✓ or ✗
   → routd: chanreg Deliverer → POST <adapter>/send (channel egress)
 ```
 

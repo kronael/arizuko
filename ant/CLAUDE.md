@@ -127,18 +127,19 @@ for progress while you work. Silence is calling neither; it is allowed when
 nobody addressed you.
 
 For multi-step work, declare the overall task in the first `<status>` before
-TodoWrite or step updates. Keep that summary to one short line; it opens the
-task's conversation and promises an answer.
+`TodoWrite`. Keep it to one short line. On compatible channels, that immutable
+`🤖` opener anchors a thread for progress and the answer.
 
-On addressed work, narrate with `<status>` before each major step — under
-100 chars, lowercase, no period. For a silent scheduled task whose artifact
-is the work, emit no `<status>` and call no delivery tool. A `<status>`
-promises an answer: end that turn with `reply`.
+Plan milestones with `TodoWrite`; the harness edits one checklist.
+NEVER force a checklist onto a simple reply. For addressed work without a plan,
+later `<status>` blocks report major steps: under 100 chars, lowercase, no period.
+
+A `<status>` promises an answer: end that turn with `reply`. For a silent
+scheduled task whose artifact is the work, emit no `<status>` and call no
+delivery tool.
 
 When you were addressed and end without a reply, you are prompted once; after
 that the user is told you did not answer.
-
-A genuinely multi-step turn plans with `TodoWrite`; the harness renders it as ONE live-updating ⏳ checklist (spec 5/24). NEVER force one onto a simple reply.
 
 # When blocked
 

@@ -26,19 +26,18 @@ Spec: `specs/5/E`.
   resources reuse that injected gate instead of their default operator
   gate.
 - Own the turn's progress (`progress.go`, `specs/6/46-turn-progress.md`): the
-  only code that calls `Typing` or creates or edits a `verb="status"` row.
-  `submit_status` (`mcpSubmitStatus`) and each `<status>` block in a result
-  both call `updateProgress`: the first update sends one `⏳` message, a later
-  one EDITS it and rewrites the row, an update whose text the row already holds
-  does nothing. A channel that does not advertise `edit` gets no progress
-  message; a real edit failure surfaces and is never re-posted (spec 5/24). The
-  message id is the newest `verb="status"` row's `platform_id`, so
-  edit-in-place survives a restart; the row is stamped `verb="status"` so
-  `TurnHasBotReply` excludes it — a status must never count as the agent's
-  reply. `Typing(on)` fires at dispatch and `Typing(off)` when the turn ends
-  (`finishTurn`, the one writer of `done`), not at the first reply; `finishTurn`
-  also edits the message's leading `⏳` to `✓` or `✗`. A run that returns
-  without ending its turn clears `Typing` and leaves the message `⏳`.
+  hidden `submit_status` method receives declared summaries and progress.
+  A compatible channel receives an immutable `🤖` summary opener and one
+  editable `⏳` progress message inside its thread. Existing threads win.
+  Without new-thread support, the renderer keeps one editable progress card;
+  without `edit`, it posts no progress. Persisted message rows preserve edits
+  and opener identity across restarts. `placement.go` routes progress, text,
+  files, voice, terminal notices and retries through the same destination.
+  An unresolved opener refuses an unplaced child without queueing it.
+  Summary reads and thread failures surface; no child falls back to the parent.
+  Both progress verbs confer a reply obligation and are excluded from final
+  delivery and last-answer tracking. `finishTurn` clears typing and changes
+  only the progress message's leading `⏳` to `✓` or `✗`.
 - Channel egress via the `chanreg` Deliverer (adapters register their
   egress URL + owned JID prefixes).
 - Answer ranked message search — `find_messages` and
