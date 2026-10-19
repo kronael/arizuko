@@ -1,0 +1,2 @@
+name = "cuzk"
+skills = ["katastr"]

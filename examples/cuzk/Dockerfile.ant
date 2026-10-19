@@ -1,0 +1,6 @@
+ARG ARIZUKO_ANT_BASE
+FROM ${ARIZUKO_ANT_BASE}
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends xvfb xauth \
+    && find /var/lib/apt/lists -maxdepth 1 -type f -delete
+USER node

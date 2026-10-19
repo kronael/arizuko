@@ -283,6 +283,9 @@ source = "github.com/org/our-brand" # git → shallow-cloned, pinned to HEAD
 arizuko products krons apply main
 ```
 
+For a browser skill without a persona, [examples/cuzk](examples/cuzk/README.md)
+uses the same composition with `source = "examples/cuzk"`.
+
 Blending is per PAYLOAD KIND, never a content merge (two products share no
 merge base). `skills/` union by name with the last product winning wholesale;
 `PERSONA.md`/`SOUL.md` first-provider-wins; `CLAUDE.md` becomes one marked
