@@ -88,7 +88,7 @@ func TestTaskSummaryPendingOpenerCannotQueueAParentReply(t *testing.T) {
 		}
 	}
 	rows, err := db.PendingOutbound(time.Now().Add(time.Hour), 10)
-	if err != nil || len(rows) != 1 || rows[0].Message.ID != summaryID("t1") {
+	if err != nil || len(rows) != 1 || rows[0].ID != summaryID("t1") {
 		t.Fatalf("only the opener may be pending: rows=%+v err=%v", rows, err)
 	}
 	dl.failIdem = ""
