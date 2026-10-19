@@ -162,10 +162,8 @@ test('ClaudeTurn routes the not-logged-in result through claudeResultStatus', ()
 
 // --- rate limit ----------------------------------------------------------
 
-// BUGS: rate_limit is the top failure signal (195/2d) — rate_limit_event fires
-// on every usage-info update, most of them informational ('allowed'); only
-// 'rejected' means the turn actually stalled and needs a user-facing notice.
-test('isRateLimitRejected: rejected status needs a notice', () => {
+/** Rejected usage events identify a refusal. */
+test('isRateLimitRejected: rejected status identifies a refusal', () => {
   expect(isRateLimitRejected({ rate_limit_info: { status: 'rejected' } })).toBe(true);
 });
 
@@ -175,17 +173,12 @@ test('isRateLimitRejected: allowed/allowed_warning and missing info stay silent'
   expect(isRateLimitRejected({})).toBe(false);
 });
 
-test('ClaudeTurn: a rejected rate limit becomes one <status> notice frame', () => {
+/** Usage events, including repeated refusals, emit no interim notice. */
+test('ClaudeTurn: rate limit events stay silent', () => {
   const t = new ClaudeTurn();
-  expect(t.push({ type: 'rate_limit_event', rate_limit_info: { status: 'allowed' } })).toEqual([]);
-  const frames = t.push({ type: 'rate_limit_event', rate_limit_info: { status: 'rejected' } });
-  expect(frames).toHaveLength(1);
-  const f = frames[0];
-  if (f.kind !== 'status') throw new Error('expected status frame');
-  // Wrapped in <status> so it rides the one interim pipeline; the chassis's
-  // seen-set dedups a repeat to once per turn.
-  expect(f.text).toContain('<status>');
-  expect(f.text).toContain('rate limit');
+  for (const status of ['allowed', 'allowed_warning', 'rejected', 'rejected']) {
+    expect(t.push({ type: 'rate_limit_event', rate_limit_info: { status } })).toEqual([]);
+  }
 });
 
 // --- model gateway --------------------------------------------------------
@@ -272,6 +265,7 @@ test('ClaudeTurn marks a failure after a rejected rate limit as terminal', () =>
   if (r.kind !== 'result') throw new Error('expected result frame');
   expect(r.ok).toBe(false);
   expect(r.terminal).toBe(true);
+  expect(r.text).toBe("You've hit your individual spend limit");
 });
 
 // An informational rate-limit event is not a refusal, so it must not make the

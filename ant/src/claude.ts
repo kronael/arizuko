@@ -370,9 +370,6 @@ function assistantText(raw: Record<string, unknown>): string {
     .join('');
 }
 
-// RATE_LIMIT_NOTICE rides the one interim-status pipeline.
-const RATE_LIMIT_NOTICE = "<status>⏳ Hit a rate limit — I'll continue shortly.</status>";
-
 // ClaudeTurn reduces the SDK message stream to frames. Pure — the surrounding
 // path runs inside query(), which needs real credentials (BUGS F6.3).
 export class ClaudeTurn {
@@ -414,7 +411,7 @@ export class ClaudeTurn {
     if (m.type === 'rate_limit_event') {
       if (!isRateLimitRejected(raw)) return [];
       this.rejected = true;
-      return [{ kind: 'status', text: RATE_LIMIT_NOTICE }];
+      return [];
     }
     if (m.type === 'result') {
       const text = 'result' in raw ? (raw as { result?: string }).result ?? undefined : undefined;
