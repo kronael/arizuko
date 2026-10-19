@@ -511,11 +511,11 @@ func (l *Loop) checkMigrationVersion() {
 // folderForJid resolves a chat JID to the folder that owns it, so the queue's
 // folder-exclusivity (one live run per folder) holds across JIDs.
 func (l *Loop) folderForJid(chatJID string) string {
-	msgs, _ := l.db.MessagesSince(chatJID, "")
-	if len(msgs) == 0 {
+	msg, ok, _ := l.db.store().LastMessage(context.Background(), chatJID)
+	if !ok {
 		return chatJID
 	}
-	g, ok := l.resolveGroup(chatJID, msgs[len(msgs)-1])
+	g, ok := l.resolveGroup(chatJID, msg)
 	if !ok {
 		return chatJID
 	}

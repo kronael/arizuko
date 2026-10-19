@@ -1151,6 +1151,11 @@ func inboundWhere() []objstore.Cmp {
 	}
 }
 
+// LastMessage returns a chat's newest row, including future timestamps.
+func (s *Store) LastMessage(ctx context.Context, jid string) (core.Message, bool, error) {
+	return s.lastMessageWhere(ctx, jid, "message", nil)
+}
+
 // LastInboundMessage answers a chat's newest inbound human row: the message the
 // loop resolved last, and the one a held-set reader asks resolve about again.
 func (s *Store) LastInboundMessage(ctx context.Context, jid string) (core.Message, bool, error) {
