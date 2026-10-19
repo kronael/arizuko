@@ -1283,7 +1283,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 			})
 	}
 
-	registerRaw("send", "A fresh top-level message that is NOT a reply to the current conversation. Use ONLY when you explicitly need that — a proactive/unprompted notification, or a message to a different chat. For responding to the user (the normal case) use `reply`, which threads. Not for threaded replies (`reply`) or file delivery (`send_file` — its caption replaces this call). Returns the sent message's `id` — use it with `edit` to update this message in place (a live status/checklist).",
+	registerRaw("send", "Send a notification or a message to an explicit chat. Use `reply` for answers and `send_file` for files. Where supported, sends share the current task's existing thread or the declared summary's thread. An explicit different chat keeps its own destination. Returns the sent message's `id`. Use `<status>` and `TodoWrite` for live progress.",
 		[]mcp.ToolOption{
 			mcp.WithString("chatJid", mcp.Required()),
 			mcp.WithString("text", mcp.Required()),
@@ -1309,7 +1309,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 			return toolJSON(map[string]any{"ok": true, "id": platformID})
 		})
 
-	registerRaw("reply", "THE DEFAULT way to respond — use this for virtually every answer to the user. Delivers your message into the thread of the conversation you're answering: on Slack/Discord it lands in a thread off the triggering message (started for you if one doesn't exist yet), keeping the channel clean. Omit replyToId to thread to the current conversation automatically, or pass it to target a specific earlier message in the SAME thread. A target outside the current thread still delivers — the text lands in the thread without the quote banner, because the platform resolves a reference inside the destination channel only. The place is what the reader needs; the banner is decoration. Only reach for `send` when you deliberately need a fresh top-level message in a channel that is NOT a reply. Returns the posted message's `id` — pass it to `edit` to update this message in place (a live status/checklist), or as the next `replyToId` to build a thread.",
+	registerRaw("reply", "Deliver the answer in the current conversation. Existing threads take precedence. Where supported, replies follow the declared task summary's thread. Omit `replyToId` to use the current conversation, or supply an earlier message to quote. A quote outside the destination thread may be omitted. An explicit different chat keeps its own destination. Returns the posted message's `id`. Use `<status>` and `TodoWrite` for live progress.",
 		[]mcp.ToolOption{
 			mcp.WithString("chatJid", mcp.Required()),
 			mcp.WithString("text", mcp.Required()),
@@ -1350,7 +1350,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 			mcp.WithString("filepath", mcp.Required()),
 			mcp.WithString("filename"),
 			mcp.WithString("caption", mcp.Description("Message text to accompany the file. This IS the message — do not output separate text.")),
-			mcp.WithString("replyToId", mcp.Description("Post the file into a thread (Slack thread_ts). Omit to post at channel root.")),
+			mcp.WithString("replyToId", mcp.Description("Optional reply target where supported. Omit to use the current task's thread placement. An explicit different chat keeps its own destination.")),
 		},
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			jid := req.GetString("chatJid", "")
