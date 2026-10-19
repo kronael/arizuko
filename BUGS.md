@@ -142,6 +142,8 @@ ones no measurement can settle.
 
 **Small fixes awaiting a go.** Each is bounded, and its entry names the fix.
 
+- `L464` — addressed-turn writes discard a refused batch verdict.
+
 - `L428` — the web design guard passes shapes it should refuse, and a site that
   loses fifteen sidebars.
 - `L429` — four classes the pages use have no rule in `hub.css`.
@@ -284,6 +286,19 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
 - **`L15` — the 2026-08-11 dead-code sweep's rejected hits.** `deadcode ./...` gave 149
   hits, 56 under `-test`; nine survived verification and were filed separately. Kept so
   the next sweep does not re-report the same ~135.
+
+## L464 — addressed-turn writes discard a refused batch verdict (2026-10-19, open)
+
+`store/TestNoCallerDropsTheVerdict` fails at
+`store/turn_context.go::SetTurnAddressed`: the setter discards the boolean
+from `TryWriteEntities` and returns success when no write commits.
+The combined full suite reproduces the guard failure in
+`/tmp/sloth-combined-test.log`.
+
+- **Severity:** medium — a turn can lose its addressed fact silently
+- **Scope:** addressed-turn persistence
+- **Fix:** use the existing must-commit write method and propagate refusal.
+- **Status:** authorized release repair; preserve the existing row and schema.
 
 ## L458 — a queued follow-up loses its turn identity at the guest input boundary (2026-10-19, open — needs sign-off)
 
