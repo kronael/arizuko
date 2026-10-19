@@ -123,7 +123,7 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 	for _, batch := range groups {
 		bl := batch[len(batch)-1]
 		topic := turnTopic(bl)
-		had, steered, busy, mark, derr := l.runTurn(folder, topic, chatJID, bl.ID, batch)
+		had, steered, busy, mark, derr := l.runTurn(folder, topic, chatJID, bl.ID, r.Addressed, batch)
 		if derr != nil {
 			// Transport failure: do NOT advance — re-fed next poll (at-least-once;
 			// turn_results dedups). A steered batch has no re-feed left: its cursor
@@ -269,7 +269,7 @@ func (l *Loop) noteBusy(chatJID, lastMsgID string) {
 // runTurn dispatches ONE turn for a bot-stripped trigger batch and records its
 // outcome. It never advances the agent_cursor; busy=true means the batch was
 // not consumed and the caller must re-feed it, not advance.
-func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Message) (hadOutput, steered, busy bool, observedMark string, rerr error) {
+func (l *Loop) runTurn(folder, topic, chatJID, turnID string, addressed bool, trigger []core.Message) (hadOutput, steered, busy bool, observedMark string, rerr error) {
 	last := trigger[len(trigger)-1]
 	// Elevation is one-shot and consumed here, so a re-fed batch never
 	// re-elevates; the whole batch is scanned so batching with a sibling cannot
@@ -358,6 +358,9 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 		// A re-fed batch whose run is done: skip, so a sibling batch's steer
 		// does not replay finished output.
 		return false, false, false, "", nil
+	}
+	if err := l.db.SetTurnAddressed(turnID, addressed); err != nil {
+		return false, false, false, "", err
 	}
 	// A threaded reply roots its platform thread on the trigger (replyThreadRoot).
 	_ = l.db.SetTurnTriggerMsg(turnID, last.ID)
@@ -662,12 +665,19 @@ func jidScheme(jid string) string {
 // (BUGS L69). It is NOT the tool-call authorization principal, which is
 // folder:<path> (BUGS B2).
 func turnCallerSub(trigger string) string {
-	// timed/split.go sends a plain "timed" for a group-context task, which does
-	// not carry the "timed-" prefix.
-	if trigger == "" || trigger == "timed" || strings.HasPrefix(trigger, "timed-") || strings.HasPrefix(trigger, "system") {
+	if isSystemTrigger(trigger) {
 		return "service:routd"
 	}
 	return trigger
+}
+
+// isSystemTrigger reports whether a trigger sender is a task or the system, not
+// a person. The ONE predicate: turnCallerSub and the turn's addressed fact
+// (spec 6/47 §"Addressed") both read it.
+func isSystemTrigger(trigger string) bool {
+	// timed/split.go sends a plain "timed" for a group-context task, which does
+	// not carry the "timed-" prefix.
+	return trigger == "" || trigger == "timed" || strings.HasPrefix(trigger, "timed-") || strings.HasPrefix(trigger, "system")
 }
 
 // runedUnreachable reports whether routd never reached runed: nothing ran, so

@@ -333,3 +333,83 @@ func TestATurnReadsBackItsRunID(t *testing.T) {
 		t.Fatalf("run id = %q, want run-1", tc.RunID)
 	}
 }
+
+// A turn bound before the addressed attribute existed carries none, and reads
+// false: every live turn context predates the field.
+//
+// Make turnFrom read the absence as true and the first read answers addressed.
+func TestATurnWithNoAddressedAttributeReadsFalse(t *testing.T) {
+	s := openEntities(t)
+	if _, err := s.OpenTurnContext("old", "demo", "", "web:demo", "u1", ""); err != nil {
+		t.Fatal(err)
+	}
+	tc, ok := s.TurnContextOf("old")
+	if !ok || tc.Addressed {
+		t.Fatalf("a turn with no addressed attribute reads ok=%v addressed=%v, want false",
+			ok, tc.Addressed)
+	}
+	it, _, err := s.itemAt(context.Background(), TurnContexts, objstore.Key{Partition: OwnerRoutd, Sort: "old"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v, set := it.Attrs[attrTurnAddressed]; set {
+		t.Fatalf("a turn nobody marked stores addressed=%q, want the attribute absent", v)
+	}
+}
+
+func TestATurnReadsBackAddressed(t *testing.T) {
+	s := openEntities(t)
+	if _, err := s.OpenTurnContext("t1", "demo", "", "web:demo", "u1", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetTurnAddressed("t1", true); err != nil {
+		t.Fatal(err)
+	}
+	if tc, _ := s.TurnContextOf("t1"); !tc.Addressed {
+		t.Fatal("a turn marked addressed reads false")
+	}
+
+	if _, err := s.OpenTurnContext("t2", "demo", "", "web:demo", "u1", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetTurnAddressed("t2", false); err != nil {
+		t.Fatal(err)
+	}
+	if tc, _ := s.TurnContextOf("t2"); tc.Addressed {
+		t.Fatal("a turn marked not addressed reads true")
+	}
+}
+
+// A retry resolves the turn again and records the answer it got now: a true
+// from the first attempt must not survive a second that resolves to false.
+func TestARetryReplacesTheAddressedFactOfItsLastAttempt(t *testing.T) {
+	s := openEntities(t)
+	if _, err := s.OpenTurnContext("t1", "demo", "", "web:demo", "u1", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetTurnAddressed("t1", true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.OpenTurnContext("t1", "demo", "", "web:demo", "u1", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetTurnAddressed("t1", false); err != nil {
+		t.Fatal(err)
+	}
+	if tc, _ := s.TurnContextOf("t1"); tc.Addressed {
+		t.Fatal("a re-dispatch that resolved to not addressed still reads addressed")
+	}
+}
+
+// Marking a turn nobody bound writes nothing: it must not conjure a context.
+func TestMarkingAnUnboundTurnAddressedBindsNothing(t *testing.T) {
+	s := openEntities(t)
+	for _, addressed := range []bool{true, false} {
+		if err := s.SetTurnAddressed("ghost", addressed); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := s.TurnContextOf("ghost"); ok {
+			t.Fatalf("marking an unbound turn addressed=%v created a context", addressed)
+		}
+	}
+}

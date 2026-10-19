@@ -519,6 +519,11 @@ func (d *DB) PutTurnContext(turnID, folder, topic, chatJID, trigger, returnTo st
 	return d.store().OpenTurnContext(turnID, folder, topic, chatJID, trigger, returnTo)
 }
 
+// SetTurnAddressed records resolve's fact that a person is owed an answer.
+func (d *DB) SetTurnAddressed(turnID string, addressed bool) error {
+	return d.store().SetTurnAddressed(turnID, addressed)
+}
+
 // TurnContext is a turn's bound run-start context.
 type TurnContext = store.TurnContext
 

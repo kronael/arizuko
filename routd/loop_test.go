@@ -512,3 +512,85 @@ func doSetRoutes(t *testing.T, db *DB, routes []core.Route) {
 		t.Fatalf("send routes: %v", err)
 	}
 }
+
+// TestResolve_Addressed pins one row per row of specs/6/47-voluntary-reply.md
+// §"Addressed". The observe rule on an engaged chat is BUGS L445: nobody spoke
+// to the folder, so the turn it fires owes nobody an answer.
+func TestResolve_Addressed(t *testing.T) {
+	const slack = "slack:T/C"
+	tests := []struct {
+		name     string
+		jid      string
+		sender   string
+		route    string // route target; "" = no route
+		engaged  bool
+		wantOK   bool
+		wantAddr bool
+	}{
+		{"direct web", "web:eng", "u1", "", false, true, true},
+		{"direct hook", "hook:eng/events", "u1", "", false, true, false},
+		{"bare folder", "eng", "u1", "", false, true, false},
+		{"trigger route", slack, "u1", "eng", false, true, true},
+		{"trigger route on an engaged chat", slack, "u1", "eng", true, true, true},
+		{"observe route", slack, "u1", "eng#observe", false, false, false},
+		{"observe route on an engaged chat", slack, "u1", "eng#observe", true, true, false},
+		{"engaged chat with no route", slack, "u1", "", true, true, false},
+		{"timed-isolated sender on a trigger route", slack, "timed-isolated:cron", "eng", false, true, false},
+		{"plain timed sender on a trigger route", slack, "timed", "eng", false, true, false},
+		{"system sender on a trigger route", slack, "system:boot", "eng", false, true, false},
+		{"timed sender on a web chat", "web:eng", "timed", "", false, true, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			db, srv, _ := newTestRoutd(t)
+			if err := db.PutGroup(core.Group{Folder: "eng"}); err != nil {
+				t.Fatal(err)
+			}
+			if tt.route != "" {
+				doSetRoutes(t, db, []core.Route{{Match: "platform=slack", Target: tt.route}})
+			}
+			if tt.engaged {
+				if err := db.SetEngagement(tt.jid, "", "eng", time.Hour); err != nil {
+					t.Fatal(err)
+				}
+			}
+			got := srv.loop.resolve(tt.jid, core.Message{
+				ID: "m", ChatJID: tt.jid, Sender: tt.sender, Content: "hi",
+				Timestamp: time.Now().UTC(), Verb: "message",
+			})
+			if got.ok != tt.wantOK || got.Addressed != tt.wantAddr {
+				t.Fatalf("resolve = {ok:%v addressed:%v}, want {ok:%v addressed:%v}",
+					got.ok, got.Addressed, tt.wantOK, tt.wantAddr)
+			}
+		})
+	}
+}
+
+// The fact resolve declares reaches the turn's stored context: a web chat turn
+// reads addressed, the same folder reached through a trigger rule on a slack
+// chat with a timed sender reads not.
+func TestDispatchStoresAddressedOnTheTurn(t *testing.T) {
+	db, srv, _ := newTestRoutd(t)
+	if err := db.PutGroup(core.Group{Folder: "eng"}); err != nil {
+		t.Fatal(err)
+	}
+	doSetRoutes(t, db, []core.Route{{Match: "platform=slack", Target: "eng"}})
+	now := time.Now().UTC()
+	for _, m := range []core.Message{
+		{ID: "web-1", ChatJID: "web:eng", Sender: "u1", Content: "hi", Timestamp: now, Verb: "message"},
+		{ID: "cron-1", ChatJID: "slack:T/C", Sender: "timed-isolated:x", Content: "tick", Timestamp: now, Verb: "message"},
+	} {
+		if err := db.PutMessage(m); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := srv.loop.processGroupMessages(m.ChatJID); err != nil {
+			t.Fatalf("process %s: %v", m.ID, err)
+		}
+	}
+	for id, want := range map[string]bool{"web-1": true, "cron-1": false} {
+		tc, ok := db.GetTurnContext(id)
+		if !ok || tc.Addressed != want {
+			t.Errorf("turn %s: bound=%v addressed=%v, want addressed=%v", id, ok, tc.Addressed, want)
+		}
+	}
+}

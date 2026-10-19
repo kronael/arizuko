@@ -614,7 +614,10 @@ type resolution struct {
 	Folder  string
 	Topic   string // route-pinned topic (rt.Topic), "" leaves the message's own
 	Observe string // observe-mode folder; messages get is_observed=1, no turn
-	ok      bool
+	// Addressed: a person put a question to this folder and is owed an answer
+	// (spec 6/47 §"Addressed"). Declared here once and stored on the turn.
+	Addressed bool
+	ok        bool
 }
 
 // resolveGroup is resolve for callers that only need (folder, ok).
@@ -623,10 +626,23 @@ func (l *Loop) resolveGroup(chatJID string, last core.Message) (string, bool) {
 	return r.Folder, r.ok
 }
 
+// resolve picks the folder for the chat's latest message and records whether
+// the turn is addressed. A timed or system sender is never addressed: a task
+// is not a person (the same predicate turnCallerSub reads).
 func (l *Loop) resolve(chatJID string, last core.Message) resolution {
+	r := l.resolveFolder(chatJID, last)
+	if isSystemTrigger(last.Sender) {
+		r.Addressed = false
+	}
+	return r
+}
+
+func (l *Loop) resolveFolder(chatJID string, last core.Message) resolution {
 	// 1. Direct address: a web:/hook: JID or a bare registered folder.
 	if direct := l.directFolder(chatJID); direct != "" && l.db.GroupExists(direct) {
-		return resolution{Folder: direct, ok: true}
+		// Only a person typing in a web chat is a question; a hook is an event
+		// and a bare folder is a system turn.
+		return resolution{Folder: direct, ok: true, Addressed: strings.HasPrefix(chatJID, "web:")}
 	}
 	// 2. Route table.
 	routes, err := l.db.Routes()
@@ -640,13 +656,16 @@ func (l *Loop) resolve(chatJID string, last core.Message) resolution {
 		rt := router.ResolveRouteTarget(last, routes)
 		if rt.Folder != "" {
 			engTopic := l.effectiveTopic(chatJID, last.Topic)
+			// A trigger rule addresses the folder whether or not the chat is also
+			// engaged; an observe rule on an engaged chat is engagement alone.
+			addressed := rt.Mode != "observe"
 			if folder, ok := l.engaged(chatJID, engTopic); ok {
-				return resolution{Folder: folder, ok: true}
+				return resolution{Folder: folder, ok: true, Addressed: addressed}
 			}
 			if rt.Mode == "observe" {
 				return resolution{Observe: rt.Folder}
 			}
-			return resolution{Folder: rt.Folder, Topic: rt.Topic, ok: true}
+			return resolution{Folder: rt.Folder, Topic: rt.Topic, ok: true, Addressed: true}
 		}
 	}
 	// 3. Engagement fallback on a route miss (topic-root normalized).
