@@ -9,6 +9,7 @@ refs/
 .claude/
 .refs/
 .diary/
+.*/*
 .git
 ant/node_modules
 ant/.next
