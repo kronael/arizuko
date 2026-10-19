@@ -42,6 +42,11 @@ func placeTurnDelivery(db *DB, dl Deliverer, tc TurnContext, jid, explicitThread
 		}
 		return p, nil
 	}
+	if reply && p.threadID != "" && p.threadID == tc.TriggerMsgID &&
+		p.jid == tc.ChatJID {
+		p.threadRoot, p.threadID = p.threadID, ""
+		return p, nil
+	}
 	if summaryThreadEnabled(db, dl, tc, p.jid) {
 		row, ok, err := readTaskSummary(db, p.jid, tc.TurnID)
 		if err != nil {
