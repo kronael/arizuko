@@ -234,7 +234,7 @@ func TestServerWiresDelivererViaRegistry(t *testing.T) {
 	}
 
 	db.PutTurnContext("t1", "demo", "", "slack:T1/C/U", "u1", "")
-	srv.appendAndDeliver("t1", "slack:T1/C/U", "answer")
+	srv.replyForTest(t, "t1", "slack:T1/C/U", "answer")
 	if a.count() != 1 {
 		t.Fatalf("adapter delivered=%d want 1", a.count())
 	}

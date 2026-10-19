@@ -19,7 +19,6 @@ export interface SubmitTurnPayload {
   turn_id: string;
   session_id?: string;
   status: 'success' | 'error';
-  result?: string;
   error?: string;
   // Per-model usage from the SDK's result message. Optional; gated
   // no-ops if absent.
@@ -41,18 +40,18 @@ let nextId = 1;
 // rpc fires one JSON-RPC request at the gated MCP socket and resolves when the
 // daemon answers (or rejects on rpc-level error). One round-trip, one connection
 // — shared by submit_turn (turn-end) and submit_status (mid-turn).
-function rpc(method: string, params: unknown): Promise<void> {
+export function rpc(method: string, params: unknown, socketPath = MCP_SOCK): Promise<unknown> {
   return new Promise((resolve, reject) => {
-    const sock = net.createConnection(MCP_SOCK);
+    const sock = net.createConnection(socketPath);
     const id = nextId++;
     let buf = '';
     let settled = false;
 
-    const finish = (err?: Error) => {
+    const finish = (err?: Error, result?: unknown) => {
       if (settled) return;
       settled = true;
       sock.end();
-      err ? reject(err) : resolve();
+      err ? reject(err) : resolve(result);
     };
 
     sock.setEncoding('utf8');
@@ -67,7 +66,8 @@ function rpc(method: string, params: unknown): Promise<void> {
           finish(new Error(`${method} rpc error: ${resp.error.message ?? line}`));
           return;
         }
-        finish();
+        if (resp.id !== id) throw new Error(`${method}: response id mismatch`);
+        finish(undefined, resp.result);
       } catch (err) {
         finish(err instanceof Error ? err : new Error(String(err)));
       }
@@ -81,10 +81,25 @@ function rpc(method: string, params: unknown): Promise<void> {
   });
 }
 
-export async function submitTurn(p: SubmitTurnPayload): Promise<void> {
-  return rpc('submit_turn', p);
+export interface TurnAck {
+  nudge: string;
+}
+
+function nudgeFrom(result: unknown) {
+  if (result == null || typeof result !== 'object') throw new Error('invalid turn response');
+  const nudge = 'nudge' in result ? result.nudge : '';
+  if (typeof nudge !== 'string') throw new Error('invalid turn nudge');
+  return nudge;
+}
+
+export async function submitTurn(p: SubmitTurnPayload, socketPath = MCP_SOCK) {
+  return { nudge: nudgeFrom(await rpc('submit_turn', p, socketPath)) };
+}
+
+export async function checkTurn(turnID: string, socketPath = MCP_SOCK) {
+  return { nudge: nudgeFrom(await rpc('check_turn', { turn_id: turnID }, socketPath)) };
 }
 
 export async function submitStatus(p: SubmitStatusPayload): Promise<void> {
-  return rpc('submit_status', p);
+  await rpc('submit_status', p);
 }

@@ -13,6 +13,7 @@ const ctx = { home: '/home/node', turnID: 'turn-1' };
 describe('the binding table is the whole capability surface', () => {
   test('every row is named, placed and bounded', () => {
     expect(bindings(ctx).map((b) => [b.id, b.event, b.matcher ?? '*', b.returns.join('|')])).toEqual([
+      ['reply-owed', 'Stop', '*', 'deny'],
       ['skill-guard', 'PreToolUse', 'Write|Edit|MultiEdit', 'deny'],
       ['bash-scrub', 'PreToolUse', 'Bash', 'rewrite'],
       ['gh-write-gate', 'PreToolUse', 'Bash', 'deny'],
@@ -85,7 +86,7 @@ describe('the codex renderer refuses what codex cannot honour', () => {
     // codex rejects any top-level field but description/hooks — a `version` key
     // failed the whole file to parse when this was first measured.
     expect(Object.keys(cfg).sort()).toEqual(['description', 'hooks']);
-    expect(Object.keys(cfg.hooks).sort()).toEqual(['PostToolUse', 'PreToolUse']);
+    expect(Object.keys(cfg.hooks).sort()).toEqual(['PostToolUse', 'PreToolUse', 'Stop']);
     // One entry per event, not per row: a row-per-command spawns a node process
     // per row per tool call, four where two do the same work.
     expect(cfg.hooks.PreToolUse).toHaveLength(1);

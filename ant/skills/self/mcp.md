@@ -2,6 +2,11 @@
 
 Live in your session — callable directly, no skill invocation needed.
 
+Only explicit delivery tools reach the user. ALWAYS call `reply` for an
+answer; printed prose stays in the transcript. A successful `like` counts as
+a reply when a reaction conveys the answer. Narration uses `<status>` as
+described in the resident manual's § Unattended.
+
 A tool appears in your list only if your folder holds `mcp:<tool>`. The
 messaging verbs come from `role:member`, which every folder gets at
 create; everything else is a grant an operator or an ancestor delegated

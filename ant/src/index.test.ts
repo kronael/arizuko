@@ -241,7 +241,7 @@ test('runTurn: a failed turn sends its text as error, never as the reply', async
     'p', undefined, INPUT, {}, 'turn-1', deliver);
   expect(deliveries).toHaveLength(1);
   expect(deliveries[0].status).toBe('error');
-  expect(deliveries[0].result).toBeNull();
+  expect(deliveries[0]).not.toHaveProperty('result');
   expect(deliveries[0].error).toBe('API Error: 400 fake says no');
   expect(r.failed).toBe('retryable');
 });
@@ -256,11 +256,11 @@ test('runTurn: a terminal failure is reported as terminal', async () => {
   expect(r.failed).toBe('terminal');
 });
 
-test('runTurn: a clean turn reports no failure and keeps its text as the reply', async () => {
+test('runTurn: a clean turn reports no failure and leaves prose off the wire', async () => {
   const { deliveries, deliver } = spy();
   const r = await runTurn(scripted([{ kind: 'result', ok: true, text: 'the answer' }]),
     'p', undefined, INPUT, {}, 'turn-1', deliver);
-  expect(deliveries[0].result).toBe('the answer');
+  expect(deliveries[0]).not.toHaveProperty('result');
   expect(deliveries[0].error).toBeUndefined();
   expect(r.failed).toBeUndefined();
 });
@@ -290,4 +290,30 @@ test('runTurn: a failure with no text leaves failedReason unset', async () => {
     'p', undefined, INPUT, {}, 'turn-1', deliver);
   expect(r.failed).toBe('retryable');
   expect(r.failedReason).toBeUndefined();
+});
+
+/** A submission nudge continues the same turn and latest token, before the next IPC turn. */
+test('runTurn resumes a delivery nudge on the same turn and transcript', async () => {
+  const turns: Array<{ id: string; prompt: string; continuity: string | undefined }> = [];
+  const harness: Harness = {
+    ...scripted([]),
+    run: async function* (turn) {
+      turns.push({ id: turn.turnID, prompt: turn.prompt, continuity: turn.continuity });
+      if (turns.length === 1) yield { kind: 'continuity', token: 'opaque#latest', sessionId: 'session' };
+      yield { kind: 'result', ok: true, text: 'private terminal prose' };
+    },
+  };
+  const delivered: string[] = [];
+  const result = await runTurn(harness, 'original', 'old-token', INPUT, {}, 'bound-turn', async (id, output) => {
+    delivered.push(id);
+    expect(output).not.toHaveProperty('result');
+    return { nudge: delivered.length === 1 ? '[deliver] call reply' : '' };
+  }, statusSpy().send);
+  expect(turns).toEqual([
+    { id: 'bound-turn', prompt: 'original', continuity: 'old-token' },
+    { id: 'bound-turn', prompt: '[deliver] call reply', continuity: 'opaque#latest' },
+  ]);
+  expect(delivered).toEqual(['bound-turn', 'bound-turn']);
+  expect(result.sessionId).toBe('session');
+  expect(result.token).toBe('opaque#latest');
 });

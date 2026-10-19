@@ -6,6 +6,7 @@ import { test, expect } from 'bun:test';
 import { Readable } from 'stream';
 import { driveCli, jsonLines, selectHarness } from './backend.js';
 import type { CliReducer, Frame, ResultFrame } from './backend.js';
+import { piHarness } from './pi.js';
 
 test('selectHarness: unset defaults to claude', () => {
   expect(selectHarness(undefined).name).toBe('claude');
@@ -15,7 +16,7 @@ test('selectHarness: unset defaults to claude', () => {
 test('selectHarness: each occupant by name', () => {
   expect(selectHarness('claude').name).toBe('claude');
   expect(selectHarness('codex').name).toBe('codex');
-  expect(selectHarness('pi').name).toBe('pi');
+  expect(() => selectHarness('pi')).toThrow('cannot deliver through MCP');
 });
 
 test('selectHarness: unknown value throws — no silent fallback', () => {
@@ -46,7 +47,7 @@ test('profiles declare the measured capability matrix', () => {
   });
   // pi's guard became write-time when the extension's input mapping was fixed;
   // continuity became native when --session-dir + --session landed.
-  expect(selectHarness('pi').profile).toEqual({
+  expect(piHarness.profile).toEqual({
     continuity: 'native',
     tools: 'none',
     guard: 'write-time',

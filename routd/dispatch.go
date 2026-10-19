@@ -635,10 +635,6 @@ func terminalFailureNotice(cause string) string {
 	return "⚠️ Agent run failed and a retry cannot fix it: " + cause
 }
 
-// silentTurnNotice is sent when a clean run delivered nothing — a malfunction,
-// not deliberate silence, which records a result.
-const silentTurnNotice = "⚠️ I couldn't produce a reply to that — please re-send."
-
 // ghostGroupNotice is sent when a chat routes to a folder with no group row.
 const ghostGroupNotice = "⚠️ This chat routes to a group that isn't set up — an operator needs to register it."
 

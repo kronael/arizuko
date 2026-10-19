@@ -234,14 +234,14 @@ func TestServeMCP_SubmitTurn(t *testing.T) {
 	var mu sync.Mutex
 	var got []TurnResult
 	gated := GatedFns{
-		SubmitTurn: func(folder string, t TurnResult) error {
+		SubmitTurn: func(folder string, t TurnResult) (TurnAck, error) {
 			mu.Lock()
 			defer mu.Unlock()
 			if folder != "world" {
-				return errors.New("wrong folder: " + folder)
+				return TurnAck{}, errors.New("wrong folder: " + folder)
 			}
 			got = append(got, t)
-			return nil
+			return TurnAck{OK: true, Nudge: "deliver"}, nil
 		},
 	}
 
@@ -288,7 +288,7 @@ func TestServeMCP_SubmitTurn(t *testing.T) {
 	if parsed.Error != nil {
 		t.Fatalf("submit_turn returned error: %s", parsed.Error.Message)
 	}
-	if parsed.Result["ok"] != true {
+	if parsed.Result["ok"] != true || parsed.Result["nudge"] != "deliver" {
 		t.Errorf("expected result.ok=true, got %+v", parsed.Result)
 	}
 
@@ -297,7 +297,7 @@ func TestServeMCP_SubmitTurn(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("expected 1 SubmitTurn call, got %d", len(got))
 	}
-	if got[0].TurnID != "msg-42" || got[0].SessionID != "sess-1" || got[0].Status != "success" || got[0].Result != "hello" {
+	if got[0].TurnID != "msg-42" || got[0].SessionID != "sess-1" || got[0].Status != "success" {
 		t.Errorf("payload mismatch: %+v", got[0])
 	}
 }

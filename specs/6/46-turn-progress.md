@@ -26,6 +26,10 @@ the measurement on krons (§"Acceptance").
 
 ## Build state
 
+The voluntary-reply contract (`47-voluntary-reply.md`) removes the historical
+final-result status reader below. Only ant extracts `<status>` blocks;
+`submit_status` remains routd's progress input.
+
 | Step | What                                                                        | State                                                                       | Pointer                                               |
 | ---- | --------------------------------------------------------------------------- | --------------------------------------------------------------------------- | ----------------------------------------------------- |
 | 1    | routd renders `Begin` and `Update`; no `edit`, no message; equal text no-op | built, `d6572106`                                                           | `routd/progress.go` `beginProgress`, `updateProgress` |

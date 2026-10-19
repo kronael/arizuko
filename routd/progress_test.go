@@ -156,9 +156,9 @@ func TestProgress_ResultStatusAlreadyStreamedPostsOnce(t *testing.T) {
 	if err := srv.mcpSubmitStatus("t1", "verified; writing review"); err != nil {
 		t.Fatal(err)
 	}
+	srv.replyForTest(t, "t1", progressJID, "the review")
 	_, err := srv.recordTurnResult("t1", apiv1.TurnResult{
 		TurnID: "t1", SessionID: "sX", Status: "success",
-		Result: "<status>verified; writing review</status>the review",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -187,7 +187,8 @@ func TestProgress_FailedResultUpdateStillDeliversReply(t *testing.T) {
 	if err := srv.mcpSubmitStatus("t1", "a"); err != nil {
 		t.Fatal(err)
 	}
-	srv.appendAndDeliver("t1", progressJID, "<status>b</status>the answer")
+	_ = srv.mcpSubmitStatus("t1", "b")
+	srv.replyForTest(t, "t1", progressJID, "the answer")
 	if last := dl.sends[len(dl.sends)-1]; last.text != "the answer" {
 		t.Fatalf("a failed progress edit withheld the reply: %+v", dl.sends)
 	}

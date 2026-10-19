@@ -268,7 +268,7 @@ optional observability webhook — not the source of truth.
 - `channels.go` — adapter register/deregister + channel health loop
 - `loop.go` — orchestration loop (poll/claim/dispatch)
 - `dispatch.go` — turn dispatch to runed + enrichment + budget gate
-- `turns.go` — the turn's outbound: prose-result + status delivery, `submit_turn` recording
+- `turns.go` — explicit delivery completion, one shared nudge decision, `submit_turn` recording
 - `deliver.go` — channel Deliverer (egress fanout via chanreg)
 - `mcp.go` — in-process per-turn MCP socket (`ServeTurnMCP`, `buildGatedFns`)
 - `prompt.go`, `prompt_db.go` — prompt envelope build (observe window, persona)

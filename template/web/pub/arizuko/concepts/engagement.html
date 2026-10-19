@@ -104,6 +104,7 @@
     <div class="note"><strong>Note:</strong> engagement overrides the entire route table. When a <code>(chat, topic)</code> is engaged, <code>routd</code> delivers to the engaged folder and fires a turn regardless of what the route table says &mdash; including <code>#observe</code> targets, trigger routes pointing elsewhere, or no matching route at all. The bot is mid-conversation; the route table is irrelevant until the TTL expires or <code>disengage()</code> is called.</div>
 
     <p>A mention requests a task. After a one-shot task, the agent calls <code>disengage</code> and delivers its answer. The answer does not reopen the conversation. An explicit stop also blocks automatic mentions from old thread replies. A fresh mention or a direct reply can request another task.</p>
+    <p>Engagement can open a turn for context without addressing the agent. Such a turn may remain silent. An addressed request, or a turn that posts progress, owes an explicit delivery; terminal prose never becomes a chat reply.</p>
 
     <h2>seeing who is engaged, and ending it</h2>
     <p>Engagement is invisible from the outside &mdash; the bot answering a message that carried no @mention is the only clue you get. The dashboard answers it at a glance: <strong><code>/dash/engagement/</code></strong> lists every conversation the bot is currently staying in, with the group it belongs to and how long the window has left. It is operator-only, because it covers the whole instance rather than one folder.</p>

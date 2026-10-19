@@ -105,10 +105,13 @@ secrets (bearer / apikey-header / apikey-query / basic / json-body); the
 secret is scrubbed from the response before return. Grant-gated on
 `ext:<service>:<operation>`. Spec 5/13.
 
-Per-turn agent output flows back over the same socket via the
-`submit_turn` JSON-RPC method (hidden from `tools/list`);
-`submit_status` delivers mid-turn progress notices. Stdout from the
-container is discarded.
+The hidden `submit_turn` method reports a turn's outcome and session, without
+assistant prose. Its `{ok:true,nudge?:string}` response can hold an owed turn
+open for one continuation. The hidden `check_turn` method takes `turn_id` and
+returns `{delivered,owed,nudge}` to a Stop hook; both readers share the same
+persisted nudge count. `submit_status` delivers progress. These methods use
+the same bound unix socket and peer checks as tool calls. Only explicit
+delivery tools send answers; stdout stays in the transcript.
 
 Read-only introspection: `inspect_messages`, `inspect_routing`,
 `inspect_tasks`, `inspect_session`, `inspect_identity`, `find_messages`.

@@ -619,9 +619,12 @@ runed (`POST /v1/runs`). runed performs the spawn:
      `ARIZUKO_ASSISTANT_NAME`, plus group overrides
    - boot the guest and wait for its `{exit}` frame. Per-turn results arrive
      over MCP (`submit_turn`), not stdout.
-   - Output: the agent's `submit_turn` carries the result and the session id
-     the harness ran under; routd stores it (`routd/turns.go:236`) unless the
-     turn was isolated; the run outcome returns on the `/v1/runs` response.
+   - Output: only explicit delivery tools reach the user; assistant prose stays
+     in the transcript. `submit_turn` carries the outcome and session id.
+     An owed turn without a delivery receives one nudge before completion;
+     ant resumes the same turn and transcript. Stop hooks ask the same hidden
+     `check_turn` decision. Isolated turns never replace chat session lineage.
+     The run outcome returns on the `/v1/runs` response.
    - Run timeout (`RUNED_RUN_TIMEOUT`): graceful stop then kill
    - Log: `groups/<folder>/logs/container-<ts>.log`
 

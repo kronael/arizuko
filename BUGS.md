@@ -28,6 +28,9 @@ marker every entry carries. Ten entries said open in the heading and carried no
 **A contract or design decision.** Each names the question in its own Status
 line; none can be answered from the code.
 
+- `L458` — queue a fresh follow-up until the active run ends, or carry its
+  authoritative turn identity through steering and rebind the broker?
+
 - `L347` — may the cursor stay put when a steered turn does not run? Changes
   the consume contract (`L104`).
 - `L317` — may `/stop` drop the backlog older than itself, and is that drop
@@ -294,6 +297,32 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
 - **`L15` — the 2026-08-11 dead-code sweep's rejected hits.** `deadcode ./...` gave 149
   hits, 56 under `-test`; nine survived verification and were filed separately. Kept so
   the next sweep does not re-report the same ~135.
+
+## L458 — a queued follow-up loses its turn identity at the guest input boundary (2026-10-19, open — needs sign-off)
+
+`ant/src/index.ts` invents `seed:N` for input consumed between harness runs.
+The broker socket is bound to `seed`, and the follow-up's real routd context
+has another ID. `runed/runtime.go` `RegisterSteer` carries only the batch text;
+`runed/vmctl.go` sends that text without the originating turn ID. The guest
+input file likewise contains only `type` and `text`.
+
+Measured 2026-10-19 with the real ant entrypoint and routd MCP broker, replacing
+only the model harness: submissions were `first`, `first:1`, while the actual
+follow-up context was `second`. Its Stop check failed with a socket-binding
+error; submission failed with no turn context; ant then exited successfully.
+`routd/voluntary_main_test.go::TestVoluntaryReplyQueuedInputKeepsAuthoritativeTurn`
+asserts the authoritative ID and fails with its L458 skip removed. The fixture
+uses only private local paths and a unix socket, without an LLM.
+
+- **Severity:** high (a fresh follow-up escapes the per-turn completion decision)
+- **Scope:** turn lifecycle
+- **Affected:** ant, routd, runed
+- **Status:** owner decision; blocks full `6/47` acceptance and fleet release.
+- **Options:** (a) reject fresh-turn steering while a run is active and let the
+  existing busy/refeed path launch it afterward; (b) carry the actual turn ID
+  through steering and switch the broker binding through an authorized lifecycle.
+- **Default if nothing is decided:** retain current steering; the new single-turn
+  completion path remains partial and is not claimed to cover fresh follow-ups.
 
 ## L448 — the custom guest kernel is justified by BOOT TIME, not by the reason written in the fragment (2026-10-19, open — needs sign-off)
 

@@ -26,7 +26,7 @@ never force a task list onto a one-line answer.
 
 ## Planless turns and unsupported platforms
 
-- A quick turn with no task list still reports via `<status>…</status>`
-  blocks (ant/CLAUDE.md § Status updates) — the floor.
+- An addressed turn with tools and no task list reports via `<status>…</status>`
+  blocks (ant/CLAUDE.md § Unattended). ALWAYS close a reported status with `reply`.
 - On a channel that cannot edit a sent message the harness shows no progress
   message at all; the answer is the only message. Nothing to do.

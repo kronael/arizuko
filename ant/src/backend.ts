@@ -10,7 +10,6 @@ import type { ModelUsage } from './mcp.js';
 import type { McpServerConfig } from './mcp-servers.js';
 import { claudeHarness } from './claude.js';
 import { codexHarness } from './codex.js';
-import { piHarness } from './pi.js';
 
 // Turn is one arizuko turn, in chassis facts only. Anything a single harness
 // needs beyond this is derived inside its own file.
@@ -104,7 +103,6 @@ export function timeoutFrame(): ResultFrame {
   return {
     kind: 'result',
     ok: true,
-    text: 'Hit the time limit on this turn — narrow the request or ask me to continue.',
     timedOut: true,
   };
 }
@@ -115,7 +113,7 @@ export function selectHarness(name: string | undefined): Harness {
   switch (name || 'claude') {
     case 'claude': return claudeHarness;
     case 'codex': return codexHarness;
-    case 'pi': return piHarness;
+    case 'pi': throw new Error('pi cannot deliver through MCP; select claude or codex until the bridge ships');
     default:
       throw new Error(`unknown ARIZUKO_BACKEND ${JSON.stringify(name)} (claude|codex|pi)`);
   }

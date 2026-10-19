@@ -32,6 +32,12 @@ type turnMCP struct {
 // buildGatedFns wires the write-side agent tools to routd's Deliverer;
 // execution-plane tools stay nil and ipc.ServeMCP registers only the non-nil.
 func (s *Server) buildGatedFns(t turnMCP) ipc.GatedFns {
+	requireTurn := func(turnID string) error {
+		if turnID != t.turnID {
+			return fmt.Errorf("turn_id does not match this socket")
+		}
+		return nil
+	}
 	return ipc.GatedFns{
 		AcceptURLBase:        s.webHost,
 		WebHost:              s.webHost,
@@ -118,14 +124,22 @@ func (s *Server) buildGatedFns(t turnMCP) ipc.GatedFns {
 			// No explicit enqueue: the loop polls new messages by timestamp.
 			return id, err
 		},
-		SubmitTurn: s.mcpSubmitTurn,
+		SubmitTurn: func(folder string, result ipc.TurnResult) (ipc.TurnAck, error) {
+			if err := requireTurn(result.TurnID); err != nil {
+				return ipc.TurnAck{}, err
+			}
+			return s.mcpSubmitTurn(folder, result)
+		},
 		CheckTurn: func(_ string, turnID string) (ipc.TurnCheck, error) {
-			if turnID != t.turnID {
-				return ipc.TurnCheck{}, fmt.Errorf("turn_id does not match this socket")
+			if err := requireTurn(turnID); err != nil {
+				return ipc.TurnCheck{}, err
 			}
 			return s.mcpCheckTurn(turnID)
 		},
 		SubmitStatus: func(_ string, turnID, text string) error {
+			if err := requireTurn(turnID); err != nil {
+				return err
+			}
 			return s.mcpSubmitStatus(turnID, text)
 		},
 		CreateInvite: func(targetGlob, issuedBySub string, maxUses int, expiresAt *time.Time) (ipc.InviteInfo, error) {
@@ -328,8 +342,12 @@ func (s *Server) mcpCheckTurn(turnID string) (ipc.TurnCheck, error) {
 func (s *Server) checkTurn(tc TurnContext) (ipc.TurnCheck, error) {
 	jid := returnTarget(tc, tc.ChatJID)
 	_, statusRow := s.db.LastStatusRow(jid, tc.TurnID)
+	delivered, err := s.turnDelivered(tc)
+	if err != nil {
+		return ipc.TurnCheck{}, err
+	}
 	check := ipc.TurnCheck{
-		Delivered: s.db.TurnHasBotReply(jid, tc.TurnID),
+		Delivered: delivered,
 		Owed:      tc.Addressed || statusRow,
 	}
 	if !check.Delivered && check.Owed && tc.Nudged == 0 && tc.State == "running" && !tc.RunReturned {
@@ -343,10 +361,10 @@ func (s *Server) checkTurn(tc TurnContext) (ipc.TurnCheck, error) {
 
 // mcpSubmitTurn maps the ipc.TurnResult agent payload onto routd's apiv1
 // shape and records it through recordTurnResult (turns.go).
-func (s *Server) mcpSubmitTurn(_ string, t ipc.TurnResult) error {
+func (s *Server) mcpSubmitTurn(_ string, t ipc.TurnResult) (ipc.TurnAck, error) {
 	req := apiv1.TurnResult{
 		TurnID: t.TurnID, SessionID: t.SessionID, Status: t.Status,
-		Result: t.Result, Error: t.Error, TimedOut: t.TimedOut,
+		Error: t.Error, TimedOut: t.TimedOut,
 	}
 	if len(t.Models) > 0 {
 		req.Models = make(map[string]apiv1.ModelCost, len(t.Models))
@@ -354,8 +372,7 @@ func (s *Server) mcpSubmitTurn(_ string, t ipc.TurnResult) error {
 			req.Models[m] = apiv1.ModelCost{Input: u.Input, Output: u.Output, CostCents: u.CostCents}
 		}
 	}
-	_, err := s.recordTurnResult(t.TurnID, req)
-	return err
+	return s.recordTurnResult(t.TurnID, req)
 }
 
 // mcpSubmitStatus hands a mid-turn <status> text to the progress renderer

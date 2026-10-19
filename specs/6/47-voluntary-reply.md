@@ -1,5 +1,5 @@
 ---
-status: planned
+status: partial
 depends:
   [
     44-delivery-contract,
@@ -20,11 +20,11 @@ owed and is missing, and hands the agent one nudge. A Stop hook on a harness
 that has one asks routd the same question before the turn ends; it saves a
 round, it does not make the rule true.
 
-`status: planned`: a redesign — a changed contract and a changed order inside
-`recordTurnResult` — approved and not yet built. `44-delivery-contract` holds
-the problem analysis and the L329 measurement this contract rests on; this spec
-owns the contract, and `44-delivery-contract.md` is `reference` from the
-commit that approves it.
+`status: partial`: the addressed fact, shared nudge decision, submission
+inversion, harness hooks and explicit delivery contract are built. Fresh
+follow-ups accepted by steering lose their authoritative turn identity
+(`BUGS.md` L458); the lifecycle policy and fleet acceptance remain pending.
+`44-delivery-contract` holds the analysis and is `reference`.
 
 ## Problem
 
@@ -45,12 +45,12 @@ the one in code is the prose fallback: `routd/turns.go:218` delivers
 
 Four terms, each a fact routd already records or derives from one it records.
 
-| Term          | Definition                                                                                                                                                                                       | Declared at                                                                                             |
-| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
-| **delivered** | a bot row stamped with the turn id whose verb is not `status`: `reply`, `send`, `send_file`, `send_voice`, `post`, `like`, `dislike` and the social verbs all write one; a progress row does not | `store/messages.go:805` `TurnHasBotReply`; the stamp `ipc/ipc.go:771` `putOutboundRow`                  |
-| **addressed** | the turn fired because a person spoke to this folder (§"Addressed")                                                                                                                              | proposed: `resolution.Addressed` in `routd/loop.go` `resolve`, stored on the turn                       |
-| **owed**      | addressed, or the turn delivered a `verb=status` row (`ant/CLAUDE.md:134`: a status promises an answer)                                                                                          | `routd/db.go:631` `LastStatusRow`                                                                       |
-| **thinking**  | every assistant text frame the harness yields; kept in the harness transcript, never on the wire                                                                                                 | `ant/src/backend.ts:46` `Frame` `status`; `groups/<folder>/.claude/projects/-home-node/<session>.jsonl` |
+| Term          | Definition                                                                                                                                                                                                           | Declared at                                                                                                             |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| **delivered** | a bot row stamped with the turn id whose verb is not `status`, or an existing successful `message.*` social-action audit record for that exact turn and folder; social mutations deliberately append no chat message | `routd/turns.go` `turnDelivered`; `store/messages.go` `TurnHasBotReply`; `audit/audit_log.go` `HasSuccessfulTurnAction` |
+| **addressed** | the turn fired because a person spoke to this folder (§"Addressed")                                                                                                                                                  | proposed: `resolution.Addressed` in `routd/loop.go` `resolve`, stored on the turn                                       |
+| **owed**      | addressed, or the turn delivered a `verb=status` row (`ant/CLAUDE.md:134`: a status promises an answer)                                                                                                              | `routd/db.go:631` `LastStatusRow`                                                                                       |
+| **thinking**  | every assistant text frame the harness yields; kept in the harness transcript, never on the wire                                                                                                                     | `ant/src/backend.ts:46` `Frame` `status`; `groups/<folder>/.claude/projects/-home-node/<session>.jsonl`                 |
 
 The agent's only outward surfaces are the delivery tools above and the
 `<status>` block (§"Narration"). There is no `<think>` tag: all prose is
@@ -154,10 +154,10 @@ One renderer, `turnNudge` in `routd/turns.go` (proposed), composed from the
 turn's recorded facts and nothing else. Minimal means one sentence, and the
 sentence varies only on which fact made the reply owed:
 
-| Fact                      | Text                                                                                                             |
-| ------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| addressed                 | `[deliver] You were addressed and delivered nothing. Call reply now (a like counts), or stay silent on purpose.` |
-| status row, not addressed | `[deliver] You posted a status and delivered nothing. Call reply with the answer, or stay silent on purpose.`    |
+| Fact                      | Text                                                                                  |
+| ------------------------- | ------------------------------------------------------------------------------------- |
+| addressed                 | `[deliver] You were addressed and delivered nothing. Call reply now (a like counts).` |
+| status row, not addressed | `[deliver] You posted a status and delivered nothing. Call reply with the answer.`    |
 
 The `[deliver]` tag is the nudge's identity, in the family of `[solve]` and
 `[pending migration]` (`44-delivery-contract.md` §"The nudge: a wire object
@@ -225,9 +225,10 @@ call — `reply` (a `like` counts) for the answer, `<status>…</status>` blocks
 for progress while you work. Silence is calling neither; it is allowed when
 nobody addressed you.
 
-Narrate as you go: a turn with tool calls emits `<status>` before each major
-step — under 100 chars, lowercase, no period. A `<status>` promises an answer:
-end that turn with `reply`.
+On addressed work, narrate with `<status>` before each major step — under
+100 chars, lowercase, no period. For a silent scheduled task whose artifact
+is the work, emit no `<status>` and call no delivery tool. A `<status>`
+promises an answer: end that turn with `reply`.
 
 When you were addressed and end without a reply, you are prompted once; after
 that the user is told you did not answer.

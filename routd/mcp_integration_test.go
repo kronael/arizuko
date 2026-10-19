@@ -10,12 +10,33 @@ import (
 
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
+	"github.com/kronael/arizuko/ipc"
 )
+
+// replyForTest drives the actual reply handler when a lifecycle fixture needs
+// an explicit delivery. It replaces the retired prose-output callback.
+func (s *Server) replyForTest(t *testing.T, turnID, jid, text string) {
+	t.Helper()
+	tc, ok := s.db.GetTurnContext(turnID)
+	if !ok {
+		t.Fatalf("missing turn %s", turnID)
+	}
+	bound := turnMCP{folder: tc.Folder, topic: tc.Topic, chatJID: tc.ChatJID, turnID: turnID, trigger: tc.Trigger}
+	sock := t.TempDir() + "/gated.sock"
+	stop, err := ipc.ServeMCP(sock, s.buildGatedFns(bound), s.buildStoreFns(bound), tc.Folder, true, 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stop()
+	if _, errText := callToolOverSock(t, sock, "reply", map[string]any{"chatJid": jid, "text": text}); errText != "" {
+		t.Fatal(errText)
+	}
+}
 
 // TestServeTurnMCP_ReplyOverSocket is the end-to-end proof of the cutover flip:
 // routd stands up the per-turn agent MCP socket in-process, and a real MCP
 // tools/call("reply") over that unix socket flows through buildMCPServer (grants
-// filter + authz) → the in-process GatedFns.SendReply → appendAndDeliver → the
+// filter + authz) → the in-process GatedFns.SendReply → recordOutbound → the
 // bot row is persisted AND the Deliverer is invoked. No docker, no federation —
 // the same path a spawned agent drives, minus the container.
 func TestServeTurnMCP_ReplyOverSocket(t *testing.T) {

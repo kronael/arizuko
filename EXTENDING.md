@@ -771,7 +771,11 @@ via `tools/list`, plus the `submit_turn` method that reports the turn. No
 arizuko code change, any language.
 
 What that process owes: read the JSON turn input on stdin, run the turn
-against the socket, call `submit_turn` exactly once. Mid-turn steering is
+against the socket, deliver through an explicit tool and call `submit_turn`.
+Its nonempty `nudge` response continues the same turn ID and session, then
+submits again. `check_turn` lets a Stop hook ask the same decision early;
+the broker hands out one nudge across both readers. Prose is never a reply.
+Mid-turn steering is
 the harness's own business. ant drains `/run/ipc/input` between tool calls
 (`ant/src/index.ts` `pollIpcDuringQuery`); another harness maps it to
 whatever its protocol offers.
@@ -781,7 +785,8 @@ half (stdin parse, IPC steering, the `<status>` pipeline, idempotent
 `submit_turn`) is reused, and the harness half is one interface (`Turn` in,
 `Frame`s out, one `run()` plus a capability profile) plus one file per
 backend — `ant/src/claude.ts` (default), `codex.ts`, `pi.ts`.
-Select with `ARIZUKO_BACKEND=codex|pi` in the instance `.env`; the CLI
+Select with `ARIZUKO_BACKEND=codex` in the instance `.env`; pi is refused
+until it has a delivery-tool bridge. The CLI
 must be baked into the agent image. What each backend can and cannot do
 (MCP tools, skills, the skill-guard) is the spec's conformance matrix —
 truthful deltas, not parity. Spec [`5/P`](specs/5/P-runed.md) § "ant

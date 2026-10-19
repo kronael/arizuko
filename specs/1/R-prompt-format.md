@@ -49,14 +49,17 @@ JSON-RPC method, hidden from `tools/list`:
     "turn_id": "<originating message id>",
     "session_id": "abc123",
     "status": "success",
-    "result": "...",
   },
 }
 ```
 
-One `submit_turn` per turn. `turn_id` + folder is the idempotency key.
-An empty or missing `result` means the turn was deliberately silent;
-`<internal>` tags are stripped before delivery.
+`turn_id` + folder is the idempotency key. `result` is absent from the
+payload: assistant prose stays in the transcript. An answer reaches the user
+only through a delivery tool. `submit_turn` returns `{ok:true,nudge?:string}`;
+a nonempty nudge continues the same turn and session before submitting again.
+The hidden `check_turn` method asks the same one-nudge decision from a Stop
+hook. Addressed turns and turns with a status row owe a delivery; ambient
+silence closes quietly. Contract: [6/47](../6/47-voluntary-reply.md).
 
 Making the result a method call rather than parsed stdout is what makes
 silence expressible: a stdout-marker protocol cannot distinguish "no

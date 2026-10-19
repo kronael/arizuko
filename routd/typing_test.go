@@ -85,15 +85,16 @@ func (d *typingDeliverer) offs() int {
 }
 
 // steeringRunner returns Steered=true immediately. When deliverContent is true
-// it also calls appendAndDeliver first, simulating the running container replying.
+// it also calls the reply tool first, simulating the running container replying.
 type steeringRunner struct {
+	t              *testing.T
 	srv            *Server
 	deliverContent bool
 }
 
 func (r *steeringRunner) Run(_ context.Context, req runedv1.RunRequest) (runedv1.RunOutcome, error) {
 	if r.deliverContent {
-		r.srv.appendAndDeliver(req.TurnID, req.ChatJID, "hello steered")
+		r.srv.replyForTest(r.t, req.TurnID, req.ChatJID, "hello steered")
 		_, _ = r.srv.recordTurnResult(req.TurnID, apiv1.TurnResult{
 			TurnID: req.TurnID, SessionID: "sess-steered", Status: "success"})
 	}
@@ -153,7 +154,7 @@ func seedTypingMsg(t *testing.T, db *DB, srv *Server, jid string) {
 // Typing(true) before the run and Typing(false) once the turn ends.
 func TestTyping_Normal(t *testing.T) {
 	dl := &typingDeliverer{}
-	sr := &stubRunner{}
+	sr := &stubRunner{t: t}
 	db, srv := newTypingRoutd(t, sr, dl, 0)
 	sr.srv = srv
 	const jid = "slack:T/C/U1"
@@ -181,7 +182,7 @@ func TestTyping_Normal(t *testing.T) {
 // TypingRefresher covers the case it never does).
 func TestTyping_Steered_NoImmediateOff(t *testing.T) {
 	dl := &typingDeliverer{}
-	runner := &steeringRunner{deliverContent: false}
+	runner := &steeringRunner{t: t, deliverContent: false}
 	db, srv := newTypingRoutd(t, runner, dl, 0)
 	runner.srv = srv
 	const jid = "slack:T/C/U2"
@@ -204,7 +205,7 @@ func TestTyping_Steered_NoImmediateOff(t *testing.T) {
 // (finishTurn), not from the dispatch path.
 func TestTyping_Steered_ClearsOnContent(t *testing.T) {
 	dl := &typingDeliverer{}
-	runner := &steeringRunner{deliverContent: true}
+	runner := &steeringRunner{t: t, deliverContent: true}
 	db, srv := newTypingRoutd(t, runner, dl, 0)
 	runner.srv = srv
 	const jid = "slack:T/C/U3"

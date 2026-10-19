@@ -179,7 +179,7 @@ func TestHookJIDDispatchesToOwnerFolder(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	runner := &stubRunner{}
+	runner := &stubRunner{t: t}
 	loop := NewLoop(db, runner, LoopConfig{OnboardingEnabled: true})
 	loop.StopQueue()
 	srv := NewServer(db, loop, nil, nil, 0, "https://example.test")
@@ -241,7 +241,7 @@ func TestSuffixedRouteTokenDispatchesToMintedFolder(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Cleanup(func() { db.Close() })
-			runner := &stubRunner{}
+			runner := &stubRunner{t: t}
 			loop := NewLoop(db, runner, LoopConfig{OnboardingEnabled: true})
 			loop.StopQueue()
 			srv := NewServer(db, loop, nil, nil, 0, "https://example.test")
@@ -289,7 +289,7 @@ func TestPreColumnRouteTokenResolvesByGrammar(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	runner := &stubRunner{}
+	runner := &stubRunner{t: t}
 	loop := NewLoop(db, runner, LoopConfig{OnboardingEnabled: true})
 	loop.StopQueue()
 	srv := NewServer(db, loop, nil, nil, 0, "https://example.test")

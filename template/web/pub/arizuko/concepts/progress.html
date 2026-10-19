@@ -96,7 +96,7 @@
 
     <h2>the checklist is never the answer</h2>
     <div class="callout"><strong>Note:</strong> status messages are stamped <code>verb="status"</code> in the <code>messages</code> table and are skipped when <code>routd</code> asks &ldquo;has this turn replied yet?&rdquo;. Without that exclusion a checklist would count as the agent&rsquo;s reply and the real answer would be dropped on the floor.</div>
-    <p>So the final answer always arrives as its own message, alongside the checklist &mdash; which by then shows every box ticked.</p>
+    <p>The agent sends the answer with an explicit delivery tool such as <code>reply</code>. Printed terminal text stays in its transcript. A turn that was addressed, or posted progress, gets one prompt if it ends without a delivery; continued silence produces a failure notice.</p>
 
     <h2>when you won&rsquo;t see one</h2>
     <ul>
@@ -114,7 +114,7 @@
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/concepts/progress.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-16">2026-10-16</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-17">2026-10-17</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

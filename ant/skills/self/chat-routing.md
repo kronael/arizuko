@@ -83,6 +83,10 @@ You can only target your own folder subtree. `chat_jid=web:*` is rejected
 
 ## Beyond the table
 
+A turn opened by engagement alone is not addressed. ALWAYS answer an addressed
+request with a delivery tool. For an unrelated conversation, stay silent by
+calling neither a delivery tool nor `<status>`; printed prose never reaches chat.
+
 These resolve **before** the route table, in order — keep them in mind
 when a message doesn't land where the table predicts:
 

@@ -50,7 +50,7 @@ func TestLoopWaitBlocksWhileRunning(t *testing.T) {
 	}
 	defer db.Close()
 
-	loop := NewLoop(db, &stubRunner{}, LoopConfig{PollEvery: 10 * time.Millisecond})
+	loop := NewLoop(db, &stubRunner{t: t}, LoopConfig{PollEvery: 10 * time.Millisecond})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go loop.Run(ctx)
@@ -76,7 +76,7 @@ func TestLoopShutdownDropsNoMessage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open mem db: %v", err)
 	}
-	loop := NewLoop(db, &stubRunner{}, LoopConfig{PollEvery: time.Millisecond})
+	loop := NewLoop(db, &stubRunner{t: t}, LoopConfig{PollEvery: time.Millisecond})
 	ctx, cancel := context.WithCancel(context.Background())
 	go loop.Run(ctx)
 

@@ -35,7 +35,7 @@ func TestReplyThreadsOnTrigger(t *testing.T) {
 	_ = db.SetChatIsGroup(jid, true)
 	threadTurn(t, db, "t1", "demo", jid, "root-1")
 
-	srv.appendAndDeliver("t1", jid, "answer")
+	srv.replyForTest(t, "t1", jid, "answer")
 	if len(dl.sends) != 1 || dl.sends[0].threadRoot != "root-1" {
 		t.Fatalf("reply threadRoot: got %+v, want root-1", dl.sends)
 	}
@@ -108,8 +108,7 @@ func TestReplyThreadRootSuppressed(t *testing.T) {
 	}
 }
 
-// The in-process MCP reply/send agree with the prose-result path: reply
-// carries the thread root, send does not.
+// The in-process MCP reply carries the thread root; send does not.
 func TestMcpDeliverReplyThreadsSendDoesNot(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
@@ -152,7 +151,7 @@ func TestReplyStartsThreadSetsTopic(t *testing.T) {
 	_ = db.SetChatIsGroup(jid, true)
 	threadTurn(t, db, "t1", "demo", jid, "root-1")
 
-	srv.appendAndDeliver("t1", jid, "answer")
+	srv.replyForTest(t, "t1", jid, "answer")
 	// The bot message row must have Topic = threadRoot.
 	frames, err := db.store().TurnFrames(jid, "t1", "", 10)
 	if err != nil || len(frames) == 0 {
@@ -190,7 +189,7 @@ func TestReplyThreadPrefOffKeepsThreadID(t *testing.T) {
 	}
 	_ = db.SetTurnTriggerMsg("t1", "1700000200.000200")
 
-	srv.appendAndDeliver("t1", jid, "answer")
+	srv.replyForTest(t, "t1", jid, "answer")
 	if len(dl.sends) != 1 {
 		t.Fatalf("sends = %d, want 1", len(dl.sends))
 	}

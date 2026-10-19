@@ -52,8 +52,7 @@ func (l *Loop) beginProgress(jid string) {
 
 // updateProgress is the only code that creates or edits a turn's verb=status
 // row. The first update sends the message, a later one edits it and rewrites
-// the row, and an update whose text the row already holds does nothing: the
-// agent's stream and its final result carry the same <status> block.
+// the row, and an update whose text the row already holds does nothing.
 //
 // A channel that does not advertise edit receives nothing. A hard edit failure
 // returns to the caller unchanged and is never re-posted as a fresh message.
@@ -116,6 +115,10 @@ func rewriteStatusRow(db *DB, dl Deliverer, turnID, jid string, row core.Message
 func finishTurn(db *DB, dl Deliverer, turnID string, end turnEnd) {
 	unlock := lockTurn(turnID)
 	defer unlock()
+	finishTurnLocked(db, dl, turnID, end)
+}
+
+func finishTurnLocked(db *DB, dl Deliverer, turnID string, end turnEnd) {
 	if end != endSteered && dl != nil {
 		endProgress(db, dl, turnID, end)
 	}

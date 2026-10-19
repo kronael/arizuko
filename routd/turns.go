@@ -1,24 +1,23 @@
 package routd
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/ipc"
 	"github.com/kronael/arizuko/obs"
 	apiv1 "github.com/kronael/arizuko/routd/api/v1"
-	"github.com/kronael/arizuko/router"
 )
 
-// The turn's outbound lifecycle: the prose result submit_turn carries and the
-// <status> blocks, rendered into messages rows and delivered through the
-// Deliverer. The agent's tool calls ride the in-process MCP socket (mcp.go).
+// The turn's outbound lifecycle: explicit delivery tools and progress updates.
 
-// turnLocks serializes append-and-deliver per turn_id so out-of-order arrivals
-// append in receive order.
+// turnLocks serializes progress, completion and nudge decisions per turn.
 var turnLocks sync.Map // turn_id -> *sync.Mutex
 
 func lockTurn(turnID string) func() {
@@ -31,12 +30,20 @@ func lockTurn(turnID string) func() {
 // turnNudge is the one renderer shared by Stop hooks and turn submission.
 func turnNudge(tc TurnContext, statusRow bool) string {
 	if tc.Addressed {
-		return "[deliver] You were addressed and delivered nothing. Call reply now (a like counts), or stay silent on purpose."
+		return "[deliver] You were addressed and delivered nothing. Call reply now (a like counts)."
 	}
 	if statusRow {
-		return "[deliver] You posted a status and delivered nothing. Call reply with the answer, or stay silent on purpose."
+		return "[deliver] You posted a status and delivered nothing. Call reply with the answer."
 	}
 	return ""
+}
+
+func (s *Server) turnDelivered(tc TurnContext) (bool, error) {
+	if s.db.TurnHasBotReply(tc.ChatJID, tc.TurnID) {
+		return true, nil
+	}
+	return audit.HasSuccessfulTurnAction(context.Background(), s.db.Obj(), tc.TurnID, tc.Folder, tc.StartedAt,
+		"message.like", "message.dislike", "message.edit", "message.delete", "message.pin", "message.unpin")
 }
 
 // callbackClosed reports whether a turn's outbound surface is closed: only
@@ -51,55 +58,6 @@ func returnTarget(tc TurnContext, jid string) string {
 		return tc.ReturnTo
 	}
 	return jid
-}
-
-// appendAndDeliver renders the agent's raw output and appends + delivers it as
-// the turn's threaded reply: strip <think>, hand each <status> to the progress
-// renderer, FormatOutbound the rest. A pure-think output produces no row. A
-// turn whose run already returned delivers nothing. A failed progress update is
-// logged and the reply goes out regardless: the reply is the product.
-func (s *Server) appendAndDeliver(turnID, jid, text string) {
-	unlock := lockTurn(turnID)
-	defer unlock()
-	tc, ok := s.db.GetTurnContext(turnID)
-	if !ok {
-		slog.Warn("appendAndDeliver: no turn context; output dropped", "turn_id", turnID)
-		return
-	}
-	if s.callbackClosed(tc) {
-		slog.Warn("appendAndDeliver: run already returned; late output dropped",
-			"folder", tc.Folder, "turn_id", turnID)
-		return
-	}
-	jid = returnTarget(tc, jid)
-
-	stripped, statuses := router.ExtractStatusBlocks(router.StripThinkBlocks(text))
-	for _, st := range statuses {
-		if err := s.updateProgress(tc, jid, st); err != nil {
-			slog.Error("appendAndDeliver: progress update failed; reply continues",
-				"folder", tc.Folder, "turn_id", turnID, "err", err)
-		}
-	}
-
-	clean := router.FormatOutbound(stripped)
-	if clean == "" {
-		// Pure <think> / silent refusal.
-		return
-	}
-
-	row := s.outboundRow(tc, jid, clean, s.db.LastReplyID(jid, tc.Topic))
-	_ = s.db.SetLastReply(jid, tc.Topic, row.ID, tc.Folder)
-	if s.engagementT > 0 {
-		until := time.Now().Add(s.engagementT)
-		if err := s.db.store().RenewEngagement(turnID, tc.ChatJID, tc.Topic, tc.Folder, until); err != nil {
-			slog.Error("renew reply engagement", "turn_id", turnID, "err", err)
-		}
-	}
-	status := s.deliverTurn(tc, jid, &row)
-	if err := s.db.PutOutbound(row, status); err != nil {
-		slog.Error("appendAndDeliver: PutOutbound failed; reply was delivered but not persisted, will be missing from history/audit",
-			"folder", tc.Folder, "turn_id", turnID, "err", err)
-	}
 }
 
 // replyThreadRoot resolves the trigger id a REPLY roots a new platform thread
@@ -203,50 +161,86 @@ func logSelfReportedCost(metered bool, folder, turnID string, models map[string]
 	}
 }
 
-// recordTurnResult is the turn-completion writer behind submit_turn. It
-// records the outcome idempotently and, on the FIRST record, persists
-// session_id, flips the turn to done and publishes round_done.
-func (s *Server) recordTurnResult(turnID string, req apiv1.TurnResult) (bool, error) {
+// silentTurnNotice closes an owed turn that remained silent after its one nudge,
+// or a clean run that failed to submit any result at all.
+const silentTurnNotice = "⚠️ I couldn't produce a reply to that — please re-send."
+
+const timedOutNotice = "⚠️ I ran out of time on that — say 'continue' to resume, or narrow the request."
+
+// recordTurnResult decides whether a successful submission may close the turn
+// before recording it. A nudge holds the same turn open for one continuation.
+func (s *Server) recordTurnResult(turnID string, req apiv1.TurnResult) (ipc.TurnAck, error) {
+	unlock := lockTurn(turnID)
+	defer unlock()
 	tc, ok := s.db.GetTurnContext(turnID)
 	if !ok {
-		return false, fmt.Errorf("no turn context for turn_id")
+		return ipc.TurnAck{}, fmt.Errorf("no turn context for turn_id")
+	}
+	var delivered bool
+	if req.Status == "success" {
+		var err error
+		delivered, err = s.turnDelivered(tc)
+		if err != nil {
+			return ipc.TurnAck{}, err
+		}
+	}
+	end := endDone
+	if req.Status == "error" {
+		end = endFailed
+	}
+	notice := ""
+	if req.Status == "success" && !s.db.TurnResultRecorded(tc.Folder, turnID) {
+		if req.TimedOut && !delivered {
+			notice = timedOutNotice
+			end = endFailed
+		} else if !delivered {
+			check, err := s.checkTurn(tc)
+			if err != nil {
+				return ipc.TurnAck{}, err
+			}
+			if check.Nudge != "" {
+				return ipc.TurnAck{OK: true, Nudge: check.Nudge}, nil
+			}
+			if check.Owed {
+				notice = silentTurnNotice
+				end = endFailed
+			} else {
+				slog.Info("turn completed deliberately silent", "folder", tc.Folder, "turn_id", turnID)
+			}
+		}
 	}
 	first, err := s.db.RecordTurnResult(tc.Folder, turnID, req.SessionID, req.Status, req.Error)
 	if err != nil {
-		return false, err
+		return ipc.TurnAck{}, err
 	}
 	if first {
 		if req.TimedOut {
-			slog.Warn("agent turn timed out; summary delivered",
-				"folder", tc.Folder, "turn_id", turnID)
+			slog.Warn("agent turn timed out", "folder", tc.Folder, "turn_id", turnID)
 		}
-		// The prose result is the reply when the agent called no reply/send tool
-		// this turn: the contract is "text outside <think> is delivered" (krons
-		// no-reply outage 2026-06-08). Done BEFORE marking the turn done.
-		// Isolated cron turns are silent by design — their output is the file
-		// write, never a chat message.
-		isolated := strings.HasPrefix(tc.Trigger, "timed-isolated:")
-		if req.Result != "" && !isolated && !s.db.TurnHasBotReply(tc.ChatJID, turnID) {
-			// Counted: this branch decides whether spec 6/44's inversion is cheap
-			// (BUGS L329).
-			obs.RecordProseFallbackTurn(tc.Folder)
-			s.appendAndDeliver(turnID, tc.ChatJID, req.Result)
+		if tc.Nudged > 0 {
+			outcome := "silent"
+			if delivered {
+				outcome = "delivered"
+			}
+			obs.RecordNudgedTurn(tc.Folder, outcome)
 		}
-		// An isolated turn holds no session lineage; writing its id back would
-		// hand the chat a throwaway transcript the cron ran in (BUGS L54).
-		if req.SessionID != "" && !isolated {
+		if notice != "" && s.deliver != nil {
+			jid := returnTarget(tc, tc.ChatJID)
+			if _, err := s.deliver.Send(jid, notice, "", tc.Topic, "", "silent-"+turnID); err != nil {
+				slog.Error("turn completion notice failed", "folder", tc.Folder, "turn_id", turnID, "err", err)
+			}
+		}
+		// Isolated turns never replace the chat's session lineage (BUGS L54).
+		if req.SessionID != "" && !strings.HasPrefix(tc.Trigger, "timed-isolated:") {
 			if err := s.db.PutSession(tc.Folder, tc.Topic, req.SessionID); err != nil {
-				slog.Error("recordTurnResult: PutSession failed; next turn in this topic loses session continuity",
-					"folder", tc.Folder, "turn_id", turnID, "err", err)
+				slog.Error("recordTurnResult: PutSession failed; next turn in this topic loses session continuity", "folder", tc.Folder, "turn_id", turnID, "err", err)
 			}
 		}
 		logSelfReportedCost(s.gateway() != nil, tc.Folder, turnID, req.Models)
-		finishTurn(s.db, s.deliver, turnID, endDone)
+		finishTurnLocked(s.db, s.deliver, turnID, end)
 		if s.loop != nil {
-			// VERBATIM — webd's hub keys on it as-is; a TrimPrefix here hung
-			// every suffixed hook: widget (BUGS L30).
 			s.loop.publishRoundDone(tc.ChatJID, turnID)
 		}
 	}
-	return first, nil
+	return ipc.TurnAck{OK: true}, nil
 }
