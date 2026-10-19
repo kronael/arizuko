@@ -110,8 +110,9 @@ func (m *AckMark) Typing(jid string, on bool) {
 	defer m.mu.Unlock()
 	if mk, held, err := m.st.MarkFor(context.Background(), jid); err != nil {
 		slog.Warn("ack mark: read failed", "jid", jid, "on", on, "err", err)
-	} else if held {
-		m.release(mk)
+		return
+	} else if held && !m.release(mk) {
+		return
 	}
 	if !on {
 		return
@@ -180,9 +181,7 @@ func (m *AckMark) Stop() {
 	}
 }
 
-// release takes mk off the platform and forgets it. A failed removal keeps the
-// record, so the next boot's sweep tries again. m.mu is held.
-func (m *AckMark) release(mk chanstore.Mark) {
+func (m *AckMark) release(mk chanstore.Mark) bool {
 	if b := m.timers[mk.ChatJID]; b != nil {
 		b.timer.Stop()
 		delete(m.timers, mk.ChatJID)
@@ -190,12 +189,14 @@ func (m *AckMark) release(mk chanstore.Mark) {
 	if err := m.remove(mk.ChatJID, mk.Target, mk.Handle); err != nil {
 		slog.Warn("ack mark: remove failed; the record stays for the next sweep",
 			"jid", mk.ChatJID, "target", mk.Target, "err", err)
-		return
+		return false
 	}
 	if err := m.st.DropMark(context.Background(), mk.ChatJID); err != nil {
 		slog.Warn("ack mark: the mark is off the platform but its record stays",
 			"jid", mk.ChatJID, "err", err)
+		return false
 	}
+	return true
 }
 
 // arm starts the backstop for jid, replacing any earlier one. m.mu is held.
