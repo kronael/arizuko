@@ -17,7 +17,6 @@ control API; the API ships before the products that depend on it.
 | Spec                                             | Status      | Hook                                                                                                                             |
 | ------------------------------------------------ | ----------- | -------------------------------------------------------------------------------------------------------------------------------- |
 | [A-socials-daemon.md](A-socials-daemon.md)       | planned     | Broadcast platforms leave chanlib for one socials-daemon MCP surface (decision 2026-07-13).                                      |
-| [2-support-skill.md](2-support-skill.md)         | shipped     | `/support` orchestrator: primary-source citation + multi-turn case threading (`ant/skills/support/`, v0.33.26).                  |
 | [3-file-event-stream.md](3-file-event-stream.md) | draft       | `filewd` inotify watcher in the agent container → MCP `file_event` → SSE + audit.                                                |
 | [4-chat-web-app.md](4-chat-web-app.md)           | draft       | React/Vite chat SPA at `/pub/chat/`; replaces webd's HTMX pages.                                                                 |
 | [8-company-brain.md](8-company-brain.md)         | not planned | Positioning: arizuko as the action layer (not retrieval) for "company brain".                                                    |
