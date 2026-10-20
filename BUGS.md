@@ -149,7 +149,6 @@ ones no measurement can settle.
 
 **Small fixes awaiting a go.** Each is bounded, and its entry names the fix.
 
-- `L471` — fix in flight: archive export must write its file 0600.
 - `L427` — gitd marks a delivery accepted before it knows the outcome.
 - `L428` — the web design guard passes shapes it should refuse, and a site that
   loses fifteen sidebars.
@@ -293,17 +292,6 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
 - **`L15` — the 2026-08-11 dead-code sweep's rejected hits.** `deadcode ./...` gave 149
   hits, 56 under `-test`; nine survived verification and were filed separately. Kept so
   the next sweep does not re-report the same ~135.
-
-## L471 — `arizuko archive export <file>` writes route tokens, invites and secret rows world-readable (2026-10-20, open)
-
-FOUND 2026-10-20 by docs step E3, re-read by the parent at `63f5cb09`.
-`cmd/arizuko/archive.go:115` writes the export with `os.WriteFile(file, …,
-0o644)`. The archive carries `routd.secrets.yaml` (`archive.go:49`, `:296`):
-secret rows, route tokens and invites. A route token is a capability URL, so
-any local user who can read the file can post into that chat.
-
-- **Status:** open — fix in flight: write the file 0600; a test must show the
-  written mode.
 
 ## L448 — the custom guest kernel is justified by BOOT TIME, not by the reason written in the fragment (2026-10-19, open — needs sign-off)
 
