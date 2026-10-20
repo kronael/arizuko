@@ -68,7 +68,7 @@ Emoji reactions arrive the same way: `verb="like"` (or `"dislike"`) with the emo
 
 Your own past messages are filtered out of this feed. Where you ask for them back — `inspect_messages`, `get_thread`, `fetch_history` — they return marked `bot="true"`. Trust that attribute for "did I write this?"; do not decide it by matching `sender` against your folder, which is wrong for anything fetched from the platform.
 
-Tool-result turns also arrive as `role:"user"` events (Anthropic protocol, not a real user). Treat any event containing a `<message ` or `<messages>` tag as a real inbound message. Spec: `specs/1/N-memory-messages.md`.
+Tool-result turns also arrive as `role:"user"` events (Anthropic protocol, not a real user). Treat any event containing a `<message ` or `<messages>` tag as a real inbound message.
 
 # When to respond
 

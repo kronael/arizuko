@@ -117,6 +117,80 @@ half keeps these rules.
   the turn on the path every task turn takes: it renews no engagement, runs
   no slash command and carries no caller sub.
 
+## Prompt assembly
+
+<!-- twin:prompt -->
+
+```
+routd  buildAgentPrompt, routd/prompt.go:26 ───► RunRequest.MessageBatch
+       <system-note> <system> <autocalls> <persona> <rule> <topic>
+       <surface> <pane-context> <link-context> <messages>
+         │
+         │ POST /v1/runs
+         ▼
+runed  preparePayload, runed/render.go:177 ────► the guest's stdin prompt
+       [pending migration]  Topic session:  <episodes>
+       <knowledge layer="diary">  <knowledge layer="work">  <user>
+       [solve], then routd's string unchanged
+         │
+         │ vsock, guest-init, stdin
+         ▼
+ant    buildSystemPrompt, ant/src/index.ts:49 ─► the system prompt
+       SYSTEM.md, ant/CLAUDE.md for codex and pi, PERSONA.md,
+       the output style
+```
+
+<!-- /twin -->
+
+Three processes build what the agent reads, and each builds the part only it
+holds. routd holds the messages, the routes and the session table, so it
+builds the turn's message string. runed opens the group folder at spawn, so
+it prefixes the knowledge layers read off that folder. ant runs inside the
+guest and renders the system prompt from the files at its home. Every block
+is XML-shaped, none is written to `messages`, and each is computed again on
+the next turn.
+
+| Block                                                 | Built in                                                          | When it is emitted                                                                                                                                                                                                                                      |
+| ----------------------------------------------------- | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `<system-note>`                                       | `routd/dispatch.go:646` `retryNoteBlock`                          | on a retry attempt                                                                                                                                                                                                                                      |
+| `<system origin event>`                               | `routd/prompt_db.go:20` `FlushSysMsgs`                            | for each queued event: `new_day` when the chat's cursor is from an earlier day, `new_session` with a `<previous_session>` tag when the folder has no session (`emitSystemEvents`, `prompt.go:219`). The flush drains exactly what it read, at most once |
+| `<autocalls>`                                         | `routd/prompt.go:142` `autocalls`                                 | every turn: `now`, `instance`, `folder` and `session`, the session id cut to 8 characters. An empty value drops its line                                                                                                                                |
+| `<persona name>`                                      | `routd/prompt.go:98` `personaBlock`                               | when `PERSONA.md` frontmatter carries a `summary`                                                                                                                                                                                                       |
+| `<rule>`                                              | `routd/prompt.go:42`                                              | when the turn carries observed rows                                                                                                                                                                                                                     |
+| `<topic name>`                                        | `routd/prompt.go:44`                                              | every turn; the main topic is the empty name                                                                                                                                                                                                            |
+| `<surface>`, `<pane-context>`                         | `routd/prompt.go:56` `paneHints`                                  | when the trigger came from an open Slack assistant pane                                                                                                                                                                                                 |
+| `<link-context>`                                      | `routd/prompt.go:84` `linkContextBlock`                           | when a route token carried the issuer's context; the newest wins                                                                                                                                                                                        |
+| `<messages>`, `<message>`, `<observed>`, `<reply-to>` | `router/router.go:44` `FormatMessages`                            | every turn: the trigger and the observed rows, ordered by time                                                                                                                                                                                          |
+| `<attachment>`                                        | `routd/enrich.go:130`                                             | inside a message body, written at ingest                                                                                                                                                                                                                |
+| `[pending migration]`                                 | `runed/render.go:195`                                             | when the group's skills version is behind the image's                                                                                                                                                                                                   |
+| `Topic session:`                                      | `runed/render.go:200`                                             | on a named topic                                                                                                                                                                                                                                        |
+| `<episodes>`                                          | `container/episodes.go:55` `ReadRecentEpisodes`                   | when `~/episodes/` holds files with `type:` and `summary:`; the newest 3 per type                                                                                                                                                                       |
+| `<knowledge layer="diary">`                           | `diary/diary.go:12` `Read`, at `runed/render.go:205`              | when `~/diary/` holds `.md` files; the newest 14 by name                                                                                                                                                                                                |
+| `<knowledge layer="work">`                            | `runed/render.go:208`                                             | when `~/work.md` is not empty; the whole file                                                                                                                                                                                                           |
+| `<user>`                                              | `router/router.go:256` `UserContextXml`, at `runed/render.go:212` | when the trigger has a sender other than `system`                                                                                                                                                                                                       |
+| `[solve]`                                             | `runed/render.go:228`                                             | every turn                                                                                                                                                                                                                                              |
+
+`<user id name memory="~/users/<id>.md"/>` is a pointer, not content: it
+names the sender and the file, and the agent decides whether to read it.
+The file lives in the group folder, so what the agent knows about a person
+is per folder. Binding one person's identities across channels is a
+separate concern, the `acl_membership` rows.
+
+No injected row is a bot row: the trigger drops bot rows
+(`dispatch.go`), and the observed read excludes them. Where history is
+returned on purpose, through `inspect_messages`, `get_thread` and
+`fetch_history`, a bot row carries `bot="true"`. The attribute reads
+`is_bot_message`, never `is_from_me`: an imported archive's from-me rows are
+the linked account's, that is, the operator's.
+
+`<surface>slack-pane</surface>` is the only `<surface>` tag routd emits,
+and it belongs to the Slack pane. The per-surface length and format rules
+live in the output style, `ant/output-styles/README.md`.
+
+To add a block, emit it from the builder that holds its input, keep it
+XML-shaped and per-turn, and add its row here. An autocall is the cheapest
+block: `EXTENDING.md` § Adding an autocall.
+
 ## Ranked message search
 
 The index is an in-memory BM25 index over the `messages` entity
@@ -429,7 +503,7 @@ optional observability webhook — not the source of truth.
 - `turns.go` — the turn's outbound: prose-result + status delivery, `submit_turn` recording
 - `deliver.go` — channel Deliverer (egress fanout via chanreg)
 - `mcp.go` — in-process per-turn MCP socket (`ServeTurnMCP`, `buildGatedFns`)
-- `prompt.go`, `prompt_db.go` — prompt envelope build (observe window, persona)
+- `prompt.go`, `prompt_db.go` — the turn's message string, § Prompt assembly
 - `proactive.go`, `steer.go` — proactive interjection + slash-command dispatch
 - `routes_http.go`, `tokens_http.go`, `web_routes_http.go`, `tasks_http.go`, `reads_http.go` — REST CRUD
 - `*_resource.go` — the thirteen resreg resources (`acl`, `audit`,

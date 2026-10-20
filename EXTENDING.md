@@ -36,10 +36,9 @@ extension points. See
 ## Adding an output-style file
 
 Per-channel + per-surface tone, length, and formatting hints applied
-at session bind. `runed/settings.go::pickOutputStyle` derives
-`<channel>-<surface>` from inbound JID + topic + `paneLookup`; falls
-back to `<channel>.md` for channels with no per-surface split. Spec:
-`specs/5/Y-output-styles-per-surface.md`. Conventions, file list, and
+on every spawn. `runed/settings.go::pickOutputStyle` derives
+`<channel>-<surface>` from inbound JID + topic; falls back to
+`<channel>.md` for channels with no per-surface split. Conventions, file list, and
 adding-a-new-file recipe: `ant/output-styles/README.md`.
 
 No registration step — `container.SeedOutputStyles` discovers files by
@@ -82,12 +81,29 @@ Autocalls inject zero-arg, one-line, pure-read facts into the
 tool when the schema cost exceeds the data returned: no agent-visible
 schema, no tool call, one line of output per turn.
 
+The test is schema cost against content cost: when a tool's name,
+description, input schema and output shape would exceed three times the
+data it returns, make it an autocall. Most "what is X right now" facts
+qualify.
+
+| Criterion                  | Autocall        | MCP tool             |
+| -------------------------- | --------------- | -------------------- |
+| Result size                | at most 1 line  | bounded but variable |
+| Needs args                 | no              | yes                  |
+| Agent decides when to read | no, every turn  | yes, on demand       |
+| Side effects               | none            | allowed              |
+| Freshness                  | at prompt build | at call time         |
+
 Rules:
 
 - Result is ≤ 1 line of text. Empty string = skip the line.
-- No args, no I/O, no locks. Must resolve in microseconds.
+- No args, no network, no locks. Must resolve in microseconds.
 - Derives from `autocallCtx` (instance, folder, session, now).
 - If any of these don't hold, use an MCP tool instead.
+
+`session` is the one autocall that reads the store: `autocallsBlock` asks
+`db.SessionID` before the block renders, and the value is cut to 8
+characters. It still costs no schema and no round trip the agent sees.
 
 Add an entry to the `autocalls` registry slice in `routd/prompt.go`:
 

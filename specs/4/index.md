@@ -23,10 +23,10 @@ status: shipped
 
 ## Runtime
 
-- [8-scheduler-service.md](8-scheduler-service.md) — timed: cron poll, schema, `task_run_logs`
+- [8-scheduler-service.md](8-scheduler-service.md) — timed: cron poll, schema, `task_run_logs`; facts in `timed/README.md`, `concepts/tasks.html`
 - [10-ipc.md](10-ipc.md) — per-group MCP socket; identity as parameter; spawn + route guards
-- [17-knowledge-system.md](17-knowledge-system.md) — memory layers, push vs pull, recall, compression
-- [P-personas.md](P-personas.md) — versioning, image distribution, the three voice layers
+- [17-knowledge-system.md](17-knowledge-system.md) — memory layers, push vs pull, recall, compression; facts in `diary/README.md`
+- [P-personas.md](P-personas.md) — versioning, image distribution, the three voice layers; facts in `concepts/personas.html`
 - [S-e2e-tests.md](S-e2e-tests.md) — per-daemon boundary tests; why not docker e2e
 
 Merged or moved out of this phase:

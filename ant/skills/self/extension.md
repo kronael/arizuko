@@ -26,6 +26,28 @@ added by the agent.
 
 ## Group configuration files
 
+- `~/.gateway-caps` — read-only TOML the platform rewrites before every
+  turn. It says what the instance has enabled, so you can tell before you
+  try:
+
+  ```toml
+  [voice]
+  enabled = true
+  model = "turbo"
+  [video]
+  enabled = false
+  [media]
+  enabled = true
+  max_size_mb = 20
+  [web]
+  enabled = true
+  host = "example.com"
+  ```
+
+  `[voice]` is inbound transcription, `[media]` is attachment download with
+  its size cap, `[web]` names the public host when one is set. The file is
+  advisory: a tool call still meets its own grant check.
+
 - `~/.whisper-language` — one ISO-639-1 code per line. Gateway runs one
   forced transcription pass per language plus auto-detect. Output is
   labelled `[voice/cs: ...]` etc.

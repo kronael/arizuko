@@ -12,7 +12,9 @@ of `routd`. Drives routd over HTTP; opens NO local DB.
 - Poll routd's `/v1/tasks/due` every 60s; routd atomically claims + returns due tasks.
 - Enqueue the task prompt as a message (`POST /v1/messages`) with sender `timed` or `timed-isolated:<id>`.
 - Compute `next_run` client-side through `core.NextRun`, the one reader of a
-  task's cron value.
+  task's cron value. A task's `next_run` comes from its `cron` value, never
+  from the caller of `schedule_task`. The one caller-set `next_run` is the
+  operator's run-now, `PATCH /v1/tasks/{id}` on routd's REST face.
 - Reschedule task (`POST /v1/tasks/{id}/reschedule`); mark one-shots completed.
 - Log each run (`POST /v1/tasks/runlog`).
 
@@ -80,8 +82,9 @@ appearing despite active tasks.
 
 ## Related docs
 
-- `specs/4/8-scheduler-service.md`
 - `ARCHITECTURE.md` (Scheduler section)
+- `diary/README.md` § Compaction — the five memory tasks every group is
+  seeded with
 
 ## Coverage
 

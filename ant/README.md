@@ -6,7 +6,7 @@ memory, and exposes MCP tools over a gated unix socket.
 
 ## What it does
 
-Every turn runs in a fresh KVM guest booted from this image's exported rootfs (spec 6/41).
+Every turn runs in a fresh KVM guest booted from this image's exported rootfs.
 `ant/src/index.ts` is the entrypoint: it reads stdin for the prompt,
 loads the group's `PERSONA.md` / `CLAUDE.md` / `~/.claude/settings.json`,
 assembles MCP servers (core `arizuko` server via socat to `gated.sock` +
@@ -16,8 +16,9 @@ and delivers the result via the `submit_turn` JSON-RPC method back to
 
 ## TS runtime (`src/`)
 
-The shipping runtime uses `@anthropic-ai/claude-agent-sdk` 0.3.153.
-MCP servers are assembled in `src/mcp-servers.ts`:
+The shipping runtime uses `@anthropic-ai/claude-agent-sdk` 0.3.278
+(`bun.lock`, measured at 7baffbb0). MCP servers are assembled in
+`src/mcp-servers.ts`:
 
 ### The harness
 
@@ -58,6 +59,109 @@ same skillguard table, a different hook point. Extension recipe in
 Nothing is deferred and there is no tool search: one server, `alwaysLoad`,
 so a turn's tool list is everything the turn may call.
 
+## The resident file
+
+`ant/CLAUDE.md` is the one file loaded into every turn. Group creation
+writes it to `~/.claude/CLAUDE.md` when that file is missing, keeps a merge
+base beside it, and `/migrate` 3-way merges later releases into it
+(`seedSkills`, `container/runner.go:336`). Claude Code reads it as user
+memory through `settingSources: ['project', 'user']` with the cwd at the
+guest's home (`src/claude.ts:512`); codex and pi receive the same file rendered into
+their system prompt. The repo-root `CLAUDE.md` is the maintainers' file and
+never reaches a guest.
+
+Every line of the resident file is read on every turn whether the turn
+needs it or not, and the cost of growth is attention spread over more text.
+So a section stays resident only when one of four tests holds:
+
+1. the agent needs it before it can know to ask for it;
+2. breaking it fails silently inside the turn;
+3. it is a pointer whose trigger is not a phrase a user says;
+4. a workflow skill reads it from there.
+
+Anything else is a skill body, a tool description, an output style or the
+doc that owns it. A commit that adds a section names the test it passes.
+The sections that stay are the ones that fail with no error and no user
+phrase to load a skill: the envelope tags, the delivery contract (only the
+final text block leaves, a `<status>` owes an answer, a think-only turn is
+silence, a mention must produce visible output), authority (a folder
+isolates and confers nothing; the tool list is the grant set), the register
+floor, the map of `/self`, the memory stores and storage, and rigor.
+
+`tests/resident` holds the resident file to that shape.
+`TestAgentFilePointersResolve` fails when a `/skill` or a `.md` the file
+names does not exist, because a dangling pointer routes the agent to
+nothing and no other check notices. `TestAgentFileCarriesTheCarveOut` fails
+when one of the carve-out strings leaves the file.
+
+## The system prompt
+
+`buildSystemPrompt` (`src/index.ts:49`) joins the text layers in this
+order: `SYSTEM.md`, the resident file for a harness that cannot read it
+natively (codex, pi), `PERSONA.md`, then the output style that
+`~/.claude/settings.json` names. runed reads `SYSTEM.md` and `PERSONA.md`
+off the group folder and ships them on the turn frame (`runed/render.go`).
+When any layer exists, the joined text is the whole system prompt and the
+harness's own preset is not used: for claude, a string `systemPrompt`
+replaces the `claude_code` preset (`src/claude.ts:495`). When none exists,
+the harness keeps its default. `SYSTEM.md` therefore replaces the base
+prompt outright and nothing merges into it; a half-overridden prompt cannot
+be debugged.
+
+## The model gateway, per harness
+
+`src/gateway.ts` reads `MODEL_GATEWAY_URL` and `MODEL_GATEWAY_KEY` once,
+and each harness translates the pair into its own shape. An unset URL leaves
+every harness unchanged.
+
+| Harness | Redirect | Key |
+| --- | --- | --- |
+| claude | `ANTHROPIC_BASE_URL` in the SDK subprocess env (`claudeEnv`) | sent as `ANTHROPIC_AUTH_TOKEN` |
+| codex | `-c model_provider=gateway` with `base_url=<url>/v1` and `wire_api="responses"`; codex rejects `chat` | `env_key=MODEL_GATEWAY_KEY`; with no key, `requires_openai_auth=true` sends codex's own ChatGPT bearer |
+| pi | `registerProvider` re-points `anthropic` at the URL and `openai` at `<url>/v1` (`src/pi-extension.ts:115`) | the key is a fallback pi uses only when no real credential is present |
+
+## The turn deadline
+
+A turn has one deadline. `RUNED_RUN_TIMEOUT` (default 20m) is the run
+ceiling. The group's `container_config` timeout lowers it, and the idle
+timeout plus a grace period floors it (`runed/manager.go:408` `turnTTL`).
+runed hands the guest a query timeout 30 seconds under that ceiling,
+floored at 60 seconds, as `ARIZUKO_QUERY_TIMEOUT_MS`
+(`runed/render.go` `queryTimeoutMs`), so the harness aborts and reports
+before runed kills the guest. With the default ceiling the log line reads:
+
+```
+Query timeout (1170000ms) reached, aborting
+```
+
+The user loses the in-flight reply, and inbound messages that arrived
+during the timed-out turn are tagged `errored=1` in `messages`. The next
+inbound gets a fresh guest; the errored rows stay flagged and show as
+failed turns in the dashboard.
+
+Mitigations for skill authors and agents, with no platform change:
+
+- **Split into multiple turns.** Emit partial results and ask the user for
+  "continue" rather than packing a 20-minute job into one turn.
+- **Checkpoint progress.** Write intermediate state to `~/facts/` or
+  `~/tmp/` between subtasks, so a fresh guest resumes instead of restarting
+  from zero.
+- **Run fewer parallel subagents.** Every Task subagent shares the parent
+  turn's wall budget; 8 parallel critics is 8 times the chance that one
+  stalls the whole turn.
+- **Background long jobs.** Pass `run_in_background: true` to the Task tool
+  for long work; the parent turn returns and the agent polls later.
+- **Stop agentic loops early.** Count the iterations and stop well before
+  the cap. A loop that ran 28 of 30 iterations and saved its output is
+  better than one that hit the deadline in iteration 30 and dropped
+  everything.
+
+## Ending the agent loop
+
+ant polls `/run/ipc/input/` for steered messages between tool calls. An
+empty file named `_close` in that directory ends the loop: ant deletes it
+and stops waiting for further input (`src/index.ts:40`).
+
 ## Contracts with the Go side
 
 Where Go produces a value and TypeScript reads it, a test reads both sources
@@ -94,24 +198,13 @@ Skills in `~/.claude/skills/<name>/` that match stock names in
 `/opt/arizuko/ant/skills/<name>/` are managed (seeded + merged).
 Custom-named skills are untouched.
 
-## Skills (83 portable, 1 arizuko-only)
+## Skills
 
-`scripts/curate-skills.sh` classifies every skill by SKILL.md content:
-arizuko-only if it mentions `@gated`, `@arizuko`, or `gated.sock`;
-portable otherwise. Current: 83 portable, 1 arizuko-only (`mcp`).
-
-The partition exists for the future standalone-ant binary
-(`specs/13/b-ant-standalone.md`) but doesn't run yet — all skills
-ship in `ant/skills/`, nothing has moved to a separate `ant-arizuko/`
-package.
-
-## Standalone ant (foundation only)
-
-`cmd/ant/`, `pkg/agent/`, `pkg/host/`, `pkg/runtime/` are the skeleton
-for a Go-based standalone agent runner (spec 12/b). The package exists,
-imports no arizuko-internal code, and defines the folder layout, but
-the runtime port and sandbox backends aren't shipped. The TS runtime
-in `src/` still drives `arizuko-ant:latest`.
+`scripts/curate-skills.sh` classifies every skill by its SKILL.md content:
+arizuko-only when it mentions `@gated`, `@arizuko` or `gated.sock`,
+portable otherwise. 92 are portable and 1 is arizuko-only, `mcp` (measured
+at 7baffbb0). Every skill ships in `ant/skills/`; the partition moves
+nothing.
 
 ## Build
 
@@ -135,13 +228,14 @@ agent: `ARCHITECTURE.md` § "Inbound Media Pipeline".
 ```
 ant/
   src/index.ts           Entrypoint (stdin → SDK → submit_turn)
-  src/mcp-servers.ts     MCP server assembly (eager vs deferred)
+  src/mcp-servers.ts     MCP server assembly: one server, alwaysLoad
   src/claude.ts          Claude Code harness driver + event normalization
-  CLAUDE.md              Agent identity + runbook (seeded to groups)
+  src/codex.ts, src/pi.ts  the other two harness drivers
+  src/gateway.ts         the model-gateway pair every harness translates
+  CLAUDE.md              the resident file (§ The resident file)
   PERSONA.md             Default persona
-  skills/                Stock skills (83 portable, 1 arizuko-only)
+  skills/                Stock skills
   output-styles/         Per-surface response-length rules
-  cmd/ant/               Standalone CLI stub (not shipped)
-  pkg/agent/loader.go    Folder layout resolver (standalone-ant)
+  examples/              the product catalog `arizuko create --product` reads
   Dockerfile             Builds arizuko-ant:latest (TS)
 ```

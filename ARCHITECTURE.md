@@ -21,7 +21,16 @@ New integrations are added via the extension points described in
   via `ttsd` + `TTS_BASE_URL` (`ttsd/README.md`), oracle
   skill in `ant/skills/oracle/` driving the `codex` CLI,
   model gateway (`litellm` package + `MODEL_GATEWAY_URL`,
-  `specs/6/23-llm-gateway.md`)).
+  `routd/README.md` § The model gateway)).
+
+Four layers sit on each other, and each boundary between them is a
+contract, not a directory. The surfaces, the channel adapters, webd and
+proxyd, speak the channel protocol and HTTP to the core platform: routd,
+authd and the store. The core hands a turn to the execution substrate, runed
+and its KVM guest, over `POST /v1/runs`. The agent, ant, speaks MCP and
+`submit_turn` over the turn's socket. ant consumes the tool list resreg
+renders and is a component of nothing, so a second harness is a sibling of
+ant inside the guest, never of runed (`ant/README.md` § The harness).
 
 The core runs with no channel adapter at all: a person reaches it through
 the web chat or `arizuko talk`, an MCP client over proxyd. That is the
@@ -330,7 +339,8 @@ Durable rules the package layout obeys.
   `types`): imported, never run. Utility packages follow Go convention
   (`httputil/`, not `http_utils/`). One Go module
   (`github.com/kronael/arizuko`); sibling shippable components stay
-  inside it ([specs/6/16](specs/6/16-daemon-standalone-matrix.md)).
+  inside it, kept apart by the import-graph rule in
+  `tests/components/imports_test.go`.
 
 - **DAG library layering.** Libraries form a directed acyclic graph;
   downward imports only, no cycles, no library importing a daemon.
@@ -683,17 +693,12 @@ its `/v1`. The doors, the hub and the WHY of each are in
 
 ## Diary (diary package)
 
-`diary.Read(groupDir, max)` reads recent `.md` from `group/diary/`, extracts
-`summary:` frontmatter, returns XML with age labels (today, yesterday, N
-days/weeks ago). Prepended to agent prompt as `<knowledge layer="diary">`.
-
-Two-layer memory: `MEMORY.md` for long-term, daily files for work log. Nudged
-by `/diary` skill, PreCompact hook, every 100 turns. Spec:
-`specs/1/L-memory-diary.md`.
-
-Episodes (compressed transcripts) follow the same `summary:` format, indexed
-by `/recall`. Compression: daily → weekly → monthly. Spec:
-`specs/4/17-knowledge-system.md`.
+The group folder holds the agent's memory in layers: `~/work.md`, the
+diary, the episodes, `~/users/`, the facts and Claude Code's own
+`MEMORY.md`. runed pushes a short form of the first four into every prompt,
+a user file as a pointer only; the agent pulls the facts on demand. The layers,
+the windows, the one nudge and the compaction tasks are in
+[`diary/README.md`](diary/README.md).
 
 ## Observability
 
@@ -745,72 +750,17 @@ per-chat quarantine.
 
 ## Long-running tasks — the turn deadline
 
-A turn has one deadline. `RUNED_RUN_TIMEOUT` (default 20m) is the run
-ceiling, lowered by the group's `container_config` timeout when one is set
-(`runed/manager.go` `turnTTL`). runed hands the guest a query timeout 30
-seconds under that ceiling, floored at 60 seconds, as
-`ARIZUKO_QUERY_TIMEOUT_MS` (`runed/render.go` `queryTimeoutMs`), so the
-harness aborts and reports before runed kills the guest under it. With the
-default ceiling the log line reads:
-
-```
-Query timeout (1170000ms) reached, aborting
-```
-
-User-visible impact: the in-flight reply is dropped, and inbound messages
-that arrived during the timed-out turn are tagged `errored=1` in `messages`.
-The next inbound gets a fresh guest; the errored rows stay flagged and show
-as failed turns in the dashboard.
-
-Mitigations for skill authors and agents (no platform change required):
-
-- **Split into multiple turns** — emit partial results, ask the user
-  for "continue" rather than packing a 20-minute job into one turn.
-- **Checkpoint progress** — write intermediate state to `~/facts/`
-  or `~/tmp/` between subtasks so a fresh guest can resume
-  instead of restarting from zero.
-- **Fewer parallel subagents** — every Task subagent shares the
-  parent turn's wall budget; 8 parallel critics is 8× the chance of
-  one stalling out the whole turn.
-- **Background long jobs** — pass `run_in_background: true` to the
-  Task tool for genuinely long work; the parent turn returns
-  immediately and the agent can poll/resume later.
-- **Self-terminate agentic loops** — count actual iterations and
-  stop well before the cap; a loop that ran 28 of an intended 30
-  iterations and saved partial output is better than one that hit
-  the deadline mid-iteration 30 and dropped everything.
+A turn has one deadline, `RUNED_RUN_TIMEOUT` (default 20m), and the agent's
+query timeout sits 30 seconds under it, so the harness reports before runed
+kills the guest. The derivation, what the user sees and the mitigations for
+skill authors are in [`ant/README.md`](ant/README.md) § The turn deadline.
 
 ## Prompt Assembly
 
-Every inbound turn routd emits an envelope of small XML-shaped
-blocks, prepended (or attached) to the agent's prompt. They share
-three properties: **XML-shaped**, **never persisted to `messages`**,
-**per-turn scope only** (recomputed next turn). The blocks emitted
-today:
-
-- `<autocalls>` — zero-arg facts (`now`, `instance`, `folder`,
-  `session`); `routd/prompt.go`
-- `<persona name=…>` — `PERSONA.md` frontmatter `summary:` re-anchor;
-  `routd/prompt.go`
-- `<previous_session/>` — last session id/timing on a fresh session;
-  `routd/prompt.go`
-- `<knowledge layer=…>` — recent diary entries with age labels;
-  `diary/diary.go`
-- `<messages>` + `<reply-to>` + `<message>` — inbound batch;
-  `router/router.go`
-- `<attachment …/>` — inbound media path + optional `transcript=`;
-  `routd/enrich.go`
-- `<observed>` — trailing window of `is_observed=1` messages stored
-  under this folder via `#observe` routes; `routd/prompt.go`
-- `<topic name=…/>` — scope envelope on every turn (empty for main).
-  Parent topic context arrives via the forked Claude Code session,
-  not via injection (`ROUTING.md` § Topic Routing); `routd/prompt.go`
-- `<surface>slack-pane</surface>` + `<pane-context jid=…/>` —
-  emitted when the trigger arrives via an open Slack assistant pane
-  (spec 8/D); `routd/prompt.go`
-
-The convention for adding a block lives in `routd/README.md`. See
-`EXTENDING.md` for the autocall extension point in particular.
+routd builds the turn's message string, runed prefixes the knowledge layers
+it reads off the group folder, and ant renders the system prompt inside the
+guest. The figure and the table of every block, its builder and when it is
+emitted are in [`routd/README.md`](routd/README.md) § Prompt assembly.
 
 ## MCP Surface
 

@@ -91,6 +91,14 @@ var twins = []twin{
 		"dashd/README.md",
 		"template/web/pub/arizuko/components/dashd.html",
 	}},
+	{name: "prompt", files: []string{
+		"routd/README.md",
+		"template/web/pub/arizuko/concepts/ant.html",
+	}},
+	{name: "memory", files: []string{
+		"diary/README.md",
+		"template/web/pub/arizuko/concepts/ant.html",
+	}},
 }
 
 var (

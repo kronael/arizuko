@@ -64,7 +64,7 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">concepts</a> &rsaquo; personas</p>
 <h1>personas</h1>
 
-    <p class="lede">Autoviv spins a fresh folder into existence, and that folder still sounds like the default. A persona is what gives it a voice. It&rsquo;s a <code>PERSONA.md</code> file in the group folder &mdash; one more file in the ant, same rule as page one: the agent is the folder. The frontmatter holds named fields like the TTS voice and a short reminder of how to sound; the body is the long voice guide the agent reads only when it asks for it. Editing the file is the whole interface; there is no persona table to keep in sync.</p>
+    <p class="lede">Autoviv spins a fresh folder into existence, and that folder still sounds like the default. A persona is what gives it a voice. It&rsquo;s a <code>PERSONA.md</code> file in the group folder &mdash; one more file in the ant, same rule as page one: the agent is the folder. The frontmatter holds named fields like the TTS voice and a short reminder of how to sound; the body is the long voice guide, which rides in the system prompt. Editing the file is the whole interface; there is no persona table to keep in sync.</p>
 
     <h2>file location</h2>
     <p>One file per group, at <code>&lt;data-dir&gt;/groups/&lt;folder&gt;/PERSONA.md</code>. The operator edits it directly &mdash; via WebDAV, an editor on the host, or the dashboard. There is no persona table; the file <em>is</em> the source of truth.</p>
@@ -80,7 +80,7 @@ voice: nova
 # full persona
 
 Long-form description of register, tone, taboo words, in-jokes,
-worked examples, &hellip; loaded on demand by the /persona skill.
+worked examples, &hellip; sent in the system prompt every turn.
 </code></pre>
     <ul>
       <li><code>name</code> &mdash; display name used in the per-turn <code>&lt;persona name=...&gt;</code> envelope. Defaults to the folder path when omitted.</li>
@@ -95,7 +95,12 @@ Direct, no preamble. Defaults to short answers. Lowercase info, capitalized erro
 (For full register: /persona)
 &lt;/persona&gt;
 </code></pre>
-    <p>The block sits next to the autocalls envelope inside the user message, so the agent re-anchors its voice even when the session has gotten long and the system prompt has scrolled out of focus. The body of <code>PERSONA.md</code> is <em>not</em> injected per turn &mdash; the agent invokes the <code>/persona</code> skill when it wants the full voice guide.</p>
+    <p>The block sits next to the autocalls envelope inside the user message, so the agent re-anchors its voice even when the session has gotten long and the system prompt has scrolled out of focus.</p>
+
+    <p>The whole file rides along too, in the system prompt: <code>runed</code> ships <code>PERSONA.md</code> with every turn, and the agent runtime puts it after <code>SYSTEM.md</code> and before the output style. A group&rsquo;s <code>SYSTEM.md</code> replaces the base prompt outright; the persona never merges into it. The <code>/persona</code> skill is there for when the agent wants to reread the guide on purpose.</p>
+
+    <h2>three layers, three files</h2>
+    <p>How the agent sounds is split three ways, and each layer has one home. Voice is <code>PERSONA.md</code>, per group. The register floor &mdash; the rules every agent keeps whatever its voice &mdash; is the always-loaded <code>ant/CLAUDE.md</code>. Length and formatting per surface is the output style, one file per surface in <code>ant/output-styles/</code>, one per session. Change one and the other two hold still.</p>
 
     <h2>strictness rule</h2>
     <p>If <code>PERSONA.md</code> is missing, has no frontmatter, has no <code>summary</code> field, or the summary is empty, <code>personaBlock</code> returns <code>""</code>. No fallback to body text, no guessing from the folder name, no inheritance from a parent folder&rsquo;s persona. The agent simply runs in its default register.</p>
@@ -105,7 +110,7 @@ Direct, no preamble. Defaults to short answers. Lowercase info, capitalized erro
     <p>Personas live with the group, not with the agent image. Edits to <code>PERSONA.md</code> take effect on the next turn &mdash; no migration, no rebuild. The agent image ships skills and base prompts; the group ships voice. Releases bump <code>MIGRATION_VERSION</code> for skill changes, never for persona edits.</p>
 
     <h2>go deeper</h2>
-    <p>Canonical spec: <a href="https://github.com/kronael/arizuko/blob/main/specs/4/P-personas.md">specs/4/P</a>. The TTS path that reads the <code>voice</code> field: <a href="../concepts/voice.html">voice</a>. How groups, folders, and per-folder files compose: <a href="../concepts/scopes.html">scopes</a>.</p>
+    <p>What else rides in the prompt and where it&rsquo;s built: <a href="../concepts/ant.html">the ant</a>. The TTS path that reads the <code>voice</code> field: <a href="../concepts/voice.html">voice</a>. How groups, folders, and per-folder files compose: <a href="../concepts/scopes.html">scopes</a>.</p>
 
       <nav class="docs-pager" aria-label="Pager">
         <a rel="prev" href="autoviv.html">&larr; Autoviv</a>

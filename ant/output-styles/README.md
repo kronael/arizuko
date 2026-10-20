@@ -1,8 +1,11 @@
 # Output styles per surface
 
 Per-channel + per-surface tone, length, and formatting hints loaded into
-the agent's `outputStyle` at session bind. Spec:
-[`specs/5/Y-output-styles-per-surface.md`](../../specs/5/Y-output-styles-per-surface.md).
+the agent's `outputStyle` on every spawn. Length and format per surface live
+here, in one file per surface, and nowhere else: a second mechanism for the
+same concern, such as a `<surface>` tag in the prompt, would drift from this
+one. The only `<surface>` tag routd emits is `<surface>slack-pane</surface>`,
+and it belongs to the Slack assistant pane, not to formatting.
 
 ## Naming convention
 
@@ -30,21 +33,25 @@ never read.
 
 `reditd` and `gitd` post the agent's text verbatim into a field their
 platform renders as real markdown, so a style file would add a surface to
-maintain and change nothing. `container/output_style_test.go` pins that
+maintain and change nothing. `runed/output_style_test.go` pins that
 decision; shipping a file for either flips a bool there.
 
 ## Selection algorithm
 
-`container/runner.go::pickOutputStyle` resolves at every session bind:
+`runed/settings.go::pickOutputStyle` resolves the name on every spawn:
 
 1. `channel` = inbound platform (`slack`, `discord`, `telegram`, …)
 2. `surface` = `deriveSurface(channel, chat_jid, topic, paneLookup)`
-   - slack DM → `dm`; group → `channel` (or `thread` if topic set; or
-     `pane` if `paneLookup(channelID)` returns true)
+   - slack `dm` → `dm`; `group` → `channel`; `channel` → `pane` when
+     `paneLookup(channelID)` is true, else `thread` when a topic is set,
+     else `channel`
    - discord DM → `dm`; otherwise → `channel`
-   - telegram DM → `dm`; otherwise → `group`
+   - telegram `user` → `dm`; `group` → `group`
 3. Name = `<channel>-<surface>` when `deriveSurface` matched, else the
    bare `<channel>`. Empty channel → no `outputStyle` set.
+
+runed calls `pickOutputStyle` with no pane lookup (`runed/settings.go:80`),
+so the `pane` branch never fires and `slack-pane.md` is never picked.
 
 The picker does no existence check — it names a style, it does not open
 one. That is what makes a per-group operator override at the same path
@@ -52,8 +59,9 @@ work for free, and it is why a name with no file is silent: the reader
 (`ant/src/index.ts::readOutputStyle`) swallows the ENOENT and the agent
 drops to stock formatting with nothing logged.
 
-Files are seeded into the agent container's `~/.claude/output-styles/`
-at spawn (`seedOutputStyles` in `container/runner.go`). Claude Code's SDK
+Files are copied into the group's `~/.claude/output-styles/` on every
+spawn (`container.SeedOutputStyles`), overwriting the shipped names and
+leaving a group's own custom file alone. Claude Code's SDK
 reads the file referenced by `settings.json::outputStyle`.
 
 ## Voice + length conventions (carried by each file)
@@ -83,11 +91,11 @@ teaches the agent a syntax the user sees raw.
 1. Decide if the channel needs surface splits — if yes, name files
    `<channel>-<surface>.md` per the table above; if no, single
    `<channel>.md`.
-2. Update `deriveSurface` in `container/runner.go` if you introduced
+2. Update `deriveSurface` in `runed/settings.go` if you introduced
    a new surface dimension (most additions don't).
 3. Write the file: ≤ 30 lines, plain prose conventions, no preamble.
    Match the voice of an existing nearby file as your template.
-4. No registration step — `seedOutputStyles` discovers files by
+4. No registration step — `SeedOutputStyles` discovers files by
    directory listing at spawn.
 
 ## Anti-patterns
