@@ -502,37 +502,87 @@ Config: `MEDIA_ENABLED=true`, `VOICE_TRANSCRIPTION_ENABLED=true`,
 | `Task`        | scheduled (cron, prompt, status)                  |
 | `Channel`     | Connect, Send, SendFile, Owns, Typing, Disconnect |
 
-## Schema
+## Data ownership
 
 Every table is an objstore entity: one item per row at a `(partition, sort)`
-coordinate, three columns wide (`objstore/README.md`). A DynamoDB-protocol
-server holds every owner's tables as `<owner>.<entity>` (`dynstore.Prefix`),
-named by `DYNAMODB_URL`. The coordinate is what a read pays for, and
-`store/entities.go` argues each one beside the code that writes it.
+coordinate, with string attributes (`objstore/README.md`). One
+DynamoDB-protocol server holds every owner's tables as `<owner>.<entity>`,
+named by `DYNAMODB_URL`. The store, from a daemon down to PostgreSQL, is the
+figure at the top of `objstore/README.md`.
+
+An owner is a daemon and the tables it alone creates. Each daemon signs with
+its own key, and `store/owner_reach.go` `StoreReach` lists the owners each
+daemon opens; `TestStoreReachMatchesTheCallSites` fails when the code and the
+list disagree.
+
+```
+┌─────────┐ written by routd
+│ routd.* │◄── also opened by onbod, dashd, webd, proxyd, gitd, slakd,
+└─────────┘    cmd/arizuko
+┌─────────┐ written by onbod
+│ onbod.* │◄── also opened by dashd, cmd/arizuko
+└─────────┘
+┌─────────┐ written by runed
+│ runed.* │◄── no other daemon; dashd reads runed's /v1
+└─────────┘
+┌─────────┐ written by authd
+│ authd.* │◄── also opened by cmd/arizuko, for the signing keys
+└─────────┘
+┌──────────────┐ written by that adapter; gitd and slakd also open
+│ <adapter>.*  │ routd.*
+└──────────────┘
+timed and ttsd hold no store key: they call an owner's /v1
+```
+
+| Owner        | Entities                                                                                                   | Declared in                            | Column detail                                |
+| ------------ | ---------------------------------------------------------------------------------------------------------- | -------------------------------------- | -------------------------------------------- |
+| `routd`      | messages and their four indexes, routing, grants, secrets, sessions, turns, tasks, packages                | `store/entities.go`                    | `store/README.md` § Every table is an entity |
+| `onbod`      | `onboarding`, `onboarding_gates`, `invites`, `invite_redemptions`                                          | `store/entities.go`                    | `store/README.md` § Every table is an entity |
+| `runed`      | `spawns`, `session_log`, `circuit_breaker`                                                                 | `runed/runstore`                       | `runed/README.md` § Entities owned           |
+| `authd`      | `signing_keys`, `signing_key_slot`, `auth_users`, `oauth_identities`, `refresh_tokens`, `refresh_families` | `authd/authstore`                      | `authd/README.md` § Entities owned           |
+| each adapter | `outbound_dedup`, `inbound_pending`, `file_urls`, `ack_marks`; emaid adds `email_threads`, `email_msg_ids` | `chanlib/chanstore`, `emaid/emaistore` | `chanlib/README.md` § Storage                |
+
+- **`audit_log` is in all four owners.** One declaration lives in `audit`,
+  each opener creates it (`audit.EnsureEntities`), and correlation across the
+  four is `turn_id`. proxyd, webd and dashd own no audit table and record
+  through routd's.
+- **Why a second daemon opens routd's tables.** onbod and dashd hold the
+  operator's onboarding and admin writes; webd resolves a route token and
+  reads a chat; gitd reads the sealed webhook secret per delivery; slakd
+  reads the pane context. proxyd reads `acl` on every request, because a
+  login-time snapshot would keep a revoked grant working for the token's 15
+  minutes (`proxyd/hotpath_read_test.go`). Everything else goes through the
+  owner's `/v1`.
+- **No foreign key, so nothing cascades.** A group delete purges every scope
+  that confers on the folder or routes into it, by one containment predicate,
+  and a table in neither of `store/folder_scope.go`'s lists fails its
+  completeness test.
+
+`messages.source` is the adapter of record, stamped by routd's
+`handleMessages`; outbound reads `LatestSource(jid)`. All agent output,
+delegation and escalation flow through `PutMessage`. A bot row carries
+`is_from_me` and `is_bot_message` and is filtered from inbound polling.
 
 ### Why the store layer is shaped this way
 
-Four decisions, each with its spec:
-
 1. **The engine is a server, not a library.** ExtendDB over PostgreSQL speaks
    the DynamoDB wire protocol, and arizuko is one client of it through a
-   driver on the official SDK (`specs/6/42`). No component holds a state of
-   record on local disk. The protocol was chosen because it is the one with
-   transactions, conditional writes and a second implementation to fall back
-   to, and because the same driver reaches Amazon's service by changing one
-   `BaseEndpoint`.
-2. **There is no database layer.** `objstore.Store` is TWO methods, `Query`
-   and `GuardedBatch` (`objstore/objstore.go:47`), and `specs/6/40` derives
-   them from the five operations arizuko actually needs: containment by path
-   prefix, the guarded batch, the versioned replace, the reachability guard
-   and the claim-and-return. A caller states a coordinate and a condition; it
-   never states a plan. That is what lets the engine change without a
-   rewrite. `tests/components/imports_test.go` `TestNoPackageOpensSQL`
-   fails the build if any package reaches `database/sql`.
+   driver on the official SDK. No component holds a state of record on local
+   disk. The protocol was chosen because it has transactions, conditional
+   writes and a second implementation to fall back to, and because the same
+   driver reaches Amazon's service by changing one `BaseEndpoint`.
+2. **There is no database layer.** `objstore.Store` is two methods, `Query`
+   and `GuardedBatch` (`objstore/objstore.go`), derived from the five
+   operations arizuko needs: containment by path prefix, the guarded batch,
+   the versioned replace, the reachability guard and the claim-and-return. A
+   caller states a coordinate and a condition, never a plan, so the engine
+   can change without a rewrite. `tests/components/imports_test.go`
+   `TestNoPackageOpensSQL` fails the build if any package reaches
+   `database/sql`.
 3. **A deployment is an account, not a database.** The `tables` registry is
    keyed `(account_id, table_name)`, so one server can hold every instance on
-   a host and keep them apart on the account (`specs/6/43`). A PostgreSQL
-   role is NOT the tenancy boundary and must not be used as one.
+   a host and keep them apart on the account. A PostgreSQL role is NOT the
+   tenancy boundary and must not be used as one.
 4. **The engine splits its own state in two.** `<data-db>` holds one
    PostgreSQL table per DynamoDB table; `<data-db>_catalog` holds accounts,
    IAM, the table registry and `settings`. They differ in size, in read
@@ -543,86 +593,6 @@ Four decisions, each with its spec:
    connection string, along with the deployment's encryption key.
 
 Deploy procedure: `INSTALL.md` § The store server.
-
-- **`routd`** (`store/entities.go`):
-  `messages` and the four read-shaped indexes one append fans out into
-  (`message_folders`, `message_folder_counts`, `message_activity`,
-  `message_delivery`); the thirteen registered resources — `acl`,
-  `acl_membership`, `groups`, `routes`, `route_tokens`, `scheduled_tasks`,
-  `secrets`, `pending_actions`, `network_rules`, `proxyd_routes`,
-  `web_routes`, `installed_packages`, `github_sources`; the hot tier —
-  `chats`, `sessions`, `chat_reply_state`, `chat_proactive`,
-  `system_messages`, `user_profiles`, `turn_results`, `group_watchers`,
-  `task_run_logs`, `turn_context`; plus `pane_sessions`, `secret_use_log`
-  and `counters`.
-- **`runed`** (`runed/runstore`): `spawns`, `session_log`,
-  `circuit_breaker`. The three make three different partition choices — one
-  constant for `spawns`, the folder for `session_log`, the folder as the
-  whole coordinate for `circuit_breaker` — each written down in its own file.
-- **`authd`** (`authd/authstore`): `signing_keys`, `signing_key_slot`,
-  `auth_users`, `oauth_identities`, `refresh_tokens`, `refresh_families`.
-- **`onbod`** (`store/entities.go`): `onboarding`, `onboarding_gates`,
-  `invites`, `invite_redemptions` — declared beside the reads and writes in
-  `store/onboarding.go` and `store/invites.go`.
-- **`audit_log`** is in all four owners: one declaration in `audit`, created
-  by whichever opener holds the owner (`audit.EnsureEntities`).
-
-| Table                   | Key columns                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `chats`                 | jid (key), agent_cursor, sticky_group, sticky_topic, is_group (routd)                                                                                                                                                                                                                                                                                                                                                                                      |
-| `messages`              | chat_jid (partition) + `core.TS(timestamp)` + id (sort) — 245 pairs share one instant inside one chat on krons, so the id is in the key; sender, content, verb, source, attachments, topic, errored, is_observed, turn_id, link_context, routed_to (routd)                                                                                                                                                                                                 |
-| `groups`                | folder (key), name, container_config, parent, model, cost_cap_cents_per_day, open, observe_window (routd)                                                                                                                                                                                                                                                                                                                                                  |
-| `route_tokens`          | token_hash (key), jid, owner_folder, created_at, context, kind (`route` delivery bearer / `pair` identity-pairing link, spec 5/31) (routd)                                                                                                                                                                                                                                                                                                                 |
-| `routes`                | id (key), seq, match, target, observe_window_messages, observe_window_chars (routd)                                                                                                                                                                                                                                                                                                                                                                        |
-| `sessions`              | group_folder + topic (key), session_id, parent_topic, forked_at, observed_cursor (routd)                                                                                                                                                                                                                                                                                                                                                                   |
-| `system_messages`       | id, folder, source, kind, body, created (routd)                                                                                                                                                                                                                                                                                                                                                                                                            |
-| `scheduled_tasks`       | id (key), owner, chat_jid, prompt, cron, next_run, status, context_mode (routd)                                                                                                                                                                                                                                                                                                                                                                            |
-| `task_run_logs`         | id (key), task_id, run_at, duration_ms, status, result, error (routd)                                                                                                                                                                                                                                                                                                                                                                                      |
-| `acl`                   | principal + action + scope + params + predicate + effect (key), granted_by, granted_at (routd)                                                                                                                                                                                                                                                                                                                                                             |
-| `acl_membership`        | child + parent (key), added_by, added_at — role memberships + JID→sub claims. ONE claim writer: a consented pairing redemption stamps `added_by='pairing'`, whether the link came from an agent's `issue_pairing_link` or onbod's greeting, so every claim is reachable by `unpair` (spec 5/31; routd)                                                                                                                                                     |
-| `chat_reply_state`      | jid + topic (key), last_reply_id, engaged_until, engaged_folder (routd)                                                                                                                                                                                                                                                                                                                                                                                    |
-| `secrets`               | scope_kind + scope_id + key (key), value (AES-256-GCM encrypted), created_at (routd)                                                                                                                                                                                                                                                                                                                                                                       |
-| `secret_use_log`        | ts, spawn_id, caller_sub, folder, tool, key, scope, status, latency_ms (routd)                                                                                                                                                                                                                                                                                                                                                                             |
-| `turn_context`          | turn_id (key), folder, topic, chat_jid, trigger_sender, started_at, run_id, state, gateway_key_hash — sha256 of the key the model gateway metered this turn with, the handle `GET /v1/cost` resolves (routd)                                                                                                                                                                                                                                               |
-| `turn_results`          | folder + turn_id (key), session_id, status, recorded_at (routd)                                                                                                                                                                                                                                                                                                                                                                                            |
-| `network_rules`         | folder + target (key), created_at, created_by — the per-folder egress allowlist (routd)                                                                                                                                                                                                                                                                                                                                                                    |
-| `web_routes`            | path_prefix (key), access, redirect_to, folder, created_at (routd)                                                                                                                                                                                                                                                                                                                                                                                         |
-| `group_watchers`        | observer + source (key) — the pair IS the fact, no attributes (routd)                                                                                                                                                                                                                                                                                                                                                                                      |
-| `pane_sessions`         | team_id + user_id + thread_ts (key), channel_id, context_jid, opened_at (routd)                                                                                                                                                                                                                                                                                                                                                                            |
-| `message_folders`       | folder (partition) + the message's own position (sort) — the folder feed: a POINTER to the chat and message, not a copy, written when `routed_to` is stamped (routd)                                                                                                                                                                                                                                                                                       |
-| `message_folder_counts` | folder (key), n — one item per folder, so the usage page reads 95 items instead of 95 partitions (routd)                                                                                                                                                                                                                                                                                                                                                   |
-| `message_activity`      | one constant partition, the message's own position as sort — the newest-across-all-chats read, swept at `ActivityRetention` (routd)                                                                                                                                                                                                                                                                                                                        |
-| `message_delivery`      | delivery status (partition) + the message's own position (sort), attempts — `sent` IS the absence of an item (routd)                                                                                                                                                                                                                                                                                                                                       |
-| `pending_actions`       | id (key) — one tool call held for a human's verdict; the hold rule is an `acl` row and the suspended call is routd's (spec 5/19; routd)                                                                                                                                                                                                                                                                                                                    |
-| `proxyd_routes`         | path (key), backend, auth — proxyd's reverse-proxy table, served on its own `/v1/proxyd_routes` (routd)                                                                                                                                                                                                                                                                                                                                                    |
-| `github_sources`        | source key (key), owner_folder, secret — gitd's webhook delivery sources (spec 6/27; routd)                                                                                                                                                                                                                                                                                                                                                                |
-| `chat_proactive`        | jid (key) — the instant that chat last spoke unprompted, i.e. the cooldown (spec 5/6; routd)                                                                                                                                                                                                                                                                                                                                                               |
-| `user_profiles`         | sub (key), the username that person's folder is named after, their per-day spend cap (routd)                                                                                                                                                                                                                                                                                                                                                               |
-| `counters`              | the name of what it numbers (key), n — one number, `routes.id`, moved by `objstore.Increment`'s compare-and-swap (routd)                                                                                                                                                                                                                                                                                                                                   |
-| `installed_packages`    | (folder, name) key — folder `''` = instance-wide — source, revision, manifest (JSON: asset-kind → owned identities), asset_hashes (JSON: asset-id → content hash), installed_at — one row per installed package; the record `upgrade`/`remove`/dirty-detection read (routd, spec 5/28)                                                                                                                                                                     |
-| `audit_log`             | one per owner (routd, runed, authd, onbod); correlation across them is `turn_id`. The id is the sort key and IS the instant, at `core.TS`'s fixed width plus a suffix, so ordering and the page cursor are one value; the attributes are created_at, category, action, actor, actor_sub, resource, scope, surface, outcome, duration_ms, turn_id, folder, instance, request_id, source_ip. proxyd/webd/dashd own no audit table and record through routd's |
-| `session_log`           | id, group_folder, session_id, started_at, ended_at, result, error, message_count (runed). The id is the instant it started at `core.TS`'s width plus a suffix, not a sequence                                                                                                                                                                                                                                                                              |
-| `spawns`                | run_id (key), folder, topic, container_name, session_log_id, session_id, kind, state, outcome, exit_code, steered, created_at, started_at, ended_at (runed)                                                                                                                                                                                                                                                                                                |
-| `circuit_breaker`       | folder (key), failures, last_failure — per-folder consecutive-failure count, survives restarts (runed)                                                                                                                                                                                                                                                                                                                                                     |
-| `auth_users`            | user_id (key), name, created_at (authd)                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| `oauth_identities`      | user_id + provider (unique), provider_sub, linked_at (authd)                                                                                                                                                                                                                                                                                                                                                                                               |
-| `refresh_tokens`        | token_hash (key), family_id, sub, scope, aud, issued_at, expires_at, used_at, revoked_at (authd)                                                                                                                                                                                                                                                                                                                                                           |
-| `signing_keys`          | kid (key), priv_pem, pub_pem, active, created_at, retired_at (authd)                                                                                                                                                                                                                                                                                                                                                                                       |
-| `onboarding`            | jid (key), status (`awaiting_message` → `queued`/`approved`/`refused`), prompted_at, user_sub, gate, queued_at, admitted_at (onbod). Carries no credential: the link is a `kind='pair'` row in `route_tokens` (spec 5/31)                                                                                                                                                                                                                                  |
-| `onboarding_gates`      | gate (key), limit_per_day, enabled (onbod)                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| `invites`               | token (key), target_glob, issued_by_sub, issued_at, expires_at, max_uses, used_count (onbod)                                                                                                                                                                                                                                                                                                                                                               |
-
-An entity has no foreign key, so nothing cascades. A group delete purges
-every scope that confers on the folder or routes into it — `web_routes` and
-`route_tokens` among them — explicitly, by one containment predicate, and a
-table in neither of that file's lists fails its completeness test
-(`store/folder_scope.go`).
-
-`messages.source` is the canonical adapter-of-record stamped by routd's
-`handleMessages`; outbound reads routd `LatestSource(jid)`. All agent
-output, delegation, and escalation flow through `PutMessage` — bot rows are
-`is_from_me=1 is_bot_message=1` and filtered from inbound polling. `topic`
-and `routed_to` capture audit metadata. Spec: `specs/3/c-audit-log.md`.
 
 ## Guest Lifecycle
 

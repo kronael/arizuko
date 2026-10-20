@@ -1,9 +1,44 @@
 # objstore
 
-The object store every arizuko daemon addresses. A second
-engine is a second driver and no daemon changes (spec
-[`6/37`](../specs/6/37-store-model.md), surface
-[`6/40`](../specs/6/40-store-surface.md)).
+The object store every arizuko daemon addresses. A second engine is a second
+driver and no daemon changes. Who owns which table: `ARCHITECTURE.md` § Data
+ownership. How to run the server: `INSTALL.md` § The store server.
+
+<!-- twin:store -->
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│ daemons: routd, runed, authd, onbod, dashd, webd, adapters   │
+│ each through its store layer: store, runstore, authstore,    │
+│ chanstore, emaistore, dashstore                              │
+└──────────────────────────────┬───────────────────────────────┘
+                               ▼
+┌──────────────────────────────────────────────────────────────┐
+│ objstore.Store: Query, GuardedBatch                          │
+│ protocols over the two: Increment, Replace, ReadConsistent,  │
+│ AddEdge and Reachable                                        │
+└──────────────────────────────┬───────────────────────────────┘
+                               ▼
+┌──────────────────────────────────────────────────────────────┐
+│ dynstore: a table is <owner>.<entity>; the daemon signs with │
+│ its own key; Query and TransactWriteItems only               │
+└──────────────────────────────┬───────────────────────────────┘
+                               │ DynamoDB protocol over TLS,
+                               │ DYNAMODB_URL
+                               ▼
+┌──────────────────────────────────────────────────────────────┐
+│ ExtendDB: one account per instance; one IAM user per daemon, │
+│ its policy bounded to the owners store.StoreReach lists      │
+└───────────────┬──────────────────────────────┬───────────────┘
+                ▼                              ▼
+┌──────────────────────────────┐ ┌─────────────────────────────┐
+│ PostgreSQL <data-db>: one    │ │ <data-db>_catalog: accounts,│
+│ table per DynamoDB table     │ │ IAM, the table registry,    │
+│                              │ │ settings                    │
+└──────────────────────────────┘ └─────────────────────────────┘
+```
+
+<!-- /twin -->
 
 **Everything runs on this.** `store`, `authd/authstore`, `runed/runstore`,
 `emaid/emaistore` and `chanlib/chanstore` hold no SQL: every table in the tree is
@@ -19,8 +54,8 @@ declaration (`resreg/entity.go`).
 Partitions are per entity, not per daemon: runed's three take three DIFFERENT
 ones — `spawns` a constant, `session_log` the folder, `circuit_breaker` the
 folder as the whole coordinate — because they answer three different questions.
-authd took one constant for a whole daemon and `6/37` step 3 writes that up as
-a mistake.
+authd took one constant for a whole daemon, and every non-point read there is
+a whole-partition read.
 
 ## Two primitives
 
@@ -43,6 +78,13 @@ package-level function over these two, written once and shared by every driver
 `committed == false` with a nil error is a REFUSED batch: a condition did not
 hold. It is a normal outcome, the answer `authd`'s `ClaimRefreshToken` already
 gives as `won=false`, and it must never arrive as an error.
+
+**The guarded transition is the pattern the two primitives exist for.** Read
+the row, decide, then write under a condition on the row the decision came
+from: invite redemption conditions on the `used_count` it read, a hold
+resolution on `status`. The shape is a guarded BATCH, one condition plus a
+bounded set of writes, so the write that acts on the decision and the writes
+it implies land together or not at all.
 
 **The claim-and-return is not on the interface.** `store.DueTasks` is the one
 shape that would ask for it — every active task read, then a status write per
@@ -67,8 +109,8 @@ in the suite so nobody reads more into it.
 **What `Replace` costs `resreg.Apply`, said plainly.** A marker-gated sequence
 has no pre-image to roll back to. A replace that dies half-way leaves the scope
 part-written with its claim held, and recovery is to run it again, never to
-undo it. That is what buys the unbounded row set, and it is the price `6/37`
-costed.
+undo it. That is what buys the unbounded row set, and it is the price paid
+for it.
 
 **Roll-forward is what gives the claim back.** Nothing releases one: a released
 half-written scope reads as settled and correct, which is the silent corruption
@@ -88,7 +130,7 @@ a subsystem's config lane for good (`L267`).
 the caller cannot build it out of what is already here.** Not a test, not a
 conformance body, not a helper this package wrote for itself. The surface was
 widened once and trimmed back the same day, and the rule is written down rather
-than re-derived (spec `6/40` §"What gets on the surface").
+than re-derived.
 
 What survived, and the caller that kept it:
 
@@ -155,6 +197,21 @@ seven widths across 24,013 rows, and at the 32 pairs that share a second across
 two of them byte order disagrees with time order — BUGS `L97`, read off the rows
 rather than off the code.
 
+## Modelling a table as items
+
+Five rules decide an entity's coordinate, and each entity file argues its
+choice against them:
+
+1. Partition by the coordinate a read filters on, and count the writes that
+   coordinate concentrates.
+2. Count the queries that carry no partition key before you design. Each one
+   is a whole-partition read, or a second entity that answers it.
+3. A foreign key becomes an embed or a duplicated key. Choose one and say
+   which: there is no join to fall back on.
+4. Never order by a generated id. Order by a fixed-width `core.TS` value.
+5. Separate history from state. A log that only grows and a row that changes
+   in place take different coordinates.
+
 ## A read is the WHOLE selection
 
 `Query` answers everything it selects, bounded only by the caller's own `Limit`,
@@ -197,6 +254,20 @@ narrowed in the driver, because a filter may not name a key attribute and a key
 condition takes one sort-key term. A write batch is one `TransactWriteItems` of
 every check and write; a cancellation whose reasons carry a
 `ConditionalCheckFailed` comes back as a refusal, not an error.
+
+The driver speaks six operations: `Query`, `TransactWriteItems`,
+`CreateTable`, `DescribeTable`, `DeleteTable` and `ListTables`. It never
+calls `GetItem`, `Scan` or `BatchWriteItem`. A batch of one write is still a
+`TransactWriteItems` of one, so a refusal has one shape, and
+`ValidateQuery` refuses a read with no partition key, which would be a full
+scan.
+
+Every attribute name goes through an alias (`#n0`) and every value through a
+placeholder (`:v0`), because arizuko attribute names such as `status`,
+`value`, `state`, `name`, `size` and `key` are DynamoDB reserved words. Every value is type `S`. The
+batch bound in `batch.go`, 100 actions and one action per item, is DynamoDB's
+`TransactWriteItems` bound; a server that is to stand in for DynamoDB must
+also keep its item size and key length limits.
 
 The table name carries the owner in front of the entity (`Prefix`, so
 `routd.acl`), which is how one endpoint holds every owner of an instance and a

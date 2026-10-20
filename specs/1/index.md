@@ -8,19 +8,19 @@ The first phase: routing, channels, auth, memory, container/IPC, agent
 extension. Everything here shipped; several files have since been
 narrowed to the decision that outlived the implementation.
 
-| Spec                                         | Status  | Hook                                                        |
-| -------------------------------------------- | ------- | ----------------------------------------------------------- |
-| [F-group-routing.md](F-group-routing.md)     | shipped | Why the routes table is flat; `key=glob` match language     |
-| [e-worlds.md](e-worlds.md)                   | shipped | World = first folder segment; containment ≠ authority       |
-| [R-prompt-format.md](R-prompt-format.md)     | shipped | ContainerInput contract; `submit_turn` deliver-or-fail      |
-| [N-memory-messages.md](N-memory-messages.md) | shipped | Stdin XML envelope, 100-msg window, new-session injection   |
-| [Y-system-messages.md](Y-system-messages.md) | shipped | `<system origin=... event=...>` piggyback queue             |
-| [L-memory-diary.md](L-memory-diary.md)       | shipped | Two-layer (MEMORY.md + diary); why rollups aren't injected  |
-| [Q-mime.md](Q-mime.md)                       | shipped | Serial enrichment; why the rewrite is persisted             |
-| [H-introspection.md](H-introspection.md)     | shipped | `.gateway-caps` TOML, `.whisper-language` contract          |
-| [9-extend-agent.md](9-extend-agent.md)       | shipped | settings.json merge order; hooks hardcoded                  |
-| [f-auth-oauth.md](f-auth-oauth.md)           | shipped | Account linking + the seven-case collision table            |
-| [Z2-slink-sdk.md](Z2-slink-sdk.md)           | shipped | `/assets/*` `embed.FS` hosting; why not `template/web/pub/` |
+| Spec                                         | Status  | Hook                                                                                                                       |
+| -------------------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------- |
+| [F-group-routing.md](F-group-routing.md)     | shipped | Why the routes table is flat; `key=glob` match language                                                                    |
+| [e-worlds.md](e-worlds.md)                   | shipped | World = first folder segment; containment ≠ authority                                                                      |
+| [R-prompt-format.md](R-prompt-format.md)     | shipped | ContainerInput contract; `submit_turn` deliver-or-fail                                                                     |
+| [N-memory-messages.md](N-memory-messages.md) | shipped | Stdin XML envelope, 100-msg window, new-session injection                                                                  |
+| [Y-system-messages.md](Y-system-messages.md) | shipped | `<system origin=... event=...>` piggyback queue; facts in `store/README.md` § Every table is an entity (`system_messages`) |
+| [L-memory-diary.md](L-memory-diary.md)       | shipped | Two-layer (MEMORY.md + diary); why rollups aren't injected                                                                 |
+| [Q-mime.md](Q-mime.md)                       | shipped | Serial enrichment; why the rewrite is persisted                                                                            |
+| [H-introspection.md](H-introspection.md)     | shipped | `.gateway-caps` TOML, `.whisper-language` contract                                                                         |
+| [9-extend-agent.md](9-extend-agent.md)       | shipped | settings.json merge order; hooks hardcoded                                                                                 |
+| [f-auth-oauth.md](f-auth-oauth.md)           | shipped | Account linking + the seven-case collision table                                                                           |
+| [Z2-slink-sdk.md](Z2-slink-sdk.md)           | shipped | `/assets/*` `embed.FS` hosting; why not `template/web/pub/`                                                                |
 
 Merged or moved out of this phase:
 

@@ -41,15 +41,8 @@ socket (`runed/README.md` § The peer credential).
   without ending its turn clears `Typing` and leaves the message `⏳`.
 - Channel egress via the `chanreg` Deliverer (adapters register their
   egress URL + owned JID prefixes).
-- Answer ranked message search — `find_messages` and
-  `GET /v1/messages/find` — from an in-memory BM25 index over the
-  `messages` entity (`msgsearch/`). The index is DERIVED: the process that
-  answers searches — routd's own `main` — calls `StartSearch`, which walks
-  every chat into it in the background, and it is fed by the four writes that
-  touch an indexed attribute — the append, the media rewrite, the observe
-  stamp, the breaker's prune. A search made before the walk finishes is
-  refused, never answered with an empty hit list, and a write another
-  process makes is picked up by the next walk. Spec `6/42` §8.
+- Answer ranked message search, `find_messages` and
+  `GET /v1/messages/find` (§ Ranked message search).
 
 ## The turn in routd
 
@@ -117,6 +110,36 @@ half keeps these rules.
   always dead-letters (`ipc/ipc.go` `recordOutboundFailure`).
 - **Delivery dedup** is the adapter's: `chanlib/README.md` § Delivery is
   claimed before the platform call.
+
+## Ranked message search
+
+The index is an in-memory BM25 index over the `messages` entity
+(`msgsearch/`). It is derived, and the store is the record.
+
+- **Built at boot.** The process that answers searches, routd's own `main`,
+  calls `StartSearch`, which walks every chat into the index in the
+  background. A search before the walk finishes is refused with
+  `index_warming`, never answered with an empty hit list: an agent repeats
+  "no message says that" as fact.
+- **Fed by four writes.** routd is the sole appender, so the feed is one line
+  beside each write that touches an indexed attribute: the append, the media
+  rewrite, the observe stamp, the breaker's prune. Each runs after the store
+  write commits. A write another process makes, `arizuko send`, an archive
+  import or a group delete, appears at the next boot walk.
+- **Tokens.** A term is a run of Unicode letters and digits, lower-cased, with
+  diacritics dropped after NFD, so `uroven` finds `úroveň` from a plain
+  keyboard. Each token keeps its byte offsets, so the snippet marks the hit in
+  the bytes the writer wrote.
+- **Rank and snippet.** BM25 with SQLite FTS5's constants, `k1` 1.2 and `b`
+  0.75, negated as FTS5 negates it, so ascending rank is best first
+  (`parity_test.go`). A hit returns a window of at most 32 tokens around the
+  first match, each hit inside `«` and `»`. Default 20 hits, at most 200.
+- **Grammar.** Terms, all required; `"phrases"`, adjacent and in order; `-`
+  before a term or phrase excludes it. No OR, no prefix, no NEAR. A malformed
+  query is an error, never an empty list.
+- **Scope.** A `scope` holding `:` is a chat; anything else is a folder
+  subtree over `routed_to`, tested with `groupfolder.Contains`, never a
+  `LIKE`. The caller filters the hits to the folders it may read.
 
 ## Tables owned
 

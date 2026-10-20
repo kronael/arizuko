@@ -32,9 +32,18 @@ successful login for an ES256 access + refresh token. Spec: `specs/5/1`.
 
 `signing_keys`, `signing_key_slot`, `refresh_tokens`, `refresh_families`,
 `auth_users`, `oauth_identities` — declared by `authstore.Entities` and created
-through the driver at boot. authd runs no statement and holds no DDL (spec
-`specs/6/37-store-model.md` step 5), and it reaches its own owner and no other
-daemon's.
+through the driver at boot. authd runs no statement and holds no DDL, and it
+reaches its own owner and no other daemon's. Every entity takes one partition
+for the whole daemon, so every non-point read is a whole-partition read.
+
+| Entity             | Coordinate                  | Attributes                                                                   |
+| ------------------ | --------------------------- | ---------------------------------------------------------------------------- |
+| `signing_keys`     | the kid                     | the ES256 key pair, created and retired instants                             |
+| `signing_key_slot` | one item                    | the kid that signs now                                                       |
+| `auth_users`       | the sub                     | name, created instant                                                        |
+| `oauth_identities` | `<provider>:<provider sub>` | the account that login belongs to, linked instant                            |
+| `refresh_tokens`   | the token hash              | family, sub, scope, audience, issued, expiry, used and revoked instants      |
+| `refresh_families` | the family id               | sub, scope, audience, `rotations`, renewed and expiry instants, `revoked_at` |
 
 Two of the six carry an invariant a column could not:
 
@@ -45,6 +54,11 @@ Two of the six carry an invariant a column could not:
   the rotation count and start instant a session listing reports. Killing a
   family is one guarded write instead of an UPDATE across every row the login
   ever rotated through.
+  Rotation writes the successor token and the family's new `rotations` count
+  in the same batch as the claim, under a condition on `revoked_at` absent and
+  on the count it read. A revoke that lands first refuses the whole batch, so
+  no successor is written and then orphaned. The batch's committed answer,
+  never a count of touched rows, says whether a rotation won.
 
 ## Entry points
 
@@ -140,8 +154,7 @@ operator revoke) and are served read-only at `GET /v1/audit`, which
   `objstore.Query` or `objstore.GuardedBatch`. One file per entity
   (`signing_keys.go`, `refresh_tokens.go`, `auth_users.go`, which also carries
   `oauth_identities` because no operation touches one without the other), plus
-  `import.go` for the one-way move. A second driver changes nothing here
-  (spec `specs/6/37-store-model.md` step 5).
+  `import.go` for the one-way move. A second driver changes nothing here.
 - `oauth.go` — OAuth provider dance → ES256 mint
 - `audit_resource.go` — the `GET /v1/audit` resreg mount, plus `scopeGate` /
   `instanceWideGate`, the two gate builders every authd resource injects

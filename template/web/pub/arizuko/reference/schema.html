@@ -44,7 +44,7 @@
 <h1>schema</h1>
     <p class="lede">Every table arizuko keeps is an entity: one item per row, addressed by a <em>(partition, sort)</em> coordinate, with the rest of the row as string attributes. One DynamoDB-protocol server per instance serves them, named by <code>DYNAMODB_URL</code>, and nothing above the driver knows which server it is.</p>
 
-    <p>The coordinate is what a read costs, so each entity's coordinate is argued in the file that writes it. <a href="https://github.com/kronael/arizuko/blob/main/store/entities.go"><code>store/entities.go</code></a> names the set each owner holds.</p>
+    <p>How the layers stack, from a daemon down to PostgreSQL, is drawn on <a href="../concepts/store.html">the store</a>. The coordinate is what a read costs, so each entity's coordinate is argued in the file that writes it. <a href="https://github.com/kronael/arizuko/blob/main/store/entities.go"><code>store/entities.go</code></a> names the set each owner holds.</p>
 
     <h2>1. Four owners</h2>
 
@@ -60,7 +60,7 @@
 
     <p><code>audit_log</code> is in all four. One declaration lives in <code>audit</code>, every owner creates it, and each serves its own read-only at <code>GET /v1/audit</code>; <code>/dash/audit/</code> merges those four answers rather than reading anybody's tables.</p>
 
-    <p>Beside the four, each channel adapter keeps three small tables under its own name, declared in <a href="https://github.com/kronael/arizuko/blob/main/chanlib/chanstore/chanstore.go"><code>chanlib/chanstore</code></a>: <code>outbound_dedup</code>, one item per delivery routd asked it to make; <code>inbound_pending</code>, one per inbound routd has not yet accepted; <code>file_urls</code>, one per attachment behind its <code>/files/&lt;id&gt;</code> proxy.</p>
+    <p>Beside the four, each channel adapter keeps four small tables under its own name, declared in <a href="https://github.com/kronael/arizuko/blob/main/chanlib/chanstore/chanstore.go"><code>chanlib/chanstore</code></a>: <code>outbound_dedup</code>, one item per delivery routd asked it to make; <code>inbound_pending</code>, one per inbound routd has not yet accepted; <code>file_urls</code>, one per attachment behind its <code>/files/&lt;id&gt;</code> proxy; <code>ack_marks</code>, one per chat under the acknowledgement reaction an adapter with no typing indicator puts on a turn&rsquo;s first message, so a restarted adapter can still take it off. <code>emaid</code> adds two of its own, declared in <code>emaid/emaistore</code>: <code>email_threads</code>, one per conversation, holding the reply address and the Message-ID every reply threads under; <code>email_msg_ids</code>, one per Message-ID seen, naming its thread, which is how an inbound <code>In-Reply-To</code> finds its conversation. Both take the id itself as the partition, because every read is a point read and the index grows with every mail.</p>
 
     <h2>2. routd &mdash; messages</h2>
 
@@ -91,7 +91,7 @@
       <tr><td><code>route_tokens</code></td><td>the sha256 of the token</td><td>jid, owning folder, context, <code>kind</code> (<code>route</code> delivery bearer or <code>pair</code> identity link). The digest is the key; the raw token is never stored.</td></tr>
       <tr><td><code>web_routes</code></td><td>the path prefix</td><td><code>access</code> (public / auth / deny / redirect), redirect target, owning folder</td></tr>
       <tr><td><code>proxyd_routes</code></td><td>the path</td><td>proxyd's reverse-proxy table. proxyd owns every write and serves it on its own <code>/v1</code>.</td></tr>
-      <tr><td><code>acl</code></td><td>principal, action, scope, params, predicate and effect</td><td>nothing else &mdash; those six fields <em>are</em> the grant</td></tr>
+      <tr><td><code>acl</code></td><td>principal, action, scope, params, predicate and effect</td><td>who granted it, when, and <code>grant_option</code>. The six key fields <em>are</em> the grant.</td></tr>
       <tr><td><code>acl_membership</code></td><td>child and parent</td><td>who added the edge and when. Roles and jid&rarr;sub claims share it.</td></tr>
       <tr><td><code>secrets</code></td><td>scope kind, scope id and key</td><td>the value, sealed AES-256-GCM under <code>SECRETS_KEY</code></td></tr>
       <tr><td><code>secret_use_log</code></td><td>the instant a tool call resolved one</td><td>spawn, caller, folder, tool, key, outcome, latency</td></tr>
@@ -145,9 +145,11 @@
       <li><strong>No full-text index.</strong> Ranked message search is derived state in routd's memory, rebuilt from the <code>messages</code> entity at boot.</li>
     </ul>
 
+    <p><strong>Four tables share the word &ldquo;route&rdquo; and nothing else.</strong> <code>routes</code> sends a message to a folder; <code>web_routes</code> decides who may load a URL path; <code>proxyd_routes</code> sends an HTTP path to a backend daemon; <code>route_tokens</code> holds a bearer that lets a stranger post into one chat. They answer four different questions, so they stay four tables.</p>
+
     <h2>7. Who writes</h2>
 
-    <p>The owner daemon writes its own tables. Two readers reach across on purpose: <code>proxyd</code> resolves a route token and reads <code>acl</code> per request, because a login-time snapshot would keep a revoked grant working; <code>dashd</code> reads routd's and onbod's tables for the pages it renders. Everything else goes through the owner's <code>/v1</code>. A mutation carries its <code>audit_log</code> row in the same batch, so a refused write records nothing and a recorded row happened.</p>
+    <p>The owner daemon writes its own tables. A few daemons open routd&rsquo;s tables with keys of their own, each for one job: <code>onbod</code> and <code>dashd</code> for onboarding and the operator&rsquo;s admin writes, <code>webd</code> to resolve a route token and read a chat, <code>gitd</code> for a webhook&rsquo;s sealed secret, <code>slakd</code> for the pane context, and <code>proxyd</code> to read <code>acl</code> on every request, because a login-time snapshot would keep a revoked grant working. <code>dashd</code> opens onbod&rsquo;s too. Everything else goes through the owner's <code>/v1</code>. A mutation carries its <code>audit_log</code> row in the same batch, so a refused write records nothing and a recorded row happened.</p>
 
       <nav class="docs-pager" aria-label="Pager">
         <a rel="prev" href="mcp.html">&larr; MCP tools</a>

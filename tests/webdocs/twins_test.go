@@ -46,6 +46,10 @@ var twins = []twin{
 		"ROUTING.md",
 		"template/web/pub/arizuko/concepts/topics.html",
 	}},
+	{name: "store", files: []string{
+		"objstore/README.md",
+		"template/web/pub/arizuko/concepts/store.html",
+	}},
 }
 
 var (

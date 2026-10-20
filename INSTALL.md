@@ -186,11 +186,12 @@ at that daemon's first boot: routd seeds the ACL floor, the egress floor and the
 ## The store server
 
 Every owner's tables live on a DynamoDB-protocol server — ExtendDB over
-PostgreSQL (`specs/6/42-dynamo-over-postgres.md`). A deployment is an ACCOUNT
-on that server, never a database or a PostgreSQL role, so **one server can hold
-every instance on a host** (`specs/6/43-shared-store-server.md`). Follow this
-section for a server of the instance's own; follow "A shared server" below to
-put several instances on one.
+PostgreSQL. A deployment is an ACCOUNT on that server, never a database or a
+PostgreSQL role, so **one server can hold every instance on a host**. The
+figure at the top of [`objstore/README.md`](objstore/README.md) shows the
+layers from a daemon down to PostgreSQL. Follow this section for a server of
+the instance's own; follow "A shared server" below to put several instances on
+one.
 
 The package brings both containers; the server's own init run is the
 operator's, because it prints an admin password once and mints one access key
@@ -325,6 +326,22 @@ instance on this host must set `STORE_HOST_PORT` in its `.env` first** — the
 published port defaults to 18443 and two instances cannot share it. Set the
 key, never edit `template/services/extenddb.yml`: an edited fragment is frozen
 from the catalog and stops taking store changes.
+
+### Backing up the store
+
+Stop the instance, then tar its data dir:
+
+```bash
+sudo systemctl stop arizuko_<name>
+sudo tar -C /srv/data -czf arizuko_<name>-$(date +%F).tar.gz arizuko_<name>
+sudo systemctl start arizuko_<name>
+```
+
+The tar holds the store server's PostgreSQL data under `store/extenddb_db/`,
+its config and TLS key under `store/extenddb/`, the group folders and `.env`.
+A tar of a running instance is not a backup: PostgreSQL writes its files while
+the copy reads them. `arizuko archive export` is the logical export of one
+instance (`cmd/arizuko/README.md`).
 
 ### A shared server for several instances
 

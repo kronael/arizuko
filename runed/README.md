@@ -35,7 +35,7 @@ exposes only the `audit` read path (emitted also for aggregator uniformity).
 There is no migration set. Each is an objstore ENTITY, declared beside the code
 that reads it — `runed/runstore` for the first three, `audit` for the fourth —
 and created by whichever driver the opener holds, so a second engine is a second
-driver and no handler changes (spec `6/37` step 5). `runed` itself holds no SQL
+driver and no handler changes. `runed` itself holds no SQL
 statement at all, `runstore` included.
 
 Each entity's file states its own COORDINATE and what that choice costs:
@@ -44,6 +44,12 @@ operations address a spawn by run id with no folder in hand and three of them
 are guarded transitions; `session_log` takes the folder and a time key, because
 every read is "the n newest in this folder" and nothing sweeps it; and
 `circuit_breaker` takes the folder as the whole coordinate.
+
+| Entity            | Coordinate                                                          | Attributes                                                                                                                                   |
+| ----------------- | ------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `spawns`          | one constant partition, then the run id                             | folder, topic, container name, `session_log_id`, `session_id`, kind, state, outcome, exit code, steered, created, started and ended instants |
+| `session_log`     | the folder, then the start instant at `core.TS` width plus a suffix | `session_id`, ended instant, result, error, message count                                                                                    |
+| `circuit_breaker` | the folder, as both halves                                          | consecutive failures, the last failure; it survives a restart                                                                                |
 
 ## Entry points
 
