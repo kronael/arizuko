@@ -103,5 +103,4 @@ If it's clearly a typo for a child group, use `delegate_group`; otherwise
 respond as written (it may be an `@mention`, a cross-instance reference
 like `@sloth`, or just prose).
 
-Full reference (operator side): repo `ROUTING.md`. Spec:
-`specs/5/B-route-mode-ingestion.md`.
+Full reference (operator side): repo `ROUTING.md`.

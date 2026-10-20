@@ -191,7 +191,7 @@ one-sentence test:
 
 What is irreplaceable there is one mechanism, not a stack: every web surface is
 scoped by the same folder and the same `acl` rows as the agent (`auth.MatchSlot`,
-per-folder mounts, no parent inheritance — `5/10`). Nextcloud cannot do that
+per-folder mounts, no parent inheritance — `SECURITY.md` § The public and private web trees are separate). Nextcloud cannot do that
 because it has no folder-agent. So the move is **shrink toward off-the-shelf and
 publish the grant-scoped mount contract**, not extract a bundle.
 
@@ -263,8 +263,7 @@ picks channels à la carte, and each fails/scales/reconnects on its own.
 Per commodity part: the incumbent a stranger adopts, and whether it
 carries the folder coordinate. Every row is from the incumbent's docs or
 source; the one README-only row is marked. The orchestration field —
-who else routes agents across tenants — is measured by property in
-[`6/1`](1-adoption-interop.md), not here.
+who else routes agents across tenants — is not measured here.
 
 | Part     | Incumbent to adopt                                                           | License                 | Carries the folder coordinate?                                                                                                                                                                                                                                                             |
 | -------- | ---------------------------------------------------------------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -328,8 +327,7 @@ lives.
 
 ## Ties
 
-`6/1` (adoption — publish the contract, and where the two environment
-contracts are stated) · `5/1` (`authd` standalone) · `5/7` (`proxyd` standalone) ·
+`ARCHITECTURE.md` § Decided, and why (the two published environments) · `5/1` (`authd` standalone) · `5/7` (`proxyd` standalone) ·
 `6/24` (`egress` per-spawn proxy) · [`6/41`](41-qemu-substrate.md) (the VM
 substrate, which makes the KVM half runed's own code)
 · `6/12` (`mcpfw` firewall) · `5/17` (`resreg` two-face) · `5/A`

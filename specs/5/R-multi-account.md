@@ -40,7 +40,7 @@ inbound stamps `messages.source` with the receiving instance's
 (`34-channel-protocol.md` § Outbound and adapter resolution). Registering
 narrower, per-account `jid_prefixes` is the alternative when an adapter's
 platform gives it an account segment to key on
-([`S-jid-format.md`](S-jid-format.md)); today's adapters register the
+(`template/web/pub/arizuko/reference/jid.html`); today's adapters register the
 broad platform prefix and rely on `source`.
 
 Nothing tells the agent which account it is on. If that becomes needed,

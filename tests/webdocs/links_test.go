@@ -54,6 +54,26 @@ var (
 // github.com URLs, as prose, or as both.
 const specsDir = "../../specs"
 
+// specCitationExempt lists the pages that may still name a spec, keyed by the
+// path under pubDir/siteRoot. Every other page states its facts and carries no
+// spec path and no spec ID: a spec points at what it changes and nothing
+// points back, so deleting a spec never breaks a page.
+//
+// changelog/index.html is a record of what was true when it was written.
+// strategy/index.html and research/index.html wait on owner decision D-1 and
+// leave this list when it is taken.
+var specCitationExempt = map[string]bool{
+	"changelog/index.html": true,
+	"strategy/index.html":  true,
+	"research/index.html":  true,
+}
+
+// citesSpecAllowed reports whether the site file f may name a spec.
+func citesSpecAllowed(f string) bool {
+	rel, err := filepath.Rel(filepath.Join(pubDir, siteRoot), f)
+	return err == nil && specCitationExempt[filepath.ToSlash(rel)]
+}
+
 func htmlFiles(t *testing.T) []string {
 	t.Helper()
 	out := siteFiles(t, ".html")
@@ -177,6 +197,12 @@ func TestWebDocsFragmentsResolve(t *testing.T) {
 // Sixteen were dead when this test was written, one of them cited ten times
 // on a single page (BUGS L220).
 func TestWebDocsSpecPathsResolve(t *testing.T) {
+	// A regex that stops matching passes over every page. Run it over a planted
+	// sample first: the first must match, the second must not.
+	if !specPathRe.MatchString(`<a href="https://github.com/o/r/blob/main/specs/5/17-openapi-mcp.md">`) ||
+		specPathRe.MatchString(`the specs/ directory and the 5/17 handle`) {
+		t.Fatal("specPathRe no longer separates a spec path from prose; the extraction is broken")
+	}
 	checked := 0
 	for _, f := range siteFiles(t, ".html", ".js") {
 		body, err := os.ReadFile(f)
@@ -184,6 +210,11 @@ func TestWebDocsSpecPathsResolve(t *testing.T) {
 			t.Fatalf("read %s: %v", f, err)
 		}
 		for _, m := range specPathRe.FindAllStringSubmatch(string(body), -1) {
+			if !citesSpecAllowed(f) {
+				t.Errorf("%s cites %s — state the fact in the page instead of "+
+					"naming a spec", f, m[0])
+				continue
+			}
 			checked++
 			target := filepath.Join(specsDir, m[1], m[2]+".md")
 			if _, err := os.Stat(target); err != nil {
@@ -192,14 +223,7 @@ func TestWebDocsSpecPathsResolve(t *testing.T) {
 			}
 		}
 	}
-	t.Logf("resolved %d spec paths", checked)
-	// 99 at the C5 docs fold, 69 at C7, 52 at C9, 37 at C13, 35 at C14, 34 at
-	// C15, 33 at C16, 24 at F1, 17 at F2 and 8 at F3; each fold moves spec
-	// links out of the pages. The floor exists so a regex that stops matching
-	// fails loudly instead of passing over nothing; it is not a target.
-	if checked < 8 {
-		t.Fatalf("only %d spec paths found; the extraction is broken", checked)
-	}
+	t.Logf("resolved %d spec paths on exempt pages", checked)
 }
 
 // TestWebDocsSpecIDsResolve covers the shorter form the same pages use —
@@ -212,6 +236,15 @@ func TestWebDocsSpecPathsResolve(t *testing.T) {
 // tests/specrefs: the corpus may cite a phase that is planned and unwritten,
 // but a published page that does so hands its reader a 404.
 func TestWebDocsSpecIDsResolve(t *testing.T) {
+	// Same self-check as the path test, over the three spellings the pages use.
+	for _, sample := range []string{"spec 5/17", "spec&nbsp;5/17", "see Spec: 5/17."} {
+		if !specIDRe.MatchString(sample) {
+			t.Fatalf("specIDRe does not match %q; the extraction is broken", sample)
+		}
+	}
+	if specIDRe.MatchString("chapter 5/17 of the guide, 3/4 of the pages") {
+		t.Fatal("specIDRe matches a plain fraction; the extraction is broken")
+	}
 	checked := 0
 	for _, f := range siteFiles(t, ".html", ".js") {
 		body, err := os.ReadFile(f)
@@ -230,6 +263,11 @@ func TestWebDocsSpecIDsResolve(t *testing.T) {
 				continue
 			}
 			id, phase, num := s[loc[0]:loc[1]], s[loc[2]:loc[3]], s[loc[4]:loc[5]]
+			if !citesSpecAllowed(f) {
+				t.Errorf("%s cites %q — state the fact in the page instead of "+
+					"naming a spec", f, id)
+				continue
+			}
 			checked++
 			hits, err := filepath.Glob(filepath.Join(specsDir, phase, num+"-*.md"))
 			if err != nil {
@@ -241,13 +279,7 @@ func TestWebDocsSpecIDsResolve(t *testing.T) {
 			}
 		}
 	}
-	t.Logf("resolved %d prose spec IDs", checked)
-	// 36 at the C4 docs fold, 26 at C9, 14 at F1, 13 at F2, 11 at F3 and 2 at
-	// F4; each fold moves spec IDs out of the pages, so the floor follows the
-	// count down. Same reasoning as the path floor above.
-	if checked < 2 {
-		t.Fatalf("only %d prose spec IDs found; the extraction is broken", checked)
-	}
+	t.Logf("resolved %d prose spec IDs on exempt pages", checked)
 }
 
 // headOfSpecFilename reports whether the spec ID ending at i is followed by

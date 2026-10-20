@@ -1,6 +1,6 @@
 ---
 status: draft
-depends: specs/5/4-autocalls.md, specs/5/8-yaml-manifests.md, specs/5/17-openapi-mcp.md
+depends: specs/5/8-yaml-manifests.md, specs/5/17-openapi-mcp.md
 ---
 
 # specs/9/7 — Configurable autocalls
@@ -15,7 +15,7 @@ depends: specs/5/4-autocalls.md, specs/5/8-yaml-manifests.md, specs/5/17-openapi
 
 ## Problem
 
-`specs/5/4-autocalls.md` shipped a fixed registry: four pure functions
+The shipped autocalls are a fixed registry (`EXTENDING.md` § Adding an autocall): four pure functions
 (`now`, `instance`, `folder`, `session`) in the `autocalls` slice in
 [`routd/prompt.go`](../../routd/prompt.go), each `func(autocallCtx) string`,
 rendered into `<autocalls>` by `renderAutocalls` and prepended to the prompt
@@ -24,7 +24,7 @@ paths. Adding a fifth fact is
 a code edit + rebuild + redeploy. 31's own "planned extension"
 (`unread` per-JID, `errors` count) is stuck behind that wall.
 
-What 5/4 cannot do:
+What the fixed registry cannot do:
 
 - An operator cannot inject "you have 3 unread in solo/inbox" or
   "siblings: eng, sre, oncall" without a routd code change.
@@ -32,11 +32,11 @@ What 5/4 cannot do:
   (5/8 manifest) — the facts an agent sees aren't operator data,
   they're frozen in the binary.
 - The planned `unread`/`errors` entries imply cheap store reads are
-  acceptable, but 5/4's `AutocallCtx` contract is "no I/O, no
+  acceptable, but the `autocallCtx` contract is "no I/O, no
   locks" — there's no sanctioned path for a fact that needs one
   indexed read.
 
-This is the natural evolution of 5/4's heuristic ("inject the fact
+This is the natural evolution of the autocall heuristic ("inject the fact
 when schema-cost > content-cost") and of phase-8's thesis: **agent is
 data**. What the agent passively sees each turn becomes operator
 config — versioned, gated, projected into the prompt — not a
@@ -44,11 +44,11 @@ hardcoded constant.
 
 ## Decided model
 
-Three decisions, each resolving a tension from 5/4.
+Three decisions, each resolving a tension in the fixed registry.
 
 ### 1. Two classes of autocall — pure and probe-backed
 
-5/4's `AutocallCtx`/`renderAutocalls` are defined "synchronously in
+The `autocallCtx`/`renderAutocalls` pair is defined "synchronously in
 microseconds — no I/O, no locks" (`routd/prompt.go`). Adding
 a fact that reads the store is **not** a compatible extension of that
 contract — it is a deliberate semantic split. This spec REDEFINES the
@@ -340,7 +340,7 @@ blast radius to the budget; ownership caps who can arm it.
 
 ## Render and merge with builtins
 
-One renderer, one sink — unchanged from 5/4. `renderAutocalls`
+One renderer, one sink — unchanged from the fixed registry. `renderAutocalls`
 (`routd/prompt.go` (`renderAutocalls`)) stays the only producer of the
 `<autocalls>` block; `g.autocallsBlock(folder, topic)`
 (`routd/prompt.go` (`autocallsBlock`)) stays the only call site. This spec
@@ -462,7 +462,7 @@ or stale fact (CLAUDE.md: "strict, not magical").
   blocks or fails a turn.
 - **NOT a replacement for MCP tools.** Anything needing args from the
   agent, side effects, on-demand timing, network, or shell is an MCP
-  tool, not an autocall. The autocall niche is unchanged from 5/4:
+  tool, not an autocall. The autocall niche is unchanged:
   always-relevant, small, read-only facts injected without schema cost.
 - **NOT an env-var or file config.** Definitions are business state →
   DB-backed via resreg. Only the budgets are env (`AUTOCALL_*_MS`).
@@ -471,7 +471,7 @@ or stale fact (CLAUDE.md: "strict, not magical").
 
 ## Related
 
-- `specs/5/4-autocalls.md` — the shipped hardcoded registry this
+- `EXTENDING.md` § Adding an autocall — the shipped hardcoded registry this
   generalizes; its planned `unread`/`errors` entries become the first
   two probes here.
 - `specs/5/8-yaml-manifests.md` — the DB-backed resreg substrate;

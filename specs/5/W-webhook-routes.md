@@ -1,7 +1,7 @@
 ---
 status: shipped
 shipped: 2026-05-18
-depends: [Q-unified-routing, S-jid-format, 17-openapi-mcp, 32-acl-unified]
+depends: [Q-unified-routing, 17-openapi-mcp, 32-acl-unified]
 supersedes: [specs/1/W-slink.md]
 ---
 
@@ -53,7 +53,7 @@ once at issue.
   per segment — they become JID path segments, so `/`, whitespace and
   `:` are rejected.
 
-## JID shape (consistent with S-jid-format)
+## JID shape (consistent with the JID format)
 
 - `web:<folder>[/<suffix>]` — anonymous web chat at folder
 - `hook:<folder>/<source>[/<suffix>]` — labeled webhook ingest at folder
@@ -120,7 +120,7 @@ addresses the JID the row RECORDS (a suffixed `web:t/sfx` or a
 context onto the inbound.
 
 Streaming semantics, the hub, and why blocking-poll is a first-class
-dual of SSE rather than a fallback: [`J-sse.md`](J-sse.md).
+dual of SSE rather than a fallback: `webd/README.md` § Live frames: the SSE hub.
 
 ## Link context (axis 3)
 

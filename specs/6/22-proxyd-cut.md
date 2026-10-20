@@ -26,7 +26,7 @@ Four jobs live in one daemon:
 | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | route matching + reverse proxying | commodity. Caddy and Traefik do it, better tested                                                                                                                                                                                    |
 | TLS termination                   | commodity, and Caddy does automatic certs                                                                                                                                                                                            |
-| folder + `acl` scoping            | **irreplaceable** — `auth.MatchSlot`, per-folder mounts, no parent inheritance (`5/10`). No off-the-shelf proxy has a folder-agent                                                                                                   |
+| folder + `acl` scoping            | **irreplaceable** — `auth.MatchSlot`, per-folder mounts, no parent inheritance (`SECURITY.md` § The public and private web trees are separate). No off-the-shelf proxy has a folder-agent                                            |
 | bespoke token handlers            | **misfiled** — `/chat/<token>` and `/hook/<token>` are application surface, not proxying; they live in webd (step 1). The vhost redirect (`worldForHost`/`vhostRedirect`) is not application surface: see "The vhost redirect" below |
 
 ## Step 1 — the misfiled handlers live in webd (2026-08-18)
@@ -361,7 +361,7 @@ answers over HTTP instead of living inside the proxy.
 ## Ties
 
 `6/16` (the position, and the four-layer map) · `5/7` (proxyd standalone —
-already specs it droppable) · `5/10` (per-folder mounts, no parent
+already specs it droppable) · `SECURITY.md` § The public and private web trees are separate (per-folder mounts, no parent
 inheritance — the irreplaceable mechanism) · `5/W` (the route-token surface
 step 1 consolidates in webd) · BUGS `L45` (routes as rows, step 2's
 prerequisite) · `L44` (packages declare through the manifest) · `L40` (the

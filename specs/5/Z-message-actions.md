@@ -1,7 +1,7 @@
 ---
 status: shipped
 shipped: 2026-05-27
-depends: [C-message-mcp, G-engagement, T-voice-synthesis]
+depends: [C-message-mcp, G-engagement]
 relates-to: [5/17-openapi-mcp]
 ---
 

@@ -274,7 +274,7 @@ High-rate side effect of normal operation → not.**
 - **Cost-log writes** — per-Claude-call, direct store write. Not an
   operator action.
 - **Streaming surfaces** — slink stream, agent live output. Not CRUD; SSE
-  sits next to resreg ([`J-sse.md`](J-sse.md)), never inside it.
+  sits next to resreg (`webd/README.md` § Live frames: the SSE hub), never inside it.
 - **Auth session creation** — minted by `authd`. Substrate, not a tool.
 - **Migrations** — file-driven, run by the owning daemon at startup.
 - **runed run-control** (`/v1/runs*`) — REST-only BY DESIGN: the internal

@@ -1,7 +1,7 @@
 ---
 status: shipped
 shipped: 2026-08-07
-depends: [18-onboarding-model, S-jid-format, 15-surrogate-oauth]
+depends: [18-onboarding-model, 15-surrogate-oauth]
 ---
 
 # specs/5/5 — worlds, agents, sessions
@@ -380,8 +380,8 @@ segment (`web:<world>/<agent>/<session>`) so it becomes a routable address?
 
 **✓ A — `run_id` only, no JID change.** This was filed as an open question;
 R2 answers it. With no `world`/`agent` split there is nothing new for a JID to
-name, so the answer is **no change**, not a deferral. Cost zero, `5/S`
-untouched. A run stays an API object; the routable sub-unit stays the
+name, so the answer is **no change**, not a deferral. Cost zero, the JID format
+untouched (`template/web/pub/arizuko/reference/jid.html`). A run stays an API object; the routable sub-unit stays the
 **topic**, which already exists (`sessions.topic`, `#topic` sticky,
 `chats.sticky_topic`) and is already outside the JID.
 
@@ -390,12 +390,12 @@ Rejected:
 - **B — session as a JID segment:** `groupfolder.JidFolder` returns the
   **whole** rest for `web:` (`groupfolder/folder.go:90`) because a folder may
   itself contain `/`, so a trailing session segment requires teaching every
-  `web:` JID where the folder stops — exactly the token-vs-sub split `5/S`
-  **deliberately deferred** ("`web:` stays folder-keyed… deferred until the
-  web stack itself splits them"). Plus a migration of
+  `web:` JID where the folder stops — exactly the token-vs-sub split the JID format
+  **deliberately deferred** (`web:` stays folder-keyed until the
+  web stack itself splits them). Plus a migration of
   `messages.chat_jid`/`sender`, `chats.jid`, `user_jids.jid`, `acl` scope
   globs and every `chat_jid=web:*` route predicate — the 0042/0043 cutover
-  shape again. **Recorded as gated on `5/S`**, not on this spec: B needs
+  shape again. **Recorded as gated on the JID format**, not on this spec: B needs
   `W-webhook-routes` to split route-token routing from JWT identity first.
 - **C — promote **topic** into the JID instead:** pays B's `web:` split cost
   for a unit that works fine outside the JID today, and still does not make
@@ -463,7 +463,7 @@ collaboration is disallowed by design: worlds are isolation boundaries.
 
 ## Ties
 
-`5/18` onboarding · `5/31` pairing · `5/S` JID · `5/15` surrogate OAuth ·
+`5/18` onboarding · `5/31` pairing · the JID format (`template/web/pub/arizuko/reference/jid.html`) · `5/15` surrogate OAuth ·
 `5/17` one handler, two faces · `5/32`+`5/33` grants · `5/P` runed
 sessions/spawns · `5/21` products (`draft`) · `5/8` export/apply ·
 `5/28` packages · `5/14` credentials · `6/39` the gateway owns spend ·

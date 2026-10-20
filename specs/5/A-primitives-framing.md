@@ -3,7 +3,6 @@ status: shipped
 depends:
   [
     17-openapi-mcp,
-    D-docs-refs-redesign,
     Q-unified-routing,
     E-routd,
     P-runed,

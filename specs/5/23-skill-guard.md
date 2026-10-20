@@ -77,7 +77,6 @@ containment boundary, and `SECURITY.md` says so.
 
 Deliberately NOT in scope: memory/USER.md tools (Claude Code reads
 CLAUDE.md already), a `skill_manage` MCP tool (Write/Edit suffice), a
-post-turn review thread (doesn't fit the ephemeral-container model — see
-[13/8-self-eval-skill.md](22-self-learning.md)), AST scanning,
-trust tiers, and learning loops ([22-self-learning.md](22-self-learning.md)
+post-turn review thread (doesn't fit the ephemeral-container model), AST scanning,
+trust tiers, and learning loops (`ARCHITECTURE.md` § Decided, and why
 — different concern, different lifecycle).

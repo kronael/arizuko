@@ -77,7 +77,7 @@ notification → adapter → routd (stored, verb per §"Inbound verbs") → rout
 Whether the agent engages is the route's and the agent's decision, not the
 adapter's. Nothing ships a triage skill: a social route defaults to the same
 always-engage path a chat route takes, and the operator narrows it with the
-route table (`5/B`) or the persona.
+route table (`ROUTING.md` § The route table sends a message to the first matching rule) or the persona.
 
 ### 2. Minimal context in payload
 

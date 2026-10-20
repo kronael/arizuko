@@ -3,12 +3,10 @@ status: shipped
 depends:
   [
     Q-unified-routing,
-    B-route-mode-ingestion,
     F-topic-lineage,
     G-engagement,
     L-mention-promotion,
     W-webhook-routes,
-    S-jid-format,
     1-auth-standalone,
     17-openapi-mcp,
   ]
@@ -62,7 +60,7 @@ The tables and who else reads them:
 | `groups`                            | folder = identity; `container_config`/`model` opaque, forwarded to runed                 |
 | `chats`                             | per-chat `agent_cursor`, sticky group/topic pins                                         |
 | `messages`                          | the single event log; routd's in-memory index over it backs `find_messages` (5/C)        |
-| `routes`                            | the route table (5/B, 5/Q)                                                               |
+| `routes`                            | the route table (5/Q)                                                                    |
 | `sessions`                          | per-`(folder, topic)` session id, fork lineage, observed cursor (5/F)                    |
 | `chat_reply_state`                  | thread anchor + engagement deadline (5/G)                                                |
 | `turn_context` / `turn_results`     | turn binding + the submit_turn idempotency ledger                                        |
@@ -164,7 +162,7 @@ is a future spec.
   pre-`PutMessage` claim with an empty folder makes `Engaged` return
   `("", true)` and misroute. routd claims at dispatch, with the resolved
   folder.
-- **Observed-cursor advance** (5/B, 5/F) is per-`(folder, topic)`,
+- **Observed-cursor advance** (5/F) is per-`(folder, topic)`,
   written during prompt construction, **not** transactional with the run.
   At-least-once: a crash may re-show an observed message next turn
   (benign — the prompt rule says don't act on observed).

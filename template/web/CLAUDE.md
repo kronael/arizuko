@@ -69,8 +69,8 @@ pub/arizuko/
   index.html      landing — what arizuko is, quick start
   products/       one directory per product: index.html (the pitch) + setup.html
   components/     one page per daemon, plus channels.html for the adapter set
-  concepts/       EXPLANATION — guided walkthrough, curriculum-ordered (spec
-                  5/D); the narrative twin of a reference noun
+  concepts/       EXPLANATION — guided walkthrough, curriculum-ordered;
+                  the narrative twin of a reference noun
   reference/      LOOKUP — env vars, CLI, MCP tools, store tables, grants,
                   JIDs, OpenAPI, packages, route tokens, topics
   howto/          guided procedures, product-branded
@@ -338,7 +338,7 @@ query to the same chat. A page never adds a search widget of its own.
 ## Maintenance — keep docs current (same-commit rule)
 
 Docs are part of a change, not a later chore. **When you change a
-surface, update its page in the same commit.** Spec: `specs/5/D`.
+surface, update its page in the same commit.**
 
 | You changed…                    | Update…                                                                                                                   |
 | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
@@ -384,7 +384,7 @@ skipped anyway — six shipped products had no page and four pages had no tree
 2. Add a row to `pub/components/index.html`
 3. Link from `pub/reference/env.html` in the daemon's env var section
 
-## concepts/ ↔ reference split (spec 5/D)
+## concepts/ ↔ reference split
 
 `concepts/` is NOT dissolved — it is the Explanation **walkthrough**
 (curriculum-ordered, §"Maintenance" Discipline). The ownership rule:

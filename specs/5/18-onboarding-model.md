@@ -2,11 +2,9 @@
 status: shipped
 depends:
   [
-    B-route-mode-ingestion,
     L-mention-promotion,
     G-engagement,
     E-routd,
-    S-jid-format,
     5-worlds-agents-sessions,
     5/32-acl-unified,
     5/33-paths-roles,
@@ -35,7 +33,7 @@ by exactly one explicit act, and neither implies the other:
 | **location** (where) | JID has no route  | a user with routing authority over the target world | a `routes` row → folder  | here   |
 
 An anonymous sender in an unrouted JID yields **nothing** — no turn, no reply,
-no grant. That is structural: routing never consults the ACL (`5/B`), and the
+no grant. That is structural: routing never consults the ACL (`ROUTING.md` § Unrouted chats are held, not delivered), and the
 ACL never creates routes.
 
 **This spec owns the location axis only.** It CONSUMES an authenticated session
@@ -88,7 +86,7 @@ greeting. This is route-table data, not code — a low-precedence
 `platform=telegram → staging#observe` row under the specific `room=` rows.
 
 - **Capture**: every un-promoted chat lands in the staging folder in observe
-  mode — `is_observed=1`, no turn, no reply (`5/B`).
+  mode — `is_observed=1`, no turn, no reply (`ROUTING.md` § A target fragment sets the mode).
 - **Discovery**: staged traffic is read where anything routed is read (dashd,
   `inspect_messages`, the next turn's `<observed>` window). No DB grep.
 - **Precedence** is plain `seq` ordering, first match wins; promotion inserts a
@@ -341,7 +339,7 @@ create` seeds none, so shipping it would have turned every existing
 
 ## Consolidates
 
-Canonical umbrella for the onboarding narrative; nothing is superseded. `5/B`
+Canonical umbrella for the onboarding narrative; nothing is superseded. `ROUTING.md`
 (`#observe`), `5/L`/`5/G` (mention promotion, engagement), `5/E` (route-miss
 hook), `5/32`+`5/33` (grant vocabulary), `5/5` (invites, gates, the world
 roster this routes into), `5/31` (pairing — onboarding redeems the bridge

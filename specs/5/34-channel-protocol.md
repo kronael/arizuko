@@ -235,7 +235,7 @@ lookup. Retired in v0.28.0 (dropped in migration 0065) — the in-memory
 
 A route target is `folder[#fragment]` (`core.ParseRouteTarget`,
 `core/types.go:107`). The fragment selects mode: `#observe`
-([`B-route-mode-ingestion.md`](B-route-mode-ingestion.md)), `#announce`,
+(`ROUTING.md` § A target fragment sets the mode), `#announce`,
 or anything else as a topic pin. There are no `folder:`, `daemon:` or
 `builtin:` target prefixes. Slash-commands are dispatched directly by
 `routd/steer.go` and never flow through routes. Resolution itself is
@@ -261,6 +261,6 @@ design is compatible.
 ## Related
 
 - Multi-account adapters: [`R-multi-account.md`](R-multi-account.md),
-  [`S-jid-format.md`](S-jid-format.md).
+  `template/web/pub/arizuko/reference/jid.html`.
 - Event types beyond messages get their own endpoint when needed; there
   is deliberately no generic `/v1/events`.

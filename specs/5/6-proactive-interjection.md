@@ -27,7 +27,7 @@ both operator surfaces are complete, not that it is running anywhere.
 subsystem.** The same concrete decision already promotes a mention,
 sustains an engagement window ([`G-engagement.md`](G-engagement.md)), and
 drops an `#observe` message without firing
-([`B-route-mode-ingestion.md`](B-route-mode-ingestion.md)). Proactive is
+(`ROUTING.md` § A target fragment sets the mode). Proactive is
 silence-driven where those are message-driven, so it needs a clock —
 otherwise it is just another input.
 
@@ -51,7 +51,7 @@ turn (`QuietHours` → `BotQuiet` → `RecentActivity`, `proactive.go:246`);
 then at least one positive signal must arm it. v1 ships exactly one
 signal, `UnansweredQuestion`. New signals join the list. A score-sum
 would re-create the per-route weighted `impulse_config` engine this repo
-deleted (`B-route-mode-ingestion`), which is the whole reason the gate is
+deleted, which is the whole reason the gate is
 concrete.
 
 **Cooldown is mandatory and 24h, per chat.** State-reactive auto-firing

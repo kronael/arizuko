@@ -131,8 +131,7 @@ similar, resolved at seed time by `container/runner.go` (group setup).
   whether the gateway's tag index takes one value per chat jid unbounded over
   an instance's life. A fourth coordinate is an amendment to a shipped spec,
   so it is a decision before it is work.
-- **JID model evolution** — four debts queued in
-  `specs/5/S-jid-format.md` ("Adjacent open evolution work"): chat-jid
+- **JID model evolution** — four debts queued: chat-jid
   vs user-jid as distinct types, unified struct representation
   (string-prefix → typed), consistent `<resource>/<id>` naming across
   platforms (kill `t1_/t2_/t3_/t4_`), guild always in Discord JID. Pick
