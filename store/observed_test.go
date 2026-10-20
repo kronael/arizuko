@@ -182,3 +182,37 @@ func TestObservedTail_CharCap(t *testing.T) {
 		t.Errorf("char-cap kept = %s, want c (newest)", out[0].ID)
 	}
 }
+
+// A scheduled task's prompt row is observed context for the folder but never
+// belongs in another chat's window: it takes slots the conversation needs.
+func TestObservedSince_DropsScheduledTaskPrompts(t *testing.T) {
+	s, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	folder := "rhias/nemo"
+	now := time.Now().UTC()
+	observe(t, s, folder, core.Message{
+		ID: "sched-task-1775980588348-3ca099e8@2026-10-16T12:00:00Z", ChatJID: "telegram:group/5229089286",
+		Sender: "timed", Content: "Run /nemo skill", Timestamp: now.Add(-3 * time.Minute), Verb: "message",
+	})
+	observe(t, s, folder, core.Message{
+		ID: "sched-task-iso", ChatJID: "telegram:group/5229089286",
+		Sender: core.IsolatedSenderPrefix + "task-2", Content: "Run Lisbon research",
+		Timestamp: now.Add(-2 * time.Minute), Verb: "message",
+	})
+	observe(t, s, folder, core.Message{
+		ID: "live-1", ChatJID: "telegram:group/1004358948112", Sender: "bob", Name: "bob",
+		Content: "live conversation", Timestamp: now.Add(-time.Minute), Verb: "message",
+	})
+
+	got, err := s.ObservedSince(context.Background(), folder, "", 10, 4000, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].ID != "live-1" {
+		t.Fatalf("observed window = %v, want only live-1", got)
+	}
+}

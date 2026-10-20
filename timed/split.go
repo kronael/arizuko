@@ -197,7 +197,7 @@ func (r *router) fireSplit(ctx context.Context) {
 	defer r.recordTick(len(tasks), nil)
 	for _, t := range tasks {
 		start := time.Now()
-		sender := "timed"
+		sender := core.ScheduledSender
 		if t.ContextMode == "isolated" {
 			sender = "timed-isolated:" + t.ID
 		}

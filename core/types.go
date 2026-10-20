@@ -68,6 +68,13 @@ const IsolatedSenderPrefix = "timed-isolated:"
 // IsIsolatedSender reports whether a sender or trigger names an isolated run.
 func IsIsolatedSender(s string) bool { return strings.HasPrefix(s, IsolatedSenderPrefix) }
 
+// ScheduledSender is the sender of a group-context scheduled task's prompt row.
+const ScheduledSender = "timed"
+
+// IsScheduledSender reports whether a sender is a scheduled task's prompt, in
+// either context mode.
+func IsScheduledSender(s string) bool { return s == ScheduledSender || IsIsolatedSender(s) }
+
 type Group struct {
 	Folder  string
 	AddedAt time.Time

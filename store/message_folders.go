@@ -278,7 +278,7 @@ const observedFetchFactor = 3
 //
 // THE CURSOR IS A BARE INSTANT and stays one: the read takes the NEWEST
 // window, so a cut can only fall at the old end and the newest rendered
-// message is always whole. Isolated scheduled runs are excluded: their rows
+// message is always whole. Scheduled-task prompts are excluded: their rows
 // land routed_to the folder with is_observed=1, and serving them back to every
 // topic re-opened the hole BUGS L54 closed through a second door.
 func (s *Store) ObservedSince(ctx context.Context, folder, cursor string, maxMsgs,
@@ -329,7 +329,7 @@ func (s *Store) ObservedSince(ctx context.Context, folder, cursor string, maxMsg
 		if len(out) >= maxMsgs {
 			break
 		}
-		if core.IsIsolatedSender(it.Attrs[attrFeedSender]) {
+		if core.IsScheduledSender(it.Attrs[attrFeedSender]) {
 			continue
 		}
 		m, ok, err := s.messageBehind(ctx, it)
