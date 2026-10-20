@@ -639,7 +639,34 @@ For background operation:
 
 ```bash
 ./arizuko run <name> &      # background with job control
-# OR create a systemd unit (see Troubleshooting)
+# OR create a systemd unit (see Run under systemd)
+```
+
+### Run under systemd
+
+systemd keeps `arizuko run` up and sends its output to the journal:
+
+```bash
+sudo tee /etc/systemd/system/arizuko_<name>.service <<EOF
+[Unit]
+Description=arizuko <name>
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+WorkingDirectory=/srv/data/arizuko_<name>
+ExecStart=/path/to/arizuko run <name>
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl enable --now arizuko_<name>
+sudo systemctl status arizuko_<name>
+sudo journalctl -u arizuko_<name> -f
 ```
 
 ## Verify
@@ -673,7 +700,7 @@ N precondition(s) missing:` and lists every one at once — a missing
    `/dev/kvm`, an unset `RUNED_KERNEL_DIR`/`RUNED_ROOTFS_DIR`, a missing
    `egress`/`iptables`/`ip` binary, or the kernel/rootfs artifacts not yet
    built. Fix the named ones and restart; a fix for one item never masks the
-   others (spec `6/41`; `runed/qemuhost.go` `qemuPreconditions`).
+   others (`runed/qemuhost.go` `qemuPreconditions`).
 2. **Adapter disconnected.** `docker ps` shows `(unhealthy)`, or its
    `/health` returns 503 `{status:"disconnected"}` while the process is up
    (whapd waiting for a QR scan, a stream dropped). Check the adapter's
@@ -683,63 +710,14 @@ N precondition(s) missing:` and lists every one at once — a missing
    `sudo journalctl -u arizuko_<name> --since "10 min ago" | grep -viE health`
 4. **A turn fails to start** in runed's own logs — `turn did not start` names
    the folder, the handle and the reason (a `virtiofsd`/tap/proxy start
-   failure) — see below.
+   failure). An image without `iptables`, `iproute2` or the `egress` binary
+   causes it: rebuild with `sudo make images DATA_DIR=...`.
 
-The docker log driver is `none`: read `journalctl -u arizuko_<name>`, never
-`docker logs`.
+Read `journalctl -u arizuko_<name>`, never `docker logs`: a host whose
+Docker log driver is `none` answers `docker logs` with nothing on stdout.
 
-**runed logs "this host cannot run turns":**
-One or more preconditions above are missing; the message lists all of them.
-Rebuild the kernel/rootfs if named: `sudo make kernel DATA_DIR=...` /
-`sudo make images DATA_DIR=...`, and confirm `RUNED_KERNEL_DIR` /
-`RUNED_ROOTFS_DIR` in `.env` point at the resulting directories.
-
-**A turn fails with `virtiofsd`/tap/proxy errors:**
-Image/compose mismatch, or the `arizuko` image is missing `iptables`,
-`iproute2` or the `egress` binary. Rebuild: `sudo make images DATA_DIR=...`
-
-**Adapter shows `(unhealthy)`:**
-Platform credentials wrong or expired. Check adapter-specific logs.
-
-**The instance restart-loops after `packages add`:** two containers up out of
-fifteen, `systemctl is-active` says `activating`, and the journal shows
-`dynstore: endpoint "https://extenddb:18443" takes an access key and a secret`
-from the daemon you enabled. It has the server's address and no key. Recover
-with `./arizuko packages <name> remove <pkg>`, `./arizuko generate <name>`,
-restart; then mint the key (§ The per-daemon store keys) and enable it again.
-
-**Permission denied on /srv/data:**
-Either chown it or set `PREFIX` env var before all commands.
-
-**Permission denied on docker socket:**
-Add user to docker group or run with sudo (see Docker socket access above).
-
-**Running as a systemd service:**
-
-If you want `arizuko run` managed by systemd instead of foreground:
-
-```bash
-sudo tee /etc/systemd/system/arizuko_<name>.service <<EOF
-[Unit]
-Description=arizuko <name>
-After=docker.service
-Requires=docker.service
-
-[Service]
-Type=simple
-WorkingDirectory=/srv/data/arizuko_<name>
-ExecStart=/path/to/arizuko run <name>
-Restart=on-failure
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-sudo systemctl daemon-reload
-sudo systemctl enable --now arizuko_<name>
-sudo systemctl status arizuko_<name>
-sudo journalctl -u arizuko_<name> -f
-```
+Every other incident, with the line to read, the cause and the fix, is in
+[howto/operate.html](template/web/pub/arizuko/howto/operate.html).
 
 ## Quick reference
 

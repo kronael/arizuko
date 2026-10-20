@@ -19,6 +19,7 @@
         <li><a class="nav-section" href="./">How-to</a>
           <ul class="nav-children">
             <li><a href="./">Getting started</a></li>
+            <li><a href="operate.html">Operate</a></li>
             <li><a href="talking-to-agents.html">Talking to agents</a></li>
             <li><a href="build-a-product.html">Build a product</a></li>
             <li><a href="slack.html">Slack</a></li>
@@ -142,6 +143,7 @@ cd -
       <li><code>staging tree: mount source</code> &mdash; a path the turn mounts that <code>runed</code> itself cannot open.</li>
       <li><code>circuit breaker open</code> &mdash; one folder failed too many turns in a row.</li>
     </ul>
+    <p>When it goes quiet later, <a href="operate.html">[Operate]</a> walks the message down the path and lists each incident with its fix.</p>
 
     <h2>9. Back up and restore the setup</h2>
     <p>An agent is data, so the configuration is too. Export the whole instance config to one YAML manifest, keep it in git as a backup, and re-apply it to rebuild &mdash; on this host or another.</p>
@@ -168,6 +170,7 @@ arizuko apply demo demo.yaml        # apply the manifest back</code></pre>
 
     <p>More guides:</p>
     <ul>
+      <li><a href="../howto/operate.html">When it goes quiet, where to look</a> &mdash; logs, the message path, one fix per incident.</li>
       <li><a href="../howto/talking-to-agents.html">Talking to agents</a> &mdash; mentions, slash commands, sticky routing, MCP tools.</li>
       <li><a href="../howto/build-a-product.html">Build a product</a> &mdash; one directory of files, applied to a group; what transforms and what is refused.</li>
       <li><a href="../howto/chat-link.html">Put a chat link on your site</a> &mdash; visitor chat via <code>/chat/&lt;token&gt;/</code>.</li>
@@ -193,7 +196,7 @@ arizuko apply demo demo.yaml        # apply the manifest back</code></pre>
 
 
       <nav class="docs-pager" aria-label="Pager">
-        <a rel="next" href="talking-to-agents.html">Talking to agents &rarr;</a>
+        <a rel="next" href="operate.html">Operate &rarr;</a>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/howto/index.html">Edit this page</a>
