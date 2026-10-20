@@ -1,7 +1,6 @@
 # authd
 
 ES256 token authority: the sole platform-token signer + JWKS publisher.
-Spec: [`specs/5/1-auth-standalone.md`](../specs/5/1-auth-standalone.md).
 
 ## Purpose
 
@@ -9,7 +8,12 @@ Separate daemon that owns the signing keypair and mints every platform
 token. Backends never sign — they fetch authd's public JWKS and verify
 locally via `auth.VerifyToken` (the `auth/` library). authd also acts as
 the OAuth provider (GitHub/Google/Discord/Telegram widget), exchanging a
-successful login for an ES256 access + refresh token. Spec: `specs/5/1`.
+successful login for an ES256 access + refresh token.
+
+One signer and offline verifiers is the whole design. Verification is a
+pure function with no per-request hop, so an authd outage does not stop
+tokens already issued, and the one signer is the one place to rotate or
+revoke a key.
 
 ## Responsibilities
 
@@ -69,12 +73,11 @@ Two of the six carry an invariant a column could not:
   - `POST /v1/service-token` — daemon service-key exchange
   - `POST /v1/refresh` — rotate refresh token
   - `GET /v1/identities/{sub}` — identity resolution (bearer-gated, `identity:read`)
-  - `GET /v1/audit` — authd's own `audit_log` (bearer-gated, `audit:read`;
-    spec `5/I`). Operator-only in effect: `audit:read` is a resource:verb scope
+  - `GET /v1/audit` — authd's own `audit_log` (bearer-gated, `audit:read`). Operator-only in effect: `audit:read` is a resource:verb scope
     and a user token carries folder globs, so no human bearer can satisfy it.
     `service:dashd` is the sole holder and `/dash/audit/` is operator-gated.
   - `GET /v1/signing_keys` — signing-key METADATA (bearer-gated,
-    `signing_keys:read`; spec `5/1`). kid, algorithm, `active`, `created_at`,
+    `signing_keys:read`). kid, algorithm, `active`, `created_at`,
     `retired_at` and the derived `serves_until` — the lifecycle the JWK Set
     drops. Never key material: `SigningKeyMetadata` projects exactly
     `created_at` and `retired_at`, so the private half is not in the answer at
@@ -87,11 +90,10 @@ Two of the six carry an invariant a column could not:
     row inside the revoke's own transaction.
   - `GET|POST /dash/authd/` — authd's own operator dashboard: the signing-key
     lifecycle, the login families, and a per-login sign-out. Gated by the
-    proxyd-stamped operator identity, not a bearer (spec `6/30`).
+    proxyd-stamped operator identity, not a bearer.
 
   The sole holder of `signing_keys:read`, `sessions:read` and `sessions:write`
-  is `service:dashd`, which spends them on `/dash/authd/` — the operator
-  cockpit these three exist to feed (`dashd/authd_page.go`). Like `audit:read`,
+  is `service:dashd`. Like `audit:read`,
   none is reachable by a human bearer, and `signing_keys`/`sessions`
   additionally refuse a folder-claimed caller outright: neither table has a
   folder column, so there is no predicate that could contain one.
@@ -121,13 +123,59 @@ Two of the six carry an invariant a column could not:
 - `DEX_ISSUER` + `DEX_CLIENT_ID` (+ `DEX_CLIENT_SECRET`) — mount `/auth/dex`:
   Dex authenticates, authd maps the ID token's `federated_claims` to
   `<connector_id>:<user_id>` and mints the session as for a native provider
-  (spec `6/22` step 4). Unset → unmounted.
+  Unset → unmounted.
 
 ## Token lifetimes
 
-- Access tokens: 15 minutes (hardcoded)
-- Refresh tokens: 30 days (hardcoded)
-- Retired keys verify for max access TTL (1 hour) after retirement
+- Access tokens: 15 minutes (`accessTTL`, hardcoded)
+- Refresh tokens: 30 days (`refreshTTL`, hardcoded)
+- A mint clamps any TTL to `maxAccessTTL`, one hour, and a retired key keeps
+  verifying for that long after retirement
+
+## Keys, mints and logins
+
+- **Keys.** A kid is `<created-unix>-<8 hex>`, and the first boot generates
+  a key. Validity is time-based: a key verifies while it is active or until
+  `retired_at + maxAccessTTL`. There is no revoked flag and no revocation
+  list, because verifiers stay offline. A normal revoke waits out the access
+  TTL; a refresh revoke deletes the family; `RevokeAllNow` backdates the
+  active key's retirement past the window, which signs everyone out at once.
+- **`POST /v1/tokens` has two modes.** Issuer-mint needs `tokens:mint` and a
+  different target sub; the granted scope is bounded by the TARGET's grants,
+  because a login or invite flow mints for an account whose grants the
+  minter does not hold (`403 scope_exceeds_minter`). Every other request is
+  a downscope: same sub, scope a subset of the caller's, folder inside the
+  caller's subtree, TTL clamped to the parent's remaining life
+  (`403 scope_exceeds_parent`). Global `*:*` is refused in both.
+- **Account linking.** `(provider, provider_sub)` belongs to one account.
+  Linking an identity another account owns is a hard fail; accounts are
+  never merged, and there is no auto-link by verified email, because each of
+  those is an account-takeover path. The canonical sub is the first login's
+  `<provider>:<sub>` and never moves, because `acl` rows key on it. There is
+  no unlink. The login a person presented survives only in authd's
+  `audit_log` (`login`), never as a claim, because a claim would vanish on
+  the first refresh.
+- **The login snapshot.** authd reads the scope ceiling from routd
+  (`GRANTS_URL`) at login and refresh. `404 no_grants` gives an empty-scope
+  session that lands on `/onboard`. A 5xx fails the login with `503`, so an
+  outage never looks like an empty session. `GRANTS_URL` unset makes every
+  session empty-scope.
+- **Service bootstrap.** A daemon presents its own `AUTHD_SERVICE_KEY`,
+  and authd compares it in constant time against every entry of
+  `AUTHD_SERVICE_KEYS` (`principal=secret,...`). A
+  leaked key buys one daemon's scoped token (`serviceGrants`); rotating it
+  is regenerate and restart. Adapters exchange as the DAEMON principal
+  (`service:teled`), never as `CHANNEL_NAME`.
+- **The operator reads** `signing_keys` and `sessions` have no MCP face and
+  are not round-tripped by `export` / `apply`, because a key is
+  instance-global and a session is keyed by sub: no folder could contain
+  either.
+- **Hardening.** Cookies carry `Secure` when `AUTH_BASE_URL` is HTTPS. The
+  refresh cookie is `HttpOnly`, `Path=/`, `SameSite=Lax`. Every provider
+  redirect carries a signed CSRF state and PKCE. The Telegram widget refuses
+  an `auth_date` older than 5 minutes. Google takes an optional
+  `GOOGLE_ALLOWED_EMAILS`, GitHub an optional `GITHUB_ALLOWED_ORG`. All
+  providers converge on one `issueSession` path (`oauth.go`).
 
 ## Health signal
 
@@ -137,7 +185,7 @@ whichever this instance is on.
 ## Observability
 
 slog → journald (always on). OTLP export when `OTEL_EXPORTER_OTLP_ENDPOINT` set
-(spec `specs/5/O-observability.md`). Audit events land in authd's own
+(`obs/README.md`). Audit events land in authd's own
 `audit_log` entity (`daemon.start`, `login`, and `sessions:delete` for an
 operator revoke) and are served read-only at `GET /v1/audit`, which
 `/dash/audit/` federates. `params_summary` has exactly one writer,

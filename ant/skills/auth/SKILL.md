@@ -56,11 +56,12 @@ would silently destroy account state).
 
 ## Recovery
 
-- "Account collision" page → user picks: link the new sub to current
-  account, or log out and continue as the other identity.
+- Linking a login another account owns fails outright; accounts never
+  merge. The user logs out and logs in as that other account instead.
 - Lost access to canonical provider → log in with any linked sibling;
   same canonical sub resolves.
 - Wrong account merged → no auto-undo. Operator deletes the
   `oauth_identities` row in `auth.db` if needed.
 
-Spec: `specs/1/f-auth-oauth.md`. Code: `auth/oauth.go`, `auth/collide.go`.
+Facts: `authd/README.md` § Keys, mints and logins. Code: `authd/oauth.go`,
+`authd/authstore/auth_users.go`.

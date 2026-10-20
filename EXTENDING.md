@@ -393,6 +393,10 @@ read as its verdict by routd, from the `Reaction` / `ReplyTo` your adapter
 already delivers — which is how a platform with no button surface still answers
 a prompt. Report a reaction's target the way the others do and it works: the
 lookup takes the last path segment, so `<id>` and `<chat-jid>/<id>` both match.
+A reaction counts only on the notice itself, in its chat, while the call is
+still held; anywhere else it is an ordinary reaction. 👍 and 👎 never count,
+because they are social reactions and reading one as approval is an approval
+nobody gave (`chanlib.VerdictEmoji`).
 
 Generic HTTP webhook ingest is the same path: any caller can POST
 `/v1/messages` with the channel-protocol envelope; route inbound

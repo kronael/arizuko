@@ -67,6 +67,39 @@
 
     <p class="lede">Auth minted the principal; a grant decides what that principal may <em>do</em>. Every permission check asks the same question: <em>may principal P do action A on scope S?</em> &mdash; for example, may <code>google:114alice</code> send a message in <code>eng/oncall</code>? Two tables hold the answer: <code>acl</code> &mdash; ACL, Access Control List, the permission rows &mdash; for the rules, and <code>acl_membership</code> for &ldquo;this id belongs to that group.&rdquo; One <code>auth.Authorize()</code> call walks both. Get those two tables right and there is nothing else to learn.</p>
 
+    <h2>one row, three readers</h2>
+    <p>Here is the whole machine on one page. The caller on the left, the rows on the right, and three functions that read the same rows for three different questions: may this call run, which tools does this turn see, and may this person hand a grant on.</p>
+    <pre id="twin-grants"><code>┌─────────────────────────────────┐   ┌───────────────────────────────────┐
+│ caller                          │   │ acl row                           │
+│ operator REST: the JWT sub      │   │ principal, action, scope,         │
+│ agent socket: the turn's sender │   │ params, predicate, effect,        │
+│ and folder:&lt;turn folder&gt;        │   │ grant_option                      │
+└────────────────┬────────────────┘   └─────────────────┬─────────────────┘
+                 │ expanded through acl_membership,     │
+                 │ transitive: role:member,             │
+                 │ role:operator, roles, the account a  │
+                 │ paired JID acts as                   │
+                 ▼                                      ▼
+┌───────────────────────────────────────────────────────────────────────────┐
+│ the rows that reach the expanded principal set, read on every call        │
+└──────┬─────────────────────────┬─────────────────────────────┬────────────┘
+       ▼                         ▼                             ▼
+┌──────────────────────┐ ┌──────────────────────┐ ┌───────────────────────┐
+│ Authorize            │ │ EffectiveActions     │ │ Delegate              │
+│ the per-call gate:   │ │ tools/list: the      │ │ add_acl: each new row │
+│ scope glob, params,  │ │ action held at any   │ │ a subset of the rows  │
+│ predicate; deny      │ │ scope; a deny row    │ │ held WITH GRANT       │
+│ wins, no row = deny  │ │ hides no tool        │ │ OPTION; never a deny, │
+└──────────────────────┘ └──────────────────────┘ │ never a wildcard      │
+                                                  │ principal             │
+                                                  └───────────────────────┘
+┌───────────────────────────────────────────────────────────────────────────┐
+│ AuthorizeTurn, the agent socket's two axes. Route: folder:&lt;turn folder&gt;   │
+│ and its roles confer in full. Identity: the sender and its roles add an   │
+│ allow only inside the turn folder's subtree, on the exact action, with no │
+│ lattice. A deny counts on both axes, everywhere.                          │
+└───────────────────────────────────────────────────────────────────────────┘</code></pre>
+
     <h2>the four words</h2>
     <p>Four words name everything in that question. Get these right and the rest is rows.</p>
     <ul>
@@ -80,54 +113,49 @@
     <p>Actions imply each other. If you have <code>*</code>, you have <code>admin</code>; if you have <code>admin</code>, you have <code>interact</code> and every <code>mcp:&lt;tool&gt;</code>. So a single <code>admin</code> row on a folder covers every tool call inside it &mdash; you do not list them one by one. One matching <code>deny</code> stops the check, even when other rows would allow it. The full principal shapes, the action lattice, and the two seeded roles are tabulated in <a href="../reference/grants.html">reference / grants</a>; here we stay with the four words and some real rows.</p>
 
     <h2>three rows, three real patterns</h2>
-    <p>Each row below is something you would actually insert.</p>
+    <p>Each row below is something you would actually write. The CLI form is <code>arizuko group &lt;instance&gt; grant &lt;principal&gt; &lt;scope&gt; [action]</code>; the action defaults to <code>admin</code>.</p>
 
     <p><strong>1. Alice can talk in her own folder.</strong></p>
-    <pre><code>INSERT INTO acl (principal, action, scope, granted_at) VALUES
-  ('google:114alice', 'interact', 'alice', now());</code></pre>
+    <pre><code>principal: google:114alice   action: interact   scope: alice</code></pre>
 
     <p><strong>2. The eng folder admin manages the whole subtree.</strong> The glob <code>eng/**</code> matches <code>eng</code>, <code>eng/sre</code>, <code>eng/sre/oncall</code>, and so on.</p>
-    <pre><code>INSERT INTO acl (principal, action, scope, granted_at) VALUES
-  ('google:114alice', 'admin', 'eng/**', now());</code></pre>
+    <pre><code>principal: google:114alice   action: admin   scope: eng/**</code></pre>
 
     <p><strong>3. Ban one user globally.</strong> A deny row at scope <code>**</code> beats every allow.</p>
-    <pre><code>INSERT INTO acl (principal, action, scope, effect, granted_at) VALUES
-  ('discord:user/badguy', '*', '**', 'deny', now());</code></pre>
+    <pre><code>principal: discord:user/badguy   action: *   scope: **   effect: deny</code></pre>
 
-    <p>The same shape grants a whole channel at once: make the <em>room</em> the principal (<code>discord:837&hellip;/channel/1504&hellip;</code> with <code>interact</code> on <code>main/lab</code>) and everyone who joins the room picks up the grant for free. Each row has a one-line <code>arizuko grants add &hellip;</code> CLI equivalent &mdash; full syntax in <a href="../reference/grants.html">reference / grants</a>.</p>
+    <p>The same shape grants a whole channel at once: make the <em>room</em> the principal (<code>discord:837&hellip;/channel/1504&hellip;</code> with <code>interact</code> on <code>main/lab</code>) and everyone who joins the room picks up the grant for free. Full syntax in <a href="../reference/grants.html">reference / grants</a>.</p>
 
     <h2>roles &mdash; one indirection, many members</h2>
-    <p>When the same permission set should apply to several people, you do not copy the row. You make a role, grant the role, and add members. Two tables, two operations.</p>
-    <pre><code>-- Define the role: editors may admin the docs subtree.
-INSERT INTO acl (principal, action, scope, granted_at) VALUES
-  ('role:editor', 'admin', 'docs/**', now());
-
--- Bind alice to the role.
-INSERT INTO acl_membership (child, parent, added_at) VALUES
-  ('google:114alice', 'role:editor', now());</code></pre>
-    <p>Adding a second editor &mdash; one more <code>acl_membership</code> row. Granting editors a new scope &mdash; one more <code>acl</code> row. Roles can contain roles: <code>acl_membership(role:senior-editor, role:editor)</code> works the same way.</p>
+    <p>When the same permission set should apply to several people, you do not copy the row. You make a role, grant the role, and add members: one <code>acl</code> row for the role, one <code>acl_membership</code> edge per member. Both travel in a manifest through <code>arizuko apply</code>.</p>
+    <pre><code>acl:             principal: role:editor   action: admin   scope: docs/**
+acl_membership:  child: google:114alice   parent: role:editor</code></pre>
+    <p>Adding a second editor &mdash; one more edge. Granting editors a new scope &mdash; one more <code>acl</code> row. Roles can contain roles: <code>role:senior-editor</code> as a child of <code>role:editor</code> works the same way. A write that would make a principal its own ancestor is refused, so the walk always ends.</p>
 
     <h2>claiming a channel identity</h2>
-    <p>Alice posts in Discord as <code>discord:user/811&hellip;</code>. Later she logs in via Google. The OAuth callback writes one membership edge:</p>
-    <pre><code>INSERT INTO acl_membership (child, parent, added_at) VALUES
-  ('discord:user/811...', 'google:114alice', now());</code></pre>
-    <p>That edge <em>is</em> the claim. The next Discord message from her expands to include the canonical sub; any grants on <code>google:114alice</code> apply automatically. No <code>acl</code> row gets rewritten, no migration runs &mdash; the channel-side id keeps working.</p>
+    <p>Alice posts in Discord as <code>discord:user/811&hellip;</code>. She also has a Google login. The agent hands her a pairing link; she opens it in a browser, logged in as Google, and confirms. That writes one membership edge:</p>
+    <pre><code>acl_membership:  child: discord:user/811...   parent: google:114alice   added_by: pairing</code></pre>
+    <p>That edge <em>is</em> the claim, and only Alice's browser confirm can write it. The next Discord message from her expands to include the canonical sub; any grants on <code>google:114alice</code> apply automatically. No <code>acl</code> row gets rewritten, no migration runs &mdash; the channel-side id keeps working.</p>
+
+    <h2>the person talking does not lend the agent their power</h2>
+    <p>On the agent's socket a turn has two principals: the folder it runs in, and the person who sent the message. The folder's grants count everywhere they reach. The sender's grants count only inside that folder's subtree, and only on the exact action. Why so stingy? Because otherwise an operator chatting in a team room would quietly hand that room's agent the operator's reach &mdash; and anyone who could get the operator to say something there could borrow it. A deny counts on both, so a person's deny still refuses the turn they triggered.</p>
 
     <h2>where the check runs</h2>
     <p>Every gate asks the same question &mdash; may this principal do this action on this scope? A message wanting into a folder hits a gate once; a tool call leaving that folder hits one again. The two faces share the handler, the folder-containment rule, and the check itself. An operator&rsquo;s REST call and an agent&rsquo;s MCP call both land in <code>auth.Authorize</code>, over the same <code>acl</code> rows; what differs is only where the principal came from &mdash; a JWT subject on one side, the socket&rsquo;s folder on the other. There is no second mechanism for agents and no default derived from where a folder sits. The full call signature lives in <a href="../reference/grants.html">reference / grants</a>.</p>
 
-    <p><strong>A subagent holds exactly what its parent holds.</strong> When an agent spawns a Claude Code subagent inside its turn, the subagent talks over the same unix socket, so the gate sees the same principal and answers the same way. There is no narrower set for a narrower job: a subagent spawned to summarise one file can still call every tool the parent can, secrets and outbound requests included. That is deliberate &mdash; the socket is the boundary, and a second socket would be a second answer to the same question. Scope the <em>parent</em> folder to what you are willing to let a subagent do, not just what the agent itself needs. Decision and reasoning: <a href="https://github.com/kronael/arizuko/blob/main/specs/5/5-worlds-agents-sessions.md">specs/5/5</a> R4.</p>
+    <p><strong>A subagent holds exactly what its parent holds.</strong> When an agent spawns a Claude Code subagent inside its turn, the subagent talks over the same unix socket, so the gate sees the same principal and answers the same way. There is no narrower set for a narrower job: a subagent spawned to summarise one file can still call every tool the parent can, secrets and outbound requests included. That is deliberate &mdash; the socket is the boundary, and a second socket would be a second answer to the same question. Scope the <em>parent</em> folder to what you are willing to let a subagent do, not just what the agent itself needs.</p>
 
     <h2>don't do this</h2>
     <ul>
       <li><strong>Don't insert deny rows to "take back" access.</strong> Remove the allow row or the membership edge instead. Denies are for true exceptions &mdash; banning one user from an otherwise-open channel &mdash; not for undoing yesterday's grant.</li>
       <li><strong>Don't grant <code>admin</code> with a params predicate.</strong> Admin means full write at scope. Conditional admin is surprising. Use <code>mcp:&lt;tool&gt;</code> with params when you want a narrow capability.</li>
       <li><strong>Don't put routing into ACL.</strong> The <code>routes</code> table answers "where does this message land." <code>acl</code> answers "may this principal act here." They share the principal namespace for room ids but never merge.</li>
-      <li><strong>Don't bypass roles for operators.</strong> The first operator is bound by one <code>acl_membership(sub, role:operator)</code> edge at <code>arizuko create</code>. Adding more operators is another membership row &mdash; not a fresh wildcard grant each time.</li>
+      <li><strong>Don't bypass roles for operators.</strong> <code>arizuko group &lt;instance&gt; grant &lt;sub&gt; '**'</code> makes someone an operator by adding them to <code>role:operator</code>. Adding more operators is another membership edge &mdash; not a fresh wildcard grant each time.</li>
+      <li><strong>Don't put a predicate on a <code>folder:</code> principal.</strong> The agent's socket carries no login claims, so the row can never match. Put the predicate on a user principal instead.</li>
     </ul>
 
     <h2>where to go next</h2>
-    <p>Canonical spec with the full schema and evaluation algorithm: <a href="https://github.com/kronael/arizuko/blob/main/specs/5/32-acl-unified.md">specs/5/32-acl-unified.md</a>. Rule-syntax reference: <a href="../reference/grants.html">reference / grants</a>. For where principals come from in the first place, see <a href="../concepts/auth.html">auth</a>.</p>
+    <p>Every rule behind the figure: <a href="https://github.com/kronael/arizuko/blob/main/auth/README.md">auth/README.md</a>. Rule-syntax reference: <a href="../reference/grants.html">reference / grants</a>. For where principals come from in the first place, see <a href="../concepts/auth.html">auth</a>.</p>
 
       <nav class="docs-pager" aria-label="Pager">
         <a rel="prev" href="auth.html">&larr; Auth</a>

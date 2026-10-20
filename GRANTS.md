@@ -32,32 +32,24 @@ A channel identity (`telegram:user/123`) never appears in `acl`. It
 acquires authority only by becoming a member of an account that has
 some — the `acl_membership` edge — and the only way to write that edge
 is identity pairing, where the account owner confirms in a browser
-(`specs/5/31-identity-pairing.md`, threat model in `SECURITY.md`
-§"Pairing: consent is the boundary").
+(threat model in `SECURITY.md` § Pairing: consent is the boundary).
 
-## Canonical sources
+## Where each fact lives
 
-- **Model**: [`specs/5/33-paths-roles.md`](specs/5/33-paths-roles.md) —
-  what an identity carries, where default power comes from, how
-  authority moves between principals.
-- **Row + evaluator**: [`specs/5/32-acl-unified.md`](specs/5/32-acl-unified.md) —
-  principal namespace, action lattice, evaluation order, bootstrap, audit.
+- **The model, the figure and every rule**:
+  [`auth/README.md` § Authorization is one row and one
+  question](auth/README.md#authorization-is-one-row-and-one-question) —
+  the row, the three readers, the agent socket's two axes, exact-match
+  readers, the magnitude gate.
+- **The trust model**: [`SECURITY.md` § The sender cannot lend the agent
+  authority](SECURITY.md#the-sender-cannot-lend-the-agent-authority) and
+  § Pairing: consent is the boundary.
+- **The operator's row reference**:
+  `template/web/pub/arizuko/reference/grants.html` — lattice, params and
+  predicates, holds and `/always`, delegation, worked examples.
 - **Operator concepts**: `template/web/pub/arizuko/concepts/grants.html` —
-  patterns (user-bot, channel-bot, hybrid), examples, anti-patterns.
+  patterns (user-bot, channel-bot, hybrid) and anti-patterns.
 - **Code**: `auth/authorize.go` (the single entry point),
   `auth/delegate.go` (`Delegate`, subset-of-held), `auth/acl.go`,
   `store/acl.go`, `store/membership.go`, and `store/seed.go`
   (`SeedRoutdFloor`, the seeded `role:member` and `role:operator` rows).
-
-## Related specs
-
-- `specs/4/19-action-grants.md` — rule grammar (`!send`,
-  `send(jid=telegram:*)`) used in a row's `params` predicates.
-- `specs/5/17-openapi-mcp.md` — the injected `Gate` at each resource
-  site; `resreg` carries no auth policy of its own.
-- `specs/5/31-identity-pairing.md` — how a channel identity gets an
-  `acl_membership` parent in the first place (`issue_pairing_link` /
-  `unpair`).
-
-The pointer is intentionally thin — there is one source of truth (the
-specs), not a maintainer paraphrase.

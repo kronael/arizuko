@@ -363,4 +363,5 @@ Parked as direction. Not started.
 
 ## Later
 
+- Proactive operator delivery: the error and health-check trigger, dedup and rate limit for error bursts, the listener-digest format; address the operator through `role:operator` membership, nothing routes there today
 - Explore [Plannotator](https://docs.plannotator.ai/open-source/reference/hooks) for browser review of specs and HTML, JSON feedback into Arizuko, and reusable UI components with GitHub as the review record store

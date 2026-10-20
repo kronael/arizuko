@@ -23,8 +23,10 @@ New integrations are added via the extension points described in
   model gateway (`litellm` package + `MODEL_GATEWAY_URL`,
   `specs/6/23-llm-gateway.md`)).
 
-A minimal deployment runs core plus one channel adapter; a maxed-out
-deployment runs all of them.
+The core runs with no channel adapter at all: a person reaches it through
+the web chat or `arizuko talk`, an MCP client over proxyd. That is the
+personal topology, one folder and no adapter, and it runs the same code as
+a deployment with every adapter. A channel adapter is added per platform.
 
 ## Package Dependency Graph (core)
 
@@ -269,12 +271,10 @@ packages add`); no proxyd or compose.go edits.
 
 ## Auth Hardening
 
-- Secure cookies when `authBaseURL(cfg)` is HTTPS
-- Login rate limit: 5 POST `/auth/login` per IP per 15min (in-memory)
-- Telegram widget: rejects `auth_date` > 5min (replay protection)
-- OAuth: Google (optional `GOOGLE_ALLOWED_EMAILS`), GitHub (optional
-  `GITHUB_ALLOWED_ORG`), Discord, Telegram widget; shared
-  `issueSession` path in `authd/oauth.go`
+authd signs every platform token and every daemon verifies offline. Cookie
+flags, the Telegram widget window, provider allow-lists and the one
+`issueSession` path: [`authd/README.md` § Keys, mints and
+logins](authd/README.md#keys-mints-and-logins).
 
 ## Discoverability
 
@@ -689,53 +689,21 @@ routes + MCP + a delegated grant composing.
 ## Authorization (auth package)
 
 One row, one evaluator: `acl(principal, action, scope, params, predicate,
-effect, grant_option)` → `auth.Authorize`. Deny wins; no matching allow
-row = deny, loud. Nothing derives capability from a folder's depth.
-
-- `auth.Authorize(caller, action, target, params)` — the single per-call
-  gate (`auth/authorize.go`)
-- `auth.EffectiveActions(store, caller)` — the visibility view behind
-  `tools/list`: does the caller hold this action at ANY scope
-- `auth.Delegate` — grant onward, bounded to a subset of rows the granter
-  holds WITH GRANT OPTION (`auth/delegate.go`)
-
-Rule grammar inside a row's `params` is `[!]action[(param=glob,...)]`.
-Seeded roles: `role:member` (the messaging floor, bound to every folder at
-create) and `role:operator` (`*` on `**`, WITH GRANT OPTION). Guest
-capabilities are resolved from `acl` at dispatch and shipped as typed
-booleans (`ShareReadOnly`/`Egress`/`WebPublish`) on the run request —
-runed and container consume a decision, not a rule bundle. Model:
-[`specs/5/33-paths-roles.md`](specs/5/33-paths-roles.md); row + evaluator:
-[`specs/5/32-acl-unified.md`](specs/5/32-acl-unified.md).
+effect, grant_option)` → `auth.Authorize`. Deny wins; no matching allow row
+is a deny. `auth.EffectiveActions` is the `tools/list` view over the same
+rows, and `auth.Delegate` bounds re-delegation to a subset of rows held WITH
+GRANT OPTION. Guest capabilities resolve from `acl` at dispatch into typed
+booleans on the run request. The figure, the agent socket's two axes and
+every rule: [`auth/README.md` § Authorization is one row and one
+question](auth/README.md#authorization-is-one-row-and-one-question).
 
 ## Operator
 
-"Operator" is **not a role flag or sentinel** — it is membership in the
-`role:operator` principal in the unified ACL. Any sub joined via
-`acl_membership(<sub>, role:operator)` inherits the seeded row
-`acl(role:operator, *, **, allow)` and matches every authorization check.
-`auth.Authorize` handles operator visibility uniformly; there is no
-`groups.is_operator` column, no `router_state['operator_jid']` sentinel,
-and no nil-default routing target.
-
-Cross-group system notifications (errors, health events, scheduled digests)
-resolve their destination by querying `acl_membership` for `role:operator`
-members and routing messages into their existing folders — not by seeding
-a specially-flagged group.
-
-What this means in practice: adding a user to `role:operator` is how you
-make them the operator. Removing the membership demotes them. dashd is the
-management UI; its sessions are scoped to users with at least one allow
-row in `acl` (directly or via membership).
-
-Open design questions for proactive-operator delivery (not yet shipped):
-
-- Error / health-check trigger plumbing.
-- Dedup / rate-limit policy for error bursts.
-- Listener-digest delivery format.
-
-These are mechanism questions; the addressing question (membership, not
-flag) is settled.
+An operator is a member of `role:operator`, which holds the seeded row
+`(*, **)` WITH GRANT OPTION. There is no operator flag and no sentinel.
+`arizuko group <inst> grant <sub> '**'` adds the membership, `ungrant`
+removes it, and `auth.Authorize` treats the operator like any other
+principal.
 
 ## Compose Containers
 

@@ -86,6 +86,20 @@ folder containment (`ownsFolder`). A folder-scoped REST operator is thus
 confined to its own subtree — it cannot re-target or cancel another
 tenant's routes or tasks.
 
+### The sender cannot lend the agent authority
+
+A turn has two principals: the folder it runs in and the person who sent
+the message. The folder's grants confer in full. The sender's grants add an
+allow only inside the turn folder's subtree, on the exact action. Without
+that bound, a folder's agent would hold the reach of everyone who talks to
+it, and a shared chat would be a place to borrow authority: the confused
+deputy. A deny counts on both axes, so a person's deny refuses the turn
+they triggered wherever it reaches. The rows are read on every call, so a
+revoke lands on the next tool call inside a live turn, and the turn carries
+no token whose scope could outlive it. Figure and rules:
+[`auth/README.md` § Authorization is one row and one
+question](auth/README.md#authorization-is-one-row-and-one-question).
+
 ## Boundaries
 
 | Boundary            | Mechanism                                                                                                                                                                                                                                                                                                                                         | Location                                                                                                                     |
@@ -99,8 +113,7 @@ tenant's routes or tasks.
 | Chat-MCP            | `/chat/<token>/mcp` — token IS the auth; it authenticates an ANONYMOUS principal whose grant set is the one folder the row records, so the shared `send`/`get_history` gate (`auth.MatchGroups`) admits no other                                                                                                                                  | `webd/mcp.go` (`handleChatTokenMCP`)                                                                                         |
 | WebDAV write-block  | `.env` / `*.pem` / `.git` write-blocked; `<group>/logs/` read-only                                                                                                                                                                                                                                                                                | `proxyd/main.go` (`davAllow`)                                                                                                |
 | Chat identity relay | proxyd stamps `X-User-*` and proves channel via ES256 `service:proxyd` bearer; webd verifies via `auth.ProxydTransit` and resolves the route token itself                                                                                                                                                                                         | `proxyd/main.go` (`attachTransit`), `webd/route_token.go`, `webd/server.go` (`auth.ProxydTransit`)                           |
-| Authn               | GitHub / Google / Discord / Telegram OAuth → JWT (1h) + refresh (30d)                                                                                                                                                                                                                                                                             | `auth/web.go`, `auth/oauth.go`                                                                                               |
-| Login throttle      | 5 POST `/auth/login` per IP per 15min, in-memory                                                                                                                                                                                                                                                                                                  | `auth/web.go`                                                                                                                |
+| Authn               | GitHub / Google / Discord / Telegram OAuth → JWT (15 min) + refresh (30 d)                                                                                                                                                                                                                                                                        | `authd/oauth.go`, `auth/oauth.go`                                                                                            |
 | Authz               | Unified `acl` + `acl_membership` → `auth.Authorize`; a row's `params` predicates do per-tool arg gating; `auth.Delegate` bounds re-delegation to a subset of rows held WITH GRANT OPTION                                                                                                                                                          | `auth/authorize.go`, `auth/delegate.go`, `auth/acl.go`                                                                       |
 | Channel ingress     | ES256 service token (`AUTHD_SERVICE_KEY`); adapter exchanges key for `service:<daemon>` JWT on startup, presents bearer on every routd call; docker-network only                                                                                                                                                                                  | `chanlib/run.go`, `chanlib/chanlib.go` (`bearer`)                                                                            |
 | Slack webhook       | proxyd forwards `/slack/*` → `slakd:8080` verbatim; `X-Slack-Signature` HMAC over `v0:<ts>:<body>` (signing secret); ±5min skew                                                                                                                                                                                                                   | `slakd/bot.go` (verify), `template/services/slakd.yaml` (route), `slakd/README.md` § Threat model                            |
@@ -500,7 +513,11 @@ properties hang off it. For anything the agent reaches as a tool:
 3. **A call can be suspended for a human.** A `hold:mcp:<tool>` rule stops the
    call at the same chokepoint and waits for approval. There is one
    interception point and no bypass: only one MCP server exists on the agent's
-   map.
+   map. The agent socket mounts no face of `pending_actions`, because an agent
+   that could approve would approve its own call. `CheckHold` fails open on an
+   unreadable `acl`: it holds nothing and logs, and the call then meets
+   `Authorize`, which denies on the same unreadable table. Whether an
+   unreadable `acl` should hold instead is an open decision (BUGS `L92`).
 4. **Every mutation writes its audit row in its own transaction** — the call is
    attributable to a folder, a tool, and a triggering user.
 
@@ -661,8 +678,10 @@ cross-tenant list-all leak. Neither read can carry a credential — `priv_pem`,
 `pub_pem` and `token_hash` are named in no query and no response struct, and no
 raw refresh token is persisted at all. Revoking ends the RENEWAL; the access
 token already issued lives out its own ~15 min TTL, which is the short-TTL
-model, not a gap. Logging out an entire fleet means retiring the active signing
-key and has no wire face on purpose. Spec `specs/5/1-auth-standalone.md`.
+model, not a gap. There is no revocation list, because verifiers stay
+offline. Logging out an entire fleet means retiring the active signing
+key and has no wire face on purpose ([`authd/README.md` § Keys, mints and
+logins](authd/README.md#keys-mints-and-logins)).
 
 **Access audit**: `proxyd` is the single ingress point for all HTTP
 traffic. It logs every request as a structured JSON line:

@@ -198,7 +198,7 @@ itself (`Open` → `store.PrepareOwner`):
 - Auth+grants: `acl`, `acl_membership`, `secrets`, `secret_use_log`
 - Scheduler: `scheduled_tasks`, `task_run_logs`
 - Slack pane: `pane_sessions`
-- Held tool calls: `pending_actions` (spec 5/19); webhook sources:
+- Held tool calls: `pending_actions`; webhook sources:
   `github_sources` (spec 6/27); proxyd's route table: `proxyd_routes`,
   which proxyd owns every write of and serves on its own `/v1`
 - Counters: `counters` — one server-minted number, `routes.id`
@@ -261,7 +261,10 @@ Endpoints (`server.go`, `channels.go`):
   — no operator mints a pairing for a chat they are not in (spec 5/31)
 - Chat `/approve`, `/reject`, `/always` verdicts resolve at ingress, including
   native approval buttons. They reach a held call while its agent turn waits;
-  the sender needs admin on the held call's folder.
+  the sender needs admin on the held call's folder. `pending_actions` has a
+  REST face (list, approve, reject) and no agent-socket face, because an
+  agent that could approve would approve its own call. Both faces resolve
+  through `resolveHoldInto`.
 - `POST /v1/channels/register`, `POST /v1/channels/deregister` — adapter registry
 - `GET /v1/channels` — adapter list
 - `GET /v1/messages/{inspect,thread,find}` — message reads
@@ -428,7 +431,7 @@ optional observability webhook — not the source of truth.
   `/v1/messages/activity` preview dashd reads. The cut is privacy, not layout:
   an operator traces routing without reading the conversation. The owner cuts
   it, so no consumer can widen it.
-- `pending_actions.go`, `pending_actions_http.go` — the HITL hold queue (spec 5/19)
+- `pending_actions.go`, `pending_actions_http.go` — the HITL hold queue
 - `unrouted.go`, `dead_letters_db.go` — the two holds an operator has to see:
   a chat no rule claims, and a message delivery gave up on
 - `gateway.go`, `budget.go` — the model gateway's per-turn virtual key and the

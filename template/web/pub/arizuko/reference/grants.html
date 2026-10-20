@@ -45,7 +45,7 @@
 
     <p class="lede">Every authorization question &mdash; "may principal P perform action A on scope S?" &mdash; is answered by one <code>auth.Authorize</code> call against two tables: <code>acl</code> (permission rows) and <code>acl_membership</code> (role + identity indirection). A folder path carries no authority of its own. This page is the syntax and semantics reference for the row, the evaluator, and delegation.</p>
 
-    <p>See <a href="../concepts/grants.html">concepts &rsaquo; authorization</a> for the mental model, <a href="https://github.com/kronael/arizuko/blob/main/GRANTS.md"><code>GRANTS.md</code></a> for the maintainer walkthrough, <a href="https://github.com/kronael/arizuko/blob/main/specs/5/32-acl-unified.md">specs/5/32-acl-unified.md</a> for the row and evaluator, and <a href="https://github.com/kronael/arizuko/blob/main/specs/5/33-paths-roles.md">specs/5/33-paths-roles.md</a> for the model. Code: <a href="https://github.com/kronael/arizuko/blob/main/auth/authorize.go"><code>auth/authorize.go</code></a> (the evaluator), <a href="https://github.com/kronael/arizuko/blob/main/auth/delegate.go"><code>auth/delegate.go</code></a> (delegation), <a href="https://github.com/kronael/arizuko/blob/main/auth/acl.go"><code>auth/acl.go</code></a> (scope matcher), <a href="https://github.com/kronael/arizuko/blob/main/store/acl.go"><code>store/acl.go</code></a> (reader / writer).</p>
+    <p>See <a href="../concepts/grants.html">concepts &rsaquo; authorization</a> for the mental model, <a href="https://github.com/kronael/arizuko/blob/main/GRANTS.md"><code>GRANTS.md</code></a> for the maintainer walkthrough, and <a href="https://github.com/kronael/arizuko/blob/main/auth/README.md"><code>auth/README.md</code></a> for the figure and every rule behind the evaluator. Code: <a href="https://github.com/kronael/arizuko/blob/main/auth/authorize.go"><code>auth/authorize.go</code></a> (the evaluator), <a href="https://github.com/kronael/arizuko/blob/main/auth/delegate.go"><code>auth/delegate.go</code></a> (delegation), <a href="https://github.com/kronael/arizuko/blob/main/auth/acl.go"><code>auth/acl.go</code></a> (scope matcher), <a href="https://github.com/kronael/arizuko/blob/main/store/acl.go"><code>store/acl.go</code></a> (reader / writer).</p>
 
     <h2>1. The row</h2>
 
@@ -76,7 +76,15 @@ principal = folder:atlas   action = hold:mcp:delete   scope = atlas
 principal = folder:atlas   action = hold:mcp:network_allow   scope = atlas
 params    = host=*.prod.example.com</code></pre>
 
-    <p>Approval buttons and <code>/approve</code>, <code>/reject</code> and <code>/always</code> reach the held call while the agent waits. The caller must have approval authority for that folder. Approval releases the original call in the same turn. A one-shot approval covers only that call; <code>/always</code> also records a matching standing grant.</p>
+    <p>Approval buttons and <code>/approve</code>, <code>/reject</code> and <code>/always</code> reach the held call while the agent waits. A green or red reaction on the notice works too; <code>&#x1F44D;</code> and <code>&#x1F44E;</code> deliberately do not, because they are ordinary social reactions. The reviewer needs an <code>admin</code> grant covering the held row&rsquo;s folder. The agent&rsquo;s socket has no face of <code>pending_actions</code> at all: an agent that could approve would approve its own call.</p>
+
+    <ul>
+      <li><strong>The call waits.</strong> The gate suspends the tool call and polls for a verdict for up to <a href="env.html#HITL_WAIT"><code>HITL_WAIT</code></a>, 10 minutes by default; it must stay under <code>RUNED_RUN_TIMEOUT</code>, or the guest is killed first. Approval runs the same call, with the arguments the notice showed, in the same turn. A reject or a timeout answers the agent with a tool result, <code>NOT RUN (id &hellip;)</code>, telling it not to retry.</li>
+      <li><strong>The hold runs before the authorization check, and never replaces it.</strong> An approved call still meets <code>Authorize</code>. An elevated <code>/root</code> turn has no hold gate.</li>
+      <li><strong>A hold that cannot be recorded still holds.</strong> If the <code>pending_actions</code> row cannot be written, the call is blocked and the agent gets an error, because there is no id anybody could approve.</li>
+      <li><strong><code>/always</code> is <code>/approve</code> plus one skip-approval row.</strong> The row is <code>effect = deny</code> on the <code>hold:</code> action &mdash; deny on a hold means &ldquo;do not hold&rdquo; &mdash; and it is written in the same batch as the verdict. There is no third verdict on <code>pending_actions</code>. To revoke, remove that row with <code>remove_acl</code> or <code>arizuko group &hellip; ungrant</code>.</li>
+      <li><strong><code>/always</code> writes exactly the matcher the notice showed.</strong> Every scalar argument becomes an exact value, never a glob, so one sample cannot widen into a pattern. A value carrying <code>,</code>, <code>*</code> or surrounding spaces cannot be stated exactly, so <code>/always</code> is refused for it. Non-scalar arguments are skipped. One renderer feeds the notice, the REST row and the writer, so no surface shows one rule and stores another.</li>
+    </ul>
 
     <div class="callout"><strong>Why a separate action:</strong> a hold is never an <code>effect</code> on an ordinary <code>mcp:&lt;tool&gt;</code> row. The evaluator treats every non-<code>deny</code> effect as allow, so such a row would silently <em>grant</em> the tool it meant to gate. The <code>hold:</code> namespace keeps hold rules invisible to the allow/deny evaluator, and holds are matched on the exact action &mdash; otherwise an operator's <code>(*, **)</code> row would hold every tool they touch.</div>
 
@@ -85,8 +93,8 @@ params    = host=*.prod.example.com</code></pre>
     <h2>2. The two tables</h2>
 
     <ul>
-      <li><strong><code>acl</code></strong> &mdash; <code>(principal, action, scope, effect, params, predicate, granted_by, granted_at, grant_option)</code>. The whole permission graph. Created by <a href="https://github.com/kronael/arizuko/blob/main/routd/migrations/0007-acl.sql">migration 0007</a>; <code>grant_option</code> added by <a href="https://github.com/kronael/arizuko/blob/main/routd/migrations/0021-acl-grant-option.sql">0021</a>.</li>
-      <li><strong><code>acl_membership</code></strong> &mdash; <code>(child, parent, added_by, added_at)</code> edges. Walked transitively at authorization time to expand a principal into every role it carries and every identity it has been linked to.</li>
+      <li><strong><code>acl</code></strong> &mdash; <code>(principal, action, scope, effect, params, predicate, granted_by, granted_at, grant_option)</code>. The whole permission graph, one entity in routd&rsquo;s store.</li>
+      <li><strong><code>acl_membership</code></strong> &mdash; <code>(child, parent, added_by, added_at)</code> edges. Walked transitively at authorization time to expand a principal into every role it carries and every identity it has been linked to. A write that would make a principal its own ancestor is refused.</li>
     </ul>
 
     <p>Row counts stay small &mdash; hundreds, not millions. Adjacent tables in play but orthogonal: <code>groups</code> (what folders exist), <code>routes</code> (which JIDs land in which folder).</p>
@@ -110,6 +118,8 @@ params    = host=*.prod.example.com</code></pre>
 
     <p>Granting <code>admin</code> is not the same as inserting one row per <code>mcp:&lt;tool&gt;</code>. The lattice is the contract &mdash; a tool added tomorrow is covered by yesterday's <code>admin</code> row.</p>
 
+    <p>There is no policy language. OPA and Rego are not used, and the lattice is never flattened into one row per tool: the common case is gating like <code>reply(jid=slack:*)</code>, which one row and a params glob already say.</p>
+
     <p>Scope is the folder path globbed segment-wise (<code>matchPattern</code> in <a href="https://github.com/kronael/arizuko/blob/main/auth/acl.go"><code>auth/acl.go</code></a>): <code>*</code> doesn't cross <code>/</code>, <code>**</code> matches zero or more segments. It is a pure function &mdash; no DB query.</p>
 
     <h2>4. Params and predicates</h2>
@@ -120,7 +130,9 @@ params    = host=*.prod.example.com</code></pre>
 clause := name "=" glob        # value must glob-match
         | name                 # must simply be present</code></pre>
 
-    <p><code>params</code> is checked against the call's arguments, <code>predicate</code> against the caller's JWT claims. A glob here is single-segment: <code>*</code> stops at <code>:</code> and <code>/</code>. Every clause must hold; a missing key fails the row.</p>
+    <p><code>params</code> is checked against the call's arguments, <code>predicate</code> against the caller's JWT claims. A value glob runs over the whole value, so <code>*</code> crosses <code>:</code> and <code>/</code>: <code>jid=telegram:*</code> covers <code>telegram:group/123</code>. Every clause must hold; a missing key fails the row.</p>
+
+    <p>Arguments reach a row only where the gate passes them. The messaging tools pass <code>jid</code>, so a <code>jid=</code> row works. Most other tools check the grant with no arguments at all, so a row with <code>params</code> matches nothing there: a deny on such a tool is tool-wide only. A hold receives the arguments, so a hold can be shaped. A predicate on a <code>folder:</code> principal never matches, because the agent&rsquo;s socket carries no login claims.</p>
 
     <pre><code>params:    jid=telegram:group/*     # only sends into telegram groups
 params:    readonly=true            # only the read-only form of the call
@@ -148,24 +160,20 @@ predicate: discord:guild=G123       # only when the caller's token carries that 
 
     <h2>6. Two seeded roles</h2>
 
-    <p><strong><code>role:member</code></strong> is the floor. Every folder is bound to it the moment it is created (<code>assignDefaultRole</code>, <a href="https://github.com/kronael/arizuko/blob/main/store/seed.go"><code>routd/seed_grants.go</code></a>), and it carries the twelve messaging verbs plus <code>disengage</code>:</p>
+    <p><strong><code>role:member</code></strong> is the floor. Every folder is bound to it the moment it is created (<code>store.SeedMemberRole</code>, <a href="https://github.com/kronael/arizuko/blob/main/store/membership.go"><code>store/membership.go</code></a>), and it carries the twelve messaging verbs plus <code>disengage</code>:</p>
 
     <pre><code>reply, send, send_file, send_voice,
 post, forward, quote, repost,
 like, dislike, edit, delete, disengage</code></pre>
 
-    <p>Read tools and <code>set_work</code> are always on and need no grant. Everything else &mdash; <code>register_group</code>, the route tools, <code>network_*</code>, <code>schedule_*</code>, <code>observe_*</code>, <code>invite_*</code>, token minting, writing <code>acl</code> itself &mdash; is an explicit row somebody delegated. The floor is seeded with <code>grant_option = 0</code>: it is not re-delegable, because every new folder is born a member directly. Seed: <a href="https://github.com/kronael/arizuko/blob/main/routd/migrations/0023-4r-role-member.sql">migration 0023</a>.</p>
+    <p>Read tools and <code>set_work</code> are always on and need no grant. Everything else &mdash; <code>register_group</code>, the route tools, <code>network_*</code>, <code>schedule_*</code>, <code>observe_*</code>, <code>invite_*</code>, token minting, writing <code>acl</code> itself &mdash; is an explicit row somebody delegated. The floor is seeded with <code>grant_option = 0</code>: it is not re-delegable, because every new folder is born a member directly. routd writes the role&rsquo;s rows into an empty store at first boot (<code>store.SeedRoutdFloor</code>).</p>
 
-    <p><strong><code>role:operator</code></strong> is the root of every delegation chain: one row, <code>*</code> on <code>**</code>, <code>allow</code>, WITH GRANT OPTION (<a href="https://github.com/kronael/arizuko/blob/main/routd/migrations/0022-seed-operator-grant-option.sql">migration 0022</a>). Root is a grant somebody holds, not a place in the tree. The operator invokes it with <code>/root</code>; there is no root folder, and a top-level folder is just a world &mdash; an ordinary tenant with ordinary grants.</p>
+    <p><strong><code>role:operator</code></strong> is the root of every delegation chain: one row, <code>*</code> on <code>**</code>, <code>allow</code>, WITH GRANT OPTION, seeded by the same first boot. Root is a grant somebody holds, not a place in the tree. The operator invokes it with <code>/root</code>; there is no root folder, and a top-level folder is just a world &mdash; an ordinary tenant with ordinary grants.</p>
 
     <p>Making someone an operator is one membership edge. The permissions row is shared, so a second operator costs one row:</p>
 
-    <pre><code># Make alice an operator.
-arizuko group krons grant google:114alice@example.com '**'
-
-# Equivalent SQL:
-INSERT INTO acl_membership (child, parent, added_at) VALUES
-  ('google:114alice@example.com', 'role:operator', now());</code></pre>
+    <pre><code># Make alice an operator: one acl_membership edge to role:operator.
+arizuko group krons grant google:114alice '**'</code></pre>
 
     <p>Any other pattern writes an ordinary <code>acl</code> row instead &mdash; see <a href="cli.html#group-grant"><code>arizuko group &hellip; grant</code></a>.</p>
 
@@ -235,8 +243,7 @@ grant_option: 0</code></pre>
     <ul>
       <li><a href="../concepts/grants.html">concepts: authorization</a> &mdash; mental model + worked patterns</li>
       <li><a href="../concepts/scopes.html">concepts: scopes</a> &mdash; how a scope glob reads</li>
-      <li><a href="https://github.com/kronael/arizuko/blob/main/specs/5/32-acl-unified.md">specs/5/32-acl-unified.md</a> &mdash; the row and the evaluator</li>
-      <li><a href="https://github.com/kronael/arizuko/blob/main/specs/5/33-paths-roles.md">specs/5/33-paths-roles.md</a> &mdash; paths, roles, grant option</li>
+      <li><a href="https://github.com/kronael/arizuko/blob/main/auth/README.md"><code>auth/README.md</code></a> &mdash; the row, the three readers, the two axes</li>
       <li><a href="https://github.com/kronael/arizuko/blob/main/GRANTS.md"><code>GRANTS.md</code></a> &mdash; maintainer reference</li>
       <li><a href="https://github.com/kronael/arizuko/blob/main/auth/authorize.go"><code>auth/authorize.go</code></a> &mdash; <code>Authorize</code>, <code>EffectiveActions</code></li>
       <li><a href="https://github.com/kronael/arizuko/blob/main/auth/delegate.go"><code>auth/delegate.go</code></a> &mdash; <code>Delegate</code> (subset-of-held)</li>
