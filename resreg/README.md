@@ -1,19 +1,10 @@
 # resreg
 
-Resource registry: one `Handler` per `(Resource, Action)`, wrapped by
-auto-adapters so REST, MCP, OpenAPI, and YAML reach the same code from
-one typed `Resource` literal + `RowType` struct. resreg owns the
-handler, its tx + audit, argument derivation, and MCP tool-spec
-generation — plus one INJECTED authz `Gate` per surface. It decides no
-auth policy of its own: it is not a second authz server.
+resreg implements the resource registry, and a daemon uses it by declaring a resource once and mounting it on REST and MCP. The declaration is a typed `Resource` literal with a `RowType` struct. resreg serves it through REST, MCP, OpenAPI and YAML with one `Handler` per resource action. resreg owns the handler adapters, the batched write and audit row, argument derivation and MCP tool-spec generation. It takes one injected authorization `Gate` per surface. It decides no auth policy of its own, so it is not a second authz server.
 
 ## One handler, two faces
 
-Every cold-tier resource is authored once and served twice: REST for people
-and external tools, MCP for the agent. Both faces run one handler, so they
-cannot drift, and one audit row lands in the mutation's own batch. The
-hot-tier agent actions have no REST twin, because an operator does not
-`reply` to a chat.
+Every cold-tier resource is written once and served twice: REST for people and external tools, MCP for the agent. Both faces run one handler, so they cannot drift, and one audit row lands in the batch of the mutation. The hot-tier agent actions have no REST twin, because an operator does not `reply` to a chat.
 
 <!-- twin:twofaces -->
 
@@ -50,406 +41,150 @@ hot-tier agent actions have no REST twin, because an operator does not
 
 <!-- /twin -->
 
-- **`(name, action)` is the identity; each surface spells it.** REST is
-  `/v1/<name>`; the OpenAPI `operationId` is `<action>_<name>`, verb first
-  with an underscore, because client generators mangle a dotted id; the MCP
-  tool is `<name>.<action>` unless `MCPNames` sets a flat name; the audit row
-  carries the two as separate columns.
-- **`MCPDoc` is the switch.** An action with no `MCPDoc` entry gets no MCP
-  tool and no `x-mcp-when` annotation. That is how an action is made
-  REST-only: by saying nothing, never by an exclusion list.
-- **A handler binds the folder it is handed.** A handler that takes a `jid`,
-  `folder` or `run_id` binds it to the caller's folder and refuses one
-  outside it, with 404 where existence itself would leak. `POST /v1/messages`
-  is cross-folder by design: an adapter posts for every chat it serves.
-- **`secrets` is a forwarder.** `invoke` copies every argument into
-  `audit_log`, and the redaction pattern misses a bare `value` field, so a
-  store-backed `secrets` would write the plaintext into its own audit row.
-  The handler calls the sealing writer, which writes a value-safe row.
-- **Every resource is a table.** `Register` panics on an empty `Table`
-  (`engine.go` `initMeta`), so a file-backed queue cannot be a resreg
-  resource.
+- **The identity is `(name, action)`, and each surface spells it.** REST is `/v1/<name>`. The OpenAPI `operationId` is `<action>_<name>`, with the verb first and an underscore, because client generators mangle a dotted id. The MCP tool is `<name>.<action>` unless `MCPNames` sets a flat name for the action (`deriveMCPTools` in `resreg.go`). The audit row carries the two as separate columns.
+- **`MCPDoc` is the switch for MCP.** An action with no `MCPDoc` entry gets no MCP tool and no `x-mcp-when` annotation.
+- **`MCPOnly` is the switch for REST.** An endpoint marked `MCPOnly` gets no REST route and no OpenAPI operation, and `deriveMCPTools` still derives its tool. So each resource keeps one endpoint list.
+- **A handler binds the folder it receives.** A handler that takes a `jid`, `folder` or `run_id` binds it to the folder of the caller. It refuses a value outside that folder. It answers 404 where the value would reveal that a resource exists. `POST /v1/messages` is cross-folder by design, because an adapter posts for every chat it serves.
+- **`secrets` is a forwarder.** `invoke` copies every argument into `audit_log`, and the redaction pattern misses a bare `value` field. A store-backed `secrets` would write the plaintext into its own audit row. So the handler calls the sealing writer, which writes a row that is safe for values.
+- **A resource with a `RowType` names a table.** `initMeta` in `engine.go` panics on an empty `Table`. So a queue kept in files cannot be a resreg resource.
 
-## Reflective engine (shipped)
+## The engine reads one row type
 
-`engine.go` drives the reads and writes, YAML parse/emit, and
-OpenAPI schema generation off `Resource.RowType` reflection (struct
-field → column via `json:` tag). `resreg/resources/` declares one Go
-file per cold-tier resource — a `Row` struct plus an `init()` block
-calling `resreg.Register`. `resources/names.go` spells every registered
-name once, and that file is the list.
+`engine.go` drives reads and writes, YAML parse and emit, and OpenAPI schema generation from the reflection of `Resource.RowType`. The `db:` tag of a struct field names its attribute. The OpenAPI schema takes the property name from the `json:` tag, or from the `yaml:` tag when no `json:` tag exists. `resreg/resources/` declares one Go file per cold-tier resource: a `Row` struct and an `init()` block that calls `resreg.Register`. `resources/names.go` spells every registered name once, and that file is the list.
 
-A manifest is a YAML stream with one `---` document per owner subsystem.
-Each document is a mapping from resource name to rows, plus a reserved
-`checksum:` key; an unknown key is refused, and every key in one document
-must belong to one subsystem (`SubsystemOf`). A package's document may also
-carry `env:`, which `arizuko apply` refuses and names `packages add`.
+A manifest is a YAML stream with one `---` document per owner subsystem. Each document maps a resource name to rows, and it has a reserved `checksum:` key. The parser refuses an unknown key, and every key in one document must belong to one subsystem (`SubsystemOf`). A package document may also carry `env:`. `arizuko apply` refuses that section and names `packages add` and `packages install`, because only `arizuko packages` provisions it.
 
-`Checksum` and `ManifestDigest` are two hashes for two jobs. `Checksum` is
-the CAS: a content hash of the live projection, recomputed at read time.
-`ManifestDigest` is the sha256 of the manifest file's bytes and goes only
-into the apply's audit row, to correlate the row with the file.
+`Checksum` and `ManifestDigest` are two hashes for two jobs. `Checksum` is the compare-and-swap token: a content hash of the live projection, computed again at read time. `ManifestDigest` is the sha256 of the bytes of the manifest file. It goes only into the audit row of the apply, to correlate the row with the file.
 
-## Two shapes, and the resource declares which
+## Every resource is one objstore entity
 
-A resource's rows are either SQL columns or `objstore` items, and
-`Resource.EntitySortKey` is the whole declaration: naming `RowType` fields
-there makes `Table` an entity, every other `db:` tag an attribute name, and
-those fields' values the item's sort key. `ScanAll` is still the single row
-reader and it branches on that declaration — never on what the storage answers,
-and never one path as a fallback for the other (`entity.go`, BUGS `L259`).
+A resource with an owner subsystem stores its rows as `objstore` items. `Resource.EntitySortKey` declares the shape: it names the `RowType` fields whose values make the sort key of the item. `Table` is the entity, every other `db:` tag is an attribute name, and `Resource.DB` is the partition. `resources.TestEveryOwnedResourceIsEntityShaped` fails when an owned resource declares no `EntitySortKey`. `ScanAll` is the single row reader. A resource with a `RowType` and no owner subsystem is catalog-only: it drives `/openapi.json` and the CLI manifest, and no apply reaches it.
 
-The coordinate is a LIST, because two resources have no single-field identity:
-`network_rules` is keyed `(folder, target)` — 15 rows over 10 targets on krons,
-so `target` alone would collide five of them — and `installed_packages` is
-`(folder, name)`. `Resource.EntityKeySep` joins them and no value of any of them
-may carry it: a write that does is REFUSED, which is the only end that can see
-two rows joining onto one key, and the read refuses a stored key that does not
-split into as many parts as the coordinate has. The separator is declared per
-resource because which byte no value carries is a fact about the rows — `/`
-separates a Slack team, user and thread (`store/pane_sessions`) and can never
-separate a folder from anything, because a folder path is made of them. An
-EMPTY part is a coordinate: `folder: ""` is how both composite resources spell
-an instance-wide row.
+The coordinate is a list, because several resources have no single-field identity. `network_rules` is keyed by folder and target, so two folders can hold a rule for one target. `installed_packages` is keyed by folder and name. `acl`, `acl_membership`, `routes` and `secrets` also use composite coordinates. `Resource.EntityKeySep` joins the fields, and the separator in use is `store.KeySep`, the ASCII unit separator 0x1F. No value of a joined field may carry the separator. A write that does is refused. The write is the only end that can see two rows join onto one key. The read refuses a stored key that does not split into as many parts as the coordinate has. An empty part is a coordinate: `folder: ""` spells an instance-wide row.
 
-The PARTITION is not declared. It is `Resource.DB`, the owner subsystem, because
-every read the engine makes is per subsystem and the partition is the coordinate
-a read filters on. `SubsystemRoutd`/`SubsystemOnbod` ARE `store`'s owner names,
-so the daemon's own storage layer writes items at the coordinate the engine
-reads them from.
+The partition is not declared per resource. It is `Resource.DB`, the owner subsystem, because every read of the engine is per subsystem. `SubsystemRoutd` and `SubsystemOnbod` are the owner names of `store`, so the storage layer of a daemon writes items at the coordinate that the engine reads.
 
-The sort key is SEPARATE from `PKFields` because they answer different
-questions: this is the item's coordinate, `PKFields` is the manifest identity
-`Diff` matches on. Separate, but not free — `PKFields` must name every field of
-the sort key, and `Register` refuses a declaration that does not. The
-coordinate is unique by construction, so a PK covering it is unique too; a
-narrower one files two items under one identity and `Diff` reports whichever it
-read last. `route_tokens` named only `jid` while krons held 43 tokens over 27
-jids, so 16 live ingress credentials answered to one identity (BUGS `L260`).
+The sort key is separate from `PKFields`, because they answer different questions. The sort key is the coordinate of the item. `PKFields` is the manifest identity that `Diff` matches on. `PKFields` must name every field of the sort key, and `Register` refuses a declaration that does not. A narrower identity would file two items under one identity, and `Diff` would report whichever item it read last.
 
-What the object path REFUSES, it refuses at `Register`, which is process start,
-and each refusal carries the reason it cannot cross:
+The object path refuses these declarations at `Register`, which is process start. Each refusal has a reason.
 
-| declaration                                                                    | why not                                                                                                                                                                        |
-| ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `Hooks.AfterScan`, `Hooks.ValidateRow`, `Hooks.ColumnOverride`                 | `ColumnOverride.Read` is a SQL expression, `.Write` is the bind conversion absent-is-null already makes unnecessary, and `ValidateRow` takes a `*sql.Tx` this path never opens |
-| a `RowFilter` on a field of the coordinate                                     | a filter is a `Where` over ATTRIBUTES and the coordinate is the key; a key predicate reaches a leading fragment, never one field in the middle                                 |
-| an attribute that is not a string, an int, or a field with a declared encoding | every attribute value is text, so a bool, a slice or a map declares its encoding in the `db:` tag (`codec.go`)                                                                 |
-| `PKFields` that does not name every field of the coordinate                    | the coordinate is unique by construction and the manifest identity has to be at least as fine, or `Diff` files two items under one PK and reports one of them (`L260`)         |
+| declaration                                                                       | why it is refused                                                                                                                                 |
+| --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Hooks.AfterScan` or `Hooks.ColumnOverride`                                       | an override is a SQL expression with no column to name, and a declared codec decodes after a scan                                                 |
+| a `RowFilter` on a field of the coordinate                                        | a filter is a `Where` over attributes and the coordinate is the key; a key predicate reaches a leading fragment and never one field in the middle |
+| an attribute that is not a string, an int, or a field with a declared encoding    | every attribute value is text, so a bool, a slice or a map declares its encoding in the `db:` tag (`codec.go`)                                    |
+| `PKFields` that does not name every field of the coordinate                       | the manifest identity must be at least as fine as the coordinate, or `Diff` files two items under one identity                                    |
+| a sort field that is not a string and declares no `pad` encoding                  | a coordinate is text compared as text, so "10" sorts before "2"                                                                                   |
+| a composite `EntitySortKey` without `EntityKeySep`, or a separator with one field | the fields would run together into one key, or nothing would use the separator                                                                    |
 
-Two declarations the object path APPLIES rather than refuses, both because an
-entity has no engine between the caller and the item.
+The object path applies three declarations.
 
-`Hooks.BeforeInsert` fills a row's declared defaults — `effect='allow'`,
-`status='active'` — so `itemFor` runs it before it renders the item, exactly as
-it fills a `StampedField`. It takes the ROW and nothing else, which is what lets
-one declaration serve both shapes.
+`Hooks.BeforeInsert` fills the declared defaults of a row, for example `effect='allow'` or `status='active'`. `itemFor` runs it on a copy of the row before it renders the item, and it fills a `StampedField` the same way. The hook takes the row and nothing else.
 
-`RowFilter` narrows the manifest-visible projection, and it is a declared
-predicate: `objstore.Cmp` terms the object path hands to `Query.Where` verbatim
-and the column path renders as bound SQL. One declaration, two readers. Here a
-delete set is a READ, so the same `Where` narrows the scan, the wholesale wipe
-AND the scoped delete — which is the whole reason it must not be a reader-side
-predicate, because such a predicate cannot narrow a write. The terms are a
-conjunction of `Eq` and `Ne`, so a predicate needing an `OR` has no form and the
-answer is an attribute the writer sets: `acl_membership.added_by` is NOT NULL
-(routd migration 0047), and `itemFor` writes a filtered attribute even when it is
-empty, because an absent attribute answers no comparison and a row without one
-would fall out of its own projection.
+`Hooks.ValidateRows` refuses a row set that an apply must not store. It takes the whole set and not one row. It runs before the delete that precedes the writes, so a refused manifest leaves the subsystem untouched.
 
-A `ScopeSpec` is the scoped delete, and on this path it is a QUERY plus one
-guarded delete per item — an entity has no table to delete from and no
-predicate delete. Which query the DECLARATION decides, at `Register`, because
-where the scope value lives is what can select on it: an attribute is a `Where`
-term (an EMPTY scope is `Absent`, because an empty string is an absent
-attribute), a sort key is an exact key, and the first field of a composite
-coordinate is a `begins_with` on `scope+sep` — exact, because no value may carry
-the separator, which is what makes `network_rules`' `(folder, target)` purgeable
-by folder at all. A scope in the MIDDLE of a coordinate is refused: a key
-operator reaches a leading fragment and a coordinate is not an attribute.
+`RowFilter` narrows the manifest-visible projection. It is a declared predicate: `objstore.Cmp` terms that the engine passes to `Query.Where`. A delete set is a read, so the same `Where` narrows the scan, the wholesale wipe and the scoped delete. A reader-side predicate could not narrow a write. The terms are a conjunction of `Eq` and `Ne`, so a predicate that needs an `OR` has no form. The answer is an attribute that the writer sets. For example, `acl_membership` excludes the pairing edges with `added_by != 'pairing'`, and `route_tokens` keeps only `kind = 'route'`. `itemFor` writes a filtered attribute even when it is empty. An absent attribute answers no comparison, and a row without it would fall out of its own projection.
 
-Those deletes ride INSIDE `objstore.Replace`'s claim rather than beside it. The
-delete set is read and then written, so a second replace taking the scope in
-that window has to stop them — otherwise they land on a projection somebody else
-is part-way through replacing. `ApplyOpts.PruneScopes` joins the mentioned
-scopes exactly as on the column path, so the cross-subsystem rollback still
-reaches the folders a forward apply created. Without all of this a folder purge
-leaves the next tenant of the path the last one's egress rules, cron tasks, held
-actions and web routes (BUGS `L253`).
+A `ScopeSpec` declares the scoped delete. On the object path it is a query plus one guarded delete per item, because an entity has no predicate delete. The declaration decides the query at `Register`, because the place where the scope value lives decides what can select on it.
 
-A field whose Go type is not text declares its ENCODING in the `db:` tag, after
-the column name — `db:"preserve_headers,json"`. The set is closed (`json`,
-`bool`), never a caller's function, so a resource cannot invent a rendering only
-it can read; an unknown name stops the process at `Register`, and so does one on
-a string or an int, which both shapes already render the same way.
+- An attribute is a `Where` term. An empty scope is `Absent`, because an empty string is an absent attribute.
+- A sort key is an exact key.
+- The first field of a composite coordinate is a `begins_with` on `scope+sep`. It is exact because no value may carry the separator. This is what makes `network_rules` purgeable by folder.
+- A scope in the middle of a coordinate is refused, because a key operator reaches a leading fragment.
 
-The codec applies to BOTH shapes and that is the point: the text a column holds
-and the text an attribute holds are the SAME text, so a migration carrying a
-table from one to the other cannot change a value on the way. It is what
-`proxyd_routes`' two `Hooks` do today — a `BeforeInsert` that marshals into a
-shadow column and an `AfterScan` that unmarshals back — so dropping them at the
-cutover without this would strip the preserved headers from every proxied
-route, read once per request over 26 live rows. A codec'd COLUMN is `TEXT`,
-because the codec's output is the bind value: `preserve_headers TEXT NOT NULL
-DEFAULT '[]'` is, while `strip_prefix INTEGER` and `acl.grant_option INTEGER`
-can carry one only once they are attributes.
+These deletes run inside the claim of `objstore.Replace`. The delete set is read and then written. Without the claim, a second replace could take the scope in that window. Its deletes would land on a projection that another replace has half replaced. `ApplyOpts.PruneScopes` joins the mentioned scopes, so the cross-subsystem rollback also reaches the folders that a forward apply created. Without scoped deletes, a folder purge would leave egress rules, cron tasks, held actions and web routes behind. The next tenant of the path would inherit them.
 
-A `StampedField` is filled by the STORAGE LAYER on this path, because an entity
-has no engine between the caller and the item — there is no `Insert` to hang a
-`BeforeInsert` on. The layout is `core.TS`, not the column path's RFC3339: a
-stored instant is compared as text and `core.TS` is the fixed-width form that
-makes byte order and time order the same thing (BUGS `L97`). The two paths
-therefore stamp different widths, and a table moving from columns to items
-carries its old values with it — the migration normalises them. The
-declaration STAYS on an entity-backed resource: it is what tells an operator's
-manifest the field is not theirs to set, so `Diff` ignores it and it is not a
-`create`/`update` argument.
+A field whose Go type is not text declares its encoding in the `db:` tag after the attribute name, for example `db:"preserve_headers,json"`. The set is closed: `json`, `bool` and `pad`. A resource cannot invent a rendering that only it can read. An unknown name stops the process at `Register`, and so does an encoding on a string or an int field. `pad` renders an int as a ten-digit zero-padded decimal, so byte order and numeric order agree. Only a field of the coordinate may declare it. `routes` uses it for `Seq`.
 
-`Apply` and `ExportSnapshot` become `objstore.Replace` and
-`objstore.ReadConsistent` ([`objstore/README.md`](../objstore/README.md)). **That gives up the pre-image rollback `L44`
-carries**: the column path runs every DELETE and INSERT in one transaction, and
-a marker-gated sequence has none — a replace that dies after it has written
-leaves the subsystem part-applied with its claim held, and recovery is to run
-the apply again. `arizuko apply` says so before it writes.
+A `StampedField` is filled by the storage layer, because an entity has no engine between the caller and the item. The layout is `core.TS`, the fixed-width form. The engine compares a stored instant as text, and the fixed width makes byte order and time order the same. `AbsentStamps` names the subset of stamped fields that the writer does not invent, because absence is a value the row states. `groups.updated_at` is one: a group that nobody changed has none. The declaration stays on the resource. It tells an operator manifest that the field is not theirs to set, so `Diff` ignores it and it is not a `create` or `update` argument. A stamped number that a row leaves unset gets the number after the largest that the set already states, in `mintNumbers`. `routes.id` is such a number, because `delete_route(id)` addresses it.
 
-**Running it again is what gives the claim back.** The claim records the apply's
-INTENT — `applyClaim`, derived from the document and the scopes it prunes — so
-the same apply takes its own claim over and rolls forward. It converges because
-this is the operation that does: every delete set is read live from the
-manifest's own scopes, so deleting whatever is there and putting the document
-over it lands where a clean run would, whether the dead apply stopped at the
-first row or the last. An apply of a DIFFERENT document is refused, because its
-delete set covers only the rows it names; `apply --take-over` is the operator
-asserting the interrupted work is not coming back (`L267`).
+## An apply replaces a subsystem under a claim
 
-A subsystem must therefore be ONE shape, checked before any write: a mixed one
-would roll the columns back and leave the items part-written, with no way to
-tell an operator which half landed. That is what lets onbod's three resources
-move without waiting for routd's thirteen.
+`Apply` and `ExportSnapshot` use `objstore.Replace` and `objstore.ReadConsistent` (`objstore/README.md`). `Apply` checks the checksum of the live projection against the checksum in the manifest, unless `force` is set or the apply takes over a claim. It then deletes and puts the rows of each resource that the manifest mentions, in catalog order, and writes one audit row.
 
-A daemon prepares its database with `resreg.EnsureSubsystem`, beside the
-`CreateEntity` calls it already makes — the entity behind each resource, the
-entity the version marker lives in, and the marker itself. It is a no-op for a
-subsystem still on the column path, so the set follows the registrations rather
-than a second list beside them.
+**An apply has no pre-image rollback inside one subsystem.** A marker-gated sequence has no transaction. A replace that dies after it has written leaves the subsystem part-applied with its claim held. `arizuko apply` says so before it writes.
 
-`arizuko apply`/`plan`/`get`/`export` are the operator CLI over this engine;
-their flags are in `cmd/arizuko/README.md`. The CAS is `resreg.Checksum`, a
-content hash of the canonical export projection recomputed inside the writing
-transaction — no counter, no table, nothing for a writer to remember to bump.
+**Running the same apply again gives the claim back.** The claim records the intent of the apply, `applyClaim`. The intent derives from the document and the scopes that it prunes. So the same apply takes over its own claim and rolls forward. It converges because every delete set is read live from the manifest scopes under the claim. The apply deletes what is there and puts the document over it. The result matches a clean run, whether the dead apply stopped at the first row or the last. An apply of a different document is refused, because its delete set covers only the rows it names. `apply --take-over` is the operator stating that the interrupted work is not coming back.
 
-Two guards wrap every apply, and they live in `cmd/arizuko/apply.go` rather
-than in the engine because both span documents the engine only ever sees one
-at a time:
+A subsystem must be of one shape. `requireEntities` checks this before any write: a mixed subsystem would leave the operator unable to say which half an apply landed in.
 
-- **The missing-group rule** — `KnownFolders` + `ValidateFolderRefs` refuse,
-  before the first write, a manifest naming a folder that is neither a
-  `groups` row in the document set nor already live. `--force` does not
-  override it.
-- **Cross-subsystem pre-image rollback** — two owners share no transaction, so
-  a failure on the second restores the first from a pre-image taken with
-  `ExportSnapshot` and replayed through `Apply` itself.
+A daemon prepares its database with `resreg.EnsureSubsystem`, beside the `CreateEntity` calls it already makes. The call creates the entity behind each resource, the entity of the version marker, and the marker. It creates nothing for a subsystem that no entity-backed resource names, so the set follows the registrations and not a second list.
 
-Secrets, route tokens, invites and onboarding admissions are
-`SkipApplyRebuild` (export/diff only, never DELETE+INSERTed). They still
-enter the content hash, since it hashes whatever the export projection shows;
-their VALUES travel only in the archive (`resreg/archive.go`), never in a
-config manifest.
+`arizuko apply`, `plan`, `get` and `export` are the operator CLI over this engine. Their flags are in `cmd/arizuko/README.md`. The CAS is `resreg.Checksum`, a content hash of the canonical export projection, so no counter or table exists that a writer could forget to bump.
 
-## Live REST/MCP resources
+Two guards wrap every apply. They live in `cmd/arizuko/apply.go` and not in the engine, because both span documents, and the engine sees one document at a time.
 
-- proxyd's runtime route table — `proxyd/resource.go` (store-backed,
-  tx-bound audit).
-- webd's operator-side MCP forwarder for `routes.*` —
-  `webd/routes_mcp.go` (forwarder; `Resource.Store == nil`; proxyd
-  writes the audit row downstream).
-- routd's thirteen — `acl`, `audit`, `dead_letters`, `github_sources`,
-  `groups`, `membership`, `network_rules`, `packages`, `route_tokens`,
-  `routes`, `scheduled_tasks`, `secrets`, `web_routes` (one `*_resource.go`
-  each). Each mounts on the agent MCP socket through a `postBuild` seam with
-  the agent `Gate` injected, and — where a REST twin exists — the same
-  handler on the operator REST face with a scope/folder `Gate`. The
-  hot-tier tools (`reply`/`send`/`inspect_*`) stay
-  hand-authored in `ipc/ipc.go` — no REST twin.
-- authd's three — `audit`, `signing_keys`, `sessions` — onbod's four:
-  `invites`, `onboarding_gates`, `onboarding`, `audit` — and runed's
-  `audit`.
+- **The missing-group rule.** `KnownFolders` and `ValidateFolderRefs` refuse a manifest before the first write. They refuse it when it names a folder that is no `groups` row in the document set and is not live. `--force` does not override this.
+- **Cross-subsystem pre-image rollback.** Two owners share no transaction. So when the second apply fails, the CLI restores the first from a pre-image that `ExportSnapshot` took, and replays it through `Apply` itself.
+
+Resources with `SkipApplyRebuild` are export and diff only. `Apply` never deletes and inserts them. They are `secrets`, `route_tokens`, `installed_packages`, `github_sources`, `gdrive_files`, `invites` and `onboarding`. They still enter the content hash, because it hashes whatever the export projection shows. Their values travel only in the archive (`resreg/archive.go`) and never in a config manifest.
+
+## Which resources are live
+
+- proxyd serves its runtime route table in `proxyd/resource.go`. The resource is store-backed, and its audit row rides the batch.
+- webd serves an operator-side MCP forwarder for the route tools in `webd/routes_mcp.go`. The forwarder has `Resource.Store == nil`, and proxyd writes the audit row downstream.
+- routd mounts the resources of `routd/*_resource.go` and `routd/pending_actions_http.go`: `acl`, `acl_membership`, `audit`, `dead_letters`, `gdrive_files`, `github_sources`, `groups`, `installed_packages`, `network_rules`, `pending_actions`, `route_tokens`, `routes`, `scheduled_tasks`, `secrets` and `web_routes`. Each mounts on the agent MCP socket with the agent `Gate` injected. Where a REST twin exists, the same handler also runs on the operator REST face with a scope and folder `Gate`. The hot-tier tools `reply`, `send` and `inspect_*` stay hand-authored in `ipc/ipc.go` and have no REST twin.
+- authd mounts `audit`, `signing_keys` and `sessions`. onbod mounts `invites`, `onboarding_gates`, `onboarding` and `audit`. runed mounts `audit`.
 
 ## OpenAPI emission
 
-`OpenAPIHandler(daemon, mux)` (`openapi.go`) emits an OpenAPI 3.1 JSON
-doc for **whatever that mux serves**. `MountedResources(mux)` derives the
-advertised set: `RegisterREST` mounts each face as a `*restMount` stamped
-with its `(resource, endpoint)`, and only registry resources the mux
-resolves to one of those are documented. Request schemas come from the same
-`RowType` reflection (struct field → schema property).
+`OpenAPIHandler(daemon, mux)` in `openapi.go` emits an OpenAPI 3.1 JSON document for **whatever that mux serves**. `MountedResources(mux)` derives the advertised set. `RegisterREST` mounts each face as a `*restMount` that carries its resource and its endpoint. The document describes only the registry resources that the mux resolves to one of those mounts. Request schemas come from the same `RowType` reflection.
 
-**A response body is declared, never inferred.** `Handler` returns `any`, so
-reflection cannot see what an action answers with; `Resource.Responses` maps an
-action to the Go type its handler returns (or a slice of it) and that type is
-what `components/schemas` carries. An action with no entry documents `"OK"` and
-**no body schema at all** — a stated gap, which a generated client handles, in
-place of a wrong struct, which it silently mis-decodes. The shape is never
-derived from the verb (list → `array<RowType>`, GET/POST → `RowType`),
-because mounted operations answer with other types: `GET /v1/routes` with
-`[]router.RouteView`, `GET /v1/tasks` with `[]core.Task` (Go field names — that
-struct has no json tags), the route-token mints with `{token,jid,url}`, onbod's
-mutations with `{"ok":true}` (BUGS `L120`).
+**A response body is declared and never inferred.** `Handler` returns `any`, so reflection cannot see what an action answers with. `Resource.Responses` maps an action to the Go type that its handler returns, or to a slice of that type, and `components/schemas` carries that type. An action with no entry documents `"OK"` and no body schema at all. That is a stated gap, which a generated client handles. A wrong struct would be mis-decoded without a signal. The engine never derives the shape from the verb, such as `array<RowType>` for a list or `RowType` for GET and POST, because mounted operations answer with other types. `GET /v1/routes` answers with `[]router.RouteView`. `GET /v1/tasks` answers with `[]core.Task`, which has no json tags, so the properties use Go field names. The route-token mints answer with `{token,jid,url}`. The mutations of onbod answer with `{"ok":true}`.
 
-The declared type is the one declaration and the handler is its second reader:
-it constructs that same struct, so a renamed field moves the doc and the wire
-together. Only a handler returning a DIFFERENT type can still drift, which is
-what `resregtest.AssertDocumentedResponse` serves a real request to catch —
-`routd/openapi_response_test.go` runs it over routd's own mux.
+The declared type is the one declaration, and the handler is its second reader. The handler constructs that same struct, so a renamed field moves the document and the wire together. Only a handler that returns a different type can still drift. `resregtest.AssertDocumentedResponse` catches that case by serving a real request, and `routd/openapi_response_test.go` runs it over the mux of routd.
 
-A daemon passes no resource list, so it cannot advertise what it does not
-mount — the hand-passed lists were BUGS `F33`, the cause under `F21`/`F27`/
-`F32`. Identity, not path presence, is what is checked: three daemons serve
-`GET /v1/sessions` over three different tables, and proxyd answers every
-path from a `/` catch-all, so a path probe would document other daemons'
-schemas. Hand-rolled `mux.HandleFunc` mounts and catch-alls are not
-`*restMount` and drop out.
+A daemon passes no resource list, so it cannot advertise what it does not mount. The check is on identity and not on path presence. Three daemons serve `GET /v1/sessions` over three different tables. proxyd answers every path from a `/` catch-all. So a path probe would document the schemas of other daemons. Hand-rolled `mux.HandleFunc` mounts and catch-alls are not `*restMount` and drop out of the document.
 
-The doc is built on first REQUEST, not at construction, so `/openapi.json`
-may be mounted on the mux it documents; it then caches for the process
-lifetime. Public — mount before auth. No `huma`, no `swag`, no codegen.
-Mounted on `routd`, `runed`, `authd`, timed, onbod, webd, proxyd, dashd.
-Aggregator landing: `/pub/arizuko/reference/openapi.html`.
+The document is built on the first request and not at construction. So `/openapi.json` may be mounted on the mux that it documents. The document is then cached for the lifetime of the process. The path is public, so mount it before auth. resreg uses no `huma`, no `swag` and no codegen. routd, runed, authd, timed, onbod, webd, proxyd and dashd all mount it. The aggregator landing page is `/pub/arizuko/reference/openapi.html`.
 
-`OpenAPI(daemon, baseURL, resources)` is the underlying emitter, taking
-resources directly; tests use it with `resregtest.Mounted(...)`. One operation
-per declared `Endpoint` and nothing else — a resource with no `Endpoints`
-contributes only its schema. No `/v1/<name>` operation is invented from a
-PK-CRUD convention; `resources.TestEveryResourceDeclaresEndpoints` keeps the
-case from arising.
+`OpenAPI(daemon, baseURL, resources)` is the underlying emitter and takes resources directly. Tests use it with `resregtest.Mounted(...)`. It emits one operation per declared `Endpoint` and nothing else. A resource with no `Endpoints` contributes only its schema. No `/v1/<name>` operation is invented from a CRUD convention, and `resources.TestEveryResourceDeclaresEndpoints` keeps that case from arising.
 
-Per-action derivation: MCP tools are `deriveMCPTools`'d from the
-`Endpoints` whose `Action` has an `MCPDoc` entry, and each tool's args
-are reflected **per action** (via `MCPArgs`) so a read-one tool doesn't
-carry create-body fields and vice-versa. Each such operation's OpenAPI
-`description` carries the same `MCPDoc` prose + the `x-mcp-when`
-annotation. `proxyd_routes` is the first resource to ride this end to
-end: it exports a `redirect_to` field (a redirect target as an
-alternative to `backend`), and its REST endpoint set is single-sourced
-as `resources.ProxydRoutesEndpoints` — the one list both `proxyd`
-(`proxyd/resource.go`) and the `webd` MCP forwarder (`webd/routes_mcp.go`)
-register, so the two faces can't drift.
+MCP tools come from `deriveMCPTools` over the `Endpoints` whose `Action` has an `MCPDoc` entry. The args of each tool are reflected per action, through `MCPArgs`, so a read-one tool does not carry the create-body fields. The `description` of each such operation in OpenAPI carries the same `MCPDoc` prose and the `x-mcp-when` annotation. `proxyd_routes` rides this path end to end. It exports a `redirect_to` field, a redirect target as an alternative to `backend`. Its REST endpoint set is single-sourced as `resources.ProxydRoutesEndpoints`, the one list that both `proxyd` (`proxyd/resource.go`) and the `webd` MCP forwarder (`webd/routes_mcp.go`) register. So the two faces cannot drift.
 
 ## Surface
 
-- `RegisterREST(mux, r, build)` — emits HTTP handlers for every
-  endpoint declared on the resource. `build(*http.Request) (Caller, error)`
-  resolves identity per request.
-- `MCPTools(srv, r, callerFor, visible)` — emits matching MCP tools.
-  `callerFor` is invoked **per call**, not at registration time —
-  privilege confusion in shared MCP servers is structurally precluded.
-  `visible(name)` gates which tools the caller may even see in
-  `tools/list` — `auth.EffectiveActions`, i.e. does the caller hold the
-  action at any scope (nil → all visible).
+- `RegisterREST(mux, r, build)` emits HTTP handlers for every endpoint that the resource declares, except the `MCPOnly` ones. `build(*http.Request) (Caller, error)` resolves the identity per request.
+- `MCPTools(srv, r, callerFor, visible)` emits the matching MCP tools. The engine calls `callerFor` on every call and never at registration, so privilege confusion in shared MCP servers cannot happen. `visible(name)` gates which tools the caller may see in `tools/list`. routd passes `auth.EffectiveActions`, which asks whether the caller holds the action at any scope. A nil `visible` shows all tools.
 
 ## Types
 
-- `Resource{Name, Endpoints, MCPDoc, MCPArgs, Authz, Gate, Handler,
-Store, RowType}` — one literal per resource per daemon. `Gate` is the
-  injected authz decision (nil → operator `defaultGate`; agent socket
-  overrides with its own gate). MCP tools are DERIVED
-  from `Endpoints` (`deriveMCPTools`) using `MCPDoc` (per-action prose) +
-  `MCPArgs` (per-action args); there is no hand-authored `MCPTools` list.
-- `Action` — short verb constant (`list`, `get`, `create`, `update`,
-  `delete`, or resource-specific). `Action.Mutates() bool` is the
-  read-vs-write classifier.
-- `Caller{Sub, Name, Folder, Claims}` — surface-agnostic principal.
-  `Claims` carries JWT claims the ACL row predicates match
-  (e.g. `operator=1`).
-- `Execution{Caller, Action, Resource, Args, TurnID, RequestID,
-SourceIP, Surface, Tx}` — everything a handler needs. `Tx` is
-  non-nil only for mutating actions on store-backed resources.
-- `Handler func(ctx context.Context, x Execution) (any, error)` — the
-  one code path both surfaces invoke.
+- `Resource{Name, Endpoints, MCPDoc, MCPArgs, MCPNames, Authz, Gate, Handler, Store, RowType, Table, PKFields, Responses, EntitySortKey, EntityKeySep, Scope, Hooks, DB, RowFilter, SkipApplyRebuild, StampedFields, AbsentStamps}` is one literal per resource. `Gate` is the injected authorization decision. A nil `Gate` selects the operator `defaultGate`, and the agent socket overrides it with its own gate. `deriveMCPTools` derives the MCP tools from `Endpoints`, using `MCPDoc` for the prose of each action and `MCPArgs` for its args. No hand-authored `MCPTools` list exists.
+- `Action` is a short verb constant: `list`, `get`, `create`, `update`, `delete`, or a resource-specific verb. `Action.Mutates() bool` classifies read against write.
+- `Caller{Sub, Folder, Claims}` is the principal, the same on both surfaces. `Claims` carries the JWT claims that the ACL row predicates match, for example `operator=1`. `ScopeClaimKey` carries the space-delimited scopes of the bearer to the injected `Gate`.
+- `Execution{Caller, Action, Resource, Args, TurnID, RequestID, SourceIP, Surface, Writes}` is everything a handler needs. `Writes` is non-nil only for a mutating action on a store-backed resource.
+- `Handler func(ctx context.Context, x Execution) (any, error)` is the one code path that both surfaces invoke.
 
 ## Authorization
 
-resreg owns the plumbing, never the policy. `Resource.Authz(c, action,
-args)` derives `(scope, params)` from the request — argument extraction,
-not an allow/deny decision. The decision belongs to the injected
-`Resource.Gate(x, scope, params)`:
+resreg owns the plumbing and never the policy. `Resource.Authz(c, action, args)` derives `(scope, params)` from the request. That is argument extraction and not an allow or deny decision. The injected `Resource.Gate(x, scope, params)` makes the decision.
 
-- nil → `defaultGate`: the OPERATOR gate,
-  `auth.Authorize(Store, caller, "<Name>:<action>", scope, params)` over
-  the ACL rows ([`auth/README.md`](../auth/README.md)) — scope/ACL match, no
-  tier. `proxyd_routes` mounts it. routd's, onbod's and authd's operator REST
-  faces inject a bearer-scope `Gate` instead (`<name>:<verb>` or
-  `<name>:<verb>:own_group`) and contain by the token's folder claim.
-- The daemon mounting the resource on the AGENT socket (routd) injects
-  `db.AuthorizeTurn(sender, turn-folder, target, "mcp:"+tool, params)`, which calls the same
-  `auth.Authorize` over the same `acl` rows — the difference is the
-  identity source (socket folder vs JWT), not the policy. Same handler,
-  different gate; resreg is not a second authz server.
+- A nil `Gate` selects `defaultGate`, the operator gate: `auth.Authorize(Store, caller, "<Name>:<action>", scope, params)` over the ACL rows, which `auth/README.md` describes. That is a scope and ACL match with no tier. `proxyd_routes` mounts it. The operator REST faces of routd, onbod and authd inject a bearer-scope `Gate` instead. It checks `<name>:<verb>` or `<name>:<verb>:own_group` and contains the request by the folder claim of the token.
+- The daemon that mounts a resource on the agent socket, routd, injects `db.AuthorizeTurn(sender, turn-folder, target, "mcp:"+tool, params)`. That call reaches the same `auth.Authorize` over the same `acl` rows. The identity source differs, the socket folder against the JWT, but the policy does not. It is the same handler with a different gate.
 
-Forwarder resources (`Store == nil`) skip the gate — the downstream
-daemon authorizes. Returning `err` from `Authz` short-circuits (e.g.
-validation failure → 400) without reaching the gate. No parallel
-predicate machinery; the ACL rows remain the source of truth.
+Forwarder resources (`Store == nil`) skip the gate, because the downstream daemon authorizes. An error from `Authz` ends the call before the gate, for example a validation failure with status 400. No parallel predicate machinery exists, and the ACL rows stay the source of truth.
 
-## Batched audit
+## A mutation and its audit row land together
 
-A mutating action (`create` / `update` / `delete`) on a store-backed
-resource (`Resource.Store != nil`) HANDS ITS WRITES OVER rather than
-performing them. The adapter:
+A mutating action on a store-backed resource (`Resource.Store != nil`) hands its writes over and does not perform them. The adapter works in four steps.
 
-1. Puts a fresh `store.WriteSet` on `Execution.Writes`; invokes `Handler`.
-2. The handler READS what it needs and buffers the writes it decided on —
-   `store.…Into` methods append, they do not write. A write whose
-   condition may refuse goes in through `WriteSet.AddGuarded` together
-   with the error that refusal means, because the handler is gone by the
-   time the answer is known. One such write per set: a batch reports one
-   bit.
-3. On handler success: `Store.Apply` sends the whole set plus one
-   `audit_log` row (`audit.WriteFor`) as ONE `objstore.GuardedBatch`, so
-   either both land or neither does — the guarantee the transaction gave,
-   on an interface that has none.
-4. On handler error, or a refused/failed batch: nothing was written, and
-   one `audit_log` row (outcome=`error`) goes in alone via `audit.Emit`.
-   A refused batch answers with the handler's own declared error, status
-   included.
+1. It puts a fresh `store.WriteSet` on `Execution.Writes` and invokes `Handler`.
+2. The handler reads what it needs and buffers the writes it decided on. The `store.…Into` methods append and do not write. A write whose condition may refuse goes in through `WriteSet.AddGuarded` together with the error that the refusal means, because the handler is gone when the answer arrives. A set holds one such write, because a batch reports one bit of refusal.
+3. When the handler succeeds, `Store.Apply` sends the whole set and one `audit_log` row (`audit.WriteFor`) as one `objstore.GuardedBatch`. Either both land or neither does.
+4. When the handler fails, or the batch is refused or fails, nothing was written. One `audit_log` row with outcome `error` goes in alone through `audit.Emit`. A refused batch answers with the declared error of the handler, status included.
 
-Every call gets one slog line (`logCall`). A successful read writes no row;
-a denied or failed read does, so a refused read leaves a trace. Forwarder resources
-(`Store == nil`) skip the batch + audit dance — the downstream daemon
-writes the row. Field schema: [`audit/README.md`](../audit/README.md).
+Every call gets one slog line (`logCall`). A successful read writes no row. A denied or failed read does, so a refused read leaves a trace. A forwarder resource skips the batch and the audit row, because the downstream daemon writes the row. The field schema is in `audit/README.md`.
 
 ## Adding a resource
 
-1. Declare the SHAPE once in `resreg/resources/<name>.go` — the catalog
-   registration (`Name`, `Table`, `RowType`, `PKFields`, `Endpoints`,
-   `MCPDoc`/`MCPArgs`/`MCPNames`), with its name added to the const block
-   in `resreg/resources/names.go`. In your daemon, obtain it with
-   `r := resreg.Mount(resources.<X>Name)` and set only `Authz`, `Handler`,
-   `Store` and the injected `Gate`. Never build a `resreg.Resource` literal
-   there — that is a second declaration of the same resource, and
-   `resources/name_source_test.go` fails on one.
-   A resource's `Name` is its wire identity (`/v1/<name>` + the MCP tool
-   prefix); it is spelled in `names.go` and nowhere else. `Mount` panics on an
-   unregistered name, so a resource served but absent from every catalog
-   stops the binary at boot. Registration also panics on an empty `Table`
-   (`engine.go`): every resource is a store table, so state kept in files,
-   such as a queue of proposal files, cannot be a resreg resource.
-   One name is shared on purpose: routd, runed, authd and onbod each mount
-   `audit`. That keeps the rule, because all four serve one declaration
-   (`resources/audit.go`: `GET /v1/audit` and `query_audit`, no write face,
-   no `/{id}`) over one row shape, `audit.Row`, each over its own
-   `audit_log`. One path on four owners is what lets dashd fan one request
-   out and merge the answers.
-2. Implement one `Handler` that switches on `x.Action`. BUFFER a mutation
-   on `x.Writes` when `Store` is set — read first, decide, hand the writes
-   over; the adapter sends them.
-3. Wire from `main.go`: `resreg.RegisterREST(mux, r, build)` and
-   `resreg.MCPTools(srv, r, callerFor, visible)`.
+1. Declare the shape once in `resreg/resources/<name>.go`: `Name`, `Table`, `RowType`, `PKFields`, `EntitySortKey`, `Endpoints` and `MCPDoc`, `MCPArgs` and `MCPNames` where needed. Add the name to the const block in `resreg/resources/names.go`. In the daemon, take the resource with `r := resreg.Mount(resources.<X>Name)` and set only `Authz`, `Handler`, `Store` and the injected `Gate`. Never build a `resreg.Resource` literal in the daemon. That is a second declaration of the same resource, and `resources/name_source_test.go` fails on it.
+   - The `Name` of a resource is its wire identity: `/v1/<name>` and the MCP tool prefix. `names.go` spells it and nothing else does.
+   - `Mount` panics on an unregistered name, so a resource that a daemon serves but no catalog holds stops the binary at boot.
+   - Registration panics on an empty `Table` for a resource with a `RowType`, so state kept in files cannot be a resreg resource.
+   - One name is shared on purpose: routd, runed, authd and onbod each mount `audit`. That keeps the rule, because all four serve one declaration in `resources/audit.go` over one row shape, `audit.Row`, each over its own `audit_log`. The declaration has `GET /v1/audit` and `query_audit`, no write face and no `/{id}`. One path on four owners lets dashd fan one request out and merge the answers.
+2. Implement one `Handler` that switches on `x.Action`. When `Store` is set, buffer a mutation on `x.Writes`: read first, decide, then hand the writes over. The adapter sends them.
+3. Wire the resource from `main.go` with `resreg.RegisterREST(mux, r, build)` and `resreg.MCPTools(srv, r, callerFor, visible)`.
 
-`proxyd/resource.go` is the canonical store-backed example;
-`webd/routes_mcp.go` is the canonical forwarder example.
+`proxyd/resource.go` is the canonical store-backed example, and `webd/routes_mcp.go` is the canonical forwarder example.
 
-Some things are not resources, and making one would add a face nobody may
-use: inbound ingestion (`POST /v1/messages`), cost reads, SSE streams, auth
-session creation, store setup, and runed's run control, which is REST-only
-by design.
+Some things are not resources, because making one would add a face that nobody may use. They are inbound ingestion (`POST /v1/messages`), cost reads, SSE streams, auth session creation and store setup. The run control of runed is REST-only by design.
