@@ -236,3 +236,76 @@ func TestWebDocsNavListsEverySection(t *testing.T) {
 		t.Fatalf("only %d sidebars found; the extraction is broken", pages)
 	}
 }
+
+// childSections are the sections whose pages carry their siblings in the
+// sidebar. Each page holds its own copy of the list, so a page added to one
+// copy and not the others is a drift no reader of the index sees.
+var childSections = []string{"concepts", "reference", "howto", "components", "products"}
+
+var sectionChildrenRe = regexp.MustCompile(`(?s)class="nav-section"\s+href="([^"]*)"[^>]*>[^<]*</a>\s*<ul class="nav-children">(.*?)</ul>`)
+
+// sectionChildren returns the resolved targets of the nav-children list that
+// sits under the sidebar entry for section, in order, and whether one exists.
+func sectionChildren(f, body, section string) ([]string, bool) {
+	want := filepath.Join(pubDir, siteRoot, section, "index.html")
+	for _, m := range sectionChildrenRe.FindAllStringSubmatch(body, -1) {
+		if target, ok := resolve(f, m[1]); !ok || filepath.Clean(target) != want {
+			continue
+		}
+		var out []string
+		for _, h := range linkRe.FindAllStringSubmatch(m[2], -1) {
+			if target, ok := resolve(f, h[1]); ok {
+				out = append(out, filepath.Clean(target))
+			}
+		}
+		return out, true
+	}
+	return nil, false
+}
+
+// TestWebDocsSectionNavListsEverySibling requires every page in a section to
+// carry the section index's nav-children list: the same targets, in the same
+// order. Mutation proof, run when the test was written: one <li> removed from
+// concepts/topics.html turned it red.
+func TestWebDocsSectionNavListsEverySibling(t *testing.T) {
+	root := filepath.Join(pubDir, siteRoot)
+	index := map[string][]string{}
+	for _, s := range childSections {
+		f := filepath.Join(root, s, "index.html")
+		body, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatalf("read %s: %v", f, err)
+		}
+		list, ok := sectionChildren(f, string(body), s)
+		if !ok || len(list) < 5 {
+			t.Fatalf("%s: section nav has %d children; the extraction is broken", f, len(list))
+		}
+		index[s] = list
+	}
+	pages := 0
+	for _, f := range htmlFiles(t) {
+		name := rel(t, f)
+		section, _, _ := strings.Cut(name, "/")
+		want, inSection := index[section]
+		if !inSection || shellLess[name] {
+			continue
+		}
+		body, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatalf("read %s: %v", f, err)
+		}
+		pages++
+		got, ok := sectionChildren(f, string(body), section)
+		if !ok {
+			t.Errorf("%s: sidebar has no nav-children list under %s", name, section)
+			continue
+		}
+		if strings.Join(got, ",") != strings.Join(want, ",") {
+			t.Errorf("%s: section nav differs from %s/index.html — copy the "+
+				"index's list (%d entries, want %d)", name, section, len(got), len(want))
+		}
+	}
+	if pages < 100 {
+		t.Fatalf("only %d section pages checked; the walk is broken", pages)
+	}
+}
