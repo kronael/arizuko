@@ -718,7 +718,7 @@ func (l *Loop) dispatchRun(ctx context.Context, folder, topic, chatJID, turnID, 
 		defer cancel()
 	}
 	caller := types.UserSub(turnCallerSub(trigger))
-	// An isolated scheduled task runs with NO `--resume` (specs/4/8): resuming
+	// An isolated scheduled task runs with NO `--resume` (ROUTING.md § Topics isolate threads inside one group): resuming
 	// the chat session appends the cron's tool-heavy run to the humans'
 	// conversation, and compaction drops the humans first.
 	isolated := core.IsIsolatedSender(trigger)

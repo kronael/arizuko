@@ -29,7 +29,7 @@ func newCaptureLoop(t *testing.T) (*DB, *Loop, *captureRunner) {
 	return db, loop, r
 }
 
-// specs/4/8 §"Implemented beyond base spec": context_mode "isolated" means no
+// ROUTING.md § Topics isolate threads inside one group: context_mode "isolated" means no
 // `--resume`. routd sent the group's session id anyway, so every isolated cron
 // resumed the chat transcript and appended its own tool-heavy run to it — the
 // folder's crons writing themselves into the humans' conversation until Claude

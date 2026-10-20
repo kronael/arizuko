@@ -4,12 +4,7 @@ status: defected
 # guard 1 names five sections that must stay in `ant/CLAUDE.md` until a case exists;
 # all five are gone and none of anteval's 23 cases covers them
 defects: [L188]
-depends:
-  [
-    ../4/P-personas,
-    ../5/Y-output-styles-per-surface,
-    ../8/A-hierarchical-skills,
-  ]
+depends: [../5/Y-output-styles-per-surface, ../8/A-hierarchical-skills]
 ---
 
 # specs/6/34 — the resident budget: what an always-loaded file may carry
@@ -146,7 +141,7 @@ remainder, if any.
 | Section                             | L / B     | Verdict            | Rule | Destination and remainder                                                                                                                                                                                                                                                                       |
 | ----------------------------------- | --------- | ------------------ | ---- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Identity                            | 5 / 168   | keep               | 1    | who/where in two env vars; the introspection recipe is `self/identity.md`                                                                                                                                                                                                                       |
-| Response Style                      | 21 / 2320 | keep               | 2    | the register floor; `4/P` decides it lives here because one output style loads per session. The STE bullet list is the only trim candidate                                                                                                                                                      |
+| Response Style                      | 21 / 2320 | keep               | 2    | the register floor; it lives here because one output style loads per session. The STE bullet list is the only trim candidate                                                                                                                                                                    |
 | Rigor                               | 4 / 406   | keep               | 2    | fabrication has no error                                                                                                                                                                                                                                                                        |
 | Tenancy model                       | 12 / 1861 | keep, trim         | 1    | resident: group = isolated home, path carries zero authorization, tool list = grant set, topic in one line. The `register_group` paragraph moves to `self/mcp.md` — the tool's own error says "call this"                                                                                       |
 | Autocalls                           | 4 / 269   | keep               | 1    | envelope; `self/autocalls.md` holds the long form                                                                                                                                                                                                                                               |
@@ -264,7 +259,7 @@ cannot help. What breaks if each stays out:
   reasons from depth, asks for a `chown` on a missing `web:publish` grant
   (the file records four such requests), and works around a missing tool.
 - **The register floor** (terse, the ceiling, no marketing adjectives,
-  STE). Out: replies balloon and nothing objects. `4/P` decided the floor
+  STE). Out: replies balloon and nothing objects. The floor
   lives here because one output style loads per session and personas add
   voice without lowering it.
 - **The map itself** (`/self` for platform questions, the memory-store

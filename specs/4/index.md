@@ -4,30 +4,10 @@ status: shipped
 
 # specs/4 — dashboards, memory, scheduler, personas
 
-## Messaging
-
-- [social-adapters.md](social-adapters.md) — adapter roster; chanlib ownership; whapd/emaid decisions; facts in `chanlib/README.md`, `whapd/README.md`
-- [13-message-ids.md](13-message-ids.md) — reply threading, channel coverage, forward-metadata non-goal; facts in `ROUTING.md` § Reply Routing, `EXTENDING.md` § Adding a channel adapter
-- [23-topic-routing.md](23-topic-routing.md) — `@agent` delegation, `#topic` sessions; facts in `ROUTING.md` § Inline `@name` / `#topic` prefix layer
-
-## Web surfaces
-
-- [2-proxyd.md](2-proxyd.md) — public-facing auth proxy; route order; fail-closed rule; superseded by `proxyd_routes` rows; facts in `proxyd/README.md`
-- [3-chat-ui.md](3-chat-ui.md) — webd: chat widget, JID model, auth planes, `/me/*` portal; facts in `webd/README.md` § Purpose
-
 ## Authorization
 
 - [19-action-grants.md](19-action-grants.md) — **superseded in part** — rule grammar + structured unsupported errors survive; the `grants/` package is deleted, storage → [`../5/32`](../5/32-acl-unified.md), derivation → [`../5/33`](../5/33-paths-roles.md)
-- [11-auth.md](11-auth.md) — outbound JID authorization (subtree containment, no tier bypass — not even root); facts in `ipc/README.md` § Who may call what
 - [V-dashd-acl-ui.md](V-dashd-acl-ui.md) — **superseded in part** — four pages designed, one folder-scoped page shipped
-
-## Runtime
-
-- [8-scheduler-service.md](8-scheduler-service.md) — timed: cron poll, schema, `task_run_logs`; facts in `timed/README.md`, `concepts/tasks.html`
-- [10-ipc.md](10-ipc.md) — per-group MCP socket; identity as parameter; spawn + route guards; facts in `ipc/README.md` § The turn's credential is the socket, § Tool surface
-- [17-knowledge-system.md](17-knowledge-system.md) — memory layers, push vs pull, recall, compression; facts in `diary/README.md`
-- [P-personas.md](P-personas.md) — versioning, image distribution, the three voice layers; facts in `concepts/personas.html`
-- [S-e2e-tests.md](S-e2e-tests.md) — per-daemon boundary tests; why not docker e2e
 
 Merged or moved out of this phase:
 
@@ -35,11 +15,7 @@ Merged or moved out of this phase:
 | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `9-gated.md`            | Deleted — `gated` was removed at v0.50.0. Read [`../5/E-routd.md`](../5/E-routd.md) (routing + store + loop), [`../5/P-runed.md`](../5/P-runed.md) (queue + containers + MCP socket), [`../5/1-auth-standalone.md`](../5/1-auth-standalone.md) (OAuth, ES256 signer, JWKs) |
 | `18-web-vhosts.md`      | [`../5/V-web-vhosts.md`](../5/V-web-vhosts.md) (2026-05-26)                                                                                                                                                                                                                |
-| `chanlib-refactor.md`   | [`social-adapters.md`](social-adapters.md)                                                                                                                                                                                                                                 |
-| `task-logs.md`          | [`8-scheduler-service.md`](8-scheduler-service.md)                                                                                                                                                                                                                         |
-| `24-recall.md`          | [`17-knowledge-system.md`](17-knowledge-system.md)                                                                                                                                                                                                                         |
-| `15-code-research.md`   | [`17-knowledge-system.md`](17-knowledge-system.md) + [`../5/21-products.md`](../5/21-products.md)                                                                                                                                                                          |
-| `U-user-dashboard.md`   | [`3-chat-ui.md`](3-chat-ui.md)                                                                                                                                                                                                                                             |
+| `15-code-research.md`   | [`../5/21-products.md`](../5/21-products.md)                                                                                                                                                                                                                               |
 | `1-channel-protocol.md` | [`../5/34-channel-protocol.md`](../5/34-channel-protocol.md) (2026-08-02)                                                                                                                                                                                                  |
 | `9-acl-unified.md`      | [`../5/32-acl-unified.md`](../5/32-acl-unified.md) (2026-08-02)                                                                                                                                                                                                            |
 | `R-paths-roles.md`      | [`../5/33-paths-roles.md`](../5/33-paths-roles.md) (2026-08-02)                                                                                                                                                                                                            |

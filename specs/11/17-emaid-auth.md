@@ -7,10 +7,10 @@ status: partial
 Layered DMARC/DKIM/SPF verification + operator-controlled sender allowlist
 
 - verb annotation that lets routing send unverified mail to a quarantine
-  group for operator review. Extends the shipped email adapter (`specs/4/social-adapters.md` §emaid).
+  group for operator review. Extends the shipped email adapter (`emaid/README.md`).
 
-**Supersedes** the "All email routes to root group" line in
-`specs/4/social-adapters.md` §emaid —
+**Supersedes** the "All email routes to root group" line of the
+email adapter —
 sub-group routing (e.g. quarantine) is the whole point of this spec.
 
 **Replaces** the existing fail-open `authResultsPass` at
@@ -148,7 +148,7 @@ to handle it (summarize, ping operator, await ✅).
 
 ### 5. Strict mode (opt-in)
 
-`EMAIL_STRICT_AUTH=true` (already documented in `specs/4/social-adapters.md` §emaid,
+`EMAIL_STRICT_AUTH=true` (documented in `emaid/README.md` § Configuration,
 not yet wired): emaid DROPS unauthenticated mail entirely instead of
 shipping it as `verb=untrusted`. Routes never see it.
 
@@ -260,7 +260,7 @@ dmarc=pass` with no pinned-authserv match → `verb=untrusted`**
   operator's existing dashd views cover it.
 - NOT a sender reputation system. Just structured pass/fail per the
   email standards.
-- NOT cross-instance: each emaid runs against ONE mailbox per `specs/4/social-adapters.md` §emaid.
+- NOT cross-instance: each emaid runs against ONE mailbox (`emaid/README.md`).
   Multi-mailbox = multiple emaid containers per spec 5/R-multi-account.
 
 ## Operator config recipe

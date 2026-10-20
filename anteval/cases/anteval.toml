@@ -391,7 +391,7 @@ kind = "callback"
 # transcript still answers from the group layers; that is what a second
 # harness occupant has to pass. This case pins it: the fact goes into group
 # knowledge, then a contextMode='isolated' follow-up — no `--resume` by
-# definition (specs/4/8), so the transcript CANNOT help — must recover it.
+# definition (ROUTING.md § Topics isolate threads inside one group), so the transcript CANNOT help — must recover it.
 # Self-report caveat, same as every {nonce}/-x case: an agent that embeds the
 # fact in the scheduled prompt or fabricates an answer false-passes; the sink
 # judges reporting, the LLM judges itself.

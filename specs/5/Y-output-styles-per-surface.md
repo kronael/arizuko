@@ -89,7 +89,7 @@ two non-obvious inputs:
   no post-hoc trim. The agent self-caps from the style file's text — same
   trust model as every other prompt rule.
 - **NOT a personality override.** Personality is `PERSONA.md`
-  (`4/P-personas.md`). Output style is formatting dialect + length
+  (`template/web/pub/arizuko/concepts/personas.html`). Output style is formatting dialect + length
   envelope.
 - **NOT route configuration.** Surface is derived from the turn's
   destination, never picked per route.
