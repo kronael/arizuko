@@ -153,7 +153,6 @@ ones no measurement can settle.
 
 **Small fixes awaiting a go.** Each is bounded, and its entry names the fix.
 
-- `L476` — fix in flight: `SetTurnAddressed` must check the write verdict.
 - `L427` — gitd marks a delivery accepted before it knows the outcome.
 - `L428` — the web design guard passes shapes it should refuse, and a site that
   loses fifteen sidebars.
@@ -345,18 +344,6 @@ writes the rows added since, never re-adding a row an operator removed after
 that version. A change to which rows reach live data is an auth change.
 
 - **Status:** open — needs sign-off.
-
-## L476 — `SetTurnAddressed` drops the write verdict, and `TestNoCallerDropsTheVerdict` is red on main (2026-10-20, open)
-
-FOUND 2026-10-20 while landing L474. `go test ./store/ -run
-TestNoCallerDropsTheVerdict` fails on main at `ac665bfa` and before it:
-`store/turn_context.go:238` calls `s.TryWriteEntities(...)` and discards the
-boolean verdict, so an update that writes nothing (no such turn) reports
-success. The guard test exists for exactly this class (`L268`). Introduced
-with `3b60a8ee` ("Record whether a turn is addressed").
-
-- **Status:** open — fix in flight: check the verdict and return an error when
-  nothing was written, as the other turn-context setters do.
 
 ## L448 — the custom guest kernel is justified by BOOT TIME, not by the reason written in the fragment (2026-10-19, open — needs sign-off)
 
