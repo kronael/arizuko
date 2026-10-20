@@ -1,5 +1,9 @@
 ---
-status: shipped
+status: defected
+# defects: an OPEN BUGS entry contradicts this spec —
+# § "Blocking is the default" describes an `async` hold and a `HITL_WAIT` flip;
+# the code has one blocking effect and an expiry
+defects: [L498]
 shipped: 2026-08-07
 moved-from: specs/17/4-hitl-firewall.md
 ---
