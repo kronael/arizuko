@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>upgrade an instance &mdash; arizuko</title>
+  <link rel="stylesheet" href="../assets/hub.css">
+</head>
+<body>
+  <header class="docs-topbar">
+    <button class="docs-navtoggle" aria-label="Toggle navigation" aria-expanded="false">&#9776;</button>
+    <a class="docs-wordmark" href="../">arizuko</a>
+  </header>
+  <div class="docs-layout">
+    <nav class="docs-nav" aria-label="How-to">
+      <ul>
+        <li><a class="nav-section" href="../concepts/">Concepts</a></li>
+        <li><a class="nav-section" href="../reference/">Reference</a></li>
+        <li><a class="nav-section" href="./">How-to</a>
+          <ul class="nav-children">
+            <li><a href="index.html">Getting started</a></li>
+            <li><a href="operate.html">Operate</a></li>
+            <li><a href="upgrade.html">Upgrade</a></li>
+            <li><a href="talking-to-agents.html">Talking to agents</a></li>
+            <li><a href="build-a-product.html">Build a product</a></li>
+            <li><a href="slack.html">Slack</a></li>
+            <li><a href="discord.html">Discord</a></li>
+            <li><a href="asymmetric-channels.html">Asymmetric channels</a></li>
+            <li><a href="chat-link.html">Chat link on your site</a></li>
+            <li><a href="chat-sdk.html">Embed chat (SDK)</a></li>
+            <li><a href="webhooks.html">Webhooks</a></li>
+            <li><a href="add-connector.html">Add a connector</a></li>
+            <li><a href="oauth-provider.html">Add an OAuth provider</a></li>
+            <li><a href="webdav.html">WebDAV mount</a></li>
+            <li><a href="kubernetes.html">Kubernetes</a></li>
+          </ul>
+        </li>
+        <li><a class="nav-section" href="../components/">Components</a></li>
+        <li><a class="nav-section" href="../products/">Products</a></li>
+        <li><a class="nav-section" href="../security/">Security</a></li>
+        <li><a class="nav-section" href="../strategy/">Strategy</a></li>
+        <li><a class="nav-section" href="../research/">Research</a></li>
+        <li><a class="nav-section" href="../changelog/">Changelog</a></li>
+      </ul>
+    </nav>
+
+    <main class="docs-content">
+      <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">howto</a> &rsaquo; Upgrade</p>
+      <h1>upgrade an instance</h1>
+
+    <p class="lede">An upgrade is a rebuild from the new checkout and one restart. The part people miss is the two guest artifacts: each lands in a new directory, and <code>.env</code> has to name it.</p>
+
+    <h2 id="steps">the whole upgrade</h2>
+    <p>Run it in the arizuko checkout. <code>demo</code> is the instance name; use yours.</p>
+    <pre id="twin-upgrade"><code>git pull                                          # the new release
+make build                                        # ./arizuko + daemon binaries
+sudo make images DATA_DIR=/srv/data/arizuko_demo  # prints rootfs: &lt;dir&gt;
+sudo make kernel DATA_DIR=/srv/data/arizuko_demo  # prints kernel: &lt;dir&gt;
+sudoedit /srv/data/arizuko_demo/.env              # RUNED_ROOTFS_DIR, RUNED_KERNEL_DIR
+./arizuko generate demo                           # read every warning it prints
+sudo systemctl restart arizuko_demo               # arizuko run regenerates, starts
+./arizuko send demo main "ping" --wait            # one reply proves the path</code></pre>
+
+    <h2 id="artifacts">each artifact is a new directory</h2>
+    <p>A turn boots a kernel and a root filesystem that live under the data directory, named by what is in them. runed reads the two paths from <code>.env</code> and never guesses:</p>
+    <pre><code>make images ──► DATA_DIR/images/rootfs-&lt;image id&gt;/        ◄── RUNED_ROOTFS_DIR
+make kernel ──► DATA_DIR/images/kernel-&lt;version&gt;-&lt;hash&gt;/  ◄── RUNED_KERNEL_DIR</code></pre>
+    <p><code>make images</code> exports a new rootfs tree only when the <code>arizuko-ant</code> image changed, and prints the directory either way. It keeps the newest two trees and names the older ones with <code>make rootfs-stale</code>; removing them is yours. <code>make kernel</code> builds only when <code>kernel/Dockerfile</code>, <code>kernel/arizuko.fragment</code>, <code>kernel/check-config.sh</code> or <code>kernel/guest-init/*.go</code> changed. Otherwise it prints <code>is current</code> and you leave <code>RUNED_KERNEL_DIR</code> alone. A kernel build takes a while, so it's good news when it doesn't happen.</p>
+    <p>Forget to repoint <code>RUNED_ROOTFS_DIR</code> and the new daemons boot last release's guest. Nothing errors.</p>
+
+    <h2 id="generate">read what generate warns about</h2>
+    <p><code>systemctl restart</code> runs <code>arizuko run</code>, which regenerates the compose file anyway. Running <code>arizuko generate</code> first puts its warnings on your terminal instead of in the journal. Two of them matter before the restart: a fragment it calls <a href="operate.html#frozen-fragment">FROZEN</a>, and a daemon with <a href="operate.html#store-key">no store key</a>, which restart-loops the whole instance.</p>
+
+    <h2 id="migrate">expect one /migrate turn per folder</h2>
+    <p>A release that bumps <code>MIGRATION_VERSION</code> makes routd queue one <code>/migrate</code> turn for every folder whose skills are behind. Real messages wait behind them, so the first replies after an upgrade are slow. The queue is empty when no guest runs:</p>
+    <pre><code>pgrep -c qemu-system-x86    # 0 when the /migrate turns are done</code></pre>
+
+    <h2 id="rollback">roll back the guest</h2>
+    <p>The older rootfs tree is still on disk. Set <code>RUNED_ROOTFS_DIR</code> back to it and restart. The daemons stay on the new images; rolling those back means building the old checkout.</p>
+
+    <h2 id="gates">the release gates</h2>
+    <p>A maintainer's release runs the five post-deploy gates in <a href="https://github.com/kronael/arizuko/blob/main/.claude/skills/eval/gates.md">[gates.md]</a>. The last one, <code>anteval --smoke</code>, is the only one that proves a live agent still answers. Run it after the <code>/migrate</code> turns drain, or it measures the queue instead of the release.</p>
+
+      <nav class="docs-pager" aria-label="Pager">
+        <a rel="prev" href="operate.html">&larr; Operate</a>
+        <a rel="next" href="talking-to-agents.html">Talking to agents &rarr;</a>
+      </nav>
+      <div class="docs-footer">
+        <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/howto/upgrade.html">Edit this page</a>
+        &middot; updated <time class="docs-updated" datetime="2026-10-20">2026-10-20</time>
+      </div>
+    </main>
+    <aside class="docs-toc" aria-label="On this page"></aside>
+
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="../assets/hub.js"></script>
+</body>
+</html>

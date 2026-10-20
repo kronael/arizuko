@@ -691,6 +691,44 @@ per turn (spec `6/41`) — so send the agent a message and check
 `journalctl -u arizuko_<name>` or `/dash/runed/` for the spawn, not `docker
 ps`.
 
+## Upgrade
+
+An upgrade rebuilds the images from the new checkout and restarts the
+instance. Run the block in the arizuko checkout. Each guest artifact is a
+directory whose name carries its content hash, so a new artifact is a new
+directory, and `.env` must name it.
+
+<!-- twin:upgrade -->
+
+```bash
+git pull                                          # the new release
+make build                                        # ./arizuko + daemon binaries
+sudo make images DATA_DIR=/srv/data/arizuko_demo  # prints rootfs: <dir>
+sudo make kernel DATA_DIR=/srv/data/arizuko_demo  # prints kernel: <dir>
+sudoedit /srv/data/arizuko_demo/.env              # RUNED_ROOTFS_DIR, RUNED_KERNEL_DIR
+./arizuko generate demo                           # read every warning it prints
+sudo systemctl restart arizuko_demo               # arizuko run regenerates, starts
+./arizuko send demo main "ping" --wait            # one reply proves the path
+```
+
+<!-- /twin -->
+
+- `make images` exports a new rootfs tree only when the `arizuko-ant` image
+  changed. It keeps the newest two trees. To roll back the guest, set
+  `RUNED_ROOTFS_DIR` to the older tree and restart.
+- `make kernel` builds only when `kernel/Dockerfile`, `kernel/arizuko.fragment`,
+  `kernel/check-config.sh` or `kernel/guest-init/*.go` changed. Otherwise it
+  prints `is current` and `RUNED_KERNEL_DIR` stays as it is.
+- `arizuko generate` names a fragment that is FROZEN and a daemon with no store
+  key. Fix both before the restart. A daemon without a store key restart-loops
+  the whole instance.
+- A release that bumps `MIGRATION_VERSION` makes routd queue one `/migrate`
+  turn for every folder. Replies wait behind them. The queue is empty when
+  `pgrep -c qemu-system-x86` prints 0.
+- A maintainer's release runs the five post-deploy gates in
+  [`.claude/skills/eval/gates.md`](.claude/skills/eval/gates.md). The last
+  gate, `anteval --smoke`, is the only one that proves a live agent answers.
+
 ## Troubleshooting
 
 **Agent doesn't reply (healthchecks green):** usually one of
