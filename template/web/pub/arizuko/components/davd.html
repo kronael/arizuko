@@ -59,20 +59,20 @@
       <h1>davd</h1>
 
     <h2>davd serves the group folders as a network drive</h2>
-    <p>davd turns the folder of an agent into a network drive that you can open in Finder or Explorer. You edit the files of the agent from your own machine, without a login on the server.</p>
+    <p>davd turns the folder of an agent into a network drive. You mount it with rclone and edit the files of the agent from your own machine, without a login on the server.</p>
 
     <p>davd is a WebDAV server over the <code>groups/</code> directory of each instance. WebDAV is the standard way to expose a folder as a network drive. The whole daemon is the <code>sigoden/dufs</code> Rust binary in an alpine image, which adds the standard <code>wget</code> healthcheck, started with <code>--port 8080 /data</code>. <code>/data</code> is a bind mount of <code>&lt;data-dir&gt;/groups/</code>.</p>
 
-    <p>davd itself knows nothing about identity. Authentication and the limit to one group happen one step earlier, in <a href="../components/proxyd.html">proxyd</a>.</p>
+    <p>davd itself knows nothing about identity. Authentication and the limit to one group happen one step earlier, in <a href="../components/proxyd.html">proxyd</a>. proxyd accepts only <code>Authorization: Bearer &lt;JWT&gt;</code> or the <code>refresh_token</code> cookie, so a client that sends HTTP Basic auth, such as Finder or Windows Explorer, cannot sign in. <a href="../howto/webdav.html">howto/webdav</a> shows how to mint a token.</p>
 
     <h2>Operators need to edit agent files without a shell</h2>
-    <p>davd serves the folder that the agent reads on each turn: <code>PERSONA.md</code>, <code>MEMORY.md</code>, <code>facts/</code>, custom skills and diary entries. Operators need to edit those files in a real editor, such as Finder, vim, VS Code or rclone, without a shell on the host.</p>
+    <p>davd serves the folder that the agent reads on each turn: <code>PERSONA.md</code>, <code>MEMORY.md</code>, <code>facts/</code>, custom skills and diary entries. Operators need to edit those files in a real editor, such as vim or VS Code on an rclone mount, without a shell on the host.</p>
 
     <p>WebDAV gives that with standard verbs that every operating system already speaks: <code>PROPFIND</code>, <code>PUT</code>, <code>DELETE</code> and <code>MKCOL</code>. Without davd, you need direct filesystem access on the server to edit the files of a group. The alternative is a custom REST API that repeats what WebDAV already defines.</p>
 
     <h2>Every request passes proxyd before davd</h2>
     <div class="callout">
-      <pre><code>operator (Finder, vim, rclone, curl)
+      <pre><code>operator (rclone, curl)
    │  WebDAV request to https://&lt;host&gt;/dav/&lt;group&gt;/...
    ▼
  proxyd
@@ -127,7 +127,7 @@ rclone mount :webdav,url=http://localhost:8080: ~/mnt/groups \
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/components/davd.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-16">2026-10-16</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-20">2026-10-20</time>
       </div>
     </main>
 

@@ -67,7 +67,7 @@
       <p class="lede">
         WebDAV mounts a group folder as a file workspace for you. Each group
         folder is available at <code>https://&lt;host&gt;/dav/&lt;group&gt;/</code>,
-        so you can mount it in Finder, sync it with <code>rclone</code> or
+        so you can mount it with <code>rclone</code>, sync it or
         edit a file in any editor. Because the folder is the ant, the next
         agent turn uses your changes, with no deploy and no reload.
         <a href="../howto/webdav.html">how-to / webdav</a> has the setup steps.
@@ -107,9 +107,10 @@ rclone mount mygroup:/dav/&lt;group&gt;/ ~/mnt/&lt;group&gt; --vfs-cache-mode wr
 # now edit a file like any other
 vim ~/mnt/&lt;group&gt;/CLAUDE.md</code></pre>
       <p>
-        Get <code>$TOKEN</code> from <code>/dash/profile/</code>. A browser
-        can sign in at <code>/auth/login</code> and use the JWT cookie
-        instead.
+        Mint <code>$TOKEN</code> on the host with
+        <code>arizuko token &lt;instance&gt; issue bearer &lt;folder&gt; --scope &lt;scope&gt; --sub &lt;your-sub&gt;</code>.
+        The dashboard issues no Bearer token. A browser can sign in at
+        <code>/auth/login</code> and use the JWT cookie instead.
       </p>
 
       <h2>proxyd checks the group before davd sees the request</h2>
@@ -144,12 +145,15 @@ vim ~/mnt/&lt;group&gt;/CLAUDE.md</code></pre>
           <em>other-group</em> and succeeds only if your grant covers it.</dd>
       </dl>
 
-      <h2>Any WebDAV client works with the dashboard token</h2>
+      <h2>Only clients that send a Bearer header can sign in</h2>
       <ul>
-        <li>Finder, Windows Explorer, Cyberduck, rclone and curl all work,
-          because they use the standard WebDAV verbs.</li>
-        <li>The JWT or Bearer token that opens <code>/dash/</code> opens
-          <code>/dav/</code> too. Basic Auth is not available.</li>
+        <li>rclone and curl work, because they send
+          <code>Authorization: Bearer &lt;JWT&gt;</code>. Finder, Windows
+          Explorer and davfs2 send HTTP Basic auth, so they cannot sign in.
+          Mount with rclone, and open that mount in Finder or Explorer.
+          <a href="../howto/webdav.html">how-to / webdav</a> has the steps.</li>
+        <li>The JWT cookie of the browser opens <code>/dav/</code> as well.
+          Basic auth is not available.</li>
         <li>Your edits are what the agent reads on the next turn.</li>
         <li>You can read secrets and logs but not overwrite them.</li>
       </ul>
