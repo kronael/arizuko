@@ -11,8 +11,7 @@ exactly that address. That is all of it.
 What it does not do: terminate TLS, hold a CA, read request bodies, keep a
 registry, serve an admin API, intercept traffic addressed elsewhere, or
 filter DNS. Every one of those existed to let ONE proxy serve MANY tenants;
-one proxy per sandbox needs none of them (spec
-[`6/24`](../specs/6/24-crackbox-lightest.md)).
+one proxy per sandbox needs none of them.
 
 ## Use
 
@@ -51,7 +50,7 @@ request line; blocked address classes are the address check's job (below).
 ## Validation
 
 A rule that can never match reads as protection and is not, so the boundary
-that accepts a list refuses it loudly (`match.ValidateLists`, spec 6/25 1b):
+that accepts a list refuses it loudly (`match.ValidateLists`):
 the binary exits at start naming the bad rule, and the same grammar guards
 arizuko's write paths (`arizuko network allow`, the agent's `network_allow`)
 so a bad rule is refused when it is written. Rejected: schemes, ports,
@@ -96,7 +95,7 @@ probe of this process, not traffic to forward.
 The other half is topological and lives in whoever starts the sandbox. In
 arizuko that is runed: the guest's only interface is one tap, and the tap's
 rule set accepts the guest's traffic to this proxy and drops everything else
-in both directions (spec `6/41` §"Egress by name, sealed below the kernel").
+in both directions.
 A docker-based caller gets the same property with an `--internal` network
 that has no route out, the proxy as the only member with an uplink, and the
 sandbox attached to that network ONLY.
@@ -126,7 +125,7 @@ egress/
 `make images` at the repo root builds the `egress` binary into the `arizuko`
 image (`RUNED_EGRESS_BIN`, default `egress`). runed starts one process per
 turn on the tap's host side; if the binary is missing, runed refuses to
-start rather than running a turn unfiltered (spec `6/41`). A standalone
+start rather than running a turn unfiltered. A standalone
 `arizuko-egress` Docker image also builds from `egress/Dockerfile`, for a
 Docker-based caller outside arizuko's own turn path.
 
@@ -152,5 +151,4 @@ compose network with the daemons, so private is an ordinary neighbour here.
 `--deny-private` is for a deployment whose allowlist names nothing internal.
 
 Nothing is decrypted. This is address hygiene, not interception; MITM stays
-declined (2026-08-18). Design:
-[`6/25`](../specs/6/25-qm-adoptions.md) decision 1.
+declined (2026-08-18).

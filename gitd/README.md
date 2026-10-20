@@ -5,7 +5,6 @@ channel adapter like `slakd`: it receives signed webhook deliveries, maps each
 to one `chanlib.InboundMsg` and POSTs it to routd. Everything the agent does
 BACK to the repo — merge, label, review, close — goes through the GitHub MCP
 connector (`template/connectors/github.toml`), not through channel verbs.
-Spec: [`specs/6/27-git-channel.md`](../specs/6/27-git-channel.md).
 
 ## Delivery sources
 
@@ -71,8 +70,7 @@ comments). A refused reaction is logged at warn and never fails the turn. The ma
 `chanlib.AckMark`, recorded in the adapter store: a crash or a graceful shutdown
 leaves the 👀 and its record, because the turn may still be running. The turn's
 own `Typing(off)` removes it, or the next boot when the record is older than the
-backstop. Spec:
-`specs/6/27-git-channel.md` § Typing indicator.
+backstop.
 
 ## Reply
 
@@ -80,7 +78,7 @@ backstop. Spec:
 `GITHUB_TOKEN` is set. `send_text` posts the agent's reply as a comment on the PR or issue the JID
 names and returns the id the same comment carries inbound. `edit` replaces the
 text of a comment gitd wrote, so a turn's progress is one comment changed in
-place (`specs/6/46-turn-progress.md`): `gh-c<id>` through `issues/comments`,
+place: `gh-c<id>` through `issues/comments`,
 `gh-rc<id>` through `pulls/comments`. It reads the comment first and refuses one
 another login wrote, and refuses any other id shape.
 `send_file` posts a text file as a fenced block in a comment (GitHub has no API that
@@ -132,7 +130,7 @@ waits in gitd's own tables for re-delivery, `200 {"dropped":"bot"|"self"}` ignor
 `401` bad signature, `404` unknown source, `400` payload outside the source or
 refused by routd, `503` neither routd nor the retention store took the message —
 GitHub's redeliver button is then the recovery path. `GET /dash/gitd/` — mounted by `chanlib.NewAdapterMux` from
-the one renderer in `chanlib/dash.go` (spec 6/31) — lists the last accepted
+the one renderer in `chanlib/dash.go` — lists the last accepted
 delivery per source.
 
 ## Coverage

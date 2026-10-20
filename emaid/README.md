@@ -42,8 +42,8 @@ References/In-Reply-To headers.
 - Listen: `$LISTEN_ADDR` (code default `:9003`; the compose fragment pins `:8080`)
 - Router registration: `email:` prefix, caps `send_text`, `fetch_history`
 - `GET /dash/emaid/` — the operator page, mounted for free by
-  `chanlib.NewAdapterMux` from the one renderer in `chanlib/dash.go` (spec
-  6/31). Routed by DAEMON name (`AUTHD_SERVICE_NAME`), never by platform.
+  `chanlib.NewAdapterMux` from the one renderer in `chanlib/dash.go`.
+  Routed by DAEMON name (`AUTHD_SERVICE_NAME`), never by platform.
 
 ## Dependencies
 

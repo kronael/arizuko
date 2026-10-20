@@ -15,11 +15,11 @@ scaffold that `vited` serves in dev.
 - `services/*.yml` — bundled adapter packages (partial compose files):
   `teled`, `discd`, `slakd`, `bskyd`, `reditd`, `emaid`,
   `whapd`, `twitd`, `linkd`, `ttsd`, `kokoro`, `litellm`. A package that
-  needs anything from the system ships `<name>.yaml` beside it — its 5/8
+  needs anything from the system ships `<name>.yaml` beside it — its package
   manifest: a `proxyd_routes` block for inbound web paths (see `slakd`),
   an `env` block for what its process needs from `.env` (see `litellm`,
   whose virtual key is minted at install, and `ttsd`, whose defaults turn
-  TTS on for runed). `litellm` is the model gateway (spec 6/23): a
+  TTS on for runed). `litellm` is the model gateway: a
   third-party image whose config is inline in the fragment and whose
   credential is interpolated from `.env`
 - `web/` — Vite project (`pub/`, `priv/`, `secret/` path regions,
@@ -29,8 +29,8 @@ scaffold that `vited` serves in dev.
 
 - `arizuko create <name>` writes a new instance's `.env` from its own key
   set — the generated secrets and the product choice. It writes no egress
-  switch (spec `6/41`) and does not read `env.example`, which stays the
-  operator's reference for every remaining knob
+  switch, because every turn runs behind the egress proxy. It does not read
+  `env.example`, which stays the operator's reference for every remaining knob
 - `arizuko packages <instance> add <name>` links a package into
   `<dataDir>/services/`, provisions its `env` needs and applies its rows
   (`list` shows available vs enabled, `remove` withdraws exactly what the

@@ -11,17 +11,16 @@ before each spawn; `EgressRules` and `WaitHealthy` are what a substrate calls
 to start and confirm one spawn's proxy.
 
 The turn envelope itself — the mount table, the guest environment, the stdin
-frame — is rendered in `runed` and delivered by a substrate (spec 6/41
-§"The renderer"). Nothing here knows how a guest is started; the substrate is
-the only thing that runs a proxy process (spec 6/41 §"Egress by name, sealed
-below the kernel").
+frame — is rendered in `runed` and delivered by a substrate. Nothing here
+knows how a guest is started; the substrate is the only thing that runs a
+proxy process.
 
 ## Public API
 
 - `SetupGroup(cfg, folder, seedDir) error` — create a group dir, optionally
   copying `seedDir` (a product template) in as its starting files
 - `ComposeGroup(cfg, folder, mix, prior) ([]Blended, error)` — the same group
-  dir, seeded from an ordered product MIX instead of one tree (spec 5/28)
+  dir, seeded from an ordered product MIX instead of one tree
 - `BlendProducts(groupDir, mix, prior) ([]Blended, error)` — the blend itself,
   per payload kind; `Product` names a mix entry, `Blended` reports what one
   product owns, what changed, and what was left alone as locally edited
@@ -65,10 +64,10 @@ substrate. `runed/README.md` §"The turn envelope" holds both tables.
 ## Files
 
 - `runner.go` — group setup and skill seeding: `SetupGroup`/`ComposeGroup` over one `setupGroup` skeleton, the platform-owned refreshes, the copy helpers
-- `blend.go` — spec 5/28's composition: the blend table as code. `classify` is its left column; seed-once vs managed is per payload KIND, and a collision refuses before any byte is written
+- `blend.go` — the composition of a product mix: the blend table as code. `classify` is its left column; seed-once vs managed is per payload KIND, and a collision refuses before any byte is written
 - `runtime.go` — codex mount-target seeding, staging the release `ant/` onto the data dir
 - `episodes.go` — recent-episode XML for prompt context
-- `egress.go` — the allowlist-to-rules translation and the proxy health wait every substrate calls; starts nothing itself (spec 6/41)
+- `egress.go` — the allowlist-to-rules translation and the proxy health wait every substrate calls; starts nothing itself
 
 ## Related docs
 

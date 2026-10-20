@@ -109,7 +109,7 @@ Shared auth primitives used across daemons. Four concerns:
    differs is the identity source and the target bound, never the decision.
 3. **Identity resolution.** `Identity` is a folder's non-elevated authz
    coordinate. The path carries ZERO authorization — only its own name and the
-   root predicate (5/33 decision 2).
+   root predicate.
 4. **The OAuth exchange half.** Pure exchange/userinfo wrappers plus state,
    PKCE and cookie helpers; authd owns every route.
 

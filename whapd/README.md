@@ -69,7 +69,7 @@ routd re-sends a bot row that stays `pending`, so the same
 `idempotency_key` arrives at `/send` and `/send-file` more than once by
 design. whapd claims the key in a durable ledger BEFORE calling WhatsApp and
 settles it after, so a resend of a delivered key returns the recorded id and
-posts nothing (spec `5/34`, BUGS `L32`).
+posts nothing.
 
 The ledger is a DIRECTORY OF FILES, one per key, not a database: node:22 has
 no stable `node:sqlite`, and the only operation that must be atomic is the

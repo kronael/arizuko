@@ -31,8 +31,8 @@ attachments (cached via `chanlib.URLCache`).
   `post`, `repost`, `dislike`) are still served so the agent reaches
   the structured hint instead of a generic "capability not advertised".
 - `GET /dash/discd/` — the operator page, mounted for free by
-  `chanlib.NewAdapterMux` from the one renderer in `chanlib/dash.go` (spec
-  6/31). Routed by DAEMON name (`AUTHD_SERVICE_NAME`), never by platform.
+  `chanlib.NewAdapterMux` from the one renderer in `chanlib/dash.go`.
+  Routed by DAEMON name (`AUTHD_SERVICE_NAME`), never by platform.
 
 ## Verb support
 
@@ -97,4 +97,4 @@ catchall with a plain `<folder>` target (drop the fragment).
 
 ## Related docs
 
-- `specs/5/34-channel-protocol.md`
+- `chanlib/README.md` § The channel protocol

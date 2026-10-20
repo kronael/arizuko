@@ -79,7 +79,7 @@ that is not a per-rollout step.
 
 ## runed needs a KVM node
 
-A turn is one `qemu-system-x86_64` guest (`specs/6/41-qemu-substrate.md`).
+A turn is one `qemu-system-x86_64` guest.
 `runed.yaml` expresses what `compose/compose.go`'s `runedService` gives the
 container, and each line has a reason there:
 
@@ -234,7 +234,7 @@ kubectl -n arizuko port-forward svc/arizuko-proxyd 8080:8080
 
 - **whapd, twitd, gitd, ttsd, kokoro**: other images and auth volumes in
   compose; add them as your own entries.
-- **The model gateway** (`MODEL_GATEWAY_URL`, spec 6/23) and **OAuth
+- **The model gateway** (`MODEL_GATEWAY_URL`) and **OAuth
   provider credentials** for authd (`GITHUB_CLIENT_ID`, …): not modeled.
 - **Adapter state volumes**: teled, bskyd, reditd and slakd each keep a small
   state file under `DATA_DIR` in compose (the Telegram offset, the Bluesky

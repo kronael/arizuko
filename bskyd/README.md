@@ -24,8 +24,8 @@ router. Outbound writes use `app.bsky.feed.*` records on the user's PDS.
 - Caps: `send_text`, `send_file`, `fetch_history`, `post`, `like`,
   `delete`, `quote`, `repost`.
 - `GET /dash/bskyd/` — the operator page, mounted for free by
-  `chanlib.NewAdapterMux` from the one renderer in `chanlib/dash.go` (spec
-  6/31). Routed by DAEMON name (`AUTHD_SERVICE_NAME`), never by platform.
+  `chanlib.NewAdapterMux` from the one renderer in `chanlib/dash.go`.
+  Routed by DAEMON name (`AUTHD_SERVICE_NAME`), never by platform.
 
 ## Dependencies
 

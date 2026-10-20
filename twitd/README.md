@@ -116,7 +116,8 @@ Periodic outages are expected; replan the version on incident.
   `chanlib.Auth` path
 - `src/dash.ts` — `GET /dash/twitd/`. The Go adapters get this from
   `chanlib/dash.go` for free; twitd cannot import chanlib, so this is a second
-  implementation of ONE spec (6/31), not a second design. Keep it in step
+  implementation of the same page contract, not a second design. Keep it in
+  step with `chanlib/dash.go`
 - `src/log.ts` — slog-style structured logging
 
 ## Testing

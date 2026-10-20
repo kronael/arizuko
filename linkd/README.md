@@ -50,8 +50,8 @@ alternatives.
 - Listen URL: `$LISTEN_URL` (code default `http://linkd:9010`, container `http://linkd:8080`)
 - Router registration: `linkedin:` prefix.
 - `GET /dash/linkd/` — the operator page, mounted for free by
-  `chanlib.NewAdapterMux` from the one renderer in `chanlib/dash.go` (spec
-  6/31). Routed by DAEMON name (`AUTHD_SERVICE_NAME`), never by platform.
+  `chanlib.NewAdapterMux` from the one renderer in `chanlib/dash.go`.
+  Routed by DAEMON name (`AUTHD_SERVICE_NAME`), never by platform.
 
 ## Dependencies
 
