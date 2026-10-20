@@ -58,6 +58,8 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">components</a> &rsaquo; egress</p>
       <h1>egress</h1>
 
+      <p class="lede">egress is a forward proxy that lets one client reach one fixed list of host names, and runed starts one for each turn.</p>
+
     <h2>egress is a forward proxy for one client and one fixed list</h2>
     <p><code>egress</code> is a forward HTTP and CONNECT proxy that allows one fixed list of hosts, for one client. It reads the destination from the request of the client, checks it against the allowlist, and either splices the connection or answers <code>403</code>. The program does nothing more.</p>
 

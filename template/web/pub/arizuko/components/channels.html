@@ -58,6 +58,8 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">components</a> &rsaquo; channel adapters</p>
       <h1>channel adapters</h1>
 
+      <p class="lede">A channel adapter is a small daemon that translates one chat platform to the HTTP contract of routd, and ten adapters ship with arizuko.</p>
+
 <h2>An adapter translates between one chat platform and routd</h2>
 <p>A channel adapter translates between one chat app and arizuko. Each app, such as Telegram, Slack or WhatsApp, talks in its own way. The adapter turns that into the one format that arizuko understands, and turns the replies of arizuko into posts that the app accepts.</p>
 <p>A channel adapter is a small daemon. It speaks the protocol of one platform on one side, such as Telegram, and the HTTP contract of arizuko on the other side, toward <code>routd</code>.</p>

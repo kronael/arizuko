@@ -58,6 +58,8 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">components</a> &rsaquo; runed</p>
       <h1>runed</h1>
 
+      <p class="lede">runed starts one KVM guest for each turn, bounds it with one deadline and discards it when the turn ends.</p>
+
     <h2>runed starts one KVM guest for each turn</h2>
     <p>runed runs the agent. When a turn must happen, runed starts one new, empty KVM guest with <code>qemu-system-x86_64</code>, lets the agent work inside it, and then discards the guest. This is the only substrate, and no setting selects another one.</p>
 
