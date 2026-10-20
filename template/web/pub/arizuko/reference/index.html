@@ -17,7 +17,7 @@
         <li><a class="nav-section" href="../concepts/">Concepts</a></li>
         <li><a class="nav-section" href="./">Reference</a>
           <ul class="nav-children">
-            <li><a href="cli.html">CLI commands</a></li>
+            <li><a href="cli.html">CLI</a></li>
             <li><a href="packages.html">Packages</a></li>
             <li><a href="env.html">Environment variables</a></li>
             <li><a href="mcp.html">MCP tools</a></li>
@@ -43,65 +43,65 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; reference</p>
       <h1>reference</h1>
 
-      <p class="lede">Every CLI flag, env var, MCP tool, schema column, grant rule, and JID form in an arizuko deployment. Each page is checked against the current source tree; every entry cites <code>file:line</code> in the repository.</p>
+      <p class="lede">The exact arguments of an arizuko deployment: CLI commands, env vars, MCP tools, store entities, grant rows and JID forms. Each page links to the source file that holds the fact.</p>
 
-      <p>Reference answers "what are the exact arguments?" If you want the mental model first &mdash; why routing works the way it does, what a grant actually decides &mdash; start in <a href="../concepts/">concepts</a>, then come here for the grammar and field lists.</p>
+      <p>A reference page answers "what are the exact arguments?". For the model behind them, for example why routing works as it does or what a grant decides, start in <a href="../concepts/">concepts</a> and come back here for the grammar and the field lists.</p>
 
-      <h2>Config &amp; operation</h2>
+      <h2>Three pages cover configuration and operation</h2>
       <div class="tablecard">
-        <h3><a href="cli.html">CLI commands</a></h3>
-        <p>Every <code>arizuko</code> subcommand and sub-action, across instance lifecycle, chat, groups, identities, invites, gates, network, and secrets. Signature, flags, the state each one changes, examples.</p>
+        <h3><a href="cli.html">CLI</a></h3>
+        <p>The <code>arizuko</code> subcommands for the instance lifecycle, manifests, packages, chat, groups, invites, gates, budgets, network, routes and secrets: signature, flags, the state that each one changes, and examples.</p>
       </div>
       <div class="tablecard">
         <h3><a href="packages.html">Packages</a></h3>
-        <p>Install / upgrade / remove packages: asset kinds, the installed-package record, dirty-safe upgrade.</p>
+        <p>Install, upgrade and remove packages: the asset kinds, the installed-package record and the upgrade that refuses local changes.</p>
       </div>
       <div class="tablecard">
         <h3><a href="env.html">Environment variables</a></h3>
-        <p>Every env var read by any daemon or library, grouped by concern. Per entry: name, read sites with line links, type, default behaviour, effect, example value. The source-of-truth for <code>.env</code> authoring and compose-generation troubleshooting.</p>
+        <p>The env vars of the daemons, grouped by daemon. For each one: the read site with a line link, the type, the default, the effect and an example. The last section names the variables that the page does not describe.</p>
       </div>
 
-      <h2>Protocol surface</h2>
+      <h2>Three pages cover the protocol surface</h2>
       <div class="tablecard">
         <h3><a href="mcp.html">MCP tools</a></h3>
-        <p>Every tool on the per-group MCP unix socket plus <code>submit_turn</code>, grouped by concern (messages, social actions, history with <code>find_messages</code> full-text search, groups, sessions, scheduling, routing, grants, invites, web, identity, system). Params, return shape, the grant each one needs, registration site.</p>
+        <p>The tools on the per-group MCP unix socket and <code>submit_turn</code>, grouped by concern: messages, social actions, history and search, groups, sessions, scheduling, routing, egress, grants, invites, web and identity. Parameters, return shape, the grant of each tool and its source.</p>
       </div>
       <div class="tablecard">
         <h3><a href="schema.html">Store schema</a></h3>
-        <p>Every table the four owners hold &mdash; identity and the unified <code>acl</code>, messages, groups, onboarding, secrets, egress, scheduling. Per entity: the coordinate an item is addressed by, what it carries, and which daemon writes it.</p>
+        <p>The entities of the four owners: identity and the <code>acl</code>, messages, groups, onboarding, secrets, egress and scheduling. For each entity: the key of an item, what it carries and which daemon writes it.</p>
       </div>
       <div class="tablecard">
         <h3><a href="openapi.html">OpenAPI</a></h3>
-        <p>Every HTTP-serving daemon exposes <code>GET /openapi.json</code>, generated from <code>resreg.Resource.RowType</code> reflection. Per-daemon URLs and what each daemon owns.</p>
+        <p>Every HTTP daemon serves <code>GET /openapi.json</code>, generated by reflection from <code>resreg.Resource.RowType</code>. The URL of each daemon and the resources that it owns.</p>
       </div>
 
-      <h2>Addressing &amp; access</h2>
+      <h2>Four pages cover addressing and access</h2>
       <div class="tablecard">
         <h3><a href="jid.html">JID format</a></h3>
-        <p>The typed-JID grammar, the schema for each platform, routing-key extraction, glob semantics. Routing rules and grants speak this language regardless of channel. Narrative twin: <a href="../concepts/jid.html">concepts &rsaquo; addressing</a>.</p>
+        <p>The JID grammar, the shape for each platform, the routing keys and the glob rules. Routes and grants use this format for every channel. Narrative page: <a href="../concepts/jid.html">concepts &rsaquo; addressing</a>.</p>
       </div>
       <div class="tablecard">
         <h3><a href="grants.html">Grants</a></h3>
-        <p>The <code>acl</code> row, the action lattice, evaluation order, the two seeded roles, delegation by subset-of-held, and how a scope glob does containment. The authoritative answer to "can this user do this thing in this folder?" Narrative twin: <a href="../concepts/grants.html">concepts &rsaquo; authorization</a>.</p>
+        <p>The <code>acl</code> row, the action lattice, the evaluation order, the two seeded roles, delegation of a subset of held rows, and how a scope glob contains a folder. The answer to "can this user do this in this folder?". Narrative page: <a href="../concepts/grants.html">concepts &rsaquo; authorization</a>.</p>
       </div>
       <div class="tablecard">
         <h3><a href="tokens.html">Route tokens</a></h3>
-        <p>The <code>route_tokens</code> table and the two URL prefixes that read it: <code>/chat/&lt;token&gt;/</code> for browser chat, <code>/hook/&lt;token&gt;</code> for webhook ingest. Schema, mint surface, who may mint, payload shapes, SSE events, rate limits. Narrative twin: <a href="../concepts/tokens.html">concepts &rsaquo; tokens</a>.</p>
+        <p>The <code>route_tokens</code> entity and its two URL prefixes: <code>/chat/&lt;token&gt;/</code> for browser chat and <code>/hook/&lt;token&gt;</code> for webhooks. The tools that make tokens, who can make them, payload shapes, SSE events and rate limits. Narrative page: <a href="../concepts/tokens.html">concepts &rsaquo; tokens</a>.</p>
       </div>
       <div class="tablecard">
         <h3><a href="topics.html">Topics</a></h3>
-        <p>Topic schema columns, creation paths (inline <code>#name</code>, <code>/new</code>, Discord threads, Telegram forum topics), the <code>effectiveTopic</code> resolution order, and the MCP tools that read or mutate topic state. Narrative twin: <a href="../concepts/topics.html">concepts &rsaquo; topics</a>.</p>
+        <p>Where topic state lives, the four ways a topic starts, the order that picks the active topic, and the MCP tools for topic sessions. Narrative page: <a href="../concepts/topics.html">concepts &rsaquo; topics</a>.</p>
       </div>
 
-      <h2>Conventions</h2>
+      <h2>Every entry links to the source</h2>
       <ul>
-        <li>Every entry links to source at <code>github.com/kronael/arizuko/blob/main/&lt;path&gt;#L&lt;line&gt;</code>. If a citation 404s, the page is stale &mdash; file a bug.</li>
-        <li>Pages capture <strong>actual current state</strong>, not spec aspirations. Unshipped fields are marked or absent.</li>
-        <li>One renderer per page; cross-references are one-way pointers to keep the drift surface flat.</li>
+        <li>A link points at <code>github.com/kronael/arizuko/blob/main/&lt;path&gt;</code>, with <code>#L&lt;line&gt;</code> where the line is known. A link that does not resolve is a bug in the page.</li>
+        <li>A page describes the code as it is. A field that the code does not have is absent or marked.</li>
+        <li>Cross-references point one way, from a reference page to its narrative page, so each fact has one home.</li>
       </ul>
 
       <nav class="docs-pager" aria-label="Pager">
-        <a rel="next" href="cli.html">CLI commands &rarr;</a>
+        <a rel="next" href="cli.html">CLI &rarr;</a>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/reference/index.html">Edit this page</a>

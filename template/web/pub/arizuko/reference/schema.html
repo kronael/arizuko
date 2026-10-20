@@ -17,7 +17,7 @@
         <li><a class="nav-section" href="../concepts/">Concepts</a></li>
         <li><a class="nav-section" href="./">Reference</a>
           <ul class="nav-children">
-            <li><a href="cli.html">CLI commands</a></li>
+            <li><a href="cli.html">CLI</a></li>
             <li><a href="packages.html">Packages</a></li>
             <li><a href="env.html">Environment variables</a></li>
             <li><a href="mcp.html">MCP tools</a></li>
@@ -46,7 +46,7 @@
 
     <p>How the layers stack, from a daemon down to PostgreSQL, is drawn on <a href="../concepts/store.html">the store</a>. The coordinate is what a read costs, so each entity's coordinate is argued in the file that writes it. <a href="https://github.com/kronael/arizuko/blob/main/store/entities.go"><code>store/entities.go</code></a> names the set each owner holds.</p>
 
-    <h2>1. Four owners</h2>
+    <h2>Four daemons own the entities</h2>
 
     <p>An owner is a daemon and the tables it alone creates. On the server a table is named <code>&lt;owner&gt;.&lt;entity&gt;</code>, and each daemon signs with its own access key, so the server&rsquo;s policy bounds what it reaches. <a href="https://github.com/kronael/arizuko/blob/main/store/owner_reach.go"><code>store/owner_reach.go</code></a> declares which owners each daemon opens, and a test fails when the code opens one the table does not list. A daemon reads another owner&rsquo;s tables only where this page says so.</p>
 
@@ -62,7 +62,7 @@
 
     <p>Beside the four, each channel adapter keeps four small tables under its own name, declared in <a href="https://github.com/kronael/arizuko/blob/main/chanlib/chanstore/chanstore.go"><code>chanlib/chanstore</code></a>: <code>outbound_dedup</code>, one item per delivery routd asked it to make; <code>inbound_pending</code>, one per inbound routd has not yet accepted; <code>file_urls</code>, one per attachment behind its <code>/files/&lt;id&gt;</code> proxy; <code>ack_marks</code>, one per chat under the acknowledgement reaction an adapter with no typing indicator puts on a turn&rsquo;s first message, so a restarted adapter can still take it off. <code>emaid</code> adds two of its own, declared in <code>emaid/emaistore</code>: <code>email_threads</code>, one per conversation, holding the reply address and the Message-ID every reply threads under; <code>email_msg_ids</code>, one per Message-ID seen, naming its thread, which is how an inbound <code>In-Reply-To</code> finds its conversation. Both take the id itself as the partition, because every read is a point read and the index grows with every mail.</p>
 
-    <h2>2. routd &mdash; messages</h2>
+    <h2>routd owns the messages</h2>
 
     <table>
       <tr><th>entity</th><th>addressed by</th><th>carries</th></tr>
@@ -80,9 +80,9 @@
 
     <p>Ranked search is not a table. routd keeps an in-memory BM25 index over the <code>messages</code> entity, walked from the store at boot and fed by its own writes; see <a href="mcp.html#find_messages"><code>find_messages</code></a>.</p>
 
-    <h2 id="acl">3. routd &mdash; configuration</h2>
+    <h2 id="acl">routd owns the configuration resources</h2>
 
-    <p>These thirteen are the registered resources: each has a REST face, an MCP face, and a row in <code>arizuko export</code>.</p>
+    <p>These fourteen are the registered resources: each has a REST face, an MCP face, and a row in <code>arizuko export</code>.</p>
 
     <table>
       <tr><th>entity</th><th>addressed by</th><th>carries</th></tr>
@@ -94,18 +94,19 @@
       <tr><td><code>acl</code></td><td>principal, action, scope, params, predicate and effect</td><td>who granted it, when, and <code>grant_option</code>. The six key fields <em>are</em> the grant.</td></tr>
       <tr><td><code>acl_membership</code></td><td>child and parent</td><td>who added the edge and when. Roles and jid&rarr;sub claims share it.</td></tr>
       <tr><td><code>secrets</code></td><td>scope kind, scope id and key</td><td>the value, sealed AES-256-GCM under <code>SECRETS_KEY</code></td></tr>
-      <tr><td><code>secret_use_log</code></td><td>the instant a tool call resolved one</td><td>spawn, caller, folder, tool, key, outcome, latency</td></tr>
       <tr><td><code>network_rules</code></td><td>folder and target</td><td>the per-folder egress allowlist. The folder leads because it is also the purge scope.</td></tr>
       <tr><td><code>scheduled_tasks</code></td><td>the task id</td><td>owner, chat, prompt, cron, next run, status, context mode</td></tr>
       <tr><td><code>pending_actions</code></td><td>the call id</td><td>one tool call held for a human verdict</td></tr>
       <tr><td><code>installed_packages</code></td><td>folder and name (empty folder = instance-wide)</td><td>source, revision, the identities the package owns, per-asset hashes</td></tr>
       <tr><td><code>github_sources</code></td><td>the source key</td><td>gitd's webhook delivery secret and the folder it delivers to</td></tr>
+      <tr><td><code>gdrive_files</code></td><td>the Drive file id</td><td>the bound Drive file and the folder that its comments go to</td></tr>
     </table>
 
-    <h2>4. routd &mdash; the rest</h2>
+    <h2>routd also owns the runtime state</h2>
 
     <table>
       <tr><th>entity</th><th>addressed by</th><th>carries</th></tr>
+      <tr><td><code>secret_use_log</code></td><td>the instant a tool call resolved one</td><td>spawn, caller, folder, tool, key, outcome, latency</td></tr>
       <tr><td><code>turn_context</code></td><td>the turn id</td><td>folder, topic, chat, trigger sender, run id, state, the hash of the gateway key that turn was metered with</td></tr>
       <tr><td><code>turn_results</code></td><td>folder and turn id</td><td>session, status, when it was recorded. Create-if-absent is what makes one report one delivery.</td></tr>
       <tr><td><code>task_run_logs</code></td><td>the instant a task ran</td><td>task, duration, status, result, error</td></tr>
@@ -115,7 +116,7 @@
       <tr><td><code>counters</code></td><td>the name of what it numbers</td><td>the count. There is one, <code>routes.id</code>, moved by a compare-and-swap.</td></tr>
     </table>
 
-    <h2>5. runed, authd, onbod</h2>
+    <h2>runed, authd and onbod own their own entities</h2>
 
     <table>
       <tr><th>entity</th><th>addressed by</th><th>carries</th></tr>
@@ -135,7 +136,7 @@
       <tr><td><code>audit_log</code></td><td>the instant, at fixed width plus a suffix</td><td>category, action, actor, resource, scope, surface, outcome, duration, turn, folder, instance, request, source ip. The id is the sort key and is the instant, so ordering and the page cursor are one value.</td></tr>
     </table>
 
-    <h2>6. What an entity is not</h2>
+    <h2>An entity is not a SQL table</h2>
 
     <ul>
       <li><strong>No columns.</strong> Every value is a string and an absent attribute is the only kind of missing, so a comparison means the same thing on every engine.</li>
@@ -147,7 +148,7 @@
 
     <p><strong>Four tables share the word &ldquo;route&rdquo; and nothing else.</strong> <code>routes</code> sends a message to a folder; <code>web_routes</code> decides who may load a URL path; <code>proxyd_routes</code> sends an HTTP path to a backend daemon; <code>route_tokens</code> holds a bearer that lets a stranger post into one chat. They answer four different questions, so they stay four tables.</p>
 
-    <h2>7. Who writes</h2>
+    <h2>Only the owner writes an entity</h2>
 
     <p>The owner daemon writes its own tables. A few daemons open routd&rsquo;s tables with keys of their own, each for one job: <code>onbod</code> and <code>dashd</code> for onboarding and the operator&rsquo;s admin writes, <code>webd</code> to resolve a route token and read a chat, <code>gitd</code> for a webhook&rsquo;s sealed secret, <code>slakd</code> for the pane context, and <code>proxyd</code> to read <code>acl</code> on every request, because a login-time snapshot would keep a revoked grant working. <code>dashd</code> opens onbod&rsquo;s too. Everything else goes through the owner's <code>/v1</code>. A mutation carries its <code>audit_log</code> row in the same batch, so a refused write records nothing and a recorded row happened.</p>
 

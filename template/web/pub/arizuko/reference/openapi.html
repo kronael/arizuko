@@ -17,7 +17,7 @@
         <li><a class="nav-section" href="../concepts/">Concepts</a></li>
         <li><a class="nav-section" href="./">Reference</a>
           <ul class="nav-children">
-            <li><a href="cli.html">CLI commands</a></li>
+            <li><a href="cli.html">CLI</a></li>
             <li><a href="packages.html">Packages</a></li>
             <li><a href="env.html">Environment variables</a></li>
             <li><a href="mcp.html">MCP tools</a></li>
@@ -45,10 +45,10 @@
 
     <p class="lede">Every HTTP-serving daemon exposes its API at <code>GET /openapi.json</code>. The document is generated from the resource registry &mdash; <code>components/schemas</code> comes from <code>resreg.Resource.RowType</code> reflection, and the paths come from the resource's <code>Endpoints</code>, the same slice the daemon mounts its handlers from. Doc and handler read one declaration, so they move together.</p>
 
-    <h2>What you get</h2>
+    <h2>Every HTTP daemon publishes an OpenAPI 3.1 document</h2>
     <p>OpenAPI 3.1 JSON. Public &mdash; no auth gate. Cached for the process lifetime; reflection runs once per daemon. Paste a URL into any conformant tool (Swagger UI, Redoc, Stoplight Elements, an SDK generator) and the daemon's surface is browsable, callable, and codegen-ready.</p>
 
-    <h2>Endpoints by daemon</h2>
+    <h2>Each daemon owns its resources</h2>
 
     <table>
       <thead>
@@ -58,7 +58,7 @@
         <tr>
           <td><code>routd</code></td>
           <td><code>https://&lt;host&gt;/openapi.json</code> via proxyd, or <code>http://routd:8080/openapi.json</code> intra-container</td>
-          <td>routes, web_routes, acl, secrets <span class="dim">(write-only)</span>, route_tokens, installed_packages <span class="dim">(read-only)</span>, scheduled_tasks <span class="dim">(at <code>/v1/tasks</code>)</span>, groups <span class="dim">(read-only)</span></td>
+          <td>routes, web_routes, acl, secrets <span class="dim">(write-only)</span>, route_tokens, installed_packages <span class="dim">(read-only)</span>, scheduled_tasks <span class="dim">(at <code>/v1/tasks</code>)</span>, groups <span class="dim">(read-only)</span>, acl_membership, pending_actions, dead_letters, github_sources, gdrive_files, audit, network_rules <span class="dim">(MCP only)</span></td>
         </tr>
         <tr>
           <td><code>proxyd</code></td>
@@ -68,7 +68,7 @@
         <tr>
           <td><code>onbod</code></td>
           <td><code>http://onbod:8080/openapi.json</code></td>
-          <td>onboarding, onboarding_gates, invites</td>
+          <td>onboarding, onboarding_gates, invites, audit</td>
         </tr>
         <tr>
           <td><code>webd</code></td>
@@ -111,7 +111,7 @@
       <li><code>secrets</code> is <strong>write-only</strong> &mdash; it declares a create and a key-delete and no read op at all, so a sealed value cannot leak through a convention <code>GET</code>.</li>
       <li><code>installed_packages</code> is <strong>read-only</strong> &mdash; two <code>GET</code>s and nothing else. Installing a package writes host files and restarts sidecars; that pipeline is the <code>arizuko packages</code> CLI, and a REST create would be a second path that drifts from it.</li>
       <li><code>groups</code> is <strong>read-only</strong> &mdash; one <code>GET /v1/groups</code>. The agent gets a <code>register_group</code> tool, but creating a group also writes a route and a git-init'd directory on disk, so that stays dashd's job and no daemon serves <code>POST /v1/groups</code>.</li>
-      <li><code>audit</code> is <strong>read-only</strong>, and more strictly so than the rest &mdash; one <code>GET /v1/audit</code>, no read-one. The log is append-only and each row is written inside the transaction of the act it records, so a create or delete would let a caller forge or erase the record of something that did or did not happen. There is no <code>/v1/audit/{id}</code> because <code>id</code> is a per-database counter: the same number names a different row on each daemon. This is also the one resource three daemons serve &mdash; routd, runed and authd each own a table and each publish theirs, so <code>/v1/audit</code> always means "this daemon's log".</li>
+      <li><code>audit</code> is <strong>read-only</strong>, and more strictly so than the rest &mdash; one <code>GET /v1/audit</code>, no read-one. The log is append-only and each row is written inside the transaction of the act it records, so a create or delete would let a caller forge or erase the record of something that did or did not happen. There is no <code>/v1/audit/{id}</code> because <code>id</code> is a per-database counter: the same number names a different row on each daemon. Four daemons serve this resource: routd, runed, authd and onbod each own a table and publish it, so <code>/v1/audit</code> always means "the log of this daemon".</li>
       <li><code>signing_keys</code> and <code>sessions</code> are <strong>authd's, and narrower than they look</strong>. <code>signing_keys</code> is one <code>GET</code> and nothing else: rotation rebuilds the running signer's in-memory key set, so a write straight at the table would leave the daemon disagreeing with its own database. <code>sessions</code> adds exactly one mutation, <code>DELETE /v1/sessions/{family_id}</code>, the operator revoke. Neither schema carries a private column &mdash; the key PEMs and the token hash are named in no query, no row struct and no document, so the strongest thing either can say is that a key or a session exists. Neither has an MCP face either: agents are scoped to a folder, and a signing key is instance-wide while a session is keyed by account, so there is no boundary that could contain an agent's reach over them.</li>
       <li><code>scheduled_tasks</code> declares list, read, update and delete, but not schedule, pause or resume &mdash; those three are agent tools with no operator endpoint behind them (see the <a href="mcp.html#scheduling">MCP reference</a>). An operator pauses a task by <code>PATCH</code>ing its status, or from the dashboard.</li>
     </ul>
@@ -120,7 +120,7 @@
 
     <p>Three more resources live in the same registry and drive the <code>arizuko export</code>/<code>apply</code> YAML surface (see <a href="cli.html">CLI reference</a>) without appearing in routd's REST document. <code>network_rules</code> is agent-MCP-only by design, so it has no REST face to advertise; <code>acl_membership</code> has one face, the pairing undo <code>DELETE /v1/acl_membership</code> (<code>unpair</code> for the agent); <code>proxyd_routes</code> lives in routd's database but is served by proxyd, which advertises it in its own document.</p>
 
-    <h2>One handler, two faces</h2>
+    <h2>One handler serves two faces</h2>
     <p>Here is what sits behind every operation in the document. One declaration, two ways in, one handler, one audit row. Read the gates: the REST face checks the bearer, the agent face checks the folder&rsquo;s grants against the actual target.</p>
     <pre id="twin-twofaces"><code>┌───────────────────────────────────────────────────────────────────────────┐
 │ resreg.Resource, declared once in resreg/resources/&lt;name&gt;.go:             │
@@ -151,7 +151,7 @@
 │ reply, send, like, inspect_*                                              │
 └───────────────────────────────────────────────────────────────────────────┘</code></pre>
 
-    <h2>How it works</h2>
+    <h2>Reflection on the row type builds the document</h2>
 
     <p>Each cold-tier resource is one Go struct with <code>db:</code>, <code>json:</code>, and <code>yaml:</code> tags &mdash; the registry lives in routd. <code>resreg.OpenAPI(daemon, baseURL, resources)</code> walks the registered resources and emits:</p>
 
@@ -166,9 +166,9 @@
 
     <p>The engine and its rules: <a href="https://github.com/kronael/arizuko/blob/main/resreg/README.md"><code>resreg/README.md</code></a>.</p>
 
-    <h2>The MCP twin: <code>x-mcp-when</code></h2>
+    <h2><code>x-mcp-when</code> marks the operations for agents</h2>
 
-    <p>Each of these operations has a second face. The agent reaches the very same handler as an MCP tool named <code>&lt;resource&gt;.&lt;action&gt;</code> over its per-folder unix socket, with arguments reflected from the same <code>RowType</code>. One handler, one transaction, one audit row &mdash; two ways in.</p>
+    <p>Each of these operations has a second face. The agent reaches the same handler as an MCP tool over its per-folder unix socket. The tool name is <code>&lt;name&gt;.&lt;action&gt;</code>, or the flat name that the <code>MCPNames</code> map of the resource declares, such as <code>add_route</code>, with arguments reflected from the same <code>RowType</code>. One handler, one transaction, one audit row &mdash; two ways in.</p>
 
     <p>What ties them together in the document is <code>x-mcp-when</code>: a vendor extension carrying the one-line description of <em>when an agent should reach for this action</em>. The same line is written twice &mdash; once as the operation's <code>description</code>, so a tool that has never heard of arizuko reads a normal OpenAPI 3.1 doc, and once as <code>x-mcp-when</code>, so an agent or a tool browser can pick out the agent-facing operations mechanically, without a second hand-written tool list to keep in sync.</p>
 
@@ -178,9 +178,9 @@
 
     <p>The rule is strict on purpose: an action with no agent-facing description gets <strong>neither</strong> an MCP tool nor an <code>x-mcp-when</code> annotation. That is how an operation is made REST-only &mdash; by saying nothing, rather than by maintaining an exclusion list. The reverse also holds: the hot-tier agent actions (<code>reply</code>, <code>send</code>, <code>inspect_*</code>) are MCP-only and appear in no OpenAPI document, because there is no operator endpoint to mirror &mdash; nobody administers a chat reply.</p>
 
-    <div class="callout"><strong>Note:</strong> the document describes the <em>shape</em> of a surface, never a permission. Whether a given caller may perform an operation is decided per call by <a href="grants.html">grants</a>, and the two faces check different things &mdash; the REST face the bearer&rsquo;s scope and folder claim, the MCP face the turn folder&rsquo;s grants against the actual target.</div>
+    <div class="callout"><strong>The document shows shape, not permission.</strong> The document describes the <em>shape</em> of a surface, never a permission. Whether a given caller may perform an operation is decided per call by <a href="grants.html">grants</a>, and the two faces check different things &mdash; the REST face the bearer&rsquo;s scope and folder claim, the MCP face the turn folder&rsquo;s grants against the actual target.</div>
 
-    <h2>Browsing the spec</h2>
+    <h2>curl and jq read the document</h2>
 
     <p>The JSON is a regular text file &mdash; <code>curl</code> + <code>jq</code> works fine for most lookups:</p>
 
@@ -189,16 +189,16 @@ curl -s https://&lt;host&gt;/openapi.json | jq '.components.schemas.Routes'</cod
 
     <p>For an interactive renderer, point Swagger UI or Redoc at the URL. Neither is bundled with arizuko; pick the tool your operator workflow already uses.</p>
 
-    <h2>SDK generation</h2>
+    <h2>Standard generators build typed clients</h2>
 
     <p>Any OpenAPI 3.1 codegen tool (<code>openapi-generator</code>, <code>swagger-codegen</code>, <code>oapi-codegen</code>) can consume the spec to produce a typed client. Run the generator against the live daemon's URL or save the JSON and run offline. Re-run on every release &mdash; the spec moves with the struct, so clients stay current by re-generating.</p>
 
-    <h2>Caveats</h2>
+    <h2>The document has three limits</h2>
 
     <ul>
-      <li>The endpoint advertises the <em>shape</em> of the surface, not whether a given caller has permission to use it. Authorization happens in <code>auth.Authorize</code> per <a href="grants.html">grants</a>; the OpenAPI doc doesn't reflect per-caller scope.</li>
-      <li>Descriptions are minimal in v1 &mdash; types and paths are correct, but the prose is sparse. Iterate as needed.</li>
-      <li>Composite-PK URL parameters collapse to one segment; the description explains the encoding. If your client library can't handle this, fall back to <code>POST</code> with a body that names the PK fields.</li>
+      <li>The endpoint advertises the <em>shape</em> of the surface, not whether a given caller has permission to use it. Authorization happens in <code>auth.Authorize</code> per <a href="grants.html">grants</a>; the OpenAPI doc does not reflect per-caller scope.</li>
+      <li>The descriptions are short. The types and the paths are correct.</li>
+      <li>Composite-PK URL parameters collapse to one segment; the description explains the encoding. If your client library cannot handle this, fall back to <code>POST</code> with a body that names the PK fields.</li>
     </ul>
 
       <nav class="docs-pager" aria-label="Pager">

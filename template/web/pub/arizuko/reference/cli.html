@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>arizuko &middot; reference &middot; CLI commands</title>
+  <title>arizuko &middot; reference &middot; CLI</title>
   <link rel="stylesheet" href="../assets/hub.css">
 </head>
 <body>
@@ -17,7 +17,7 @@
         <li><a class="nav-section" href="../concepts/">Concepts</a></li>
         <li><a class="nav-section" href="./">Reference</a>
           <ul class="nav-children">
-            <li><a href="cli.html">CLI commands</a></li>
+            <li><a href="cli.html">CLI</a></li>
             <li><a href="packages.html">Packages</a></li>
             <li><a href="env.html">Environment variables</a></li>
             <li><a href="mcp.html">MCP tools</a></li>
@@ -40,12 +40,12 @@
     </nav>
 
     <main class="docs-content">
-      <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">reference</a> &rsaquo; CLI commands</p>
-<h1>CLI commands</h1>
+      <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">reference</a> &rsaquo; CLI</p>
+<h1>CLI</h1>
 
-    <p class="lede">Every subcommand of the <code>arizuko</code> binary, grouped by concern. Each entry shows the exact signature, the flags <code>flag.NewFlagSet</code> registers, what state changes where, and a source link pointing at the dispatch site. Ground truth is <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go"><code>cmd/arizuko/main.go</code></a>; the dispatch map sits at <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go#L54"><code>main.go:54</code></a>.</p>
+    <p class="lede">The subcommands of the <code>arizuko</code> binary, grouped by concern. Each entry shows the signature, the flags, the state that the command changes, and the source file. The dispatch map is in <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go"><code>cmd/arizuko/main.go</code></a>. The <a href="#other">last section</a> names the subcommands that this page does not describe.</p>
 
-    <p>The CLI uses Go's standard <code>flag</code> package plus a hand-rolled positional dispatcher &mdash; no cobra. Top-level verb is <code>os.Args[1]</code>; subcommand verb (where applicable) is <code>args[1]</code> after the instance name. <code>&lt;instance&gt;</code> is the data-dir suffix; resolved via <code>$ARIZUKO_DATA_DIR/arizuko_&lt;name&gt;</code> or <code>${PREFIX:-/srv}/data/arizuko_&lt;name&gt;</code> (<a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go#L146"><code>main.go:146</code></a>).</p>
+    <p>The CLI uses the standard Go <code>flag</code> package and a small positional dispatcher. The first argument is the command. Where a command has a subcommand, it comes after the instance name. Most flags have a short form, for example <code>-p</code> for <code>--product</code>. <code>&lt;instance&gt;</code> is the suffix of the data directory: <code>$ARIZUKO_DATA_DIR/arizuko_&lt;name&gt;</code>, else <code>${PREFIX:-/srv}/data/arizuko_&lt;name&gt;</code> (<a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go"><code>main.go</code></a>).</p>
 
     <div class="toc">
       <h2>Index</h2>
@@ -55,13 +55,13 @@
         <li><a href="#packages">Packages</a> &mdash; <code>packages install|upgrade|remove|list</code>, <code>products list|apply</code></li>
         <li><a href="#chat">Operator chat &amp; messaging</a> &mdash; <code>chat</code>, <code>send</code>, <code>token</code></li>
         <li><a href="#group">Groups &amp; grants</a> &mdash; <code>group list|add|rename|rm|grant|ungrant|grants</code></li>
-        <li><a href="#identity">Identities</a> &mdash; <code>identity list|link|unlink</code></li>
-        <li><a href="#invite">Invites</a> &mdash; <code>invite create|list|revoke</code></li>
-        <li><a href="#gate">Gates (rate limits)</a> &mdash; <code>gate list|add|rm|enable|disable</code></li>
+                <li><a href="#invite">Invites</a> &mdash; <code>invite create|list|revoke</code></li>
+        <li><a href="#gate">Gates (admission limits)</a> &mdash; <code>gate list|add|rm|enable|disable</code></li>
         <li><a href="#budget">Budget (cost caps)</a> &mdash; <code>budget set|show folder|user</code></li>
         <li><a href="#network">Network allowlist</a> &mdash; <code>network allow|deny|list|resolve</code></li>
         <li><a href="#route">Routes</a> &mdash; <code>route list|add|rm</code></li>
         <li><a href="#secret">Secrets (folder &amp; user)</a> &mdash; <code>secret</code>, <code>user-secret</code></li>
+        <li><a href="#other">Other subcommands</a> &mdash; <code>proxy-config</code>, <code>github</code>, <code>gdrive</code>, <code>talk</code>, <code>probe</code>, <code>archive</code></li>
       </ul>
     </div>
 
@@ -76,32 +76,32 @@
     <p><strong>State touched:</strong> creates <code>${PREFIX:-/srv}/data/arizuko_&lt;name&gt;/</code>, writes <code>.env</code> (mode 0600), makes the <code>services/</code>, <code>surrogate/</code> and <code>store/</code> dirs, calls <code>container.SetupGroup</code> for the <code>main</code> folder skeleton. No row: routd seeds the ACL floor and the <code>main</code> group row at its first boot. Idempotent on <code>.env</code> (only written when missing).</p>
     <pre><code>arizuko create solo
 arizuko create launch --product strategy</code></pre>
-    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go#L161"><code>cmd/arizuko/main.go:161</code></a></p>
+    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go"><code>cmd/arizuko/main.go</code></a></p>
 
     <h3 id="generate"><span class="sig">arizuko generate &lt;instance&gt;</span></h3>
-    <p>Generate <code>docker-compose.yml</code> in the instance dir from <code>compose.Generate</code>. Atomic write via tempfile + rename; mode 0644.</p>
-    <p><strong>State touched:</strong> writes <code>&lt;data-dir&gt;/docker-compose.yml</code> only.</p>
+    <p>Generate <code>docker-compose.yml</code> in the instance directory from <code>compose.Generate</code>, with a tempfile and a rename; mode 0644. The command also links unchanged catalog fragments again, writes the <code>proxyd_routes</code> rows to the store of <code>routd</code>, and copies package skills into the existing groups.</p>
+    <p><strong>State touched:</strong> <code>&lt;data-dir&gt;/docker-compose.yml</code>, <code>services/</code> links, <code>proxyd_routes</code> rows and group skill directories.</p>
     <pre><code>arizuko generate krons</code></pre>
-    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go#L100"><code>cmd/arizuko/main.go:100</code></a></p>
+    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go"><code>cmd/arizuko/main.go</code></a></p>
 
     <h3 id="run"><span class="sig">arizuko run &lt;instance&gt;</span></h3>
     <p>Generate the compose file (same path as <code>generate</code>), then <code>docker compose -f &lt;compose&gt; up --remove-orphans</code>. Foreground process; SIGINT propagates to the compose stack.</p>
-    <p><strong>State touched:</strong> writes the compose file, then leaves long-lived docker state under control of docker.</p>
+    <p><strong>State touched:</strong> the same as <code>generate</code>, then docker state.</p>
     <pre><code>arizuko run krons</code></pre>
-    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go#L89"><code>cmd/arizuko/main.go:89</code></a></p>
+    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go"><code>cmd/arizuko/main.go</code></a></p>
 
     <h3 id="status"><span class="sig">arizuko status &lt;instance&gt;</span></h3>
     <p><code>docker compose ps</code> against the instance compose file, then <code>GET http://localhost:&lt;APIPort&gt;/v1/channels</code> on the router with a 10s timeout. Prints registered channel name &rarr; URL pairs, or a "router API unreachable" / "no channels registered" line.</p>
     <p><strong>State touched:</strong> read-only. Requires <code>docker-compose.yml</code> to exist (will die with a "run 'arizuko generate' first" hint).</p>
     <pre><code>arizuko status krons</code></pre>
-    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go#L721"><code>cmd/arizuko/main.go:721</code></a></p>
+    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go"><code>cmd/arizuko/main.go</code></a></p>
 
     <h3 id="pair"><span class="sig">arizuko pair &lt;instance&gt; &lt;service&gt; [args...]</span></h3>
     <p>Run a one-shot pairing/admin shell against a compose service: <code>docker compose -f &lt;compose&gt; run --rm &lt;service&gt; [args...]</code>. Used for interactive setup of channel adapters (e.g. whapd QR pairing).</p>
     <p><strong>State touched:</strong> whatever the chosen service does. <code>--rm</code> removes the container on exit.</p>
     <pre><code>arizuko pair krons whapd
 arizuko pair krons bskyd login --handle me.bsky.social</code></pre>
-    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go#L699"><code>cmd/arizuko/main.go:699</code></a></p>
+    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go"><code>cmd/arizuko/main.go</code></a></p>
 
     <h2 id="manifest" class="group-h2">Config manifests</h2>
     <p>The cold-tier config of an instance &mdash; groups, <code>acl</code>, routes, <code>web_routes</code>, secrets, scheduled tasks, network rules, onboarding gates, proxyd routes &mdash; reads and writes as one YAML document. The same <code>resreg</code> engine that serves these resources over REST, MCP, and <a href="openapi.html"><code>/openapi.json</code></a> also drives <code>export</code>, <code>apply</code>, <code>plan</code>, and <code>get</code>, so the YAML shape matches the schema exactly. The store is the truth and the YAML is transport: nothing syncs a file back from the store, applies one at startup or reloads one on a signal, so a dump never claims to be live.</p>
@@ -111,7 +111,7 @@ arizuko pair krons bskyd login --handle me.bsky.social</code></pre>
     <p><strong>State touched:</strong> read-only.</p>
     <pre><code>arizuko export krons > krons-config.yaml
 arizuko export krons krons-config.yaml</code></pre>
-    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/apply.go#L69"><code>cmd/arizuko/apply.go:69</code></a></p>
+    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/apply.go"><code>cmd/arizuko/apply.go</code></a></p>
 
     <h3 id="apply"><span class="sig">arizuko apply &lt;instance&gt; &lt;manifest.yaml&gt; [--force] [--take-over] [--as-folder &lt;folder&gt;]</span></h3>
     <p>Replace the instance's cold-tier resources with the manifest's. For each resource named in the file, the engine deletes the rows the manifest covers and writes the manifest's &mdash; one claim-gated replace per owning store. If an apply dies part-way, the store keeps its claim: run the same manifest again and it rolls forward, or pass <code>--take-over</code> to settle it. A resource absent from the manifest is left untouched; a resource present but empty is cleared. For a resource scoped to folders, only the folders the manifest mentions are touched, so a partial manifest never disturbs a group it does not name.</p>
@@ -128,22 +128,22 @@ arizuko export krons krons-config.yaml</code></pre>
 # edit krons.yaml
 arizuko apply krons krons.yaml
 arizuko apply krons krons.yaml --force</code></pre>
-    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/apply.go#L29"><code>cmd/arizuko/apply.go:29</code></a></p>
+    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/apply.go"><code>cmd/arizuko/apply.go</code></a></p>
 
     <h3 id="plan"><span class="sig">arizuko plan &lt;instance&gt; &lt;manifest.yaml&gt;</span></h3>
-    <p>Show what <code>apply</code> would change, without touching the DB. Prints one block per resource: <code>+</code> for rows the manifest adds, <code>~</code> for rows it updates, <code>-</code> for rows it removes. Secrets never mutate via <code>apply</code>, so they print as informational (<code>N set (not applied)</code>) rather than as deltas. A folder the manifest names but no group defines is reported here too, so you see the blocker and the diff in one run. If the manifest's <code>checksum:</code> doesn't match the store's, the last line says so &mdash; that's the same mismatch <code>apply</code> would reject without <code>--force</code>.</p>
+    <p>Show what <code>apply</code> would change, without touching the DB. Prints one block per resource: <code>+</code> for rows the manifest adds, <code>~</code> for rows it updates, <code>-</code> for rows it removes. Secrets never mutate via <code>apply</code>, so they print as informational (<code>N set (not applied)</code>) rather than as deltas. A folder the manifest names but no group defines is reported here too, so you see the blocker and the diff in one run. If the manifest's <code>checksum:</code> does not match the store's, the last line says so &mdash; that is the same mismatch <code>apply</code> would reject without <code>--force</code>.</p>
     <p><strong>State touched:</strong> read-only.</p>
     <pre><code>arizuko export krons > krons.yaml
 # edit krons.yaml
 arizuko plan krons krons.yaml</code></pre>
-    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/apply.go#L120"><code>cmd/arizuko/apply.go:120</code></a></p>
+    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/apply.go"><code>cmd/arizuko/apply.go</code></a></p>
 
     <h3 id="get"><span class="sig">arizuko get &lt;instance&gt; &lt;resource&gt;</span></h3>
     <p>Emit one resource from the live store as a YAML fragment &mdash; the same shape <code>apply</code> accepts, so re-applying the fragment is a no-op. Use it to pull one table (say <code>routes</code> or <code>web_routes</code>) out of the store without exporting the whole config. Secret rows emit metadata only; the encrypted value never leaves the DB.</p>
     <p><strong>State touched:</strong> read-only.</p>
     <pre><code>arizuko get krons routes
 arizuko get krons web_routes</code></pre>
-    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/apply.go#L196"><code>cmd/arizuko/apply.go:196</code></a></p>
+    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/apply.go"><code>cmd/arizuko/apply.go</code></a></p>
 
     <h2 id="archive" class="group-h2">Full-instance backup</h2>
     <p>A config manifest carries what an instance is set up to do. An archive carries the instance: the same config, plus the encrypted secret values, the whole message history, the people still waiting to be let in, and every group's files &mdash; one tar you can move to another machine. authd&rsquo;s and runed&rsquo;s stores stay out: signing keys, login sessions and run records belong to the machine.</p>
@@ -171,40 +171,40 @@ arizuko archive apply krons krons-backup.tar --force</code></pre>
     <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/archive.go"><code>cmd/arizuko/archive.go</code></a></p>
 
     <h2 id="packages" class="group-h2">Packages</h2>
-    <p>A package is a git source (or local directory) that ships any subset of asset kinds &mdash; a compose fragment (<code>&lt;name&gt;.yml</code>), a config manifest (<code>&lt;name&gt;.yaml</code>, carrying routes, grants, scheduled tasks, egress rules and web routes), skills (<code>skills/&lt;name&gt;/</code>) &mdash; as one versioned unit. Install writes an installed-package record to routd&rsquo;s store (source, resolved revision, owned identities, per-asset content hash) so <code>upgrade</code> and <code>remove</code> know exactly what the package owns. Full model on the <a href="packages.html">packages reference</a>. Dispatcher at <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go#L81"><code>main.go:81</code></a>.</p>
+    <p>A package is a git source (or local directory) that ships any subset of asset kinds &mdash; a compose fragment (<code>&lt;name&gt;.yml</code>), a config manifest (<code>&lt;name&gt;.yaml</code>, carrying routes, grants, scheduled tasks, egress rules and web routes), skills (<code>skills/&lt;name&gt;/</code>) &mdash; as one versioned unit. Install writes an installed-package record to routd&rsquo;s store (source, resolved revision, owned identities, per-asset content hash) so <code>upgrade</code> and <code>remove</code> know exactly what the package owns. Full model on the <a href="packages.html">packages reference</a>. Dispatcher at <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go"><code>main.go</code></a>.</p>
 
     <h3 id="packages-install"><span class="sig">arizuko packages &lt;instance&gt; install &lt;source&gt;</span></h3>
     <p>Install a package from a source. A source is a git URL (<code>git+https://…</code>, <code>git@…</code>, <code>github.com/org/pkg</code>) shallow-cloned to a temp dir with its HEAD commit recorded as the revision, or a local directory used as-is (revision <code>local</code>). The package name is the source's last path segment (minus a trailing <code>.git</code>). Every <code>*.yml</code> and <code>*.yaml</code> asset copies into <code>&lt;data-dir&gt;/services/</code>; the manifest's rows apply live through the same engine as <code>arizuko apply</code> &mdash; one transaction with pre-image rollback, no restart; skills copy into <code>&lt;data-dir&gt;/skills/&lt;name&gt;/</code>. All-or-nothing: a source that carries no <code>*.yml</code> is refused, and a manifest that fails validation installs no row and leaves no file.</p>
     <p><strong>State touched:</strong> writes <code>services/*.yml</code>, opens routd&rsquo;s store and writes <code>proxyd_routes</code> / <code>acl</code> rows plus the installed-package record; may write <code>skills/</code>.</p>
     <pre><code>arizuko packages krons install github.com/kronael/arizuko-pkg-sentry
 arizuko packages krons install ./my-local-package</code></pre>
-    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/packages.go#L376"><code>cmd/arizuko/packages.go:376</code></a></p>
+    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/packages.go"><code>cmd/arizuko/packages.go</code></a></p>
 
     <h3 id="packages-upgrade"><span class="sig">arizuko packages &lt;instance&gt; upgrade &lt;name&gt;</span></h3>
     <p>Re-install a recorded package's assets from its source. Before writing, it compares each asset's current on-disk content hash against the record; a locally edited (dirty) asset stops the upgrade with a list of what diverged &mdash; it never clobbers an operator's change. Assets the old record owned that the new source dropped are removed. On success the record's revision and hashes update.</p>
     <p><strong>State touched:</strong> rewrites the package's <code>services/*.yml</code>, updates the installed-package record. Refuses (no write) when a dirty asset is found.</p>
     <pre><code>arizuko packages krons upgrade arizuko-pkg-sentry</code></pre>
-    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/packages.go#L432"><code>cmd/arizuko/packages.go:432</code></a></p>
+    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/packages.go"><code>cmd/arizuko/packages.go</code></a></p>
 
     <h3 id="packages-remove"><span class="sig">arizuko packages &lt;instance&gt; remove &lt;name&gt;</span></h3>
     <p>Delete exactly the identities the installed-package record owns. Routes are withdrawn from <code>proxyd_routes</code> first (so no request is routed at a sidecar mid-teardown), then recorded grants come out of <code>acl</code>, then skills and fragment files are deleted, then the record is dropped. Falls back to deleting a bare <code>&lt;name&gt;.yml</code> for a catalog <code>add</code> that left no record. <code>remove</code> does not check whether another package depends on this one; the only dependency check is advisory &mdash; <code>add</code> prints a warning when the fragment&rsquo;s <code>depends_on</code> names a service that is not installed.</p>
     <p><strong>State touched:</strong> deletes <code>proxyd_routes</code> / <code>acl</code> rows, <code>services/*.yml</code>, <code>skills/</code>, and the installed-package record.</p>
     <pre><code>arizuko packages krons remove arizuko-pkg-sentry</code></pre>
-    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/packages.go#L486"><code>cmd/arizuko/packages.go:486</code></a></p>
+    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/packages.go"><code>cmd/arizuko/packages.go</code></a></p>
 
     <h3 id="packages-list"><span class="sig">arizuko packages &lt;instance&gt; list</span></h3>
     <p>List the bundled catalog fragments and their state: <code>available</code> (in the catalog, not enabled), <code>enabled</code> (present in <code>services/</code>), or <code>enabled (local)</code> (a fragment in <code>services/</code> with no catalog twin).</p>
     <p><strong>State touched:</strong> read-only.</p>
     <pre><code>arizuko packages krons list</code></pre>
-    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/packages.go#L331"><code>cmd/arizuko/packages.go:331</code></a></p>
+    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/packages.go"><code>cmd/arizuko/packages.go</code></a></p>
 
     <p>After any of these, run <a href="#generate"><code>arizuko generate &lt;instance&gt;</code></a> to fold the fragment set into the compose file.</p>
 
     <h3 id="products-list"><span class="sig">arizuko products &lt;instance&gt; list</span></h3>
-    <p>Print the bundled catalog under <code>$HOST_APP_DIR/ant/examples</code> &mdash; one row per product, with the <code>name</code>, <code>brand</code> and <code>tagline</code> from its <code>PRODUCT.md</code>. These are the names <a href="#create"><code>--product</code></a> accepts. A directory whose manifest won't parse is listed as broken rather than left out, so you can tell "this product doesn't ship" from "someone broke its manifest".</p>
+    <p>Print the bundled catalog under <code>$HOST_APP_DIR/ant/examples</code> &mdash; one row per product, with the <code>name</code>, <code>brand</code> and <code>tagline</code> from its <code>PRODUCT.md</code>. These are the names <a href="#create"><code>--product</code></a> accepts. A directory whose manifest will not parse is listed as broken rather than left out, so you can tell "this product does not ship" from "someone broke its manifest".</p>
     <p><strong>State touched:</strong> none &mdash; reads the catalog directory.</p>
     <pre><code>arizuko products krons list</code></pre>
-    <div class="callout"><strong>Note:</strong> the catalog you can seed from and the products published under <a href="../products/">/pub/arizuko/products/</a> are two overlapping sets, not one. A page may sell a product that has no template yet, and a template may ship before anyone writes its page.</div>
+    <div class="callout"><strong>The catalog and the product pages are two sets.</strong> The catalog you can seed from and the products published under <a href="../products/">/pub/arizuko/products/</a> are two overlapping sets, not one. A page may sell a product that has no template yet, and a template may ship before anyone writes its page.</div>
     <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/products.go"><code>cmd/arizuko/products.go</code></a></p>
 
     <h3 id="products-apply"><span class="sig">arizuko products &lt;instance&gt; apply &lt;folder&gt;</span></h3>
@@ -221,29 +221,32 @@ arizuko packages krons install ./my-local-package</code></pre>
     <p>Prereqs: instance running (socket exists), <code>claude</code> and <code>socat</code> on <code>$PATH</code>.</p>
     <pre><code>arizuko chat krons
 arizuko chat sloth --folder sloth/discord</code></pre>
-    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go#L657"><code>cmd/arizuko/main.go:657</code></a></p>
+    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go"><code>cmd/arizuko/main.go</code></a></p>
 
-    <h3 id="send"><span class="sig">arizuko send &lt;instance&gt; &lt;folder&gt; [&lt;message&gt;] [--wait | --stream] [--stdin] [--topic &lt;t&gt;]</span></h3>
-    <p>POST a message to a group's chat endpoint, optionally blocking until the agent's turn finishes. Resolves a <code>web:&lt;folder&gt;</code> token from <code>route_tokens</code> and reads <code>WEB_HOST</code> from <code>.env</code>; scheme is <code>http</code> for <code>localhost</code>/<code>127.0.0.1</code>, otherwise <code>https</code>. See the <a href="tokens.html">tokens reference</a> for the token model.</p>
+    <h3 id="send"><span class="sig">arizuko send &lt;instance&gt; &lt;folder&gt; [&lt;message&gt;] [--wait | --stream] [--stdin] [--from &lt;sender&gt;] [--token &lt;raw&gt;] [--topic &lt;t&gt;]</span></h3>
+    <p>Put a message into the chat of a group as <code>web:&lt;folder&gt;</code>, and optionally wait until the turn of the agent ends. By default, the command writes the message directly into the store. With <code>--token</code> or <code>$ARIZUKO_CHAT_TOKEN</code>, it posts to the <code>/chat/&lt;token&gt;/</code> endpoint at <code>WEB_HOST</code> instead; the scheme is <code>http</code> for <code>localhost</code> and <code>127.0.0.1</code>, otherwise <code>https</code>. The store keeps no raw tokens, so the CLI cannot look one up. See the <a href="tokens.html">tokens reference</a> for the token model.</p>
     <table>
       <tr><th>Flag</th><th>Type</th><th>Default</th><th>Effect</th></tr>
       <tr><td><code>--wait</code></td><td>bool</td><td><code>false</code></td><td>After POST, poll <code>/chat/&lt;token&gt;/&lt;turn_id&gt;?after=&lt;seq&gt;</code> at 1s cadence, print frames, exit 0 on <code>success</code> / 1 on <code>failed</code>.</td></tr>
       <tr><td><code>--stream</code></td><td>bool</td><td><code>false</code></td><td>Same as <code>--wait</code> but subscribes to <code>.../sse</code> instead of polling. Exit codes: 0 success, 1 failed, 2 transport error.</td></tr>
       <tr><td><code>--stdin</code></td><td>bool</td><td><code>false</code></td><td>Read message body from stdin (trimmed) instead of the positional arg.</td></tr>
+      <tr><td><code>--from</code></td><td>string</td><td>operator</td><td>Sender of the message.</td></tr>
+      <tr><td><code>--token</code></td><td>string</td><td><code>$ARIZUKO_CHAT_TOKEN</code></td><td>Raw route token; sends through the <code>/chat/&lt;token&gt;/</code> endpoint.</td></tr>
       <tr><td><code>--topic</code></td><td>string</td><td>auto-gen</td><td>Conversation thread id. Reuse the same value across calls to keep the agent in the same context.</td></tr>
     </table>
-    <p><strong>State touched:</strong> opens the instance store read-only to look up the chat token; everything else happens server-side via the <code>/chat/&lt;token&gt;/</code> endpoint.</p>
+    <p><strong>State touched:</strong> one inbound message row, or one POST to the chat endpoint with <code>--token</code>.</p>
     <pre><code>arizuko send krons main "hello from cli"
 arizuko send krons main "what's the status?" --stream
 echo "long body" | arizuko send krons main --stdin --wait</code></pre>
-    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/send.go#L29"><code>cmd/arizuko/send.go:29</code></a></p>
+    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/send.go"><code>cmd/arizuko/send.go</code></a></p>
 
     <h3 id="token"><span class="sig">arizuko token &lt;instance&gt; &lt;issue|list|revoke&gt; ...</span></h3>
-    <p>Manage the route tokens that back <code>/chat/&lt;token&gt;/</code> visitor chat and <code>/hook/&lt;token&gt;</code> webhook ingest. Each token is one row in <code>route_tokens</code> mapping an opaque URL token to a JID and owner folder. <code>issue</code> mints a token for a <code>web:</code> or <code>hook:</code> JID and prints both the JID and the raw token (the token is shown once). <code>list</code> tabulates a folder's tokens. <code>revoke</code> deletes one by JID; pass <code>&lt;owner_folder&gt;</code> when the token was minted on behalf of a descendant or under a nested folder (the owner can diverge from the JID's folder), since the JID alone can't recover it.</p>
+    <p>Manage the route tokens that back <code>/chat/&lt;token&gt;/</code> visitor chat and <code>/hook/&lt;token&gt;</code> webhook ingest. Each token is one row in <code>route_tokens</code> mapping an opaque URL token to a JID and owner folder. <code>issue</code> mints a token for a <code>web:</code> or <code>hook:</code> JID and prints both the JID and the raw token (the token is shown once). <code>list</code> tabulates a folder's tokens. <code>revoke</code> deletes one by JID and reads the owner folder from the row. Pass <code>&lt;owner_folder&gt;</code> to name the owner explicitly. <code>issue bearer &lt;folder&gt; --scope s1,s2 [--ttl 1h] [--sub SUB]</code> mints a folder-scoped ES256 access token with the active key of <code>authd</code>. Both <code>issue chat</code> and <code>issue webhook</code> take <code>--context TEXT</code>, which the agent gets as a <code>&lt;link-context&gt;</code> block.</p>
     <table>
       <tr><th>Subcommand</th><th>Form</th></tr>
       <tr><td><code>issue chat</code></td><td><code>arizuko token &lt;instance&gt; issue chat &lt;folder&gt; [&lt;suffix&gt;]</code></td></tr>
       <tr><td><code>issue webhook</code></td><td><code>arizuko token &lt;instance&gt; issue webhook &lt;folder&gt; &lt;label&gt; [&lt;suffix&gt;]</code></td></tr>
+      <tr><td><code>issue bearer</code></td><td><code>arizuko token &lt;instance&gt; issue bearer &lt;folder&gt; --scope s1,s2 [--ttl 1h] [--sub SUB]</code></td></tr>
       <tr><td><code>list</code></td><td><code>arizuko token &lt;instance&gt; list &lt;folder&gt;</code></td></tr>
       <tr><td><code>revoke</code></td><td><code>arizuko token &lt;instance&gt; revoke &lt;jid&gt; [&lt;owner_folder&gt;]</code></td></tr>
     </table>
@@ -252,27 +255,27 @@ echo "long body" | arizuko send krons main --stdin --wait</code></pre>
 arizuko token krons issue webhook eng github
 arizuko token krons list support
 arizuko token krons revoke web:support</code></pre>
-    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/token.go#L20"><code>cmd/arizuko/token.go:20</code></a></p>
+    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/token.go"><code>cmd/arizuko/token.go</code></a></p>
 
     <h2 id="group" class="group-h2">Groups &amp; grants</h2>
-    <p>All <code>group</code> verbs share the same store and dispatch under <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go#L256"><code>cmd/arizuko/main.go:256</code></a>.</p>
+    <p>All <code>group</code> verbs share the same store and dispatch under <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go"><code>cmd/arizuko/main.go</code></a>.</p>
 
     <h3 id="group-list"><span class="sig">arizuko group &lt;instance&gt; list</span></h3>
-    <p>List all groups as tab-separated <code>folder\tname</code>.</p>
+    <p>Print the folder of every group, one on each line.</p>
     <p><strong>State touched:</strong> read-only.</p>
     <pre><code>arizuko group krons list</code></pre>
-    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go#L268"><code>cmd/arizuko/main.go:268</code></a></p>
+    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go"><code>cmd/arizuko/main.go</code></a></p>
 
     <h3 id="group-add"><span class="sig">arizuko group &lt;instance&gt; add &lt;jid&gt; &lt;folder&gt; [--product &lt;name&gt;]</span></h3>
-    <p>Create a group bound to a channel JID. Folder is validated via <code>groupfolder.IsValidFolder</code>. Calls <code>container.SetupGroup</code> for the folder skeleton (optionally seeded from a product template under <code>$HostAppDir/ant/examples/&lt;product&gt;/</code>), seeds default tasks, inserts the group row, then adds a route <code>room=&lt;JidRoom(jid)&gt; -&gt; &lt;folder&gt;</code>. For Discord guild channels (jid prefix <code>discord:</code> but not <code>discord:dm/</code>) the route is scoped to <code>verb=mention</code> so only mentions fire; other messages fall through to a catch-all <code>#observe</code> row.</p>
+    <p>Create a group bound to a channel JID. Folder is validated via <code>groupfolder.IsValidFolder</code>. Calls <code>container.SetupGroup</code> for the folder skeleton (optionally seeded from a product template under <code>$HostAppDir/ant/examples/&lt;product&gt;/</code>), seeds default tasks, inserts the group row, then adds a route <code>room=&lt;JidRoom(jid)&gt; -&gt; &lt;folder&gt;</code>. For Discord guild channels (jid prefix <code>discord:</code> but not <code>discord:dm/</code>) the command writes two routes: <code>room=&lt;room&gt; verb=mention</code> at seq -1 to the folder, and <code>room=&lt;room&gt;</code> at seq 0 to <code>&lt;folder&gt;#observe</code>. So only mentions start a turn.</p>
     <table>
       <tr><th>Flag</th><th>Type</th><th>Default</th><th>Effect</th></tr>
       <tr><td><code>--product</code></td><td>string</td><td><code>""</code></td><td>Product template applied to this group (same set as <code>arizuko create --product</code>). On miss, errors with the expected <code>PRODUCT.md</code> path.</td></tr>
     </table>
     <p><strong>State touched:</strong> filesystem (group skeleton), <code>groups</code>, <code>routes</code>, default-task seed.</p>
     <pre><code>arizuko group krons add whatsapp:120363042@g.us standup
-arizuko group krons add "discord:guild/123/456" eng --product developer</code></pre>
-    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go#L275"><code>cmd/arizuko/main.go:275</code></a> (v0.40.6 added <code>--product</code>)</p>
+arizuko group krons add discord:123456789/987654321 eng --product pm</code></pre>
+    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go"><code>cmd/arizuko/main.go</code></a></p>
 
     <h3 id="group-rename"><span class="sig">arizuko group &lt;instance&gt; rename &lt;source&gt; &lt;destination&gt;</span></h3>
     <p>Rename a folder subtree across the instance's stores and files. Use <code>--map old=new</code> for nested exceptions. Stop all writers and guests before execution. Produce a complete private inventory of owner tables and partition counts; the command checks the inventory against the store and owner credentials. Collisions stop preflight. Coordinate operands in ACL Params and Predicate require exact values; wildcard operands stop preflight. Ambiguous suffixed token JIDs also stop preflight. Platform chat IDs and historical text stay intact.</p>
@@ -282,61 +285,34 @@ arizuko group krons add "discord:guild/123/456" eng --product developer</code></
     <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/group_rename.go"><code>cmd/arizuko/group_rename.go</code></a></p>
 
     <h3 id="group-rm"><span class="sig">arizuko group &lt;instance&gt; rm &lt;folder&gt;</span></h3>
-    <p>Delete the group row by folder via <code>store.DeleteGroup</code>. Does not remove the on-disk group directory or routes pointing at it; clean those up manually if needed.</p>
-    <p><strong>State touched:</strong> <code>groups</code> table.</p>
+    <p>Delete the group and every group under it with <code>store.DeleteGroup</code>, and sweep the rows of those folders: <code>acl</code>, routes, secrets, tasks and the other folder rows. It prints <code>removed N group(s) under &lt;folder&gt;, with M other row(s)</code>. A folder without a group row still has its orphan rows swept. The group directory on disk stays.</p>
+    <p><strong>State touched:</strong> <code>groups</code> and the folder rows of the subtree.</p>
     <pre><code>arizuko group krons rm standup</code></pre>
-    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go#L313"><code>cmd/arizuko/main.go:313</code></a></p>
+    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go"><code>cmd/arizuko/main.go</code></a></p>
 
-    <h3 id="group-grant"><span class="sig">arizuko group &lt;instance&gt; grant &lt;sub&gt; &lt;pattern&gt;</span></h3>
-    <p>Authorize <code>sub</code> on a scope. The literal pattern <code>**</code> writes <code>acl_membership(sub, role:operator)</code> (the operator role's permissions live on the role, not duplicated per user); any other pattern writes an <code>acl(principal=sub, action=admin, scope=pattern, effect=allow)</code> row. Idempotent. See <a href="../reference/grants.html">grants reference</a> for syntax.</p>
+    <h3 id="group-grant"><span class="sig">arizuko group &lt;instance&gt; grant &lt;sub&gt; &lt;pattern&gt; [action] [--effect allow|deny] [--params &lt;matcher&gt;]</span></h3>
+    <p>Authorize <code>sub</code> on a scope. The pattern <code>**</code> with the default action writes <code>acl_membership(sub, role:operator)</code>, because the operator permissions live on the role. Any other row writes <code>acl(principal=sub, action, scope=pattern, effect, params)</code>. The action defaults to <code>admin</code> and the effect to <code>allow</code>. Valid actions: <code>*</code>, <code>admin</code>, <code>interact</code>, <code>egress</code>, <code>web:publish</code>, <code>gh:write</code>, <code>mcp:*</code>, <code>mcp:&lt;tool&gt;</code>, <code>shell:env:&lt;KEY&gt;</code>, <code>ext:&lt;provider&gt;:&lt;area&gt;:&lt;verb&gt;</code>, <code>hold:mcp:&lt;tool&gt;</code> and <code>&lt;resource&gt;.&lt;verb&gt;</code>. Idempotent. See <a href="../reference/grants.html">grants reference</a> for syntax.</p>
     <p><strong>State touched:</strong> <code>acl_membership</code> (for <code>**</code>) or <code>acl</code> table.</p>
     <pre><code>arizuko group krons grant google:alice@example.com 'solo/**'
 arizuko group krons grant telegram:42 'corp/eng/sre'
 arizuko group krons grant google:operator@example.com '**'   # operator role</code></pre>
-    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go#L347"><code>cmd/arizuko/main.go:347</code></a></p>
+    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go"><code>cmd/arizuko/main.go</code></a></p>
 
     <h3 id="group-ungrant"><span class="sig">arizuko group &lt;instance&gt; ungrant &lt;sub&gt; &lt;pattern&gt;</span></h3>
-    <p>Reverse of <code>grant</code>. <code>**</code> removes the operator-role membership edge; any other pattern deletes the matching <code>acl</code> row.</p>
+    <p>Reverse of <code>grant</code>, with the same arguments. <code>**</code> with the default action removes the operator membership edge. Any other row deletes the matching <code>acl</code> row.</p>
     <p><strong>State touched:</strong> <code>acl_membership</code> (for <code>**</code>) or <code>acl</code> table.</p>
     <pre><code>arizuko group krons ungrant google:alice@example.com 'solo/**'</code></pre>
-    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go#L327"><code>cmd/arizuko/main.go:327</code></a></p>
+    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go"><code>cmd/arizuko/main.go</code></a></p>
 
     <h3 id="group-grants"><span class="sig">arizuko group &lt;instance&gt; grants [&lt;sub&gt;]</span></h3>
-    <p>List grants. With no sub, lists all grants. With a sub, filters to that subject. Tab-separated <code>SUB | PATTERN | GRANTED_AT</code>.</p>
+    <p>List grants. With no sub, it lists all grants. With a sub, it lists the grants of that subject. Columns: <code>PRINCIPAL | ACTION | SCOPE | EFFECT | PARAMS | GRANTED_AT</code>, then a <code>MEMBER OF</code> block for role memberships.</p>
     <p><strong>State touched:</strong> read-only.</p>
     <pre><code>arizuko group krons grants
 arizuko group krons grants google:alice@example.com</code></pre>
-    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go#L333"><code>cmd/arizuko/main.go:333</code></a></p>
-
-    <h2 id="identity" class="group-h2">Identities</h2>
-    <p>Identities unify multiple subject IDs (<code>google:</code>, <code>telegram:</code>, <code>github:</code>&hellip;) under one logical user. Dispatcher at <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go#L550"><code>main.go:550</code></a>.</p>
-
-    <h3 id="identity-list"><span class="sig">arizuko identity &lt;instance&gt; list</span></h3>
-    <p>List all identities and the subs claimed by each. Columns: <code>ID | NAME | CREATED_AT | SUBS</code> (comma-joined).</p>
-    <p><strong>State touched:</strong> read-only.</p>
-    <pre><code>arizuko identity krons list</code></pre>
-    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go#L562"><code>cmd/arizuko/main.go:562</code></a></p>
-
-    <h3 id="identity-link"><span class="sig">arizuko identity &lt;instance&gt; link &lt;sub&gt; [--name NAME] [--id ID]</span></h3>
-    <p>Bind <code>sub</code> to an identity. With no <code>--id</code>, creates a new identity (display name is <code>--name</code> or, if empty, <code>sub</code>) and adds <code>sub</code> as its first claim. With <code>--id</code>, attaches <code>sub</code> to that existing identity.</p>
-    <table>
-      <tr><th>Flag</th><th>Type</th><th>Default</th><th>Effect</th></tr>
-      <tr><td><code>--name</code></td><td>string</td><td><code>""</code></td><td>Display name when creating a new identity. Ignored if <code>--id</code> is set.</td></tr>
-      <tr><td><code>--id</code></td><td>string</td><td><code>""</code></td><td>Existing identity ID to attach <code>sub</code> to; bypasses creation.</td></tr>
-    </table>
-    <p><strong>State touched:</strong> <code>identities</code>, <code>identity_subs</code>.</p>
-    <pre><code>arizuko identity krons link google:alice@example.com --name Alice
-arizuko identity krons link telegram:42 --id id_a1b2c3</code></pre>
-    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go#L566"><code>cmd/arizuko/main.go:566</code></a></p>
-
-    <h3 id="identity-unlink"><span class="sig">arizuko identity &lt;instance&gt; unlink &lt;sub&gt;</span></h3>
-    <p>Remove the claim row for <code>sub</code>. Prints "no claim to remove" if there was none.</p>
-    <p><strong>State touched:</strong> <code>identity_subs</code>.</p>
-    <pre><code>arizuko identity krons unlink telegram:42</code></pre>
-    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go#L577"><code>cmd/arizuko/main.go:577</code></a></p>
+    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go"><code>cmd/arizuko/main.go</code></a></p>
 
     <h2 id="invite" class="group-h2">Invites</h2>
-    <p>Onboarding tokens consumed by <code>onbod</code>'s invite landing. Dispatcher at <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go#L473"><code>main.go:473</code></a>.</p>
+    <p>Onboarding tokens consumed by <code>onbod</code>'s invite landing. Dispatcher at <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go"><code>main.go</code></a>.</p>
 
     <h3 id="invite-create"><span class="sig">arizuko invite &lt;instance&gt; create &lt;target_glob&gt; [--max-uses N] [--expires DURATION]</span></h3>
     <p>Mint an invite token whose redemption grants the user the given <code>target_glob</code> pattern. Prints token, target, max-uses, optional expiry.</p>
@@ -348,10 +324,10 @@ arizuko identity krons link telegram:42 --id id_a1b2c3</code></pre>
     <p><strong>State touched:</strong> <code>invites</code> table; <code>issued_by_sub</code> is set to the literal <code>"cli"</code>.</p>
     <pre><code>arizuko invite krons create 'solo/**' --max-uses 1 --expires 72h
 arizuko invite krons create 'corp/eng/**' --max-uses 5</code></pre>
-    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go#L485"><code>cmd/arizuko/main.go:485</code></a></p>
+    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go"><code>cmd/arizuko/main.go</code></a></p>
 
     <h3 id="invite-list"><span class="sig">arizuko invite &lt;instance&gt; list [--issued-by SUB]</span></h3>
-    <p>List invites. Columns: <code>TOKEN | TARGET_GLOB | ISSUED_BY | ISSUED_AT | EXPIRES_AT | USED</code> (where <code>USED</code> is <code>used_count/max_uses</code>).</p>
+    <p>List invites. Columns: <code>REF | TARGET_GLOB | ISSUED_BY | ISSUED_AT | EXPIRES_AT | USED</code> (where <code>USED</code> is <code>used_count/max_uses</code>).</p>
     <table>
       <tr><th>Flag</th><th>Type</th><th>Default</th><th>Effect</th></tr>
       <tr><td><code>--issued-by</code></td><td>string</td><td><code>""</code></td><td>Filter to invites issued by a specific subject. Empty = all.</td></tr>
@@ -359,50 +335,50 @@ arizuko invite krons create 'corp/eng/**' --max-uses 5</code></pre>
     <p><strong>State touched:</strong> read-only.</p>
     <pre><code>arizuko invite krons list
 arizuko invite krons list --issued-by cli</code></pre>
-    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go#L512"><code>cmd/arizuko/main.go:512</code></a></p>
+    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go"><code>cmd/arizuko/main.go</code></a></p>
 
-    <h3 id="invite-revoke"><span class="sig">arizuko invite &lt;instance&gt; revoke &lt;token&gt;</span></h3>
-    <p>Revoke a token by ID. Future redemption attempts fail.</p>
+    <h3 id="invite-revoke"><span class="sig">arizuko invite &lt;instance&gt; revoke &lt;ref&gt;</span></h3>
+    <p>Revoke an invite by its reference from <code>invite list</code>. Later redemptions fail.</p>
     <p><strong>State touched:</strong> <code>invites</code> row marked revoked.</p>
-    <pre><code>arizuko invite krons revoke inv_abc123</code></pre>
-    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go#L538"><code>cmd/arizuko/main.go:538</code></a></p>
+    <pre><code>arizuko invite krons revoke &lt;ref&gt;</code></pre>
+    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go"><code>cmd/arizuko/main.go</code></a></p>
 
-    <h2 id="gate" class="group-h2">Gates (rate limits)</h2>
-    <p>Per-spec daily limits enforced inside <code>onbod</code> (the admission daemon). Dispatcher at <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go#L402"><code>main.go:402</code></a>.</p>
+    <h2 id="gate" class="group-h2">Gates (admission limits)</h2>
+    <p>Daily admission limits that <code>onbod</code> applies to new users at onboarding. A spec names who the gate counts: <code>*</code> for everyone, <code>github</code>, <code>google:domain=&lt;d&gt;</code> or <code>email:domain=&lt;d&gt;</code>. Dispatcher at <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go"><code>main.go</code></a>.</p>
 
     <h3 id="gate-list"><span class="sig">arizuko gate &lt;instance&gt; list</span></h3>
     <p>List gates as <code>GATE | LIMIT/DAY | ENABLED</code>. Prints <code>no gates</code> if empty.</p>
     <p><strong>State touched:</strong> read-only.</p>
     <pre><code>arizuko gate krons list</code></pre>
-    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go#L414"><code>cmd/arizuko/main.go:414</code></a></p>
+    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go"><code>cmd/arizuko/main.go</code></a></p>
 
     <h3 id="gate-add"><span class="sig">arizuko gate &lt;instance&gt; add &lt;spec&gt; &lt;N&gt;/day</span></h3>
     <p>Upsert a gate at the given daily limit. Limit string accepts an optional <code>/day</code> suffix (stripped); must parse as a positive integer.</p>
     <p><strong>State touched:</strong> <code>gates</code> table.</p>
-    <pre><code>arizuko gate krons add solo/inbox 200/day
-arizuko gate krons add 'corp/eng/**' 1000</code></pre>
-    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go#L434"><code>cmd/arizuko/main.go:434</code></a></p>
+    <pre><code>arizuko gate krons add '*' 200/day
+arizuko gate krons add 'google:domain=example.com' 1000</code></pre>
+    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go"><code>cmd/arizuko/main.go</code></a></p>
 
     <h3 id="gate-rm"><span class="sig">arizuko gate &lt;instance&gt; rm &lt;spec&gt;</span></h3>
     <p>Delete a gate row by spec.</p>
     <p><strong>State touched:</strong> <code>gates</code> table.</p>
-    <pre><code>arizuko gate krons rm solo/inbox</code></pre>
-    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go#L447"><code>cmd/arizuko/main.go:447</code></a></p>
+    <pre><code>arizuko gate krons rm '*'</code></pre>
+    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go"><code>cmd/arizuko/main.go</code></a></p>
 
     <h3 id="gate-enable"><span class="sig">arizuko gate &lt;instance&gt; enable &lt;spec&gt;</span></h3>
     <p>Flip <code>enabled</code> to true on the row.</p>
     <p><strong>State touched:</strong> <code>gates</code> table.</p>
-    <pre><code>arizuko gate krons enable solo/inbox</code></pre>
-    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go#L454"><code>cmd/arizuko/main.go:454</code></a></p>
+    <pre><code>arizuko gate krons enable '*'</code></pre>
+    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go"><code>cmd/arizuko/main.go</code></a></p>
 
     <h3 id="gate-disable"><span class="sig">arizuko gate &lt;instance&gt; disable &lt;spec&gt;</span></h3>
     <p>Flip <code>enabled</code> to false on the row. The row stays so the spec/limit survives re-enable.</p>
     <p><strong>State touched:</strong> <code>gates</code> table.</p>
-    <pre><code>arizuko gate krons disable solo/inbox</code></pre>
-    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go#L461"><code>cmd/arizuko/main.go:461</code></a></p>
+    <pre><code>arizuko gate krons disable '*'</code></pre>
+    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go"><code>cmd/arizuko/main.go</code></a></p>
 
     <h2 id="budget" class="group-h2">Budget (cost caps)</h2>
-    <p>Per-folder and per-user daily spend caps in cents, stored on <code>groups.cost_cap_cents_per_day</code> and <code>user_profiles.cost_cap_cents_per_day</code>. The cap is arizuko&rsquo;s policy; the model gateway enforces it. routd&rsquo;s pre-spawn gate pushes each cap to the gateway as a one-day budget and refuses the turn when the gateway&rsquo;s meter is at it. <code>budget show</code> prints the cap, not the spend &mdash; the spend belongs to the gateway, and reading it needs a master key this CLI does not hold; see <code>/dash/usage/</code>. Without a gateway nothing enforces a cap, which routd logs at ERROR. Dispatcher at <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/budget.go#L18"><code>budget.go:18</code></a>.</p>
+    <p>Per-folder and per-user daily spend caps in cents, stored on <code>groups.cost_cap_cents_per_day</code> and <code>user_profiles.cost_cap_cents_per_day</code>. The cap is arizuko&rsquo;s policy; the model gateway enforces it. routd&rsquo;s pre-spawn gate pushes each cap to the gateway as a one-day budget and refuses the turn when the gateway&rsquo;s meter is at it. <code>budget show</code> prints the cap, not the spend &mdash; the spend belongs to the gateway, and reading it needs a master key this CLI does not hold; see <code>/dash/usage/</code>. Without a gateway nothing enforces a cap, which routd logs at ERROR. Dispatcher at <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/budget.go"><code>budget.go</code></a>.</p>
 
     <h3 id="budget-set"><span class="sig">arizuko budget &lt;instance&gt; set &lt;folder|user&gt; &lt;name|sub&gt; --daily N</span></h3>
     <p>Set a daily cap (in cents) on a folder or user. <code>--daily 0</code> removes the cap (uncapped). Negative values are rejected.</p>
@@ -410,82 +386,82 @@ arizuko gate krons add 'corp/eng/**' 1000</code></pre>
       <tr><th>Flag</th><th>Type</th><th>Default</th><th>Effect</th></tr>
       <tr><td><code>--daily</code></td><td>int</td><td>required</td><td>Daily cap in cents. <code>0</code> = uncapped (cap row removed).</td></tr>
     </table>
-    <p><strong>State touched:</strong> <code>groups.cost_cap_cents_per_day</code> (folder scope) or <code>auth_users.cost_cap_cents_per_day</code> (user scope).</p>
+    <p><strong>State touched:</strong> <code>groups.cost_cap_cents_per_day</code> (folder scope) or <code>user_profiles.cost_cap_cents_per_day</code> (user scope).</p>
     <pre><code>arizuko budget krons set folder corp/eng --daily 5000
 arizuko budget krons set user google:alice@example.com --daily 1000
 arizuko budget krons set folder solo/inbox --daily 0   # uncapped</code></pre>
-    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/budget.go#L30"><code>cmd/arizuko/budget.go:30</code></a></p>
+    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/budget.go"><code>cmd/arizuko/budget.go</code></a></p>
 
     <h3 id="budget-show"><span class="sig">arizuko budget &lt;instance&gt; show &lt;folder|user&gt; &lt;name|sub&gt;</span></h3>
-    <p>Print the cap, today's spend, remaining budget, and a status line (<code>ok</code>, <code>WARN</code> at &ge;80%, <code>EXHAUSTED</code> when turns will be refused). Tab-aligned key/value table.</p>
+    <p>Print the scope, the target and the cap. The spend line says that the model gateway meters it; the CLI does not read the spend.</p>
     <p><strong>State touched:</strong> read-only.</p>
     <pre><code>arizuko budget krons show folder corp/eng
 arizuko budget krons show user google:alice@example.com</code></pre>
-    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/budget.go#L43"><code>cmd/arizuko/budget.go:43</code></a></p>
+    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/budget.go"><code>cmd/arizuko/budget.go</code></a></p>
 
     <h2 id="network" class="group-h2">Network allowlist</h2>
-    <p>Per-folder egress rules. Each spawn&rsquo;s own <a href="../components/egress.html">egress</a> proxy is started with the resolved list baked in. Walks the folder ancestry on resolve. Dispatcher at <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/network.go#L12"><code>network.go:12</code></a>.</p>
+    <p>Per-folder egress rules. Each spawn&rsquo;s own <a href="../components/egress.html">egress</a> proxy is started with the resolved list baked in. Walks the folder ancestry on resolve. Dispatcher at <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/network.go"><code>network.go</code></a>.</p>
 
     <h3 id="network-allow"><span class="sig">arizuko network &lt;instance&gt; allow &lt;folder&gt; &lt;target&gt;</span></h3>
     <p>Add an allow rule binding a folder to a hostname (or other target form supported by <code>store.AddNetworkRule</code>). <code>created_by</code> is set to the literal <code>"cli"</code>.</p>
     <p><strong>State touched:</strong> <code>network_rules</code> table.</p>
     <pre><code>arizuko network krons allow main api.github.com
 arizuko network krons allow corp/eng api.openai.com</code></pre>
-    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/network.go#L24"><code>cmd/arizuko/network.go:24</code></a></p>
+    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/network.go"><code>cmd/arizuko/network.go</code></a></p>
 
     <h3 id="network-deny"><span class="sig">arizuko network &lt;instance&gt; deny &lt;folder&gt; &lt;target&gt;</span></h3>
-    <p>Remove a previously-added allow rule. Naming preserves the operator-mental-model (allow + deny as paired verbs); under the hood it's a row delete via <code>store.RemoveNetworkRule</code>.</p>
+    <p>Remove an allow rule. <code>allow</code> and <code>deny</code> are a pair of verbs; <code>deny</code> deletes the row with <code>store.RemoveNetworkRule</code>.</p>
     <p><strong>State touched:</strong> <code>network_rules</code> table.</p>
     <pre><code>arizuko network krons deny main api.github.com</code></pre>
-    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/network.go#L32"><code>cmd/arizuko/network.go:32</code></a></p>
+    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/network.go"><code>cmd/arizuko/network.go</code></a></p>
 
     <h3 id="network-list"><span class="sig">arizuko network &lt;instance&gt; list [&lt;folder&gt;]</span></h3>
     <p>List rules. Without <code>&lt;folder&gt;</code>, lists all. With a folder, lists that folder's own rows (not inherited ones &mdash; use <code>resolve</code> for that). Columns: <code>FOLDER | TARGET | CREATED_AT | CREATED_BY</code> (root rows render as <code>(root)</code>).</p>
     <p><strong>State touched:</strong> read-only.</p>
     <pre><code>arizuko network krons list
 arizuko network krons list corp/eng</code></pre>
-    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/network.go#L40"><code>cmd/arizuko/network.go:40</code></a></p>
+    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/network.go"><code>cmd/arizuko/network.go</code></a></p>
 
     <h3 id="network-resolve"><span class="sig">arizuko network &lt;instance&gt; resolve &lt;folder&gt;</span></h3>
-    <p>Print the fully resolved allowlist for a folder &mdash; walks ancestry, dedupes, includes the root seeds (<code>anthropic.com</code>, <code>api.anthropic.com</code>, from <a href="https://github.com/kronael/arizuko/blob/main/routd/migrations/0005-network-rules.sql"><code>routd/migrations/0005-network-rules.sql</code></a>). One target per line. Useful for verifying what a folder&rsquo;s proxy will accept.</p>
+    <p>Print the fully resolved allowlist for a folder &mdash; walks ancestry, dedupes, includes the root seeds from <code>baseAllowlist</code> in <a href="https://github.com/kronael/arizuko/blob/main/store/seed.go"><code>store/seed.go</code></a>. One target per line. Useful for verifying what a folder&rsquo;s proxy will accept.</p>
     <p><strong>State touched:</strong> read-only.</p>
     <pre><code>arizuko network krons resolve corp/eng/sre</code></pre>
-    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/network.go#L66"><code>cmd/arizuko/network.go:66</code></a></p>
+    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/network.go"><code>cmd/arizuko/network.go</code></a></p>
 
     <h2 id="route" class="group-h2">Routes</h2>
-    <p>The route table maps inbound messages to group folders. Each row is a <code>seq</code> (priority, lower wins), a <code>match</code> expression over message attributes, and a <code>target</code> folder. <code>arizuko group add</code> writes a route for you; use <code>route</code> to add the catch-all and cross-source rules by hand. Routes share their store with <code>acl</code>: both are routd's, on the instance's store server. Writes are audit-free, mirroring the grant path. For bulk or GitOps-style edits, declare routes in a manifest and <a href="#apply"><code>arizuko apply</code></a>. Dispatcher at <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/route.go#L20"><code>route.go:20</code></a>.</p>
+    <p>The route table maps inbound messages to group folders. Each row is a <code>seq</code> (priority, lower wins), a <code>match</code> expression over message attributes, and a <code>target</code> folder. <code>arizuko group add</code> writes a route for you; use <code>route</code> to add the catch-all and cross-source rules by hand. Routes share their store with <code>acl</code>: both are routd's, on the instance's store server. Writes go through the audited <code>AddRoute</code> and <code>DeleteRoute</code>. For bulk or GitOps-style edits, declare routes in a manifest and <a href="#apply"><code>arizuko apply</code></a>. Dispatcher at <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/route.go"><code>route.go</code></a>.</p>
 
     <h3 id="route-list"><span class="sig">arizuko route &lt;instance&gt; list</span></h3>
     <p>List every route ordered by <code>seq</code> then <code>id</code>. Columns: <code>ID | SEQ | MATCH | TARGET</code>. An empty match renders as <code>*</code> (catch-all). Prints <code>no routes</code> if empty.</p>
     <p><strong>State touched:</strong> read-only.</p>
     <pre><code>arizuko route krons list</code></pre>
-    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/route.go#L29"><code>cmd/arizuko/route.go:29</code></a></p>
+    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/route.go"><code>cmd/arizuko/route.go</code></a></p>
 
     <h3 id="route-add"><span class="sig">arizuko route &lt;instance&gt; add &lt;match&gt; &lt;target&gt; [--seq N]</span></h3>
-    <p>Add a route binding a match expression to a target folder. <code>match</code> is a space-separated set of <code>key=value</code> predicates (e.g. <code>platform=telegram</code>, <code>verb=mention</code>, <code>chat_jid=hook:*/sentry/*</code>); <code>*</code> or an empty string is the catch-all and is stored as an empty match. Prints the new <code>id</code>.</p>
+    <p>Add a route binding a match expression to a target folder. <code>match</code> is a space-separated set of <code>key=value</code> predicates (e.g. <code>platform=telegram</code>, <code>verb=mention</code>, <code>chat_jid=hook:*/sentry/*</code>); <code>*</code> or an empty string is the catch-all and is stored as an empty match. Prints <code>added route &lt;id&gt;</code>.</p>
     <table>
       <tr><th>Flag</th><th>Type</th><th>Default</th><th>Effect</th></tr>
-      <tr><td><code>--seq</code></td><td>int</td><td><code>0</code></td><td>Match priority; lower wins. Put it before the positionals.</td></tr>
+      <tr><td><code>--seq</code></td><td>int</td><td><code>0</code></td><td>Match priority; lower wins. It works before, between or after the positionals; short form <code>-s</code>.</td></tr>
     </table>
-    <p><strong>State touched:</strong> <code>routes</code> table (audit-free <code>PutRouteRow</code>).</p>
+    <p><strong>State touched:</strong> <code>routes</code> table and an audit row.</p>
     <pre><code>arizuko route krons add 'platform=telegram' supermarket
 arizuko route krons add '*' corp/intake --seq 10
 arizuko route krons add 'chat_jid=hook:*/sentry/*' corp/eng/sre --seq -10</code></pre>
-    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/route.go#L35"><code>cmd/arizuko/route.go:35</code></a></p>
+    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/route.go"><code>cmd/arizuko/route.go</code></a></p>
 
     <h3 id="route-rm"><span class="sig">arizuko route &lt;instance&gt; rm &lt;id&gt;</span></h3>
-    <p>Delete a route by <code>id</code> (from <code>route list</code>). Errors with <code>no route &lt;id&gt;</code> if it doesn't exist.</p>
-    <p><strong>State touched:</strong> <code>routes</code> table row delete (audit-free <code>DeleteRouteRow</code>).</p>
+    <p>Delete a route by <code>id</code> (from <code>route list</code>). Errors with <code>no route &lt;id&gt;</code> if it does not exist.</p>
+    <p><strong>State touched:</strong> one <code>routes</code> row deleted and an audit row.</p>
     <pre><code>arizuko route krons rm 7</code></pre>
-    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/route.go#L46"><code>cmd/arizuko/route.go:46</code></a></p>
+    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/route.go"><code>cmd/arizuko/route.go</code></a></p>
 
     <h2 id="secret" class="group-h2">Secrets (folder &amp; user)</h2>
-    <p>Folder-scoped and user-scoped secrets backing the secret-broker model (see <a href="../concepts/secrets.html">secrets</a>). Keys must match <code>^[A-Z][A-Z0-9_]*$</code> (validated by <code>keyValid</code> at <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/secret.go#L132"><code>secret.go:132</code></a>).</p>
+    <p>Folder-scoped and user-scoped secrets backing the secret-broker model (see <a href="../concepts/secrets.html">secrets</a>). Keys must match <code>^[A-Z][A-Z0-9_]*$</code> (validated by <code>store.ValidSecretKey</code> in <a href="https://github.com/kronael/arizuko/blob/main/store/secrets.go"><code>store/secrets.go</code></a>).</p>
 
-    <div class="callout"><strong>Note:</strong> folder secrets and user secrets share the <code>secrets</code> table, split by <code>scope_kind</code> (<code>folder</code> or <code>user</code>). The same rows back the REST secret surface and the tool-call broker. Values are encrypted at rest; <code>list</code> shows keys, never values.</div>
+    <div class="callout"><strong>One table holds both scopes.</strong> Folder secrets and user secrets share the <code>secrets</code> table, split by <code>scope_kind</code> (<code>folder</code> or <code>user</code>). The same rows back the REST secret surface and the tool-call broker. Values are encrypted at rest; <code>list</code> shows keys, never values.</div>
 
     <h3 id="secret-set"><span class="sig">arizuko secret &lt;instance&gt; set &lt;folder&gt; KEY --value V</span></h3>
-    <p>Store a folder-scoped capability secret. <code>--value</code> is required; empty values rejected. Key is validated against the uppercase ENV-style pattern. The four model keys (<code>ANTHROPIC_API_KEY</code>, <code>CLAUDE_CODE_OAUTH_TOKEN</code>, <code>OPENAI_API_KEY</code>, <code>CODEX_API_KEY</code>) are rejected at folder scope &mdash; they belong to the host <code>.env</code> or to a user at <code>/dash/me/env</code>.</p>
+    <p>Store a folder-scoped capability secret. <code>--value</code> is required; empty values rejected. Key is validated against the uppercase ENV-style pattern. The five model keys (<code>ANTHROPIC_API_KEY</code>, <code>ANTHROPIC_OAUTH_TOKEN</code>, <code>CLAUDE_CODE_OAUTH_TOKEN</code>, <code>OPENAI_API_KEY</code>, <code>CODEX_API_KEY</code>) are rejected at folder scope &mdash; they belong to the host <code>.env</code> or to a user at <code>/dash/me/env</code>.</p>
     <table>
       <tr><th>Flag</th><th>Type</th><th>Default</th><th>Effect</th></tr>
       <tr><td><code>--value</code></td><td>string</td><td><code>""</code></td><td>Secret value. Required, must be non-empty.</td></tr>
@@ -493,41 +469,55 @@ arizuko route krons add 'chat_jid=hook:*/sentry/*' corp/eng/sre --seq -10</code>
     <p><strong>State touched:</strong> <code>secrets</code> table, <code>scope_kind = folder</code>.</p>
     <pre><code>arizuko secret krons set corp/eng GITHUB_TOKEN --value ghp_xxxxxxxxxxxx
 arizuko secret krons set main CF_API_TOKEN --value cf_xxxxxxxx</code></pre>
-    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/secret.go#L28"><code>cmd/arizuko/secret.go:28</code></a></p>
+    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/secret.go"><code>cmd/arizuko/secret.go</code></a></p>
 
     <h3 id="secret-list"><span class="sig">arizuko secret &lt;instance&gt; list &lt;folder&gt;</span></h3>
     <p>List keys (not values) for a folder. Columns: <code>KEY | CREATED_AT</code>. Prints <code>no secrets</code> if empty.</p>
     <p><strong>State touched:</strong> read-only.</p>
     <pre><code>arizuko secret krons list corp/eng</code></pre>
-    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/secret.go#L38"><code>cmd/arizuko/secret.go:38</code></a></p>
+    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/secret.go"><code>cmd/arizuko/secret.go</code></a></p>
 
     <h3 id="secret-delete"><span class="sig">arizuko secret &lt;instance&gt; delete &lt;folder&gt; KEY</span></h3>
     <p>Delete one folder-scoped key.</p>
     <p><strong>State touched:</strong> <code>secrets</code> table row delete.</p>
     <pre><code>arizuko secret krons delete corp/eng GITHUB_TOKEN</code></pre>
-    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/secret.go#L43"><code>cmd/arizuko/secret.go:43</code></a></p>
+    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/secret.go"><code>cmd/arizuko/secret.go</code></a></p>
 
     <h3 id="user-secret-set"><span class="sig">arizuko user-secret &lt;instance&gt; set &lt;user_sub&gt; KEY --value V</span></h3>
-    <p>Operator fallback for setting a user-scoped secret on behalf of a user who hasn't logged in via <code>/dash/me/secrets</code> yet. Same key validation as <code>secret set</code>.</p>
+    <p>Operator fallback for setting a user-scoped secret on behalf of a user who has not logged in via <code>/dash/me/secrets</code> yet. Same key validation as <code>secret set</code>.</p>
     <table>
       <tr><th>Flag</th><th>Type</th><th>Default</th><th>Effect</th></tr>
       <tr><td><code>--value</code></td><td>string</td><td><code>""</code></td><td>Secret value. Required, must be non-empty.</td></tr>
     </table>
     <p><strong>State touched:</strong> <code>secrets</code> table, <code>scope_kind = user</code>.</p>
     <pre><code>arizuko user-secret krons set google:alice@example.com GITHUB_TOKEN --value ghp_xxx</code></pre>
-    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/secret.go#L67"><code>cmd/arizuko/secret.go:67</code></a></p>
+    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/secret.go"><code>cmd/arizuko/secret.go</code></a></p>
 
     <h3 id="user-secret-list"><span class="sig">arizuko user-secret &lt;instance&gt; list &lt;user_sub&gt;</span></h3>
     <p>List keys for one user sub. Columns: <code>KEY | CREATED_AT</code>.</p>
     <p><strong>State touched:</strong> read-only.</p>
     <pre><code>arizuko user-secret krons list google:alice@example.com</code></pre>
-    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/secret.go#L77"><code>cmd/arizuko/secret.go:77</code></a></p>
+    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/secret.go"><code>cmd/arizuko/secret.go</code></a></p>
 
     <h3 id="user-secret-delete"><span class="sig">arizuko user-secret &lt;instance&gt; delete &lt;user_sub&gt; KEY</span></h3>
     <p>Delete one user-scoped key.</p>
     <p><strong>State touched:</strong> <code>secrets</code> table row delete.</p>
     <pre><code>arizuko user-secret krons delete google:alice@example.com GITHUB_TOKEN</code></pre>
-    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/secret.go#L82"><code>cmd/arizuko/secret.go:82</code></a></p>
+    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/secret.go"><code>cmd/arizuko/secret.go</code></a></p>
+
+    <h2 id="other" class="group-h2">Other subcommands</h2>
+    <p>These subcommands exist in the binary. Their usage line is the reference; run the subcommand without arguments to print it.</p>
+    <table>
+      <tr><th>Subcommand</th><th>What it does</th></tr>
+      <tr><td><code>arizuko proxy-config &lt;instance&gt; [--listen :8080] [--forward-auth host:port]</code></td><td>Prints the <code>proxyd_routes</code> rows as a Caddyfile. It installs nothing. <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/routes.go"><code>routes.go</code></a></td></tr>
+      <tr><td><code>arizuko github &lt;instance&gt; add|list|rm</code></td><td>Registers GitHub webhook sources for <code>gitd</code>: <code>add repo|org|app &lt;name&gt; &lt;folder&gt;</code>. <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/github.go"><code>github.go</code></a></td></tr>
+      <tr><td><code>arizuko gdrive &lt;instance&gt; add &lt;file_id&gt; &lt;folder&gt; | list | rm</code></td><td>Binds Google Drive files to a folder. <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/gdrive.go"><code>gdrive.go</code></a></td></tr>
+      <tr><td><code>arizuko talk [@name] [-g &lt;folder&gt;] [-t &lt;thread&gt;] [-p [prompt]]</code></td><td>A REPL against a live instance. It opens no store; its config is in <code>~/.config/arizuko/talk.toml</code>. <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/talk.go"><code>talk.go</code></a></td></tr>
+      <tr><td><code>arizuko probe &lt;base-url&gt; [--token T] [--foreign-folder F]</code></td><td>Checks a live component against the component contract. <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/probe.go"><code>probe.go</code></a></td></tr>
+      <tr><td><code>arizuko group &lt;instance&gt; thread-replies &lt;folder&gt; on|off|default</code></td><td>Sets whether the replies of a group go into threads. <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go"><code>main.go</code></a></td></tr>
+      <tr><td><code>arizuko secret|user-secret &lt;instance&gt; seal-legacy [--dry-run]</code></td><td>Encrypts the secret values that the store still holds without encryption. Rehearse with <code>--dry-run</code> first. <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/secret.go"><code>secret.go</code></a></td></tr>
+      <tr><td><code>arizuko packages &lt;instance&gt; add &lt;name&gt; | sync</code></td><td><code>add</code> enables a bundled catalog fragment; <code>sync</code> applies the installed packages again. <code>install</code> and <code>add</code> take <code>--folder &lt;scope&gt;</code> more than once. <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/packages.go"><code>packages.go</code></a></td></tr>
+    </table>
 
     <h2 class="group-h2">See also</h2>
     <ul>

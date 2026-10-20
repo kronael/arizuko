@@ -17,7 +17,7 @@
         <li><a class="nav-section" href="../concepts/">Concepts</a></li>
         <li><a class="nav-section" href="./">Reference</a>
           <ul class="nav-children">
-            <li><a href="cli.html">CLI commands</a></li>
+            <li><a href="cli.html">CLI</a></li>
             <li><a href="packages.html">Packages</a></li>
             <li><a href="env.html">Environment variables</a></li>
             <li><a href="mcp.html">MCP tools</a></li>
@@ -47,7 +47,7 @@
 
     <p>See <a href="../concepts/grants.html">concepts &rsaquo; authorization</a> for the mental model, <a href="https://github.com/kronael/arizuko/blob/main/GRANTS.md"><code>GRANTS.md</code></a> for the maintainer walkthrough, and <a href="https://github.com/kronael/arizuko/blob/main/auth/README.md"><code>auth/README.md</code></a> for the figure and every rule behind the evaluator. Code: <a href="https://github.com/kronael/arizuko/blob/main/auth/authorize.go"><code>auth/authorize.go</code></a> (the evaluator), <a href="https://github.com/kronael/arizuko/blob/main/auth/delegate.go"><code>auth/delegate.go</code></a> (delegation), <a href="https://github.com/kronael/arizuko/blob/main/auth/acl.go"><code>auth/acl.go</code></a> (scope matcher), <a href="https://github.com/kronael/arizuko/blob/main/store/acl.go"><code>store/acl.go</code></a> (reader / writer).</p>
 
-    <h2>1. The row</h2>
+    <h2>One acl row is one rule</h2>
 
     <p>One row answers one question:</p>
 
@@ -57,8 +57,8 @@
     <table>
       <tr><th>column</th><th>meaning</th></tr>
       <tr><td><code>principal</code></td><td>Who is asking. Globbed segment-wise on <code>/</code> and <code>:</code>.</td></tr>
-      <tr><td><code>action</code></td><td><code>interact</code>, <code>admin</code>, <code>mcp:&lt;tool&gt;</code>, <code>hold:mcp:&lt;tool&gt;</code>, or <code>*</code>.</td></tr>
-      <tr><td><code>scope</code></td><td>Folder path or glob. <code>**</code> crosses <code>/</code>, <code>*</code> doesn't.</td></tr>
+      <tr><td><code>action</code></td><td><code>*</code>, <code>admin</code>, <code>interact</code>, <code>egress</code>, <code>web:publish</code>, <code>gh:write</code>, <code>mcp:*</code>, <code>mcp:&lt;tool&gt;</code>, <code>shell:env:&lt;KEY&gt;</code>, <code>ext:&lt;provider&gt;:&lt;area&gt;:&lt;verb&gt;</code>, <code>hold:mcp:&lt;tool&gt;</code> or <code>&lt;resource&gt;.&lt;verb&gt;</code>.</td></tr>
+      <tr><td><code>scope</code></td><td>Folder path or glob. <code>**</code> crosses <code>/</code>, <code>*</code> does not.</td></tr>
       <tr><td><code>params</code></td><td>Optional predicates over the call's arguments (<code>jid=telegram:*</code>).</td></tr>
       <tr><td><code>predicate</code></td><td>Optional condition on the caller's JWT claims (<code>discord:guild=G123</code>). Empty = none.</td></tr>
       <tr><td><code>effect</code></td><td><code>allow</code> or <code>deny</code>. Deny wins.</td></tr>
@@ -90,7 +90,7 @@ params    = host=*.prod.example.com</code></pre>
 
     <p>Nothing in the row is derived. A path is a routing target, a JID prefix, a home shared into the guest, and a web vhost &mdash; it is never an authority level, and how deep it sits means nothing here.</p>
 
-    <h2>2. The two tables</h2>
+    <h2>Two tables hold the rules</h2>
 
     <ul>
       <li><strong><code>acl</code></strong> &mdash; <code>(principal, action, scope, effect, params, predicate, granted_by, granted_at, grant_option)</code>. The whole permission graph, one entity in routd&rsquo;s store.</li>
@@ -99,7 +99,7 @@ params    = host=*.prod.example.com</code></pre>
 
     <p>Row counts stay small &mdash; hundreds, not millions. Adjacent tables in play but orthogonal: <code>groups</code> (what folders exist), <code>routes</code> (which JIDs land in which folder).</p>
 
-    <h2>3. Principals, actions, scopes</h2>
+    <h2>A row names a principal, an action and a scope</h2>
 
     <table>
       <tr><th>principal kind</th><th>example</th><th>notes</th></tr>
@@ -120,9 +120,9 @@ params    = host=*.prod.example.com</code></pre>
 
     <p>There is no policy language. OPA and Rego are not used, and the lattice is never flattened into one row per tool: the common case is gating like <code>reply(jid=slack:*)</code>, which one row and a params glob already say.</p>
 
-    <p>Scope is the folder path globbed segment-wise (<code>matchPattern</code> in <a href="https://github.com/kronael/arizuko/blob/main/auth/acl.go"><code>auth/acl.go</code></a>): <code>*</code> doesn't cross <code>/</code>, <code>**</code> matches zero or more segments. It is a pure function &mdash; no DB query.</p>
+    <p>Scope is the folder path globbed segment-wise (<code>matchPattern</code> in <a href="https://github.com/kronael/arizuko/blob/main/auth/acl.go"><code>auth/acl.go</code></a>): <code>*</code> does not cross <code>/</code>, <code>**</code> matches zero or more segments. It is a pure function &mdash; no DB query.</p>
 
-    <h2>4. Params and predicates</h2>
+    <h2>Params and predicates narrow a row</h2>
 
     <p>Two optional columns narrow a row further. Both use the same grammar:</p>
 
@@ -138,9 +138,9 @@ clause := name "=" glob        # value must glob-match
 params:    readonly=true            # only the read-only form of the call
 predicate: discord:guild=G123       # only when the caller's token carries that guild</code></pre>
 
-    <p>A row that fails on params or predicate simply doesn't match. It neither allows nor denies &mdash; denial comes from an explicit <code>effect='deny'</code> row, or from nothing matching at all.</p>
+    <p>A row that fails on params or predicate simply does not match. It neither allows nor denies &mdash; denial comes from an explicit <code>effect='deny'</code> row, or from nothing matching at all.</p>
 
-    <h2>5. Evaluation</h2>
+    <h2>auth.Authorize evaluates every request</h2>
 
     <p><a href="https://github.com/kronael/arizuko/blob/main/auth/authorize.go"><code>auth.Authorize</code></a> is the sole runtime evaluator. Operator REST calls and the agent's MCP socket both land here, over the same rows &mdash; one mechanism, two callers, not two systems.</p>
 
@@ -156,9 +156,9 @@ predicate: discord:guild=G123       # only when the caller's token carries that 
 
     <p>Rows are read on every call &mdash; no cache. Revoking a grant takes effect on the caller's <em>next tool call</em>, even mid-turn.</p>
 
-    <p>Tool visibility is a separate view over the same rows: <code>auth.EffectiveActions</code> asks whether the caller holds an action at <em>any</em> scope, and that answer drives <code>tools/list</code>. Because the list and the per-call gate read one table, they agree by construction. Deny rows are scope-specific, so they don't hide a tool from the list &mdash; <code>Authorize</code> still refuses the call.</p>
+    <p>Tool visibility is a separate view over the same rows: <code>auth.EffectiveActions</code> asks whether the caller holds an action at <em>any</em> scope, and that answer drives <code>tools/list</code>. Because the list and the per-call gate read one table, they agree by construction. Deny rows are scope-specific, so they do not hide a tool from the list &mdash; <code>Authorize</code> still refuses the call.</p>
 
-    <h2>6. Two seeded roles</h2>
+    <h2>Two roles exist at the start</h2>
 
     <p><strong><code>role:member</code></strong> is the floor. Every folder is bound to it the moment it is created (<code>store.SeedMemberRole</code>, <a href="https://github.com/kronael/arizuko/blob/main/store/membership.go"><code>store/membership.go</code></a>), and it carries the twelve messaging verbs plus <code>disengage</code>:</p>
 
@@ -177,14 +177,14 @@ arizuko group krons grant google:114alice '**'</code></pre>
 
     <p>Any other pattern writes an ordinary <code>acl</code> row instead &mdash; see <a href="cli.html#group-grant"><code>arizuko group &hellip; grant</code></a>.</p>
 
-    <h2>7. Delegation</h2>
+    <h2>A holder delegates only what it holds</h2>
 
     <p>Authority moves by delegation, and the bound is <strong>subset-of-held</strong>: a principal may grant onward only rows it already holds, and only those it holds with <code>grant_option = 1</code>. This is Postgres's <code>GRANT &hellip; WITH GRANT OPTION</code>, and it means authority strictly decreases down every chain without anyone counting path segments.</p>
 
     <p><a href="https://github.com/kronael/arizuko/blob/main/auth/delegate.go"><code>auth.Delegate</code></a> is a pure precondition &mdash; it writes nothing, and the caller writes the rows only after it returns clean. It refuses:</p>
 
     <ul>
-      <li>a row the granter doesn't hold with grant option;</li>
+      <li>a row the granter does not hold with grant option;</li>
       <li>a <code>deny</code> row &mdash; a restriction is not a subset of what you hold;</li>
       <li>a wildcard principal as the target, which would hand the grant to every matching sub;</li>
       <li>anything the granter's own <code>deny</code> rows cover &mdash; you cannot re-grant your way past a block on yourself.</li>
@@ -192,7 +192,7 @@ arizuko group krons grant google:114alice '**'</code></pre>
 
     <p>A new group starts with whatever its creating group or a lineage ancestor delegates to it, on top of the <code>role:member</code> floor. A child can never exceed its granter.</p>
 
-    <h2>8. Containment</h2>
+    <h2>The scope glob contains the folder</h2>
 
     <p>Containment is the grant's scope glob. There is no separate hierarchy walk and no persisted containment row &mdash; <code>Authorize(caller, action, ACTUAL-target, params)</code> checks magnitude and containment in the same call.</p>
 
@@ -204,13 +204,13 @@ arizuko group krons grant google:114alice '**'</code></pre>
 
     <p>So a management call passes the real target as the scope, and the row's glob decides. Widening reach is editing one glob, not moving a folder.</p>
 
-    <p>Turn capabilities work the same way. At dispatch, routd resolves three booleans from <code>acl</code> and ships them typed on the run request (<a href="https://github.com/kronael/arizuko/blob/main/routd/dispatch.go"><code>routd/dispatch.go</code></a>): <code>share_mount(readonly=true)</code> makes the shared mount read-only, <code>egress</code> appends <code>*</code> to the folder's allowlist so the turn's proxy runs in allow-all, <code>web:publish</code> opens the web surface. A plain folder holds none of them and runs with a writable share, an allowlist of exactly what its own rows name, and no web surface until an operator delegates. The proxy itself is never optional &mdash; every turn gets one, and the guest's tap drops anything that tries to go around it.</p>
+    <p>Turn capabilities work the same way. At dispatch, routd resolves four booleans from <code>acl</code> and sends them typed on the run request (<a href="https://github.com/kronael/arizuko/blob/main/routd/dispatch.go"><code>routd/dispatch.go</code></a>): <code>share_mount(readonly=true)</code> makes the shared mount read-only, <code>egress</code> appends <code>*</code> to the folder's allowlist so the turn's proxy runs in allow-all, <code>web:publish</code> opens the web surface, and <code>gh:write</code> lets the agent make the GitHub writes that the <code>gh</code> gate of the agent refuses by default, such as a merge or a release. A plain folder holds none of them and runs with a writable share, an allowlist of exactly what its own rows name, and no web surface until an operator delegates. The proxy itself is never optional &mdash; every turn gets one, and the guest's tap drops anything that tries to go around it.</p>
 
-    <p>One grant carries a value rather than a boolean. A capability credential normally reaches a <em>tool</em> and nothing else, through the broker, per call. A CLI the agent drives itself — <code>gh</code>, <code>buildkite</code> — is a <code>Bash</code> call, so there is no tool name to resolve a secret for; it can only authenticate from the shell environment. A <code>shell:env:&lt;KEY&gt;</code> row names one secret that may cross, and with no row nothing crosses. The action is matched exactly, so an operator's <code>(*, **)</code> row does <em>not</em> confer it: widening the shell is always an explicit act. <code>shell:env:*</code> is the explicit all-keys row. The four model keys never cross this way, even under <code>shell:env:*</code> &mdash; they already reach the guest by their own door, and the store keeps them off folder scope.</p>
+    <p>One grant carries a value rather than a boolean. A capability credential normally reaches a <em>tool</em> and nothing else, through the broker, per call. A CLI the agent drives itself — <code>gh</code>, <code>buildkite</code> — is a <code>Bash</code> call, so there is no tool name to resolve a secret for; it can only authenticate from the shell environment. A <code>shell:env:&lt;KEY&gt;</code> row names one secret that may cross, and with no row nothing crosses. The action is matched exactly, so an operator's <code>(*, **)</code> row does <em>not</em> confer it: widening the shell is always an explicit act. <code>shell:env:*</code> is the explicit all-keys row. The five model keys never cross this way, even under <code>shell:env:*</code> &mdash; they already reach the guest by their own door, and the store keeps them off folder scope.</p>
 
     <p>That grant cannot bound what the token buys. Once the credential is in the shell the agent spends it with <code>curl</code> as easily as with <code>gh</code>, and no <code>acl</code> row sees the difference. Scope the token at the issuing service — a PAT minted without <code>pull_requests: write</code> cannot approve a pull request however it is called.</p>
 
-    <h2>9. Worked examples</h2>
+    <h2>Four example rows</h2>
 
     <pre><code># Let a support agent send only into telegram groups.
 principal: folder:atlas/support
@@ -239,7 +239,7 @@ grant_option: 0</code></pre>
 
     <p>Prefer deleting an allow row or a membership edge over inserting a deny. Denies are for true exceptions &mdash; one banned user in an open room &mdash; and because deny wins everywhere, a forgotten one is hard to find later.</p>
 
-    <h2>10. Go deeper</h2>
+    <h2>Ten pages and files give the details</h2>
     <ul>
       <li><a href="../concepts/grants.html">concepts: authorization</a> &mdash; mental model + worked patterns</li>
       <li><a href="../concepts/scopes.html">concepts: scopes</a> &mdash; how a scope glob reads</li>

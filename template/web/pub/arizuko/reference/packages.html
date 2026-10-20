@@ -17,7 +17,7 @@
         <li><a class="nav-section" href="../concepts/">Concepts</a></li>
         <li><a class="nav-section" href="./">Reference</a>
           <ul class="nav-children">
-            <li><a href="cli.html">CLI commands</a></li>
+            <li><a href="cli.html">CLI</a></li>
             <li><a href="packages.html">Packages</a></li>
             <li><a href="env.html">Environment variables</a></li>
             <li><a href="mcp.html">MCP tools</a></li>
@@ -41,9 +41,7 @@
     <main class="docs-content">
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">reference</a> &rsaquo; packages</p>
       <h1>packages</h1>
-      <p>A <strong>package</strong> is a git source (or local directory) that ships
-      any subset of asset kinds as one versioned unit. Here&rsquo;s the whole
-      trip, from the catalog or a git source to a running container:</p>
+      <p class="lede">A <strong>package</strong> is a git source or a local directory that ships any subset of the asset kinds as one versioned unit. The figure shows the path from the catalog or a git source to a running container.</p>
 
 <pre id="twin-packages"><code>┌──────────────────────────────┐   ┌──────────────────────────────┐
 │ catalog: template/services/  │   │ source: git URL or local dir │
@@ -80,13 +78,9 @@
 products apply &lt;folder&gt;: the group-scoped half. groups/&lt;folder&gt;/products.toml
 is blended into that group, one installed_packages row per (folder, product).</code></pre>
 
-      <p>Two things to notice. Every check runs before step 4, and a row
-      apply that fails in step 5 takes the files back down, so a refused
-      package leaves no fragment and no row behind. And the rows in step 5
-      are live the moment they land; only the compose fragment waits for
-      <code>generate</code>.</p>
+      <p>Every check runs before step 4. A row apply that fails in step 5 removes the files again, so a refused package leaves no fragment and no row. The rows of step 5 apply at once. Only the compose fragment waits for <code>generate</code>.</p>
 
-      <h2>Commands</h2>
+      <h2>Six commands manage packages</h2>
       <pre><code>arizuko packages &lt;instance&gt; add gitd                     # a bundled package, from template/services/
 arizuko packages &lt;instance&gt; install github.com/org/pkg   # or a local dir
 arizuko packages &lt;instance&gt; upgrade pkg                   # refuses locally-edited assets
@@ -117,7 +111,7 @@ arizuko packages &lt;instance&gt; list</code></pre>
       catalog into a symlink, so catalog fixes reach you; it never looks at the
       installed-package record. <code>sync</code> is about sources and revisions.</p>
 
-      <h2>Asset kinds</h2>
+      <h2>A package ships three asset kinds</h2>
       <table class="tbl">
         <thead><tr><th>Kind</th><th>File</th><th>Applied to</th></tr></thead>
         <tbody>
@@ -130,7 +124,7 @@ arizuko packages &lt;instance&gt; list</code></pre>
       <h2 id="env">What a package needs from <code>.env</code></h2>
       <p>A manifest&rsquo;s <code>env</code> section names each key the
       process needs, with one of three sources: <code>generate: true</code>
-      (minted once at install, then it&rsquo;s your line),
+      (minted once at install, then it is your line),
       <code>default: &lt;value&gt;</code> (derived on every generate, never
       written; your <code>.env</code> value wins) or <code>required:
       true</code> (install and generate refuse until you set it). The point:
@@ -141,7 +135,7 @@ arizuko packages &lt;instance&gt; list</code></pre>
       and points you at <code>packages add</code>, because an apply would
       report success for keys it never provisioned.</p>
 
-      <h2>How it stays safe</h2>
+      <h2>Upgrade and remove touch only what the package owns</h2>
       <ul>
         <li>Each install writes an <strong>installed-package record</strong> (source +
         resolved revision + owned identities + a per-asset content hash).</li>
@@ -235,7 +229,7 @@ source = "github.com/org/our-brand" # git → cloned and pinned to a revision</c
       is empty for an instance-wide package and names the group for a product.</p>
 
       <nav class="docs-pager" aria-label="Pager">
-        <a rel="prev" href="cli.html">&larr; CLI commands</a>
+        <a rel="prev" href="cli.html">&larr; CLI</a>
         <a rel="next" href="env.html">Environment variables &rarr;</a>
       </nav>
       <div class="docs-footer">

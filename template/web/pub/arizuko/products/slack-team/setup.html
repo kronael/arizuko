@@ -165,9 +165,10 @@ arizuko route acme add 'chat_jid=hook:main/eng/github' main/eng --seq -5
       <p>A skill of the agent parses the payload and can check <code>X-Hub-Signature-256</code>. The platform does neither. The token in the URL is the bearer credential, and you rotate it with a new token. The <a href="../../howto/webhooks.html#security-model">webhooks security model</a> explains this.</p>
 
       <h3>Email uses the emaid adapter</h3>
-      <p>For forwarded alerts and mailing-list digests, use the <code>emaid</code> adapter, not a hook token. It receives over IMAP, sends over SMTP and keeps threads by Message-ID. <a href="../../components/emaid.html">emaid</a> has the connection setup. Two variables decide whether <code>emaid</code> trusts inbound mail:</p>
+      <p>For forwarded alerts and mailing-list digests, use the <code>emaid</code> adapter, not a hook token. It receives over IMAP, sends over SMTP and keeps threads by Message-ID. <a href="../../components/emaid.html">emaid</a> has the connection setup. Three variables decide whether <code>emaid</code> trusts inbound mail:</p>
       <pre><code># In .env: required to mark ANY inbound as trusted
 EMAIL_TRUSTED_AUTHSERV=mx.google.com   # your upstream MX authserv-id
+EMAIL_TRUSTED_DOMAINS=mycompany.com    # optional; From domains to trust
 EMAIL_STRICT_AUTH=false                # true = drop unauthenticated mail</code></pre>
       <p>Without <code>EMAIL_TRUSTED_AUTHSERV</code>, every inbound mail arrives with <code>verb=untrusted</code>, and the slack-team <code>CLAUDE.md</code> tells the agent not to act on its contents. Set <code>EMAIL_TRUSTED_AUTHSERV</code> to the authserv-id of your provider, for example <code>mx.google.com</code> for Gmail or <code>mail.fastmail.com</code> for Fastmail, to trust mail that passes DMARC.</p>
 

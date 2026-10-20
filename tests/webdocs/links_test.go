@@ -242,10 +242,10 @@ func TestWebDocsSpecIDsResolve(t *testing.T) {
 		}
 	}
 	t.Logf("resolved %d prose spec IDs", checked)
-	// 36 at the C4 docs fold, 26 at C9, 14 at F1, 13 at F2 and 11 at F3; each
-	// fold moves spec IDs out of the pages, so the floor follows the count
-	// down. Same reasoning as the path floor above.
-	if checked < 11 {
+	// 36 at the C4 docs fold, 26 at C9, 14 at F1, 13 at F2, 11 at F3 and 2 at
+	// F4; each fold moves spec IDs out of the pages, so the floor follows the
+	// count down. Same reasoning as the path floor above.
+	if checked < 2 {
 		t.Fatalf("only %d prose spec IDs found; the extraction is broken", checked)
 	}
 }
