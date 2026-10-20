@@ -18,7 +18,7 @@ Every `/dash/` surface dashd mounts. One spec per surface:
 | `tools.spec.ts`          | `/dash/groups/{folder}/tools` MCP tool browser                                              |
 | `tasks.spec.ts`          | `/dash/tasks/` list, create, partial refresh                                                |
 | `invites.spec.ts`        | one-time link on create, ref-only on read, revoke                                           |
-| `tokens.spec.ts`         | route-token list + revoke (dashd no longer mints)                                           |
+| `tokens.spec.ts`         | route-token list + revoke (dashd does not mint)                                             |
 | `approvals.spec.ts`      | `/dash/approvals/` HITL queue, verdict forwarding, `?id=` deep link                         |
 | `operator-reads.spec.ts` | audit, usage, packages, proactive                                                           |
 | `engagement.spec.ts`     | engaged windows + force-disengage                                                           |

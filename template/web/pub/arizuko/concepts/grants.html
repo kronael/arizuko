@@ -108,7 +108,7 @@ INSERT INTO acl_membership (child, parent, added_at) VALUES
     <p>Alice posts in Discord as <code>discord:user/811&hellip;</code>. Later she logs in via Google. The OAuth callback writes one membership edge:</p>
     <pre><code>INSERT INTO acl_membership (child, parent, added_at) VALUES
   ('discord:user/811...', 'google:114alice', now());</code></pre>
-    <p>That edge <em>is</em> the claim. The next Discord message from her expands to include the canonical sub; any grants on <code>google:114alice</code> apply automatically. No <code>acl</code> row gets rewritten, no migration runs &mdash; the channel-side id keeps working as before.</p>
+    <p>That edge <em>is</em> the claim. The next Discord message from her expands to include the canonical sub; any grants on <code>google:114alice</code> apply automatically. No <code>acl</code> row gets rewritten, no migration runs &mdash; the channel-side id keeps working.</p>
 
     <h2>where the check runs</h2>
     <p>Every gate asks the same question &mdash; may this principal do this action on this scope? A message wanting into a folder hits a gate once; a tool call leaving that folder hits one again. The two faces share the handler, the folder-containment rule, and the check itself. An operator&rsquo;s REST call and an agent&rsquo;s MCP call both land in <code>auth.Authorize</code>, over the same <code>acl</code> rows; what differs is only where the principal came from &mdash; a JWT subject on one side, the socket&rsquo;s folder on the other. There is no second mechanism for agents and no default derived from where a folder sits. The full call signature lives in <a href="../reference/grants.html">reference / grants</a>.</p>

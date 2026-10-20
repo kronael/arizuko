@@ -384,7 +384,7 @@ Durable rules the package layout obeys.
   [`specs/5/16`](specs/5/16-mcp-rest-unification.md) §"The hot-path
   exception", pinned by `proxyd/hotpath_read_test.go`.
 
-- **No backward compatibility.** Cutovers are one-shot: a migration
+- **No dual-version period.** Cutovers are one-shot: a migration
   ships in one release, old paths delete in that same release. No dual
   API periods, no `v1`/`v2` side-by-side as a migration tool. Recovery
   is `git revert`, not a compat layer. Build order may be staged;

@@ -534,7 +534,7 @@
     <h2 id="scheduling">scheduling</h2>
 
     <h3 id="cancel_task"><code>cancel_task</code></h3>
-    <p>Permanently delete a scheduled task. Use when the task is no longer wanted. Not for temporary suspension (<code>pause_task</code>) &mdash; this cannot be undone.</p>
+    <p>Permanently delete a scheduled task. Use when nobody wants the task. Not for temporary suspension (<code>pause_task</code>) &mdash; this cannot be undone.</p>
     <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L2117"><code>ipc/ipc.go:2117</code></a> &middot; Grant action: <code>cancel_task</code> (delegated, not a default) &middot; <code>auth.Authorize</code> on the task's owner folder. REST twin: <code>DELETE /v1/scheduled_tasks</code>.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
@@ -725,7 +725,7 @@
     <p class="returns"><strong>Params:</strong> none. <strong>Returns:</strong> JSON <code>{"invites": [{token, target_glob, max_uses, used_count, expires_at?}, ...]}</code>.</p>
 
     <h3 id="invite_revoke"><code>invite_revoke</code></h3>
-    <p>Revoke an invite token you issued so it can no longer be redeemed. You may only revoke tokens issued by your own folder. Use <code>invite_list</code> to find your tokens. REST twin: <code>DELETE /v1/invites/{token}</code>.</p>
+    <p>Revoke an invite token you issued so nobody can redeem it. You may only revoke tokens issued by your own folder. Use <code>invite_list</code> to find your tokens. REST twin: <code>DELETE /v1/invites/{token}</code>.</p>
     <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L2323"><code>ipc/ipc.go:2323</code></a> &middot; Grant action: <code>invite_revoke</code> &middot; <code>auth.Authorize</code> re-run with the caller's folder as the scope; ownership enforced in routd closure.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
@@ -867,7 +867,7 @@ headers   = { Authorization = "Bearer {secret:CF_API_TOKEN}" }
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/reference/mcp.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-15">2026-10-15</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-16">2026-10-16</time>
       </div>
     </main>
 
