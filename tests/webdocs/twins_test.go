@@ -87,6 +87,10 @@ var twins = []twin{
 		"compose/README.md",
 		"template/web/pub/arizuko/reference/packages.html",
 	}},
+	{name: "dashd", files: []string{
+		"dashd/README.md",
+		"template/web/pub/arizuko/components/dashd.html",
+	}},
 }
 
 var (

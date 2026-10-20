@@ -72,7 +72,7 @@ chanlib/  RouterClient, InboundMsg, auth middleware, URLCache (CDN-id
           CopyFile), env helpers (EnvOr/EnvInt/EnvDur), ShortHash — shared
           by adapters + routd + container + onbod + webd
 compose/  docker-compose generation
-theme/    shared CSS + HTML helpers (used by onbod, dashd)
+theme/    shared CSS + HTML helpers (every daemon page and login page)
 objstore/ the two storage primitives + the DynamoDB-protocol driver
           (dynstore); every daemon addresses this, never the engine
 ```
@@ -596,6 +596,13 @@ runed Manager (`runed/manager.go`):
   the guest before the closure returns true (`runed/README.md` § Steer and
   stop)
 
+There are two circuit breakers, and they count different things. routd's
+`GroupQueue` counts consecutive failures per chat JID, opens at 3
+(`queue/queue.go:11`) and resets on the next inbound for that chat. runed's
+Manager counts failures per folder. A transport failure to runed charges
+neither, and neither does a `busy` answer. The routd dashboard's retry
+clears a chat's errored rows; there is no separate reset verb.
+
 Delegation, escalation, and `#topic` routing are not special — each writes
 a row via `PutMessage` and calls `EnqueueMessageCheck`.
 
@@ -667,18 +674,12 @@ routd picks the message up via normal poll. See `timed/README.md`.
 
 ## Operator Dashboard (dashd/)
 
-HTMX portal over routd's data plus a write surface (routes
-editor, groups CRUD, per-user secrets) requiring authenticated access.
-Spec: `specs/6/28-cockpit-index.md`. See `dashd/README.md`.
-
-Operator-only pages reached from `/dash/services/` are the per-daemon control
-planes: `/dash/routd/`, `/dash/runed/`, `/dash/proxyd/` and `/dash/authd/`
-(signing-key lifecycle, login sessions, per-login sign-out — spec `5/1`). Each
-goes over HTTP to the owning daemon's `/v1` with the `service:dashd` bearer
-rather than reading its tables, which is what keeps the owner the single writer
-and puts each mutation's audit row in the mutation's own batch. dashd reaches
-routd's and onbod's tables directly; runed's and authd's only through their
-daemons.
+Every daemon serves its own `/dash/<daemon>/` from handlers beside its
+`/v1`, and proxyd routes each prefix to it. dashd is the hub of tiles at
+`/dash/services/` plus the pages that span daemons. It holds a store key
+for routd's and onbod's tables only and reaches every other daemon over
+its `/v1`. The doors, the hub and the WHY of each are in
+[`dashd/README.md`](dashd/README.md).
 
 ## Diary (diary package)
 

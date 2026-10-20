@@ -214,6 +214,8 @@ routd reads.
   - `POST /v1/onboarding` — record unrouted JID (invites:write)
   - `POST /v1/invites`, `GET /v1/invites`, `DELETE /v1/invites/{ref}` (invites:read/write)
   - `GET /v1/gates`, `PUT /v1/gates/{gate}`, `DELETE /v1/gates/{gate}` (gates:read/write)
+- `GET|POST /dash/onbod/` — onbod's own operator page: the admission queue
+  with approve, deny and reprompt per row, operator-only
 - `GET /openapi.json` — `onboarding`, `onboarding_gates`, `invites`
 - Disable: `ONBOARDING_ENABLED=0` (exits immediately)
 

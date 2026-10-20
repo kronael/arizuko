@@ -326,7 +326,10 @@ Endpoints (`server.go`, `channels.go`):
 - `GET /v1/cost?turn_id=` — what the gateway charged one turn's key;
   `GET /v1/cost/summary?folder=&since=` — what it metered per folder over a
   window (`cost:read`, `cost:read:own_group`). Both read the gateway; 404 or
-  an explicit "no meter" when the instance has none
+  an explicit "no meter" when the instance has none. The summary is the one
+  spend read every operator surface uses, dashd's `/dash/usage/` included.
+  `since` is required, because a summary with no window reports a lifetime
+  total as current; the token's folder claim narrows the rows
 - `GET /openapi.json` — OpenAPI 3.1 doc (public, pre-auth)
 - `GET /health` — healthcheck (public)
 

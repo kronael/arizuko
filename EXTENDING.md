@@ -483,8 +483,10 @@ Probing cannot establish that, because proxyd answers every path from a
 
 `proxyd`'s route table is built from the `proxyd_routes` block of each
 package's `services/<name>.yaml`, read at compose-generate time, plus a
-static core-route slice in `compose/compose.go` (`coreProxydRoutes`, for
-dashd/webd/davd/onbod). Routes cannot live in the compose fragment —
+static core-route slice in `compose/compose.go` (`coreProxydRoutes`: the
+webd, onbod, davd and dashd surfaces, plus the `/dash/<daemon>/` page of
+routd, runed, authd, proxyd, onbod, timed and webd). Routes cannot live in
+the compose fragment —
 proxyd, not docker, is their consumer. Adding a new inbound web path =
 one manifest block, no Go edits:
 
@@ -503,6 +505,14 @@ Each field's meaning, the four `auth` values and the owner rules are in
 disabled routes; `arizuko generate` writes the survivors into
 `proxyd_routes` as arizuko-owned rows, so a route added to a later release
 reaches an existing instance.
+
+A daemon's dashboard is one more route, `/dash/<name>/` to its own `:8080`,
+and the route IS the registration: dashd's hub links a tile exactly when
+that row exists, with no autodiscovery. Longest-prefix matching puts every
+`/dash/<name>/` ahead of the `/dash/` catch-all that reaches dashd. A
+packaged daemon declares its dashboard route in its own manifest,
+`template/services/slakd.yaml` for example; a daemon with no route has a
+tile that does not link.
 
 That file is the SAME manifest `arizuko packages install` applies — one
 declaration with two readers, because generate needs the routes before any

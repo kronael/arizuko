@@ -36,9 +36,17 @@ generator, which also hardcodes the `/dav/` route's backend as
 ## Health signal
 
 `GET /` returns 200 (dufs index). Healthcheck probes that with a
-3-second `wget` timeout.
+3-second `wget` timeout. dashd's hub tile probes `GET /` for the same
+reason.
+
+## No dashboard
+
+davd serves no `/dash/davd/` and has no route for one. davd is dufs with no
+arizuko code: it holds no session list, no disconnect verb and no
+`/health`, so a dashboard would have nothing of its own to show. Its hub
+tile shows the probe and does not link.
 
 ## Related docs
 
-- `specs/5/M-webdav.md` — auth model, write-block guard
-- `proxyd/README.md` — `/dav/*` routing and `davAllow`
+- `proxyd/README.md` — `/dav/*` routing, the auth model and the `davAllow`
+  write-block guard

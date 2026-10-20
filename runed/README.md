@@ -71,8 +71,15 @@ every read is "the n newest in this folder" and nothing sweeps it; and
     leaves none. `/dash/audit/` federates it.
   - `GET|POST /dash/runed/` — runed's own operator page: active runs with a
     per-folder kill, and recent spawns. Gated by the proxyd-stamped operator
-    identity, not a bearer (spec `6/30`).
-  - `GET /openapi.json`, `GET /health`
+    identity, not a bearer.
+
+A kill is the one revoke runed has, because runed mints nothing.
+`Manager.Kill` (`manager.go:472`) is idempotent: a kill on a run that
+already exited answers 200 and changes no row. A killed run's state is
+`killed`, it carries no `error` outcome, and it does not count toward the
+folder's breaker, because a deliberate stop is not a failure.
+
+- `GET /openapi.json`, `GET /health`
 
 ## Dependencies
 

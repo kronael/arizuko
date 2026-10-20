@@ -1,13 +1,15 @@
 # theme
 
-Shared CSS, theme-toggle JS, and minimal HTML page scaffolding for the
-operator-facing web surfaces (`onbod`, `dashd`, `auth` login pages).
+Shared CSS, theme-toggle JS, and minimal HTML page scaffolding for every
+HTML page a Go daemon serves.
 
 ## Purpose
 
 arizuko serves HTML from several Go daemons that all need to look the
-same — onbod's onboarding flow, dashd's operator console, the auth/web
-login + OAuth landing pages. Rather than ship a template engine, all of
+same: the login and OAuth pages in `auth`, onbod's onboarding flow, dashd's
+console, and the `/dash/<daemon>/` page of `authd`, `onbod`, `proxyd`,
+`routd`, `runed`, `timed`, `ttsd`, `webd` and every Go channel adapter
+through `chanlib`. Rather than ship a template engine, all of
 them pull a single CSS blob + a one-shot page wrapper from this
 package. Dark/light theming, layout primitives (`page-center`,
 `page-wide`, `cols`), card/button/table/form styles, and operator-grid
@@ -48,6 +50,18 @@ input themselves (`html.EscapeString`) before wrapping with
   yourself; inline `Head(title)` then `<body>...</body>` and append
   `ToggleScript` if you render the toggle button.
 
+## The cockpit convention
+
+The hub is tiles and a daemon is tables. dashd's `/dash/services/` renders
+one tile per daemon with a status dot. A daemon's own `/dash/<daemon>/`
+renders its state as tables, with at most a strip of count tiles at the
+top, through `Page`. The daemon pages open with the crumb
+`<div class="crumb"><a href="/dash/services/">arizuko hub</a> › <daemon></div>`,
+so every page leads back to the hub. `routd`, `runed`, `authd`, `proxyd`,
+`webd`, `ttsd` and the `chanlib` adapter page render it; `onbod` and
+`timed` do not. The stylesheet defines `.crumbs`, the class dashd's own
+pages use, and no rule for `.crumb`.
+
 ## Dependencies
 
 Standard library only (`html`, `html/template`).
@@ -60,7 +74,8 @@ Standard library only (`html`, `html/template`).
 
 ## Related
 
-- `onbod/main.go`, `dashd/main.go`, `auth/web.go` — consumers
+- `auth/web.go`, `dashd/main.go`, `onbod/main.go`, `chanlib/dash.go` and
+  each daemon's `dash.go` — consumers
 - `template/web/CLAUDE.md` — voice/style for operator-facing web docs
   (separate surface; that's the static site, this is the dynamic
   operator pages)

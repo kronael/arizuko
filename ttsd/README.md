@@ -27,6 +27,12 @@ fails with a synthesize error that the agent sees.
 
 Returns 502 when the backend is unreachable during a proxy request.
 
+## Dashboard
+
+`GET /dash/ttsd/` shows the backend URL, whether it answers, and how long
+the probe took. It is read-only and operator-only, through the shared
+`auth.RequireOperator` gate (`dash.go`).
+
 ## Config
 
 | env               | default              | meaning                              |

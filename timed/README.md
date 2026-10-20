@@ -36,7 +36,13 @@ re-armed one-shot. BUGS `L33`.
   - `GET /openapi.json` — `resreg.OpenAPIHandler("timed", mux)`, empty by
     derivation: timed mounts no resource, it is a CLIENT of routd's
     `scheduled_tasks`
-  - `GET /dash/timed/` — the fire-loop overview (spec `6/30`), operator-only
+  - `GET /dash/timed/` — the fire-loop overview, operator-only. timed opens
+    no store, so the task rows come from routd's `GET /v1/tasks` over the
+    same `service:timed` bearer the fire loop uses; only loop health is
+    timed's own memory. The page flags a row by its lag against
+    `next_run`: an `active` row more than two ticks, 2 min, past due reads
+    `lagging`, and a row `firing` for more than two ticks reads `stuck`
+    (`dash.go`, `twoTicks`). One tick of lag is normal
 - Config: `ROUTER_URL`, `AUTHD_URL`, `AUTHD_SERVICE_KEY`, `TZ`
 
 ## Configuration
