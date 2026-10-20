@@ -1,7 +1,7 @@
 ---
 status: shipped
-depends: [B-route-mode-ingestion, F-topic-lineage, L-mention-promotion]
-relates-to: [3/Y-thread-routing, 5/Y-output-styles-per-surface]
+depends: [F-topic-lineage, L-mention-promotion]
+relates-to: [5/Y-output-styles-per-surface]
 ---
 
 # specs/5/G — engagement: stay in the conversation after a mention
