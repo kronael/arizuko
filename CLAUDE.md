@@ -185,7 +185,7 @@ Every daemon calls `defer obs.Setup("name", instance)()` at the top of
 `audit_log` stays SQLite-canonical; OTLP is observability only. Wiring
 rules and model: `obs/README.md`.
 
-## Bug triage: record AND fix
+## Bug triage records a finding, then fixes it
 
 This project overrides `~/.claude/CLAUDE.md`'s "record, never fix on
 discovery". Here a finding is not done when it is written down. The order is

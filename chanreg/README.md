@@ -101,5 +101,5 @@ one table in [`EXTENDING.md` § Verb support matrix](../EXTENDING.md#verb-suppor
 
 ## Related docs
 
-- [`chanlib/README.md` § The channel protocol](../chanlib/README.md#the-channel-protocol-register-health-inbound-send)
+- [`chanlib/README.md` § The channel protocol has four calls](../chanlib/README.md#the-channel-protocol-has-four-calls)
 - [ROUTING.md § Reply Routing](../ROUTING.md#reply-routing) — which adapter carries a reply

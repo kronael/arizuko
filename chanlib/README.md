@@ -7,7 +7,7 @@ adapter dashboard. A Go adapter's `main.go` calls `chanlib.Run` with a
 [`chanreg/README.md`](../chanreg/README.md); which adapter carries a reply is
 [ROUTING.md § Reply Routing](../ROUTING.md#reply-routing).
 
-## The channel protocol: register, health, inbound, send
+## The channel protocol has four calls
 
 <!-- twin:channel -->
 
@@ -111,7 +111,7 @@ The route to the page is the adapter's own manifest:
 adapter's credential, so the route and the hub tile exist exactly when the
 adapter runs.
 
-### Media: the transcript is appended and kept
+### Inbound media is appended to the transcript and kept
 
 routd's enricher downloads each attachment from the URL the adapter gave:
 the adapter's own `/files/<id>` when the platform's URL expires or needs the
@@ -175,7 +175,7 @@ missing.
 - `EnvOr`, `EnvInt`, `EnvDur`, `EnvBytes`, `MustEnv` — env helpers
 - `InboundMsg`, `InboundAttachment`, `SendRequest`, `PostRequest`, etc.
 
-## Health: `disconnected` > `stale` > `ok`
+## Health reports one of three states
 
 `/health` returns:
 
