@@ -105,7 +105,7 @@
 
     <p>Daemons that own no resources still emit a valid OpenAPI document so external tooling can introspect them uniformly. The schemas + paths blocks are empty but <code>info</code>, <code>servers</code>, and the standard <code>components/responses</code> (400, 401, 403, 404, 409, 500) are present.</p>
 
-    <p>routd's own <code>/openapi.json</code> lists the resources above and only those, because it advertises only what it actually mounts. An endpoint in the document is an endpoint you can call; there is no separate list to forget to update. Several are narrower than full CRUD, and deliberately so:</p>
+    <p>routd's own <code>/openapi.json</code> lists the resources above and only those, because it advertises only what it mounts. An endpoint in the document is an endpoint you can call; there is no separate list to forget to update. Several are narrower than full CRUD, and deliberately so:</p>
 
     <ul>
       <li><code>secrets</code> is <strong>write-only</strong> &mdash; it declares a create and a key-delete and no read op at all, so a sealed value cannot leak through a convention <code>GET</code>.</li>
