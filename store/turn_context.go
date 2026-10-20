@@ -235,6 +235,7 @@ func (s *Store) SetTurnAddressed(turnID string, addressed bool) error {
 	} else {
 		write.Remove = []string{attrTurnAddressed}
 	}
+	// A refusal is a turn nobody bound.
 	if _, err := s.TryWriteEntities(context.Background(), nil, write); err != nil {
 		return fmt.Errorf("update turn %s: %w", turnID, err)
 	}
