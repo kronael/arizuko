@@ -122,6 +122,7 @@ sudo make kernel DATA_DIR=/srv/data/arizuko_demo  # the guest kernel, built once
 ./arizuko packages demo add extenddb              # the store server, two passwords
 ./arizuko generate demo
 cd /srv/data/arizuko_demo
+set -a; . ./.env; set +a                          # load the STORE_* values into this shell
 sudo docker compose up -d extenddb_db
 sudo docker compose run --rm extenddb init \
   --pg-host extenddb_db --pg-port 5432 \
@@ -131,6 +132,7 @@ sudo docker compose run --rm extenddb init \
   --config /var/lib/extenddb/extenddb.toml
 vim .env    # STORE_ADMIN_PASSWORD and STORE_ACCOUNT_ID, which init prints once;
             # ASSISTANT_NAME, a model key, a bot token, RUNED_KERNEL_DIR, RUNED_ROOTFS_DIR
+set -a; . ./.env; set +a                          # load the STORE_* values into this shell
 sudo docker compose up -d extenddb
 sudo docker exec -e EXTENDDB_PASSWORD=$STORE_ADMIN_PASSWORD arizuko_extenddb_demo \
   extenddb settings -c /var/lib/extenddb/extenddb.toml set control_plane_delay_seconds 0

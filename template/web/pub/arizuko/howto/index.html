@@ -71,6 +71,7 @@ sudo make kernel DATA_DIR=/srv/data/arizuko_demo  # the guest kernel, built once
 ./arizuko packages demo add extenddb              # the store server, two passwords
 ./arizuko generate demo
 cd /srv/data/arizuko_demo
+set -a; . ./.env; set +a                          # load the STORE_* values into this shell
 sudo docker compose up -d extenddb_db
 sudo docker compose run --rm extenddb init \
   --pg-host extenddb_db --pg-port 5432 \
@@ -80,6 +81,7 @@ sudo docker compose run --rm extenddb init \
   --config /var/lib/extenddb/extenddb.toml
 vim .env    # STORE_ADMIN_PASSWORD and STORE_ACCOUNT_ID, which init prints once;
             # ASSISTANT_NAME, a model key, a bot token, RUNED_KERNEL_DIR, RUNED_ROOTFS_DIR
+set -a; . ./.env; set +a                          # load the STORE_* values into this shell
 sudo docker compose up -d extenddb
 sudo docker exec -e EXTENDDB_PASSWORD=$STORE_ADMIN_PASSWORD arizuko_extenddb_demo \
   extenddb settings -c /var/lib/extenddb/extenddb.toml set control_plane_delay_seconds 0
@@ -195,7 +197,7 @@ arizuko apply demo demo.yaml        # apply the manifest back</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/howto/index.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-16">2026-10-16</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-20">2026-10-20</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>
