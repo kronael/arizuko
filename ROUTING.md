@@ -1,7 +1,8 @@
 # Routing
 
 How messages get from a chat to the right agent group, and how replies
-get back.
+get back. A web request routes by path, not by chat:
+[`proxyd/README.md` § A request through proxyd](proxyd/README.md#a-request-through-proxyd).
 
 ## Platform JID prefixes
 
@@ -434,7 +435,8 @@ re-posts the message under that topic; then a delegation target is looked up,
 in this order: the folder a replied-to bot row was routed to, the chat's
 sticky group, the route table. A target is used only when it differs from the
 current folder and passes the authorization check below. Each consumed row
-advances the cursor and starts no turn.
+advances the cursor and starts no turn. What `runTurn` does, through to the
+adapter's send: [ARCHITECTURE.md § Message Flow](ARCHITECTURE.md#message-flow).
 
 ### Authorization check
 
@@ -717,133 +719,6 @@ Bot messages and scheduler-injected messages ignore sticky state.
 
 The chat's own item carries it: `chats.sticky_group` (a group folder) and
 `chats.sticky_topic`. Absent means no sticky.
-
-## HTTP Routing (proxyd)
-
-proxyd routes a web request by path, not by chat. Its hard-wired prefixes, the
-`proxyd_routes` rows and the final redirect to `/pub<path>` are drawn in
-[`proxyd/README.md` § A request through proxyd](proxyd/README.md#a-request-through-proxyd).
-routd owns one input to that path, the `web_routes` table below.
-
-### web_routes: a group's rules for its public tree
-
-`web_routes` applies only under `/pub/*`. A request there passes three layers,
-outer to inner:
-
-1. proxyd's host redirect maps `W.<HOSTING_DOMAIN>` to `/pub/W/`.
-2. proxyd matches the longest `web_routes` prefix of the path.
-3. vited serves the file from `<data>/web/pub/`.
-
-The path prefix is the row's coordinate. The attributes are:
-
-| Attribute     | Values                                                |
-| ------------- | ----------------------------------------------------- |
-| `access`      | `public` / `auth` / `deny` / `redirect`               |
-| `redirect_to` | Used when `access = redirect`                         |
-| `folder`      | The owning group, the caller's own, never an argument |
-
-`public` and no match forward to vited. `auth` runs proxyd's `requireAuth`
-first. `deny` is 403. `redirect` answers 302 with the matched prefix replaced
-by `redirect_to`.
-
-Agents add and remove rows with the `set_web_route`, `del_web_route` and
-`list_web_routes` MCP tools (`routd/web_routes_resource.go`). routd owns every
-write; proxyd reads the whole inventory per request (`store.AllWebRoutes`) and
-matches it in Go (`matchWebRoute`).
-
-One URL has one backing store. A group's slot is `/pub/<folder>/`, and these
-rules keep every other path from becoming a second copy of it:
-
-- A group may always write a rule inside its own slot. A prefix outside the
-  slot is first-claim: when another folder already holds a rule there,
-  `set_web_route` answers 403 and names the owner.
-- An alias is a `redirect` row, never a copy of the bytes. `redirect_to` must
-  point into the caller's own `/pub/<folder>/` or `/priv/<folder>/`, so a row
-  cannot open-redirect or speak for another group.
-- A `redirect` row may not cover another group's `/pub/<folder>/`. proxyd
-  takes the longest prefix, so such a row answers for that group's whole
-  publish path. `set_web_route` answers 409 and names the folders it would
-  take.
-- Deleting a group deletes its rules. `DeleteGroup` sweeps `web_routes` by
-  `folder` with the rest of the subtree (`store/folder_scope.go`), so a claim
-  does not outlive its owner.
-
-## Full Message Flow Example
-
-A concrete walkthrough from user message to agent reply.
-
-### Setup
-
-```
-Instance: krons
-Groups: atlas (world), atlas/content, atlas/social
-Routes (in routes table):
-  seq=0  match='platform=telegram'  target=atlas
-
-Prefix layer (in routd code, not table):
-  @<name> at message start → delegate to atlas/<name>
-  #<name> at message start → topic-scoped session in atlas
-```
-
-### User sends "hello" to telegram:12345
-
-```
-1. teled receives Telegram update, POST /v1/messages to routd
-2. store.PutMessage({id:"tg-789", chat_jid:"telegram:12345",
-     sender:"telegram:67890", content:"hello", topic:""})
-3. routd.pollOnce():
-   - store.NewMessages(["telegram:12345"], since) → [{id:"tg-789",...}]
-   - groupForJid("telegram:12345") → atlas (via 'platform=telegram' route)
-   - handleStickyCommand? No (not a sticky command)
-   - handleCommand? No (not /new, /ping, etc.)
-   - handlePrefixLayer? No '@' or '#' at message start
-   - tryExternalRoute? resolveTarget returns "" (already in target group)
-   - route mode: bare folder target → trigger; `#observe` would store-only
-   - queue.EnqueueMessageCheck("telegram:12345")
-4. processGroupMessages("telegram:12345"):
-   - store.MessagesSince("telegram:12345", agentCursor) → messages
-   - groupBySender → one batch for telegram:67890
-   - enrichAttachments (download any media)
-   - router.FormatMessages → XML prompt
-   - runed renders the turn for atlas → the substrate starts one guest
-   - Agent processes, produces output
-   - makeOutputCallback sends reply via ch.Send("telegram:12345", text, replyTo, topic)
-     and records it via store.PutMessage (is_bot_message=1, routed_to=atlas)
-   - store.SetLastReply("telegram:12345", "", sentMsgID, "atlas")
-5. teled receives POST /send, delivers to Telegram API
-```
-
-### User sends "@content write about cats"
-
-```
-1-2. Same as above, message stored
-3. routd.pollOnce():
-   - handlePrefixLayer matches ^\s*@(\w[\w-]*)
-   - parsePrefix("@content write about cats") → name="content", rest="write about cats"
-   - child = atlas/content, exists
-   - delegateViaMessage("atlas/content", "write about cats", "telegram:12345")
-4. delegateViaMessage:
-   - store.PutMessage({chat_jid:"atlas/content",
-       forwarded_from:"telegram:12345", content:"write about cats", ...})
-   - queue.EnqueueMessageCheck("atlas/content")
-   - Child agent runs, produces output
-   - processSenderBatch sees forwarded_from → routes reply back to
-     telegram:12345 with routed_to=atlas/content
-```
-
-### User replies to that bot message with "shorter please"
-
-```
-1-2. Message stored with reply_to_id pointing to bot's message
-3. routd.pollOnce():
-   - tryExternalRoute:
-     - findPrefixRoute? No @ or # in content
-     - resolveTarget:
-       - msg.ReplyToID set → store.RoutedToByMessageID → "atlas/content"
-       - atlas/content != atlas (self) → return "atlas/content"
-     - IsAuthorizedRoutingTarget("atlas", "atlas/content") → true
-     - delegateViaMessage("atlas/content", "shorter please", "telegram:12345")
-```
 
 ## Multi-Group Chat
 

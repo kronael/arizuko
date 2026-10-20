@@ -104,6 +104,49 @@ The redirect runs at bare `/` and at the final catch-all, nowhere else. The
 keys on the path and these key on the `Host`, they run on every unmatched
 request, and a world's front door must not depend on webd.
 
+### web_routes: a group's rules for its public tree
+
+`web_routes` applies only under `/pub/*`. A request there passes three layers,
+outer to inner:
+
+1. proxyd's host redirect maps `W.<HOSTING_DOMAIN>` to `/pub/W/`.
+2. proxyd matches the longest `web_routes` prefix of the path.
+3. vited serves the file from `<data>/web/pub/`.
+
+The path prefix is the row's coordinate. The attributes are:
+
+| Attribute     | Values                                                |
+| ------------- | ----------------------------------------------------- |
+| `access`      | `public` / `auth` / `deny` / `redirect`               |
+| `redirect_to` | Used when `access = redirect`                         |
+| `folder`      | The owning group, the caller's own, never an argument |
+
+`public` and no match forward to vited. `auth` runs proxyd's `requireAuth`
+first. `deny` is 403. `redirect` answers 302 with the matched prefix replaced
+by `redirect_to`.
+
+Agents add and remove rows with the `set_web_route`, `del_web_route` and
+`list_web_routes` MCP tools (`routd/web_routes_resource.go`). routd owns every
+write; proxyd reads the whole inventory per request (`store.AllWebRoutes`) and
+matches it in Go (`matchWebRoute`).
+
+One URL has one backing store. A group's slot is `/pub/<folder>/`, and these
+rules keep every other path from becoming a second copy of it:
+
+- A group may always write a rule inside its own slot. A prefix outside the
+  slot is first-claim: when another folder already holds a rule there,
+  `set_web_route` answers 403 and names the owner.
+- An alias is a `redirect` row, never a copy of the bytes. `redirect_to` must
+  point into the caller's own `/pub/<folder>/` or `/priv/<folder>/`, so a row
+  cannot open-redirect or speak for another group.
+- A `redirect` row may not cover another group's `/pub/<folder>/`. proxyd
+  takes the longest prefix, so such a row answers for that group's whole
+  publish path. `set_web_route` answers 409 and names the folders it would
+  take.
+- Deleting a group deletes its rules. `DeleteGroup` sweeps `web_routes` by
+  `folder` with the rest of the subtree (`store/folder_scope.go`), so a claim
+  does not outlive its owner.
+
 ## Route rows
 
 `proxyd_routes` is the only route configuration. proxyd reads it on every
