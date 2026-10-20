@@ -194,80 +194,14 @@ Order. The same figure, for a newcomer: `concepts/turn.html`.
 
 ## Web Channel (proxyd)
 
-Web chat uses `web:<folder>` JIDs. `webd` is a channel adapter that registers
-with `routd` as `"web"` (prefix `web:`), receives messages via HTTP/SSE,
-and stores them through the standard `/v1/messages` API. When
-`routd.processGroupMessages` encounters a `web:` JID it splits the batch
-by topic and dispatches one run per topic (first-seen order).
-
-**Path model** (overview; full prefix table + DB-backed `web_routes`
-fallthrough in `ROUTING.md` "HTTP Routing (proxyd)"):
-
-- `/pub/*`, `/health`, `/invite/*`, `/p/*` — public
-- `/assets/*` — public; webd serves the browser SDK it advertises in
-  `/chat/<token>/config`
-- `/slink/*` — 308-redirects to `/chat/<token>/`; header is `X-Chat-Token`
-- `/chat/<token>/` (GET widget + POST) and `/hook/<token>` (POST only)
-  — one `route_tokens` row each
-  ([specs/5/W-webhook-routes.md](specs/5/W-webhook-routes.md)).
-- `/pair/<token>` — identity pairing (GET confirm, POST redeem);
-  authenticated, so an anonymous visitor bounces through OAuth and
-  returns ([specs/5/31-identity-pairing.md](specs/5/31-identity-pairing.md))
-- `/dash/*` — authenticated, proxied to dashd
-- `/dav/*` — authenticated, proxied to dufs via a declared route (bespoke
-  group-scoping + `davAllow` write-block; strips `/dav` prefix)
-- `/*` — DB-backed `web_routes` longest-prefix, else authenticated to vited
-
-**Auth** in `requireAuth`: `Authorization: Bearer <jwt>` → `refresh_token`
-cookie → redirect to `/auth/login`. `authd` is the OAuth provider and
-mints the ES256 JWT; its claims include `groups` — a JSON array of
-allow-scopes computed by `auth.UserScopes(sub)` from the `acl` table
-(transitively expanded via `acl_membership`). Operator membership
-surfaces as `**` in this list; see "Operator" below. That list is a
-projection of the rows `auth.Authorize` evaluates, never a verdict of its
-own: it cannot carry an action or a `deny`, so it scopes a view and the
-gate stays `Authorize`.
-`webd.requireFolder` checks `X-User-Groups` on folder-specific endpoints.
-
-WebDAV is gated by `WEBDAV_ENABLED`; compose points the `/dav/` route at
-`http://davd:8080` and the dufs container mounts `groups/` read-only.
-proxyd derives each world's host as `<world>.<HOSTING_DOMAIN>` and 302s it
-to `/pub/<world>/` (no host-map file; `WEB_VHOST_ALIASES` overrides labels
-that differ from the world name). Full protocol: `specs/5/V-web-vhosts.md`.
-
-### Route generation pipeline
-
-Routes are declared in two source-of-truth places and merged into the
-serialized table proxyd loads at startup:
-
-```
-services/<adapter>.yaml (proxyd_routes block) ─────┐
-                                                   ├─► compose.collectProxydRoutes
-compose.coreProxydRoutes (dashd/webd/davd/onbod) ──┘             │
-                                                                  ▼
-                                   arizuko generate → proxyd_routes rows
-                                                                  │
-                                                                  ▼
-                                    proxyd reads the table → []Route
-                                                                  │
-                                                                  ▼
-                                  dispatchRoute longest-prefix match
-                                                                  │
-                                                                  ▼
-                                    DB-backed `web_routes` fallthrough
-                                                                  │
-                                                                  ▼
-                                          default: auth-gate to vited
-```
-
-Hand-wired in `proxyd/main.go` outside this table: `/auth/*`, `/health`,
-`/pub/*` (with optional `PUB_REDIRECT_URL`), `/slink/*` (forwarded as an
-ordinary route — the 308→`/chat/<token>/` redirect is issued by webd,
-`handleSlinkRedirect`), `/chat/*` and `/hook/*` (route-token bearer),
-`/dav/*` (`davAllow` + group-scope). All other routes flow
-through the manifest declaration → `proxyd_routes` rows → dispatcher path.
-Adding an adapter means dropping a `<name>.yaml` manifest (via `arizuko
-packages add`); no proxyd or compose.go edits.
+proxyd is the one HTTP entry point. It authenticates the caller, stamps
+`X-User-*` behind its `service:proxyd` bearer, and forwards by longest prefix
+over the `proxyd_routes` rows that `arizuko generate` writes. The request path,
+the row fields and the world-host redirect are drawn in
+[`proxyd/README.md` § A request through proxyd](proxyd/README.md#a-request-through-proxyd).
+webd is the web channel adapter behind `/chat/`, `/hook/`, `/pair/` and `/me`
+([`webd/README.md`](webd/README.md)); davd serves `/dav/` through proxyd's
+`davAllow` write guard.
 
 ## Auth Hardening
 

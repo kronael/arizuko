@@ -257,6 +257,11 @@ backend check is offline and stateless: `auth.ProxydTransit` verifies
 signature, expiry and subject, and consults no `jti` list, so a captured
 bearer is indistinguishable from proxyd's own until `exp`.
 
+A fresh bearer per answer does not shrink that window. authd would mint it
+with the same 15-minute life, and every request would add a network call to
+authd. proxyd therefore hands out the bearer it holds, and it never caches
+the authorization decision itself.
+
 That is the property to hold in mind when putting a proxy in front:
 whoever runs it is trusted for the window, so it belongs inside the
 same trust zone as proxyd, not on a rented edge.

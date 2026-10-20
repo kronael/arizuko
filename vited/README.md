@@ -34,7 +34,6 @@ rule. vited is not a Go daemon — the container runs the Vite dev server
 
 ## Related docs
 
-- `ARCHITECTURE.md` (Web Channel section, proxyd routing table)
 - `proxyd/README.md` — proxyd is the auth gate; vited trusts all proxied
   requests.
 - `template/web/` — the operator doc site's source, hub.css

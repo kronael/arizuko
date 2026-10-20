@@ -71,6 +71,10 @@ var twins = []twin{
 		"ARCHITECTURE.md",
 		"template/web/pub/arizuko/reference/openapi.html",
 	}},
+	{name: "proxyd", files: []string{
+		"proxyd/README.md",
+		"template/web/pub/arizuko/components/proxyd.html",
+	}},
 }
 
 var (

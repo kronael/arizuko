@@ -20,7 +20,7 @@ narrowed to the decision that outlived the implementation.
 | [H-introspection.md](H-introspection.md)     | shipped | `.gateway-caps` TOML, `.whisper-language` contract                                                                                                            |
 | [9-extend-agent.md](9-extend-agent.md)       | shipped | settings.json merge order; hooks hardcoded                                                                                                                    |
 | [f-auth-oauth.md](f-auth-oauth.md)           | shipped | Account linking + the seven-case collision table; superseded by authd: no collision page, no local login; facts in `authd/README.md` § Keys, mints and logins |
-| [Z2-slink-sdk.md](Z2-slink-sdk.md)           | shipped | `/assets/*` `embed.FS` hosting; why not `template/web/pub/`                                                                                                   |
+| [Z2-slink-sdk.md](Z2-slink-sdk.md)           | shipped | `/assets/*` `embed.FS` hosting; why not `template/web/pub/`; facts in `webd/README.md` § The browser SDK                                                      |
 
 Merged or moved out of this phase:
 

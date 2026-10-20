@@ -40,8 +40,7 @@ time so the mistake fails loudly.
 
 Public URLs that feed a chat: `/chat/<token>/` serves the human widget
 (GET) and accepts messages (POST); `/hook/<token>` is machine
-fire-and-forget POST ingest. Spec `specs/5/W-webhook-routes.md`. Each
-URL composes three orthogonal axes:
+fire-and-forget POST ingest. Each URL composes three orthogonal axes:
 
 1. **Routing (the token)** — which JID/folder the URL feeds. Opaque
    random secret, sha256 at rest in `route_tokens`, DB-looked-up by
@@ -619,63 +618,53 @@ The chat's own item carries it: `chats.sticky_group` (a group folder) and
 
 ## HTTP Routing (proxyd)
 
-proxyd answers a few hard-wired prefixes in `proxyd/main.go`, then matches the
-seeded `proxyd_routes` rows, and redirects a path nothing matched to `/pub<path>`.
+proxyd routes a web request by path, not by chat. Its hard-wired prefixes, the
+`proxyd_routes` rows and the final redirect to `/pub<path>` are drawn in
+[`proxyd/README.md` § A request through proxyd](proxyd/README.md#a-request-through-proxyd).
+routd owns one input to that path, the `web_routes` table below.
 
-### Hard-wired prefixes (`proxyd/main.go`)
+### web_routes: a group's rules for its public tree
 
-| Path prefix | Behaviour                                                                                   |
-| ----------- | ------------------------------------------------------------------------------------------- |
-| `/health`   | proxyd's own liveness                                                                       |
-| `/pub/`     | the public web tree, served by vited — no auth required; `<data>/web/pub/`                  |
-| `/priv`     | JWT-gated; serves `<data>/web/priv/`, a separate tree                                       |
-| `/dav/`     | JWT-gated WebDAV, group-scoped, with write-blocked paths (`davAllow`)                       |
-| `/auth/`    | proxyd's own login flow; a path under it that no handler answers goes through `requireAuth` |
+`web_routes` applies only under `/pub/*`. A request there passes three layers,
+outer to inner:
 
-### Seeded `proxyd_routes` rows (`compose/compose.go:519-536`)
+1. proxyd's host redirect maps `W.<HOSTING_DOMAIN>` to `/pub/W/`.
+2. proxyd matches the longest `web_routes` prefix of the path.
+3. vited serves the file from `<data>/web/pub/`.
 
-These are rows in the table, not code in `proxyd/main.go`; an operator can edit them.
+The path prefix is the row's coordinate. The attributes are:
 
-| Path prefix        | Behaviour                                                                                            |
-| ------------------ | ---------------------------------------------------------------------------------------------------- |
-| `/chat/`, `/hook/` | route-token surfaces — no auth required                                                              |
-| `/pair/`           | identity pairing — JWT-gated; an anonymous visitor bounces through OAuth and returns to the same URL |
-| `/assets/`         | webd's embedded browser SDK — no auth required; `/chat/<token>/config` advertises the path           |
+| Attribute     | Values                                                |
+| ------------- | ----------------------------------------------------- |
+| `access`      | `public` / `auth` / `deny` / `redirect`               |
+| `redirect_to` | Used when `access = redirect`                         |
+| `folder`      | The owning group, the caller's own, never an argument |
 
-A path no row matches redirects to `/pub<path>` (`proxyd/main.go:614`). Only
-`/auth/*` falls to `requireAuth` (`proxyd/main.go:602-606`); the request is
-redirected to `/auth/login` when it carries no valid credential, with the
-original path kept in an `auth_return` cookie for ten minutes.
+`public` and no match forward to vited. `auth` runs proxyd's `requireAuth`
+first. `deny` is 403. `redirect` answers 302 with the matched prefix replaced
+by `redirect_to`.
 
-### web_routes (dynamic, store-backed)
+Agents add and remove rows with the `set_web_route`, `del_web_route` and
+`list_web_routes` MCP tools (`routd/web_routes_resource.go`). routd owns every
+write; proxyd reads the whole inventory per request (`store.AllWebRoutes`) and
+matches it in Go (`matchWebRoute`).
 
-After fixed prefixes, proxyd looks up the longest matching prefix in
-`web_routes`. The path prefix IS the coordinate; the attributes are:
+One URL has one backing store. A group's slot is `/pub/<folder>/`, and these
+rules keep every other path from becoming a second copy of it:
 
-| Attribute     | Values                                  |
-| ------------- | --------------------------------------- |
-| `access`      | `public` / `auth` / `deny` / `redirect` |
-| `redirect_to` | Used when `access = redirect`           |
-| `folder`      | Owning group folder                     |
-
-Agents add/remove rows via the `set_web_route` / `del_web_route` /
-`list_web_routes` MCP tools (registered in `ipc/ipc.go`). routd owns every
-write; proxyd snapshots the whole inventory (`store.AllWebRoutes`) and
-longest-prefix-matches it in Go (`matchWebRoute`, `proxyd/main.go`). A `redirect`
-row's `redirect_to` must point into the caller's own slot
-(`/pub/<folder>/...` or `/priv/<folder>/...`) — proxyd rejects anything
-else, closing an open-redirect / cross-folder impersonation gap.
-
-`set_web_route` also refuses a `redirect` row whose path prefix covers another
-group's `/pub/<folder>/`, and names the folders it would take: the longest
-prefix wins, so such a row answers for those groups' whole publish paths
-(spec [`5/V`](specs/5/V-web-vhosts.md) §"One URL, one backing store" point 5).
-
-### Default (fallthrough)
-
-Any path not matched by fixed prefixes or `web_routes` is auth-gated and
-forwarded upstream (`requireAuth(servePub)`). Unknown paths redirect to
-`/auth/login` for browsers; return 401 JSON for API/JSON clients.
+- A group may always write a rule inside its own slot. A prefix outside the
+  slot is first-claim: when another folder already holds a rule there,
+  `set_web_route` answers 403 and names the owner.
+- An alias is a `redirect` row, never a copy of the bytes. `redirect_to` must
+  point into the caller's own `/pub/<folder>/` or `/priv/<folder>/`, so a row
+  cannot open-redirect or speak for another group.
+- A `redirect` row may not cover another group's `/pub/<folder>/`. proxyd
+  takes the longest prefix, so such a row answers for that group's whole
+  publish path. `set_web_route` answers 409 and names the folders it would
+  take.
+- Deleting a group deletes its rules. `DeleteGroup` sweeps `web_routes` by
+  `folder` with the rest of the subtree (`store/folder_scope.go`), so a claim
+  does not outlive its owner.
 
 ## Full Message Flow Example
 

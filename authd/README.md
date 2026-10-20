@@ -177,6 +177,38 @@ Two of the six carry an invariant a column could not:
   `GOOGLE_ALLOWED_EMAILS`, GitHub an optional `GITHUB_ALLOWED_ORG`. All
   providers converge on one `issueSession` path (`oauth.go`).
 
+## Dex is an upstream broker, not a replacement
+
+`DEX_ISSUER` and `DEX_CLIENT_ID` mount `/auth/dex` beside the native
+providers; unset leaves authd unchanged. authd asks for the scope `openid
+profile federated:id` (`dexScope`, `authd/dex.go`), verifies the ID token
+and maps its `federated_claims` to `<connector_id>:<user_id>`. The
+connector id in Dex's configuration is the principal namespace, and authd
+keeps no allowlist of connectors. A login with no `federated_claims` fails.
+Everything after the mapping is the native path: alias resolution, the
+scope snapshot, the `arz/folder` claim and the ES256 mint.
+
+authd keeps minting because arizuko's tokens carry claims an IdP cannot
+issue. `arz/folder` and the login-time scope snapshot come from routd's
+grants. Without them in the token, every backend would look up the folder
+and the grants per request. `POST /v1/service-token` is arizuko's too:
+`auth.ProxydTransit` pins `typ=service` and `sub=service:proxyd` on
+arizuko's own verifier.
+
+Operator facts for a Dex deploy, per Dex v2.45.1 as measured on 2026-09-03
+and not measured again since:
+
+- Dex's ID token has a closed claim set: `email`, `groups`, `name`,
+  `preferred_username`, `federated_claims`. It has no hook for a per-user
+  claim.
+- Dex v2.45.1 has no `client_credentials` grant.
+- Dex emits `federated_claims` only for the `federated:id` scope.
+- The `github` connector reports the numeric GitHub id unless its config
+  sets `useLoginAsID: true`. An `acl` row keyed on the login, such as
+  `github:kronael`, stops matching without it.
+- Discord and Facebook ride the generic `oauth` connector. Twitter/X cannot:
+  the connector sends no PKCE, and X nests the user id under `data`.
+
 ## Health signal
 
 `GET /health` returns 200 when the STORE answers — the endpoint or the file,

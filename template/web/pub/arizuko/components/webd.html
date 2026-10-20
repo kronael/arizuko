@@ -61,7 +61,7 @@
     <h2>What it is</h2>
     <p>In plain terms, webd is what puts the agent in a web browser. It serves the chat box on a web page and streams each reply back as the agent writes it.</p>
 
-    <p>webd is the web channel adapter. It registers with routd as channel <code>web</code> (JID prefix <code>web:</code>) and pushes per-turn agent output to browsers over Server-Sent Events (a one-way live stream from server to browser). It serves three URLs: the public chat widget at <code>/chat/&lt;token&gt;/</code>, the webhook ingest at <code>/hook/&lt;token&gt;</code>, and the authed operator panel at <code>/panel/&lt;folder&gt;</code>. Tokens come from the <a href="../components/tokens.html">route_tokens</a> table; <code>/slink/*</code> URLs 301-redirect to <code>/chat/*</code>.</p>
+    <p>webd is the web channel adapter. It registers with routd as channel <code>web</code> (JID prefix <code>web:</code>) and pushes per-turn agent output to browsers over Server-Sent Events (a one-way live stream from server to browser). It serves three URLs: the public chat widget at <code>/chat/&lt;token&gt;/</code>, the webhook ingest at <code>/hook/&lt;token&gt;</code>, and the authed operator panel at <code>/panel/&lt;folder&gt;</code>. Tokens come from the <a href="../components/tokens.html">route_tokens</a> table; <code>/slink/*</code> URLs answer 308 to <code>/chat/*</code>.</p>
 
     <p>From routd&rsquo;s point of view it is a normal channel adapter, same protocol as <code>teled</code> or <code>slakd</code>. From a browser&rsquo;s point of view it is an HTTP server with one open SSE stream per active chat.</p>
 
@@ -78,7 +78,7 @@
       <pre><code>browser / curl / MCP client
         |  HTTP + SSE
         v
-      proxyd          (auth for /api/*, /mcp ; strips identity on /chat/*)
+      proxyd          (auth for /api/*, /mcp ; optional on /chat/*)
         |
         v
       webd  --POST /v1/messages--&gt;  routd     (service:webd ES256 bearer)
@@ -122,10 +122,9 @@ WEB_HOST=localhost:9001 \
 
     <h2>Go deeper</h2>
     <ul>
-      <li><code>webd/README.md</code> &mdash; full HTTP surface, token contract, planned <code>/v1/*</code> routes.</li>
+      <li><code>webd/README.md</code> &mdash; full HTTP surface, token contract, the SSE hub&rsquo;s limits and the blocking-poll transport.</li>
       <li><a href="../components/tokens.html">components/route tokens</a> &mdash; the public chat + webhook URLs webd hosts.</li>
       <li><a href="../concepts/routing.html">concepts/routing</a> &mdash; how routd dispatches to the agent.</li>
-      <li><code>specs/5/J-sse.md</code> &mdash; SSE streams and the chat-MCP transport.</li>
     </ul>
 
 
@@ -135,7 +134,7 @@ WEB_HOST=localhost:9001 \
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/components/webd.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-16">2026-10-16</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-17">2026-10-17</time>
       </div>
     </main>
 

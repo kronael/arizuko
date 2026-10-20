@@ -445,9 +445,8 @@ proxyd_routes:
     preserve_headers: [X-Webhook-Sig]
 ```
 
-`path` with a trailing `/` matches longest-prefix; `auth` is
-`public` | `user` | `operator`; `gated_by` drops the route when that
-env var is unset; `preserve_headers` passes listed headers verbatim.
+Each field's meaning, the four `auth` values and the owner rules are in
+[`proxyd/README.md` § Route rows](proxyd/README.md#route-rows).
 `compose.go` evaluates `gated_by` against the operator's `.env` and drops
 disabled routes; `arizuko generate` writes the survivors into
 `proxyd_routes` as arizuko-owned rows, so a route added to a later release
@@ -457,8 +456,7 @@ That file is the SAME manifest `arizuko packages install` applies — one
 declaration with two readers, because generate needs the routes before any
 daemon or DB exists. It is never a second format (BUGS `L44`), and both
 readers parse it with `resreg.ParseYAML`, so a typo is rejected identically
-by each. Reference: `specs/5/7-proxyd-standalone.md`,
-`template/services/slakd.yaml`.
+by each. Example: `template/services/slakd.yaml`.
 
 ## Adding an MCP connector
 
@@ -645,15 +643,17 @@ pages call `Arizuko.connect(token)` and stream frames.
   `template/web/pub/arizuko/howto/chat-sdk.html` and
   `template/web/pub/arizuko/examples/chat-sdk.html`. Copy the sample to
   `<data-dir>/web/pub/<app>/index.html` and swap the token.
-- Spec: `specs/1/Z2-slink-sdk.md`.
+- Caching, CORS and the `/config` discovery field:
+  [`webd/README.md` § The browser SDK](webd/README.md#the-browser-sdk).
 
 For agent-written pages, the slot itself (`~/public_html/`) is
 bind-mounted from `<data>/web/pub/<folder>/` and serves at
 `/pub/<folder>/`. For multi-app deployments, nest each app under its
 own subdir: `~/public_html/<app>/` → `/pub/<folder>/<app>/`. JWT-gated
 content lives in `~/private_html/` (or `~/private_html/<app>/`),
-served at `/priv/<folder>/` (or `/priv/<folder>/<app>/`). See
-`specs/5/V-web-vhosts.md`.
+served at `/priv/<folder>/` (or `/priv/<folder>/<app>/`). The world-host
+redirect is in [`proxyd/README.md`](proxyd/README.md#a-worlds-host-redirects-to-its-public-slot);
+the `web_routes` rules are in [ROUTING.md](ROUTING.md#web_routes-a-groups-rules-for-its-public-tree).
 
 ## Extending the public site
 

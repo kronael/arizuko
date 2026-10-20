@@ -12,8 +12,8 @@ status: shipped
 
 ## Web surfaces
 
-- [2-proxyd.md](2-proxyd.md) — public-facing auth proxy; route order; fail-closed rule
-- [3-chat-ui.md](3-chat-ui.md) — webd: chat widget, JID model, auth planes, `/me/*` portal
+- [2-proxyd.md](2-proxyd.md) — public-facing auth proxy; route order; fail-closed rule; superseded by `proxyd_routes` rows; facts in `proxyd/README.md`
+- [3-chat-ui.md](3-chat-ui.md) — webd: chat widget, JID model, auth planes, `/me/*` portal; facts in `webd/README.md` § Purpose
 
 ## Authorization
 

@@ -43,27 +43,27 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">reference</a> &rsaquo; Route tokens</p>
 <h1>route tokens</h1>
 
-    <p class="lede">Developer reference for the <code>route_tokens</code> primitive: schema, mint surface (MCP + REST), URL handlers at <code>/chat/&lt;token&gt;/</code> and <code>/hook/&lt;token&gt;</code> &mdash; either URL accepts any valid token; the JID kind is metadata, mechanics shared. SSE events, rate limits. Spec: <a href="https://github.com/kronael/arizuko/blob/main/specs/5/W-webhook-routes.md"><code>specs/5/W-webhook-routes.md</code></a>.</p>
+    <p class="lede">Developer reference for the <code>route_tokens</code> primitive: schema, mint surface (MCP + REST), URL handlers at <code>/chat/&lt;token&gt;/</code> and <code>/hook/&lt;token&gt;</code> &mdash; either URL accepts any valid token; the JID kind is metadata, mechanics shared. SSE events, rate limits.</p>
 
     <h2 id="schema">Schema</h2>
 
-    <pre><code>CREATE TABLE route_tokens (
-  token_hash    BLOB PRIMARY KEY,
-  jid           TEXT NOT NULL,
-  owner_folder  TEXT NOT NULL,
-  target_folder TEXT,
-  created_at    TEXT NOT NULL,
-  context       TEXT
-);
-CREATE INDEX route_tokens_jid ON route_tokens(jid);</code></pre>
+    <p>One item per token in routd&rsquo;s partition of the store (<code>store/route_tokens.go</code>). The coordinate is <code>token_hash</code>, never the JID: one JID can carry several tokens, and a key on the JID would fold them onto one item.</p>
+
+    <pre><code>route_tokens   key: token_hash = hex(sha256(token))
+  jid            web:&lt;folder&gt;[/&lt;suffix&gt;] or hook:&lt;folder&gt;/&lt;source&gt;[/&lt;suffix&gt;]
+  owner_folder   the issuer's folder
+  target_folder  the folder the token delivers to
+  created_at     RFC3339 timestamp
+  context        optional per-link instructions
+  kind           route, or pair for a pairing link; always written</code></pre>
 
     <dl>
       <dt>token_hash</dt><dd>sha256 of the raw token. The raw token is returned exactly once at issuance.</dd>
       <dt>jid</dt><dd>The chat's name. <code>web:&lt;folder&gt;[/&lt;suffix&gt;]</code> for chat tokens, <code>hook:&lt;folder&gt;/&lt;source&gt;[/&lt;suffix&gt;]</code> for webhooks. Read it as a label, not as an address &mdash; once a suffix is present the folder cannot be recovered from it, which is why <code>target_folder</code> exists.</dd>
-      <dt>owner_folder</dt><dd>Folder of the issuing principal. Bounds revocation: <code>revoke_route_token</code> requires admin on this folder, not on the delivery folder.</dd>
-      <dt>target_folder</dt><dd>Where the token delivers. Recorded by the mint, because the JID alone is ambiguous: <code>web:team/forms</code> reads exactly like a plain token at a folder named <code>team/forms</code>, and <code>hook:a/b/c</code> reads as folder <code>a/b</code>. Routing, dashboard visibility and proxyd's <code>X-Folder</code> stamp all read this column. NULL on a token minted before it existed &mdash; those keep the old JID reading. Two folders cannot mint the same JID: the second mint returns <code>409</code>.</dd>
+      <dt>owner_folder</dt><dd>Folder of the issuing principal. Bounds revocation: <code>revoke_token</code> requires admin on this folder, not on the delivery folder.</dd>
+      <dt>target_folder</dt><dd>Where the token delivers. Recorded by the mint, because the JID alone is ambiguous: <code>web:team/forms</code> reads exactly like a plain token at a folder named <code>team/forms</code>, and <code>hook:a/b/c</code> reads as folder <code>a/b</code>. Routing and dashboard visibility read this attribute, and nothing parses the folder back out of the JID. A row without it falls back to the JID reading. One JID delivers to one folder: <code>CheckRouteTokenTarget</code> refuses a mint that binds a JID already delivering elsewhere, and the second mint returns <code>409</code>.</dd>
       <dt>created_at</dt><dd>RFC3339 timestamp.</dd>
-      <dt>context</dt><dd>Optional. Free-text instructions from the issuer on how to process this link's inbound. Snapshotted onto each arriving message and rendered to the agent as <code>&lt;link-context&gt;</code>. NULL means no instructions &mdash; the pre-context behavior.</dd>
+      <dt>context</dt><dd>Optional. Free-text instructions from the issuer on how to process this link's inbound. Snapshotted onto each arriving message and rendered to the agent as <code>&lt;link-context&gt;</code>. Empty means no instructions and no tag.</dd>
     </dl>
 
     <h2 id="token-format">Token format</h2>
@@ -71,18 +71,19 @@ CREATE INDEX route_tokens_jid ON route_tokens(jid);</code></pre>
       <li>32 random bytes, base64url-encoded (~43 chars, 256 bits of entropy).</li>
       <li>Stored as sha256; raw value returned exactly once.</li>
       <li>No expiry. Revocation = delete the row.</li>
+      <li>Nothing mints a token on its own. Creating a folder creates no link; a folder gets one when someone asks for it.</li>
     </ul>
 
     <h2 id="mint">Mint surface</h2>
 
-    <p>One internal writer (<code>insertRouteToken</code>) reached through two faces, per <a href="https://github.com/kronael/arizuko/blob/main/specs/5/16-mcp-rest-unification.md"><code>specs/5/16-mcp-rest-unification.md</code></a>.</p>
+    <p>One handler in routd (<code>routd/route_tokens_resource.go</code>) serves both faces and writes through <code>MintRouteTokenInto</code>. The host CLI writes the same row with <code>InsertRouteToken</code>.</p>
 
     <table>
       <tr><th>Action</th><th>MCP tool</th><th>REST endpoint</th></tr>
       <tr><td>Issue chat link</td><td><code>issue_chat_link(jid_suffix?, context?)</code></td><td><code>POST /v1/route_tokens/chat</code></td></tr>
       <tr><td>Issue webhook</td><td><code>issue_webhook(source_label, jid_suffix?, context?)</code></td><td><code>POST /v1/route_tokens/hook</code></td></tr>
-      <tr><td>List</td><td><code>list_route_tokens()</code></td><td><code>GET /v1/route_tokens</code></td></tr>
-      <tr><td>Revoke</td><td><code>revoke_route_token(jid)</code></td><td><code>DELETE /v1/route_tokens/{jid}</code></td></tr>
+      <tr><td>List</td><td><code>list_tokens()</code></td><td><code>GET /v1/route_tokens</code></td></tr>
+      <tr><td>Revoke</td><td><code>revoke_token(jid)</code></td><td><code>DELETE /v1/route_tokens/{jid}</code></td></tr>
     </table>
 
     <h3 id="rest-body">REST request body</h3>
@@ -102,6 +103,8 @@ POST /v1/route_tokens/hook
       <tr><td>Agent (MCP)</td><td>Whatever the caller's <code>mcp:issue_*</code> grant covers, checked against <code>target_folder</code>. Minting a public endpoint is not in <code>role:member</code>, so a plain folder cannot mint at all &mdash; it takes <code>/root</code> or a delegated grant.</td></tr>
       <tr><td>Operator (REST)</td><td><code>target_folder</code> must equal or descend from <code>owner_folder</code>, which is already bound to the caller's own subtree.</td></tr>
     </table>
+
+    <p><code>source_label</code> and <code>jid_suffix</code> must each match <code>^[\w-]+$</code> (<code>segRe</code>, <code>routd/tokens_http.go</code>), because each becomes one segment of the JID. A slash in either would make a deeper JID that reads as a different folder.</p>
 
     <p>Issued on behalf of a descendant, <code>owner_folder</code> stays at the issuer. Both faces run the same <code>auth.Authorize</code> over the same <code>acl</code> rows &mdash; see <a href="grants.html">grants</a>.</p>
 
@@ -195,7 +198,6 @@ arizuko token &lt;instance&gt; revoke &lt;jid&gt; [&lt;owner_folder&gt;]</code><
       <li><a href="../howto/chat-link.html">how-to: chat link</a>, <a href="../howto/webhooks.html">how-to: webhooks</a>.</li>
       <li><a href="../reference/jid.html">reference/jid</a> &mdash; <code>web:</code> and <code>hook:</code> JID shapes.</li>
       <li><a href="../reference/env.html#webd">reference/env &sect; webd</a> &mdash; rate-limit and body-cap env vars.</li>
-      <li>Spec: <a href="https://github.com/kronael/arizuko/blob/main/specs/5/W-webhook-routes.md"><code>specs/5/W-webhook-routes.md</code></a>.</li>
     </ul>
 
       <nav class="docs-pager" aria-label="Pager">
