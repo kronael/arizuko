@@ -50,6 +50,10 @@ var twins = []twin{
 		"objstore/README.md",
 		"template/web/pub/arizuko/concepts/store.html",
 	}},
+	{name: "mounts", files: []string{
+		"runed/README.md",
+		"template/web/pub/arizuko/components/runed.html",
+	}},
 }
 
 var (

@@ -37,11 +37,19 @@ git --version && make --version | head -1
 # Alternative: set PREFIX env to use a different path
 ls -ld /srv/data 2>/dev/null || echo "/srv/data does not exist"
 
-# 8. KVM (the turn substrate: one guest per turn, spec 6/41)
+# 8. KVM (the turn substrate: one guest per turn)
 ls -l /dev/kvm /dev/vhost-vsock /dev/net/tun 2>&1
 # missing /dev/kvm = blocker (see "KVM not available" below); the other two
 # come from the kernel modules `vhost_vsock` and `tun`, both usually built in
+
+# 9. Memory for the guests
+grep MemTotal /proc/meminfo
 ```
+
+Size the host before you set the cap: runed refuses to start when
+`RUNED_GUEST_MEM` × `MAX_CONCURRENT_CONTAINERS` exceeds `MemTotal`
+(`runed/qemuhost.go` `memoryFits`). The defaults, 2 GiB × 5, need 10 GiB.
+Disk: each release rootfs is about 8.3 GB, and two are kept.
 
 ## Fixing blockers
 
@@ -144,8 +152,9 @@ make test                   # sanity check (go test ./... -short)
 in — the same `/srv/data/arizuko_<name>` the next section creates (`mkdir -p`
 makes it now if it does not exist yet). One value serves every instance that
 runs the same `arizuko-ant` image, so a host with several instances can point
-them all at one shared `DATA_DIR` instead of paying for the export twice
-(spec `6/41` §"The image and the guest kernel").
+them all at one shared `DATA_DIR` instead of paying for the export twice.
+What `make kernel` builds and why it is its own artifact:
+[`kernel/README.md`](kernel/README.md).
 
 ```bash
 sudo make images DATA_DIR=/srv/data/arizuko_<name>
@@ -156,6 +165,14 @@ sudo make kernel DATA_DIR=/srv/data/arizuko_<name>
 # rebuilds only when kernel/Dockerfile, kernel/arizuko.fragment or
 # kernel/guest-init/*.go change — not on every release
 ```
+
+`make images` keeps the two newest rootfs trees: the one a running turn may
+have mounted, and the one before it, so a rollback needs no re-export. It then
+runs `make rootfs-stale`, which names every older tree and deletes none: a
+turn may hold one mounted, so removing it is yours. **Never run
+`docker image prune -a` on an arizuko host**: no running container holds
+`arizuko-ant`, so the prune deletes it, and the rootfs export reads that
+image. `docker builder prune -f` is the lever that frees build cache.
 
 This builds the complete image set. Individual adapter images (whapd, etc.)
 are included. Only build separately if you need to rebuild one without

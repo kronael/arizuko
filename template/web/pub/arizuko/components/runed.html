@@ -63,7 +63,7 @@
 
     <p>runed is the execution plane. It serves the work queue, starts one KVM guest per turn, and enforces the run timeout. It holds <code>/dev/kvm</code>, <code>/dev/vhost-vsock</code> and <code>/dev/net/tun</code> plus the <code>NET_ADMIN</code> and <code>SYS_ADMIN</code> capabilities, and mounts no Docker socket at all. It never appends a message (<a href="routd.html">routd</a> is the sole appender), and it neither signs nor mints a token: <a href="authd.html">authd</a> is the sole signer, and runed reads authd&rsquo;s public keys only to verify the callers of its own <code>/v1</code>.</p>
 
-    <p>runed owns its tables and creates them itself &mdash; the runtime tables (<code>spawns</code> and <code>session_log</code>) that have no home in routd.</p>
+    <p>runed owns its tables and creates them itself &mdash; the runtime tables (<code>spawns</code>, <code>session_log</code> and <code>circuit_breaker</code>) that have no home in routd.</p>
 
     <h2>Why it exists</h2>
     <p>A turn is one ephemeral KVM guest. (See the <a href="../concepts/primitives.html">Turn primitive</a>.) Something has to hold <code>/dev/kvm</code> and the other device nodes a guest needs, and only one thing should: that access is root-equivalent on the host, so concentrating it in one small daemon keeps the blast radius small. runed is that daemon.</p>
@@ -90,6 +90,45 @@
     <p>Inputs: <code>POST /v1/runs</code> from routd (the routd&harr;runed contract); authd&rsquo;s public keys, fetched once at start, which it verifies those requests against. Outputs: a running guest; status and kill over <code>/v1/runs/{run_id}</code>; spawn and session rows in its own tables.</p>
 
     <p>Hard deps: <code>/dev/kvm</code>, <code>/dev/vhost-vsock</code> and <code>/dev/net/tun</code> on the host; <a href="authd.html">authd</a> as the JWKS source; <a href="routd.html">routd</a>, which hosts the per-turn MCP socket and receives the agent&rsquo;s tool calls. runed also starts one <a href="egress.html">egress</a> proxy per turn on that guest&rsquo;s tap, and stops it with the turn &mdash; that isn&rsquo;t a setting, runed refuses to start at all if the <code>egress</code> binary is missing.</p>
+
+    <h2>What the guest sees</h2>
+    <p>Everything the agent can read or write reaches the guest through two virtio-fs shares. One is the release rootfs, read-only. The other is a staging tree runed builds per turn, laid out exactly like the guest&rsquo;s own paths, with a <code>mounts.json</code> at its root telling <code>guest-init</code> what to bind where.</p>
+    <pre id="twin-mounts"><code>┌──────────────────────────────┐  ┌──────────────────────────────┐
+│ release rootfs               │  │ host paths, as runed sees    │
+│ &lt;data&gt;/images/rootfs-&lt;hash&gt;/ │  │ them: the mount table below  │
+└──────────────┬───────────────┘  └──────────────┬───────────────┘
+               │ read-only bind                  │ one bind per entry;
+               │                                 │ RO is a host remount
+               ▼                                 ▼
+┌──────────────────────────────┐  ┌──────────────────────────────┐
+│ &lt;turn dir&gt;/rootfs            │  │ &lt;turn dir&gt;/tree: guest paths,│
+│                              │  │ plus mounts.json             │
+└──────────────┬───────────────┘  └──────────────┬───────────────┘
+               │ virtiofsd as root               │ virtiofsd as the
+               │ share "root"                    │ agent's uid, share
+               │                                 │ "turn"
+  host ────────┼─────────────────────────────────┼──────────── guest
+               ▼                                 ▼
+┌──────────────────────────────┐  ┌──────────────────────────────┐
+│ overlay: rootfs lower,       │  │ /turn, then one bind per     │
+│ 512m tmpfs upper: the        │  │ manifest entry onto its      │
+│ agent's /, gone at power-off │  │ guest path                   │
+└──────────────────────────────┘  └──────────────────────────────┘
+/run/ipc: a 16m guest tmpfs, never on a share; /dev/shm: 1g tmpfs
+</code></pre>
+    <p>Read-only means read-only on the <em>host</em>: runed remounts each read-only bind before <code>virtiofsd</code> starts, so a write fails with <code>EROFS</code> whatever the guest kernel thinks. The writable share is served by a <code>virtiofsd</code> running as the agent&rsquo;s own uid, so a guest that claims to be root still can&rsquo;t leave a root-owned file in the folder.</p>
+    <table>
+      <tr><th>guest path</th><th>what it is</th><th>mode</th></tr>
+      <tr><td><code>/home/node</code></td><td>the group folder</td><td>RW</td></tr>
+      <tr><td><code>/opt/arizuko</code></td><td>the release&rsquo;s skills and agent files</td><td>RO</td></tr>
+      <tr><td><code>/var/lib/share</code></td><td>the world&rsquo;s shared scratch dir</td><td>RW, or RO by grant</td></tr>
+      <tr><td><code>/var/lib/www/arizuko</code></td><td>these docs, for every folder</td><td>RO</td></tr>
+      <tr><td><code>/var/lib/www</code>, <code>~/public_html</code>, <code>~/private_html</code></td><td>the web tree and the folder&rsquo;s two slots, with the <code>web:publish</code> grant</td><td>RO, RW, RW</td></tr>
+      <tr><td><code>/var/lib/groups</code></td><td>every group, for an elevated <code>/root</code> turn only</td><td>RW</td></tr>
+      <tr><td><code>/mnt/&lt;name&gt;</code></td><td>an operator extra under <code>MOUNT_ALLOWED_ROOTS</code></td><td>RO</td></tr>
+      <tr><td><code>/run/ipc</code></td><td>a guest-only tmpfs; the MCP socket lives here and is bridged over vsock</td><td>RW</td></tr>
+    </table>
+    <p>Full table with the host paths: <a href="https://github.com/kronael/arizuko/blob/main/runed/README.md">runed/README.md</a>, section Mounts.</p>
 
     <h2>Timeouts and shutdown</h2>
     <p><code>RUNED_RUN_TIMEOUT</code> (default 20m) is the run ceiling, and it bounds two things at once: the guest hard-kill, and the in-guest agent query timeout (<code>ARIZUKO_QUERY_TIMEOUT_MS</code> = <code>RUNED_RUN_TIMEOUT &minus; 30s</code>). The 30-second gap lets the agent abort and deliver a graceful summary before runed kills the guest under it. On graceful shutdown runed detaches in-flight runs, so a guest outlives the daemon and a restart doesn&rsquo;t murder a turn mid-sentence &mdash; the next runed reaps it from the on-disk record.</p>
@@ -129,7 +168,7 @@ export RUNED_ROOTFS_DIR=/srv/data/myinstance/images/rootfs-a35045d89e3e
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/components/runed.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-16">2026-10-16</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-20">2026-10-20</time>
       </div>
     </main>
 

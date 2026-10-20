@@ -46,11 +46,14 @@ routd/    conversation/routing plane (sole message appender, token verifier)
 
 runed/    execution plane (one KVM guest per turn: /dev/kvm,
         /dev/vhost-vsock, /dev/net/tun, and the per-turn egress proxy)
-  ├── container     mount rendering, app-src staging, the egress rules
+  ├── container     group setup, app-src staging, the egress rules
   │   └── groupfolder, mountsec
-  └── auth          verify only — the turn is credentialed by the MCP
-                    socket (SO_PEERCRED), not by a token
+  ├── substrate     the declared ceiling and what a host delivers
+  └── auth          verify only — the turn is credentialed by the guest's
+                    vsock CID, not by a token
   runed tables: spawns, session_log, circuit_breaker
+kernel/   the pinned guest kernel and guest-init, PID 1, built by
+          `make kernel`
 
 authd/    auth authority (sole ES256 signer, JWKS publisher, OAuth provider)
   └── auth          token mint/downscope, key rotation
@@ -76,7 +79,8 @@ Every channel adapter, `webd`, and `proxyd` talk to `routd` over HTTP
 (`/v1/*`). `routd` dispatches each turn to `runed` (`POST /v1/runs`);
 `runed` spawns the agent guest. The per-turn agent MCP socket is hosted in-process by
 `routd` (`ipc.ServeMCP`); `runed` bridges it to the guest over vsock, never
-by a mount (spec `6/41`).
+by a mount. The guest kernel: [`kernel/README.md`](kernel/README.md). What a
+substrate declares and delivers: [`substrate/README.md`](substrate/README.md).
 
 ## Integrations
 
@@ -89,7 +93,7 @@ sidecar/ whisper-cpp container; routd calls Whisper for inbound
         voice when VOICE_TRANSCRIPTION_ENABLED=true
 egress/   forward proxy, one static allowlist, one client. runed starts
         one per turn on its tap's host side and stops it with the
-        turn (see "Compose Containers" below); specs/6/41
+        turn (see "Compose Containers" below)
 anteval/  agent-capability gate: a black-box prober that runs real tasks
         through the public surfaces (REST/HTTP/MCP + a callback sink) against
         a LIVE instance and grades observable effects, not prose. Zero
@@ -1076,44 +1080,6 @@ needed; don't fight it where it is.
 
 ## Guest mount layout
 
-Platform mounts follow FHS canonical locations; per-group web slots
-live under `~` in the agent's home. Full spec:
-`specs/5/V-web-vhosts.md`.
-
-| Guest                  | Host                           | Mode                                   |
-| ---------------------- | ------------------------------ | -------------------------------------- |
-| `/opt/arizuko`         | `<data>/app-src/`              | RO                                     |
-| `/var/lib/www`         | `<data>/web/pub/`              | RO whole tree, `web:publish` grant     |
-| `/var/lib/www/arizuko` | `<data>/web/pub/arizuko/`      | RO doc site, every folder, no grant    |
-| `/run/ipc`             | `<data>/ipc/<folder>/`         | RW                                     |
-| `/var/lib/share`       | `<data>/groups/<world>/share/` | RW always (RO via grant)               |
-| `/var/lib/groups`      | `<data>/groups/`               | RW, elevated `/root` turn only         |
-| `/mnt/<name>`          | operator extras                | varies                                 |
-| `/home/node/`          | `<data>/groups/<folder>/`      | RW (group home)                        |
-| `~/public_html`        | `<data>/web/pub/<folder>/`     | RW per-group slot, `web:publish` grant |
-| `~/private_html`       | `<data>/web/priv/<folder>/`    | RW per-group slot, `web:publish` grant |
-
-The `~/public_html` and `~/private_html` slots are bind-mount VIEWS
-into the canonical web tree — writes appear simultaneously at the
-home path and at the URL-serving path. `/pub/<folder>/...` serves
-`web/pub/<folder>/...` (no auth); `/priv/<folder>/...` serves
-`web/priv/<folder>/...` (JWT). Nested subgroup URLs preserved
-(`/pub/atlas/support/...`); name-clash between a parent's own
-subdir and a child subgroup is resolved by visibility through the
-`/var/lib/www/` RO view.
-
-## Mount Security (mountsec)
-
-`ValidateAdditionalMounts` validates group-configured mounts against a
-caller-supplied `Allowlist`. `ValidateFilePath` guards inbound paths (MCP
-tool arguments) against symlink escapes and a blocklist (`.ssh`, `.gnupg`,
-`.env`, credentials, private keys). Guest path: `/mnt/<name>`.
-
-## Mount paths inside runed's own container
-
-`runed` builds its mount table entirely in the paths it sees itself:
-`virtiofsd` is runed's own child, in runed's own mount namespace, so a mount
-source is never translated through `HOST_DATA_DIR`. `HOST_DATA_DIR` and
-`HOST_APP_DIR` remain compose facts used to render the compose file and to
-locate the staged `ant/` release, not inputs runed reads to rewrite a mount
-source (BUGS `L368`).
+A guest sees its files through two virtio-fs shares: the release rootfs,
+read-only, and one staging tree that mirrors guest paths. The figure, the mount
+table, the read-only rule and `mountsec`: [`runed/README.md` § Mounts](runed/README.md#mounts).

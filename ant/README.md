@@ -41,9 +41,8 @@ delivering a resume-miss diagnostic. One file per harness — `claude.ts`
 `pi.ts` (`pi -p --mode json`, native skills, no MCP client).
 `ARIZUKO_BACKEND` selects; unknown values fail the turn loudly. Skills
 reach codex/pi through the load-time guard in `src/skills-scan.ts` — the
-same skillguard table, a different hook point. Spec `5/P` § "ant wraps a
-harness, it never is one"; extension recipe in `EXTENDING.md`
-§ "Swapping the agent harness".
+same skillguard table, a different hook point. Extension recipe in
+`EXTENDING.md` § "Swapping the agent harness".
 
 - **`arizuko` core server** — socat bridge to `/run/ipc/gated.sock`,
   `alwaysLoad: true` so `send`/`reply`/`inspect_*`/`send_file` stay
@@ -58,6 +57,18 @@ harness, it never is one"; extension recipe in `EXTENDING.md`
 
 Nothing is deferred and there is no tool search: one server, `alwaysLoad`,
 so a turn's tool list is everything the turn may call.
+
+## Contracts with the Go side
+
+Where Go produces a value and TypeScript reads it, a test reads both sources
+and fails when either side moves. Each of these broke production once, with
+no build failure and no log line.
+
+| Contract | Go side | TS side | Test |
+|---|---|---|---|
+| spawn env keys | `runed/render.go` `turnEnv` | `process.env` reads in `src/` | `runed/env_contract_test.go` `TestSpawnEnvCarriesEveryKeyAntReads`, `TestSpawnEnvEmitsNothingAntIgnores` |
+| `submit_turn` payload | `ipc.TurnResult` | `src/mcp.ts` | `tests/contract_ant_test.go` `TestSubmitTurnPayloadFieldsMatchAcrossLanguages`, `TestSubmitTurnDecodeKeepsEveryField` |
+| `<status>` grammar | `router.ExtractStatusBlocks` | `src/index.ts` | `tests/contract_ant_test.go` `TestStatusGrammarAgreesAcrossLanguages` |
 
 ## Folder layout (agent view)
 

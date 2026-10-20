@@ -234,6 +234,9 @@ round that finds nothing commits nothing.
 - Per-turn agent output delivered via the `submit_turn` JSON-RPC
   method on the same MCP unix socket; hidden from `tools/list`
 - IPC: MCP over unix socket, socat bridge into container
+- **A Go producer and a TS consumer share one contract test that reads both
+  sources**: spawn env keys, `submit_turn` fields, the `<status>` grammar
+  (`ant/README.md` § Contracts with the Go side). Add one with the contract.
 - Daemons end in `d`; libraries don't. Each split daemon owns + migrates
   its own DB (`routd.db`/`runed.db`/`auth.db`/`onbod.db`); no daemon
   migrates another's. `store/` is the shared schema library.

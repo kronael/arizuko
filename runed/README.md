@@ -143,6 +143,14 @@ read-only with a temporary writable overlay.
 
 ### Boot timing measures the first ready frame
 
+**The budget is 1.5 s p50**, from QEMU start to the first decoded ready
+frame. There is no warm pool: every turn boots a fresh guest. A warm guest
+could never become a folder's guest, because a guest's identity is its mount
+set, fixed in the QEMU argument list at start. The decision reopens when boot
+cost dominates a turn. Then the pool, its claim of a booted guest, its idle
+policy and its reaper are taken as one unit, never one at a time. The
+measurement below meets the budget.
+
 Production logs `guest ready` once per turn with `boot_ms` and the guest's probe
 map. A monotonic host clock starts immediately before QEMU process start and
 stops at the first decoded ready frame. This frame precedes root assembly and
@@ -389,39 +397,125 @@ classifying runed's prose would be a second classification path on a format
 string. `guest-init` reports its own failures as 71, never 78, so it cannot
 impersonate the agent's verdict.
 
-### Mounts
+### Reaping a turn
 
-`buildMounts` renders the table's right-hand side, in this order. Every turn:
+The on-disk VM record names every process the turn started: QEMU, two
+`virtiofsd`, the `egress` proxy and the MCP bridge, plus the tap. runed keeps
+no in-memory index of guests, so `Kill`, the turn's own teardown and the boot
+sweep after a crash all reap from the same record (`vmrecord.go` `reapVM`).
 
-- `groupDir` → `/home/node` (rw)
-- `HOST_APP_DIR` → `/opt/arizuko` (ro)
-- `ipc/` → `/run/ipc` (rw, for MCP socket)
-- `groups/<world>/share/` → `/var/lib/share` (rw; ro if `share_mount` grant with `readonly=true`)
+1. QEMU first, and alone. Taking a running guest's filter, proxy or share away
+   would leave it running with a route or a write path nobody watches.
+2. The tap's rule set, then the tap.
+3. The proxy, the bridge and the two `virtiofsd`.
+4. The staging tree: unmounted, then removed. A tree that will not go is
+   reported by path and kept for an operator.
+5. The record, only once every pid it names is confirmed gone.
 
-Elevated `/root` turn only:
+A pid is signalled only when its `/proc/<pid>/cmdline` carries the turn's
+token, because a stale record may name a pid the kernel has since reused.
+`-no-reboot` on QEMU and `reboot=t` on the guest keep a power-off final, and
+the reap still SIGKILLs QEMU after the grace, because a guest power-off does
+not prove QEMU exited.
 
-- `GROUPS_DIR` → `/var/lib/groups` (rw)
+## Mounts
 
-With the `web:publish` grant:
+A guest sees its files through two virtio-fs shares. ACPI microvm allows eight
+MMIO devices and a turn uses four, so every mount family rides one share
+rather than one device each.
 
-- `WEB_DIR/pub/` → `/var/lib/www` (ro, whole tree)
-- `WEB_DIR/pub/<folder>/` → `~/public_html` (rw)
-- `WEB_DIR/priv/<folder>/` → `~/private_html` (rw)
+<!-- twin:mounts -->
 
-Without it, one subtree of that tree still mounts — the platform doc site
-the `arizuko` skill every folder ships reads from (spec `5/V`):
+```
+┌──────────────────────────────┐  ┌──────────────────────────────┐
+│ release rootfs               │  │ host paths, as runed sees    │
+│ <data>/images/rootfs-<hash>/ │  │ them: the mount table below  │
+└──────────────┬───────────────┘  └──────────────┬───────────────┘
+               │ read-only bind                  │ one bind per entry;
+               │                                 │ RO is a host remount
+               ▼                                 ▼
+┌──────────────────────────────┐  ┌──────────────────────────────┐
+│ <turn dir>/rootfs            │  │ <turn dir>/tree: guest paths,│
+│                              │  │ plus mounts.json             │
+└──────────────┬───────────────┘  └──────────────┬───────────────┘
+               │ virtiofsd as root               │ virtiofsd as the
+               │ share "root"                    │ agent's uid, share
+               │                                 │ "turn"
+  host ────────┼─────────────────────────────────┼──────────── guest
+               ▼                                 ▼
+┌──────────────────────────────┐  ┌──────────────────────────────┐
+│ overlay: rootfs lower,       │  │ /turn, then one bind per     │
+│ 512m tmpfs upper: the        │  │ manifest entry onto its      │
+│ agent's /, gone at power-off │  │ guest path                   │
+└──────────────────────────────┘  └──────────────────────────────┘
+/run/ipc: a 16m guest tmpfs, never on a share; /dev/shm: 1g tmpfs
+```
 
-- `WEB_DIR/pub/arizuko/` → `/var/lib/www/arizuko` (ro)
+<!-- /twin -->
 
-When `HOST_CODEX_DIR` set:
+`buildMounts` (`mounts.go`) renders the table below; `treePlan` (`vmtree.go`)
+turns it into the staging tree, sorted by guest path so a parent comes before
+its children. The tree mirrors guest paths, so the host and the guest share one
+naming scheme. `mounts.json` at the tree root tells `guest-init` what to bind,
+and the guest reads the same declaration the host wrote.
 
-- `groupDir/.codex/` → `~/.codex` (rw, per-group)
-- `HOST_CODEX_DIR/auth.json` → `~/.codex/auth.json` (ro, overmount)
-- `HOST_CODEX_DIR/config.toml` → `~/.codex/config.toml` (ro, overmount)
+- **Read-only is enforced on the host.** A read-only entry is a bind plus a
+  remount with `MS_RDONLY` before `virtiofsd` starts, so every write the daemon
+  attempts is `EROFS`. The release rootfs gets the same bind: `virtiofsd`
+  1.10.1 has no read-only export flag, and a guest that mounted the rootfs
+  writable would change the release every later turn boots from.
+- **The writable share runs as the agent's uid**, so it cannot create a host
+  file owned by anyone else, whatever uid the guest states (§ The turn
+  substrate, the clamp).
+- **Sizes are explicit.** The overlay upper and each guest tmpfs live in guest
+  RAM inside `RUNED_GUEST_MEM`: 512m upper, 16m per manifest tmpfs, 1g
+  `/dev/shm`. A write past a cap is `ENOSPC` in the guest, never host memory
+  pressure.
+- **`/run/ipc` is never shared.** A unix socket does not cross virtio-fs, so
+  the agent's socket directory is a guest tmpfs and the socket is bridged over
+  vsock (§ The peer credential).
 
-Additional mounts from the group's `container_config` are validated via
-`mountsec`. The substrate adds the proxy variables (`HTTP_PROXY` and its three
-companions) and the guest uid, because both are its own.
+Every host path is the path runed sees itself. `virtiofsd` is runed's own
+child in runed's own mount namespace, so a source is never translated through
+`HOST_DATA_DIR`; that variable is a compose fact runed does not read (BUGS
+`L368`).
+
+| Guest path                                   | Host path                                                             | Mode                                             | When                                                |
+| -------------------------------------------- | --------------------------------------------------------------------- | ------------------------------------------------ | --------------------------------------------------- |
+| `/home/node`                                 | `<data>/groups/<folder>/`                                             | RW                                               | every turn                                          |
+| `~/.codex`                                   | `<data>/groups/<folder>/.codex/`                                      | RW                                               | every turn: codex reads its rollouts here to resume |
+| `~/.codex/auth.json`, `~/.codex/config.toml` | `HOST_CODEX_DIR/<file>`                                               | RO                                               | `HOST_CODEX_DIR` set                                |
+| `/opt/arizuko`                               | `<data>/app-src/`, the release's staged `ant/`                        | RO                                               | every turn                                          |
+| `/var/lib/share`                             | `<data>/groups/<world>/share/`; `groups/share/` for an elevated turn  | RW, RO with a `share_mount(readonly=true)` grant | every turn                                          |
+| `/run/ipc`                                   | none: a guest tmpfs                                                   | RW                                               | every turn                                          |
+| `/var/lib/www/arizuko`                       | `<data>/web/pub/arizuko/`                                             | RO                                               | no `web:publish` grant                              |
+| `/var/lib/www`                               | `<data>/web/pub/`                                                     | RO                                               | `web:publish`                                       |
+| `~/public_html`                              | `<data>/web/pub/<folder>/`, served at `/pub/<folder>/`                | RW                                               | `web:publish`                                       |
+| `~/private_html`                             | `<data>/web/priv/<folder>/`, served at `/priv/<folder>/` behind login | RW                                               | `web:publish`                                       |
+| `/var/lib/groups`                            | `<data>/groups/`                                                      | RW                                               | elevated `/root` turn                               |
+| `/mnt/<name>`                                | an operator extra in the group's `container_config`                   | RO                                               | the path lies under `MOUNT_ALLOWED_ROOTS`           |
+| `/app/src`                                   | `HOST_APP_DIR/ant/src`                                                | RW                                               | `ARIZUKO_DEV` set                                   |
+
+**Why the web view is narrow.** The whole `/var/lib/www` tree is every group's
+published content, and a group may gate part of its own with an `auth` or
+`deny` `web_routes` row. proxyd applies that row at the edge, and a bind mount
+cannot, so the whole tree stays a publisher's grant. `pub/arizuko` is the
+platform doc site, not a group's content, and every folder ships a skill that
+reads it, so every folder sees that one subtree. The two slots are views into
+the canonical web tree: a write appears at the home path and at the URL path
+at once. No grant means no writable web surface.
+
+**Operator extras pass `mountsec`.** `ValidateAdditionalMounts`
+(`mountsec/mountsec.go`) refuses every extra when `MOUNT_ALLOWED_ROOTS` is
+empty, refuses a relative path or one outside an allowed root, and puts the
+guest path under `/mnt/`. An extra is read-only: RW needs an elevated turn and
+a root that allows RW, and the roots `MOUNT_ALLOWED_ROOTS` names never do.
+`ValidateFilePath` is the other half: it guards a path an MCP tool receives
+against a symlink escape and a blocklist (`.ssh`, `.gnupg`, `.aws`, `.env`,
+`credentials`, private keys and the like).
+
+The substrate adds the proxy variables, `HTTP_PROXY` and its three companions,
+to the environment, because their value is its own address.
 
 ## Files
 
