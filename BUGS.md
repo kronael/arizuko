@@ -28,6 +28,8 @@ marker every entry carries. Ten entries said open in the heading and carried no
 **A contract or design decision.** Each names the question in its own Status
 line; none can be answered from the code.
 
+- `L473` — how does a newer seeded acl floor reach an existing instance
+  without re-adding rows an operator removed?
 - `L472` — must a scheduled turn state its own success or failure, and may
   the run log stop calling a queued prompt a success?
 - `L347` — may the cursor stay put when a steered turn does not run? Changes
@@ -321,6 +323,27 @@ cut short, logs `failure: no outcome`. The enqueue write becomes `queued`, not
 - **Status:** open — needs sign-off. It adds a field to the turn result and
   changes what the run log means, so it is a contract change. The rename of the
   enqueue status alone is small and could ship first.
+
+## L473 — a change to the seeded acl floor never reaches a running instance (2026-10-20, open — needs sign-off)
+
+FOUND 2026-10-20 on krons and sloth while debugging Rhias's approvals.
+`store.SeedRoutdFloor` (`store/seed.go`) writes the floor only when the acl
+entity is empty. The skip-approval floor (`skipApprovalFloor`, the
+`hold:mcp:<verb>` deny rows for every member verb and the always-mounted reads)
+was added 2026-09-12, after both instances already had grants. So both carried
+only `hold:mcp:disengage`, and every reaction, edit, delete, reply and read
+waited for a human wherever a folder holds `hold:mcp:*`. Rhias received about
+seven long approval notices this way.
+
+The parent added the 22 missing rows by hand on both instances (owner-approved
+operator action, 2026-10-20); each now carries the seed's 23.
+
+Proposal: a floor row that is newer than the instance's acl reaches it once —
+for example a floor version recorded in the store and a start-up step that
+writes the rows added since, never re-adding a row an operator removed after
+that version. A change to which rows reach live data is an auth change.
+
+- **Status:** open — needs sign-off.
 
 ## L448 — the custom guest kernel is justified by BOOT TIME, not by the reason written in the fragment (2026-10-19, open — needs sign-off)
 
