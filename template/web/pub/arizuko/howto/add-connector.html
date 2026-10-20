@@ -53,7 +53,7 @@
       <p><a href="../concepts/ext-mcp.html">Connectors</a> explains what a connector is and why the credential stays on the host.</p>
 
       <h2>The far side decides the transport</h2>
-      <p>If the far side is an MCP server that answers over HTTP, use <code>transport = "mcp"</code> and declare no tools, because the server publishes its own list. If it is a normal REST API, use <code>transport = "rest"</code> and one <code>[[connector.tool]]</code> for each endpoint that you expose. The rest of this page shows the REST case, because it has more choices.</p>
+      <p>If the far side is an MCP server that answers over HTTP, use <code>transport = "mcp"</code> and declare no tools, because the server publishes its own list. If it is a normal REST API, use <code>transport = "rest"</code> and one <code>[[connector.tool]]</code> for each endpoint that you expose. The steps below use the REST case, because it has more choices.</p>
 
       <h2>One block in connectors.toml declares the connector</h2>
       <p><code>routd</code> reads <code>connectors.toml</code> in the instance directory, next to <code>docker-compose.yml</code>. Make the file if it does not exist.</p>

@@ -50,7 +50,7 @@
 
       <p class="lede">A service that can send an HTTP POST when an event occurs can give events to an agent. Make a hook token and put its URL into the source. The agent then sees each event as an inbound message at a <code>hook:</code> JID.</p>
 
-      <p>The mechanism is the <a href="../concepts/tokens.html">route token</a>. This page shows the setup for the three most common sources.</p>
+      <p>The mechanism is the <a href="../concepts/tokens.html">route token</a>. The setup below covers the three most common sources.</p>
 
       <div class="callout"><strong>The webhook URL is <code>/hook/&lt;token&gt;</code>.</strong> Every valid route token works at this URL. The JID kind is information for the agent and does not limit the URL. <code>issue_webhook</code> always returns a <code>/hook/&lt;token&gt;</code> URL.</div>
 
