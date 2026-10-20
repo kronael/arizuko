@@ -28,6 +28,8 @@ marker every entry carries. Ten entries said open in the heading and carried no
 **A contract or design decision.** Each names the question in its own Status
 line; none can be answered from the code.
 
+- `L472` — must a scheduled turn state its own success or failure, and may
+  the run log stop calling a queued prompt a success?
 - `L347` — may the cursor stay put when a steered turn does not run? Changes
   the consume contract (`L104`).
 - `L317` — may `/stop` drop the backlog older than itself, and is that drop
@@ -292,6 +294,33 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
 - **`L15` — the 2026-08-11 dead-code sweep's rejected hits.** `deadcode ./...` gave 149
   hits, 56 under `-test`; nine survived verification and were filed separately. Kept so
   the next sweep does not re-report the same ~135.
+
+## L472 — PROPOSED: a scheduled run logs "success" when its message is queued, so a turn that did nothing reads green (2026-10-20, open — needs sign-off)
+
+FOUND 2026-10-20 by the owner: an agent's own audit of its schedules found the
+isolated cron runs green since 2026-08-17, each exiting in about 250 ms with no
+work done, because every one hit the org weekly spend cap. The weekly biotech
+refresh froze at 2026-08-17 while its log stayed green.
+
+Measured in the code at `f506ed9b`: `timed/split.go:251` calls
+`r.runlog(ctx, t.ID, "success", "", …)` right after `r.enqueue` returns, and
+`timed/split.go:209` writes `error` only when the ENQUEUE fails. The run log
+(`store/task_run_logs.go` `RecordTaskRun`, behind `POST /v1/tasks/runlog`)
+therefore records that routd accepted the prompt, never what the turn did. A
+spend-cap abort, a model error, or an agent that answers "nothing to do" all
+log the same `success`.
+
+Proposal, modelled on the host's own Stop hook that refuses to end a reply
+without an answer: a turn started by a scheduled task must end with an explicit
+outcome — `success` or `failure` plus a one-line reason — that the agent
+states. routd writes that outcome to the task's run log against the fire's id.
+A task turn that ends without one, including a turn the spend cap or a crash
+cut short, logs `failure: no outcome`. The enqueue write becomes `queued`, not
+`success`.
+
+- **Status:** open — needs sign-off. It adds a field to the turn result and
+  changes what the run log means, so it is a contract change. The rename of the
+  enqueue status alone is small and could ship first.
 
 ## L448 — the custom guest kernel is justified by BOOT TIME, not by the reason written in the fragment (2026-10-19, open — needs sign-off)
 
