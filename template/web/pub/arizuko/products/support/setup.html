@@ -49,111 +49,50 @@
       <p class="docs-crumb"><a href="../../">arizuko</a> &rsaquo; <a href="../">products</a> &rsaquo; <a href="./">Support desk (Atlas)</a> &rsaquo; setup</p>
       <h1>Support desk setup</h1>
 
-      <h2>1. Prerequisites</h2>
+      <p class="lede">The support desk needs one channel and your answers in writing, in <code>facts/</code>.</p>
 
+      <h2>The desk needs an instance, a channel and written answers</h2>
       <ul>
-        <li>A running instance (<a href="../../howto/">getting started</a>).</li>
-        <li>A channel adapter. The product declares
-          <code>TELEGRAM_BOT_TOKEN</code> as its primary channel and
-          escalation target; any adapter works.</li>
-        <li>Your answers in writing. Without <code>facts/</code> the agent
-          can only web-search, which is the failure mode this product is
-          built to avoid.</li>
+        <li>A running instance, from <a href="../../howto/">getting started</a>.</li>
+        <li>A channel adapter. The product declares <code>TELEGRAM_BOT_TOKEN</code> as its main channel and escalation target. Any adapter works, when you install its package.</li>
+        <li>Your answers in writing. Without <code>facts/</code>, the agent can only search the web, and the product exists to avoid that.</li>
       </ul>
 
-      <h2>2. Seed a group from it</h2>
-
-      <pre><code>arizuko group &lt;instance&gt; add telegram:group/-100123 support --product support</code></pre>
-
-      <p>
-        That copies the product tree into <code>groups/support/</code> once
-        and writes the route in the same command. From then on the files are
-        the group&rsquo;s own state: edit the persona, add facts, and nothing
-        re-writes them.
-      </p>
-
-      <p>
-        Or blend it into a group you already have, alongside other products:
-      </p>
-
+      <h2>group add makes the group and its route</h2>
+      <pre><code>arizuko group &lt;instance&gt; add telegram:group/100123 support --product support</code></pre>
+      <p>The command copies the product tree into <code>groups/support/</code> once and writes the route. After that, the files belong to the group: edit the persona and add facts, and nothing writes over them. A Telegram group ID is negative, and the JID drops the minus sign.</p>
+      <p>Or add the product to a group that you already have, next to other products:</p>
       <pre><code>[[product]]
 source = "ant/examples/support"</code></pre>
-
       <pre><code>arizuko products &lt;instance&gt; apply support</code></pre>
 
-      <h2>3. Set the channel token</h2>
+      <h2>.env holds the channel token</h2>
+      <pre><code>TELEGRAM_BOT_TOKEN=REPLACE_ME
+OPENAI_API_KEY=REPLACE_ME   # optional: the oracle skill</code></pre>
+      <p>The <code>[[env]]</code> block in <code>PRODUCT.md</code> is a checklist, not a gate. <code>arizuko create --product</code> prints it, and <code>group add</code> does not. A missing value does not stop the apply. It stops the channel later, and that is harder to find. Set the values now.</p>
 
-      <pre><code>TELEGRAM_BOT_TOKEN=...
-OPENAI_API_KEY=...   # optional: web-search fallback</code></pre>
+      <h2>One file for each topic fills the knowledge base</h2>
+      <p><code>facts/kb.md</code> ships as a seed. Replace it, then add one file for each topic, for example <code>facts/api.md</code>, <code>facts/billing.md</code> and <code>facts/limits.md</code>. Longer reference documents go under <code>refs/</code>. The agent reads both before it answers and cites the path, so users see the file names. Name the files as you want to see them quoted.</p>
+      <div class="callout"><strong>A fact file is not a knowledge dump.</strong> The agent quotes what it finds, so a stale line is a wrong answer with a citation, which is worse than no answer. Treat stale facts as bugs, as the persona already does.</div>
 
-      <p>
-        The <code>[[env]]</code> block in <code>PRODUCT.md</code> is a
-        checklist that <code>arizuko create</code> prints, not a gate. A
-        missing value does not stop the apply &mdash; it stops the channel,
-        later, which is harder to diagnose. Set them now.
-      </p>
-
-      <h2>4. Fill the knowledge base</h2>
-
-      <p>
-        <code>facts/kb.md</code> ships as a seed. Replace it, then add one
-        file per topic &mdash; <code>facts/api.md</code>,
-        <code>facts/billing.md</code>, <code>facts/limits.md</code>. Longer
-        reference documents go under <code>refs/</code>. The agent reads both
-        before answering and cites the path, so file names are part of the
-        user-visible output: name them the way you would want to see them
-        quoted.
-      </p>
-
-      <div class="note">
-        <strong>A fact file is not a knowledge dump.</strong> The agent
-        quotes what it finds, so a stale line is a wrong answer with a
-        citation attached &mdash; worse than no answer. Treat stale facts as
-        bugs; the persona already does.
-      </div>
-
-      <h2>5. Verify</h2>
-
+      <h2>The answer must cite a path or say that nothing is recorded</h2>
       <pre><code>arizuko send &lt;instance&gt; support "does the export endpoint support pagination?" --wait</code></pre>
+      <p>A correct answer cites a path from <code>facts/</code> or says that nothing is recorded. An answer with neither means that the persona is not in place. Check that <code>groups/support/PERSONA.md</code> exists and that <code>CLAUDE.md</code> has an <code>arizuko:package:support</code> marked region.</p>
 
-      <p>
-        A correct answer either cites a path from <code>facts/</code> or says
-        it has nothing recorded. An answer with neither means the persona did
-        not land &mdash; check that <code>groups/support/PERSONA.md</code>
-        exists and that <code>CLAUDE.md</code> holds an
-        <code>arizuko:package:support</code> marked region.
-      </p>
+      <h2>Unanswered questions go to an escalation folder</h2>
+      <p>The unanswered questions are the real output of the product. Send them to a second folder, where a person or another agent owns the queue:</p>
+      <pre><code>arizuko group &lt;instance&gt; add telegram:group/100999 support/escalations</code></pre>
+      <p>Delegation to that folder needs the <code>delegate_group</code> grant on the support folder, because <code>role:member</code> does not hold it. Until an operator grants it, the agent says that it cannot escalate. That is the correct failure. <a href="../../concepts/grants.html">Grants</a> explains the rows.</p>
 
-      <h2>6. Escalation</h2>
-
-      <p>
-        Unanswered questions are the product&rsquo;s real output. Point them
-        at a second folder and let a person or another agent own the queue:
-      </p>
-
-      <pre><code>arizuko group &lt;instance&gt; add telegram:group/-100999 support/escalations</code></pre>
-
-      <p>
-        Delegating to that folder needs the <code>delegate_group</code> grant
-        on the support folder &mdash; it is not in the
-        <code>role:member</code> floor. Until it is granted the agent will
-        say it cannot escalate, which is the correct failure rather than a
-        bug. See <a href="../../concepts/grants.html">grants</a>.
-      </p>
-
-      <h2>7. Tuning</h2>
-
-      <ul>
-        <li><strong>Voice</strong> &mdash; edit <code>PERSONA.md</code>. The
-          lowercase, no-exclamation register is a choice; change it if your
-          users expect otherwise.</li>
-        <li><strong>Rules</strong> &mdash; edit inside the marked region in
-          <code>CLAUDE.md</code>. Text outside the markers is never
-          touched.</li>
-        <li><strong>Coverage</strong> &mdash; every &ldquo;I don&rsquo;t have
-          that recorded&rdquo; is a missing file. Add it and the same
-          question answers itself next time.</li>
-      </ul>
+      <h2>Three changes tune the desk</h2>
+      <dl>
+        <dt>Voice</dt>
+        <dd>Edit <code>PERSONA.md</code>. The lowercase register without exclamation marks is a choice. Change it if your users expect another one.</dd>
+        <dt>Rules</dt>
+        <dd>Edit inside the marked region of <code>CLAUDE.md</code>. arizuko does not change text outside the markers.</dd>
+        <dt>Coverage</dt>
+        <dd>Every "I don't have that recorded" is a missing file. Add the file, and the same question has an answer next time.</dd>
+      </dl>
 
       <nav class="docs-pager" aria-label="Pager">
         <a rel="prev" href="index.html">&larr; Support desk (Atlas)</a>
@@ -161,7 +100,7 @@ OPENAI_API_KEY=...   # optional: web-search fallback</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/support/setup.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-16">2026-10-16</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-20">2026-10-20</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

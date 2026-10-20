@@ -55,52 +55,30 @@
         &mdash; without you re-explaining it.
       </p>
 
-      <h2>What it does</h2>
-
-      <p>
-        Fiu handles the ordinary range &mdash; questions, drafting, task
-        tracking, research, reminders &mdash; and does one thing
-        deliberately: after each session it writes what is durable into
-        <code>facts/</code>, and on the next session it reads the diary
-        before answering. Memory here is not a feature bolted on; it is two
-        files and a habit.
-      </p>
-
-      <p>
-        The habit matters more than the storage. It refers to prior context
-        naturally (&ldquo;you mentioned last week&hellip;&rdquo;), and it
-        never invents details about your life &mdash; if it is not in
-        <code>facts/</code> or the diary, it asks.
-      </p>
+      <h2>Fiu writes durable facts after each session</h2>
+      <p>Fiu handles the usual range of work: questions, drafts, task tracking, research and reminders. It also does one thing on purpose: after each session, it writes the durable facts into <code>facts/</code>, and before the next answer, it reads the diary. Memory here is two files and a habit.</p>
+      <p>The habit matters more than the storage. Fiu refers to earlier context, for example "you mentioned last week", and it never invents details about your life. If a fact is not in <code>facts/</code> or the diary, Fiu asks.</p>
 
       <h2>A sample exchange</h2>
-
       <pre><code>user   what was I going to do about the visa thing?
 
 agent  Two weeks ago you decided to apply for the D-type rather than
        renew &mdash; diary 2026-08-01. You were waiting on the employer
        letter. Nothing since. Want me to draft the follow-up?</code></pre>
 
-      <h2>What it ships</h2>
-
+      <h2>The product ships three files</h2>
       <table>
         <thead><tr><th>File</th><th>What it is</th></tr></thead>
         <tbody>
-          <tr><td><code>PRODUCT.md</code></td><td>the manifest &mdash; name, brand, tagline, env hints</td></tr>
-          <tr><td><code>SOUL.md</code></td><td>who the agent is; read the same way as <code>PERSONA.md</code></td></tr>
-          <tr><td><code>facts/preferences.md</code></td><td>the seed for what it knows about you</td></tr>
+          <tr><td><code>PRODUCT.md</code></td><td>the manifest: name, brand, tagline and env hints</td></tr>
+          <tr><td><code>SOUL.md</code></td><td>who the agent is; <code>runed</code> renames it to <code>PERSONA.md</code> at the first turn</td></tr>
+          <tr><td><code>facts/preferences.md</code></td><td>the first facts about you</td></tr>
         </tbody>
       </table>
+      <p>The product also ships its tests in <code>eval/</code>.</p>
 
-      <h2>Who it is for</h2>
-
-      <p>
-        One person, one folder, one long conversation. It is the simplest
-        end of the spectrum in structure and the deepest in continuity
-        &mdash; the value accrues over months, not in the first session.
-        For a version that holds several ongoing situations as named
-        threads, see <a href="../reality/">the reality agent</a>.
-      </p>
+      <h2>One person with one long conversation needs it</h2>
+      <p>One person, one folder and one long conversation. The product is the simplest in structure and the deepest in continuity: its value grows over months, not in the first session. For a version that holds several ongoing situations as named threads, see <a href="../reality/">the reality agent</a>.</p>
 
       <p><a href="setup.html">Set it up &rsaquo;</a></p>
 
@@ -110,7 +88,7 @@ agent  Two weeks ago you decided to apply for the D-type rather than
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/personal/index.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-16">2026-10-16</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-20">2026-10-20</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

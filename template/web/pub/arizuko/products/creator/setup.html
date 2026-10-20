@@ -49,75 +49,41 @@
       <p class="docs-crumb"><a href="../../">arizuko</a> &rsaquo; <a href="../">products</a> &rsaquo; <a href="./">Content pipeline (Inari)</a> &rsaquo; setup</p>
       <h1>Content pipeline setup</h1>
 
-      <h2>1. Prerequisites</h2>
+      <p class="lede">The content pipeline needs a Codex key for research, an approval channel and a style file. A publish adapter is optional.</p>
 
+      <h2>The pipeline needs an instance, a Codex key and a channel</h2>
       <ul>
-        <li>A running instance (<a href="../../howto/">getting started</a>).</li>
-        <li><code>CODEX_API_KEY</code> &mdash; declared required. The oracle
-          skill does the multi-source synthesis; without it the agent
-          drafts from one source at a time.</li>
-        <li>An approval channel (<code>TELEGRAM_BOT_TOKEN</code>) and at
-          least one publish adapter, if you want it to publish rather than
-          hand you text.</li>
+        <li>A running instance, from <a href="../../howto/">getting started</a>.</li>
+        <li><code>CODEX_API_KEY</code>, which the product declares as required. The oracle skill combines several sources. Without it, the agent drafts from one source at a time.</li>
+        <li>An approval channel, for example Telegram with <code>TELEGRAM_BOT_TOKEN</code> and <code>arizuko packages &lt;instance&gt; add teled</code>. For publishing, also one publish adapter.</li>
       </ul>
 
-      <h2>2. Seed a group from it</h2>
-
+      <h2>group add makes the group from the product</h2>
       <pre><code>arizuko group &lt;instance&gt; add telegram:user/12345678 content --product creator</code></pre>
 
-      <h2>3. Write the style file first</h2>
+      <h2>The style file comes first</h2>
+      <p><code>facts/style.md</code> is the core of the product. It ships as an instruction to the operator and not as content, because a generic voice file gives generic drafts. Record formal or casual, first or third person, the topics in scope, the topics out of scope, length and format, and the rules for each platform, for example short Bluesky posts and the thread shape on X.</p>
+      <div class="callout"><strong>The draft quality follows this one file.</strong> If the drafts read as if nobody wrote them, fix this file. The fix is not in the prompt and not in the model.</div>
 
-      <p>
-        <code>facts/style.md</code> is the whole product. It ships as an
-        instruction to the operator rather than as content, because a
-        generic voice file produces generic drafts. Record: formal or
-        casual, first or third person, what is in scope, what is
-        off-limits, length and formatting preferences, and the per-platform
-        rules (Bluesky brevity, thread shape on X).
-      </p>
-
-      <div class="note">
-        <strong>Draft quality tracks this one file.</strong> If the drafts
-        read like nobody in particular wrote them, the fix is here &mdash;
-        not in the prompt, and not in the model.
-      </div>
-
-      <h2>4. Wire publishing</h2>
-
+      <h2>A publish adapter lets the agent post</h2>
+      <pre><code>arizuko packages &lt;instance&gt; add bskyd</code></pre>
       <pre><code>BLUESKY_IDENTIFIER=you.bsky.social
-BLUESKY_APP_PASSWORD=...</code></pre>
+BLUESKY_PASSWORD=REPLACE_ME</code></pre>
+      <p>Publishing is a normal adapter call, so the agent can post only where you installed an adapter and granted the action. Without an adapter, the agent does not publish, and the drafts come back in the chat.</p>
 
-      <p>
-        The publish step is an ordinary adapter call, so the agent can only
-        post where you have wired an adapter and granted the action. No
-        adapter means no publishing &mdash; the drafts still come back in
-        chat.
-      </p>
-
-      <h2>5. Verify</h2>
-
+      <h2>The agent must ask for a brief</h2>
       <pre><code>arizuko send &lt;instance&gt; content "pitch me three angles on last week's outage" --wait</code></pre>
+      <p>A correct answer proposes angles and then asks for a brief and a platform. If the agent gives a finished draft without a request, the persona file is not in the folder.</p>
 
-      <p>
-        A correct answer pitches and then asks for a brief and a platform.
-        If it hands you a finished draft unasked, <code>SOUL.md</code> did
-        not land.
-      </p>
-
-      <h2>6. Tuning</h2>
-
-      <ul>
-        <li><strong>Voice</strong> &mdash; <code>facts/style.md</code>, not
-          <code>SOUL.md</code>. The persona governs the working habits; the
-          style file governs the output.</li>
-        <li><strong>Approval</strong> &mdash; the agent waits by default.
-          Removing that is a change to <code>SOUL.md</code>, and it is the
-          one change worth thinking twice about.</li>
-        <li><strong>Compose with others</strong> &mdash; blend
-          <code>socials</code> into the same group for distribution; the two
-          personas collide, so keep one persona and take the other
-          product&rsquo;s facts and rules.</li>
-      </ul>
+      <h2>Three changes tune the pipeline</h2>
+      <dl>
+        <dt>Voice</dt>
+        <dd>Edit <code>facts/style.md</code>, not the persona file. The persona controls the work habits, and the style file controls the output.</dd>
+        <dt>Approval</dt>
+        <dd>The agent waits for approval by default. To remove that, change the persona file. Think carefully before you make this one change.</dd>
+        <dt>Work with other products</dt>
+        <dd>Blend <code>socials</code> into the same group for distribution. The two personas conflict, so keep one persona and take the facts and rules of the other product.</dd>
+      </dl>
 
       <nav class="docs-pager" aria-label="Pager">
         <a rel="prev" href="index.html">&larr; Content pipeline (Inari)</a>
@@ -125,7 +91,7 @@ BLUESKY_APP_PASSWORD=...</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/creator/setup.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-16">2026-10-16</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-20">2026-10-20</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

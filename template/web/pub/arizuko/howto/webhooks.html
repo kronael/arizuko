@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>wire webhooks into arizuko — arizuko</title>
+  <title>webhooks — arizuko</title>
   <link rel="stylesheet" href="../assets/hub.css">
 </head>
 <body>
@@ -26,12 +26,12 @@
             <li><a href="slack.html">Slack</a></li>
             <li><a href="discord.html">Discord</a></li>
             <li><a href="asymmetric-channels.html">Asymmetric channels</a></li>
-            <li><a href="chat-link.html">Chat link on your site</a></li>
-            <li><a href="chat-sdk.html">Embed chat (SDK)</a></li>
+            <li><a href="chat-link.html">Chat link</a></li>
+            <li><a href="chat-sdk.html">Chat SDK</a></li>
             <li><a href="webhooks.html">Webhooks</a></li>
-            <li><a href="add-connector.html">Add a connector</a></li>
-            <li><a href="oauth-provider.html">Add an OAuth provider</a></li>
-            <li><a href="webdav.html">WebDAV mount</a></li>
+            <li><a href="add-connector.html">Connectors</a></li>
+            <li><a href="oauth-provider.html">OAuth providers</a></li>
+            <li><a href="webdav.html">WebDAV</a></li>
             <li><a href="kubernetes.html">Kubernetes</a></li>
           </ul>
         </li>
@@ -46,217 +46,107 @@
 
     <main class="docs-content">
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">howto</a> &rsaquo; Webhooks</p>
-      <h1>wire webhooks into arizuko</h1>
+      <h1>webhooks</h1>
 
-      <p>
-        Every SaaS with a &ldquo;POST when X happens&rdquo; knob can hand
-        events to an agent. Mint a hook token, paste the URL into the
-        source, the agent sees inbound messages at a <code>hook:</code>
-        JID. The primitive is <a href="../concepts/tokens.html">route
-        tokens</a>; this page covers the operational details for the
-        three sources you are most likely to wire up.
-      </p>
+      <p class="lede">A service that can send an HTTP POST when an event occurs can give events to an agent. Make a hook token and put its URL into the source. The agent then sees each event as an inbound message at a <code>hook:</code> JID.</p>
 
-      <div class="note">
-        The webhook URL is <code>/hook/&lt;token&gt;</code>. Any valid
-        route token works there &mdash; the JID kind is metadata, not
-        a URL gate. <code>issue_webhook</code> always
-        returns a <code>/hook/&lt;token&gt;</code> URL.
-      </div>
+      <p>The mechanism is the <a href="../concepts/tokens.html">route token</a>. This page shows the setup for the three most common sources.</p>
 
-      <h2>use cases</h2>
+      <div class="callout"><strong>The webhook URL is <code>/hook/&lt;token&gt;</code>.</strong> Every valid route token works at this URL. The JID kind is information for the agent and does not limit the URL. <code>issue_webhook</code> always returns a <code>/hook/&lt;token&gt;</code> URL.</div>
 
-      <p>
-        <strong>GitHub push &rarr; agent.</strong> A repo's webhook
-        settings POST a push payload to <code>/hook/&lt;token&gt;</code>.
-        The agent sees one inbound per push at <code>hook:&lt;folder&gt;/github</code>
-        with the body verbatim. A skill on the agent side parses the
-        payload, decides whether to reply on Slack, file a sub-task,
-        or stay silent.
-      </p>
+      <h2>Three sources show the use</h2>
+      <dl>
+        <dt>A GitHub push</dt>
+        <dd>The webhook settings of a repository post a push payload to <code>/hook/&lt;token&gt;</code>. The agent sees one inbound message for each push at <code>hook:&lt;folder&gt;/github</code>, with the body unchanged. A skill of the agent reads the payload and decides to reply on Slack, to file a task, or to do nothing.</dd>
+        <dt>A Linear comment</dt>
+        <dd>Linear posts new comments to a webhook URL. With a <code>jid_suffix</code>, issues and comments arrive at two JIDs, <code>hook:&lt;folder&gt;/linear/comments</code> and <code>hook:&lt;folder&gt;/linear/issues</code>. Each JID can have its own route.</dd>
+        <dt>An alert</dt>
+        <dd>Grafana, Sentry, Healthchecks.io or a cron job that posts JSON. Any HTTP client works. The agent gets the body unchanged.</dd>
+      </dl>
 
-      <p>
-        <strong>Linear comment &rarr; agent.</strong> Linear posts new
-        comments to a webhook URL. With a <code>jid_suffix</code> the
-        agent can split issues and comments into two streams &mdash;
-        <code>hook:&lt;folder&gt;/linear/comments</code> vs
-        <code>hook:&lt;folder&gt;/linear/issues</code> &mdash; and route
-        each independently.
-      </p>
-
-      <p>
-        <strong>Custom alert &rarr; agent.</strong> Grafana, Sentry,
-        Healthchecks.io, or a cron job that POSTs JSON: anything that
-        speaks HTTP. The body is delivered to the agent verbatim.
-      </p>
-
-      <h2>issuing a webhook</h2>
-
-      <p>Three ways, one writer.</p>
-
-      <p><strong>The agent asks for it (MCP).</strong> A turn in folder <code>acme/eng</code> calls:</p>
+      <h2>The agent, the CLI or the REST API makes the token</h2>
+      <p>All three ways write the same row.</p>
+      <p>The agent asks for it. A turn in the folder <code>acme/eng</code> calls:</p>
       <pre><code>issue_webhook(source_label="github")</code></pre>
-      <p>The MCP response carries the URL once:</p>
+      <p>The MCP answer shows the URL only once:</p>
       <pre><code>{
   "token": "Yp3v...Q2",
   "url":   "https://&lt;host&gt;/hook/Yp3v...Q2",
   "jid":   "hook:acme/eng/github"
 }</code></pre>
-      <p>
-        The agent typically prints the URL back into chat so a human
-        can paste it into GitHub. The raw token is not stored
-        anywhere recoverable &mdash; if it scrolls past, reissue.
-      </p>
-
-      <p><strong>An operator from the CLI.</strong></p>
-      <pre><code>arizuko token issue acme/eng hook github
-# prints the URL once</code></pre>
-      <p>
-        The CLI hits <code>POST /v1/route_tokens/hook</code>
-        OAuth-gated through proxyd. Same row, same shape as the
-        MCP path.
-      </p>
-
-      <p><strong>A button in dashd.</strong> The folder page in
-        <code>/dash/</code> lists existing tokens and offers an
-        &ldquo;Issue webhook&rdquo; button per folder.</p>
-
-      <p>
-        Every mint face also takes an optional <code>context</code>
-        &mdash; the link's processing contract, delivered to the agent
-        as a <code>&lt;link-context&gt;</code> block on each event:
-      </p>
+      <p>The agent usually writes the URL into the chat, so that a person can paste it into GitHub. The store keeps only a hash of the token. If the URL is lost, issue a new token.</p>
+      <p>An operator uses the CLI, here on the instance <code>demo</code>:</p>
+      <pre><code>arizuko token demo issue webhook acme/eng github
+# jid:   hook:acme/eng/github
+# token: Yp3v...Q2</code></pre>
+      <p>The URL is <code>https://&lt;host&gt;/hook/&lt;token&gt;</code>. An external tool uses <code>POST /v1/route_tokens/hook</code> on <code>routd</code>. The dashboard lists the tokens of a folder at <code>/dash/tokens/&lt;folder&gt;/</code> and can revoke them, but it does not make tokens.</p>
+      <p>Each way also takes an optional <code>context</code>. The context is the processing rule of the link. The agent gets it as a <code>&lt;link-context&gt;</code> block with each event:</p>
       <pre><code>issue_webhook(source_label="stripe", context="payment events; summarize daily, no replies")</code></pre>
 
-      <h2>worked example: GitHub repo</h2>
-
+      <h2>A GitHub repository needs six settings</h2>
       <ol>
-        <li>Have the agent at <code>acme/eng</code> call
-          <code>issue_webhook("github")</code>. Copy the URL.</li>
-        <li>In GitHub: repo &rarr; Settings &rarr; Webhooks &rarr;
-          Add webhook.</li>
+        <li>Ask the agent at <code>acme/eng</code> to call <code>issue_webhook(source_label="github")</code>. Copy the URL.</li>
+        <li>In GitHub, open the repository, then Settings, then Webhooks, then Add webhook.</li>
         <li>Payload URL: <code>https://&lt;host&gt;/hook/&lt;token&gt;</code></li>
         <li>Content type: <code>application/json</code>.</li>
         <li>SSL verification: enabled.</li>
-        <li>Events: pick the ones you want the agent to hear about.</li>
+        <li>Events: select the events that the agent must see.</li>
       </ol>
-
-      <p>On the next push, webd hashes the token, looks up the row,
-        and writes one inbound:</p>
-
+      <p>At the next push, <code>webd</code> hashes the token, finds the row and sends one inbound message to <code>routd</code>:</p>
       <pre><code>{
   "jid":     "hook:acme/eng/github",
   "sender":  "github",
-  "body":    "{\"ref\":\"refs/heads/main\",\"commits\":[...]}"
+  "content": "{\"ref\":\"refs/heads/main\",\"commits\":[...]}"
 }</code></pre>
+      <p>The body is unchanged, up to 1 MiB. <code>webd</code> does not forward the request headers. The token URL is the only authentication, as the <a href="#security-model">security model</a> explains.</p>
+      <p><code>webd</code> answers GitHub with <code>204 No Content</code>. The agent answers, if at all, on the channel that fits. A webhook source does not read a reply.</p>
 
-      <p>
-        The body is verbatim &mdash; whatever GitHub sent &mdash; up
-        to the 1 MiB cap. Request headers are not forwarded; the
-        token URL is the only authentication (see the
-        <a href="#security-model">security model</a>).
-      </p>
-
-      <p>webd returns a plain response to GitHub. The agent
-        acknowledges (if at all) on whichever channel makes sense
-        &mdash; webhooks rarely care about an in-band reply.</p>
-
-      <h2>multiple sources under one folder</h2>
-
-      <p>
-        Pass a <code>jid_suffix</code> to partition. One folder can
-        receive several webhook streams at different JIDs without
-        collision:
-      </p>
-
-      <pre><code>issue_webhook("linear", jid_suffix="comments")
+      <h2>A suffix keeps several sources apart in one folder</h2>
+      <p>Pass a <code>jid_suffix</code> to split the events. One folder can receive several webhook streams at different JIDs:</p>
+      <pre><code>issue_webhook(source_label="linear", jid_suffix="comments")
   &rarr; hook:acme/eng/linear/comments
 
-issue_webhook("linear", jid_suffix="issues")
+issue_webhook(source_label="linear", jid_suffix="issues")
   &rarr; hook:acme/eng/linear/issues</code></pre>
+      <p>Each suffix gets its own URL, its own row and its own JID. A route can start turns for one JID only, with <code>chat_jid=hook:acme/eng/linear/comments</code>. Another route can store the events of the other JID with <a href="../concepts/routing.html#modes"><code>#observe</code></a> and start no turn.</p>
 
-      <p>
-        Each suffix gets its own URL, its own row, and its own JID.
-        Route rules can fire only on one (<code>jid=hook:acme/eng/linear/comments</code>)
-        and ignore the other, or observe everything from
-        <code>hook:acme/eng/linear/*</code> without firing a turn
-        (see <a href="../concepts/routing.html#modes"><code>#observe</code></a>).
-      </p>
-
-      <h2>revocation</h2>
-
-      <p>One call from MCP or REST:</p>
-
-      <pre><code>revoke_route_token(jid="hook:acme/eng/github")
+      <h2>A revoke takes effect at once</h2>
+      <p>Revoke through MCP or the CLI:</p>
+      <pre><code>revoke_token(jid="hook:acme/eng/github")
 # or
-arizuko token revoke hook:acme/eng/github</code></pre>
+arizuko token demo revoke hook:acme/eng/github</code></pre>
+      <p>The next request to that URL returns 404. No grace period exists. The caller of <code>revoke_token</code> must own the token: the <code>owner_folder</code> of the token must be the folder of the caller.</p>
 
-      <p>
-        The next request to that URL returns 401. No grace period.
-        An agent in a different folder cannot revoke a token whose
-        <code>owner_folder</code> is not its own &mdash; the ACL
-        check at <code>revoke_route_token</code> requires admin on
-        the issuing folder.
-      </p>
+      <h2 id="security-model">The URL is the only secret</h2>
+      <div class="callout"><strong>Anyone with the URL can post to the JID.</strong> <code>webd</code> does not check a body signature.</div>
+      <p>The bearer model is a design decision, and it has three results:</p>
+      <dl>
+        <dt>Rotate by a new token</dt>
+        <dd>If the URL leaks, make a new token, put it into the source and revoke the old row. No rotation in place exists.</dd>
+        <dt>Use one token for each source</dt>
+        <dd>A leaked GitHub token can post into <code>hook:acme/eng/github</code>. It cannot post into <code>hook:acme/eng/linear/*</code> or into any other JID.</dd>
+        <dt>No body signature</dt>
+        <dd><code>webd</code> drops the HMAC headers of the source, for example the GitHub <code>X-Hub-Signature-256</code> and the Stripe <code>Stripe-Signature</code>, with all other request headers.</dd>
+      </dl>
+      <p><code>webd</code> limits the rate for each token. The limit for <code>hook:</code> JIDs is higher than for <code>web:</code> JIDs, because machines send bursts. A request over the limit gets 429. The body limit is 1 MiB.</p>
 
-      <h2 id="security-model">security model</h2>
-
-      <div class="note">
-        The URL is the secret. Anyone who holds it can POST to the JID.
-        webd does not verify any body signature.
-      </div>
-
-      <p>The bearer model is intentional and has three corollaries.</p>
-
-      <ul>
-        <li>
-          <strong>Rotate by reissue.</strong> If the URL leaks,
-          mint a new token, swap it at the source, revoke the old
-          row. There is no in-place rotation.
-        </li>
-        <li>
-          <strong>One token per source.</strong> A leaked GitHub
-          token can POST into <code>hook:acme/eng/github</code>; it
-          cannot POST into <code>hook:acme/eng/linear/*</code> or
-          any other JID. Keep sources separate.
-        </li>
-        <li>
-          <strong>No body signing.</strong> Upstream HMAC headers
-          (GitHub <code>X-Hub-Signature-256</code>, Stripe
-          <code>Stripe-Signature</code>) are dropped at ingest with
-          the rest of the request headers. The URL is the only
-          secret &mdash; treat it like a bearer token.
-        </li>
-      </ul>
-
-      <p>
-        Per-token rate limits live in webd: a higher bucket for
-        <code>hook:</code> than for <code>web:</code>, sized for
-        machine bursts. Excess returns 429. Body cap is 1 MiB.
-      </p>
-
-      <h2>checking it works</h2>
-
+      <h2>The journal shows each event</h2>
       <pre><code>sudo journalctl -u arizuko_&lt;instance&gt; --since "30s ago" -f \
-  | grep -iE 'hook:|/hook/'</code></pre>
+  | grep -iE 'hook inbound|hook rate limit|route token not found'</code></pre>
+      <p>A 404 means that the token is unknown or revoked. A 429 means that the rate limit applies. A 413 means that the body is larger than 1 MiB.</p>
 
-      <p>
-        A 401 means the token is unknown or revoked. A 429 is the
-        rate-limit bucket. A 413 is body over 1 MiB.
-      </p>
-
-      <h2>go deeper</h2>
-      <ul>
-        <li><a href="../concepts/tokens.html">concepts/route tokens</a> &mdash; the primitive both this page and <a href="../howto/chat-link.html">chat link</a> use.</li>
-        <li><a href="../howto/chat-link.html">how-to: chat link</a> &mdash; the <code>web:</code>-prefix sibling, for browser chat URLs.</li>
-        <li><a href="../reference/tokens.html">reference/tokens</a> &mdash; payload shapes, env vars, full MCP and REST surface.</li>
-        <li><a href="../concepts/routing.html">routing</a> &mdash; how a <code>hook:</code> JID reaches an agent and how <code>#observe</code> works.</li>
-      </ul>
+      <h2>Four pages give the details</h2>
+      <dl>
+        <dt><a href="../concepts/tokens.html">route tokens</a></dt><dd>The mechanism of this page and of the <a href="chat-link.html">chat link</a>.</dd>
+        <dt><a href="chat-link.html">chat link</a></dt><dd>The <code>web:</code> token for browser chat URLs.</dd>
+        <dt><a href="../reference/tokens.html">token reference</a></dt><dd>Payload shapes, env vars and the full MCP and REST surface.</dd>
+        <dt><a href="../concepts/routing.html">routing</a></dt><dd>How a <code>hook:</code> JID reaches an agent, and how <code>#observe</code> works.</dd>
+      </dl>
 
 
       <nav class="docs-pager" aria-label="Pager">
-        <a rel="prev" href="chat-sdk.html">&larr; Embed chat (SDK)</a>
-        <a rel="next" href="oauth-provider.html">Add an OAuth provider &rarr;</a>
+        <a rel="prev" href="chat-sdk.html">&larr; Chat SDK</a>
+        <a rel="next" href="add-connector.html">Connectors &rarr;</a>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/howto/webhooks.html">Edit this page</a>

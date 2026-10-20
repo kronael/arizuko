@@ -50,49 +50,11 @@
       <h1>products</h1>
 
 
-      <p class="lede">
-        Each product is a folder shape &mdash; a persona, a skill set, the
-        channel wiring, and an operator setup guide. Eleven ship as
-        templates you can seed with <code>arizuko create --product
-        &lt;id&gt;</code>; four are <em>shapes</em>, described here and
-        assembled from the primitives, each marked as such on its own page.
-        Either way you end up with files you edit.
-      </p>
-      <p>
-        Under the hood a product is no new machinery: it&rsquo;s the same
-        <a href="../concepts/primitives.html">six-primitive pipeline</a> every
-        arizuko agent runs, with the folder contents and routing fixed for one
-        job. That&rsquo;s why these are yours to read, diff, and change &mdash;
-        a product you own, not a blob you rent.
-      </p>
-      <p>
-        A group is not limited to one. List several in
-        <code>~/products.toml</code> and run
-        <code>arizuko products &lt;instance&gt; apply &lt;folder&gt;</code> to
-        blend them &mdash; a support product for the job, a brand product for the
-        voice. Nothing is merged line-by-line: each kind of file gets one rule,
-        and two products claiming the same file stops the apply instead of
-        quietly dropping one. See the
-        <a href="../reference/packages.html#blending-several-products-into-one-group">packages
-        reference</a>.
-      </p>
-      <p>
-        Products span a spectrum: a single shared folder with one job at one
-        end, a full org-chart hierarchy at the other. Pick the shape that
-        fits, then own the files.
-      </p>
-      <p>
-        <strong>Every shipped product carries its own tests.</strong> Each one
-        has an <code>eval/*.toml</code> suite that arizuko&rsquo;s own harness
-        runs against the live agent &mdash; not a check that the files landed,
-        but that the persona still behaves the way its page here promises: this
-        one escalates instead of promising a refund, that one refuses to print
-        an AWS secret, another never posts without approval. Run yours with
-        <code>anteval run &lt;host&gt; --cases
-        &lt;data-dir&gt;/groups/&lt;folder&gt;/eval</code>, and see
-        <a href="../howto/build-a-product.html#ship-tests-with-it">Ship tests
-        with it</a> to write more.
-      </p>
+      <p class="lede">Each product is the shape of one folder: a persona, a set of skills, the channel setup and an operator setup guide. Eleven products ship as templates that <code>arizuko create --product &lt;id&gt;</code> copies into a group. Four are <em>shapes</em>: their pages describe them, you assemble them from the same parts, and each page says so. In both cases, the result is files that you edit.</p>
+      <p>A product adds no code. It uses the same <a href="../concepts/primitives.html">six-step pipeline</a> as every arizuko agent, with the folder files and the routes set for one job. So you can read, diff and change every product: a product you own, not a blob you rent.</p>
+      <p>A group can have more than one product. List the products in <code>~/products.toml</code> and run <code>arizuko products &lt;instance&gt; apply &lt;folder&gt;</code> to combine them, for example a support product for the job and a brand product for the voice. arizuko merges no file line by line. Each kind of file has one rule, and when two products claim the same file, the apply stops and drops nothing. The <a href="../reference/packages.html#blending-several-products-into-one-group">packages reference</a> lists the rules.</p>
+      <p>The products go from one shared folder with one job to a full tree of folders that follows an org chart. Pick the shape that fits, then change the files.</p>
+      <p><strong>Every shipped product carries its own tests.</strong> Each one has an <code>eval/*.toml</code> suite that the arizuko eval harness runs against the live agent. The suite does not check that the files arrived. It checks that the persona still acts as its page promises: one product escalates and does not promise a refund, one refuses to print an AWS secret, one never posts without approval. Run a suite with <code>anteval run &lt;host&gt; --cases &lt;data-dir&gt;/groups/&lt;folder&gt;/eval</code>. <a href="../howto/build-a-product.html#ship-tests-with-it">Ship tests with it</a> shows how to write more.</p>
 
       <div class="grid">
       <div class="tablecard">
@@ -216,7 +178,7 @@
       </div>
       </div>
 
-      <p class="dim">See <a href="../howto/">getting started</a> for the platform install before picking a product.</p>
+      <p class="dim">Install the platform with <a href="../howto/">getting started</a> before you pick a product.</p>
 
 
       <nav class="docs-pager" aria-label="Pager">
@@ -224,7 +186,7 @@
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/index.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-16">2026-10-16</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-20">2026-10-20</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

@@ -49,66 +49,38 @@
       <p class="docs-crumb"><a href="../../">arizuko</a> &rsaquo; <a href="../">products</a> &rsaquo; <a href="./">PM agent (Sloth)</a> &rsaquo; setup</p>
       <h1>PM agent setup</h1>
 
-      <h2>1. Prerequisites</h2>
+      <p class="lede">The PM agent needs one team channel and a list of the team members.</p>
 
+      <h2>The agent needs an instance and one team channel</h2>
       <ul>
-        <li>A running instance (<a href="../../howto/">getting started</a>).</li>
-        <li>One team channel. The product declares both
-          <code>TELEGRAM_BOT_TOKEN</code> and
-          <code>DISCORD_BOT_TOKEN</code> as optional &mdash; set at least
-          one, or the board has no way to reach anyone.</li>
+        <li>A running instance, from <a href="../../howto/">getting started</a>.</li>
+        <li>One team channel. The product declares <code>TELEGRAM_BOT_TOKEN</code> and <code>DISCORD_BOT_TOKEN</code> as optional. Set at least one and install its adapter, for example <code>arizuko packages &lt;instance&gt; add discd</code>. Without a channel, the board reaches nobody.</li>
       </ul>
 
-      <h2>2. Seed a group from it</h2>
+      <h2>group add makes the group from the product</h2>
+      <pre><code>arizuko group &lt;instance&gt; add discord:123456789/987654321 pm --product pm</code></pre>
+      <p>The JID is <code>discord:&lt;guild_id&gt;/&lt;channel_id&gt;</code>. For a Discord server channel, the command writes a mention route and an observe route.</p>
 
-      <pre><code>arizuko group &lt;instance&gt; add discord:acme/channel/992 pm --product pm</code></pre>
+      <h2>facts/team.md names the owners</h2>
+      <p><code>facts/team.md</code> gives an owner name its meaning. Without it, the agent cannot tell whether "mira" is a person or a service. List the members, their roles and how to reach them.</p>
+      <p><code>facts/tasks.md</code> can stay as it ships. The agent adds rows, and an empty start avoids a board full of imported items that nobody owns.</p>
 
-      <h2>3. Fill in the team</h2>
-
-      <p>
-        <code>facts/team.md</code> is what makes an owner name meaningful:
-        without it the agent cannot tell whether &ldquo;mira&rdquo; is a
-        person or a service. List members, roles, and how to reach them.
-      </p>
-
-      <p>
-        <code>facts/tasks.md</code> can stay as it ships. The agent will
-        grow it, and starting empty avoids the usual import problem of a
-        board full of items nobody owns.
-      </p>
-
-      <h2>4. Verify</h2>
-
+      <h2>The agent must confirm before it writes</h2>
       <pre><code>arizuko send &lt;instance&gt; pm "add a task: rotate route tokens, owner mira, due friday" --wait</code></pre>
+      <p>A correct answer confirms the owner and the deadline <em>before</em> it writes. If the agent writes at once, the persona is not in place. Check <code>groups/pm/PERSONA.md</code>, which <code>SOUL.md</code> becomes at the first turn.</p>
 
-      <p>
-        A correct answer confirms owner and deadline back to you
-        <em>before</em> writing. If it writes immediately, the
-        <code>SOUL.md</code> did not land &mdash; check
-        <code>groups/pm/SOUL.md</code>.
-      </p>
+      <h2>A scheduled task writes the weekly status</h2>
+      <p>Ask for the status, or schedule it. A scheduled task is a <code>scheduled_tasks</code> row that the tool of the agent makes. Tell the agent "post the status summary every Monday at 9", and it makes the row. Products ship no task files. <a href="../../concepts/tasks.html">Scheduled tasks</a> explains why.</p>
 
-      <h2>5. Weekly status</h2>
-
-      <p>
-        Ask for it, or schedule it. A scheduled task is a
-        <code>scheduled_tasks</code> row created through the agent&rsquo;s
-        own tool &mdash; tell it &ldquo;post the status summary every Monday
-        at 9&rdquo; and it creates one. Products do not ship task files;
-        see <a href="../../concepts/tasks.html">scheduled tasks</a>.
-      </p>
-
-      <h2>6. Tuning</h2>
-
-      <ul>
-        <li><strong>Board shape</strong> &mdash; edit
-          <code>facts/tasks.md</code> directly. It is the source of truth,
-          not a cache of one.</li>
-        <li><strong>Escalation</strong> &mdash; the agent flags blocked and
-          overdue items; who it pings comes from
-          <code>facts/team.md</code>.</li>
-        <li><strong>Voice</strong> &mdash; edit <code>SOUL.md</code>.</li>
-      </ul>
+      <h2>Three changes tune the agent</h2>
+      <dl>
+        <dt>Board shape</dt>
+        <dd>Edit <code>facts/tasks.md</code> directly. The file is the source of truth, not a copy.</dd>
+        <dt>Escalation</dt>
+        <dd>The agent reports blocked and late items. <code>facts/team.md</code> decides whom it contacts.</dd>
+        <dt>Voice</dt>
+        <dd>Edit the persona file.</dd>
+      </dl>
 
       <nav class="docs-pager" aria-label="Pager">
         <a rel="prev" href="index.html">&larr; PM agent (Sloth)</a>
@@ -116,7 +88,7 @@
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/pm/setup.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-16">2026-10-16</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-20">2026-10-20</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

@@ -49,133 +49,89 @@
       <p class="docs-crumb"><a href="../../">arizuko</a> &rsaquo; <a href="../">products</a> &rsaquo; Discord team agent &mdash; setup</p>
       <h1>Discord team agent — setup</h1>
 
+      <p class="lede">The setup puts one agent into a Discord guild: an arizuko instance, a Discord bot, linked identities through OAuth, and the web workspace.</p>
 
-
-      <p class="lede">
-        Deploy one agent into a Discord guild: arizuko instance, Discord bot,
-        OAuth-linked identities, web workspace access.
-      </p>
-
-      <h2>prerequisites</h2>
+      <h2>The agent needs a public host, a guild and KVM</h2>
       <ul>
-        <li>A host with Docker, ports 80/443 reachable behind a TLS terminator.</li>
-        <li>A Discord server (guild) where you have admin permissions.</li>
-        <li>The build half of the <a href="../../howto/index.html#install">install</a>: the binary, the images and the guest kernel, with <code>DATA_DIR</code> set to this instance&rsquo;s data dir. A turn is one KVM guest, so the host needs <code>/dev/kvm</code>.</li>
-        <li>Anthropic API access for the agent inside the guest.</li>
+        <li>A host with Docker and a public hostname behind a TLS endpoint.</li>
+        <li>A Discord server, a guild, where you have admin permissions.</li>
+        <li>The build part of the <a href="../../howto/index.html#install">install</a>: the binary, the images and the guest kernel, with <code>DATA_DIR</code> set to the data directory of this instance. A turn is one KVM guest, so the host needs <code>/dev/kvm</code>.</li>
+        <li>Anthropic API access for the agent in the guest.</li>
       </ul>
 
-      <h2>1. seed the instance</h2>
+      <h2>create makes the instance with the generic persona</h2>
       <pre><code>arizuko create acme
-cd /srv/data/arizuko_acme
-$EDITOR .env</code></pre>
-      <p>
-        No <code>discord-team</code> product template ships yet, so the
-        <code>main</code> group comes up with the generic persona. The
-        closest starting point is <code>ant/examples/slack-team/</code>
-        &mdash; copy its <code>PERSONA.md</code> and <code>CLAUDE.md</code>
-        into <code>groups/main/</code> and edit out the Slack-specific lines
-        (the sidebar pane, the channel wording), or write your own.
-      </p>
+arizuko packages acme add discd
+$EDITOR /srv/data/arizuko_acme/.env</code></pre>
+      <p>No <code>discord-team</code> template exists, so the <code>main</code> group starts with the generic persona. The nearest start is <code>ant/examples/slack-team/</code>. Copy its <code>PERSONA.md</code> and <code>CLAUDE.md</code> into <code>groups/main/</code> and remove the Slack lines, for example the AI pane and the channel words. Or write your own files.</p>
 
-      <h2>2. fill in <code>.env</code></h2>
-      <p>The Discord-team setup needs at least these keys set:</p>
+      <h2>.env holds the Discord token and the OAuth providers</h2>
       <pre><code># Identity + secrets
 ASSISTANT_NAME=acme              # agent display name
-AUTH_SECRET=…                    # JWT signer; arizuko create pre-generates it
-WEB_HOST=acme.example.com        # public hostname for proxyd / OAuth callbacks
+AUTH_SECRET=REPLACE_ME           # arizuko create writes it
+WEB_HOST=acme.example.com        # public hostname for proxyd and OAuth callbacks
+WEB_PORT=8095                    # starts the web layer
 
 # Discord adapter
-DISCORD_BOT_TOKEN=...            # from the Discord Developer Portal
+DISCORD_BOT_TOKEN=REPLACE_ME     # from the Discord Developer Portal
 
-# OAuth providers for linked identities (any subset)
-GITHUB_CLIENT_ID=...
-GITHUB_CLIENT_SECRET=...
-GOOGLE_CLIENT_ID=...
-GOOGLE_CLIENT_SECRET=...
-DISCORD_CLIENT_ID=...
-DISCORD_CLIENT_SECRET=...</code></pre>
-      <p>
-        <code>arizuko create</code> already generated <code>AUTH_SECRET</code>
-        and <code>SECRETS_KEY</code> &mdash; leave those alone.
-        See <a href="../../reference/env.html">reference / env</a> for the
-        complete list.
-      </p>
+# OAuth providers for linked identities, any subset
+GITHUB_CLIENT_ID=REPLACE_ME
+GITHUB_CLIENT_SECRET=REPLACE_ME
+GOOGLE_CLIENT_ID=REPLACE_ME
+GOOGLE_CLIENT_SECRET=REPLACE_ME
+DISCORD_CLIENT_ID=REPLACE_ME
+DISCORD_CLIENT_SECRET=REPLACE_ME</code></pre>
+      <p><code>arizuko create</code> already wrote <code>AUTH_SECRET</code> and <code>SECRETS_KEY</code>. Do not change them. <a href="../../reference/env.html">reference / env</a> lists every variable.</p>
 
-      <h2>3. create the Discord bot</h2>
+      <h2>The Discord bot needs the Message Content Intent</h2>
       <p>In <a href="https://discord.com/developers/applications">discord.com/developers/applications</a>:</p>
-      <ul>
-        <li><strong>New Application.</strong> Name it, save.</li>
-        <li><strong>Bot.</strong> Click "Add Bot". Copy the token into <code>DISCORD_BOT_TOKEN</code>.</li>
-        <li><strong>Privileged Gateway Intents.</strong> Enable "Message Content Intent" so the bot can read message text.</li>
-        <li><strong>OAuth2 &rarr; URL Generator.</strong> Select scopes: <code>bot</code>, <code>applications.commands</code>. Select permissions: Send Messages, Read Message History, Add Reactions, Attach Files, Use Slash Commands. Copy the generated URL.</li>
-        <li><strong>Invite.</strong> Open the URL in a browser, select your guild, authorize.</li>
-      </ul>
+      <dl>
+        <dt>New Application</dt><dd>Give it a name and save it.</dd>
+        <dt>Bot</dt><dd>Click "Add Bot" and copy the token into <code>DISCORD_BOT_TOKEN</code>.</dd>
+        <dt>Privileged Gateway Intents</dt><dd>Enable "Message Content Intent", so that the bot can read the message text.</dd>
+        <dt>OAuth2 &rarr; URL Generator</dt><dd>Select the scope <code>bot</code>. Select the permissions Send Messages, Read Message History, Add Reactions and Attach Files. Copy the generated URL.</dd>
+        <dt>Invite</dt><dd>Open the URL in a browser, select your guild and authorize.</dd>
+      </dl>
+      <p><a href="../../howto/discord.html">Discord</a> has the same steps in more detail.</p>
 
-      <h2>4. run the instance</h2>
+      <h2>arizuko run starts the instance</h2>
       <pre><code>arizuko run acme</code></pre>
-      <p>
-        This generates a Docker Compose file and runs it. For long-running
-        production, install a systemd unit; see
-        <a href="../../howto/">getting started</a> for the template.
-      </p>
+      <p>The command writes a Docker Compose file and starts it. For production, run the instance as a systemd service, as <a href="../../howto/">getting started</a> shows.</p>
 
-      <h2>5. verify</h2>
+      <h2>A mention in a channel must get a reply</h2>
       <ul>
-        <li><code>sudo systemctl status arizuko_acme</code> (or <code>docker compose ps</code>) shows all services up.</li>
-        <li><code>sudo docker ps --filter "name=discd"</code> shows the adapter healthy. discd connects out to Discord&rsquo;s gateway &mdash; there is no public <code>/discord/</code> URL to probe.</li>
-        <li><code>sudo journalctl -u arizuko_acme --since "5 min ago" | grep discd</code> shows the gateway connected, no auth errors.</li>
-        <li>In Discord, send <code>@acme hello</code> in a channel the bot can see. The agent replies.</li>
-        <li>Visit <code>https://&lt;WEB_HOST&gt;/dash/</code> as the operator &mdash; you should see the guild as a group with a route.</li>
+        <li><code>arizuko status acme</code> shows all services up and the Discord channel connected. <code>discd</code> connects out to the Discord gateway, so no public <code>/discord/</code> URL exists to test.</li>
+        <li><code>sudo journalctl -u arizuko_acme --since "5 min ago" | grep -E "discord connected|channel registered"</code> shows the connection and no auth errors.</li>
+        <li>In Discord, send <code>@acme hello</code> in a channel that the bot can see. The agent replies.</li>
+        <li>Open <code>https://&lt;WEB_HOST&gt;/dash/</code> as the operator. The guild channel shows as a group with routes.</li>
       </ul>
 
-      <h2>6. recommended routing default</h2>
-      <p>
-        For a guild bot, the usual shape is "answer every DM, stay quiet in
-        channels unless @-mentioned." Discord JIDs are
-        <code>discord:&lt;guild_id&gt;/&lt;channel_id&gt;</code> for guild
-        channels and <code>discord:dm/&lt;channel_id&gt;</code> for DMs:
-      </p>
+      <h2>The usual routes answer DMs and mentions and observe the rest</h2>
+      <p>A guild bot usually answers every DM and stays quiet in channels until someone mentions it. A guild channel JID is <code>discord:&lt;guild_id&gt;/&lt;channel_id&gt;</code>, and a DM is <code>discord:dm/&lt;channel_id&gt;</code>:</p>
       <pre><code>seq  match                                target
 -2   chat_jid=discord:dm/*                main
 -1   chat_jid=discord:*/* verb=mention    main
 0    chat_jid=discord:*/*                 main#observe</code></pre>
-      <p>
-        Channel chatter still lands in <code>main</code> under
-        <code>#observe</code> so the agent has context on the next
-        mention, but no turn fires until someone calls on it.
-        <code>arizuko group add</code> on a guild-channel JID writes this
-        mention + observe pair for you (see step 10); the rows above are
-        the guild-wide equivalent, added with
-        <code>arizuko route acme add &lt;match&gt; &lt;target&gt; --seq N</code>.
-      </p>
+      <p>The channel messages still go into <code>main</code> under <code>#observe</code>, so the agent has the context at the next mention. No turn starts until someone calls the agent. <code>arizuko group add</code> on a guild channel JID writes this mention and observe pair for that one channel. The rows above do the same for every guild, with <code>arizuko route acme add &lt;match&gt; &lt;target&gt; --seq N</code>.</p>
 
-      <h2>7. enable member features</h2>
-      <p>
-        Plain channel use needs no sign-in. For the full member experience
-        (personal cloud, web chat, cross-platform identity), members sign in
-        at <code>https://&lt;WEB_HOST&gt;/auth/login</code>.
-      </p>
-      <ul>
-        <li><strong>Personal cloud.</strong> After sign-in, members can mount <code>/dav/&lt;folder&gt;/</code> via WebDAV. Agent outputs, notes, and uploads persist here.</li>
-        <li><strong>Web chat.</strong> The <code>/chat/</code> interface lets members continue conversations in a browser.</li>
-        <li><strong>Dashboard access.</strong> Members with elevated grants see their usage at <code>/dash/</code>.</li>
-      </ul>
+      <h2>A sign-in opens the member features</h2>
+      <p>Channel use needs no sign-in. For the personal cloud, the web chat and one identity across platforms, members sign in at <code>https://&lt;WEB_HOST&gt;/auth/login</code>.</p>
+      <dl>
+        <dt>Personal cloud</dt><dd>A signed-in member can open <code>/dav/&lt;folder&gt;/</code> in the browser. A WebDAV client needs a Bearer token, as <a href="../../howto/webdav.html">WebDAV</a> shows.</dd>
+        <dt>Web chat</dt><dd>The <code>/chat/</code> page lets members continue a conversation in a browser.</dd>
+        <dt>Dashboard</dt><dd>Members with the grants see their folders at <code>/dash/</code>.</dd>
+      </dl>
 
-      <h2>8. configure use cases</h2>
+      <h2>CLAUDE.md sets the use of a channel</h2>
+      <h3>Support agent</h3>
+      <p>For a support channel, put your knowledge base into <code>facts/</code>:</p>
+      <pre><code># copy the documentation into facts/
+cp /path/to/docs/*.md /srv/data/arizuko_acme/groups/main/facts/
 
-      <h3>support agent</h3>
-      <p>
-        For a support/analysis channel, populate the <code>facts/</code>
-        directory with your knowledge base:
-      </p>
-      <pre><code># Copy documentation into facts/
-cp -r /path/to/docs/*.md /srv/data/arizuko_acme/groups/main/facts/
-
-# Or edit the CLAUDE.md to point to external sources
+# or point CLAUDE.md at external sources
 $EDITOR /srv/data/arizuko_acme/groups/main/CLAUDE.md</code></pre>
-      <p>
-        Add to the channel's <code>CLAUDE.md</code>:
-      </p>
+      <p>Add these rules to the <code>CLAUDE.md</code> of the channel:</p>
       <pre><code>## Support behavior
 
 When answering questions:
@@ -184,12 +140,8 @@ When answering questions:
 3. If the answer isn't in facts/, say "I don't have that in my knowledge base"
 4. Never guess or make up information
 5. Offer to escalate to a human when stuck</code></pre>
-
-      <h3>trading/market analysis agent</h3>
-      <p>
-        For a collaborative research channel, configure the agent to track
-        observations and produce synthesis:
-      </p>
+      <h3>Research agent</h3>
+      <p>For a shared research channel, tell the agent to record observations and write summaries:</p>
       <pre><code>## Research behavior
 
 When members share URLs:
@@ -208,64 +160,35 @@ On request for synthesis:
 3. Note patterns and contradictions
 4. Cite sources for each point</code></pre>
 
-      <h2>9. tune per channel</h2>
-      <p>
-        Each Discord channel maps to an arizuko group folder. To customise
-        voice, allowed tools, or skills for one channel, edit its
-        <code>~/CLAUDE.md</code> via WebDAV at
-        <code>https://&lt;WEB_HOST&gt;/dav/&lt;channel&gt;/CLAUDE.md</code>
-        or directly on disk.
-      </p>
+      <h2>Each channel folder has its own CLAUDE.md</h2>
+      <p>Each Discord channel maps to a group folder. To change the voice, the allowed tools or the skills of one channel, edit its <code>CLAUDE.md</code>, over WebDAV at <code>https://&lt;WEB_HOST&gt;/dav/&lt;folder&gt;/CLAUDE.md</code> or on disk.</p>
+      <div class="callout"><strong>Secrets for one channel stay in that channel.</strong> Put the API keys of tools that one channel needs into the <code>secrets</code> table: <code>arizuko secret &lt;instance&gt; set &lt;folder&gt; KEY --value V</code>.</div>
 
-      <div class="callout">
-        <strong>Channel-scoped secrets.</strong> Tool API keys an agent
-        needs in one channel but not another go in the <code>secrets</code>
-        table &mdash; set with
-        <code>arizuko secret &lt;instance&gt; set &lt;folder&gt; KEY --value V</code>.
-      </div>
-
-      <h2>10. adding more channels</h2>
-      <p>
-        Map a new channel to a folder (guild ID, then channel ID):
-      </p>
+      <h2>Each new channel is one more group</h2>
+      <p>Map a new channel to a folder, with the guild ID first and then the channel ID:</p>
       <pre><code>arizuko group acme add 'discord:123456789/987654321' dev-chat</code></pre>
-      <p>
-        For guild channels this writes the mention-trigger + observe route
-        pair automatically. For a per-channel persona or skill set, edit
-        <code>~/CLAUDE.md</code> in the new folder.
-      </p>
+      <p>For a guild channel, the command also writes the mention route and the observe route. For a persona or a skill set for this channel, edit <code>CLAUDE.md</code> in the new folder.</p>
 
-      <h2>common issues</h2>
+      <h2>Four problems have a known cause</h2>
       <dl>
-        <dt><strong>Bot doesn't respond to messages.</strong></dt>
-        <dd>Check that "Message Content Intent" is enabled in the Discord
-        Developer Portal. Without it, the bot receives message events but
-        the content is empty.</dd>
-
-        <dt><strong>Bot responds in DMs but not channels.</strong></dt>
-        <dd>Check the route table &mdash; channels may be set to
-        <code>#observe</code> only. Add a <code>verb=mention</code> route
-        that targets <code>main</code> (not <code>main#observe</code>).</dd>
-
-        <dt><strong>discd shows unhealthy in <code>docker ps</code>.</strong></dt>
-        <dd>Token was rotated, or the bot is not in the guild. Copy
-        the new token into <code>DISCORD_BOT_TOKEN</code> and restart:
-        <code>sudo systemctl restart arizuko_acme</code>.</dd>
-
-        <dt><strong>WebDAV mount fails.</strong></dt>
-        <dd>The member needs to sign in at <code>/auth/login</code> first.
-        WebDAV requires authentication.</dd>
+        <dt>The bot does not answer</dt>
+        <dd>Check that "Message Content Intent" is on in the Discord Developer Portal. Without it, the bot gets message events with no text.</dd>
+        <dt>The bot answers in DMs and not in channels</dt>
+        <dd>The channel routes may be <code>#observe</code> only. Add a <code>verb=mention</code> route that targets <code>main</code>, not <code>main#observe</code>.</dd>
+        <dt><code>discd</code> is unhealthy</dt>
+        <dd>The token was rotated, or the bot is not in the guild. Copy the new token into <code>DISCORD_BOT_TOKEN</code> and restart: <code>sudo systemctl restart arizuko_acme</code>.</dd>
+        <dt>A WebDAV mount fails</dt>
+        <dd>A WebDAV client needs a Bearer token. The browser login works only in the browser.</dd>
       </dl>
 
-      <h2>go deeper</h2>
-      <ul>
-        <li><a href="index.html">Discord team agent &mdash; intro</a> &mdash; what members see</li>
-        <li><a href="../../concepts/grants.html">grants</a> &mdash; per-member and per-folder action scoping</li>
-        <li><a href="../../concepts/auth.html">auth</a> &mdash; OAuth providers, account linking</li>
-        <li><a href="../../concepts/personas.html">personas</a> &mdash; how voice + skills + frontmatter shape a channel agent</li>
-        <li><a href="../../components/discd.html">discd</a> &mdash; the Discord adapter daemon</li>
-        <li><a href="../../reference/cli.html">CLI reference</a> &mdash; full command list</li>
-      </ul>
+      <h2>Five pages give the details</h2>
+      <dl>
+        <dt><a href="index.html">Discord team agent</a></dt><dd>What members see.</dd>
+        <dt><a href="../../concepts/grants.html">grants</a></dt><dd>Actions limited for each member and each folder.</dd>
+        <dt><a href="../../concepts/auth.html">auth</a></dt><dd>OAuth providers and linked accounts.</dd>
+        <dt><a href="../../components/discd.html">discd</a></dt><dd>The Discord adapter daemon.</dd>
+        <dt><a href="../../reference/cli.html">CLI reference</a></dt><dd>Every command.</dd>
+      </dl>
 
 
       <nav class="docs-pager" aria-label="Pager">

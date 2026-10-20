@@ -65,58 +65,25 @@
         everyone who asks.
       </p>
 
-      <h2>system shape</h2>
-      <p>
-        This is the minimal end of the product spectrum. One folder, one
-        catch-all route, no per-user state. The six primitives at their
-        leanest:
-      </p>
-      <ul>
-        <li>
-          <strong>Event.</strong> A Telegram message, a web-chat widget
-          message, or a webhook POST &mdash; all land as rows in the same
-          inbox. The agent doesn&rsquo;t know or care which channel sent them.
-        </li>
-        <li>
-          <strong>Routing.</strong> One catch-all rule maps every inbound
-          event to the single <code>supermarket</code> folder. No per-user
-          routing, no topic logic. First rule wins, every time.
-        </li>
-        <li>
-          <strong>Agent (folder-as-data).</strong> The folder holds a
-          <code>PERSONA.md</code> (the agent&rsquo;s instructions for how to
-          answer price queries), a <code>CLAUDE.md</code> (allowed tools,
-          citation format, refusals), and
-          <code>facts/retailers.md</code> &mdash; operator-seeded list of
-          the retailers to check, their URLs, and any known quirks (price
-          date lags, members-only prices, etc.).
-        </li>
-        <li>
-          <strong>Authorization.</strong> The route is the fence: anyone who
-          reaches the bot or the chat URL can ask. No per-user ACL rows.
-        </li>
-        <li>
-          <strong>Turn.</strong> One ephemeral guest per query. The agent
-          reads <code>facts/retailers.md</code>, searches the named retailers
-          on the live web, and writes a reply. Results are cached in
-          <code>facts/cache/</code> by item + date; a second query for the
-          same item today skips the search.
-        </li>
-        <li>
-          <strong>State.</strong> The shared DB (per-turn message rows) and
-          the folder on disk (<code>facts/retailers.md</code>,
-          <code>facts/cache/</code>). No per-user sub-folders. No memory
-          files. Nothing accumulates between users.
-        </li>
-      </ul>
-      <p>
-        Ten users or ten thousand &mdash; the structure doesn&rsquo;t change.
-        The limit is concurrent guest slots
-        (<code>MAX_CONCURRENT_CONTAINERS</code>, default 5), not registered
-        users. There is no registration to do.
-      </p>
+      <h2>One folder and one route serve every user</h2>
+      <p>The supermarket agent is the smallest product shape. It has one folder, one catch-all route and no per-user state. The six steps of the pipeline are at their smallest:</p>
+      <dl>
+        <dt>Event</dt>
+        <dd>A Telegram message, a web chat message or a webhook POST. All arrive as rows in the same inbox. The agent does not know which channel sent a message.</dd>
+        <dt>Routing</dt>
+        <dd>One catch-all route sends every inbound message to the <code>supermarket</code> folder. No per-user routing and no topics exist.</dd>
+        <dt>Agent</dt>
+        <dd>The folder holds a <code>PERSONA.md</code> with the rules for price questions, a <code>CLAUDE.md</code> with the allowed tools, the citation format and the refusals, and <code>facts/retailers.md</code>. The operator writes that file: the retailers to check, their URLs and their known problems, for example late price dates or member-only prices.</dd>
+        <dt>Authorization</dt>
+        <dd>The route is the only fence. Anyone who reaches the bot or the chat URL can ask. No per-user ACL rows exist.</dd>
+        <dt>Turn</dt>
+        <dd>One short-lived guest for each question. The agent reads <code>facts/retailers.md</code>, searches the named retailers on the live web and replies. It caches the results in <code>facts/cache/</code> by item and date, so a second question about the same item on the same day needs no search.</dd>
+        <dt>State</dt>
+        <dd>The message rows on the store server, and the folder on disk: <code>facts/retailers.md</code> and <code>facts/cache/</code>. No per-user folders and no memory files exist. Nothing carries over from one user to the next.</dd>
+      </dl>
+      <p>The structure is the same for ten users or ten thousand. The limit is the number of concurrent guests, <code>MAX_CONCURRENT_CONTAINERS</code>, default 5, not the number of users. Users do not register.</p>
 
-      <h2>example</h2>
+      <h2>A sample exchange</h2>
       <pre><code>telegram &middot; DM
 
   user   where's the cheapest whole milk this week?
@@ -127,102 +94,45 @@
 
          Cheapest: Lidl £0.99.
          source: lidl.co.uk/grocery/dairy, tesco.com/groceries, sainsburys.co.uk</code></pre>
-      <p>
-        The agent cites three retailers and links sources. No login, no
-        sign-up, no memory of who asked. The next person to ask gets the same
-        search, same sources &mdash; unless the cache already holds today&rsquo;s
-        prices, in which case the answer is instant.
-      </p>
+      <p>The agent checks three retailers and names the sources. No login, no sign-up and no memory of who asked. The next user gets the same search and the same sources, or the cached prices of the day, which need no search.</p>
 
-      <h2>where this sits &mdash; the minimal end</h2>
-      <p>
-        This is the simplest possible arizuko deployment:
-      </p>
+      <h2>The shape leaves out five features</h2>
       <ul>
-        <li>No per-user memory. Every user starts fresh.</li>
-        <li>No folder tree. One level, one folder.</li>
-        <li>No grants table. The route is the auth fence.</li>
-        <li>No scheduled tasks. The agent only runs when a message arrives.</li>
-        <li>No OAuth. No linked identities. No web dashboard for users.</li>
+        <li>No per-user memory. Every user starts with nothing.</li>
+        <li>No folder tree. One folder on one level.</li>
+        <li>No grant rows. The route is the fence.</li>
+        <li>No scheduled tasks. The agent runs only when a message arrives.</li>
+        <li>No OAuth, no linked identities and no web dashboard for users.</li>
       </ul>
-      <p>
-        The other end of this spectrum is the
-        <a href="../company-brain/">company brain</a> &mdash; folder tree as
-        org chart, per-team memory, scheduled briefs, multi-source ingest,
-        per-folder ACL. Same pipeline, very different folder contents. Start
-        here; reach for that shape only when you need the structure.
-      </p>
+      <p>The <a href="../company-brain/">company brain</a> is at the other end: a folder tree that follows the org chart, per-team memory, scheduled briefs, several input sources and ACL rows for each folder. The pipeline is the same, and the folder contents are very different. Start with the supermarket shape, and use the larger one only when you need its structure.</p>
 
-      <h2>data &amp; trust</h2>
-      <ul>
-        <li>
-          <strong>Your server.</strong> Message history and cached prices live
-          under <code>/srv/data/arizuko_&lt;name&gt;/</code>. Backup is one
-          <code>tar</code>; no DB dump.
-        </li>
-        <li>
-          <strong>Default outbound paths.</strong> The configured channel
-          (Telegram or web chat) for bot traffic; Anthropic for model calls.
-          Web search egress through the spawn&rsquo;s own
-          <a href="../../components/egress.html">egress</a> proxy &mdash; allowlist
-          the retailer domains you want the agent to reach.
-        </li>
-        <li>
-          <strong>No user data collected.</strong> There are no per-user memory
-          files, no linked identities, no email addresses. The only persistent
-          state is the cache and the message log.
-        </li>
-      </ul>
+      <h2>No user data is collected</h2>
+      <dl>
+        <dt>Your server</dt>
+        <dd>The message history is on the store server of the instance. The cached prices are files under <code>/srv/data/arizuko_&lt;name&gt;/groups/supermarket/</code>.</dd>
+        <dt>Outbound paths</dt>
+        <dd>The channel, Telegram or web chat, for the bot; Anthropic for model calls. Web search goes through the <a href="../../components/egress.html">egress</a> proxy of the turn. Allow the retailer domains that the agent must reach.</dd>
+        <dt>No user data</dt>
+        <dd>No per-user memory files, no linked identities and no email addresses exist. The only persistent state is the cache and the message log.</dd>
+      </dl>
 
-      <h2>setup</h2>
+      <h2>Six commands set it up</h2>
       <pre><code>arizuko create shop
-cd /srv/data/arizuko_shop
-$EDITOR .env             # set TELEGRAM_BOT_TOKEN or leave blank for web-chat only
-arizuko group shop add web:supermarket supermarket   # register the folder
+$EDITOR /srv/data/arizuko_shop/.env                 # TELEGRAM_BOT_TOKEN, or nothing for web chat only
+arizuko group shop add web:supermarket supermarket   # make the folder
 arizuko route shop add '' supermarket                # catch-all: every channel
-$EDITOR groups/supermarket/facts/retailers.md        # seed retailer list
+$EDITOR /srv/data/arizuko_shop/groups/supermarket/facts/retailers.md
 arizuko run shop</code></pre>
-      <p>
-        Full step-by-step is in the
-        <a href="setup.html">operator setup guide</a>.
-        A web-chat token gives you a chat URL you can open or embed anywhere
-        without any platform adapter &mdash; good for a quick internal
-        deployment.
-      </p>
+      <p>The <a href="setup.html">operator setup guide</a> has every step. A web chat token gives a chat URL that you can open or embed without a platform adapter, which fits a quick internal deployment.</p>
 
-      <h2>go deeper</h2>
-      <ul>
-        <li>
-          <a href="../../concepts/primitives.html">primitives</a> &mdash; the
-          minimal recomposition: one shared folder (Agent), a single catch-all
-          route (Routing), a web-search Turn, no per-user State. The same
-          pipeline, a smaller folder
-        </li>
-        <li>
-          <a href="../../concepts/routing.html">routing</a> &mdash; how the
-          single catch-all rule works; route table match keys
-        </li>
-        <li>
-          <a href="../../components/egress.html">egress</a> &mdash; per-folder
-          egress allowlist for retailer domains
-        </li>
-        <li>
-          <a href="../../concepts/skills.html">web skill</a> &mdash; how the
-          agent searches the live web; how to enable it
-        </li>
-        <li>
-          <a href="../../concepts/tokens.html">web chat tokens</a> &mdash;
-          mint a widget URL without a platform adapter
-        </li>
-        <li>
-          <a href="../company-brain/">company brain</a> &mdash; the other end
-          of the spectrum: folder hierarchy, per-team memory, scheduled briefs
-        </li>
-        <li>
-          <a href="../../howto/">deployment guide</a> &mdash; first instance,
-          first channel, first invite
-        </li>
-      </ul>
+      <h2>Five pages give the details</h2>
+      <dl>
+        <dt><a href="../../concepts/primitives.html">primitives</a></dt><dd>The smallest combination: one shared folder, one catch-all route, a web search turn and no per-user state.</dd>
+        <dt><a href="../../concepts/routing.html">routing</a></dt><dd>How the catch-all route works, and the match keys.</dd>
+        <dt><a href="../../components/egress.html">egress</a></dt><dd>The egress allowlist for the retailer domains.</dd>
+        <dt><a href="../../concepts/skills.html">skills</a></dt><dd>How the web skill searches the live web.</dd>
+        <dt><a href="../../concepts/tokens.html">route tokens</a></dt><dd>A chat URL without a platform adapter.</dd>
+      </dl>
 
 
       <nav class="docs-pager" aria-label="Pager">
@@ -231,7 +141,7 @@ arizuko run shop</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/supermarket/index.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-16">2026-10-16</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-20">2026-10-20</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

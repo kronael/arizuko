@@ -49,73 +49,43 @@
       <p class="docs-crumb"><a href="../../">arizuko</a> &rsaquo; <a href="../">products</a> &rsaquo; <a href="./">Social presence (Phosphene)</a> &rsaquo; setup</p>
       <h1>Social presence setup</h1>
 
-      <h2>1. Prerequisites</h2>
+      <p class="lede">The social presence manager needs an approval channel, a description of each account and at least one publish adapter.</p>
 
+      <h2>The manager needs an instance and an approval channel</h2>
       <ul>
-        <li>A running instance (<a href="../../howto/">getting started</a>).</li>
-        <li>An approval channel &mdash; <code>TELEGRAM_BOT_TOKEN</code> or
-          <code>DISCORD_BOT_TOKEN</code>. At least one, or approvals have
-          nowhere to happen.</li>
-        <li>One or more publish adapters. Without any, the agent still
-          plans and still reports &mdash; it just hands you the text.</li>
+        <li>A running instance, from <a href="../../howto/">getting started</a>.</li>
+        <li>An approval channel: <code>TELEGRAM_BOT_TOKEN</code> or <code>DISCORD_BOT_TOKEN</code>, with its adapter installed. Without one, approvals have no place.</li>
+        <li>One or more publish adapters. Without them, the agent still plans and reports, and gives you the text.</li>
       </ul>
 
-      <h2>2. Seed a group from it</h2>
-
+      <h2>group add makes the group from the product</h2>
       <pre><code>arizuko group &lt;instance&gt; add telegram:user/12345678 socials --product socials</code></pre>
 
-      <h2>3. Describe the channels</h2>
+      <h2>facts/channels.md describes each account</h2>
+      <p><code>facts/channels.md</code> stops the agent from posting into the wrong room. For each account, write the handle, the readers, what belongs there and what does not. If a support Discord never takes marketing posts, write that into the file. The agent follows it, and nothing else enforces it.</p>
+      <p><code>facts/voice.md</code> holds the brand voice and the list of do and do not. Keep it short and specific, because a long list of adjectives changes nothing.</p>
 
-      <p>
-        <code>facts/channels.md</code> is what stops it cross-posting into
-        the wrong room. Per account: the handle, who reads it, what belongs
-        there, and what does not. A support Discord that never takes
-        marketing posts should say so in this file &mdash; the agent honours
-        it, and nothing else will.
-      </p>
-
-      <p>
-        <code>facts/voice.md</code> carries brand voice and the
-        do/don&rsquo;t list. Keep it short and specific; a long file of
-        adjectives changes nothing.
-      </p>
-
-      <h2>4. Wire the adapters</h2>
-
+      <h2>Each publish adapter needs its package and its keys</h2>
+      <pre><code>arizuko packages &lt;instance&gt; add bskyd
+arizuko packages &lt;instance&gt; add discd</code></pre>
       <pre><code>BLUESKY_IDENTIFIER=you.bsky.social
-BLUESKY_APP_PASSWORD=...
-DISCORD_BOT_TOKEN=...</code></pre>
+BLUESKY_PASSWORD=REPLACE_ME
+DISCORD_BOT_TOKEN=REPLACE_ME</code></pre>
+      <p>Posting is an adapter action with a grant, so the agent can publish only where it has both. Revoke the grant to stop it. The next turn uses the change. <a href="../../concepts/grants.html">Grants</a> explains the rows.</p>
 
-      <p>
-        Posting is an adapter action bound to a grant, so the agent can only
-        publish where you have both. Revoking the grant is the off switch
-        and it takes effect on the next turn &mdash; see
-        <a href="../../concepts/grants.html">grants</a>.
-      </p>
-
-      <h2>5. Verify</h2>
-
+      <h2>The agent must propose and wait</h2>
       <pre><code>arizuko send &lt;instance&gt; socials "draft is ready — where and when?" --wait</code></pre>
+      <p>A correct answer proposes the platforms, the times and a reason, then waits. If the agent posts, check that the persona file is in place, because the approval rule is in the persona, not in the platform.</p>
 
-      <p>
-        A correct answer proposes a platform mix with timing and a
-        rationale, then waits. If it posts, check <code>SOUL.md</code>
-        landed &mdash; approval-first is in the persona, not in the
-        platform.
-      </p>
-
-      <h2>6. Tuning</h2>
-
-      <ul>
-        <li><strong>The digest</strong> &mdash; ask for a weekly one and the
-          agent schedules it as a
-          <a href="../../concepts/tasks.html">scheduled task</a>.</li>
-        <li><strong>Timing</strong> &mdash; the rationale comes from
-          <code>facts/channels.md</code>; correct the file rather than
-          arguing per post.</li>
-        <li><strong>Voice</strong> &mdash; <code>facts/voice.md</code> for
-          the output, <code>SOUL.md</code> for how it works.</li>
-      </ul>
+      <h2>Three changes tune the manager</h2>
+      <dl>
+        <dt>Weekly digest</dt>
+        <dd>Ask for a weekly digest, and the agent makes a <a href="../../concepts/tasks.html">scheduled task</a>.</dd>
+        <dt>Timing</dt>
+        <dd>The reasons come from <code>facts/channels.md</code>. Correct the file instead of each post.</dd>
+        <dt>Voice</dt>
+        <dd><code>facts/voice.md</code> controls the output, and the persona file controls the work habits.</dd>
+      </dl>
 
       <nav class="docs-pager" aria-label="Pager">
         <a rel="prev" href="index.html">&larr; Social presence (Phosphene)</a>
@@ -123,7 +93,7 @@ DISCORD_BOT_TOKEN=...</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/socials/setup.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-16">2026-10-16</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-20">2026-10-20</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

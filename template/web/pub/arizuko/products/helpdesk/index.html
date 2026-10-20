@@ -56,26 +56,11 @@
         a product can ship.
       </p>
 
-      <h2>What it does</h2>
-
-      <p>
-        A message arrives on whatever channel you have wired. The agent
-        classifies it &mdash; billing, technical, or account &mdash;
-        answers the technical ones from the knowledge you seeded, and
-        escalates the other two instead of guessing. Every reply quotes
-        the ticket id, because a support answer without one costs a round
-        trip.
-      </p>
-
-      <p>
-        The escalation rule is the point. An agent that guesses about a
-        refund is worse than one that says &ldquo;this needs a human, I
-        have flagged it&rdquo;, and the difference between those two
-        behaviours is four lines in a file you can read.
-      </p>
+      <h2>The agent answers technical questions and escalates the rest</h2>
+      <p>A message arrives on the channel that you connected. The agent puts it in one of three classes: billing, technical or account. It answers the technical questions from the knowledge that you added, and it escalates the other two classes instead of a guess. Every reply quotes the ticket ID, because a support answer without the ID costs one more message.</p>
+      <p>The escalation rule is the purpose of the product. An agent that guesses about a refund is worse than one that says "this needs a human, I flagged it". Four lines in a file that you can read make the difference between the two.</p>
 
       <h2>A sample exchange</h2>
-
       <pre><code>user   I was charged twice for March, ticket 4417.
 
 agent  Ticket 4417 — that's a billing question, so I'm escalating it
@@ -86,50 +71,27 @@ user   how long until someone looks at it?
 
 agent  Ticket 4417 — first response target is 2 hours during business
        hours.</code></pre>
+      <p>The second answer comes from <code>facts/sla.md</code>, a file with one line. Knowledge is a file in the group, not a fine-tune and not a vector store.</p>
 
-      <p>
-        The second answer comes from <code>facts/sla.md</code>, a
-        one-line file. That is the whole mechanism: knowledge is a file
-        in the group, not a fine-tune and not a vector store.
-      </p>
-
-      <h2>Why this one is the reference</h2>
-
-      <p>
-        Every other product in this catalog ships persona and knowledge.
-        Helpdesk ships one of <em>every</em> payload kind that has a
-        consumer, so it is the example to copy when you want to see the
-        whole shape at once:
-      </p>
-
+      <h2>Helpdesk ships one file of each kind</h2>
+      <p>The other products ship a persona and knowledge. Helpdesk ships one file of <em>every</em> payload kind that has a consumer. Copy it when you want to see the whole shape:</p>
       <table>
         <thead><tr><th>File</th><th>What it is</th></tr></thead>
         <tbody>
-          <tr><td><code>PRODUCT.md</code></td><td>the manifest — name, brand, tagline, env hints. TOML, despite the extension</td></tr>
+          <tr><td><code>PRODUCT.md</code></td><td>the manifest: name, brand, tagline, env hints; a TOML file with an <code>.md</code> extension</td></tr>
           <tr><td><code>PERSONA.md</code></td><td>who the agent is</td></tr>
-          <tr><td><code>CLAUDE.md</code></td><td>operating rules; lands in a marked region so your own text is never touched</td></tr>
-          <tr><td><code>facts/sla.md</code></td><td>knowledge the agent answers from</td></tr>
-          <tr><td><code>skills/triage/</code></td><td>a skill only this product ships; relocated under <code>.claude/</code></td></tr>
+          <tr><td><code>CLAUDE.md</code></td><td>operating rules in a marked region; arizuko does not change your text outside it</td></tr>
+          <tr><td><code>facts/sla.md</code></td><td>knowledge that the agent answers from</td></tr>
+          <tr><td><code>skills/triage/</code></td><td>a skill that only this product ships; it moves under <code>.claude/</code></td></tr>
           <tr><td><code>.claude/settings.json</code></td><td>agent settings, merged key by key</td></tr>
-          <tr><td><code>BRANDING.md</code></td><td>anything unnamed: copied whole</td></tr>
+          <tr><td><code>BRANDING.md</code></td><td>an unnamed file: copied whole</td></tr>
+          <tr><td><code>eval/helpdesk.toml</code></td><td>the tests of the product</td></tr>
         </tbody>
       </table>
+      <p><a href="../../howto/build-a-product.html">Build a product</a> takes this tree from an empty directory to an applied group. <code>tests/lab/product-lab.sh</code> applies it on a temporary instance, so you can see where each file goes.</p>
 
-      <p>
-        <a href="../../howto/build-a-product.html">Build a product</a>
-        walks this exact tree from empty directory to applied, and
-        <code>tests/lab/product-lab.sh</code> in the repo applies it on a
-        throwaway instance so you can watch where each file lands.
-      </p>
-
-      <h2>Who it is for</h2>
-
-      <p>
-        A team with inbound support that is mostly repetitive and
-        occasionally consequential. It is deliberately conservative: it
-        would rather escalate than be clever, which is the right default
-        when the cost of a wrong answer is a refund dispute.
-      </p>
+      <h2>A team with repetitive support needs it</h2>
+      <p>The product fits a team whose support is mostly repetitive and sometimes expensive. It is conservative by design: it escalates and does not try to be clever. That is the correct default when a wrong answer costs a refund dispute.</p>
 
       <p><a href="setup.html">Set it up &rsaquo;</a></p>
 
@@ -139,7 +101,7 @@ agent  Ticket 4417 — first response target is 2 hours during business
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/helpdesk/index.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-16">2026-10-16</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-20">2026-10-20</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

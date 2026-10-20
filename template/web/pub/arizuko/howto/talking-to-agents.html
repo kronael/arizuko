@@ -26,12 +26,12 @@
             <li><a href="slack.html">Slack</a></li>
             <li><a href="discord.html">Discord</a></li>
             <li><a href="asymmetric-channels.html">Asymmetric channels</a></li>
-            <li><a href="chat-link.html">Chat link on your site</a></li>
-            <li><a href="chat-sdk.html">Embed chat (SDK)</a></li>
+            <li><a href="chat-link.html">Chat link</a></li>
+            <li><a href="chat-sdk.html">Chat SDK</a></li>
             <li><a href="webhooks.html">Webhooks</a></li>
-            <li><a href="add-connector.html">Add a connector</a></li>
-            <li><a href="oauth-provider.html">Add an OAuth provider</a></li>
-            <li><a href="webdav.html">WebDAV mount</a></li>
+            <li><a href="add-connector.html">Connectors</a></li>
+            <li><a href="oauth-provider.html">OAuth providers</a></li>
+            <li><a href="webdav.html">WebDAV</a></li>
             <li><a href="kubernetes.html">Kubernetes</a></li>
           </ul>
         </li>
@@ -48,102 +48,62 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">howto</a> &rsaquo; Talking to agents</p>
       <h1>talking to agents</h1>
 
+      <p class="lede">You address the agent at two levels. The chat platform gives mentions, replies and reactions. arizuko adds slash commands, sticky routing and MCP tools. This page shows both levels for the operator.</p>
 
-
-      <p>
-        Two layers of "address the bot" live side by side: the
-        chat platform (mention syntax, replies, reactions) and
-        arizuko itself (slash commands, sticky routing, MCP tools).
-        This page is the operator's map of both.
-      </p>
-
-      <h2>get the agent's attention</h2>
-      <p>
-        Whether a message fires the agent at all depends on the
-        route. The default shape for a public channel is
-        "respond on mention, observe everything else"
-        (see <a href="../howto/asymmetric-channels.html#mention-only">asymmetric channels</a>).
-        A mention means different things per platform:
-      </p>
+      <h2>A mention starts a turn on a mention-only route</h2>
+      <p>The route decides whether a message starts a turn. The usual route for a public channel answers on a mention and only observes the other messages. <a href="asymmetric-channels.html#mention-only">Asymmetric channels</a> shows this route. Each platform has its own mention:</p>
       <table>
         <thead>
-          <tr><th>platform</th><th>mention syntax</th><th>notes</th></tr>
+          <tr><th>platform</th><th>mention</th><th>notes</th></tr>
         </thead>
         <tbody>
-          <tr><td>Slack</td><td><code>@&lt;bot&gt; hello</code></td><td>slakd derives <code>verb=mention</code> from <code>&lt;@bot_user_id&gt;</code> in message text. Reactions and replies-to-bot also count as mentions.</td></tr>
-          <tr><td>Discord</td><td><code>@&lt;bot&gt; hello</code></td><td>Same shape. Replies to bot messages and reactions on them are promoted to mentions.</td></tr>
-          <tr><td>Telegram</td><td><code>@&lt;botname&gt;</code> or reply</td><td>Group chats fire on @-mention or on reply to a bot message. DMs always fire.</td></tr>
-          <tr><td>WhatsApp</td><td><code>@&lt;phone&gt;</code> or reply</td><td>WhatsApp groups need @-mention. Reply-to-bot promotes to mention (<a href="https://github.com/kronael/arizuko/blob/main/CHANGELOG.md">v0.40.2</a>).</td></tr>
-          <tr><td>web (<code>/chat/&lt;token&gt;/</code>)</td><td>any message</td><td>The chat page is one-on-one with the agent. Every message is a turn.</td></tr>
-          <tr><td>email</td><td>To: <code>&lt;bot&gt;@&lt;domain&gt;</code></td><td>emaid threads by Message-ID. Reply-all keeps the thread.</td></tr>
+          <tr><td>Slack</td><td><code>@&lt;bot&gt; hello</code></td><td>slakd sets <code>verb=mention</code> when the text contains <code>&lt;@bot_user_id&gt;</code>. A reply to the bot and a reaction on a bot message also count as mentions.</td></tr>
+          <tr><td>Discord</td><td><code>@&lt;bot&gt; hello</code></td><td>The same as Slack. A reply to a bot message and a reaction on it become mentions.</td></tr>
+          <tr><td>Telegram</td><td><code>@&lt;botname&gt;</code> or a reply</td><td>A group chat starts a turn on a mention or on a reply to a bot message. A direct message always starts a turn.</td></tr>
+          <tr><td>WhatsApp</td><td><code>@&lt;phone&gt;</code> or a reply</td><td>A group needs a mention. A reply to a bot message becomes a mention, also a reply without text.</td></tr>
+          <tr><td>web, <code>/chat/&lt;token&gt;/</code></td><td>any message</td><td>The chat page connects one visitor to the agent. Every message is a turn.</td></tr>
+          <tr><td>email</td><td>To: <code>&lt;bot&gt;@&lt;domain&gt;</code></td><td>emaid groups the messages of a thread by Message-ID. Reply-all keeps the thread.</td></tr>
         </tbody>
       </table>
 
-      <h2><code>routd</code> slash commands</h2>
-      <p>
-        Six commands work on every platform &mdash; they short-circuit
-        before the agent runs. The handler list is
-        <a href="https://github.com/kronael/arizuko/blob/main/routd/steer.go"><code>routd/steer.go</code></a>.
-        Type them as the first non-whitespace token of a message;
-        Telegram's <code>/cmd@botname</code> suffix is accepted.
-      </p>
+      <h2>routd answers eleven slash commands before the agent runs</h2>
+      <p>The commands work on every platform. <code>routd</code> handles them and starts no turn. Type the command as the first word of a message. <code>routd</code> accepts the Telegram suffix <code>/cmd@botname</code>. The handlers are in <a href="https://github.com/kronael/arizuko/blob/main/routd/steer.go">[routd/steer.go]</a>.</p>
       <table>
         <thead>
-          <tr><th>command</th><th>who can run</th><th>what it does</th></tr>
+          <tr><th>command</th><th>who</th><th>what it does</th></tr>
         </thead>
         <tbody>
-          <tr><td><code>/new [text]</code></td><td>anyone with interact</td><td>Clear the agent's session for this folder. Optional <code>text</code> runs as the first message of the new session.</td></tr>
-          <tr><td><code>/ping</code></td><td>anyone with interact</td><td>Replies with current folder, session ID prefix, how many turns are running right now, registered group count.</td></tr>
-          <tr><td><code>/chatid</code></td><td>anyone with interact</td><td>Replies with the <code>chat_jid</code> of the current chat. Useful when writing route rules.</td></tr>
-          <tr><td><code>/stop</code></td><td>anyone with interact</td><td>Kills the current agent guest for this chat. Next message boots a fresh one.</td></tr>
-          <tr><td><code>/status</code></td><td>root only</td><td>Channel count, group count, turns running now, errored chats, active tasks.</td></tr>
-          <tr><td><code>/root &lt;msg&gt;</code></td><td>operator only</td><td>Re-run <code>&lt;msg&gt;</code> in this same chat as a one-shot elevated turn &mdash; every grant check passes for that message only. Replies land here.</td></tr>
-          <tr><td><code>/invite [N]</code></td><td>root only</td><td>Mint an invite link; <code>N</code> = max uses (default 1).</td></tr>
-          <tr><td><code>/gate list|add|rm|enable|disable</code></td><td>root only</td><td>Manage rate-limit gates.</td></tr>
+          <tr><td><code>/new [text]</code></td><td>any sender</td><td>Clears the session of the folder. The optional <code>text</code> is the first message of the new session.</td></tr>
+          <tr><td><code>/ping</code></td><td>any sender</td><td>Replies with the folder, the start of the session ID, the count of active turns and the count of groups.</td></tr>
+          <tr><td><code>/chatid</code></td><td>any sender</td><td>Replies with the <code>chat_jid</code> of the chat. Use it to write a route rule.</td></tr>
+          <tr><td><code>/stop</code></td><td>any sender</td><td>Stops the active turn of the folder. The next message starts a new guest.</td></tr>
+          <tr><td><code>/status</code></td><td>operator</td><td>Counts of channels, groups, active turns, errored chats and active tasks.</td></tr>
+          <tr><td><code>/root &lt;msg&gt;</code></td><td>operator</td><td>Runs <code>&lt;msg&gt;</code> in this chat as one root turn. Every grant check passes for that message only. The reply comes to this chat.</td></tr>
+          <tr><td><code>/invite [N]</code></td><td>operator</td><td>Makes an invite link through <code>onbod</code>. <code>N</code> is the maximum number of uses, default 1.</td></tr>
+          <tr><td><code>/gate list|add|rm|enable|disable</code></td><td>operator</td><td>Manages the onboarding gates in <code>onbod</code>. <code>/gate add &lt;spec&gt; &lt;N&gt;</code> admits <code>N</code> users a day.</td></tr>
+          <tr><td><code>/approve &lt;id&gt; [note]</code></td><td>admin of the folder</td><td>Approves a held tool call. The agent then runs the call.</td></tr>
+          <tr><td><code>/reject &lt;id&gt; [note]</code></td><td>admin of the folder</td><td>Rejects a held tool call.</td></tr>
+          <tr><td><code>/always &lt;id&gt; [note]</code></td><td>admin of the folder</td><td>Approves a held tool call and writes a rule that skips the approval for the same call later. The reply names the rule and how to remove it.</td></tr>
         </tbody>
       </table>
-      <p>
-        Bare <code>@</code> at the start of a message is parsed
-        before commands &mdash; see sticky routing below.
-      </p>
+      <p>An operator is a sender with a <code>**</code> grant. <code>routd</code> reads a leading <code>@</code> before the commands, as the next section shows.</p>
 
-      <h2>sticky routing &mdash; <code>@&lt;folder&gt;</code> and <code>#&lt;topic&gt;</code></h2>
-      <p>
-        On its own line at the start of a message, these change
-        where subsequent messages in this chat go &mdash; until
-        cleared. Implementation:
-        <a href="https://github.com/kronael/arizuko/blob/main/routd/steer.go"><code>routd/steer.go</code></a>.
-      </p>
-      <ul>
-        <li><code>@&lt;folder&gt;</code> &mdash; pin this chat to
-          folder <code>&lt;folder&gt;</code>. Replies arrive here,
-          but the agent for <code>&lt;folder&gt;</code> is the one
-          that runs. Unknown folder names are passed to the agent
-          (so a Czech sentence starting <code>@everyone</code>
-          doesn't break).</li>
-        <li><code>@</code> alone &mdash; clear the pin, route by
-          rules again.</li>
-        <li><code>#&lt;topic&gt;</code> &mdash; pin a thread label.
-          Useful for multi-thread workflows in one chat.</li>
-        <li><code>#</code> alone &mdash; clear the topic pin.</li>
-      </ul>
-      <p>
-        With a leading <code>@&lt;child&gt; &lt;text&gt;</code>
-        (single message, not on its own line), <code>routd</code>
-        delegates that one message to the child folder &mdash;
-        same effect as a single-shot <code>delegate_group</code>
-        from inside the agent.
-      </p>
+      <h2>@folder and #topic pin the routing of a chat</h2>
+      <p>A message that contains only <code>@&lt;folder&gt;</code> or <code>#&lt;topic&gt;</code> changes the routing of the next messages in the chat. The pin stays until you clear it. The code is in <a href="https://github.com/kronael/arizuko/blob/main/routd/steer.go">[routd/steer.go]</a>.</p>
+      <dl>
+        <dt><code>@&lt;folder&gt;</code></dt>
+        <dd>Pins the chat to the folder. Replies come to this chat, and the agent of <code>&lt;folder&gt;</code> runs. <code>routd</code> gives a message with an unknown folder name to the agent unchanged, so a sentence that starts with <code>@everyone</code> still works.</dd>
+        <dt><code>@</code></dt>
+        <dd>Clears the folder pin. The route rules apply again.</dd>
+        <dt><code>#&lt;topic&gt;</code></dt>
+        <dd>Pins a topic. Use it for several threads of work in one chat.</dd>
+        <dt><code>#</code></dt>
+        <dd>Clears the topic pin.</dd>
+      </dl>
+      <p>A message that starts with <code>@&lt;child&gt; &lt;text&gt;</code> on one line goes to the child folder once. <code>routd</code> sends that one message to <code>&lt;folder&gt;/&lt;child&gt;</code>, as one <code>delegate_group</code> call from the agent does.</p>
 
-      <h2 id="crossing-agents">crossing agents (operator-driven)</h2>
-      <p>
-        The operator's tools for moving conversation between
-        agents are the same MCP tools the agents use among
-        themselves. Two ways to invoke them: ask the agent in
-        chat ("delegate this to <code>research</code>") or call
-        the tool directly from the chat MCP socket. Tool
-        reference: <a href="../reference/mcp.html">MCP reference</a>.
-      </p>
+      <h2 id="crossing-agents">The agents use MCP tools to move work between folders</h2>
+      <p>The operator moves a conversation between agents with the same MCP tools that the agents use. Ask the agent in the chat, for example "delegate this to <code>research</code>". Or call the tool through the MCP socket of the chat. The <a href="../reference/mcp.html">MCP reference</a> lists the parameters.</p>
       <table>
         <thead>
           <tr><th>tool</th><th>direction</th><th>use it when</th></tr>
@@ -152,101 +112,79 @@
           <tr>
             <td><code>delegate_group</code></td>
             <td>parent &rarr; child</td>
-            <td>This folder owns a problem that belongs to a child agent. The child runs the turn; the reply routes back here.</td>
+            <td>The work belongs to a child agent. The child runs the turn, and the reply comes back here.</td>
           </tr>
           <tr>
             <td><code>escalate_group</code></td>
             <td>child &rarr; parent</td>
-            <td>The child agent needs a decision from the parent. Parent receives the message; nothing is granted automatically.</td>
+            <td>The child agent needs a decision from the parent. The parent gets the message. No grant changes.</td>
           </tr>
           <tr>
             <td><code>register_group</code></td>
-            <td>parent creates child</td>
-            <td>Create a new sub-folder on the fly. Common in autoviv setups (<a href="../concepts/autoviv.html">autoviv</a>) &mdash; the world agent calls this on the first message from a new channel.</td>
+            <td>parent makes a child</td>
+            <td>Makes a new child folder. In an <a href="../concepts/autoviv.html">autoviv</a> setup, the world agent calls it on the first message from a new channel.</td>
           </tr>
           <tr>
             <td><code>inject_message</code></td>
-            <td>any &rarr; any</td>
-            <td>Push a system-style message into another folder's chat. Used by tasks and timed events.</td>
+            <td>into the store</td>
+            <td>Writes a message into the store as if a chat sent it, and the normal loop starts a turn. Tasks and tests use it.</td>
           </tr>
           <tr>
             <td><code>refresh_groups</code></td>
-            <td>self</td>
-            <td>Reload the in-memory group list. Run after a folder is added or removed out-of-band.</td>
+            <td>read</td>
+            <td>Lists the group folders. The grant on the tool limits what the agent sees.</td>
           </tr>
         </tbody>
       </table>
-      <p>
-        Each needs its own grant. <code>register_group</code>,
-        <code>delegate_group</code> and <code>escalate_group</code>
-        are not in the default role, so an agent holds them only
-        where one was delegated &mdash; and the grant's scope glob
-        decides which folders it may name. See
-        <a href="../concepts/grants.html">grants</a> for the
-        permission model.
-      </p>
+      <p>Each tool needs its own grant. The default member role does not hold <code>register_group</code>, <code>delegate_group</code> or <code>escalate_group</code>. An agent has them only where an admin granted them, and the scope glob of the grant sets the folders that the agent can name. <a href="../concepts/grants.html">Grants</a> explains the permission model.</p>
 
-      <h2>JID quick reference</h2>
-      <p>
-        A <code>chat_jid</code> is <code>&lt;platform&gt;:&lt;rest&gt;</code>.
-        Full table at <a href="../concepts/jid.html">JID format</a>.
-        For writing route rules, you almost always want
-        <code>/chatid</code> in the target chat and to paste the
-        result.
-      </p>
+      <h2>A JID names one chat on one platform</h2>
+      <p>A <code>chat_jid</code> has the form <code>&lt;platform&gt;:&lt;rest&gt;</code>. <a href="../concepts/jid.html">JID</a> has the full table. To write a route rule, send <code>/chatid</code> in the target chat and copy the result.</p>
       <pre><code>slack:T012/channel/C345    # one Slack channel
 discord:dm/123             # one Discord DM
-telegram:group/-100456     # one Telegram group
+telegram:group/1001234567  # one Telegram group
 whatsapp:789@g.us          # one WhatsApp group
-web:&lt;folder&gt;               # browser chat at folder (via /chat/&lt;token&gt;/)
-hook:&lt;folder&gt;/&lt;source&gt;     # webhook ingest at folder (via /hook/&lt;token&gt;)</code></pre>
+web:&lt;folder&gt;               # browser chat at folder, through /chat/&lt;token&gt;/
+hook:&lt;folder&gt;/&lt;source&gt;     # webhook ingest at folder, through /hook/&lt;token&gt;</code></pre>
 
-      <h2>which mechanism for which job</h2>
+      <h2>Each task has one mechanism</h2>
       <table>
         <thead>
-          <tr><th>I want to&hellip;</th><th>use</th></tr>
+          <tr><th>task</th><th>use</th></tr>
         </thead>
         <tbody>
-          <tr><td>Start a fresh agent session in this chat</td><td><code>/new</code></td></tr>
-          <tr><td>Find this chat's JID for a route rule</td><td><code>/chatid</code></td></tr>
-          <tr><td>Send one message to the root agent</td><td><code>/root &lt;msg&gt;</code></td></tr>
-          <tr><td>Route all subsequent messages to <code>research</code></td><td><code>@research</code> on its own line</td></tr>
-          <tr><td>Hand this one task to <code>research</code></td><td><code>@research &lt;task&gt;</code> as one message, or ask the agent to <code>delegate_group</code></td></tr>
-          <tr><td>Open a new sub-folder</td><td>Ask the agent to call <code>register_group</code></td></tr>
-          <tr><td>Push a system note into another folder</td><td>Ask the agent to call <code>inject_message</code></td></tr>
-          <tr><td>Bring in events from GitHub or Stripe</td><td>Wire a webhook &rarr; <a href="../howto/webhooks.html">webhooks</a></td></tr>
-          <tr><td>Make the agent forget and start over</td><td><code>/stop</code> (kills the guest), then <code>/new</code></td></tr>
+          <tr><td>Start a new agent session in this chat</td><td><code>/new</code></td></tr>
+          <tr><td>Find the JID of this chat for a route rule</td><td><code>/chatid</code></td></tr>
+          <tr><td>Send one message as a root turn</td><td><code>/root &lt;msg&gt;</code></td></tr>
+          <tr><td>Send all next messages to <code>research</code></td><td><code>@research</code> alone in a message</td></tr>
+          <tr><td>Give one task to <code>research</code></td><td><code>@research &lt;task&gt;</code> in one message, or ask the agent to call <code>delegate_group</code></td></tr>
+          <tr><td>Make a new child folder</td><td>Ask the agent to call <code>register_group</code></td></tr>
+          <tr><td>Start a turn in a folder from a tool</td><td>Ask the agent to call <code>inject_message</code></td></tr>
+          <tr><td>Bring in events from GitHub or Stripe</td><td>Connect a webhook, as <a href="webhooks.html">Webhooks</a> shows</td></tr>
+          <tr><td>Stop the agent and start again</td><td><code>/stop</code>, then <code>/new</code></td></tr>
         </tbody>
       </table>
 
-      <h2>per-platform gotchas</h2>
-      <ul>
-        <li><strong>Slack</strong> &mdash; don't subscribe to
-          <code>app_mention</code>; slakd derives mention from the
-          regular <code>message.*</code> event. Subscribing both
-          double-fires (see <a href="../howto/slack.html">Slack adapter</a>, step 3).</li>
-        <li><strong>Telegram</strong> &mdash; slash commands keep
-          the <code>@botname</code> suffix (<code>/new@mybot</code>);
-          <code>routd</code> strips it before matching.</li>
-        <li><strong>WhatsApp</strong> &mdash; pure-reply-without-text
-          (just hitting "reply" with no body) was promoted to a
-          mention in v0.40.2; before then, the agent never saw it.</li>
-        <li><strong>Reactions</strong> &mdash; on Slack and Discord,
-          a reaction on a bot message routes back as
-          <code>verb=reaction</code> with the emoji. The agent can
-          treat <code>&#x1F44E;</code> as a dislike signal &mdash; no
-          separate code path.</li>
-      </ul>
+      <h2>Each platform has one or two special cases</h2>
+      <dl>
+        <dt>Slack</dt>
+        <dd>slakd reads a mention from the text of the <code>message.*</code> events, so the <code>app_mention</code> subscription is not necessary. With both subscriptions, Slack sends each mention twice. <a href="slack.html">Slack</a> shows the event list.</dd>
+        <dt>Telegram</dt>
+        <dd>Slash commands can carry the <code>@botname</code> suffix, for example <code>/new@mybot</code>. <code>routd</code> removes the suffix before it reads the command.</dd>
+        <dt>WhatsApp</dt>
+        <dd>A reply to a bot message without text counts as a mention.</dd>
+        <dt>Reactions</dt>
+        <dd>On Slack and Discord, a reaction on a bot message comes back as <code>verb=reaction</code> with the emoji. The agent can read <code>&#x1F44E;</code> as a dislike. No separate code path exists.</dd>
+      </dl>
 
-      <h2>go deeper</h2>
-      <ul>
-        <li><a href="../concepts/routing.html">routing</a> &mdash; how chats become folders.</li>
-        <li><a href="../concepts/grants.html">grants</a> &mdash; who can run which command.</li>
-        <li><a href="../concepts/autoviv.html">autoviv</a> &mdash; auto-create folders on first message.</li>
-        <li><a href="../reference/mcp.html">MCP reference</a> &mdash; every tool, every param.</li>
-        <li><a href="../reference/cli.html">CLI reference</a> &mdash; the operator's command line.</li>
-        <li><a href="../howto/webhooks.html">webhooks</a> &mdash; external sources into arizuko.</li>
-      </ul>
+      <h2>Five pages explain the parts in detail</h2>
+      <dl>
+        <dt><a href="../concepts/routing.html">routing</a></dt><dd>How a chat goes to a folder.</dd>
+        <dt><a href="../concepts/grants.html">grants</a></dt><dd>Who can run which command.</dd>
+        <dt><a href="../concepts/autoviv.html">autoviv</a></dt><dd>Folders that the first message makes.</dd>
+        <dt><a href="../reference/mcp.html">MCP reference</a></dt><dd>Every tool and every parameter.</dd>
+        <dt><a href="../reference/cli.html">CLI reference</a></dt><dd>The command line of the operator.</dd>
+      </dl>
 
 
       <nav class="docs-pager" aria-label="Pager">

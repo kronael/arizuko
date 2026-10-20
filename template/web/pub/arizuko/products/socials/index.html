@@ -55,24 +55,11 @@
         approval.
       </p>
 
-      <h2>What it does</h2>
-
-      <p>
-        Give it content and it proposes where and when, with a short
-        rationale. On approval it posts and cross-posts through the adapters
-        you wired, watches the reply threads, and reports engagement plainly
-        &mdash; numbers and patterns, no hype in its own voice.
-      </p>
-
-      <p>
-        It reads <code>facts/channels.md</code> and
-        <code>facts/voice.md</code> before every action, because platform
-        tone is not interchangeable: what works as a Bluesky post is a bad
-        Discord message.
-      </p>
+      <h2>Phosphene proposes where and when, then waits</h2>
+      <p>Give Phosphene content, and it proposes where and when to post it, with a short reason. After your approval, it posts and cross-posts through the adapters that you installed, watches the reply threads and reports the engagement plainly: numbers and patterns, with no hype in its own voice.</p>
+      <p>It reads <code>facts/channels.md</code> and <code>facts/voice.md</code> before every action, because each platform has its own tone: a good Bluesky post is a bad Discord message.</p>
 
       <h2>A sample exchange</h2>
-
       <pre><code>user   here's the post. where does it go?
 
 agent  Bluesky now (your audience there is EU-evening), X as a two-post
@@ -83,26 +70,20 @@ user   yes, and skip X
 
 agent  Posted to Bluesky. I'll check replies in 4h and again tomorrow.</code></pre>
 
-      <h2>What it ships</h2>
-
+      <h2>The product ships four files</h2>
       <table>
         <thead><tr><th>File</th><th>What it is</th></tr></thead>
         <tbody>
-          <tr><td><code>PRODUCT.md</code></td><td>the manifest &mdash; name, brand, tagline, env hints</td></tr>
-          <tr><td><code>SOUL.md</code></td><td>who the agent is: proposes, waits, reports</td></tr>
-          <tr><td><code>facts/channels.md</code></td><td>the accounts, their audiences, and what each is for</td></tr>
-          <tr><td><code>facts/voice.md</code></td><td>brand voice and the do/don&rsquo;t list</td></tr>
+          <tr><td><code>PRODUCT.md</code></td><td>the manifest: name, brand, tagline and env hints</td></tr>
+          <tr><td><code>SOUL.md</code></td><td>who the agent is; <code>runed</code> renames it to <code>PERSONA.md</code> at the first turn; proposes, waits and reports</td></tr>
+          <tr><td><code>facts/channels.md</code></td><td>the accounts, their audiences and the purpose of each</td></tr>
+          <tr><td><code>facts/voice.md</code></td><td>the brand voice and the list of do and do not</td></tr>
         </tbody>
       </table>
+      <p>The product also ships its tests in <code>eval/</code>.</p>
 
-      <h2>Who it is for</h2>
-
-      <p>
-        Anyone running more than one account who is losing time to the
-        mechanics rather than the writing. Pair it with
-        <a href="../creator/">the content pipeline</a> when drafting is also
-        a bottleneck.
-      </p>
+      <h2>A person with several accounts needs it</h2>
+      <p>The product is for a person with more than one account who loses time on the mechanics, not on the writing. Add <a href="../creator/">the content pipeline</a> when drafting is also a limit.</p>
 
       <p><a href="setup.html">Set it up &rsaquo;</a></p>
 
@@ -112,7 +93,7 @@ agent  Posted to Bluesky. I'll check replies in 4h and again tomorrow.</code></p
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/socials/index.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-16">2026-10-16</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-20">2026-10-20</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

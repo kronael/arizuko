@@ -55,25 +55,11 @@
         scope.
       </p>
 
-      <h2>What it does</h2>
-
-      <p>
-        The board is <code>facts/tasks.md</code> &mdash; a file, in the
-        group, that you can read and diff. Sloth updates it on explicit
-        instruction (&ldquo;mark X done&rdquo;, &ldquo;add Y, owner Z,
-        Friday&rdquo;), confirms owner and deadline before writing, and
-        flags what is blocked or overdue before anyone asks.
-      </p>
-
-      <p>
-        Decisions land in <code>facts/decisions/</code>, one file per
-        decision, with the context that produced it. That is the half most
-        task trackers lose: six weeks later the board says what was decided
-        and this says why.
-      </p>
+      <h2>Sloth keeps the board in a Markdown file</h2>
+      <p>The board is <code>facts/tasks.md</code>, a file in the group that you can read and diff. Sloth updates it on an explicit instruction, for example "mark X done" or "add Y, owner Z, Friday". It confirms the owner and the deadline before it writes, and it reports blocked or late tasks before anyone asks.</p>
+      <p>Decisions go into <code>facts/decisions/</code>, one file for each decision, with the context that produced it. Most task trackers lose that part: six weeks later, the board says what the team decided, and this file says why.</p>
 
       <h2>A sample exchange</h2>
-
       <pre><code>user   mark the migration task done
 
 agent  facts/tasks.md &mdash; "0034 outbound retry migration", owner mira,
@@ -84,26 +70,20 @@ user   yes
 agent  Done. Two tasks still blocked: "route token rotation" (waiting on
        mira since the 9th) and "eval budget" (no owner). Want me to ping?</code></pre>
 
-      <h2>What it ships</h2>
-
+      <h2>The product ships four files</h2>
       <table>
         <thead><tr><th>File</th><th>What it is</th></tr></thead>
         <tbody>
-          <tr><td><code>PRODUCT.md</code></td><td>the manifest &mdash; name, brand, tagline, env hints</td></tr>
-          <tr><td><code>SOUL.md</code></td><td>who the agent is: precise, confirms before writing</td></tr>
-          <tr><td><code>facts/team.md</code></td><td>who is on the team, their roles and contacts</td></tr>
-          <tr><td><code>facts/tasks.md</code></td><td>the board itself &mdash; ships with the row format and no rows</td></tr>
+          <tr><td><code>PRODUCT.md</code></td><td>the manifest: name, brand, tagline and env hints</td></tr>
+          <tr><td><code>SOUL.md</code></td><td>who the agent is; <code>runed</code> renames it to <code>PERSONA.md</code> at the first turn; precise, confirms before it writes</td></tr>
+          <tr><td><code>facts/team.md</code></td><td>the team members, their roles and contacts</td></tr>
+          <tr><td><code>facts/tasks.md</code></td><td>the board, with the row format and no rows</td></tr>
         </tbody>
       </table>
+      <p>The product also ships its tests in <code>eval/</code>.</p>
 
-      <h2>Who it is for</h2>
-
-      <p>
-        A small team that wants the board in the same channel as the work,
-        and is willing to keep it in Markdown. It does not execute anything
-        &mdash; no code, no infrastructure &mdash; by design: it tracks the
-        work, other agents do it.
-      </p>
+      <h2>A small team with the board in its chat needs it</h2>
+      <p>The product is for a small team that wants the board in the same channel as the work and accepts Markdown for it. By design, it runs no code and changes no infrastructure: it tracks the work, and other agents do the work.</p>
 
       <p><a href="setup.html">Set it up &rsaquo;</a></p>
 
@@ -113,7 +93,7 @@ agent  Done. Two tasks still blocked: "route token rotation" (waiting on
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/pm/index.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-16">2026-10-16</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-20">2026-10-20</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

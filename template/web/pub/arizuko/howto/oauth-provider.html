@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>add an OAuth provider — arizuko</title>
+  <title>OAuth providers — arizuko</title>
   <link rel="stylesheet" href="../assets/hub.css">
 </head>
 <body>
@@ -26,12 +26,12 @@
             <li><a href="slack.html">Slack</a></li>
             <li><a href="discord.html">Discord</a></li>
             <li><a href="asymmetric-channels.html">Asymmetric channels</a></li>
-            <li><a href="chat-link.html">Chat link on your site</a></li>
-            <li><a href="chat-sdk.html">Embed chat (SDK)</a></li>
+            <li><a href="chat-link.html">Chat link</a></li>
+            <li><a href="chat-sdk.html">Chat SDK</a></li>
             <li><a href="webhooks.html">Webhooks</a></li>
-            <li><a href="add-connector.html">Add a connector</a></li>
-            <li><a href="oauth-provider.html">Add an OAuth provider</a></li>
-            <li><a href="webdav.html">WebDAV mount</a></li>
+            <li><a href="add-connector.html">Connectors</a></li>
+            <li><a href="oauth-provider.html">OAuth providers</a></li>
+            <li><a href="webdav.html">WebDAV</a></li>
             <li><a href="kubernetes.html">Kubernetes</a></li>
           </ul>
         </li>
@@ -46,43 +46,16 @@
 
     <main class="docs-content">
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">howto</a> &rsaquo; Add an OAuth provider</p>
-      <h1>add an OAuth provider</h1>
+      <h1>OAuth providers</h1>
 
-      <p>
-        Some services hand out a static API key you paste once. Others
-        want a proper &ldquo;Connect&rdquo; dance &mdash; the user
-        authorizes arizuko to act as them, and the service returns a
-        short-lived access token plus a refresh token. That second kind
-        is a <strong>surrogate OAuth provider</strong>: arizuko runs the
-        dance, stores the token in the <code>secrets</code> table, and
-        refreshes it near expiry so an agent&rsquo;s tools keep working.
-      </p>
+      <p class="lede">Some services give a static API key that you paste once. Other services use a "Connect" flow: the user lets arizuko act for them, and the service returns a short-lived access token and a refresh token. For the second kind, arizuko uses a <strong>surrogate OAuth provider</strong>. arizuko runs the flow, stores the token in the <code>secrets</code> table and refreshes the token before it expires, so the tools of an agent keep working.</p>
 
-      <p>
-        Adding one is pure configuration. A <code>.toml</code> file in
-        the data dir, a redirect URI registered at the provider, two env
-        vars. No code, no rebuild. <code>github</code> and
-        <code>google</code> ship built in; here&rsquo;s how to add any
-        other.
-      </p>
+      <p>A new provider needs only configuration: one <code>.toml</code> file in the data directory, a redirect URI at the provider and two env vars. No code and no rebuild. <code>github</code> and <code>google</code> are built in. This page adds a different provider.</p>
 
-      <div class="callout">
-        <strong>When to use this vs a plain key:</strong> reach for an
-        OAuth provider when the token must be minted <em>as the user</em>
-        (Google Drive, Slack, Notion, Linear) and expires. For a
-        long-lived API key on a folder, an <a href="../reference/env.html">env
-        var</a> or a <code>secrets</code>-table row wired to an
-        <code>[[connector]]</code> REST provider is simpler.
-      </div>
+      <div class="callout"><strong>Use an OAuth provider for tokens that act as the user.</strong> Examples are Google Drive, Slack, Notion and Linear, where the token expires. For a long-lived API key of a folder, a <code>secrets</code> row for a REST <a href="add-connector.html">connector</a> is simpler.</div>
 
-      <h2>1. drop a descriptor</h2>
-
-      <p>
-        Write <code>&lt;datadir&gt;/surrogate/&lt;name&gt;.toml</code>.
-        The basename is the provider name &mdash; it becomes the URL
-        segment and the env-var stem. Example, Slack:
-      </p>
-
+      <h2>A descriptor file names the provider</h2>
+      <p>Write <code>&lt;datadir&gt;/surrogate/&lt;name&gt;.toml</code>. The file name is the provider name. It becomes the URL segment and the start of the env var names. Example for Slack:</p>
       <pre><code># &lt;datadir&gt;/surrogate/slack.toml
 auth_url       = "https://slack.com/oauth/v2/authorize"
 token_url      = "https://slack.com/api/oauth.v2.access"
@@ -91,107 +64,44 @@ scopes         = ["chat:write", "channels:read"]
 secret_key     = "SLACK_TOKEN"        # secrets-table key the token lands in
 allowed_domain = "slack.com"
 access_type    = ""                   # "offline" where a provider gates refresh (google)</code></pre>
+      <p><code>auth_url</code>, <code>token_url</code> and <code>secret_key</code> are required. If one is missing, <code>dashd</code> does not start, and the error names the file. A provider with missing fields cannot run the flow, so the error comes at start and not at the first click. A file with the name of a built-in provider replaces the built-in provider. So you can change the scopes of <code>github.toml</code> without a new binary.</p>
+      <div class="callout"><strong>arizuko joins the scopes with spaces.</strong> OAuth2 uses that format. Write the scopes as a TOML array.</div>
 
-      <p>
-        <code>auth_url</code>, <code>token_url</code> and
-        <code>secret_key</code> are required. Leave one out and the
-        daemon refuses to boot, naming the file &mdash; a half-defined
-        provider is a broken dance, better caught at startup than at the
-        first click. A file here that shares a name with a built-in
-        replaces it, so you can override <code>github.toml</code>&rsquo;s
-        scopes without touching the binary.
-      </p>
+      <h2>The provider must know the exact redirect URI</h2>
+      <p>In the app console of the provider, for example the Slack API dashboard, the Google Cloud console or the Notion integrations, add this callback URL:</p>
+      <pre><code>&lt;AUTH_BASE_URL or WEB_HOST&gt;/dash/me/connections/&lt;name&gt;/callback</code></pre>
+      <p><code>dashd</code> reads <code>AUTH_BASE_URL</code> first and uses <code>WEB_HOST</code> when it is not set.</p>
+      <p>For a Slack provider on <code>acme.example.com</code>, the URL is <code>https://acme.example.com/dash/me/connections/slack/callback</code>. The provider refuses the flow when the redirect URI is not the one it has. Operators often forget this step.</p>
 
-      <div class="note">
-        Scopes are space-joined per the OAuth2 spec &mdash; the same
-        format every standard provider expects. List them as a TOML
-        array; arizuko joins them.
-      </div>
-
-      <h2>2. register the redirect URI</h2>
-
-      <p>
-        In the provider&rsquo;s app console (Slack API dashboard, Google
-        Cloud console, Notion integrations&hellip;), add this exact
-        callback URL:
-      </p>
-
-      <pre><code>&lt;WEB_HOST&gt;/dash/me/connections/&lt;name&gt;/callback</code></pre>
-
-      <p>
-        For a Slack provider on <code>acme.example.com</code> that is
-        <code>https://acme.example.com/dash/me/connections/slack/callback</code>.
-        The provider rejects the dance if the redirect URI doesn&rsquo;t
-        match what it has on file &mdash; this is the step people forget.
-      </p>
-
-      <h2>3. set the client creds</h2>
-
-      <p>
-        The confidential-client id and secret the provider issued go in
-        the instance <code>.env</code>, keyed by the provider name
-        upper-cased (<code>-</code> becomes <code>_</code>):
-      </p>
-
+      <h2>The client credentials go into .env</h2>
+      <p>The client ID and secret from the provider go into the <code>.env</code> of the instance. The key contains the provider name in upper case, with <code>_</code> in place of <code>-</code>:</p>
       <pre><code>SURROGATE_SLACK_CLIENT_ID=1234567890.abcdef
 SURROGATE_SLACK_CLIENT_SECRET=xxxxxxxxxxxxxxxxxxxx</code></pre>
+      <p>A provider without credentials still loads. The connections page does not show it until it can run, so a user never sees a "Connect" button that fails.</p>
+      <div class="callout"><strong>Only the GitHub pair reaches dashd.</strong> <code>arizuko generate</code> writes <code>SURROGATE_GITHUB_CLIENT_ID</code> and <code>SURROGATE_GITHUB_CLIENT_SECRET</code> into the env file of <code>dashd</code>, and no other <code>SURROGATE_*</code> key. For every other provider, the pair in <code>.env</code> does not reach <code>dashd</code>, and the provider stays <code>connectable=false</code>.</div>
 
-      <p>
-        A provider with no creds still loads, but stays hidden from the
-        connections page until it can actually run &mdash; so you never
-        show a user a &ldquo;Connect&rdquo; button that would 500.
-      </p>
-
-      <h2>4. restart and connect</h2>
-
+      <h2>After a restart, users can connect</h2>
       <pre><code>sudo systemctl restart arizuko_&lt;instance&gt;</code></pre>
+      <p>"Connect Slack" then appears at <code>/dash/me/connections</code>. A user clicks it, approves at Slack and comes back. arizuko writes the token into the <code>secrets</code> table under <code>secret_key</code>, here <code>SLACK_TOKEN</code>. The broker refreshes the token before it expires. If the provider revokes the refresh token, the agent gets a "reconnect" error and not a silent failure.</p>
 
-      <p>
-        &ldquo;Connect Slack&rdquo; now appears in
-        <code>/dash/me/connections</code>. A user clicks it, approves at
-        Slack, and lands back with a live token written to the
-        <code>secrets</code> table under <code>secret_key</code>
-        (<code>SLACK_TOKEN</code>). The broker refreshes it when it
-        nears expiry; if the refresh token is revoked, the agent gets a
-        clear &ldquo;reconnect&rdquo; error instead of a silent failure.
-      </p>
+      <h2>A connector gives agents a tool with the token</h2>
+      <p>The stored token is a secret like any other. Point a REST or MCP <a href="add-connector.html">connector</a> at <code>secret_key</code>, and the agent gets a tool that calls the service as the connected user. No credential enters the guest. <a href="../reference/mcp.html">MCP reference</a> lists the tool surface. <a href="../concepts/grants.html">Grants</a> shows how to select the folders that can call the tool.</p>
 
-      <h2>give agents a tool backed by it</h2>
-
-      <p>
-        The stored token reads like any other secret. Point an
-        <a href="../howto/webhooks.html">[[connector]] REST provider</a> or an
-        MCP connector at <code>secret_key</code> and the agent gets a
-        tool that calls the service as the connected user &mdash; no
-        credential ever enters the guest. See
-        <a href="../reference/mcp.html">reference/mcp</a> for the tool
-        surface and <a href="../concepts/grants.html">grants</a> for
-        gating which folders may call it.
-      </p>
-
-      <h2>checking it works</h2>
-
+      <h2>dashd logs each provider at start</h2>
       <pre><code>sudo journalctl -u arizuko_&lt;instance&gt; --since "1 min ago" \
   | grep -i "surrogate provider"</code></pre>
+      <p>At start, <code>dashd</code> logs each loaded provider and whether it has credentials. A missing provider means that the <code>.toml</code> file did not parse or is in the wrong directory. <code>connectable=false</code> means that the <code>SURROGATE_&lt;NAME&gt;_CLIENT_*</code> variables are not set.</p>
 
-      <p>
-        At boot dashd logs each loaded provider and whether it&rsquo;s
-        connectable (has creds). A missing provider means the
-        <code>.toml</code> didn&rsquo;t parse or landed in the wrong
-        directory; <code>connectable=false</code> means the
-        <code>SURROGATE_&lt;NAME&gt;_CLIENT_*</code> vars aren&rsquo;t set.
-      </p>
-
-      <h2>go deeper</h2>
-      <ul>
-        <li><a href="../concepts/secrets.html">concepts/secrets</a> &mdash; where the token lives and who can read it.</li>
-        <li><a href="../reference/env.html">reference/env</a> &mdash; the <code>SURROGATE_*</code> and <code>WEB_HOST</code> vars.</li>
-        <li><a href="webhooks.html">how-to: webhooks</a> &mdash; the other way an outside service reaches an agent.</li>
-      </ul>
+      <h2>Three pages give the details</h2>
+      <dl>
+        <dt><a href="../concepts/secrets.html">secrets</a></dt><dd>Where the token is stored and who can read it.</dd>
+        <dt><a href="../reference/env.html">env reference</a></dt><dd>The <code>SURROGATE_*</code> and <code>WEB_HOST</code> variables.</dd>
+        <dt><a href="webhooks.html">webhooks</a></dt><dd>The other way an external service reaches an agent.</dd>
+      </dl>
 
       <nav class="docs-pager" aria-label="Pager">
-        <a rel="prev" href="webhooks.html">&larr; Webhooks</a>
-        <a rel="next" href="webdav.html">WebDAV mount &rarr;</a>
+        <a rel="prev" href="add-connector.html">&larr; Connectors</a>
+        <a rel="next" href="webdav.html">WebDAV &rarr;</a>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/howto/oauth-provider.html">Edit this page</a>

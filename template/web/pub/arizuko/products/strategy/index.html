@@ -55,26 +55,11 @@
         inferred from speculative, every time.
       </p>
 
-      <h2>What it does</h2>
-
-      <p>
-        It watches the sources in <code>facts/watchlist.md</code>, and each
-        week produces the same four sections: executive summary, key
-        developments, signals to watch, recommended actions. Every finding
-        carries a confidence marker and an inline citation &mdash; URL,
-        publication, date. Briefings are stored in
-        <code>facts/reports/</code>, so the archive is a directory you can
-        grep.
-      </p>
-
-      <p>
-        The useful part is what it emphasises: what <em>changed</em> since
-        the last briefing, not a restatement of the domain. A weekly report
-        that reads like last week&rsquo;s is a report nobody opens twice.
-      </p>
+      <h2>Prometheus writes the same four sections every week</h2>
+      <p>Prometheus watches the sources in <code>facts/watchlist.md</code> and writes the same four sections each week: an executive summary, the key developments, the signals to watch and the recommended actions. Every finding has a confidence marker and a citation in the text: the URL, the publication and the date. The briefings go into <code>facts/reports/</code>, so the archive is a directory that you can grep.</p>
+      <p>The useful part is the focus: what <em>changed</em> since the last briefing, not a new summary of the domain. A weekly report that reads like the last one is a report that nobody opens twice.</p>
 
       <h2>A sample exchange</h2>
-
       <pre><code>user   anything on the licensing change?
 
 agent  Confirmed: BSL 1.1 as of 2026-08-11 (vendor blog, 11 Aug).
@@ -82,28 +67,22 @@ agent  Confirmed: BSL 1.1 as of 2026-08-11 (vendor blog, 11 Aug).
        wording matches their product, not the category.
        Speculative: a fork within a quarter. Two of the three top
        contributors have not signed the CLA.
-       Implications: (1) your redistribution clause needs review …</code></pre>
+       Implications: (1) your redistribution clause needs review.</code></pre>
 
-      <h2>What it ships</h2>
-
+      <h2>The product ships four files</h2>
       <table>
         <thead><tr><th>File</th><th>What it is</th></tr></thead>
         <tbody>
-          <tr><td><code>PRODUCT.md</code></td><td>the manifest &mdash; name, brand, tagline, env hints</td></tr>
-          <tr><td><code>SOUL.md</code></td><td>who the agent is: analytical, marks confidence, cites inline</td></tr>
-          <tr><td><code>facts/domain.md</code></td><td>the domain, its key players, and what matters in it</td></tr>
+          <tr><td><code>PRODUCT.md</code></td><td>the manifest: name, brand, tagline and env hints</td></tr>
+          <tr><td><code>SOUL.md</code></td><td>who the agent is; <code>runed</code> renames it to <code>PERSONA.md</code> at the first turn; analytical, marks confidence, cites in the text</td></tr>
+          <tr><td><code>facts/domain.md</code></td><td>the domain, its main players and what matters in it</td></tr>
           <tr><td><code>facts/watchlist.md</code></td><td>the sources, companies and topics to track</td></tr>
         </tbody>
       </table>
+      <p>The product also ships its tests in <code>eval/</code>.</p>
 
-      <h2>Who it is for</h2>
-
-      <p>
-        A team that needs to stay current in one domain and currently does
-        it by opening tabs. It is research-intensive rather than
-        conversational &mdash; the output is a document, and the chat is
-        where you ask it for one.
-      </p>
+      <h2>A team that tracks one domain needs it</h2>
+      <p>The product is for a team that must stay current in one domain and does it now with many browser tabs. It is for research, not for conversation: the output is a document, and the chat is where you ask for one.</p>
 
       <p><a href="setup.html">Set it up &rsaquo;</a></p>
 
@@ -113,7 +92,7 @@ agent  Confirmed: BSL 1.1 as of 2026-08-11 (vendor blog, 11 Aug).
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/strategy/index.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-16">2026-10-16</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-20">2026-10-20</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

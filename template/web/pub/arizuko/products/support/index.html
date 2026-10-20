@@ -55,38 +55,14 @@
         and escalates instead of guessing.
       </p>
 
-      <h2>What it does</h2>
+      <h2>Atlas answers from your files and cites the path</h2>
+      <p>Atlas searches <code>facts/</code> and <code>refs/</code> before anything else. Training data is the last source. Every answer starts with the answer and names the path that it came from. So a wrong answer is a file that you can fix, not a model that you must argue with.</p>
+      <p>The voice is a choice: dry, lowercase and without corporate warmth. Atlas says "I don't have that recorded" plainly and logs the question, so the gap in the knowledge base becomes visible.</p>
 
-      <p>
-        Atlas searches <code>facts/</code> and <code>refs/</code> before it
-        searches anything else. Training data is a last resort. Every answer
-        leads with the answer and names the path it came from, so a wrong
-        answer is a file you can fix rather than a model you have to argue
-        with.
-      </p>
-
-      <p>
-        The voice is deliberate: dry, lowercase, no corporate warmth. It
-        says &ldquo;I don&rsquo;t have that recorded&rdquo; without
-        flinching, and logs the unanswered question so the gap in the
-        knowledge base becomes visible instead of staying anecdotal.
-      </p>
-
-      <h2>Helpdesk or support?</h2>
-
-      <p>
-        Both triage inbound questions, and they differ in where the
-        knowledge lives. <a href="../helpdesk/">Helpdesk</a> is the
-        reference product: a small Slack-facing triage loop with a
-        classification skill, built to show the whole product shape at once.
-        Atlas is the knowledge-base end &mdash; a bigger <code>facts/</code>
-        tree, a citation habit, and an embeddable web widget for a product
-        site. Pick Helpdesk to learn the shape; pick Atlas when the answers
-        already live in documents.
-      </p>
+      <h2>Helpdesk teaches the shape, and Atlas holds the documents</h2>
+      <p>Both products sort inbound questions. They differ in where the knowledge lives. <a href="../helpdesk/">Helpdesk</a> is the reference product: a small Slack triage loop with a classification skill that shows the whole product shape. Atlas is the knowledge-base product: a larger <code>facts/</code> tree, the citation habit and a web chat for a product site. Pick Helpdesk to learn the shape. Pick Atlas when the answers already exist in documents.</p>
 
       <h2>A sample exchange</h2>
-
       <pre><code>user   does the export endpoint support pagination?
 
 agent  yes. facts/api.md:41 &mdash; `GET /v1/export?cursor=` returns
@@ -97,26 +73,20 @@ user   and the rate limit on it?
 agent  i don't have that recorded. logging it and escalating &mdash;
        facts/ has nothing on export rate limits.</code></pre>
 
-      <h2>What it ships</h2>
-
+      <h2>The product ships four parts</h2>
       <table>
         <thead><tr><th>File</th><th>What it is</th></tr></thead>
         <tbody>
-          <tr><td><code>PRODUCT.md</code></td><td>the manifest &mdash; name, brand, tagline, env hints</td></tr>
-          <tr><td><code>PERSONA.md</code></td><td>who the agent is: dry, cites paths, refuses to guess</td></tr>
-          <tr><td><code>CLAUDE.md</code></td><td>operating rules, in a marked region so your own text is untouched</td></tr>
-          <tr><td><code>facts/</code></td><td><code>kb.md</code> and a <code>README.md</code> explaining the one-file-per-topic shape &mdash; replace both with your own</td></tr>
+          <tr><td><code>PRODUCT.md</code></td><td>the manifest: name, brand, tagline and env hints</td></tr>
+          <tr><td><code>PERSONA.md</code></td><td>who the agent is: dry, cites paths, does not guess</td></tr>
+          <tr><td><code>CLAUDE.md</code></td><td>operating rules in a marked region; arizuko does not change your text outside it</td></tr>
+          <tr><td><code>facts/</code></td><td><code>kb.md</code> and a <code>README.md</code> that explains one file for each topic; replace both with your own</td></tr>
         </tbody>
       </table>
+      <p>The product also ships its tests in <code>eval/</code>.</p>
 
-      <h2>Who it is for</h2>
-
-      <p>
-        A team whose answers already exist in writing &mdash; docs, runbooks,
-        a changelog &mdash; and who would rather the agent quote them than
-        paraphrase them. If your answers do not exist in writing yet, this
-        product will tell you so, loudly, on the first question.
-      </p>
+      <h2>A team with written answers needs it</h2>
+      <p>The product is for a team whose answers already exist in writing, such as documents, runbooks or a changelog, and who want the agent to quote them, not to paraphrase them. If your answers do not exist in writing yet, the product tells you so on the first question.</p>
 
       <p><a href="setup.html">Set it up &rsaquo;</a></p>
 
@@ -126,7 +96,7 @@ agent  i don't have that recorded. logging it and escalating &mdash;
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/support/index.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-16">2026-10-16</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-20">2026-10-20</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

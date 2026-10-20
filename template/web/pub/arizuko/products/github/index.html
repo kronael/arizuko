@@ -55,59 +55,18 @@
         it merges only when you say so.
       </p>
 
-      <div class="callout">
-        <p>
-          <strong>gitd connects GitHub conversations to a group.</strong>
-          Register a repo, org or App webhook source.
-          Within one repository, each PR or issue has its own topic.
-          The GitHub connector supplies tools behind the hold gate.
-          Outbound comments use the token's user identity.
-          GitHub App installation-token issuance and refresh are not implemented.
-        </p>
-      </div>
+      <div class="callout"><strong>gitd connects GitHub conversations to a group.</strong> Register a repository, organisation or App webhook source. In one repository, each pull request or issue has its own topic. The GitHub connector gives the tools, behind the hold gate. Outbound comments use the user identity of the token. arizuko does not issue or refresh GitHub App installation tokens.</div>
 
-      <h2>What it does</h2>
+      <h2>The agent knows one repository</h2>
+      <p>The agent lives in one repository and knows it. Before it answers, it reads <code>~/facts/</code>, with your build commands, your generated directories and your definition of done. It also reads <code>~/diary/</code>, so it does not argue again about a decision that someone already made.</p>
+      <p>On a pull request, it reads the diff, not the description, and cites <code>path:line</code>. When it did not open a file, it says so. It acts through its GitHub tools: it opens the pull request, writes the comment and applies the label.</p>
+      <p>Most events are context, not requests: a push, a label or a release. The agent reads them, remembers them and stays quiet. It answers when someone addresses it.</p>
 
-      <p>
-        It lives in one repository and knows it. Before answering it reads
-        <code>~/facts/</code> &mdash; your build commands, your generated
-        directories, your definition of done &mdash; and
-        <code>~/diary/</code>, so it does not re-litigate a decision
-        somebody already made.
-      </p>
-
-      <p>
-        On a pull request it reads the actual diff, not the description,
-        and cites <code>path:line</code>. When it did not open a file it
-        says so. It acts through its GitHub tools rather than telling you
-        what to do: it opens the PR, leaves the comment, applies the
-        label.
-      </p>
-
-      <p>
-        Most of what reaches it is context rather than a request &mdash; a
-        push, a label, a release. It reads those, remembers them, and stays
-        quiet. It answers when it is addressed.
-      </p>
-
-      <h2>Merging is held, always</h2>
-
-      <p>
-        Merge, force-push and closing somebody else&rsquo;s work are not
-        the agent&rsquo;s to decide. They are
-        <a href="../../reference/grants.html">held calls</a>: the agent
-        asks, stops, and tells you what it is waiting on. You approve with
-        <code>/approve &lt;id&gt;</code> in whatever chat you use, or from
-        <code>/dash/approvals/</code>.
-      </p>
-
-      <p>
-        This matters more here than in most products. Every other tool the
-        agent holds costs a message; a merge costs your main branch.
-      </p>
+      <h2>Merging is always held</h2>
+      <p>Merge, force-push and the close of someone else's work are not decisions for the agent. They are <a href="../../reference/grants.html">held calls</a>: the agent asks, stops and tells you what it waits for. Approve with <code>/approve &lt;id&gt;</code> in any chat that you use, or on <code>/dash/approvals/</code>.</p>
+      <p>The hold matters more here than in most products. Every other tool of the agent costs a message, but a merge changes your main branch.</p>
 
       <h2>A sample exchange</h2>
-
       <pre><code>user   is #412 safe to merge?
 
 agent  no. store/secrets.go:115 drops the error from Decrypt and
@@ -125,33 +84,21 @@ agent  opened #413 with the error returned. merge is held:
        hold:mcp:github_merge_pull_request. approve with
        /approve h-8f21 and i will merge #413, not #412.</code></pre>
 
-      <h2>What it ships</h2>
-
+      <h2>The product ships five files</h2>
       <table>
         <thead><tr><th>File</th><th>What it is</th></tr></thead>
         <tbody>
-          <tr><td><code>PRODUCT.md</code></td><td>the manifest &mdash; name, brand, tagline, the four env hints</td></tr>
+          <tr><td><code>PRODUCT.md</code></td><td>the manifest: name, brand, tagline and the two env hints</td></tr>
           <tr><td><code>PERSONA.md</code></td><td>who the agent is: reads the diff, cites path:line, waits on merge</td></tr>
-          <tr><td><code>facts/repo.md</code></td><td>operator placeholder &mdash; your build, test and lint commands</td></tr>
-          <tr><td><code>facts/README.md</code></td><td>what belongs in <code>facts/</code> and why a stale line there is a bug</td></tr>
-          <tr><td><code>eval/github.toml</code></td><td>its own case suite &mdash; run it to prove the persona still holds</td></tr>
+          <tr><td><code>facts/repo.md</code></td><td>a placeholder for the operator: your build, test and lint commands</td></tr>
+          <tr><td><code>facts/README.md</code></td><td>what belongs in <code>facts/</code>, and why a stale line there is a bug</td></tr>
+          <tr><td><code>eval/github.toml</code></td><td>the tests of the product; run them to check that the persona still holds</td></tr>
         </tbody>
       </table>
+      <p><code>facts/repo.md</code> is the minimum. If you leave it as shipped, the agent finds your build and test commands from the source at each turn, and sometimes it gets them wrong.</p>
 
-      <p>
-        <code>facts/repo.md</code> is the minimum. Leave it as shipped and
-        the agent re-derives your build and test commands from the source
-        on every turn, and sometimes gets them wrong.
-      </p>
-
-      <h2>Who it is for</h2>
-
-      <p>
-        One developer with their own repositories, not a team with a review
-        rota. It assumes you are the only approver, so every gate is a
-        question addressed to you. A team wanting shared triage wants the
-        <a href="../slack-team/">Slack team agent</a> shape instead.
-      </p>
+      <h2>One developer with own repositories needs it</h2>
+      <p>The product is for one developer with own repositories, not for a team with a review rota. It assumes that you are the only approver, so every gate is a question to you. A team that wants shared triage needs the <a href="../slack-team/">Slack team agent</a> shape.</p>
 
       <p><a href="setup.html">Set it up &rsaquo;</a></p>
 
@@ -161,7 +108,7 @@ agent  opened #413 with the error returned. merge is held:
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/github/index.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-16">2026-10-16</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-20">2026-10-20</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>put a chat link on your site — arizuko</title>
+  <title>chat link — arizuko</title>
   <link rel="stylesheet" href="../assets/hub.css">
 </head>
 <body>
@@ -26,12 +26,12 @@
             <li><a href="slack.html">Slack</a></li>
             <li><a href="discord.html">Discord</a></li>
             <li><a href="asymmetric-channels.html">Asymmetric channels</a></li>
-            <li><a href="chat-link.html">Chat link on your site</a></li>
-            <li><a href="chat-sdk.html">Embed chat (SDK)</a></li>
+            <li><a href="chat-link.html">Chat link</a></li>
+            <li><a href="chat-sdk.html">Chat SDK</a></li>
             <li><a href="webhooks.html">Webhooks</a></li>
-            <li><a href="add-connector.html">Add a connector</a></li>
-            <li><a href="oauth-provider.html">Add an OAuth provider</a></li>
-            <li><a href="webdav.html">WebDAV mount</a></li>
+            <li><a href="add-connector.html">Connectors</a></li>
+            <li><a href="oauth-provider.html">OAuth providers</a></li>
+            <li><a href="webdav.html">WebDAV</a></li>
             <li><a href="kubernetes.html">Kubernetes</a></li>
           </ul>
         </li>
@@ -46,155 +46,70 @@
 
     <main class="docs-content">
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">howto</a> &rsaquo; Chat link on your site</p>
-      <h1>put a chat link on your site</h1>
+      <h1>chat link</h1>
 
-      <p>
-        A chat link is a URL like <code>https://&lt;host&gt;/chat/&lt;token&gt;/</code>.
-        Open it in a browser and you get a small chat page wired up to
-        one folder's agent. No login. Anyone with the URL can talk.
-      </p>
+      <p class="lede">A chat link is a URL of the form <code>https://&lt;host&gt;/chat/&lt;token&gt;/</code>. In a browser, it opens a small chat page that talks to the agent of one folder. No login exists: anyone with the URL can talk to the agent.</p>
 
-      <p>
-        The primitive is the same one webhooks use &mdash; see
-        <a href="../concepts/tokens.html">route tokens</a> for the
-        full story. This page covers the operator-side recipe for
-        getting one URL onto one website.
-      </p>
+      <p>Webhooks use the same mechanism. <a href="../concepts/tokens.html">Route tokens</a> explains it. This page shows how an operator puts one URL on one website.</p>
 
-      <div class="note">
-        <code>/chat/&lt;token&gt;/</code> accepts any valid route
-        token &mdash; the JID kind is metadata, not a URL gate.
-        <code>issue_chat_link</code> always returns a
-        <code>/chat/&lt;token&gt;/</code> URL.
-      </div>
+      <div class="callout"><strong>Every chat URL accepts any valid route token.</strong> The JID kind is information for the agent and does not limit the URL. <code>issue_chat_link</code> always returns a <code>/chat/&lt;token&gt;/</code> URL.</div>
 
-      <h2>use case</h2>
+      <h2>A website gets a chat button without accounts</h2>
+      <p>A tenant runs <code>acme.com</code> and wants a "Chat with us" link on the website that talks to the <code>acme</code> agent. The visitor needs no account and no Slack invite. The visitor clicks the link and types, and the agent replies in the page.</p>
 
-      <p>
-        A tenant runs <code>acme.com</code> and wants a &ldquo;Chat
-        with us&rdquo; link on the marketing site, against the
-        <code>acme</code> agent. No account creation, no Slack
-        invite &mdash; visitors click the link, type, the agent
-        replies in the page.
-      </p>
-
-      <h2>issue the URL</h2>
-
-      <p>From the CLI:</p>
-
-      <pre><code>arizuko token issue acme chat
-# https://acme.fiu.wtf/chat/Yp3v...Q2/</code></pre>
-
-      <p>
-        The CLI prints the URL once. Paste it where the &ldquo;Chat
-        with us&rdquo; button lives on the website. The token is in
-        the URL &mdash; treat the whole URL as a shareable bearer
-        credential.
-      </p>
-
-      <p>An agent inside the folder can mint its own:</p>
-
+      <h2>The CLI or the agent makes the token</h2>
+      <p>From the CLI, on the instance <code>demo</code>:</p>
+      <pre><code>arizuko token demo issue chat acme
+# jid:   web:acme
+# token: Yp3v...Q2</code></pre>
+      <p>The CLI shows the token only once. The URL is <code>https://&lt;host&gt;/chat/&lt;token&gt;/</code>. Put it behind the "Chat with us" button on the website. The token is in the URL, so the whole URL is a bearer credential that anyone can use.</p>
+      <p>An agent in the folder can make its own link:</p>
       <pre><code>issue_chat_link()
   &rarr; {
     "token": "...",
-    "url":   "https://acme.fiu.wtf/chat/.../",
+    "url":   "https://acme.example.com/chat/.../",
     "jid":   "web:acme"
   }</code></pre>
 
-      <h2>attach instructions to the link</h2>
-
-      <p>
-        Either mint face takes an optional <code>context</code> &mdash;
-        instructions on how the agent should process what arrives
-        through this specific link:
-      </p>
-
+      <h2>A link can carry instructions for the agent</h2>
+      <p>Both ways take an optional <code>context</code>. The context tells the agent how to process the messages that come through this link:</p>
       <pre><code>issue_chat_link(context="bug reports from the acme site; triage and file, don't chat back")
 
-arizuko token acme issue chat acme --context "bug reports; triage, don't chat"</code></pre>
+arizuko token demo issue chat acme --context "bug reports; triage, don't chat"</code></pre>
+      <p>Each message that comes through the link brings the text into the prompt as a <code>&lt;link-context&gt;</code> block. The agent reads the block as the rule for the link, not as a message to answer. Two links to the same folder can carry two different rules. The context is fixed when you make the link. To change it, make a new link and revoke the old one.</p>
 
-      <p>
-        Every message that arrives through the link then carries the
-        text into the agent's prompt as a <code>&lt;link-context&gt;</code>
-        block. The agent treats it as the link's handling contract, not
-        as something to reply to. Two links into the same folder can
-        carry two different contracts. Context is fixed at mint time
-        &mdash; to change it, mint a new link and revoke the old.
-      </p>
+      <h2>The visitor sees a chat page with live replies</h2>
+      <p><code>GET /chat/&lt;token&gt;/</code> returns a small HTML chat page that <code>webd</code> contains. The visitor types, and the page posts the text to the same URL. The answer holds a <code>turn_id</code>. An SSE stream at <code>/chat/&lt;token&gt;/&lt;turn_id&gt;/sse</code> sends the reply frames of the agent while the turn runs.</p>
+      <p>After a lost connection, the page connects again with <code>Last-Event-Id</code>. <code>webd</code> sends the missed frames again and then continues live. The page works in every current browser without an account, a cookie or a sign-in.</p>
 
-      <h2>what the visitor sees</h2>
+      <h2>A suffix splits one folder across pages</h2>
+      <p>Add a suffix to put two URLs of the same folder on different pages and tell them apart in the routing:</p>
+      <pre><code>arizuko token demo issue chat acme support
+# jid:   web:acme/support
 
-      <p>
-        <code>GET /chat/&lt;token&gt;/</code> serves a minimal HTML
-        chat page baked into webd. The visitor types, the page
-        POSTs to the same URL, the response carries a
-        <code>turn_id</code>, and an SSE stream at
-        <code>/chat/&lt;token&gt;/&lt;turn_id&gt;/sse</code> delivers
-        the agent's reply frames as the turn runs.
-      </p>
+arizuko token demo issue chat acme sales
+# jid:   web:acme/sales</code></pre>
+      <p>Both URLs reach the same <code>acme</code> agent. The JID lets route rules act differently, for example with a different persona, a different <a href="../concepts/topics.html">topic</a> or a different escalation. A suffix is a path segment, not a query parameter. Pick names that are easy to read in the route table.</p>
 
-      <p>
-        Dropped connections reconnect with <code>Last-Event-Id</code>;
-        the server replays missed frames and resumes live. The page
-        works in any modern browser without any account, cookie, or
-        sign-in step.
-      </p>
+      <h2>Signed-in chat is a different surface</h2>
+      <div class="callout"><strong><code>/chat/&lt;token&gt;/</code> is the anonymous bearer URL.</strong> Signed-in chat is a private panel of a team member for a folder, behind the OAuth gate of <code>proxyd</code>. <a href="../components/webd.html">webd</a> serves it, and this page does not cover it.</div>
 
-      <h2>splitting one folder across pages</h2>
+      <h2>Revoke a link by its JID</h2>
+      <pre><code>arizuko token demo revoke web:acme/support</code></pre>
+      <p>After the revoke, the URL returns 404 at once. Issue a token with the same suffix to get a new URL with the same JID, and replace the URL on the website. No rotation in place exists, because the URL is the credential.</p>
 
-      <p>
-        Pass a <code>jid_suffix</code> to put two URLs from the same
-        folder on different pages and tell them apart in routing:
-      </p>
-
-      <pre><code>arizuko token issue acme chat --suffix support
-  &rarr; web:acme/support  (https://.../chat/Sup1.../)
-
-arizuko token issue acme chat --suffix sales
-  &rarr; web:acme/sales    (https://.../chat/Sal2.../)</code></pre>
-
-      <p>
-        Both URLs reach the same <code>acme</code> agent, but the
-        JID prefix lets route rules behave differently &mdash; e.g.
-        a different persona, a different <a href="../concepts/topics.html">topic</a>,
-        or a different scheduled escalation. Suffixes are folder
-        segments, not query params; pick names that read well in
-        the route table.
-      </p>
-
-      <h2>authenticated chat is a different surface</h2>
-
-      <div class="note">
-        <code>/chat/&lt;token&gt;/</code> is the anonymous bearer URL.
-        Signed-in chat (a teammate's private pane against their own
-        folder, OAuth-gated through proxyd) is a separate surface
-        served by <a href="../components/webd.html">webd</a> and not
-        covered here.
-      </div>
-
-      <h2>revocation</h2>
-
-      <pre><code>arizuko token revoke web:acme/support</code></pre>
-
-      <p>
-        The next visitor lands on a 401. Reissue with the same
-        suffix to get a new URL with the same JID and swap it on
-        the site. There is no in-place rotation &mdash; the URL is
-        the credential.
-      </p>
-
-      <h2>go deeper</h2>
-      <ul>
-        <li><a href="../concepts/tokens.html">concepts/route tokens</a> &mdash; the bearer model and JID encoding.</li>
-        <li><a href="../howto/webhooks.html">how-to: webhooks</a> &mdash; the <code>/hook/</code> sibling for machine ingest.</li>
-        <li><a href="../reference/tokens.html">reference/tokens</a> &mdash; full HTTP surface, POST and SSE shapes, env vars.</li>
-        <li><a href="../components/webd.html">components/webd</a> &mdash; the daemon that hosts <code>/chat/*</code>.</li>
-      </ul>
+      <h2>Four pages give the details</h2>
+      <dl>
+        <dt><a href="../concepts/tokens.html">route tokens</a></dt><dd>The bearer model and the JID encoding.</dd>
+        <dt><a href="webhooks.html">webhooks</a></dt><dd>The <code>/hook/</code> URL for machine input.</dd>
+        <dt><a href="../reference/tokens.html">token reference</a></dt><dd>The full HTTP surface, the POST and SSE shapes and the env vars.</dd>
+        <dt><a href="../components/webd.html">webd</a></dt><dd>The daemon that serves <code>/chat/*</code>.</dd>
+      </dl>
 
 
       <nav class="docs-pager" aria-label="Pager">
         <a rel="prev" href="asymmetric-channels.html">&larr; Asymmetric channels</a>
-        <a rel="next" href="chat-sdk.html">Embed chat (SDK) &rarr;</a>
+        <a rel="next" href="chat-sdk.html">Chat SDK &rarr;</a>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/howto/chat-link.html">Edit this page</a>

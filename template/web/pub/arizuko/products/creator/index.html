@@ -54,25 +54,11 @@
         without your approval. The approval step is the product.
       </p>
 
-      <h2>What it does</h2>
-
-      <p>
-        Inari monitors sources, pitches angles, drafts in the voice recorded
-        in <code>facts/style.md</code>, revises on feedback, and publishes
-        only when you approve. It asks for a brief before drafting rather
-        than starting cold, and confirms the target platform before
-        finishing &mdash; a Bluesky post and a newsletter section are not the
-        same draft.
-      </p>
-
-      <p>
-        Research cites its sources; final drafts strip them unless your
-        style file asks for them. That split is deliberate: you need to check
-        the claim, your reader usually does not.
-      </p>
+      <h2>Inari drafts in your voice and publishes only after approval</h2>
+      <p>Inari watches sources, proposes angles, drafts in the voice that <code>facts/style.md</code> records, revises on feedback and publishes only when you approve. It asks for a brief before it drafts, and it confirms the target platform before it finishes, because a Bluesky post and a newsletter section are different drafts.</p>
+      <p>Research drafts cite their sources. Final drafts remove the citations unless your style file asks for them. You need to check the claim, and your reader usually does not.</p>
 
       <h2>A sample exchange</h2>
-
       <pre><code>user   anything worth writing about this week?
 
 agent  Three angles. (1) the SQLite WAL post everyone is reacting to —
@@ -84,27 +70,19 @@ user   2, bluesky thread
 
 agent  Brief first: how technical, and do you want the outage named?</code></pre>
 
-      <h2>What it ships</h2>
-
+      <h2>The product ships three files</h2>
       <table>
         <thead><tr><th>File</th><th>What it is</th></tr></thead>
         <tbody>
-          <tr><td><code>PRODUCT.md</code></td><td>the manifest &mdash; name, brand, tagline, env hints</td></tr>
-          <tr><td><code>SOUL.md</code></td><td>who the agent is: drafts in your voice, waits for approval</td></tr>
-          <tr><td><code>facts/style.md</code></td><td>the voice, tone, in-scope topics and platform rules</td></tr>
+          <tr><td><code>PRODUCT.md</code></td><td>the manifest: name, brand, tagline and env hints</td></tr>
+          <tr><td><code>SOUL.md</code></td><td>who the agent is: drafts in your voice and waits for approval; <code>runed</code> renames it to <code>PERSONA.md</code> at the first turn</td></tr>
+          <tr><td><code>facts/style.md</code></td><td>the voice, the tone, the topics in scope and the platform rules</td></tr>
         </tbody>
       </table>
+      <p>The product also ships its tests in <code>eval/</code>.</p>
 
-      <h2>Who it is for</h2>
-
-      <p>
-        Someone who publishes regularly and is the bottleneck on drafting
-        rather than on ideas. If you want distribution and scheduling across
-        several platforms instead of drafting, that is
-        <a href="../socials/">the social presence manager</a> &mdash; the two
-        compose: blend both into one group and Inari drafts what Phosphene
-        posts.
-      </p>
+      <h2>A writer whose limit is drafting needs it</h2>
+      <p>The product is for a person who publishes often and whose limit is drafting, not ideas. For distribution and scheduling on several platforms, use <a href="../socials/">the social presence manager</a>. The two work together: blend both into one group, and Inari drafts what Phosphene posts.</p>
 
       <p><a href="setup.html">Set it up &rsaquo;</a></p>
 
@@ -114,7 +92,7 @@ agent  Brief first: how technical, and do you want the outage named?</code></pre
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/creator/index.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-16">2026-10-16</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-20">2026-10-20</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

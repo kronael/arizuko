@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>add a connector — arizuko</title>
+  <title>connectors — arizuko</title>
   <link rel="stylesheet" href="../assets/hub.css">
 </head>
 <body>
@@ -26,12 +26,12 @@
             <li><a href="slack.html">Slack</a></li>
             <li><a href="discord.html">Discord</a></li>
             <li><a href="asymmetric-channels.html">Asymmetric channels</a></li>
-            <li><a href="chat-link.html">Chat link on your site</a></li>
-            <li><a href="chat-sdk.html">Embed chat (SDK)</a></li>
+            <li><a href="chat-link.html">Chat link</a></li>
+            <li><a href="chat-sdk.html">Chat SDK</a></li>
             <li><a href="webhooks.html">Webhooks</a></li>
-            <li><a href="add-connector.html">Add a connector</a></li>
-            <li><a href="oauth-provider.html">Add an OAuth provider</a></li>
-            <li><a href="webdav.html">WebDAV mount</a></li>
+            <li><a href="add-connector.html">Connectors</a></li>
+            <li><a href="oauth-provider.html">OAuth providers</a></li>
+            <li><a href="webdav.html">WebDAV</a></li>
             <li><a href="kubernetes.html">Kubernetes</a></li>
           </ul>
         </li>
@@ -46,38 +46,17 @@
 
     <main class="docs-content">
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">howto</a> &rsaquo; Add a connector</p>
-      <h1>add a connector</h1>
+      <h1>connectors</h1>
 
-      <p>
-        A connector gives an agent a tool that calls somebody else&rsquo;s
-        API, without putting that API&rsquo;s credential in the guest.
-        You write one TOML block, store the secret, and grant the scope to
-        the folders that should see the tool. This page walks one through,
-        end to end, with a real API.
-      </p>
+      <p class="lede">A connector gives an agent a tool that calls an external API. The credential of that API stays on the host and never enters the guest. You write one TOML block, store the secret, and grant the scope to the folders that get the tool. This page adds one connector for a real API.</p>
 
-      <p>
-        Background on what a connector is and why the credential stays on
-        the host: <a href="../concepts/ext-mcp.html">concepts / connectors</a>.
-      </p>
+      <p><a href="../concepts/ext-mcp.html">Connectors</a> explains what a connector is and why the credential stays on the host.</p>
 
-      <h2>1. decide which transport</h2>
-      <p>
-        If the far side is already an MCP server reachable over HTTP, you
-        want <code>transport = "mcp"</code> and you declare no tools &mdash;
-        it publishes its own catalogue. If it is an ordinary REST API, you
-        want <code>transport = "rest"</code> and one
-        <code>[[connector.tool]]</code> per endpoint you intend to expose.
-        The rest of this page does the REST case, because it is the one with
-        choices in it.
-      </p>
+      <h2>The far side decides the transport</h2>
+      <p>If the far side is an MCP server that answers over HTTP, use <code>transport = "mcp"</code> and declare no tools, because the server publishes its own list. If it is a normal REST API, use <code>transport = "rest"</code> and one <code>[[connector.tool]]</code> for each endpoint that you expose. The rest of this page shows the REST case, because it has more choices.</p>
 
-      <h2>2. write the block</h2>
-      <p>
-        Connectors live in <code>connectors.toml</code> in the instance
-        directory, beside <code>docker-compose.yml</code>. Create it if it
-        is not there.
-      </p>
+      <h2>One block in connectors.toml declares the connector</h2>
+      <p><code>routd</code> reads <code>connectors.toml</code> in the instance directory, next to <code>docker-compose.yml</code>. Make the file if it does not exist.</p>
       <pre><code>[[connector]]
 name      = "statuspage"
 transport = "rest"
@@ -98,102 +77,43 @@ headers   = { Authorization = "OAuth {secret:STATUSPAGE_TOKEN}" }
   scope       = "ext:statuspage:incident:write"
   method      = "POST"
   path        = "/pages/{page_id}/incidents"</code></pre>
-      <p>
-        Two details decide whether this works on the first try. The
-        <code>Authorization</code> value is a literal string you are
-        writing, so the scheme word &mdash; <code>OAuth</code> here, not
-        <code>Bearer</code> &mdash; is yours to get right. And
-        <code>{page_id}</code> is a path placeholder, so it becomes a
-        required argument on both tools automatically; you do not declare
-        it.
-      </p>
+      <p>Two details decide whether the first call works. The <code>Authorization</code> value is a literal string, so you must write the correct scheme word: <code>OAuth</code> here, not <code>Bearer</code>. And <code>{page_id}</code> is a path placeholder, so it becomes a required argument of both tools. You do not declare it.</p>
 
-      <h2>3. store the secret</h2>
-      <p>
-        The key named in <code>secrets</code> is resolved from the
-        <code>secrets</code> table at call time. Set it for the folder that
-        will use it:
-      </p>
-      <pre><code>arizuko secret &lt;instance&gt; set main/infra STATUSPAGE_TOKEN --value 'sp_live_…'</code></pre>
-      <p>
-        A person can hold their own key instead, and theirs wins over the
-        folder default for turns they trigger:
-      </p>
-      <pre><code>arizuko user-secret &lt;instance&gt; set 'slack:user/U123' STATUSPAGE_TOKEN --value 'sp_live_…'</code></pre>
-      <p>
-        This row is the only place the connector looks. The instance
-        <code>.env</code> is the daemons&rsquo; environment, and a
-        <code>STATUSPAGE_TOKEN</code> there is never sent by the connector,
-        valid or not. The two can hold different values under one name.
-      </p>
+      <h2>The secret goes into the secrets table, not into .env</h2>
+      <p>At each call, the connector reads the keys in <code>secrets</code> from the <code>secrets</code> table. Set the key for the folder that uses it:</p>
+      <pre><code>arizuko secret &lt;instance&gt; set main/infra STATUSPAGE_TOKEN --value 'sp_live_REPLACE_ME'</code></pre>
+      <p>A person can store an own key. For turns that the person starts, that key wins over the folder key:</p>
+      <pre><code>arizuko user-secret &lt;instance&gt; set 'slack:user/U123' STATUSPAGE_TOKEN --value 'sp_live_REPLACE_ME'</code></pre>
+      <p>The connector reads only this row. The <code>.env</code> of the instance is the environment of the daemons. The connector never sends a <code>STATUSPAGE_TOKEN</code> from <code>.env</code>. The two places can hold different values under one name.</p>
 
-      <h2>4. grant the scope</h2>
-      <p>
-        Until a folder holds the tool&rsquo;s scope, the tool is not in its
-        <code>tools/list</code> at all. Grant read and write separately if
-        you want them separate &mdash; that is why they are two scopes:
-      </p>
-      <pre><code>arizuko group &lt;instance&gt; grant main/infra 'ext:statuspage:incident:read'  'main/infra/**'
-arizuko group &lt;instance&gt; grant main/infra 'ext:statuspage:incident:write' 'main/infra/**'</code></pre>
+      <h2>A folder sees the tool only with the grant</h2>
+      <p>A folder without the scope of a tool does not see the tool in <code>tools/list</code>. Read and write are two scopes, so you can grant them separately:</p>
+      <pre><code>arizuko group &lt;instance&gt; grant folder:main/infra 'main/infra/**' 'ext:statuspage:incident:read'
+arizuko group &lt;instance&gt; grant folder:main/infra 'main/infra/**' 'ext:statuspage:incident:write'</code></pre>
 
-      <h2>5. restart and check</h2>
-      <p>
-        Connectors are read at <code>routd</code> start, so the instance has
-        to come back up before the tool exists:
-      </p>
+      <h2>routd loads connectors at start</h2>
+      <p><code>routd</code> reads the connectors when it starts, so restart the instance before you look for the tool:</p>
       <pre><code>sudo systemctl restart arizuko_&lt;instance&gt;</code></pre>
-      <p>
-        Then ask the agent in the granted folder what tools it has. The name
-        to look for is <code>&lt;provider&gt;_&lt;tool&gt;</code> &mdash;
-        <code>statuspage_incident_list</code>. If it is absent, the grant is
-        the first thing to check: a missing scope produces no tool and no
-        error message, by design.
-      </p>
+      <p>Then ask the agent in the granted folder for its tools. The tool name is <code>&lt;connector&gt;_&lt;tool&gt;</code>, here <code>statuspage_incident_list</code>. If the tool is missing, check the grant first. A missing scope gives no tool and no error message, by design.</p>
 
-      <h2>when it does not work</h2>
-      <ul>
-        <li>
-          <strong>The tool is missing.</strong> The folder does not hold the
-          scope, or the block failed to load. A connector whose
-          <code>transport</code> is neither <code>mcp</code> nor
-          <code>rest</code>, or a <code>rest</code> block with no
-          <code>[[connector.tool]]</code>, is refused at load with the
-          connector named.
-        </li>
-        <li>
-          <strong>The upstream returns 401.</strong> Check the secret is
-          set for the folder or the user, in the <code>secrets</code> table
-          and not in <code>.env</code>. An unset key does not
-          send a placeholder &mdash; the whole header is dropped, so the
-          request arrives with no credential at all.
-        </li>
-        <li>
-          <strong>The agent says the response is empty.</strong> A connector
-          hands back the response body and nothing else. There is no status
-          code for the agent to read, so an endpoint that answers 204 with
-          no body looks like nothing happened.
-        </li>
-        <li>
-          <strong>The call reaches a host the folder is not allowed to
-          reach.</strong> It will work, and that is expected: the request
-          leaves from <code>routd</code> on the host, not from the
-          agent&rsquo;s network, so the egress allowlist does not apply.
-          The grant is the boundary here.
-        </li>
-      </ul>
+      <h2>Four problems have a known cause</h2>
+      <dl>
+        <dt>The tool is missing</dt>
+        <dd>The folder does not hold the scope, or the block did not load. <code>routd</code> refuses a connector at load when its <code>transport</code> is not <code>mcp</code> or <code>rest</code>, or when a <code>rest</code> block has no <code>[[connector.tool]]</code>. The error names the connector.</dd>
+        <dt>The API returns 401</dt>
+        <dd>Check that the secret is set for the folder or the user in the <code>secrets</code> table, not in <code>.env</code>. When a key has no value, the connector sends no placeholder. It drops the whole header, so the request has no credential.</dd>
+        <dt>The agent says that the answer is empty</dt>
+        <dd>On success, a connector returns only the response body, with no status code. An endpoint that answers 204 with no body therefore looks like nothing happened. For a status of 400 or higher, the agent gets an error with the status and the body.</dd>
+        <dt>The call reaches a host outside the egress list of the folder</dt>
+        <dd>This is expected. The request leaves from <code>routd</code> on the host, not from the network of the agent, so the egress allowlist does not apply. The grant is the limit here.</dd>
+      </dl>
 
-      <h2>next</h2>
-      <p>
-        If the service wants a &ldquo;Connect&rdquo; flow rather than a
-        pasted key, you want
-        <a href="oauth-provider.html">add an OAuth provider</a> instead
-        &mdash; arizuko runs the dance and refreshes the token, and the
-        connector then reads what it stored.
-      </p>
+      <h2>A Connect flow needs an OAuth provider</h2>
+      <p>If the service uses a "Connect" flow and not a pasted key, use an <a href="oauth-provider.html">OAuth provider</a>. arizuko then runs the OAuth flow and refreshes the token, and the connector reads the stored token.</p>
 
       <nav class="docs-pager" aria-label="Pager">
         <a rel="prev" href="webhooks.html">&larr; Webhooks</a>
-        <a rel="next" href="oauth-provider.html">Add an OAuth provider &rarr;</a>
+        <a rel="next" href="oauth-provider.html">OAuth providers &rarr;</a>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/howto/add-connector.html">Edit this page</a>

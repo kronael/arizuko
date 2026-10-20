@@ -49,171 +49,91 @@
       <p class="docs-crumb"><a href="../../">arizuko</a> &rsaquo; <a href="../">products</a> &rsaquo; Reality agent &mdash; setup</p>
       <h1>Reality agent — setup</h1>
 
+      <p class="lede">The setup deploys Rhias on Telegram, with WhatsApp as an optional input: the instance, the group from <code>ant/examples/reality/</code>, the first <code>facts/threads/</code> and the monthly sweep.</p>
 
-
-      <p class="lede">
-        Deploy Rhias on Telegram (optionally with WhatsApp ingest):
-        instance, group template from <code>ant/examples/reality/</code>,
-        seeded <code>facts/threads/</code>, monthly sweep task.
-      </p>
-
-      <h2>prerequisites</h2>
+      <h2>Rhias needs KVM, a bot and a model key</h2>
       <ul>
         <li>A host with Docker.</li>
-        <li>The build half of the <a href="../../howto/index.html#install">install</a>: the binary, the images and the guest kernel, with <code>DATA_DIR</code> set to this instance&rsquo;s data dir. A turn is one KVM guest, so the host needs <code>/dev/kvm</code>.</li>
-        <li>A Telegram bot token (<a href="https://t.me/BotFather">@BotFather</a>); optional WhatsApp Business account for the asymmetric-channel pattern.</li>
-        <li>Anthropic API access. Optional <code>OPENAI_API_KEY</code> for the <code>oracle</code> skill (longer synthesis across many threads) &mdash; set it in the host <code>.env</code>, or per user at <code>/dash/me/env</code>. Folder scope rejects it.</li>
+        <li>The build part of the <a href="../../howto/index.html#install">install</a>: the binary, the images and the guest kernel, with <code>DATA_DIR</code> set to the data directory of this instance. A turn is one KVM guest, so the host needs <code>/dev/kvm</code>.</li>
+        <li>A Telegram bot token from <a href="https://t.me/BotFather">@BotFather</a>. Optionally a WhatsApp account for the asymmetric pattern.</li>
+        <li>Anthropic API access. The <code>oracle</code> skill also needs <code>CODEX_API_KEY</code> or <code>OPENAI_API_KEY</code>, in the host <code>.env</code> or for each user at <code>/dash/me/env</code>. The store refuses model keys at folder scope.</li>
       </ul>
 
-      <h2>1. seed the instance</h2>
+      <h2>create makes the instance</h2>
       <pre><code>arizuko create nemo
-cd /srv/data/arizuko_nemo
-$EDITOR .env</code></pre>
+arizuko packages nemo add teled
+$EDITOR /srv/data/arizuko_nemo/.env</code></pre>
 
-      <h2>2. fill in <code>.env</code></h2>
+      <h2>.env holds the bot token and the observe window</h2>
       <pre><code>ASSISTANT_NAME=rhias
-AUTH_SECRET=&lt;random hex&gt;
 WEB_HOST=nemo.example.com
 
 # Primary channel
-TELEGRAM_BOT_TOKEN=…
+TELEGRAM_BOT_TOKEN=REPLACE_ME
 
-# Optional WhatsApp side for asymmetric channels
-# WHATSAPP_AUTH_DIR is pre-set by the service fragment; you only need an
-# account that pairs via QR on first run.
+# Optional WhatsApp side for asymmetric channels: install whapd with
+# arizuko packages nemo add whapd and pair the account on first run.
 
-# Optional: increase the trigger turn's observe-mode context if WhatsApp
-# is firehose-heavy
+# Optional: more observed context in a turn, for a busy WhatsApp group
 OBSERVE_WINDOW_MESSAGES=25
 OBSERVE_WINDOW_CHARS=8000</code></pre>
-      <p>
-        <code>arizuko create</code> already generated <code>AUTH_SECRET</code>
-        and <code>SECRETS_KEY</code> in <code>.env</code>.
-        Full env-var list at <a href="../../reference/env.html">reference / env</a>.
-      </p>
+      <p><code>arizuko create</code> already wrote <code>AUTH_SECRET</code> and <code>SECRETS_KEY</code> into <code>.env</code>. <a href="../../reference/env.html">reference / env</a> lists every variable.</p>
 
-      <h2>3. create the rhias group from the template</h2>
-      <p>
-        The shipped template at <code>ant/examples/reality/</code>
-        carries the persona, the skill set declared in
-        <code>PRODUCT.md</code> (<code>diary</code>,
-        <code>facts</code>, <code>recall-memories</code>,
-        <code>compact-memories</code>, <code>users</code>, optional
-        <code>web</code> + <code>oracle</code>), and an empty
-        <code>facts/threads/</code> directory. One command creates the
-        group, seeds it from the template, and routes your Telegram DM
-        to it:
-      </p>
+      <h2>group add makes the rhias group from the template</h2>
+      <p>The template in <code>ant/examples/reality/</code> holds the persona in <code>SOUL.md</code>, the skills that <code>PRODUCT.md</code> lists, <code>BRANDING.md</code>, the first <code>facts/</code> and the tests. At the first turn, <code>runed</code> renames <code>SOUL.md</code> to <code>PERSONA.md</code>. One command makes the group, copies the template and routes your Telegram DM to it:</p>
       <pre><code>arizuko group nemo add 'telegram:user/&lt;your-tg-id&gt;' rhias --product reality
-# adjust groups/rhias/PERSONA.md and CLAUDE.md to taste before first run</code></pre>
+# edit the persona and add a CLAUDE.md before the first run, if you want</code></pre>
 
-      <h2>4. seed facts/threads</h2>
-      <p>
-        Threads are how the agent holds ongoing context across weeks.
-        Create one file per active situation in
-        <code>groups/rhias/facts/threads/</code>:
-      </p>
+      <h2>One file for each situation goes into facts/threads</h2>
+      <p>Threads hold ongoing context across weeks. Make one file for each current situation in <code>groups/rhias/facts/threads/</code>:</p>
       <pre><code>facts/threads/q3-architecture.md
 facts/threads/launch-prep.md
 facts/threads/relationship-alice.md</code></pre>
-      <p>
-        Each is a Markdown file &mdash; freeform up top, dated
-        entries below. The agent appends as the situation evolves;
-        seed it with whatever context already exists so the first
-        conversation has somewhere to land.
-      </p>
+      <p>Each one is a Markdown file: free text at the top and dated entries below. The agent adds entries when the situation changes. Put the context that already exists into each file, so the first conversation has a place to start.</p>
 
-      <h2>5. check the route</h2>
-      <p>
-        Step 3&rsquo;s <code>group add</code> already wrote the primary
-        route. Confirm with <code>arizuko route nemo list</code>; the row
-        looks like:
-      </p>
+      <h2>group add already wrote the main route</h2>
+      <p>Check it with <code>arizuko route nemo list</code>. The row looks like this:</p>
       <pre><code>seq  match                    target
 0    room=user/&lt;your-tg-id&gt;   rhias
 </code></pre>
-      <p>
-        Secondary channels get routed deliberately &mdash; with
-        <code>arizuko route nemo add</code>, the <code>add_route</code> MCP
-        tool from <code>arizuko chat nemo</code>, or a manifest plus
-        <code>arizuko apply</code>. Add a <code>rhias/content</code> subgroup
-        if you want a distinct memory + persona for longer-form writing;
-        route it from a separate Telegram chat or a
-        <code>/chat/&lt;token&gt;/</code> URL.
-      </p>
+      <p>Add routes for other channels on purpose, with <code>arizuko route nemo add</code> or with a manifest and <code>arizuko apply</code>. Add a <code>rhias/content</code> group if you want a separate memory and persona for longer writing. Route it from a separate Telegram chat or a <code>/chat/&lt;token&gt;/</code> URL.</p>
 
-      <h2>6. asymmetric channels (optional WhatsApp)</h2>
-      <p>
-        To ingest WhatsApp signal into the same memory without
-        replying on WhatsApp, add a second route in
-        <code>#observe</code> mode:
-      </p>
+      <h2>An observe route reads WhatsApp without replies</h2>
+      <p>To bring WhatsApp messages into the same memory without replies on WhatsApp, add a second route in <code>#observe</code> mode:</p>
       <pre><code>arizuko route nemo add 'platform=whatsapp room=&lt;group-id&gt;@g.us' 'rhias#observe' --seq 20</code></pre>
       <p>The table then reads:</p>
       <pre><code>seq  match                                     target
 0    room=user/&lt;your-tg-id&gt;                    rhias
 20   platform=whatsapp room=&lt;group-id&gt;@g.us    rhias#observe
 </code></pre>
-      <p>
-        WhatsApp messages land in <code>rhias/</code> for context
-        but do not fire a turn; the agent replies on Telegram with
-        an attribution line when something from WhatsApp matters.
-        Full walkthrough at
-        <a href="../../howto/asymmetric-channels.html">how-to: asymmetric channels</a>.
-      </p>
+      <p>WhatsApp messages go into <code>rhias/</code> as context and start no turn. When something from WhatsApp matters, the agent replies on Telegram with a source line. <a href="../../howto/asymmetric-channels.html">Asymmetric channels</a> has the full recipe.</p>
 
-      <h2>7. monthly autonomous sweep</h2>
-      <p>
-        The <code>compact-memories</code> skill rolls diary entries
-        into <code>episodes/YYYYMMDD.md</code> and folds threads
-        on a longer horizon. Schedule it monthly via
-        <code>timed</code> from the operator chat:
-      </p>
-      <pre><code>/new schedule monthly sweep
-@rhias schedule a task: every first of the month at 06:00 local,
+      <h2>A scheduled task runs the monthly sweep</h2>
+      <p>The <code>compact-memories</code> skill rolls diary entries into <code>episodes/YYYYMMDD.md</code> and folds threads over a longer time. Ask the agent to schedule it every month:</p>
+      <pre><code>@rhias schedule a task: every first of the month at 06:00 local,
        run /compact-memories with horizon=month and surface what
        changed, what was resolved, what's still open.</code></pre>
-      <p>
-        The agent writes the task into the <code>tasks</code> table
-        via the <code>schedule_task</code> MCP tool; <code>timed</code>
-        picks it up and fires the prompt on schedule.
-      </p>
+      <p>The agent writes the task with the <code>schedule_task</code> MCP tool, and <code>timed</code> sends the prompt on schedule.</p>
 
-      <h2>8. verify</h2>
+      <h2>The agent must answer in its persona</h2>
       <ul>
-        <li><code>sudo arizuko status nemo</code> shows the stack up and the router reachable.</li>
-        <li>Send the bot a DM on Telegram &mdash; the agent replies in the persona declared in <code>PERSONA.md</code>.</li>
-        <li>Ask <em>"what threads do I have?"</em> &mdash; the agent enumerates from <code>facts/threads/</code>.</li>
-        <li>If you serve the web layer at <code>WEB_HOST</code>, visit <code>https://&lt;WEB_HOST&gt;/dash/</code> &mdash; the <code>rhias</code> group, its route, and any scheduled tasks show up there.</li>
+        <li><code>arizuko status nemo</code> shows the stack up.</li>
+        <li>Send the bot a DM on Telegram. The agent replies in the voice of its persona file.</li>
+        <li>Ask "what threads do I have?". The agent lists the files in <code>facts/threads/</code>.</li>
+        <li>With the web layer on, open <code>https://&lt;WEB_HOST&gt;/dash/</code>. The <code>rhias</code> group, its route and its scheduled tasks show there.</li>
       </ul>
 
-      <h2>9. tune the persona</h2>
-      <p>
-        The shipped <code>PERSONA.md</code> sets the baseline voice. Edit
-        <code>groups/rhias/PERSONA.md</code> to change it, and add
-        per-deployment rules in <code>groups/rhias/CLAUDE.md</code> &mdash; the
-        <code>CLAUDE.md</code> layers on top without rewriting the persona.
-        Keep a <code>summary:</code> field in the <code>PERSONA.md</code>
-        frontmatter (see the callout below). The agent reloads on the next
-        turn. To edit these files over the network instead of on the host,
-        mount the workspace with <a href="../../howto/webdav.html">WebDAV</a>.
-      </p>
+      <h2>PERSONA.md needs a summary in its front matter</h2>
+      <p>The shipped persona sets the voice. Edit <code>groups/rhias/PERSONA.md</code> to change it, and add rules for this deployment in <code>groups/rhias/CLAUDE.md</code>. The rules add to the persona and do not rewrite it. The next turn uses the change. To edit the files from another machine, use <a href="../../howto/webdav.html">WebDAV</a>.</p>
+      <div class="callout"><strong>The front matter is strict.</strong> A <code>PERSONA.md</code> without a <code>summary:</code> key in its front matter gives an empty persona block. <code>routd</code> does not guess from the body. If the voice of the agent changes, check the YAML head of the file.</div>
 
-      <div class="callout">
-        <strong>Strict frontmatter.</strong> <code>PERSONA.md</code>
-        without a frontmatter <code>summary:</code> renders an empty
-        persona block, not a guessed-from-body fallback. If the agent
-        sounds drifted, check the YAML head of the file.
-      </div>
-
-      <h2>go deeper</h2>
-      <ul>
-        <li><a href="../../products/reality/">Reality agent &mdash; intro</a> &mdash; what users experience</li>
-        <li><a href="../../howto/asymmetric-channels.html">how-to: asymmetric channels</a> &mdash; the WhatsApp/Telegram split as a generic recipe</li>
-        <li><a href="../../concepts/routing.html#modes">routing &mdash; modes</a> &mdash; fragment vocabulary on route targets</li>
-        <li><a href="../../reference/env.html">env reference</a> &mdash; including <code>OBSERVE_WINDOW_*</code> tuning</li>
-        <li><a href="../../products/slack-team/">Slack team agent</a> &mdash; contrast: shared channel rather than single-user thread holder</li>
-      </ul>
+      <h2>Four pages give the details</h2>
+      <dl>
+        <dt><a href="./">Reality agent</a></dt><dd>What users see.</dd>
+        <dt><a href="../../howto/asymmetric-channels.html">asymmetric channels</a></dt><dd>The WhatsApp and Telegram split as a general recipe.</dd>
+        <dt><a href="../../concepts/routing.html#modes">routing modes</a></dt><dd>The fragments of a route target.</dd>
+        <dt><a href="../../reference/env.html">env reference</a></dt><dd>The <code>OBSERVE_WINDOW_*</code> variables and the rest.</dd>
+      </dl>
 
 
       <nav class="docs-pager" aria-label="Pager">

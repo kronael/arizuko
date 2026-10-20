@@ -49,70 +49,41 @@
       <p class="docs-crumb"><a href="../../">arizuko</a> &rsaquo; <a href="../">products</a> &rsaquo; <a href="./">Personal assistant (Fiu)</a> &rsaquo; setup</p>
       <h1>Personal assistant setup</h1>
 
-      <h2>1. Prerequisites</h2>
+      <p class="lede">The personal assistant needs one Telegram bot and a preferences file with what it must know about you.</p>
 
+      <h2>The assistant needs an instance and a Telegram bot</h2>
       <ul>
-        <li>A running instance (<a href="../../howto/">getting started</a>).</li>
-        <li><code>TELEGRAM_BOT_TOKEN</code> &mdash; the product declares it
-          required, because a personal assistant with no channel is a
-          directory.</li>
+        <li>A running instance, from <a href="../../howto/">getting started</a>.</li>
+        <li><code>TELEGRAM_BOT_TOKEN</code>. The product declares it as required, because an assistant with no channel is only a directory.</li>
       </ul>
 
-      <h2>2. Seed the instance from it</h2>
-
-      <pre><code>arizuko create fiu --product personal</code></pre>
-
-      <p>
-        That seeds the default group from the product tree. To add it to an
-        existing instance as one more group instead:
-      </p>
-
+      <h2>create seeds the instance from the product</h2>
+      <pre><code>arizuko create fiu --product personal
+arizuko packages fiu add teled</code></pre>
+      <p>The first command copies the product tree into the default group. To add the product to an existing instance as one more group:</p>
       <pre><code>arizuko group &lt;instance&gt; add telegram:user/12345678 me --product personal</code></pre>
 
-      <h2>3. Set the token</h2>
+      <h2>.env holds the token</h2>
+      <pre><code>TELEGRAM_BOT_TOKEN=REPLACE_ME
+OPENAI_API_KEY=REPLACE_ME   # optional: the oracle skill</code></pre>
 
-      <pre><code>TELEGRAM_BOT_TOKEN=...
-OPENAI_API_KEY=...   # optional: web search and oracle research</code></pre>
+      <h2>The preferences file holds what Fiu must know</h2>
+      <p><code>facts/preferences.md</code> makes the difference between a generic assistant and your assistant. Write what you would otherwise repeat: how you like drafts, what you work on, your timezone and the names that come up often. It is a file, so edit it when it is wrong.</p>
+      <div class="callout"><strong>Memory belongs to one folder.</strong> The diary and <code>facts/</code> belong to the group, so a second group has a second memory, and nothing is shared. That is the containment guarantee, not a limit to work around. <a href="../../concepts/scopes.html">Scopes</a> explains it.</div>
 
-      <h2>4. Seed what it should already know</h2>
-
-      <p>
-        <code>facts/preferences.md</code> is the difference between a
-        generic assistant and yours. Write the things you would otherwise
-        repeat: how you like drafts, what you are working on, timezone,
-        who the recurring names are. It is a file &mdash; edit it whenever
-        it is wrong.
-      </p>
-
-      <div class="note">
-        <strong>Memory is per folder.</strong> The diary and
-        <code>facts/</code> belong to the group, so a second group is a
-        second memory with nothing shared. That is the containment
-        guarantee, not a limitation to work around: see
-        <a href="../../concepts/scopes.html">scopes</a>.
-      </div>
-
-      <h2>5. Verify</h2>
-
+      <h2>The assistant must quote your preferences</h2>
       <pre><code>arizuko send &lt;instance&gt; me "what do you know about how I like drafts?" --wait</code></pre>
+      <p>A correct answer quotes your preferences file. A generic answer means that the file is not in place. Check <code>groups/me/facts/preferences.md</code>.</p>
 
-      <p>
-        A correct answer quotes your preferences file. A generic answer
-        means the seed did not land &mdash; check
-        <code>groups/me/facts/preferences.md</code>.
-      </p>
-
-      <h2>6. Tuning</h2>
-
-      <ul>
-        <li><strong>Voice</strong> &mdash; edit <code>SOUL.md</code>.</li>
-        <li><strong>What it remembers</strong> &mdash; the agent appends to
-          <code>facts/</code> itself; prune it when it drifts. Stale
-          preferences are the main failure mode of a memory product.</li>
-        <li><strong>Reminders</strong> &mdash; ask it to schedule one and it
-          creates a <a href="../../concepts/tasks.html">scheduled task</a>.
-          Tasks are DB rows, not a file in the folder.</li>
-      </ul>
+      <h2>Three changes tune the assistant</h2>
+      <dl>
+        <dt>Voice</dt>
+        <dd>Edit the persona file, <code>PERSONA.md</code> after the first turn.</dd>
+        <dt>What it remembers</dt>
+        <dd>The agent adds to <code>facts/</code> itself. Remove old entries when they are wrong. Stale preferences are the main failure of a memory product.</dd>
+        <dt>Reminders</dt>
+        <dd>Ask the agent for a reminder, and it makes a <a href="../../concepts/tasks.html">scheduled task</a>. A task is a row on the store, not a file in the folder.</dd>
+      </dl>
 
       <nav class="docs-pager" aria-label="Pager">
         <a rel="prev" href="index.html">&larr; Personal assistant (Fiu)</a>
@@ -120,7 +91,7 @@ OPENAI_API_KEY=...   # optional: web search and oracle research</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/personal/setup.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-16">2026-10-16</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-20">2026-10-20</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

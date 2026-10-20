@@ -49,67 +49,39 @@
       <p class="docs-crumb"><a href="../../">arizuko</a> &rsaquo; <a href="../">products</a> &rsaquo; <a href="./">Domain researcher (Prometheus)</a> &rsaquo; setup</p>
       <h1>Domain researcher setup</h1>
 
-      <h2>1. Prerequisites</h2>
+      <p class="lede">The domain researcher needs a Codex key, a delivery channel, egress for its sources and a description of the domain.</p>
 
+      <h2>The researcher needs a Codex key, a channel and egress</h2>
       <ul>
-        <li>A running instance (<a href="../../howto/">getting started</a>).</li>
-        <li><code>CODEX_API_KEY</code> &mdash; declared required. Synthesis
-          across long documents is the oracle skill&rsquo;s job; without it
-          the briefings degrade to link lists.</li>
-        <li>A delivery channel &mdash; <code>TELEGRAM_BOT_TOKEN</code> or
-          <code>DISCORD_BOT_TOKEN</code>.</li>
-        <li>Egress for the sources it must read. A default instance is
-          allowlisted, so add the domains or grant the folder open egress
-          before the first briefing (<a href="../../security/">egress and
-          isolation</a>).</li>
+        <li>A running instance, from <a href="../../howto/">getting started</a>.</li>
+        <li><code>CODEX_API_KEY</code>, which the product declares as required. The oracle skill combines long documents. Without it, the briefings become lists of links.</li>
+        <li>A delivery channel: <code>TELEGRAM_BOT_TOKEN</code> or <code>DISCORD_BOT_TOKEN</code>, with its adapter installed.</li>
+        <li>Egress for the sources that the agent must read. An instance allows only listed domains by default, so add the domains or grant the folder open egress before the first briefing. <a href="../../security/">Security</a> explains egress and isolation.</li>
       </ul>
 
-      <h2>2. Seed a group from it</h2>
+      <h2>group add makes the group from the product</h2>
+      <pre><code>arizuko group &lt;instance&gt; add telegram:group/100123 research --product strategy</code></pre>
+      <p>A Telegram group ID is negative, and the JID drops the minus sign.</p>
 
-      <pre><code>arizuko group &lt;instance&gt; add telegram:group/-100123 research --product strategy</code></pre>
+      <h2>Two files define the domain and the sources</h2>
+      <p><code>facts/domain.md</code> says what the domain is, who the main players are and what counts as important. <code>facts/watchlist.md</code> says where to look: sources, companies and topics. Both ship as instructions to the operator and not as content, because a researcher without a subject writes a newsletter about nothing.</p>
 
-      <h2>3. Define the domain and the watchlist</h2>
+      <h2>A scheduled task delivers the briefing</h2>
+      <p>Ask in the chat, for example "brief me every Monday at 07:00", and the agent makes the <a href="../../concepts/tasks.html">scheduled task</a>. Products ship no task files. The task tool makes the row, so you can list, pause and cancel it like any other task.</p>
 
-      <p>
-        <code>facts/domain.md</code> says what the domain is, who the key
-        players are, and what counts as material. <code>facts/watchlist.md</code>
-        says where to look: sources, companies, topics. Both ship as
-        operator instructions rather than content &mdash; a researcher with
-        no beat produces a newsletter about nothing.
-      </p>
-
-      <h2>4. Schedule the briefing</h2>
-
-      <p>
-        Ask for it in chat &mdash; &ldquo;brief me every Monday at
-        07:00&rdquo; &mdash; and the agent creates the
-        <a href="../../concepts/tasks.html">scheduled task</a>. Products do
-        not ship task files; the row is created through the task tool, so
-        you can list, pause and cancel it like any other.
-      </p>
-
-      <h2>5. Verify</h2>
-
+      <h2>Each finding must carry a confidence marker</h2>
       <pre><code>arizuko send &lt;instance&gt; research "what changed in the domain this week?" --wait</code></pre>
+      <p>A correct answer marks each item as confirmed, inferred or speculative and cites sources in the text. A long block of prose without markers means that the persona is not in place.</p>
 
-      <p>
-        A correct answer marks each item confirmed, inferred or speculative
-        and cites sources inline. An unmarked wall of prose means
-        <code>SOUL.md</code> did not land.
-      </p>
-
-      <h2>6. Tuning</h2>
-
-      <ul>
-        <li><strong>Beat</strong> &mdash; edit
-          <code>facts/watchlist.md</code>. Everything else follows from
-          it.</li>
-        <li><strong>Archive</strong> &mdash; briefings accumulate in
-          <code>facts/reports/</code>. They are inputs to the next one, so
-          keep them.</li>
-        <li><strong>Depth</strong> &mdash; ask for a deep dive on one
-          question; the weekly shape is a default, not a limit.</li>
-      </ul>
+      <h2>Three changes tune the researcher</h2>
+      <dl>
+        <dt>Subject</dt>
+        <dd>Edit <code>facts/watchlist.md</code>. The rest follows from it.</dd>
+        <dt>Archive</dt>
+        <dd>The briefings collect in <code>facts/reports/</code>. They are inputs to the next briefing, so keep them.</dd>
+        <dt>Depth</dt>
+        <dd>Ask for a deep dive on one question. The weekly shape is a default, not a limit.</dd>
+      </dl>
 
       <nav class="docs-pager" aria-label="Pager">
         <a rel="prev" href="index.html">&larr; Domain researcher (Prometheus)</a>
@@ -117,7 +89,7 @@
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/strategy/setup.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-16">2026-10-16</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-20">2026-10-20</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

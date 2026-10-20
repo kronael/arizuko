@@ -49,47 +49,30 @@
       <p class="docs-crumb"><a href="../../">arizuko</a> &rsaquo; <a href="../">products</a> &rsaquo; Trip planner &mdash; setup</p>
       <h1>Trip planner &mdash; setup</h1>
 
+      <p class="lede">May needs one Telegram bot, a preferences file and <code>CODEX_API_KEY</code> for the oracle skill.</p>
 
-
-      <p class="lede">
-        Deploy May: one Telegram bot, a seeded preferences file, and
-        <code>CODEX_API_KEY</code> for oracle synthesis.
-      </p>
-
-      <h2>prerequisites</h2>
+      <h2>The planner needs KVM, a model key, a bot and a Codex key</h2>
       <ul>
         <li>A host with Docker.</li>
-        <li>The build half of the <a href="../../howto/index.html#install">install</a>: the binary, the images and the guest kernel, with <code>DATA_DIR</code> set to this instance&rsquo;s data dir. A turn is one KVM guest, so the host needs <code>/dev/kvm</code>.</li>
-        <li>Anthropic API access (<code>ANTHROPIC_API_KEY</code>).</li>
-        <li>A Telegram bot token (<code>TELEGRAM_BOT_TOKEN</code>) &mdash; the trip planner is a personal Telegram bot.</li>
-        <li><strong>Codex API key (<code>CODEX_API_KEY</code>) &mdash; required.</strong> The oracle skill that does multi-step destination synthesis won&rsquo;t run without it. A trip planner without oracle returns a shallow answer; it defeats the purpose of the product.</li>
+        <li>The build part of the <a href="../../howto/index.html#install">install</a>: the binary, the images and the guest kernel, with <code>DATA_DIR</code> set to the data directory of this instance. A turn is one KVM guest, so the host needs <code>/dev/kvm</code>.</li>
+        <li>Anthropic API access, <code>ANTHROPIC_API_KEY</code>.</li>
+        <li>A Telegram bot token, <code>TELEGRAM_BOT_TOKEN</code>. The planner is a personal Telegram bot.</li>
+        <li><strong>A Codex API key, <code>CODEX_API_KEY</code>.</strong> The oracle skill does not run without it. Without oracle, the planner gives a shallow answer.</li>
       </ul>
 
-      <h2>1. create the instance</h2>
+      <h2>create seeds the main group from the trip product</h2>
       <pre><code>arizuko create travel --product trip
-cd /srv/data/arizuko_travel
-$EDITOR .env</code></pre>
-      <p>
-        The <code>--product trip</code> flag seeds the <code>main</code>
-        group from <code>ant/examples/trip/</code>: May&rsquo;s
-        <code>PERSONA.md</code>, the skill set, and a starter
-        <code>facts/preferences.md</code>. <code>arizuko create</code> also
-        writes <code>.env</code> with a generated <code>AUTH_SECRET</code>
-        and <code>SECRETS_KEY</code>; add the rest:
-      </p>
+arizuko packages travel add teled
+$EDITOR /srv/data/arizuko_travel/.env</code></pre>
+      <p><code>--product trip</code> copies <code>ant/examples/trip/</code> into the <code>main</code> group: the <code>PERSONA.md</code> of May, <code>PRODUCT.md</code>, a first <code>facts/preferences.md</code> and the <code>eval/</code> tests. <code>arizuko create</code> also writes <code>.env</code> with a new <code>AUTH_SECRET</code> and <code>SECRETS_KEY</code>. <code>packages add teled</code> installs the Telegram adapter. Add the other values:</p>
       <pre><code>ASSISTANT_NAME=may
 WEB_HOST=travel.example.com
-ANTHROPIC_API_KEY=sk-ant-…
-TELEGRAM_BOT_TOKEN=…
-CODEX_API_KEY=…</code></pre>
+ANTHROPIC_API_KEY=sk-ant-REPLACE_ME
+TELEGRAM_BOT_TOKEN=REPLACE_ME
+CODEX_API_KEY=REPLACE_ME</code></pre>
 
-      <h2>2. seed the preferences file</h2>
-      <p>
-        May reads <code>facts/preferences.md</code> at the start of every trip
-        planning session. Without it she has no baseline &mdash; she&rsquo;ll
-        ask the same questions every time. Replace the starter file with your
-        own profile before the first message:
-      </p>
+      <h2>The preferences file is the baseline of every plan</h2>
+      <p>May reads <code>facts/preferences.md</code> at the start of every planning session. Without it, she has no baseline and asks the same questions each time. Replace the first file with your own profile before the first message:</p>
       <pre><code>cat &gt; /srv/data/arizuko_travel/groups/main/facts/preferences.md &lt;&lt;'EOF'
 # Travel Preferences
 
@@ -112,58 +95,35 @@ per trip if it's a landmark spot.
 - 2024: Lisbon + Porto (10 days, loved the food market circuit)
 - 2025: Oaxaca (8 days, mole tour was the highlight)
 EOF</code></pre>
-      <p>
-        This is a starting point. May updates it as you mention preferences in
-        conversation, using the <code>facts</code> skill to write changes back.
-      </p>
+      <p>This is a starting point. May writes changes to the file when you mention a preference in the conversation.</p>
 
-      <h2>3. wire the route</h2>
-      <p>
-        <code>arizuko create</code> writes no routes. Send your Telegram
-        messages to the <code>main</code> group:
-      </p>
+      <h2>One route sends Telegram to main</h2>
+      <p><code>arizuko create</code> writes no routes. Send your Telegram messages to the <code>main</code> group:</p>
       <pre><code>arizuko route travel add 'platform=telegram' main</code></pre>
 
-      <h2>4. run</h2>
+      <h2>arizuko run starts the instance</h2>
       <pre><code>arizuko run travel</code></pre>
 
-      <h2>5. verify</h2>
+      <h2>May must ask before she researches</h2>
       <ul>
-        <li>Send a trip brief via Telegram: &ldquo;10 days in Japan, late October, food focus&rdquo;. May should ask clarifying questions before researching.</li>
-        <li>If she goes straight to research without clarifying, check that <code>groups/main/PERSONA.md</code> (seeded from <code>ant/examples/trip/</code>) is in place &mdash; the clarify-first behavior is persona-driven, not a hard rule.</li>
-        <li>If oracle doesn&rsquo;t run, check <code>sudo journalctl -u arizuko_travel | grep -i codex</code> &mdash; a missing key surfaces there.</li>
+        <li>Send a trip brief on Telegram: "10 days in Japan, late October, food focus". May must ask questions before the research.</li>
+        <li>If she starts the research without questions, check that <code>groups/main/PERSONA.md</code> is in place. The questions come from the persona, not from a fixed rule.</li>
+        <li>If oracle does not run, run <code>sudo journalctl -u arizuko_travel | grep -i codex</code>. A missing key shows there.</li>
       </ul>
 
-      <h2>6. tune</h2>
-      <p>
-        The preferences file is the main tuning surface. Edit it directly or
-        over WebDAV at
-        <code>https://travel.example.com/dav/main/facts/preferences.md</code>.
-        Changes take effect on the next planning session &mdash; no restart.
-      </p>
-      <p>
-        To adjust May&rsquo;s voice or the structure of the itinerary output,
-        edit <code>groups/main/CLAUDE.md</code> (allowed tools, output format,
-        citation rules) or the <code>PERSONA.md</code> (voice register,
-        what she does and doesn&rsquo;t do).
-      </p>
+      <h2>The preferences file is the main control</h2>
+      <p>Edit the preferences file directly, or over WebDAV at <code>https://travel.example.com/dav/main/facts/preferences.md</code>. The next planning session uses the change, with no restart.</p>
+      <p>To change the voice of May, edit <code>PERSONA.md</code>. To change the structure of the itinerary, the allowed tools or the citation rules, write the rules into a <code>CLAUDE.md</code> in the group.</p>
+      <div class="callout"><strong>The trip archive grows with each trip.</strong> After each itinerary, May stores it at <code>facts/trips/YYYY-&lt;dest&gt;.md</code>. Browse the archive over WebDAV at <code>/dav/main/facts/trips/</code>, or ask May: "What did we plan for Lisbon?"</div>
 
-      <div class="callout">
-        <strong>Trip archive grows automatically.</strong> After delivering
-        an itinerary May stores it at
-        <code>facts/trips/YYYY-&lt;dest&gt;.md</code>. You can browse it over
-        WebDAV at <code>/dav/main/facts/trips/</code> or ask May directly:
-        &ldquo;What did we plan for Lisbon?&rdquo;
-      </div>
-
-      <h2>go deeper</h2>
-      <ul>
-        <li><a href="../../products/trip/">Trip planner &mdash; intro</a> &mdash; what May does and her voice</li>
-        <li><a href="../../concepts/skills.html">oracle skill</a> &mdash; how multi-step synthesis works</li>
-        <li><a href="../../components/egress.html">egress</a> &mdash; allow the domains May searches</li>
-        <li><a href="../../concepts/routing.html#modes">routing &mdash; observe mode</a> &mdash; asymmetric channel ingest</li>
-        <li><a href="../../reference/cli.html">CLI reference</a></li>
-      </ul>
+      <h2>Five pages give the details</h2>
+      <dl>
+        <dt><a href="./">Trip planner</a></dt><dd>What May does, and her voice.</dd>
+        <dt><a href="../../concepts/skills.html">skills</a></dt><dd>How the oracle skill works.</dd>
+        <dt><a href="../../components/egress.html">egress</a></dt><dd>Allow the domains that May searches.</dd>
+        <dt><a href="../../concepts/routing.html#modes">routing modes</a></dt><dd>An input-only channel.</dd>
+        <dt><a href="../../reference/cli.html">CLI reference</a></dt><dd>Every command.</dd>
+      </dl>
 
 
       <nav class="docs-pager" aria-label="Pager">
@@ -172,7 +132,7 @@ EOF</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/trip/setup.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-16">2026-10-16</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-20">2026-10-20</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>
