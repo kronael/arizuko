@@ -130,8 +130,8 @@ sudo journalctl -u arizuko_&lt;instance&gt; --since "30s ago" --no-pager \
       <p>Or add a route for one channel:</p>
       <pre><code>./arizuko route &lt;instance&gt; add 'chat_jid=slack:T012ABCD/channel/C0HJKL456' engineering</code></pre>
 
-      <h2 id="step-8">Step 8, optional: enable the AI pane</h2>
-      <p>The Slack "Agents &amp; AI Apps" pane gives the bot its own panel with a title, suggested prompts and a typing indicator. The bot also sees which channel the user has open. <a href="../concepts/slack-pane.html">Slack pane</a> explains the concept.</p>
+      <h2 id="step-8">Step 8: enable the AI pane</h2>
+      <p>This step is optional. The Slack "Agents &amp; AI Apps" pane gives the bot its own panel with a title, suggested prompts and a typing indicator. The bot also sees which channel the user has open. <a href="../concepts/slack-pane.html">Slack pane</a> explains the concept.</p>
       <ol>
         <li>In <strong>Agents &amp; AI Apps</strong>, turn the feature <strong>on</strong> for the app.</li>
         <li>In <strong>OAuth &amp; Permissions</strong>, add <code>assistant:write</code> to the bot token scopes. Keep <code>chat:write</code>. Install the app again, so that the new scope applies.</li>
