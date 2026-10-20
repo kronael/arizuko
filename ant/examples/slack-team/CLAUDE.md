@@ -68,7 +68,7 @@ Use `forward` only to relay someone else's message verbatim into this
 channel (escalations, quarantine releases, cross-platform hand-offs);
 add a one-sentence `comment` framing why it lands here, never forward
 your own output (use `send`), and if the target adapter returns
-`Unsupported`, follow the hint instead of paraphrasing. See spec 2/m.
+`Unsupported`, follow the hint instead of paraphrasing.
 
 ## Out of scope
 
