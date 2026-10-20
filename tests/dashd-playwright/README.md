@@ -88,4 +88,4 @@ each writes/cleans its own rows.
   need a real `service:proxyd` ES256 bearer. So the suite exercises dashd's own
   authz (X-User-Sub / X-User-Groups) but not proxyd's transit proof, and
   `/dash/authd/` is covered on its unreachable path only. Closing this means
-  minting a transit bearer in the harness — tracked as BUGS `L98`.
+  minting a transit bearer in the harness. No BUGS entry tracks it.
