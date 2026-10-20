@@ -61,16 +61,20 @@ is resumed by the next one in that topic.
 
 Every event runs the same six steps:
 
+<!-- twin:six-steps -->
+
 ```
 Slack @mention in #eng
-  → Event          one inbox row (routd)
+  → Event          one inbox row (routd.messages)
   → Routing        → corp/eng/oncall
   → Agent          folder loaded: persona, skills, memory
   → Authorization  may it read / send / delegate here?
-  → Turn           one KVM guest (runed)
-  → State          rows written, folder files edited
+  → Turn           one ephemeral KVM guest run, then it exits
+  → State          rows written, files edited
   → reply in the Slack thread
 ```
+
+<!-- /twin -->
 
 Channels, tasks, webhooks, secrets, delegation and workflows are all
 compositions of these six, with identity (folders, JIDs, roles, scopes) as the
