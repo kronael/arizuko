@@ -9,7 +9,7 @@ mocks, no proxyd in front.
 Every `/dash/` surface dashd mounts. One spec per surface:
 
 | spec                     | surface                                                                                     |
-| ------------------------ | ------------------------------------------------------------------------------------------- | ----- | ----- | -------- |
+| ------------------------ | ------------------------------------------------------------------------------------------- |
 | `read-only.spec.ts`      | portal, status, activity, memory (browse + PUT/DELETE `MEMORY.md`)                          |
 | `nav.spec.ts`            | the top nav and the portal tiles — that every page is _reachable_, not just that it renders |
 | `routes.spec.ts`         | `/dash/routes/` list, add, PATCH, delete, 404                                               |
@@ -22,7 +22,7 @@ Every `/dash/` surface dashd mounts. One spec per surface:
 | `approvals.spec.ts`      | `/dash/approvals/` HITL queue, verdict forwarding, `?id=` deep link                         |
 | `operator-reads.spec.ts` | audit, usage, packages, proactive                                                           |
 | `engagement.spec.ts`     | engaged windows + force-disengage                                                           |
-| `control-planes.spec.ts` | `/dash/routd                                                                                | runed | authd | proxyd/` |
+| `control-planes.spec.ts` | the four per-daemon pages `/dash/routd/`, `/dash/runed/`, `/dash/authd/`, `/dash/proxyd/`   |
 | `services.spec.ts`       | the services hub and its built/unbuilt tile rules                                           |
 | `secrets.spec.ts`        | `/dash/me/secrets` CRUD                                                                     |
 | `env.spec.ts`            | `/dash/me/env` model-key CRUD + the allow-list                                              |
