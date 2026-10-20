@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/kronael/arizuko/audit"
@@ -274,10 +275,12 @@ func (d *DB) MessageByID(chatJID, id string) (core.Message, bool) {
 }
 
 // TopicByID returns the topic of the row MessageByID matches, so a reply to a
-// threaded message forks lineage from the parent's topic, not main.
+// threaded message forks lineage from the parent's topic, not main. A topic
+// stored as "<chat jid>/<id>" reads as the bare id; the writer stores the bare
+// id, the other spelling is only in rows written before.
 func (d *DB) TopicByID(chatJID, id string) string {
 	m, _ := d.MessageByID(chatJID, id)
-	return m.Topic
+	return strings.TrimPrefix(m.Topic, chatJID+"/")
 }
 
 // ClearChatErrored is the dual of MarkChatErrored; dispatch calls it on a

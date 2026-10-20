@@ -91,11 +91,14 @@ func (s *Server) appendAndDeliver(turnID, jid, text string) {
 	}
 }
 
-// replyThreadRoot resolves the trigger id a REPLY roots a new platform thread
-// on, or "" when it must not: the turn is already in a thread, the delivery is
-// redirected off the trigger chat, no trigger id is recorded, or the group's
-// thread_replies preference (default: the chat's multi-user flag) is off. send
-// never calls this — it posts top-level.
+// replyThreadRoot resolves the platform id of the trigger a REPLY roots a new
+// thread on, or "" when it must not: the turn is already in a thread, the
+// delivery is redirected off the trigger chat, no trigger id is recorded, or
+// the group's thread_replies preference (default: the chat's multi-user flag)
+// is off. send never calls this — it posts top-level. The id is the bare
+// platform thread id every adapter sends as a topic (teled "151", slakd
+// "1712.34"), not the "<jid>/<id>" row id, so the topic a reply row stores is
+// the topic a user's reply in that thread carries.
 func (s *Server) replyThreadRoot(tc TurnContext, jid string) string {
 	if tc.Topic != "" || tc.TriggerMsgID == "" || jid != tc.ChatJID {
 		return ""
@@ -103,7 +106,7 @@ func (s *Server) replyThreadRoot(tc TurnContext, jid string) string {
 	if !s.db.ThreadReplies(tc.Folder, s.db.ChatIsGroup(jid)) {
 		return ""
 	}
-	return tc.TriggerMsgID
+	return strings.TrimPrefix(tc.TriggerMsgID, jid+"/")
 }
 
 // outboundRow builds a fresh pending bot row for the turn's folder/topic.

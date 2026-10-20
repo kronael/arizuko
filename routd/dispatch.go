@@ -322,13 +322,7 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, addressed bool, tr
 	}
 	// BEFORE the prompt build, so FlushSysMsgs renders them this turn.
 	l.emitSystemEvents(folder, chatJID)
-	// The first turn in a new topic forks lineage from the topic of the message
-	// it replies to; "" is main.
-	parent := ""
-	if last.ReplyToID != "" {
-		parent = l.db.TopicByID(last.ChatJID, last.ReplyToID)
-	}
-	l.ensureTopicWithFork(folder, topic, parent)
+	l.ensureTopicWithFork(folder, topic, l.forkParent(folder, last))
 	// Enrichment rewrites the trigger rows and persists them, so later turns'
 	// observed context sees the transcript too.
 	if l.media.Enabled {
@@ -545,6 +539,22 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, addressed bool, tr
 	_ = l.db.ClearChatErrored(chatJID)
 	finishTurn(l.db, l.deliver, turnID, end)
 	return out.Outcome != runedv1.OutcomeSilent, false, false, observedMark, nil
+}
+
+// forkParent answers the topic a new topic forks lineage from: the topic of
+// the message last replies to when that topic has a session, else main (""). A
+// thread a reply rooted on a main-topic turn has the thread's own topic on the
+// bot row it is answered under, and that topic has no session until this turn
+// creates one.
+func (l *Loop) forkParent(folder string, last core.Message) string {
+	if last.ReplyToID == "" {
+		return ""
+	}
+	parent := l.db.TopicByID(last.ChatJID, last.ReplyToID)
+	if _, ok := l.db.GetSession(folder, parent); !ok {
+		return ""
+	}
+	return parent
 }
 
 // ensureTopicWithFork ensures (folder, topic) has a sessions row and, when

@@ -217,3 +217,60 @@ func TestInheritParentSession_ExplicitForkWithNoParentKeepsObservedWindow(t *tes
 			line.ObservedCursor)
 	}
 }
+
+// A reply into a thread the bot's own reply rooted forks from the session of
+// the turn that was answered: the bot row stores the topic an inbound reply in
+// that thread carries, and a topic with no session yet resolves to main.
+func TestReplyIntoBotRootedThreadCopiesParentSession(t *testing.T) {
+	db, loop := newForkLoop(t)
+	folder := "main"
+	jid := "telegram:group/100"
+	body := []byte(`{"type":"summary"}` + "\n")
+	projDir := seedParentSession(t, loop, db, folder, "", "main-uuid", body)
+
+	dl := &recDeliverer{pid: "152"}
+	srv := NewServer(db, loop, dl, nil, 0, "")
+	_ = db.SetChatIsGroup(jid, true)
+	threadTurn(t, db, "t1", folder, jid, jid+"/151")
+	srv.appendAndDeliver("t1", jid, "answer")
+	if got := dl.sends[0].threadRoot; got != "151" {
+		t.Errorf("thread root sent = %q, want the bare thread id 151", got)
+	}
+	if bot, _ := db.MessageByID(jid, jid+"/152"); bot.Topic != "151" {
+		t.Errorf("bot reply topic = %q, want 151", bot.Topic)
+	}
+
+	last := core.Message{ChatJID: jid, Topic: "151", ReplyToID: jid + "/152"}
+	loop.ensureTopicWithFork(folder, "151", loop.forkParent(folder, last))
+
+	childUUID, ok := db.GetSession(folder, "151")
+	if !ok {
+		t.Fatal("thread session row missing")
+	}
+	got, err := os.ReadFile(filepath.Join(projDir, childUUID+".jsonl"))
+	if err != nil {
+		t.Fatalf("thread transcript not copied from the parent: %v", err)
+	}
+	if string(got) != string(body) {
+		t.Errorf("thread transcript = %q, want %q", got, body)
+	}
+}
+
+// A bot row written with the "<chat jid>/<id>" topic spelling still resolves
+// to the bare thread id on read.
+func TestTopicByIDReadsFullJIDSpelling(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	jid := "telegram:group/100"
+	row := core.Message{ID: "out-1", ChatJID: jid, Sender: "main", BotMsg: true, FromMe: true,
+		Timestamp: time.Now().UTC(), Topic: jid + "/151", PlatformID: "152"}
+	if err := db.PutOutbound(row, core.MessageStatusSent); err != nil {
+		t.Fatal(err)
+	}
+	if got := db.TopicByID(jid, jid+"/152"); got != "151" {
+		t.Errorf("TopicByID = %q, want 151", got)
+	}
+}
