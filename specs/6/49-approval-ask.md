@@ -60,7 +60,7 @@ held row's folder (`routd/pending_actions.go:346`), and the agent's socket has
 no face of `pending_actions`.
 
 The line reads as the agent's request, not as a log line. The tool declares
-how one of its calls reads (§"Proposed — the hold shape"), and the renderer
+how one of its calls reads (§"The hold shape"), and the renderer
 writes the folder, that text, and the id:
 
     ⏸ rhias/nemo wants to react 👀 to message 156 — ok? (647ec18e)
@@ -76,11 +76,13 @@ params pin exactly those keys to the held call's values, and it leaves every
 other argument free. `like` declares `reaction`, so `/always` on the first
 hold writes `hold:mcp:like(reaction=👀)` at `deny` in rhias/nemo, and every
 later 👀 reaction in that folder runs. A tool that declares no key writes a
-tool-wide row, and the button says so: `♾ Always (every schedule_task)`.
+tool-wide row, and the second line says so: `Always: every schedule_task call
+in rhias/nemo runs without asking.`
 
 A value stays exact, never a glob. A value with `,`, `*` or outer spaces still
 refuses `/always` (`auth.ParamsSpec`, `auth/authorize.go:515`), and a
-non-scalar argument stays unmatchable. The row, its `deny` effect, its batch
+non-scalar argument is never pinned. A key the call carries no scalar value
+for refuses `/always`. The row, its `deny` effect, its batch
 with the verdict and its revocation do not change
 (`6/26-personal-mode §"The mechanics behind `always`"`).
 
@@ -91,14 +93,13 @@ a counter is state nobody asked for.
 Keys for the tools with a measured case; the full set lives in the
 declarations:
 
-| tool                         | ask                                    | always keys |
-| ---------------------------- | -------------------------------------- | ----------- |
-| `like`                       | react {reaction} to message {targetId} | `reaction`  |
-| `dislike`                    | 👎 message {targetId}                  | none        |
-| `edit`                       | edit message {targetId}                | none        |
-| `delete`                     | delete message {targetId}              | none        |
-| `github_create_pull_request` | open a pull request in {repo}          | `repo`      |
-| any other tool               | `<tool>` and its scalar arguments      | none        |
+| tool           | ask                                    | always keys |
+| -------------- | -------------------------------------- | ----------- |
+| `like`         | react {reaction} to message {targetId} | `reaction`  |
+| `dislike`      | dislike message {targetId}             | none        |
+| `edit`         | edit message {targetId}                | none        |
+| `delete`       | delete message {targetId}              | none        |
+| any other tool | run `<tool>` and its scalar arguments  | none        |
 
 ## Decision 3 — two lines and three buttons
 
@@ -136,8 +137,8 @@ Three artifacts own the approval, each in one place:
   (`auth/authorize.go:589`) and in the seed floor (`store/seed.go:32-58`).
   Nothing here changes.
 - **The hold shape** — how a call reads, and which arguments `/always` pins —
-  is declared once, beside the tool's MCP declaration
-  (§"Proposed — the hold shape").
+  is declared once, in `holdShapes` beside the renderer
+  (§"The hold shape").
 - **The renderer** is one function in routd that fills the derived fields of
   the pending row: `ask`, `matcher`, `rule_text` and `matcher_error`.
   `withMatcher` is that function; `alwaysOffer`, `approvalURL` and
@@ -198,30 +199,27 @@ holds the platform's moderator permission, `can_delete_messages` and
 here. No adapter checks authorship, and the tool text says the platform does
 (`ipc/ipc.go:1469`). The default allows `delete` inside those platform bounds.
 
-## Proposed — the hold shape
+## The hold shape
 
-One declaration per tool, beside its MCP declaration:
+One plain map in `routd/pending_actions.go`, `holdShapes`, beside the renderer
+that is its only reader:
 
 ```go
-// HoldShape is how a held call reads to a human and which of its arguments
-// name a kind of call.
-type HoldShape struct {
-	Ask  string   // "react {reaction} to message {targetId}"
-	Keys []string // the arguments /always pins; nil pins none
+type holdShape struct {
+	ask  string   // "react {reaction} to message {targetId}"
+	keys []string // the arguments /always pins; nil pins none
 }
 ```
 
-- `ipc.socialAct` (`ipc/ipc.go:1398`) gains the field for the hot social
-  verbs; `resreg.Resource` (`resreg/resreg.go:206`) gains a per-action map
-  for the facade tools; one lookup by tool name serves routd.
-- A tool with no declaration, a connector tool included, takes the default:
-  the tool name followed by its scalar arguments as `name=value`, each value
-  cut at 40 characters, and no key.
-- A placeholder names an argument of the tool. A test renders every held tool
-  of a world turn with its declared arguments, beside
-  `TestWorld_HoldsOnlyWhatAPersonShouldSee`
-  (`routd/hold_world_inversion_test.go:132`), and fails on a placeholder no
-  argument fills.
+- The map holds the four social verbs. `ipc.socialAct` and `resreg.Resource`
+  do not carry it: routd is the one reader, and the field would widen two
+  types for a fact only routd uses. A second reader is the moment to move it.
+- A tool with no entry, a connector tool included, takes the default: `run`,
+  the tool name, then its scalar arguments as `name=value`, each value cut at
+  40 characters on one line, and no key.
+- A placeholder names a scalar argument of the call; one the call does not
+  carry stays visible as `{name}`. A test that renders every held tool of a
+  world turn and fails on an unfilled placeholder is not built.
 
 The pending row carries four derived fields, filled by the renderer and never
 stored: `ask`, `matcher` (the params spec the row would carry), `rule_text`
@@ -241,10 +239,10 @@ the record must not undo.
 
 ## Pointers
 
-- `routd/pending_actions.go` — the renderer, the notice and the buttons.
+- `routd/pending_actions.go` — the renderer, `holdShapes` (the ask and the always
+  keys per tool), the notice and the buttons.
 - `routd/steer.go` — the one-line acknowledgements.
 - `dashd/approvals_page.go` — shows `ask` and `rule_text`, derives nothing.
-- `ipc/ipc.go`, `resreg/resreg.go` — the hold shape beside each tool.
 - `store/seed.go` — the batches and the floor record.
 - `template/web/pub/arizuko/reference/grants.html` §"Holding a call for a
   human" and `routd/README.md` — the operator text.
@@ -272,12 +270,13 @@ the record must not undo.
 
 1. The tool-wide default for a tool with no keys is an authorization widening
    one button away. The alternative refuses `/always` until the tool declares
-   its keys. Which one?
+   its keys. Decided: tool-wide, and the Always line names every call of the
+   tool.
 2. Must routd bind `delete` to the agent's own messages, by the `BotMsg` flag
    of the `messages` row the platform id names? The cost is one store read per
    delete, and a message routd never recorded cannot be deleted.
-3. The dashboard link leaves the chat line. Keep it on adapters without
-   buttons?
+3. The dashboard link leaves the chat line. Decided: it leaves on every
+   adapter; `/dash/approvals/` stays the operator's list.
 4. `5/19-hitl-firewall §"Blocking is the default (2026-09-02)"` documents an
    `async` effect that `store.EffectAllowed` refuses and routd does not read.
    The paragraph and the CHANGELOG entry need a BUGS entry and a rewrite.

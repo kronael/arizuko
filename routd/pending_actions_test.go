@@ -328,7 +328,7 @@ func TestNotifyHeld_LikeIsTwoLinesAndThreeButtons(t *testing.T) {
 		t.Fatalf("held call must notify once, got %d sends", len(dl.sends))
 	}
 	want := "⏸ atlas wants to react 👀 to message 156 — ok? (" + id + ")\n" +
-		"Always: every like call with chatJid=tg:1,reaction=👀,targetId=156 in atlas runs without asking."
+		"Always: every like call with reaction=👀 in atlas runs without asking."
 	if got := dl.sends[0].text; got != want {
 		t.Errorf("notice =\n%s\nwant\n%s", got, want)
 	}

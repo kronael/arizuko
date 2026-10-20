@@ -53,11 +53,12 @@ func always(t *testing.T, d *DB, id, reviewer string) error {
 	return err
 }
 
-// The acceptance case: `always` approves the call in hand AND writes the rule,
-// so the next call of the same shape runs inline while every other shape is
-// still held.
-func TestAlways_WritesTheRuleAndStopsHolding(t *testing.T) {
-	srv, d, _, id := holdOnce(t, "delete", map[string]any{"target": "prod"})
+// The acceptance case: `always` approves the call in hand AND writes a rule
+// that pins the kind of call — a like's reaction, not the message it names — so
+// a later like with that reaction runs inline while another reaction is held.
+func TestAlways_PinsTheKindOfCall(t *testing.T) {
+	srv, d, _, id := holdOnce(t, "like", map[string]any{
+		"chatJid": "tg:1", "targetId": "156", "reaction": "👀"})
 	if err := always(t, d, id, "google:op"); err != nil {
 		t.Fatalf("always: %v", err)
 	}
@@ -65,18 +66,28 @@ func TestAlways_WritesTheRuleAndStopsHolding(t *testing.T) {
 	if !ok || row.Status != PendingApproved {
 		t.Fatalf("the call in hand must be approved exactly as yes, got %+v", row)
 	}
+	rows, err := d.ListACL("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var params []string
+	for _, r := range rows {
+		if strings.HasPrefix(r.GrantedBy, "always:") {
+			params = append(params, r.Params)
+		}
+	}
+	if len(params) != 1 || params[0] != "reaction=👀" {
+		t.Fatalf("always wrote params %q, want exactly [reaction=👀]", params)
+	}
 
 	gate := srv.holdGate(turnMCP{folder: "atlas", chatJID: "tg:1", turnID: "t2"})
-	// The one-shot approval releases the re-issue; the SECOND identical call is
-	// the one the standing rule has to carry.
-	if _, held := gate("delete", map[string]any{"target": "prod"}); held {
-		t.Fatal("the approved re-issue must pass")
+	if _, held := gate("like", map[string]any{
+		"chatJid": "tg:1", "targetId": "157", "reaction": "👀"}); held {
+		t.Fatal("a later like with that reaction and another message must run")
 	}
-	if _, held := gate("delete", map[string]any{"target": "prod"}); held {
-		t.Fatal("the standing rule must run the same shape inline")
-	}
-	if _, held := gate("delete", map[string]any{"target": "staging"}); !held {
-		t.Fatal("a different shape must still be held")
+	if _, held := gate("like", map[string]any{
+		"chatJid": "tg:1", "targetId": "158", "reaction": "❤️"}); !held {
+		t.Fatal("a like with another reaction must still be held")
 	}
 }
 
@@ -84,10 +95,11 @@ func TestAlways_WritesTheRuleAndStopsHolding(t *testing.T) {
 // Nothing may build a matcher a second time: one renderer, or a surface can
 // display one grant and store another.
 func TestAlways_WritesExactlyTheDisplayedMatcher(t *testing.T) {
-	_, d, dl, id := holdOnce(t, "create_pr", map[string]any{"repo": "kronael/arizuko", "draft": true})
+	_, d, dl, id := holdOnce(t, "like", map[string]any{
+		"chatJid": "tg:1", "targetId": "156", "reaction": "👀"})
 	notice := dl.sends[0].text
-	want := "draft=true,repo=kronael/arizuko"
-	line := "Always: every create_pr call with " + want + " in atlas runs without asking."
+	want := "reaction=👀"
+	line := "Always: every like call with " + want + " in atlas runs without asking."
 	if !strings.HasSuffix(notice, line) {
 		t.Fatalf("the notice must end with the exact rule %q:\n%s", line, notice)
 	}
@@ -103,7 +115,7 @@ func TestAlways_WritesExactlyTheDisplayedMatcher(t *testing.T) {
 	for _, r := range rows {
 		// The seeded hold rule stays; the verdict adds the skip-approval row
 		// beside it, which is the only way an exception can be expressed.
-		if r.Action != auth.HoldPrefix+"create_pr" || r.Effect != auth.EffectSkipApproval {
+		if r.Action != auth.HoldPrefix+"like" || !strings.HasPrefix(r.GrantedBy, "always:") {
 			continue
 		}
 		found++
@@ -123,7 +135,8 @@ func TestAlways_WritesExactlyTheDisplayedMatcher(t *testing.T) {
 // `*` in a value would glob, so the stored rule would match calls the operator
 // never saw — a widening they did not agree to.
 func TestAlways_RefusesAnUnstatableMatcher(t *testing.T) {
-	_, d, dl, id := holdOnce(t, "delete", map[string]any{"target": "prod-*"})
+	_, d, dl, id := holdOnce(t, "like", map[string]any{
+		"chatJid": "tg:1", "targetId": "156", "reaction": "*"})
 	if notice := dl.sends[0].text; !strings.Contains(notice, "Always is not offered") {
 		t.Errorf("the notice must say why no standing verdict is offered:\n%s", notice)
 	}
@@ -151,13 +164,36 @@ func TestAlways_RefusesAnUnstatableMatcher(t *testing.T) {
 	}
 }
 
-// A call with no scalar arguments yields an unnarrowed rule. That is honest —
-// there is nothing to constrain — but it is a large grant, so the notice says
-// so rather than letting "always" read as "always this one call".
-func TestAlways_UnnarrowedRuleSaysSo(t *testing.T) {
-	_, _, dl, _ := holdOnce(t, "wipe", map[string]any{})
-	if notice := dl.sends[0].text; !strings.HasSuffix(notice, "Always: every wipe call in atlas runs without asking.") {
-		t.Errorf("an unnarrowed rule must be described as one:\n%s", notice)
+// A tool that declares no always keys gets a tool-wide row: no params, every
+// call of the tool in the folder runs. The Always line says so in those words.
+func TestAlways_ToolWithoutKeysWritesTheToolWideRow(t *testing.T) {
+	srv, d, dl, id := holdOnce(t, "create_pr", map[string]any{"repo": "kronael/arizuko"})
+	line := "Always: every create_pr call in atlas runs without asking."
+	if notice := dl.sends[0].text; !strings.HasSuffix(notice, line) {
+		t.Errorf("the notice must end with %q:\n%s", line, notice)
+	}
+	if err := always(t, d, id, "google:op"); err != nil {
+		t.Fatalf("always: %v", err)
+	}
+	rows, err := d.ListACL("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found int
+	for _, r := range rows {
+		if r.Action == auth.HoldPrefix+"create_pr" && r.Effect == auth.EffectSkipApproval {
+			found++
+			if r.Params != "" {
+				t.Errorf("tool-wide row carries params %q, want none", r.Params)
+			}
+		}
+	}
+	if found != 1 {
+		t.Fatalf("always wrote %d tool-wide rows, want 1", found)
+	}
+	gate := srv.holdGate(turnMCP{folder: "atlas", chatJID: "tg:1", turnID: "t2"})
+	if _, held := gate("create_pr", map[string]any{"repo": "other/repo"}); held {
+		t.Fatal("any call of the tool must run after a tool-wide always")
 	}
 }
 
@@ -196,7 +232,7 @@ func TestResolveHold_AcknowledgesInOneLine(t *testing.T) {
 		{PendingRejected, false, func(id string) string { return "⛔ rejected (" + id + ")." }},
 		{PendingApproved, false, func(id string) string { return "✅ ok (" + id + ") — the agent runs it now." }},
 		{PendingApproved, true, func(id string) string {
-			return "✅ ok (" + id + "). Always: every create_pr call with repo=kronael/arizuko in atlas " +
+			return "✅ ok (" + id + "). Always: every create_pr call in atlas " +
 				"runs without asking. Undo: revoke the hold:mcp:create_pr skip row on the grants page."
 		}},
 	}

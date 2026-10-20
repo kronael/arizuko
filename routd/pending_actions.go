@@ -504,14 +504,22 @@ func verdictRefusal(p PendingAction, tool string) string {
 // human speed.
 var hitlPoll = 2 * time.Second
 
-// holdAsks says how a held call reads to a human: the tool's name for the
-// call, its placeholders filled from the call's scalar arguments. A tool with
-// no entry reads as its name and its arguments.
-var holdAsks = map[string]string{
-	"like":    "react {reaction} to message {targetId}",
-	"dislike": "dislike message {targetId}",
-	"edit":    "edit message {targetId}",
-	"delete":  "delete message {targetId}",
+// holdShape is how a held call reads to a human and which of its arguments
+// name a kind of call: ask has a {name} placeholder per scalar argument, and
+// keys are the only arguments an `always` rule pins. The routd renderer is the
+// one reader, so the map lives beside it rather than on each tool declaration.
+type holdShape struct {
+	ask  string
+	keys []string
+}
+
+// holdShapes declares the tools with a measured case. A tool with no entry
+// reads as its name and its arguments, and an `always` on it is tool-wide.
+var holdShapes = map[string]holdShape{
+	"like":    {ask: "react {reaction} to message {targetId}", keys: []string{"reaction"}},
+	"dislike": {ask: "dislike message {targetId}"},
+	"edit":    {ask: "edit message {targetId}"},
+	"delete":  {ask: "delete message {targetId}"},
 }
 
 // withMatcher fills the derived fields — the ONE renderer of the ask line and
@@ -530,7 +538,7 @@ func withMatcher(p PendingAction) PendingAction {
 	scalars := stringArgs(args)
 	p.Ask = p.GroupFolder + " wants to " + askText(p.Tool, scalars)
 	if p.MatcherError == "" {
-		spec, err := auth.ParamsSpec(scalars)
+		spec, err := pinnedSpec(p.Tool, scalars)
 		if err != nil {
 			p.MatcherError = err.Error()
 		}
@@ -548,15 +556,29 @@ func withMatcher(p PendingAction) PendingAction {
 	return p
 }
 
+// pinnedSpec is the params spec of an `always` on tool: the tool's keys at the
+// held call's values, every other argument free.
+func pinnedSpec(tool string, scalars map[string]string) (string, error) {
+	pinned := map[string]string{}
+	for _, k := range holdShapes[tool].keys {
+		v, ok := scalars[k]
+		if !ok {
+			return "", fmt.Errorf("argument %q: the call carries no scalar value to pin", k)
+		}
+		pinned[k] = v
+	}
+	return auth.ParamsSpec(pinned)
+}
+
 // askText reads one call as a phrase that follows "wants to".
 func askText(tool string, scalars map[string]string) string {
 	names := slices.Sorted(maps.Keys(scalars))
-	if ask, ok := holdAsks[tool]; ok {
+	if shape := holdShapes[tool]; shape.ask != "" {
 		pairs := make([]string, 0, 2*len(names))
 		for _, k := range names {
 			pairs = append(pairs, "{"+k+"}", shortValue(scalars[k]))
 		}
-		return strings.NewReplacer(pairs...).Replace(ask)
+		return strings.NewReplacer(pairs...).Replace(shape.ask)
 	}
 	out := "run " + tool
 	for _, k := range names {

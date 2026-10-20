@@ -50,7 +50,7 @@ func TestApprovalIngressWhileChatIsBusy(t *testing.T) {
 					t.Fatal(err)
 				}
 				doSetRoutes(t, db, []core.Route{{Match: "", Target: "atlas"}})
-				if err := db.PutPendingAction(PendingAction{ID: "held-busy", GroupFolder: "atlas", CallerAgent: "folder:atlas", Tool: "like", Args: "{}", ChatJID: jid}); err != nil {
+				if err := db.PutPendingAction(PendingAction{ID: "held-busy", GroupFolder: "atlas", CallerAgent: "folder:atlas", Tool: "like", Args: `{"reaction":"👀"}`, ChatJID: jid}); err != nil {
 					t.Fatal(err)
 				}
 				addACL(t, db, sender, "admin", "atlas", "allow")
