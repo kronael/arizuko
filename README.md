@@ -31,6 +31,10 @@ not consumer traffic.
 - Many tenants on one deployment. `corp/eng/sre` and `solo/inbox` run the
   same code at any folder depth.
 
+Under all of these, one folder path binds the tenant, its grants, its routes,
+its egress, its web host and its file tree, and one evaluator answers both
+the agent over MCP and a person over REST.
+
 ## How a message becomes a reply
 
 A folder is an agent. It holds `PERSONA.md`, a `skills/` directory,
@@ -271,23 +275,14 @@ Threat model and boundary table: [SECURITY.md](SECURITY.md).
 
 ## Direction
 
-- Operator and agent speak the same language: one handler per cold-tier
-  resource with a REST face for people and tools and an MCP face for agents,
-  over one auth gate ([specs/5/17](specs/5/17-openapi-mcp.md),
-  [specs/5/16](specs/5/16-mcp-rest-unification.md)). Most resources run that
-  pattern today; the remaining REST twins are listed in ARCHITECTURE.md § Cold
-  tier vs hot tier.
-- The store is authoritative. YAML manifests are a dump and import format for
-  the cold tier (`arizuko export`, `arizuko apply`), not a synced source of
-  truth ([specs/5/8](specs/5/8-yaml-manifests.md)).
-- Single-world composition ([specs/7/26](specs/7/26-single-world-deployment.md))
-  describes the core daemons in one process. It is a design, not an
-  installation mode.
-
-Planned and not started: end-user agent provisioning, POST a definition and
-get a tenant plus a chat token ([specs/5/5](specs/5/5-worlds-agents-sessions.md));
-renaming `group`/`folder` to `path` across code, store and tool names
-([specs/5/33](specs/5/33-paths-roles.md) decision 9).
+- Every cold-tier resource has one handler with a REST face for people and an
+  MCP face for agents, behind one auth gate; the exceptions are listed in
+  ARCHITECTURE.md § Cold tier vs hot tier.
+- The store is authoritative. YAML manifests dump and import the cold tier
+  (`arizuko export`, `arizuko apply`); they are not a synced source.
+- Designed, not built: the core daemons of one world in one process.
+- Planned, not started: end-user agent provisioning (POST a definition, get a
+  tenant and a chat token) and renaming `group`/`folder` to `path`.
 
 ## Build and test
 

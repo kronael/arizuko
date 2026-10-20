@@ -431,7 +431,9 @@ writes the row. Field schema: [`audit/README.md`](../audit/README.md).
    A resource's `Name` is its wire identity (`/v1/<name>` + the MCP tool
    prefix); it is spelled in `names.go` and nowhere else. `Mount` panics on an
    unregistered name, so a resource served but absent from every catalog
-   stops the binary at boot.
+   stops the binary at boot. Registration also panics on an empty `Table`
+   (`engine.go`): every resource is a store table, so state kept in files,
+   such as a queue of proposal files, cannot be a resreg resource.
    One name is shared on purpose: routd, runed, authd and onbod each mount
    `audit`. That keeps the rule, because all four serve one declaration
    (`resources/audit.go`: `GET /v1/audit` and `query_audit`, no write face,

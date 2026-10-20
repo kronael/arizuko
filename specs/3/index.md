@@ -14,7 +14,7 @@ status: shipped
 | [W-work.md](W-work.md)                               | shipped            | ephemeral work.md; the staleness nudge that never shipped; facts in `diary/README.md` § The memory layers |
 | [Y-thread-routing.md](Y-thread-routing.md)           | shipped            | persisted reply anchor, Topic as the one thread id; facts in `ROUTING.md` § Reply Routing                 |
 | [a-sticky-routing.md](a-sticky-routing.md)           | shipped            | `@group` / `#topic` commands, sticky columns on chats; facts in `ROUTING.md` § Sticky Routing             |
-| [b-control-chat.md](b-control-chat.md)               | shipped            | why there is _no_ control chat; notify is not wired                                                       |
+| [b-control-chat.md](b-control-chat.md)               | shipped            | why there is _no_ control chat; notify is not wired; facts in `ARCHITECTURE.md` § Decided, and why        |
 | [c-audit-log.md](c-audit-log.md)                     | shipped            | one row shape for in/out; what `source` is actually for; facts in `ARCHITECTURE.md` § Data ownership      |
 | [5-tool-authorization.md](5-tool-authorization.md)   | superseded-in-part | tier tables kept as the source for `5/33`'s role bundles                                                  |
 | [l-linkedin.md](l-linkedin.md)                       | shipped            | LinkedIn adapter; N+1 polling and the auto-publish default; facts in `linkd/README.md`                    |

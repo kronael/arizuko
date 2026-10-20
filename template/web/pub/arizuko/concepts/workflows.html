@@ -157,11 +157,32 @@ Before replying to anything multi-step:
       <div class="callout"><strong>What&rsquo;s yours vs the platform&rsquo;s:</strong>
         today the opening is a convention you author in <code>CLAUDE.md</code>
         and the agent follows &mdash; the plan file and the opening section work
-        right now. The platform does not <em>enforce</em> the opening, and a
-        durable workflow engine underneath it is a costed decline
-        (<a href="https://github.com/kronael/arizuko/blob/main/specs/6/18-durable-workflows-decline.md">spec&nbsp;6/18</a>):
-        a workflow is a discipline at the session boundary, not a seventh
-        primitive. Write the opening; the discipline is the mechanism.</div>
+        right now. The platform does not <em>enforce</em> the opening, and
+        there is no durable workflow engine underneath it, on purpose.
+        Checkpoint-and-replay engines assume the orchestration code is
+        deterministic; here the orchestrator is a model, and replaying a
+        model doesn&rsquo;t give you the same steps back. Write the opening;
+        the discipline is the mechanism.</div>
+
+      <h2>What an engine would give you, and where it already lives</h2>
+      <table>
+        <tr><th>You want</th><th>arizuko already does it with</th></tr>
+        <tr><td>recover from a failure</td><td>the turn: a failed turn retries whole, with a note that it is a retry</td></tr>
+        <tr><td>sleep, or run on a schedule</td><td><a href="../components/timed.html">timed</a></td></tr>
+        <tr><td>wait for an event</td><td>routing: the event is a message, and a route wakes the folder</td></tr>
+        <tr><td>hand work to a child</td><td><code>delegate_group</code> and <code>escalate_group</code></td></tr>
+        <tr><td>survive a restart</td><td>store rows plus the folder&rsquo;s files</td></tr>
+      </table>
+      <p>The day this stops being enough is a shipped product that needs a
+        multi-hour job with side effects, where running the turn again is not
+        acceptable. That job gets its own daemon with its own store and a
+        checkpoint-or-execute step, not an engine under every turn.</p>
+
+      <h2>Several agents talking to each other</h2>
+      <p>Long-lived groups that message each other need nothing new either.
+        A chat link or a route token gives a group an address, <code>send</code>
+        posts to it, and the skill files decide who talks to whom. routd
+        doesn&rsquo;t change; the topology is text in the folders.</p>
 
       <nav class="docs-pager" aria-label="Pager">
         <a rel="prev" href="tasks.html">&larr; Tasks</a>

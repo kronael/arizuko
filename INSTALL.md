@@ -70,10 +70,22 @@ go version   # verify: go1.26.5 linux/amd64
 needed, no system Go touched.
 
 `go.mod` pins `toolchain go1.27rc2`, a release candidate, because arizuko uses
-Go 1.27's standard library ([`specs/5/36`](specs/5/36-go-1.27-adoption.md)).
-`g` carries only stable releases, so install the latest stable as above and
-let `GOTOOLCHAIN=auto` (Go's default) fetch the pinned toolchain on the first
-`go build`.
+Go 1.27's standard library. The `go` directive is `go 1.27`, because it does
+not accept an `rc` version. `g` carries only stable releases, so install the
+latest stable as above and let `GOTOOLCHAIN=auto` (Go's default) fetch the
+pinned toolchain on the first `go build`.
+
+Two more pins move with that toolchain:
+
+- **The Docker base image is pinned by hand.** Each Dockerfile that builds the
+  root module names `golang:1.27rc2-alpine` (`Dockerfile`, `anteval/`,
+  `egress/`, `linkd/`, `ttsd/`); nothing derives it from `go.mod`. Bump them
+  in the same change as `go.mod`, or the image builds on a different
+  toolchain than the host. `kernel/guest-init` is its own module on `go 1.25`
+  and keeps its own base.
+- **`golang.org/x/net` stays at v0.57.0 or newer** (`go.mod`). The 1.27 bump
+  needed it: an older x/net does not export `http2.TrailerPrefix`, and grpc
+  then fails to compile.
 
 Two cases get no auto-fetch, and you install the toolchain by hand: the
 machine sets `GOTOOLCHAIN=local`, or it has no network to `go.dev`.

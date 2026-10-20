@@ -1,15 +1,17 @@
 # anteval
 
 Agent-capability eval — a black-box prober that certifies a live arizuko
-agent can operate the platform itself. Spec:
-[`specs/5/9-agent-capability-eval.md`](../specs/5/9-agent-capability-eval.md).
+agent can operate the platform itself. It is a shipped binary and not a
+`go test`, because the question it answers is about a deployed instance: a
+release gate and a regression watch run it against the instance that serves
+users, and a build has no such instance.
 
 Each case injects one real task through a public surface, lets the live agent
 do it with its own MCP tools, and asserts an **externally observable effect** —
 an HTTP status, a callback the agent's artifact made, or a message visible via
 REST/MCP — never the agent's prose, never the instance's internal state. Zero
 arizuko-internal imports: a black-box client over the same surfaces a human or
-external tool uses (sibling component, `6/16`).
+external tool uses, so it can ship alone.
 
 ## Run
 
@@ -30,9 +32,14 @@ arizuko token krons issue bearer eval --scope messages:write,messages:read,cost:
 make validate                     # load+validate the case catalog (no target)
 ```
 
-Live preconditions (spec § "Live-run preconditions"): the eval folder exists
+Live preconditions: the eval folder exists
 (`arizuko group <inst> add web:eval eval`), it holds the grants the cases need,
 its egress allows the sink, and the sink URL answers from an agent guest.
+Mint the bearer with `--ttl 6h`: the default lifetime is one hour, and a full
+catalog run is longer. The cases run one at a time on one chat: routd
+dispatches one turn per folder, so after each case the driver waits until the
+model gateway meters that case's turn before it injects the next. Without a
+gateway there is no meter, and the wait runs to its bound.
 The operator recipe, with the commands and the two traps that abort a run, is
 `.claude/skills/eval/gates.md` § "Bringing `anteval` up on an instance that has
 never run it".
@@ -58,7 +65,7 @@ step that belongs in an automated pipeline.
 
 **Session isolation** — why `--folder` is required: each case runs in its own
 topic, and the first turn of any non-main topic forks the folder's MAIN
-session (`specs/5/F`). A root session left by prior runs or operator chat
+session (`ROUTING.md` § Topic routing). A root session left by prior runs or operator chat
 would therefore sit in front of every case — the cross-case contamination the
 per-case topics were built to remove, reintroduced through the fork (BUGS
 L54 "Known consequence"). Before every case the driver reads
@@ -110,6 +117,12 @@ callback sink (e.g. a freshly minted chat-link token). Checkers:
   harness itself sent can't false-pass). `rest_observe` matches any author.
 - `mcp_roundtrip` — same over the MCP face (`--mcp`).
 - `parity_sentinel` — `{nonce}` is identical via REST and MCP (uniform surface).
+
+The vocabulary is closed: a case with any other `kind` fails to load
+(`pkg/spec/spec.go`). One case tests one capability with one checker and
+scores pass or fail. A case that needs negation or diagnosis hands it to the
+agent: the prompt asks the agent to call back only the marker that matches
+what it found, so the harness compares a marker and never interprets.
 
 The run mints a nonce per case and embeds it in every name/URL/body, so runs are
 idempotent and never collide; teardown is best-effort.
@@ -179,9 +192,10 @@ on both axes.
 
 ## v1 limits
 
-`max_wall_ms` is the enforced per-case budget; `max_tokens`/`max_turns` are
-declared and reported but not capped from outside. `dash` renders markdown; a
-hosted HTML dashboard would be a later `serve` split.
+`max_wall_ms` and `max_tokens` each fail a case. The wall clock stops the
+wait; a case that passed is failed when the gateway metered its turn over
+`max_tokens` (`pkg/run/run.go`). `dash` renders markdown; a hosted HTML
+dashboard would be a later `serve` split.
 
 ## Coverage
 
