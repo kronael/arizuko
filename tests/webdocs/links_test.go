@@ -400,10 +400,9 @@ func TestProductPagerChainIsWhole(t *testing.T) {
 		t.Fatalf("only %d pager links found under %s; the extraction is broken", len(links), productsDir)
 	}
 
-	// The chain starts and ends at the products index; those two links are
-	// terminators and have nothing to point back. Seven products carry no
-	// pager at all — that gap is not this test's business, only the
-	// soundness of the chain that does exist.
+	// The chain starts and ends at the products index; links to it are
+	// terminators and have nothing to point back. The test checks that every
+	// pager link is reciprocated, not that every product is on the chain.
 	terminator := filepath.Clean(filepath.Join(productsDir, "index.html"))
 
 	have := map[string]bool{}
