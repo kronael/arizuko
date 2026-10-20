@@ -68,12 +68,12 @@ Each plane is one daemon that owns its own tables. The planes talk over HTTP
 
 - **`routd`** appends every message, resolves routes, builds the prompt,
   serves the per-turn MCP socket and dispatches the turn. It verifies tokens
-  and signs none ([`routd/README.md`](routd/README.md)).
+  and signs none. See [`routd/README.md`](routd/README.md).
 - **`runed`** alone holds `/dev/kvm`, `/dev/vhost-vsock` and `/dev/net/tun`.
   It boots one guest and one egress proxy per turn; the guest's vsock CID is
-  the turn's credential ([`runed/README.md`](runed/README.md)).
+  the turn's credential. See [`runed/README.md`](runed/README.md).
 - **`authd`** is the sole ES256 signer, the JWKS publisher and the OAuth
-  provider ([`authd/README.md`](authd/README.md)). The `auth/` library is the
+  provider, see [`authd/README.md`](authd/README.md). The `auth/` library is the
   offline verifier every other daemon links.
 
 ## Data ownership

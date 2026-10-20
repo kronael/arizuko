@@ -1,9 +1,9 @@
 # webd
 
 webd is the web channel adapter and the per-user portal. It puts an agent in
-a browser and streams each reply back. proxyd sits in front of it
-([`proxyd/README.md`](../proxyd/README.md)); routd routes what it posts
-([ROUTING.md](../ROUTING.md)).
+a browser and streams each reply back. proxyd sits in front of it, see
+[`proxyd/README.md`](../proxyd/README.md). routd routes what it posts, see
+[ROUTING.md](../ROUTING.md).
 
 ## Purpose
 
