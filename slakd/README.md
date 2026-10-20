@@ -70,7 +70,7 @@ chat has several users (`replyThreadRoot`, `routd/turns.go`).
 thread, slakd posts the reply once more at the channel root, so the reply is
 not lost.
 
-## Assistant pane (specs/8/D)
+## Assistant pane
 
 Slack's "Agents & AI Apps" feature gives the bot a dedicated sidebar
 pane. slakd implements the full lifecycle when the app has
@@ -78,7 +78,10 @@ pane. slakd implements the full lifecycle when the app has
 and `assistant_thread_context_changed`:
 
 - `assistant_thread_started` → upserts a row in `pane_sessions` keyed
-  by `(team_id, user_id, thread_ts)`, sets the pane title
+  by `(team_id, user_id, thread_ts)` through routd's `POST /v1/pane`. The row
+  lives in routd's store, not in slakd's memory: a pane survives a slakd
+  restart, and routd and the agent read it without asking slakd. The call
+  sets the pane title
   (`<ASSISTANT_NAME> — chat`), seeds three default suggested prompts,
   and dispatches a synthetic `pane_open` inbound so the agent gets
   a turn.
@@ -235,5 +238,4 @@ and the raw body unmodified — any re-marshal invalidates the HMAC.
 
 ## Related docs
 
-- `specs/2/l-slakd.md` — adapter spec
-- `specs/5/34-channel-protocol.md` — router contract
+- [`chanlib/README.md`](../chanlib/README.md) — the channel protocol every adapter speaks

@@ -79,6 +79,10 @@ var twins = []twin{
 		"onbod/README.md",
 		"template/web/pub/arizuko/concepts/onboarding.html",
 	}},
+	{name: "channel", files: []string{
+		"chanlib/README.md",
+		"template/web/pub/arizuko/components/channels.html",
+	}},
 }
 
 var (

@@ -26,6 +26,11 @@ expect is missing, you were not granted it — ask, don't work around it.
 | `repost`         | Amplify a message on your feed (bluesky repost, twitter retweet)         |
 | `inject_message` | Inject a message into the store for a chat (system-generated)             |
 
+`forward` relays SOMEONE ELSE'S message with its provenance. Use `send` for
+your own text and `repost` for public amplification. Never forward out of a
+private chat into a wider one: the platform checks only the target chat, so
+that judgment is yours.
+
 ## Scheduling
 
 | Tool            | Description                                          |

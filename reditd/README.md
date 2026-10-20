@@ -12,6 +12,9 @@ API.
 
 - Script-app OAuth with `REDDIT_CLIENT_ID/SECRET` + username/password.
 - Poll subreddits in `REDDIT_SUBREDDITS` + inbox; cursors persisted in `cursors.json`.
+  The subreddit `/new` poll reads a feed the bot is not addressed in. It is
+  the one recorded exception to the rule that a social adapter reads only its
+  own notifications, and `tests/socialboundary` keeps that list closed.
 - Post inbound as `reddit:subreddit/<sr>` or `reddit:user/<username>` JIDs.
 - Handle `/send`, `/post`, `/like`, `/dislike`, `/delete`, `/edit`, `/v1/history`, `/files/<id>`.
 
@@ -81,6 +84,11 @@ succeeds.
 - `main.go`, `client.go`, `server.go`
 - `cursors.json` — per-subreddit poll cursors (read/written at runtime)
 
+The adapter dashboard adds a **Poll sources and cursors** section: the inbox
+and one `sr:<sub>` row per subreddit with its cursor, `(never read)` for a
+source not polled yet. The shared "last inbound" tile hides which source went
+quiet; this section shows it.
+
 ## Related docs
 
-- `specs/5/34-channel-protocol.md`
+- [`chanlib/README.md`](../chanlib/README.md) — the channel protocol every adapter speaks

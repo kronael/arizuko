@@ -18,7 +18,7 @@ New integrations are added via the extension points described in
   (`teled`, `whapd`, `discd`, `slakd`, `bskyd`, `reditd`, `emaid`,
   `twitd`, `linkd`, `gitd`) talking to core over the channel protocol; optional
   capability hooks (Whisper transcription via `WHISPER_BASE_URL`, TTS
-  via `ttsd` + `TTS_BASE_URL` (`specs/5/T-voice-synthesis.md`), oracle
+  via `ttsd` + `TTS_BASE_URL` (`ttsd/README.md`), oracle
   skill in `ant/skills/oracle/` driving the `codex` CLI,
   model gateway (`litellm` package + `MODEL_GATEWAY_URL`,
   `specs/6/23-llm-gateway.md`)).
@@ -102,7 +102,7 @@ anteval/  agent-capability gate: a black-box prober that runs real tasks
         arizuko-internal imports; shippable separately. specs/5/9.
 ```
 
-TTS (`ttsd/`, `specs/5/T-voice-synthesis.md`) and the oracle skill
+TTS (`ttsd/`, `ttsd/README.md`) and the oracle skill
 (`ant/skills/oracle/`) ship as
 optional integrations rather than core daemons; both opt-in via
 env vars / folder secrets.
@@ -388,53 +388,33 @@ Durable rules the package layout obeys.
 
 ## Channel Protocol
 
-Channels are external processes registering via HTTP. Both sides are HTTP
-servers. Full protocol: `specs/5/34-channel-protocol.md`.
+Channels are external processes that register with routd over HTTP; both sides
+are HTTP servers, and every call carries an ES256 service bearer. The protocol
+figure, the outbox and ledger contract, the error classes and the media path
+are in [`chanlib/README.md`](chanlib/README.md#the-channel-protocol-register-health-inbound-send);
+the registry, the name pin and the capability gates in
+[`chanreg/README.md`](chanreg/README.md).
 
-- **Inbound**: `POST /v1/messages` → store → route
-- **Outbound**: router calls `POST <url>/send` (synchronous)
-- **Registration**: `POST /v1/channels/register` with name, URL, JID prefixes,
-  capabilities; returns session token
-- **Health**: `GET /health` every 30s; 3 failures = auto-deregister; a send to a
-  deregistered adapter fails and routd's 30s sweep re-sends the `pending` row
-- **Auth**: an ES256 `service:<daemon>` token exchanged from
-  `AUTHD_SERVICE_KEY` at authd, verified against authd's JWKS
-  (`chanlib.Auth`). Both directions use it; there is no shared symmetric
-  secret.
-- **Typing**: `/typing` handlers route through `TypingRefresher`
-  (`chanlib.TypingRefresher` / `whapd/src/typing.ts`) — re-sends presence on
-  short interval with hard TTL. routd owns the terminator (`routd/progress.go`):
-  it clears typing when the turn ends, not at the first reply, for every chat
-  the finished run owned (`turn_context.run_id`), which covers a follow-up
-  steered into that run from a different chat of the same folder. A run that
-  returns without ending its turn clears it too. slakd and gitd, which have no
-  native indicator, render typing as a `👀` reaction on the trigger message
-  (`chanlib.AckMark`); a graceful shutdown leaves it standing, because the
-  turn may still be running, and the next boot removes a recorded one older than
-  the TTL. The
-  adapter TTL is the backstop and is 90% of `RUNED_RUN_TIMEOUT` — strictly
-  below the wall, or it only fires once the guest is already dead (BUGS
-  `T1`).
+The protocol has two standards, not one. Ingest is a struct: `apiv1.Message`,
+with `Verb` as its discriminator and `PutMessage` as its one appender. Egress is
+an interface: the 14 methods of `chanlib.BotHandler`. A symmetric "connector"
+primitive covering both would need a second, REST-shaped face for the same
+calls.
 
-Packages: `chanreg/` (registry, health, `HTTPChannel`, the egress
-Deliverer), `routd/` (router-side `/v1/*` handlers), `chanlib/`
-(shared by Go adapters).
+Typing is a side rail: routd ends it when the turn ends, for every chat the run
+owned, and the adapter's own TTL, 90% of `RUNED_RUN_TIMEOUT`, is the backstop
+below the turn's wall. slakd and gitd draw it as a `👀` mark (`chanlib.AckMark`).
 
 ## Inbound Media Pipeline
 
-1. Adapter populates `Attachments []InboundAttachment` in `/v1/messages`
-2. routd `PutMessage` stores attachment JSON
-3. Enricher fetches URLs, writes to `groups/<folder>/media/<YYYYMMDD>/`,
-   calls routd `EnrichMessage` to prepend
-   `<attachment path="..." mime="..." filename="..."/>` and clear column
-4. Voice (`audio/*`) → Whisper if `VOICE_TRANSCRIPTION_ENABLED=true`
-5. Guest path: `/home/node/media/...`
-
-teled serves `GET /files/{fileID}` as Telegram CDN proxy (bot-token URLs are
-ephemeral). discd uses direct CDN URLs.
-
-Config: `MEDIA_ENABLED=true`, `VOICE_TRANSCRIPTION_ENABLED=true`,
-`WHISPER_BASE_URL`, `WHISPER_MODEL=turbo`.
+routd downloads each attachment from the URL the adapter gave and
+stores it under `groups/<folder>/media/<YYYYMMDD>/`, which the guest sees as
+`/home/node/media/`, and appends one `<attachment …/>` line to the message.
+teled serves `/files/<id>` as a Telegram CDN proxy, because bot-token URLs
+expire; discd hands over the CDN URL directly. Rules:
+[`chanlib/README.md` § Media](chanlib/README.md#media-the-transcript-is-appended-and-kept);
+`MEDIA_ENABLED`, `VOICE_TRANSCRIPTION_ENABLED` and `WHISPER_*` are in
+`routd/README.md` § Configuration.
 
 ## Key Types (core)
 
@@ -901,8 +881,8 @@ The convention for adding a block lives in `routd/README.md`. See
 Action tools mutate state: messaging (`send`, `reply`, `send_file`,
 `forward`, `edit`), feed (`post`, `quote`, `repost`, `like`,
 `dislike`, `delete`), message actions (`pin_message`, `unpin_message`,
-`unpin_all`, `edit`, `delete` — `delete`/`edit` are own-message by
-default, `:any` is a distinct grant; spec 5/Z), control
+`unpin_all`, `edit`, `delete` — the platform decides whose message an
+agent may edit or delete), control
 (`schedule_task`, `register_group`, `set_routes`, …). Adapters lacking
 a native primitive return a typed `chanlib.UnsupportedError` whose hint
 redirects to a concrete alternative (e.g. `dislike` on emoji platforms

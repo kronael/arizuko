@@ -8,12 +8,12 @@ Operator-facing controls: spend limits, adapter recovery, inbound-mail
 trust, per-instance branding. No user-visible UX changes; everything here is
 configured by env or `dashd`.
 
-| Spec                                               | Status  | Hook                                                                                                                       |
-| -------------------------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------- |
-| [13-onbod-branding.md](13-onbod-branding.md)       | draft   | per-instance brand surface for onbod (env vars + assets)                                                                   |
-| [15-whapd-self-rebind.md](15-whapd-self-rebind.md) | shipped | operator self-service WhatsApp re-pair, no shell dance — `/v1/pair/start` + `/v1/pair/status` on whapd, driven from dashd  |
-| [16-whapd-auth-rotate.md](16-whapd-auth-rotate.md) | draft   | whapd auto-rotates its auth dir on a 401 storm instead of looping forever                                                  |
-| [17-emaid-auth.md](17-emaid-auth.md)               | partial | emaid sender auth + quarantine routing. Tiers 1–2 (A-R pinning, allowlist) shipped; tier 3 DKIM is pre-wired and warns off |
+| Spec                                               | Status  | Hook                                                                                                                                                                               |
+| -------------------------------------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [13-onbod-branding.md](13-onbod-branding.md)       | draft   | per-instance brand surface for onbod (env vars + assets)                                                                                                                           |
+| [15-whapd-self-rebind.md](15-whapd-self-rebind.md) | shipped | operator self-service WhatsApp re-pair, no shell dance — `/v1/pair/start` + `/v1/pair/status` on whapd, driven from dashd; facts in `whapd/README.md` § Re-pairing without the log |
+| [16-whapd-auth-rotate.md](16-whapd-auth-rotate.md) | draft   | whapd auto-rotates its auth dir on a 401 storm instead of looping forever                                                                                                          |
+| [17-emaid-auth.md](17-emaid-auth.md)               | partial | emaid sender auth + quarantine routing. Tiers 1–2 (A-R pinning, allowlist) shipped; tier 3 DKIM is pre-wired and warns off                                                         |
 
 ## Deleted
 

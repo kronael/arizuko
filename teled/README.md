@@ -83,9 +83,9 @@ no per-chat history surface; the gateway falls back to its local cache.
 
 ## Health signal
 
-`GET /health` returns 200 `{status:"ok"}` when connected to Telegram AND
-inbound activity in the last 5 min; 503 `{status:"disconnected"}` when
-long-poll fails or no activity.
+`GET /health` is chanlib's: 503 `{status:"disconnected"}` when the long-poll
+fails, 200 `{status:"stale"}` when no inbound arrived in the last 5 min, and
+200 `{status:"ok"}` otherwise. A quiet chat is normal, so it never 503s.
 
 ## Endpoints
 
@@ -109,5 +109,5 @@ long-poll fails or no activity.
 
 ## Related docs
 
-- `specs/5/34-channel-protocol.md`
+- [`chanlib/README.md`](../chanlib/README.md) — the channel protocol every adapter speaks
 - `EXTENDING.md` (adding a channel)

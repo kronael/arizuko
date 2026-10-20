@@ -88,7 +88,36 @@ recorded and the sweep retries freely.
 
 `GET /health` returns 503 while waiting for QR scan or when the Baileys
 socket is disconnected. Operators check the container log for the QR
-ascii art.
+ascii art. whapd serves its own `/health`, and a channel quiet past 5 min
+answers 503 `stale`. That is stricter than chanlib's Go adapters, where
+`stale` is 200. routd's health loop reads the status word and still counts a
+`stale` whapd as alive; anything that reads only the HTTP code sees a
+failure.
+
+## Staying registered
+
+whapd never exits on a failed registration: it retries. A restart loop would
+race Baileys' non-atomic writes of `creds.json` and corrupt the session.
+whapd copies `creds.json` to `creds.json.bak` and restores the copy when a
+crash left the live file empty. After 10 failed reconnects in a row it exits,
+and the container restart takes over.
+
+## Re-pairing without the log
+
+`POST /v1/pair/start {phone}` links the account to a new device by a pairing
+code instead of a QR scan. `GET /v1/pair/status` reports the state: `idle`,
+`requesting`, `pending` or `unauthenticated`. Both sit behind the same
+`service:routd` bearer check as `/send` (`verifyRoutd`, `src/auth.ts`).
+
+- **The code is returned once**, by `start`. `status` never carries it,
+  because anyone who can read `status` could then link a device.
+- **One flow at a time.** A mutex guards the flow; a second `start` while one
+  is `requesting` or `pending` gets 429. The code is valid for 60 s, and the
+  reconnect loop is suspended while a flow runs.
+- **At most 5 starts per rolling hour** per process, then 429 "too many
+  attempts". WhatsApp bans a number that makes too many link attempts.
+
+The dashboard shows the pair-flow state as its own section (`src/dash.ts`).
 
 ## Files
 
@@ -106,8 +135,9 @@ ascii art.
   `service:whapd` JWT outbound, verify routd's token offline inbound
 - `src/dash.ts` — `/dash/whapd/`. The Go adapters get this page from
   `chanlib/dash.go` for free; whapd cannot import chanlib, so this is a second
-  implementation of ONE spec (6/31), not a second design. Keep it in step
+  implementation of the same page, not a second design. Its capability list
+  is declared (`supportedVerbs`), not probed, so keep it in step
 
 ## Related docs
 
-- `specs/5/34-channel-protocol.md`
+- [`chanlib/README.md`](../chanlib/README.md) — the channel protocol and the delivery contract whapd keeps by hand

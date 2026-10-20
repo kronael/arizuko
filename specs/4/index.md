@@ -6,7 +6,7 @@ status: shipped
 
 ## Messaging
 
-- [social-adapters.md](social-adapters.md) — adapter roster; chanlib ownership; whapd/emaid decisions
+- [social-adapters.md](social-adapters.md) — adapter roster; chanlib ownership; whapd/emaid decisions; facts in `chanlib/README.md`, `whapd/README.md`
 - [13-message-ids.md](13-message-ids.md) — reply threading, channel coverage, forward-metadata non-goal; facts in `ROUTING.md` § Reply Routing, `EXTENDING.md` § Adding a channel adapter
 - [23-topic-routing.md](23-topic-routing.md) — `@agent` delegation, `#topic` sessions; facts in `ROUTING.md` § Inline `@name` / `#topic` prefix layer
 

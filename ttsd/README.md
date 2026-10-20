@@ -9,9 +9,9 @@ or OpenAI cloud override `TTS_BACKEND_URL` and skip the bundled service.
 Pins arizuko's TTS contract to the OpenAI `/v1/audio/speech` shape so
 the gateway, ttsd, and any future drop-in (third-party API, local model
 swap) speak the same protocol. Adds a `/health` endpoint matching the
-rest of arizuko's adapter healthcheck convention — the gateway can flip
-`TTS_ENABLED=false` automatically if the backend's down without poking
-implementation details.
+rest of arizuko's adapter healthcheck convention. routd does not read it:
+`TTS_ENABLED` is static, and when the backend is down a `send_voice` call
+fails with a synthesize error that the agent sees.
 
 ## Endpoints
 

@@ -80,7 +80,12 @@ the instance. A refresh path (for example a Google service account) is not built
 
 ## Health signal
 
-`GET /health` returns 503 when IMAP login failed or poll loop is erroring.
+`GET /health` is chanlib's. It returns 503 `disconnected` while the IMAP
+session is down: the `connected` flag drops when login fails or the poll loop
+errors.
+
+The adapter dashboard adds a **Mailbox** section: the account, the IMAP host
+and the SMTP host. The password is never rendered.
 
 ## Files
 
@@ -115,7 +120,7 @@ door hands back.
 
 ## Related docs
 
-- `specs/5/34-channel-protocol.md`
+- [`chanlib/README.md`](../chanlib/README.md) — the channel protocol every adapter speaks
 
 ## Coverage
 

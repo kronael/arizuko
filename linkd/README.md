@@ -34,7 +34,12 @@ alternatives.
 - Poll own shares (`/v2/shares?q=owners`) + comments on each post
   (`/v2/socialActions/{urn}/comments`) at `LINKEDIN_POLL_INTERVAL`
   (default `300s`).
-- Publish via the UGC endpoint when `LINKEDIN_AUTO_PUBLISH=true`.
+- Publish via the UGC endpoint when `LINKEDIN_AUTO_PUBLISH=true`. The
+  default is off because a wrong post on a professional identity costs more
+  than a missed one, and LinkedIn gives no quiet way to take it back.
+- Report health from the `authed` flag only. linkd reports every moment as its
+  last inbound (`server.go`), so `/health` never turns `stale`; a failed auth
+  is the only signal.
 - Dedup inbound comments via `DATA_DIR/linkd-state-<name>.json` (seen
   map capped at 5000 entries).
 
@@ -85,7 +90,7 @@ Standard adapter surface (via `chanlib.NewAdapterMux`):
 
 ## Related docs
 
-- `specs/5/34-channel-protocol.md`
+- [`chanlib/README.md`](../chanlib/README.md) — the channel protocol every adapter speaks
 
 ## Coverage
 

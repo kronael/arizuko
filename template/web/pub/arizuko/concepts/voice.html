@@ -96,10 +96,10 @@
     <p>The persona picks. A voice-first persona (think a phone-only assistant) always voices. A text-first persona only voices when the user voiced first &mdash; matching modality is friendlier than auto-converting every message to audio. The agent makes the choice in its prompt logic; the system doesn&rsquo;t auto-convert.</p>
 
     <h2>failure mode</h2>
-    <p>If <code>ttsd</code> is down, its <code>/health</code> returns 503 and <code>routd</code> flips <code>TTS_ENABLED=false</code> for that turn. <code>send_voice</code> returns <code>chanlib.ErrUnsupported</code>; the agent&rsquo;s wrapper sees that and falls back to a plain text <code>send</code>. The user gets a text reply instead of silence.</p>
+    <p>Two different failures, two different answers. With <code>TTS_ENABLED=false</code> on the instance, <code>send_voice</code> returns an &ldquo;unsupported&rdquo; error with a hint, and the agent falls back to a plain text <code>send</code>. If <code>ttsd</code> itself is down, nothing switches voice off for you: <code>routd</code> doesn&rsquo;t watch ttsd&rsquo;s <code>/health</code>, so the call fails with a synthesize error and the agent has to send text instead. Either way the user should get text, not silence &mdash; but the second one is the agent&rsquo;s call.</p>
 
     <h2>go deeper</h2>
-    <p>Canonical spec: <a href="https://github.com/kronael/arizuko/blob/main/specs/5/T-voice-synthesis.md">specs/5/T-voice-synthesis.md</a>. The <code>voice:</code> frontmatter that pins a per-agent voice lives in <code>PERSONA.md</code> &mdash; see <a href="../concepts/ant.html">ant</a> for the folder layout. For how the JIDs in <code>send_voice(chatJid, &hellip;)</code> are shaped, see <a href="../concepts/jid.html">jid</a>.</p>
+    <p>The <code>voice:</code> frontmatter that pins a per-agent voice lives in <code>PERSONA.md</code> &mdash; see <a href="../concepts/ant.html">ant</a> for the folder layout. For how the JIDs in <code>send_voice(chatJid, &hellip;)</code> are shaped, see <a href="../concepts/jid.html">jid</a>.</p>
 
       <nav class="docs-pager" aria-label="Pager">
         <a rel="prev" href="webdav.html">&larr; WebDAV</a>

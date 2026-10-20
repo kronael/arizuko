@@ -33,6 +33,10 @@ of `@the-convocation/twitter-scraper`).
 | DM conversation                      | `twitter:dm/<conversation_id>` |
 | User profile                         | `twitter:user/<username>`      |
 
+The prefix stays `twitter:`, not `x:`. Routes, grants and stored messages
+hold the JID, and a new prefix would leave every one of them matching
+nothing.
+
 ## Auth (3 paths, priority order)
 
 1. **Cookie file** at `$TWITTER_AUTH_DIR/cookies.json`. Operator imports
@@ -127,5 +131,4 @@ Scraper is stubbed; nothing here exercises the real X surface.
 
 ## Related docs
 
-- `specs/2/k-twitter-adapter.md`
-- `specs/5/34-channel-protocol.md`
+- [`chanlib/README.md`](../chanlib/README.md) — the channel protocol every adapter speaks

@@ -150,37 +150,46 @@ distinct tools.
 
 ## Verb support matrix
 
-The 15 outbound MCP verbs and their per-platform native support. An
-empty cell means the adapter returns `*UnsupportedError` with a
-concrete hint.
+The outbound MCP verbs and the adapters that advertise them. routd forwards a
+verb only to an adapter that registered its capability (`chanreg/README.md`
+§ Capabilities gate every verb); an empty cell is answered by routd with
+`UnsupportedError` and no call. The table is read from each adapter's `caps`
+in `<adapter>/main.go`, or the `capabilities` block in `src/client.ts` for
+whapd and twitd.
 
-| Verb         | discd | slakd | bskyd | reditd | teled | emaid | linkd | whapd | twitd | gitd |
-| ------------ | ----- | ----- | ----- | ------ | ----- | ----- | ----- | ----- | ----- | ---- |
-| `send`       | ✓     | ✓     | ✓     | ✓      | ✓     | ✓     | ✓     | ✓     | ✓     | ✓¹   |
-| `reply`      | ✓     | ✓     | ✓     | ✓      | ✓     | ✓     | ✓     | ✓     | ✓     | ✓¹   |
-| `send_file`  | ✓     | ✓     |       |        | ✓     |       |       | ✓     | ✓     |      |
-| `send_voice` | ✓     |       |       |        | ✓     |       |       | ✓     |       |      |
-| `post`       | ✓     | ✓     | ✓     | ✓      |       |       |       |       | ✓     |      |
-| `like`       | ✓     | ✓     | ✓     | ✓      | ✓     |       |       | ✓     | ✓     |      |
-| `delete`     | ✓     | ✓     | ✓     | ✓      |       |       |       |       | ✓     |      |
-| `forward`    |       |       |       |        | ✓     |       |       | ✓     |       |      |
-| `quote`      |       |       | ✓     |        |       |       |       |       | ✓     |      |
-| `repost`     |       |       | ✓     |        |       |       |       |       | ✓     |      |
-| `dislike`    |       | ✓     |       | ✓      |       |       |       |       |       |      |
-| `edit`       | ✓     | ✓     |       | ✓      | ✓     |       |       | ✓     |       | ✓¹   |
-| `pin`        | ✓     | ✓     |       |        | ✓     |       |       |       |       |      |
-| `unpin`      | ✓     | ✓     |       |        | ✓     |       |       |       |       |      |
-| `unpin_all`  |       | ✓     |       |        | ✓     |       |       |       |       |      |
+| Verb         | discd | slakd | bskyd | reditd | teled | emaid | linkd | whapd | twitd | gitd | googd |
+| ------------ | ----- | ----- | ----- | ------ | ----- | ----- | ----- | ----- | ----- | ---- | ----- |
+| `send`       | ✓     | ✓     | ✓     | ✓      | ✓     | ✓     | ✓     | ✓     | ✓     | ✓¹   | ✓²    |
+| `reply`      | ✓     | ✓     | ✓     | ✓      | ✓     | ✓     | ✓     | ✓     | ✓     | ✓¹   | ✓²    |
+| `send_file`  | ✓     | ✓     | ✓     |        | ✓     |       |       | ✓     | ✓     | ✓¹   |       |
+| `send_voice` | ✓     |       |       |        | ✓     |       |       | ✓     |       |      |       |
+| `post`       |       | ✓     | ✓     | ✓      | ✓     |       | ✓     |       | ✓     |      |       |
+| `like`       | ✓     | ✓     | ✓     | ✓      | ✓     |       | ✓     | ✓     | ✓     |      |       |
+| `dislike`    |       | ✓     |       | ✓      |       |       |       |       |       |      |       |
+| `delete`     | ✓     | ✓     | ✓     | ✓      | ✓     |       | ✓     | ✓     | ✓     |      |       |
+| `edit`       | ✓     | ✓     |       | ✓      | ✓     |       |       | ✓     |       | ✓¹   |       |
+| `forward`    |       |       |       |        | ✓     |       |       | ✓     |       |      |       |
+| `quote`      | ✓     |       | ✓     |        |       |       |       |       | ✓     |      |       |
+| `repost`     |       |       | ✓     |        |       |       | ✓     |       | ✓     |      |       |
+| `pin`        | ✓     | ✓     |       |        | ✓     |       |       |       |       |      |       |
+| `unpin`      | ✓     | ✓     |       |        | ✓     |       |       |       |       |      |       |
+| `unpin_all`  | ³     | ✓     |       |        | ✓     |       |       |       |       |      |       |
 
-¹ gitd posts a comment on the PR/issue the JID names, and edits a comment it
-wrote, only when `GITHUB_TOKEN` is set; repo state changes (merge, label, review) are GitHub connector tools
-(spec `6/27`).
+¹ gitd advertises its verbs only when `GITHUB_TOKEN` is set. It posts a
+comment on the PR or issue the JID names and edits a comment it wrote; repo
+state changes, such as merge, label or review, are GitHub connector tools.
+² googd advertises `send` only while Google accepts its service-account key,
+and its `Send` still answers 400: the reply path is not built
+(`googd/README.md`).
+³ Discord has no bulk unpin; call `unpin_message` per id.
 
-`delete` and `edit` are own-message by default — the platform enforces
-authorship; `:any` is a distinct grant (spec 5/Z). `pin`/`unpin` are
-the `pin_message`/`unpin_message` MCP tools; `unpin_all` clears every
-pin (Discord has no bulk primitive — call `unpin_message` per id).
-Adapters with no pin primitive embed `chanlib.NoPinSupport`.
+`pin_message`, `unpin_message` and `unpin_all` are three tool names over one
+`/unpin` route: `unpin_all` is `/unpin` with `all: true`. The names differ
+because the intents differ. Adapters with no pin primitive embed
+`chanlib.NoPinSupport`. Which message an agent may edit or delete is the
+platform's rule; arizuko adds no grant for another author's message. No tool
+looks up a target id: the agent reads message ids from the `id` and
+`platform_id` attributes of the messages in its prompt.
 
 ## Adding web routes
 
@@ -330,9 +339,33 @@ via-`reactions.add`). Steps:
    `template/services/<name>d.yaml` with a `proxyd_routes` block (see
    below) — no `compose.go` edits.
 3. Implement only the verbs the platform supports natively; return
-   `chanlib.Unsupported(tool, platform, hint)` for the rest.
-4. Spec under `specs/2/<letter>-<name>.md`; per-platform native
-   support belongs in the verb matrix above.
+   `chanlib.Unsupported(tool, platform, hint)` for the rest, and advertise
+   exactly the verbs you implement.
+4. Add a row to the verb matrix above.
+
+The delivery contract every adapter keeps, whatever its platform:
+
+- **Claim before you post.** Every outbound carries `idempotency_key`. Claim
+  it durably before the platform call, record the platform id after it, and
+  answer a settled key with the recorded id. An unsettled key is refused, not
+  posted again, because a lost response and a lost request look the same.
+  `chanlib` does this in `deliverOnce`; a TypeScript adapter does it itself.
+- **Pick the error class.** Return `ErrNotDelivered` only when the platform
+  provably accepted nothing, such as a 429. Every other failure is ambiguous
+  and keeps the claim (`chanlib/README.md` § Four error classes).
+- **The dashboard route is the registration.** Declare `/dash/<name>/` in
+  `template/services/<name>.yaml`, gated by the adapter's own credential, so
+  the route and the hub tile exist exactly when the adapter runs.
+
+A social adapter (bskyd, reditd, linkd, twitd) covers only the bot's own
+notification stream: mentions, replies and DMs. It does not poll hashtags,
+keywords, competitors, trends or whole threads. Monitoring has its own scale,
+auth and trust, and putting unbounded polling on the path that delivers a
+user's message would slow that path for every user. reditd's subreddit
+`/new` poll is the one recorded exception, and `tests/socialboundary` keeps
+the list closed. The payload is the notification only: no thread context, no
+quoted post, no author history, and the adapter never blocks on enrichment.
+Whether to engage is the route's and the agent's decision.
 
 `chanlib.InboundMsg` carries no forward attribution. A message a user
 forwarded from elsewhere arrives as plain content, and no adapter records

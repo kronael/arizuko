@@ -83,6 +83,8 @@
 
     <p>That is deliberate. Agent tool use is operational detail at enormous volume, and the parts that actually change platform state already went through MCP, where they were audited like any other call. A hook that wrote to the database would turn every keystroke of the agent&rsquo;s work into a distributed transaction.</p>
 
+    <p>One kind of agent action gets a row precisely because it leaves nothing else behind: a <code>like</code>, <code>dislike</code>, <code>edit</code>, <code>delete</code>, <code>pin</code> or <code>unpin</code> on a message already out on the platform. None of them appends a <code>messages</code> row, so the <code>audit_log</code> row is the only trace &mdash; category <code>agent</code>, action <code>message.&lt;verb&gt;</code>, the chat and the target message as the resource (<code>routd/social_audit.go</code>). An edit row names the message, never the new text. The row is written after the platform call, success or error; a failed audit write is logged rather than returned, because the platform message has already changed and a retry would change it twice.</p>
+
     <div class="callout"><strong>Two streams, one shape.</strong> Both layers use the same field names, so <code>journalctl | grep tool=Bash</code> and <code>journalctl | grep tool=set_routes</code> return rows you can read side by side.</div>
 
     <h2>each daemon keeps its own</h2>

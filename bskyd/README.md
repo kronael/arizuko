@@ -70,7 +70,11 @@ polling lands, switch to `chat.bsky.convo.sendMessage` proxied via
 
 ## Health signal
 
-`GET /health` returns 503 when `authed` is false (session create/refresh both failed).
+`GET /health` is chanlib's. It returns 503 `disconnected` when the `authed`
+flag is false, which happens when both session create and refresh failed.
+
+The adapter dashboard adds a **Session** section: the repo DID, the service
+URL and whether a session is held. The session JWTs are never rendered.
 
 ## Files
 
@@ -78,4 +82,4 @@ polling lands, switch to `chat.bsky.convo.sendMessage` proxied via
 
 ## Related docs
 
-- `specs/5/34-channel-protocol.md`
+- [`chanlib/README.md`](../chanlib/README.md) — the channel protocol every adapter speaks
