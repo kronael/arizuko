@@ -103,10 +103,10 @@ params    = host=*.prod.example.com</code></pre>
 
     <table>
       <tr><th>principal kind</th><th>example</th><th>notes</th></tr>
-      <tr><td>OAuth sub</td><td><code>google:114019&hellip;</code></td><td>The account's canonical provider sub, resolved at mint by authd.</td></tr>
+      <tr><td>OAuth sub</td><td><code>google:114019583462810573829</code></td><td>The account's canonical provider sub, resolved at mint by authd.</td></tr>
       <tr><td>Folder agent</td><td><code>folder:atlas/eng</code></td><td>The guest booted at this folder. A first-class principal.</td></tr>
       <tr><td>Platform identity</td><td><code>telegram:user/123456</code></td><td>Channel-side identity, not yet OAuth-claimed.</td></tr>
-      <tr><td>Room JID</td><td><code>discord:837&hellip;/1504&hellip;</code></td><td>Channel / room itself &mdash; carries the route's baseline grants.</td></tr>
+      <tr><td>Room JID</td><td><code>discord:5678/9012</code></td><td>Channel / room itself &mdash; carries the route's baseline grants.</td></tr>
       <tr><td>Role</td><td><code>role:operator</code></td><td>Indirection. Members via <code>acl_membership</code>.</td></tr>
       <tr><td>Wildcards</td><td><code>**</code>, <code>google:*</code>, <code>folder:**</code></td><td>Globs anchor on <code>:</code> and <code>/</code>, so <code>google:*</code> does not match <code>google:114/sub</code>.</td></tr>
     </table>

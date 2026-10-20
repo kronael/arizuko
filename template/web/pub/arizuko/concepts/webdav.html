@@ -115,7 +115,7 @@ vim ~/mnt/&lt;group&gt;/CLAUDE.md</code></pre>
 
       <h2>proxyd checks the group before davd sees the request</h2>
       <p>
-        Every <code>/dav/&lt;group&gt;/...</code> request reaches
+        Every <code>/dav/&lt;group&gt;/&lt;path&gt;</code> request reaches
         <code>proxyd</code> first. <code>proxyd</code> verifies the JWT from
         the cookie or the Bearer header, reads the groups claim of the user,
         and compares the <code>&lt;group&gt;</code> in the URL with that

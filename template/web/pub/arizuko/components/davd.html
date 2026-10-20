@@ -73,7 +73,7 @@
     <h2>Every request passes proxyd before davd</h2>
     <div class="callout">
       <pre><code>operator (rclone, curl)
-   │  WebDAV request to https://&lt;host&gt;/dav/&lt;group&gt;/...
+   │  WebDAV request to https://&lt;host&gt;/dav/&lt;group&gt;/&lt;path&gt;
    ▼
  proxyd
    │  verify JWT (cookie or Bearer)
@@ -83,7 +83,7 @@
  davd  (dufs on :8080, serving /data)
    │
    ▼
- &lt;data-dir&gt;/groups/&lt;group&gt;/&hellip;</code></pre>
+ &lt;data-dir&gt;/groups/&lt;group&gt;/&lt;path&gt;</code></pre>
     </div>
 
     <dl>

@@ -90,7 +90,7 @@ routd ──► adapter ──► platform reply</code></pre>
       <dt>Cause</dt>
       <dd>runed checks every input before it starts a turn. It prints all missing inputs in one message: <code>this host cannot run turns; N precondition(s) missing</code>. The inputs are root, the device nodes <code>/dev/kvm</code>, <code>/dev/vhost-vsock</code> and <code>/dev/net/tun</code>, the <code>qemu</code>, <code>egress</code>, <code>iptables</code> and <code>ip</code> binaries, <code>RUNED_KERNEL_DIR</code>, <code>RUNED_ROOTFS_DIR</code>, the guest memory budget and the tap subnet.</dd>
       <dt>Fix</dt>
-      <dd>Correct every line of the message, then restart. <code>sudo make kernel DATA_DIR=&hellip;</code> and <code>sudo make images DATA_DIR=&hellip;</code> build a missing artifact. Set <code>RUNED_KERNEL_DIR</code> and <code>RUNED_ROOTFS_DIR</code> in <code>.env</code> to the directories that the two commands print.</dd>
+      <dd>Correct every line of the message, then restart. <code>sudo make kernel DATA_DIR=/srv/data/arizuko_&lt;name&gt;</code> and <code>sudo make images DATA_DIR=/srv/data/arizuko_&lt;name&gt;</code> build a missing artifact. Set <code>RUNED_KERNEL_DIR</code> and <code>RUNED_ROOTFS_DIR</code> in <code>.env</code> to the directories that the two commands print.</dd>
       <dt>Source</dt>
       <dd><code>runed/qemuhost.go:117</code> <code>qemuPreconditions</code>, the message at <code>runed/qemuhost.go:218</code></dd>
     </dl>
