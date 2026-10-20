@@ -189,6 +189,9 @@ holds the threat model and the boundary table.
   manifest, and `arizuko apply` reads a manifest back. A manifest is a copy,
   not a second source.
 - Designed, not built: the core daemons of one world in one process.
+- Planned, not started: end-user agent provisioning, where a POST of a
+  definition returns a tenant and a chat token, and the rename of `group` and
+  `folder` to `path`.
 
 ## Build and test
 
