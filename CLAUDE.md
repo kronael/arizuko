@@ -134,8 +134,8 @@ Pre-commit hooks configured via `.pre-commit-config.yaml`.
 
 ## When to read what
 
-- **README.md** — daemon + library tables, public pitch, the shape
-  (`solo/inbox` and `corp/eng/sre/oncall` run the same code), direction.
+- **README.md** — public pitch, glossary, quick start, the six steps, the
+  shape (`solo/inbox` and `corp/eng/sre/oncall` run the same code), direction.
 - **INSTALL.md** — prerequisites, blocker fixes, `.env`, adapter tokens,
   troubleshooting (the "healthchecks green but no reply" checklist). Start
   here when helping a user install arizuko.
