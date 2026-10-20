@@ -8,22 +8,27 @@ which agent and what each agent may do beyond its own folder.
 
 [Install](INSTALL.md) • [How it works](ARCHITECTURE.md) •
 [Security](SECURITY.md) • [Routing](ROUTING.md) • [Extending](EXTENDING.md) •
-[Web docs](template/web/pub/arizuko/) (served at `/pub/arizuko/` on every
-instance)
+[Web docs](template/web/pub/arizuko/), served at `/pub/arizuko/` on every
+instance
 
-Self-hosted only, on one Linux host with Docker and KVM. Sized for agent teams,
-not consumer traffic.
+arizuko is simple on purpose, and the simplicity is the reason it is flexible.
+An agent is a folder, a route is a row, and a grant is a row. You read a folder
+as files and a row with the `arizuko` command.
+
+arizuko runs only on a host you own: one Linux host with Docker and KVM. It
+serves agent teams, not consumer traffic.
 
 ## Glossary
 
-- **folder**: one agent: its persona, skills, memory, diary and grants.
-- **group**: a folder that routd knows; `arizuko group` manages it.
+- **folder**: one agent, with its persona, skills, memory and diary.
+- **group**: a folder that routd has registered. `arizuko group` manages it.
 - **world**: a top-level folder, such as `corp` in `corp/eng/sre`.
-- **JID**: a chat's address, such as `telegram:group/123456789`.
-- **route**: a row that sends a chat's messages to one folder.
-- **topic**: a thread inside a chat; each topic keeps its own session.
-- **turn**: one agent run: a KVM guest boots, answers, powers off.
-- **grant**: an `acl` row that allows one action on one scope.
+- **JID**: the address of a chat, such as `telegram:group/123456789`.
+- **route**: a row that sends the messages of a chat to one folder.
+- **topic**: a thread inside a chat. Each topic keeps its own session.
+- **turn**: one agent run. A KVM guest boots, answers, and powers off.
+- **grant**: an `acl` row. It allows or denies one action on one scope for one
+  principal.
 - **route token**: a secret URL, `/chat/<token>/` or `/hook/<token>`.
 
 ## What you can run with it
@@ -47,13 +52,10 @@ Under all of these, one folder path binds the tenant, its grants, its routes,
 its egress, its web host and its file tree, and one evaluator answers both
 the agent over MCP and a person over REST.
 
-## How a message becomes a reply
+## Every message passes six steps
 
-Each folder keeps only the conversations routed to it. Agents coordinate on
-the same conversation plane they serve people on: a turn can route to a sibling, delegate to a child, schedule a task or publish a web
-page by posting to `routd`. There is no second coordination bus.
-
-Every event runs the same six steps:
+Each folder sees only the conversations that routes send to it. Every event,
+from a chat message, a webhook or a scheduled task, passes the same six steps:
 
 <!-- twin:six-steps -->
 
@@ -70,18 +72,12 @@ Slack @mention in #eng
 
 <!-- /twin -->
 
-Channels, tasks, webhooks, secrets, delegation and workflows are all
-compositions of these six, with identity (folders, JIDs, roles, scopes) as the
-coordinate system they are addressed in.
+Channels, scheduled tasks, webhooks, secrets and delegation all use these six
+steps. The path of a folder, such as `corp/eng/oncall`, names the agent in each
+step.
 
-| Layer      | What it is           | Examples                                                          |
-| ---------- | -------------------- | ----------------------------------------------------------------- |
-| Primitives | the concepts         | Event, Routing, Agent, Authorization, Turn, State                 |
-| Components | Go packages          | `store`, `router`, `auth`, `ipc`, `runed`, `groupfolder`          |
-| Daemons    | deployable processes | `authd` + `routd` + `runed`; `webd`, `timed`, `onbod`, `slakd`, … |
-| Products   | installable agents   | Slack team agent, reality agent, company brain                    |
-
-A product is a folder's contents. The same pipeline runs every product.
+A product is a template for the contents of a folder, such as `support` or
+`personal`. Every product passes the same six steps.
 
 ## When to use arizuko
 
@@ -102,8 +98,8 @@ closer fit. arizuko is for agents that sit behind channels and serve teams.
 
 ## Getting started
 
-You need a Linux x86_64 host with `/dev/kvm`, Docker with the compose plugin,
-Go, write access to `/srv/data/`, and a token for one channel.
+You need a Linux x86_64 host with `/dev/kvm`, Docker with Compose v2.20 or
+newer, Go, write access to `/srv/data/`, and a token for one channel.
 
 <!-- twin:install -->
 
@@ -142,23 +138,25 @@ cd -
 <!-- /twin -->
 
 [INSTALL.md](INSTALL.md) has the full walk: prerequisites, the store server
-and its per-daemon access keys, adapter tokens, backup, and the "healthchecks
-green but no reply" checklist. A daemon that reaches the store with no access
-key restart-loops the whole instance, so mint its key before you enable a
-package. Packages, products and adapters: [EXTENDING.md](EXTENDING.md).
+and its access keys, adapter tokens, backup, and the checklist for an agent
+that does not reply. Mint the access key of a daemon before you enable its
+package. A daemon that reaches the store with no key exits, and the whole
+instance restarts in a loop. [EXTENDING.md](EXTENDING.md) covers packages,
+products and adapters.
 
 ## How it works
 
-Three daemons form the core: `routd` appends every message and decides which
-folder answers, `runed` boots one KVM guest per turn, and `authd` signs every
-token. Adapters, the web chat and the scheduler call `routd` over HTTP, and
-each daemon keeps its own tables on one store server under its own key. The
-repository map, table ownership and the turn end to end are drawn in
-[ARCHITECTURE.md](ARCHITECTURE.md#where-a-change-lands). Each chat platform has
-its own adapter daemon; the adapters and the verbs each supports are in
-[EXTENDING.md § Verb support matrix](EXTENDING.md#verb-support-matrix), and the
-protocol they speak in
-[components/channels.html](template/web/pub/arizuko/components/channels.html).
+Three daemons form the core. `routd` appends every message and decides which
+folder answers. `runed` boots one KVM guest per turn. `authd` signs every
+token. Adapters, the web chat and the scheduler call `routd` over HTTP. Each
+daemon keeps its own tables on one store server and signs in with its own key.
+[ARCHITECTURE.md](ARCHITECTURE.md#where-a-change-lands) draws the repository
+map, the table owners and the turn from start to end.
+
+Each chat platform has its own adapter daemon.
+[EXTENDING.md](EXTENDING.md#verb-support-matrix) lists the adapters and the
+verbs each one supports. [components/channels.html](template/web/pub/arizuko/components/channels.html)
+describes the protocol they speak.
 
 ## What arizuko does not include
 
@@ -175,50 +173,50 @@ grants, schedule tasks, act across channels.
 
 ## Security model
 
-Each turn runs in its own KVM guest on its own tap, a per-turn proxy filters
-its egress, and only model credentials ever enter the guest. One `acl` table
-read by one function decides every action, deny wins, and `proxyd` alone
-stamps identity headers. Threat model and boundary table:
-[SECURITY.md](SECURITY.md).
+Each turn runs in its own KVM guest with its own network tap. A proxy that
+lives for one turn filters the egress of the guest. Only model credentials
+enter the guest. One function reads the `acl` table and decides every action,
+and a deny row wins. Only `proxyd` stamps identity headers. [SECURITY.md](SECURITY.md)
+holds the threat model and the boundary table.
 
-## Direction
+## The store is the source of truth
 
-- Every cold-tier resource has one handler with a REST face for people and an
-  MCP face for agents, behind one auth gate; the exceptions are listed in
-  ARCHITECTURE.md § Cold tier vs hot tier.
-- The store is authoritative. YAML manifests dump and import the cold tier
-  (`arizuko export`, `arizuko apply`); they are not a synced source.
+- Each stored resource, such as routes or tasks, has one handler. It serves a
+  REST interface for people and an MCP interface for agents, behind one
+  authorization gate. [ARCHITECTURE.md](ARCHITECTURE.md#cold-tier-vs-hot-tier)
+  lists the exceptions.
+- The store holds the live state. `arizuko export` writes it to a YAML
+  manifest, and `arizuko apply` reads a manifest back. A manifest is a copy,
+  not a second source.
 - Designed, not built: the core daemons of one world in one process.
-- Planned, not started: end-user agent provisioning (POST a definition, get a
-  tenant and a chat token) and renaming `group`/`folder` to `path`.
 
 ## Build and test
 
-Build, image and smoke targets: [INSTALL.md](INSTALL.md). How to run the tests
-and what each suite needs: [tests/README.md](tests/README.md).
-[`anteval/`](anteval/README.md) is the agent-capability gate: it runs real
-tasks through the public REST, HTTP and MCP surfaces of a live instance and
-grades the observable effects.
+[INSTALL.md](INSTALL.md) lists the build, image and smoke targets.
+[tests/README.md](tests/README.md) says how to run the tests and what each
+suite needs. [`anteval/`](anteval/README.md) checks what an agent can do. It
+runs real tasks through the public REST, HTTP and MCP interfaces of a live
+instance and grades the visible effects.
 
 ## How to read this
 
-| Order | File                                                                                | The question it answers                                               |
-| ----- | ----------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
-| 1     | this file                                                                           | What is it, and how do I start?                                       |
-| 2     | [INSTALL.md](INSTALL.md)                                                            | How do I get an instance running, and what do I do when it is silent? |
-| 3     | [ARCHITECTURE.md](ARCHITECTURE.md)                                                  | Where does each piece live, and how does a turn run?                  |
-| 4     | [ROUTING.md](ROUTING.md)                                                            | Which folder answers a message, and how does the reply get back?      |
-| 5     | [SECURITY.md](SECURITY.md)                                                          | What is isolated from what, and by which mechanism?                   |
-| 6     | [GRANTS.md](GRANTS.md)                                                              | Who may do what, and where is that decided?                           |
-| 7     | [EXTENDING.md](EXTENDING.md)                                                        | How do I add a channel, a connector, a package or a skill?            |
-| 8     | [CHANGELOG.md](CHANGELOG.md)                                                        | What shipped, and when?                                               |
-|       | [web docs](template/web/pub/arizuko/), live at `https://krons.fiu.wtf/pub/arizuko/` | How do I run and operate it, page by page?                            |
-|       | [`cmd/arizuko/README.md`](cmd/arizuko/README.md)                                    | What does each `arizuko` subcommand do?                               |
-|       | [FEATURES.md](FEATURES.md)                                                          | What does it do today, and which test proves it?                      |
-|       | [`tests/README.md`](tests/README.md)                                                | How do I run the tests, and what does each suite need?                |
-|       | [`specs/`](specs/)                                                                  | Which change is in flight, and why?                                   |
-|       | [`BUGS.md`](BUGS.md)                                                                | What is open, and what waits on a person?                             |
-|       | [LICENSE](LICENSE)                                                                  | MIT.                                                                  |
+| Order | File                                             | The question it answers                                               |
+| ----- | ------------------------------------------------ | --------------------------------------------------------------------- |
+| 1     | this file                                        | What is it, and how do I start?                                       |
+| 2     | [INSTALL.md](INSTALL.md)                         | How do I get an instance running, and what do I do when it is silent? |
+| 3     | [ARCHITECTURE.md](ARCHITECTURE.md)               | Where does each piece live, and how does a turn run?                  |
+| 4     | [ROUTING.md](ROUTING.md)                         | Which folder answers a message, and how does the reply get back?      |
+| 5     | [SECURITY.md](SECURITY.md)                       | What is isolated from what, and by which mechanism?                   |
+| 6     | [GRANTS.md](GRANTS.md)                           | Who may do what, and where is that decided?                           |
+| 7     | [EXTENDING.md](EXTENDING.md)                     | How do I add a channel, a connector, a package or a skill?            |
+| 8     | [CHANGELOG.md](CHANGELOG.md)                     | What shipped, and when?                                               |
+|       | [web docs](template/web/pub/arizuko/)            | How do I run and operate it, page by page?                            |
+|       | [`cmd/arizuko/README.md`](cmd/arizuko/README.md) | What does each `arizuko` subcommand do?                               |
+|       | [FEATURES.md](FEATURES.md)                       | What does it do today, and which test proves it?                      |
+|       | [`tests/README.md`](tests/README.md)             | How do I run the tests, and what does each suite need?                |
+|       | [`specs/`](specs/)                               | Which change is in flight, and why?                                   |
+|       | [`BUGS.md`](BUGS.md)                             | What is open, and what waits on a person?                             |
+|       | [LICENSE](LICENSE)                               | MIT.                                                                  |
 
 ## Thanks
 

@@ -1,393 +1,422 @@
 # Routing
 
-How messages get from a chat to the right agent group, and how replies
-get back. A web request routes by path, not by chat:
-[`proxyd/README.md` § A request through proxyd](proxyd/README.md#a-request-through-proxyd).
+This file explains how a message goes from a chat to the right agent group,
+and how the reply goes back. A web request routes by path and not by chat.
+[`proxyd/README.md`](proxyd/README.md#a-request-through-proxyd) describes it.
 
-## Platform JID prefixes
+## Each adapter owns the JID prefixes it registers
 
-Each adapter declares the `platform:` prefixes it owns when it registers
-with routd. The post-`:` portion is platform-private; routing predicates
-treat it as an opaque string with `path.Match` glob semantics over `/`.
+Each adapter declares the `platform:` prefixes that it owns when it registers
+with `routd`. The part of a JID after the first `:` belongs to the platform.
+Routing predicates treat it as an opaque string and match it with `path.Match`
+globs over `/`.
 
-| Adapter | Prefix      | Example                                                             |
-| ------- | ----------- | ------------------------------------------------------------------- |
-| discd   | `discord:`  | `discord:<guild>/<channel>`, `discord:dm/<channel>`                 |
-| slakd   | `slack:`    | `slack:<workspace>/<kind>/<id>` (kind ∈ channel/dm/group)           |
-| teled   | `telegram:` | `telegram:user/<id>`, `telegram:group/<id>`                         |
-| whapd   | `whatsapp:` | `whatsapp:1234567@s.whatsapp.net`                                   |
-| reditd  | `reddit:`   | `reddit:comment/<id>`, `reddit:user/<id>`, `reddit:submission/<id>` |
-| bskyd   | `bluesky:`  | `bluesky:user/<did>`                                                |
-| linkd   | `linkedin:` | `linkedin:user/<urn>`                                               |
-| emaid   | `email:`    | `email:address/foo@bar.com`                                         |
-| twitd   | `twitter:`  | `twitter:home`, `twitter:dm/<id>`                                   |
-| webd    | `web:`      | `web:<folder>` (e.g. `web:atlas`) — see "Web JID model" below       |
+| Adapter | Prefix      | Chat JID                                                             |
+| ------- | ----------- | -------------------------------------------------------------------- |
+| discd   | `discord:`  | `discord:<guild_id>/<channel_id>`, `discord:dm/<channel_id>`         |
+| slakd   | `slack:`    | `slack:<workspace>/<kind>/<id>` with kind `channel`, `dm` or `group` |
+| teled   | `telegram:` | `telegram:user/<id>`, `telegram:group/<id>`                          |
+| whapd   | `whatsapp:` | `whatsapp:1234567@s.whatsapp.net`                                    |
+| reditd  | `reddit:`   | `reddit:subreddit/<name>`, `reddit:user/<name>`                      |
+| bskyd   | `bluesky:`  | `bluesky:user/<did>`, with each `:` in the DID written as `%3A`      |
+| linkd   | `linkedin:` | `linkedin:post/<urn>`                                                |
+| emaid   | `email:`    | `email:thread/<id>`                                                  |
+| twitd   | `twitter:`  | `twitter:home`, `twitter:dm/<id>`                                    |
+| webd    | `web:`      | `web:<folder>`, for example `web:atlas`; see the next section        |
 
-`core.JidPlatform("twitter:dm/abc")` returns `twitter`; `core.JidRoom`
-returns `dm/abc`. Use `platform=` predicates to match a whole platform
-and `room=` globs to filter by kind/segment.
+A Telegram group has a negative chat id. The JID drops the minus sign, so group
+`-100123` becomes `telegram:group/100123`. A Discord guild channel always has
+both parts, `<guild_id>/<channel_id>`. The sender of an email is
+`email:address/<address>`, and the sender of a Slack message is
+`slack:user/<id>`.
 
-### Web JID model — 1:1 with groups, no route table
+`core.JidPlatform("twitter:dm/abc")` returns `twitter`, and `core.JidRoom`
+returns `dm/abc`. Use `platform=` predicates to match a whole platform. Use
+`room=` globs to match the kind or a segment.
 
-`web:<folder>` addresses group `<folder>` **directly**. The route table
-does NOT apply to web JIDs; routd resolves them via
-`GroupByFolder` without consulting `routes`. To carve a chat surface
-into sub-flows (form intake threads, separate report channels), create
-sub-groups (`<parent>/<sub>`) — each gets its own `web:<parent>/<sub>`
-JID. `store.AddRoute` rejects `chat_jid=web:*` predicates at insert
-time so the mistake fails loudly.
+### A web JID names a folder and skips the route table
 
-### Route-token surfaces (`/chat/<token>/`, `/hook/<token>`)
+`web:<folder>` addresses the group `<folder>` directly. The route table does
+not apply to web JIDs. `routd` resolves them with `GroupByFolder` and does not
+read `routes`. To split a chat surface into flows, such as intake threads or
+separate report channels, create sub-groups named `<parent>/<sub>`. Each
+sub-group gets its own JID `web:<parent>/<sub>`. `store.AddRoute` rejects a
+predicate that begins with `web:` when you insert the rule, so the mistake
+fails at once.
 
-Public URLs that feed a chat: `/chat/<token>/` serves the human widget
-(GET) and accepts messages (POST); `/hook/<token>` is machine
-fire-and-forget POST ingest. Each URL composes three orthogonal axes:
+### A route token feeds a chat from a public URL
 
-1. **Routing (the token)** — which JID/folder the URL feeds. Opaque
-   random secret, sha256 at rest in `route_tokens`, DB-looked-up by
-   webd; revoke = delete the row.
-2. **Identity (optional JWT overlay)** — who is posting. A logged-in
-   caller's real `sub`/name is stamped from the proxyd-verified
-   headers; anonymous callers get `anon:<ip-hash>` / "Anonymous". Same
-   link either way (`webd/route_token.go`).
-3. **Context (optional per-link instructions)** — how to process this
-   link's inbound. Set at mint (`issue_chat_link(context=…)` /
-   `issue_webhook(context=…)`, REST, dashd, `arizuko token issue
---context`), snapshotted onto each message at ingest
-   (`messages.link_context`), rendered to the agent as
-   `<link-context>` in the turn envelope.
+`/chat/<token>/` and `/hook/<token>` are public URLs that feed a chat.
+`/chat/<token>/` serves the widget for people on GET and accepts messages on
+POST. `/hook/<token>` accepts a POST from a machine and returns at once. Each
+URL combines three independent parts:
 
-### Token kinds — delivery vs pairing (`/pair/<token>`)
+1. **Routing, set by the token.** The token decides which JID and folder the
+   URL feeds. It is a random secret that `webd` looks up in the database. The
+   database stores only its sha256 hash in `route_tokens`. A revoke deletes
+   the row.
+2. **Identity, set by an optional JWT.** The identity says who posts. When the
+   caller is logged in, the sender is the real `sub` and name from the headers
+   that `proxyd` verified. An anonymous caller gets `anon:<ip-hash>` and the
+   name "Anonymous". The link is the same in both cases
+   , see `webd/route_token.go`.
+3. **Context, set by optional instructions.** The context says how to process
+   the messages that arrive through this link. The issuer sets it when it
+   mints the token, with `issue_chat_link(context=…)`,
+   `issue_webhook(context=…)`, REST, dashd or `arizuko token <instance> issue
+… --context`. The ingest copies it to each message in
+   `messages.link_context`, and the turn envelope shows it to the agent as
+   `<link-context>`.
 
-`route_tokens.kind` says what a row IS. `route` is a delivery bearer —
-the two surfaces above. `pair` is an **identity-pairing link** served by
-webd at `/pair/<token>`: redeeming it writes the `acl_membership` edge
-that makes a channel identity (`telegram:user/123`) resolve to the
-account of whoever confirms, which is the only way an anonymous channel
-user acquires any authority at all.
+### A route token is either a delivery token or a pairing token
 
-Resolution is kind-scoped in both directions — delivery accepts only
-`route`, redemption only `pair` — so neither is redeemable as the other.
-A pairing is minted by the agent in the chat (`issue_pairing_link`, MCP
-only; the JID must route to the agent's folder), lives ten minutes, is
-single-use, and grants nothing by itself. `GET /pair/<token>` is
-side-effect-free so an unfurl bot cannot spend it; the `POST` is the
-consent step, and the threat model that shapes it is SECURITY.md
-§"Pairing: consent is the boundary". The inverse verb is `unpair`: it
-deletes one `acl_membership` edge scoped to `added_by='pairing'`, and either
-end of the edge may call it. An unredeemed pairing link cannot be listed or
-revoked: `list_tokens` and `revoke_token` read `kind='route'` rows only, so
-the link lives until it is redeemed or its ten minutes pass.
+The column `route_tokens.kind` says what a row is. Kind `route` is a delivery
+token, the two URLs above. Kind `pair` is an identity-pairing link that `webd`
+serves at `/pair/<token>`. Redeeming it writes the `acl_membership` edge that
+makes a channel identity, such as `telegram:user/123`, resolve to the account
+of the person who confirms. This is the only way that an anonymous channel user
+gets any authority.
 
-## Route Table
+Each lookup checks the kind. Delivery accepts only `route`, and redemption
+accepts only `pair`, so neither token works as the other. The agent mints a
+pairing link in the chat with `issue_pairing_link`, which exists only as an MCP
+tool. The JID must route to the folder of the agent. The link lives ten
+minutes, works once and grants nothing by itself. `GET /pair/<token>` has no
+side effects, so an unfurl bot cannot spend the link. The `POST` is the consent
+step. [SECURITY.md](SECURITY.md#pairing-consent-is-the-boundary) explains the
+threat model behind it.
 
-`routes` is a flat list of rules evaluated against every inbound message.
-Each rule is addressed by `(seq, target, match)`, with `seq` padded so a read
-comes back in precedence order:
+The inverse tool is `unpair`. It deletes one `acl_membership` edge with
+`added_by='pairing'`, and either end of the edge can call it. Nobody can list
+or revoke a pairing link that is not yet redeemed. `list_tokens` and
+`revoke_token` read only rows with `kind='route'`, so the link lives until
+someone redeems it or its ten minutes pass.
 
-| Field    | Type | Purpose                                                         |
-| -------- | ---- | --------------------------------------------------------------- |
-| `id`     | int  | The handle `route rm` takes; minted through the `counters` item |
-| `seq`    | int  | Evaluation order (lower = earlier)                              |
-| `match`  | text | Space-separated `key=glob` predicates (AND)                     |
-| `target` | text | `<folder>[#<mode>]` — group folder + optional mode              |
+## The route table sends a message to the first matching rule
 
-There is no `jid` or `type` field. Rules are filtered entirely by the
-`match` expression. Rules are evaluated in `seq` order; first rule whose
+`routes` is a flat list of rules. `routd` checks every inbound message against
+it. Each rule has the address `(seq, target, match)`. The store pads `seq`, so
+a read returns the rules in order of precedence.
+
+| Field                     | Type | Purpose                                                              |
+| ------------------------- | ---- | -------------------------------------------------------------------- |
+| `id`                      | int  | The handle that `route rm` takes; minted through the `counters` item |
+| `seq`                     | int  | Evaluation order; a lower value goes first                           |
+| `match`                   | text | Space-separated `key=glob` predicates, all of which must match       |
+| `target`                  | text | `<folder>[#<mode>]`: a group folder and an optional mode             |
+| `observe_window_messages` | int  | Optional. Overrides the message cap of the observed window           |
+| `observe_window_chars`    | int  | Optional. Overrides the character cap of the observed window         |
+
+A rule has no `jid` or `type` field. The `match` expression is the only
+filter. `routd` evaluates the rules in `seq` order, and the first rule whose
 predicates all match wins.
 
-Registering a group writes exactly one rule: `seq` 0, `match`
-`room=<the JID after the colon>`, `target` the new folder
-(`registerGroup`, `routd/mcp.go`). onbod's route write has the same shape.
+Registering a group writes exactly one rule. The rule has `seq` 0, `match`
+`room=<the JID after the colon>` and the new folder as `target`, see `registerGroup` in `routd/mcp.go`. The route write of `onbod` has the same
+shape.
 
 ```bash
-# All telegram chats default to atlas/content
+# All Telegram chats go to atlas/content by default
 arizuko route krons add 'platform=telegram' atlas/content --seq 0
 
-# A specific telegram chat overrides
+# One Telegram chat overrides the default
 arizuko route krons add 'chat_jid=telegram:group/12345' atlas/legal --seq -10
 
 # All Discord chats fall back to atlas/social
 arizuko route krons add 'platform=discord' atlas/social --seq 9999
 ```
 
-### Match expression
+### A match expression is a list of key=glob predicates
 
-`router.RouteMatches` parses `match` as a whitespace-separated list of
-`key=glob` predicates, AND'd together. An empty `match` matches every
-message.
+`router.RouteMatches` reads `match` as a list of `key=glob` predicates
+separated by white space. Every predicate must match. An empty `match` matches
+every message.
 
-| Key        | Source                                 |
-| ---------- | -------------------------------------- |
-| `platform` | `core.JidPlatform(msg.ChatJID)`        |
-| `room`     | `core.JidRoom(msg.ChatJID)` (post-`:`) |
-| `chat_jid` | `msg.ChatJID` (full JID)               |
-| `sender`   | `msg.Sender`                           |
-| `verb`     | `msg.Verb`; the next table             |
+| Key        | Source                                                    |
+| ---------- | --------------------------------------------------------- |
+| `platform` | `core.JidPlatform(msg.ChatJID)`                           |
+| `room`     | `core.JidRoom(msg.ChatJID)`, the part after the first `:` |
+| `chat_jid` | `msg.ChatJID`, the full JID                               |
+| `sender`   | `msg.Sender`                                              |
+| `verb`     | `msg.Verb`; see the verb table below                      |
 
-Glob semantics use `path.Match` over `/`-separated segments:
+A glob uses `path.Match` over segments that `/` separates. `*` never matches
+`/`.
 
-| Pattern      | Meaning                                       |
-| ------------ | --------------------------------------------- |
-| `key=exact`  | value equals `exact`                          |
-| `key=<glob>` | value matches glob (`*` `?` `[…]`, `*` ≠ `/`) |
-| `key=*`      | value is present (non-empty)                  |
-| `key=`       | value is absent (empty)                       |
-| omit key     | unconstrained — no filter on this field       |
+| Pattern      | Meaning                                         |
+| ------------ | ----------------------------------------------- |
+| `key=exact`  | the value equals `exact`                        |
+| `key=<glob>` | the value matches the glob (`*`, `?` and `[…]`) |
+| `key=*`      | the value is not empty and contains no `/`      |
+| `key=`       | the value is empty                              |
+| no key       | no filter on this field                         |
 
-`verb` has no closed vocabulary. Each adapter emits its own set, and routd
-rewrites a few at ingest:
+The `verb` field has no closed list of values. Each adapter emits its own
+verbs, and `routd` rewrites some of them at ingest:
 
-| Source              | Verbs it emits                                                     |
-| ------------------- | ------------------------------------------------------------------ |
-| teled, discd, slakd | `mention` on an explicit `@bot`, else no verb, stored as `message` |
-| bskyd               | `message`, `reply`                                                 |
-| reditd              | `message`, `reply`, `post`                                         |
-| linkd               | `comment`, `reply`                                                 |
-| twitd               | `message`, `reply`                                                 |
-| a reaction          | `like` or `dislike`, from `chanlib.ClassifyEmoji`                  |
-| emaid               | `untrusted` on mail that fails DMARC and the allowlist             |
-| routd, at ingest    | `mention` (§ Verb promotion); an empty verb becomes `message`      |
+| Source              | Verbs it emits                                                                     |
+| ------------------- | ---------------------------------------------------------------------------------- |
+| teled, discd, slakd | `mention` on an explicit `@bot` in a group chat, else no verb, stored as `message` |
+| slakd               | also `join` and `pane_open`                                                        |
+| bskyd               | `message`, `reply`                                                                 |
+| reditd              | `message`, `reply`, `post`                                                         |
+| linkd               | `comment`, `reply`                                                                 |
+| twitd               | `message`, `reply`                                                                 |
+| a reaction          | `like` or `dislike`, from `chanlib.ClassifyEmoji`                                  |
+| emaid               | `untrusted` on mail that fails DMARC and the allowlist                             |
+| routd, at ingest    | `mention` (see the verb promotion below); an empty verb becomes `message`          |
 
 The four social adapters, bskyd, reditd, linkd and twitd, never emit
-`mention`. On those platforms a rule keyed on `verb=mention` or `verb=like`
-for a stranger's first post matches nothing, and nothing reports it.
+`mention`. On those platforms, a rule on `verb=mention` or `verb=like` for the
+first post of a stranger matches nothing, and nothing reports the failure.
 
 ```bash
-# Reddit submissions only, any sub
+# Reddit submissions only, from any subreddit
 arizuko route krons add 'platform=reddit verb=post' atlas/posts
 
-# All twitter DMs (twitter:dm/<conv>) but not timeline/tweets
+# All Twitter DMs (twitter:dm/<conv>) but not the timeline
 arizuko route krons add 'platform=twitter room=dm/*' atlas/dm
 ```
 
-### Target expansion
+### A target can name the sender
 
-Targets can contain `{sender}`, which expands to a sanitized sender ID.
-This creates per-user child groups:
+A target can contain `{sender}`. The router replaces it with a short form of
+the sender id, and each sender gets a child group:
 
 ```bash
-# Each Discord user gets their own group under atlas/
+# Each Discord user gets a group under atlas/
 arizuko route krons add 'platform=discord' 'atlas/{sender}'
-# discord:user/alice → atlas/dc-alice, discord:user/bob → atlas/dc-bob
+# discord:user/alice becomes atlas/dc-alice, discord:user/bob becomes atlas/dc-bob
 ```
 
-### Modes
+### A target fragment sets the mode
 
-The `target` column is a URI: `<folder>` plus an optional `#<mode>`
-fragment. The fragment selects the ingestion mode for matched messages.
-A target with no fragment means **trigger** — the default and the only
-mode that fires a turn.
+The `target` column is a URI. It has a folder and an optional fragment
+`#<mode>`. The fragment selects what happens to the matched messages. A target
+without a fragment means trigger. Trigger is the default and the only mode that
+always fires a turn.
 
-| Fragment    | Effect                                                                           |
-| ----------- | -------------------------------------------------------------------------------- |
-| _(none)_    | trigger: store under `target` and fire a turn                                    |
-| `#observe`  | store under `target`, no turn; agent sees it via `<observed>` block and history  |
-| `#announce` | trigger, and marks this channel as the group's release-note target for `migrate` |
-| `#<topic>`  | trigger, and pins topic `<topic>` on every matched message                       |
+| Fragment    | Effect                                                                                                |
+| ----------- | ----------------------------------------------------------------------------------------------------- |
+| none        | trigger: store under `target` and fire a turn                                                         |
+| `#observe`  | store under `target` and fire no turn; the agent sees it in the `<observed>` block and in the history |
+| `#announce` | trigger, and mark this channel as the release-note target of the group for `migrate`                  |
+| `#<topic>`  | trigger, and pin the topic `<topic>` on every matched message                                         |
 
-`observe` and `announce` are **reserved words**, so a topic cannot be named
-either one: `folder#announce` always means the announce fragment, never a topic
-called `announce`. A route row carries no creation time, so nothing can tell a
-topic of that name apart from the fragment (`BUGS.md` R2). Pick another topic
-name.
+`observe` and `announce` are reserved words, so no topic can have either name.
+`folder#announce` always means the announce fragment and never a topic called
+`announce`. A route row has no creation time, so nothing can tell a topic of
+that name apart from the fragment. Pick another topic name.
 
-Whether a message fires a turn is decided by an explicit `verb=` predicate and
-`seq`, never by a weighted score. With a score, nobody can answer "will this
-fire?" without simulating it. The mention-only channel is therefore two rules:
-a `verb=mention` trigger above a catch-all `#observe` (§ Example: Discord guild
-mention-only).
+An explicit `verb=` predicate and `seq` decide whether a message fires a turn.
+A weighted score never decides. With a score, nobody can answer "will this
+fire?" without a simulation. A channel that answers only on mention therefore
+needs two rules: a `verb=mention` trigger above a catch-all `#observe`. See
+the Discord example below.
 
-**Engagement overrides all routes**: if the agent has an active engagement window on
-`(jid, topic)` (via a prior reply or `engage` MCP call), inbounds are routed to
-the engaged folder and fire a turn regardless of what the route table resolves —
-including `#observe` targets, trigger routes pointing to a different folder, or
-a route miss. The route table is bypassed for the duration of the engagement TTL.
+**Engagement overrides every route.** The agent can have an engagement window on
+`(jid, topic)`, from an earlier reply or from the `engage` MCP tool. While the
+window lasts, inbound messages go to the engaged folder and fire a turn,
+whatever the route table says. This holds for `#observe` targets, for trigger
+routes that point to another folder and for a route miss. The window lasts for
+the engagement TTL, 30 minutes by default, see `ENGAGEMENT_TTL`.
 
-Observed messages are visible to the agent in two ways: prepended to
-the next trigger turn's prompt as an `<observed>` block, and via the
-`inspect_messages` MCP tool. Access is governed by
-folder ACL, not by route mode — anything routed to a folder is
-readable by that folder's agent.
+The agent sees an observed message in two ways. `routd` puts the messages in an
+`<observed>` block before the prompt of the next trigger turn, and the agent can
+read them with the `inspect_messages` MCP tool. The folder ACL governs access
+and the route mode does not. The agent of a folder can read anything that
+routes to that folder.
 
-The `<observed>` block is a window with two caps, a message count and a
-character count (`OBSERVE_WINDOW_MESSAGES`, default 10, and
-`OBSERVE_WINDOW_CHARS`, default 4000). The group's stored window overrides the
-defaults, and the first route to the folder that carries a window overrides
-both (`observeWindow`, `routd/prompt.go`). routd fills the window newest first
-and stops at whichever cap it reaches first, so older messages drop first.
-Each `(folder, topic)` keeps its own watermark, so a message enters the block
-once.
+The `<observed>` block is a window with two caps, a count of messages and a
+count of characters. The settings are `OBSERVE_WINDOW_MESSAGES`, default 10,
+and `OBSERVE_WINDOW_CHARS`, default 4000. The stored window of the group
+overrides the defaults. The first route to the folder that carries a window
+overrides both, see `observeWindow` in `routd/prompt.go`. `routd` fills the window
+from the newest message and stops at the first cap that it reaches, so older
+messages drop first. Each `(folder, topic)` keeps its own watermark, so a
+message enters the block once.
 
-When the block is present, the prompt carries the rule "Observed messages are
+When the block is present, the prompt carries this rule: "Observed messages are
 context, not requests. Do not reply to them; reply to the explicit message."
 The rule also makes a duplicate delivery of an observed message harmless.
 
-Future modes (`#drop`, `#digest`, …) extend the fragment vocabulary
-without a schema change — one column, free-form fragment.
+A new mode, such as `#drop` or `#digest`, extends the vocabulary of the
+fragment. It needs no schema change, because the fragment is one free-form
+column.
 
-### Verb promotion + annotation (routd-side)
+### routd promotes a verb before it routes
 
-routd rewrites `verb` at inbound ingest, before it stores the row and before
-routing, the same way for every adapter (`routd/server.go`). Adapters send the
-raw verb. routd does the promotion because it holds every message durably; an
-adapter's memory of its own sent ids is lost on restart.
+`routd` rewrites `verb` at inbound ingest, before it stores the row and before
+it routes. The rewrite is the same for every adapter, see `routd/server.go`.
+Adapters send the raw verb. `routd` does the promotion because it holds every
+message durably, and an adapter loses the memory of its own sent ids when it
+restarts.
 
 The steps run in this order:
 
-1. **Topic inheritance.** A reply with no topic takes its parent's topic. The
-   thread check below must see the inherited topic. An empty topic is the
-   main timeline and promotes nothing on its own.
-2. **Direct reply.** A reply or a reaction to a bot message becomes
-   `mention`. One exception: on Slack, an ambient thread message arrives as
-   `verb=message` with `reply_to` equal to the thread ts. That is
-   participation in a thread, not a deliberate reply, so it goes to step 3.
+1. **Topic inheritance.** A reply with no topic takes the topic of its parent.
+   The thread check in step 3 must see the inherited topic. An empty topic is
+   the main timeline and promotes nothing by itself.
+2. **Direct reply.** A reply or a reaction to a bot message becomes `mention`.
+   One exception exists. On Slack, an ambient thread message arrives as
+   `verb=message` with `reply_to` equal to the thread timestamp. That message is
+   participation in a thread and not a deliberate reply, so it goes to step 3.
    A reply to the thread root on Discord stays a deliberate reply.
-3. **Thread participation.** A message in a thread promotes to `mention` only
-   when the stored thread root is a bot message and nobody disengaged that
-   thread. A human root or a missing root never promotes.
+3. **Thread participation.** A message in a thread becomes `mention` only when
+   the stored thread root is a bot message and nobody disengaged the thread.
+   A root from a human, or a missing root, never promotes.
 
-An `untrusted` message never becomes `mention`. emaid stamps `untrusted` on
-mail that fails DMARC and the allowlist. Route on these directly, for example
-`platform=email verb=untrusted` to a quarantine folder and `verb=mention` to a
-trigger turn.
+An `untrusted` message never becomes `mention`. `emaid` marks mail as
+`untrusted` when it fails DMARC and the allowlist. Route on the verb directly.
+For example, send `platform=email verb=untrusted` to a quarantine folder and
+`verb=mention` to a trigger turn.
 
-### Autoviv (auto-create groups from routing)
+### An agent can create groups for chats nobody routed
 
-An agent holding `mcp:register_group` — scoped to the subtree it may
-create under — can call it when an unrouted JID arrives, atomically
-creating a child folder + high-prio route. The grant is delegated, never
-implied by where the agent sits. No core mechanism — just routes + MCP
-composing. See `template/web/pub/arizuko/concepts/autoviv.html`.
+An agent that holds `mcp:register_group`, scoped to the subtree where it may
+create groups, can call it when an unrouted JID arrives. The call creates a
+child folder and a high-priority route in one step. The grant is always
+delegated and never follows from the place of the agent in the tree. No core
+mechanism exists for this. Routes and MCP tools compose to do it. See
+[concepts/autoviv.html](template/web/pub/arizuko/concepts/autoviv.html).
 
-### Unrouted chats (held)
+<a id="unrouted-chats-held"></a>
 
-A chat no rule matches is **held**: routd stores its messages under no
-folder, advances the cursor and fires no turn. It is not delivered
-anywhere — a folder confers files, secrets, grants and egress, and a
-platform lets anyone message a bot, so no group is a safe default.
-`GET /v1/routing/unrouted` lists the held chats (unscoped bearer only;
-the verdict is the loop's own resolve), and `/dash/routes/` shows them
-to the operator with a one-click claim that writes a `chat_jid=` rule at
-seq 0. A `platform=<name>` rule claims a whole platform. History does
-not move: only messages after the claim reach the group. With
-`ONBOARDING_ENABLED`, routd also hands a held chat to onbod, which greets it
-with a pairing link; the flow is drawn in
-[`onbod/README.md`](onbod/README.md#from-an-unrouted-chat-to-a-routed-one).
+### Unrouted chats are held, not delivered
 
-There is no default catch-all, and `arizuko create` seeds none:
+`routd` holds a chat that no rule matches. It stores the messages under no
+folder, advances the cursor and fires no turn. It delivers the messages
+nowhere. A folder confers files, secrets, grants and egress, and a platform
+lets anyone message a bot, so no group is a safe default.
 
-- A trigger catch-all would let anyone who finds the bot drive the
-  operator's agent, with its files, secrets and egress.
-- An observe catch-all fires no turn, but it puts strangers' text into the
-  target folder's `<observed>` window. It also ends onboarding on that
-  platform: `routeMiss` takes the observe branch first, and only the other
-  branch hands the chat to onbod (`routd/loop.go`). A
-  `platform=X → staging#observe` rule therefore means "capture, never greet"
-  for platform X; greeting and capturing exclude each other per platform.
+`GET /v1/routing/unrouted` lists the held chats. Only a bearer without a folder
+scope can call it, and the verdict comes from the own resolve step of the
+loop. The page `/dash/routes/` shows the held chats to the operator with a
+one-click claim that writes a `chat_jid=` rule at seq 0. A `platform=<name>`
+rule claims a whole platform. History does not move. Only messages that arrive
+after the claim reach the group.
 
-Who may make the agent fire is a routing question, answered in the same
-table. A `sender=` rule above an observe rule for the same room fires for
-that sender, and everyone else matches only the observe row. Engagement
-overrides per chat and topic. Firing never consults the ACL, so a second
-permission check in the loop has no place.
+With `ONBOARDING_ENABLED`, `routd` also hands a held chat to `onbod`, which
+greets it with a pairing link. A Discord guild channel starts onboarding only
+on an explicit `@mention`, so a busy server does not queue every poster.
+[`onbod/README.md`](onbod/README.md#from-an-unrouted-chat-to-a-routed-one)
+draws the flow.
 
-A held chat looks identical to a broken one from the outside: nobody
-answers either. `GET /v1/routing/answering` separates them. It lists every
-chat whose newest human message is newer than its newest agent reply and
-tags each with the loop's own verdict — `route` means a turn was due and
-none answered, `observe` and `held` mean the chat is silent by the
-configuration above. It also counts the window's turn outcomes, so
-`expired` turns are readable without a hand-written query. The operator
-sees both on `/dash/status/`.
+No default catch-all rule exists, and `arizuko create` seeds none:
 
-### Example: Discord guild mention-only
+- A trigger catch-all would let anyone who finds the bot drive the agent of the
+  operator, with its files, secrets and egress.
+- An observe catch-all fires no turn, but it puts the text of strangers into
+  the `<observed>` window of the target folder. It also ends onboarding on that
+  platform. `routeMiss` takes the observe branch first, and only the other
+  branch hands the chat to `onbod`, see `routd/loop.go`. A rule
+  `platform=X → staging#observe` therefore means "capture and never greet" for
+  platform X. Greeting and capturing exclude each other on one platform.
 
-A guild where the agent reads everything but only replies on mention:
+The same table answers who may make the agent fire. A `sender=` rule above an
+observe rule for the same room fires for that sender, and everyone else matches
+only the observe row. Engagement overrides this for a chat and topic. A firing
+never consults the ACL, so a second permission check in the loop has no place.
+
+A held chat looks like a broken chat from the outside, because nobody answers
+either. `GET /v1/routing/answering` tells them apart. It lists every chat whose
+newest human message is newer than its newest agent reply, and it tags each
+chat with the verdict of the loop. The tag `route` means a turn was due and
+none answered. The tags `observe` and `held` mean that the configuration above
+keeps the chat silent. The endpoint also counts the turn outcomes of the
+window, so you can read `expired` turns without a hand-written query. The
+operator sees both lists on `/dash/status/`.
+
+### A Discord guild can answer only on mention
+
+The agent reads everything in the guild and replies only when someone mentions
+it. A guild channel has the JID `discord:<guild_id>/<channel_id>`, so the room
+is `<guild_id>/<channel_id>` and the glob `<guild_id>/*` matches every channel
+of one guild.
 
 ```
-seq  match                                       target
-10   platform=discord room=guild/sloth           main
-20   platform=discord room=guild/* verb=mention  main
-30   platform=discord room=guild/*               main#observe
+seq  match                                           target
+5    platform=discord room=<sloth_guild_id>/*        main
+10   platform=discord room=dm/*                      main
+20   platform=discord verb=mention                   main
+30   platform=discord                                main#observe
 ```
 
-The verb-mention rule (seq 20) fires turns on `@bot` messages in any
-guild; the catchall (seq 30) silently archives the rest under `main`
-in observe mode. The named-guild rule (seq 10) opts `sloth` out of the
-mention gate and treats every message as a trigger.
+The rule at seq 20 fires a turn on every `@bot` message in any guild. The
+catch-all at seq 30 stores all other messages under `main` in observe mode,
+and fires no turn. The rule at seq 5 opts one guild out of the mention gate,
+and every message there is a trigger. The rule at seq 10 makes every direct
+message a trigger. Without it, a direct message has no `mention` verb and
+falls into the observe rule.
 
-### Example: Slack workspace mention-only
+### A Slack workspace can answer only on mention
 
-The same pattern on Slack — agent reads all channels but only replies
-when directly @-mentioned:
+The agent reads all channels and replies only when someone mentions it
+directly:
 
 ```
 seq  match                                             target
+10   chat_jid=slack:*/dm/*                             atlas
 40   chat_jid=slack:*/channel/* verb=mention           atlas
 40   chat_jid=slack:*/group/*   verb=mention           atlas
 100  chat_jid=slack:*/channel/*                        atlas#observe
 100  chat_jid=slack:*/group/*                          atlas#observe
 ```
 
-A message in any Slack channel or private group without `@atlas` hits
-seq 100 and is stored as observed context — no turn fires, atlas stays
-silent. An `@atlas` mention promotes `verb=mention` (routd-side verb
-promotion), which matches seq 40 first and fires a turn.
+A message in a Slack channel or private group without `@atlas` matches seq 100.
+`routd` stores it as observed context, no turn fires, and atlas stays silent.
+An `@atlas` mention becomes `verb=mention` in the verb promotion. It matches
+seq 40 first and fires a turn. A direct message matches seq 10, a plain
+trigger, so the agent always replies in direct messages.
 
-DMs (`slack:*/dm/*`) are routed separately at a lower seq number with
-a plain trigger target, so the agent always replies in DMs regardless
-of mention.
+To make the agent reply to every channel message, change the targets at seq 100
+from `atlas#observe` to `atlas`.
 
-This is correct, intentional behavior. To make the agent reply to
-every channel message, change the seq-100 targets from `atlas#observe`
-to `atlas`.
+### An @name or #topic prefix is code, not a route
 
-### Inline `@name` / `#topic` prefix layer
+The `@` and `#` prefix layer is not in the routes table. It lives in
+`handlePrefixLayer` in `routd/steer.go`. An anchored regular expression,
+`^\s*@(\w[\w-]*)` or `^\s*#(\w[\w-]*)`, matches a sigil at the very start of
+`msg.Content`. A `@handle` or `#hashtag` inside the content, for example in a
+forwarded tweet, does not trigger the layer. The layer ignores messages from
+bots and from `timed-` senders.
 
-The `@` and `#` prefix layer is **not** in the routes table; it lives
-in `routd.handlePrefixLayer`. An anchored regex
-(`^\s*@(\w[\w-]*)` / `^\s*#(\w[\w-]*)`) matches a sigil at the very
-start of `msg.Content`; mid-content `@handle` or `#hashtag` (e.g.
-forwarded tweets) do not trigger.
-
-- **`@name`** at start of message: routd looks up
-  `<current-group>/<name>` as a child group. If found, delegates the
-  message (with `@name` stripped) to that child group's agent.
+- **`@name` at the start of a message.** `routd` looks for the child group
+  `<current-group>/<name>`. If the child exists, `routd` delegates the message,
+  with `@name` removed, to the agent of that child.
 
   ```
   User in group atlas sends: "@content write a blog post about cats"
-  parsePrefix → name="content", rest="write a blog post about cats"
+  parsePrefix: name="content", rest="write a blog post about cats"
   Child lookup: atlas/content exists
-  Delegation: "write about cats" → atlas/content agent
+  Delegation: "write a blog post about cats" goes to the atlas/content agent
   ```
 
-- **`#topic`** at start of message: routd runs the message (with
-  `#topic` stripped) in a topic-scoped session within the current group.
+- **`#topic` at the start of a message.** `routd` stores the message, with
+  `#topic` removed, under the topic `#topic` and runs it in a session for that
+  topic inside the current group.
 
   ```
   User in atlas sends: "#support my account is locked"
   Agent runs: "my account is locked" in session (atlas, #support)
   ```
 
-If a referenced child group doesn't exist, the prefix is left in place
-and the message falls through to the agent unchanged.
+If the child group named by `@name` does not exist, the prefix stays in the
+message, and the message goes to the agent unchanged.
 
-The prefix layer is code, not `routes` rows, because `@name` is relative to
-the folder that owns the chat. A row would repeat per group and need a rewrite
-on every folder move.
+The prefix layer is code and not `routes` rows, because `@name` is relative to
+the folder that owns the chat. A row would repeat for every group, and each
+folder move would force a rewrite.
 
-The prefix layer reads one row per poll batch: the oldest slash command when
-the batch holds one, else the newest user message (`steerRowIdx`,
-`routd/dispatch.go`). An `@name` or `#topic` on an older row of the same batch
-is not applied.
+The layer reads one row for each poll batch. The row is the oldest slash
+command when the batch holds one. Otherwise it is the newest user message, see `steerRowIdx` in `routd/dispatch.go`. The layer does not apply an `@name` or
+`#topic` on an older row of the same batch.
 
-## Resolution Order
+## routd resolves a chat in two stages
 
-routd resolves a chat's newest user row in two stages (`routd/loop.go`
-`resolveFolder`, then `routd/steer.go` `steer`). The first stage picks the
-folder. The second stage runs inside that folder and may consume the message
-before any turn.
+`routd` resolves the newest user row of a chat in two stages, see `resolveFolder` in `routd/loop.go`, then `steer` in `routd/steer.go`. The
+first stage picks the folder. The second stage runs inside that folder. It can
+consume the message before any turn starts.
 
 ```
 inbound row
@@ -412,39 +441,46 @@ route miss: held; onboarding if enabled      @ or #, slash command, prefix,
 ```
 
 1. **Direct address.** A `web:` or `hook:` JID names its folder in the token
-   record, and a JID with no `:` names a registered folder. The route table
-   does not apply, and agent-authored rows never get content routing. A
+   record, and a JID without `:` names a registered folder. The route table
+   does not apply, and rows that agents write never get content routing. A
    prefix that only meant "not a platform" would be noise.
-2. **Route table**, in ascending `seq`; the first match wins (§ Match
-   expression). An engaged chat overrides a matched rule's folder. A matched
-   `observe` rule on an engaged chat counts as engagement alone.
-3. **Engagement** rescues a miss. The lookup uses the effective topic, then
-   falls back to the root topic `""` unless that thread was disengaged, so a
-   reply inside a thread keeps the window its root started. Engagement is
-   claimed at dispatch, never at ingress, because the folder is unknown until
-   this step. Resolution runs before the miss handler, so an engaged chat
-   never reaches onboarding. The engaged folder's grants are not checked again
-   on this path: the folder held them when it engaged.
+2. **Route table.** `routd` checks the rules in ascending `seq`, and the first
+   match wins. The match expression is described above. An engaged chat overrides the
+   folder of a matched rule. A matched `observe` rule on an engaged chat counts
+   as engagement alone.
+3. **Engagement.** Engagement rescues a miss. The lookup uses the effective
+   topic. It then falls back to the root topic `""`, unless someone disengaged
+   that thread. A reply inside a thread therefore keeps the window that its
+   root started. `routd` claims engagement at dispatch and never at ingress,
+   because the folder is unknown until this step. Resolution runs before the
+   miss handler, so an engaged chat never reaches onboarding. The grants of the
+   engaged folder are not checked again on this path, because the folder held
+   them when it engaged.
 
-A route-table read failure is logged at ERROR and treated as a miss: a retry
-would loop on a poison message.
+`routd` logs a read failure of the route table at ERROR and treats it as a
+miss. A retry would loop on a poison message.
 
-The second stage, in order: a bare `@group` or `#topic` sets sticky
-navigation; a slash command runs; an `@child` or `#topic` prefix delegates or
-re-posts the message under that topic; then a delegation target is looked up,
-in this order: the folder a replied-to bot row was routed to, the chat's
-sticky group, the route table. A target is used only when it differs from the
-current folder and passes the authorization check below. Each consumed row
-advances the cursor and starts no turn. What `runTurn` does, through to the
-adapter's send: [ARCHITECTURE.md § Message Flow](ARCHITECTURE.md#message-flow).
+The second stage runs these steps in order:
 
-### Authorization check
+1. A bare `@group` or `#topic` sets sticky navigation.
+2. A slash command runs.
+3. An `@child` or `#topic` prefix delegates the message, or posts it again
+   under that topic.
+4. `routd` looks up a delegation target. It tries the folder that a replied-to
+   bot row was routed to, then the sticky group of the chat, then the route
+   table.
 
-`router.IsAuthorizedRoutingTarget(source, target)` enforces:
+`routd` uses a target only when it differs from the current folder and passes
+the authorization check below. Each consumed row advances the cursor and starts
+no turn. [ARCHITECTURE.md](ARCHITECTURE.md#message-flow) describes what
+`runTurn` does, up to the send by the adapter.
 
-- `root` group can route to anything
-- Otherwise, target must share the same world (first path segment)
-  and be a direct child of source (one level deeper, no deeper)
+### A delegation target must be the direct child of the source
+
+`router.IsAuthorizedRoutingTarget(source, target)` enforces two rules:
+
+- A source in the `root` world can route to any target.
+- Any other source can route only to a direct child, one level deeper.
 
 ```
 source="atlas"       target="atlas/content"    → allowed (direct child)
@@ -453,10 +489,10 @@ source="atlas"       target="other/content"    → denied (different world)
 source="root"        target="atlas/content/x"  → allowed (root)
 ```
 
-## Topic Routing
+## Topics isolate threads inside one group
 
-Topics provide thread isolation within a single group. Each topic gets
-its own Claude session, reply chain, and message history.
+A topic gives a thread its own session inside one group. Each topic has its
+own Claude session, reply chain and message history.
 
 <!-- twin:topics -->
 
@@ -496,163 +532,134 @@ its own Claude session, reply chain, and message history.
 
 <!-- /twin -->
 
-- **The session id is declared before the run.** routd mints the topic's id
-  when it has none and persists it in `sessions` before it calls runed
-  (`routd/dispatch.go` `dispatchRun`). Claude opens its session under that id,
-  so a turn killed before `submit_turn` by a restart, a deadline or a crash is
-  resumed by the next turn in the topic (`routd/session_continuity_test.go`).
-  Codex and pi start fresh under that id and report their own, which
-  `submit_turn` then stores (BUGS `L432`).
-- **An idle session expires.** When the chat's cursor is older than
-  `SESSION_IDLE_EXPIRY`, two days by default, routd drops the topic's session
-  id before the spawn. A resume after days makes the agent blend stale state
-  into the current turn.
+- **The session id is declared before the run.** `routd` mints the id of the
+  topic when it has none, and it stores the id in `sessions` before it calls
+  `runed`, see `dispatchRun` in `routd/dispatch.go`. Claude opens its session
+  under that id. A restart, a deadline or a crash can kill a turn before
+  `submit_turn`. The next turn in the topic then resumes the session
+  , see `routd/session_continuity_test.go`. Codex and pi start fresh under that id
+  and report their own, which `submit_turn` then stores, see BUGS `L432`.
+- **An idle session expires.** When the cursor of the chat is older than
+  `SESSION_IDLE_EXPIRY`, two days by default, `routd` drops the session id of
+  the topic before the spawn. A resume after days makes the agent mix stale
+  state into the current turn.
 - **An isolated task has no session.** A `timed-isolated:` turn runs with no
-  resume and never writes its id back: a cron's tool-heavy run appended to the
-  chat's transcript would push the humans out at compaction.
+  resume and never writes its id back. A tool-heavy cron run appended to the
+  transcript of the chat would push the humans out at compaction.
 
-### How topics are set
+### Four sources set a topic
 
-1. **Platform-native threads**: channel adapters map native thread IDs
-   to `Message.Topic`. Telegram's `MessageThreadID`, Discord's thread
-   channel ID, etc. Outbound is symmetric: the agent's `reply` lands in a
-   thread off the message it answers — Discord starts one if none exists,
-   Slack roots `thread_ts` on the trigger — so the agent's own reply seeds
-   the topic that subsequent in-thread messages inherit. `send` stays
-   top-level. Per-group `thread_replies` toggles it (default on for group
-   chats, off in DMs).
+1. **A native thread of the platform.** The channel adapters map native thread
+   ids to `Message.Topic`. Examples are `MessageThreadID` on Telegram and the
+   thread channel id on Discord. Outbound is symmetric. The `reply` of the
+   agent lands in a thread off the message it answers. Discord starts a thread
+   if none exists, and Slack roots `thread_ts` on the trigger. The reply of the
+   agent therefore seeds the topic that later in-thread messages inherit.
+   `send` stays top-level. The group setting `thread_replies` toggles this
+   behavior. It is on by default for group chats and off in direct messages.
+2. **The web channel.** Web messages carry a topic slug. The JID format is
+   `web:<folder>`, and the topics arrive already set.
+3. **A `#topic` prefix.** When a message starts with `#name`, `routd` runs the
+   agent with the topic `#name`.
+4. **A sticky topic.** The `#topic` command sets a topic that stays for the
+   chat. See "Sticky routing" below.
 
-2. **Web channel**: web messages carry a topic slug directly. The JID
-   format is `web:<folder>`, and topics arrive pre-set.
+### A topic affects five parts of processing
 
-3. **`#topic` prefix routing**: when a message matches a `#` prefix
-   route, routd runs the agent with topic `#name`.
+- **Session isolation.** Each `(folder, topic)` pair has its own session id,
+  from `store.GetSession(folder, topic)`. Resetting one topic leaves the others
+  untouched. `/new #support` resets only the `#support` session.
+- **Reply chain isolation.** `store.LastReplyID(jid, topic)` stores the last
+  sent message id of each topic, for reply threading.
+- **Batching by topic.** A web chat dispatches one turn for each run of
+  consecutive messages with the same topic. Other chats dispatch one turn for
+  each run of consecutive messages with the same sender and topic
+  , see `consecutiveRuns` in `routd/dispatch.go`. The turns run one after the
+  other.
+- **Lineage.** Every topic except main carries `parent_topic`, `forked_at` and
+  `observed_cursor` in `sessions`. The parent of a new topic is the topic of the
+  message it replies to, or main `""`. The first turn takes the observed cursor
+  of the parent. An explicit `fork_topic` takes the current time. Both copy the
+  session transcript of the parent to the id of the child
+  , see `container.CopySession`. The child therefore resumes natively from the tail
+  of the parent, with no `<inherited>` block. Every turn carries a
+  `<topic name=…/>` envelope. The observed cursor belongs to one topic, so two
+  topics in one folder both see `<observed>` context, and neither consumes it
+  for the other.
+- **Two ways to see another folder.** `observe_group` subscribes this folder to
+  the inbound messages of a source folder through `group_watchers`. The feed is
+  one-way and read-only. `set_group_open` makes the already observed rows of a
+  folder visible to its siblings. The two tools answer two questions. The
+  single evaluator authorizes each tool on its target folder.
 
-4. **Sticky topic**: the `#topic` command sets a persistent topic
-   for the chat (see Sticky Routing below).
+### A sticky topic overrides the native topic
 
-### How topics affect processing
+`effectiveTopic` returns the sticky topic of the chat when one is set. Otherwise
+it returns the topic of the message. A sticky topic therefore overrides the
+native topic of the message. Send `#` to clear it.
 
-- **Session isolation**: `store.GetSession(folder, topic)` — each
-  `(folder, topic)` pair has its own session ID. Resetting one topic's
-  session leaves others untouched. `/new #support` resets only the
-  `#support` session.
+<a id="reply-routing"></a>
 
-- **Reply chain isolation**: `store.LastReplyID(jid, topic)` — each
-  topic tracks its own last-sent message ID for reply threading.
+## Reply routing sends a reply to the group that wrote the answer
 
-- **Web topic batching**: `groupByTopic` (on `consecutiveRuns`,
-  `routd/dispatch.go:616`) splits web messages into consecutive same-topic
-  runs and dispatches one turn per run, serially.
+When a user replies to a bot message, the reply goes to the group that wrote
+the answer. This holds even when the default route points elsewhere.
 
-- **Lineage**: every non-main topic carries `parent_topic`, `forked_at`
-  and `observed_cursor` in `sessions`. A new topic's parent is the topic of
-  the message it replies to, else main `""`. The first turn's fork takes the
-  parent's observed cursor; an explicit `fork_topic` takes now. Both copy the
-  parent's session jsonl to the child's id (`container.CopySession`), so the
-  child resumes natively from the parent's tail, with no `<inherited>`
-  block. Every turn carries a `<topic name=…/>` envelope. The observed
-  cursor is per topic, so two topics in one folder both see `<observed>`
-  context without one consuming it for the other.
+### The messages table records which group answered
 
-- **Two ways to see another folder**: `observe_group` subscribes this folder
-  to a source folder's inbound through `group_watchers`, a one-way, read-only
-  feed. `set_group_open` makes a folder's already-observed rows visible to its
-  siblings. They answer two questions, so they are two tools. The single
-  evaluator authorizes each one on its target folder.
+`PutMessage` stores every outbound bot message with `RoutedTo` set to the
+group that produced it, and with `Sender`, `Topic`, `FromMe` and `BotMsg`. When
+a user replies to a message, the platform supplies `reply_to_id`. `routd` looks
+up `routed_to` for that message.
 
-### Effective topic resolution
+`resolveTarget` in `routd/steer.go` picks a delegation target in this order:
 
-```go
-func effectiveTopic(chatJid, msgTopic string) string {
-    stickyTopic := store.GetStickyTopic(chatJid)
-    if stickyTopic != "" {
-        return stickyTopic
-    }
-    return msgTopic
-}
-```
+1. **The reply chain.** If `reply_to_id` points to a bot row with a `routed_to`
+   value, that group is the target. If it is the current folder, no delegation
+   happens.
+2. **The sticky group** of the chat.
+3. **The route table.**
 
-Sticky topic overrides the message's native topic. Clear with `#`.
+`forwarded_from` on a row is a return address and never a marker of a channel
+forward. `delegate` and `escalate` write a row into the queue of the target
+folder, and they set `forwarded_from` to the chat that asked, or to the JID of
+the escalation worker, see `delegateViaMessage` in `routd/steer.go`. The turn that
+the row starts delivers its `reply` and `send` there.
 
-## Reply Routing
+`routd` chooses the adapter that carries a reply in this order, see `resolveEntry` in `routd/deliver.go`:
 
-When a user replies to a bot message, the reply should go to the same
-group that produced the original response — even if the default route
-points elsewhere.
+1. An explicit channel pin. Only `POST /v1/outbound` carries one.
+2. The adapter that delivered the latest inbound message of the chat,
+   `messages.source`.
+3. The first registered adapter that owns the prefix of the JID.
 
-### How routed_to works
+The middle step matters when two accounts on one platform share a prefix,
+because the prefix lookup returns whichever adapter it finds first.
 
-Every outbound bot message records which group produced it:
-
-```go
-// Every agent reply goes through the same PutMessage path:
-store.PutMessage(core.Message{
-    ChatJID:   chatJid,
-    Sender:    groupFolder,
-    RoutedTo:  groupFolder,
-    Topic:     topic,
-    FromMe:    true,
-    BotMsg:    true,
-    ...
-})
-```
-
-The `messages` table has a `routed_to` column. When a user replies to a
-message (platform provides `reply_to_id`), routd looks it up:
-
-```go
-func resolveTarget(msg, routes, selfFolder) string {
-    // 1. Reply chain: follow the reply_to_id
-    if msg.ReplyToID != "" {
-        routedTo := store.RoutedToByMessageID(msg.ReplyToID)
-        if routedTo != "" && routedTo != selfFolder {
-            return routedTo
-        }
-    }
-    // 2. Sticky group
-    // 3. Route table
-    // ...
-}
-```
-
-`forwarded_from` on a row is a return address, never a channel-forward
-marker. `delegate` and `escalate` write a row into the target folder's queue
-with `forwarded_from` set to the chat that asked, or to the escalation
-worker's JID (`delegateViaMessage`, `routd/steer.go`). The turn that row
-starts delivers its `reply` and `send` there.
-
-The adapter that carries a reply is chosen in this order
-(`resolveEntry`, `routd/deliver.go`): an explicit channel pin, which only
-`POST /v1/outbound` carries; then the adapter that delivered the chat's latest
-inbound, `messages.source`; then the first registered adapter that owns the
-JID's prefix. The middle step matters when two accounts on one platform share a
-prefix: the prefix lookup returns whichever it finds first.
-
-### Example: reply routing in action
+### A reply returns to the group that wrote the answer
 
 ```
 Routes: match='platform=telegram' → atlas
 Groups: atlas, atlas/content, atlas/social
 
 1. User sends: "@content write about cats"
-   → prefix layer matches, delegates to atlas/content
+   → the prefix layer matches and delegates to atlas/content
    → atlas/content replies: "Here's a post about cats..." (routed_to=atlas/content)
 
 2. User replies to that message: "make it shorter"
    → reply_to_id points to the bot message
-   → store.RoutedToByMessageID → "atlas/content"
-   → message routes to atlas/content again (not atlas)
+   → the lookup of routed_to returns "atlas/content"
+   → the message routes to atlas/content again, not to atlas
 
-3. User sends a new message (no reply): "hello"
+3. User sends a new message, not a reply: "hello"
    → no reply chain, no sticky
    → route 'platform=telegram' → atlas
 ```
 
-### Reply chain for outbound threading
+### The last reply id builds the reply chain on the platform
 
-The routd tracks the last-sent message ID per `(jid, topic)` to build
-reply chains on the platform side:
+`routd` stores the last sent message id for each `(jid, topic)`. The platform
+uses it to build reply chains:
 
 ```
 User: "help"                   (msg_id=100)
@@ -660,76 +667,71 @@ Bot:  "Sure, what's up?"       (reply_to=100, sent_id=201)
 Bot:  "I can help with..."     (reply_to=201, sent_id=202)
 ```
 
-`store.LastReplyID(jid, topic)` provides the anchor for the next
-reply. Updated in three cases:
+`store.LastReplyID(jid, topic)` gives the anchor for the next reply. Three
+events update it:
 
-1. **Bot sends a chunk** — `SetLastReply` to the bot's sent message ID
-2. **Steering message** — when a follow-up is steered into a live turn,
-   routd sets `lastReplyID` to the steering message's ID
-3. **New agent run** — `SetLastReply` seeds the batch's last user message
-   (`routd/dispatch.go:364`), then `GetLastReplyID` is re-read before each
-   chunk to pick up mid-run steering updates
+1. **The bot sends a chunk.** `SetLastReply` stores the sent message id.
+2. **A steering message arrives.** When `routd` steers a follow-up into a live
+   turn, it sets `lastReplyID` to the id of the steering message.
+3. **A new agent run starts.** `SetLastReply` stores the last user message of
+   the batch. `routd` reads `GetLastReplyID` again before each chunk, to pick
+   up steering updates during the run.
 
-Topics forked via `fork_topic` inherit the parent's last-reply context as
-their starting anchor but advance the child's `lastReplyID` independently.
+A topic that `fork_topic` creates inherits the last-reply context of its parent
+as the first anchor. After that it advances its own `lastReplyID`
+independently.
 
-## Sticky Routing
+## Sticky routing locks a chat to a group or topic
 
-Sticky commands let users lock a chat to a specific group or topic
-without prefixing every message.
+A sticky command locks a chat to a group or a topic. Users then do not repeat
+a prefix on every message.
 
-### Commands
+### Four commands set or clear the lock
 
-A message is a sticky command when its **entire content** (trimmed) is
-one of these — no additional text:
+A message is a sticky command when its entire content, after trimming, is one
+of these forms with no other text:
 
-| Input            | Effect                                | Confirmation               |
-| ---------------- | ------------------------------------- | -------------------------- |
-| `@atlas/content` | Lock chat to `atlas/content` group    | `routing -> atlas/content` |
-| `@`              | Clear sticky group, return to default | `routing reset to default` |
-| `#support`       | Lock chat topic to `support`          | `topic -> support`         |
-| `#`              | Clear sticky topic                    | `topic reset to default`   |
+| Input            | Effect                                           | Confirmation               |
+| ---------------- | ------------------------------------------------ | -------------------------- |
+| `@atlas/content` | Lock the chat to the group `atlas/content`       | `routing → atlas/content`  |
+| `@`              | Clear the sticky group and return to the default | `routing reset to default` |
+| `#support`       | Lock the topic of the chat to `support`          | `topic → support`          |
+| `#`              | Clear the sticky topic                           | `topic reset to default`   |
 
-`@<unknown>` (name doesn't match any group folder) is **not** consumed —
-routd passes the message through to the agent unchanged, no
-confirmation, no error. Rationale: messages starting with `@` have too
-many other meanings (mentions like `@everyone`, cross-instance refs like
-`@sloth`, Czech/English sentences) for an unknown name to safely imply
-"set sticky". The agent decides: typo, mention, or `delegate_group` to
-a child.
+`routd` does not consume `@<unknown>`, a name that matches no group folder. It
+passes the message to the agent unchanged, with no confirmation and no error.
+Messages that start with `@` have many other meanings. Examples are mentions
+such as `@everyone`, references to another instance such as `@sloth`, and
+ordinary sentences. An unknown name cannot safely mean "set sticky". The agent
+decides whether the text is a typo, a mention or a `delegate_group` call to a
+child.
 
-Sticky state is stored per-chat in the `chats` table (`sticky_group`,
-`sticky_topic` columns). All users in the same chat share one sticky
-state.
+`routd` stores the sticky state for each chat in the `chats` table, in the
+columns `sticky_group` and `sticky_topic`. An absent value means no sticky. All
+users in the same chat share one sticky state. Bot messages and messages from
+`timed-` senders never act as sticky commands.
 
-### Interaction with other routing
+### Sticky state sits between the reply chain and the route table
 
-Sticky group is checked in `resolveTarget` after reply-chain routing
-but before the route table. This means:
+`resolveTarget` checks the sticky group after the reply chain and before the
+route table. This has three effects:
 
-- Replying to a specific bot message still routes to the group that
-  produced it (reply chain takes precedence)
-- Sticky overrides the default route table
-- Inline `@name` in a message with content (e.g. `@content do this`)
-  still fires prefix routing for that one message — sticky persists
+- A reply to a specific bot message still routes to the group that produced
+  it. The reply chain takes precedence.
+- Sticky overrides the default route table.
+- An inline `@name` in a message with content, such as `@content do this`,
+  still fires the prefix layer for that one message. Sticky persists.
 
-Bot messages and scheduler-injected messages ignore sticky state.
+## One chat can reach several groups
 
-### State model
-
-The chat's own item carries it: `chats.sticky_group` (a group folder) and
-`chats.sticky_topic`. Absent means no sticky.
-
-## Multi-Group Chat
-
-A single chat JID can route messages to different groups based on
-content, replies, and sticky state.
+A single chat JID can route messages to different groups, based on content,
+replies and sticky state.
 
 ```
 Routes table:
-  seq=0  match='platform=telegram'  target=atlas    # catchall
+  seq=0  match='platform=telegram'  target=atlas    # catch-all
 
-Prefix layer is built-in; no table rows needed.
+The prefix layer is built in and needs no table rows.
 
 Possible message flows in the same chat:
   "hello"                → atlas (route)
@@ -741,5 +743,5 @@ Possible message flows in the same chat:
   "@"                    → sticky cleared, back to atlas
 ```
 
-Each group runs its own agent with its own session. Reply chains and
-topic sessions keep conversations isolated even within the same chat.
+Each group runs its own agent with its own session. Reply chains and topic
+sessions keep the conversations separate, even inside one chat.
