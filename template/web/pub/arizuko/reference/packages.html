@@ -216,13 +216,13 @@ source = "github.com/org/our-brand" # git → cloned and pinned to a revision</c
       knowledge. Rename one, or drop it from the mix.</p>
 
       <p>Each product in the mix gets its own installed-package record, so
-      re-applying is safe and cheap: an unchanged mix writes nothing and reports
+      re-applying is safe: an unchanged mix writes nothing and reports
       <code>unchanged</code>. <code>arizuko packages &lt;instance&gt; sync</code>
       re-applies every group's mix alongside the instance's packages.</p>
 
       <p><code>arizuko create --product</code> and
-      <code>arizuko group … add --product</code> are unchanged — one product,
-      copied verbatim. Use them when one template is all you need.</p>
+      <code>arizuko group &lt;instance&gt; add &lt;jid&gt; &lt;folder&gt; --product</code>
+      copy one product verbatim. Use them when one template is all you need.</p>
 
       <p>Installed packages and blended products are both listed in the operator
       dashboard at <code>/dash/packages/</code>; the <code>folder</code> column
