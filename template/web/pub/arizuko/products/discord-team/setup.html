@@ -59,9 +59,8 @@
       <h2>prerequisites</h2>
       <ul>
         <li>A host with Docker, ports 80/443 reachable behind a TLS terminator.</li>
-        <li>Hardware virtualization: <code>/dev/kvm</code> on the host. A turn is one KVM guest, and <code>runed</code> refuses to start without it.</li>
         <li>A Discord server (guild) where you have admin permissions.</li>
-        <li>The <code>arizuko</code> binary and the <code>arizuko-ant</code> agent image built locally (<code>make build</code>, <code>sudo make images</code>, <code>sudo make agent</code>).</li>
+        <li>The build half of the <a href="../../howto/index.html#install">install</a>: the binary, the images and the guest kernel, with <code>DATA_DIR</code> set to this instance&rsquo;s data dir. A turn is one KVM guest, so the host needs <code>/dev/kvm</code>.</li>
         <li>Anthropic API access for the agent inside the guest.</li>
       </ul>
 
@@ -275,7 +274,7 @@ On request for synthesis:
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/discord-team/setup.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-16">2026-10-16</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-20">2026-10-20</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

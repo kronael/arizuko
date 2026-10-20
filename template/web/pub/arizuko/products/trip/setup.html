@@ -59,8 +59,7 @@
       <h2>prerequisites</h2>
       <ul>
         <li>A host with Docker.</li>
-        <li>Hardware virtualization: <code>/dev/kvm</code> on the host. A turn is one KVM guest, and <code>runed</code> refuses to start without it.</li>
-        <li>The <code>arizuko</code> binary and <code>arizuko-ant</code> agent image built (<code>make build</code>, <code>sudo make images</code>, <code>sudo make agent</code>).</li>
+        <li>The build half of the <a href="../../howto/index.html#install">install</a>: the binary, the images and the guest kernel, with <code>DATA_DIR</code> set to this instance&rsquo;s data dir. A turn is one KVM guest, so the host needs <code>/dev/kvm</code>.</li>
         <li>Anthropic API access (<code>ANTHROPIC_API_KEY</code>).</li>
         <li>A Telegram bot token (<code>TELEGRAM_BOT_TOKEN</code>) &mdash; the trip planner is a personal Telegram bot.</li>
         <li><strong>Codex API key (<code>CODEX_API_KEY</code>) &mdash; required.</strong> The oracle skill that does multi-step destination synthesis won&rsquo;t run without it. A trip planner without oracle returns a shallow answer; it defeats the purpose of the product.</li>
