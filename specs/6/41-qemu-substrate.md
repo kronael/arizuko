@@ -3,7 +3,6 @@ status: defected
 defects: [L379]
 depends:
   [
-    20-sandbox-lifecycle-decline,
     24-crackbox-lightest,
     25-qm-adoptions,
     ../5/P-runed,
@@ -712,7 +711,7 @@ Each turn starts a fresh guest and discards it after completion. The accepted
 budget is ≤ 1.5 s p50 from host QEMU process start to the first decoded ready frame.
 The [runed measurements](../../runed/README.md#boot-timing-measures-the-first-ready-frame)
 meet this budget. A warm pool requires a separate design decision under
-[`6/20`](20-sandbox-lifecycle-decline.md).
+`ARCHITECTURE.md` § Decided, and why (no warm pool).
 
 ## What moves into `runed`
 
@@ -1004,7 +1003,7 @@ example.com` fails; a raw `nc` to any address off the tap times out.
 
 ## Ties
 
-[`6/20`](20-sandbox-lifecycle-decline.md) (the trigger and the pool's
+`ARCHITECTURE.md` § Decided, and why (no warm pool: the trigger and the pool's
 consequences) · [`6/24`](24-crackbox-lightest.md) (the VM case of the
 proxy, and the docker-only egress env vars step 4 deletes) ·
 [`6/25`](25-qm-adoptions.md) §2 (the declared substrate) ·

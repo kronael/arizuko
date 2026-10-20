@@ -132,7 +132,7 @@ whether the number resolves, never whether it names the same document
 
 This is not hypothetical arithmetic. **MEASURED 2026-09-20: 56 spec numbers are
 live today and named a different file before** — among them `5/5`, `5/9`,
-`5/33`, `5/34`, `6/1`, `6/41`, `6/42` and every number in phases 16 and 17.
+`5/33`, `5/34`, `6/41`, `6/42` and every number in phases 16 and 17.
 
 Two corollaries, both of which have cost real work:
 

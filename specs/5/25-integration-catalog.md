@@ -139,5 +139,5 @@ new machinery.
 `5/13` (the dispatch mechanism this catalogs) · `5/14` (credentials) ·
 `5/15` (OAuth broker — the auth wall) · `5/17` (two-face; arizuko's OWN
 resources are the reflexive case) · `5/19` (HITL hold) · `6/12` (MCP
-firewall) · `8/A` (openapi2mcp) · `6/1` (positioning) ·
+firewall) · `8/A` (openapi2mcp) ·
 [`5/26`](26-integration-usecases.md) (the corpus).

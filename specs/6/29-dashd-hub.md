@@ -122,7 +122,7 @@ is a list that reports itself met.
   every datum comes from an owning daemon's `/v1`. `dashd/main.go:189` calls
   `store.OpenOwner(store.OwnerRoutd)` and `authz.go`, `usage_page.go`,
   `proactive_page.go`, `profile.go`, `tools_admin.go` and `dashstore/pages.go` read
-  through it; the memory edits write the filesystem. This is the cut `6/36` S1 names
-  and nobody has taken.
+  through it; the memory edits write the filesystem. This is the cut
+  nobody has taken.
 - ✅ Each retained page renders via `/v1`; the memory edits and `4/V`'s ACL writes still
   work.

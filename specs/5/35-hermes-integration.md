@@ -1,12 +1,6 @@
 ---
 status: reference
-depends:
-  [
-    ../6/1-adoption-interop,
-    ../6/16-daemon-standalone-matrix,
-    17-openapi-mcp,
-    W-webhook-routes,
-  ]
+depends: [../6/16-daemon-standalone-matrix, 17-openapi-mcp, W-webhook-routes]
 ---
 
 # specs/5/35 — connecting Hermes to arizuko's messaging plane
@@ -15,7 +9,7 @@ depends:
 > committed build: it establishes that Hermes's adapter interface and arizuko's
 > `chanlib.BotHandler` are the same verb set differently spelled, that the
 > adaptation is a mapping rather than an architecture, and what must hold before
-> Mode A reaches a non-operator tenant. Starting it is a `6/1` adoption
+> Mode A reaches a non-operator tenant. Starting it is an adoption
 > decision, not a `specs/5` task — and the two inherited gaps it names
 > (scheme-bound-but-not-namespace-bound senders; per-handler containment) are
 > tracked where they live, not here.
@@ -27,8 +21,7 @@ ingress, persistence, routing, audit, grants, secrets, egress. Hermes
 (`NousResearch/hermes-agent`) is a harness — one agent, many turns — and
 it carries its own connector layer to reach users. Those two facts
 compose: Hermes should stop owning transport, and arizuko should stop
-pretending it needs to own the agent. Per
-[`6/1`](../6/1-adoption-interop.md), adoption is addition, not
+pretending it needs to own the agent. Adoption is addition, not
 replacement; this spec is the concrete instance.
 
 ## The interface already matches

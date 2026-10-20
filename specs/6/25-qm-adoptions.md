@@ -22,7 +22,7 @@ arizuko gives the transcript to the harness and makes the **group** the
 durable layer (`container/episodes.go`, `runner.go:511,516`, the
 `recall-memories` skill). That is a deliberate, better trade: it keeps each
 harness native, keeps the provider's KV cache, and makes the durable record
-meaning rather than raw tool calls. `6/1` keeps that position.
+meaning rather than raw tool calls. arizuko keeps that position.
 
 Three decisions are genuinely better and are adoptable without touching it.
 

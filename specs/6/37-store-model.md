@@ -4,7 +4,6 @@ depends:
   [
     22-proxyd-cut,
     23-llm-gateway,
-    36-minimal-projection,
     ../5/16-mcp-rest-unification,
     ../5/33-paths-roles,
   ]
