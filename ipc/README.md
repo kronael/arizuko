@@ -229,7 +229,7 @@ identical AND the same description naturally covers both — e.g.
 response to a parent message. Do NOT collapse repost/forward/quote
 into `share(kind=…)`; three intents, three tools.
 
-Architectural overlap under the hood is fine. Email's `forward` may
+Two tools may share one implementation in an adapter. Email's `forward` may
 compile to `send` + `Fwd:` subject; Telegram's `forward` uses a native
 protocol field. Both expose `forward` as a distinct MCP tool because
 the agent's intent is the same ("show X this thing I saw"). The

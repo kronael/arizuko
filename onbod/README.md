@@ -290,7 +290,7 @@ signer; onbod never holds a signing key.
 
 ## Testing
 
-Integration tests set `DATA_DIR` to a temp dir and spin up two stores — onbod's
+Integration tests set `DATA_DIR` to a temp dir and start two stores — onbod's
 own and routd's — to match the split topology. `handleCreateWorld`
 handles both test and production: when `cfg.core` is nil (test env
 without a full config), it calls `core.LoadConfig()` from env vars
