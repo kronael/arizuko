@@ -545,6 +545,20 @@ properties hang off it. For anything the agent reaches as a tool:
 4. **Every mutation writes its audit row in its own transaction** — the call is
    attributable to a folder, a tool, and a triggering user.
 
+The agent holds exactly one MCP server, routd's socket; connector tools
+register on it as local `<connector>_<tool>` tools. Each harness is pinned
+so that a file the agent writes cannot add a second server, because a
+server the harness dials itself never crosses the socket, so no hold, grant
+or audit row applies to it:
+
+- claude: `strictMcpConfig: true` makes the turn's `mcpServers` the only
+  server map, so `.mcp.json` in `/home/node` is not read
+  (`ant/src/claude.ts`).
+- codex: `--ignore-user-config` skips the agent-writable
+  `$HOME/.codex/config.toml` (`ant/src/codex.ts`).
+- pi: pi has no MCP client, and its harness profile declares
+  `tools: 'none'`; arizuko verbs never reach a pi turn (`ant/src/pi.ts`).
+
 A raw HTTP client inside the guest — `aws`, `gh`, a script the agent just
 wrote — gets **none** of the four. It never crosses the socket, so no grant, no
 hold, and no per-call audit applies; only the host allowlist below does.

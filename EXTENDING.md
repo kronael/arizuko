@@ -542,8 +542,12 @@ add`: an apply would report success for keys it never provisioned. Example: `tem
 
 Connectors are global and operator-defined. Every `[[connector]]` block in
 `<data_dir>/connectors.toml` registers at the deployment level, and a group
-reaches a connector's tools through grant rows (`mcp:<connector>:*`), never
-by registering an MCP endpoint of its own. `connectors.toml` is the one source:
+reaches a connector's tools through grant rows, never by registering an MCP
+endpoint of its own. A tool is named `<connector>_<tool>`, and a group needs
+`mcp:<connector>_<tool>` or `mcp:*`. An action glob such as
+`mcp:github:*` covers nothing: an action matches exactly, as `*`, as
+`mcp:*` for every `mcp:` action, or as `admin` (`auth/authorize.go`
+`actionCovers`). `connectors.toml` is the one source:
 there is no `mcp_connectors` resource, so a connector change is a file edit
 and a routd restart, and the file read once at boot is the destination
 allowlist.
@@ -556,8 +560,18 @@ server's tools per folder with that folder's credential, names them
 call resolves the declared secrets, renders the headers, proxies
 `tools/call`, and scrubs every resolved value out of the result. The loader
 refuses any other table name or transport value, so a misspelt block fails
-routd's boot instead of configuring nothing. Operator copies live in
+routd's boot instead of configuring nothing. A block with no `transport` is
+`mcp` (`routd/connectors.go` `connectorTransport`). Operator copies live in
 `template/connectors/`.
+
+The two transports share one block and stay mechanically distinct. An `mcp`
+block reads `headers` only and ignores `query`, `body` and `tool`; a `rest`
+block reads all four. A field is absent for a transport, never a field with
+a second meaning, because a field that means two things per transport is
+the failure this shape exists to avoid. The grant namespaces stay separate
+too: an `mcp` connector's tools authorize on `mcp:`, a `rest` connector's
+tools add their `ext:` scope. There is no subprocess transport: an endpoint
+needs no runtime, and routd's image has none.
 
 Boot parses and validates the file and dials nothing, because the
 credential is per folder and boot has no folder. A `url` that is not
@@ -644,9 +658,11 @@ headers   = { Authorization = "Bearer {secret:CF_API_TOKEN}" }
 - **Path placeholders are arguments.** `{zone_id}` in `path` becomes a
   required string argument on the tool without a `param` block; a
   `[[connector.tool.param]]` adds a typed body or query argument.
-- **Grant scope.** Each tool's `scope` (`ext:<service>:<operation>`) is the
-  ACL scope an agent must hold to call it: `ext:cloudflare:*` or the exact
-  `ext:cloudflare:dns:write`.
+- **Grant scope.** Each tool's `scope` (`ext:<service>:<operation>`) is an
+  action the folder must hold for the tool to register: the exact
+  `ext:cloudflare:dns:write` or `*`; `ext:cloudflare:*` covers nothing. The
+  call itself is gated as `mcp:<connector>_<tool>`, so the folder needs that
+  action or `mcp:*` as well (`ipc/ipc.go`, the REST tool loop).
 - **Built-ins and shadowing.** `routd/extproviders/*.toml` ships with routd.
   An operator block with the same `<connector>_<tool>` name replaces the
   built-in and logs the shadow; two declarations of one name inside a single
@@ -750,7 +766,7 @@ live in `template/web/CLAUDE.md`. Operator-facing positioning page:
 Read-only MCP introspection family, registered in `ipc/inspect.go`:
 `inspect_messages`, `inspect_routing`, `inspect_tasks`,
 `inspect_session`, `inspect_identity`. Delegate to `store.*` accessors; no destructive
-operations (those stay in `control_*`). A `/root`-elevated turn
+operations: a mutating verb belongs in its own family. A `/root`-elevated turn
 (`auth.Identity.IsRoot`) sees every folder; an ordinary turn is scoped to
 its own folder subtree. Extend by adding a handler to
 `registerInspect` and wiring a fn into `ipc.StoreFns`.
@@ -763,8 +779,9 @@ post-fetch `JIDRoutedToFolder` ACL gate. The index is derived from the
 `messages` entity — routd walks the store into it at boot and feeds it
 from its own writes — so a search made while the walk is running is
 refused rather than answered empty. Use it to find a message by what was
-said; `inspect_messages` walks recent history by chat. Specs:
-`specs/5/C-message-mcp.md`, `specs/6/42-dynamo-over-postgres.md` §8.
+said; `inspect_messages` walks recent history by chat. Why a tool family and
+not `Bash`, and why there is no `inspect_logs`: `ipc/README.md` § Tool
+surface.
 
 ## Adapter `/health` contract
 

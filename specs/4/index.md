@@ -18,13 +18,13 @@ status: shipped
 ## Authorization
 
 - [19-action-grants.md](19-action-grants.md) — **superseded in part** — rule grammar + structured unsupported errors survive; the `grants/` package is deleted, storage → [`../5/32`](../5/32-acl-unified.md), derivation → [`../5/33`](../5/33-paths-roles.md)
-- [11-auth.md](11-auth.md) — outbound JID authorization (subtree containment, no tier bypass — not even root)
+- [11-auth.md](11-auth.md) — outbound JID authorization (subtree containment, no tier bypass — not even root); facts in `ipc/README.md` § Who may call what
 - [V-dashd-acl-ui.md](V-dashd-acl-ui.md) — **superseded in part** — four pages designed, one folder-scoped page shipped
 
 ## Runtime
 
 - [8-scheduler-service.md](8-scheduler-service.md) — timed: cron poll, schema, `task_run_logs`; facts in `timed/README.md`, `concepts/tasks.html`
-- [10-ipc.md](10-ipc.md) — per-group MCP socket; identity as parameter; spawn + route guards
+- [10-ipc.md](10-ipc.md) — per-group MCP socket; identity as parameter; spawn + route guards; facts in `ipc/README.md` § The turn's credential is the socket, § Tool surface
 - [17-knowledge-system.md](17-knowledge-system.md) — memory layers, push vs pull, recall, compression; facts in `diary/README.md`
 - [P-personas.md](P-personas.md) — versioning, image distribution, the three voice layers; facts in `concepts/personas.html`
 - [S-e2e-tests.md](S-e2e-tests.md) — per-daemon boundary tests; why not docker e2e

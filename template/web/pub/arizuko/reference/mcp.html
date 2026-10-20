@@ -49,9 +49,58 @@
       <strong>Every tool is a grant.</strong> Calling <code>&lt;tool&gt;</code> requires an <code>acl</code> row covering the action <code>mcp:&lt;tool&gt;</code>, checked by <a href="https://github.com/kronael/arizuko/blob/main/auth/authorize.go"><code>auth.Authorize</code></a> against the target as scope. The seeded <code>role:member</code> role &mdash; which every folder gets at creation &mdash; covers the twelve messaging verbs; read tools and <code>set_work</code> need no grant at all. Everything else is a row somebody delegated. What <code>tools/list</code> advertises is <code>auth.EffectiveActions</code> over those same rows, so the list and the per-call gate can't disagree. See <a href="grants.html">grants</a>.
     </div>
 
+    <h2 id="socket">One socket, one gate</h2>
+    <p>Every tool below lives on one unix socket that routd binds for the turn. Here is what a frame goes through, and which tools the socket registers in the first place. The short version: if the turn doesn&rsquo;t hold the action, the tool isn&rsquo;t even on the list, and if it slips past the list, the call still asks the same rows.</p>
+    <pre id="twin-mcp"><code>┌─────────────────────────────────────────────────────────────────────────┐
+│ ipc/&lt;folder&gt;/gated.sock, bound by routd before runed boots the guest;   │
+│ ServeMCP takes the folder as a parameter, never from the path           │
+└────────────────────────────────────┬────────────────────────────────────┘
+                                     ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│ accept: at most 8 connections; SO_PEERCRED uid must equal expectedUID   │
+└────────────────────────────────────┬────────────────────────────────────┘
+                                     ▼ one JSON-RPC frame per line
+┌───────────────────┬───────────────────┬─────────────────────────────────┐
+│ submit_turn       │ submit_status     │ tools/call                      │
+│ not in tools/list │ not in tools/list │ hold gate (CheckHold), then     │
+│ records the turn  │ updates the       │ an mcp_tool span, then the      │
+│ result once       │ turn's progress   │ registered handler              │
+│                   │ row               │                                 │
+└───────────────────┴───────────────────┴────────────────┬────────────────┘
+                                                         ▼
+┌────────────────────┬────────────────────────┬───────────────────────────┐
+│ tool source        │ registered at bind if  │ checked on each call      │
+├────────────────────┼────────────────────────┼───────────────────────────┤
+│ hot-tier verbs:    │ the turn holds         │ mcp:&lt;tool&gt;, then JID      │
+│ reply, send,       │ mcp:&lt;tool&gt;             │ containment for a chat    │
+│ engage, ...        │                        │ verb                      │
+├────────────────────┼────────────────────────┼───────────────────────────┤
+│ reads: inspect_*,  │ always                 │ no grant; the handler     │
+│ find_messages,     │                        │ binds rows to the folder  │
+│ get_work, set_work │                        │ subtree                   │
+├────────────────────┼────────────────────────┼───────────────────────────┤
+│ cold tier: resreg  │ the turn holds the     │ AuthorizeTurn on the      │
+│ via postBuild      │ tool's mcp: action     │ target the handler        │
+│                    │                        │ resolves                  │
+├────────────────────┼────────────────────────┼───────────────────────────┤
+│ mcp connector:     │ the folder's secret    │ mcp:&lt;name&gt;; secrets       │
+│ &lt;name&gt;_&lt;tool&gt;      │ reads the catalog, and │ resolved per call and     │
+│                    │ the turn holds         │ scrubbed from the result  │
+│                    │ mcp:&lt;name&gt;             │                           │
+├────────────────────┼────────────────────────┼───────────────────────────┤
+│ rest connector:    │ the turn holds the     │ mcp:&lt;name&gt;; secrets       │
+│ &lt;name&gt;_&lt;tool&gt;      │ tool's ext: scope      │ resolved per call and     │
+│                    │                        │ scrubbed                  │
+└────────────────────┴────────────────────────┴───────────────────────────┘
+ a call check is AuthorizeTurn(sender, turn folder, target, action, params);
+ "holds" at bind is EffectiveActions over the same acl rows; an elevated
+ /root turn sees every tool and passes AuthorizeTurn and JID containment
+</code></pre>
+
     <h2>Contents</h2>
     <div class="toc">
       <ul>
+        <li><a href="#socket">one socket, one gate</a></li>
         <li><a href="#messages">messages</a></li>
         <li><a href="#social">social actions</a></li>
         <li><a href="#history">history &amp; inspection</a></li>
@@ -626,7 +675,7 @@
     <p class="returns"><strong>Returns:</strong> JSON <code>{"updated": true, "count": &lt;n&gt;}</code>.</p>
 
     <h2 id="egress">egress</h2>
-    <p>Manage the egress allowlist each spawn&rsquo;s own <a href="../components/egress.html">egress</a> proxy is started with. The proxy is default-deny &mdash; a folder only reaches hosts it (or an ancestor) has been allowed. Rules cascade down the tree: a rule at a parent folder opens the host for every descendant. All three require the matching <code>mcp:network_*</code> grant, re-checked with the <code>folder</code> argument as the scope &mdash; so you can only manage egress inside the subtree your grant covers. No grant, no egress management. Backed by the <code>network_rules</code> table. Spec: <a href="https://github.com/kronael/arizuko/blob/main/specs/5/16-mcp-rest-unification.md">5/16</a> (<code>network_rules</code>). Agent-only by design &mdash; there is no REST twin, and <code>network_rules</code> isn&rsquo;t mounted at <code>/v1/network_rules</code> or listed in routd&rsquo;s <code>/openapi.json</code>.</p>
+    <p>Manage the egress allowlist each spawn&rsquo;s own <a href="../components/egress.html">egress</a> proxy is started with. The proxy is default-deny &mdash; a folder only reaches hosts it (or an ancestor) has been allowed. Rules cascade down the tree: a rule at a parent folder opens the host for every descendant. All three require the matching <code>mcp:network_*</code> grant, re-checked with the <code>folder</code> argument as the scope &mdash; so you can only manage egress inside the subtree your grant covers. No grant, no egress management. Backed by the <code>network_rules</code> table. Agent-only by design &mdash; there is no REST twin, and <code>network_rules</code> isn&rsquo;t mounted at <code>/v1/network_rules</code> or listed in routd&rsquo;s <code>/openapi.json</code>.</p>
 
     <h3 id="network_allow"><code>network_allow</code></h3>
     <p>Append an allowlist rule so <code>folder</code> and every descendant can reach <code>host</code>. Use when an agent needs a host the default-deny proxy blocks &mdash; a vendor API, say. <code>host</code> is a bare hostname (no scheme, no path), e.g. <code>example.com</code>. The rule cascades to all children.</p>
@@ -794,7 +843,8 @@
     <h2 id="system">system / JSON-RPC</h2>
 
     <h3 id="submit_turn"><code>submit_turn</code></h3>
-    <p>Per-turn agent result delivery. Not a tool &mdash; a JSON-RPC method on the same MCP unix socket. Hidden from <code>tools/list</code>; the agent loop calls it directly with the turn payload. Idempotency enforced by <code>routd</code> on <code>(folder, turn_id)</code>.</p>
+    <p>Per-turn agent result delivery. Not a tool &mdash; a JSON-RPC method on the same MCP unix socket. Hidden from <code>tools/list</code>; the agent loop calls it directly with the turn payload. Idempotency enforced by <code>routd</code> on <code>(folder, turn_id)</code>: the first call wins, a repeat answers <code>ok</code> and changes nothing.</p>
+    <p>An empty <code>result</code> is the agent deciding to stay quiet, and that&rsquo;s the point of a method call: a marker on stdout can&rsquo;t tell &ldquo;nothing to say&rdquo; from &ldquo;crashed&rdquo;. A non-empty <code>result</code> goes out only when the turn didn&rsquo;t already <code>reply</code> or <code>send</code>, and never from an isolated cron turn. <code>&lt;internal&gt;</code>, <code>&lt;think&gt;</code> and <code>&lt;status&gt;</code> blocks are stripped before anyone sees it.</p>
     <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L407"><code>ipc/ipc.go:407</code></a> (method dispatch) and <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L419"><code>ipc/ipc.go:419</code></a> (handler).</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
@@ -809,7 +859,7 @@
     <p class="returns"><strong>Returns:</strong> JSON-RPC <code>{"result": {"ok": true}}</code>, or a JSON-RPC error.</p>
 
     <h2 id="cost">cost accounting</h2>
-    <p>There is no cost tool. Where an instance runs a model gateway, the gateway meters every call that passes through it and is the only ledger of what was spent &mdash; arizuko stores none of it. A number the agent reported about itself is exactly what a bypassed gateway produces, so the harness logs the agent&rsquo;s self-report and stores nothing from it. Spec <a href="https://github.com/kronael/arizuko/blob/main/specs/6/39-gateway-owns-spend.md">6/39</a>.</p>
+    <p>There is no cost tool. Where an instance runs a model gateway, the gateway meters every call that passes through it and is the only ledger of what was spent &mdash; arizuko stores none of it. A number the agent reported about itself is exactly what a bypassed gateway produces, so the harness logs the agent&rsquo;s self-report and stores nothing from it.</p>
     <p>A call the agent makes <em>outside</em> the gateway &mdash; <code>codex</code> for <code>/oracle</code>, say &mdash; is metered by nobody, and no spend cap covers it. The operator sees it on that provider&rsquo;s invoice.</p>
 
     <h2 id="ext">external REST tools</h2>
@@ -855,7 +905,7 @@ headers   = { Authorization = "Bearer {secret:CF_API_TOKEN}" }
       <li><strong>Registration is filtered by grants.</strong> <code>registerRaw</code> consults <code>db.Visible</code> &mdash; <code>auth.EffectiveActions</code> over the caller's <code>acl</code> rows, asking whether the caller holds <code>mcp:&lt;name&gt;</code> at any scope. Hold it nowhere and the tool is never added to <code>tools/list</code>. The call-time check still runs, so a tool that shows can still refuse a particular target.</li>
       <li><strong>Some tools need no grant.</strong> The <code>inspect_*</code> reads and <code>set_work</code> are registered unconditionally &mdash; they're the agent's view of its own folder, and gating them would only blind it. An elevated <code>/root</code> turn skips the visibility filter entirely and sees everything.</li>
       <li><strong>Route ownership is checked on top of the grant.</strong> Most JID-targeted tools call <code>authorizeJID</code> after the grant check: a caller cannot dispatch to a JID whose <code>DefaultFolderForJID</code> resolves outside its own folder subtree, even when the grant would otherwise permit it. That's why <code>role:member</code> can carry the messaging verbs at scope <code>**</code> without letting a folder message the whole instance. A <code>/root</code> turn bypasses it.</li>
-      <li><strong>The secret broker is live.</strong> An <code>mcp</code> or <code>rest</code> connector that needs a capability token has it resolved on the host at call time for the triggering user (their own key overrides the folder default), so the token never enters the guest. Registration itself is per-call: <code>registerRaw</code>, <code>granted</code>, <code>regSocial</code>, raw <code>srv.AddTool</code>.</li>
+      <li><strong>The secret broker is live.</strong> An <code>mcp</code> or <code>rest</code> connector that needs a capability token has it resolved on the host at call time for the triggering user (their own key overrides the folder default), so the token never enters the guest. Registration happens once, when the turn&rsquo;s socket binds: <code>registerRaw</code>, <code>granted</code>, <code>regSocial</code>, raw <code>srv.AddTool</code>.</li>
       <li><strong>Optional registration paths.</strong> Several tools are nil-guarded on the backing store function and silently absent if not wired: <code>inspect_routing</code>, <code>inspect_tasks</code>, <code>inspect_session</code>, <code>inspect_identity</code>, <code>inspect_messages</code>, <code>find_messages</code> (requires <code>db.FindMessages</code>), <code>get_thread</code>, <code>fetch_history</code>, all <code>*_task</code> tools (require <code>db.GetTask</code>).</li>
       <li><strong>Cold-tier resources are a separate surface.</strong> Groups, <code>acl</code>, routes, <code>web_routes</code>, secrets, scheduled tasks and the like are not per-group MCP tools &mdash; they are CRUD resources driven by the <code>resreg</code> engine and reachable over REST, MCP, YAML manifests, and <code>/openapi.json</code> from one struct. The registry lives in <code>routd</code>. See <a href="openapi.html">OpenAPI</a>.</li>
       <li><strong>Route tools are delegated, never default.</strong> <code>list_routes</code>, <code>set_routes</code>, <code>add_route</code> and <code>delete_route</code> are not in <code>role:member</code>, so a fresh folder holds none of them. Someone with the grant and a grant option has to hand them over, scoped to a subtree. See <a href="grants.html">grants</a>.</li>

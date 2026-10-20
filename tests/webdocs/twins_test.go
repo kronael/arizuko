@@ -99,6 +99,10 @@ var twins = []twin{
 		"diary/README.md",
 		"template/web/pub/arizuko/concepts/ant.html",
 	}},
+	{name: "mcp", files: []string{
+		"ipc/README.md",
+		"template/web/pub/arizuko/reference/mcp.html",
+	}},
 }
 
 var (

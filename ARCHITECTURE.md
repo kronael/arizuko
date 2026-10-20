@@ -556,27 +556,10 @@ injection](SECURITY.md#secret-injection).
 
 ## IPC (ipc package)
 
-MCP server on a unix socket (`mark3labs/mcp-go`), hosted in-process by
-routd (`ipc.ServeMCP`, called from `routd.ServeTurnMCP`). One per turn
-at `ipc/<folder>/gated.sock`. Tool visibility is `auth.EffectiveActions`
-over the caller's `acl` rows — does it hold the action at ANY scope; each
-call is then authorized by the agent gate
-`db.AuthorizeTurn(sender, turn-folder, target, "mcp:"+tool, params)` routd
-injects, not the
-plain operator `auth.Authorize`. One row set feeds both, so the tool list
-and the per-call gate agree by construction. `list_acl` inspects the
-effective ACL rows for the caller's principal set.
-
-Inside the guest, `guest-init` starts `socat` bridging a guest-local unix
-socket to vsock; the agent configures the `arizuko` MCP server in
-`settings.json` with `socat UNIX-CONNECT`. A tool call crosses the vsock to a
-uid-1000 bridge runed starts per turn, which dials routd's socket. routd
-binds the socket before runed spawns the guest and removes it when the run
-returns; runed never mounts it (`runed/README.md` § The peer credential).
-
-Identity resolved from the socket path (folder); authorization runs
-the injected agent gate (`db.Authorize` with `mcp:`+tool name), never a
-second hand-rolled check.
+routd serves one MCP socket per turn at `ipc/<folder>/gated.sock`; the folder
+is a `ServeMCP` parameter, and the kernel-attested peer uid gates each accept.
+The frame path, the tool sources, the two checks and the `submit_turn`
+contract: [`ipc/README.md`](ipc/README.md).
 
 ## Queue (queue package)
 
@@ -761,25 +744,6 @@ routd builds the turn's message string, runed prefixes the knowledge layers
 it reads off the group folder, and ant renders the system prompt inside the
 guest. The figure and the table of every block, its builder and when it is
 emitted are in [`routd/README.md`](routd/README.md) § Prompt assembly.
-
-## MCP Surface
-
-Action tools mutate state: messaging (`send`, `reply`, `send_file`,
-`forward`, `edit`), feed (`post`, `quote`, `repost`, `like`,
-`dislike`, `delete`), message actions (`pin_message`, `unpin_message`,
-`unpin_all`, `edit`, `delete` — the platform decides whose message an
-agent may edit or delete), control
-(`schedule_task`, `register_group`, `set_routes`, …). Adapters lacking
-a native primitive return a typed `chanlib.UnsupportedError` whose hint
-redirects to a concrete alternative (e.g. `dislike` on emoji platforms
-hints `like(emoji='👎')`). Read-only introspection lives in the
-`inspect_*` family (`ipc/inspect.go`): `inspect_messages`,
-`inspect_routing`, `inspect_tasks`, `inspect_session`,
-`inspect_identity`. `find_messages` is ranked search over
-message content (bm25 ranking + «»-marked snippet; all terms required,
-`"phrase"`, `-exclude`; spec 5/C, `routd/msgsearch`). A `/root`-elevated turn sees every folder; an ordinary
-turn is scoped to its own folder subtree. Full tool table in
-`ant/skills/self/SKILL.md`.
 
 ## Data dir
 

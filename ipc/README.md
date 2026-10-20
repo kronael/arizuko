@@ -1,148 +1,225 @@
 # ipc
 
-MCP host — the in-container agent's only way to the host. Runs as a
-subsystem inside the `routd` process, one socket per turn.
+The MCP host: the guest's only way to the host. It runs inside the `routd`
+process and serves one socket per turn. The figure shows what one frame
+passes through and which tools the socket registers.
 
-## Purpose
+<!-- twin:mcp -->
 
-One MCP server per group at `ipc/<folder>/gated.sock`, JSON-RPC over a
-unix socket, one connection per agent guest. Concurrent connections
-bounded to 8 per socket. Hot-tier action tools (send/reply/post/like/…,
-`register_group`, `inject_message`, `engage`, …) mutate state; the
-`inspect_*` family is read-only introspection. Cold-tier management
-tools (`set_routes`/`schedule_task`/`network_allow`/…) are resreg-served,
-not hand-rolled here — see "Tool surface" below. Identity (the folder) is
-resolved from the socket path; the kernel-attested peer uid
-(`SO_PEERCRED`) gates every connection. Tool visibility is
-`auth.EffectiveActions` over the folder's `acl` rows (a tool the caller
-holds at no scope is never registered); each call is then authorized by
-the agent gate `db.AuthorizeTurn(sender, turn-folder, target, "mcp:"+tool, params)` routd
-injects. One row set feeds both, so list and gate agree.
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│ ipc/<folder>/gated.sock, bound by routd before runed boots the guest;   │
+│ ServeMCP takes the folder as a parameter, never from the path           │
+└────────────────────────────────────┬────────────────────────────────────┘
+                                     ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│ accept: at most 8 connections; SO_PEERCRED uid must equal expectedUID   │
+└────────────────────────────────────┬────────────────────────────────────┘
+                                     ▼ one JSON-RPC frame per line
+┌───────────────────┬───────────────────┬─────────────────────────────────┐
+│ submit_turn       │ submit_status     │ tools/call                      │
+│ not in tools/list │ not in tools/list │ hold gate (CheckHold), then     │
+│ records the turn  │ updates the       │ an mcp_tool span, then the      │
+│ result once       │ turn's progress   │ registered handler              │
+│                   │ row               │                                 │
+└───────────────────┴───────────────────┴────────────────┬────────────────┘
+                                                         ▼
+┌────────────────────┬────────────────────────┬───────────────────────────┐
+│ tool source        │ registered at bind if  │ checked on each call      │
+├────────────────────┼────────────────────────┼───────────────────────────┤
+│ hot-tier verbs:    │ the turn holds         │ mcp:<tool>, then JID      │
+│ reply, send,       │ mcp:<tool>             │ containment for a chat    │
+│ engage, ...        │                        │ verb                      │
+├────────────────────┼────────────────────────┼───────────────────────────┤
+│ reads: inspect_*,  │ always                 │ no grant; the handler     │
+│ find_messages,     │                        │ binds rows to the folder  │
+│ get_work, set_work │                        │ subtree                   │
+├────────────────────┼────────────────────────┼───────────────────────────┤
+│ cold tier: resreg  │ the turn holds the     │ AuthorizeTurn on the      │
+│ via postBuild      │ tool's mcp: action     │ target the handler        │
+│                    │                        │ resolves                  │
+├────────────────────┼────────────────────────┼───────────────────────────┤
+│ mcp connector:     │ the folder's secret    │ mcp:<name>; secrets       │
+│ <name>_<tool>      │ reads the catalog, and │ resolved per call and     │
+│                    │ the turn holds         │ scrubbed from the result  │
+│                    │ mcp:<name>             │                           │
+├────────────────────┼────────────────────────┼───────────────────────────┤
+│ rest connector:    │ the turn holds the     │ mcp:<name>; secrets       │
+│ <name>_<tool>      │ tool's ext: scope      │ resolved per call and     │
+│                    │                        │ scrubbed                  │
+└────────────────────┴────────────────────────┴───────────────────────────┘
+ a call check is AuthorizeTurn(sender, turn folder, target, action, params);
+ "holds" at bind is EffectiveActions over the same acl rows; an elevated
+ /root turn sees every tool and passes AuthorizeTurn and JID containment
+```
 
-Hot vs cold tier: the **hot-tier** runtime actions (`reply`/`send`/
-`like`/`inspect_*`/`engage`/`fork_topic`) are MCP-only, hand-authored,
-and stay here — no REST twin. The **cold-tier** management tools
-(`add_route`/`set_routes`/`set_secret`/`network_allow`/…) migrate onto
-shared `resreg` handlers — one in-process handler serving both the REST
-`/v1/*` face and this socket's generated MCP facade (`5/16`). ipc keeps
-the unix-socket transport, the hot-tier tools, and the shared authz +
-visibility closures (`authorizeCall`, `registerRaw`/`granted`); it loses
-only the cold-tier per-tool bodies.
+<!-- /twin -->
 
 ## The turn's credential is the socket
 
-There is no minted agent token. The turn's identity is the unix socket
-itself: routd binds one per turn at `ipc/<folder>/gated.sock`, chowns it to
-the spawning uid, and every accept is checked against the kernel-attested
-peer uid via `SO_PEERCRED`. The guest reaches the socket through runed's
-per-turn bridge, which runs as that uid and accepts only its own guest's vsock
-CID (`runed/README.md` § The peer credential). The folder comes from the
-socket path, which the host chose — never from anything the agent sends.
+There is no minted agent token. routd binds one socket per turn at
+`ipc/<folder>/gated.sock`, sets mode 0660, chowns it to the spawning uid,
+and checks every accept against the kernel-attested peer uid
+(`SO_PEERCRED`). A peer with a different uid gets no connection.
 
-That is what makes the two layers work. Visibility is
-`auth.EffectiveActions` over the folder's `acl` rows, so a tool the caller
-holds at no scope is never registered; the call is then authorized by
-`db.AuthorizeTurn(sender, turn-folder, target, "mcp:"+tool, params)`, the gate
-routd injects. One row set feeds both, so the listing and the gate cannot
-disagree.
+The folder is a parameter of `ipc.ServeMCP`. routd passes the turn's folder
+(`routd/mcp.go` `ServeTurnMCP`), and ipc never parses the folder from the
+socket path. The path is a deployment detail; the identity is what the host
+chose for the turn. Nothing the agent sends changes it.
 
-## Cross-owner tools federate
+Inside the guest, `guest-init` starts `socat`, which bridges a guest-local
+unix socket to vsock. The agent's `settings.json` names the `arizuko` MCP
+server with `socat UNIX-CONNECT`. A tool call crosses the vsock to the
+bridge runed starts per turn as uid 1000, and the bridge dials routd's
+socket. routd binds the socket before runed boots the guest and removes it
+when the run returns. runed never mounts it (`runed/README.md` § The peer
+credential).
 
-A tool over routd's own tables is an in-process call. A tool over another
-owner's tables is an HTTP call to that owner with the `service:routd` bearer —
-`invite_create`/`invite_list`/`invite_revoke` go to onbod through
-`routd/onbod.go`'s `httpOnbod`, not into onbod's tables. ipc never opens a
-second owner's store.
+## submit_turn ends the turn
 
-The cold-tier management tools are not hand-rolled here at all: routd mounts
-its resreg resources onto this server through the `postBuild` seams, so one
-handler serves both `/v1/<name>` and the MCP facade with a different injected
-Gate (spec `5/16`).
+`submit_turn` and `submit_status` are JSON-RPC methods on the same socket.
+`tools/list` does not show them, they have no REST twin, and they are not
+resreg resources. The guest's stdout is discarded.
+
+- **One result per turn.** `turn_id` is required. routd records the first
+  call per folder and `turn_id` (`routd/turns.go` `recordTurnResult`); a
+  later call answers `ok` and changes nothing. The first terminal signal
+  takes the cursor and the delivery.
+- **Silence is a value.** An empty `result` means the agent chose to say
+  nothing. A non-empty `result` is delivered only when the turn sent no
+  `reply` or `send` of its own, and never for an isolated cron turn.
+- **What the user never sees.** `router.FormatOutbound` strips `<internal>`,
+  `<think>` and `<status>` blocks, and drops a whole message that only
+  announces silence.
+- **Why a method and not stdout.** A method call makes silence explicit. A
+  marker on stdout cannot tell "no output" from "the agent crashed".
+
+`submit_status` carries mid-turn `<status>` text to the turn's progress row
+and does not end the turn.
+
+## Who may call what
+
+Two checks read the same `acl` rows, so the listing and the gate cannot
+disagree. `tools/list` shows a tool when `auth.EffectiveActions` finds the
+turn holds `mcp:<tool>` at any scope. Each call then runs
+`db.AuthorizeTurn(sender, turn-folder, target, "mcp:"+tool, params)`, the
+gate routd injects. There is no second check inside a handler.
+
+A chat verb (`send`, `reply`, `post`, `like` and the rest) passes a second
+gate, JID containment (`ipc/ipc.go` `authorizeJID`):
+
+- The target chat resolves to a folder: its route row, else the folder its
+  route token was minted for, else the folder in a `web:` JID.
+- The call passes when that folder is the turn's folder or a descendant, or
+  when the turn's folder is a route target for the JID under any verb.
+- A JID with no route is denied ("has no route in this instance").
+  Agents once sent to chats they remembered from past
+  conversations and spammed chats that no route gave them. The route table,
+  not the agent's memory, decides reach. Cross-folder work goes through
+  `delegate_group` or `escalate_group`, which leave an auditable hop.
+- An elevated `/root` turn passes this gate for every JID.
+- The gate runs at the verb, not at the adapter, so the agent gets a denial
+  it can read and correct in the same turn. A check at the adapter would
+  drop the message silently.
+
+A denial writes an `authz_denied` audit row. The hold gate (`CheckHold`)
+runs before both checks, and only for a tool the socket registered and the
+turn can see, so a raw caller cannot mint approval rows for tools it could
+never run.
 
 ## Tool surface
 
-Social verbs (chanreg-backed, `*UnsupportedError`-aware):
-
-- `send`, `reply`, `post`, `like`, `dislike`, `delete`, `forward`,
-  `quote`, `repost`, `edit`, `pin_message`, `unpin_message`,
-  `unpin_all`, `send_file`, `send_voice`
+Social verbs, served through `chanreg`: `send`, `reply`, `post`, `like`,
+`dislike`, `delete`, `forward`, `quote`, `repost`, `edit`, `pin_message`,
+`unpin_message`, `unpin_all`, `send_file`, `send_voice`. The platform
+decides whose message an agent may edit or delete. An adapter without the
+primitive returns a typed `chanlib.UnsupportedError` whose hint names an
+alternative, for example `like(emoji='👎')` for `dislike`.
 
 `send` and `send_file` are two tools over one `internalSend`, so their
 persistence and routing cannot diverge. A failed send returns the error to
 the agent and still records the undelivered row, `pending` or `failed`
 (`routd/README.md` § The turn in routd).
 
-Groups (hot-tier, hand-authored here): `register_group`, `escalate_group`,
-`delegate_group`, `inject_message`, `fork_topic`, `reset_session`,
-`observe_group`, `unobserve_group`, `set_observe_window`,
-`set_group_open`, `engage`, `disengage`.
-`role:member` includes `disengage`; a final answer cannot reopen a window
-that the agent cleared during that turn.
+Groups: `register_group`, `escalate_group`, `delegate_group`,
+`inject_message`, `fork_topic`, `reset_session`, `observe_group`,
+`unobserve_group`, `set_observe_window`, `set_group_open`, `engage`,
+`disengage`. `role:member` includes `disengage`; a final answer cannot
+reopen a window that the agent cleared during that turn.
 
-Read-only: `inspect_tasks`, `get_web_presence` (a presence report, not
-web_routes CRUD).
+Invites: `invite_create`, `invite_list`, `invite_revoke`. Route tokens:
+`issue_chat_link`, `issue_webhook`, `list_tokens`, `revoke_token`. Slack
+pane: `pane_set_prompts`, `pane_set_title`. Web: `get_web_presence`, a
+presence report, not `web_routes` CRUD.
 
-Invites: `invite_create`, `invite_list`, `invite_revoke`.
+**Cold tier.** The `routes`, `web_routes`, `network_rules`,
+`scheduled_tasks` and `acl` tools, and the rest of routd's resreg
+resources, are not hand-written here. routd mounts each `resreg.Resource`
+on this server through the `ServeMCP` `postBuild` seam, so one handler
+serves `/v1/<name>` and the MCP tool. ipc keeps the transport, the hot-tier
+tools and the shared visibility and gate closures.
 
-Route tokens: `issue_chat_link`, `issue_webhook`, `list_tokens`,
-`revoke_token`.
+`delete_route` and `set_routes` refuse to remove the caller's own seq-0
+route (`routd/routes_resource.go` `isSelfDefault`). An agent that chased
+502s once deleted its own default route, and its inbound fell into
+onboarding.
 
-**Cold-tier management (resreg-served, NOT hand-rolled here) — spec 5/16:**
-the `routes` (`add_route`/`set_routes`/`list_routes`/`delete_route`),
-`web_routes` (`set_web_route`/`del_web_route`/`list_web_routes`),
-`network_rules` (`network_allow`/`network_deny`/`network_list`),
-`scheduled_tasks` (`schedule_task`/`pause_task`/`resume_task`/`cancel_task`/
-`list_tasks`), and `acl` (`add_acl`/`remove_acl`/`list_acl`) tools each ride
-one `resreg.Resource`. routd owns the shared handler + tx/audit and mounts
-them on this server through the `ServeMCP` postBuild seam, injecting a
-the agent `Gate` + `EffectiveActions` visibility. ipc keeps the transport +
-the hot-tier tools above, not these bodies.
+**Reads.** `inspect_messages`, `inspect_routing`, `inspect_tasks`,
+`inspect_session`, `inspect_identity`, `find_messages`, `get_thread`,
+`fetch_history`, `get_work` and `set_work` register without a grant. The
+handler binds every row and every `jid` argument to the turn's folder
+subtree; an elevated `/root` turn sees every folder.
 
-Slack pane controls: `pane_set_prompts`, `pane_set_title`.
+- **A tool family, not `Bash`.** `Bash` makes the agent know the instance
+  name, the unit name and grep patterns, its output is unbounded, and a
+  non-operator agent should not have it. An `inspect_*` tool returns shaped
+  JSON with a clamped `limit`.
+- **No `inspect_logs`, no `inspect_health`.** Both need journal or host
+  access the guest does not have, and that access would defeat the guest
+  boundary. A mutating operator verb belongs in its own family, never in
+  `inspect_*`.
+- **`find_messages`** is ranked search over routd's in-memory BM25 index:
+  terms that must all appear, `"exact phrase"`, `-exclude`; no OR,
+  wildcard or NEAR. Optional `scope` (a chat JID or a folder subtree),
+  `sender`, `since` (RFC3339), `limit` (default 20, max 200). A search made
+  while the index warms is refused, not answered empty. A hit survives only
+  when `JIDRoutedToFolder` binds its chat to the turn's folder. Each call
+  writes one `audit_log` row that stores the raw query; only the key-name
+  redaction and the 200-rune value cap apply (`audit/README.md`). The index:
+  `routd/README.md` § Ranked message search.
 
-MCP HTTP connectors: each turn discovers the upstream catalog with that
-folder's broker-resolved credential and registers the tools (spec 5/13).
+**Connectors.** Each `[[connector]]` block in `connectors.toml` adds tools
+named `<connector>_<tool>`. An `mcp` connector reads its catalog per folder
+with that folder's credential; a `rest` connector declares its tools. The
+broker resolves the declared secrets per call and scrubs every resolved
+value from the result. The block format and the grants:
+`EXTENDING.md` § Adding an MCP connector, § Adding a REST connector.
 
-External REST tools (`extcall.go` `ExtTool`): loaded from `[[ext]]` TOML
-blocks as REST-backed MCP tools. Each maps a tool call to one outbound
-HTTP request with path-param substitution and auth injected from folder
-secrets (bearer / apikey-header / apikey-query / basic / json-body); the
-secret is scrubbed from the response before return. Grant-gated on
-`ext:<service>:<operation>`. Spec 5/13.
+## Cross-owner tools federate
 
-Per-turn agent output flows back over the same socket via the
-`submit_turn` JSON-RPC method (hidden from `tools/list`);
-`submit_status` delivers mid-turn progress notices. Stdout from the
-container is discarded.
-
-Read-only introspection: `inspect_messages`, `inspect_routing`,
-`inspect_tasks`, `inspect_session`, `inspect_identity`, `find_messages`.
-An elevated `/root` turn sees every folder; an ordinary turn is scoped to
-its own folder subtree.
-
-`find_messages` is ranked search over routd's in-memory BM25 index
-(specs 5/C, 6/42 §8): terms that must all appear, `"exact phrase"`,
-`-exclude`; no OR, wildcard or NEAR. Optional `scope` (chat_jid or folder
-subtree), `sender`, `since` (RFC3339), `limit` (default 20, max 200). A
-search made while the index is still warming is refused, not answered
-empty. ACL gate is post-fetch `JIDRoutedToFolder` per row.
+A tool over routd's own tables is an in-process call. A tool over another
+owner's tables is an HTTP call to that owner with the `service:routd`
+bearer: `invite_create`, `invite_list` and `invite_revoke` go to onbod
+through `routd/onbod.go` `httpOnbod`. ipc never opens a second owner's
+store.
 
 ## Public API
 
 - `ServeMCP(sockPath string, gated GatedFns, db StoreFns, folder string, isRoot bool, expectedUID int, callerSub string, postBuild ...func(*server.MCPServer)) (stop func(), err error)`
   — `expectedUID` is the kernel-attested uid required on every accept
   (1000 = the ant image's `node` user in prod; ≤0 disables the check for
-  tests). `isRoot` marks an elevated `/root` turn, where the socket
-  authorizes every call. `callerSub` is the agent's auth subject, stamped
-  into audit rows as the actor. `postBuild` are routd's resreg seams that
-  mount the cold-tier resource tools onto the server. Returns a stop func
-  that tears down the listener.
-- `GatedFns` — callbacks into the host daemon, routd (enqueue, register
-  channel, run container, social verbs).
-- `StoreFns` — callbacks into store (typed subset, not the full `*store.Store`)
-- `TurnResult`, `ModelUsage` — turn submission payloads
-- `RouteTokenInfo` — route token metadata
-- `PlatformHistory`, `ErroredChat`, `TaskRunLog` — DTO types
+  tests). `isRoot` marks an elevated `/root` turn. `callerSub` is the
+  socket's own principal, `folder:<path>`, stamped into audit rows as the
+  actor; a non-empty value turns the row-based gate on. `postBuild` are
+  routd's resreg seams that mount the cold-tier tools. Returns a stop func
+  that tears down the listener and removes the socket.
+- `GatedFns` — callbacks into routd (enqueue, register channel, social
+  verbs, `SubmitTurn`, `SubmitStatus`).
+- `StoreFns` — callbacks into the store (a typed subset, not the full
+  `*store.Store`), plus `Authorize`, `Visible` and `CheckHold`.
+- `TurnResult`, `ModelUsage` — the `submit_turn` payload.
+- `RouteTokenInfo` — route token metadata.
+- `PlatformHistory`, `ErroredChat`, `TaskRunLog` — DTO types.
 
 ## Dependencies
 
@@ -151,20 +228,18 @@ empty. ACL gate is post-fetch `JIDRoutedToFolder` per row.
 
 ## Files
 
-- `ipc.go` — server wiring, action tools, `SO_PEERCRED` accept gate,
-  social verbs, routing/groups, tasks, invites, tokens, network
-- `inspect.go` — read-only introspection (`inspect_routing`,
-  `inspect_tasks`, `inspect_session`, `inspect_identity`,
-  `inspect_messages`, `find_messages`)
-- `connector.go` — the per-folder MCP HTTP connector catalog (spec 5/13)
-- `extcall.go` — the call into one connector's tools
-- `SECURITY.md` — threat model (peer UID, path resolution, grants)
+- `ipc.go` — server wiring, the accept gate, `submit_turn`, the hot-tier
+  tools, `find_messages`, connector and REST-tool registration
+- `inspect.go` — `inspect_routing`, `inspect_tasks`, `inspect_session`,
+  `inspect_identity`
+- `connector.go` — the per-folder MCP connector catalog and call
+- `extcall.go` — the REST connector call
+- `SECURITY.md` — threat model (peer uid, path resolution, grants)
 
 ## Related docs
 
-- `ARCHITECTURE.md` (IPC section)
 - `ARCHITECTURE.md` § Cold tier vs hot tier — one evaluator, two identity
   sources, the gate injected per surface
-- `../auth/README.md` — `Authorize` / identity resolution
-- `../routd/README.md` — host process; routd-owned tables stay local
-- `../SECURITY.md` — root threat model
+- `../auth/README.md` — `Authorize` and identity resolution
+- `../routd/README.md` — the host process; routd-owned tables stay local
+- `../SECURITY.md` § Why a tool call beats a raw socket

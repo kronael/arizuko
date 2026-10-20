@@ -8,19 +8,19 @@ The first phase: routing, channels, auth, memory, container/IPC, agent
 extension. Everything here shipped; several files have since been
 narrowed to the decision that outlived the implementation.
 
-| Spec                                         | Status  | Hook                                                                                                                                                          |
-| -------------------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [F-group-routing.md](F-group-routing.md)     | shipped | Why the routes table is flat; `key=glob` match language; facts in `ROUTING.md` § Route Table, § Inline `@name` / `#topic` prefix layer                        |
-| [e-worlds.md](e-worlds.md)                   | shipped | World = first folder segment; containment ≠ authority                                                                                                         |
-| [R-prompt-format.md](R-prompt-format.md)     | shipped | ContainerInput contract; `submit_turn` deliver-or-fail; facts in `ant/README.md` § The system prompt, § Ending the agent loop                                 |
-| [N-memory-messages.md](N-memory-messages.md) | shipped | Stdin XML envelope, 100-msg window, new-session injection; facts in `routd/README.md` § Prompt assembly                                                       |
-| [Y-system-messages.md](Y-system-messages.md) | shipped | `<system origin=... event=...>` piggyback queue; facts in `store/README.md` § Every table is an entity (`system_messages`)                                    |
-| [L-memory-diary.md](L-memory-diary.md)       | shipped | Two-layer (MEMORY.md + diary); why rollups aren't injected; facts in `diary/README.md` § The memory layers, § Writing the diary                               |
-| [Q-mime.md](Q-mime.md)                       | shipped | Serial enrichment; why the rewrite is persisted; facts in `chanlib/README.md` § Media                                                                         |
-| [H-introspection.md](H-introspection.md)     | shipped | `.gateway-caps` TOML, `.whisper-language` contract; facts in `ant/skills/self/extension.md`                                                                   |
-| [9-extend-agent.md](9-extend-agent.md)       | shipped | settings.json merge order; hooks hardcoded; facts in `ant/skills/self/extension.md`                                                                           |
-| [f-auth-oauth.md](f-auth-oauth.md)           | shipped | Account linking + the seven-case collision table; superseded by authd: no collision page, no local login; facts in `authd/README.md` § Keys, mints and logins |
-| [Z2-slink-sdk.md](Z2-slink-sdk.md)           | shipped | `/assets/*` `embed.FS` hosting; why not `template/web/pub/`; facts in `webd/README.md` § The browser SDK                                                      |
+| Spec                                         | Status  | Hook                                                                                                                                                                       |
+| -------------------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [F-group-routing.md](F-group-routing.md)     | shipped | Why the routes table is flat; `key=glob` match language; facts in `ROUTING.md` § Route Table, § Inline `@name` / `#topic` prefix layer                                     |
+| [e-worlds.md](e-worlds.md)                   | shipped | World = first folder segment; containment ≠ authority                                                                                                                      |
+| [R-prompt-format.md](R-prompt-format.md)     | shipped | ContainerInput contract; `submit_turn` deliver-or-fail; facts in `ant/README.md` § The system prompt, § Ending the agent loop, `ipc/README.md` § submit_turn ends the turn |
+| [N-memory-messages.md](N-memory-messages.md) | shipped | Stdin XML envelope, 100-msg window, new-session injection; facts in `routd/README.md` § Prompt assembly                                                                    |
+| [Y-system-messages.md](Y-system-messages.md) | shipped | `<system origin=... event=...>` piggyback queue; facts in `store/README.md` § Every table is an entity (`system_messages`)                                                 |
+| [L-memory-diary.md](L-memory-diary.md)       | shipped | Two-layer (MEMORY.md + diary); why rollups aren't injected; facts in `diary/README.md` § The memory layers, § Writing the diary                                            |
+| [Q-mime.md](Q-mime.md)                       | shipped | Serial enrichment; why the rewrite is persisted; facts in `chanlib/README.md` § Media                                                                                      |
+| [H-introspection.md](H-introspection.md)     | shipped | `.gateway-caps` TOML, `.whisper-language` contract; facts in `ant/skills/self/extension.md`                                                                                |
+| [9-extend-agent.md](9-extend-agent.md)       | shipped | settings.json merge order; hooks hardcoded; facts in `ant/skills/self/extension.md`                                                                                        |
+| [f-auth-oauth.md](f-auth-oauth.md)           | shipped | Account linking + the seven-case collision table; superseded by authd: no collision page, no local login; facts in `authd/README.md` § Keys, mints and logins              |
+| [Z2-slink-sdk.md](Z2-slink-sdk.md)           | shipped | `/assets/*` `embed.FS` hosting; why not `template/web/pub/`; facts in `webd/README.md` § The browser SDK                                                                   |
 
 Merged or moved out of this phase:
 
