@@ -129,7 +129,7 @@ export DASH_PORT=:8080
       <li><code>/dash/packages/</code> &mdash; installed packages and blended products from <code>installed_packages</code> (name, source, revision, owned assets). Read-only; install / upgrade / remove is the <a href="../reference/cli.html#packages"><code>arizuko packages</code></a> CLI.</li>
       <li><code>/dash/profile/</code> &mdash; the subs linked to your login.</li>
       <li><code>/dash/usage/</code> &mdash; per-folder model spend and turn counts. The spend comes from the model gateway through routd&rsquo;s <code>/v1/cost/summary</code>; an instance with no gateway has no meter, and the page says so rather than showing a zero.</li>
-      <li><code>/dash/audit/</code> &mdash; the <a href="../concepts/audit.html">audit trail</a>: newest first, filtered by category, actor or folder. Federated across routd, runed, authd and onbod &mdash; each serves its own <code>audit_log</code> at <code>GET /v1/audit</code> and dashd merges them, with a Source column. onbod joins only when its store is there: onboarding is optional, and a daemon you never deployed isn&rsquo;t a source that failed. The &ldquo;older&rdquo; cursor carries one position per source, because two owners&rsquo; rows can share an instant and paging on the time alone would drop some.</li>
+      <li><code>/dash/audit/</code> &mdash; the <a href="../concepts/audit.html">audit trail</a>: newest first, filtered by category, actor or folder. Federated across routd, runed, authd and onbod &mdash; each serves its own <code>audit_log</code> at <code>GET /v1/audit</code> and dashd merges them, with a Source column. onbod joins only when its store is there: onboarding is optional, and a daemon you never deployed isn&rsquo;t a source that failed. The &ldquo;older&rdquo; cursor carries one position per source, because two owners&rsquo; rows can share an instant and paging on the time alone would drop some. A source that doesn&rsquo;t answer gets a red banner with its name, and the rest still render: an audit page that goes quiet about runed is lying about runed.</li>
     </ul>
 
     <p>Write pages (admin grant + CSRF):</p>
@@ -165,7 +165,7 @@ export DASH_PORT=:8080
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/components/dashd.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-17">2026-10-17</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-20">2026-10-20</time>
       </div>
     </main>
 

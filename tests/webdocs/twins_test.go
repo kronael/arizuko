@@ -103,6 +103,10 @@ var twins = []twin{
 		"ipc/README.md",
 		"template/web/pub/arizuko/reference/mcp.html",
 	}},
+	{name: "observability", files: []string{
+		"obs/README.md",
+		"template/web/pub/arizuko/concepts/audit.html",
+	}},
 }
 
 var (

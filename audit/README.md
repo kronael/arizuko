@@ -18,6 +18,43 @@ records:
 
 The vocabulary — categories, actions, outcomes, surfaces — is closed and
 declared once in `event.go`. The taxonomy behind it is `audit/PLAN.md`.
+The figure of all three substrates, the record, the log and the spans, is
+at the top of `obs/README.md`.
+
+## The row and its closed enums
+
+An item carries these attributes (`audit_log.go`); one the event does not
+carry is absent, not empty, so a forensic read can ask for a missing
+folder:
+
+| attribute                                                  | holds                                                                                                  |
+| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `category`                                                 | `authn`, `authz`, `access`, `mutation`, `system`, `network`, `channel`, `agent`, `secret`, `scheduler` |
+| `action`, `resource`, `scope`                              | what was done, to what, at which scope                                                                 |
+| `actor`, `actor_sub`                                       | who asked                                                                                              |
+| `surface`                                                  | `mcp`, `rest`, `cli`, `gateway`, `cron`, `agent_pretool`, `agent_posttool`                             |
+| `params_summary`                                           | the redacted, capped arguments                                                                         |
+| `outcome`, `error_msg`, `duration_ms`                      | `ok`, `error` or `denied`, and how                                                                     |
+| `turn_id`, `folder`, `instance`, `request_id`, `source_ip` | where                                                                                                  |
+
+The two `agent_*` surfaces are declared and no writer uses them: the
+agent's in-guest tool hooks print one `[ant] [tool]` JSON line to stderr
+per phase (`ant/src/tool-log.ts`: `phase`, `turn_id`, `tool`,
+`args_summary`, `duration_ms`, `outcome`), runed keeps it in the turn log
+and logs it at debug, and nothing writes it to the store. A hook that wrote
+a row would make every agent tool call a distributed transaction.
+
+The slog line is not this shape either. resreg logs every call it serves
+with `caller`, `resource`, `action`, `surface`, `outcome` and `duration_ms`
+(`resreg/resreg.go` `logCall`), whether or not a row follows. When the
+line and the row disagree, the row wins: the line is lossy.
+
+Redaction runs first, then truncation: each string value is capped at 200
+runes, then the whole map at 512 bytes. A key matching `password`, `token`,
+`secret`, `credential`, `authorization`, `cookie`, `dsn`, `api_key` or a
+`_key` suffix is replaced with `<redacted:Nchars>`. `session` is not
+redacted: a session id is a turn identifier, and hiding it would break the
+forensic join.
 
 ## Public doors
 
@@ -76,13 +113,15 @@ not a regression: both reads already scanned.
 - **No dependency on `chanlib`.** `envOr`/`envInt` are re-implemented here
   because that edge once closed an `auth → audit → chanlib` import cycle.
 - **No cross-daemon merge.** Merging four owners' logs into one page is
-  dashd's (`dashd/audit_page.go`).
+  dashd's (`dashd/audit_page.go`). webd, proxyd and dashd own no
+  `audit_log`; each `Init`s the package on routd's store, so their rows land
+  in routd's.
 
 ## The real gaps
 
 - `import.go` (`LegacyRow`, `CheckSnapshot`, `LegacyID`, `Import`) is the
   one-way carry of existing rows into the entity shape. Only tests call it.
-- onbod's `audit_log` is not yet federated onto dashd's page (BUGS `F35`).
+- The `agent_pretool` and `agent_posttool` surfaces have no writer.
 
 ## Files
 
@@ -94,5 +133,6 @@ not a regression: both reads already scanned.
 
 ## Related docs
 
-- `specs/5/I-tool-call-logging.md` — the event model
-- `specs/6/40-store-surface.md` — the audited write in a `GuardedBatch`
+- `obs/README.md` — the three substrates and the slog and OTLP half
+- `resreg/README.md` — why four daemons share the resource name `audit`
+- `dashd/README.md` — the federated `/dash/audit/` page

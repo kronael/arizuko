@@ -271,8 +271,9 @@ config manifest.
   handler on the operator REST face with a scope/folder `Gate`. The
   hot-tier tools (`reply`/`send`/`inspect_*`) stay
   hand-authored in `ipc/ipc.go` — no REST twin.
-- authd's three — `audit`, `signing_keys`, `sessions` — and onbod's four:
-  `invites`, `onboarding_gates`, `onboarding`, `audit`.
+- authd's three — `audit`, `signing_keys`, `sessions` — onbod's four:
+  `invites`, `onboarding_gates`, `onboarding`, `audit` — and runed's
+  `audit`.
 
 ## OpenAPI emission
 
@@ -412,7 +413,8 @@ performing them. The adapter:
    A refused batch answers with the handler's own declared error, status
    included.
 
-Read-only actions emit slog only; no DB row. Forwarder resources
+Every call gets one slog line (`logCall`). A successful read writes no row;
+a denied or failed read does, so a refused read leaves a trace. Forwarder resources
 (`Store == nil`) skip the batch + audit dance — the downstream daemon
 writes the row. Field schema: [`audit/README.md`](../audit/README.md).
 
@@ -430,6 +432,12 @@ writes the row. Field schema: [`audit/README.md`](../audit/README.md).
    prefix); it is spelled in `names.go` and nowhere else. `Mount` panics on an
    unregistered name, so a resource served but absent from every catalog
    stops the binary at boot.
+   One name is shared on purpose: routd, runed, authd and onbod each mount
+   `audit`. That keeps the rule, because all four serve one declaration
+   (`resources/audit.go`: `GET /v1/audit` and `query_audit`, no write face,
+   no `/{id}`) over one row shape, `audit.Row`, each over its own
+   `audit_log`. One path on four owners is what lets dashd fan one request
+   out and merge the answers.
 2. Implement one `Handler` that switches on `x.Action`. BUFFER a mutation
    on `x.Writes` when `Store` is set — read first, decide, hand the writes
    over; the adapter sends them.

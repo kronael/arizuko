@@ -497,7 +497,10 @@ timed and ttsd hold no store key: they call an owner's /v1
 `messages.source` is the adapter of record, stamped by routd's
 `handleMessages`; outbound reads `LatestSource(jid)`. All agent output,
 delegation and escalation flow through `PutMessage`. A bot row carries
-`is_from_me` and `is_bot_message` and is filtered from inbound polling.
+`is_from_me` and `is_bot_message` and is filtered from inbound polling. A
+turn's prose reply and a `POST /v1/messages` send take an `out-<hex>` id
+(`routd/turns.go` `outboundRow`); an MCP send takes `mcp-<unix nanos>`
+(`core.MsgID`).
 
 ### Why the store layer is shaped this way
 
@@ -685,33 +688,11 @@ the windows, the one nudge and the compaction tasks are in
 
 ## Observability
 
-Three substrates, clearly split:
-
-- **`audit_log` entity** — source of truth for state-changing
-  operations, one per owner. Where the mutation is local the row rides its
-  batch (`audit.WriteFor`), so a refused mutation records nothing and a
-  recorded one happened; where the effect lands on a remote — a platform
-  message, a guest — the row is written alongside it
-  (`audit.EmitTo`), since there is no batch to join. Each owner
-  serves its own table read-only at `GET /v1/audit` (one `resreg`
-  registration, mounted by routd/runed/authd; `audit.Query` is the single
-  reader), and `/dash/audit/` federates them over those APIs rather than
-  reading another owner's tables. A successful read writes no row — `list` does not
-  mutate — but denials and errors do. Spec
-  [`5/I`](specs/5/I-tool-call-logging.md).
-- **slog → journald** — operational telemetry for everything (state
-  changes + reads). High-rate, lossy by design (journald rotation,
-  level filtering). `journalctl -u arizuko_<inst>` is the default
-  operator view.
-- **OTLP export (opt-in)** — slog stream tee'd to any OTel-compatible
-  collector when `OTEL_EXPORTER_OTLP_ENDPOINT` is set in the instance
-  `.env`. Logs not spans; `turn_id` → deterministic TraceID
-  (`sha256(instance + "/" + turn_id)[:16]`) across daemons, so a
-  collector (Grafana / Tempo / Datadog / Honeycomb) groups one turn.
-  `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` adds spans, `METRICS_ENABLED` a
-  Prometheus `/metrics`; every one unset → zero overhead, stderr JSON only.
-  Library: [`obs/`](obs/) (wiring rules in its README). Spec:
-  [`5/O`](specs/5/O-observability.md). Off by default.
+Three substrates: the `audit_log` entity, one per owner, is the record of
+what changed and who asked; `slog` to journald is lossy telemetry for
+everything; OTLP export of logs and spans is opt-in. The figure, the span
+names and the env vars: [`obs/README.md`](obs/README.md); the row and its
+enums: [`audit/README.md`](audit/README.md).
 
 ## Error Handling
 

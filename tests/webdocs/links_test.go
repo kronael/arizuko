@@ -193,11 +193,11 @@ func TestWebDocsSpecPathsResolve(t *testing.T) {
 		}
 	}
 	t.Logf("resolved %d spec paths", checked)
-	// 99 at the C5 docs fold, 69 at C7, 52 at C9, 37 at C13 and 35 at C14; each
-	// fold moves spec links out of the pages. The floor exists so a regex that
-	// stops matching fails loudly instead of passing over nothing; it is not a
-	// target.
-	if checked < 35 {
+	// 99 at the C5 docs fold, 69 at C7, 52 at C9, 37 at C13, 35 at C14 and 34
+	// at C15; each fold moves spec links out of the pages. The floor exists so
+	// a regex that stops matching fails loudly instead of passing over nothing;
+	// it is not a target.
+	if checked < 34 {
 		t.Fatalf("only %d spec paths found; the extraction is broken", checked)
 	}
 }
