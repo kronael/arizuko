@@ -115,7 +115,7 @@ func bootMediaFed(t *testing.T, enabled bool, whisperURL string, maxBytes int64)
 		// nil-ish bearer → the enrich download goes out unauthenticated; the
 		// stub file server accepts it.
 		Media: routd.MediaConfig(enabled, maxBytes, whisperURL, "turbo",
-			whisperURL != "", false, func(context.Context) (string, error) { return "", nil }),
+			whisperURL != "", false, func(context.Context) (string, error) { return "", nil }, nil),
 	})
 	routdSrv := routd.NewServer(rodb, loop, fedDeliverer{}, newFedVerifier(t, f.authd), 0, "https://media.test")
 	loop.BindServer(routdSrv)

@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"mime"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,6 +17,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/chanlib"
+	"github.com/kronael/arizuko/chanreg"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
 )
@@ -33,15 +35,38 @@ type mediaConfig struct {
 	// Bearer yields routd's service token for the adapter /files download;
 	// nil → local dev, unauthenticated.
 	Bearer func(context.Context) (string, error)
+	// Adapters names the hosts that may receive Bearer: a download from any
+	// other host carries no Authorization header.
+	Adapters *chanreg.Registry
 }
 
 // MediaConfig builds the inbound enrichment config for the cmd layer.
 func MediaConfig(enabled bool, maxBytes int64, whisperURL, whisperModel string,
-	voiceEnabled, videoEnabled bool, bearer func(context.Context) (string, error)) mediaConfig {
+	voiceEnabled, videoEnabled bool, bearer func(context.Context) (string, error),
+	adapters *chanreg.Registry) mediaConfig {
 	return mediaConfig{
 		Enabled: enabled, MaxBytes: maxBytes, WhisperURL: whisperURL, WhisperModel: whisperModel,
-		VoiceEnabled: voiceEnabled, VideoEnabled: videoEnabled, Bearer: bearer,
+		VoiceEnabled: voiceEnabled, VideoEnabled: videoEnabled, Bearer: bearer, Adapters: adapters,
 	}
+}
+
+// bearerFor returns the service-token source for a download from rawURL: Bearer
+// when rawURL names a registered adapter's own scheme and host, nil otherwise.
+func (c mediaConfig) bearerFor(rawURL string) func(context.Context) (string, error) {
+	if c.Adapters == nil {
+		return nil
+	}
+	target, err := url.Parse(rawURL)
+	if err != nil {
+		return nil
+	}
+	for _, entry := range c.Adapters.All() {
+		adapter, err := url.Parse(entry.URL)
+		if err == nil && adapter.Scheme == target.Scheme && adapter.Host == target.Host {
+			return c.Bearer
+		}
+	}
+	return nil
 }
 
 // enrichAttachments downloads inbound attachments into the group's dated media
@@ -103,7 +128,7 @@ func (l *Loop) enrichAttachments(ctx context.Context, msg *core.Message, folder 
 				continue
 			}
 		} else {
-			if err := downloadFile(ctx, att.URL, dest, l.media.Bearer, l.media.MaxBytes); err != nil {
+			if err := downloadFile(ctx, att.URL, dest, l.media.bearerFor(att.URL), l.media.MaxBytes); err != nil {
 				slog.Warn("enrich: download failed", "url", att.URL, "err", err)
 				extra.WriteString(unavailableAttachment(att, "the file could not be fetched"))
 				continue

@@ -226,6 +226,7 @@ func main() {
 			core.EnvOr("VOICE_TRANSCRIPTION_ENABLED", "false") == "true",
 			core.EnvOr("VIDEO_TRANSCRIPTION_ENABLED", "false") == "true",
 			svcSrc, // service:routd token for the adapter /files download
+			reg,
 		),
 	})
 
