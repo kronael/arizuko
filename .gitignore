@@ -7,7 +7,6 @@ data/
 .ship/
 .distill/
 .diary/
-bugs.md
 node_modules/
 dist/
 package-lock.json

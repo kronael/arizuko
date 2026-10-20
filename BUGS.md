@@ -217,6 +217,14 @@ reads those words now.
 - `M4` — `vited` in production: the crash class is fixed and the cost premise was
   REFUTED, so what is left is posture.
 
+**Found while folding the lowercase `bugs.md` into this file (2026-10-20).**
+
+- `L480` — slakd sends a whole reply as one `chat.postMessage`; `chanlib.Chunk`
+  exists and discd and teled use it.
+- `L481` — `5/7` promises `require_audience` per route and nothing reads `aud`:
+  build the check, or strike the promise and the `audience` mint parameter.
+- `L482` — `ipc.GatedFns` is named after a deleted daemon; a rename, 156 lines.
+
 **Outside this repo.**
 
 - `L40` — the edge must set `X-Forwarded-For` before `TRUSTED_PROXIES` may
@@ -296,6 +304,54 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
 - **`L15` — the 2026-08-11 dead-code sweep's rejected hits.** `deadcode ./...` gave 149
   hits, 56 under `-test`; nine survived verification and were filed separately. Kept so
   the next sweep does not re-report the same ~135.
+
+## L480 — slakd posts a whole reply as ONE chat.postMessage, so a long reply is cut by Slack (2026-10-20, open)
+
+FOUND 2026-10-20 folding the lowercase `bugs.md` (an atlas deep-dive on
+marinade, 2026-06-14) into this file. Re-measured at `29ebeda0`:
+`slakd/bot.go:1197` (`Send`) sets `text` to `toMrkdwn(req.Content, …)` and calls
+`/chat.postMessage` once; no code in `slakd/` splits the text. `chanlib.Chunk`
+(`chanlib/chanlib.go:377`) exists and `discd/bot.go:416` (2000) and
+`teled/bot.go:439` (4096) call it. Slack documents a 40,000-character limit on
+`text` and truncates past it; that figure is Slack's, not measured here.
+
+Not carried over from the old entry: the SIGKILL-after-22-minutes cause (the
+turn path is a KVM guest now, no `--memory` flag exists to add) and the
+"engagement commits only on reply" note (still true at `routd/turns.go:83` and
+by design: `routd/server.go:520`).
+
+**Fix:** call `chanlib.Chunk` in `Send` and post each part into the same
+thread. No test yet — this pass records only.
+
+## L481 — spec `5/7` promises `require_audience` per route, and no code reads a token's `aud` (2026-10-20, open — needs sign-off)
+
+FOUND 2026-10-20 folding `bugs.md` ("bearer path does not enforce `aud`").
+Re-measured at `29ebeda0`. `auth.VerifyToken` (`auth/jwks.go:94`) returns a
+`Subject` carrying `Aud` (`auth/jwks.go:168`) and no caller compares it:
+`git grep -n -i 'audience\|\.Aud\b' -- '*.go'` finds only mint and copy sites
+(`authd/server.go:168,238,336`). `git grep -n -i require_audience` finds one hit,
+`specs/5/7-proxyd-standalone.md:46`, which says audience enforcement is a
+per-route option. Tokens can carry an audience today: `authd/http.go:231` takes
+`audience` in a mint request from a caller holding `tokens:mint`, and the
+refresh path copies it. A token minted for daemon A therefore authenticates at
+daemon B.
+
+- **Status:** open — needs sign-off. **Options:** (a) build `require_audience`
+  on proxyd routes and a verify-side check on every daemon; (b) strike the
+  sentence from `5/7` and stop accepting `audience` at mint, so no token ever
+  carries one. **Default if nothing is decided:** unchanged, nothing issues an
+  audience in production, so the gap is latent.
+
+## L482 — `ipc.GatedFns` and its `gated` parameters are named after a daemon that no longer exists (2026-10-20, open)
+
+FOUND 2026-10-20 folding `bugs.md`. Re-measured at `29ebeda0`:
+`ipc/ipc.go:34` declares `type GatedFns struct`; `git grep -c GatedFns` counts
+156 lines across `ipc/`, `routd/` (`buildGatedFns` in `routd/mcp.go`) and
+tests. It is the live capability struct routd passes to the MCP bridge, so the
+name misleads and the behaviour is right. No test — design.
+
+**Fix:** rename to `AgentFns` with the parameter `host`, in one commit with no
+other change.
 
 ## L472 — PROPOSED: a scheduled run logs "success" when its message is queued, so a turn that did nothing reads green (2026-10-20, open — needs sign-off)
 
