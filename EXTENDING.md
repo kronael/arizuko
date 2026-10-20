@@ -211,8 +211,10 @@ routing.
 
 ## Installing packages
 
-`arizuko packages <instance> add | install | upgrade | remove` manages packages
-(spec `5/28`). `add <name>` takes the package from the bundled catalog and
+`arizuko packages <instance> add | install | upgrade | sync | remove` manages
+packages. The path from catalog or source to a running container is drawn in
+[`compose/README.md` § Packages](compose/README.md#packages); this section
+is the how-to. `add <name>` takes the package from the bundled catalog and
 `install <source>` from a git URL or local dir; both run the same install. A
 package is a process plus a declaration of how it hooks in — **two file
 kinds**, split by who owns the format:
@@ -220,7 +222,7 @@ kinds**, split by who owns the format:
 - **compose fragment** — `<name>.yml`, docker's format, included verbatim →
   placed in `services/` (a link at the catalog for `add`, a copy for
   `install`), brought up on `arizuko generate`.
-- **manifest** — `<name>.yaml`, arizuko's `5/8` config manifest → applied
+- **manifest** — `<name>.yaml`, arizuko's config manifest → applied
   through the same engine as `arizuko apply`: one transaction per owner DB
   with pre-image rollback, so a package installs whole or not at all. Every
   resource `apply` writes is available to a package — `proxyd_routes`, `acl`,
@@ -234,8 +236,13 @@ kinds**, split by who owns the format:
   until the operator sets it — never a fragment that installs and then fails
   to start). Docker interpolates `${KEY}` from `.env`, so a third-party image
   reads a minted key with no env file of its own.
-- **skills** — `skills/<name>/` → copied to `<datadir>/skills/`, layered into
-  every group by `seedSkills` at spawn.
+- **skills** — `skills/<name>/` → copied to `<datadir>/skills/` at install.
+  `arizuko generate` copies each one into EVERY existing group and
+  overwrites the group's copy (`syncPackageSkills`,
+  `cmd/arizuko/skills.go:25`). It skips a group whose copy holds a
+  `.disabled` marker and a name a stock skill already holds. Delivery runs
+  on `generate`, not at group creation, so a group made before the install
+  gets the skill too (BUGS L47).
 
 ```yaml
 # helpbot.yaml — a package manifest
@@ -272,7 +279,12 @@ Each install records an **installed-package record** in routd's
 resolved revision + owned identities + per-asset content hash), keyed
 `(folder, name)` with `''` meaning instance-wide. That record drives `upgrade`
 (dirty-detection — never overwrites a locally edited asset), `remove` (deletes
-exactly the identities it owns), and reproducibility.
+exactly the identities it owns), and reproducibility. The record of a
+catalog package carries the source `catalog`. `upgrade` and `sync` fetch
+nothing for it, because its fragment is a link that follows the catalog.
+Its rows were applied once, by `add`, and no verb applies them again: when
+the catalog manifest moved since `add`, both verbs report the drift and
+name the fix, `packages remove` then `packages add` (BUGS L315).
 
 ## Blending several products into one group
 
@@ -301,7 +313,7 @@ REFUSES a filename collision; `tasks.toml` and
 `migrations/` REFUSE the apply outright, because nothing reads a product's
 tasks and nothing runs a product's
 migrations, and seeding them would report success for instructions that never
-execute (`5/28`); `.claude/settings.json`
+execute; `.claude/settings.json`
 keys union and refuse a key collision, except `mcpServers`, which REFUSES the
 apply — no MCP server loads from that key, so ship third-party tools as an
 arizuko connector instead (BUGS `J15`); at most one
@@ -318,7 +330,9 @@ Identity and knowledge seed once and become the group's own state — re-applyin
 never rewrites them. Skills stay upstream-managed: re-apply
 takes a new revision, but a file edited since the last apply is reported and
 skipped, never clobbered. `arizuko packages <inst> sync` re-applies every
-group's mix alongside the instance's packages. Full table: spec `5/28`.
+group's mix alongside the instance's packages. The full table, the
+marked-region refusal and the hand-off rule are in the packages reference
+page, `template/web/pub/arizuko/reference/packages.html`.
 
 `arizuko create --product` / `group add --product` still take exactly one
 product and copy it verbatim — a single template, not a mix.
@@ -493,8 +507,10 @@ reaches an existing instance.
 That file is the SAME manifest `arizuko packages install` applies — one
 declaration with two readers, because generate needs the routes before any
 daemon or DB exists. It is never a second format (BUGS `L44`), and both
-readers parse it with `resreg.ParseYAML`, so a typo is rejected identically
-by each. Example: `template/services/slakd.yaml`.
+readers parse it with `resreg.ParseManifest`, so a typo is rejected
+identically by each. `arizuko apply` parses the same document with
+`resreg.ParseYAML`, which refuses the `env` section and names `packages
+add`: an apply would report success for keys it never provisioned. Example: `template/services/slakd.yaml`.
 
 ## Adding an MCP connector
 

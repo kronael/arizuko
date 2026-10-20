@@ -95,7 +95,7 @@ sidecar/ whisper-cpp container; routd calls Whisper for inbound
         voice when VOICE_TRANSCRIPTION_ENABLED=true
 egress/   forward proxy, one static allowlist, one client. runed starts
         one per turn on its tap's host side and stops it with the
-        turn (see "Compose Containers" below)
+        turn (`SECURITY.md` § Network egress isolation)
 anteval/  agent-capability gate: a black-box prober that runs real tasks
         through the public surfaces (REST/HTTP/MCP + a callback sink) against
         a LIVE instance and grades observable effects, not prose. Zero
@@ -634,76 +634,11 @@ principal.
 
 ## Compose Containers
 
-`compose.Generate(dataDir)` builds `docker-compose.yml` from:
-
-1. **Built-in** — every core stanza is ALWAYS emitted; `profiles:` decides
-   what docker starts. `authd`+`routd`+`runed` carry no profile (the three
-   planes, always up); `webd`+`proxyd`+`vited`+`dashd` are `web`, then
-   `timed`, `onbod`, `davd`.
-2. **Extra** — one `include: ./services/<name>.yml` per package fragment in
-   `<dataDir>/services/`; docker loads them, compose.go never parses them.
-
-`COMPOSE_PROFILES` in the data dir's `.env` is the single gate. Generate
-derives it from the feature flags (`WEB_PORT`, `WEBDAV_ENABLED`,
-`ONBOARDING_ENABLED`) and rewrites it, with
-`APP`/`FLAVOR`/`DATA_DIR`, inside a `# --- compose-managed` block that leaves
-operator lines untouched. Fragments interpolate those three for their
-container name and host mount — identity is configured, never derived.
-
-Adapters reach the router at `ROUTER_URL=http://routd:8080`. `runed` is the
-only built-in service granted `/dev/kvm`, `/dev/vhost-vsock`, `/dev/net/tun`
-and `NET_ADMIN`/`SYS_ADMIN` (spec `6/41` §"The runed deploy topology");
-`authd` exposes JWKS for offline verification by the rest.
-
-Bundled catalog at `template/services/`: a `<name>.yml` compose fragment and
-a `<name>.yaml` manifest for each of `bskyd`, `discd`, `emaid`, `extenddb`,
-`gitd`, `linkd`, `litellm`, `reditd`, `slakd`, `teled`, `ttsd`, `twitd` and
-`whapd`, plus `kokoro.yml` alone.
-
-Fragment format — a plain partial compose file:
-
-```yaml
-services:
-  teled:
-    container_name: ${APP}_teled_${FLAVOR}
-    image: arizuko:latest
-    entrypoint: ['teled']
-    env_file: ['../env/teled.env'] # relative to services/
-    environment:
-      ROUTER_URL: 'http://routd:8080'
-    depends_on: [routd]
-    restart: on-failure
-```
-
-Container naming: `<app>_<service>_<flavor>` (e.g. `arizuko_teled_krons`).
-`arizuko packages <instance> add <name>` links a fragment (plus its
-`<name>.yaml` manifest, if any) into `/srv/data/arizuko_<flavor>/services/`.
-A package ships exactly two file kinds: `.yml`, a partial compose file docker
-`include`s, and `.yaml`, the `5/8` manifest whose rows `arizuko apply`
-installs.
-
-All Go daemons listen on :8080 internally except ttsd at :8880. The
-third-party images keep their own: kokoro :8880, litellm :4000.
-
-Third-party fragments (`kokoro.yml`, `litellm.yml`) never read the shared
-`.env`. kokoro gets a generated `env/kokoro.env` holding its one key;
-litellm and its `litellm_db` have no env file at all — docker interpolates
-the keys the fragment names (`${MODEL_GATEWAY_KEY:?}`,
-`${MODEL_GATEWAY_DB_PASSWORD:?}` and the credential pair) from `.env`, and
-`compose/fragments_test.go` pins that set, so handing either image a new
-instance value is a visible edit. Both secrets are minted into `.env` by
-`packages add` (the `env` block of `litellm.yaml`), so the `:?` is a guard
-against a hand-copied fragment, not a step the operator performs.
-
-Egress isolation is not a setting; it is a property of the turn substrate.
-There is no proxy service in the compose file: `runed` starts ONE `egress`
-process per turn on the host side of that turn's own tap, with the folder's
-allowlist baked in, and stops it with the turn (spec `6/41` §"Egress by name,
-sealed below the kernel"). The tap's rule set accepts only that guest's
-traffic to the proxy and drops everything else in both directions; the guest
-has no other route and no resolver, so a host name is meaningful only inside
-a request to the proxy. runed refuses to start when the `egress` binary is
-missing. See `egress/README.md` and `SECURITY.md` (Network egress isolation).
+`compose.Generate(dataDir)` writes `docker-compose.yml`: every core stanza,
+always, plus one `include:` per package fragment in `<dataDir>/services/`.
+`COMPOSE_PROFILES` in the managed `.env` block decides what docker starts.
+The figure, the profile rules, the package path from catalog to container
+and the multi-account variants are in [`compose/README.md`](compose/README.md).
 
 ## Onboarding (onbod/)
 

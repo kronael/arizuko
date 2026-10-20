@@ -214,7 +214,10 @@ itself (`Open` → `store.PrepareOwner`):
 - Network: `network_rules`
 - Packages: `installed_packages` (installed-package record, keyed
   (folder, name) with `''` = instance-wide; the CLI writes it directly,
-  split write-discipline — spec 5/28)
+  split write-discipline). Both faces only read it, and both gate the read
+  on the scope `**` (`installedPackagesScope`, `packages_resource.go:25`).
+  The folder column does not narrow the read, because one record names
+  identities in several folders; a token bound to its own subtree gets 403
 
 routd reaches NO other owner's tables — cross-daemon data arrives over HTTP
 (authd identity, runed session_log).
@@ -431,7 +434,7 @@ optional observability webhook — not the source of truth.
   `packages`, `route_tokens`, `routes`, `scheduled_tasks`, `secrets`,
   `web_routes`). One handler each; agent MCP and operator REST ride the same
   handler with a different injected Gate (spec 5/16)
-- `packages_store.go` — `installed_packages` CRUD (the record the CLI's `packages install|upgrade|remove` reads/writes, spec 5/28)
+- `packages_store.go` — `installed_packages` CRUD (the record the CLI's `packages install|upgrade|remove` reads/writes)
 - `db.go` — the owner's writes (PutMessage, turn claims, routing) and the
   boot that dials the endpoint or opens the file
 - `search.go`, `msgsearch/` — ranked message search: the index, its boot walk and the four writes that feed it

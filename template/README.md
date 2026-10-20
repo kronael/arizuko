@@ -40,5 +40,5 @@ scaffold that `vited` serves in dev.
 
 ## Related docs
 
-- `ARCHITECTURE.md` (Compose Containers)
+- `../compose/README.md` — the compose generator and the package path
 - `EXTENDING.md`

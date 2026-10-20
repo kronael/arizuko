@@ -4,19 +4,77 @@
 
 ## Purpose
 
-Emits the core daemon stanzas plus one `include:` per package fragment
-in `<dataDir>/services/`, and provisions what a static file cannot:
-per-daemon service keys, scoped `env/<daemon>.env` files, proxyd's
-route table, and the egress name derivations.
+`Generate` emits the core daemon stanzas plus one `include:` per package
+fragment in `<dataDir>/services/`. It also provisions what a static file
+cannot hold: per-daemon service keys, scoped `env/<daemon>.env` files,
+proxyd's route table and the egress name derivations.
 
-Optional daemons are never gated by a Go conditional: every stanza is
-always emitted with `profiles:` (`web` for webd/proxyd/vited/dashd, then
-`timed`, `onbod`, `davd`), and docker starts the ones listed in
-`COMPOSE_PROFILES` (`activeProfiles`, `compose.go:602`).
+## Profiles decide what starts
+
+```
+.env feature flags                     activeProfiles, compose.go:736
+WEB_PORT set ────────────────────────► web
+WEB_PORT set, WEBDAV_ENABLED=true ───► davd, unset counts as true
+always ──────────────────────────────► timed
+ONBOARDING_ENABLED=true ─────────────► onbod
+                    │
+                    │ writeManagedEnv
+                    ▼
+┌──────────────────────────────────────────────────────┐
+│ compose-managed block in .env                        │
+│ APP, FLAVOR, DATA_DIR, COMPOSE_PROFILES              │
+└──────────────────────────┬───────────────────────────┘
+                           │ docker interpolates and filters
+                           ▼
+┌──────────────────────────────────────────────────────┐
+│ docker-compose.yml, every stanza always emitted      │
+│ authd routd runed        no profile: always up       │
+│ webd proxyd vited dashd  profile web                 │
+│ timed, onbod, davd       a profile of its own name   │
+│ include: ./services/<name>.yml, one per fragment     │
+│                          no profile: present = up    │
+└──────────────────────────┬───────────────────────────┘
+                           │ docker compose up
+                           ▼
+containers <app>_<service>_<flavor>, e.g. arizuko_teled_krons
+```
+
+`Generate` writes every core stanza on every run, and `profiles:` decides
+what docker starts (`writeSvc`, `compose.go:1135`). No Go conditional gates
+an optional daemon. `authd`, `routd` and `runed` carry no profile, because
+they are the three planes and always run. `webd`, `proxyd`, `vited` and
+`dashd` share the `web` profile, because compose rejects a `depends_on` into
+an inactive profile. `timed`, `onbod` and `davd` take their profile inline
+from `compose.go`: they are core daemons, not includable packages.
+
+`COMPOSE_PROFILES` is the single gate. A feature is off because its daemon
+is not running or its env var is unset, never because a flag says `false`.
+A boolean flag beside the profile list is a second gate, and a second gate
+drifts from the first. An included fragment declares no profile, so a
+package is on when its fragment is in `services/` and off when it is not.
+A new profile is a new env
+var read by `activeProfiles`, never a second switch.
+
+Every container is named `<app>_<service>_<flavor>`. `Generate` reads `app`
+and `flavor` from the data dir name and writes them into the managed block.
+A daemon reads them from its env and never derives them from a path inside
+its container.
+
+Adapters reach the router at `ROUTER_URL=http://routd:8080`. `runed` is the
+one built-in service that docker gives `/dev/kvm`, `/dev/vhost-vsock`,
+`/dev/net/tun` and the `NET_ADMIN` and `SYS_ADMIN` capabilities, because it
+boots the turn's KVM guest and its tap. `authd` serves JWKS, so every other
+daemon verifies a token offline. The compose file holds no egress service:
+`runed` starts one `egress` process per turn, `SECURITY.md` § Network egress
+isolation.
+
+All Go daemons listen on `:8080` inside the container, except `ttsd` at
+`:8880`. The third-party images keep their own ports: kokoro `:8880`,
+litellm `:4000`.
 
 ## The compose-managed .env block
 
-`Generate` rewrites one block in `<dataDir>/.env`, leaving operator
+`Generate` rewrites one block in `<dataDir>/.env` and leaves the operator
 lines untouched:
 
 ```
@@ -28,65 +86,142 @@ COMPOSE_PROFILES=davd,onbod,timed,web
 # --- end compose-managed ---
 ```
 
-Docker interpolates package fragments with these — `${APP}`/`${FLAVOR}`
-build the container name, `${DATA_DIR}` the host mount. `COMPOSE_PROFILES`
-is derived from the feature flags (`WEB_PORT`, `WEBDAV_ENABLED`,
-`ONBOARDING_ENABLED`); change a flag, regenerate.
+Docker interpolates package fragments with these values. `${APP}` and
+`${FLAVOR}` build the container name, and `${DATA_DIR}` builds the host
+mount. To change `COMPOSE_PROFILES`, change a feature flag and run
+`arizuko generate` again. A malformed marker, such as a second BEGIN or a
+BEGIN with no END, stops `generate`, because stripping it would drop every
+operator line after it.
 
 ## Packages
 
-A package is `services/<name>.yml` (a partial compose file defining one
-service) plus an optional `services/<name>.yaml` (its 5/8 manifest, whose
-`proxyd_routes` and `env` blocks this package reads). Fragment paths
-resolve against `services/`, so a fragment reads `../env/<name>.env`.
+<!-- twin:packages -->
 
-A fragment from a source — `arizuko packages <inst> install <dir|url>`,
-and every `upgrade`/`sync` of it — passes `CheckSourcedFragment` before a
-byte is written: its services carry the package's name, it binds only
-`${DATA_DIR}/store/<name>` or a named volume, declares no `env_file`, and
-escapes no namespace (`privileged`, `pid`, `network_mode: host`, a volume
-`driver_opts`, a config `file:` …). `docker compose` refuses none of that,
-so a package could otherwise mount an owner's store, `.env` or the docker
-socket and install cleanly (BUGS L201). The release's own catalog is exempt:
-its fragments are held to the tests in `fragments_test.go` at build.
+```
+┌──────────────────────────────┐   ┌──────────────────────────────┐
+│ catalog: template/services/  │   │ source: git URL or local dir │
+│ <name>.yml, <name>.yaml      │   │ *.yml, *.yaml, skills/       │
+└──────────────┬───────────────┘   └──────────────┬───────────────┘
+               │ packages add <name>              │ packages install <src>
+               │ files linked                     │ files copied
+               └─────────────────┬────────────────┘
+                                 ▼
+┌──────────────────────────────────────────────────────────────┐
+│ installPackage: every check before the first write           │
+│ 1 parsePkgManifests: rows parse, grants inside --folder,     │
+│   no core route path, owner stamped package:<name>           │
+│ 2 checkSourcedFiles: install only, the fragment stays in     │
+│   its own namespace                                          │
+│ 3 provisionPkgEnv: generate, default, required against .env  │
+│ 4 files into <data>/services/                                │
+│ 5 rows applied live through apply's engine, all or none      │
+│ 6 skills/ into <data>/skills/                                │
+│ 7 installed_packages row (folder '', name)                   │
+└────────────────────────────────┬─────────────────────────────┘
+                                 │ upgrade, sync, remove read the row back
+                                 ▼
+┌──────────────────────────────────────────────────────────────┐
+│ arizuko generate                                             │
+│ relink catalog copies, then compose.Generate: one include:   │
+│ per fragment and COMPOSE_PROFILES; write proxyd_routes rows; │
+│ copy package skills into every group; write                  │
+│ docker-compose.yml                                           │
+└────────────────────────────────┬─────────────────────────────┘
+                                 ▼
+                          docker compose up
 
-`Generate` provisions each package's `env` block before it writes any env
-file (`ProvisionPackageEnv`): a `.env` value wins; `generate` mints a token
-once and appends it to `.env` above the managed block; `default` fills the
-run's env only; `required` fails generate, naming the key. A linked manifest
-is read from the readable catalog (`CatalogDir`), because the deploy unit
-runs generate in a container that mounts the data dir and not the checkout,
-where the link is dangling.
+products apply <folder>: the group-scoped half. groups/<folder>/products.toml
+is blended into that group, one installed_packages row per (folder, product).
+```
 
-`services/<name>.yml` is a SYMLINK at the bundled catalog
-(`template/services/<name>.yml`), not a copy — `arizuko packages <inst>
-add <name>` creates the link directly, and `arizuko generate` relinks any
-older installed copy that is still byte-identical to the catalog
-(`compose.RelinkCatalog`, BUGS R1). A catalog fix then reaches every
-instance on its next generate/deploy; there is no copy to fall behind and
-nothing to sync. The symlink target is `HOST_APP_DIR/template/services/`
-(`compose.HostCatalogDir`) — a HOST-resolvable path, because `docker
-compose` always reads `include:` on the bare host, including when
-`arizuko generate` itself ran inside the ephemeral container the deploy
-systemd unit spawns for it. Without `HOST_APP_DIR` set, `packages add`
-falls back to a plain copy (pre-fix behavior) and generate never relinks.
+<!-- /twin -->
 
-A fragment stays a REAL file — never linked, never touched again — when
-it diverges from the catalog by even a byte (a hand edit; `packages add`
-writes the catalog verbatim, so anything else means the operator changed
-it) or when its filename encodes a multi-account variant
-(`specs/5/R-multi-account.md`): `<adapter>-<label>.yml` (e.g.
-`teled-work.yml`) carries its own `container_name`/env and reads its own
-`env/teled-work.env`: the base adapter's keys, except that a key the
-operator sets as `<KEY>_<LABEL>` in `.env` (`TELEGRAM_BOT_TOKEN_WORK`)
-replaces `<KEY>`, so per-daemon secret isolation extends across accounts
-and two accounts never share a credential. Converting it to a symlink at the base template would
-collide two services on one `container_name`.
+Sources: `cmd/arizuko/packages.go:136` `installPackage`,
+`cmd/arizuko/main.go:157` `generateCompose`, `cmd/arizuko/products.go:89`
+`applyProductMix`. The operator how-to is `EXTENDING.md` § Installing
+packages; the command contract is `cmd/arizuko/README.md`.
 
-Routes stay out of the fragment on purpose: proxyd, not docker, is their
-consumer, so `collectProxydRoutes` merges the core slice with each
-package's routes file at generate time and `Generate` hands the result back
-for `arizuko generate` to write into `proxyd_routes`.
+A package ships two file kinds, split by the owner of each format.
+`services/<name>.yml` is a partial compose file, docker's format, and
+docker includes it verbatim; `compose.go` never parses it. The optional
+`services/<name>.yaml` is arizuko's config manifest: its rows go through
+`arizuko apply`'s engine, and this package reads its `proxyd_routes` and
+`env` sections. One file that knew both formats would couple two schemas.
+Adding an adapter touches no Go. Fragment paths resolve against
+`services/`, so a fragment reads `../env/<name>.env`:
+
+```yaml
+services:
+  teled:
+    container_name: ${APP}_teled_${FLAVOR}
+    image: arizuko:latest
+    entrypoint: ['teled']
+    env_file: ['../env/teled.env'] # relative to services/
+    environment:
+      ROUTER_URL: 'http://routd:8080'
+    depends_on: [routd]
+    restart: on-failure
+```
+
+The bundled catalog at `template/services/` holds a `<name>.yml` fragment
+and a `<name>.yaml` manifest for each of `bskyd`, `discd`, `emaid`,
+`extenddb`, `gitd`, `linkd`, `litellm`, `reditd`, `slakd`, `teled`, `ttsd`,
+`twitd` and `whapd`, plus `kokoro.yml` alone and the variant
+`teled-jynx.yml`.
+
+A fragment from a source passes `CheckSourcedFragment` before a byte is
+written. This applies to `arizuko packages <inst> install <dir|url>` and to
+every `upgrade` or `sync` of it. Its services carry the package's name, it
+binds only `${DATA_DIR}/store/<name>` or a named volume, it declares no
+`env_file`, and it escapes no namespace: no `privileged`, `pid`,
+`network_mode: host`, volume `driver_opts` or config `file:`. `docker
+compose` refuses none of that, so a package could otherwise mount an
+owner's store, `.env` or the docker socket and install cleanly (BUGS L201).
+The release's own catalog is exempt: `fragments_test.go` holds its
+fragments to the same rules at build.
+
+`Generate` provisions each package's `env` section before it writes any
+env file (`ProvisionPackageEnv`). A `.env` value wins. `generate: true`
+mints a token once and appends it to `.env` above the managed block.
+`default` fills the run's env only. `required` fails `generate` and names
+the key. `Generate` reads a linked manifest from the readable catalog
+(`CatalogDir`): the deploy unit runs `generate` in a container that mounts
+the data dir and not the checkout, where the link dangles.
+
+`services/<name>.yml` is a symlink at the bundled catalog
+(`template/services/<name>.yml`), not a copy. `arizuko packages <inst> add
+<name>` creates the link, and `arizuko generate` relinks an installed copy
+that is still byte-identical to the catalog (`compose.RelinkCatalog`, BUGS
+R1). A catalog fix then reaches every instance on its next generate, with
+no copy to fall behind. The link target is `HOST_APP_DIR/template/services/`
+(`compose.HostCatalogDir`), a host path, because `docker compose` reads
+`include:` on the host even when `arizuko generate` ran inside the deploy
+unit's container. Without `HOST_APP_DIR`, `packages add` writes a copy and
+`generate` never relinks.
+
+A fragment stays a real file, never linked and never touched again, in two
+cases. A fragment that differs from the catalog by one byte is an operator
+edit, because `packages add` writes the catalog verbatim. A fragment whose
+name is a multi-account variant, § Several accounts on one platform, must
+stay a file, because a link at the base template collides two services on
+one `container_name`. `RelinkCatalog` returns the diverged set, and the
+caller reports it: a diverged file is also what an older generator's output
+looks like, and that instance runs a frozen copy (BUGS L41).
+
+Third-party fragments, `kokoro.yml` and `litellm.yml`, never read the
+shared `.env`. kokoro gets a generated `env/kokoro.env` that holds its one
+key. litellm and its `litellm_db` have no env file: docker interpolates the
+keys the fragment names, `${MODEL_GATEWAY_KEY:?}`,
+`${MODEL_GATEWAY_DB_PASSWORD:?}` and the credential pair, from `.env`.
+`compose/fragments_test.go` pins that set, so a new instance value for
+either image is a visible edit. `packages add` mints both secrets into
+`.env` from the `env` section of `litellm.yaml`, so the `:?` guards a
+hand-copied fragment and is no operator step.
+
+Routes stay out of the fragment, because proxyd, not docker, reads them.
+`collectProxydRoutes` merges the core slice with each package manifest's
+routes at generate time. `Generate` returns the result, and `arizuko
+generate` writes it into `proxyd_routes` before it writes the compose file.
 
 ## Public API
 
@@ -94,28 +229,29 @@ for `arizuko generate` to write into `proxyd_routes`.
   YAML plus the proxyd route table the same run decided on
 - `ProxydRoute` — one route of a `<name>.yaml` manifest
 - `ReadManifest(path) (Manifest, error)` — the `proxyd_routes` and `env`
-  blocks of one package manifest, parsed by `resreg.ParseManifest`;
+  sections of one package manifest, parsed by `resreg.ParseManifest`;
   `ManifestRoutes(path)` is its routes half
 - `ProvisionPackageEnv(dataDir, manifestPath, name, env)` — resolve a
-  package's `env` block against `.env`; `packages add|install` and
+  package's `env` section against `.env`; `packages add|install` and
   `Generate` share it
 - `CatalogDir(hostAppDir)` — the catalog this process can read: the
   checkout when visible, else the copy baked into the image
 - `HostCatalogDir(dataDir) (string, bool)` — the host-resolvable catalog
   dir from `.env`'s `HOST_APP_DIR`, for use as a symlink target
 - `RelinkCatalog(servicesDir, readableCatalogDir, hostCatalogDir)
-([]string, error)` — convert every installed fragment that is still a
-  byte-identical catalog copy into a symlink, idempotently
+([]string, []Diverged, error)` — convert every installed fragment that is
+  still a byte-identical catalog copy into a symlink, idempotently, and name
+  every fragment kept as a real file
 - `SymlinkFragment(servicesDir, hostCatalogDir, filename) error` —
-  atomically point one fragment (or routes sidecar) at the catalog
-- `ReservedRoutePaths() []string` — the release's own `/dash/*` and `/v1/*`
-  prefixes. dashd's hub falls back to these when proxyd cannot be read, so an
-  operator is never linked at a path that 404s
-- `MigrateStoreLayout(storeDir) ([]string, error)` — moves an instance's owner
-  files into `store/<owner>/`, each with its `-wal` and `-shm` siblings, and
-  answers what it moved. Runs on the HOST and nowhere else: the narrowing it
-  enables is what removes the flat path from a daemon's own mount, so nothing
-  can migrate itself
+  atomically point one fragment at the catalog
+- `CheckSourcedFragment(name, file, body) error` — the namespace bound on a
+  fragment from a source
+- `ReservedRoutePaths() []string` — every path core arizuko serves, derived
+  from `coreProxydRoutes`. A package may not claim one, and dashd's hub falls
+  back to these when proxyd cannot be read
+- `ReservedRouteClaim(bundled, path) string` — the core path `path` would
+  take over; a bundled package keeps its own `/dash/<name>/`
+- `CoreRouteAuth(path) string` — the auth mode core declares for one path
 
 ## Dependencies
 
@@ -124,14 +260,11 @@ for `arizuko generate` to write into `proxyd_routes`.
 ## Files
 
 - `compose.go` — the generator: every daemon's service block, the scoped env
-  files, and the `services/*.yml` fragments it includes. `.yml` is the only
-  package format.
+  files, the managed `.env` block and the `include:` list.
 - `manifest.go` — the `<name>.yaml` half of a package: its `proxyd_routes`
-  and `env` blocks, and the catalog they are read from.
-- `store_layout.go` — `MigrateStoreLayout`, the host-side owner-file move.
-- `fragments.go` — `RelinkCatalog` converts an installed copy that is still
-  byte-identical to `template/services/` into a symlink there, so a catalog
-  fix reaches every instance with no copy to fall behind. Matching is by
+  and `env` sections, and the catalog they are read from.
+- `contain.go` — `CheckSourcedFragment`.
+- `fragments.go` — `RelinkCatalog` and `SymlinkFragment`. Matching is by
   service kind, not filename: `teled-rhias.yml` maps to the `teled`
   template, and because its filename says "variant" it is never linked.
 
@@ -150,8 +283,21 @@ what every _arizuko_ daemon reads, and they include
 `OTEL_EXPORTER_OTLP_HEADERS` (the collector's auth token) plus the host's
 filesystem layout.
 
-## Related docs
+### Several accounts on one platform
 
-- `ARCHITECTURE.md` (Compose Containers)
-- `../template/services/` — bundled packages
-- `specs/5/27-compose-native-packaging.md`
+Two accounts on one platform are two services of one adapter binary, and
+need no new code. The second account is its own fragment,
+`<adapter>-<label>.yml`, for example `template/services/teled-jynx.yml`. It
+sets its own `container_name`, `env_file`, `LISTEN_URL`, `CHANNEL_NAME` and
+state mount (`variantOf`, `compose.go:263`). Only a name whose base is a
+channel adapter is a variant.
+
+The variant reads `env/<adapter>-<label>.env`. `writeEnvFile` fills it with
+the base adapter's keys, and a `<KEY>_<LABEL>` line in `.env` replaces
+`<KEY>`, so each account holds its own credential
+(`TELEGRAM_BOT_TOKEN_JYNX` replaces `TELEGRAM_BOT_TOKEN`). The label is
+upper-cased and every other non-alphanumeric byte becomes `_`
+(`variantKey`). Only the adapter's own `daemonKeys` take an override; the
+common keys and the service key stay the base adapter's, so every account
+signs as the same `service:<adapter>`. A variant with no override line
+polls the same account as the base.

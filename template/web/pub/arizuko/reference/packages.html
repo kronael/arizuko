@@ -42,8 +42,49 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">reference</a> &rsaquo; packages</p>
       <h1>packages</h1>
       <p>A <strong>package</strong> is a git source (or local directory) that ships
-      any subset of asset kinds as one versioned unit. Spec
-      <code>specs/5/28</code>.</p>
+      any subset of asset kinds as one versioned unit. Here&rsquo;s the whole
+      trip, from the catalog or a git source to a running container:</p>
+
+<pre id="twin-packages"><code>┌──────────────────────────────┐   ┌──────────────────────────────┐
+│ catalog: template/services/  │   │ source: git URL or local dir │
+│ &lt;name&gt;.yml, &lt;name&gt;.yaml      │   │ *.yml, *.yaml, skills/       │
+└──────────────┬───────────────┘   └──────────────┬───────────────┘
+               │ packages add &lt;name&gt;              │ packages install &lt;src&gt;
+               │ files linked                     │ files copied
+               └─────────────────┬────────────────┘
+                                 ▼
+┌──────────────────────────────────────────────────────────────┐
+│ installPackage: every check before the first write           │
+│ 1 parsePkgManifests: rows parse, grants inside --folder,     │
+│   no core route path, owner stamped package:&lt;name&gt;           │
+│ 2 checkSourcedFiles: install only, the fragment stays in     │
+│   its own namespace                                          │
+│ 3 provisionPkgEnv: generate, default, required against .env  │
+│ 4 files into &lt;data&gt;/services/                                │
+│ 5 rows applied live through apply's engine, all or none      │
+│ 6 skills/ into &lt;data&gt;/skills/                                │
+│ 7 installed_packages row (folder '', name)                   │
+└────────────────────────────────┬─────────────────────────────┘
+                                 │ upgrade, sync, remove read the row back
+                                 ▼
+┌──────────────────────────────────────────────────────────────┐
+│ arizuko generate                                             │
+│ relink catalog copies, then compose.Generate: one include:   │
+│ per fragment and COMPOSE_PROFILES; write proxyd_routes rows; │
+│ copy package skills into every group; write                  │
+│ docker-compose.yml                                           │
+└────────────────────────────────┬─────────────────────────────┘
+                                 ▼
+                          docker compose up
+
+products apply &lt;folder&gt;: the group-scoped half. groups/&lt;folder&gt;/products.toml
+is blended into that group, one installed_packages row per (folder, product).</code></pre>
+
+      <p>Two things to notice. Every check runs before step 4, and a row
+      apply that fails in step 5 takes the files back down, so a refused
+      package leaves no fragment and no row behind. And the rows in step 5
+      are live the moment they land; only the compose fragment waits for
+      <code>generate</code>.</p>
 
       <h2>Commands</h2>
       <pre><code>arizuko packages &lt;instance&gt; add gitd                     # a bundled package, from template/services/
@@ -82,9 +123,23 @@ arizuko packages &lt;instance&gt; list</code></pre>
         <tbody>
           <tr><td>compose fragment</td><td><code>&lt;name&gt;.yml</code></td><td><code>services/</code>, up on <code>generate</code></td></tr>
           <tr><td>config manifest</td><td><code>&lt;name&gt;.yaml</code></td><td>the rows it names — <code>proxyd_routes</code>, <code>acl</code>, <code>scheduled_tasks</code>, <code>network_rules</code>, <code>web_routes</code> — applied live in one transaction, <strong>no restart</strong></td></tr>
-          <tr><td>skills</td><td><code>skills/&lt;name&gt;/</code></td><td>layered into every group like stock skills</td></tr>
+          <tr><td>skills</td><td><code>skills/&lt;name&gt;/</code></td><td>copied into every existing group on each <code>generate</code>, overwriting the group&rsquo;s copy; a <code>.disabled</code> marker or a stock skill&rsquo;s name stops it</td></tr>
         </tbody>
       </table>
+
+      <h2 id="env">What a package needs from <code>.env</code></h2>
+      <p>A manifest&rsquo;s <code>env</code> section names each key the
+      process needs, with one of three sources: <code>generate: true</code>
+      (minted once at install, then it&rsquo;s your line),
+      <code>default: &lt;value&gt;</code> (derived on every generate, never
+      written; your <code>.env</code> value wins) or <code>required:
+      true</code> (install and generate refuse until you set it). The point:
+      a package never installs and then fails to start.</p>
+      <p>The section is a declaration, never a script. It names keys and
+      where their values come from, and nothing runs. Hand the same file to
+      <code>arizuko apply</code> and it refuses the <code>env</code> section
+      and points you at <code>packages add</code>, because an apply would
+      report success for keys it never provisioned.</p>
 
       <h2>How it stays safe</h2>
       <ul>
@@ -102,6 +157,12 @@ arizuko packages &lt;instance&gt; list</code></pre>
         the refuse-a-dirty-asset rule is identical by construction. They rewrite
         only the file half of the record; the rows and skills it owns stay
         recorded, so <code>remove</code> can still find them.</li>
+        <li>A catalog package has nothing to re-fetch: its fragment is a link
+        that follows the catalog. Its rows were applied once, by
+        <code>add</code>. If the catalog manifest moved since then,
+        <code>upgrade</code> and <code>sync</code> say so and name the fix,
+        <code>packages remove</code> then <code>packages add</code>, rather
+        than answering &ldquo;nothing to do&rdquo;.</li>
       </ul>
 
       <h2 id="blending-several-products-into-one-group">Blending several products into one group</h2>
@@ -141,6 +202,19 @@ source = "github.com/org/our-brand" # git → cloned and pinned to a revision</c
       <p>That last row is the important one: a file no rule names is copied, not
       dropped. Without it a mix would quietly lose every product's
       <code>PRODUCT.md</code>.</p>
+
+      <p>The <code>CLAUDE.md</code> regions are
+      <code>&lt;!-- arizuko:package:&lt;name&gt; BEGIN --&gt;</code> and its
+      <code>END</code> twin, one pair per product. A malformed marker &mdash;
+      a BEGIN with no END, a duplicate, an END before its BEGIN &mdash;
+      refuses to rewrite the file. The alternative is guessing where a
+      region stops, and a wrong guess deletes your own lines.</p>
+
+      <p>Re-applying also drops what a product shipped last time and no
+      product in the mix ships now. &ldquo;Still shipped&rdquo; is checked
+      against the whole mix, so moving an asset from product A to product
+      B keeps the file. A dropped file that you edited since the last apply
+      stays where it is, with a warning.</p>
 
       <p class="note">A collision <strong>refuses the whole apply</strong> and
       writes nothing, rather than picking a winner — if two products both ship

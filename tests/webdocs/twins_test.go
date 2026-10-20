@@ -83,6 +83,10 @@ var twins = []twin{
 		"chanlib/README.md",
 		"template/web/pub/arizuko/components/channels.html",
 	}},
+	{name: "packages", files: []string{
+		"compose/README.md",
+		"template/web/pub/arizuko/reference/packages.html",
+	}},
 }
 
 var (

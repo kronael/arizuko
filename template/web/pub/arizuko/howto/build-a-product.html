@@ -55,6 +55,15 @@
         places the shape surprises people.
       </p>
 
+      <p>
+        A product adds no code path. It recomposes what the platform
+        already runs: a persona, rules, facts and skills, laid over the
+        routing, grants and tools every group already has. So a product page owes its
+        reader one honest line &mdash; which pieces it recombines, and
+        which piece, if any, is still unbuilt. A product that needs a new
+        code path is not a product yet; it is a feature request.
+      </p>
+
       <div class="note">
         Every claim on this page is checked by
         <code>tests/lab/product-lab.sh</code>, which builds a throwaway
@@ -229,13 +238,12 @@ source = "github.com/org/our-brand"  # or a git source, pinned to a revision</co
         </tbody>
       </table>
 
-      <div class="note">
-        <strong>Known bug, <code>L34</code>.</strong> If one product stops
-        shipping an asset in the same apply that another product starts
-        shipping it with identical bytes, the file is deleted and restored
-        only on the next apply. Until it is fixed, apply twice when you
-        move an asset between products in a mix.
-      </div>
+      <p>
+        Moving an asset from one product to another in the same apply is
+        safe. Re-applying drops only what no product in the mix ships any
+        more, checked against the whole mix, so the file stays put while
+        its owner changes.
+      </p>
 
       <h2 id="ship-tests-with-it">Ship tests with it</h2>
 
@@ -342,7 +350,7 @@ text = "NOTHING"</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/howto/build-a-product.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-16">2026-10-16</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-20">2026-10-20</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>
