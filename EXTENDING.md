@@ -334,6 +334,11 @@ via-`reactions.add`). Steps:
 4. Spec under `specs/2/<letter>-<name>.md`; per-platform native
    support belongs in the verb matrix above.
 
+`chanlib.InboundMsg` carries no forward attribution. A message a user
+forwarded from elsewhere arrives as plain content, and no adapter records
+where it came from. `forwarded_from` on a stored row is a different thing:
+the return address of a delegation (ROUTING.md § Reply Routing).
+
 ### Showing progress (the `typing` and `edit` capabilities)
 
 `routd` shows a running turn through two capabilities in the adapter's

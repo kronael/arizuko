@@ -96,7 +96,7 @@ match='sender=telegram:user/[0-9]*'  # any numeric telegram user</code></pre>
     <p><code>core.JidPlatform</code> splits on the <em>first</em> colon and hands back everything before it; the rest stays untouched. So an ID that itself contains a colon doesn&rsquo;t break the platform/rest split. A Bluesky DID is a <code>did:plc:&hellip;</code> string &mdash; the adapter percent-encodes its colons (<code>bluesky:user/did%3Aplc%3A&hellip;</code>) so a glob never trips on them.</p>
 
     <h2>go deeper</h2>
-    <p>Per-platform schemas, code types, migration history, and design rules: <a href="https://github.com/kronael/arizuko/blob/main/specs/5/S-jid-format.md">specs/5/S-jid-format.md</a>. For how these addresses get matched into folders, see <a href="../concepts/routing.html">routing</a>.</p>
+    <p>Every platform&rsquo;s exact shape, the match keys and how globs work: <a href="../reference/jid.html">reference/jid</a>. For how these addresses get matched into folders, see <a href="../concepts/routing.html">routing</a>.</p>
 
       <nav class="docs-pager" aria-label="Pager">
         <a rel="prev" href="slack-pane.html">&larr; Slack pane</a>

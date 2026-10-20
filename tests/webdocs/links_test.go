@@ -193,10 +193,10 @@ func TestWebDocsSpecPathsResolve(t *testing.T) {
 		}
 	}
 	t.Logf("resolved %d spec paths", checked)
-	// 99 at the C5 docs fold and 69 at the C7 fold, which move spec links out
-	// of the pages. The floor exists so a regex that stops matching fails
+	// 99 at the C5 docs fold, 69 at C7 and 52 at C9; each fold moves spec links
+	// out of the pages. The floor exists so a regex that stops matching fails
 	// loudly instead of passing over nothing; it is not a target.
-	if checked < 60 {
+	if checked < 45 {
 		t.Fatalf("only %d spec paths found; the extraction is broken", checked)
 	}
 }
@@ -241,9 +241,10 @@ func TestWebDocsSpecIDsResolve(t *testing.T) {
 		}
 	}
 	t.Logf("resolved %d prose spec IDs", checked)
-	// 36 at the C4 docs fold; the fold moves spec IDs out of the pages, so
-	// the floor follows the count down. Same reasoning as the path floor above.
-	if checked < 30 {
+	// 36 at the C4 docs fold and 26 at C9; each fold moves spec IDs out of the
+	// pages, so the floor follows the count down. Same reasoning as the path
+	// floor above.
+	if checked < 20 {
 		t.Fatalf("only %d prose spec IDs found; the extraction is broken", checked)
 	}
 }

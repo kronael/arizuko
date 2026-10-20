@@ -12,8 +12,8 @@ status: shipped
 | [G-history-backfill.md](G-history-backfill.md)       | shipped            | `fetch_history` vs `inspect_messages` — two audiences                                                  |
 | [L-chat-bound-sessions.md](L-chat-bound-sessions.md) | shipped            | IPC encoding, delivery guarantees, cross-folder parallelism                                            |
 | [W-work.md](W-work.md)                               | shipped            | ephemeral work.md; the staleness nudge that never shipped                                              |
-| [Y-thread-routing.md](Y-thread-routing.md)           | shipped            | persisted reply anchor, Topic as the one thread id                                                     |
-| [a-sticky-routing.md](a-sticky-routing.md)           | shipped            | `@group` / `#topic` commands, sticky columns on chats                                                  |
+| [Y-thread-routing.md](Y-thread-routing.md)           | shipped            | persisted reply anchor, Topic as the one thread id; facts in `ROUTING.md` § Reply Routing              |
+| [a-sticky-routing.md](a-sticky-routing.md)           | shipped            | `@group` / `#topic` commands, sticky columns on chats; facts in `ROUTING.md` § Sticky Routing          |
 | [b-control-chat.md](b-control-chat.md)               | shipped            | why there is _no_ control chat; notify is not wired                                                    |
 | [c-audit-log.md](c-audit-log.md)                     | shipped            | one row shape for in/out; what `source` is actually for                                                |
 | [5-tool-authorization.md](5-tool-authorization.md)   | superseded-in-part | tier tables kept as the source for `5/33`'s role bundles                                               |

@@ -83,6 +83,7 @@
     <h2>how a rule matches</h2>
     <p>The <code>match</code> column is a space-separated list of <code>key=value</code> tests, all of which must pass. So <code>platform=discord room=dm/*</code> matches a Discord message whose chat is a DM, and nothing else. The right-hand side is a glob that stops at <code>/</code> &mdash; which is why <code>discord:dm/*</code> covers every DM yet never crosses into <code>discord:guild/123/channel/456</code> (full glob grammar in <a href="../reference/jid.html">reference / jid</a>).</p>
     <p>Five keys are available: <code>platform</code> (e.g. <code>telegram</code>), <code>room</code> (the part after <code>platform:</code>), <code>chat_jid</code> (the whole address), <code>sender</code> (who sent it), and <code>verb</code> (the action, e.g. <code>post</code>, <code>like</code>). Omit a key and that field is unconstrained.</p>
+    <p>Watch the <code>verb</code> key. There&rsquo;s no fixed list: each adapter sends its own words, and routd adds a few. Telegram, Discord and Slack send <code>mention</code> when someone writes <code>@bot</code>. A reaction arrives as <code>like</code> or <code>dislike</code>. The social adapters &mdash; Bluesky, Reddit, LinkedIn, X &mdash; never send <code>mention</code> at all, so a <code>verb=mention</code> rule there only matches once routd promotes a reply to the bot. Write a rule for a verb that never arrives and it just matches nothing, quietly. ROUTING.md has the table per adapter.</p>
 
     <h2>per-user folders</h2>
     <p>Write <code>{sender}</code> in the target and <code>routd</code> expands it to a sanitized sender ID. One rule like <code>platform=discord &rarr; atlas/{sender}</code> gives every Discord user their own child folder &mdash; <code>atlas/dc-alice</code>, <code>atlas/dc-bob</code> &mdash; without one route per person.</p>
@@ -125,6 +126,7 @@
 20   platform=discord room=guild/* verb=mention  main
 30   platform=discord room=guild/*               main#observe</code></pre>
     <p>Row 10 fires on every message in the named guild. Row 20 fires on @mentions in any other guild. Row 30 silently archives the rest into <code>main</code> for context without invoking the agent.</p>
+    <p>Why two plain rows instead of something smarter, like a score per message? Because with rows you can read the table and say whether a message fires. With a score you&rsquo;d have to simulate it. That&rsquo;s also why <code>#observe</code> context comes with a rule in the prompt: observed messages are context, not requests, so the agent doesn&rsquo;t answer them.</p>
     <p>Later, new <code>#...</code> tails (<code>#drop</code>, <code>#digest</code>, &hellip;) can add new behavior without a new table column.</p>
 
     <h2>go deeper</h2>

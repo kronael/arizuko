@@ -10,7 +10,7 @@ narrowed to the decision that outlived the implementation.
 
 | Spec                                         | Status  | Hook                                                                                                                                                          |
 | -------------------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [F-group-routing.md](F-group-routing.md)     | shipped | Why the routes table is flat; `key=glob` match language                                                                                                       |
+| [F-group-routing.md](F-group-routing.md)     | shipped | Why the routes table is flat; `key=glob` match language; facts in `ROUTING.md` § Route Table, § Inline `@name` / `#topic` prefix layer                        |
 | [e-worlds.md](e-worlds.md)                   | shipped | World = first folder segment; containment ≠ authority                                                                                                         |
 | [R-prompt-format.md](R-prompt-format.md)     | shipped | ContainerInput contract; `submit_turn` deliver-or-fail                                                                                                        |
 | [N-memory-messages.md](N-memory-messages.md) | shipped | Stdin XML envelope, 100-msg window, new-session injection                                                                                                     |

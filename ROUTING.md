@@ -95,6 +95,10 @@ There is no `jid` or `type` field. Rules are filtered entirely by the
 `match` expression. Rules are evaluated in `seq` order; first rule whose
 predicates all match wins.
 
+Registering a group writes exactly one rule: `seq` 0, `match`
+`room=<the JID after the colon>`, `target` the new folder
+(`registerGroup`, `routd/mcp.go`). onbod's route write has the same shape.
+
 ```bash
 # All telegram chats default to atlas/content
 arizuko route krons add 'platform=telegram' atlas/content --seq 0
@@ -112,13 +116,13 @@ arizuko route krons add 'platform=discord' atlas/social --seq 9999
 `key=glob` predicates, AND'd together. An empty `match` matches every
 message.
 
-| Key        | Source                                                   |
-| ---------- | -------------------------------------------------------- |
-| `platform` | `core.JidPlatform(msg.ChatJID)`                          |
-| `room`     | `core.JidRoom(msg.ChatJID)` (post-`:`)                   |
-| `chat_jid` | `msg.ChatJID` (full JID)                                 |
-| `sender`   | `msg.Sender`                                             |
-| `verb`     | `msg.Verb` (e.g. `join`, `like`, `mention`, `untrusted`) |
+| Key        | Source                                 |
+| ---------- | -------------------------------------- |
+| `platform` | `core.JidPlatform(msg.ChatJID)`        |
+| `room`     | `core.JidRoom(msg.ChatJID)` (post-`:`) |
+| `chat_jid` | `msg.ChatJID` (full JID)               |
+| `sender`   | `msg.Sender`                           |
+| `verb`     | `msg.Verb`; the next table             |
 
 Glob semantics use `path.Match` over `/`-separated segments:
 
@@ -129,6 +133,24 @@ Glob semantics use `path.Match` over `/`-separated segments:
 | `key=*`      | value is present (non-empty)                  |
 | `key=`       | value is absent (empty)                       |
 | omit key     | unconstrained — no filter on this field       |
+
+`verb` has no closed vocabulary. Each adapter emits its own set, and routd
+rewrites a few at ingest:
+
+| Source              | Verbs it emits                                                     |
+| ------------------- | ------------------------------------------------------------------ |
+| teled, discd, slakd | `mention` on an explicit `@bot`, else no verb, stored as `message` |
+| bskyd               | `message`, `reply`                                                 |
+| reditd              | `message`, `reply`, `post`                                         |
+| linkd               | `comment`, `reply`                                                 |
+| twitd               | `message`, `reply`                                                 |
+| a reaction          | `like` or `dislike`, from `chanlib.ClassifyEmoji`                  |
+| emaid               | `untrusted` on mail that fails DMARC and the allowlist             |
+| routd, at ingest    | `mention` (§ Verb promotion); an empty verb becomes `message`      |
+
+The four social adapters, bskyd, reditd, linkd and twitd, never emit
+`mention`. On those platforms a rule keyed on `verb=mention` or `verb=like`
+for a stranger's first post matches nothing, and nothing reports it.
 
 ```bash
 # Reddit submissions only, any sub
@@ -165,9 +187,15 @@ mode that fires a turn.
 
 `observe` and `announce` are **reserved words**, so a topic cannot be named
 either one: `folder#announce` always means the announce fragment, never a topic
-called `announce`. Reserving `announce` in v0.59 reinterpreted any route that
-already pinned that topic, and a route row carries no creation time, so no
-migration can tell the two apart (`BUGS.md` R2). Pick another topic name.
+called `announce`. A route row carries no creation time, so nothing can tell a
+topic of that name apart from the fragment (`BUGS.md` R2). Pick another topic
+name.
+
+Whether a message fires a turn is decided by an explicit `verb=` predicate and
+`seq`, never by a weighted score. With a score, nobody can answer "will this
+fire?" without simulating it. The mention-only channel is therefore two rules:
+a `verb=mention` trigger above a catch-all `#observe` (§ Example: Discord guild
+mention-only).
 
 **Engagement overrides all routes**: if the agent has an active engagement window on
 `(jid, topic)` (via a prior reply or `engage` MCP call), inbounds are routed to
@@ -181,19 +209,47 @@ the next trigger turn's prompt as an `<observed>` block, and via the
 folder ACL, not by route mode — anything routed to a folder is
 readable by that folder's agent.
 
+The `<observed>` block is a window with two caps, a message count and a
+character count (`OBSERVE_WINDOW_MESSAGES`, default 10, and
+`OBSERVE_WINDOW_CHARS`, default 4000). The group's stored window overrides the
+defaults, and the first route to the folder that carries a window overrides
+both (`observeWindow`, `routd/prompt.go`). routd fills the window newest first
+and stops at whichever cap it reaches first, so older messages drop first.
+Each `(folder, topic)` keeps its own watermark, so a message enters the block
+once.
+
+When the block is present, the prompt carries the rule "Observed messages are
+context, not requests. Do not reply to them; reply to the explicit message."
+The rule also makes a duplicate delivery of an observed message harmless.
+
 Future modes (`#drop`, `#digest`, …) extend the fragment vocabulary
 without a schema change — one column, free-form fragment.
 
-Spec: `specs/5/B-route-mode-ingestion.md`.
-
 ### Verb promotion + annotation (routd-side)
 
-routd rewrites `verb` at inbound ingest before routing, uniformly
-across adapters: reactions or text replies pointing at a bot-authored
-message promote to `verb=mention` (spec 5/L); emaid stamps
-`verb=untrusted` on mail failing DMARC + allowlist (spec 11/17). Route
-on these directly — e.g. `platform=email verb=untrusted` → quarantine
-folder, `verb=mention` → trigger turn.
+routd rewrites `verb` at inbound ingest, before it stores the row and before
+routing, the same way for every adapter (`routd/server.go`). Adapters send the
+raw verb. routd does the promotion because it holds every message durably; an
+adapter's memory of its own sent ids is lost on restart.
+
+The steps run in this order:
+
+1. **Topic inheritance.** A reply with no topic takes its parent's topic. The
+   thread check below must see the inherited topic. An empty topic is the
+   main timeline and promotes nothing on its own.
+2. **Direct reply.** A reply or a reaction to a bot message becomes
+   `mention`. One exception: on Slack, an ambient thread message arrives as
+   `verb=message` with `reply_to` equal to the thread ts. That is
+   participation in a thread, not a deliberate reply, so it goes to step 3.
+   A reply to the thread root on Discord stays a deliberate reply.
+3. **Thread participation.** A message in a thread promotes to `mention` only
+   when the stored thread root is a bot message and nobody disengaged that
+   thread. A human root or a missing root never promotes.
+
+An `untrusted` message never becomes `mention`. emaid stamps `untrusted` on
+mail that fails DMARC and the allowlist. Route on these directly, for example
+`platform=email verb=untrusted` to a quarantine folder and `verb=mention` to a
+trigger turn.
 
 ### Autoviv (auto-create groups from routing)
 
@@ -276,7 +332,7 @@ seq  match                                             target
 A message in any Slack channel or private group without `@atlas` hits
 seq 100 and is stored as observed context — no turn fires, atlas stays
 silent. An `@atlas` mention promotes `verb=mention` (routd-side verb
-promotion, spec 5/L), which matches seq 40 first and fires a turn.
+promotion), which matches seq 40 first and fires a turn.
 
 DMs (`slack:*/dm/*`) are routed separately at a lower seq number with
 a plain trigger target, so the agent always replies in DMs regardless
@@ -315,6 +371,15 @@ forwarded tweets) do not trigger.
 
 If a referenced child group doesn't exist, the prefix is left in place
 and the message falls through to the agent unchanged.
+
+The prefix layer is code, not `routes` rows, because `@name` is relative to
+the folder that owns the chat. A row would repeat per group and need a rewrite
+on every folder move.
+
+The prefix layer reads one row per poll batch: the oldest slash command when
+the batch holds one, else the newest user message (`steerRowIdx`,
+`routd/dispatch.go`). An `@name` or `#topic` on an older row of the same batch
+is not applied.
 
 ## Resolution Order
 
@@ -356,7 +421,9 @@ route miss: held; onboarding if enabled      @ or #, slash command, prefix,
    falls back to the root topic `""` unless that thread was disengaged, so a
    reply inside a thread keeps the window its root started. Engagement is
    claimed at dispatch, never at ingress, because the folder is unknown until
-   this step.
+   this step. Resolution runs before the miss handler, so an engaged chat
+   never reaches onboarding. The engaged folder's grants are not checked again
+   on this path: the folder held them when it engaged.
 
 A route-table read failure is logged at ERROR and treated as a miss: a retry
 would loop on a poison message.
@@ -546,6 +613,19 @@ func resolveTarget(msg, routes, selfFolder) string {
     // ...
 }
 ```
+
+`forwarded_from` on a row is a return address, never a channel-forward
+marker. `delegate` and `escalate` write a row into the target folder's queue
+with `forwarded_from` set to the chat that asked, or to the escalation
+worker's JID (`delegateViaMessage`, `routd/steer.go`). The turn that row
+starts delivers its `reply` and `send` there.
+
+The adapter that carries a reply is chosen in this order
+(`resolveEntry`, `routd/deliver.go`): an explicit channel pin, which only
+`POST /v1/outbound` carries; then the adapter that delivered the chat's latest
+inbound, `messages.source`; then the first registered adapter that owns the
+JID's prefix. The middle step matters when two accounts on one platform share a
+prefix: the prefix lookup returns whichever it finds first.
 
 ### Example: reply routing in action
 

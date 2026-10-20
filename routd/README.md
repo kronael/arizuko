@@ -110,6 +110,12 @@ half keeps these rules.
   always dead-letters (`ipc/ipc.go` `recordOutboundFailure`).
 - **Delivery dedup** is the adapter's: `chanlib/README.md` § Delivery is
   claimed before the platform call.
+- **A proactive turn starts from a synthetic row.** The scanner
+  (`proactive.go`) appends an inbound row with sender `timed-proactive`
+  (`store.ProactiveSelfSender`). That row never resets the chat's silence
+  clock, because the trigger must not feed itself. The `timed-` prefix puts
+  the turn on the path every task turn takes: it renews no engagement, runs
+  no slash command and carries no caller sub.
 
 ## Ranked message search
 

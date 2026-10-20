@@ -43,7 +43,7 @@ standard adapter surface from `chanlib.NewAdapterMux`.
 
 | Verb               | Status             | Notes                                                            |
 | ------------------ | ------------------ | ---------------------------------------------------------------- |
-| `send`             | native             | `chat.postMessage`; honours `reply_to` → `thread_ts`             |
+| `send`             | native             | `chat.postMessage`; `thread_ts` from the thread fields, below    |
 | `send_file`        | native             | `files.getUploadURLExternal` + PUT + `completeUploadExternal`    |
 | `edit`             | native             | `chat.update`                                                    |
 | `delete`           | native             | `chat.delete`                                                    |
@@ -55,6 +55,20 @@ standard adapter surface from `chanlib.NewAdapterMux`.
 | `repost`           | hint               | redirects to `send`                                              |
 | `pane_set_prompts` | native (pane only) | `assistant.threads.setSuggestedPrompts` after next Send          |
 | `pane_set_title`   | native (pane only) | `assistant.threads.setTitle` after next Send                     |
+
+## Replies thread on the trigger
+
+slakd sets `thread_ts` from `thread_id`, the thread a turn already runs in,
+or else `thread_root`, the trigger message routd asks it to root a new thread
+on (`bot.go` `Send`). `reply_to` never sets `thread_ts`: it often names an
+earlier bot row, and a thread rooted there hides the reply in a thread the
+user never started. routd sends `thread_root` only for a `reply` to the
+trigger chat, when the turn is not in a thread yet and the group's
+`thread_replies` setting allows it; unset, the setting follows whether the
+chat has several users (`replyThreadRoot`, `routd/turns.go`).
+`send` never roots a new thread. When Slack cannot find the
+thread, slakd posts the reply once more at the channel root, so the reply is
+not lost.
 
 ## Assistant pane (specs/8/D)
 
