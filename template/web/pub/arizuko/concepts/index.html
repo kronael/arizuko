@@ -64,47 +64,47 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; concepts</p>
       <h1>concepts</h1>
 
-      <p class="lede">A guided tour of how arizuko works, one idea at a time. Read it front to back the first time &mdash; each page builds on the one before it &mdash; or jump straight to the primitive you're stuck on.</p>
+      <p class="lede">The concepts pages explain how arizuko works, one idea per page. Read them in order the first time, because each page builds on the page before it, or go straight to the concept you need.</p>
 
-      <h2>How to take the tour</h2>
-      <p>Concepts is a walkthrough, not a glossary. The order below is a learning arc: you meet the agent, watch a message reach it, then peel back one layer at a time &mdash; who's allowed to do what, how an agent proves who's calling, where its credentials and skills come from, and the surfaces it lives on. Each page is a single idea you can read in a minute or two, with one worked example from a real deployment.</p>
-      <p>Every page ends with a <strong>next</strong> link that walks this same order, so you can follow the tour with the pager and never lose your place. When you want the exhaustive grammar &mdash; every flag, every column, the full JID schema &mdash; each concept points you at its twin in <a href="../reference/">reference</a>. Concepts is the why and the shape; reference is the field list.</p>
+      <h2>The pages follow the path of a message</h2>
+      <p>The concepts pages are a guided path, not a glossary. You meet the agent and follow a message to it. Then each page adds one layer: who can do what, and how an agent proves who calls. Later pages show where credentials and skills come from, and where the agent lives on the web. Each page holds one idea, takes a minute or two to read, and has one example from a real deployment.</p>
+      <p>Every page ends with a <strong>next</strong> link in the same order, so the pager takes you through the whole path. For the full lists, such as every flag, every column or the full JID schema, each concept links to its matching page in <a href="../reference/">reference</a>. Concepts explain the why and the shape. Reference lists the fields.</p>
 
-      <h2>The tour</h2>
+      <h2>Thirty pages, in reading order</h2>
       <ol class="tour">
-        <li><a href="primitives.html">Primitives</a> &mdash; the whole system in one page: six parts in a fixed order, and how every feature is those parts recombined. Read this first; the rest is detail.</li>
-        <li><a href="built.html">How it&rsquo;s built</a> &mdash; arizuko is built the way it runs: specs, skills, file-based memory, and worktree subagents composing the same four layers.</li>
-        <li><a href="store.html">The store</a> &mdash; where every row lives: one server, one account per instance, a key per daemon.</li>
-        <li><a href="scaling.html">Scaling</a> &mdash; the same code runs <code>solo/inbox</code> and <code>corp/eng/sre/oncall</code>; adding tenants is adding rows, not infrastructure.</li>
-        <li><a href="ant.html">The ant</a> &mdash; the agent you talk to: a folder holding a persona, skills, memory, and secrets.</li>
-        <li><a href="turn.html">A turn, end to end</a> &mdash; one drawing of the whole path: adapter, router, the guest, and back out to the chat.</li>
-        <li><a href="routing.html">Routing</a> &mdash; how an inbound message finds the right agent: one table mapping JIDs to folders.</li>
-        <li><a href="engagement.html">Engagement</a> &mdash; once a message lands, deciding whether to keep listening after a single mention.</li>
-        <li><a href="proactive.html">Proactive</a> &mdash; the other direction: letting the agent speak when nobody addressed it, behind a row of vetoes and a 24-hour cooldown. Off unless you turn it on.</li>
-        <li><a href="topics.html">Topics</a> &mdash; scoping a strand of work into its own conversation inside one folder.</li>
-        <li><a href="progress.html">Live progress</a> &mdash; the checklist you watch while the agent works: one message, edited in place, posted by the harness rather than the model.</li>
-        <li><a href="retries.html">Retries</a> &mdash; what happens when the guest running your turn dies before it answers.</li>
-        <li><a href="onboarding.html">Onboarding</a> &mdash; how a new group and its members are admitted: invites, the admission queue, SetupGroup.</li>
-        <li><a href="autoviv.html">Autoviv</a> &mdash; how sub-groups and their agents come into being on first contact, without a manual step.</li>
-        <li><a href="personas.html">Personas</a> &mdash; giving an agent its voice and standing instructions.</li>
-        <li><a href="auth.html">Auth</a> &mdash; proving who is calling: OAuth, local login, account linking, one canonical sub.</li>
-        <li><a href="grants.html">Grants</a> &mdash; what that principal is allowed to do, read from the <code>acl</code> table on every call.</li>
-        <li><a href="scopes.html">Scopes</a> &mdash; the folder hierarchy that grants speak in: who can see whom, where isolation begins.</li>
-        <li><a href="secrets.html">Secrets</a> &mdash; model credentials in the guest's env, capability credentials brokered on the host.</li>
-        <li><a href="ext-mcp.html">Connectors</a> &mdash; giving an agent somebody else&rsquo;s API as a tool, with the credential kept on the host.</li>
-        <li><a href="audit.html">Audit trail</a> &mdash; the row every change writes in the same transaction as the change, and which daemon keeps it.</li>
-        <li><a href="skills.html">Skills</a> &mdash; markdown instruction sets the agent loads on demand to extend what it can do.</li>
-        <li><a href="tasks.html">Tasks</a> &mdash; scheduled and recurring runs: cron, interval, one-shot, autonomous work.</li>
-        <li><a href="workflows.html">Workflows</a> &mdash; the discipline that makes multi-step jobs converge: free conversation, a strict opening, and one plan-of-record file.</li>
-        <li><a href="tokens.html">Tokens</a> &mdash; the no-login route tokens that let a public chat box or webhook reach an agent.</li>
-        <li><a href="web-native-agents.html">Web-native agents</a> &mdash; the web surfaces a folder owns: a public page, embedded chat, form intake.</li>
-        <li><a href="webdav.html">WebDAV</a> &mdash; the file workspace, mountable from Finder, rclone, or curl.</li>
-        <li><a href="voice.html">Voice</a> &mdash; voice in and out: Whisper transcribes, the agent decides when to speak back.</li>
-        <li><a href="slack-pane.html">Slack pane</a> &mdash; the Slack assistant sidebar: title, suggested prompts, pane context.</li>
-        <li><a href="jid.html">Addressing (JID)</a> &mdash; the one typed address shape behind every chat and sender, across every adapter.</li>
+        <li><a href="primitives.html">Primitives</a>: the whole system on one page. Six parts in a fixed order, and how every feature combines them. Read it first.</li>
+        <li><a href="built.html">How it&rsquo;s built</a>: the team builds arizuko with the same parts it runs: specs, skills, file memory and subagents in worktrees.</li>
+        <li><a href="store.html">The store</a>: where every row lives. One server, one account per instance, one key per daemon.</li>
+        <li><a href="scaling.html">Scaling</a>: the same code runs <code>solo/inbox</code> and <code>corp/eng/sre/oncall</code>. A new tenant is new rows, not new infrastructure.</li>
+        <li><a href="ant.html">The ant</a>: the agent you talk to, a folder with a persona, skills, memory and secrets.</li>
+        <li><a href="turn.html">A turn, end to end</a>: one figure of the whole path from the adapter through the router and the guest back to the chat.</li>
+        <li><a href="routing.html">Routing</a>: how an inbound message finds the correct agent, through one table that maps JIDs to folders.</li>
+        <li><a href="engagement.html">Engagement</a>: after a message arrives, whether the bot keeps listening after one mention.</li>
+        <li><a href="proactive.html">Proactive</a>: the other direction. The agent speaks when nobody addressed it, behind a row of checks and a 24-hour cooldown. It is off until you turn it on.</li>
+        <li><a href="topics.html">Topics</a>: one strand of work as its own conversation inside one folder.</li>
+        <li><a href="progress.html">Live progress</a>: the checklist you see while the agent works. One message, edited in place, posted by the harness and not by the model.</li>
+        <li><a href="retries.html">Retries</a>: what happens when the guest that runs your turn stops before it answers.</li>
+        <li><a href="onboarding.html">Onboarding</a>: how a new group and its members get in: invites, the admission queue and SetupGroup.</li>
+        <li><a href="autoviv.html">Autoviv</a>: how a new chat gets its own folder and agent on first contact, with no manual step.</li>
+        <li><a href="personas.html">Personas</a>: the voice and standing instructions of an agent.</li>
+        <li><a href="auth.html">Auth</a>: how arizuko knows who calls: OAuth, local login, account linking and one canonical sub.</li>
+        <li><a href="grants.html">Grants</a>: what that principal can do, read from the <code>acl</code> table on every call.</li>
+        <li><a href="scopes.html">Scopes</a>: the folder tree that grants use, which folder sees which, and where isolation starts.</li>
+        <li><a href="secrets.html">Secrets</a>: model credentials in the environment of the guest, and capability credentials used on the host.</li>
+        <li><a href="ext-mcp.html">Connectors</a>: the API of another service as an agent tool, with the credential kept on the host.</li>
+        <li><a href="audit.html">Audit trail</a>: the row that every change writes in the same transaction as the change, and which daemon keeps it.</li>
+        <li><a href="skills.html">Skills</a>: markdown instructions that the agent loads when it needs them.</li>
+        <li><a href="tasks.html">Tasks</a>: scheduled and recurring runs: cron, interval, one-time and autonomous work.</li>
+        <li><a href="workflows.html">Workflows</a>: the discipline that makes jobs with many steps converge: free conversation, a strict opening and one plan file.</li>
+        <li><a href="tokens.html">Tokens</a>: route tokens that let a public chat box or a webhook reach an agent without a login.</li>
+        <li><a href="web-native-agents.html">Web-native agents</a>: the web content that a folder owns: a public page, an embedded chat and form intake.</li>
+        <li><a href="webdav.html">WebDAV</a>: the file workspace that you can mount from Finder, rclone or curl.</li>
+        <li><a href="voice.html">Voice</a>: voice in and out. Whisper transcribes, and the agent decides when to speak back.</li>
+        <li><a href="slack-pane.html">Slack pane</a>: the Slack assistant sidebar with a title, suggested prompts and pane context.</li>
+        <li><a href="jid.html">Addressing (JID)</a>: the one address shape for every chat and sender on every adapter.</li>
       </ol>
 
-      <p>No setup commands here &mdash; those live in <a href="../howto/">how-to</a>. No exhaustive option tables &mdash; those live in <a href="../reference/">reference</a>. When you're ready to build, start with <a href="../howto/">getting started</a>.</p>
+      <p>Setup commands are in <a href="../howto/">how-to</a>, and complete option tables are in <a href="../reference/">reference</a>. When you are ready to build, start with <a href="../howto/">getting started</a>.</p>
 
       <nav class="docs-pager" aria-label="Pager">
         <a rel="next" href="primitives.html">Primitives &rarr;</a>

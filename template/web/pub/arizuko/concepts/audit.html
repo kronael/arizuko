@@ -64,10 +64,10 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">concepts</a> &rsaquo; audit trail</p>
 <h1>audit trail</h1>
 
-    <p class="lede">Someone revoked a grant last Tuesday and nobody remembers who. An agent's guest was killed mid-turn and the user wants to know why. A secret changed and three people had the access to change it. The audit trail is the table that answers those questions, and this page is about what it does and does not cover.</p>
+    <p class="lede">The audit trail is the table that records who changed what. It answers questions such as these: who revoked a grant last Tuesday, why did a guest stop during a turn, and who changed a secret? The page describes what the trail covers and what it does not cover.</p>
 
-    <h2>three places a thing gets written down</h2>
-    <p>Before the details, the map. One event in a daemon can land in three places, and they are not three copies of the same thing. The row is the record. The log line is what&rsquo;s happening right now. The span is for when you&rsquo;ve wired a collector and want to see one turn cross four daemons as one picture.</p>
+    <h2>One event can land in three places</h2>
+    <p>One event in a daemon can land in three places, and they are not three copies of the same data. The row is the record. The log line shows what happens now. The span shows one turn across four daemons as one trace, when you connect a collector.</p>
     <pre id="twin-observability"><code>┌───────────────────────────────────────────────────────────────────────────┐
 │ one event in a daemon: a mutation, a denial, a tool call, a turn          │
 └───────────┬───────────────────────────┬───────────────────────┬───────────┘
@@ -99,69 +99,69 @@
  door: Prometheus on seven daemons when METRICS_ENABLED is set.
 </code></pre>
 
-    <h2>one row per thing that changed</h2>
-    <p>Every mutating call &mdash; an MCP tool the agent invoked, a REST endpoint an operator hit, a CLI command &mdash; writes one row to <code>audit_log</code>. Reads do not. Listing routes or fetching a chat produces a log line and nothing else, because the volume is enormous and the row would carry no decision worth recovering later.</p>
+    <h2>Each change writes one row</h2>
+    <p>Every call that changes state writes one row to <code>audit_log</code>. The call can be an MCP tool call of the agent, a REST call of an operator, or a CLI command. Reads write no row. A route list or a chat fetch produces only a log line. Reads are very many, and their rows would record no decision.</p>
 
-    <p>The row is written <em>in the same batch as the change itself</em>: both land or neither does. There is no window where a route moved and nothing recorded it, and no cleanup job reconciling two tables that drifted.</p>
+    <p>The row is written <em>in the same batch as the change</em>, so both land or neither lands. No moment exists in which a route changed and nothing recorded it, and no cleanup job must reconcile two tables.</p>
 
-    <p>A row names who asked (<code>actor</code>, <code>actor_sub</code>), what they touched (<code>action</code>, <code>resource</code>, <code>params_summary</code>), how it went (<code>outcome</code>, <code>error_msg</code>, <code>duration_ms</code>) and where (<code>folder</code>, <code>turn_id</code>, <code>instance</code>). The full column list is in <a href="../reference/schema.html">reference/schema</a>.</p>
+    <p>A row names who asked, in <code>actor</code> and <code>actor_sub</code>. It names what they touched, in <code>action</code>, <code>resource</code> and <code>params_summary</code>. It names the result, in <code>outcome</code>, <code>error_msg</code> and <code>duration_ms</code>, and the place, in <code>folder</code>, <code>turn_id</code> and <code>instance</code>. <a href="../reference/schema.html">reference/schema</a> has the full column list.</p>
 
-    <h2>the log is not the table</h2>
-    <p>Every audited call also emits a structured log line, and the two are not the same thing. The log line reaches journald and, if you have wired an OTLP collector, your dashboards. It is lossy on purpose: journald rotates, levels filter, nothing waits for it.</p>
+    <h2>The log line is not the record</h2>
+    <p>Every audited call also writes a structured log line, and the two are different. The log line goes to journald and, if you connect an OTLP collector, to your dashboards. The log can lose lines by design: journald rotates, levels filter, and nothing waits for a line to land.</p>
 
-    <p>So the table is the answer to &ldquo;every ACL write last quarter&rdquo; and the log is the answer to &ldquo;what is happening right now&rdquo;. When they disagree, the table is right.</p>
+    <p>So the table answers &ldquo;every ACL write last quarter&rdquo;, and the log answers &ldquo;what happens now&rdquo;. When the two disagree, the table is correct.</p>
 
-    <h2>what the agent does inside the guest</h2>
-    <p>The agent&rsquo;s own tool use &mdash; every <code>Bash</code>, <code>Edit</code>, <code>Read</code> it runs while working &mdash; is captured by harness hooks and printed as one JSON line per call, which runed lifts into the log stream. None of it reaches the database.</p>
+    <h2>Tool use inside the guest goes to the log, not the table</h2>
+    <p>Harness hooks capture the tool use of the agent while it works, such as every <code>Bash</code>, <code>Edit</code> and <code>Read</code> call. The hooks print one JSON line per call. <code>runed</code> moves these lines into the log stream. None of them reaches the database.</p>
 
-    <p>That is deliberate. Agent tool use is operational detail at enormous volume, and the parts that actually change platform state already went through MCP, where they were audited like any other call. A hook that wrote to the database would turn every keystroke of the agent&rsquo;s work into a distributed transaction.</p>
+    <p>This is by design. Tool use in the guest is operational detail in large volume. The calls that change platform state already went through MCP, and MCP audited them like any other call. A hook that wrote to the database would make every step of the work of the agent a distributed transaction.</p>
 
-    <p>One kind of agent action gets a row precisely because it leaves nothing else behind: a <code>like</code>, <code>dislike</code>, <code>edit</code>, <code>delete</code>, <code>pin</code> or <code>unpin</code> on a message already out on the platform. None of them appends a <code>messages</code> row, so the <code>audit_log</code> row is the only trace &mdash; category <code>agent</code>, action <code>message.&lt;verb&gt;</code>, the chat and the target message as the resource (<code>routd/social_audit.go</code>). An edit row names the message, never the new text. The row is written after the platform call, success or error; a failed audit write is logged rather than returned, because the platform message has already changed and a retry would change it twice.</p>
+    <p>One kind of agent action gets a row, because it leaves no other trace. This is a <code>like</code>, <code>dislike</code>, <code>edit</code>, <code>delete</code>, <code>pin</code> or <code>unpin</code> on a message already on the platform. None of these appends a <code>messages</code> row, so the <code>audit_log</code> row is the only record. It has the category <code>agent</code>, the action <code>message.&lt;verb&gt;</code>, and the chat and target message as the resource, in <code>routd/social_audit.go</code>. An edit row names the message, never the new text. <code>routd</code> writes the row after the platform call, on success or error. A failed audit write goes to the log and is not returned, because the platform message already changed and a retry would change it twice.</p>
 
-    <p>Don&rsquo;t expect the two streams to line up field for field. The hook line says <code>tool</code>, <code>phase</code>, <code>args_summary</code>; the registry&rsquo;s line says <code>caller</code>, <code>resource</code>, <code>action</code>, <code>surface</code>. Both end in <code>outcome</code> and <code>duration_ms</code>. The full row shape is in <a href="https://github.com/kronael/arizuko/blob/main/audit/README.md"><code>audit/README.md</code></a>.</p>
+    <p>The two streams do not match field for field. The hook line has <code>tool</code>, <code>phase</code> and <code>args_summary</code>. The line from the registry has <code>caller</code>, <code>resource</code>, <code>action</code> and <code>surface</code>. Both end with <code>outcome</code> and <code>duration_ms</code>. <a href="https://github.com/kronael/arizuko/blob/main/audit/README.md">[audit/README.md]</a> has the full row shape.</p>
 
-    <h2>each daemon keeps its own</h2>
-    <p>arizuko does not have one audit table. Each daemon owns its own tables, including its own <code>audit_log</code>, and nothing writes across that line. A table is named for the daemon that owns it &mdash; <code>routd.audit_log</code>, <code>runed.audit_log</code>, <code>authd.audit_log</code>, <code>onbod.audit_log</code> &mdash; so the owner is visible in the name. Correlation is by <code>turn_id</code>, which travels with the work.</p>
+    <h2>Each daemon keeps its own audit table</h2>
+    <p>arizuko has no single audit table. Each daemon owns its own tables, including its own <code>audit_log</code>, and no daemon writes into the tables of another. A table name starts with the daemon that owns it, such as <code>routd.audit_log</code>, <code>runed.audit_log</code>, <code>authd.audit_log</code> and <code>onbod.audit_log</code>, so the name shows the owner. The <code>turn_id</code> travels with the work and connects the rows.</p>
 
     <table>
       <tr><th>Daemon</th><th>Its audit table</th><th>Records</th></tr>
-      <tr><td><code>routd</code></td><td><code>routd.audit_log</code></td><td>routes, groups, grants, secrets, tasks, tokens &mdash; the bulk of it</td></tr>
-      <tr><td><code>runed</code></td><td><code>runed.audit_log</code></td><td>who claimed a folder&rsquo;s run slot (<code>run.hold</code>) and who killed a run (<code>run.kill</code>)</td></tr>
-      <tr><td><code>authd</code></td><td><code>authd.audit_log</code></td><td>identity and token events &mdash; logins, and who ended whose session (<code>sessions:delete</code>)</td></tr>
+      <tr><td><code>routd</code></td><td><code>routd.audit_log</code></td><td>routes, groups, grants, secrets, tasks and tokens, which is most of the trail</td></tr>
+      <tr><td><code>runed</code></td><td><code>runed.audit_log</code></td><td>who claimed the run slot of a folder, <code>run.hold</code>, and who stopped a run, <code>run.kill</code></td></tr>
+      <tr><td><code>authd</code></td><td><code>authd.audit_log</code></td><td>identity and token events: logins, and who ended whose session, <code>sessions:delete</code></td></tr>
       <tr><td><code>onbod</code></td><td><code>onbod.audit_log</code></td><td>admissions, invites and onboarding gates</td></tr>
     </table>
 
-    <p>This is the same rule that keeps each daemon owning its own schema. webd, proxyd and dashd keep no table of their own; their rows land in routd&rsquo;s. One view still spans all four: the dashboard asks each daemon and merges the answers, rather than reading anyone else&rsquo;s tables.</p>
+    <p>The same rule keeps each daemon the owner of its own schema. <code>webd</code>, <code>proxyd</code> and <code>dashd</code> keep no table of their own, and their rows go into the table of <code>routd</code>. One view still covers all four: the dashboard asks each daemon and merges the answers, and it reads no other daemon&rsquo;s tables.</p>
 
-    <h2>reading it</h2>
-    <p>The dashboard at <code>/dash/audit/</code> is the everyday view: newest first, fifty rows a page, filterable by category, actor and folder, with an <code>older</code> link that carries your filters. It is operator-only.</p>
+    <h2>The dashboard merges the four trails</h2>
+    <p>The dashboard page <code>/dash/audit/</code> is the usual view, newest first, with fifty rows per page. It has filters for category, actor and folder, and an <code>older</code> link that keeps your filters. Only an operator can open it.</p>
 
-    <p>It shows all four trails at once. Each daemon publishes its own table at <code>GET /v1/audit</code>, and the dashboard asks all of them and merges the answers by time, with a <strong>source</strong> column telling you which daemon a row came from. So &ldquo;who killed that run&rdquo; is a question you answer in the browser, without a shell on the box.</p>
+    <p>The page shows all four trails at once. Each daemon publishes its own table at <code>GET /v1/audit</code>. The dashboard asks all of them, merges the answers by time, and shows a <strong>source</strong> column with the daemon of each row. So you can find who stopped a run in the browser, with no shell on the host.</p>
 
-    <p>The dashboard asks over the network rather than reading <code>runed</code>&rsquo;s and <code>authd</code>&rsquo;s tables itself. That is the same ownership rule as everywhere else: a daemon&rsquo;s table is reached through the daemon, so there is one place that decides who may read what. If one daemon does not answer, you get a banner naming it and the others still render &mdash; an empty section would tell you nothing happened there, which is the one thing an audit page must never say by accident.</p>
+    <p>The dashboard asks over the network and does not read the tables of <code>runed</code> and <code>authd</code> itself. This is the same ownership rule as everywhere else: a daemon serves its own table, so one place decides who can read what. If one daemon does not answer, a banner names it and the other sources still show. An empty section would say that nothing happened there, and an audit page must never say that by accident.</p>
 
-    <p>Reading the log does not write to it. Only changes get a row, so refreshing the page all day adds nothing; a <em>refused</em> read does get recorded, which is the point.</p>
+    <p>A read of the trail writes no row. Only changes get a row, so a page refresh adds nothing. A <em>refused</em> read does get a row.</p>
 
-    <div class="callout"><strong>Reading it yourself.</strong> The same data over HTTP, with an operator token:
+    <div class="callout"><strong>The same data is available over HTTP.</strong> Use an operator token:
     <pre><code>curl -s -H "Authorization: Bearer $TOKEN" \
   "https://&lt;host&gt;/v1/audit?category=authz&amp;limit=50" | jq .</code></pre>
-    Filters: <code>folder</code> (that folder and everything under it), <code>category</code>, <code>actor</code> (substring), <code>limit</code> (default 50, maximum 200), and <code>before_id</code> to page backwards. An agent can ask the same question about its own folder with the <code>query_audit</code> tool.
-    <p><code>onbod</code> joins only where it is deployed: onboarding is an optional profile, and a daemon you never ran isn&rsquo;t a source that failed.</p></div>
+    The filters are <code>folder</code>, <code>category</code>, <code>actor</code>, <code>limit</code> and <code>before_id</code>. <code>folder</code> covers that folder and every folder under it, and <code>actor</code> matches a substring. <code>limit</code> has a default of 50 and a maximum of 200, and <code>before_id</code> gives older pages. An agent can ask the same question about its own folder with the <code>query_audit</code> tool.
+    <p><code>onbod</code> is a source only where it is deployed. Onboarding is an optional profile, and a daemon that never ran is not a failed source.</p></div>
 
-    <h2>what is deliberately not audited</h2>
-    <p>A table that already <em>is</em> the record does not get audited twice. The clearest case is a turn: <code>spawns</code> already holds its kind, state, outcome, exit code and every timestamp, and the dashboard renders it, so runed writes no extra row per turn. Chat messages are the same &mdash; the <code>messages</code> table is the record of what was said.</p>
+    <h2>A table that is already the record gets no audit row</h2>
+    <p>A table that already <em>is</em> the record is not audited a second time. A turn is the clearest case. <code>spawns</code> already holds its kind, state, outcome, exit code and every timestamp, and the dashboard shows it. So <code>runed</code> writes no extra row per turn. Chat messages are the same: the <code>messages</code> table is the record of what was said.</p>
 
-    <p>What such a table never holds is <strong>who asked</strong>. That is why runed audits the run slot and not the run: a hold stops every turn in a folder and a kill is an operator&rsquo;s decision, and both can happen without leaving a <code>spawns</code> row at all.</p>
+    <p>Such a table never records <strong>who asked</strong>. For this reason, <code>runed</code> audits the run slot and not the run. A hold stops every turn in a folder, a kill is the decision of an operator, and both can happen without a <code>spawns</code> row.</p>
 
-    <p>One real gap, stated plainly: a <em>denied</em> call is recorded for every resource served through the registry &mdash; routes, grants, secrets, tasks, tokens, the audit read itself &mdash; but the older hand-written endpoints still refuse correctly without leaving a row. Making that uniform belongs at the authorization gate, and it is not finished.</p>
+    <p>One gap exists. A <em>denied</em> call gets a row for every resource that the registry serves: routes, grants, secrets, tasks, tokens and the audit read itself. The older hand-written endpoints refuse correctly but leave no row. The fix belongs at the authorization gate, and it is not complete.</p>
 
-    <h2>what never reaches the table</h2>
-    <p>Arguments are recorded so you can tell one call from another, but anything that looks like a credential is replaced with a marker before the row is written &mdash; passwords, tokens, secrets, cookies, API and private keys, database connection strings. The marker keeps the length (<code>&lt;redacted:64chars&gt;</code>) so you can still tell an empty value from a real key without ever storing one.</p>
+    <h2>Credentials never reach the table</h2>
+    <p>The row records the arguments, so you can tell one call from another. Before the write, a marker replaces anything that looks like a credential: passwords, tokens, secrets, cookies, API keys, private keys and database connection strings. The marker keeps the length, as in <code>&lt;redacted:64chars&gt;</code>, so you can tell an empty value from a real key without storing the key.</p>
 
-    <p>Redaction happens where the row is <em>written</em>, not where it is read, so there is one rule and every daemon obeys it. The matching is deliberately narrow at the edges: <code>private_key</code> is hidden, <code>serving_keys</code> &mdash; a count of how many keys a daemon is serving &mdash; is not, because over-hiding blinds the very questions this table exists to answer. A very long argument is shortened to its first 200 characters with a note saying how long it really was, and the rest of the row survives intact.</p>
+    <p>Redaction happens where the row is <em>written</em>, not where it is read, so one rule applies and every daemon follows it. The match is narrow at the edges on purpose. <code>private_key</code> is hidden. <code>serving_keys</code>, a count of the keys a daemon serves, is not hidden, because too much hiding blocks the questions the table exists to answer. A very long argument is cut to its first 200 characters, with a note of its real length. The rest of the row stays complete.</p>
 
-    <h2>go deeper</h2>
-    <p>The row, its closed enums and the redaction rule: <a href="https://github.com/kronael/arizuko/blob/main/audit/README.md"><code>audit/README.md</code></a>. The log and span half: <a href="https://github.com/kronael/arizuko/blob/main/obs/README.md"><code>obs/README.md</code></a>. Every column, index and writer: <a href="../reference/schema.html">reference/schema</a>. Who is allowed to do the thing being audited: <a href="grants.html">grants</a>.</p>
+    <h2>Three READMEs have the detail</h2>
+    <p><a href="https://github.com/kronael/arizuko/blob/main/audit/README.md">[audit/README.md]</a> describes the row, its closed enums and the redaction rule. <a href="https://github.com/kronael/arizuko/blob/main/obs/README.md">[obs/README.md]</a> describes the log and span half. <a href="../reference/schema.html">reference/schema</a> lists every column, index and writer. <a href="grants.html">grants</a> explains who can do the action that the trail records.</p>
 
       <nav class="docs-pager" aria-label="Pager">
         <a rel="prev" href="secrets.html">&larr; Secrets</a>

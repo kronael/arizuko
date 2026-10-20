@@ -64,39 +64,50 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">concepts</a> &rsaquo; tasks</p>
 <h1>tasks</h1>
 
-    <p class="lede">Skills decide what an agent can do when prompted. Tasks decide <em>when</em> a prompt arrives &mdash; including when no human is around to send one. A task is a saved prompt with a schedule. When the schedule says it&rsquo;s time, the prompt lands in a folder as if a user had just typed it, and the agent answers like any other turn. That last part is the trick worth keeping: a scheduled run is not a special code path, just a synthetic message on the same rails everything else rides.</p>
+    <p class="lede">A task decides <em>when</em> a prompt arrives, also when no person is there to send one. A task is a saved prompt with a schedule. When the schedule says it is time, the prompt lands in a folder as if a user had typed it. The agent answers as on any other turn. A scheduled run uses no special code path: it is a synthetic message on the same path as every other message.</p>
 
-    <h2>what it is</h2>
-    <p>One row in the <code>scheduled_tasks</code> table = one recurring or one-shot agent run. The body is a prompt string; the trigger is either a cron expression, an interval in milliseconds, or a single future timestamp.</p>
+    <h2>A task is one row with a prompt and a trigger</h2>
+    <p>One row in the <code>scheduled_tasks</code> table is one recurring or one-time agent run. The body is a prompt string. The trigger is a cron expression, an interval in milliseconds, or one future timestamp.</p>
 
-    <h2>mechanism</h2>
-    <p>The <code>timed</code> daemon ticks every 60 seconds. It opens no database: on each tick it asks <code>routd</code>&rsquo;s <code>GET /v1/tasks/due</code>, and routd claims every row where <code>status='active'</code> and <code>next_run &le; now</code>, flips them to <code>'firing'</code> and hands them back. For each one timed posts the prompt to <code>POST /v1/messages</code> with sender <code>timed</code> (or <code>timed-isolated:&lt;id&gt;</code>) and the task&rsquo;s <code>chat_jid</code>.</p>
-    <p><code>routd</code> polls <code>messages</code> the same way it polls every other inbound source. It sees the new row, routes by <code>chat_jid</code>, and fires a turn. The agent has no idea this prompt came from a clock instead of a person &mdash; same code path.</p>
-    <p>After the post, <code>timed</code> asks routd to set the next <code>next_run</code> (parsed from the cron expression or added from the interval), or to mark the row <code>'completed'</code> if there is no schedule. <code>next_run</code> always comes from the <code>cron</code> value &mdash; <code>schedule_task</code> takes no <code>next_run</code>. The one exception is the operator&rsquo;s run-now, a <code>PATCH</code> on the task over REST. Every fire writes one row to <code>task_run_logs</code> with duration and status.</p>
+    <h2>timed posts the prompt as a message</h2>
+    <p>The <code>timed</code> daemon ticks every 60 seconds. It opens no database. On each tick, it calls <code>GET /v1/tasks/due</code> on <code>routd</code>. <code>routd</code> claims every row where <code>status='active'</code> and <code>next_run &le; now</code>, sets each one to <code>'firing'</code> and returns them. For each row, <code>timed</code> posts the prompt to <code>POST /v1/messages</code> with the <code>chat_jid</code> of the task. The sender is <code>timed</code>, or <code>timed-isolated:&lt;id&gt;</code> for an isolated task.</p>
+    <p><code>routd</code> reads the new row in the same way as every other inbound message, routes it by <code>chat_jid</code> and starts a turn. The agent cannot tell that the prompt came from a clock and not from a person, because the code path is the same.</p>
+    <p>After the post, <code>timed</code> asks <code>routd</code> to set the next <code>next_run</code>, from the cron expression or the interval. If the task has no schedule, <code>routd</code> marks the row <code>'completed'</code>. <code>next_run</code> always comes from the <code>cron</code> value, and <code>schedule_task</code> takes no <code>next_run</code>. The one exception is the run-now action of the operator, a <code>PATCH</code> on the task over REST. Every run writes one row to <code>task_run_logs</code> with the duration and the status.</p>
 
-    <h2>triggers</h2>
-    <p>The <code>cron</code> column carries one of three shapes:</p>
-    <ul>
-      <li><strong>Cron expression</strong> &mdash; standard 5-field cron (<code>0 9 * * 1-5</code> for weekday mornings). Parsed by <code>robfig/cron</code> in the task&rsquo;s timezone (the daemon&rsquo;s <code>TZ</code> env, default UTC).</li>
-      <li><strong>Interval</strong> &mdash; a plain integer string of milliseconds. <code>1800000</code> = every 30 minutes. The next <code>next_run</code> is just <code>now + interval</code> after each fire.</li>
-      <li><strong>One-shot</strong> &mdash; empty <code>cron</code>. The row fires once at <code>next_run</code>, then flips to <code>status='completed'</code> and stops being polled. The row stays in the table for audit; nothing deletes it.</li>
-    </ul>
+    <h2>The trigger has one of three shapes</h2>
+    <p>The <code>cron</code> column holds one of three shapes:</p>
+    <dl>
+      <dt>Cron expression</dt>
+      <dd>A standard 5-field cron, for example <code>0 9 * * 1-5</code> for weekday mornings. <code>robfig/cron</code> parses it in the timezone of the task, which is the <code>TZ</code> of the daemon, UTC by default.</dd>
+      <dt>Interval</dt>
+      <dd>A plain integer string of milliseconds. <code>1800000</code> means every 30 minutes. After each run, the next <code>next_run</code> is <code>now + interval</code>.</dd>
+      <dt>One-time</dt>
+      <dd>An empty <code>cron</code>. The row runs once at <code>next_run</code>, then changes to <code>status='completed'</code> and leaves the poll. The row stays in the table for audit, and nothing deletes it.</dd>
+    </dl>
 
-    <h2>context mode</h2>
-    <p>One column on the row decides what session the agent runs under. With <code>group</code> (the default) the synthetic message hits the folder&rsquo;s main session like any other turn &mdash; the task sees the folder&rsquo;s prior chat history and shares state with it. With <code>isolated</code> the sender becomes <code>timed-isolated:&lt;task-id&gt;</code>, which <code>routd</code> treats as its own conversation &mdash; handy for a recurring health check that shouldn&rsquo;t pollute the human chat&rsquo;s context. The full <code>scheduled_tasks</code> column list is in <a href="../reference/schema.html">reference / schema</a>.</p>
+    <h2>The context mode picks the session</h2>
+    <p>One column of the row decides the session of the run. With <code>group</code>, the default, the synthetic message goes to the main session of the folder like any other turn. The task sees the chat history of the folder and shares state with it. With <code>isolated</code>, the sender becomes <code>timed-isolated:&lt;task-id&gt;</code>, and <code>routd</code> treats it as its own conversation. Use it for a recurring health check that must not fill the context of the human chat. <a href="../reference/schema.html">reference / schema</a> has the full column list of <code>scheduled_tasks</code>.</p>
 
-    <h2>managing tasks</h2>
-    <p>An agent holding the scheduling grants gets MCP tools to create (<code>schedule_task</code>, which dedupes on prompt + chat + schedule so a repeated call returns the existing ID), list, pause, resume, and cancel tasks, plus <code>inspect_tasks</code> &mdash; which joins <code>task_run_logs</code> to show when each last fired and whether it succeeded. Full signatures: <a href="../reference/mcp.html">reference / mcp</a>. The REST face lives on routd at <code>/v1/tasks</code>, not <code>/v1/scheduled_tasks</code>, because timed calls that prefix too: <code>GET</code> lists, <code>GET /v1/tasks/{id}</code> reads one, <code>PATCH</code> takes <code>{status}</code> for pause and resume and <code>{next_run}</code> for run-now, and <code>DELETE</code> cancels. Creating a task, and the pause and resume verbs as such, are agent tools only. There is no <code>arizuko task</code> CLI subcommand; short of the REST calls, operators fall back to the agent (<code>arizuko chat</code>) or to <code>arizuko get</code> / <code>apply</code> over the <code>scheduled_tasks</code> resource.</p>
+    <h2>Agents manage tasks, and operators use REST</h2>
+    <p>An agent with the scheduling grants gets MCP tools to create, list, pause, resume and cancel tasks. <code>schedule_task</code> creates a task and removes duplicates on the prompt, chat and schedule, so a repeated call returns the existing ID. <code>inspect_tasks</code> joins <code>task_run_logs</code> to show when each task last ran and whether it succeeded. <a href="../reference/mcp.html">reference / mcp</a> has the full signatures.</p>
+    <p>The REST endpoints live on <code>routd</code> at <code>/v1/tasks</code>, not <code>/v1/scheduled_tasks</code>, because <code>timed</code> uses that prefix too:</p>
+    <dl>
+      <dt><code>GET /v1/tasks</code></dt><dd>Lists tasks.</dd>
+      <dt><code>GET /v1/tasks/{id}</code></dt><dd>Reads one task.</dd>
+      <dt><code>PATCH</code></dt><dd>Takes <code>{status}</code> to pause or resume, and <code>{next_run}</code> to run now.</dd>
+      <dt><code>DELETE</code></dt><dd>Cancels a task.</dd>
+    </dl>
+    <p>Only agent tools create a task. No <code>arizuko task</code> CLI subcommand exists. Without the REST calls, an operator uses the agent through <code>arizuko chat</code>, or <code>arizuko get</code> and <code>arizuko apply</code> on the <code>scheduled_tasks</code> resource.</p>
 
-    <p>Every group starts with five tasks it didn&rsquo;t ask for: <code>/compact-memories</code> for episodes by day, week and month, and for the diary by week and month. They run isolated, so compacting never summarises its own summarising. What they compact is on <a href="../concepts/ant.html">the ant</a>.</p>
+    <p>Every group starts with five tasks: <code>/compact-memories</code> for episodes by day, week and month, and for the diary by week and month. They run isolated, so a compaction never summarises its own work. <a href="../concepts/ant.html">the ant</a> shows what they compact.</p>
 
-    <h2>failure model</h2>
-    <p>If the synthetic message insert itself fails, <code>timed</code> logs an error row to <code>task_run_logs</code> and flips the task back to <code>active</code> without advancing <code>next_run</code>. The next tick will try again.</p>
-    <p>If the insert succeeds but the agent run downstream errors out, <code>timed</code> never knows &mdash; from the scheduler&rsquo;s point of view the fire was successful. <code>next_run</code> advances normally and the task fires again at its scheduled time. There is no automatic retry of the failed turn. The error sits in <code>routd</code>&rsquo;s logs and the folder&rsquo;s chat history; an operator (or the agent itself, on its next run) decides what to do.</p>
-    <p>The status field never auto-flips to <code>paused</code> based on failures. A failing recurring task keeps firing until somebody pauses it or fixes the underlying problem.</p>
+    <h2>A failed turn does not stop the schedule</h2>
+    <p>If the insert of the synthetic message fails, <code>timed</code> writes an error row to <code>task_run_logs</code>. It sets the task back to <code>active</code> without a new <code>next_run</code>. The next tick tries again.</p>
+    <p>If the insert succeeds but the agent run fails later, <code>timed</code> does not know. For the scheduler, the run succeeded. <code>next_run</code> advances as usual, and the task runs again at its next time. Nothing retries the failed turn automatically. The error is in the logs of <code>routd</code> and in the chat history of the folder. An operator, or the agent on its next run, decides what to do.</p>
+    <p>A failure never changes the status to <code>paused</code>. A failing recurring task keeps running until someone pauses it or fixes the problem.</p>
 
-    <h2>go deeper</h2>
-    <p>Daemon internals: <a href="https://github.com/kronael/arizuko/blob/main/timed/README.md">timed/README.md</a> and <a href="../components/timed.html">components/timed</a>. How the routed JID becomes a folder: <a href="../concepts/routing.html">routing</a>.</p>
+    <h2>timed has its own page</h2>
+    <p><a href="https://github.com/kronael/arizuko/blob/main/timed/README.md">[timed/README.md]</a> and <a href="../components/timed.html">components/timed</a> describe the daemon. <a href="../concepts/routing.html">routing</a> shows how the routed JID becomes a folder.</p>
 
       <nav class="docs-pager" aria-label="Pager">
         <a rel="prev" href="skills.html">&larr; Skills</a>

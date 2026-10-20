@@ -64,47 +64,50 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">concepts</a> &rsaquo; retries</p>
 <h1>retries</h1>
 
-    <p class="lede">Every turn runs in its own throwaway virtual machine. Sometimes that guest dies mid-thought &mdash; it runs out of memory, or it hits the run time limit &mdash; and nothing comes back. <code>routd</code> notices the empty-handed run and simply runs the turn again, up to three times, without telling you. You get one slightly slower reply instead of silence.</p>
+    <p class="lede">Every turn runs in its own short-lived virtual machine. Sometimes that guest stops in the middle of a turn, because it runs out of memory or reaches the run time limit. Then no answer comes back. <code>routd</code> sees the run with no reply and runs the turn again, up to three times, without a message to you. You get one slower reply instead of silence.</p>
 
-    <h2>the problem it fixes</h2>
-    <p>A killed guest never reaches the point where it hands its answer back. From your side the bot just stops. Worse, <code>routd</code> has a guard that stops it re-feeding a turn it has already marked finished, so the message never gets another chance &mdash; the only way out was to @mention the bot again and hope. The incident that motivated this was a long research answer that got cut off and then stayed cut off.</p>
+    <h2>A stopped guest leaves the chat with no reply</h2>
+    <p>A guest that stops never returns its answer. For you, the bot simply stops. Also, <code>routd</code> has a guard that prevents it from giving a finished turn to the agent again. Without retries, the message never gets another attempt, and the only way out is a new @mention of the bot. A long research answer that stops halfway would stay unfinished.</p>
 
-    <h2>what counts as failure</h2>
-    <p>The test is <strong>&ldquo;did any bot message land?&rdquo;</strong>, not &ldquo;did the agent finish cleanly?&rdquo;. An agent that posted half an answer and then died counts as a success and is not retried &mdash; a partial reply you can read beats making you wait while the whole thing is redone. No bot message at all is the failure that triggers a retry.</p>
+    <h2>A turn fails only if no bot message arrived</h2>
+    <p>The test is <strong>&ldquo;did any bot message arrive?&rdquo;</strong>, not &ldquo;did the agent finish without an error?&rdquo;. An agent that posted half an answer and then stopped counts as a success, and <code>routd</code> does not retry it. A partial reply that you can read is better than a wait while the agent does the whole task again. Only a turn with no bot message at all starts a retry.</p>
 
-    <h2>what you actually see</h2>
-    <p>Nothing, until it works. Nothing schedules the retry: the failed batch is left un-advanced, so <code>routd</code>&rsquo;s next poll picks the same message up and boots a fresh guest. The re-feed <em>is</em> the retry, which is why nothing has to rewind a cursor its own return value moved. There is no ramp either &mdash; the old guest is already being reaped and the new one starts from scratch, so a long wait would only stretch out your silence.</p>
-    <p>If every attempt fails, one message finally arrives:</p>
+    <h2>You see nothing until a retry succeeds</h2>
+    <p>No scheduler starts the retry. <code>routd</code> does not advance the failed batch, so the next poll of <code>routd</code> takes the same message and starts a new guest. The repeated read <em>is</em> the retry, so no code must move a cursor back. No delay exists between attempts either. The old guest is already gone, and the new one starts from the beginning, so a wait would only make your silence longer.</p>
+    <p>If every attempt fails, one message arrives:</p>
     <pre><code>&#9888; Agent couldn't complete this request after 3 attempts.</code></pre>
-    <p>The chat is also flagged as errored so an operator can find it on the dashboard. A turn that failed <em>without</em> ever being retried &mdash; because the agent had already replied &mdash; gets the plainer notice instead: <code>Failed: agent error on that message. Try rephrasing or send a different message.</code></p>
+    <p><code>routd</code> also marks the chat as errored, so an operator can find it on the dashboard. A turn that failed <em>without</em> a retry, because the agent had already replied, gets a different notice: <code>Failed: agent error on that message. Try rephrasing or send a different message.</code></p>
 
-    <h2>the retry knows it is a retry</h2>
-    <p>Each re-run gets a note prepended to the prompt before the agent sees it:</p>
+    <h2>The agent knows that a run is a retry</h2>
+    <p>Before the agent sees the prompt of a retry, <code>routd</code> adds a note at the start:</p>
     <pre><code>&lt;system-note&gt;This is retry attempt 2 of 3. The previous attempt was
 killed before completing. Be conservative with resource
 usage.&lt;/system-note&gt;</code></pre>
-    <p>That last sentence is doing the work. The most common cause of a killed guest is the agent doing too much at once and running out of memory, and the most useful thing it can change is to do less. Telling it nothing would just get the same crash three times.</p>
-    <p>What carries over otherwise: the same message and attachments, the same conversation history, a brand-new guest.</p>
+    <p>The last sentence matters most. The most common cause of a stopped guest is an agent that does too much at once and runs out of memory. The most useful change for the agent is to do less. Without the note, the same failure would happen three times.</p>
+    <p>The rest stays the same: the same message and attachments and the same conversation history, in a new guest.</p>
 
-    <h2>it survives a restart</h2>
-    <p>The attempt count isn&rsquo;t held in memory. Each retry bumps <code>turn_context.retry_count</code> and parks the turn in <code>state='pending_retry'</code>, and <code>routd</code>&rsquo;s crash-recovery sweep picks up <code>pending_retry</code> turns exactly as it picks up running ones. Restart <code>routd</code> mid-retry and the turn is still owed an attempt, with the right number of attempts already spent.</p>
+    <h2>The retry count survives a restart</h2>
+    <p>The attempt count is not in memory. Each retry increments <code>turn_context.retry_count</code> and sets the turn to <code>state='pending_retry'</code>. The crash-recovery sweep of <code>routd</code> picks up <code>pending_retry</code> turns in the same way as running ones. If <code>routd</code> restarts during a retry, the turn still gets its attempt, with the correct count of attempts already used.</p>
 
-    <h2>what is never retried</h2>
-    <ul>
-      <li><strong>Turns that replied.</strong> Any bot message at all, even a partial one, counts as done.</li>
-      <li><strong>Turns the agent failed on purpose.</strong> If the agent reports its own failure and the guest then powers off cleanly, that is a clean run &mdash; it never enters the retry branch at all.</li>
-      <li><strong>Runs an operator killed.</strong> A deliberate kill is recorded as killed, not as an error.</li>
-    </ul>
+    <h2>Three kinds of turn never retry</h2>
+    <dl>
+      <dt>Turns that replied</dt>
+      <dd>Any bot message, even a partial one, counts as done.</dd>
+      <dt>Turns that the agent failed on purpose</dt>
+      <dd>If the agent reports its own failure and the guest then powers off normally, the run is clean, and it never reaches the retry path.</dd>
+      <dt>Runs that an operator stopped</dt>
+      <dd>A deliberate stop is recorded as killed, not as an error.</dd>
+    </dl>
 
-    <div class="callout"><strong>Note:</strong> a <em>network</em> failure between <code>routd</code> and <code>runed</code> is a different mechanism. There <code>routd</code> doesn&rsquo;t know whether the run happened at all, so it leaves its read cursor where it is and the next poll re-feeds the message naturally. Retries here are for the case where <code>runed</code> answered cleanly and the answer was &ldquo;the run died&rdquo;.</div>
+    <div class="callout"><strong>A network failure uses a different path.</strong> If the call from <code>routd</code> to <code>runed</code> fails on the network, <code>routd</code> does not know whether the run happened. So it leaves its read cursor in place, and the next poll gives the message to the agent again. Retries apply when <code>runed</code> answered and the answer was &ldquo;the run stopped&rdquo;.</div>
 
-    <h2>tuning it</h2>
-    <p>One setting: <a href="../reference/env.html#MAX_TURN_RETRY"><code>MAX_TURN_RETRY</code></a>, default <code>3</code>. Set it to <code>0</code> to turn retries off entirely and get the failure notice on the first dead run.</p>
-    <p>It is deliberately instance-wide &mdash; there is no per-folder or per-skill override. How many times the runtime is willing to boot another guest is a property of the machine you&rsquo;re running on, not of a tenant&rsquo;s content. If turns are dying for room rather than for content, the dial is the instance-wide <a href="../reference/env.html#RUNED_GUEST_MEM"><code>RUNED_GUEST_MEM</code></a>, not the retry count &mdash; there is no per-folder guest size.</p>
-    <p>The give-up notice reports whatever you set: raise the ceiling to <code>5</code> and it says &ldquo;after 5 attempts&rdquo;.</p>
+    <h2>One instance-wide setting controls retries</h2>
+    <p>The setting is <a href="../reference/env.html#MAX_TURN_RETRY"><code>MAX_TURN_RETRY</code></a>, and the default is <code>3</code>. Set it to <code>-1</code> to turn retries off and get the failure notice on the first failed run.</p>
+    <p>The setting applies to the whole instance, by design. No folder or skill can override it. The number of guests the runtime starts again is a property of the host, not of the content of a tenant. If turns stop because of memory and not because of content, change the instance-wide <a href="../reference/env.html#RUNED_GUEST_MEM"><code>RUNED_GUEST_MEM</code></a>, not the retry count. No folder can set its own guest size.</p>
+    <p>The final notice reports the value you set. If you set the limit to <code>5</code>, it says &ldquo;after 5 attempts&rdquo;.</p>
 
-    <h2>go deeper</h2>
-    <p>The decisions behind each of these &mdash; why success is a bot row and not a clean exit, why the re-feed <em>is</em> the retry: <a href="https://github.com/kronael/arizuko/blob/main/specs/5/12-turn-retry.md">specs/5/12</a>. The turn lifecycle this hooks into is <a href="https://github.com/kronael/arizuko/blob/main/specs/5/E-routd.md">specs/5/E</a>; the guest and its time limit belong to <a href="../components/runed.html">runed</a>. What you see <em>while</em> a turn is still alive: <a href="progress.html">live progress</a>.</p>
+    <h2>Related pages cover the guest and the progress</h2>
+    <p>The guest and its time limit belong to <a href="../components/runed.html">runed</a>. <a href="turn.html">a turn, end to end</a> shows where the retry fits in the turn. <a href="progress.html">live progress</a> shows what you see <em>while</em> a turn is still running.</p>
 
       <nav class="docs-pager" aria-label="Pager">
         <a rel="prev" href="progress.html">&larr; Live progress</a>

@@ -64,82 +64,75 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">concepts</a> &rsaquo; how it&rsquo;s built</p>
       <h1>how it&rsquo;s built</h1>
 
-      <p>This page is how the arizuko team builds arizuko itself &mdash; not
-        something you do as an operator.</p>
-
-      <p class="lede">A change to arizuko is an agent&rsquo;s work, kept as
-        files: the same parts that route a Slack message &mdash; specs, skills,
-        file-based memory, ephemeral turns &mdash; are the ones used to add a
-        feature. This page is the build process, not the runtime &mdash; for the
-        parts themselves see
-        <a href="primitives.html">primitives</a>, <a href="ant.html">the ant</a>,
+      <p class="lede">The arizuko team builds arizuko with the same parts that
+        route a Slack message: specs, skills, file memory and ephemeral turns.
+        The page describes the build process of the project, not a task for an
+        operator. For the parts themselves, see
+        <a href="primitives.html">primitives</a>, <a href="ant.html">the ant</a>
         and <a href="skills.html">skills</a>.</p>
 
-      <h2>Agents do the work</h2>
-      <p>The work is done by arizuko-shaped agents: Claude Code sessions with
-        durable file memory and bounded subagents. Non-trivial changes &mdash; a
-        migration, a cross-package refactor &mdash; run in a
-        <code>git worktree</code>-isolated subagent so parallel work
-        doesn&rsquo;t collide. Edits to the shared tree go one at a time, the
-        same serialization a <a href="primitives.html">turn</a> gives a single
-        folder.</p>
+      <h2>Agents do the work and keep it as files</h2>
+      <p>Claude Code sessions with durable file memory and bounded subagents
+        do the work. A large change, such as a migration or a refactor across
+        packages, runs in a subagent with its own <code>git worktree</code>, so
+        parallel work does not collide. Edits to the shared tree go one at a
+        time. A <a href="primitives.html">turn</a> gives a single folder the
+        same serialization.</p>
 
-      <h2>The build loop</h2>
-      <p>Each step is a concrete artifact on disk:</p>
-      <ul>
-        <li><strong>Design is a spec.</strong> It lands as a file under
-          <code>specs/</code> with a tracked <code>status:</code> (draft,
-          partial, ready, shipped) &mdash; reviewable and diffable, not buried in
-          a chat log.</li>
-        <li><strong>A second opinion is one command.</strong>
-          <code>codex exec</code> asks an independent model to check a non-obvious
-          design before it&rsquo;s committed.</li>
-        <li><strong>The decision is written down.</strong>
-          <code>/diary</code> records it to <code>.diary/&lt;date&gt;.md</code> at
-          the moment it&rsquo;s made.</li>
-        <li><strong>The next session remembers.</strong>
-          <code>/recall-memories</code> reads the diary and a file-based memory
-          store to recover context &mdash; the same durable
-          <a href="primitives.html">state</a> primitive an agent uses in
-          production, files rather than a context window.</li>
-      </ul>
+      <h2>Each step of the build loop leaves a file on disk</h2>
+      <dl>
+        <dt>Design is a spec</dt>
+        <dd>A design lands as a file under <code>specs/</code> with a
+          <code>status:</code> field, such as draft, partial or shipped. You
+          can review and diff it.</dd>
+        <dt>A second opinion is one command</dt>
+        <dd><code>codex exec</code> asks an independent model to check a design
+          before the commit.</dd>
+        <dt>The decision is written down</dt>
+        <dd><code>/diary</code> records the decision in
+          <code>.diary/&lt;date&gt;.md</code> when it is made.</dd>
+        <dt>The next session reads the record</dt>
+        <dd><code>/recall-memories</code> reads the diary and a file memory
+          store to recover the context. A production agent uses the same
+          <a href="primitives.html">state</a> primitive: files, not a context
+          window.</dd>
+      </dl>
 
-      <h2>ship, then harden</h2>
-      <p>The first cut is small and lands fast; the same agents then harden it
-        with repeated passes:</p>
-      <ul>
-        <li><strong>Two adversaries read the change.</strong>
-          <code>codex exec</code> hunts the finished code for bugs the author
-          missed, and <code>assess</code> attacks the change from a fixed
-          adversarial role &mdash; a CEO, CTO, or CISO hunting for the worst
-          weakness.</li>
-        <li><strong>One change ripples, so a sweep re-aligns it.</strong>
-          <code>sweep-fix-verify</code> walks every call site and reference at
-          once &mdash; renaming the spec phases re-pointed roughly sixty files in
-          a single sweep, so nothing is left dangling.</li>
-        <li><strong>Refine cuts until there&rsquo;s nothing to cut.</strong>
-          <code>/refine</code> runs improve and simplify together to kill
-          duplication and minimize the diff, and runs again until a pass finds
-          nothing to change.</li>
-        <li><strong>A bug found mid-task waits its turn.</strong>
-          It lands in <code>bugs.md</code>, a review queue, and is fixed when
-          it&rsquo;s prioritized &mdash; not opportunistically in the middle of
-          unrelated work.</li>
-      </ul>
+      <h2>A small first version ships, then passes harden it</h2>
+      <p>The first version is small and lands fast. The same agents then
+        harden it with repeated passes:</p>
+      <dl>
+        <dt>Two adversaries read the change</dt>
+        <dd><code>codex exec</code> searches the finished code for bugs the
+          author missed. <code>/eval</code> attacks the change from a fixed
+          role, such as a CEO, a CTO or a red team, and looks for the worst
+          weakness.</dd>
+        <dt>A sweep finds every other instance</dt>
+        <dd><code>/sweep</code> searches the whole codebase for one class of
+          problem and records each instance, so no call site or reference stays
+          wrong.</dd>
+        <dt>Refine cuts until a pass finds nothing</dt>
+        <dd><code>/refine</code> removes duplication and makes the diff smaller.
+          It runs again until a pass finds nothing to change.</dd>
+        <dt>A bug is recorded before it is fixed</dt>
+        <dd>A finding goes into <code>BUGS.md</code> first, with the
+          measurement that found it. One subagent then fixes it with a test
+          that fails without the fix. A redesign, an action on live data, or a
+          finding with an unmeasured premise stays in the queue until the owner
+          decides.</dd>
+      </dl>
 
-      <h2>Built on the four layers</h2>
-      <p>The <a href="primitives.html">primitives &rarr; components &rarr; daemons
-        &rarr; products</a> stack is the build path, not only the architecture. A
-        concept starts as a spec (a primitive made explicit), becomes a Go
-        package (a <a href="../components/">component</a>), bundles into a daemon,
-        and surfaces as an installable product. The tool-level secret broker
-        began as a spec, became the secret-resolution code in
-        <code>store</code> and <code>ipc</code>, ships inside <code>routd</code>,
-        and shows up as folder- and user-scoped <a href="secrets.html">secrets</a>
-        a product can declare.</p>
-      <p>So a new requirement is a spec edit, a package, and a route &mdash; files
-        on a host you control, changed with an edit and a commit, not a vendor
-        ticket.</p>
+      <h2>The four layers are also the build path</h2>
+      <p>The <a href="primitives.html">primitives, components, daemons and
+        products</a> stack describes how a change is built, not only the
+        architecture. A concept starts as a spec, becomes a Go package, goes
+        into a daemon and appears in an installable product. The secret broker
+        is one example. It started as a spec and became the secret-resolution
+        code in <code>store</code> and <code>ipc</code>. It runs inside
+        <code>routd</code>, and a product declares it as folder and user
+        <a href="secrets.html">secrets</a>.</p>
+      <p>A new requirement is a spec edit, a package and a route. These are
+        files on a host you control, changed with an edit and a commit.</p>
 
       <nav class="docs-pager" aria-label="Pager">
         <a rel="prev" href="primitives.html">&larr; Primitives</a>

@@ -64,11 +64,11 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">concepts</a> &rsaquo; addressing</p>
 <h1>jid</h1>
 
-    <p class="lede">The Slack pane was the last adapter; the tour ends one layer beneath all of them, where it began &mdash; routing. The JID is the cross-cutting addressing substrate every adapter shares. Telegram chats, web chats, voice notes, webhooks: every adapter you&rsquo;ve met names its chats and senders the same way, and this is that name. Every address has the shape <code>&lt;platform&gt;:&lt;rest&gt;</code>, so a single routing rule like <code>chat_jid=telegram:group/*</code> matches every Telegram group and nothing else. One address shape lets routes and grants ignore each platform&rsquo;s quirks.</p>
+    <p class="lede">A JID is the one address shape that every adapter uses for its chats and senders: Telegram chats, web chats, voice notes and webhooks alike. Every address has the shape <code>&lt;platform&gt;:&lt;rest&gt;</code>. So one routing rule such as <code>chat_jid=telegram:group/*</code> matches every Telegram group and nothing else, and routes and grants can ignore the details of each platform.</p>
 
-    <h2>the shape</h2>
-    <p>Each platform names things differently. Telegram chat IDs are signed integers, where a negative number means group. WhatsApp suffixes a server name like <code>@g.us</code> for groups and <code>@s.whatsapp.net</code> for DMs. Reddit uses prefixes like <code>t1_</code>, <code>t2_</code>, <code>t3_</code> for comments, users, and submissions. Each platform has its own odd IDs.</p>
-    <p>arizuko writes one shape over all of them. The platform goes before the colon. Everything after the colon is the platform&rsquo;s business, kept as an opaque string <code>routd</code> only matches with globs:</p>
+    <h2>The platform comes before the colon</h2>
+    <p>Each platform names things in its own way. Telegram chat IDs are signed integers, and a negative number means a group. WhatsApp adds a server name, <code>@g.us</code> for groups and <code>@s.whatsapp.net</code> for DMs. Reddit uses prefixes such as <code>t1_</code>, <code>t2_</code> and <code>t3_</code> for comments, users and submissions.</p>
+    <p>arizuko writes one shape over all of them. The platform goes before the colon. Everything after the colon belongs to the platform: <code>routd</code> keeps it as an opaque string and only matches it with globs:</p>
     <pre><code>telegram:user/123              # telegram DM with user 123
 telegram:group/-100456         # telegram group, supergroup, or channel
 discord:dm/456                 # discord DM channel
@@ -78,25 +78,25 @@ bluesky:user/did%3Aplc%3Aabc    # bluesky account
 web:&lt;folder&gt;[/&lt;suffix&gt;]        # browser chat at folder; URL token resolves to this JID
 hook:&lt;folder&gt;/&lt;source&gt;[/...]   # webhook ingest: folder is the destination, source is the agent-chosen label</code></pre>
 
-    <h2>matching with globs</h2>
-    <p>Routes match with Go&rsquo;s <code>path.Match</code>. <code>*</code> grabs any run of characters but stops at <code>/</code>, so each slash-separated segment stays separate; <code>?</code> grabs one character, and <code>[0-9]</code> grabs a digit. The same syntax works on every field:</p>
+    <h2>Routes match a JID with globs</h2>
+    <p>Routes match with the Go function <code>path.Match</code>. <code>*</code> matches any run of characters but stops at <code>/</code>, so each segment between slashes stays separate. <code>?</code> matches one character, and <code>[0-9]</code> matches one digit. The same syntax works on every field:</p>
     <pre><code>match='chat_jid=telegram:group/*'    # all telegram groups
 match='chat_jid=discord:dm/*'        # all discord DMs
 match='chat_jid=whatsapp:*@g.us'     # all whatsapp groups
 match='sender=telegram:user/[0-9]*'  # any numeric telegram user</code></pre>
-    <p>Because the platform sits in its own segment, you can write <code>platform=telegram</code> to mean &ldquo;every Telegram chat, regardless of kind&rdquo; without thinking about Telegram&rsquo;s sign-bit trick.</p>
+    <p>The platform has its own segment, so <code>platform=telegram</code> means every Telegram chat of any kind. You need not know how Telegram uses the sign of an ID.</p>
 
-    <h2>in Go</h2>
-    <p>Inside the codebase a JID is just a <code>string</code>. Two helpers in <code>core/types.go</code> split it: <code>core.JidPlatform(jid)</code> returns everything before the first colon, and <code>core.JidRoom(jid)</code> returns everything after. Matching is Go&rsquo;s <code>path.Match</code> against the route&rsquo;s glob &mdash; the same call the router runs in <code>router.RouteMatches</code>. There is no parse step and no separate chat-vs-sender type; both are addresses <code>routd</code> only ever glob-matches.</p>
+    <h2>A JID is a plain string in Go</h2>
+    <p>In the code, a JID is a <code>string</code>. Two helpers in <code>core/types.go</code> split it. <code>core.JidPlatform(jid)</code> returns the part before the first colon, and <code>core.JidRoom(jid)</code> returns the part after it. Matching is <code>path.Match</code> against the glob of the route, the same call that <code>router.RouteMatches</code> makes. No parse step exists, and chats and senders have no separate types: both are addresses that <code>routd</code> only matches with globs.</p>
 
-    <h2>per-platform shapes belong to adapters</h2>
-    <p><code>routd</code> treats everything after <code>platform:</code> as an opaque string and only ever glob-matches it. Each adapter (<code>teled/</code>, <code>discd/</code>, <code>whapd/</code>, &hellip;) parses and constructs its own paths. Adding a new platform &mdash; or a new <em>kind</em> inside an existing platform &mdash; is a one-place change in that adapter; <code>routd</code> and the routes table don&rsquo;t move.</p>
+    <h2>Each adapter owns the shapes of its platform</h2>
+    <p><code>routd</code> treats everything after <code>platform:</code> as an opaque string and only matches it with globs. Each adapter, such as <code>teled/</code>, <code>discd/</code> and <code>whapd/</code>, parses and builds its own paths. A new platform, or a new <em>kind</em> inside an existing platform, is a change in one adapter. <code>routd</code> and the routes table do not change.</p>
 
-    <h2>colons in the rest</h2>
-    <p><code>core.JidPlatform</code> splits on the <em>first</em> colon and hands back everything before it; the rest stays untouched. So an ID that itself contains a colon doesn&rsquo;t break the platform/rest split. A Bluesky DID is a <code>did:plc:&hellip;</code> string &mdash; the adapter percent-encodes its colons (<code>bluesky:user/did%3Aplc%3A&hellip;</code>) so a glob never trips on them.</p>
+    <h2>A colon after the first one stays in the rest</h2>
+    <p><code>core.JidPlatform</code> splits on the <em>first</em> colon and returns the part before it. The rest stays unchanged, so an ID that contains a colon does not break the split. A Bluesky DID is a string such as <code>did:plc:abc123def456ghi789jkl012</code>. The adapter percent-encodes its colons, as in <code>bluesky:user/did%3Aplc%3Aabc123def456ghi789jkl012</code>, so a glob never stops at them.</p>
 
-    <h2>go deeper</h2>
-    <p>Every platform&rsquo;s exact shape, the match keys and how globs work: <a href="../reference/jid.html">reference/jid</a>. For how these addresses get matched into folders, see <a href="../concepts/routing.html">routing</a>.</p>
+    <h2>The reference lists every platform shape</h2>
+    <p><a href="../reference/jid.html">reference/jid</a> has the exact shape for every platform, the match keys and the glob rules. <a href="../concepts/routing.html">routing</a> shows how routes match these addresses to folders.</p>
 
       <nav class="docs-pager" aria-label="Pager">
         <a rel="prev" href="slack-pane.html">&larr; Slack pane</a>

@@ -65,39 +65,37 @@
 <h1>webdav</h1>
 
       <p class="lede">
-        Web-native agents serve the folder <em>outward</em> &mdash; content
-        the world reads. WebDAV mounts the same folder <em>inward</em>, as a
-        file workspace only you touch. Each group folder is
-        exposed at <code>https://&lt;host&gt;/dav/&lt;group&gt;/</code>, so you
-        can mount it from Finder, sync it with <code>rclone</code>, or edit a
-        file in any editor &mdash; and because the folder is the ant, the next
-        agent turn simply picks up your changes. No deploy, no reload.
-        Step-by-step setup: <a href="../howto/webdav.html">how-to / webdav</a>.
+        WebDAV mounts a group folder as a file workspace for you. Each group
+        folder is available at <code>https://&lt;host&gt;/dav/&lt;group&gt;/</code>,
+        so you can mount it in Finder, sync it with <code>rclone</code> or
+        edit a file in any editor. Because the folder is the ant, the next
+        agent turn uses your changes, with no deploy and no reload.
+        <a href="../howto/webdav.html">how-to / webdav</a> has the setup steps.
       </p>
 
-      <h2>what davd does</h2>
+      <h2>davd serves the groups directory and nothing more</h2>
       <p>
         The <code>davd</code> daemon is a thin wrapper around
-        <code>sigoden/dufs</code> &mdash; one Rust binary that serves a directory
+        <code>sigoden/dufs</code>, one Rust binary that serves a directory
         over WebDAV. It mounts <code>&lt;data-dir&gt;/groups/</code> at
-        <code>/data</code> inside its container and exposes it on
-        <code>:8080</code>. That&rsquo;s the whole daemon.
+        <code>/data</code> inside its container and serves it on
+        <code>:8080</code>. That is all <code>davd</code> does.
       </p>
       <p>
-        davd has no idea who you are. Authentication and per-group scoping
-        happen one hop earlier, in <code>proxyd</code>.
+        <code>davd</code> does not know who you are. Authentication and the
+        limit to one group happen one step earlier, in <code>proxyd</code>.
       </p>
 
-      <h2>why it matters</h2>
+      <h2>Your edit applies on the next turn</h2>
       <p>
-        The same folder you see over WebDAV is the folder the agent reads
-        each turn. Edit <code>CLAUDE.md</code> from your laptop, save, send
-        the agent a message &mdash; the new runbook is already in effect. No
-        deploy, no restart. Drop a CSV in <code>facts/</code>, the agent finds
-        it on the next recall.
+        The folder you see over WebDAV is the folder the agent reads on each
+        turn. Edit <code>CLAUDE.md</code> on your laptop, save it and send the
+        agent a message: the new runbook already applies, with no deploy and
+        no restart. Put a CSV in <code>facts/</code>, and the agent finds it on
+        the next recall.
       </p>
 
-      <h2>show me</h2>
+      <h2>Three commands list, mount and edit a folder</h2>
       <pre><code># list a group's files with curl + PROPFIND
 curl -X PROPFIND https://&lt;host&gt;/dav/&lt;group&gt;/ \
      -H 'Depth: 1' \
@@ -109,82 +107,66 @@ rclone mount mygroup:/dav/&lt;group&gt;/ ~/mnt/&lt;group&gt; --vfs-cache-mode wr
 # now edit a file like any other
 vim ~/mnt/&lt;group&gt;/CLAUDE.md</code></pre>
       <p>
-        Get <code>$TOKEN</code> from <code>/dash/profile</code>. Browsers can
-        sign in at <code>/auth/login</code> and use the JWT cookie instead.
+        Get <code>$TOKEN</code> from <code>/dash/profile/</code>. A browser
+        can sign in at <code>/auth/login</code> and use the JWT cookie
+        instead.
       </p>
 
-      <h2>auth: proxyd in front</h2>
+      <h2>proxyd checks the group before davd sees the request</h2>
       <p>
-        Every <code>/dav/&lt;group&gt;/...</code> request hits
-        <code>proxyd</code> first. proxyd verifies the JWT (cookie or Bearer
-        token), reads the user&rsquo;s groups claim, and checks the
-        <code>&lt;group&gt;</code> in the URL against that claim. No match,
-        no upstream &mdash; 403 before <code>davd</code> sees the request.
-        Operators with the <code>**</code> grant reach any folder.
+        Every <code>/dav/&lt;group&gt;/...</code> request reaches
+        <code>proxyd</code> first. <code>proxyd</code> verifies the JWT from
+        the cookie or the Bearer header, reads the groups claim of the user,
+        and compares the <code>&lt;group&gt;</code> in the URL with that
+        claim. If they do not match, <code>proxyd</code> returns 403, and
+        <code>davd</code> never sees the request. An operator with the
+        <code>**</code> grant reaches any folder.
       </p>
 
-      <h2>the write-block guard</h2>
+      <h2>proxyd blocks writes to three kinds of path</h2>
       <p>
-        Even with a valid grant, proxyd refuses writes to a few paths inside
-        the group folder. Reads still pass through &mdash; the operator can
-        always inspect.
+        Even with a valid grant, <code>proxyd</code> refuses writes to some
+        paths inside the group folder. Reads still pass, so the operator can
+        always inspect them.
       </p>
+      <dl>
+        <dt>Files that can hold secrets</dt>
+        <dd><code>.env</code>, <code>*.pem</code> and everything under
+          <code>.git/</code>. PUT, DELETE, MOVE, MKCOL and PROPPATCH return
+          403.</dd>
+        <dt><code>&lt;group&gt;/logs/</code></dt>
+        <dd>Read-only. GET and PROPFIND pass, and every write returns 403. The
+          agent cannot overwrite its own logs, and you cannot delete them by
+          mistake.</dd>
+        <dt>Other groups</dt>
+        <dd>The path check in <code>proxyd</code> applies per group. A request
+          to <code>/dav/other-group/</code> is checked against
+          <em>other-group</em> and succeeds only if your grant covers it.</dd>
+      </dl>
+
+      <h2>Any WebDAV client works with the dashboard token</h2>
       <ul>
-        <li>
-          <strong>Secrets-ish files</strong> &mdash; <code>.env</code>,
-          <code>*.pem</code>, anything under <code>.git/</code>. PUT, DELETE,
-          MOVE, MKCOL, PROPPATCH all return 403.
-        </li>
-        <li>
-          <strong><code>&lt;group&gt;/logs/</code></strong> is read-only.
-          GET and PROPFIND pass; anything that writes returns 403. The agent
-          can&rsquo;t scribble over its own logs, and you can&rsquo;t
-          accidentally delete them either.
-        </li>
-        <li>
-          <strong>Cross-group writes are impossible</strong> &mdash; the path
-          check in proxyd is per-group, so a request to
-          <code>/dav/other-group/</code> is judged against <em>other-group</em>
-          and only succeeds if your grant covers it.
-        </li>
+        <li>Finder, Windows Explorer, Cyberduck, rclone and curl all work,
+          because they use the standard WebDAV verbs.</li>
+        <li>The JWT or Bearer token that opens <code>/dash/</code> opens
+          <code>/dav/</code> too. Basic Auth is not available.</li>
+        <li>Your edits are what the agent reads on the next turn.</li>
+        <li>You can read secrets and logs but not overwrite them.</li>
       </ul>
 
-      <h2>what you get</h2>
+      <h2>Auth and grants explain the token and the claim</h2>
       <ul>
         <li>
-          <strong>Browse from anything.</strong> Finder, Windows Explorer,
-          Cyberduck, rclone, curl &mdash; standard WebDAV verbs.
+          <a href="../concepts/auth.html">auth</a>: how the JWT or Bearer
+          token for <code>/dav/</code> is created and refreshed.
         </li>
         <li>
-          <strong>JWT or Bearer auth.</strong> The same token that gates
-          <code>/dash/</code>. No Basic Auth.
+          <a href="../concepts/grants.html">grants</a>: how the groups claim
+          that limits a WebDAV path is computed.
         </li>
         <li>
-          <strong>Live workspace.</strong> Your edits are the agent&rsquo;s
-          next-turn reality.
-        </li>
-        <li>
-          <strong>Sensitive paths read-only.</strong> Secrets and logs can
-          be inspected, not overwritten.
-        </li>
-      </ul>
-
-      <h2>go deeper</h2>
-      <ul>
-        <li>
-          <a
-            href="https://github.com/kronael/arizuko/blob/main/specs/5/M-webdav.md"
-            >specs/5/M-webdav.md</a
-          >
-          &mdash; routing, auth, write-block rules, config flags.
-        </li>
-        <li>
-          <a href="../concepts/auth.html">auth</a> &mdash; how the JWT/Bearer
-          token gating <code>/dav/</code> is minted and refreshed.
-        </li>
-        <li>
-          <a href="../concepts/grants.html">grants</a> &mdash; how the
-          per-group claim that scopes a WebDAV path is computed.
+          <a href="../components/davd.html">davd</a>: the daemon, its
+          configuration and how it runs alone.
         </li>
       </ul>
 

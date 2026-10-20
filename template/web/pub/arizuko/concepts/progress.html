@@ -64,52 +64,55 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">concepts</a> &rsaquo; live progress</p>
 <h1>live progress</h1>
 
-    <p class="lede">Ask for something that takes real work and you get a checklist while you wait &mdash; one message that keeps rewriting itself, not a stream of separate &ldquo;still working&rdquo; pings. The list is the agent&rsquo;s own plan. arizuko posts it on the agent&rsquo;s behalf, so you seeing progress never depends on the model remembering to tell you.</p>
+    <p class="lede">When you ask for a task that takes real work, you get a checklist while you wait. It is one message that changes in place, not a stream of separate &ldquo;still working&rdquo; messages. The list is the plan of the agent, and arizuko posts it for the agent. So the progress you see does not depend on the model remembering to report.</p>
 
-    <h2>what you see</h2>
-    <p>One message lands as soon as the agent has a plan, and changes in place as the work moves:</p>
+    <h2>One message shows the plan and changes in place</h2>
+    <p>One message arrives as soon as the agent has a plan. The message changes as the work moves:</p>
     <pre><code>&#9203; &#9745; Read the three log files
 &#9744; Cross-check the timestamps
 &#9744; Write the summary</code></pre>
-    <p>&hellip; and a minute later, the same message, edited:</p>
+    <p>A minute later, the same message, edited:</p>
     <pre><code>&#9203; &#9745; Read the three log files
 &#9203; Cross-checking the timestamps
 &#9744; Write the summary</code></pre>
-    <p>Three marks, and that&rsquo;s the whole vocabulary:</p>
+    <p>The checklist uses three marks:</p>
+    <dl>
+      <dt>&#9745;</dt>
+      <dd>Done.</dd>
+      <dt>&#9203;</dt>
+      <dd>In progress now. If the plan gives an in-progress wording, such as &ldquo;Cross-checking the timestamps&rdquo;, the line shows it. If not, the line shows the plain item text.</dd>
+      <dt>&#9744;</dt>
+      <dd>Not started.</dd>
+    </dl>
+    <p>The &#9203; at the start of the first line belongs to the message, not to an item. Every status message carries it, so you can see at once that the agent still works. When the turn ends, that one mark changes: &#9203; becomes &#10003; if the turn finished, or &#10007; if it failed. The rest of the message stays as the agent left it, so no message says &ldquo;in progress&rdquo; after the work stopped.</p>
+
+    <h2>A hook posts the plan, not the model</h2>
+    <p>The agent plans with the <code>TodoWrite</code> tool of the SDK. The agent writes that list to organise its own work, not to report to you, so it writes the list whether anyone watches or not. arizuko attaches a hook to that tool. Each time the list changes, the hook reads the new list, renders it and sends it. Nothing asks the model to report progress, so the model cannot skip the report.</p>
+    <p>A design that asks the model to narrate its progress fails, because models follow such instructions unevenly. Users then get either silence for ten minutes or many separate plan, step and done messages. Progress is bookkeeping over a list that already exists, not a decision for the model.</p>
+
+    <h2>Later updates edit the first message</h2>
+    <p>The first update of a turn sends a new message, and every later update edits that message. <code>routd</code> finds the message to edit from the last status row that it stored for the turn. No table in memory tracks live messages. So if <code>routd</code> restarts in the middle of a long turn, it reads the message from the database and continues to edit it.</p>
+
+    <h2>The chat shows that the agent is busy until the turn ends</h2>
+    <p>The channel also shows that the agent is busy. Telegram, Discord and WhatsApp use their own typing indicator. Slack and GitHub have no such indicator, so they put an eyes reaction, &#128064;, on the message that started the turn. The indicator stays on until the turn ends, not until the first reply. So an agent that answers and then continues to work still looks busy. If the adapter restarts during the turn, the reaction stays: the adapter records it and removes it when the turn ends.</p>
+
+    <h2>Channels that cannot edit show only the answer</h2>
+    <p>Email, Bluesky, LinkedIn and X cannot edit a sent message. On these channels, arizuko drops the status updates, and you get only the answer. A stream of separate &ldquo;still working&rdquo; posts is what the checklist exists to avoid, so these channels get no fallback. Google Drive comments behave the same way, because the Drive adapter does not edit its replies.</p>
+    <p>An edit can fail for a real reason, such as an expired token, an adapter timeout or a 500 from the platform. Such a failure appears as an error. arizuko never posts it again as a new message, because a silent duplicate looks the same as the stream of messages that the checklist replaces.</p>
+
+    <h2>The checklist never counts as the answer</h2>
+    <div class="callout"><strong>Status messages are not replies.</strong> Each status message carries <code>verb="status"</code> in the <code>messages</code> table, and <code>routd</code> skips these rows when it asks whether the turn has replied. Without that rule, a checklist would count as the reply of the agent, and <code>routd</code> would drop the real answer.</div>
+    <p>So the final answer always arrives as its own message, next to the checklist. At that time, the checklist shows every box ticked.</p>
+
+    <h2>Short plans and turns without a plan send no checklist</h2>
     <ul>
-      <li><strong>&#9745;</strong> &mdash; done.</li>
-      <li><strong>&#9203;</strong> &mdash; working on it right now. If the plan supplies an in-progress phrasing (&ldquo;Cross-checking the timestamps&rdquo;), that&rsquo;s what shows; otherwise you get the plain item text.</li>
-      <li><strong>&#9744;</strong> &mdash; not started.</li>
+      <li>A plan with one step sends no checklist, because a one-item list is noise. A plan with two or more items gets a live message.</li>
+      <li>An agent that answers without a plan sends no checklist. Short turns do not need a plan and do not make one.</li>
     </ul>
-    <p>The leading &#9203; on the first line belongs to the message, not to an item &mdash; every status message carries it so a glance tells you the agent is still going. When the turn ends, that one mark changes: &#9203; becomes &#10003; if the turn finished, &#10007; if it failed. The rest of the message stays as the agent left it, so nothing ever says &ldquo;in progress&rdquo; after the work stopped.</p>
+    <p>A long turn without a plan still shows progress. Every 90 seconds, the harness inside the guest asks the agent for a one-line <code>&lt;status&gt;</code>, and that line goes through the same edited message. This path is the minimum, not the main path.</p>
 
-    <h2>why the agent can&rsquo;t forget</h2>
-    <p>The agent plans with the SDK&rsquo;s <code>TodoWrite</code> tool. It writes that list to organise itself, not to report to you &mdash; it would write it whether anyone were watching or not. arizuko hangs a hook on that tool: every time the list changes, the hook reads the list the agent just wrote, renders it, and sends it. Nothing ever asks the model to report progress, so there is nothing for it to skip.</p>
-    <p>That is the whole point of the design. The two earlier attempts both leaned on the model choosing to narrate &mdash; a <code>&lt;status&gt;</code> block it had to remember to emit, then a skill that told it to post updates &mdash; and models apply instructions like that unevenly. Users got either silence for ten minutes or a wall of twelve separate plan/step/done messages. Progress is bookkeeping over a list that already exists; it should not be a judgement call.</p>
-
-    <h2>one message, edited</h2>
-    <p>The first update of a turn sends a new message. Every later one edits that same message. <code>routd</code> finds which message to edit by looking up the last status row it stored for the turn &mdash; there is no in-memory table of live messages, so a <code>routd</code> restart in the middle of a long turn doesn&rsquo;t strand the checklist. It picks the message back up from the database and keeps editing.</p>
-
-    <h2>the typing indicator</h2>
-    <p>Alongside the message, the channel shows that the agent is busy. Telegram, Discord and WhatsApp use their own typing indicator. Slack and GitHub have none, so they put an eyes reaction (&#128064;) on the message that started the turn. Either one stays on until the turn ends &mdash; not until the first reply &mdash; so an agent that answers and then keeps working still looks busy. The reaction is also still there if the adapter restarts mid-turn: the adapter remembers it, and removes it when the turn ends.</p>
-
-    <h2>channels that can&rsquo;t edit</h2>
-    <p>Email, Bluesky, LinkedIn and X have no edit-a-sent-message operation. On those, the agent&rsquo;s status updates are dropped and you get the answer alone. A stream of separate &ldquo;still working&rdquo; posts is the thing this page exists to avoid, so there is no fallback to one. Google Drive comments work the same way for now: the adapter does not edit its replies yet.</p>
-    <p>An edit that fails for a <em>real</em> reason &mdash; expired token, adapter timeout, a 500 from the platform &mdash; surfaces as an error instead. It is never quietly re-posted as a new message, because a silent duplicate looks exactly like the ping-spam this replaced.</p>
-
-    <h2>the checklist is never the answer</h2>
-    <div class="callout"><strong>Note:</strong> status messages are stamped <code>verb="status"</code> in the <code>messages</code> table and are skipped when <code>routd</code> asks &ldquo;has this turn replied yet?&rdquo;. Without that exclusion a checklist would count as the agent&rsquo;s reply and the real answer would be dropped on the floor.</div>
-    <p>So the final answer always arrives as its own message, alongside the checklist &mdash; which by then shows every box ticked.</p>
-
-    <h2>when you won&rsquo;t see one</h2>
-    <ul>
-      <li><strong>The plan has one step.</strong> A one-item checklist is noise, so it isn&rsquo;t sent. Two or more items earn a live message.</li>
-      <li><strong>The agent answers without planning.</strong> Short turns don&rsquo;t need a plan and don&rsquo;t make one.</li>
-    </ul>
-    <p>A long turn that never planned still isn&rsquo;t silent: roughly every 90 seconds the harness inside the guest nudges the agent for a one-line <code>&lt;status&gt;</code>, and that feeds the same one-message-edited path. It&rsquo;s the floor, not the main route.</p>
-
-    <h2>go deeper</h2>
-    <p>The design and the two decisions that carry it: <a href="https://github.com/kronael/arizuko/blob/main/specs/5/24-live-tasklist-status.md">specs/5/24</a>. The hook that renders the list lives in <a href="https://github.com/kronael/arizuko/blob/main/ant/src/todo-status.ts"><code>ant/src/todo-status.ts</code></a>; the create-or-edit half and the end-of-turn mark are in <a href="https://github.com/kronael/arizuko/blob/main/routd/progress.go"><code>routd/progress.go</code></a>, specified in <a href="https://github.com/kronael/arizuko/blob/main/specs/6/46-turn-progress.md">specs/6/46</a>. What happens when the turn dies before it can finish the list: <a href="retries.html">retries</a>.</p>
+    <h2>The code that renders the checklist</h2>
+    <p>The hook that renders the list is in <a href="https://github.com/kronael/arizuko/blob/main/ant/src/todo-status.ts">[ant/src/todo-status.ts]</a>. The code that creates or edits the message, and the end-of-turn mark, are in <a href="https://github.com/kronael/arizuko/blob/main/routd/progress.go">[routd/progress.go]</a>. <a href="retries.html">retries</a> explains what happens when the turn stops before it finishes the list.</p>
 
       <nav class="docs-pager" aria-label="Pager">
         <a rel="prev" href="topics.html">&larr; Topics</a>

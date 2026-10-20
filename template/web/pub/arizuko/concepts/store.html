@@ -64,10 +64,10 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">concepts</a> &rsaquo; the store</p>
 <h1>the store</h1>
 
-    <p class="lede">One server, one account per instance, a key per daemon. Every row arizuko keeps &mdash; messages, routes, grants, runs, logins &mdash; lives on one DynamoDB-protocol server, and no daemon keeps a state of record on its own disk.</p>
+    <p class="lede">Every row arizuko keeps, such as messages, routes, grants, runs and logins, lives on one DynamoDB-protocol server. Each instance is one account on that server, and each daemon has its own key. No daemon keeps a state of record on its own disk.</p>
 
-    <h2>from a daemon down to the disk</h2>
-    <p>Read it top to bottom. A daemon asks for rows by key; four layers later, PostgreSQL writes them.</p>
+    <h2>A row passes four layers from a daemon to PostgreSQL</h2>
+    <p>Read the figure from top to bottom. A daemon asks for rows by key, and four layers later PostgreSQL writes them.</p>
     <pre id="twin-store"><code>┌──────────────────────────────────────────────────────────────┐
 │ daemons: routd, runed, authd, onbod, dashd, webd, adapters   │
 │ each through its store layer: store, runstore, authstore,    │
@@ -99,23 +99,23 @@
 └──────────────────────────────┘ └─────────────────────────────┘
 </code></pre>
 
-    <h2>two methods, nothing else</h2>
-    <p>Every daemon talks to the store through <code>objstore.Store</code>, and it has exactly two methods: <code>Query</code> reads by key and <code>GuardedBatch</code> writes a set of items, all or none, only if every condition holds. A refused batch isn&rsquo;t an error, it&rsquo;s an answer: &ldquo;someone else got there first.&rdquo; Counters, replace-a-whole-scope and the cycle check on group membership are written on top of those two, never added beside them. Keep the interface that small and a second engine is a second driver, with no daemon edited.</p>
+    <h2>The store interface has two methods</h2>
+    <p>Every daemon talks to the store through <code>objstore.Store</code>, which has exactly two methods. <code>Query</code> reads by key. <code>GuardedBatch</code> writes a set of items, all or none, and only if every condition holds. A refused batch is an answer, not an error: another writer changed the items first. Counters, the replacement of a whole scope and the cycle check on group membership use the two methods. They are never added as new methods. Because the interface stays this small, a second engine needs only a second driver and no daemon changes.</p>
 
-    <h2>one account per instance</h2>
-    <p>The server is ExtendDB, which speaks DynamoDB&rsquo;s wire protocol and keeps the data in PostgreSQL. An arizuko instance is one <em>account</em> on that server, so one server can hold every instance on a host and still keep them apart. A PostgreSQL role is not the boundary; the account is. Point the same driver at Amazon&rsquo;s own DynamoDB and nothing above it notices.</p>
+    <h2>Each instance is one account on the server</h2>
+    <p>The server is ExtendDB. ExtendDB speaks the DynamoDB wire protocol and keeps the data in PostgreSQL. An arizuko instance is one <em>account</em> on that server, so one server can hold every instance on a host and still keep the instances apart. The account is the boundary, not a PostgreSQL role. If you point the same driver at Amazon&rsquo;s own DynamoDB, nothing above the driver changes.</p>
 
-    <h2>a key per daemon</h2>
-    <p>Each daemon signs in as its own IAM user with its own access key, and that user&rsquo;s policy names the owners the daemon opens. A table is called <code>&lt;owner&gt;.&lt;entity&gt;</code>, like <code>routd.acl</code>, so &ldquo;routd&rsquo;s tables&rdquo; is one line of policy. <code>store/owner_reach.go</code> lists who opens what, and a test fails when the code reaches an owner the list doesn&rsquo;t name. A daemon given the server&rsquo;s address and no key refuses to start rather than run unsigned. <code>timed</code> and <code>ttsd</code> hold no key at all: they ask an owner&rsquo;s <code>/v1</code>.</p>
+    <h2>Each daemon signs with its own key</h2>
+    <p>Each daemon signs in as its own IAM user with its own access key. The policy of that user names the owners the daemon opens. A table name has the form <code>&lt;owner&gt;.&lt;entity&gt;</code>, for example <code>routd.acl</code>, so one line of policy covers all the tables of <code>routd</code>. <code>store/owner_reach.go</code> lists which daemon opens which owner, and a test fails when the code reaches an owner that the list does not name. A daemon that has the server address and no key refuses to start. <code>timed</code> and <code>ttsd</code> hold no key: they call the <code>/v1</code> API of an owner.</p>
 
-    <h2>backing it up</h2>
-    <p>Stop the instance and tar its data dir. The PostgreSQL files sit under <code>store/extenddb_db/</code>, right next to the group folders, so one tar carries both. A tar of a running instance isn&rsquo;t a backup: PostgreSQL is still writing the files you&rsquo;re copying.</p>
+    <h2>A backup is a tar of the stopped instance</h2>
+    <p>Stop the instance, then tar its data directory. The PostgreSQL files are under <code>store/extenddb_db/</code>, next to the group folders, so one tar holds both. A tar of a running instance is not a backup, because PostgreSQL still writes the files while you copy them.</p>
 
-    <h2>go deeper</h2>
+    <h2>The details live in three places</h2>
     <ul>
-      <li><a href="../reference/schema.html">reference / schema</a> &mdash; every entity, its coordinate, and who may read it.</li>
-      <li><a href="https://github.com/kronael/arizuko/blob/main/objstore/README.md">objstore/README.md</a> &mdash; the two methods, the protocols on top, and the DynamoDB driver.</li>
-      <li><a href="https://github.com/kronael/arizuko/blob/main/INSTALL.md">INSTALL.md</a> &mdash; standing the server up and minting the per-daemon keys.</li>
+      <li><a href="../reference/schema.html">reference / schema</a>: every entity, its coordinate, and which daemon can read it.</li>
+      <li><a href="https://github.com/kronael/arizuko/blob/main/objstore/README.md">[objstore/README.md]</a>: the two methods, the protocols on top, and the DynamoDB driver.</li>
+      <li><a href="https://github.com/kronael/arizuko/blob/main/INSTALL.md">[INSTALL.md]</a>: how to start the server and create the key for each daemon.</li>
     </ul>
 
       <nav class="docs-pager" aria-label="Pager">

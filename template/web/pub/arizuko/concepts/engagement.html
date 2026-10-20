@@ -64,81 +64,87 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">concepts</a> &rsaquo; engagement</p>
 <h1>engagement</h1>
 
-    <p class="lede">Routing delivered the message to a folder. Now engagement decides whether to keep listening. Mentioning the bot for every single message kills conversation flow, so once the bot has replied in a <code>(chat, topic)</code>, that pair is &ldquo;engaged&rdquo; for a window of time. Subsequent inbounds in the same pair fire the agent without needing another mention.</p>
+    <p class="lede">Engagement decides whether the bot keeps listening after a mention. A mention on every message breaks the flow of a conversation. So after the bot replies in a chat and topic pair, that pair is &ldquo;engaged&rdquo; for a time window. Later inbound messages in the pair start the agent without another mention.</p>
 
-    <h2>two states</h2>
-    <p>A <code>(jid, topic)</code> pair is either <strong>engaged</strong> or <strong>idle</strong>.</p>
-    <ul>
-      <li><strong>Idle &rarr; engaged</strong>: a mention, a reply to a bot message, or an explicit <code>engage()</code> call. The bot replies, and the timer starts.</li>
-      <li><strong>Engaged &rarr; engaged</strong>: every inbound that arrives before the deadline fires a turn, no re-mention needed.</li>
-      <li><strong>Engaged &rarr; idle</strong>: the TTL expires, or the agent calls <code>disengage()</code> when it&rsquo;s done helping.</li>
-      <li><strong>Idle stays idle</strong>: after disengage, the next inbound needs a fresh mention.</li>
-    </ul>
-    <p>The column stores the deadline itself, not the time of the last message, so a read is a plain comparison against the clock. Each bot reply pushes the deadline out again &mdash; a long back-and-forth never times out mid-conversation, but a quiet 30 minutes ends it. Your own messages don&rsquo;t extend it; only the bot&rsquo;s replies do. The window is configured via <code>ENGAGEMENT_TTL</code> (default: <code>30m</code>).</p>
+    <h2>A chat and topic pair is engaged or idle</h2>
+    <p>A pair of a <code>jid</code> and a topic is either <strong>engaged</strong> or <strong>idle</strong>. Four transitions exist:</p>
+    <dl>
+      <dt>Idle to engaged</dt>
+      <dd>A mention, a reply to a bot message or an explicit <code>engage()</code> call. The bot replies, and the timer starts.</dd>
+      <dt>Engaged to engaged</dt>
+      <dd>Every inbound message that arrives before the deadline starts a turn, with no new mention.</dd>
+      <dt>Engaged to idle</dt>
+      <dd>The window expires, or the agent calls <code>disengage()</code> when it has finished.</dd>
+      <dt>Idle to idle</dt>
+      <dd>After a disengage, the next inbound message needs a new mention.</dd>
+    </dl>
+    <p>The column stores the deadline itself, not the time of the last message, so a read is a plain comparison with the clock. Each bot reply moves the deadline out again. A long exchange never times out in the middle, but 30 quiet minutes end it. Your own messages do not extend the window, only the replies of the bot. <code>ENGAGEMENT_TTL</code> sets the window, and the default is <code>30m</code>.</p>
 
-    <p><code>ENGAGEMENT_TTL=0</code> disables automatic opening and renewal of engagement windows. Explicit mentions and direct bot replies still work. Existing windows keep their deadlines until they expire or the bot calls <code>disengage</code>.</p>
+    <p><code>ENGAGEMENT_TTL=0</code> stops the automatic opening and renewal of windows. Explicit mentions and direct replies to the bot still work. An open window keeps its deadline until it expires or the bot calls <code>disengage</code>.</p>
 
-    <h2>thread by default on Slack channels</h2>
-    <p>The bot&rsquo;s reply to a channel mention opens a Slack thread off the user&rsquo;s message. The engagement window then attaches to that thread. Subsequent thread replies engage automatically and live in-thread, so the main channel stays uncluttered.</p>
-    <p>The thread root decides automatic mention promotion. Ambient messages in a bot-rooted thread can address the bot until it disengages. Joining a human-rooted thread adds no such permission. Explicit mentions and direct replies to bot messages still address the bot.</p>
-    <p>Broadcasts (scheduled tasks, migrate announcements, system events) bypass the rule &mdash; they have no parent message to thread under, so they land top-level.</p>
+    <div class="callout"><strong>Engagement overrides the whole route table.</strong> When a chat and topic pair is engaged, <code>routd</code> delivers to the engaged folder and starts a turn whatever the route table says. This includes <code>#observe</code> targets, trigger routes to another folder, and no matching route at all. The table applies again when the window expires or someone calls <code>disengage()</code>.</div>
 
-    <h2>corrective side-fork</h2>
-    <p>When the user is correcting the bot&rsquo;s last reply (&ldquo;no, that&rsquo;s wrong&rdquo;, &ldquo;rephrase&rdquo;) rather than continuing the conversation, the agent can <a href="../concepts/topics.html">fork</a> the topic to <code>&lt;current&gt;#fix</code> and run the correction loop there. The main thread stays clean; the fix loop happens in a child thread off the bot&rsquo;s incorrect reply. Convergence reached, the agent posts one corrected answer to the parent and calls <code>disengage()</code> on the fix topic.</p>
-    <p>This is a convention &mdash; the agent decides when to fork. <code>routd</code> doesn&rsquo;t enforce it.</p>
+    <h2>A reply in a Slack channel opens a thread</h2>
+    <p>The reply of the bot to a mention in a channel opens a Slack thread on the message of the user. The engagement window then attaches to that thread. Later replies in the thread engage the bot automatically and stay in the thread, so the main channel stays clear.</p>
+    <p>The root of the thread controls automatic mention promotion. In a thread that the bot started, any message can address the bot until it disengages. A thread that a person started gives no such permission when the bot joins it. Explicit mentions and direct replies to bot messages still address the bot.</p>
+    <p>Broadcasts, such as scheduled tasks, migrate announcements and system events, do not follow this rule. They have no parent message to thread under, so they appear at the top level.</p>
 
-    <h2>length per surface</h2>
-    <p>Every turn carries a <code>&lt;surface&gt;</code> hint so the agent can self-cap reply length:</p>
+    <h2>A correction can run in a side topic</h2>
+    <p>Sometimes the user corrects the last reply of the bot, for example &ldquo;no, that&rsquo;s wrong&rdquo; or &ldquo;rephrase&rdquo;, instead of continuing. The agent can then <a href="../concepts/topics.html">fork</a> the topic to <code>&lt;current&gt;#fix</code> and run the correction there. The main thread stays clean, and the correction happens in a child thread on the incorrect reply. When the correction is complete, the agent posts one corrected answer to the parent and calls <code>disengage()</code> on the fix topic.</p>
+    <p>The fork is a convention. The agent decides when to fork, and <code>routd</code> does not enforce it.</p>
+
+    <h2>A surface hint sets the reply length</h2>
+    <p>Every turn carries a <code>&lt;surface&gt;</code> hint, so the agent can limit the length of its reply:</p>
     <pre><code>&lt;surface&gt;slack-channel-thread&lt;/surface&gt;   threaded reply, full ceiling
 &lt;surface&gt;slack-channel&lt;/surface&gt;          rare: top-level, hard-cap 200 chars
 &lt;surface&gt;slack-dm&lt;/surface&gt;               full ceiling
 &lt;surface&gt;slack-pane&lt;/surface&gt;             assistant sidebar, full ceiling
 &lt;surface&gt;discord-channel&lt;/surface&gt;        default ceiling
 &lt;surface&gt;telegram-dm&lt;/surface&gt;            full ceiling</code></pre>
-    <p>The hint is computed from the chat JID shape and thread context. The agent reads it and obeys.</p>
+    <p><code>routd</code> computes the hint from the shape of the chat JID and the thread context. The agent reads the hint and follows it.</p>
 
-    <h2>MCP control</h2>
+    <h2>Two MCP tools control the window</h2>
+    <dl>
+      <dt><code>engage(jid, topic)</code></dt>
+      <dd>Opens the window explicitly, for example before a scheduled autonomous turn.</dd>
+      <dt><code>disengage(jid, topic)</code></dt>
+      <dd>Clears the window, so the next inbound message needs a new mention.</dd>
+    </dl>
+    <p><code>jid</code> is required, so the agent names the chat it means. <code>topic</code> defaults to the main timeline. Two folders can call the tools: the folder that holds the live window, and a folder that the chat routes to. The own chat of the turn counts as such a chat. <code>engage</code> can also claim a conversation that no folder holds, but it cannot take over the live window of another folder. <code>role:member</code> carries <code>disengage</code> with no approval. <code>engage</code> needs its own grant.</p>
+
+    <p>A mention requests a task. After a one-time task, the agent calls <code>disengage</code> and delivers its answer, and the answer does not open the conversation again. An explicit stop also blocks automatic mentions from old thread replies. A new mention or a direct reply can request another task.</p>
+
+    <p>Renewal has three limits, so that a stale or automatic reply cannot keep a window open alone:</p>
     <ul>
-      <li><strong><code>engage(jid, topic)</code></strong> &mdash; explicit re-engagement, e.g. before a scheduled autonomous turn.</li>
-      <li><strong><code>disengage(jid, topic)</code></strong> &mdash; clear the engagement so the next inbound needs a fresh mention.</li>
+      <li>A scheduled turn never renews the window, because a cron job that answers into a chat is not a conversation.</li>
+      <li>A <code>disengage</code> at or after the start of a turn blocks the renewal by that turn. So a reply already in progress cannot undo the stop.</li>
+      <li>An MCP <code>send</code> or <code>reply</code> that gets no message id from the platform renews nothing, because the next reply has no message to thread under.</li>
     </ul>
-    <p><code>jid</code> is required, so the agent names the chat it means; <code>topic</code> defaults to the main timeline. Who may call them: the folder that holds the live window, or a folder the chat routes to (the turn&rsquo;s own chat counts). <code>engage</code> may also claim a conversation nobody holds. Taking over another folder&rsquo;s live window is refused. <code>role:member</code> carries <code>disengage</code> with no approval; <code>engage</code> needs its own grant.</p>
+    <p>Engagement has four limits by design. The window length is one <code>ENGAGEMENT_TTL</code> for the instance, not one per route. Engagement has no model of several bots in one chat. A bot reply never disengages automatically. No special message ends a window: only a <code>disengage</code> call or the clock ends it.</p>
 
-    <div class="note"><strong>Note:</strong> engagement overrides the entire route table. When a <code>(chat, topic)</code> is engaged, <code>routd</code> delivers to the engaged folder and fires a turn regardless of what the route table says &mdash; including <code>#observe</code> targets, trigger routes pointing elsewhere, or no matching route at all. The bot is mid-conversation; the route table is irrelevant until the TTL expires or <code>disengage()</code> is called.</div>
-
-    <p>A mention requests a task. After a one-shot task, the agent calls <code>disengage</code> and delivers its answer. The answer does not reopen the conversation. An explicit stop also blocks automatic mentions from old thread replies. A fresh mention or a direct reply can request another task.</p>
-
-    <p>Renewal has three limits, each so a stale or automatic reply can&rsquo;t keep a window open by itself:</p>
-    <ul>
-      <li>A scheduled turn never renews. A cron job answering into a chat isn&rsquo;t a conversation.</li>
-      <li>A <code>disengage</code> at or after the moment a turn started blocks that turn&rsquo;s renewal, so a reply already on its way can&rsquo;t undo the stop.</li>
-      <li>An MCP <code>send</code> or <code>reply</code> that got no message id back from the platform renews nothing &mdash; there&rsquo;s nothing to thread under.</li>
-    </ul>
-    <p>What engagement deliberately isn&rsquo;t: there&rsquo;s no per-route window length (one <code>ENGAGEMENT_TTL</code> for the instance), no model of several bots sharing a chat, no automatic disengage when the bot replies, and no magic message that ends a window &mdash; ending one is a <code>disengage</code> call or the clock.</p>
-
-    <h2>seeing who is engaged, and ending it</h2>
-    <p>Engagement is invisible from the outside &mdash; the bot answering a message that carried no @mention is the only clue you get. The dashboard answers it at a glance: <strong><code>/dash/engagement/</code></strong> lists every conversation the bot is currently staying in, with the group it belongs to and how long the window has left. It is operator-only, because it covers the whole instance rather than one folder.</p>
-    <p>Each row carries a <strong>disengage</strong> button. Most windows need nothing &mdash; they wear off on their own. Use it when the bot is talking in a chat it should stay out of: the window ends immediately and the bot will not speak there again until someone names it. It asks you to confirm first, because the people in that chat see the effect straight away.</p>
-    <p>The button goes through the same <code>POST</code> shown below rather than editing the database, so it gets the same folder check and writes the same audit entry &mdash; every early ending records who did it, whether it came from the dashboard, the API, or the agent's own <code>disengage()</code>.</p>
-    <p>For a script, or for one conversation you already know, <code>routd</code> answers directly:</p>
+    <h2>The dashboard lists every open window</h2>
+    <p>From outside, engagement is not visible. The only sign is a bot that answers a message without an @mention. The dashboard page <code>/dash/engagement/</code> lists every conversation that the bot stays in, with its group and the time left in the window. Only an operator can open the page, because it covers the whole instance and not one folder.</p>
+    <p>Each row has a <strong>disengage</strong> button. Most windows need no action, because they expire. Use the button when the bot talks in a chat it must stay out of. The window ends at once, and the bot does not speak there again until someone names it. The button asks you to confirm first, because the people in that chat see the effect at once.</p>
+    <p>The button sends the same <code>POST</code> as the example below and does not edit the database. So it passes the same folder check and writes the same audit entry. Every early end records who did it: the dashboard, the API or the <code>disengage()</code> call of the agent.</p>
+    <p>For a script, or for one known conversation, call <code>routd</code> directly:</p>
     <pre><code># one conversation: which folder holds it, and until when
 curl -H "Authorization: Bearer $TOKEN" \
-  'https://&lt;host&gt;/v1/engagement?jid=slack:T01/C02&amp;topic='
+  'https://&lt;host&gt;/v1/engagement?jid=slack:T01/channel/C02&amp;topic='
 
 # every window that is live right now, soonest to expire last
 curl -H "Authorization: Bearer $TOKEN" https://&lt;host&gt;/v1/engagement
 
 # end one early: any ttl_seconds of zero or less clears the window
 curl -X POST -H "Authorization: Bearer $TOKEN" \
-  -d '{"jid":"slack:T01/C02","topic":"","folder":"sales","ttl_seconds":0}' \
+  -d '{"jid":"slack:T01/channel/C02","topic":"","folder":"sales","ttl_seconds":0}' \
   https://&lt;host&gt;/v1/engagement</code></pre>
-    <p>The single-conversation read also returns <code>last_reply_id</code>, the message the next reply threads under. That one outlives the window, so an idle conversation still reports it while <code>engaged_until</code> comes back empty.</p>
-    <p>You see the windows your token's folder owns, and no others. A token with no folder at all &mdash; a root or service token &mdash; sees every window on the instance; that is the only way to get the full list, and it is deliberate rather than a side-effect of how deep your folder sits.</p>
-    <p>The same bound applies to ending one. A live window belongs to the folder that claimed it, and that is what the <code>POST</code> checks &mdash; naming a different <code>folder</code> in the body does not widen it. So you can never end a window you could not have seen in the list, and only a root or service token can end anyone's.</p>
-    <div class="callout"><strong>Not in <code>openapi.json</code>:</strong> these three are hand-written, not generated from the resource registry like <a href="../reference/openapi.html">the cold-tier tables</a>. Engagement is live conversation state, not operator configuration, and it shares a seam with the <code>engage</code>/<code>disengage</code> agent tools above &mdash; registering it would create a second path into the same rows. <code>/dash/engagement/</code> reads and writes the same three endpoints rather than the table.</div>
+    <p>The read for one conversation also returns <code>last_reply_id</code>, the message that the next reply threads under. That id outlives the window, so an idle conversation still reports it while <code>engaged_until</code> is empty.</p>
+    <p>A token sees only the windows that its folder owns. A token with no folder, which is a root or service token, sees every window on the instance. Only such a token gets the full list, by design, and the depth of a folder has no effect on it.</p>
+    <p>The same limit applies to ending a window. A live window belongs to the folder that claimed it, and the <code>POST</code> checks that folder. A different <code>folder</code> in the body does not widen the check. So you can end only a window that you can see in the list, and only a root or service token can end any window.</p>
+    <div class="callout"><strong>The three endpoints are not in <code>openapi.json</code>.</strong> They are written by hand and do not come from the resource registry like <a href="../reference/openapi.html">the cold-tier tables</a>. Engagement is live conversation state, not operator configuration. It shares its rows with the agent tools <code>engage</code> and <code>disengage</code>, and a registry entry would add a second path to the same rows. <code>/dash/engagement/</code> reads and writes through the same three endpoints, not the table.</div>
 
-    <h2>go deeper</h2>
-    <p>Where engagement sits in route resolution, and how a mention gets promoted: <a href="https://github.com/kronael/arizuko/blob/main/ROUTING.md">ROUTING.md</a>. The fork primitive used by the corrective pattern: <a href="../concepts/topics.html">topics</a>. Routing modes that interact with engagement: <a href="../concepts/routing.html#modes">routing modes</a>.</p>
+    <h2>Three pages show how engagement connects</h2>
+    <p><a href="https://github.com/kronael/arizuko/blob/main/ROUTING.md">[ROUTING.md]</a> shows where engagement sits in route resolution and how a mention is promoted. <a href="../concepts/topics.html">topics</a> explains the fork that the correction pattern uses. <a href="../concepts/routing.html#modes">routing modes</a> lists the modes that engagement overrides.</p>
 
       <nav class="docs-pager" aria-label="Pager">
         <a rel="prev" href="routing.html">&larr; Routing</a>

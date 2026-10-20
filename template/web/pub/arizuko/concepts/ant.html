@@ -64,10 +64,10 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">concepts</a> &rsaquo; the ant</p>
 <h1>ant</h1>
 
-    <p class="lede">You know what arizuko is for; now meet the thing you actually talk to. An ant is one Claude Code process running inside its own KVM guest. There is one ant per group, and the group&rsquo;s folder on disk IS the ant. Its diary, skills, and <code>PERSONA.md</code> are all files in that folder. Keep that picture in your head: every concept after this one is really about a file in that folder, or a rule about who may touch it.</p>
+    <p class="lede">An ant is the agent you talk to: one Claude Code process in its own KVM guest. Each group has one ant, and the folder of the group on disk is the ant. The diary, the skills and <code>PERSONA.md</code> are files in that folder. Every later concept is about a file in that folder or about a rule for who can change it.</p>
 
-    <h2>the folder is the agent</h2>
-    <p>Every group lives at <code>/srv/data/arizuko_&lt;instance&gt;/groups/&lt;folder&gt;/</code> on the host. When a message arrives, <code>runed</code> starts a guest and shares that folder in at <code>/home/node/</code> inside. Whatever&rsquo;s in the folder is what the agent sees:</p>
+    <h2>The folder is the agent</h2>
+    <p>Every group lives at <code>/srv/data/arizuko_&lt;instance&gt;/groups/&lt;folder&gt;/</code> on the host. When a message arrives, <code>runed</code> starts a guest and mounts that folder at <code>/home/node/</code> inside the guest. The agent sees what is in the folder:</p>
     <pre><code>groups/solo/inbox/
   PERSONA.md       persona &mdash; name, tone, voice
   CLAUDE.md        the operator's runbook for this group
@@ -77,10 +77,10 @@
   facts/           durable knowledge
   users/           one file per person the agent talks to
   .claude/         CLAUDE.md, skills/, output-styles/, session state</code></pre>
-    <p>Copy the folder, you copy the ant. Delete the folder, the ant is gone. There is no separate database row holding the persona.</p>
+    <p>If you copy the folder, you copy the ant. If you delete the folder, the ant is gone. No separate database row holds the persona.</p>
 
-    <h2>what the ant remembers</h2>
-    <p>Memory is files in that folder too, in layers. A short form of the top three rides into every prompt; the facts wait until the agent goes looking:</p>
+    <h2>Memory is layers of files in the folder</h2>
+    <p>Memory is also files in the folder, in layers. A short form of the top three layers goes into every prompt. The facts stay on disk until the agent searches for them:</p>
 <pre id="twin-memory"><code>layer        file in the group home           reaches the turn
 ──────────── ──────────────────────────────── ─────────────────────────────
 now          ~/work.md                        pushed whole, every turn
@@ -101,10 +101,10 @@ session transcripts ──► /compact-memories episodes day ──► ~/episode
 ~/diary/week/ ──► diary month ────────────────────────────► ~/diary/month/
     all five run as timed tasks with context_mode isolated;
     ~/diary/week/ and ~/diary/month/ are never pushed</code></pre>
-    <p>The week and month diary rollups live in subfolders the prompt never reads: the 14 daily entries already cover that span, and pushing both would spend the context twice. The rollups are written by five scheduled tasks every group gets at creation, each running isolated so a compaction turn doesn&rsquo;t summarise its own summarising.</p>
+    <p>The week and month diary rollups live in subfolders that the prompt never reads. The 14 daily entries already cover that span, and a prompt with both would spend the context twice. Five scheduled tasks write the rollups. Every group gets these tasks at creation, and each task runs isolated, so a compaction turn does not summarise its own work.</p>
 
-    <h2>what the ant reads each turn</h2>
-    <p>Three processes build what the agent sees, and each builds the part only it holds:</p>
+    <h2>Three processes build what the ant reads</h2>
+    <p>Three processes build what the agent sees, and each process builds the part that only it holds:</p>
 <pre id="twin-prompt"><code>routd  buildAgentPrompt, routd/prompt.go:26 ───► RunRequest.MessageBatch
        &lt;system-note&gt; &lt;system&gt; &lt;autocalls&gt; &lt;persona&gt; &lt;rule&gt; &lt;topic&gt;
        &lt;surface&gt; &lt;pane-context&gt; &lt;link-context&gt; &lt;messages&gt;
@@ -121,40 +121,49 @@ runed  preparePayload, runed/render.go:177 ────► the guest's stdin pro
 ant    buildSystemPrompt, ant/src/index.ts:49 ─► the system prompt
        SYSTEM.md, ant/CLAUDE.md for codex and pi, PERSONA.md,
        the output style</code></pre>
-    <p>The <code>&lt;user&gt;</code> tag is a pointer, not content &mdash; it names the sender&rsquo;s file in <code>users/</code> and the agent decides whether to open it. Bot rows never ride in as triggers, and where a tool returns history on purpose each one says <code>bot="true"</code>, so the agent doesn&rsquo;t mistake its own past words for somebody else&rsquo;s.</p>
-    <p>One file is always loaded: <code>ant/CLAUDE.md</code>, seeded into the group as <code>~/.claude/CLAUDE.md</code>. Everything in it is read on every turn whether the turn needs it or not, so a section stays there only if the agent needs it before it could know to ask, if breaking it would fail silently, if it&rsquo;s a pointer no user phrase would trigger, or if a skill reads it from there. The rest lives in skills. A test fails when that file points at a skill or doc that doesn&rsquo;t exist.</p>
-    <p>A group&rsquo;s <code>SYSTEM.md</code>, if it has one, replaces the base system prompt outright; nothing merges into it. <code>PERSONA.md</code> and the output style come after it.</p>
-
-    <h2>one guest per turn</h2>
-    <p>The guest is short-lived. <code>runed</code> starts it when a message arrives, the agent reads the prompt, replies, and the guest powers off. Nothing important lives inside the guest &mdash; only inside the shared folder. The next turn gets a fresh guest, a fresh kernel, with the same folder.</p>
-    <p>A turn has one deadline, <code>RUNED_RUN_TIMEOUT</code> (20 minutes by default). The agent&rsquo;s own timeout sits 30 seconds under it, so it can report before the guest is killed. A job longer than that wants splitting into turns, checkpoints in <code>~/facts/</code> or <code>~/tmp/</code>, or a background task &mdash; not a bigger timeout.</p>
-
-    <h2>capability is a grant, not a folder</h2>
-    <p>How deep a folder sits says nothing about what its ant may do. <code>solo/inbox</code> and <code>corp/eng/sre/oncall</code> start with exactly the same power: the <code>role:member</code> role every folder is bound to at creation, which carries the messaging verbs and nothing else. Everything past that &mdash; registering groups, editing routes, opening egress, scheduling &mdash; is a row somebody explicitly handed over, scoped to a subtree. An ant with no row for a tool doesn't just fail the call; it never sees the tool. Same agent shape everywhere, and the only thing that varies is the grants.</p>
-
-    <h2>how the agent talks back</h2>
-    <p>The agent calls MCP tools (like <code>send</code> or <code>find_messages</code>) over a unix socket. <code>routd</code> hosts one socket per group in-process at <code>ipc/&lt;folder&gt;/gated.sock</code> on the host; <code>runed</code> runs a small bridge, one per turn, that accepts the guest's vsock connection and dials that socket. Inside the guest, Claude Code is wired up to a local path via its <code>mcpServers</code> config, same as always. Every tool call is a JSON-RPC message over that socket, and <code>routd</code> runs the same grant check on it that it runs when a human calls the matching REST endpoint &mdash; one gate, agent or operator.</p>
-
-    <h2>the migration trick</h2>
-    <p>When arizuko ships a new version of the built-in skills, you don&rsquo;t want every group&rsquo;s folder to fall behind. <code>runed</code> reads <code>ant/skills/self/MIGRATION_VERSION</code> from the agent image, compares it to <code>&lt;group&gt;/.claude/skills/self/MIGRATION_VERSION</code>, and if the group is older it adds a <code>[pending migration]</code> line to the next prompt. The agent runs <code>/migrate</code>, which copies the upstream skills into its own folder. Old groups catch up at their own pace; nothing is force-pushed.</p>
-
-    <h2>what stays, what goes</h2>
+    <p>The <code>&lt;user&gt;</code> tag is a pointer, not content. It names the file of the sender in <code>users/</code>, and the agent decides whether to open it. Bot rows never start a turn. When a tool returns history on purpose, each bot row carries <code>bot="true"</code>. So the agent does not read its own past words as the words of another person.</p>
+    <p>One file is always loaded: <code>ant/CLAUDE.md</code>, which the group gets as <code>~/.claude/CLAUDE.md</code>. The agent reads all of this file on every turn, so a section stays in it only for one of four reasons:</p>
     <ul>
-      <li><strong>Stays</strong> &mdash; everything under <code>groups/&lt;folder&gt;/</code>: diary, facts, skills, the JSONL session transcripts in <code>.claude/</code>.</li>
-      <li><strong>Goes</strong> &mdash; the guest itself, anything written to <code>/tmp</code> inside, any process state held in RAM. Its own filesystem is a tmpfs overlay, discarded at power-off.</li>
+      <li>The agent needs the section before it can know to ask for it.</li>
+      <li>A break in the section fails without an error.</li>
+      <li>The section is a pointer that no user phrase triggers.</li>
+      <li>A skill reads the section from that file.</li>
     </ul>
-    <p>This is why &ldquo;just edit the folder&rdquo; works. Change <code>PERSONA.md</code> on the host (or via <a href="../concepts/webdav.html">WebDAV</a>) and the next spawn picks up the new persona &mdash; no restart, no reload.</p>
+    <p>Everything else lives in skills. A test fails when the file points at a skill or a doc that does not exist.</p>
+    <p>If a group has a <code>SYSTEM.md</code>, that file replaces the base system prompt completely, and nothing merges into it. <code>PERSONA.md</code> and the output style come after it.</p>
 
-    <h2>arizuko vs standalone ant</h2>
-    <p><strong>Today:</strong> every arizuko group is an ant folder. <code>arizuko chat &lt;instance&gt; [group]</code> drops you into one for interactive use. <code>runed</code> starts guests from the same folders for inbound chat messages.</p>
-    <p><strong>Alone:</strong> ant is the agent layer, not a daemon you deploy by itself. It occupies the guest <code>runed</code> hands it and talks over a stdin/stdout protocol, which is what makes a second harness &mdash; pi, codex &mdash; a sibling of ant rather than of runed. ant consumes the tool list the platform renders and is a component of nothing; the pieces arizuko does ship on their own are <code>egress</code>, <code>substrate</code> and <code>mcpfw</code>.</p>
+    <h2>Each turn gets a new guest</h2>
+    <p>The guest lives for one turn. <code>runed</code> starts it when a message arrives, the agent reads the prompt and replies, and the guest powers off. Nothing that matters lives inside the guest, only in the mounted folder. The next turn gets a new guest and a new kernel with the same folder.</p>
+    <p>A turn has one deadline, <code>RUNED_RUN_TIMEOUT</code>, and the default is 20 minutes. The timeout of the agent is 30 seconds shorter, so the agent can report before <code>runed</code> stops the guest. For a longer job, split it into turns, write checkpoints to <code>~/facts/</code> or <code>~/tmp/</code>, or use a background task. Do not raise the timeout.</p>
 
-    <h2>go deeper</h2>
+    <h2>A grant gives capability, not the folder depth</h2>
+    <p>The depth of a folder says nothing about what its ant can do. <code>solo/inbox</code> and <code>corp/eng/sre/oncall</code> start with the same rights: the <code>role:member</code> role. Every folder gets this role at creation, and it carries the messaging verbs and nothing more. Every other right is a row that a principal gave to the folder for a subtree. Examples are the rights to register groups, edit routes, open egress or schedule tasks. If an ant has no row for a tool, the ant does not see the tool at all. Every agent has the same shape, and only the grants change.</p>
+
+    <h2>The agent calls tools over one socket</h2>
+    <p>The agent calls MCP tools, such as <code>send</code> or <code>find_messages</code>, over a unix socket. <code>routd</code> hosts one socket per group at <code>ipc/&lt;folder&gt;/gated.sock</code> on the host. For each turn, <code>runed</code> runs a small bridge that accepts the vsock connection of the guest and connects it to that socket. Inside the guest, the <code>mcpServers</code> config of Claude Code points at a local path. Every tool call is a JSON-RPC message over that socket. <code>routd</code> runs the same grant check on it as on a call to the matching REST endpoint. So agents and operators pass one gate.</p>
+
+    <h2>Each group updates its own skills</h2>
+    <p>A new arizuko version can ship new built-in skills, and every group folder must get them. <code>runed</code> reads <code>ant/skills/self/MIGRATION_VERSION</code> from the agent image and compares it with <code>&lt;group&gt;/.claude/skills/self/MIGRATION_VERSION</code>. If the group is older, <code>runed</code> adds a <code>[pending migration]</code> line to the next prompt. The agent then runs <code>/migrate</code>, which copies the new skills into its own folder. Each group updates at its own pace, and nothing overwrites a folder from outside.</p>
+
+    <h2>The folder stays and the guest goes</h2>
+    <dl>
+      <dt>Stays</dt>
+      <dd>Everything under <code>groups/&lt;folder&gt;/</code>: the diary, facts, skills and the JSONL session transcripts in <code>.claude/</code>.</dd>
+      <dt>Goes</dt>
+      <dd>The guest, all files in <code>/tmp</code> inside it, and all process state in RAM. The own filesystem of the guest is a tmpfs overlay that power-off discards.</dd>
+    </dl>
+    <p>For this reason, an edit to the folder is enough. Change <code>PERSONA.md</code> on the host or through <a href="../concepts/webdav.html">WebDAV</a>, and the next guest uses the new persona without a restart or a reload.</p>
+
+    <h2>ant runs only inside a guest</h2>
+    <p>Every arizuko group is an ant folder. <code>arizuko chat &lt;instance&gt; --folder &lt;folder&gt;</code> opens one for interactive use, and <code>runed</code> starts guests from the same folders for inbound chat messages.</p>
+    <p>ant is the agent layer, not a daemon you deploy alone. It runs in the guest that <code>runed</code> gives it and talks over a stdin and stdout protocol. For this reason, a second harness such as pi or codex is a sibling of ant, not of <code>runed</code>. ant uses the tool list that the platform renders and is part of no other component. The parts that arizuko ships for use alone are <code>egress</code>, <code>substrate</code> and <code>mcpfw</code>.</p>
+
+    <h2>Four pages continue from here</h2>
     <ul>
-      <li><a href="../concepts/turn.html">a turn, end to end</a> &mdash; where the prompt goes once it&rsquo;s built.</li>
-      <li><a href="../concepts/tokens.html">route tokens</a> &mdash; how to reach an ant from a browser or webhook.</li>
-      <li><a href="../concepts/grants.html">grants</a> &mdash; how an <code>acl</code> row turns into a per-tool permission.</li>
-      <li><a href="../concepts/jid.html">jid</a> &mdash; the addresses the agent uses to send messages back out.</li>
+      <li><a href="../concepts/turn.html">a turn, end to end</a>: where the prompt goes after the build.</li>
+      <li><a href="../concepts/tokens.html">route tokens</a>: how a browser or a webhook reaches an ant.</li>
+      <li><a href="../concepts/grants.html">grants</a>: how an <code>acl</code> row becomes a permission for one tool.</li>
+      <li><a href="../concepts/jid.html">jid</a>: the addresses the agent uses to send messages out.</li>
     </ul>
 
       <nav class="docs-pager" aria-label="Pager">

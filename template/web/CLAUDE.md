@@ -201,51 +201,28 @@ custom skills, custom products.
 
 ## Voice
 
-**Warm caveman.** Picture a senior engineer at a whiteboard,
-walking a colleague through how the thing actually works. Patient,
-plain, concrete. No buzzwords, no theatre, but not robotic either —
-a small aside or dry observation is welcome when it lands. Roughly
-10% of the way from Mr Spock toward warm; if you ever feel yourself
-reaching for the marketing register, you've gone too far.
+Every page uses the plain technical register of the `writing` skill
+§ Language: ASD-STE100 Simplified Technical English, the same register as
+every README. Read that section; the rules here only add what is specific to
+this site.
 
-Make explanations accessible without dumbing them down. The reader
-is bright and curious; treat them that way.
-
-**Use:**
-
-- Concrete nouns and verbs. "Proxyd writes a signed header" beats
-  "Proxyd performs identity attestation."
-- File paths, daemon names, SQL column names where they sharpen
-  meaning: `gated`, `proxyd`, `auth/middleware.go:RequireSigned`,
-  `messages.db`, `acl` table.
-- Direct address — "you" is fine. "Once you've set this, the
-  agent stays in the thread."
-- Contractions where natural. "It's", "doesn't", "won't".
-- One picture per paragraph. Don't pile abstractions.
-- Examples — show, don't just describe. A grants page without an
-  example rule teaches nothing.
-- Causation: "when X arrives, Y happens because Z."
-- An occasional dry aside if it earns its place ("there's no
-  managed control plane — that's the feature, not an oversight").
-
-**Avoid:**
-
-- Marketing adjectives ("powerful", "robust", "elegant", "seamless",
-  "scalable", "intuitive"). Each one signals theatre over truth.
-- Abstract nouns when a concrete one exists. "Abstraction" → name
-  the thing (a table, a row, a file, a column). "Primitive" → name
-  the thing. "Subsystem" → name the daemon. "Tenancy" → "groups"
-  or "folders". "Surface" → "URL" or "endpoint" or "page".
-- Three-noun stacks ("a typed, scoped, composable primitive").
-- "Note that", "It's important to understand", "As you can see".
-- Emoji. Exclamation marks.
-- "We" / "us" — say what the system does, or address "you".
-- Sentences over 30 words.
-- Headers that aren't doing real work — if a section has two
-  lines, fold it into the parent.
-- Forced warmth: "great news!", "we're thrilled to", "love this
-  for you". Warmth must be a side-effect of clear writing, never
-  a layer on top.
+- One word, one meaning. Active voice with a named actor, often a daemon:
+  "`proxyd` writes a signed header", never "a signed header is written".
+- One main clause per sentence, at most 25 words. No contractions, no
+  metaphor, no idiom, no dry asides, no parentheses in prose.
+- File paths, daemon names and column names where they make the meaning exact:
+  `proxyd`, `auth/middleware.go`, the `acl` table.
+- An example per concept. A grants page without an example row teaches
+  nothing.
+- "You" is fine. NEVER "we" or "us": say what the system does.
+- NEVER marketing adjectives, "Note that", emoji or exclamation marks.
+- A page title, the `h1` and a sidebar label are short nouns. Every section
+  heading, callout label and figure title inside a page is a claim, or the
+  reader's question when its first sentence answers it.
+- A link to code or a repo file is a citation: short visible text in square
+  brackets, `[auth/README.md]`. A page NEVER links a spec; state the fact.
+- Abstract nouns only where no concrete one exists: name the table, daemon,
+  folder, URL or endpoint.
 
 **Honesty guardrails.** These claims are false, and a page that makes
 one has to be fixed, however good it sounds:
@@ -259,13 +236,6 @@ one has to be fixed, however good it sounds:
   store and the group folder on disk. The folder is not a cache.
 - "Workflow engine." A workflow is a discipline the agent follows, not a
   primitive arizuko runs.
-
-**Trick to apply:** read each paragraph imagining you're explaining
-it to someone you respect, in person, over coffee. If you'd stop to
-unpack a word, replace it. If you'd skim past a sentence, sharpen
-the image. If they'd ask "wait, how does that actually work" — you
-owe a sentence. If your draft sounds like a press release, scrap
-that paragraph.
 
 ## Style rules
 
@@ -298,7 +268,9 @@ prompt prefix; bash comments are fine.
 Callout boxes:
 
 ```html
-<div class="callout"><strong>Note:</strong> text here.</div>
+<div class="callout">
+  <strong>Engagement overrides the route table.</strong> text here.
+</div>
 ```
 
 **Callout style: a quiet hairline-bordered inset tint — NEVER a
@@ -555,7 +527,7 @@ behind `.docs-navtoggle` and the right rail drops.
 
 | Component  | Markup                                                                   |
 | ---------- | ------------------------------------------------------------------------ |
-| callout    | `<div class="callout"><strong>Label:</strong> text.</div>`               |
+| callout    | `<div class="callout"><strong>Claim.</strong> text.</div>`               |
 | code block | `<pre><code>…</code></pre>` — the box scrolls, the page does not         |
 | table      | a plain `<table>`; `hub.js` wraps it in `.table-scroll`                  |
 | card       | `<div class="card"><div class="card-title">…</div>…</div>`, in a `.grid` |
@@ -571,7 +543,8 @@ The callout's quiet-inset rule and the nav current-item rule are in
   name, or the page does not need it.
 - An inline `style=` carrying a colour, a token included. Move the rule into
   `assets/hub.css` under a class.
-- A Title Case heading. Headings are sentence case, and most are one word.
+- A Title Case heading. Headings are sentence case; section headings are
+  claims (see § Voice).
 - A gradient box.
 - A left-accent bar on any box.
 - A raw hex, rgb or px colour anywhere outside the `:root` token blocks.

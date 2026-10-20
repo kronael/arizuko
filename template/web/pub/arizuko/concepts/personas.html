@@ -64,13 +64,13 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">concepts</a> &rsaquo; personas</p>
 <h1>personas</h1>
 
-    <p class="lede">Autoviv spins a fresh folder into existence, and that folder still sounds like the default. A persona is what gives it a voice. It&rsquo;s a <code>PERSONA.md</code> file in the group folder &mdash; one more file in the ant, same rule as page one: the agent is the folder. The frontmatter holds named fields like the TTS voice and a short reminder of how to sound; the body is the long voice guide, which rides in the system prompt. Editing the file is the whole interface; there is no persona table to keep in sync.</p>
+    <p class="lede">A persona gives an agent its voice. It is a <code>PERSONA.md</code> file in the group folder, so it is one more file in the ant: the agent is the folder. The frontmatter holds named fields, such as the TTS voice and a short reminder of how to sound. The body is the long voice guide, which goes into the system prompt. You change the persona by editing the file, and no persona table exists to keep in sync.</p>
 
-    <h2>file location</h2>
-    <p>One file per group, at <code>&lt;data-dir&gt;/groups/&lt;folder&gt;/PERSONA.md</code>. The operator edits it directly &mdash; via WebDAV, an editor on the host, or the dashboard. There is no persona table; the file <em>is</em> the source of truth.</p>
+    <h2>Each group has one persona file</h2>
+    <p>Each group has one file, at <code>&lt;data-dir&gt;/groups/&lt;folder&gt;/PERSONA.md</code>. The operator edits it directly, through WebDAV, an editor on the host or the dashboard. No persona table exists: the file is the source of truth.</p>
 
-    <h2>frontmatter fields</h2>
-    <p>Standard YAML frontmatter, delimited by <code>---</code>:</p>
+    <h2>The frontmatter holds three fields</h2>
+    <p>The file uses standard YAML frontmatter between <code>---</code> lines:</p>
     <pre><code>---
 name: Atlas
 summary: Direct, no preamble. Defaults to short answers. Lowercase info, capitalized errors.
@@ -82,35 +82,47 @@ voice: nova
 Long-form description of register, tone, taboo words, in-jokes,
 worked examples, &hellip; sent in the system prompt every turn.
 </code></pre>
-    <ul>
-      <li><code>name</code> &mdash; display name used in the per-turn <code>&lt;persona name=...&gt;</code> envelope. Defaults to the folder path when omitted.</li>
-      <li><code>summary</code> &mdash; one-paragraph re-anchor injected on every turn. Keeps register stable across long sessions.</li>
-      <li><code>voice</code> &mdash; TTS voice id read by <code>send_voice</code> when no <code>voice</code> argument is passed. Falls back to the instance-wide <code>TTS_VOICE</code> env.</li>
-    </ul>
+    <dl>
+      <dt><code>name</code></dt>
+      <dd>The display name in the <code>&lt;persona name=...&gt;</code> envelope of each turn. Without it, the name is the folder path.</dd>
+      <dt><code>summary</code></dt>
+      <dd>A one-paragraph reminder that goes into every turn. It keeps the register stable across long sessions.</dd>
+      <dt><code>voice</code></dt>
+      <dd>The TTS voice id that <code>send_voice</code> uses when the call has no <code>voice</code> argument. Without it, the instance-wide <code>TTS_VOICE</code> applies.</dd>
+    </dl>
 
-    <h2>how it lands in the prompt</h2>
-    <p>On every inbound turn, <code>routd</code> reads the file, parses the frontmatter, and emits:</p>
+    <h2>The summary goes into every turn</h2>
+    <p>On every inbound turn, <code>routd</code> reads the file, parses the frontmatter and writes this block:</p>
     <pre><code>&lt;persona name=&quot;Atlas&quot;&gt;
 Direct, no preamble. Defaults to short answers. Lowercase info, capitalized errors.
 (For full register: /persona)
 &lt;/persona&gt;
 </code></pre>
-    <p>The block sits next to the autocalls envelope inside the user message, so the agent re-anchors its voice even when the session has gotten long and the system prompt has scrolled out of focus.</p>
+    <p>The block sits next to the autocalls envelope inside the user message. So the agent keeps its voice even when the session is long and the system prompt is far back in the context.</p>
 
-    <p>The whole file rides along too, in the system prompt: <code>runed</code> ships <code>PERSONA.md</code> with every turn, and the agent runtime puts it after <code>SYSTEM.md</code> and before the output style. A group&rsquo;s <code>SYSTEM.md</code> replaces the base prompt outright; the persona never merges into it. The <code>/persona</code> skill is there for when the agent wants to reread the guide on purpose.</p>
+    <p>The whole file goes into the system prompt too. <code>runed</code> sends <code>PERSONA.md</code> with every turn, and the agent runtime puts it after <code>SYSTEM.md</code> and before the output style. A <code>SYSTEM.md</code> in the group replaces the base prompt completely, and the persona never merges into it. The agent can read the guide again on purpose with the <code>/persona</code> skill.</p>
 
-    <h2>three layers, three files</h2>
-    <p>How the agent sounds is split three ways, and each layer has one home. Voice is <code>PERSONA.md</code>, per group. The register floor &mdash; the rules every agent keeps whatever its voice &mdash; is the always-loaded <code>ant/CLAUDE.md</code>. Length and formatting per surface is the output style, one file per surface in <code>ant/output-styles/</code>, one per session. Change one and the other two hold still.</p>
+    <h2>Voice, register floor and length live in three files</h2>
+    <p>Three layers decide how the agent sounds, and each layer has one file:</p>
+    <dl>
+      <dt>Voice</dt>
+      <dd><code>PERSONA.md</code>, one per group.</dd>
+      <dt>Register floor</dt>
+      <dd>The rules every agent keeps, whatever its voice, in the always-loaded <code>ant/CLAUDE.md</code>.</dd>
+      <dt>Length and format</dt>
+      <dd>The output style, one file per surface in <code>ant/output-styles/</code>, one style per session.</dd>
+    </dl>
+    <p>A change to one layer does not change the other two.</p>
 
-    <h2>strictness rule</h2>
-    <p>If <code>PERSONA.md</code> is missing, has no frontmatter, has no <code>summary</code> field, or the summary is empty, <code>personaBlock</code> returns <code>""</code>. No fallback to body text, no guessing from the folder name, no inheritance from a parent folder&rsquo;s persona. The agent simply runs in its default register.</p>
-    <p>This is deliberate. A magical fallback would mean &ldquo;the persona block sometimes contains operator data, sometimes contains a guess&rdquo; &mdash; the agent could not tell which. Strict-or-empty keeps the rule plain: the block is either real persona text or nothing.</p>
+    <h2>An incomplete persona file gives no persona block</h2>
+    <p>If <code>PERSONA.md</code> is missing, has no frontmatter, has no <code>summary</code> field or has an empty summary, <code>personaBlock</code> returns <code>""</code>. It does not fall back to the body text, guess from the folder name or use the persona of a parent folder. The agent runs in its default register.</p>
+    <p>This is by design. With a fallback, the persona block would sometimes hold operator data and sometimes a guess, and the agent could not tell which. With strict rules, the block is either real persona text or nothing.</p>
 
-    <h2>versioning</h2>
-    <p>Personas live with the group, not with the agent image. Edits to <code>PERSONA.md</code> take effect on the next turn &mdash; no migration, no rebuild. The agent image ships skills and base prompts; the group ships voice. Releases bump <code>MIGRATION_VERSION</code> for skill changes, never for persona edits.</p>
+    <h2>A persona edit applies on the next turn</h2>
+    <p>Personas belong to the group, not to the agent image. An edit to <code>PERSONA.md</code> applies on the next turn, with no migration and no rebuild. The agent image ships skills and base prompts, and the group holds the voice. A release changes <code>MIGRATION_VERSION</code> for skill changes, never for persona edits.</p>
 
-    <h2>go deeper</h2>
-    <p>What else rides in the prompt and where it&rsquo;s built: <a href="../concepts/ant.html">the ant</a>. The TTS path that reads the <code>voice</code> field: <a href="../concepts/voice.html">voice</a>. How groups, folders, and per-folder files compose: <a href="../concepts/scopes.html">scopes</a>.</p>
+    <h2>Related pages cover the prompt and the voice</h2>
+    <p><a href="../concepts/ant.html">the ant</a> shows what else goes into the prompt and where it is built. <a href="../concepts/voice.html">voice</a> shows the TTS path that reads the <code>voice</code> field. <a href="../concepts/scopes.html">scopes</a> shows how groups, folders and the files in each folder relate.</p>
 
       <nav class="docs-pager" aria-label="Pager">
         <a rel="prev" href="autoviv.html">&larr; Autoviv</a>

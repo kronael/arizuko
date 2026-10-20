@@ -64,73 +64,81 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">concepts</a> &rsaquo; routing</p>
 <h1>routing</h1>
 
-    <p class="lede">You've met the ant &mdash; a folder that is an agent. The next question is how an inbound message finds the right one. When a message arrives, <code>routd</code> walks a table of rules. Each rule says &ldquo;if this message looks like X, run it in folder Y.&rdquo; First match wins.</p>
+    <p class="lede">Routing decides which folder runs an inbound message. When a message arrives, <code>routd</code> reads a table of rules. Each rule says &ldquo;if this message looks like X, run it in folder Y&rdquo;, and the first match wins.</p>
 
-    <h2>the table</h2>
-    <p>Every message arriving from Telegram, Discord, Slack, email, or the web widget hits the same store (routd&rsquo;s <code>messages</code> table). <code>routd</code> then asks one question: which folder runs this? The answer comes from the <code>routes</code> table &mdash; one row per rule, evaluated in order:</p>
+    <h2>One table maps messages to folders</h2>
+    <p>Every message from Telegram, Discord, Slack, email or the web widget goes into the same <code>messages</code> table of <code>routd</code>. <code>routd</code> then asks one question: which folder runs this message? The answer comes from the <code>routes</code> table, with one row per rule, in order:</p>
     <pre><code>seq    match                                  target
 ---    -----                                  ------
 -10    chat_jid=telegram:user/12345           atlas/legal
 0      platform=telegram                      atlas/content
 0      platform=discord room=dm/*             atlas/dm
 0      platform=reddit verb=post              atlas/posts
-0      chat_jid=slack:acme/eng                solo/chat
+0      chat_jid=slack:T1234/channel/C5678     solo/chat
 0      chat_jid=hook:acme/eng/github          acme/eng#observe
 0      platform=discord                       atlas/{sender}
 9999   (empty)                                atlas              # catchall</code></pre>
-    <p>Lower <code>seq</code> goes first. The empty <code>match</code> at <code>seq=9999</code> matches every message, so it acts as the fallback.</p>
+    <p>A lower <code>seq</code> goes first. The empty <code>match</code> at <code>seq=9999</code> matches every message, so it is the fallback.</p>
 
-    <h2>how a rule matches</h2>
-    <p>The <code>match</code> column is a space-separated list of <code>key=value</code> tests, all of which must pass. So <code>platform=discord room=dm/*</code> matches a Discord message whose chat is a DM, and nothing else. The right-hand side is a glob that stops at <code>/</code> &mdash; which is why <code>discord:dm/*</code> covers every DM yet never crosses into <code>discord:guild/123/channel/456</code> (full glob grammar in <a href="../reference/jid.html">reference / jid</a>).</p>
-    <p>Five keys are available: <code>platform</code> (e.g. <code>telegram</code>), <code>room</code> (the part after <code>platform:</code>), <code>chat_jid</code> (the whole address), <code>sender</code> (who sent it), and <code>verb</code> (the action, e.g. <code>post</code>, <code>like</code>). Omit a key and that field is unconstrained.</p>
-    <p>Watch the <code>verb</code> key. There&rsquo;s no fixed list: each adapter sends its own words, and routd adds a few. Telegram, Discord and Slack send <code>mention</code> when someone writes <code>@bot</code>. A reaction arrives as <code>like</code> or <code>dislike</code>. The social adapters &mdash; Bluesky, Reddit, LinkedIn, X &mdash; never send <code>mention</code> at all, so a <code>verb=mention</code> rule there only matches once routd promotes a reply to the bot. Write a rule for a verb that never arrives and it just matches nothing, quietly. ROUTING.md has the table per adapter.</p>
+    <h2>Every test in a rule must pass</h2>
+    <p>The <code>match</code> column is a list of <code>key=value</code> tests, separated by spaces, and all of them must pass. For example, <code>platform=discord room=dm/*</code> matches a Discord message in a DM and nothing else. The value is a glob that stops at <code>/</code>. For this reason, <code>discord:dm/*</code> covers every DM but never matches a guild channel such as <code>discord:123/456</code>. <a href="../reference/jid.html">reference / jid</a> has the full glob grammar.</p>
+    <p>A rule can use five keys:</p>
+    <dl>
+      <dt><code>platform</code></dt><dd>The part before the colon, for example <code>telegram</code>.</dd>
+      <dt><code>room</code></dt><dd>The part after <code>platform:</code>.</dd>
+      <dt><code>chat_jid</code></dt><dd>The whole chat address.</dd>
+      <dt><code>sender</code></dt><dd>The address of the sender.</dd>
+      <dt><code>verb</code></dt><dd>The action, for example <code>post</code> or <code>like</code>.</dd>
+    </dl>
+    <p>If a rule leaves a key out, that field can have any value.</p>
+    <p>The <code>verb</code> key has no fixed list of values. Each adapter sends its own words, and <code>routd</code> adds a few. Telegram, Discord and Slack send <code>mention</code> when someone writes <code>@bot</code>. A reaction arrives as <code>like</code> or <code>dislike</code>. The social adapters for Bluesky, Reddit, LinkedIn and X never send <code>mention</code>. On those platforms, a <code>verb=mention</code> rule matches only after <code>routd</code> promotes a reply to the bot. A rule for a verb that never arrives matches nothing and reports no error. ROUTING.md has the table of verbs for each adapter.</p>
 
-    <h2>per-user folders</h2>
-    <p>Write <code>{sender}</code> in the target and <code>routd</code> expands it to a sanitized sender ID. One rule like <code>platform=discord &rarr; atlas/{sender}</code> gives every Discord user their own child folder &mdash; <code>atlas/dc-alice</code>, <code>atlas/dc-bob</code> &mdash; without one route per person.</p>
+    <h2>One rule gives each user a folder</h2>
+    <p>If the target contains <code>{sender}</code>, <code>routd</code> replaces it with a sanitized sender ID. The rule <code>platform=discord</code> with the target <code>atlas/{sender}</code> gives every Discord user a child folder, such as <code>atlas/dc-alice</code> and <code>atlas/dc-bob</code>, with no route per person.</p>
 
-    <h2>reply chain wins</h2>
-    <p>When the bot replies in a chat, <code>routd</code> records which folder produced the reply on the message row (<code>routed_to</code>). If the user then replies <em>to that bot message</em>, <code>routd</code> follows the chain back to that folder, as long as it is a child the current folder may route to. So a thread stays in the folder that started it.</p>
+    <h2>A reply to the bot goes back to the folder that sent it</h2>
+    <p>When the bot replies in a chat, <code>routd</code> records the folder that produced the reply in the <code>routed_to</code> field of the message row. If a user then replies <em>to that bot message</em>, <code>routd</code> follows the chain back to that folder. The folder must be a child that the current folder can route to. So a thread stays in the folder that started it.</p>
 
-    <h2>sticky and prefix overrides</h2>
-    <p>A user can pin a chat to a folder by sending <code>@atlas/social</code> as the entire message &mdash; <code>routd</code> stores it on the <code>chats</code> row and every later message in that chat goes to <code>atlas/social</code> until someone sends bare <code>@</code> to clear it. <code>#support</code> does the same for the topic; bare <code>#</code> clears.</p>
-    <p>A miss means &ldquo;treat it as normal text.&rdquo; If the folder after <code>@</code> doesn&rsquo;t exist, <code>routd</code> leaves the message alone and hands it to the agent unchanged &mdash; no confirmation, no error. Messages starting with <code>@</code> have too many other uses (a mention like <code>@everyone</code>, a cross-instance pointer like <code>@sloth</code>, a sentence in a language where <code>@</code> is just a word) for <code>routd</code> to swallow them on a miss. The agent decides whether it&rsquo;s a typo for a child folder (and calls <code>delegate_group</code>), a real mention, or plain text.</p>
-    <p>Agents hand work along the folder tree, never across it. <code>delegate_group</code> sends a prompt down to a child, <code>escalate_group</code> sends one up to the parent, and both refuse to go more than one hop deep; <code>observe_group</code> only reads. There is no any-agent-to-any-agent mesh &mdash; the tree is the org chart, and a hand-off follows it.</p>
-    <p>Inline at the start of a message, <code>@name something</code> delegates that one message to the child folder <code>&lt;current&gt;/name</code>, and <code>#topic something</code> runs it under that <a href="../concepts/topics.html">topic</a> &mdash; for one message only, sticky state untouched.</p>
+    <h2>Users can pin a chat to a folder or a topic</h2>
+    <p>A user can pin a chat to a folder with a message that contains only <code>@atlas/social</code>. <code>routd</code> stores the pin on the <code>chats</code> row, and every later message in that chat goes to <code>atlas/social</code>. A message that contains only <code>@</code> clears the pin. <code>#support</code> pins the topic in the same way, and a bare <code>#</code> clears it.</p>
+    <p>If the folder after <code>@</code> does not exist, <code>routd</code> gives the message to the agent unchanged, with no confirmation and no error. A message that starts with <code>@</code> has many other uses, so <code>routd</code> does not consume it on a miss. Examples are a mention like <code>@everyone</code>, a pointer to another instance like <code>@sloth</code>, or a word in a language that uses <code>@</code>. The agent decides if the text is a typo for a child folder, a real mention or plain text. For a typo, it calls <code>delegate_group</code>.</p>
+    <p>Agents pass work along the folder tree, never across it. <code>delegate_group</code> sends a prompt down to a child, and <code>escalate_group</code> sends one up to the parent. Both tools refuse to go more than one level. <code>observe_group</code> only reads. No agent can send to any other agent: the tree is the org chart, and a hand-off follows it.</p>
+    <p>At the start of a message, <code>@name something</code> delegates that one message to the child folder <code>&lt;current&gt;/name</code>. <code>#topic something</code> runs that one message under the <a href="../concepts/topics.html">topic</a>. Neither prefix changes the pinned state.</p>
 
-    <h2>resolution order</h2>
-    <p>Picking the folder takes three checks, in order:</p>
+    <h2>routd resolves the folder in three checks</h2>
+    <p><code>routd</code> picks the folder with three checks, in this order:</p>
     <ol>
-      <li>Direct address &mdash; a web chat or a hook token names its folder, and a JID with no <code>:</code> is a folder name. The route table never sees these.</li>
-      <li>Route table &mdash; first matching row by <code>seq</code>. If the <code>(chat, topic)</code> is engaged, the engaged folder wins over the rule&rsquo;s, and an <code>#observe</code> rule fires a turn after all.</li>
-      <li>Engagement &mdash; rescues a miss. A thread with no window of its own borrows its root&rsquo;s, unless someone disengaged that thread.</li>
+      <li>Direct address. A web chat or a hook token names its folder, and a JID with no <code>:</code> is a folder name. The route table never sees these messages.</li>
+      <li>The route table. The first matching row by <code>seq</code> wins. If the chat and topic pair is engaged, the engaged folder wins over the folder of the rule. An <code>#observe</code> rule then starts a turn anyway.</li>
+      <li>Engagement. Engagement can catch a message that no rule matched. A thread without its own engagement window uses the window of its root message, unless someone disengaged that thread.</li>
     </ol>
-    <p>Once <code>routd</code> has a folder, a second pass runs inside it: sticky <code>@</code>/<code>#</code>, slash commands, an inline <code>@child</code> or <code>#topic</code> prefix, then a delegation target &mdash; the folder a replied-to bot message came from, the sticky group, the route table, in that order. A delegation goes only to a child the current folder may route to. Any of these can eat the message before a turn starts. The whole path, from adapter to reply, is drawn on <a href="turn.html">a turn, end to end</a>.</p>
+    <p>After <code>routd</code> has a folder, a second pass runs inside it. The pass checks the pinned <code>@</code> and <code>#</code>, the slash commands, an inline <code>@child</code> or <code>#topic</code> prefix, and then a delegation target. The delegation target is the folder of a replied-to bot message, the pinned group or the route table, in that order. A delegation goes only to a child that the current folder can route to. Any step in the pass can consume the message before a turn starts. <a href="turn.html">A turn, end to end</a> shows the whole path from the adapter to the reply.</p>
 
-    <h2>editing live</h2>
-    <p>The agent edits the table through the MCP tools <code>add_route</code>, <code>delete_route</code>, <code>list_routes</code>, <code>set_routes</code>. The operator dashboard (<code>dashd</code>) shows the same table in a browser, and an operator REST token can call <code>/v1/routes</code> directly &mdash; same handler underneath, so agent and REST caller always see the same rows. Changes take effect on the next inbound message &mdash; no restart.</p>
+    <h2>A route change applies to the next message</h2>
+    <p>The agent edits the table with the MCP tools <code>add_route</code>, <code>delete_route</code>, <code>list_routes</code> and <code>set_routes</code>. The operator dashboard <code>dashd</code> shows the same table in a browser. A caller with an operator REST token can call <code>/v1/routes</code> directly. One handler serves all of these, so the agent and a REST caller see the same rows. A change applies to the next inbound message, with no restart.</p>
 
-    <h2 id="modes">modes and topic pinning</h2>
-    <p>A <code>target</code> may end with <code>#...</code>. That tail tells <code>routd</code> what to do <em>after</em> the message lands in the folder. Two tails are reserved &mdash; <code>#observe</code> and <code>#announce</code>. Every other tail is a <a href="../concepts/topics.html">topic name</a> pinned for the routed message.</p>
+    <h2 id="modes">A target tail sets the mode or the topic</h2>
+    <p>A <code>target</code> can end with <code>#...</code>. That tail tells <code>routd</code> what to do <em>after</em> the message arrives in the folder. Two tails are reserved: <code>#observe</code> and <code>#announce</code>. Every other tail is a <a href="../concepts/topics.html">topic name</a> for the routed message.</p>
     <table>
       <thead><tr><th>target</th><th>effect</th></tr></thead>
       <tbody>
-        <tr><td><code>folder</code></td><td>store under <code>folder</code> and fire a turn on main (default)</td></tr>
-        <tr><td><code>folder#observe</code></td><td>store under <code>folder</code>, do not fire a turn. The agent still sees the message in history when a later turn runs and has full folder ACL. Exception: engagement overrides all route targets — if the <code>(chat, topic)</code> is engaged, <code>routd</code> ignores this mode and fires a turn anyway. See <a href="../concepts/engagement.html">engagement</a>.</td></tr>
-        <tr><td><code>folder#announce</code></td><td>fire a turn normally &mdash; the tail is inbound-neutral &mdash; and mark this channel as the group&rsquo;s release-note target. On a version bump the migrate skill posts the changelog line only to <code>#announce</code> channels, one per server (Slack workspace / Discord guild / Telegram chat). No <code>#announce</code> route anywhere &rarr; the group announces nowhere. Drop the tail to mute.</td></tr>
-        <tr><td><code>folder#deploy</code></td><td>store under <code>folder</code> with topic <code>#deploy</code> and fire a turn there. Useful for piping a webhook source into a dedicated topic without operator @-prefixes.</td></tr>
+        <tr><td><code>folder</code></td><td>Stores the message under <code>folder</code> and starts a turn on the main topic. This is the default.</td></tr>
+        <tr><td><code>folder#observe</code></td><td>Stores the message under <code>folder</code> and starts no turn. A later turn sees the message in the history, with the full ACL of the folder. Engagement overrides every route target: if the chat and topic pair is engaged, <code>routd</code> ignores this mode and starts a turn. See <a href="../concepts/engagement.html">engagement</a>.</td></tr>
+        <tr><td><code>folder#announce</code></td><td>Starts a turn as usual, because the tail does not change inbound handling. It also marks the channel as the release-note target of the group. On a version change, the migrate skill posts the changelog line only to <code>#announce</code> channels, one per server: a Slack workspace, a Discord guild or a Telegram chat. With no <code>#announce</code> route, the group announces nowhere. Remove the tail to stop the posts.</td></tr>
+        <tr><td><code>folder#deploy</code></td><td>Stores the message under <code>folder</code> with the topic <code>#deploy</code> and starts a turn there. Use it to send a webhook source to its own topic without an operator prefix.</td></tr>
       </tbody>
     </table>
-    <p>Combine with <code>verb=mention</code> and <code>seq</code> to build a two-row mention-only pattern: a tight row triggers on mentions, a catch-all row observes everything else. Sloth Discord guild:</p>
+    <p>Combine a tail with <code>verb=mention</code> and <code>seq</code> to answer only mentions. One row starts a turn on mentions, and a catch-all row observes everything else. An example for Discord, where <code>1100223344</code> is the ID of one guild:</p>
     <pre><code>seq  match                                       target
-10   platform=discord room=guild/sloth           main
-20   platform=discord room=guild/* verb=mention  main
-30   platform=discord room=guild/*               main#observe</code></pre>
-    <p>Row 10 fires on every message in the named guild. Row 20 fires on @mentions in any other guild. Row 30 silently archives the rest into <code>main</code> for context without invoking the agent.</p>
-    <p>Why two plain rows instead of something smarter, like a score per message? Because with rows you can read the table and say whether a message fires. With a score you&rsquo;d have to simulate it. That&rsquo;s also why <code>#observe</code> context comes with a rule in the prompt: observed messages are context, not requests, so the agent doesn&rsquo;t answer them.</p>
-    <p>Later, new <code>#...</code> tails (<code>#drop</code>, <code>#digest</code>, &hellip;) can add new behavior without a new table column.</p>
+10   platform=discord room=1100223344/*          main
+20   platform=discord verb=mention               main
+30   platform=discord                            main#observe</code></pre>
+    <p>Row 10 starts a turn on every message in guild <code>1100223344</code>. Row 20 starts a turn on a mention anywhere else on Discord. Row 30 stores the rest in <code>main</code> as context and does not start the agent.</p>
+    <p>Plain rows are easier to check than a score per message. With rows, you read the table and see whether a message starts a turn. With a score, you have to simulate it. For the same reason, the prompt carries a rule for <code>#observe</code> context: observed messages are context, not requests, so the agent does not answer them.</p>
+    <p>A new tail can add a new behavior without a new table column.</p>
 
-    <h2>go deeper</h2>
-    <p>Full rules &mdash; reply-chain mechanics, cross-folder authorization, worked end-to-end traces &mdash; live in <a href="https://github.com/kronael/arizuko/blob/main/ROUTING.md">ROUTING.md</a>. For what the address strings on the left side actually look like, see <a href="../concepts/jid.html">jid</a>. For how <code>#topic</code> isolates a thread inside one folder, see <a href="../concepts/topics.html">topics</a>.</p>
+    <h2>ROUTING.md has the full rules</h2>
+    <p><a href="https://github.com/kronael/arizuko/blob/main/ROUTING.md">[ROUTING.md]</a> has the full rules: the reply chain, authorization across folders, and complete traces. <a href="../concepts/jid.html">jid</a> shows the address strings in the <code>match</code> column. <a href="../concepts/topics.html">topics</a> shows how <code>#topic</code> isolates a thread inside one folder.</p>
 
       <nav class="docs-pager" aria-label="Pager">
         <a rel="prev" href="turn.html">&larr; A turn, end to end</a>

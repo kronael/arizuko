@@ -64,21 +64,23 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">concepts</a> &rsaquo; connectors</p>
 <h1>connectors</h1>
 
-    <p class="lede">A connector hands the agent a tool it did not ship with &mdash; a DNS registrar, an internal API, somebody else&rsquo;s MCP server &mdash; and does it without letting the credential into the guest. You write one TOML block. <code>routd</code> makes the call on the host, fills the secret in on the way out, and hands the agent back the response body and nothing else.</p>
+    <p class="lede">A connector gives the agent a tool it did not ship with, and keeps the credential out of the guest. The tool can be a DNS registrar, an internal API or the MCP server of another party. You write one TOML block. <code>routd</code> makes the call on the host, inserts the secret into the outbound request, and gives the agent the response body and nothing else.</p>
 
-    <h2>the shape of the problem</h2>
-    <p>An agent that can only talk is not much use. Sooner or later it needs to read a DNS zone, file a ticket, or query your own service. The usual way to arrange that is to put an API token in the guest and let the agent call <code>curl</code>. That works, and it means the token is now readable by anything the agent runs &mdash; including whatever it was asked to summarise from a web page.</p>
-    <p>A connector splits the two halves. The agent gets the <em>tool</em>; the host keeps the <em>credential</em>. From inside the guest there is an MCP tool called <code>cloudflare_dns_list</code>, and no <code>CF_API_TOKEN</code> anywhere in the environment, the filesystem, or <code>/proc</code>.</p>
+    <h2>The agent gets the tool and the host keeps the credential</h2>
+    <p>An agent that can only talk is of little use. It must read a DNS zone, file a ticket or query your own service. The usual method puts an API token in the guest and lets the agent call <code>curl</code>. That works, but then anything the agent runs can read the token, including text it was asked to summarise from a web page.</p>
+    <p>A connector splits the two halves: the agent gets the <em>tool</em>, and the host keeps the <em>credential</em>. Inside the guest, an MCP tool called <code>cloudflare_dns_list</code> exists, and no <code>CF_API_TOKEN</code> exists in the environment, the filesystem or <code>/proc</code>.</p>
 
-    <h2>one block, two transports</h2>
-    <p>Every connector is one <code>[[connector]]</code> block, and <code>transport</code> picks which dispatch path it takes. A field is absent for a transport rather than meaning two different things:</p>
-    <ul>
-      <li><strong><code>mcp</code></strong> (the default when you leave <code>transport</code> out) &mdash; the far side is already an MCP server over HTTP. It discovers its own catalogue, so you declare no tools. It reads <code>headers</code> only, because that is where an HTTP MCP server takes its credential.</li>
-      <li><strong><code>rest</code></strong> &mdash; the far side is an ordinary REST API that has never heard of MCP. You declare one <code>[[connector.tool]]</code> per endpoint, and you may use all three credential sinks.</li>
-    </ul>
-    <p>Connectors reach out over HTTP, never over stdio. That is not a simplification &mdash; MCP&rsquo;s OAuth flow is defined for the HTTP transport only, so a stdio connector could never carry a user&rsquo;s own authorisation.</p>
+    <h2>One block has one of two transports</h2>
+    <p>Every connector is one <code>[[connector]]</code> block, and <code>transport</code> picks its dispatch path. A field that one transport does not use is absent for it, and no field has two meanings:</p>
+    <dl>
+      <dt><code>mcp</code></dt>
+      <dd>The default when you leave out <code>transport</code>. The far side is already an MCP server over HTTP. It reports its own tool list, so you declare no tools. It reads only <code>headers</code>, because an HTTP MCP server takes its credential there.</dd>
+      <dt><code>rest</code></dt>
+      <dd>The far side is an ordinary REST API with no MCP support. You declare one <code>[[connector.tool]]</code> per endpoint, and you can use all three credential sinks.</dd>
+    </dl>
+    <p>Connectors use HTTP, never stdio. The MCP OAuth flow is defined only for the HTTP transport, so a stdio connector could never carry the own authorisation of a user.</p>
 
-    <h2>a rest connector, end to end</h2>
+    <h2>A REST connector needs one block and one tool entry</h2>
     <pre><code># connectors.toml in the instance directory
 [[connector]]
 name      = "cloudflare"
@@ -93,44 +95,47 @@ headers   = { Authorization = "Bearer {secret:CF_API_TOKEN}" }
   scope       = "ext:cloudflare:dns:read"
   method      = "GET"
   path        = "/zones/{zone_id}/dns_records"</code></pre>
-    <p>The agent sees a tool named <code>cloudflare_dns_list</code> &mdash; <code>&lt;provider&gt;_&lt;tool&gt;</code>. It takes one argument, <code>zone_id</code>, because <code>{zone_id}</code> is a path placeholder and those are schema&rsquo;d for you. Any argument that is not a path placeholder becomes the query string on a GET or DELETE, and the JSON body on a POST, PUT or PATCH.</p>
+    <p>The agent sees a tool named <code>cloudflare_dns_list</code>, in the form <code>&lt;provider&gt;_&lt;tool&gt;</code>. The tool takes one argument, <code>zone_id</code>, because <code>{zone_id}</code> is a path placeholder, and the loader writes the schema for placeholders. Any other argument becomes the query string on a GET or DELETE, and the JSON body on a POST, PUT or PATCH.</p>
 
-    <h2>where the secret goes</h2>
-    <p>There is no auth-method enum to pick from. You write <code>{secret:KEY}</code> at the spot in the request where the value belongs, and it is rendered per call into one of three sinks:</p>
+    <h2>A placeholder puts the secret where it belongs</h2>
+    <p>No list of auth methods exists. You write <code>{secret:KEY}</code> at the place in the request where the value belongs, and <code>routd</code> renders it on each call into one of three sinks:</p>
     <table class="params">
-      <thead><tr><th>sink</th><th>looks like</th></tr></thead>
+      <thead><tr><th>sink</th><th>example</th></tr></thead>
       <tbody>
         <tr><td class="name">headers</td><td><code>{ Authorization = "Bearer {secret:CF_API_TOKEN}" }</code></td></tr>
         <tr><td class="name">query</td><td><code>{ ApiKey = "{secret:NAMECHEAP_KEY}" }</code></td></tr>
         <tr><td class="name">body</td><td><code>{ apikey = "{secret:PB_API_KEY}", secretapikey = "{secret:PB_SECRET}" }</code></td></tr>
       </tbody>
     </table>
-    <p>&ldquo;Bearer&rdquo; is a literal prefix you typed, not a mode the loader understands. That is the whole reason a provider with an unusual scheme needs no new case, and a provider wanting four credentials is written exactly like one wanting one.</p>
-    <p>Three things happen to the value on every call, and they are worth knowing before you debug one:</p>
+    <p>&ldquo;Bearer&rdquo; is a literal prefix that you typed, not a mode that the loader knows. For this reason, a provider with an unusual scheme needs no new case. A provider with four credentials is written in the same way as a provider with one.</p>
+    <p>Three things happen to the value on every call:</p>
     <ul>
-      <li>It is looked up <strong>for the triggering user</strong>. Their own key beats the folder default, so one connector serves a team whose members each hold their own token.</li>
-      <li>It is <strong>scrubbed out of the response</strong> before the text reaches the agent, so an API that echoes your key back does not leak it into the transcript.</li>
-      <li>A declared key the store resolves to nothing has its <strong>whole entry dropped</strong>. An unset secret sends no header at all, rather than sending the literal text <code>{secret:CF_API_TOKEN}</code> upstream and getting a confusing 401.</li>
+      <li><code>routd</code> looks it up <strong>for the triggering user</strong>. The own key of the user wins over the folder default, so one connector serves a team whose members each hold their own token.</li>
+      <li><code>routd</code> <strong>scrubs it from the response</strong> before the text reaches the agent. An API that echoes your key does not leak it into the transcript.</li>
+      <li>If a declared key resolves to nothing, <code>routd</code> <strong>drops the whole entry</strong>. An unset secret sends no header at all. It does not send the literal text <code>{secret:CF_API_TOKEN}</code> upstream, which would cause a confusing 401.</li>
     </ul>
-    <p>The key is a row in routd&rsquo;s <code>secrets</code> table, set with <code>arizuko secret</code> or at <code>/dash/me/secrets</code>. It is not the daemon environment. One name can live in both places with different values: <code>GH_TOKEN</code> in the instance <code>.env</code> is what a daemon process holds, and <code>GH_TOKEN</code> in a folder&rsquo;s secrets is what the connector sends. The connector reads only the folder&rsquo;s row, through the broker, so a token found in <code>.env</code> says nothing about what the connector has.</p>
+    <p>The key is a row in the <code>secrets</code> table of <code>routd</code>, set with <code>arizuko secret</code> or at <code>/dash/me/secrets</code>. It is not in the daemon environment. One name can exist in both places with different values. <code>GH_TOKEN</code> in the instance <code>.env</code> belongs to a daemon process, and <code>GH_TOKEN</code> in the secrets of a folder is what the connector sends. The connector reads only the row of the folder, through the broker, so a token in <code>.env</code> says nothing about what the connector has.</p>
 
-    <h2>the grant decides who sees it</h2>
-    <p>Each tool carries a <code>scope</code> shaped <code>ext:&lt;service&gt;:&lt;operation&gt;</code>. Registration is grant-filtered like every other MCP tool: the tool joins <code>tools/list</code> only where <code>Authorize(folder, scope)</code> passes. A folder without the grant does not see a refusal &mdash; it sees no such tool. The call-time check runs anyway, as defence in depth.</p>
-    <p>So one <code>connectors.toml</code> can declare your whole external surface, and which folder gets which piece of it is a grants question, decided per folder:</p>
-    <pre><code>arizuko group &lt;instance&gt; grant main/infra 'ext:cloudflare:dns:read' 'main/infra/**'</code></pre>
+    <h2>The grant decides which folder sees the tool</h2>
+    <p>Each tool carries a <code>scope</code> in the form <code>ext:&lt;service&gt;:&lt;operation&gt;</code>. Grants filter registration as for every other MCP tool: the tool joins <code>tools/list</code> only where <code>Authorize(folder, scope)</code> passes. A folder without the grant gets no refusal. It does not see the tool. The check at call time runs anyway, as a second defence.</p>
+    <p>So one <code>connectors.toml</code> can declare all your external APIs, and a grant per folder decides which folder gets which tool:</p>
+    <pre><code>arizuko group &lt;instance&gt; grant folder:main/infra 'main/infra/**' 'ext:cloudflare:dns:read'</code></pre>
 
-    <h2>what ships already</h2>
-    <p>arizuko carries descriptors for four DNS registrars &mdash; Cloudflare, Porkbun, Gandi and Namecheap &mdash; each covering list, create and delete. They do nothing until the operator sets that provider&rsquo;s token, because a descriptor is a shape, not a credential.</p>
+    <h2>Four DNS registrars ship as descriptors</h2>
+    <p>arizuko ships descriptors for four DNS registrars: Cloudflare, Porkbun, Gandi and Namecheap. Each covers list, create and delete. A descriptor does nothing until the operator sets the token of that provider, because a descriptor is a shape, not a credential.</p>
 
-    <h2>limits worth knowing</h2>
-    <ul>
-      <li><strong>A connector is host-side, so the guest&rsquo;s egress rules do not apply to it.</strong> The call leaves from <code>routd</code>, not from the agent&rsquo;s network. Decide what a folder may reach with the grant, not with the allowlist.</li>
-      <li><strong>The response body is all the agent gets.</strong> No status line, no headers. A connector that needs the agent to branch on a status code is the wrong shape for the job.</li>
-      <li><strong>An <code>mcp</code> connector trusts the far side&rsquo;s catalogue.</strong> It discovers tools at connect time, so a server that adds a tool gives your agent that tool the next time it connects &mdash; gated by the grant, but not by anything you wrote down.</li>
-    </ul>
+    <h2>Connectors have three limits</h2>
+    <dl>
+      <dt>Egress rules of the guest do not apply</dt>
+      <dd>The call leaves from <code>routd</code> on the host, not from the network of the agent. Use the grant, not the allowlist, to decide what a folder can reach.</dd>
+      <dt>The agent gets only the response body</dt>
+      <dd>No status line and no headers reach the agent. If the agent must branch on a status code, a connector is the wrong tool.</dd>
+      <dt>An <code>mcp</code> connector trusts the tool list of the far side</dt>
+      <dd>It discovers tools at connect time. If the server adds a tool, your agent gets that tool on the next connect. The grant still applies, but nothing you wrote lists the new tool.</dd>
+    </dl>
 
-    <h2>go deeper</h2>
-    <p>Adding one, step by step: <a href="../howto/add-connector.html">how-to / add a connector</a>. The descriptor field by field, and every built-in tool: <a href="../reference/mcp.html#ext-descriptor">reference / mcp</a>. How the scope is evaluated: <a href="grants.html">grants</a>. Where the value is stored and who may read it: <a href="secrets.html">secrets</a>.</p>
+    <h2>Four pages continue from here</h2>
+    <p><a href="../howto/add-connector.html">how-to / add a connector</a> adds one step by step. <a href="../reference/mcp.html#ext-descriptor">reference / mcp</a> describes the descriptor field by field and every built-in tool. <a href="grants.html">grants</a> explains how the scope is checked. <a href="secrets.html">secrets</a> explains where the value is stored and who can read it.</p>
 
       <nav class="docs-pager" aria-label="Pager">
         <a rel="prev" href="secrets.html">&larr; Secrets</a>

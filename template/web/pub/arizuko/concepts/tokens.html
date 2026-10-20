@@ -62,72 +62,70 @@
 
     <main class="docs-content">
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">concepts</a> &rsaquo; tokens</p>
-
     <h1>route tokens</h1>
 
-    <p class="lede">So far every caller authenticated &mdash; logged in, minted a sub, passed a grant. But the web surfaces just ahead serve people who never log in: a public chat box on a website, a webhook from GitHub. A route token is the no-login counterpart that lets them in &mdash; a 32-byte random string that maps to one JID. POST a body to a URL carrying that token and the body lands as an inbound message at the mapped JID. The JID prefix carries the routing intent &mdash; <code>web:</code> for a browser chat, <code>hook:</code> for a webhook from GitHub, Linear, or anything else that can POST JSON. Possession of the URL is the whole credential.</p>
+    <p class="lede">A route token lets a caller in without a login: a public chat box on a website, or a webhook from GitHub. The token is a 32-byte random string that maps to one JID. A POST to a URL with that token puts the body into an inbound message at the mapped JID. The JID prefix carries the routing intent. <code>web:</code> is for a browser chat, and <code>hook:</code> is for a webhook from GitHub, Linear or any other sender of JSON. Whoever has the URL has the whole credential.</p>
 
-    <h2>three axes of one URL</h2>
+    <h2>One URL carries three independent things</h2>
+    <p>A route-token URL combines three independent things, and the separation makes its behavior predictable.</p>
+    <dl>
+      <dt>Routing: the token</dt>
+      <dd>Which folder the URL feeds. A random secret that <code>routd</code> looks up in the store. To revoke it, delete the row.</dd>
+      <dt>Identity: an optional login</dt>
+      <dd>Who posts. The same link serves everyone. A visitor with a login session posts as their real self, and every other visitor posts as <code>anon:&lt;ip-hash&gt;</code>. The link stays the same, and only the session of the caller changes.</dd>
+      <dt>Context: optional instructions on the link</dt>
+      <dd>How the agent handles what arrives through the link. Free text set when the token is created, such as &ldquo;bug reports from the acme site; triage, don't chat back&rdquo;. <code>routd</code> stamps it on each message, and the agent sees it as a <code>&lt;link-context&gt;</code> block. Two links into the same folder can carry two different instructions.</dd>
+    </dl>
+    <p>None of the three depends on another. A leaked token does not impersonate a user, and a stolen session does not reveal tokens. Only the principal who was allowed to create the token sets the context.</p>
 
-    <p>A route-token URL composes three independent things, and keeping them apart is what makes the primitive predictable.</p>
+    <h2>One table serves two URLs</h2>
+    <p>All tokens live in the <code>route_tokens</code> table. The store hashes the raw token to a lookup key and maps it to a JID. The row records the folder that created it and the folder it delivers to. The row stores the delivery folder and does not read it from the JID, because a JID with a suffix is ambiguous. <code>web:acme/support</code> reads exactly like a plain token for a folder named <code>acme/support</code>.</p>
+    <p>Two URLs read that table:</p>
+    <dl>
+      <dt><code>/chat/&lt;token&gt;/</code></dt>
+      <dd>Serves the chat widget on GET and appends a message on POST. It streams the reply over SSE to browsers and returns a plain response to other callers.</dd>
+      <dt><code>/hook/&lt;token&gt;</code></dt>
+      <dd>POST only. It appends the body, returns 204 and does not wait for the agent.</dd>
+    </dl>
+    <p>Either URL accepts any valid token. The JID kind, <code>web:</code> or <code>hook:</code>, is metadata that sets the sender attribution and the default output style. It does not limit which URL works. Each issuance verb returns its own URL: <code>issue_chat_link</code> returns <code>/chat/&lt;token&gt;/</code>, and <code>issue_webhook</code> returns <code>/hook/&lt;token&gt;</code>. <a href="../reference/tokens.html">reference / tokens</a> has the full column list, the payload shapes and the MCP tools for tokens.</p>
 
+    <h2>The JID names the folder and the source</h2>
+    <p><code>web:&lt;folder&gt;</code> means an anonymous visitor chat at this folder. <code>web:acme</code> is the public chat URL of acme. Add a suffix to split one folder across pages. <code>web:acme/support</code> and <code>web:acme/sales</code> are different conversations with the same agent, and routing rules can tell them apart.</p>
+
+    <p><code>hook:&lt;folder&gt;/&lt;source&gt;</code> means a webhook from <em>source</em> to <em>folder</em>. <code>hook:acme/eng/github</code> is GitHub events for the <code>acme/eng</code> folder. <code>hook:acme/eng/linear/comments</code> puts Linear comments in a stream separate from <code>hook:acme/eng/linear/issues</code>. The agent sees the <code>&lt;source&gt;</code> segment in the <code>sender</code> field of the inbound message.</p>
+
+    <p>The JID prefix splits routing. A <code>hook:</code> message and a <code>web:</code> message can match different rules, even though one table issued both tokens.</p>
+
+    <h2>Agents and operators create tokens through one writer</h2>
+    <p>Two sources create tokens, and one writer inserts the row:</p>
+    <dl>
+      <dt>An agent over MCP</dt>
+      <dd>A turn calls <code>issue_chat_link</code> or <code>issue_webhook</code> on the MCP socket of its group and gets the URL back once. The agent gives it to a person to paste.</dd>
+      <dt>An operator over REST or the CLI</dt>
+      <dd><code>arizuko token issue</code>, the REST route behind OAuth, or a <code>dashd</code> button creates the same token for a folder. <a href="../reference/tokens.html">reference / tokens</a> has the exact signatures.</dd>
+    </dl>
+    <p>Both paths use the same writer, <code>store.InsertRouteToken</code>, with the same row shape and the same audit trail. The raw token is returned exactly once, and the store keeps only its sha256. If you lose the token, issue a new one.</p>
+    <p>A new folder gets no chat token automatically. A folder gets a token when someone calls <code>issue_chat_link</code> for it. So unused folders do not collect live URLs.</p>
+    <p>Both ways of creating a token take an optional <code>context</code>, the instructions per link described above. <a href="../reference/tokens.html#link-context">reference / tokens</a> has the column shapes and the <code>&lt;link-context&gt;</code> contract.</p>
+
+    <h2>Grants decide who can create a token for which folder</h2>
+    <p><a href="../concepts/grants.html">Grants</a> decide this, as for everything else. The default role cannot create a public endpoint, so a plain folder cannot do it at all. It needs <code>/root</code> or a delegated <code>mcp:issue_*</code> row, and the scope glob of the row decides which folders the token can point at. <a href="../reference/tokens.html">reference / tokens</a> has the table. An agent at <code>acme</code> with that grant over <code>acme/**</code> can create <code>hook:acme/eng/github</code> for the <code>acme/eng</code> child. The <code>owner_folder</code> of the row stays <code>acme</code>, the issuer, not the JID target. Revocation follows <code>owner_folder</code>, so <code>acme</code> keeps control of the tokens it created.</p>
+
+    <h2>A revoke applies to the next request</h2>
+    <p>A revoke is one <code>DELETE</code> on the row. The next request to the URL returns 404 at once, with no grace period and no cache. Every request looks up the token in the table. An agent in folder A cannot delete a token whose <code>owner_folder = B</code>: the ACL gate on <code>revoke_token</code> requires admin on <code>owner_folder</code>.</p>
+
+    <h2>Whoever has the URL can post</h2>
+    <p>Whoever has the URL can POST to it. This endpoint has no second factor, no signature on the body and no identity per caller. <code>webd</code> does not verify <code>X-Hub-Signature</code> or any other upstream HMAC: a skill on the agent side can check it, not the platform. To rotate, issue a new token, change the URL at the source and delete the old row.</p>
+
+    <p><code>webd</code> limits the request rate per token in memory, and the JID prefix sets the limit. The limit is low for <code>web:</code>, which serves people, and higher for <code>hook:</code>, which serves bursts from machines. It limits the body to 1 MiB.</p>
+
+    <h2>Five pages continue from here</h2>
     <ul>
-      <li><strong>Routing &mdash; the token.</strong> Which folder the URL feeds. A random secret looked up in the DB; revoke it by deleting the row.</li>
-      <li><strong>Identity &mdash; an optional login.</strong> Who is posting. The same link serves everyone: a visitor with a logged-in session posts as their real self; everyone else posts as <code>anon:&lt;ip-hash&gt;</code>. The link doesn't change &mdash; the caller's session does.</li>
-      <li><strong>Context &mdash; optional instructions on the link.</strong> How the agent should process what arrives through it. Free text set at mint time (&ldquo;bug reports from the acme site; triage, don't chat back&rdquo;), stamped onto each arriving message, shown to the agent as a <code>&lt;link-context&gt;</code> block. Two links into the same folder can carry two different contracts.</li>
-    </ul>
-
-    <p>None of the three depends on another: a leaked token doesn't impersonate a user, a stolen session doesn't reveal tokens, and context is set only by whoever was authorized to mint.</p>
-
-    <h2>one table, two URLs</h2>
-
-    <p>All tokens live in the <code>route_tokens</code> table &mdash; the raw token is hashed to a lookup key, mapped to a JID, owned by the folder that minted it, and stamped with the folder it delivers to. The delivery folder is recorded rather than read out of the JID, because a suffixed JID is ambiguous: <code>web:acme/support</code> reads exactly like a plain token at a folder named <code>acme/support</code>. Two URLs read that table: <code>/chat/&lt;token&gt;/</code> serves the chat widget on GET and appends a message on POST, streaming the reply over SSE to browsers and a plain response to everyone else; <code>/hook/&lt;token&gt;</code> is POST-only &mdash; append the body, return 204, fire-and-forget. Either URL accepts any valid token: the JID kind (<code>web:</code> or <code>hook:</code>) is metadata that drives sender attribution and default output style, not a URL access gate. Each issuance verb picks its canonical URL &mdash; <code>issue_chat_link</code> returns <code>/chat/&lt;token&gt;/</code>, <code>issue_webhook</code> returns <code>/hook/&lt;token&gt;</code>. Full column list, payload shapes, and the per-token MCP surface: <a href="../reference/tokens.html">reference / tokens</a>.</p>
-
-    <h2>what the JID encodes</h2>
-
-    <p><code>web:&lt;folder&gt;</code> means &ldquo;anonymous visitor chat at this folder.&rdquo; <code>web:acme</code> is acme's public chat URL. Add a suffix to split one folder across pages: <code>web:acme/support</code> and <code>web:acme/sales</code> are different conversations against the same agent, distinguishable in routing rules.</p>
-
-    <p><code>hook:&lt;folder&gt;/&lt;source&gt;</code> means &ldquo;webhook from <em>source</em> targeting <em>folder</em>.&rdquo; <code>hook:acme/eng/github</code> is GitHub events for the <code>acme/eng</code> folder. <code>hook:acme/eng/linear/comments</code> partitions Linear into a comments stream separate from <code>hook:acme/eng/linear/issues</code>. The <code>&lt;source&gt;</code> segment is what the agent sees in the inbound's <code>sender</code> field.</p>
-
-    <p>JID prefixes split routing &mdash; a <code>hook:</code> message and a <code>web:</code> message can fire different rules even though one table issued both tokens. The URL the request arrived on matches the JID prefix one-to-one.</p>
-
-    <h2>issuance</h2>
-
-    <p>Two sources mint tokens, one writer inserts the row.</p>
-
-    <ul>
-      <li><strong>An agent over MCP.</strong> A turn calls <code>issue_chat_link</code> or <code>issue_webhook</code> on its group's MCP socket, gets the URL back once, and hands it to a human to paste.</li>
-      <li><strong>An operator over REST or CLI.</strong> <code>arizuko token issue</code> (or the OAuth-gated REST route, or a dashd button) mints the same token for a folder. Exact signatures: <a href="../reference/tokens.html">reference / tokens</a>.</li>
-    </ul>
-
-    <p>Both paths hit the same <code>insertRouteToken</code> writer &mdash; same row shape, same audit trail. The raw token is returned exactly once; only its sha256 is stored, so losing it means reissuing.</p>
-
-    <p>Folders do not get a chat token automatically when they are created. A folder gets a token when someone calls <code>issue_chat_link</code> for it. This keeps unused folders from accumulating live URLs.</p>
-
-    <p>Either mint face takes an optional <code>context</code> &mdash; the per-link processing instructions from the &ldquo;three axes&rdquo; above. Column shapes and the <code>&lt;link-context&gt;</code> contract: <a href="../reference/tokens.html#link-context">reference / tokens</a>.</p>
-
-    <h2>who can mint for which folder</h2>
-
-    <p>Resolved by <a href="../concepts/grants.html">grants</a>, like everything else. Minting a public endpoint is not in the default role, so a plain folder cannot do it at all &mdash; it takes <code>/root</code> or a delegated <code>mcp:issue_*</code> row, and the row's scope glob decides which folders the token may point at (the table in <a href="../reference/tokens.html">reference / tokens</a>). An agent at <code>acme</code> holding that grant over <code>acme/**</code> can mint <code>hook:acme/eng/github</code> on behalf of the <code>acme/eng</code> child &mdash; and the row's <code>owner_folder</code> stays at <code>acme</code>, the issuer, not the JID target. Revocation follows <code>owner_folder</code>, so <code>acme</code> retains control of the tokens it minted.</p>
-
-    <h2>revocation</h2>
-
-    <p>One <code>DELETE</code> on the row. The next request to the URL returns 404 immediately &mdash; no grace period, no cache to wait out, because every request resolves the token against the table rather than trusting a cached copy. An agent in folder A cannot delete a token whose <code>owner_folder = B</code>; the ACL gate at <code>revoke_token</code> requires admin on <code>owner_folder</code>.</p>
-
-    <h2>the bearer model</h2>
-
-    <p>Whoever holds the URL can POST to it. There is no second factor, no signing on the body, no per-caller identity at this surface. webd does not verify <code>X-Hub-Signature</code> or any other upstream HMAC &mdash; that belongs to a skill on the agent side, not the platform. Rotation is by reissue: mint a new token, swap the URL at the source, delete the old row.</p>
-
-    <p>webd rate-limits per token in memory, the ceiling chosen by JID prefix (<code>web:</code> low for humans, <code>hook:</code> higher for machine bursts), and caps the body at 1 MiB.</p>
-
-    <h2>go deeper</h2>
-
-    <ul>
-      <li><a href="../howto/chat-link.html">how-to: chat link</a> &mdash; issue a chat URL, paste it on a site, what the visitor sees.</li>
-      <li><a href="../howto/webhooks.html">how-to: webhooks</a> &mdash; wire GitHub, Linear, custom alerts.</li>
-      <li><a href="../reference/tokens.html">reference: tokens</a> &mdash; full HTTP surface, payload shapes, SSE events, MCP tools.</li>
-      <li><a href="../concepts/routing.html">routing</a> &mdash; how <code>web:&lt;folder&gt;</code> and <code>hook:&lt;folder&gt;/&lt;source&gt;</code> reach an agent.</li>
-      <li><a href="../concepts/jid.html">jid</a> &mdash; address shape across every platform.</li>
+      <li><a href="../howto/chat-link.html">how-to: chat link</a>: issue a chat URL, paste it on a site, and see what the visitor sees.</li>
+      <li><a href="../howto/webhooks.html">how-to: webhooks</a>: connect GitHub, Linear and custom alerts.</li>
+      <li><a href="../reference/tokens.html">reference: tokens</a>: the full HTTP endpoints, payload shapes, SSE events and MCP tools.</li>
+      <li><a href="../concepts/routing.html">routing</a>: how <code>web:&lt;folder&gt;</code> and <code>hook:&lt;folder&gt;/&lt;source&gt;</code> reach an agent.</li>
+      <li><a href="../concepts/jid.html">jid</a>: the address shape on every platform.</li>
     </ul>
 
       <nav class="docs-pager" aria-label="Pager">

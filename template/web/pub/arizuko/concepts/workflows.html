@@ -64,73 +64,76 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">concepts</a> &rsaquo; workflows</p>
       <h1>workflows</h1>
 
-      <p class="lede">An arizuko agent chats well and fails at anything
-        multi-step. It improvises every turn from the scrollback, never writes
-        a plan down, forgets to read its own skills, and starts each session
-        cold. A workflow is the fix &mdash; not a new engine, just one rule:
-        keep the conversation free, but make the <em>opening</em> strict.</p>
+      <p class="lede">An arizuko agent handles a chat well and fails at a job
+        with many steps. It improvises every turn from the chat history, never
+        writes a plan down, does not read its own skills, and starts each
+        session with no context. A workflow fixes this with one rule, not a new
+        engine: keep the conversation free, but make the <em>opening</em>
+        strict.</p>
 
-      <h2>Why multi-step jobs thrash</h2>
-      <p>Watch a travel-concierge agent plan a week-long trip over chat and the
-        pattern is always the same:</p>
-      <ul>
-        <li><strong>The plan lives in the transcript.</strong> There&rsquo;s no
-          single file holding the itinerary, so every turn re-derives it from
-          scrollback. The same stop gets added, questioned, removed, and
-          re-added across an hour. There&rsquo;s nothing to converge <em>on</em>.</li>
-        <li><strong>Nothing forces an opening.</strong> The agent <em>could</em>
-          run its triage step, but it&rsquo;s a soft nudge the model skips at
-          will. A plain &ldquo;hello&rdquo; can sit unanswered while the agent
-          jumps straight into free-association.</li>
-        <li><strong>Context isn&rsquo;t loaded at decision time.</strong> The
-          agent claims &ldquo;I don&rsquo;t have the history&rdquo; mid-session
-          even though the context is right there &mdash; because nothing makes
-          it load memory and <code>facts/</code> before acting.</li>
-        <li><strong>It doesn&rsquo;t consult its own skills.</strong> A rule
-          already written in a skill gets re-taught live, four times, because
-          nothing makes the agent read its skills at the start of the job.</li>
-      </ul>
-      <p>None of these are capability gaps &mdash; the memory, the skills, the
-        plan file are all available. What&rsquo;s missing is a <em>gate</em>
-        that runs a fixed opening before the agent is allowed to free-associate.</p>
+      <h2>Jobs with many steps go in circles for four reasons</h2>
+      <p>Watch a travel agent plan a trip of one week over chat. The pattern is
+        always the same:</p>
+      <dl>
+        <dt>The plan lives in the transcript</dt>
+        <dd>No single file holds the itinerary, so every turn rebuilds it from
+          the chat history. The agent adds the same stop, questions it, removes
+          it and adds it again within an hour. Nothing exists to converge
+          <em>on</em>.</dd>
+        <dt>Nothing forces an opening</dt>
+        <dd>The agent <em>can</em> run its triage step, but the step is only a
+          hint, and the model skips it. A plain &ldquo;hello&rdquo; can stay
+          unanswered while the agent starts on something else.</dd>
+        <dt>The context is not loaded when the agent decides</dt>
+        <dd>The agent says &ldquo;I don&rsquo;t have the history&rdquo; during a
+          session although the context exists, because nothing makes it load
+          memory and <code>facts/</code> before it acts.</dd>
+        <dt>The agent does not read its own skills</dt>
+        <dd>A user teaches a rule that a skill already holds, four times,
+          because nothing makes the agent read its skills at the start of the
+          job.</dd>
+      </dl>
+      <p>None of these is a missing capability: the memory, the skills and the
+        plan file all exist. What is missing is a <em>gate</em> that runs a
+        fixed opening before the agent replies freely.</p>
 
-      <h2>Free chat, strict opening</h2>
-      <p>The discipline lives at the edges of a session, not in the middle.
-        Think of a waiter who knows you and chats happily &mdash; but every time
-        you sit down he still runs the same script: greet, recall your table,
-        take the order, read it back, then act.</p>
+      <h2>The chat stays free and the opening is strict</h2>
+      <p>The discipline applies at the edges of a session, not in the middle.
+        A waiter who knows you chats freely, but each time you sit down, he runs
+        the same steps: greet, recall your table, take the order, read it back,
+        then act.</p>
       <table>
         <thead>
           <tr><th>Boundary</th><th>What runs</th></tr>
         </thead>
         <tbody>
-          <tr><td><strong>New session</strong> (cold, idle-expired, or
-            <code>/new</code>)</td><td>the full opening: load persona, memory,
-            and facts; read the open plan for this topic; confirm the goal
-            &mdash; <em>before</em> any free reply</td></tr>
-          <tr><td><strong>Continuation</strong> (same session)</td><td>free
-            conversation, with the plan edited in place as work proceeds</td></tr>
-          <tr><td><strong>New topic</strong> (a fork)</td><td>inherits the
-            parent&rsquo;s context, plus a scoped opening for the new thread</td></tr>
+          <tr><td>A new session, after a cold start, an idle expiry or
+            <code>/new</code></td><td>the full opening: load the persona, memory
+            and facts, read the open plan for this topic, and confirm the goal,
+            all <em>before</em> any free reply</td></tr>
+          <tr><td>A continuation in the same session</td><td>free conversation,
+            with the plan edited in place as the work moves</td></tr>
+          <tr><td>A new topic from a fork</td><td>the context of the parent,
+            plus an opening for the new thread</td></tr>
         </tbody>
       </table>
-      <p>Inside a session, conversation is the default. The strictness is only at
-        the seams &mdash; sitting down, and starting a new thread.</p>
+      <p>Inside a session, conversation is the default. The strict part applies
+        only at the boundaries: a new session and a new thread.</p>
 
-      <h2>The plan-of-record</h2>
-      <p>The one durable artifact that fixes the thrash is a plain file. Any
-        multi-step job gets one <code>~/plans/&lt;topic&gt;.md</code>, written
-        first and edited in place. The opening reads it; the work updates it;
-        &ldquo;done&rdquo; means <em>the plan file is updated</em>, not a chat
-        closer. It&rsquo;s a markdown file the agent owns &mdash; no schema, no
-        database row, diffable like everything else
-        (<a href="primitives.html">agent-as-data</a>).</p>
+      <h2>One plan file is the record of the job</h2>
+      <p>A plain file stops the circles. Every job with many steps gets one
+        <code>~/plans/&lt;topic&gt;.md</code>, written first and edited in
+        place. The opening reads it, and the work updates it. &ldquo;Done&rdquo;
+        means that <em>the plan file is updated</em>, not a closing chat
+        message. The file is markdown that the agent owns, with no schema and no
+        database row, and you can diff it like every other file in the
+        <a href="primitives.html">agent folder</a>.</p>
 
-      <h2>Write the opening in CLAUDE.md</h2>
-      <p>What the opening <em>says</em> is yours to author. Each group has a
-        <code>CLAUDE.md</code> &mdash; its operating manual &mdash; and a
-        <code>## Session opening</code> section there is the contract. Keep it
-        short and concrete:</p>
+      <h2>You write the opening in CLAUDE.md</h2>
+      <p>You write what the opening <em>says</em>. Each group has a
+        <code>CLAUDE.md</code>, its operating manual, and a
+        <code>## Session opening</code> section in it is the contract. Keep the
+        section short and concrete:</p>
       <pre><code>## Session opening
 
 Before replying to anything multi-step:
@@ -140,49 +143,48 @@ Before replying to anything multi-step:
 4. Confirm the goal and name the deliverable, then act.
 
 "Done" means the plan file is updated — not a message that says done.</code></pre>
-      <p>Two more things make the opening worth running: keep the persona
-        coherent (one identity, a focused <code>facts/</code> &mdash; an agent
-        carrying three personas has nothing clean to load), and treat the plan
-        file as the source of truth for the whole job.</p>
+      <p>Two more rules make the opening useful. Keep the persona coherent: one
+        identity and one focused <code>facts/</code>, because an agent with three
+        personas has nothing clean to load. Treat the plan file as the source of
+        truth for the whole job.</p>
 
-      <h2>Not a new primitive</h2>
-      <p>A workflow isn&rsquo;t a seventh part of the system. It&rsquo;s
-        <a href="primitives.html">Turn + State</a> and the session lifecycle
-        recombined: the session boundary already starts each run fresh; the
-        discipline just makes that boundary run a fixed opening and keep a plan
-        file. No state machine, no DAG runtime &mdash; the backbone is the
-        session lifecycle arizuko already runs, and the intelligence is the
-        agent.</p>
+      <h2>A workflow is not a new primitive</h2>
+      <p>A workflow is not a seventh part of the system. It is
+        <a href="primitives.html">Turn and State</a> and the session lifecycle,
+        combined. The session boundary already starts each run fresh. The
+        discipline makes that boundary run a fixed opening and keep a plan file.
+        No state machine and no DAG runtime exist. The session lifecycle of
+        arizuko is the structure, and the agent supplies the intelligence.</p>
 
-      <div class="callout"><strong>What&rsquo;s yours vs the platform&rsquo;s:</strong>
-        today the opening is a convention you author in <code>CLAUDE.md</code>
-        and the agent follows &mdash; the plan file and the opening section work
-        right now. The platform does not <em>enforce</em> the opening, and
-        there is no durable workflow engine underneath it, on purpose.
-        Checkpoint-and-replay engines assume the orchestration code is
-        deterministic; here the orchestrator is a model, and replaying a
-        model doesn&rsquo;t give you the same steps back. Write the opening;
-        the discipline is the mechanism.</div>
+      <div class="callout"><strong>You write the opening, and the platform does not enforce it.</strong>
+        The opening is a convention that you write in <code>CLAUDE.md</code>
+        and the agent follows. The plan file and the opening section work as
+        described. The platform does not <em>enforce</em> the opening, and no
+        durable workflow engine runs under it, by design. Checkpoint-and-replay
+        engines assume that the orchestration code is deterministic. Here the
+        orchestrator is a model, and a replay of a model does not give the same
+        steps back.</div>
 
-      <h2>What an engine would give you, and where it already lives</h2>
+      <h2>Existing parts give what an engine would give</h2>
       <table>
-        <tr><th>You want</th><th>arizuko already does it with</th></tr>
-        <tr><td>recover from a failure</td><td>the turn: a failed turn retries whole, with a note that it is a retry</td></tr>
-        <tr><td>sleep, or run on a schedule</td><td><a href="../components/timed.html">timed</a></td></tr>
-        <tr><td>wait for an event</td><td>routing: the event is a message, and a route wakes the folder</td></tr>
-        <tr><td>hand work to a child</td><td><code>delegate_group</code> and <code>escalate_group</code></td></tr>
-        <tr><td>survive a restart</td><td>store rows plus the folder&rsquo;s files</td></tr>
+        <tr><th>You want</th><th>arizuko does it with</th></tr>
+        <tr><td>recovery from a failure</td><td>the turn: a failed turn runs again as a whole, with a note that it is a retry</td></tr>
+        <tr><td>sleep, or a run on a schedule</td><td><a href="../components/timed.html">timed</a></td></tr>
+        <tr><td>a wait for an event</td><td>routing: the event is a message, and a route wakes the folder</td></tr>
+        <tr><td>a hand-off to a child</td><td><code>delegate_group</code> and <code>escalate_group</code></td></tr>
+        <tr><td>a restart without loss</td><td>store rows plus the files of the folder</td></tr>
       </table>
-      <p>The day this stops being enough is a shipped product that needs a
-        multi-hour job with side effects, where running the turn again is not
-        acceptable. That job gets its own daemon with its own store and a
+      <p>This is not enough for a shipped product that needs a job of many
+        hours with side effects, where a second run of the turn is not
+        acceptable. Such a job gets its own daemon with its own store and a
         checkpoint-or-execute step, not an engine under every turn.</p>
 
-      <h2>Several agents talking to each other</h2>
-      <p>Long-lived groups that message each other need nothing new either.
-        A chat link or a route token gives a group an address, <code>send</code>
-        posts to it, and the skill files decide who talks to whom. routd
-        doesn&rsquo;t change; the topology is text in the folders.</p>
+      <h2>Agents can talk to each other with existing parts</h2>
+      <p>Long-lived groups that message each other need nothing new either. A
+        chat link or a route token gives a group an address, <code>send</code>
+        posts to it, and the skill files decide who talks to whom.
+        <code>routd</code> does not change: the topology is text in the
+        folders.</p>
 
       <nav class="docs-pager" aria-label="Pager">
         <a rel="prev" href="tasks.html">&larr; Tasks</a>

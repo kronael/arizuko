@@ -64,18 +64,21 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">concepts</a> &rsaquo; topics</p>
 <h1>topics</h1>
 
-    <p class="lede">Engagement keeps turns flowing to the same folder; topics keep two conversations inside that folder apart. A topic is a label on a message that splits one folder&rsquo;s chat into separate threads. Each thread has its own session and its own reply chain. Messages in <code>#support</code> don&rsquo;t see messages in <code>#billing</code>.</p>
+    <p class="lede">A topic keeps two conversations inside one folder apart. A topic is a label on a message that splits the chat of one folder into separate threads. Each thread has its own session and its own reply chain, so messages in <code>#support</code> do not see messages in <code>#billing</code>.</p>
 
-    <h2>where topics come from</h2>
+    <h2>A topic comes from one of three places</h2>
     <p><code>routd</code> reads the topic from one of three places:</p>
-    <ul>
-      <li><strong>Platform-native threads.</strong> Telegram&rsquo;s <code>MessageThreadID</code>, Discord&rsquo;s thread channel ID, and similar fields land on <code>Message.Topic</code> when the adapter hands the message to <code>routd</code>.</li>
-      <li><strong>The web channel.</strong> A web message carries a topic slug directly &mdash; the chat widget chooses it before the request goes out.</li>
-      <li><strong>The <code>#topic</code> prefix.</strong> When a user starts a message with <code>#name</code>, <code>routd</code> strips the prefix and runs the rest under topic <code>#name</code>. One catch: routd reads the prefix off one message per batch &mdash; the newest one, or the oldest slash command if there is one &mdash; so a <code>#name</code> on an earlier message that arrived in the same batch is ignored.</li>
-    </ul>
+    <dl>
+      <dt>Threads of the platform</dt>
+      <dd>The <code>MessageThreadID</code> of Telegram, the thread channel ID of Discord and similar fields go into <code>Message.Topic</code> when the adapter gives the message to <code>routd</code>.</dd>
+      <dt>The web channel</dt>
+      <dd>A web message carries a topic slug. The chat widget chooses it before the request goes out.</dd>
+      <dt>The <code>#topic</code> prefix</dt>
+      <dd>When a user starts a message with <code>#name</code>, <code>routd</code> removes the prefix and runs the rest under the topic <code>#name</code>. <code>routd</code> reads the prefix from one message per batch: the newest one, or the oldest slash command if the batch has one. So <code>routd</code> ignores a <code>#name</code> on an earlier message in the same batch.</dd>
+    </dl>
 
-    <h2>a topic is a session</h2>
-    <p>Each <code>(folder, topic)</code> pair has one row in <code>sessions</code>, and the row holds the id of a Claude Code transcript in the folder. Here is what happens to that id on every turn:</p>
+    <h2>Each topic has its own session</h2>
+    <p>Each pair of a folder and a topic has one row in <code>sessions</code>. The row holds the id of a Claude Code transcript in the folder. The figure shows what happens to that id on every turn:</p>
     <pre id="twin-topics"><code>┌──────────────┐    ┌──────────────────────────────────────────────────┐
 │ chat message ├───►│ (folder, topic): the platform thread, a route    │
 └──────────────┘    │ pin, a sticky #topic, or the web chat's slug     │
@@ -108,29 +111,32 @@
                     │ and the next turn resumes the id routd minted    │
                     └──────────────────────────────────────────────────┘
 </code></pre>
-    <p>The id is written down before the guest starts, never learned from it afterwards. So a turn killed by a deploy or a deadline leaves a transcript the next turn picks up. A chat that sits idle for two days (<code>SESSION_IDLE_EXPIRY</code>) starts fresh instead, because a model resuming a days-old session blends stale state into today&rsquo;s answer.</p>
+    <p><code>routd</code> records the id before the guest starts and never learns it from the guest afterwards. So a turn that a deploy or a deadline stops leaves a transcript, and the next turn continues it. A chat that is idle for two days, the default of <code>SESSION_IDLE_EXPIRY</code>, starts a new session. A model that resumes an old session mixes stale state into the answer of today.</p>
 
-    <h2>what a topic isolates</h2>
-    <p>The agent keeps one Claude session per <code>(folder, topic)</code> pair. So <code>/new #support</code> resets the support thread without touching anything else in the folder. The store also tracks the last bot message per topic, so reply threading on the platform stays clean &mdash; replies anchor to the right message.</p>
+    <h2>A topic isolates the session and the reply chain</h2>
+    <p>The agent keeps one Claude session per pair of folder and topic. So <code>/new #support</code> resets the support thread and changes nothing else in the folder. The store also records the last bot message per topic, so replies on the platform attach to the correct message.</p>
     <p>For the web channel, <code>routd</code> groups inbound messages by topic and runs one agent per topic, one after another.</p>
 
-    <h2>forks</h2>
-    <p>A fork copies the parent topic&rsquo;s Claude Code session file to a fresh session UUID. The child resumes natively from the parent&rsquo;s tail &mdash; every prior turn is already in the child&rsquo;s history, because it got the real session file, not a pasted-in summary. The <code>sessions</code> row records <code>parent_topic</code> and <code>forked_at</code> for audit.</p>
-    <p>Three triggers fork a topic, and all three copy the parent&rsquo;s transcript the same way:</p>
-    <ul>
-      <li><strong>Default fork from main</strong> &mdash; the first turn in a brand-new topic forks the folder&rsquo;s main session.</li>
-      <li><strong>Reply-to-parent</strong> &mdash; when the trigger message is a reply, the parent is the topic of the replied-to message, not main. Reply inside <code>#deploy</code> stays in <code>#deploy</code>; reply to a <code>#triage</code> message from a fresh thread forks from <code>#triage</code>.</li>
-      <li><strong>Explicit <code>fork_topic</code> MCP</strong> &mdash; the agent branches a focused side-conversation. Pass <code>force=true</code> to overwrite an existing child.</li>
-    </ul>
-    <p>On every turn the agent receives a <code>&lt;topic name=&quot;X&quot; /&gt;</code> envelope so it knows what scope it&rsquo;s in. There is no <code>&lt;inherited&gt;</code> block &mdash; the parent&rsquo;s history is already in the child session.</p>
-    <p><code>sessions.observed_cursor</code> is per topic too, so two topics in the same folder both see the ambient <code>&lt;observed&gt;</code> sidechannel without one consuming it for the other.</p>
-    <p>Forks have two limits worth knowing. The copy is a Claude Code transcript, so codex and pi start the child fresh. And every fork is a full copy of the parent&rsquo;s file that nothing ever cleans up, so a busy folder&rsquo;s <code>.claude/projects/</code> only grows.</p>
+    <h2>A fork copies the parent transcript</h2>
+    <p>A fork copies the Claude Code session file of the parent topic to a new session UUID. The child resumes from the end of the parent. Every earlier turn is already in the history of the child, because the child got the real session file and not a summary. The <code>sessions</code> row records <code>parent_topic</code> and <code>forked_at</code> for audit.</p>
+    <p>Three triggers fork a topic, and all three copy the transcript of the parent in the same way:</p>
+    <dl>
+      <dt>The default fork from main</dt>
+      <dd>The first turn in a new topic forks the main session of the folder.</dd>
+      <dt>A reply to a parent</dt>
+      <dd>When the trigger message is a reply, the parent is the topic of the replied-to message, not main. A reply inside <code>#deploy</code> stays in <code>#deploy</code>. A reply from a new thread to a <code>#triage</code> message forks from <code>#triage</code>.</dd>
+      <dt>The <code>fork_topic</code> MCP tool</dt>
+      <dd>The agent starts a focused side conversation. With <code>force=true</code>, the tool overwrites an existing child.</dd>
+    </dl>
+    <p>On every turn, the agent gets a <code>&lt;topic name=&quot;X&quot; /&gt;</code> envelope, so it knows its scope. No <code>&lt;inherited&gt;</code> block exists, because the history of the parent is already in the child session.</p>
+    <p><code>sessions.observed_cursor</code> is also per topic. So two topics in the same folder both see the ambient <code>&lt;observed&gt;</code> messages, and one topic does not use them up for the other.</p>
+    <p>Forks have two limits. The copy is a Claude Code transcript, so codex and pi start the child with no history. Every fork is a full copy of the parent file, and nothing deletes the copies, so <code>.claude/projects/</code> in a busy folder only grows.</p>
 
-    <h2>sticky topic</h2>
-    <p>A user can pin a chat to a topic by sending <code>#support</code> on its own as the entire message. <code>routd</code> stores it on the <code>chats</code> row (<code>sticky_topic</code>), and every later message in that chat runs under <code>#support</code> until someone sends bare <code>#</code> to clear it. A sticky topic wins over the thread ID the platform sent.</p>
+    <h2>A user can pin a chat to a topic</h2>
+    <p>A user can pin a chat to a topic with a message that contains only <code>#support</code>. <code>routd</code> stores the pin in the <code>sticky_topic</code> field of the <code>chats</code> row. Every later message in that chat runs under <code>#support</code> until someone sends a bare <code>#</code> to clear it. A pinned topic wins over the thread ID from the platform.</p>
 
-    <h2>go deeper</h2>
-    <p>Topics ride inside one folder; <a href="../concepts/routing.html">routing</a> picks the folder first, then topic isolation kicks in. How folders relate to each other and what counts as ambient context: <a href="../concepts/scopes.html">scopes</a>. Where the session id sits in the whole turn: <a href="turn.html">a turn, end to end</a>. Resolution order and fork mechanics: <a href="https://github.com/kronael/arizuko/blob/main/ROUTING.md">ROUTING.md</a>.</p>
+    <h2>Routing picks the folder before the topic</h2>
+    <p>Topics work inside one folder. <a href="../concepts/routing.html">routing</a> picks the folder first, and then the topic applies. <a href="../concepts/scopes.html">scopes</a> explains how folders relate and what counts as ambient context. <a href="turn.html">a turn, end to end</a> shows where the session id sits in the turn. <a href="https://github.com/kronael/arizuko/blob/main/ROUTING.md">[ROUTING.md]</a> has the resolution order and the fork details.</p>
 
       <nav class="docs-pager" aria-label="Pager">
         <a rel="prev" href="proactive.html">&larr; Proactive</a>

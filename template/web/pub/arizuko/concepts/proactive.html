@@ -64,24 +64,24 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">concepts</a> &rsaquo; proactive interjection</p>
 <h1>proactive interjection</h1>
 
-    <p class="lede"><a href="engagement.html">Engagement</a> decided whether to keep listening after someone spoke to the bot. This page is the other direction: the bot speaking when <em>nobody</em> spoke to it. A question was asked in a channel forty minutes ago, three people are in the room, nobody answered, and the agent has been sitting there the whole time with the answer. Proactive interjection is the narrow, heavily-fenced permission to say it.</p>
+    <p class="lede">Proactive interjection lets the bot speak when <em>nobody</em> spoke to it. <a href="engagement.html">Engagement</a> covers the other direction. For example, someone asked a question in a channel forty minutes ago, three people are in the room, and nobody answered. The agent has the answer. Proactive interjection is a narrow permission, behind many checks, to say it.</p>
 
-    <div class="callout"><strong>Off unless you turn it on.</strong> <code>PROACTIVE_ENABLED</code> is unset in every shipped template, so no arizuko instance does this today. When it is unset routd builds no scanner at all &mdash; not an idle one, not an empty loop. You opt in twice, on purpose, per instance and per group. The rest of this page describes what happens after you do.</div>
+    <div class="callout"><strong>Proactive interjection is off until you turn it on.</strong> No shipped template sets <code>PROACTIVE_ENABLED</code>, so no arizuko instance interjects by default. When the variable is unset, <code>routd</code> builds no scanner at all. You opt in twice, on purpose: once for the instance and once for each group. The rest of the page describes what happens after you opt in.</div>
 
-    <h2>the problem it solves</h2>
-    <p>arizuko is mention-reactive by design. In a channel where the bot lurks without being addressed, nothing ever triggers a turn, so the useful intervention never happens &mdash; not because the agent decided to stay quiet, but because it was never asked to decide.</p>
+    <h2>A bot that only reacts misses unanswered questions</h2>
+    <p>arizuko reacts to mentions by design. In a channel where nobody addresses the bot, nothing starts a turn. A useful answer never comes, not because the agent decided to stay quiet, but because nothing asked it to decide.</p>
 
-    <p>The obvious fix is a bot that chimes in whenever it has something to say. That bot gets muted within a week. So the mechanism here is built the other way round: assume silence is correct, and make firing the exception that has to clear a row of gates.</p>
+    <p>A bot that speaks whenever it has something to say gets muted within a week. So the mechanism works the other way: silence is the correct default, and a turn starts only after it passes a row of checks.</p>
 
-    <h2>turning it on</h2>
-    <p>Two switches, and both must be on.</p>
-
-    <p><strong>One &mdash; the instance.</strong> Set <code>PROACTIVE_ENABLED=true</code> in the instance <code>.env</code> and restart. That starts the scanner and nothing else; every group is still silent.</p>
+    <h2>Two switches must both be on</h2>
+    <h3>The instance switch starts the scanner</h3>
+    <p>Set <code>PROACTIVE_ENABLED=true</code> in the <code>.env</code> of the instance and restart. This starts the scanner and nothing else. Every group stays silent.</p>
 
     <pre><code># in /srv/data/arizuko_&lt;instance&gt;/.env
 PROACTIVE_ENABLED=true</code></pre>
 
-    <p><strong>Two &mdash; the group.</strong> Add a <code>proactive:</code> block to the frontmatter of that group&rsquo;s <code>CLAUDE.md</code> (<code>&lt;data-dir&gt;/groups/&lt;folder&gt;/CLAUDE.md</code>). Mode <code>lurk</code> is the only mode that ever fires.</p>
+    <h3>The group switch sets the mode</h3>
+    <p>Add a <code>proactive:</code> block to the frontmatter of the <code>CLAUDE.md</code> of that group, at <code>&lt;data-dir&gt;/groups/&lt;folder&gt;/CLAUDE.md</code>. Only the mode <code>lurk</code> can start a turn.</p>
 
     <pre><code>---
 proactive:
@@ -89,78 +89,81 @@ proactive:
   quiet_hours: ['22:00-08:00 Europe/Prague']  # optional, repeatable
 ---</code></pre>
 
-    <p>The block lives in a file the operator already edits, not in a database column, so there is one copy of the answer and nothing to keep in sync. routd re-reads it when the file&rsquo;s modification time changes &mdash; edit and save, no restart.</p>
+    <p>The block lives in a file that the operator already edits, not in a database column. So the setting has one copy and nothing to keep in sync. <code>routd</code> reads the file again when its modification time changes, so a saved edit applies with no restart.</p>
 
-    <p>Each quiet-hours entry is <code>HH:MM-HH:MM &lt;IANA timezone&gt;</code>, and a window may cross midnight (<code>22:00-08:00</code> is the night, not a 14-hour day). List as many as you need.</p>
+    <p>Each quiet-hours entry has the form <code>HH:MM-HH:MM &lt;IANA timezone&gt;</code>. A window can cross midnight: <code>22:00-08:00</code> is the night, not a 14-hour day. You can list as many windows as you need.</p>
 
-    <div class="callout"><strong>A broken block is an error, not a default.</strong> An unknown mode, an unparseable window, a timezone that isn&rsquo;t real &mdash; any of these logs a config error and the group fires nothing. It is never quietly rounded down to <code>silent</code>, because then a typo would look exactly like a working setup you had turned off on purpose.</div>
+    <div class="callout"><strong>A broken block is an error, not a default.</strong> An unknown mode, a window that does not parse or a timezone that does not exist logs a config error. The group then starts no turn. The block never falls back to <code>silent</code>, because then a typo would look the same as a setup that you turned off on purpose.</div>
 
-    <h2>the gates, in order</h2>
-    <p>Once every loop iteration &mdash; and when at least <code>PROACTIVE_SCAN_INTERVAL</code> has passed since the last one &mdash; routd walks the eligible chats and runs these checks in this order. The first one that objects ends it; there is no score, nothing adds up, nothing outvotes anything.</p>
+    <h2>Six checks can each stop the turn</h2>
+    <p><code>routd</code> scans on a loop iteration when at least <code>PROACTIVE_SCAN_INTERVAL</code> has passed since the last scan. It reads the eligible chats and runs these checks in this order. The first check that objects stops the scan for that chat. There is no score: no check adds to another or outvotes another.</p>
 
     <table>
-      <tr><th>Check</th><th>Vetoes when</th><th>Tuned by (default)</th></tr>
-      <tr><td><code>RunningTurn</code></td><td>a turn is already running in this chat</td><td>&mdash;</td></tr>
-      <tr><td><code>Silence</code></td><td>the gap since the last real inbound is under the floor or over the ceiling</td><td><code>PROACTIVE_SILENCE_MIN</code> (90s), <code>PROACTIVE_SILENCE_MAX</code> (12h)</td></tr>
-      <tr><td><code>Cooldown</code></td><td>this chat already had a proactive turn recently</td><td><code>PROACTIVE_COOLDOWN</code> (24h)</td></tr>
-      <tr><td><code>QuietHours</code></td><td>local time falls inside one of the group&rsquo;s windows</td><td>the <code>quiet_hours</code> list</td></tr>
-      <tr><td><code>BotQuiet</code></td><td>the bot has spoken here recently</td><td><code>PROACTIVE_BOT_QUIET</code> (15m)</td></tr>
-      <tr><td><code>RecentActivity</code></td><td>too few inbound messages in the last hour</td><td><code>PROACTIVE_RECENT_ACTIVITY_MIN</code> (3)</td></tr>
+      <tr><th>Check</th><th>Stops the turn when</th><th>Setting and default</th></tr>
+      <tr><td><code>RunningTurn</code></td><td>a turn already runs in this chat</td><td>&mdash;</td></tr>
+      <tr><td><code>Silence</code></td><td>the gap since the last real inbound message is below the floor or above the ceiling</td><td><code>PROACTIVE_SILENCE_MIN</code> 90s, <code>PROACTIVE_SILENCE_MAX</code> 12h</td></tr>
+      <tr><td><code>Cooldown</code></td><td>this chat had a proactive turn recently</td><td><code>PROACTIVE_COOLDOWN</code> 24h</td></tr>
+      <tr><td><code>QuietHours</code></td><td>the local time is inside one of the windows of the group</td><td>the <code>quiet_hours</code> list</td></tr>
+      <tr><td><code>BotQuiet</code></td><td>the bot spoke here recently</td><td><code>PROACTIVE_BOT_QUIET</code> 15m</td></tr>
+      <tr><td><code>RecentActivity</code></td><td>the last hour had too few inbound messages</td><td><code>PROACTIVE_RECENT_ACTIVITY_MIN</code> 3</td></tr>
     </table>
 
-    <p>Clear all six and the gate still says no by default. Something has to actively argue <em>for</em> speaking, and today exactly one thing can: <code>UnansweredQuestion</code> &mdash; the last inbound message ends in a question mark and the bot has not said anything since it arrived. New signals get added to this list as separate named checks; the list never becomes a weighted score, because a score is a thing you tune forever and can never explain to the person who got interrupted.</p>
+    <p>If all six checks pass, the answer is still no by default. One check must argue <em>for</em> a turn, and only one such check exists: <code>UnansweredQuestion</code>. It passes when the last inbound message ends with a question mark and the bot has said nothing since. A new signal is a separate named check in this list. The list never becomes a weighted score, because nobody can explain a score to the person who got interrupted.</p>
 
-    <p>Both edges of <code>Silence</code> matter. Under the floor, the conversation is live and cutting in is rude. Over the ceiling, everyone has gone home and there is nobody to talk to. Only the band between is a moment. And &ldquo;the last real inbound&rdquo; means a real message from a real person &mdash; the bot&rsquo;s own replies and its own proactive messages don&rsquo;t reset that clock, or the feature would keep itself permanently awake.</p>
+    <p>Both limits of <code>Silence</code> matter. Below the floor, the conversation is live and an interruption is rude. Above the ceiling, everyone has left and nobody can read the answer. Only the band between them is a good time. &ldquo;The last real inbound message&rdquo; means a message from a person. The replies of the bot and its proactive messages do not reset that clock, or the feature would keep itself awake.</p>
 
-    <h2>the cooldown is not optional</h2>
-    <p>Anything that fires off its own state, with no human in the loop, loops &mdash; so every chat that has had its proactive moment is barred from another for <code>PROACTIVE_COOLDOWN</code>, 24 hours by default. There is no per-group override and no mode that shortens it.</p>
+    <h2>The 24-hour cooldown cannot be turned off</h2>
+    <p>A mechanism that starts turns from its own state, with no person in the loop, can loop. So after a chat gets a proactive turn, it gets no other one for <code>PROACTIVE_COOLDOWN</code>, 24 hours by default. No group setting and no mode makes the cooldown shorter.</p>
 
-    <p>The cooldown is written in the same database transaction that queues the turn, before anything is dispatched. If routd dies in between, the cooldown is already set: the worst case is one interjection that never happened, never two that did.</p>
+    <p><code>routd</code> writes the cooldown in the same database transaction that queues the turn, before it dispatches anything. If <code>routd</code> stops between the two, the cooldown is already set. In the worst case, one interjection does not happen. Two interjections never happen.</p>
 
-    <p>That timestamp lives in routd&rsquo;s <code>chat_proactive</code> table, not in <code>CLAUDE.md</code>, because it is not a setting &mdash; nobody edits it, the system just remembers.</p>
+    <p>The timestamp lives in the <code>chat_proactive</code> table of <code>routd</code>, not in <code>CLAUDE.md</code>. It is not a setting: nobody edits it, and the system records it.</p>
 
-    <h2>the agent still gets a veto</h2>
-    <p>Everything above decides whether this is a <em>moment</em> worth a turn. It does not decide that there is anything worth saying. So the turn runs, and the agent is free to emit nothing at all; that outcome is normal, not a failure, and it burns the cooldown just like a turn that spoke.</p>
+    <h2>The agent can still decide to say nothing</h2>
+    <p>The checks decide whether the moment is right for a turn. They do not decide that the agent has something worth saying. So the turn runs, and the agent can send nothing. That result is normal, not a failure, and it uses the cooldown like a turn that spoke.</p>
 
-    <p>Two different things can go wrong and they need two different floors. A bot that talks too often is noise, and the team mutes it &mdash; the gates above handle that. A bot that speaks once, confidently, and is wrong costs trust that doesn&rsquo;t come back &mdash; only the agent, reading the actual conversation, can catch that one.</p>
+    <p>Two failures need two different guards. A bot that talks too often is noise, and the team mutes it: the checks above prevent that. A bot that speaks once, with confidence, and is wrong loses trust that does not come back. Only the agent, which reads the conversation, can prevent that.</p>
 
-    <p>The turn arrives carrying one extra block so the agent knows which kind of turn this is:</p>
+    <p>The turn carries one extra block, so the agent knows what kind of turn it is:</p>
 
     <pre><code>&lt;proactive_reason check="UnansweredQuestion"&gt;
 Last inbound "so do we roll back or not?" ends with a question and has no bot reply.
 &lt;/proactive_reason&gt;</code></pre>
 
-    <p>It reads as &ldquo;here is a moment; consider speaking&rdquo;, not as a question addressed to the agent. Both the firing check and, on a no-fire, the vetoing check are logged with the chat and the folder &mdash; so if an interjection lands badly, you can find out exactly which gate let it through instead of guessing at a black box.</p>
+    <p>The block means &ldquo;here is a moment, consider speaking&rdquo;. It is not a question to the agent. <code>routd</code> logs the check that started the turn, or the check that stopped it, with the chat and the folder. If an interjection goes badly, the log shows which check let it through.</p>
 
-    <p>A proactive turn also leaves no trace on <a href="engagement.html">engagement</a>. It does not open a window, so the next real message from a human routes exactly as it would have if the bot had stayed quiet.</p>
+    <p>A proactive turn also leaves no mark on <a href="engagement.html">engagement</a>. It opens no window, so the next message from a person routes as if the bot had stayed quiet.</p>
 
-    <h2>what it deliberately isn&rsquo;t</h2>
-    <ul>
-      <li><strong>Not an event-trigger engine.</strong> The gate holds a small fixed set of arizuko&rsquo;s own signals. If you want the agent to react to your deploys or your alerting, run that watcher next to arizuko and expose it over MCP &mdash; then the agent reaches it as a tool, like everything else.</li>
-      <li><strong>Not cross-channel.</strong> One chat at a time. It will not read <code>#design</code> and speak in <code>#eng</code>.</li>
-      <li><strong>Not operator-scriptable.</strong> You choose <code>lurk</code> or <code>silent</code> and the quiet hours; you don&rsquo;t write new checks. Same answer as the first bullet.</li>
-    </ul>
+    <h2>Interjection has three limits by design</h2>
+    <dl>
+      <dt>It is not an event-trigger engine</dt>
+      <dd>The checks use a small fixed set of signals from arizuko itself. To make the agent react to your deploys or alerts, run that watcher next to arizuko and expose it over MCP. The agent then reaches it as a tool.</dd>
+      <dt>It works in one chat at a time</dt>
+      <dd>It does not read <code>#design</code> and speak in <code>#eng</code>.</dd>
+      <dt>Operators cannot script it</dt>
+      <dd>You choose <code>lurk</code> or <code>silent</code> and the quiet hours. You do not write new checks. For a custom trigger, use a watcher over MCP as above.</dd>
+    </dl>
 
-    <p>Nothing else changes. Output leaves by the ordinary path an adapter already handles, the turn runs with the permissions any turn has, and the agent uses the same <code>send</code> tool it always uses &mdash; there is no special proactive verb.</p>
+    <p>Nothing else changes. The output leaves by the usual path of the adapter. The turn has the same permissions as any turn. The agent uses the same <code>send</code> tool, and no special proactive verb exists.</p>
 
-    <h2>tuning it</h2>
-    <p>Instance-wide knobs, all of them optional, all read once at startup. Full table with types and file:line in <a href="../reference/env.html#PROACTIVE_ENABLED">reference/env</a>.</p>
+    <h2>Seven variables tune the scanner</h2>
+    <p>The settings apply to the whole instance. All of them are optional, and <code>routd</code> reads them once at startup. <a href="../reference/env.html#PROACTIVE_ENABLED">reference/env</a> has the full table with types and source lines.</p>
 
     <table>
-      <tr><th>Variable</th><th>Default</th><th>What it moves</th></tr>
-      <tr><td><code>PROACTIVE_ENABLED</code></td><td>unset &mdash; off</td><td>the master switch; unset means no scanner exists</td></tr>
-      <tr><td><code>PROACTIVE_SCAN_INTERVAL</code></td><td><code>30s</code></td><td>how often the sweep runs</td></tr>
-      <tr><td><code>PROACTIVE_SILENCE_MIN</code></td><td><code>90s</code></td><td>how quiet it must get before interrupting is polite</td></tr>
-      <tr><td><code>PROACTIVE_SILENCE_MAX</code></td><td><code>12h</code></td><td>how quiet is too quiet to bother</td></tr>
-      <tr><td><code>PROACTIVE_COOLDOWN</code></td><td><code>24h</code></td><td>the per-chat bar on a second interjection</td></tr>
-      <tr><td><code>PROACTIVE_BOT_QUIET</code></td><td><code>15m</code></td><td>how long after its own message the bot stays out of it</td></tr>
-      <tr><td><code>PROACTIVE_RECENT_ACTIVITY_MIN</code></td><td><code>3</code></td><td>inbound messages needed in the last hour for the room to count as busy</td></tr>
+      <tr><th>Variable</th><th>Default</th><th>What it sets</th></tr>
+      <tr><td><code>PROACTIVE_ENABLED</code></td><td>unset, which is off</td><td>the main switch: unset means no scanner exists</td></tr>
+      <tr><td><code>PROACTIVE_SCAN_INTERVAL</code></td><td><code>30s</code></td><td>how often the scan runs</td></tr>
+      <tr><td><code>PROACTIVE_SILENCE_MIN</code></td><td><code>90s</code></td><td>how quiet the chat must be before an interruption is polite</td></tr>
+      <tr><td><code>PROACTIVE_SILENCE_MAX</code></td><td><code>12h</code></td><td>how quiet is too quiet to speak</td></tr>
+      <tr><td><code>PROACTIVE_COOLDOWN</code></td><td><code>24h</code></td><td>the time per chat before a second interjection</td></tr>
+      <tr><td><code>PROACTIVE_BOT_QUIET</code></td><td><code>15m</code></td><td>how long the bot stays out after its own message</td></tr>
+      <tr><td><code>PROACTIVE_RECENT_ACTIVITY_MIN</code></td><td><code>3</code></td><td>the inbound messages needed in the last hour for the room to count as busy</td></tr>
     </table>
 
-    <p>A missed sweep is skipped, never made up. If a long turn holds the loop past three scan times, the next sweep runs once &mdash; it does not fire three interjections in a row to catch up.</p>
+    <p>A missed scan is skipped, never repeated. If a long turn holds the loop for three scan intervals, the next scan runs once. It does not start three interjections to catch up.</p>
 
-    <h2>go deeper</h2>
-    <p>Why the gate is a fixed list of checks rather than a score: with a score, nobody can tell whether a chat will get a turn without running the numbers, and routing already refuses that for the same reason. A new signal is a new named check. The synthetic row the scanner writes, and why it renews no engagement: <code>routd/README.md</code>. The mention-driven half of the same gate: <a href="engagement.html">engagement</a>. Where <code>mode:</code> sits among the other things a group&rsquo;s <code>CLAUDE.md</code> controls: <a href="personas.html">personas</a>.</p>
+    <h2>Related pages explain the shared parts</h2>
+    <p>The checks are a fixed list and not a score, for the same reason as routing. With a score, nobody can say whether a chat gets a turn without a calculation. A new signal is a new named check. <code>routd/README.md</code> describes the synthetic row that the scanner writes and why it renews no engagement. <a href="engagement.html">engagement</a> covers the mention half of the same mechanism. <a href="personas.html">personas</a> shows the other settings in the <code>CLAUDE.md</code> of a group.</p>
 
       <nav class="docs-pager" aria-label="Pager">
         <a rel="prev" href="engagement.html">&larr; Engagement</a>

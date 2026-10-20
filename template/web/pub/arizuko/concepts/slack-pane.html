@@ -64,48 +64,54 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">concepts</a> &rsaquo; slack pane</p>
 <h1>slack pane</h1>
 
-    <p class="lede">Voice was a modality every platform shares. The Slack pane is the opposite case: an affordance only one platform offers, which the agent can light up when it&rsquo;s there. Slack ships a dedicated sidebar UI for installed agent apps &mdash; the user clicks the AI icon and gets a split pane with the bot. It&rsquo;s richer than a DM: the bot can set a title, suggest follow-up prompts, show a typing indicator, and know which channel the user is currently viewing. Where a platform has no pane, the same tool calls quietly no-op &mdash; the agent doesn&rsquo;t branch on platform.</p>
+    <p class="lede">The Slack pane is a feature that only Slack offers, and the agent can use it where it exists. Slack has a sidebar for installed agent apps: the user clicks the AI icon and gets a split pane with the bot. The pane does more than a DM. The bot can set a title, suggest follow-up prompts, show a typing indicator, and know which channel the user is looking at. On a platform with no pane, the same tool calls do nothing, so the agent does not branch on the platform.</p>
 
-    <h2>what it is</h2>
-    <p>The pane is a special Slack thread with a fixed thread_ts opened by Slack on the user&rsquo;s click. Slack delivers two extra events to the app: <code>assistant_thread_started</code> when the user opens the pane, and <code>assistant_thread_context_changed</code> when the user navigates to a different workspace channel while the pane is open. Outbound, the app can call <code>assistant.threads.setStatus</code>, <code>setTitle</code>, and <code>setSuggestedPrompts</code>.</p>
+    <h2>The pane is a Slack thread with extra events</h2>
+    <p>The pane is a special Slack thread with a fixed <code>thread_ts</code> that Slack opens when the user clicks. Slack sends two extra events to the app. <code>assistant_thread_started</code> arrives when the user opens the pane. <code>assistant_thread_context_changed</code> arrives when the user moves to another channel while the pane is open. In the other direction, the app can call <code>assistant.threads.setStatus</code>, <code>setTitle</code> and <code>setSuggestedPrompts</code>.</p>
 
-    <h2>why it matters</h2>
-    <p>A DM is just a message stream. The pane adds affordances:</p>
-    <ul>
-      <li><strong>Title</strong> &mdash; the pane history shows what the conversation was about, not just &ldquo;chat with bot&rdquo;.</li>
-      <li><strong>Suggested prompts</strong> &mdash; clickable starter buttons at the bottom of the pane. The agent stages them with <code>pane_set_prompts</code> after a reply so the next click is fast.</li>
-      <li><strong>Typing indicator</strong> &mdash; <code>setStatus("thinking&hellip;")</code> while the agent runs.</li>
-      <li><strong>Pane context</strong> &mdash; the bot can read which channel the user was looking at when they clicked the AI icon and reference it.</li>
-    </ul>
+    <h2>The pane adds four things a DM lacks</h2>
+    <p>A DM is only a message stream. The pane adds four things:</p>
+    <dl>
+      <dt>Title</dt>
+      <dd>The pane history shows what the conversation was about, not only &ldquo;chat with bot&rdquo;.</dd>
+      <dt>Suggested prompts</dt>
+      <dd>Starter buttons at the bottom of the pane. The agent sets them with <code>pane_set_prompts</code> after a reply, so the next click is fast.</dd>
+      <dt>Typing indicator</dt>
+      <dd><code>setStatus("thinking&hellip;")</code> while the agent runs.</dd>
+      <dt>Pane context</dt>
+      <dd>The bot can read which channel the user was looking at when they clicked the AI icon, and refer to it.</dd>
+    </dl>
 
-    <h2>how it works</h2>
-    <p>Per pane, slakd stores a row in <code>pane_sessions</code> keyed by <code>(team_id, user_id, thread_ts)</code> with the pane DM channel and the optional <code>context_jid</code> the user is viewing. When <code>assistant_thread_started</code> arrives, slakd:</p>
+    <h2>slakd records each pane and starts it</h2>
+    <p>For each pane, <code>slakd</code> stores a row in <code>pane_sessions</code> with the key <code>(team_id, user_id, thread_ts)</code>. The row holds the DM channel of the pane and the optional <code>context_jid</code> that the user is looking at. When <code>assistant_thread_started</code> arrives, <code>slakd</code> does four things:</p>
     <ol>
-      <li>Upserts the <code>pane_sessions</code> row.</li>
-      <li>Sets the pane title from <code>ARIZUKO_ASSISTANT_NAME</code> (falls back to the instance name) via <code>bot.paneTitle()</code> at <a href="https://github.com/kronael/arizuko/blob/main/slakd/bot.go#L413"><code>slakd/bot.go:413</code></a>.</li>
-      <li>Stages default suggested prompts from the bot&rsquo;s compiled starter list; the agent overrides them per pane with <a href="../reference/mcp.html#pane_set_prompts"><code>pane_set_prompts</code></a> MCP calls.</li>
-      <li>Synthesises an inbound with <code>verb="pane_open"</code> so the route table can match on it.</li>
+      <li>It writes or updates the <code>pane_sessions</code> row.</li>
+      <li>It sets the pane title with <code>bot.paneTitle()</code>: &ldquo;&lt;assistant&gt; &mdash; chat&rdquo; when <code>ASSISTANT_NAME</code> is set, and &ldquo;chat&rdquo; otherwise.</li>
+      <li>It sets default suggested prompts from the starter list in the bot. The agent replaces them per pane with <a href="../reference/mcp.html#pane_set_prompts"><code>pane_set_prompts</code></a> calls.</li>
+      <li>It creates an inbound message with <code>verb="pane_open"</code>, so the route table can match it.</li>
     </ol>
-    <p>On every agent reply in a pane, slakd posts via <code>chat.postMessage</code> with <code>thread_ts</code> set to the pane&rsquo;s thread, then optionally calls <code>setSuggestedPrompts</code> with whatever the agent staged via <code>pane_set_prompts</code>.</p>
+    <p>On every agent reply in a pane, <code>slakd</code> posts with <code>chat.postMessage</code> and sets <code>thread_ts</code> to the thread of the pane. It then calls <code>setSuggestedPrompts</code> if the agent set prompts with <code>pane_set_prompts</code>.</p>
 
-    <h2>MCP tools</h2>
-    <ul>
-      <li><strong><code>pane_set_prompts(jid, prompts)</code></strong> &mdash; stage 3-4 follow-up buttons that appear after the next reply lands.</li>
-      <li><strong><code>pane_set_title(jid, title)</code></strong> &mdash; override the pane title for the current conversation.</li>
-    </ul>
-    <p>Both are no-ops on platforms without a pane (Discord, Telegram, etc).</p>
+    <h2>Two MCP tools control the pane</h2>
+    <dl>
+      <dt><code>pane_set_prompts(jid, prompts)</code></dt>
+      <dd>Sets 3 or 4 follow-up buttons that appear after the next reply.</dd>
+      <dt><code>pane_set_title(jid, title)</code></dt>
+      <dd>Replaces the pane title for the current conversation.</dd>
+    </dl>
+    <p>On platforms without a pane, such as Discord and Telegram, both tools do nothing.</p>
 
-    <h2>how operators enable it</h2>
-    <p>Slack app config (<a href="https://api.slack.com/apps">api.slack.com/apps</a>):</p>
+    <h2>Three settings in the Slack app turn the pane on</h2>
+    <p>In the Slack app configuration at <a href="https://api.slack.com/apps">api.slack.com/apps</a>:</p>
     <ol>
-      <li><strong>Agents &amp; AI Apps</strong> &mdash; toggle on.</li>
-      <li><strong>OAuth scopes</strong> &mdash; add <code>assistant:write</code> (keep <code>chat:write</code>).</li>
-      <li><strong>Event Subscriptions</strong> &mdash; subscribe to <code>assistant_thread_started</code> and <code>assistant_thread_context_changed</code>. Keep <code>message.im</code> for inbound pane messages.</li>
+      <li>Turn on <strong>Agents &amp; AI Apps</strong>.</li>
+      <li>Under <strong>OAuth scopes</strong>, add <code>assistant:write</code> and keep <code>chat:write</code>.</li>
+      <li>Under <strong>Event Subscriptions</strong>, subscribe to <code>assistant_thread_started</code> and <code>assistant_thread_context_changed</code>. Keep <code>message.im</code> for inbound pane messages.</li>
     </ol>
-    <p>Full walkthrough in <a href="../howto/slack.html">deploy on Slack</a>.</p>
+    <p><a href="../howto/slack.html">deploy on Slack</a> has the full steps.</p>
 
-    <h2>go deeper</h2>
-    <p>Spec: <a href="https://github.com/kronael/arizuko/blob/main/specs/8/D-slack-agent-pane.md">specs/8/D</a>. The <code>pane_sessions</code> schema: <a href="../reference/schema.html"><code>pane_sessions</code></a>. The MCP tool reference: <a href="../reference/mcp.html#pane_set_prompts"><code>pane_set_prompts</code></a>, <a href="../reference/mcp.html#pane_set_title"><code>pane_set_title</code></a>.</p>
+    <h2>The reference pages list the table and the tools</h2>
+    <p><a href="../reference/schema.html">reference / schema</a> has the <code>pane_sessions</code> table. <a href="../reference/mcp.html#pane_set_prompts"><code>pane_set_prompts</code></a> and <a href="../reference/mcp.html#pane_set_title"><code>pane_set_title</code></a> are in the MCP tool reference. <a href="../components/slakd.html">slakd</a> describes the adapter.</p>
 
       <nav class="docs-pager" aria-label="Pager">
         <a rel="prev" href="voice.html">&larr; Voice</a>

@@ -62,64 +62,67 @@
 
     <main class="docs-content">
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">concepts</a> &rsaquo; auth</p>
-
     <h1>auth</h1>
 
-    <p class="lede">A persona is how the agent <em>sounds</em>; auth is how the platform knows who is actually <em>calling</em>. Before anything can authorize a principal, something has to mint it &mdash; and that one job belongs to <code>authd</code>, the sole token authority. <code>authd</code> turns a browser login (GitHub, Google, Discord or Telegram) into one canonical user id and a signed login-pass &mdash; a JWT, a stamped ticket proving who you are. Backends check that stamp against <code>authd</code>&rsquo;s public-key list, its JWKS &mdash; nobody else signs. The id every later permission check reads is the id this token carries.</p>
+    <p class="lede">Auth is how the platform knows who is calling. Before any check can authorize a principal, something must create that principal, and that job belongs to <code>authd</code>, the only token authority. <code>authd</code> turns a browser login with GitHub, Google, Discord or Telegram into one canonical user id. It also issues a signed JWT, a ticket that proves who you are. Backends check the JWT against the public key list of <code>authd</code>, its JWKS. No other daemon signs. Every later permission check reads the id that this token carries.</p>
 
-    <h2>why identity at all</h2>
-    <p>arizuko is a bunch of small Go daemons (<code>routd</code>, <code>runed</code>, <code>webd</code>, <code>dashd</code>, <code>proxyd</code>, more) that talk over HTTP. None of them owns the login session by itself. When <code>dashd</code> serves your operator page or <code>routd</code> decides whether to deliver a message, it needs an answer to one question: <em>who is this request from?</em> If each daemon re-implemented login, every one would be a place to get it wrong. Instead exactly one daemon (<code>authd</code>) runs OAuth and mints the token; <code>proxyd</code> sits in front, verifies it, and writes the answer into headers the backends trust.</p>
+    <h2>One daemon owns login so that no daemon repeats it</h2>
+    <p>arizuko is a set of small Go daemons, such as <code>routd</code>, <code>runed</code>, <code>webd</code>, <code>dashd</code> and <code>proxyd</code>, that talk over HTTP. None of them owns the login session alone. When <code>dashd</code> serves your operator page, or <code>routd</code> decides whether to deliver a message, the daemon must know who sent the request. If each daemon implemented login, each one would be a place for a mistake. So only <code>authd</code> runs OAuth and creates the token. <code>proxyd</code> sits in front, verifies the token and writes the answer into headers that the backends trust.</p>
 
-    <h2>where identity comes from</h2>
-    <p>You log in with any provider. Each provider gives back a string the auth code calls a <strong>sub</strong> &mdash; short for "subject," but think "this user's id with this provider." subs always carry their provider as a prefix:</p>
+    <h2>Each provider login gives a sub</h2>
+    <p>You can log in with any provider. Each provider returns a string that the auth code calls a <strong>sub</strong>, short for &ldquo;subject&rdquo;: the id of this user at this provider. A sub always starts with its provider:</p>
     <pre><code>github:48291744
-google:114019583...
-discord:837412...
+google:114019583462810573829
+discord:837412095138652180
 telegram:user/5511234</code></pre>
-    <p>One human usually has several. The first one you ever log in with becomes your account&rsquo;s <strong>canonical sub</strong>, and it never changes &mdash; every grant row keys on it, so a canonical that moved would quietly strip you of everything. To add another provider, click &ldquo;Link&hellip;&rdquo; at <code>/dash/profile</code> and finish that provider&rsquo;s OAuth dance; authd records the new login as one more identity of the same account. From then on, logging in with <em>any</em> linked provider mints a token carrying the canonical sub. Each provider runs OAuth2 with a signed CSRF state and PKCE; Telegram uses its HMAC-verified Login Widget. Optional allow-list gates per provider are in <a href="../reference/env.html">reference / env</a>.</p>
+    <p>One person usually has several subs. The first sub you log in with becomes the <strong>canonical sub</strong> of your account, and it never changes. Every grant row keys on it, so a canonical sub that changed would remove all your rights without a warning. To add another provider, click &ldquo;Link&hellip;&rdquo; at <code>/dash/profile/</code> and complete the OAuth flow of that provider. <code>authd</code> records the new login as one more identity of the same account. After that, a login with <em>any</em> linked provider gives a token with the canonical sub. Each provider runs OAuth2 with a signed CSRF state and PKCE. Telegram uses its Login Widget, verified with HMAC. <a href="../reference/env.html">reference / env</a> lists the optional allow-lists for each provider.</p>
 
-    <h2>two tokens</h2>
+    <h2>The browser holds two tokens</h2>
     <p>After login, the browser holds two things:</p>
-    <ul>
-      <li>An <strong>access JWT</strong>, 15-minute lifetime, in <code>localStorage</code>. ES256-signed by <code>authd</code>; carries the canonical <code>sub</code>, the <code>typ</code>, the scope snapshot taken at login and an expiry. Sent as <code>Authorization: Bearer &hellip;</code> on API calls. Any daemon verifies it offline against <code>authd</code>&rsquo;s JWKS.</li>
-      <li>A <strong>refresh token</strong>, 32 random bytes, stored server-side as a SHA-256 hash. Set as an <code>HttpOnly; SameSite=Lax; Path=/</code> cookie, <code>Secure</code> on HTTPS, with a 30-day TTL. Each refresh rotates the cookie single-use &mdash; a stolen one is good for one swap, then dead.</li>
-    </ul>
+    <dl>
+      <dt>An access JWT</dt>
+      <dd>Valid for 15 minutes and kept in <code>localStorage</code>. <code>authd</code> signs it with ES256. It carries the canonical <code>sub</code>, the <code>typ</code>, a snapshot of the scopes at login and an expiry. The browser sends it as <code>Authorization: Bearer &hellip;</code> on API calls. Any daemon can verify it offline against the JWKS of <code>authd</code>.</dd>
+      <dt>A refresh token</dt>
+      <dd>32 random bytes, stored on the server as a SHA-256 hash. The browser keeps it in an <code>HttpOnly; SameSite=Lax; Path=/</code> cookie, <code>Secure</code> on HTTPS, valid for 30 days. Each refresh replaces the cookie, and each cookie works once, so a stolen cookie gives one exchange and then stops working.</dd>
+    </dl>
 
-    <h2>one resolve point</h2>
-    <p>The canonical sub is decided exactly once, inside <code>authd</code>, right before minting the JWT. Whatever provider you logged in with, the minted token carries your canonical sub, and <code>auth.Authorize</code> does no resolving of its own &mdash; the sub it sees is the answer. Which provider you actually used is written to <code>authd</code>&rsquo;s audit log as a <code>login</code> event, never into the token: a claim would vanish on the first refresh.</p>
+    <h2>authd resolves the canonical sub once</h2>
+    <p><code>authd</code> decides the canonical sub exactly once, just before it creates the JWT. Whatever provider you used, the token carries your canonical sub, and <code>auth.Authorize</code> resolves nothing itself: the sub it sees is the answer. <code>authd</code> writes the provider you used to its audit log as a <code>login</code> event. It never writes the provider into the token, because a claim would disappear on the first refresh.</p>
 
-    <h2>a request, end to end</h2>
-    <p>Suppose you click a button in the operator dashboard. The browser sends an HTTPS request to <code>https://your-instance/dash/groups</code>. Trace it:</p>
+    <h2>A dashboard request passes proxyd before it reaches dashd</h2>
+    <p>You click a button in the operator dashboard. The browser sends an HTTPS request to <code>https://your-instance/dash/groups</code>. The request takes these steps:</p>
     <ol>
-      <li>The request arrives at <code>proxyd</code> on port 443. It looks for the <code>Authorization: Bearer</code> header (or, on web pages, the refresh-token cookie).</li>
-      <li><code>proxyd.tryAuth</code> verifies the JWT &mdash; an ES256 signature checked offline against <code>authd</code>&rsquo;s JWKS. If valid, it extracts <code>sub</code>, <code>name</code>, and the user's <code>groups</code>. A bare <code>/auth/*</code> login request is instead 302&rsquo;d to <code>authd</code>, which owns the OAuth flow.</li>
-      <li><code>proxyd.setUserHeaders</code> clones the request, strips any client-supplied identity headers, and stamps three: <code>X-User-Sub</code>, <code>X-User-Name</code>, and <code>X-User-Groups</code> (JSON). It then attaches an <code>authd</code>-minted ES256 bearer whose subject is pinned to <code>service:proxyd</code> &mdash; the transit proof.</li>
-      <li>The cloned request is proxied to <code>dashd</code> over the docker network.</li>
-      <li><code>dashd</code> wraps every <code>/dash/*</code> handler in the middleware from <code>auth/middleware.go</code>. It calls <code>auth.ProxydTransit</code>, which verifies the bearer's signature, expiry, and issuer against <code>authd</code>'s JWKS, and checks the subject is <code>service:proxyd</code>. Only then does it trust the three stamped headers; a missing or wrong bearer &rarr; strip the headers, redirect to <code>/auth/login</code>.</li>
-      <li>The handler reads <code>r.Header.Get("X-User-Sub")</code> and trusts it. That sub is what <code>auth.Authorize</code> uses to decide what the user may do.</li>
+      <li>The request arrives at <code>proxyd</code> on port 443. <code>proxyd</code> looks for the <code>Authorization: Bearer</code> header, or the refresh-token cookie on web pages.</li>
+      <li><code>proxyd.tryAuth</code> verifies the JWT: an ES256 signature, checked offline against the JWKS of <code>authd</code>. If the JWT is valid, <code>proxyd</code> reads <code>sub</code>, <code>name</code> and the <code>groups</code> of the user. A plain <code>/auth/*</code> login request instead gets a 302 redirect to <code>authd</code>, which owns the OAuth flow.</li>
+      <li><code>proxyd.setUserHeaders</code> copies the request, removes any identity headers from the client and sets three: <code>X-User-Sub</code>, <code>X-User-Name</code> and <code>X-User-Groups</code> as JSON. It then attaches an ES256 bearer from <code>authd</code> whose subject is <code>service:proxyd</code>. This bearer is the transit proof.</li>
+      <li><code>proxyd</code> sends the copied request to <code>dashd</code> over the docker network.</li>
+      <li><code>dashd</code> wraps every <code>/dash/*</code> handler in the middleware from <code>auth/middleware.go</code>. The middleware calls <code>auth.ProxydTransit</code>. It verifies the signature, expiry and issuer of the bearer against the JWKS of <code>authd</code>, and checks that the subject is <code>service:proxyd</code>. Only then does it trust the three headers. If the bearer is missing or wrong, the middleware removes the headers and redirects to <code>/auth/login</code>.</li>
+      <li>The handler reads <code>r.Header.Get("X-User-Sub")</code> and trusts it. <code>auth.Authorize</code> uses that sub to decide what the user can do.</li>
     </ol>
-    <div class="callout"><strong>Two boundaries, one signer.</strong> <code>authd</code> holds the only ES256 private key. It signs the JWT the browser carries (browser&hairsp;&harr;&hairsp;proxyd) and the <code>service:proxyd</code> transit bearer proxyd attaches for backends (proxyd&hairsp;&harr;&hairsp;backend). Both are verified the same way &mdash; ES256 against <code>authd</code>&rsquo;s public JWKS &mdash; so there is no separate shared HMAC secret to keep in sync. The <code>X-User-*</code> headers carry no signature of their own; the transit bearer is what makes them trustworthy.</div>
+    <div class="callout"><strong>One key signs at both boundaries.</strong> <code>authd</code> holds the only ES256 private key. It signs the JWT that the browser carries to <code>proxyd</code>, and the <code>service:proxyd</code> transit bearer that <code>proxyd</code> attaches for backends. Both are verified in the same way, with ES256 against the public JWKS of <code>authd</code>, so no shared HMAC secret exists to keep in sync. The <code>X-User-*</code> headers carry no signature of their own. The transit bearer makes them trustworthy.</div>
 
-    <h2>reuse &mdash; the same refresh token presented twice</h2>
-    <p>A refresh token is single-use. Present it, and <code>authd</code> spends it and hands back a successor; the spent row is kept, marked, never deleted. That mark is the whole detection mechanism: if the same token turns up a second time, one of the two holders is not you, and <code>authd</code> cannot tell which. So it kills the entire chain &mdash; every token that descended from that login &mdash; and both holders are logged out. Losing your session is the cheap outcome; leaving a stolen one alive is not.</p>
-    <p>Spending the token and creating its successor happen in one database write. That matters more than it sounds: with two writes, a kill triggered by the second holder could land in the gap between them, revoke everything that existed at that instant, and then watch the successor appear a moment later &mdash; unrevoked, and good for another thirty days. One write, and there is no gap to land in.</p>
-    <p>The same applies to logging out. Clicking log out kills the chain, and a refresh already in flight cannot outrun it: the spend step refuses a chain that is already dead, rather than only checking whether the token itself was used.</p>
+    <h2>A refresh token used twice ends the whole login</h2>
+    <p>A refresh token works once. When you present it, <code>authd</code> uses it up and returns a successor. <code>authd</code> keeps the used row, marks it and never deletes it. That mark is how <code>authd</code> detects reuse. If the same token arrives a second time, one of the two holders is not you, and <code>authd</code> cannot tell which. So it revokes the whole chain, every token that came from that login, and logs out both holders. A lost session costs little. A stolen session that stays alive costs much more.</p>
+    <p><code>authd</code> uses up the token and creates its successor in one database write. With two writes, a revoke from the second holder could land between them. It would revoke every token that existed at that moment, and then the successor would appear unrevoked, valid for another thirty days. With one write, no such gap exists.</p>
+    <p>Logout works in the same way. A logout revokes the chain, and a refresh already in progress cannot get ahead of it, because the exchange step refuses a revoked chain. It does not only check whether the token itself was used.</p>
 
-    <h2>seeing sessions, and ending one</h2>
-    <p>An operator can ask <code>authd</code> two questions over HTTP, without a database shell.</p>
-    <ul>
-      <li><strong>Which key is signing?</strong> <code>GET /v1/signing_keys</code> lists each key's id, when it was created, when it was retired, and when a retired key stops verifying the tokens it already signed. The public JWKS at <code>/v1/keys</code> carries none of that &mdash; it holds what a verifier needs and nothing more. This one answers &ldquo;did the rotation actually take&rdquo;, and it is metadata only; no private key is reachable through it by any argument.</li>
-      <li><strong>Who is logged in?</strong> <code>GET /v1/sessions</code> lists one row per login: the account, the scope it was granted, when it started, how many times it has rotated since, and whether it is active, revoked or expired. Token values never appear &mdash; only a hash is stored, and not even the hash is served.</li>
-    </ul>
-    <p><code>DELETE /v1/sessions/{family_id}</code> ends one. This is the verb for when a session must die and the person holding it cannot or will not do it &mdash; a lost laptop, a departure, a phone that will not come back. Logging out is the person&rsquo;s own verb; this one is the operator&rsquo;s. The revoke is written to <code>authd</code>'s audit log inside the same transaction as the revoke itself, so it shows up in <a href="audit.html">the audit trail</a> next to everything else.</p>
-    <p>Reading the list and ending a session are separate permissions, so a dashboard that shows you who is logged in does not thereby gain the ability to log them out. Both are operator-level and neither can be reached by an ordinary user's token, whatever they are granted &mdash; a user's permissions are folder paths, and a folder path can never satisfy a permission of this shape.</p>
-    <p>In a browser this is the <code>/dash/authd/</code> page: both tables, and a sign-out button on each live login. Ending one stops the <em>renewal</em> &mdash; a page the person already has open keeps working until its pass expires, about fifteen minutes, and then stops. Signing everyone out at once is a different thing entirely: it means retiring the active signing key, and there is no button for it, deliberately.</p>
+    <h2>An operator can list sessions and end one</h2>
+    <p>An operator can ask <code>authd</code> two questions over HTTP, with no database shell:</p>
+    <dl>
+      <dt>Which key signs?</dt>
+      <dd><code>GET /v1/signing_keys</code> lists each key with its id, creation time and retirement time. It also shows when a retired key stops verifying the tokens it signed. The public JWKS at <code>/v1/keys</code> holds only what a verifier needs. <code>/v1/signing_keys</code> answers whether a key rotation took effect. It returns metadata only, and no argument can reach a private key through it.</dd>
+      <dt>Who is logged in?</dt>
+      <dd><code>GET /v1/sessions</code> lists one row per login: the account, the granted scope, the start time and the number of rotations. It also shows whether the login is active, revoked or expired. Token values never appear. <code>authd</code> stores only a hash and does not serve the hash either.</dd>
+    </dl>
+    <p><code>DELETE /v1/sessions/{family_id}</code> ends one session. Use it when a session must end and its holder cannot or does not end it. Examples are a lost laptop, a person who left, or a lost phone. Logout is the verb of the person. This one is the verb of the operator. <code>authd</code> writes the revoke to its audit log in the same transaction as the revoke. So the revoke appears in <a href="audit.html">the audit trail</a> with everything else.</p>
+    <p>Reading the list and ending a session are separate permissions. So a dashboard that shows who is logged in cannot log anyone out because of that. Both permissions are operator-level, and no ordinary user token can reach them, whatever its grants. The permissions of a user are folder paths, and a folder path can never satisfy a permission of this shape.</p>
+    <p>In a browser, the page is <code>/dash/authd/</code>: both tables, and a sign-out button on each live login. A sign-out stops the <em>renewal</em>. A page that the person already has open keeps working until its token expires, after about fifteen minutes, and then stops. To sign everyone out at once, you must retire the active signing key. No button does that, by design.</p>
 
-    <h2>linking a login somebody else owns</h2>
-    <p>You are logged in as <code>google:114alice</code> and you click &ldquo;Link GitHub.&rdquo; The callback gets <code>github:48291744</code>. If that GitHub login is new, it joins your account. If it already belongs to you, nothing changes. If it already belongs to <em>another</em> account, the link fails outright. Accounts are never merged, and arizuko never links two logins because they share a verified email &mdash; each of those is a way to take over somebody else&rsquo;s account. There is no unlink either.</p>
+    <h2>A login that another account owns cannot be linked</h2>
+    <p>You are logged in as <code>google:114alice</code> and click &ldquo;Link GitHub&rdquo;. The callback gets <code>github:48291744</code>. If that GitHub login is new, it joins your account. If it already belongs to you, nothing changes. If it belongs to <em>another</em> account, the link fails. <code>authd</code> never merges accounts, and it never links two logins because they share a verified email. Each of these would let one person take over the account of another. No unlink exists either.</p>
 
-    <h2>where to go next</h2>
-    <p>Keys, mint modes, the login snapshot and the cookie flags, in full: <a href="https://github.com/kronael/arizuko/blob/main/authd/README.md">authd/README.md</a>. For what your canonical sub is allowed to <em>do</em> once it lands in a backend, see <a href="../concepts/grants.html">grants</a>.</p>
+    <h2>authd/README.md has the full detail</h2>
+    <p><a href="https://github.com/kronael/arizuko/blob/main/authd/README.md">[authd/README.md]</a> describes the keys, the mint modes, the login snapshot and the cookie flags in full. <a href="../concepts/grants.html">grants</a> explains what your canonical sub can <em>do</em> when it reaches a backend.</p>
 
       <nav class="docs-pager" aria-label="Pager">
         <a rel="prev" href="personas.html">&larr; Personas</a>

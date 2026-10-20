@@ -62,80 +62,84 @@
 
     <main class="docs-content">
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">concepts</a> &rsaquo; scaling</p>
-      <h1>Scaling</h1>
+      <h1>scaling</h1>
 
-      <p class="lede">The same code runs <code>solo/inbox</code> and <code>corp/eng/sre/oncall</code>. Arizuko is multi-tenant by primitive: adding users is adding rows and folders, not deploying new infrastructure. The typical growth path is solo&hairsp;&rarr;&hairsp;dogfood&hairsp;&rarr;&hairsp;team&hairsp;&rarr;&hairsp;internet.</p>
+      <p class="lede">The same code runs <code>solo/inbox</code> and <code>corp/eng/sre/oncall</code>. To add users, you add rows and folders, not new infrastructure. A deployment usually grows from solo to dogfood to team to internet.</p>
 
-      <h2>Multi-tenant by primitive</h2>
-      <p>Every primitive &mdash; <a href="grants.html">grants</a>, <a href="routing.html">routes</a>, <a href="secrets.html">secrets</a>, <a href="tasks.html">scheduled work</a> &mdash; stores its state as rows. Adding a tenant means writing rows into those tables and creating a folder under <code>groups/</code>. The daemon graph stays fixed: one <code>routd</code>, one <code>authd</code>, one adapter per platform, N containers (one per active group). Ten users or ten thousand users, the architecture is the same.</p>
-      <p>Folder hierarchies have no fixed depth, and depth buys nothing. <code>solo/inbox</code> and <code>corp/eng/sre/oncall</code> get the same starting <a href="grants.html">grants</a> and run the identical code path; what either may do beyond the messaging floor is whatever was delegated to it. A solo user's chat and a support team's shared inbox run through the same <code>routd</code>, same <code>runed</code>, same container image.</p>
+      <h2>A new tenant is rows and a folder</h2>
+      <p><a href="grants.html">Grants</a>, <a href="routing.html">routes</a>, <a href="secrets.html">secrets</a> and <a href="tasks.html">scheduled work</a> keep their state as rows. To add a tenant, you write rows into those tables and create a folder under <code>groups/</code>. The daemon graph does not change: one <code>routd</code>, one <code>authd</code>, one adapter per platform, and one KVM guest for each running turn. The architecture is the same for ten users and for ten thousand users.</p>
+      <p>A folder tree has no fixed depth, and depth gives no rights. <code>solo/inbox</code> and <code>corp/eng/sre/oncall</code> get the same starting <a href="grants.html">grants</a> and run the same code path. Beyond the messaging floor, a folder can do only what another principal delegated to it. The chat of one user and the inbox of a support team use the same <code>routd</code>, <code>runed</code> and guest image.</p>
 
-      <h2>The growth arc</h2>
-      <p>Most deployments follow four stages. Each is a configuration change, not a rebuild.</p>
+      <h2>Each growth stage is a configuration change</h2>
+      <p>Most deployments go through four stages. No stage needs a rebuild.</p>
 
       <table>
         <thead><tr><th>Stage</th><th>Shape</th><th>What changes</th></tr></thead>
         <tbody>
           <tr>
-            <td><strong>Solo</strong></td>
+            <td>Solo</td>
             <td>One folder, one channel, one user</td>
-            <td>Nothing &mdash; this is <code>arizuko create</code></td>
+            <td>Nothing: <code>arizuko create</code> makes this stage</td>
           </tr>
           <tr>
-            <td><strong>Dogfood</strong></td>
-            <td>A handful of folders, trusted users</td>
+            <td>Dogfood</td>
+            <td>A few folders, trusted users</td>
             <td>Add folders, issue invites, enable adapters</td>
           </tr>
           <tr>
-            <td><strong>Team</strong></td>
-            <td>A hierarchy under one world, shared admin</td>
+            <td>Team</td>
+            <td>A folder tree under one world, shared admin</td>
             <td>Folder tree, <a href="grants.html">ACL rows</a>, channel onboarding</td>
           </tr>
           <tr>
-            <td><strong>Internet</strong></td>
-            <td>Public-facing, untrusted callers</td>
-            <td><a href="tokens.html">Route tokens</a>, <a href="onboarding.html">admission queue</a>, egress sandbox</td>
+            <td>Internet</td>
+            <td>Public callers that you do not trust</td>
+            <td><a href="tokens.html">Route tokens</a>, <a href="onboarding.html">admission gates</a>, egress rules</td>
           </tr>
         </tbody>
       </table>
 
-      <p>The jump from solo to dogfood is a Slack bot token and a few invites. The jump from team to internet is a route token and tighter egress rules. No redeploy, no new containers, no schema migration.</p>
+      <p>To go from solo to dogfood, you add a Slack bot token and a few invites. To go from team to internet, you add a route token and narrower egress rules. You do not redeploy, add a container or migrate a schema.</p>
 
       <h3>Solo</h3>
       <pre><code>arizuko create myagent
-arizuko group myagent add tg:123456789 main
+arizuko group myagent add telegram:user/123456789 main
 arizuko run myagent</code></pre>
-      <p>One user, one channel. <a href="../howto/">Getting started</a> walks through the full setup.</p>
+      <p>One user, one channel. <a href="../howto/">Getting started</a> shows the full setup.</p>
 
       <h3>Dogfood</h3>
-      <pre><code>arizuko invite myagent create --email alice@example.com
-arizuko group myagent add slack:T1234/C5678 alice</code></pre>
-      <p>Add adapters to <code>.env</code>, issue invites, create folders. See <a href="../reference/env.html">env reference</a> for adapter tokens.</p>
+      <pre><code>arizuko invite myagent create 'alice/**' --max-uses 1
+arizuko group myagent add slack:T1234/channel/C5678 alice</code></pre>
+      <p>Add the adapters to <code>.env</code>, issue invites and create folders. The <a href="../reference/env.html">env reference</a> lists the adapter tokens.</p>
 
       <h3>Team</h3>
-      <pre><code>arizuko group myagent add slack:T1234/C1111 eng
-arizuko group myagent add slack:T1234/C2222 eng/frontend
-arizuko acl myagent add alice@example.com "eng/**" "**"</code></pre>
-      <p>Nesting a folder grants nothing on its own &mdash; the reach is whatever the glob says. <code>eng/**</code> covers <code>eng</code> and everything under it; a bare <code>eng</code> covers that one folder. See <a href="grants.html">grants</a> and <a href="scopes.html">scopes</a>.</p>
+      <pre><code>arizuko group myagent add slack:T1234/channel/C1111 eng
+arizuko group myagent add slack:T1234/channel/C2222 eng/frontend
+arizuko group myagent grant google:alice 'eng/**' admin</code></pre>
+      <p>A nested folder gets no rights from its parent. The glob sets the reach: <code>eng/**</code> covers <code>eng</code> and every folder under it, and a bare <code>eng</code> covers that one folder. See <a href="grants.html">grants</a> and <a href="scopes.html">scopes</a>.</p>
 
       <h3>Internet</h3>
-      <pre><code>arizuko token myagent create --jid web:support</code></pre>
-      <p>A route token lets anonymous visitors in. Add <code>ONBOARDING_ADMISSION=queue</code> to gate new users. Every turn already runs behind its own filtered egress proxy &mdash; there is no switch to flip. See <a href="tokens.html">tokens</a> and <a href="onboarding.html">onboarding</a>.</p>
+      <pre><code>arizuko token myagent issue chat support
+arizuko gate myagent add '*' 50/day</code></pre>
+      <p>A route token lets anonymous visitors in. An admission gate limits how many new users <code>onbod</code> admits each day. Every turn already runs behind its own filtered egress proxy, and there is no switch to turn it on. See <a href="tokens.html">tokens</a> and <a href="onboarding.html">onboarding</a>.</p>
 
-      <h2>Where isolation comes from</h2>
-      <p>Tenants share one store, one set of daemons, one release image. Isolation comes from three things:</p>
-      <ul>
-        <li><strong>Folder containment.</strong> A group's agent runs in its own KVM guest whose home is <code>groups/&lt;folder&gt;/</code>. It cannot see sibling folders' files. <a href="scopes.html">Scopes</a> explains the rules.</li>
-        <li><strong>Grant resolution.</strong> Every MCP call checks <code>(caller, action, target)</code> against the ACL. A folder holding only the default role can <code>send</code> but not <code>register_group</code>. <a href="grants.html">Grants</a> explains the rows.</li>
-        <li><strong>Egress filtering.</strong> Each turn gets its own <code>egress</code> proxy holding that folder&rsquo;s allowlist, on a tap with no other route out. It always runs, and the rules are per folder.</li>
-      </ul>
-      <p>Cross-tenant read is structurally impossible: the guest's mount, the grant gate, and the egress proxy all bind to the folder. A bug in one group's skill doesn't leak into another group's context.</p>
+      <h2>Three mechanisms keep tenants apart</h2>
+      <p>Tenants share one store, one set of daemons and one release image. Three mechanisms isolate them:</p>
+      <dl>
+        <dt>Folder containment</dt>
+        <dd>The agent of a group runs in its own KVM guest, and the home of that guest is <code>groups/&lt;folder&gt;/</code>. The guest cannot see the files of sibling folders. <a href="scopes.html">Scopes</a> explains the rules.</dd>
+        <dt>Grant resolution</dt>
+        <dd>Every MCP call checks the caller, the action and the target against the ACL. A folder with only the default role can call <code>send</code> but not <code>register_group</code>. <a href="grants.html">Grants</a> explains the rows.</dd>
+        <dt>Egress filtering</dt>
+        <dd>Each turn gets its own <code>egress</code> proxy with the allowlist of that folder, on a tap with no other route out. The proxy always runs, and the rules apply per folder.</dd>
+      </dl>
+      <p>The guest mount, the grant gate and the egress proxy all bind to the folder. For this reason, a turn in one group cannot read the files or the context of another group.</p>
 
-      <h2>Capacity, not tenancy</h2>
-      <p>Scaling arizuko is a capacity question, not an architecture one. One store handles thousands of groups; a single host runs hundreds of concurrent turns. When you hit the host ceiling, the answer is a second instance (a separate data directory, a separate systemd unit), not a rewrite. Each instance is fully independent &mdash; no shared state, no cross-instance routing.</p>
-      <p>This is intentional. The operational model is "many small instances" rather than "one distributed cluster." A support team runs one instance; a product team runs another; they share nothing but the binary. Operational blast radius stays small.</p>
+      <h2>A full host means a second instance</h2>
+      <p>Growth is a question of host capacity, not of architecture. When a host is full, you start a second instance with its own data directory and its own systemd unit. You do not rewrite anything. Each instance is independent: the instances share no state and route nothing to each other.</p>
+      <p>The model is many small instances, not one distributed cluster. A support team runs one instance and a product team runs another. They share only the binary, so a failure stays inside one instance.</p>
 
-      <div class="callout"><strong>No managed control plane.</strong> There is no central service that coordinates instances, no billing layer that gates usage, no SaaS dashboard that aggregates metrics. Each instance is a standalone unit you run on your own host. That's the feature, not an oversight.</div>
+      <div class="callout"><strong>No central service controls the instances.</strong> No service coordinates instances, no billing layer limits usage, and no SaaS dashboard collects metrics. Each instance is a unit you run on your own host, by design.</div>
 
       <nav class="docs-pager" aria-label="Pager">
         <a rel="prev" href="store.html">&larr; The store</a>
