@@ -95,7 +95,7 @@ $(addprefix docker-build-,$(DAEMONS)): docker-build-%:
 
 .PHONY: docker-build docker-build-arizuko docker-build-egress $(DOCKER_TARGETS)
 
-# lint is the ONE gate, and CI runs exactly this target. Three checks, in the
+# lint is the ONE gate, and CI runs exactly this target. Four checks, in the
 # order that fails cheapest first:
 #
 #   gofmt   — formatting drifted silently for want of a gate, and a dirty file
@@ -105,6 +105,8 @@ $(addprefix docker-build-,$(DAEMONS)): docker-build-%:
 #   golangci-lint — the swallow-class gate (errcheck + nilerr, .golangci.yml).
 #             Skipped with a notice when not installed, so the gate degrades to
 #             a warning on a machine without it instead of blocking the commit.
+#   doc tests — webdocs, specrefs and bugsindex need no docker and pin the
+#             docs, so a doc edit fails here before it reaches a reviewer.
 lint:
 	@out=$$(gofmt -l $(GOFMT_DIRS)); \
 	  if [ -n "$$out" ]; then echo "gofmt needed:"; echo "$$out"; exit 1; fi
@@ -116,6 +118,7 @@ lint:
 	else \
 	  echo "note: golangci-lint absent, the errcheck/nilerr gate did not run"; \
 	fi
+	go test ./tests/webdocs ./tests/specrefs ./tests/bugsindex -count=1
 
 # The tree's own Go, excluding vendored and scratch checkouts.
 GOFMT_DIRS = $(shell git ls-files '*.go' | grep -v '^third_party/' | xargs -r dirname | sort -u)
