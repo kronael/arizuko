@@ -1,6 +1,6 @@
 ---
 status: draft
-depends: [5/J-sse]
+depends: []
 ---
 
 # Shared-session presence
@@ -26,7 +26,7 @@ Presence is ephemeral, per-(folder, topic), and lives entirely in webd's
 existing hub — it is **not** persisted (strict, not magical: presence is
 liveness, not state; nothing to reconcile, nothing to put in git).
 
-- The hub already keys subscriptions on `folder/topic` (`5/J`). Track,
+- The hub already keys subscriptions on `folder/topic` (`webd/README.md` § Live frames: the SSE hub). Track,
   per key, the set of currently-attached subscribers with a coarse
   display label (the slink token's group identity, or the proxyd-signed
   user sub for authed streams — never a finer-grained identity than the
@@ -45,8 +45,7 @@ liveness, not state; nothing to reconcile, nothing to put in git).
 
 The auth boundary is unchanged: presence is visible to exactly whoever
 can already open the stream (group membership / slink token). No
-per-sender scoping inside a group — that fights the shared-context model
-(`5/J`).
+per-sender scoping inside a group — that fights the shared-context model.
 
 ## Out of scope
 

@@ -40,7 +40,7 @@ second, weaker writer — deleted, BUGS L20), and the sweep is the one
 retry owner. The row's stable `id` is the idempotency key end to end —
 the sweep resends it, the adapter's durable ledger dedups on it
 ([`E-routd.md`](E-routd.md) § Dedup, [`34-channel-protocol.md`](34-channel-protocol.md)).
-This subsumes the drafted "final-delivery outbox" (`specs/16/2`): the
+This subsumes the drafted "final-delivery outbox" (`chanlib/README.md` § The channel protocol): the
 delivery-state column set, the re-offer tick, the attempt bound and the
 adapter-side dedup all ship here; the delivered-ack is `/send`'s 200.
 

@@ -1,6 +1,6 @@
 ---
 status: draft
-depends: [5/E-routd, 5/J-sse]
+depends: [5/E-routd]
 ---
 
 # Durable turn stream
@@ -8,7 +8,7 @@ depends: [5/E-routd, 5/J-sse]
 A client watching a turn — a teammate following along in slink, an
 external MCP caller, a dashd live view — must be able to **disconnect
 and reconnect without losing the result**. arizuko's stream today
-(`5/J`) can't: `webd/hub.go` is an in-memory fan-out that buffers ≤16
+(`webd/README.md` § Live frames: the SSE hub) can't: `webd/hub.go` is an in-memory fan-out that buffers ≤16
 frames per subscriber and _drops slow clients silently_. A dropped
 client never learns the turn finished; a client that connects after the
 agent already replied sees nothing.
@@ -39,11 +39,11 @@ from it.
   `{kind:"turn_done", outcome}` row. These are the same frames the loop
   already produces — this adds the durable row + sequence, not a new
   producer (one renderer, many sinks).
-- `5/J` SSE gains `&after_event_seq=<n>`: webd's hub, on subscribe,
+- The SSE stream gains `&after_event_seq=<n>`: webd's hub, on subscribe,
   first drains routd-stored events with `seq > n` for the (folder,
   topic)'s active turn, then attaches live. The in-memory buffer stays
   as the live path; the durable log is the replay path.
-- The blocking-poll dual (`POST /chat/<token>?wait=`, `5/J`) returns the
+- The blocking-poll dual (`POST /chat/<token>?wait=`) returns the
   assistant frame already; add `last_event_seq` to its result and accept
   `after_event_seq` so a polling client resumes exactly. (The `get_round`
   MCP tool this bullet named is gone — one MCP vocabulary, BUGS L139.)
@@ -58,6 +58,6 @@ shape, keyed on `turn_id`, read by both sinks.
 - General durable-workflow checkpoint/resume (`13/6` territory).
 - Cross-turn / cross-topic replay — one execution (turn) at a time,
   matching Centaur's per-`execution_id` cursor.
-- Retrying the channel-side delivery — that is `16/2`.
+- Retrying the channel-side delivery — that is the pending-row sweep (`chanlib/README.md` § Delivery is claimed before the platform call).
 - Retention/GC policy for the event log beyond reusing routd's existing
   message-retention.
