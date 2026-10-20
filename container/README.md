@@ -29,7 +29,14 @@ below the kernel").
 - `MigrationVersion(path) int` — reads `MIGRATION_VERSION` file
 - `ReadRecentEpisodes(groupDir) string` — XML snippet for prompt
 - `WriteTasksSnapshot`, `WriteGroupsSnapshot` — per-group snapshots
-- `CopySession(groupDir, srcUUID, dstUUID) error` — fork sessions
+- `CopySession(groupDir, srcUUID, dstUUID) (bool, error)` — fork a session:
+  copy `<groupDir>/.claude/projects/-home-node/<src>.jsonl` to `<dst>.jsonl`
+  and restamp its `sessionId`. The slug `-home-node` is fixed because every
+  guest mounts the group dir at `$HOME=/home/node`, so Claude Code slugs the
+  same path for every folder; deriving it per folder would read identity off
+  a path. The write goes to a temp file, then a rename. A missing parent file
+  is a WARN and answers false, and routd then clears the child's observed
+  cursor (`ROUTING.md` § Topic Routing)
 - `SeedCodexMountTargets(codexDir)` — pre-create the files codex overmounts
 - `SeedOutputStyles(cfg, claudeDir)`, `SeedMigrateSkill(cfg, claudeDir)` —
   the platform-owned files refreshed on every spawn

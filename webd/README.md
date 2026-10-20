@@ -58,6 +58,10 @@ Shipped today (see `server.go`):
 - `POST /send`, `POST /edit`, `POST /typing`, `POST /v1/round_done` — channel adapter
   inbound from routd, verified via `chanlib.Auth` (ES256 `service:routd` token
   when `AUTHD_URL` set, open in local dev).
+  `round_done` carries the CHAT JID verbatim, never the routing target and
+  never a trimmed form: a subscriber that keys on the route's target folder
+  never matches, and the browser waits forever (`routd/loop.go`
+  `publishRoundDone`).
 - `GET /api/groups`, `GET|POST /api/groups/{rest...}` — authed chat UI JSON
   reads/writes (groups list, topics, messages, typing); routed via
   `splitFolderSuffix` (`api.go`).

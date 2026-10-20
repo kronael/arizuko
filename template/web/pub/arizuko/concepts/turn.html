@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>a turn, end to end</title>
+  <link rel="stylesheet" href="../assets/hub.css">
+</head>
+<body>
+  <header class="docs-topbar">
+    <button class="docs-navtoggle" aria-label="Toggle navigation" aria-expanded="false">&#9776;</button>
+    <a class="docs-wordmark" href="../">arizuko</a>
+  </header>
+  <div class="docs-layout">
+    <nav class="docs-nav" aria-label="Concepts">
+      <ul>
+        <li><a class="nav-section" href="./">Concepts</a>
+          <ul class="nav-children">
+            <li><a href="index.html">Start here</a></li>
+            <li><a href="primitives.html">Primitives</a></li>
+            <li><a href="built.html">How it&rsquo;s built</a></li>
+            <li><a href="scaling.html">Scaling</a></li>
+            <li><a href="ant.html">The ant</a></li>
+            <li><a href="turn.html">A turn, end to end</a></li>
+            <li><a href="routing.html">Routing</a></li>
+            <li><a href="engagement.html">Engagement</a></li>
+            <li><a href="proactive.html">Proactive</a></li>
+            <li><a href="topics.html">Topics</a></li>
+            <li><a href="progress.html">Live progress</a></li>
+            <li><a href="retries.html">Retries</a></li>
+            <li><a href="onboarding.html">Onboarding</a></li>
+            <li><a href="autoviv.html">Autoviv</a></li>
+            <li><a href="personas.html">Personas</a></li>
+            <li><a href="auth.html">Auth</a></li>
+            <li><a href="grants.html">Grants</a></li>
+            <li><a href="scopes.html">Scopes</a></li>
+            <li><a href="secrets.html">Secrets</a></li>
+            <li><a href="ext-mcp.html">Connectors</a></li>
+            <li><a href="audit.html">Audit trail</a></li>
+            <li><a href="skills.html">Skills</a></li>
+            <li><a href="tasks.html">Tasks</a></li>
+            <li><a href="workflows.html">Workflows</a></li>
+            <li><a href="tokens.html">Tokens</a></li>
+            <li><a href="web-native-agents.html">Web-native agents</a></li>
+            <li><a href="webdav.html">WebDAV</a></li>
+            <li><a href="voice.html">Voice</a></li>
+            <li><a href="slack-pane.html">Slack pane</a></li>
+            <li><a href="jid.html">Addressing (JID)</a></li>
+          </ul>
+        </li>
+        <li><a class="nav-section" href="../reference/">Reference</a></li>
+        <li><a class="nav-section" href="../howto/">How-to</a></li>
+        <li><a class="nav-section" href="../components/">Components</a></li>
+        <li><a class="nav-section" href="../products/">Products</a></li>
+        <li><a class="nav-section" href="../security/">Security</a></li>
+        <li><a class="nav-section" href="../strategy/">Strategy</a></li>
+        <li><a class="nav-section" href="../research/">Research</a></li>
+        <li><a class="nav-section" href="../changelog/">Changelog</a></li>
+      </ul>
+    </nav>
+
+    <main class="docs-content">
+      <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">concepts</a> &rsaquo; a turn, end to end</p>
+<h1>a turn, end to end</h1>
+
+    <p class="lede">You&rsquo;ve met the ant. Here is everything that happens between someone typing a message and the ant&rsquo;s reply showing up in their chat. Two daemons do the work: <code>routd</code> owns the conversation, <code>runed</code> owns the guest, and one HTTP call joins them.</p>
+
+    <h2>the whole path on one page</h2>
+    <p>Read it top to bottom. Every box names the function that does the work, so you can open the file and check.</p>
+    <pre id="twin-turn"><code>┌─────────┐ POST /v1/messages ┌──────────────────────────────────────────┐
+│ adapter ├──────────────────►│ routd: PutMessage, the sole appender     │
+└─────────┘                   │ Enqueue; pollOnce re-enqueues a routed   │
+     ▲                        │ chat with rows past its agent_cursor     │
+     │                        └────────────────────┬─────────────────────┘
+     │                                             ▼
+     │                        ┌──────────────────────────────────────────┐
+     │                        │ GroupQueue: one worker per folder        │
+     │                        │ resolve: direct ► routes ► engagement    │
+     │                        │ steer: sticky, /command, @child          │
+     │                        └────────────────────┬─────────────────────┘
+     │                                             ▼
+     │ Typing on              ┌──────────────────────────────────────────┐
+     │◄───────────────────────┤ runTurn: budget gate, topic fork, prompt │
+     │ beginProgress          │ turn_context, session id, MCP socket     │
+     │                        │ bound, acl ► typed booleans              │
+     │                        └────────────────────┬─────────────────────┘
+     │                                             │ POST /v1/runs
+     │                                             │ RunOutcome returns
+     │                                             ▼
+     │                        ┌──────────────────────────────────────────┐
+     │                        │ runed Manager.Run: a live guest takes a  │
+     │                        │ steer frame; a full cap answers busy;    │
+     │                        │ else it claims the spawns row            │
+     │                        └────────────────────┬─────────────────────┘
+     │                                             ▼
+     │                        ┌──────────────────────────────────────────┐
+     │                        │ qemuRuntime.spawn: VM record, staging    │
+     │                        │ tree, virtiofsd, tap + rules, egress,    │
+     │                        │ vsock ports, MCP bridge, QEMU            │
+     │                        └────────────────────┬─────────────────────┘
+     │                                             │ ctl frame: env, stdin
+     │                                             ▼
+     │                        ┌──────────────────────────────────────────┐
+     │                        │ guest-init, PID 1: mounts, socat from    │
+     │                        │ /run/ipc/gated.sock to vsock, then ant   │
+     │                        └────────────────────┬─────────────────────┘
+     │                                             │ reply, send,
+     │                                             │ submit_status,
+     │                                             │ submit_turn
+     │                                             ▼
+     │ POST &lt;url&gt;/send        ┌──────────────────────────────────────────┐
+     │ the reply rows and     │ bridge ► routd socket: mcpDeliver, or    │
+     │ one edited status row  │ recordTurnResult ► appendAndDeliver ►    │
+     └────────────────────────┤ chanDeliverer.Send                       │
+                              └──────────────────────────────────────────┘
+</code></pre>
+
+    <h2>routd decides, runed runs</h2>
+    <p>The adapter posts the message to <code>routd</code>, and <code>routd</code> writes it with <code>PutMessage</code>. Nothing else ever appends a message, which is why one cursor per chat, <code>agent_cursor</code>, is enough to say what the agent has seen. A worker per folder then picks the folder and builds the prompt. Before it calls <code>runed</code>, it binds the folder&rsquo;s MCP socket and writes down the session id the turn will resume. The order matters: an agent whose first tool call finds no socket answers nothing, and a turn killed halfway must still find its session next time.</p>
+    <p><code>runed</code> answers <code>POST /v1/runs</code> one of three ways. If the folder already has a live guest, the new messages go in as a steer and the running turn picks them up. If the guest cap is full, it says <code>busy</code> and <code>routd</code> tries again a few seconds later, doubling the wait up to a minute. Otherwise it boots a fresh KVM guest for this one turn.</p>
+
+    <h2>inside the guest</h2>
+    <p>The guest boots a pinned kernel with one tiny program as PID 1, <code>guest-init</code>. It mounts the folder at <code>/home/node</code>, starts <code>socat</code> on <code>/run/ipc/gated.sock</code>, and runs the agent. A tool call goes from the agent to that socket, over vsock to a bridge on the host, and into <code>routd</code>. The host kernel stamps the guest&rsquo;s vsock CID on every packet, and the bridge accepts only its own guest&rsquo;s CID. That stamp is the turn&rsquo;s credential: there is no token for an agent with a shell to leak.</p>
+
+    <h2>how the reply gets out</h2>
+    <p>The agent calls <code>reply</code> or <code>send</code>, and <code>routd</code> delivers through the adapter&rsquo;s <code>/send</code>. If the agent finishes without calling either, the text of its final result is the reply. While it works, the chat shows typing, and on a channel that can edit messages one status line updates in place. When the guest powers off, <code>runed</code> returns the outcome on the same HTTP call that started it.</p>
+    <p>A delivery that fails stays as a <code>pending</code> row and a sweep retries it with a growing gap. A turn that dies without replying is retried up to three times, unless <code>runed</code> calls the failure terminal: a retry can&rsquo;t fix a VMM that won&rsquo;t start or an exhausted model quota.</p>
+
+    <h2>go deeper</h2>
+    <ul>
+      <li><a href="routing.html">routing</a> &mdash; how the folder gets picked, the second box.</li>
+      <li><a href="topics.html">topics</a> &mdash; which session a turn resumes, and how a fork copies one.</li>
+      <li><a href="retries.html">retries</a> &mdash; what happens when the guest dies before it answers.</li>
+      <li><a href="progress.html">live progress</a> &mdash; the status line on the left of the drawing.</li>
+      <li><a href="../components/runed.html">runed</a> &mdash; the guest, its files and its network.</li>
+    </ul>
+
+      <nav class="docs-pager" aria-label="Pager">
+        <a rel="prev" href="ant.html">&larr; The ant</a>
+        <a rel="next" href="routing.html">Routing &rarr;</a>
+      </nav>
+      <div class="docs-footer">
+        <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/concepts/turn.html">Edit this page</a>
+        &middot; updated <time class="docs-updated" datetime="2026-10-20">2026-10-20</time>
+      </div>
+    </main>
+    <aside class="docs-toc" aria-label="On this page"></aside>
+
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="../assets/hub.js"></script>
+</body>
+</html>

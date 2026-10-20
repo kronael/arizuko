@@ -9,9 +9,9 @@ The conversation state machine. routd is the **sole appender** of
 messages and a token **verifier**, not a signer (authd signs). It owns
 the `routd` tables, resolves routing rules, runs the orchestration loop, and
 calls runed (`POST /v1/runs`) to execute each turn. It also hosts the
-per-turn agent MCP socket **in-process** (`ServeTurnMCP`, `mcp.go`) —
-runed sets `Input.ExternalMCP=true` and only mounts the ipc dir.
-Spec: `specs/5/E`.
+per-turn agent MCP socket **in-process** (`ServeTurnMCP`, `mcp.go`). runed
+starts no MCP server: its bridge carries the guest's tool calls to this
+socket (`runed/README.md` § The peer credential).
 
 ## Responsibilities
 
@@ -25,7 +25,7 @@ Spec: `specs/5/E`.
   tool visibility via `auth.EffectiveActions`; resreg-served cold-tier
   resources reuse that injected gate instead of their default operator
   gate.
-- Own the turn's progress (`progress.go`, `specs/6/46-turn-progress.md`): the
+- Own the turn's progress (`progress.go`): the
   only code that calls `Typing` or creates or edits a `verb="status"` row.
   `submit_status` (`mcpSubmitStatus`) and each `<status>` block in a result
   both call `updateProgress`: the first update sends one `⏳` message, a later
@@ -50,6 +50,73 @@ Spec: `specs/5/E`.
   stamp, the breaker's prune. A search made before the walk finishes is
   refused, never answered with an empty hit list, and a write another
   process makes is picked up by the next walk. Spec `6/42` §8.
+
+## The turn in routd
+
+The figure in `ARCHITECTURE.md` § Message Flow shows the whole turn. routd's
+half keeps these rules.
+
+- **One cursor.** routd is the sole appender of `messages`, so one cursor,
+  `chats.agent_cursor`, means "what the agent has seen". A second writer
+  would need a second cursor.
+- **One process.** routd is single-process per instance, and two routd on one
+  store are unsupported. The in-memory `GroupQueue` is the arbiter of one turn
+  per folder, and `agent_cursor` recovers a crash.
+- **Ingress.** `POST /v1/messages` honours `X-Idempotency-Key` only when the
+  body carries no `id`: routd mints `id=<adapter>-<key>`, so a re-sent event
+  lands on the same row. Both at once is `400 ambiguous_idempotency`
+  (`server.go`). Engagement is not claimed at ingress, because the folder is
+  unknown until resolution; a claim with an empty folder would misroute.
+- **Resolution.** The order and its two stages are in `ROUTING.md`
+  § Resolution Order. A route-table read failure is logged at ERROR and
+  treated as a miss: a retry risks a poison-message loop.
+- **The run contract.** `POST /v1/runs` is synchronous, and
+  `RUNED_RUN_TIMEOUT` plus two minutes is routd's own deadline on it.
+
+  | runed answers                                      | routd does                                                                         |
+  | -------------------------------------------------- | ---------------------------------------------------------------------------------- |
+  | `ok`                                               | advances the cursor and the observed cursor, ends the turn                         |
+  | `silent`                                           | the same, and counts no output                                                     |
+  | `ok` with no result and no bot row                 | tells the chat, never retries: a clean run that delivered nothing is a malfunction |
+  | `error`, no reply, not `terminal`                  | retries, up to `MAX_TURN_RETRY`                                                    |
+  | `error` with a reply, retries spent, or `terminal` | marks the rows errored, sends one notice to every chat the run owed, advances      |
+  | `busy`                                             | no advance, no breaker charge, the busy backoff                                    |
+  | `steered`                                          | ends this turn; the live run owns the batch                                        |
+  | a transport failure                                | no advance; the next poll re-feeds the batch                                       |
+
+- **Busy backoff.** A busy refusal parks the batch for 4 s, doubling per
+  repeat refusal of the same batch to a 60 s cap (`dispatch.go`). A new user
+  message clears it; the running turn's own bot rows do not. A failed turn's
+  retry returns through the same busy branch, so it waits on this backoff
+  too. A transport failure and a dependency outage do not: they re-feed on
+  the next poll.
+- **Terminal.** runed decides whether a failure is terminal, and routd never
+  parses runed's text to decide it. A terminal notice names the cause: the
+  agent's own reported failure, else runed's error text.
+- **Retry state.** `turn_context.retry_count` and `state='pending_retry'`
+  survive a routd restart. A retry turn starts with a note that it is a retry.
+- **Turn lifecycle.** `submit_turn` is hidden from `tools/list` and recorded
+  once: the `turn_results` key dedups it, so the first terminal signal wins
+  the cursor and the delivery. A `running` turn older than the run timeout
+  sweeps to `expired`, never `done`: crash recovery keys on `running`, and the
+  guard against a second live run keys on `done`.
+- **One turn per folder.** Concurrent inbounds for a busy folder are steered
+  into the live guest or wait for the queue. The observed cursor is
+  at-least-once: it advances on the same success path as the message cursor,
+  so a re-fed turn sees the context the failed attempt saw.
+- **Outbound.** The pending bot row is the outbox; `chanreg` and the adapters
+  hold no queue. A sweep every 30 s re-sends `pending` rows, and each row waits
+  its own gap: 30 s, doubling per failure to a 1 h cap, so ten attempts span
+  about an hour. A flat 30 s cadence spent the budget in five minutes. A 4xx
+  dead-letters at once with `delivery_attempts` 0; a transient failure spends
+  one attempt up to `MAX_OUTBOUND_RETRY`. Age is not a bound: an age rule
+  discarded rows the sweep never tried.
+- **A failed send writes its row.** MCP `send`, `reply` and `send_file`
+  return the error to the agent and record the undelivered row: `pending` for
+  a transient failure, `failed` for a permanent one. A failed `send_file`
+  always dead-letters (`ipc/ipc.go` `recordOutboundFailure`).
+- **Delivery dedup** is the adapter's: `chanlib/README.md` § Delivery is
+  claimed before the platform call.
 
 ## Tables owned
 
@@ -252,7 +319,7 @@ unclaimed in the loop, or runed unreachable on dispatch.
 ## Observability
 
 slog → stderr (JSON) + journald. OTLP export when `OTEL_EXPORTER_OTLP_ENDPOINT`
-is set (see `obs/`, `specs/5/O-observability.md`). Every slog event carrying
+is set (see `obs/README.md`). Every slog event carrying
 `turn_id` gets a deterministic TraceID so the collector groups one turn's span.
 
 Audit source of truth is the `audit_log` entity in routd's own tables: every

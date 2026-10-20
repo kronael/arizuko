@@ -34,10 +34,10 @@ only the cold-tier per-tool bodies.
 There is no minted agent token. The turn's identity is the unix socket
 itself: routd binds one per turn at `ipc/<folder>/gated.sock`, chowns it to
 the spawning uid, and every accept is checked against the kernel-attested
-peer uid via `SO_PEERCRED`. The folder comes from the socket path, which the
-host chose — never from anything the agent sends. Spec `5/17`'s auth-model
-table names this directly: the agent surface's identity source is "the
-in-container socket, folder-bound at spawn".
+peer uid via `SO_PEERCRED`. The guest reaches the socket through runed's
+per-turn bridge, which runs as that uid and accepts only its own guest's vsock
+CID (`runed/README.md` § The peer credential). The folder comes from the
+socket path, which the host chose — never from anything the agent sends.
 
 That is what makes the two layers work. Visibility is
 `auth.EffectiveActions` over the folder's `acl` rows, so a tool the caller
@@ -66,6 +66,11 @@ Social verbs (chanreg-backed, `*UnsupportedError`-aware):
 - `send`, `reply`, `post`, `like`, `dislike`, `delete`, `forward`,
   `quote`, `repost`, `edit`, `pin_message`, `unpin_message`,
   `unpin_all`, `send_file`, `send_voice`
+
+`send` and `send_file` are two tools over one `internalSend`, so their
+persistence and routing cannot diverge. A failed send returns the error to
+the agent and still records the undelivered row, `pending` or `failed`
+(`routd/README.md` § The turn in routd).
 
 Groups (hot-tier, hand-authored here): `register_group`, `escalate_group`,
 `delegate_group`, `inject_message`, `fork_topic`, `reset_session`,
@@ -158,10 +163,8 @@ empty. ACL gate is post-fetch `JIDRoutedToFolder` per row.
 ## Related docs
 
 - `ARCHITECTURE.md` (IPC section)
-- `specs/5/3-inspect-tools.md`
-- `specs/5/17-openapi-mcp.md` — the auth model: one evaluator, two identity
+- `ARCHITECTURE.md` § Cold tier vs hot tier — one evaluator, two identity
   sources, the gate injected per surface
-- `specs/5/13-ext-mcp.md` — MCP-subprocess tool catalog
 - `../auth/README.md` — `Authorize` / identity resolution
 - `../routd/README.md` — host process; routd-owned tables stay local
 - `../SECURITY.md` — root threat model

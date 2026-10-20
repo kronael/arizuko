@@ -72,6 +72,26 @@ through the backlog and the platform link itself is fine.
 
 Docker `HEALTHCHECK` marks containers `(unhealthy)` on 503.
 
+## Delivery is claimed before the platform call
+
+routd's pending bot row is the outbox, and the row's stable id is the
+idempotency key end to end. `deliverOnce` (`dedup.go`) is the one place an
+adapter enforces it:
+
+1. Claim the key in `outbound_dedup` BEFORE the platform call.
+2. A key already `sent` returns the recorded platform id and posts nothing.
+3. A key still in flight is refused with `ErrDeliveryUnresolved`, and routd
+   dead-letters the row. A visible dead letter beats a doubled message: a
+   lost response and a failed post look the same from the adapter.
+4. A failure that proves nothing was posted, `ErrPermanent`,
+   `ErrUnsupported`, `ErrInvalidRequest` or `ErrNotDelivered`, releases the
+   claim. Every other error keeps it.
+5. A success records the platform id under the key.
+
+Every store call runs on `context.Background()`. routd's context would cancel
+the write that says "delivered" at the moment the platform accepted the post,
+and leave the key in flight.
+
 ## Storage
 
 chanlib holds NO SQL and no `CREATE TABLE`. Its storage is `chanlib/chanstore`,
@@ -131,4 +151,3 @@ sorted into the wrong place (BUGS `L97`).
 
 - `ARCHITECTURE.md` (Channel Protocol, Inbound Media Pipeline)
 - `EXTENDING.md`
-- `specs/5/34-channel-protocol.md`

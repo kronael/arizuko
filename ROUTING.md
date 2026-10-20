@@ -297,26 +297,56 @@ and the message falls through to the agent unchanged.
 
 ## Resolution Order
 
-When a message arrives, routd resolves which group handles it
-through several layers. The full resolution in `resolveTarget`:
+routd resolves a chat's newest user row in two stages (`routd/loop.go`
+`resolveFolder`, then `routd/steer.go` `steer`). The first stage picks the
+folder. The second stage runs inside that folder and may consume the message
+before any turn.
 
 ```
-1. Engagement   — routd checks chat_reply_state.engaged_until;
-                  if active, routes to engaged_folder and fires a turn,
-                  bypassing all layers below
-2. Reply chain  — msg.ReplyToID set → look up routed_to on the
-                  original message → route to that group
-3. Sticky group — chat has sticky_group set → route there
-4. Route table  — router.ResolveRoute(msg, routes) → first matching
-                  rule wins (catchall = empty match expression)
+inbound row
+   │
+   ▼
+1. direct address: a web:/hook: JID or a bare folder ──────────────┐
+   │ none                                                          │
+   ▼                                                               │
+2. route table, the first match by seq                             │
+   │ a trigger rule, or any rule on an engaged chat ► a folder ────┤
+   │ an observe rule ► stored, no turn                             │
+   │ no match                                                      │
+   ▼                                                               │
+3. engagement on (jid, topic), else on (jid, "") ──────────────────┤
+   │ none                                                          ▼
+   ▼                                         steer, in that folder: sticky
+route miss: held; onboarding if enabled      @ or #, slash command, prefix,
+                                             delegation
+                                                   │ not consumed
+                                                   ▼
+                                                runTurn
 ```
 
-The inline `@name` / `#topic` prefix layer is handled separately in
-`routd.handlePrefixLayer`, before route-table lookup.
+1. **Direct address.** A `web:` or `hook:` JID names its folder in the token
+   record, and a JID with no `:` names a registered folder. The route table
+   does not apply, and agent-authored rows never get content routing. A
+   prefix that only meant "not a platform" would be noise.
+2. **Route table**, in ascending `seq`; the first match wins (§ Match
+   expression). An engaged chat overrides a matched rule's folder. A matched
+   `observe` rule on an engaged chat counts as engagement alone.
+3. **Engagement** rescues a miss. The lookup uses the effective topic, then
+   falls back to the root topic `""` unless that thread was disengaged, so a
+   reply inside a thread keeps the window its root started. Engagement is
+   claimed at dispatch, never at ingress, because the folder is unknown until
+   this step.
 
-If the resolved target differs from the current group AND is an
-authorized child (same world, direct child), the message is delegated
-to that group. Otherwise it stays in the current group.
+A route-table read failure is logged at ERROR and treated as a miss: a retry
+would loop on a poison message.
+
+The second stage, in order: a bare `@group` or `#topic` sets sticky
+navigation; a slash command runs; an `@child` or `#topic` prefix delegates or
+re-posts the message under that topic; then a delegation target is looked up,
+in this order: the folder a replied-to bot row was routed to, the chat's
+sticky group, the route table. A target is used only when it differs from the
+current folder and passes the authorization check below. Each consumed row
+advances the cursor and starts no turn.
 
 ### Authorization check
 
@@ -337,6 +367,59 @@ source="root"        target="atlas/content/x"  → allowed (root)
 
 Topics provide thread isolation within a single group. Each topic gets
 its own Claude session, reply chain, and message history.
+
+<!-- twin:topics -->
+
+```
+┌──────────────┐    ┌──────────────────────────────────────────────────┐
+│ chat message ├───►│ (folder, topic): the platform thread, a route    │
+└──────────────┘    │ pin, a sticky #topic, or the web chat's slug     │
+                    └─────────────────────────┬────────────────────────┘
+                                              ▼
+                    ┌──────────────────────────────────────────────────┐
+                    │ first turn in a topic: EnsureTopicLineage writes │
+                    │ the sessions row: parent_topic, forked_at, the   │
+                    │ parent's observed_cursor                         │
+                    │ copyParentSession: the parent's jsonl under a    │
+                    │ new id; no parent file ► the cursor is cleared   │
+                    └─────────────────────────┬────────────────────────┘
+                                              ▼
+                    ┌──────────────────────────────────────────────────┐
+                    │ idle past SESSION_IDLE_EXPIRY ► routd drops it   │
+                    │ no id ► routd mints one and runs PutSession      │
+                    │ BEFORE it calls runed                            │
+                    └─────────────────────────┬────────────────────────┘
+                                              │ RunRequest.SessionID
+                                              ▼
+                    ┌──────────────────────────────────────────────────┐
+                    │ guest: the harness resumes                       │
+                    │ ~/.claude/projects/-home-node/<id>.jsonl         │
+                    └─────────────────────────┬────────────────────────┘
+                                              │ submit_turn
+                                              ▼
+                    ┌──────────────────────────────────────────────────┐
+                    │ recordTurnResult: PutSession with the id the     │
+                    │ harness ran under; a killed turn reports none,   │
+                    │ and the next turn resumes the id routd minted    │
+                    └──────────────────────────────────────────────────┘
+```
+
+<!-- /twin -->
+
+- **The session id is declared before the run.** routd mints the topic's id
+  when it has none and persists it in `sessions` before it calls runed
+  (`routd/dispatch.go` `dispatchRun`). Claude opens its session under that id,
+  so a turn killed before `submit_turn` by a restart, a deadline or a crash is
+  resumed by the next turn in the topic (`routd/session_continuity_test.go`).
+  Codex and pi start fresh under that id and report their own, which
+  `submit_turn` then stores (BUGS `L432`).
+- **An idle session expires.** When the chat's cursor is older than
+  `SESSION_IDLE_EXPIRY`, two days by default, routd drops the topic's session
+  id before the spawn. A resume after days makes the agent blend stale state
+  into the current turn.
+- **An isolated task has no session.** A `timed-isolated:` turn runs with no
+  resume and never writes its id back: a cron's tool-heavy run appended to the
+  chat's transcript would push the humans out at compaction.
 
 ### How topics are set
 
@@ -372,16 +455,21 @@ its own Claude session, reply chain, and message history.
   `routd/dispatch.go:616`) splits web messages into consecutive same-topic
   runs and dispatches one turn per run, serially.
 
-- **Lineage (spec 5/F)**: every non-main topic carries
-  `parent_topic`, `forked_at`, `observed_cursor` in `sessions`. New
-  topics default to parent = topic of the message they reply to (or
-  `""`/main if no reply-to). On fork routd `cp`s the parent's
-  Claude Code session jsonl to the child's UUID so the child resumes
-  natively from parent's tail — no inline `<inherited>` injection. Every
-  turn carries a `<topic name=…/>` envelope so the agent always knows
-  its scope. The `fork_topic` MCP tool branches explicitly. Observed
-  cursor is per-topic, so two topics in the same folder both see
-  `<observed>` context without one consuming it for the other.
+- **Lineage**: every non-main topic carries `parent_topic`, `forked_at`
+  and `observed_cursor` in `sessions`. A new topic's parent is the topic of
+  the message it replies to, else main `""`. The first turn's fork takes the
+  parent's observed cursor; an explicit `fork_topic` takes now. Both copy the
+  parent's session jsonl to the child's id (`container.CopySession`), so the
+  child resumes natively from the parent's tail, with no `<inherited>`
+  block. Every turn carries a `<topic name=…/>` envelope. The observed
+  cursor is per topic, so two topics in one folder both see `<observed>`
+  context without one consuming it for the other.
+
+- **Two ways to see another folder**: `observe_group` subscribes this folder
+  to a source folder's inbound through `group_watchers`, a one-way, read-only
+  feed. `set_group_open` makes a folder's already-observed rows visible to its
+  siblings. They answer two questions, so they are two tools. The single
+  evaluator authorizes each one on its target folder.
 
 ### Effective topic resolution
 

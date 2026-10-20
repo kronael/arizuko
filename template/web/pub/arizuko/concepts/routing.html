@@ -21,6 +21,7 @@
             <li><a href="built.html">How it&rsquo;s built</a></li>
             <li><a href="scaling.html">Scaling</a></li>
             <li><a href="ant.html">The ant</a></li>
+            <li><a href="turn.html">A turn, end to end</a></li>
             <li><a href="routing.html">Routing</a></li>
             <li><a href="engagement.html">Engagement</a></li>
             <li><a href="proactive.html">Proactive</a></li>
@@ -86,7 +87,7 @@
     <p>Write <code>{sender}</code> in the target and <code>routd</code> expands it to a sanitized sender ID. One rule like <code>platform=discord &rarr; atlas/{sender}</code> gives every Discord user their own child folder &mdash; <code>atlas/dc-alice</code>, <code>atlas/dc-bob</code> &mdash; without one route per person.</p>
 
     <h2>reply chain wins</h2>
-    <p>When the bot replies in a chat, <code>routd</code> records which folder produced the reply on the message row (<code>routed_to</code>). If the user then replies <em>to that bot message</em>, <code>routd</code> follows the chain back to the same folder, even if the route table says otherwise. So a thread stays in the folder that started it.</p>
+    <p>When the bot replies in a chat, <code>routd</code> records which folder produced the reply on the message row (<code>routed_to</code>). If the user then replies <em>to that bot message</em>, <code>routd</code> follows the chain back to that folder, as long as it is a child the current folder may route to. So a thread stays in the folder that started it.</p>
 
     <h2>sticky and prefix overrides</h2>
     <p>A user can pin a chat to a folder by sending <code>@atlas/social</code> as the entire message &mdash; <code>routd</code> stores it on the <code>chats</code> row and every later message in that chat goes to <code>atlas/social</code> until someone sends bare <code>@</code> to clear it. <code>#support</code> does the same for the topic; bare <code>#</code> clears.</p>
@@ -94,14 +95,13 @@
     <p>Inline at the start of a message, <code>@name something</code> delegates that one message to the child folder <code>&lt;current&gt;/name</code>, and <code>#topic something</code> runs it under that <a href="../concepts/topics.html">topic</a> &mdash; for one message only, sticky state untouched.</p>
 
     <h2>resolution order</h2>
-    <p>Put together, every inbound message goes through these layers in order:</p>
+    <p>Picking the folder takes three checks, in order:</p>
     <ol>
-      <li>Engagement &mdash; if the <code>(chat, topic)</code> is engaged, route to the engaged folder and fire a turn. All layers below are skipped.</li>
-      <li>Reply chain &mdash; if the message replies to a bot message, follow <code>routed_to</code>.</li>
-      <li>Sticky group &mdash; if the chat has one set, use it.</li>
-      <li>Route table &mdash; first matching row wins; the empty catchall rule is last.</li>
+      <li>Direct address &mdash; a web chat or a hook token names its folder, and a JID with no <code>:</code> is a folder name. The route table never sees these.</li>
+      <li>Route table &mdash; first matching row by <code>seq</code>. If the <code>(chat, topic)</code> is engaged, the engaged folder wins over the rule&rsquo;s, and an <code>#observe</code> rule fires a turn after all.</li>
+      <li>Engagement &mdash; rescues a miss. A thread with no window of its own borrows its root&rsquo;s, unless someone disengaged that thread.</li>
     </ol>
-    <p>The inline <code>@name</code>/<code>#topic</code> prefix is handled separately before the route table, so it can override a default route without touching sticky state.</p>
+    <p>Once <code>routd</code> has a folder, a second pass runs inside it: sticky <code>@</code>/<code>#</code>, slash commands, an inline <code>@child</code> or <code>#topic</code> prefix, then a delegation target &mdash; the folder a replied-to bot message came from, the sticky group, the route table, in that order. A delegation goes only to a child the current folder may route to. Any of these can eat the message before a turn starts. The whole path, from adapter to reply, is drawn on <a href="turn.html">a turn, end to end</a>.</p>
 
     <h2>editing live</h2>
     <p>The agent edits the table through the MCP tools <code>add_route</code>, <code>delete_route</code>, <code>list_routes</code>, <code>set_routes</code>. The operator dashboard (<code>dashd</code>) shows the same table in a browser, and an operator REST token can call <code>/v1/routes</code> directly &mdash; same handler underneath, so agent and REST caller always see the same rows. Changes take effect on the next inbound message &mdash; no restart.</p>
@@ -129,12 +129,12 @@
     <p>Full rules &mdash; reply-chain mechanics, cross-folder authorization, worked end-to-end traces &mdash; live in <a href="https://github.com/kronael/arizuko/blob/main/ROUTING.md">ROUTING.md</a>. For what the address strings on the left side actually look like, see <a href="../concepts/jid.html">jid</a>. For how <code>#topic</code> isolates a thread inside one folder, see <a href="../concepts/topics.html">topics</a>.</p>
 
       <nav class="docs-pager" aria-label="Pager">
-        <a rel="prev" href="ant.html">&larr; The ant</a>
+        <a rel="prev" href="turn.html">&larr; A turn, end to end</a>
         <a rel="next" href="engagement.html">Engagement &rarr;</a>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/concepts/routing.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-16">2026-10-16</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-20">2026-10-20</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

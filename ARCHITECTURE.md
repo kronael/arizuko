@@ -110,34 +110,81 @@ capabilities" for the pattern + the current list.
 
 ## Message Flow
 
-Ingest, routing, prompt assembly, and channel egress live in `routd`;
-the guest spawn lives in `runed`. The hand-off is one HTTP call
-(`routd → runed POST /v1/runs`); everything else is in-process to one
-of the two planes.
+Ingest, routing, prompt assembly and channel egress live in `routd`. The
+guest lives in `runed`. One synchronous HTTP call joins them: `POST /v1/runs`.
+
+<!-- twin:turn -->
 
 ```
-Channel adapter → POST /v1/messages (routd) → PutMessage (sole appender)
-  → routd.Loop.pollOnce (polls every PollInterval)
-  → NewMessages (since lastTimestamp)
-  → resolveGroup (route table lookup)
-  → handleCommand (prefix dispatch)
-  → route lookup: trigger fires a turn; #observe stores only
-  → on route miss or #observe, fires turn if chat_reply_state.engaged_until active
-  → enrichAttachments: download media → Whisper for voice
-  → router.FormatMessages (XML batch, errored rows tagged errored="true")
-    + acl lookup → typed ShareReadOnly/Egress/WebPublish on the run request
-  → routd stands up the per-turn MCP socket in-process (ipc.ServeMCP)
-  → routd → runed: POST /v1/runs (dispatch the turn)
-    → runed: steer into a live guest (a ctl frame over vsock) OR boot a new one
-    → runed exports the ipc dir over virtio-fs and bridges the guest's MCP port
-      from its own CID (the CID IS the turn credential, spec 6/41)
-  → agent runs the turn; per-turn results return over MCP (submit_turn)
-    and the run outcome returns on the /v1/runs response
-  → routd/progress.go: Typing(on) at dispatch; one ⏳ message created by the
-    first status and edited after, only on a channel that advertises edit;
-    finishTurn clears Typing and edits ⏳ to ✓ or ✗
-  → routd: chanreg Deliverer → POST <adapter>/send (channel egress)
+┌─────────┐ POST /v1/messages ┌──────────────────────────────────────────┐
+│ adapter ├──────────────────►│ routd: PutMessage, the sole appender     │
+└─────────┘                   │ Enqueue; pollOnce re-enqueues a routed   │
+     ▲                        │ chat with rows past its agent_cursor     │
+     │                        └────────────────────┬─────────────────────┘
+     │                                             ▼
+     │                        ┌──────────────────────────────────────────┐
+     │                        │ GroupQueue: one worker per folder        │
+     │                        │ resolve: direct ► routes ► engagement    │
+     │                        │ steer: sticky, /command, @child          │
+     │                        └────────────────────┬─────────────────────┘
+     │                                             ▼
+     │ Typing on              ┌──────────────────────────────────────────┐
+     │◄───────────────────────┤ runTurn: budget gate, topic fork, prompt │
+     │ beginProgress          │ turn_context, session id, MCP socket     │
+     │                        │ bound, acl ► typed booleans              │
+     │                        └────────────────────┬─────────────────────┘
+     │                                             │ POST /v1/runs
+     │                                             │ RunOutcome returns
+     │                                             ▼
+     │                        ┌──────────────────────────────────────────┐
+     │                        │ runed Manager.Run: a live guest takes a  │
+     │                        │ steer frame; a full cap answers busy;    │
+     │                        │ else it claims the spawns row            │
+     │                        └────────────────────┬─────────────────────┘
+     │                                             ▼
+     │                        ┌──────────────────────────────────────────┐
+     │                        │ qemuRuntime.spawn: VM record, staging    │
+     │                        │ tree, virtiofsd, tap + rules, egress,    │
+     │                        │ vsock ports, MCP bridge, QEMU            │
+     │                        └────────────────────┬─────────────────────┘
+     │                                             │ ctl frame: env, stdin
+     │                                             ▼
+     │                        ┌──────────────────────────────────────────┐
+     │                        │ guest-init, PID 1: mounts, socat from    │
+     │                        │ /run/ipc/gated.sock to vsock, then ant   │
+     │                        └────────────────────┬─────────────────────┘
+     │                                             │ reply, send,
+     │                                             │ submit_status,
+     │                                             │ submit_turn
+     │                                             ▼
+     │ POST <url>/send        ┌──────────────────────────────────────────┐
+     │ the reply rows and     │ bridge ► routd socket: mcpDeliver, or    │
+     │ one edited status row  │ recordTurnResult ► appendAndDeliver ►    │
+     └────────────────────────┤ chanDeliverer.Send                       │
+                              └──────────────────────────────────────────┘
 ```
+
+<!-- /twin -->
+
+- There is one `messages` table and one decision point. Nothing enqueues a
+  turn around the router: a delegation, an escalation and a `#topic` re-post
+  are each a row with `forwarded_from` or a topic, written by `PutMessage`
+  and resolved like any inbound. Shortcuts beside the router drifted from it.
+- Adapter ingest and the `pollOnce` backstop converge on
+  `processGroupMessages` (`routd/dispatch.go`), so a slash command cannot
+  race past the steer step.
+- The MCP socket is bound before the run starts, because an agent whose
+  first tool call finds no socket answers nothing.
+- `router.FormatMessages` renders the batch as XML and tags a row an earlier
+  failed turn left with `errored="true"`. The `acl` rows become four typed
+  booleans on the run request, `ShareReadOnly`, `Egress`, `WebPublish` and
+  `GHWrite`: runed consumes a decision and never reads a grant.
+- The run outcome comes back on the `/v1/runs` response. The agent's words
+  come back over the MCP socket, never on stdout.
+
+Each step, its contract and its failure handling: `routd/README.md` § The
+turn in routd, `runed/README.md` § The turn envelope, `ROUTING.md` § Resolution
+Order. The same figure, for a newcomer: `concepts/turn.html`.
 
 ## Web Channel (proxyd)
 
@@ -263,6 +310,9 @@ Two management surfaces, one handler, an injected gate per surface:
 - **Hot tier** — agent runtime actions (`reply`, `send`, `like`, `delete`,
   `engage`, `inspect_*`). **MCP-only by design** in `ipc/ipc.go`; no REST
   twin — an operator doesn't `reply` to a chat.
+  `submit_turn` and `submit_status` sit below the hot tier: JSON-RPC methods
+  on the same socket, absent from `tools/list`, with no REST twin and no
+  resreg resource. They are delivery plumbing, not a managed entity.
 
 `resreg` carries no auth policy — the authz gate is INJECTED per surface.
 Operator REST uses the default `auth.Authorize` (scope/ACL); the
@@ -296,8 +346,8 @@ standalone daemon owning its own tables:
   resolves routing rules, runs the orchestration loop, and dispatches
   each turn to `runed` (`POST /v1/runs`). Hosts the per-turn agent MCP
   socket in-process (`ipc.ServeMCP`) and builds the agent prompt. No
-  docker socket, no egress proxies. Spec
-  [`specs/5/E-routd.md`](specs/5/E-routd.md).
+  docker socket, no egress proxies. Detail:
+  [`routd/README.md`](routd/README.md).
 - **`runed`** — execution plane. The only daemon wired to `/dev/kvm`,
   `/dev/vhost-vsock` and `/dev/net/tun`, one KVM guest and one egress
   proxy per turn. Owns the work
@@ -305,10 +355,10 @@ standalone daemon owning its own tables:
   (a ctl frame over vsock). It brokers no token: the turn is credentialed
   by the guest's vsock CID, a host-kernel fact a guest cannot forge, and
   reaches the per-turn MCP unix socket routd hosts through a uid-1000
-  bridge `SO_PEERCRED` binds (spec `6/41` §"The peer credential"). Owns
+  bridge `SO_PEERCRED` binds (`runed/README.md` § The peer credential). Owns
   the `runed` tables (`spawns`, `session_log`,
-  `circuit_breaker` — `runed/runstore`). Spec
-  [`specs/5/P-runed.md`](specs/5/P-runed.md).
+  `circuit_breaker` — `runed/runstore`). Detail:
+  [`runed/README.md`](runed/README.md).
 - **`authd`** — auth authority. The sole ES256 token minter; serves
   JWKS so every daemon verifies offline via the `auth/` library. Acts
   as the OAuth provider and mints `service:<daemon>` tokens from each
@@ -576,54 +626,19 @@ and `routed_to` capture audit metadata. Spec: `specs/3/c-audit-log.md`.
 
 ## Guest Lifecycle
 
-`runed` is the only daemon that starts a turn. One ephemeral KVM guest
-per turn (`qemu-system-x86_64`, spec 6/41), always bound to the same
-per-group folder and its own tap. The guest runs one turn and exits;
-the group folder mounts at `/home/node/` so conversation state, diary,
-skills, and the Claude Code session jsonl persist between turns —
-context accumulates per-group because each run resumes the session
-jsonl, not because the process is long-lived. Per-group web slots
-(`~/public_html`, `~/private_html`) bind-mount into the unified
-`<data>/web/{pub,priv}/<folder>/` trees — writes appear at both the
-agent's home path and the URL-serving path. The agent reaches platform
-data only over the in-process MCP socket routd hosts (no DB mount).
-Sibling groups get their own guests on their own taps — the
-cross-tenant boundary is the group (folder + tap + scoped token),
-not the turn. Threat model + isolated axes in `SECURITY.md` § Model.
+`runed` is the only daemon that starts a turn: one KVM guest per turn, bound
+to one group folder and one tap, as the Message Flow figure shows. The guest
+runs one turn and powers off. The folder is the agent's home, so the session
+jsonl, the diary and the skills persist between turns, and the context grows
+per group because each turn resumes the session. Sibling groups get their own
+guests on their own taps, so the boundary between tenants is the group, not
+the turn. Each group keeps one context: unrelated concerns in one context make
+the model blend them, so sales and on-call never share one.
 
-**Why per-group context isolation matters.** Each group is one agent
-with one accumulating context window (carried in its session jsonl).
-Sales, SRE, and recruiting never share a context. Mixing unrelated
-concerns in one context causes the model to blend them: wrong answers,
-hallucinated references, noise from irrelevant history. The group
-boundary is the context boundary: each group keeps a clean, persistent,
-focused context that accumulates only the conversations relevant to it.
-
-routd resolves the route, derives grants, and dispatches the turn to
-runed (`POST /v1/runs`). runed performs the spawn:
-
-1. `runed.NewQemuRuntime()` (once, at start) — check every substrate
-   precondition (`/dev/kvm` open, the kernel and rootfs artifacts present,
-   the clamp, guest memory against the concurrency cap) and reap any guest
-   a previous runed left running, from the on-disk VM record
-2. `runed` renders the turn (`renderTurn`) and hands it to the substrate:
-   - Resolve path via `groupfolder.Resolver`
-   - `buildMounts()` → `mountsec.ValidateAdditionalMounts()`
-   - `seedSettings()` — write `settings.json` (env, arizuko MCP via socat)
-   - `qemuRuntime` delivers the rendered mounts, env and stdin to the guest:
-     the mounts as one virtio-fs share assembled from a staging tree, the env
-     layered over the release image's own, the stdin as a ctl frame
-   - `seedSkills()` — copy `ant/skills/` (re-seeds every run); seed `.claude.json`
-   - Env: `WEB_PREFIX` (`pub` for an elevated `/root` turn, world subdomain for children),
-     `ARIZUKO_IS_ROOT`, `ARIZUKO_DELEGATE_DEPTH`, `WEB_HOST`,
-     `ARIZUKO_ASSISTANT_NAME`, plus group overrides
-   - boot the guest and wait for its `{exit}` frame. Per-turn results arrive
-     over MCP (`submit_turn`), not stdout.
-   - Output: the agent's `submit_turn` carries the result and the session id
-     the harness ran under; routd stores it (`routd/turns.go:236`) unless the
-     turn was isolated; the run outcome returns on the `/v1/runs` response.
-   - Run timeout (`RUNED_RUN_TIMEOUT`): graceful stop then kill
-   - Log: `groups/<folder>/logs/container-<ts>.log`
+What runed renders into a turn, how it boots the guest and how it ends it:
+[`runed/README.md` § The turn envelope](runed/README.md#the-turn-envelope).
+The session id a turn resumes: [`ROUTING.md` § Topic Routing](ROUTING.md#topic-routing).
+Threat model: `SECURITY.md` § Model.
 
 ### Secret injection
 
@@ -692,18 +707,6 @@ With no gateway there is no meter: the dashboard says so rather than showing
 a number the agent chose, and a cap set on such an instance is enforced by
 nothing, which the gate says in the log.
 
-Session: routd mints the topic's session id when it has none and persists it
-in `sessions` BEFORE dispatch (`routd/dispatch.go`). Claude opens its session
-under that id (SDK `sessionId`, `ant/src/claude.ts:493`), so a turn killed
-before `submit_turn` by a restart, a deadline or a crash is resumed by the next
-turn in that topic (`routd/session_continuity_test.go`). Codex and pi resume an
-id that names no thread, start fresh and report their own id, which
-`submit_turn` then stores (BUGS `L432`). Error with no reply → the cursor stays
-on the batch and the next poll re-feeds it, up to `maxTurnRetry` times and
-never after a terminal failure. Error with a reply, with retries exhausted or
-terminal → the messages are marked errored, the chat gets a failure notice and
-the cursor advances (`runTurn`, `routd/dispatch.go`).
-
 ## IPC (ipc package)
 
 MCP server on a unix socket (`mark3labs/mcp-go`), hosted in-process by
@@ -722,7 +725,7 @@ socket to vsock; the agent configures the `arizuko` MCP server in
 `settings.json` with `socat UNIX-CONNECT`. A tool call crosses the vsock to a
 uid-1000 bridge runed starts per turn, which dials routd's socket. routd
 binds the socket before runed spawns the guest and removes it when the run
-returns; runed never mounts it (spec `6/41` §"The peer credential").
+returns; runed never mounts it (`runed/README.md` § The peer credential).
 
 Identity resolved from the socket path (folder); authorization runs
 the injected agent gate (`db.Authorize` with `mcp:`+tool name), never a
@@ -753,7 +756,8 @@ runed Manager (`runed/manager.go`):
 - run TTL (`RUNED_RUN_TIMEOUT`, default 20m); hourly sweep of spawns past a
   seven-day retention, which is what keeps their one partition a window
 - steer into a live spawn via a `{steer}` ctl frame over vsock, acked by
-  the guest before the closure returns true (spec `6/41` §"Steer and stop")
+  the guest before the closure returns true (`runed/README.md` § Steer and
+  stop)
 
 Delegation, escalation, and `#topic` routing are not special — each writes
 a row via `PutMessage` and calls `EnqueueMessageCheck`.
@@ -1042,7 +1046,7 @@ today:
   under this folder via `#observe` routes; `routd/prompt.go`
 - `<topic name=…/>` — scope envelope on every turn (empty for main).
   Parent topic context arrives via the forked Claude Code session,
-  not via injection (spec 5/F rev6); `routd/prompt.go`
+  not via injection (`ROUTING.md` § Topic Routing); `routd/prompt.go`
 - `<surface>slack-pane</surface>` + `<pane-context jid=…/>` —
   emitted when the trigger arrives via an open Slack assistant pane
   (spec 8/D); `routd/prompt.go`

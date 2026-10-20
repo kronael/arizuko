@@ -4,13 +4,12 @@ Execution plane: the work queue + per-spawn guest lifecycle.
 
 ## Purpose
 
-Pure turn-spawner. runed runs the agent work queue, starts one KVM guest
-per spawn and enforces run timeouts. It never appends a
-message (routd is the sole appender) and never signs or brokers a token —
-the turn is credentialed by the MCP unix socket, which `SO_PEERCRED` binds
-to the spawned process. The per-turn agent MCP socket is hosted in-process by **routd**
-(`Input.ExternalMCP=true`), so runed only mounts the ipc dir and does no
-in-process `ServeMCP`. Spec: `specs/5/P-runed.md`.
+Pure turn-spawner. runed admits a turn, starts one KVM guest for it and ends
+the guest at the run deadline. It never appends a message, because routd is
+the sole appender, and it never signs or brokers a token. The turn's
+credential is the guest's vsock CID, which the host kernel stamps on every
+packet. routd hosts the per-turn MCP socket in-process, and runed only
+bridges the guest to that socket (§ The peer credential).
 
 ## Responsibilities
 
@@ -20,7 +19,7 @@ in-process `ServeMCP`. Spec: `specs/5/P-runed.md`.
   no agent turn can start in that folder until it is released.
 - Per-turn KVM lifecycle: one `qemu-system-x86_64` guest, its virtio-fs shares,
   its tap and its egress proxy; steer as a ctl frame over vsock, kill by reaping
-  every pid the turn's record names (spec `6/41`).
+  every pid the turn's record names (§ The guest's turn, step by step).
 - Enforce `RUNED_RUN_TIMEOUT` per run; hourly sweep of spawns older than the
   seven-day retention, which is what bounds the one partition they share.
 - Graceful shutdown detaches in-flight runs (a guest outlives the daemon, and the
@@ -80,13 +79,11 @@ every read is "the n newest in this folder" and nothing sweeps it; and
 
 - `AUTHD_URL` — authd base URL, fetched once at boot for the JWKS. runed only
   VERIFIES — it holds no signing key and exchanges no token of its own, because
-  nothing it does is an outbound call that needs one (spec `5/P` §Auth). Unset
+  nothing it does is an outbound call that needs one. Unset
   leaves both the `/v1` verifier and the `/dash/runed/` gate open, which is the
   local-dev shape; a fetch that fails is fatal
-- `DATABASE` — runed's own DSN when the instance is not served: a file path or
-  a `postgres://` URL. Ignored once `DYNAMODB_URL` names an endpoint
-- `CRACKBOX_ADMIN_API` — set with no egress substrate selected is fatal at
-  boot, rather than a spawn that quietly gets no isolation
+- `DYNAMODB_URL` and runed's store key — the store server runed's entities
+  live on (`runed.Open`, `INSTALL.md` § The store server)
 - `RUNED_RUN_TIMEOUT` (default 20m) — the run ceiling: bounds BOTH the
   guest hard-kill AND the in-guest agent query timeout
   (`ARIZUKO_QUERY_TIMEOUT_MS` = `RUNED_RUN_TIMEOUT − 30s`), so the agent aborts
@@ -98,7 +95,7 @@ every read is "the n newest in this folder" and nothing sweeps it; and
 ### The turn substrate
 
 There is ONE substrate and no selector: one KVM guest per turn, for the whole
-instance (spec `specs/6/41-qemu-substrate.md` §"The seam"). What it delivers is on
+instance (§ The port carries one rendered turn). What it delivers is on
 runed's startup `substrate` log line and on `/dash/runed/`.
 
 It refuses to start unless every precondition below holds, and the refusal names
@@ -248,6 +245,144 @@ ride the process environment as `ARIZUKO_MODEL` and `ARIZUKO_QUERY_TIMEOUT_MS`
 (read by ant's index.ts and claude.ts at module load) — `turnEnv` is the one
 place that decides it, and a key it omits is silently dead in the guest.
 
+### The port carries one rendered turn
+
+`renderTurn` (`render.go`) is the one renderer. A wire request goes in and one
+`Turn` comes out: the mount table, the process environment, the stdin frame
+and the egress allowlist. The substrate delivers those bytes and names and
+reads no grant, persona or session id. A new per-turn fact therefore changes
+the renderer and never the port. The port is `Runtime` (`runtime.go`), two
+methods: `Run` and `Kill`. The substrate's own state, the CID, the tap and the
+pids, hangs off `Turn.Handle`, so `Kill(handle)` finds all of it.
+`Turn.RegisterSteer` is the one hook beside the two methods: the substrate
+calls it once the guest is up, and hands back the steer closure.
+
+The renderer also lands the per-turn files the mounts point at:
+`.claude/settings.json` with the `arizuko` MCP server (`socat STDIO
+UNIX-CONNECT:/run/ipc/gated.sock`, `settings.go`), the gateway caps file, and
+the context layers prefixed onto the prompt: the pending-migration note, the
+episodes, the newest 14 diary entries, `work.md`, the `<user>` pointer,
+`PERSONA.md` and `SYSTEM.md` (`preparePayload`).
+
+### Admission is claim or reject
+
+`Manager.Run` (`manager.go`) answers one of three ways, and keeps no queue of
+its own. A second queue inside runed would drift from routd's, which already
+holds the batch.
+
+| Folder state                         | Answer                                               | routd then                                                     |
+| ------------------------------------ | ---------------------------------------------------- | -------------------------------------------------------------- |
+| a live guest                         | the batch goes in as a steer frame; `steered` on ack | marks this turn done; the first run owns the batch             |
+| a live spawn row, no ack             | `busy`                                               | re-feeds the batch later, no cursor advance, no breaker charge |
+| cap `MAX_CONCURRENT_CONTAINERS` full | `busy`                                               | the same                                                       |
+| idle, under the cap                  | a `spawns` row in `queued`, then the guest           | waits for the outcome                                          |
+
+- runed is store-stateless. Every admission decision reads the `spawns` rows,
+  under one mutex for the check-and-claim. An in-memory map would lie after a
+  restart: a folder would stay wedged, or the cap would reset. At boot
+  `ExpireOrphans` ends every row a dead runed left live, as `exited` with
+  outcome `error`, never `killed` (`runstore/spawns.go`).
+- `StartSpawn` takes the claim with a condition on `state='queued'`. A
+  `DELETE` that lands between the claim and the launch wins, and the run
+  answers `busy`. A `killed` row makes the folder read free, so a launch
+  without this guard would put two guests on one mount.
+- A new inbound clears a breaker streak at the threshold, so a retry after
+  three failures does spawn. The run that reaches the threshold reports
+  `breaker_open`.
+- routd owns session lineage. It mints the id and sends it on the request.
+  runed mints one only for a request that carries none, an isolated task, and
+  `spawns.session_id` is an echo.
+- Readiness is spawn success. There is no `/readyz` probe, because a probe on
+  the spawn path adds a failure mode. The one deadline is armed in
+  `Manager.spawn` from `RUNED_RUN_TIMEOUT`, lowered by the group's
+  `container_config` timeout. The substrate keeps no timer of its own: the
+  two-minute wrap-up warning is read off that deadline.
+
+### The guest's turn, step by step
+
+`qemuRuntime.spawn` (`qemu.go`) runs these steps in order. Every step appends
+its pid to the on-disk VM record as it starts the process, so a runed that dies
+at any step leaves a record naming what it started.
+
+1. Allocate the CID, the turn's slot, its two vsock ports `ctl` and `mcp`, its
+   tap and its `/30`, and write the record (`allocate`).
+2. Build the staging tree and start two `virtiofsd`: `root` over the release
+   rootfs through a read-only bind, and `turn` over the staging tree, run as
+   the agent's uid (§ Mounts).
+3. Bring up the tap and its rule set, then start this turn's `egress` proxy on
+   the tap's host side (`vmnet.go`).
+4. Bind both vsock listeners BEFORE QEMU starts. A bind error fails the turn,
+   and runed never picks another port. A port a squatter already holds then
+   fails with no guest in existence. A silent retry on another port would turn
+   that denial into a guest talking to whoever answered.
+5. Fork the MCP bridge as the agent's uid, holding the `mcp` listener.
+6. Start QEMU: ACPI microvm, the kernel and initrd from `make kernel`, two
+   `vhost-user-fs` devices, one `vhost-vsock` device with the CID, one
+   `virtio-net` device on the tap, `-no-reboot`.
+7. Accept `ctl` only from this guest's CID, then send the `turn` frame: the
+   environment and the stdin payload.
+8. `guest-init` (`kernel/guest-init/main.go`), PID 1 in the initrd, sends
+   `ready`, assembles the root, starts `socat UNIX-LISTEN:/run/ipc/gated.sock`
+   to `VSOCK-CONNECT:2:<mcp>`, and runs ant as uid 1000. ant's stderr comes
+   back as `log` frames, and the guest's last frame is one `exit`.
+
+The kernel console lands in `groups/<folder>/logs/container-<ts>.console.log`
+beside the turn log `container-<ts>.log`.
+
+### The peer credential
+
+```
+guest                                     │ host
+ant ──► /run/ipc/gated.sock ──► socat ──► │ vsock port <mcp>
+                                          ▼
+                    MCP bridge: the agent's uid, accepts one CID
+                                          │
+                                          ▼
+                    routd: ipc/<folder>/gated.sock, SO_PEERCRED check
+```
+
+The host assigns the guest's CID, and the host's vhost driver drops every
+packet whose source is not that CID. A guest cannot claim another guest's CID.
+The bridge accepts a connection only from its own turn's CID and dials one
+path, that turn's folder socket. routd's check stays the `SO_PEERCRED` uid
+check it runs on any socket peer. An agent in folder A would need B's CID or
+A's bridge dialling B's socket to reach B's tools; the host kernel refuses the
+first and the bridge holds one path. A unix socket does not cross virtio-fs,
+so the guest's socket lives on a guest-local tmpfs, never on the share.
+
+### Steer and stop
+
+A follow-up for a folder with a live guest is a `steer` frame on `ctl`.
+`guest-init` writes the batch under `/run/ipc/input`, signals the agent and
+answers `steer_ack`. The closure returns true only on that ack. routd marks
+the turn done on an accepted steer, so an unacked batch must answer false:
+the guest tmpfs that held it is gone at power-off, and false makes routd
+re-feed it.
+
+The run deadline sends `stop`. `guest-init` sends the agent SIGTERM and
+powers off after 10 seconds. runed waits `RUNED_REAP_GRACE` for the `exit`
+frame, then SIGKILLs the QEMU pid and confirms it gone, because a guest
+power-off does not prove QEMU exited. `DELETE /v1/runs/{run_id}` reaps the
+same way, from the record on disk.
+
+### How a turn ends
+
+| How the guest ended                                          | Outcome routd reads                       |
+| ------------------------------------------------------------ | ----------------------------------------- |
+| `exit` frame, code 0                                         | `ok`; the reply already went out over MCP |
+| `exit` frame, code 78 (`EX_CONFIG`, the agent's own verdict) | `error`, `terminal`                       |
+| `exit` frame, any other code                                 | `error`, retryable                        |
+| QEMU ended with no `exit` frame                              | `error`: no frame is no result            |
+| the deadline                                                 | `error`, "Guest timed out"                |
+| QEMU did not start; no renderer; a gateway and no key        | `error`, `terminal`                       |
+
+runed decides terminal versus retryable, and the decision rides
+`RunOutcome.Terminal`, whose zero value is retryable. routd skips the retry
+and shows runed's error text. The raw exit code never leaves runed: routd
+classifying runed's prose would be a second classification path on a format
+string. `guest-init` reports its own failures as 71, never 78, so it cannot
+impersonate the agent's verdict.
+
 ### Mounts
 
 `buildMounts` renders the table's right-hand side, in this order. Every turn:
@@ -289,12 +424,12 @@ companions) and the guest uid, because both are its own.
 - `audit.go` — the run-slot audit renderer (what runed records, and why not turns)
 - `manager.go` — Manager: run lifecycle, concurrency, queue, circuit breaker
 - `runtime.go` — the port: the `Runtime` interface (`Run`, `Kill`) and the
-  `Turn` it carries (spec 6/41 §"The seam")
+  `Turn` it carries
 - `render.go` — the ONE renderer: a wire request in, one `Turn` out. With
   `mounts.go` (the mount table), `settings.go` (`settings.json` + the output
   style) and `secrets.go` (what credential a guest receives)
 - `runtimes.go` — `FakeRuntime`, the test seam
-- `qemu.go` — the KVM substrate, the only one (spec `6/41`): `NewQemuRuntime`
+- `qemu.go` — the KVM substrate, the only one: `NewQemuRuntime`
   builds it, checks its preconditions and reaps a previous runed's guests; then
   the argument list, the turn, the reap
 - `qemuhost.go` — what this host can run: every precondition, checked once at
