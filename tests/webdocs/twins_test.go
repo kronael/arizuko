@@ -33,6 +33,11 @@ var twins = []twin{
 		"README.md",
 		"template/web/pub/arizuko/concepts/primitives.html",
 	}},
+	{name: "install", files: []string{
+		"INSTALL.md",
+		"README.md",
+		"template/web/pub/arizuko/howto/index.html",
+	}},
 }
 
 var (

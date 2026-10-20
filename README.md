@@ -111,17 +111,39 @@ closer fit. arizuko is for agents that sit behind channels and serve teams.
 You need a Linux x86_64 host with `/dev/kvm`, Docker with the compose plugin,
 Go, write access to `/srv/data/`, and a token for one channel.
 
+<!-- twin:install -->
+
 ```bash
+git clone https://github.com/kronael/arizuko && cd arizuko
 make build                                        # ./arizuko + daemon binaries
-sudo make images DATA_DIR=/srv/data/arizuko_foo   # daemon images + the guest rootfs
-sudo make kernel DATA_DIR=/srv/data/arizuko_foo   # the guest kernel, built once
-./arizuko create foo                              # /srv/data/arizuko_foo + .env
-./arizuko packages foo add extenddb               # the store server (then init it: INSTALL.md)
-vim /srv/data/arizuko_foo/.env                    # ASSISTANT_NAME, a model key, a bot token, RUNED_*_DIR
-./arizuko packages foo add teled                  # one channel adapter
-./arizuko group foo add telegram:group/123456789 main
-./arizuko run foo                                 # generate compose, docker compose up
+sudo make images DATA_DIR=/srv/data/arizuko_demo  # daemon images + the guest rootfs
+sudo make kernel DATA_DIR=/srv/data/arizuko_demo  # the guest kernel, built once
+./arizuko create demo                             # /srv/data/arizuko_demo + .env
+./arizuko packages demo add extenddb              # the store server, two passwords
+./arizuko generate demo
+cd /srv/data/arizuko_demo
+sudo docker compose up -d extenddb_db
+sudo docker compose run --rm extenddb init \
+  --pg-host extenddb_db --pg-port 5432 \
+  --pg-user arizuko_demo --pg-pass "$STORE_DB_PASSWORD" \
+  --extenddb-user arizuko_demo_app --extenddb-pass "$STORE_APP_PASSWORD" \
+  --bind-addr 0.0.0.0 --tls-san extenddb \
+  --config /var/lib/extenddb/extenddb.toml
+vim .env    # STORE_ADMIN_PASSWORD and STORE_ACCOUNT_ID, which init prints once;
+            # ASSISTANT_NAME, a model key, a bot token, RUNED_KERNEL_DIR, RUNED_ROOTFS_DIR
+sudo docker compose up -d extenddb
+sudo docker exec -e EXTENDDB_PASSWORD=$STORE_ADMIN_PASSWORD arizuko_extenddb_demo \
+  extenddb settings -c /var/lib/extenddb/extenddb.toml set control_plane_delay_seconds 0
+echo "STORE_CA=$(sudo base64 -w0 store/extenddb/.extenddb/tls/cert.pem)" | sudo tee -a .env
+echo 'DYNAMODB_URL=https://extenddb:18443' | sudo tee -a .env
+# one store key per daemon: INSTALL.md § The per-daemon store keys
+cd -
+./arizuko packages demo add teled                 # one channel adapter
+./arizuko group demo add telegram:group/123456789 main
+./arizuko run demo                                # generate compose, docker compose up
 ```
+
+<!-- /twin -->
 
 [INSTALL.md](INSTALL.md) has the full walk: prerequisites, the store server
 and its per-daemon access keys, adapter tokens, and the "healthchecks green

@@ -679,16 +679,38 @@ sudo journalctl -u arizuko_<name> -f
 
 ## Quick reference
 
+The whole install, one block. The sections above explain each line.
+
+<!-- twin:install -->
+
 ```bash
-# Full install (Telegram example)
 git clone https://github.com/kronael/arizuko && cd arizuko
-make build
-sudo make images DATA_DIR=/srv/data/arizuko_mybot
-sudo make kernel DATA_DIR=/srv/data/arizuko_mybot
-./arizuko create mybot
-# Edit /srv/data/arizuko_mybot/.env (set TELEGRAM_BOT_TOKEN, ANTHROPIC_API_KEY,
-# ASSISTANT_NAME, RUNED_KERNEL_DIR, RUNED_ROOTFS_DIR)
-./arizuko packages mybot add teled
-./arizuko group mybot add telegram:group/123456789 main
-./arizuko run mybot
+make build                                        # ./arizuko + daemon binaries
+sudo make images DATA_DIR=/srv/data/arizuko_demo  # daemon images + the guest rootfs
+sudo make kernel DATA_DIR=/srv/data/arizuko_demo  # the guest kernel, built once
+./arizuko create demo                             # /srv/data/arizuko_demo + .env
+./arizuko packages demo add extenddb              # the store server, two passwords
+./arizuko generate demo
+cd /srv/data/arizuko_demo
+sudo docker compose up -d extenddb_db
+sudo docker compose run --rm extenddb init \
+  --pg-host extenddb_db --pg-port 5432 \
+  --pg-user arizuko_demo --pg-pass "$STORE_DB_PASSWORD" \
+  --extenddb-user arizuko_demo_app --extenddb-pass "$STORE_APP_PASSWORD" \
+  --bind-addr 0.0.0.0 --tls-san extenddb \
+  --config /var/lib/extenddb/extenddb.toml
+vim .env    # STORE_ADMIN_PASSWORD and STORE_ACCOUNT_ID, which init prints once;
+            # ASSISTANT_NAME, a model key, a bot token, RUNED_KERNEL_DIR, RUNED_ROOTFS_DIR
+sudo docker compose up -d extenddb
+sudo docker exec -e EXTENDDB_PASSWORD=$STORE_ADMIN_PASSWORD arizuko_extenddb_demo \
+  extenddb settings -c /var/lib/extenddb/extenddb.toml set control_plane_delay_seconds 0
+echo "STORE_CA=$(sudo base64 -w0 store/extenddb/.extenddb/tls/cert.pem)" | sudo tee -a .env
+echo 'DYNAMODB_URL=https://extenddb:18443' | sudo tee -a .env
+# one store key per daemon: INSTALL.md § The per-daemon store keys
+cd -
+./arizuko packages demo add teled                 # one channel adapter
+./arizuko group demo add telegram:group/123456789 main
+./arizuko run demo                                # generate compose, docker compose up
 ```
+
+<!-- /twin -->

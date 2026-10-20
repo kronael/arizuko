@@ -48,7 +48,7 @@
 
 
 
-    <p>This page walks a fresh host from zero to a running instance with one channel and one invited user. Each step is one command. Skim the whole list first; come back and run them in order.</p>
+    <p>This page walks a fresh host from zero to a running instance with one channel and one invited user. The install is one block of commands; the sections after it explain what each part does. Skim the whole page first; come back and run them in order.</p>
 
     <h2>1. What you need</h2>
     <ul>
@@ -61,20 +61,40 @@
       <li>No ports open to the internet by default. Channel adapters listen on the docker network; <code>webd</code> + <code>proxyd</code> bind <code>:80</code>/<code>:443</code> only when you turn on the web layer.</li>
     </ul>
 
-    <h2>2. Install</h2>
-    <p>Clone the repo. A self-hosted deploy needs it: the daemon images build from it, and so do the two release artifacts a turn boots &mdash; the guest kernel and the agent rootfs. Nothing bind-mounts the checkout at runtime; <code>ant/</code> is baked into the image.</p>
-    <pre><code>git clone https://github.com/kronael/arizuko.git
-cd arizuko
-make build
-sudo make images   # build agent + daemon docker images
-sudo install -m 0755 arizuko /usr/local/bin/arizuko</code></pre>
-    <p>To grab just the CLI, <code>go install github.com/kronael/arizuko/cmd/arizuko@latest</code> &mdash; handy for the command itself, but a full deploy still needs the repo for the images and the runtime mount.</p>
-    <p>The <code>make images</code> step is the longest (several minutes the first time). It builds <code>arizuko-ant:latest</code>, the per-group agent image, plus one image per shipped adapter. From here, <code>arizuko run</code> generates a Docker Compose file and brings the stack up &mdash; <strong>Docker Compose is the deploy path</strong>. For Kubernetes, see <a href="kubernetes.html">Deploy on Kubernetes</a>.</p>
+    <h2 id="install">2. Install</h2>
+    <p>Clone the repo. A self-hosted deploy needs it: the daemon images build from it, and so do the two release artifacts a turn boots &mdash; the guest kernel and the agent rootfs. Nothing bind-mounts the checkout at runtime; <code>ant/</code> is baked into the image. The block below is the whole install. <code>make images</code> and <code>make kernel</code> take <code>sudo</code>; <code>./arizuko</code> runs as you.</p>
+    <pre id="twin-install"><code>git clone https://github.com/kronael/arizuko &amp;&amp; cd arizuko
+make build                                        # ./arizuko + daemon binaries
+sudo make images DATA_DIR=/srv/data/arizuko_demo  # daemon images + the guest rootfs
+sudo make kernel DATA_DIR=/srv/data/arizuko_demo  # the guest kernel, built once
+./arizuko create demo                             # /srv/data/arizuko_demo + .env
+./arizuko packages demo add extenddb              # the store server, two passwords
+./arizuko generate demo
+cd /srv/data/arizuko_demo
+sudo docker compose up -d extenddb_db
+sudo docker compose run --rm extenddb init \
+  --pg-host extenddb_db --pg-port 5432 \
+  --pg-user arizuko_demo --pg-pass "$STORE_DB_PASSWORD" \
+  --extenddb-user arizuko_demo_app --extenddb-pass "$STORE_APP_PASSWORD" \
+  --bind-addr 0.0.0.0 --tls-san extenddb \
+  --config /var/lib/extenddb/extenddb.toml
+vim .env    # STORE_ADMIN_PASSWORD and STORE_ACCOUNT_ID, which init prints once;
+            # ASSISTANT_NAME, a model key, a bot token, RUNED_KERNEL_DIR, RUNED_ROOTFS_DIR
+sudo docker compose up -d extenddb
+sudo docker exec -e EXTENDDB_PASSWORD=$STORE_ADMIN_PASSWORD arizuko_extenddb_demo \
+  extenddb settings -c /var/lib/extenddb/extenddb.toml set control_plane_delay_seconds 0
+echo "STORE_CA=$(sudo base64 -w0 store/extenddb/.extenddb/tls/cert.pem)" | sudo tee -a .env
+echo 'DYNAMODB_URL=https://extenddb:18443' | sudo tee -a .env
+# one store key per daemon: INSTALL.md § The per-daemon store keys
+cd -
+./arizuko packages demo add teled                 # one channel adapter
+./arizuko group demo add telegram:group/123456789 main
+./arizuko run demo                                # generate compose, docker compose up</code></pre>
+    <p>To grab just the CLI, <code>go install github.com/kronael/arizuko/cmd/arizuko@latest</code> &mdash; handy for the command itself, but a full deploy still needs the repo for the images.</p>
+    <p>The <code>make images</code> step is the longest (several minutes the first time). It builds <code>arizuko-ant:latest</code>, the per-group agent image, plus one image per shipped adapter, and exports the guest rootfs into <code>DATA_DIR</code>. <code>make kernel</code> builds the guest kernel once. Without <code>DATA_DIR</code>, <code>make kernel</code> refuses to start, and <code>make images</code> builds every image and then fails at the rootfs export. <code>arizuko run</code> generates a Docker Compose file and brings the stack up &mdash; <strong>Docker Compose is the deploy path</strong>. For Kubernetes, see <a href="kubernetes.html">Deploy on Kubernetes</a>.</p>
 
-    <h2>3. Create your first instance</h2>
-    <p>Pick a short name. The name becomes the data directory and the systemd unit name.</p>
-    <pre><code>sudo arizuko create demo</code></pre>
-    <p>This seeds <code>/srv/data/arizuko_demo/</code> with:</p>
+    <h2>3. What the instance holds</h2>
+    <p>Pick a short name. The name becomes the data directory and the systemd unit name. <code>./arizuko create demo</code> seeds <code>/srv/data/arizuko_demo/</code> with:</p>
     <ul>
       <li><code>.env</code> &mdash; instance config with a fresh <code>AUTH_SECRET</code> and <code>SECRETS_KEY</code>. Mode <code>0600</code>. Edit it to add API keys later.</li>
       <li><code>store/</code> &mdash; empty until the store server runs. It then holds the server&rsquo;s config and certificate under <code>store/extenddb/</code> and its PostgreSQL data under <code>store/extenddb_db/</code>, so one copy of the data dir carries every row. The rows themselves are written by their owner daemon at its first boot: routd seeds the ACL floor, the egress floor and the default group <code>main</code>.</li>
@@ -84,28 +104,13 @@ sudo install -m 0755 arizuko /usr/local/bin/arizuko</code></pre>
     </ul>
     <p>Pass <code>--product &lt;name&gt;</code> (for example <code>--product assistant</code>) to seed skills and a checklist of API keys to fill in. See <a href="../products/">products</a> for the catalog.</p>
 
-    <h2>4. Bring up the store server</h2>
-    <p>Every daemon keeps its tables on one DynamoDB-protocol server, ExtendDB over PostgreSQL, and refuses to start without <code>DYNAMODB_URL</code>. The <code>extenddb</code> package brings both containers. The server&rsquo;s one-off <code>init</code> is yours to run, because it prints an admin password once:</p>
-    <pre><code>sudo arizuko packages demo add extenddb    # mints STORE_DB_PASSWORD and STORE_APP_PASSWORD
-sudo arizuko generate demo
-cd /srv/data/arizuko_demo
-sudo docker compose up -d extenddb_db
-sudo docker compose run --rm extenddb init \
-  --pg-host extenddb_db --pg-port 5432 \
-  --pg-user arizuko_demo --pg-pass "$STORE_DB_PASSWORD" \
-  --extenddb-user arizuko_demo_app --extenddb-pass "$STORE_APP_PASSWORD" \
-  --bind-addr 0.0.0.0 --tls-san extenddb \
-  --config /var/lib/extenddb/extenddb.toml</code></pre>
-    <p><code>init</code> prints the admin password and the account id once. Put them in <code>.env</code> as <code>STORE_ADMIN_PASSWORD</code> and <code>STORE_ACCOUNT_ID</code>, start the server, then give the daemons the certificate:</p>
-    <pre><code>sudo docker compose up -d extenddb
-echo "STORE_CA=$(sudo base64 -w0 store/extenddb/.extenddb/tls/cert.pem)" | sudo tee -a .env</code></pre>
+    <h2>4. The store server</h2>
+    <p>Every daemon keeps its tables on one DynamoDB-protocol server, ExtendDB over PostgreSQL, and refuses to start without <code>DYNAMODB_URL</code>. The <code>extenddb</code> package brings both containers. The server&rsquo;s one-off <code>init</code> is yours to run, because it prints an admin password and the account id once: put them in <code>.env</code> as <code>STORE_ADMIN_PASSWORD</code> and <code>STORE_ACCOUNT_ID</code> before you lose them.</p>
     <p>Each daemon signs into the server as itself, with its own access key in <code>env/&lt;daemon&gt;.env</code> and a policy bounded to the tables it opens. Minting those keys is a hand procedure with <code>extenddb manage</code>, one per daemon: <a href="https://github.com/kronael/arizuko/blob/main/INSTALL.md">INSTALL.md</a> &sect; The per-daemon store keys lists the daemons and the exact commands. A daemon with no key exits at boot and restart-loops the whole instance. <code>arizuko generate</code> logs <code>store enrolment is partial</code> and names the daemons still missing one; read that line before you move on.</p>
 
     <h2>5. Run it</h2>
-    <p><code>arizuko run</code> generates <code>docker-compose.yml</code> from the instance state and brings the stack up in the foreground.</p>
-    <pre><code>sudo arizuko run demo</code></pre>
-    <p>You should see <code>extenddb</code>, <code>authd</code>, <code>routd</code>, <code>runed</code> and <code>timed</code> come up. <code>onbod</code> joins when onboarding is on, and the web layer when <code>WEB_PORT</code> is set. In another shell, check status:</p>
-    <pre><code>sudo arizuko status demo</code></pre>
+    <p><code>arizuko run</code> generates <code>docker-compose.yml</code> from the instance state and brings the stack up in the foreground. You should see <code>extenddb</code>, <code>authd</code>, <code>routd</code>, <code>runed</code> and <code>timed</code> come up. <code>onbod</code> joins when onboarding is on, and the web layer when <code>WEB_PORT</code> is set. In another shell, check status:</p>
+    <pre><code>./arizuko status demo</code></pre>
     <p>For production, run arizuko as a systemd service named <code>arizuko_demo</code> instead of in the foreground. Logs then live in <code>journalctl -u arizuko_demo</code> &mdash; the docker log driver is <code>none</code> on purpose, so <code>docker logs</code> shows nothing.</p>
 
     <h2>6. Wire your first channel</h2>
@@ -119,13 +124,13 @@ echo "STORE_CA=$(sudo base64 -w0 store/extenddb/.extenddb/tls/cert.pem)" | sudo 
 
     <h2>7. Invite your first user</h2>
     <p>Mint a one-time invite link. <code>target_glob</code> decides which folders the new user will be granted access to. <code>main/**</code> means &ldquo;the <code>main</code> group and any sub-group under it.&rdquo;</p>
-    <pre><code>sudo arizuko invite demo create 'main/**' --max-uses 1 --expires 24h</code></pre>
+    <pre><code>./arizuko invite demo create 'main/**' --max-uses 1 --expires 24h</code></pre>
     <p>The command prints a token. Share <code>https://&lt;your-host&gt;/onboarding/&lt;token&gt;</code>. The recipient signs in with one of the configured OAuth providers, lands on a confirmation page, and their <code>auth_users.sub</code> is granted admin on the matched folders. List and revoke with <code>arizuko invite demo list</code> and <code>arizuko invite demo revoke &lt;token&gt;</code>.</p>
 
     <h2>8. Verify the agent responds</h2>
     <p>Two ways to confirm the loop is live.</p>
     <p><strong>From the host</strong>, inject a message and wait for the reply:</p>
-    <pre><code>sudo arizuko send demo main "ping" --wait</code></pre>
+    <pre><code>./arizuko send demo main "ping" --wait</code></pre>
     <p><strong>From the channel</strong>, send a message in the wired chat and watch <code>routd</code> pick it up:</p>
     <pre><code>sudo journalctl -u arizuko_demo --since "2 min ago" --no-pager | grep -iE 'mention|spawn|reply'</code></pre>
     <p>Red flags in the log, and what each one means:</p>
