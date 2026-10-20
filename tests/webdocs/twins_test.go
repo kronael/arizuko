@@ -38,10 +38,6 @@ var twins = []twin{
 		"README.md",
 		"template/web/pub/arizuko/howto/index.html",
 	}},
-	{name: "upgrade", files: []string{
-		"INSTALL.md",
-		"template/web/pub/arizuko/howto/upgrade.html",
-	}},
 	{name: "turn", files: []string{
 		"ARCHITECTURE.md",
 		"template/web/pub/arizuko/concepts/turn.html",

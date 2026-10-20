@@ -681,8 +681,6 @@ instance. Run the block in the arizuko checkout. Each guest artifact is a
 directory whose name carries its content hash, so a new artifact is a new
 directory, and `.env` must name it.
 
-<!-- twin:upgrade -->
-
 ```bash
 git pull                                          # the new release
 make build                                        # ./arizuko + daemon binaries
@@ -693,8 +691,6 @@ sudoedit /srv/data/arizuko_demo/.env              # RUNED_ROOTFS_DIR, RUNED_KERN
 sudo systemctl restart arizuko_demo               # arizuko run regenerates, starts
 ./arizuko send demo main "ping" --wait            # one reply proves the path
 ```
-
-<!-- /twin -->
 
 - `make images` exports a new rootfs tree only when the `arizuko-ant` image
   changed. It keeps the newest two trees. To roll back the guest, set
