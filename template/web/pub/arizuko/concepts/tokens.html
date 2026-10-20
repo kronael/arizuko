@@ -18,7 +18,7 @@
           <ul class="nav-children">
             <li><a href="index.html">Start here</a></li>
             <li><a href="primitives.html">Primitives</a></li>
-            <li><a href="built.html">How it&rsquo;s built</a></li>
+            <li><a href="built.html">Development</a></li>
             <li><a href="store.html">The store</a></li>
             <li><a href="scaling.html">Scaling</a></li>
             <li><a href="ant.html">The ant</a></li>
@@ -74,7 +74,7 @@
       <dt>Identity: an optional login</dt>
       <dd>Who posts. The same link serves everyone. A visitor with a login session posts as their real self, and every other visitor posts as <code>anon:&lt;ip-hash&gt;</code>. The link stays the same, and only the session of the caller changes.</dd>
       <dt>Context: optional instructions on the link</dt>
-      <dd>How the agent handles what arrives through the link. Free text set when the token is created, such as &ldquo;bug reports from the acme site; triage, don't chat back&rdquo;. <code>routd</code> stamps it on each message, and the agent sees it as a <code>&lt;link-context&gt;</code> block. Two links into the same folder can carry two different instructions.</dd>
+      <dd>How the agent handles what arrives through the link. Free text set when the token is created, such as &ldquo;bug reports from the acme site; triage, do not chat back&rdquo;. <code>routd</code> stamps it on each message, and the agent sees it as a <code>&lt;link-context&gt;</code> block. Two links into the same folder can carry two different instructions.</dd>
     </dl>
     <p>None of the three depends on another. A leaked token does not impersonate a user, and a stolen session does not reveal tokens. Only the principal who was allowed to create the token sets the context.</p>
 

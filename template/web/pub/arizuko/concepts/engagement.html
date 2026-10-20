@@ -18,7 +18,7 @@
           <ul class="nav-children">
             <li><a href="index.html">Start here</a></li>
             <li><a href="primitives.html">Primitives</a></li>
-            <li><a href="built.html">How it&rsquo;s built</a></li>
+            <li><a href="built.html">Development</a></li>
             <li><a href="store.html">The store</a></li>
             <li><a href="scaling.html">Scaling</a></li>
             <li><a href="ant.html">The ant</a></li>
@@ -90,7 +90,7 @@
     <p>Broadcasts, such as scheduled tasks, migrate announcements and system events, do not follow this rule. They have no parent message to thread under, so they appear at the top level.</p>
 
     <h2>A correction can run in a side topic</h2>
-    <p>Sometimes the user corrects the last reply of the bot, for example &ldquo;no, that&rsquo;s wrong&rdquo; or &ldquo;rephrase&rdquo;, instead of continuing. The agent can then <a href="../concepts/topics.html">fork</a> the topic to <code>&lt;current&gt;#fix</code> and run the correction there. The main thread stays clean, and the correction happens in a child thread on the incorrect reply. When the correction is complete, the agent posts one corrected answer to the parent and calls <code>disengage()</code> on the fix topic.</p>
+    <p>Sometimes the user corrects the last reply of the bot, for example &ldquo;no, that is wrong&rdquo; or &ldquo;rephrase&rdquo;, instead of continuing. The agent can then <a href="../concepts/topics.html">fork</a> the topic to <code>&lt;current&gt;#fix</code> and run the correction there. The main thread stays clean, and the correction happens in a child thread on the incorrect reply. When the correction is complete, the agent posts one corrected answer to the parent and calls <code>disengage()</code> on the fix topic.</p>
     <p>The fork is a convention. The agent decides when to fork, and <code>routd</code> does not enforce it.</p>
 
     <h2>A surface hint sets the reply length</h2>

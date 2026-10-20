@@ -126,7 +126,7 @@ arizuko gate &lt;instance&gt; add '*' 50/day</code></pre>
     <p>A folder made in another way misses one of these steps. The agent then fails on the first turn: no skills load, it cannot write to <code>logs/</code>, or a settings file is missing. No later step fills the gap, so a folder made without <code>SetupGroup</code> must be made again.</p>
 
     <h2>onbod does not run the agent or sign tokens</h2>
-    <p>onbod does not run the agent, sign tokens or schedule tasks. It sends exactly three kinds of message, all through routd: the greeting with its pairing link, &ldquo;you&rsquo;re queued&rdquo;, and a refusal. Its job is narrow. It turns an unknown chat into a paired person, an admission decision, a folder on disk and a route that the person chose.</p>
+    <p>onbod does not run the agent, sign tokens or schedule tasks. It sends exactly three kinds of message, all through routd: the greeting with its pairing link, a notice that the person is queued, and a refusal. Its job is narrow. It turns an unknown chat into a paired person, an admission decision, a folder on disk and a route that the person chose.</p>
 
     <h2>Four pages cover the details</h2>
     <ul>
