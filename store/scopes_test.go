@@ -202,6 +202,13 @@ func TestNoCallerDropsTheVerdict(t *testing.T) {
 			case ".git", ".claude", "refs", "node_modules", "tmp":
 				return filepath.SkipDir
 			}
+			// A directory with its own .git is another checkout, such as a
+			// worktree under the repo root, not this module's source.
+			if path != ".." {
+				if _, err := os.Lstat(filepath.Join(path, ".git")); err == nil {
+					return filepath.SkipDir
+				}
+			}
 			return nil
 		}
 		if filepath.Ext(path) != ".go" {
