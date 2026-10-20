@@ -7,7 +7,6 @@ depends:
     34-resident-prompt,
     ../5/24-live-tasklist-status,
     ../5/G-engagement,
-    ../1/R-prompt-format,
   ]
 ---
 
@@ -60,7 +59,7 @@ thinking, so a tag that marks some of it as thinking marks nothing.
 
 `recordTurnResult` (`routd/turns.go:204`) is the one point every harness passes
 through, because every harness ends a turn with `submit_turn`
-(`1/R-prompt-format.md` §"Per-turn output"). It decides from three recorded
+(`ipc/README.md` § submit_turn ends the turn). It decides from three recorded
 facts and nothing else:
 
 | delivered | owed | nudged | Outcome                                                                                                                           |

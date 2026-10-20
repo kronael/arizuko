@@ -10,8 +10,8 @@ genericized daemons), and runtime (pipeline, middleware, modality).
 
 **Phase 6** is adoption & interop: the end goal is that people run
 arizuko instead of their own agent harness. The path is publishing the
-environment, not wrapping the harness (`6/1`, inverted 2026-08-15):
-state the agent and component contracts (`6/1`), give each a
+environment, not wrapping the harness (inverted 2026-08-15; `ARCHITECTURE.md` § Decided, and why):
+state the agent and component contracts, give each a
 conformance check a stranger's part must pass (`anteval` per backend;
 a component probe), and let the folder coordinate (tenancy + egress +
 ACL + web) be what the environment gives you for free. Wrapping stays
@@ -46,29 +46,27 @@ combination is the platform thesis arizuko ships toward.
 
 ## Phase table
 
-| Phase      | Description                                                                                                                                                                                                                                   | Status     |
-| ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
-| [1/](1/)   | core gateway — routing, channels, auth, scheduler                                                                                                                                                                                             | shipped    |
-| [2/](2/)   | social channels — events, actions, twitter                                                                                                                                                                                                    | shipped    |
-| [3/](3/)   | permissions, cleanup, gaps                                                                                                                                                                                                                    | shipped    |
-| [4/](4/)   | dashboards, memory, scheduler, personas — core architecture (channel protocol → `5/34`, ACL → `5/32`·`5/33`)                                                                                                                                  | shipped    |
-| [5/](5/)   | platform core — surfaces, identity, routing, tenancy, runtime                                                                                                                                                                                 | shipped    |
-| [6/](6/)   | split arizuko into parts — the environment contracts (`6/1`), the ship-in-parts catalogue (`6/16`), crackbox, the operator cockpit (`6/28`–`6/33`), the store model (`6/37`) , the QEMU substrate (`6/41`), DynamoDB over PostgreSQL (`6/42`) | **active** |
-| [7/](7/)   | single-world deployment — habitat, packages and skill discovery, one core process, and the functional minimum                                                                                                                                 | queued     |
-| [8/](8/)   | enterprise hardening — encryption, audit, SSO, secret broker                                                                                                                                                                                  | queued     |
-| [9/](9/)   | the data model — cold / warm / hot tier separation, and operator-extensible `<autocalls>`; git-as-truth is declined (`5/8`) and MCP+REST unification ships in `5/16`·`5/17`                                                                   | drafting   |
-| [10/](10/) | self-healing — Aeon mechanism incorporation                                                                                                                                                                                                   | queued     |
-| [11/](11/) | operator tools — branding, usage limits                                                                                                                                                                                                       | queued     |
-| [12/](12/) | _dissolved 2026-07-14 → consolidated into [6/](6/) (`6/41`, `6/12`, `6/16`); self-learning/skill-guard → `5/22`·`5/23`_                                                                                                                       | dissolved  |
-| [13/](13/) | standalone + reusable — ant, workflows, self-eval                                                                                                                                                                                             | planned    |
-| [14/](14/) | future features — pinned, CLI, dynamic channels                                                                                                                                                                                               | planned    |
-| [15/](15/) | later — committed direction, not scheduled                                                                                                                                                                                                    | planned    |
-| [16/](16/) | multiplayer — shared sessions, durable streams, presence                                                                                                                                                                                      | drafting   |
-| [17/](17/) | products — persona templates, publishing surface                                                                                                                                                                                              | queued     |
+| Phase      | Description                                                                                                                                                                                                                           | Status     |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
+| [3/](3/)   | permissions, cleanup, gaps                                                                                                                                                                                                            | shipped    |
+| [4/](4/)   | dashboards, memory, scheduler, personas — core architecture (channel protocol → `5/34`, ACL → `5/32`·`5/33`)                                                                                                                          | shipped    |
+| [5/](5/)   | platform core — surfaces, identity, routing, tenancy, runtime                                                                                                                                                                         | shipped    |
+| [6/](6/)   | split arizuko into parts — the environment contracts, the ship-in-parts catalogue (`6/16`), crackbox, the operator cockpit (`6/28`–`6/33`), the store model (`6/37`) , the QEMU substrate (`6/41`), DynamoDB over PostgreSQL (`6/42`) | **active** |
+| [7/](7/)   | single-world deployment — habitat, packages and skill discovery, one core process, and the functional minimum                                                                                                                         | queued     |
+| [8/](8/)   | enterprise hardening — encryption, audit, SSO, secret broker                                                                                                                                                                          | queued     |
+| [9/](9/)   | the data model — cold / warm / hot tier separation, and operator-extensible `<autocalls>`; git-as-truth is declined (`5/8`) and MCP+REST unification ships in `5/16`·`5/17`                                                           | drafting   |
+| [10/](10/) | self-healing — Aeon mechanism incorporation                                                                                                                                                                                           | queued     |
+| [11/](11/) | operator tools — branding, usage limits                                                                                                                                                                                               | queued     |
+| [12/](12/) | _dissolved 2026-07-14 → consolidated into [6/](6/) (`6/41`, `6/12`, `6/16`); self-learning (`ARCHITECTURE.md` § Decided, and why) and skill-guard → `5/23`_                                                                           | dissolved  |
+| [13/](13/) | standalone + reusable — ant, workflows, self-eval                                                                                                                                                                                     | planned    |
+| [14/](14/) | future features — pinned, CLI, dynamic channels                                                                                                                                                                                       | planned    |
+| [15/](15/) | later — committed direction, not scheduled                                                                                                                                                                                            | planned    |
+| [16/](16/) | multiplayer — shared sessions, durable streams, presence                                                                                                                                                                              | drafting   |
+| [17/](17/) | products — persona templates, publishing surface                                                                                                                                                                                      | queued     |
 
 **A retired spec number is burnt.** Numbering continues past the highest ID its
 phase has ever held; reusing one turns every old pointer to it into a
-confidently wrong pointer rather than a dangling one. `specs/6/1` has been five
+confidently wrong pointer rather than a dangling one. One phase-6 number has been five
 different specs and a phase-7 number six — that is the cost of not following
 the rule. `tests/specrefs` checks that every link under `specs/` resolves and
 that every backtick spec ID names a file.

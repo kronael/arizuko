@@ -1,12 +1,6 @@
 ---
 status: reference
-depends:
-  [
-    34-resident-prompt,
-    ../1/R-prompt-format,
-    ../5/9-agent-capability-eval,
-    ../5/G-engagement,
-  ]
+depends: [34-resident-prompt, ../5/9-agent-capability-eval, ../5/G-engagement]
 relates-to: [5/Y-output-styles-per-surface, 5/24-live-tasklist-status]
 ---
 
@@ -134,9 +128,9 @@ This contract extends that trigger to "delivered nothing after the nudge round".
 The user never sits in silence; the operator sees the counter and a log line
 (today the fallback fires with neither).
 
-**The verification rule is already written.** `1/R-prompt-format.md`
-§"Per-turn output" says this path has broken silently twice and must be verified
-by asserting a bot row lands, never by asserting the turn completed.
+**The verification rule is already written.** The `submit_turn` path has broken
+silently twice and is verified by asserting a bot row lands, never by asserting
+the turn completed (`ipc/README.md` § submit_turn ends the turn).
 `tests/e2e_turn_test.go:411` asserts bot-row counts. The fallback never caught
 the 2026-06-08 outage — users did; the assertion is what catches it.
 
@@ -353,6 +347,6 @@ the experiment.
   site, `:745` `silentTurnNotice`.
 - [`34-resident-prompt.md`](34-resident-prompt.md) — the residency rule and the
   three guards this change must satisfy.
-- [`../1/R-prompt-format.md`](../1/R-prompt-format.md) — the stdin/stdout
-  contract the nudge enters through.
+- `ipc/README.md` § submit_turn ends the turn — the contract the nudge enters
+  through.
 - `BUGS.md` `L329` — the measurement table this spec starts from.
