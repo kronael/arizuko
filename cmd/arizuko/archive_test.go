@@ -9,6 +9,7 @@ package main
 // here instead.
 
 import (
+	"archive/tar"
 	"bytes"
 	"context"
 	"os"
@@ -483,5 +484,47 @@ func TestArchive_Apply_ForceOverwritesNonEmptyFolder(t *testing.T) {
 	}
 	if got := readGroupFile(t, dstDataDir, "atlas", "PERSONA.md"); got != "SOURCE VERSION\n" {
 		t.Errorf("--force should have overwritten PERSONA.md, got %q", got)
+	}
+}
+
+func TestArchive_ExportFileIsOwnerOnly(t *testing.T) {
+	dir := t.TempDir()
+	fresh := filepath.Join(dir, "fresh.tar")
+	existing := filepath.Join(dir, "existing.tar")
+	if err := os.WriteFile(existing, []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, file := range []string{fresh, existing} {
+		if err := writeArchiveFile(file, []byte("archive")); err != nil {
+			t.Fatal(err)
+		}
+		info, err := os.Stat(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := info.Mode().Perm(); got != 0o600 {
+			t.Errorf("%s: mode %o, want 600", filepath.Base(file), got)
+		}
+		if b, _ := os.ReadFile(file); string(b) != "archive" {
+			t.Errorf("%s: content %q", filepath.Base(file), b)
+		}
+	}
+}
+
+func TestArchive_SecretsEntryIsOwnerOnly(t *testing.T) {
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	if err := writeTarEntry(tw, archiveSecretsEntry, []byte("secrets: []\n")); err != nil {
+		t.Fatal(err)
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	hdr, err := tar.NewReader(&buf).Next()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hdr.Mode&0o777 != 0o600 {
+		t.Errorf("entry mode %o, want 600", hdr.Mode&0o777)
 	}
 }

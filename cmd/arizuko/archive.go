@@ -112,7 +112,7 @@ func cmdArchiveExport(args []string) {
 		die("Failed: archive export: %v", err)
 	}
 	if file != "" {
-		if err := os.WriteFile(file, buf.Bytes(), 0o644); err != nil {
+		if err := writeArchiveFile(file, buf.Bytes()); err != nil {
 			die("Failed: write %s: %v", file, err)
 		}
 		fmt.Fprintf(os.Stderr, "wrote %s (%d bytes)\n", file, buf.Len())
@@ -120,6 +120,21 @@ func cmdArchiveExport(args []string) {
 		_, _ = os.Stdout.Write(buf.Bytes())
 	}
 	fmt.Fprint(os.Stderr, report)
+}
+
+func writeArchiveFile(file string, data []byte) error {
+	f, err := os.OpenFile(file, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
+		return err
+	}
+	err = f.Chmod(0o600)
+	if err == nil {
+		_, err = f.Write(data)
+	}
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	return err
 }
 
 func cmdArchiveApply(args []string) {
@@ -338,7 +353,7 @@ func buildArchive(ctx context.Context, stores map[string]*store.Store, dataDir s
 
 func writeTarEntry(tw *tar.Writer, name string, data []byte) error {
 	if err := tw.WriteHeader(&tar.Header{
-		Name: name, Size: int64(len(data)), Mode: 0o644,
+		Name: name, Size: int64(len(data)), Mode: 0o600,
 		ModTime: time.Now(), Typeflag: tar.TypeReg,
 	}); err != nil {
 		return fmt.Errorf("tar header %s: %w", name, err)
