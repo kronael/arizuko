@@ -87,7 +87,7 @@ succeeds.
 The adapter dashboard adds a **Poll sources and cursors** section: the inbox
 and one `sr:<sub>` row per subreddit with its cursor, `(never read)` for a
 source not polled yet. The shared "last inbound" tile hides which source went
-quiet; this section shows it.
+quiet, and the section shows it.
 
 ## Related docs
 

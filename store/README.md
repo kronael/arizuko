@@ -107,8 +107,7 @@ driver over it (`Store.Obj`); one handed a handle holds no pool at all, so
 `Close` ends nothing and every daemon's `defer Close` stays correct either
 way.
 
-The two cursors are the reason the hot tier moved together.
-`chats.agent_cursor` and `sessions.observed_cursor` are copies of a
+Two cursors, `chats.agent_cursor` and `sessions.observed_cursor`, are copies of a
 `messages.timestamp` compared back against that column, so both are declared
 ordered at `core.TS`'s width and `cursor.go` moves each one forward and only
 forward, a guarded transition rather than an update. A cursor that moves

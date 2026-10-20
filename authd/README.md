@@ -95,7 +95,7 @@ Two of the six carry an invariant a column could not:
   The sole holder of `signing_keys:read`, `sessions:read` and `sessions:write`
   is `service:dashd`. Like `audit:read`,
   none is reachable by a human bearer, and `signing_keys`/`sessions`
-  additionally refuse a folder-claimed caller outright: neither table has a
+  also refuse a folder-claimed caller outright: neither table has a
   folder column, so there is no predicate that could contain one.
   `serviceGrants` (`http.go`) is the whole per-principal scope map, and
   `service_dashd_test.go` bounds dashd's entry by name and by count.

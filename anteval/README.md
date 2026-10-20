@@ -44,8 +44,8 @@ The operator recipe, with the commands and the two traps that abort a run, is
 `.claude/skills/eval/gates.md` § "Bringing `anteval` up on an instance that has
 never run it".
 
-**Tiers** (2026-08-21, reduced from 35 cases — the deletions and why are
-noted in place in `cases/anteval.toml`): `--smoke` is the per-release gate —
+**Tiers** (2026-08-21; `cases/anteval.toml` notes in place the traps that
+rule a case out): `--smoke` is the per-release gate —
 9 cases, ~10 min measured on a healthy run (krons 2026-08-21: passing cases
 22–156s, avg ~50s), bounded by the wall caps at ~21 min. The full catalog —
 23 cases, ~30 min healthy, ≤~55 min cap-bounded per backend — runs before a
