@@ -149,6 +149,8 @@ ones no measurement can settle.
 
 **Small fixes awaiting a go.** Each is bounded, and its entry names the fix.
 
+- `L470` — fix in flight: routd must send its service bearer only to adapter
+  file hosts.
 - `L427` — gitd marks a delivery accepted before it knows the outcome.
 - `L428` — the web design guard passes shapes it should refuse, and a site that
   loses fifteen sidebars.
@@ -292,6 +294,23 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
 - **`L15` — the 2026-08-11 dead-code sweep's rejected hits.** `deadcode ./...` gave 149
   hits, 56 under `-test`; nine survived verification and were filed separately. Kept so
   the next sweep does not re-report the same ~135.
+
+## L470 — routd sends its `service:routd` bearer to every attachment URL, third-party CDNs included (2026-10-20, open)
+
+FOUND 2026-10-20 by the docs fold (step C10), re-read by the parent at
+`15e23163`. `routd/enrich.go:106` calls `downloadFile(ctx, att.URL, dest,
+l.media.Bearer, …)` for every attachment that carries a URL, and
+`downloadFile` sets `Authorization: Bearer <service:routd token>` on that GET
+(`routd/enrich.go:166-172`) whatever host the URL names. An adapter fills
+`att.URL` from the platform, so a Discord attachment's URL is Discord's CDN:
+the routd service token leaves the instance on every such download.
+
+The bearer exists for one case: an adapter that serves a file from its own
+`/files` endpoint behind service auth. Any other host must receive no
+`Authorization` header.
+
+- **Status:** open — fix in flight. A test must show a non-adapter host gets
+  no header while an adapter host still does.
 
 ## L448 — the custom guest kernel is justified by BOOT TIME, not by the reason written in the fragment (2026-10-19, open — needs sign-off)
 
