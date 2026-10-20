@@ -131,6 +131,7 @@ needs docker: `dyntest` starts one container per test binary and drops it at the
 end. `ARIZUKO_TEST_DYNAMO_ENDPOINT` points the same suites at an endpoint that
 is already running — the PostgreSQL deployment, or Amazon's own service.
 Pre-commit hooks configured via `.pre-commit-config.yaml`.
+Every suite, its needs and the timeout facts: [tests/README.md](tests/README.md).
 
 ## When to read what
 

@@ -2,11 +2,11 @@ package routd
 
 // Cross-section integration: authd token-validation + grant enforcement on
 // routd's inbound dispatch and turn-callback surfaces, wired in-process with no
-// docker, no mockagent, no LLM (specs/4/S-e2e-tests.md). A stub authd (httptest
-// serving /v1/keys from an auth.SigningKey) issues ES256 user tokens; routd's
-// Verifier verifies them over the same auth.FetchKeys RemoteKeySet path every
-// backend runs. The stubRunner stands in for the agent so the round-trip closes
-// without a real run.
+// docker, no mockagent, no LLM (tests/README.md, the boundary-test layout). A
+// stub authd (httptest serving /v1/keys from an auth.SigningKey) issues ES256
+// user tokens; routd's Verifier verifies them over the same auth.FetchKeys
+// RemoteKeySet path every backend runs. The stubRunner stands in for the agent
+// so the round-trip closes without a real run.
 //
 // What this asserts that contract_test.go cannot: contract_test wires
 // verify==nil (open mode), so the bearer gate and folder-bound grant checks are
