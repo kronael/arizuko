@@ -195,6 +195,54 @@ broker resolves the declared secrets per call and scrubs every resolved
 value from the result. The block format and the grants:
 `EXTENDING.md` § Adding an MCP connector, § Adding a REST connector.
 
+## Designing a tool
+
+The MCP description is the model's training material every turn. It is
+read on every prompt, costs tokens, and shapes which tool the model
+picks. The rules below follow from that.
+
+**Descriptions answer "when", not just "what".** Every tool description
+states _use when X_ and _not for Y_, naming the sibling tool that
+covers Y. The model picks instantly instead of reasoning about
+disambiguation at call time. See the `ipc.go` registrations
+(`reply`, `like`, `reset_session`, `register_group`, …) for the
+canonical pattern.
+
+**No surrogates — `Unsupported(...)` with a hint.** When a verb has no
+native primitive on a platform, the adapter returns
+`chanlib.Unsupported(tool, platform, hint)` carrying a concrete
+alternative tool the agent should call instead. Do not synthesize a
+fake implementation by gluing other primitives together. The hint
+travels through HTTP 501 → `*chanlib.UnsupportedError` →
+`toolMaybeUnsupported` and is rendered to the agent as
+`unsupported: <tool> on <platform>\nhint: <alternative>`.
+
+**Distinct intents → distinct tool names.** Default to one tool per
+intent. A sharp per-intent description outperforms a fuzzy umbrella
+description with a `kind`/`mode`/`type` enum: the umbrella forces the
+model to disambiguate at call time and dilutes signal in every other
+tool's description by proximity.
+
+Only collapse two names into one tool when the action is mechanically
+identical AND the same description naturally covers both — e.g.
+`reply` covers comment/reply because both create a threaded
+response to a parent message. Do NOT collapse repost/forward/quote
+into `share(kind=…)`; three intents, three tools.
+
+Architectural overlap under the hood is fine. Email's `forward` may
+compile to `send` + `Fwd:` subject; Telegram's `forward` uses a native
+protocol field. Both expose `forward` as a distinct MCP tool because
+the agent's intent is the same ("show X this thing I saw"). The
+adapter does the translation.
+
+UNIX precedent: `cp` / `mv` / `ln` are three commands with three man
+pages, not `relocate(kind=copy|move|link)`.
+
+The autocall-vs-MCP-tool decision (`EXTENDING.md` § Adding an autocall) is the
+same principle on a different axis: minimize the model's per-turn cost of choosing and
+calling. Zero-arg pure-read facts → autocall. Distinct intents →
+distinct tools.
+
 ## Cross-owner tools federate
 
 A tool over routd's own tables is an in-process call. A tool over another

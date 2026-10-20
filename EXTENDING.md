@@ -9,8 +9,8 @@ change the **system core** (routd, runed, authd, store, ipc, auth,
 grants, proxyd, webd, dashd, timed, onbod, container runner,
 chanlib/chanreg). Core evolves as a unit through specs, not via these
 extension points. See
-[README.md](README.md) for the core-vs-integration breakdown and
-[ARCHITECTURE.md](ARCHITECTURE.md) for the package graph.
+[ARCHITECTURE.md § Core vs integrations](ARCHITECTURE.md#core-vs-integrations)
+for the breakdown and § Where a change lands for the repository map.
 
 ## Extension points
 
@@ -118,51 +118,8 @@ migration under `ant/skills/self/migrations/`.
 
 ## Designing MCP tools for LLMs
 
-The MCP description is the model's training material every turn. It is
-read on every prompt, costs tokens, and shapes which tool the model
-picks. Two principles follow.
-
-**Descriptions answer "when", not just "what".** Every tool description
-states _use when X_ and _not for Y_, naming the sibling tool that
-covers Y. The model picks instantly instead of reasoning about
-disambiguation at call time. See `ipc/ipc.go` registrations
-(`reply`, `like`, `reset_session`, `register_group`, …) for the
-canonical pattern.
-
-**No surrogates — `Unsupported(...)` with a hint.** When a verb has no
-native primitive on a platform, the adapter returns
-`chanlib.Unsupported(tool, platform, hint)` carrying a concrete
-alternative tool the agent should call instead. Do not synthesize a
-fake implementation by gluing other primitives together. The hint
-travels through HTTP 501 → `*chanlib.UnsupportedError` →
-`toolMaybeUnsupported` and is rendered to the agent as
-`unsupported: <tool> on <platform>\nhint: <alternative>`.
-
-**Distinct intents → distinct tool names.** Default to one tool per
-intent. A sharp per-intent description outperforms a fuzzy umbrella
-description with a `kind`/`mode`/`type` enum: the umbrella forces the
-model to disambiguate at call time and dilutes signal in every other
-tool's description by proximity.
-
-Only collapse two names into one tool when the action is mechanically
-identical AND the same description naturally covers both — e.g.
-`reply` covers comment/reply because both create a threaded
-response to a parent message. Do NOT collapse repost/forward/quote
-into `share(kind=…)`; three intents, three tools.
-
-Architectural overlap under the hood is fine. Email's `forward` may
-compile to `send` + `Fwd:` subject; Telegram's `forward` uses a native
-protocol field. Both expose `forward` as a distinct MCP tool because
-the agent's intent is the same ("show X this thing I saw"). The
-adapter does the translation.
-
-UNIX precedent: `cp` / `mv` / `ln` are three commands with three man
-pages, not `relocate(kind=copy|move|link)`.
-
-The autocall-vs-MCP-tool decision (above) is the same principle on a
-different axis: minimize the model's per-turn cost of choosing and
-calling. Zero-arg pure-read facts → autocall. Distinct intents →
-distinct tools.
+How to write a tool description, and when one intent earns its own tool:
+[`ipc/README.md` § Designing a tool](ipc/README.md#designing-a-tool).
 
 ## Verb support matrix
 
@@ -405,8 +362,8 @@ the return address of a delegation (ROUTING.md § Reply Routing).
 ### Showing progress (the `typing` and `edit` capabilities)
 
 `routd` shows a running turn through two capabilities in the adapter's
-registration, and sends a channel nothing it did not advertise
-(`specs/6/46-turn-progress.md`). Advertise only what you implement:
+registration, and sends a channel nothing it did not advertise.
+Advertise only what you implement:
 `chanlib.CapImplReport` checks every verb in the map except `typing`.
 
 - `typing` commits `POST /typing {chat_jid, on}` to show presence while a turn
@@ -440,8 +397,7 @@ to an ordinary `InboundMsg` whose `Content` is exactly that payload, from
 the presser's own platform id. An adapter never interprets an option and
 never authorizes one: a press and a typed command are then the same
 inbound text meeting the same gate, which is what keeps a button from
-becoming a second authorization path (spec
-[`5/19`](specs/5/19-hitl-firewall.md)).
+becoming a second authorization path.
 
 Declare nothing and you are done: `chanreg.HTTPChannel.SendOptionsCtx`
 folds the answers into typable text before the request leaves routd, so an
@@ -908,9 +864,9 @@ half (stdin parse, IPC steering, the `<status>` pipeline, idempotent
 backend — `ant/src/claude.ts` (default), `codex.ts`, `pi.ts`.
 Select with `ARIZUKO_BACKEND=codex|pi` in the instance `.env`; the CLI
 must be baked into the agent image. What each backend can and cannot do
-(MCP tools, skills, the skill-guard) is the spec's conformance matrix —
-truthful deltas, not parity. Spec [`5/P`](specs/5/P-runed.md) § "ant
-wraps a harness, it never is one" still governs the wholesale lane.
+(MCP tools, skills, the skill-guard) is its `HarnessProfile` in
+`ant/src/backend.ts`: truthful deltas, not parity (`ant/README.md`
+§ The harness).
 
 ## Permissions
 
@@ -946,11 +902,11 @@ should be on by default. Never add a second check inside the handler. A
 grant's scope glob IS its containment: `mcp:register_group` scoped
 `acme/**` registers under `acme` and nowhere else. The agent gate reads
 two axes — the turn's folder confers, the attested sender adds inside
-that folder's subtree (`specs/5/33` §"Two axes") — so a new action is
+that folder's subtree (`auth/README.md` § Authorization is one row and one
+question) — so a new action is
 grantable to a folder, to a person, or to both.
 
 `escalate_group` sends a message to the parent; it does not grant
-permissions. See [`specs/5/33-paths-roles.md`](specs/5/33-paths-roles.md)
-(the model), [`specs/5/32-acl-unified.md`](specs/5/32-acl-unified.md)
-(the row + evaluator), and `specs/4/19-action-grants.md` (the `params`
-rule grammar).
+permissions. The model, the row and the evaluator:
+[`auth/README.md`](auth/README.md) and [GRANTS.md](GRANTS.md); the `params`
+grammar: `reference/grants.html`.
