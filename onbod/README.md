@@ -1,15 +1,137 @@
 # onbod
 
-Onboarding daemon: gated admission queue + OAuth link.
+onbod turns a stranger's chat into a routed chat with the person's consent.
+It greets an unrouted chat with a pairing link, admits the paired person
+through the gates, and writes the route the person chooses. The pairing
+threat model is in [SECURITY.md § Pairing](../SECURITY.md#pairing-consent-is-the-boundary);
+the held-chat rules are in [ROUTING.md § Unrouted chats](../ROUTING.md#unrouted-chats-held).
 
-## Purpose
+## From an unrouted chat to a routed one
 
-Self-service onboarding. An unrouted JID receives a one-time PAIRING link
-(`specs/5/31`), proxyd's OAuth flow confirms identity (authd), and webd's
-`/pair/{token}` writes the `acl_membership` edge; the user continues to
-`/onboard` to choose which world the chat belongs to. Optional per-gate daily
-limits throttle admission. onbod also creates a user world via
-`container.SetupGroup` on invite redemption.
+<!-- twin:pairing -->
+
+```
+inbound message, no route claims the chat
+  │
+  ▼
+┌──────────────────┐   observe rule matched ──► stored as observed,
+│ routd routeMiss  ├──►                         no turn, no greeting
+│                  │   else: held under no folder, cursor advances;
+│                  │   the operator sees it in /v1/routing/unrouted
+│                  │   and may claim it with a chat_jid= rule
+└────────┬─────────┘
+         │ ONBOARDING_ENABLED, platform allowed,
+         │ a Discord guild only on @mention
+         ▼ POST onbod /v1/onboarding
+┌──────────────────┐
+│ onboarding row   │   one per JID, instance-wide
+│ awaiting_message │
+└────────┬─────────┘
+         │ promptUnprompted: mint route_tokens kind=pair,
+         │ claim prompted_at, send through routd /v1/outbound
+         ▼
+chat: greeting + https://<host>/pair/<token>
+         │ the person opens it in a browser
+         ▼
+┌──────────────────┐   proxyd auth=user: no session ──► OAuth,
+│ webd /pair/<t>   ├──► back to the same URL
+│                  │   GET   confirm page, writes nothing
+│                  │   POST  CSRF, RedeemPairing, one batch:
+│                  │         acl_membership(child=jid, parent=sub,
+│                  │         added_by=pairing) + token delete
+└────────┬─────────┘
+         │ success page links /onboard
+         ▼
+┌──────────────────┐   no gate          approved
+│ onbod admitJID   ├──►gate matches     queued, chat told
+│ observePairings  │   gates, no match  refused, chat told
+└────────┬─────────┘
+         ▼ browser /onboard
+┌──────────────────┐   queued           queue position
+│ world choice     ├──►holds no folder  create a world, if invited
+│                  │                    or gate-approved
+│                  │   1 admin world    route it, via sole_world
+│                  │   N admin worlds   picker, via picker
+│                  │   0 admin worlds   "no world" page
+└────────┬─────────┘
+         ▼
+routes row: room=<id> → world, added_by=<sub>, added_via
+the next message reaches the world; history does not move
+```
+
+<!-- /twin -->
+
+A chat needs two things before an agent answers it, and each fails closed on
+its own. The **identity axis** is the `acl_membership` edge that pairing
+writes: it says who the channel identity is. The **location axis** is a
+`routes` row: it says which folder the chat feeds. Routing never reads the
+ACL and the ACL never creates a route, so an anonymous sender in an unrouted
+chat gets nothing from either.
+
+Two paths write the location, and neither reads the other. Onboarding is the
+self-serve path on the identity axis. The operator's claim on the held-chat
+view is the location-axis path. A greeted chat that never pairs stays in the
+held view until someone claims it.
+
+- **First contact is canned text, never an agent turn.** The greeting is
+  `ONBOARDING_GREETING` plus the link. An unknown chat has no folder, so no
+  spend cap could bound a turn for it.
+- **The link proves the person reads the chat and names no folder.** The
+  folder comes later, from the person's own choice on `/onboard`.
+- **The observer never writes a route.** `observePairings` advances the
+  onboarding row only. The success page at `/pair/<token>` sends the person
+  on with a static link to `/onboard` (`pairContinueURL`), because the world
+  choice is a browser form. A route appears only when the person loads
+  `/onboard`.
+- **The onboarding row is one admission queue for the whole instance**,
+  keyed on the JID. It names no target and no approver. `approved` is
+  instance-wide, and a gate throttles by identity provider; a gate is not a
+  world's policy. Any approval that names a location is the route write's
+  own authority check below.
+- **Admission never refuses a pairing.** `RedeemPairing` writes the edge and
+  knows nothing about gates; `admitJID` runs later, on a tick. A refusal
+  reaches the chat as a message and the row's status `refused`.
+
+### Who may write which route
+
+`POST /onboard` with `action=add_route` writes a route only when both checks
+pass (`handleAddRoute`, `onbod/main.go`):
+
+- The target folder matches a scope of an `allow` row the caller holds
+  (`auth.MatchGroups` over `userFolders`).
+- The match is `room=<id>`, and `<id>` is the room of a JID paired to the
+  caller (`userOwnsMatch`). A caller with the `**` operator row skips this
+  check. Every match still passes `matchRe`, which allows no space and no
+  wildcard.
+
+The picker offers only folders where the caller holds `admin`
+(`adminFolders`). The write check is wider: any `allow` scope on the target
+passes it.
+
+`insertRoute` is onbod's only `routes` writer. It stamps `added_by` with the
+caller's sub and `added_via` with the act: `picker` when the person chose,
+`sole_world` when onbod routed to the only world the person administers. The
+provenance is a column on the row and not an audit row, because onbod's
+audit log and routd's are different tables.
+
+### Invites
+
+An invite is a bearer link to `/invite/<token>` that grants a place in the
+tree. onbod stores `hex(sha256(token))` as the invite's key, never the raw
+token. `target_glob` decides the mode (`store.MintInvite`,
+`store/invites.go`):
+
+- **No trailing slash is a join.** Redemption writes an `admin` row on that
+  folder for the caller.
+- **A trailing slash is a subgroup create.** Redemption grants nothing yet.
+  It records an `invite_redemptions` row, and the person names the new
+  folder under that parent on the username picker. `/` alone makes a
+  top-level world.
+- **`**` is refused\*\*, because it is not a valid folder.
+
+When the `admin` row write fails, `RestoreInvite` gives the use back, so a
+failed redemption does not spend the invite. `handleCreateWorld` creates the
+folder with `container.SetupGroup` and writes its rows.
 
 ## Responsibilities
 
@@ -25,13 +147,13 @@ limits throttle admission. onbod also creates a user world via
   daily limits.
 - Promote queued users to `approved` via `admitFromQueue` loop (~60s).
 - Let an `approved` caller who administers no world create a top-level one
-  (`mayCreateFirstWorld`, spec `5/18` step 8) — **only while at least one
+  (`mayCreateFirstWorld`) — **only while at least one
   enabled gate exists.** With no gate, `admitJID` approves every paired
   identity, so the gate is what keeps world creation invite-only by default;
   configuring one is the operator's opt-in to self-serve signup.
 
-**onbod writes no `acl_membership` edge.** Identity pairing
-(`specs/5/31-identity-pairing.md`) owns that write, in routd's transaction,
+**onbod writes no `acl_membership` edge.** Identity pairing owns that write,
+in routd's transaction,
 stamped `added_by='pairing'` — so every edge, greeting-sourced or agent-minted,
 is reachable by `unpair`. onbod mints the link and observes the result; it is
 not in the redemption path.
@@ -63,7 +185,7 @@ in-flight authority between redeeming a subgroup invite and naming the
 workspace, written by `store.consumeInvite` and deleted by
 `handleCreateWorld`. A REST/MCP face would publish a create verb for the
 authority that decides which tenant a new folder lands in — the same
-authority BUGS `F50` was about. Spec `5/18` step 8.
+authority BUGS `F50` was about.
 
 `auth_users`/`acl`/`groups`/`routes` are NOT onbod's — they are routd's. onbod
 holds a second reader on routd's owner (`store.OpenOwner`) for
@@ -82,8 +204,8 @@ routd reads.
 - Onboarding surface — proxyd routes these `auth: user`, so the caller has
   already signed in and arrives with a transit-verified `X-User-Sub` (authd
   JWKS). Every handler names that caller, and answers 401 without one:
-  - `GET /onboard` — world picker (spec 5/18 step 6), username picker (step 8),
-    dashboard, or queue position. Carries no `?token=`: redemption is webd's
+  - `GET /onboard` — world picker, username picker, dashboard, or queue
+    position. Carries no `?token=`: redemption is webd's
     `/pair/{token}`.
   - `POST /onboard` — CSRF-protected form actions (create_world, add_route from
     the world picker; delete_route is dispatched but no page renders a form)
@@ -119,8 +241,6 @@ routd reads.
 
 ## `/v1/*` surface
 
-Per `specs/5/17-openapi-mcp.md`:
-
 - `POST /v1/onboarding` — record unrouted JID (status awaiting_message).
   routd's poll loop calls this on route miss. Scope: `invites:write`.
 - `/v1/invites` — list/create/revoke invites. routd's `/invite` command
@@ -155,20 +275,6 @@ signer; onbod never holds a signing key.
   (cookie `onbod_csrf` + form field `csrf`) to prevent cross-site
   exploitation of the auth proxy cookie.
 
-## Cross-daemon flow
-
-```
-new JID → routd POST /v1/onboarding (service:routd bearer) → onbod records awaiting_message
-       → onbod poll sends auth link via routd POST /v1/outbound (service:onbod bearer)
-       → user clicks link → onbod sets cookies, redirects /auth/login → proxyd OAuth
-       → proxyd redirects back to /onboard with X-User-Sub + transit bearer
-       → onbod binds JID to user_sub, queues or approves per gates
-       → user creates world → container.SetupGroup + acl/groups/routes writes
-```
-
-onbod imports `auth/` like every other daemon; verification middleware
-is shared, not bespoke.
-
 ## Testing
 
 Integration tests set `DATA_DIR` to a temp dir and spin up two stores — onbod's
@@ -188,6 +294,6 @@ rather than panicking. Do not remove this nil-check.
 
 ## Related docs
 
-- `specs/5/32-acl-unified.md` (canonical ACL)
-- `specs/5/17-openapi-mcp.md` (full `/v1/*` contract, token model; supersedes 5/5)
-- `ARCHITECTURE.md` (Onboarding section)
+- [`auth/README.md`](../auth/README.md) — the `acl` row and `acl_membership`
+- [`resreg/README.md`](../resreg/README.md) — the `/v1/*` contract
+- [`ARCHITECTURE.md` § Onboarding](../ARCHITECTURE.md#onboarding-onbod)

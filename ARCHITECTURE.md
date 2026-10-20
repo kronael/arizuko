@@ -727,17 +727,21 @@ missing. See `egress/README.md` and `SECURITY.md` (Network egress isolation).
 
 ## Onboarding (onbod/)
 
-Self-service token-based onboarding with optional admission gates. Turns
-inbound JIDs into provisioned groups via OAuth + `container.SetupGroup`.
-See `onbod/README.md`.
+A chat reaches an agent only on two independent axes, and each fails closed.
+Identity is the `acl_membership` edge a pairing writes; location is a `routes`
+row. Routing never reads the ACL and the ACL never creates a route, so an
+anonymous sender in an unrouted chat gets nothing. onbod is the self-serve
+path from one to the other: greeting, pairing, admission, world choice. The
+flow is drawn in [`onbod/README.md` § From an unrouted chat to a routed one](onbod/README.md#from-an-unrouted-chat-to-a-routed-one).
 
 World, agent and session are words for folder shapes, and none is a table.
 A world is a top-level folder and owns nothing of its own: its roster is the
 `acl` rows on `<world>/**` and their members, its vhost is derived from the
 name, and its secrets resolve by folder ancestry. A `worlds` table would be
-a second path beside each of those. Creating a world is operator work on
-the CLI: a top-level `register_group` from the agent socket is refused with
-"worlds are CLI-only".
+a second path beside each of those. An agent cannot create a world: a
+top-level `register_group` from the agent socket is refused with "worlds are
+CLI-only". The CLI creates one. onbod creates one for a person admitted
+through an enabled gate, or for a person who holds an invite to `/`.
 
 ## Scheduler (timed/)
 

@@ -63,8 +63,7 @@ the two surfaces above. `pair` is an **identity-pairing link** served by
 webd at `/pair/<token>`: redeeming it writes the `acl_membership` edge
 that makes a channel identity (`telegram:user/123`) resolve to the
 account of whoever confirms, which is the only way an anonymous channel
-user acquires any authority at all. Spec
-`specs/5/31-identity-pairing.md`.
+user acquires any authority at all.
 
 Resolution is kind-scoped in both directions — delivery accepts only
 `route`, redemption only `pair` — so neither is redeemable as the other.
@@ -73,7 +72,11 @@ only; the JID must route to the agent's folder), lives ten minutes, is
 single-use, and grants nothing by itself. `GET /pair/<token>` is
 side-effect-free so an unfurl bot cannot spend it; the `POST` is the
 consent step, and the threat model that shapes it is SECURITY.md
-§"Pairing: consent is the boundary". The inverse verb is `unpair`.
+§"Pairing: consent is the boundary". The inverse verb is `unpair`: it
+deletes one `acl_membership` edge scoped to `added_by='pairing'`, and either
+end of the edge may call it. An unredeemed pairing link cannot be listed or
+revoked: `list_tokens` and `revoke_token` read `kind='route'` rows only, so
+the link lives until it is redeemed or its ten minutes pass.
 
 ## Route Table
 
@@ -210,8 +213,27 @@ platform lets anyone message a bot, so no group is a safe default.
 the verdict is the loop's own resolve), and `/dash/routes/` shows them
 to the operator with a one-click claim that writes a `chat_jid=` rule at
 seq 0. A `platform=<name>` rule claims a whole platform. History does
-not move: only messages after the claim reach the group. Spec
-`specs/6/35-unrouted-traffic.md`.
+not move: only messages after the claim reach the group. With
+`ONBOARDING_ENABLED`, routd also hands a held chat to onbod, which greets it
+with a pairing link; the flow is drawn in
+[`onbod/README.md`](onbod/README.md#from-an-unrouted-chat-to-a-routed-one).
+
+There is no default catch-all, and `arizuko create` seeds none:
+
+- A trigger catch-all would let anyone who finds the bot drive the
+  operator's agent, with its files, secrets and egress.
+- An observe catch-all fires no turn, but it puts strangers' text into the
+  target folder's `<observed>` window. It also ends onboarding on that
+  platform: `routeMiss` takes the observe branch first, and only the other
+  branch hands the chat to onbod (`routd/loop.go`). A
+  `platform=X → staging#observe` rule therefore means "capture, never greet"
+  for platform X; greeting and capturing exclude each other per platform.
+
+Who may make the agent fire is a routing question, answered in the same
+table. A `sender=` rule above an observe rule for the same room fires for
+that sender, and everyone else matches only the observe row. Engagement
+overrides per chat and topic. Firing never consults the ACL, so a second
+permission check in the loop has no place.
 
 A held chat looks identical to a broken one from the outside: nobody
 answers either. `GET /v1/routing/answering` separates them. It lists every

@@ -277,6 +277,15 @@ Endpoints (`server.go`, `channels.go`):
   configuration, e.g. a `verb=mention` rule and a plain message). An aggregate,
   never message content; a folder-scoped bearer sees its own subtree and no
   unclaimed chats
+- `GET /v1/routing/unrouted` — the held chats, newest activity first. The set
+  is derived and never stored: each chat's latest inbound goes through the
+  loop's own `resolve`, so the list cannot disagree with the drop it
+  describes, and there is no marker column. A route-table read failure is a
+  500, never "everything unrouted". It is a plain read beside `errored`, not
+  a resreg resource, so it can never become an agent tool. A held chat
+  belongs to no folder, so only an unscoped bearer may call it; a
+  folder-scoped token gets 403 rather than an empty list that reads as
+  "nothing is arriving" (`unrouted.go`)
 - `GET|POST /v1/engagement` — engagement state (spec 5/G). `GET` with `jid`
   reads one pair (`folder`, `engaged_until`, `last_reply_id`); `GET` with no
   `jid` LISTS the live windows in the caller's subtree, newest deadline first

@@ -124,14 +124,14 @@ export GITHUB_CLIENT_ID=... GITHUB_CLIENT_SECRET=...
     <p>A folder built any other way is missing one of these steps. The agent then fails on first turn &mdash; no skills loaded, or no write permission on logs, or a missing settings file. There is no fallback path that fills the gaps later; the cost of skipping <code>SetupGroup</code> is recreating the folder from scratch.</p>
 
     <h2>What onbod does not do</h2>
-    <p>onbod does not send messages, run the agent, or schedule tasks. Its scope is narrow: turn an unknown JID into a row in <code>auth_users</code>, a folder on disk, and a token the user can present to other daemons.</p>
+    <p>onbod does not run the agent, sign tokens, or schedule tasks. It sends exactly three kinds of message, all through routd: the greeting with its pairing link, &ldquo;you&rsquo;re queued&rdquo;, and a refusal. Its scope is narrow: turn an unknown chat into a paired person, an admission verdict, a folder on disk and a route the person chose. authd signs every token; onbod writes no pairing edge either &mdash; webd does, when the person confirms.</p>
 
     <h2>Go deeper</h2>
     <ul>
       <li><a href="../reference/env.html#onbod">reference/env &mdash; onbod</a> &mdash; full env var table.</li>
-      <li><a href="../components/proxyd.html">components/proxyd</a> &mdash; verifies the session tokens onbod mints.</li>
-      <li><code>specs/5/1-auth-standalone.md</code> &mdash; auth and admission model.</li>
-      <li><code>specs/5/16-mcp-rest-unification.md</code> &mdash; the <code>/v1/invites</code> and <code>/v1/gates</code> surface.</li>
+      <li><a href="../concepts/onboarding.html">concepts/onboarding</a> &mdash; the whole path from a held chat to a route, drawn.</li>
+      <li><a href="../components/proxyd.html">components/proxyd</a> &mdash; signs people in before <code>/onboard</code> and <code>/invite/</code> see them.</li>
+      <li><code>onbod/README.md</code> &mdash; the <code>/v1/invites</code> and <code>/v1/gates</code> surface, and who may write which route.</li>
     </ul>
 
 
@@ -141,7 +141,7 @@ export GITHUB_CLIENT_ID=... GITHUB_CLIENT_SECRET=...
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/components/onbod.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-09-19">2026-09-19</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-16">2026-10-16</time>
       </div>
     </main>
 

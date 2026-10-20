@@ -187,6 +187,16 @@ parent would silently hand the identity two humans' authority. Either
 end of the edge can drop it with `unpair`; it never reaches role
 membership (scoped to `added_by='pairing'`).
 
+Only a platform identity can be paired. `issue_pairing_link` refuses an
+`anon:`, `web:` or `hook:` JID (`pairingTargetFolder`,
+`routd/route_tokens_resource.go`): `anon:<ip-hash>` names whoever holds the
+address next, and `web:` and `hook:` name a public endpoint, not a person.
+Pairing never merges two accounts; it links a channel identity to one.
+Two people racing to redeem one link cannot both win: the token delete is
+conditional, so the loser's batch, edge included, is refused. The whole
+flow, from the held chat to the route, is drawn in
+[`onbod/README.md`](onbod/README.md#from-an-unrouted-chat-to-a-routed-one).
+
 ### Public vs private web tree separation
 
 `<data>/web/pub/` and `<data>/web/priv/` are **separate filesystem

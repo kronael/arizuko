@@ -67,22 +67,72 @@
 
     <p class="lede">Routing, engagement, and topics all assume a group already exists. Onboarding is how one comes to be. When a new user arrives, the <code>onbod</code> daemon decides whether they get in, which group they land in, and how their identity binds to one canonical sub. The principle to hold: a group is never created by hand &mdash; it is always the output of an admission. Three entry paths feed it: invite tokens, the admission queue, and pairing a second chat to an account that already has a world.</p>
 
+    <h2>the whole path, one picture</h2>
+    <p>Here is what happens to a chat nobody routed, from its first message to the route it ends up with. Read it top to bottom. Two separate things have to become true before an agent answers: the chat&rsquo;s identity is tied to a person (the pairing edge), and the chat points at a folder (the route row). Routing never reads the ACL, and the ACL never makes a route, so a stranger who has neither gets nothing from either side.</p>
+    <pre id="twin-pairing"><code>inbound message, no route claims the chat
+  │
+  ▼
+┌──────────────────┐   observe rule matched ──► stored as observed,
+│ routd routeMiss  ├──►                         no turn, no greeting
+│                  │   else: held under no folder, cursor advances;
+│                  │   the operator sees it in /v1/routing/unrouted
+│                  │   and may claim it with a chat_jid= rule
+└────────┬─────────┘
+         │ ONBOARDING_ENABLED, platform allowed,
+         │ a Discord guild only on @mention
+         ▼ POST onbod /v1/onboarding
+┌──────────────────┐
+│ onboarding row   │   one per JID, instance-wide
+│ awaiting_message │
+└────────┬─────────┘
+         │ promptUnprompted: mint route_tokens kind=pair,
+         │ claim prompted_at, send through routd /v1/outbound
+         ▼
+chat: greeting + https://&lt;host&gt;/pair/&lt;token&gt;
+         │ the person opens it in a browser
+         ▼
+┌──────────────────┐   proxyd auth=user: no session ──► OAuth,
+│ webd /pair/&lt;t&gt;   ├──► back to the same URL
+│                  │   GET   confirm page, writes nothing
+│                  │   POST  CSRF, RedeemPairing, one batch:
+│                  │         acl_membership(child=jid, parent=sub,
+│                  │         added_by=pairing) + token delete
+└────────┬─────────┘
+         │ success page links /onboard
+         ▼
+┌──────────────────┐   no gate          approved
+│ onbod admitJID   ├──►gate matches     queued, chat told
+│ observePairings  │   gates, no match  refused, chat told
+└────────┬─────────┘
+         ▼ browser /onboard
+┌──────────────────┐   queued           queue position
+│ world choice     ├──►holds no folder  create a world, if invited
+│                  │                    or gate-approved
+│                  │   1 admin world    route it, via sole_world
+│                  │   N admin worlds   picker, via picker
+│                  │   0 admin worlds   "no world" page
+└────────┬─────────┘
+         ▼
+routes row: room=&lt;id&gt; → world, added_by=&lt;sub&gt;, added_via
+the next message reaches the world; history does not move</code></pre>
+    <p>Notice the side door at the top: the operator can claim a held chat straight from the dashboard, without any pairing. That&rsquo;s the location half on its own. Onboarding is the self-serve way to get both halves, and the two paths never consult each other &mdash; a chat that got greeted and never paired just sits in the held list until someone claims it.</p>
+
     <h2>invite tokens</h2>
     <p>An operator mints a token with the CLI:</p>
     <pre><code>arizuko invite &lt;instance&gt; create &lt;target_glob&gt; [--max-uses N] [--expires DURATION]
 arizuko invite &lt;instance&gt; list   [--issued-by SUB]
 arizuko invite &lt;instance&gt; revoke &lt;token&gt;</code></pre>
-    <p>The token is a row in the <code>invites</code> table (owned by <code>onbod</code>). <code>target_glob</code> picks which group the redeemer lands in &mdash; for example <code>corp/eng/*</code> or a specific folder. <code>--max-uses</code> defaults to 1; <code>--expires</code> is a Go duration like <code>72h</code>. Omit it and the token never expires.</p>
-    <p>The recipient opens the link, picks an OAuth provider (GitHub, Google, Discord, Telegram widget &mdash; whichever the instance has configured), and <code>onbod</code> writes an <code>auth_users</code> row keyed by the returned <strong>sub</strong>. See <a href="../concepts/auth.html">auth</a> for what a sub is and how linking works.</p>
+    <p>The token is a row in the <code>invites</code> table (owned by <code>onbod</code>). <code>target_glob</code> is a folder, and a trailing slash changes what it means: <code>corp/eng</code> makes the redeemer an admin of that folder, while <code>corp/eng/</code> lets them create a new folder under it, named on the next screen. <code>/</code> lets them create a top-level world. <code>**</code> isn&rsquo;t a folder, so it&rsquo;s refused. onbod keeps only the sha256 of the token. <code>--max-uses</code> defaults to 1; <code>--expires</code> is a Go duration like <code>72h</code>. Omit it and the token never expires.</p>
+    <p>The recipient opens the link, picks an OAuth provider (GitHub, Google, Discord, Telegram widget &mdash; whichever the instance has configured), and authd signs them in under the returned <strong>sub</strong>. See <a href="../concepts/auth.html">auth</a> for what a sub is and how linking works.</p>
 
     <h2>the greeting is a pairing link</h2>
-    <p>When <code>ONBOARDING_ENABLED=1</code>, a chat that messages the instance and matches no route gets a reply: one link, good for ten minutes, that proves whoever clicks it can read that chat. It is the same link an agent mints with <code>issue_pairing_link</code> &mdash; onboarding does not have a login of its own. Clicking it signs the person in, shows them exactly which chat account they are about to attach to their name, and asks. Nothing is written until they say yes.</p>
+    <p>When <code>ONBOARDING_ENABLED=true</code>, a chat that messages the instance and matches no route gets a reply: one link, good for ten minutes, that proves whoever clicks it can read that chat. It is the same link an agent mints with <code>issue_pairing_link</code> &mdash; onboarding does not have a login of its own. The greeting is fixed text plus the link, never an agent turn: a chat that belongs to no folder has no spend cap to bound one. Clicking it signs the person in, shows them exactly which chat account they are about to attach to their name, and asks. Nothing is written until they say yes.</p>
     <p>What that click does is bind an identity, and only that. It does not decide where the chat&rsquo;s messages go &mdash; that is the next screen, and it is a choice, not a guess. See <a href="routing.html">routing</a>.</p>
     <p><strong>A dead link is not a dead end.</strong> Ten minutes is short on purpose: the protection is the confirm page, not the clock. Send another message in the same chat and the next greeting brings a fresh link. Two things stop that becoming noise &mdash; the chat has to actually speak again, and the previous link has to have expired first. A chat that has since been routed, or has gone quiet, is never greeted twice.</p>
 
     <h2>admission queue</h2>
     <p>Pairing says who you are. The queue says whether this instance takes you. They are separate on purpose, and they happen at different moments: the binding is instant, the verdict lands within about ten seconds.</p>
-    <p>The queue is gated by <code>ONBOARDING_GATES</code> &mdash; a list of rules like <code>github-org=kronael</code>, <code>google-domain=example.com</code>, or a catch-all. Each gate carries an optional daily limit. The <code>admitFromQueue</code> loop runs roughly every 60 seconds, counts admissions in the current day, and promotes queued users to <code>approved</code> until the gate&rsquo;s limit is hit.</p>
+    <p>The queue is gated by rows in onbod&rsquo;s <code>onboarding_gates</code> table, managed with <code>arizuko gate</code> or <code>/v1/gates</code> &mdash; rules like <code>github-org=kronael</code>, <code>google-domain=example.com</code>, or a catch-all. Each gate carries an optional daily limit. The <code>admitFromQueue</code> loop runs roughly every 60 seconds, counts admissions in the current day, and promotes queued users to <code>approved</code> until the gate&rsquo;s limit is hit.</p>
     <p>Queued users see their position on <code>/onboard</code>, which auto-refreshes every 30 seconds. Operators approve manually through <a href="../components/dashd.html">dashd</a> or by adjusting gate config.</p>
     <p><strong>A refusal is spoken, not swallowed.</strong> If gates are configured and none of them matches the account, the chat gets told so, in the chat &mdash; not a browser error on a page the person has already closed. Configure no gates at all and everyone who pairs is approved.</p>
 
@@ -91,7 +141,7 @@ arizuko invite &lt;instance&gt; revoke &lt;token&gt;</code></pre>
     <p><strong>It only works on an instance that has at least one gate configured.</strong> That reads like a technicality and it is the opposite &mdash; it is the switch between two very different instances. Remember the line above: configure no gates and everyone who pairs is approved. So if an approval alone opened workspace creation, then on a fresh instance <em>anyone who messaged the bot</em> could help themselves to a tenant. Requiring a gate means nothing changes until you say it changes.</p>
     <p>So the two setups are:</p>
     <ul>
-      <li><strong>No gates</strong> &mdash; the default, and what every existing instance already does. Workspaces come from invites only. People can still pair chats and be approved; approval just does not buy a workspace.</li>
+      <li><strong>No gates</strong> &mdash; the default. Workspaces come from invites only. People can still pair chats and be approved; approval just does not buy a workspace.</li>
       <li><strong>One or more gates</strong> &mdash; self-serve signup, fenced by the gate. The gate decides <em>who</em> may queue (your GitHub org, your Google domain, or a catch-all) and its daily limit decides <em>how fast</em> they get in.</li>
     </ul>
     <p>A gate you have switched off does not count. It has to be enabled &mdash; the same rule that decides who gets queued decides whether approvals are worth anything, so the two can never disagree.</p>
@@ -116,7 +166,7 @@ arizuko invite &lt;instance&gt; revoke &lt;token&gt;</code></pre>
     <p>Invite tokens enforce <code>max_uses</code> at redemption: the <code>UsedCount</code> column increments, and <code>RevokeInvite</code> marks them dead. Expired tokens (<code>expires_at &lt; now</code>) are refused with an error. Gate daily limits reset on UTC day boundaries &mdash; the queue counts admissions whose <code>queued_at</code> falls in the current day.</p>
 
     <h2>go deeper</h2>
-    <p>How identity becomes a signed header that downstream daemons trust: <a href="../concepts/auth.html">auth</a>. What skills land in a freshly-seeded group: <a href="../concepts/skills.html">skills</a>. Full token model, planned <code>/v1/invites</code> REST surface, and the cross-daemon flow: <a href="https://github.com/kronael/arizuko/blob/main/onbod/README.md">onbod/README.md</a>. Specs: <a href="https://github.com/kronael/arizuko/blob/main/specs/5/18-onboarding-model.md">specs/5/18-onboarding-model.md</a> (where a chat lands), <a href="https://github.com/kronael/arizuko/blob/main/specs/5/31-identity-pairing.md">specs/5/31-identity-pairing.md</a> (who a chat is), <a href="https://github.com/kronael/arizuko/blob/main/specs/5/1-auth-standalone.md">specs/5/1-auth-standalone.md</a>.</p>
+    <p>How identity becomes a signed header that downstream daemons trust: <a href="../concepts/auth.html">auth</a>. What skills land in a freshly-seeded group: <a href="../concepts/skills.html">skills</a>. The token model, the <code>/v1/invites</code> and <code>/v1/gates</code> surface, and who may write which route: <a href="https://github.com/kronael/arizuko/blob/main/onbod/README.md">onbod/README.md</a>. Why the confirm page is the defence: <a href="../security/">security</a>.</p>
 
       <nav class="docs-pager" aria-label="Pager">
         <a rel="prev" href="retries.html">&larr; Retries</a>

@@ -75,6 +75,10 @@ var twins = []twin{
 		"proxyd/README.md",
 		"template/web/pub/arizuko/components/proxyd.html",
 	}},
+	{name: "pairing", files: []string{
+		"onbod/README.md",
+		"template/web/pub/arizuko/concepts/onboarding.html",
+	}},
 }
 
 var (
