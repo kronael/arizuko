@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>upgrade an instance &mdash; arizuko</title>
+  <title>upgrade &mdash; arizuko</title>
   <link rel="stylesheet" href="../assets/hub.css">
 </head>
 <body>
@@ -46,13 +46,13 @@
 
     <main class="docs-content">
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">howto</a> &rsaquo; Upgrade</p>
-      <h1>upgrade an instance</h1>
+      <h1>upgrade</h1>
 
-    <p class="lede">An upgrade is a rebuild from the new checkout and one restart. The part people miss is the two guest artifacts: each lands in a new directory, and <code>.env</code> has to name it.</p>
+    <p class="lede">An upgrade builds the images from the new checkout and restarts the instance. Each of the two guest artifacts goes into a new directory, and <code>.env</code> must name the new directory.</p>
 
-    <h2 id="steps">the whole upgrade</h2>
-    <p>Run it in the arizuko checkout. <code>demo</code> is the instance name; use yours.</p>
-    <pre id="twin-upgrade"><code>git pull                                          # the new release
+    <h2 id="steps">eight commands upgrade an instance</h2>
+    <p>Run the commands in the arizuko checkout. Replace <code>demo</code> with the name of the instance.</p>
+    <pre><code>git pull                                          # the new release
 make build                                        # ./arizuko + daemon binaries
 sudo make images DATA_DIR=/srv/data/arizuko_demo  # prints rootfs: &lt;dir&gt;
 sudo make kernel DATA_DIR=/srv/data/arizuko_demo  # prints kernel: &lt;dir&gt;
@@ -61,25 +61,25 @@ sudoedit /srv/data/arizuko_demo/.env              # RUNED_ROOTFS_DIR, RUNED_KERN
 sudo systemctl restart arizuko_demo               # arizuko run regenerates, starts
 ./arizuko send demo main "ping" --wait            # one reply proves the path</code></pre>
 
-    <h2 id="artifacts">each artifact is a new directory</h2>
-    <p>A turn boots a kernel and a root filesystem that live under the data directory, named by what is in them. runed reads the two paths from <code>.env</code> and never guesses:</p>
+    <h2 id="artifacts">each artifact goes into a new directory</h2>
+    <p>A turn starts a guest kernel and a root filesystem from the data directory. The name of each directory contains a hash of its content. runed reads the two paths from <code>.env</code>:</p>
     <pre><code>make images ──► DATA_DIR/images/rootfs-&lt;image id&gt;/        ◄── RUNED_ROOTFS_DIR
 make kernel ──► DATA_DIR/images/kernel-&lt;version&gt;-&lt;hash&gt;/  ◄── RUNED_KERNEL_DIR</code></pre>
-    <p><code>make images</code> exports a new rootfs tree only when the <code>arizuko-ant</code> image changed, and prints the directory either way. It keeps the newest two trees and names the older ones with <code>make rootfs-stale</code>; removing them is yours. <code>make kernel</code> builds only when <code>kernel/Dockerfile</code>, <code>kernel/arizuko.fragment</code>, <code>kernel/check-config.sh</code> or <code>kernel/guest-init/*.go</code> changed. Otherwise it prints <code>is current</code> and you leave <code>RUNED_KERNEL_DIR</code> alone. A kernel build takes a while, so it's good news when it doesn't happen.</p>
-    <p>Forget to repoint <code>RUNED_ROOTFS_DIR</code> and the new daemons boot last release's guest. Nothing errors.</p>
+    <p><code>make images</code> exports a new rootfs tree only when the <code>arizuko-ant</code> image changed. It prints the directory in both cases. It keeps the newest two trees, and <code>make rootfs-stale</code> lists the older trees for removal. <code>make kernel</code> builds only when <code>kernel/Dockerfile</code>, <code>kernel/arizuko.fragment</code>, <code>kernel/check-config.sh</code> or <code>kernel/guest-init/*.go</code> changed. In all other cases it prints <code>is current</code>, and <code>RUNED_KERNEL_DIR</code> does not change.</p>
+    <p>When <code>RUNED_ROOTFS_DIR</code> keeps the old value, the new daemons start the guest of the previous release. No error occurs.</p>
 
-    <h2 id="generate">read what generate warns about</h2>
-    <p><code>systemctl restart</code> runs <code>arizuko run</code>, which regenerates the compose file anyway. Running <code>arizuko generate</code> first puts its warnings on your terminal instead of in the journal. Two of them matter before the restart: a fragment it calls <a href="operate.html#frozen-fragment">FROZEN</a>, and a daemon with <a href="operate.html#store-key">no store key</a>, which restart-loops the whole instance.</p>
+    <h2 id="generate">generate shows its warnings before the restart</h2>
+    <p><code>systemctl restart</code> runs <code>arizuko run</code>, and <code>arizuko run</code> writes the compose file again. <code>arizuko generate</code> before the restart shows its warnings on the terminal, not in the journal. Two warnings need a fix before the restart: a <a href="operate.html#frozen-fragment">FROZEN fragment</a>, and a <a href="operate.html#store-key">daemon without a store key</a>. A daemon without a store key restarts the whole instance in a loop.</p>
 
-    <h2 id="migrate">expect one /migrate turn per folder</h2>
-    <p>A release that bumps <code>MIGRATION_VERSION</code> makes routd queue one <code>/migrate</code> turn for every folder whose skills are behind. Real messages wait behind them, so the first replies after an upgrade are slow. The queue is empty when no guest runs:</p>
-    <pre><code>pgrep -c qemu-system-x86    # 0 when the /migrate turns are done</code></pre>
+    <h2 id="migrate">a release queues one /migrate turn for each folder</h2>
+    <p>When a release increases <code>MIGRATION_VERSION</code>, routd queues one <code>/migrate</code> turn for each folder with old skills. Other messages wait behind these turns, so the first replies after an upgrade are slow. The queue is empty when no guest runs:</p>
+    <pre><code>pgrep -c qemu-system-x86    # prints 0 when the /migrate turns are done</code></pre>
 
-    <h2 id="rollback">roll back the guest</h2>
-    <p>The older rootfs tree is still on disk. Set <code>RUNED_ROOTFS_DIR</code> back to it and restart. The daemons stay on the new images; rolling those back means building the old checkout.</p>
+    <h2 id="rollback">the older rootfs tree rolls back the guest</h2>
+    <p>The older rootfs tree stays on disk. Set <code>RUNED_ROOTFS_DIR</code> to the older tree and restart. The daemons keep the new images. A rollback of the daemons needs a build from the old checkout.</p>
 
-    <h2 id="gates">the release gates</h2>
-    <p>A maintainer's release runs the five post-deploy gates in <a href="https://github.com/kronael/arizuko/blob/main/.claude/skills/eval/gates.md">[gates.md]</a>. The last one, <code>anteval --smoke</code>, is the only one that proves a live agent still answers. Run it after the <code>/migrate</code> turns drain, or it measures the queue instead of the release.</p>
+    <h2 id="gates">five gates end a release</h2>
+    <p>A maintainer release runs the five post-deploy gates in <a href="https://github.com/kronael/arizuko/blob/main/.claude/skills/eval/gates.md">[gates.md]</a>. Only the last gate, <code>anteval --smoke</code>, shows that a live agent answers. Run it after the <code>/migrate</code> turns end. Before that, it measures the queue and not the release.</p>
 
       <nav class="docs-pager" aria-label="Pager">
         <a rel="prev" href="operate.html">&larr; Operate</a>

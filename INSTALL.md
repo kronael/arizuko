@@ -622,10 +622,10 @@ For background operation:
 
 ```bash
 ./arizuko run <name> &      # background with job control
-# OR create a systemd unit (see Run under systemd)
+# OR run it under systemd, as the next section shows
 ```
 
-### Run under systemd
+### systemd keeps the instance running
 
 systemd keeps `arizuko run` up and sends its output to the journal:
 
@@ -674,12 +674,11 @@ per turn (spec `6/41`) — so send the agent a message and check
 `journalctl -u arizuko_<name>` or `/dash/runed/` for the spawn, not `docker
 ps`.
 
-## Upgrade
+## An upgrade rebuilds the images and restarts the instance
 
-An upgrade rebuilds the images from the new checkout and restarts the
-instance. Run the block in the arizuko checkout. Each guest artifact is a
-directory whose name carries its content hash, so a new artifact is a new
-directory, and `.env` must name it.
+Run the block in the arizuko checkout. The name of each guest artifact
+directory contains a hash of its content. A new artifact is a new directory,
+and `.env` must name it.
 
 ```bash
 git pull                                          # the new release
@@ -701,20 +700,20 @@ sudo systemctl restart arizuko_demo               # arizuko run regenerates, sta
 - `arizuko generate` names a fragment that is FROZEN and a daemon with no store
   key. Fix both before the restart. A daemon without a store key restart-loops
   the whole instance.
-- A release that bumps `MIGRATION_VERSION` makes routd queue one `/migrate`
+- A release that increases `MIGRATION_VERSION` makes routd queue one `/migrate`
   turn for every folder. Replies wait behind them. The queue is empty when
   `pgrep -c qemu-system-x86` prints 0.
 - A maintainer's release runs the five post-deploy gates in
   [`.claude/skills/eval/gates.md`](.claude/skills/eval/gates.md). The last
   gate, `anteval --smoke`, is the only one that proves a live agent answers.
 
-## Backup and restore
+## A tar or an archive restores an instance
 
 A tar of the stopped data directory is the whole instance. `arizuko archive`
 is a logical copy that `archive apply` restores into the same instance or
 into another one.
 
-### A tar of the stopped instance
+### A tar of the stopped instance holds every row
 
 The tar carries every row, because the store server's PostgreSQL data sits
 under `store/`. Stop the instance first. PostgreSQL writes its files while it
@@ -743,7 +742,7 @@ sudo tar -C /srv/data -xzf arizuko_<name>-<date>.tar.gz
 sudo systemctl start arizuko_<name>
 ```
 
-### Export and apply an archive
+### An archive copies one instance into another
 
 `arizuko archive export <name> [file] [--quiesced]` writes one tar:
 

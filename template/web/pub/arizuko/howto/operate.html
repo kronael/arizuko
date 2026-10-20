@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>when it goes quiet, where to look &mdash; arizuko</title>
+  <title>operate &mdash; arizuko</title>
   <link rel="stylesheet" href="../assets/hub.css">
 </head>
 <body>
@@ -46,17 +46,17 @@
 
     <main class="docs-content">
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">howto</a> &rsaquo; Operate</p>
-      <h1>when it goes quiet, where to look</h1>
+      <h1>operate</h1>
 
-    <p class="lede">An instance that answers nothing usually stops at one of four places. Walk the message down the path, check each stop, and the first one that fails is your incident. Each incident below gives the symptom, what to read, the cause, the fix and the line of code that decides it.</p>
+    <p class="lede">A message that gets no reply stops at one of four daemons. Check each daemon in the order the message passes it. The first check that fails names the incident. Each incident below gives what to read, the cause, the fix and the source line.</p>
 
-    <h2 id="logs">the logs are in the journal</h2>
-    <p>The systemd unit runs <code>arizuko run</code>, which runs <code>docker compose up</code> in the foreground. Compose forwards every container's output to its own stdout, and journald keeps it. So one command reads every daemon:</p>
+    <h2 id="logs">the journal holds the log of every daemon</h2>
+    <p>The systemd unit runs <code>arizuko run</code>. <code>arizuko run</code> runs <code>docker compose up</code> in the foreground. Compose writes the output of every container to its stdout, and journald keeps that output. One command reads all daemons:</p>
     <pre><code>sudo journalctl -u arizuko_&lt;name&gt; --since "15 min ago" --no-pager</code></pre>
-    <p>Don't trust <code>docker logs</code> here. A host whose Docker daemon sets <code>"log-driver": "none"</code> answers it with an error on stderr, and a <code>| grep -c ERROR</code> behind it counts the empty stdout and prints <code>0</code>. Zero errors, from a command that read nothing.</p>
+    <p>Do not use <code>docker logs</code>. When the Docker daemon sets <code>"log-driver": "none"</code>, <code>docker logs</code> writes an error to stderr and nothing to stdout. A <code>| grep -c ERROR</code> after it then prints <code>0</code>, and the count is wrong.</p>
 
-    <h2 id="path">walk the message down the path</h2>
-    <p>Each stop has one thing that must be true and one place to read it:</p>
+    <h2 id="path">a message passes four daemons before the reply</h2>
+    <p>Each daemon has one condition that must be true and one place to read it:</p>
     <pre><code>platform message
       │
       ▼
@@ -77,170 +77,170 @@
 └─────┬─────┘
       ▼
 routd ──► adapter ──► platform reply</code></pre>
-    <p>The quickest end-to-end probe skips the platform. <code>arizuko send</code> writes a message straight into a folder's queue as the operator and prints the reply:</p>
+    <p><code>arizuko send</code> writes a message into the queue of a folder as the operator and prints the reply. It does not use the platform:</p>
     <pre><code>./arizuko send &lt;name&gt; &lt;folder&gt; "ping" --wait</code></pre>
-    <p>A reply here and silence on the platform puts the fault at the adapter. No reply here puts it at routd, runed or the guest.</p>
+    <p>When this command gets a reply and the platform chat does not, the fault is in the adapter. When this command gets no reply, the fault is in routd, runed or the guest.</p>
 
-    <h2 id="incidents">incidents</h2>
+    <h2 id="incidents">each incident has one log line, one cause and one fix</h2>
 
     <h3 id="runed-preconditions">runed refuses to start</h3>
     <dl>
       <dt>Read</dt>
       <dd><code>sudo journalctl -u arizuko_&lt;name&gt; | grep -A20 'cannot run turns'</code></dd>
       <dt>Cause</dt>
-      <dd>runed checks every input before it serves a turn and prints all the missing ones at once: <code>this host cannot run turns; N precondition(s) missing</code>. The list covers root, the three device nodes <code>/dev/kvm</code>, <code>/dev/vhost-vsock</code> and <code>/dev/net/tun</code>, the <code>qemu</code>, <code>egress</code>, <code>iptables</code> and <code>ip</code> binaries, <code>RUNED_KERNEL_DIR</code>, <code>RUNED_ROOTFS_DIR</code>, the guest memory budget and the tap subnet.</dd>
+      <dd>runed checks every input before it starts a turn. It prints all missing inputs in one message: <code>this host cannot run turns; N precondition(s) missing</code>. The inputs are root, the device nodes <code>/dev/kvm</code>, <code>/dev/vhost-vsock</code> and <code>/dev/net/tun</code>, the <code>qemu</code>, <code>egress</code>, <code>iptables</code> and <code>ip</code> binaries, <code>RUNED_KERNEL_DIR</code>, <code>RUNED_ROOTFS_DIR</code>, the guest memory budget and the tap subnet.</dd>
       <dt>Fix</dt>
-      <dd>Fix every line it names, then restart. An artifact it can't find comes from <code>sudo make kernel DATA_DIR=&hellip;</code> or <code>sudo make images DATA_DIR=&hellip;</code>; point <code>RUNED_KERNEL_DIR</code> and <code>RUNED_ROOTFS_DIR</code> in <code>.env</code> at the directories they print.</dd>
+      <dd>Correct every line of the message, then restart. <code>sudo make kernel DATA_DIR=&hellip;</code> and <code>sudo make images DATA_DIR=&hellip;</code> build a missing artifact. Set <code>RUNED_KERNEL_DIR</code> and <code>RUNED_ROOTFS_DIR</code> in <code>.env</code> to the directories that the two commands print.</dd>
       <dt>Source</dt>
       <dd><code>runed/qemuhost.go:117</code> <code>qemuPreconditions</code>, the message at <code>runed/qemuhost.go:218</code></dd>
     </dl>
 
-    <h3 id="memory">guest memory times the cap is more than the host has</h3>
+    <h3 id="memory">runed refuses a guest size that the host memory cannot hold</h3>
     <dl>
       <dt>Read</dt>
-      <dd>The precondition list above carries <code>RUNED_GUEST_MEM=&hellip; × MAX_CONCURRENT_CONTAINERS=&hellip; is &hellip; MiB, over this host's MemTotal</code>.</dd>
+      <dd>The precondition message contains <code>RUNED_GUEST_MEM=&hellip; × MAX_CONCURRENT_CONTAINERS=&hellip; is &hellip; MiB, over this host's MemTotal</code>.</dd>
       <dt>Cause</dt>
-      <dd>Every concurrent turn is a guest with its own memory, so the host must hold the guest size times the cap. runed refuses the pair at start instead of failing on the second turn.</dd>
+      <dd>Each concurrent turn is a guest with its own memory. The host must hold the guest size multiplied by the cap. runed refuses this pair at start, before a second turn fails.</dd>
       <dt>Fix</dt>
-      <dd>Lower <code>RUNED_GUEST_MEM</code> (default <code>2G</code>) or <code>MAX_CONCURRENT_CONTAINERS</code> in <code>.env</code> and restart.</dd>
+      <dd>Decrease <code>RUNED_GUEST_MEM</code>, default <code>2G</code>, or <code>MAX_CONCURRENT_CONTAINERS</code> in <code>.env</code>. Then restart.</dd>
       <dt>Source</dt>
       <dd><code>runed/qemuhost.go:318</code> <code>memoryFits</code></dd>
     </dl>
 
-    <h3 id="secrets-key">routd exits at boot without SECRETS_KEY</h3>
+    <h3 id="secrets-key">routd stops at start without SECRETS_KEY</h3>
     <dl>
       <dt>Read</dt>
-      <dd>The journal shows <code>SECRETS_KEY required: secrets are encrypted at rest</code> and routd exits 1.</dd>
+      <dd>The journal shows <code>SECRETS_KEY required: secrets are encrypted at rest</code>, and routd exits with status 1.</dd>
       <dt>Cause</dt>
-      <dd>routd seals every stored secret with a key derived from <code>SECRETS_KEY</code> and won't start without one. <code>arizuko create</code> writes it into <code>.env</code>; an <code>.env</code> rebuilt by hand loses it.</dd>
+      <dd>routd encrypts every stored secret with a key that it derives from <code>SECRETS_KEY</code>. routd does not start without the key. <code>arizuko create</code> writes the key into <code>.env</code>. An <code>.env</code> that an operator writes again by hand does not contain it.</dd>
       <dt>Fix</dt>
-      <dd>Put the instance's own key back from your backup of <code>.env</code>. A fresh key starts routd, but no value sealed under the old key opens with it. To rotate, set <code>SECRETS_KEY=new,old</code>: the first key seals, the rest only open.</dd>
+      <dd>Copy the key of the instance back from the backup of <code>.env</code>. A new key starts routd, but it cannot decrypt a value that the old key encrypted. To change the key, set <code>SECRETS_KEY=new,old</code>. The first key encrypts. The other keys only decrypt.</dd>
       <dt>Source</dt>
       <dd><code>core/config.go:140</code>, <code>routd/cmd/routd/main.go:69</code>, <code>store/store.go:63</code></dd>
     </dl>
 
-    <h3 id="store-key">the instance restart-loops after <code>packages add</code></h3>
+    <h3 id="store-key">a daemon without a store key restarts the whole instance</h3>
     <dl>
       <dt>Read</dt>
-      <dd><code>systemctl is-active arizuko_&lt;name&gt;</code> says <code>activating</code>, two containers run out of fifteen, and the journal shows <code>dynstore: endpoint "https://extenddb:18443" takes an access key and a secret</code> from the daemon you just enabled. <code>arizuko generate</code> said it first: <code>store enrolment is partial</code>.</dd>
+      <dd><code>systemctl is-active arizuko_&lt;name&gt;</code> prints <code>activating</code>. Two of fifteen containers run. The journal shows <code>dynstore: endpoint "https://extenddb:18443" takes an access key and a secret</code> from the daemon that <code>packages add</code> enabled. Before that, <code>arizuko generate</code> printed <code>store enrolment is partial</code>.</dd>
       <dt>Cause</dt>
-      <dd>The daemon reads the store and holds no key for it. It exits at its first store open, its exit ends <code>docker compose up</code>, and systemd starts the whole instance again. arizuko has no command that mints a store key yet (BUGS <code>L319</code>, <code>L406</code>).</dd>
+      <dd>The daemon reads the store and has no key for it. The daemon exits at its first store access. Its exit stops <code>docker compose up</code>, and systemd starts the whole instance again. No arizuko command makes a store key (BUGS <code>L319</code>, <code>L406</code>).</dd>
       <dt>Fix</dt>
-      <dd><code>./arizuko packages &lt;name&gt; remove &lt;pkg&gt;</code>, <code>./arizuko generate &lt;name&gt;</code>, restart. Then mint the key by <a href="https://github.com/kronael/arizuko/blob/main/INSTALL.md#the-per-daemon-store-keys">[INSTALL § The per-daemon store keys]</a> and add the package again.</dd>
+      <dd>Run <code>./arizuko packages &lt;name&gt; remove &lt;pkg&gt;</code> and <code>./arizuko generate &lt;name&gt;</code>, then restart. Make the key as <a href="https://github.com/kronael/arizuko/blob/main/INSTALL.md#the-per-daemon-store-keys">[INSTALL § The per-daemon store keys]</a> describes. Then add the package again.</dd>
       <dt>Source</dt>
       <dd><code>objstore/dynstore/dynstore.go:69</code>, the warning at <code>compose/compose.go:1100</code></dd>
     </dl>
 
-    <h3 id="data-dir"><code>make images</code> or <code>make kernel</code> stops with "set DATA_DIR"</h3>
+    <h3 id="data-dir"><code>make images</code> and <code>make kernel</code> stop without DATA_DIR</h3>
     <dl>
       <dt>Read</dt>
-      <dd><code>kernel: set DATA_DIR=&lt;instance data dir&gt;</code> or <code>rootfs: set DATA_DIR=&lt;instance data dir&gt;</code>, exit 1.</dd>
+      <dd><code>kernel: set DATA_DIR=&lt;instance data dir&gt;</code> or <code>rootfs: set DATA_DIR=&lt;instance data dir&gt;</code>, exit status 1.</dd>
       <dt>Cause</dt>
-      <dd>Both artifacts land under <code>DATA_DIR/images/</code>. <code>make kernel</code> checks first. <code>make images</code> builds every image and only then reaches its <code>rootfs</code> step, so a run without <code>DATA_DIR</code> fails after the slow part.</dd>
+      <dd>Both artifacts go into <code>DATA_DIR/images/</code>. <code>make kernel</code> checks <code>DATA_DIR</code> first. <code>make images</code> builds every image before its <code>rootfs</code> step checks <code>DATA_DIR</code>, so it fails after the slow builds.</dd>
       <dt>Fix</dt>
-      <dd><code>sudo make images DATA_DIR=/srv/data/arizuko_&lt;name&gt;</code>. The image builds are cached, so the second run goes straight to the export.</dd>
+      <dd>Run <code>sudo make images DATA_DIR=/srv/data/arizuko_&lt;name&gt;</code>. Docker keeps the image builds in its cache, so the second run starts at the export.</dd>
       <dt>Source</dt>
       <dd><code>Makefile:57</code>, <code>Makefile:308</code></dd>
     </dl>
 
-    <h3 id="vsock">a second instance's turns fail with "address already in use"</h3>
+    <h3 id="vsock">two instances on one host need two vsock windows</h3>
     <dl>
       <dt>Read</dt>
-      <dd><code>vsock bind port 5555: address already in use</code> on the newer instance, from its first turn.</dd>
+      <dd>The second instance logs <code>vsock bind port 5555: address already in use</code> at its first turn.</dd>
       <dt>Cause</dt>
-      <dd>The vsock CID and port space belongs to the host, not to an instance. Two instances on the defaults both take CID 3 and ports 5555 upward. A guest's two ports come from its slot, so one instance uses <code>MAX_CONCURRENT_CONTAINERS</code> CIDs and twice that many ports.</dd>
+      <dd>The vsock CIDs and ports belong to the host, not to one instance. Two instances with the default settings both use CID 3 and port 5555 and up. One instance uses <code>MAX_CONCURRENT_CONTAINERS</code> CIDs and two ports for each CID.</dd>
       <dt>Fix</dt>
-      <dd>Give the second instance its own window in <code>.env</code>: <code>RUNED_VSOCK_CID_BASE</code> at least the first base plus the cap, <code>RUNED_VSOCK_PORT_BASE</code> at least the first base plus twice the cap. Give it its own <code>RUNED_TAP_SUBNET</code> too: a tap's addresses come from the subnet and the slot alone. Nothing detects an overlap, so write the windows down.</dd>
+      <dd>In the <code>.env</code> of the second instance, set <code>RUNED_VSOCK_CID_BASE</code> to the first base plus the cap or more. Set <code>RUNED_VSOCK_PORT_BASE</code> to the first base plus two times the cap or more. Also set a different <code>RUNED_TAP_SUBNET</code>, because runed derives the tap addresses from the subnet and the slot only. No check finds an overlap, so record the windows.</dd>
       <dt>Source</dt>
       <dd><code>runed/vmrecord.go:208</code> <code>allocateCID</code>, <code>runed/vmrecord.go:238</code> <code>vsockPorts</code>, <code>runed/vmctl.go:98</code>, <code>runed/vmnet.go:38</code></dd>
     </dl>
 
-    <h3 id="migrate-storm">replies crawl right after a release</h3>
+    <h3 id="migrate-storm">a release queues one /migrate turn for each folder</h3>
     <dl>
       <dt>Read</dt>
-      <dd><code>sudo journalctl -u arizuko_&lt;name&gt; | grep 'auto-migrate'</code> shows one <code>version behind, triggering /migrate</code> per folder.</dd>
+      <dd><code>sudo journalctl -u arizuko_&lt;name&gt; | grep 'auto-migrate'</code> shows one <code>version behind, triggering /migrate</code> line for each folder.</dd>
       <dt>Cause</dt>
-      <dd>A release that bumps <code>MIGRATION_VERSION</code> makes routd queue one <code>/migrate</code> turn for every folder whose skills are behind. Those turns hold the run slots, so real messages wait in line behind them.</dd>
+      <dd>When a release increases <code>MIGRATION_VERSION</code>, routd queues one <code>/migrate</code> turn for each folder with old skills. These turns use the run slots, so other messages wait.</dd>
       <dt>Fix</dt>
-      <dd>Wait. The storm is over when no guest runs: <code>pgrep -c qemu-system-x86</code> prints 0. Match the process name, which the kernel cuts to 15 characters, and never <code>pgrep -f</code>, which matches its own shell. Run an eval only after that.</dd>
+      <dd>Wait until no guest runs: <code>pgrep -c qemu-system-x86</code> prints 0. The kernel cuts the process name to 15 characters, so use this exact name. Do not use <code>pgrep -f</code>, because it also finds its own shell. Start an eval only after the count is 0.</dd>
       <dt>Source</dt>
       <dd><code>routd/loop.go:475</code> <code>checkMigrationVersion</code></dd>
     </dl>
 
-    <h3 id="disk">the data disk fills up</h3>
+    <h3 id="disk">old rootfs trees fill the data disk</h3>
     <dl>
       <dt>Read</dt>
-      <dd><code>sudo make rootfs-stale DATA_DIR=/srv/data/arizuko_&lt;name&gt;</code> names every rootfs tree past the two kept. The Makefile puts one tree at about 8.3 GB.</dd>
+      <dd><code>sudo make rootfs-stale DATA_DIR=/srv/data/arizuko_&lt;name&gt;</code> lists every rootfs tree after the newest two. The Makefile gives the size of one tree as approximately 8.3 GB.</dd>
       <dt>Cause</dt>
-      <dd>Every release whose agent image changed exports a new <code>images/rootfs-&lt;hash&gt;/</code> tree. <code>make images</code> keeps the newest two and deletes nothing, because a running turn may have an older one mounted.</dd>
+      <dd>A release with a changed agent image exports a new <code>images/rootfs-&lt;hash&gt;/</code> tree. <code>make images</code> keeps the newest two trees and deletes none, because a running turn can use an older tree.</dd>
       <dt>Fix</dt>
-      <dd>Remove the named trees one explicit path at a time. Several instances on one <code>arizuko-ant</code> image can share one <code>DATA_DIR</code> for the artifacts, so the export happens once. <code>docker builder prune -f</code> frees build cache. Never <code>docker image prune -a</code>: no container holds <code>arizuko-ant</code> between turns, so the prune deletes it and the next rootfs export has nothing to read.</dd>
+      <dd>Remove each listed tree by its full path. Instances on the same <code>arizuko-ant</code> image can use one <code>DATA_DIR</code> for the artifacts, so the export occurs once. <code>docker builder prune -f</code> removes the build cache. Do not run <code>docker image prune -a</code>: no container holds <code>arizuko-ant</code> between turns, so the prune deletes it, and the next rootfs export fails.</dd>
       <dt>Source</dt>
       <dd><code>Makefile:352</code> <code>rootfs-stale</code>, <code>compose/compose.go:1237</code> <code>hostViewPaths</code></dd>
     </dl>
 
-    <h3 id="whatsapp">WhatsApp stops and whapd stays unpaired</h3>
+    <h3 id="whatsapp">whapd stays up without a WhatsApp session</h3>
     <dl>
       <dt>Read</dt>
-      <dd>The journal shows <code>session invalidated; staying up unpaired &mdash; re-pair through /v1/pair</code>, and whapd's <code>/health</code> answers 503.</dd>
+      <dd>The journal shows <code>session invalidated; staying up unpaired &mdash; re-pair through /v1/pair</code>, and the whapd <code>/health</code> endpoint returns 503.</dd>
       <dt>Cause</dt>
-      <dd>WhatsApp ended the linked-device session on its side. whapd stays up on purpose, because the pairing endpoint lives in that process.</dd>
+      <dd>WhatsApp ended the linked-device session. whapd does not exit, because the pairing endpoint is in the whapd process.</dd>
       <dt>Fix</dt>
-      <dd>Open <code>/dash/channels/whatsapp/pair</code>, enter the bot's phone number, and type the 8-character code on the phone: Settings &rsaquo; Linked Devices &rsaquo; Link a Device &rsaquo; Link with phone number instead. No QR scan. The code lives 60 seconds, and whapd allows 5 starts an hour.</dd>
+      <dd>Open <code>/dash/channels/whatsapp/pair</code> and enter the phone number of the bot. On the phone, open Settings &rsaquo; Linked Devices &rsaquo; Link a Device &rsaquo; Link with phone number instead, and type the 8-character code. The code is valid for 60 seconds. whapd accepts 5 pairing starts in one hour.</dd>
       <dt>Source</dt>
       <dd><code>whapd/src/main.ts:320</code>, <code>dashd/main.go:578</code>, <a href="https://github.com/kronael/arizuko/blob/main/whapd/README.md#re-pairing-without-the-log">[whapd README]</a></dd>
     </dl>
 
-    <h3 id="second-account">two bots on one platform read the same account</h3>
+    <h3 id="second-account">a second bot without its own token reads the first account</h3>
     <dl>
       <dt>Read</dt>
-      <dd>Both services answer as one bot, or the second one duplicates the first.</dd>
+      <dd>Two services answer as one bot, or the second service sends each reply again.</dd>
       <dt>Cause</dt>
-      <dd>A second account is its own fragment, <code>&lt;adapter&gt;-&lt;label&gt;.yml</code>, with its own <code>CHANNEL_NAME</code>. It takes the base adapter's keys unless <code>.env</code> carries a <code>&lt;KEY&gt;_&lt;LABEL&gt;</code> line, so without one it polls the base account.</dd>
+      <dd>A second account is its own fragment, <code>&lt;adapter&gt;-&lt;label&gt;.yml</code>, with its own <code>CHANNEL_NAME</code>. The fragment uses the keys of the base adapter. Only a <code>&lt;KEY&gt;_&lt;LABEL&gt;</code> line in <code>.env</code> replaces a key. Without that line, the second service reads the base account.</dd>
       <dt>Fix</dt>
-      <dd>Set the override, for example <code>TELEGRAM_BOT_TOKEN_JYNX</code> for <code>teled-jynx.yml</code>, run <code>arizuko generate</code> and restart. Never add a second token to the base fragment.</dd>
+      <dd>Set the override, for example <code>TELEGRAM_BOT_TOKEN_JYNX</code> for <code>teled-jynx.yml</code>. Run <code>arizuko generate</code>, then restart. Do not add a second token to the base fragment.</dd>
       <dt>Source</dt>
       <dd><code>compose/compose.go:263</code> <code>variantOf</code>, <code>template/services/teled-jynx.yml</code>, <a href="https://github.com/kronael/arizuko/blob/main/compose/README.md#several-accounts-on-one-platform">[compose README]</a></dd>
     </dl>
 
-    <h3 id="frozen-fragment">a release fix never reaches one adapter</h3>
+    <h3 id="frozen-fragment">a changed fragment does not get release fixes</h3>
     <dl>
       <dt>Read</dt>
-      <dd><code>arizuko generate</code> prints <code>services/&lt;name&gt;.yml differs from the catalog and is FROZEN</code> and lists the catalog lines the file lacks.</dd>
+      <dd><code>arizuko generate</code> prints <code>services/&lt;name&gt;.yml differs from the catalog and is FROZEN</code> and lists the template lines that the file does not have.</dd>
       <dt>Cause</dt>
-      <dd>Generate turns an installed fragment into a link to the template only while the two are byte-identical. A hand edit, even to a comment, keeps the file as it is for good, so it never takes a mount, env var or timeout the template gains.</dd>
+      <dd><code>arizuko generate</code> replaces an installed fragment with a link to the template only when the two files are identical. After a change by hand, also to a comment, generate keeps the file. The file then does not get a new mount, env var or timeout from the template.</dd>
       <dt>Fix</dt>
-      <dd>Move the difference into <code>.env</code>, where <code>STORE_HOST_PORT</code> and the <code>&lt;KEY&gt;_&lt;LABEL&gt;</code> overrides live. Copy the template over the edited file, and the next <code>arizuko generate</code> links it.</dd>
+      <dd>Move the difference into <code>.env</code>. <code>.env</code> holds <code>STORE_HOST_PORT</code> and the <code>&lt;KEY&gt;_&lt;LABEL&gt;</code> overrides. Copy the template over the changed file. The next <code>arizuko generate</code> replaces it with a link.</dd>
       <dt>Source</dt>
       <dd><code>compose/fragments.go:62</code> <code>RelinkCatalog</code>, <code>cmd/arizuko/packages.go:1228</code></dd>
     </dl>
 
-    <h3 id="adapter-health">an adapter sits at "starting" or "unhealthy"</h3>
+    <h3 id="adapter-health">an adapter that fails its healthcheck stays at "starting"</h3>
     <dl>
       <dt>Read</dt>
       <dd><code>sudo docker ps --format '{{.Names}}\t{{.Status}}' | grep -E 'starting|unhealthy'</code>, then <code>sudo journalctl -u arizuko_&lt;name&gt; --since "10 min ago" | grep -E 'channel (registered|deregistered)'</code>.</dd>
       <dt>Cause</dt>
-      <dd>A crash loop is loud. An adapter that never passes its healthcheck is just as down and stays quiet: no restarts, status <code>health: starting</code> for days. The cause is usually a credential the platform refuses, and routd deregisters the channel over and over.</dd>
+      <dd>A container in a crash loop shows <code>Restarting</code>. An adapter that never passes its healthcheck shows <code>health: starting</code> with no restarts. The usual cause is a credential that the platform refuses. routd then removes and adds the channel again and again.</dd>
       <dt>Fix</dt>
-      <dd>Read the adapter's lines in the journal for the platform's refusal, put the new credential in <code>.env</code>, run <code>arizuko generate</code> and restart. A deregister count that tracks the register count means a flapping adapter.</dd>
+      <dd>Find the refusal of the platform in the adapter lines of the journal. Put the new credential in <code>.env</code>, run <code>arizuko generate</code>, then restart. When the deregister count is near the register count, the adapter is not stable.</dd>
       <dt>Source</dt>
       <dd><code>chanlib/chanlib.go:180</code>, <code>chanreg/chanreg.go:203</code></dd>
     </dl>
 
-    <h3 id="unanswered">a chat takes messages and answers none</h3>
+    <h3 id="unanswered">a chat without a matching route gets no reply</h3>
     <dl>
       <dt>Read</dt>
-      <dd><code>/dash/activity/</code> for the newest message in and out of that chat, and <code>/dash/routes/</code>, whose unrouted section lists every chat routd drops. <code>./arizuko route &lt;name&gt; list</code> prints the table by seq.</dd>
+      <dd><code>/dash/activity/</code> shows the newest message in and out of the chat. The unrouted section of <code>/dash/routes/</code> lists every chat that routd drops. <code>./arizuko route &lt;name&gt; list</code> prints the route table by seq.</dd>
       <dt>Cause</dt>
-      <dd>No route matches, so routd marks the batch seen and runs no turn. Or an <code>#observe</code> route sorts above the route that answers: the first match wins, an observe route carries no verb, so it takes every message, mentions included (BUGS <code>L327</code>). The cursor moves, the breaker stays shut, and nobody gets an error.</dd>
+      <dd>When no route matches, routd marks the messages as seen and starts no turn. An <code>#observe</code> route above the answering route has the same result: the first match wins, and an observe route has no verb, so it takes every message, mentions included (BUGS <code>L327</code>). The cursor moves, the breaker stays closed, and no error occurs.</dd>
       <dt>Fix</dt>
-      <dd>Add the route, or move the answering route's seq above its <code>#observe</code> twin. A route row is the operator's data: change it with <code>arizuko route</code>.</dd>
+      <dd>Add the route, or give the answering route a lower seq than its <code>#observe</code> pair. A route row is operator data: change it with <code>arizuko route</code>.</dd>
       <dt>Source</dt>
       <dd><code>routd/loop.go:565</code> <code>routeMiss</code>, <code>dashd/routes_admin.go:105</code></dd>
     </dl>
 
-    <h2 id="backup">back up before you change anything big</h2>
-    <p>A tar of the stopped instance, and the <code>arizuko archive</code> export and apply, are in <a href="https://github.com/kronael/arizuko/blob/main/INSTALL.md#backup-and-restore">[INSTALL § Backup and restore]</a>.</p>
+    <h2 id="backup">a backup comes before a large change</h2>
+    <p><a href="https://github.com/kronael/arizuko/blob/main/INSTALL.md#a-tar-or-an-archive-restores-an-instance">[INSTALL § A tar or an archive restores an instance]</a> gives the tar of a stopped instance and the <code>arizuko archive</code> export and apply.</p>
 
       <nav class="docs-pager" aria-label="Pager">
         <a rel="prev" href="index.html">&larr; Getting started</a>

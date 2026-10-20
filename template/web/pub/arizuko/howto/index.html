@@ -144,7 +144,7 @@ cd -
       <li><code>staging tree: mount source</code> &mdash; a path the turn mounts that <code>runed</code> itself cannot open.</li>
       <li><code>circuit breaker open</code> &mdash; one folder failed too many turns in a row.</li>
     </ul>
-    <p>When it goes quiet later, <a href="operate.html">[Operate]</a> walks the message down the path and lists each incident with its fix.</p>
+    <p><a href="operate.html">[Operate]</a> lists each incident with its log line, cause and fix.</p>
 
     <h2>9. Back up and restore the setup</h2>
     <p>An agent is data, so the configuration is too. Export the whole instance config to one YAML manifest, keep it in git as a backup, and re-apply it to rebuild &mdash; on this host or another.</p>
@@ -171,8 +171,8 @@ arizuko apply demo demo.yaml        # apply the manifest back</code></pre>
 
     <p>More guides:</p>
     <ul>
-      <li><a href="../howto/operate.html">When it goes quiet, where to look</a> &mdash; logs, the message path, one fix per incident.</li>
-      <li><a href="../howto/upgrade.html">Upgrade an instance</a> &mdash; rebuild, repoint the guest artifacts, restart.</li>
+      <li><a href="../howto/operate.html">Operate</a> &mdash; the journal, the four daemons a message passes, one fix for each incident.</li>
+      <li><a href="../howto/upgrade.html">Upgrade</a> &mdash; build the images, set the guest artifact paths, restart.</li>
       <li><a href="../howto/talking-to-agents.html">Talking to agents</a> &mdash; mentions, slash commands, sticky routing, MCP tools.</li>
       <li><a href="../howto/build-a-product.html">Build a product</a> &mdash; one directory of files, applied to a group; what transforms and what is refused.</li>
       <li><a href="../howto/chat-link.html">Put a chat link on your site</a> &mdash; visitor chat via <code>/chat/&lt;token&gt;/</code>.</li>
