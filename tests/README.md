@@ -1,8 +1,9 @@
 # tests
 
 This file answers: how do I run the tests, and what does each suite need?
-[README.md](../README.md) names the project and [INSTALL.md](../INSTALL.md)
-builds it.
+[README.md](../README.md) names the project, [INSTALL.md](../INSTALL.md)
+builds it, and [FEATURES.md](../FEATURES.md) names the test that proves each
+behaviour.
 
 ## A test that opens a store needs docker
 

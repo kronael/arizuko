@@ -214,6 +214,7 @@ grades the observable effects.
 | 8     | [CHANGELOG.md](CHANGELOG.md)                                                        | What shipped, and when?                                               |
 |       | [web docs](template/web/pub/arizuko/), live at `https://krons.fiu.wtf/pub/arizuko/` | How do I run and operate it, page by page?                            |
 |       | [`cmd/arizuko/README.md`](cmd/arizuko/README.md)                                    | What does each `arizuko` subcommand do?                               |
+|       | [FEATURES.md](FEATURES.md)                                                          | What does it do today, and which test proves it?                      |
 |       | [`tests/README.md`](tests/README.md)                                                | How do I run the tests, and what does each suite need?                |
 |       | [`specs/`](specs/)                                                                  | Which change is in flight, and why?                                   |
 |       | [`BUGS.md`](BUGS.md)                                                                | What is open, and what waits on a person?                             |
