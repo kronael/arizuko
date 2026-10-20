@@ -153,8 +153,7 @@ ones no measurement can settle.
 
 **Small fixes awaiting a go.** Each is bounded, and its entry names the fix.
 
-- `L474` — fix in flight: one topic spelling, so a reply fork finds its parent.
-- `L475` — fix in flight: the observed window drops scheduled-task prompts.
+- `L476` — fix in flight: `SetTurnAddressed` must check the write verdict.
 - `L427` — gitd marks a delivery accepted before it knows the outcome.
 - `L428` — the web design guard passes shapes it should refuse, and a site that
   loses fifteen sidebars.
@@ -347,37 +346,17 @@ that version. A change to which rows reach live data is an auth change.
 
 - **Status:** open — needs sign-off.
 
-## L474 — a reply into a bot-rooted thread forks a blind session: the topic is spelled two ways (2026-10-20, open)
+## L476 — `SetTurnAddressed` drops the write verdict, and `TestNoCallerDropsTheVerdict` is red on main (2026-10-20, open)
 
-FOUND 2026-10-20 debugging Rhias on krons (`rhias/nemo`, chat
-`telegram:group/1004358948112`). Turns 153 and 158 (topic 151, session
-`551dac85`) and turn 204 (topic 198, session `19751b89`) started as fresh
-transcripts with no history; their `routd.sessions` rows carry
-`parent_topic="telegram:group/1004358948112/151"` and `…/198`. The bot's own
-reply rows store the topic as the full-JID spelling (rows 152, 201;
-`routd/turns.go:99-102`, `:157`), while an inbound reply carries the bare
-Telegram thread id `151`/`198` (`teled/bot.go:395-399`). The parent lookup
-(`routd/db.go:277-280` `TopicByID`, `routd/dispatch.go:325-331`, `:553-590`)
-matches no session row, so `copyParentSession` returns false. 9 of 14
-`rhias/nemo` forks since 10-15 have this shape. Turn 204 had to call
-`find_messages` to read its own reply 201.
+FOUND 2026-10-20 while landing L474. `go test ./store/ -run
+TestNoCallerDropsTheVerdict` fails on main at `ac665bfa` and before it:
+`store/turn_context.go:238` calls `s.TryWriteEntities(...)` and discards the
+boolean verdict, so an update that writes nothing (no such turn) reports
+success. The guard test exists for exactly this class (`L268`). Introduced
+with `3b60a8ee` ("Record whether a turn is addressed").
 
-- **Status:** open — fix in flight: one canonical topic spelling (the bare
-  platform thread id) in `replyThreadRoot`, and a parent topic with no session
-  row resolves to the main session. Test: a reply into a bot-rooted thread
-  copies the parent transcript.
-
-## L475 — another chat's scheduled-task prompts fill the observed window (2026-10-20, open)
-
-FOUND 2026-10-20 debugging Rhias. Rows with sender `timed` from the dead chat
-`telegram:group/5229089286` ("Run /nemo skill…", "Run Lisbon research",
-`sched-task-…3ca099e8`, `…cb524eba`) took 2 of 10 observed slots in prompts of
-the live chat `…/1004358948112` (sessions `5b531cc4`, `125d3ad8`, `551dac85`).
-`store/message_folders.go:332` drops only `timed-isolated:` senders; the window
-keys on the folder (the `L442` class).
-
-- **Status:** open — fix in flight: the observed window drops scheduled-task
-  prompt rows (sender `timed`) as it already drops `timed-isolated:` ones.
+- **Status:** open — fix in flight: check the verdict and return an error when
+  nothing was written, as the other turn-context setters do.
 
 ## L448 — the custom guest kernel is justified by BOOT TIME, not by the reason written in the fragment (2026-10-19, open — needs sign-off)
 
