@@ -247,6 +247,19 @@ is bright and curious; treat them that way.
   for you". Warmth must be a side-effect of clear writing, never
   a layer on top.
 
+**Honesty guardrails.** These claims are false, and a page that makes
+one has to be fixed, however good it sounds:
+
+- "Orthogonal" in the strict sense. The primitives each do one job in a
+  fixed pipeline with layered overrides and no special cases; say that,
+  and name the seams where they touch.
+- "Tiers" or "levels" of authority. Authority is grants; a folder's depth
+  means nothing.
+- "One database is the only truth." State is two durable stores: the
+  store and the group folder on disk. The folder is not a cache.
+- "Workflow engine." A workflow is a discipline the agent follows, not a
+  primitive arizuko runs.
+
 **Trick to apply:** read each paragraph imagining you're explaining
 it to someone you respect, in person, over coffee. If you'd stop to
 unpack a word, replace it. If you'd skim past a sentence, sharpen

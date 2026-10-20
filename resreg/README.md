@@ -5,11 +5,70 @@ auto-adapters so REST, MCP, OpenAPI, and YAML reach the same code from
 one typed `Resource` literal + `RowType` struct. resreg owns the
 handler, its tx + audit, argument derivation, and MCP tool-spec
 generation — plus one INJECTED authz `Gate` per surface. It decides no
-auth policy of its own: it is not a second authz server. Spec:
-[`specs/5/17-openapi-mcp.md`](../specs/5/17-openapi-mcp.md) (the canonical
-unified handler model — REST authored, MCP derived) and
-[`specs/5/8-yaml-manifests.md`](../specs/5/8-yaml-manifests.md) (the
-reflective engine + manifests).
+auth policy of its own: it is not a second authz server.
+
+## One handler, two faces
+
+Every cold-tier resource is authored once and served twice: REST for people
+and external tools, MCP for the agent. Both faces run one handler, so they
+cannot drift, and one audit row lands in the mutation's own batch. The
+hot-tier agent actions have no REST twin, because an operator does not
+`reply` to a chat.
+
+<!-- twin:twofaces -->
+
+```
+┌───────────────────────────────────────────────────────────────────────────┐
+│ resreg.Resource, declared once in resreg/resources/<name>.go:             │
+│ Name, Table, RowType, PKFields, Endpoints, MCPDoc, MCPArgs                │
+│ the daemon takes it by resreg.Mount and sets Authz, Handler, Store, Gate  │
+└──────────────┬─────────────────────────────────────────────┬──────────────┘
+               ▼                                             ▼
+┌──────────────────────────────────┐ ┌──────────────────────────────────────┐
+│ REST face: RegisterREST          │ │ MCP face: MCPTools                   │
+│ /v1/<name>, one op per Endpoint; │ │ deriveMCPTools: one tool per         │
+│ /openapi.json from the mounts    │ │ Endpoint that has an MCPDoc,         │
+│ caller: the bearer's sub, scope  │ │ <name>.<action> or MCPNames          │
+│ and folder claim                 │ │ caller: the turn's folder and sender │
+│ Gate: a bearer-scope check, or   │ │ Gate: AuthorizeTurn on the target;   │
+│ Authorize on <name>:<action>     │ │ routes, scheduled_tasks run it in    │
+│ routes, scheduled_tasks add      │ │ containFn behind agentAllowGate      │
+│ containFn: ownsFolder            │ │                                      │
+└──────────────┬───────────────────┘ └──────────────────┬───────────────────┘
+               └────────────────────┬───────────────────┘
+                                    ▼
+┌───────────────────────────────────────────────────────────────────────────┐
+│ invoke: Authz ► Gate ► Handler ► one GuardedBatch with the handler's      │
+│ writes and one audit_log row; a read writes no row                        │
+└───────────────────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────────────────┐
+│ beside it: a forwarder (Store nil: no gate, no row here) for secrets on   │
+│ routd and proxyd_routes on webd; the hot tier, MCP-only in ipc/ipc.go:    │
+│ reply, send, like, inspect_*                                              │
+└───────────────────────────────────────────────────────────────────────────┘
+```
+
+<!-- /twin -->
+
+- **`(name, action)` is the identity; each surface spells it.** REST is
+  `/v1/<name>`; the OpenAPI `operationId` is `<action>_<name>`, verb first
+  with an underscore, because client generators mangle a dotted id; the MCP
+  tool is `<name>.<action>` unless `MCPNames` sets a flat name; the audit row
+  carries the two as separate columns.
+- **`MCPDoc` is the switch.** An action with no `MCPDoc` entry gets no MCP
+  tool and no `x-mcp-when` annotation. That is how an action is made
+  REST-only: by saying nothing, never by an exclusion list.
+- **A handler binds the folder it is handed.** A handler that takes a `jid`,
+  `folder` or `run_id` binds it to the caller's folder and refuses one
+  outside it, with 404 where existence itself would leak. `POST /v1/messages`
+  is cross-folder by design: an adapter posts for every chat it serves.
+- **`secrets` is a forwarder.** `invoke` copies every argument into
+  `audit_log`, and the redaction pattern misses a bare `value` field, so a
+  store-backed `secrets` would write the plaintext into its own audit row.
+  The handler calls the sealing writer, which writes a value-safe row.
+- **Every resource is a table.** `Register` panics on an empty `Table`
+  (`engine.go` `initMeta`), so a file-backed queue cannot be a resreg
+  resource.
 
 ## Reflective engine (shipped)
 
@@ -17,11 +76,19 @@ reflective engine + manifests).
 OpenAPI schema generation off `Resource.RowType` reflection (struct
 field → column via `json:` tag). `resreg/resources/` declares one Go
 file per cold-tier resource — a `Row` struct plus an `init()` block
-calling `resreg.Register`. The 10 resources registered today: `acl`,
-`acl_membership`, `groups`, `network_rules`, `onboarding_gates`,
-`proxyd_routes`, `routes`, `scheduled_tasks`, `secrets`, `web_routes`.
-Token resources (`invites`, `route_tokens`) are parked out of v1
-manifests — CLI/MCP only.
+calling `resreg.Register`. `resources/names.go` spells every registered
+name once, and that file is the list.
+
+A manifest is a YAML stream with one `---` document per owner subsystem.
+Each document is a mapping from resource name to rows, plus a reserved
+`checksum:` key; an unknown key is refused, and every key in one document
+must belong to one subsystem (`SubsystemOf`). A package's document may also
+carry `env:`, which `arizuko apply` refuses and names `packages add`.
+
+`Checksum` and `ManifestDigest` are two hashes for two jobs. `Checksum` is
+the CAS: a content hash of the live projection, recomputed at read time.
+`ManifestDigest` is the sha256 of the manifest file's bytes and goes only
+into the apply's audit row, to correlate the row with the file.
 
 ## Two shapes, and the resource declares which
 
@@ -30,8 +97,7 @@ A resource's rows are either SQL columns or `objstore` items, and
 there makes `Table` an entity, every other `db:` tag an attribute name, and
 those fields' values the item's sort key. `ScanAll` is still the single row
 reader and it branches on that declaration — never on what the storage answers,
-and never one path as a fallback for the other (`entity.go`, spec
-[`6/37`](../specs/6/37-store-model.md) step 6, BUGS `L259`).
+and never one path as a fallback for the other (`entity.go`, BUGS `L259`).
 
 The coordinate is a LIST, because two resources have no single-field identity:
 `network_rules` is keyed `(folder, target)` — 15 rows over 10 targets on krons,
@@ -140,8 +206,7 @@ manifest the field is not theirs to set, so `Diff` ignores it and it is not a
 `create`/`update` argument.
 
 `Apply` and `ExportSnapshot` become `objstore.Replace` and
-`objstore.ReadConsistent` (spec [`6/40`](../specs/6/40-store-surface.md) §3 and
-§"The consistent multi-read"). **That gives up the pre-image rollback `L44`
+`objstore.ReadConsistent` ([`objstore/README.md`](../objstore/README.md)). **That gives up the pre-image rollback `L44`
 carries**: the column path runs every DELETE and INSERT in one transaction, and
 a marker-gated sequence has none — a replace that dies after it has written
 leaves the subsystem part-applied with its claim held, and recovery is to run
@@ -203,13 +268,11 @@ config manifest.
   `routes`, `scheduled_tasks`, `secrets`, `web_routes` (one `*_resource.go`
   each). Each mounts on the agent MCP socket through a `postBuild` seam with
   the agent `Gate` injected, and — where a REST twin exists — the same
-  handler on the operator REST face with a scope/folder `Gate`. That is the
-  spec 5/16 fold. The hot-tier tools (`reply`/`send`/`inspect_*`) stay
+  handler on the operator REST face with a scope/folder `Gate`. The
+  hot-tier tools (`reply`/`send`/`inspect_*`) stay
   hand-authored in `ipc/ipc.go` — no REST twin.
 - authd's three — `audit`, `signing_keys`, `sessions` — and onbod's four:
   `invites`, `onboarding_gates`, `onboarding`, `audit`.
-
-Spec: [`specs/5/16-mcp-rest-unification.md`](../specs/5/16-mcp-rest-unification.md).
 
 ## OpenAPI emission
 
@@ -312,8 +375,10 @@ not an allow/deny decision. The decision belongs to the injected
 
 - nil → `defaultGate`: the OPERATOR gate,
   `auth.Authorize(Store, caller, "<Name>:<action>", scope, params)` over
-  the ACL rows ([`specs/5/32-acl-unified.md`](../specs/5/32-acl-unified.md))
-  — scope/ACL match, no tier. This is what operator REST mounts.
+  the ACL rows ([`auth/README.md`](../auth/README.md)) — scope/ACL match, no
+  tier. `proxyd_routes` mounts it. routd's, onbod's and authd's operator REST
+  faces inject a bearer-scope `Gate` instead (`<name>:<verb>` or
+  `<name>:<verb>:own_group`) and contain by the token's folder claim.
 - The daemon mounting the resource on the AGENT socket (routd) injects
   `db.AuthorizeTurn(sender, turn-folder, target, "mcp:"+tool, params)`, which calls the same
   `auth.Authorize` over the same `acl` rows — the difference is the
@@ -349,9 +414,7 @@ performing them. The adapter:
 
 Read-only actions emit slog only; no DB row. Forwarder resources
 (`Store == nil`) skip the batch + audit dance — the downstream daemon
-writes the row. Field schema:
-[`specs/5/I-tool-call-logging.md`](../specs/5/I-tool-call-logging.md).
-Table: [`specs/5/I-tool-call-logging.md`](../specs/5/I-tool-call-logging.md).
+writes the row. Field schema: [`audit/README.md`](../audit/README.md).
 
 ## Adding a resource
 
@@ -375,3 +438,8 @@ Table: [`specs/5/I-tool-call-logging.md`](../specs/5/I-tool-call-logging.md).
 
 `proxyd/resource.go` is the canonical store-backed example;
 `webd/routes_mcp.go` is the canonical forwarder example.
+
+Some things are not resources, and making one would add a face nobody may
+use: inbound ingestion (`POST /v1/messages`), cost reads, SSE streams, auth
+session creation, store setup, and runed's run control, which is REST-only
+by design.

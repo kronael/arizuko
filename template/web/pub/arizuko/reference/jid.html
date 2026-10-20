@@ -175,6 +175,7 @@ match='chat_jid=telegram:group/*'  # route: only telegram groups (path.Match: * 
       <li><strong>Adapter owns its schema.</strong> Core only splits <code>&lt;platform&gt;:&lt;rest&gt;</code> via <code>JidPlatform</code>/<code>JidRoom</code>. Each adapter constructs and parses <code>&lt;rest&gt;</code> per its own declared shape.</li>
       <li><strong>URI-clean.</strong> Adapters percent-encode reserved chars in <code>&lt;rest&gt;</code> (a Bluesky DID's colons, for example) so the platform/rest split holds.</li>
       <li><strong>One URL = one resource.</strong> No sign-bit hacks, no <code>t1_</code>/<code>t2_</code>/<code>t3_</code> prefix soup, no in-band server suffixes for code (WhatsApp keeps <code>@server</code> because its existing shape already encodes kind).</li>
+      <li><strong>A run is not addressable.</strong> A JID has no session or run segment; the routable unit below a chat is the <a href="../concepts/topics.html">topic</a>. A run segment would need every web JID rewritten, because web JIDs are keyed by folder.</li>
       <li><strong>Adding a kind later is one string.</strong> A new platform kind earns its place when an adapter, the gateway, or the agent treats it differently from siblings. No system-wide format change and no rewrite of existing rows.</li>
     </ul>
 

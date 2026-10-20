@@ -39,11 +39,11 @@ beyond `docker` for `run` and `pair`).
   - `arizuko invite <inst> revoke <ref>`
   - `arizuko send <inst> <folder> [<message>] [--wait | --stream] [--stdin] [--from <sender>] [--topic <topic>] [--token <raw>]` — inject a message into a folder's queue (uses topic for conversation continuity). Default is **operator-direct**: no token, writes the inbound straight to routd's tables on `web:<folder>` (the operator already reaches them, same authority as `create`/`grant`/`secret`); the gateway poll loop runs the agent and `--wait`/`--stream` prints its reply. Pass `--token`/`ARIZUKO_CHAT_TOKEN` to instead POST the public `/chat/<token>` endpoint as a non-operator caller.
   - `arizuko budget <inst> set folder|user <name> --daily N` / `show folder|user <name>` — per-folder or per-user daily spend cap in cents (0 = uncapped); pre-spawn gate enforces lower of (folder cap, user cap)
-  - `arizuko apply <inst> <manifest.yaml> [--force] [--take-over] [--as-folder <folder>]` — restore cold-tier config from a YAML dump, one claim-gated replace per owner subsystem, with a pre-image rollback if a later one fails. CAS is a content hash recomputed from the live rows, not a stored counter; `--force` skips it. Refuses (even with `--force`) if a row names a folder that is not a group. `--as-folder` re-scopes a single-folder manifest onto another folder (spec 5/8). An entity-backed subsystem an interrupted apply left part-written keeps its claim, and re-running THAT manifest rolls it forward on its own; `--take-over` is for the operator who cannot, and it settles the scope over whatever the interrupted apply left outside this document's delete set (`L267`)
+  - `arizuko apply <inst> <manifest.yaml> [--force] [--take-over] [--as-folder <folder>]` — restore cold-tier config from a YAML dump, one claim-gated replace per owner subsystem, with a pre-image rollback if a later one fails. CAS is a content hash recomputed from the live rows, not a stored counter; `--force` skips it. Refuses (even with `--force`) if a row names a folder that is not a group. `--as-folder` re-scopes a single-folder manifest onto another folder. An entity-backed subsystem an interrupted apply left part-written keeps its claim, and re-running THAT manifest rolls it forward on its own; `--take-over` is for the operator who cannot, and it settles the scope over whatever the interrupted apply left outside this document's delete set (`L267`)
   - `arizuko plan <inst> <manifest.yaml>` — non-mutating diff of a manifest vs live config; also reports a missing-group refusal `apply` would raise
   - `arizuko get <inst> <resource>` — emit one resource's live rows as a YAML fragment (round-trips to a no-op)
   - `arizuko export <inst> [out.yaml]` — dump cold-tier config to canonical-ordered YAML
-  - `arizuko archive export <inst> [out.tar] [--quiesced]` — full-instance backup: the config dump plus secret values, message history, pending onboarding admissions and every `groups/<folder>/` tree, as one tar (spec 5/8)
+  - `arizuko archive export <inst> [out.tar] [--quiesced]` — full-instance backup: the config dump plus secret values, message history, pending onboarding admissions and every `groups/<folder>/` tree, as one tar
   - `arizuko archive apply <inst> <archive.tar> [--force] [--stopped]` — full restore. Claims each folder's runed run slot before touching its tree, so an unreachable runed is fatal; `--stopped` asserts the instance is down instead. Credential-bearing documents (`route_tokens`, `invites`, `onboarding`) restore only with `--force` onto a proven-empty target
   - `arizuko chat <instance>` — interactive Claude Code session bound to root MCP socket
   - `arizuko talk [@name] [-g <folder>] [-t <thread>] [-p [prompt]] [--url U] [--token T]` — hold a conversation with the agent from a terminal, spec `6/26` gap 1. No instance argument and no store: it POSTs `<url>/mcp` (`list_groups` + `send`) and reads the round off `<url>/me/chats/<folder>/<thread>/sse`, both through the PUBLIC proxyd URL, so it runs from a second machine. Config `~/.config/arizuko/talk.toml` (`url`/`token`/optional `group` at the top level are the one chat; a `[work]` section is `@work`), refused unless mode `0600`. Precedence flag > `@name` > top-level > `ARIZUKO_CHAT_URL`+`ARIZUKO_CHAT_TOKEN` > an error that prints the file to write. `-p` runs one turn (prompt inline or on stdin) and is ONE ITERATION of the REPL loop, never a second send path; `-t` defaults to the fixed literal `talk`. Note `-t` is the THREAD here, not the token as in `send` — the bearer flag is `--token` only
@@ -53,6 +53,35 @@ beyond `docker` for `run` and `pair`).
 - `send` — **operator-direct injection**. Opens the instance's store and writes the inbound itself; needs the data dir, runs on the host, is the operator's own authority.
 - `chat` — **an interactive Claude Code on the ROOT MCP socket**. An operator tool for driving the platform, not a conversation with the persona.
 - `talk` — **a thin token client, no store**. Two HTTP surfaces and an authd bearer; the only one that works from a machine that is not the host.
+
+### Manifests and the archive
+
+- **The store is the truth; YAML is transport.** `export` dumps, `apply`
+  restores, and nothing syncs the store back to a file, applies at startup
+  or reloads on SIGHUP. A dump never claims to be live, so "drift" between a
+  file and the store is not a state anyone has to manage.
+- **`apply --as-folder <f>`** needs `--force`, because a rewritten manifest
+  can never match the target's checksum. The manifest's scoped rows must
+  name one folder; the empty scope counts as a folder of its own, so an
+  instance-wide `network_rules` row is never turned into one folder's. It
+  rewrites the declared scope field of `groups`, `network_rules`,
+  `pending_actions` and `web_routes`, plus `web_routes.redirect_to`, which
+  embeds the folder; rows of resources with no scope pass through as they
+  are. It moves no files: copying a group is `export` plus `apply
+--as-folder` for the rows and a copy of `groups/<folder>/` for the files.
+  Routing never creates a group.
+- **The archive** is one tar: `archive.yaml` (`format_version` and the
+  `consistency` stamp, `live` or `quiesced`), `routd.yaml`, `onbod.yaml`,
+  `routd.secrets.yaml` (secret, route-token, invite and pending-onboarding
+  values, kept apart so a plain `export` reader never sees one),
+  `routd.messages.jl` and `groups.tar`. authd's and runed's stores are not in
+  it. `archive apply` refuses a `format_version` newer than the binary.
+- **Messages travel whole.** `routd.messages.jl` is the full history, and
+  importing it is an idempotent append. Import derives each chat's
+  `agent_cursor` from its newest message, because without it the restored
+  poller would treat all history as unseen. Secret values travel sealed,
+  `SECRETS_KEY` never travels, and every secret row is checked against the
+  target's keyring before any write.
 
 ## Dependencies
 

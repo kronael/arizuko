@@ -84,7 +84,10 @@ socket resolves the target against the caller's `acl` rows
 glob IS its containment), the operator REST face applies own-or-descendant
 folder containment (`ownsFolder`). A folder-scoped REST operator is thus
 confined to its own subtree — it cannot re-target or cancel another
-tenant's routes or tasks.
+tenant's routes or tasks. Only an EMPTY folder claim widens a REST list or
+delete to every folder. A named top-level tenant has depth zero, as root
+has, so widening by depth would let one tenant list or delete a sibling's
+rows.
 
 ### The sender cannot lend the agent authority
 

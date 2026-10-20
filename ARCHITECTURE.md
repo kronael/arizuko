@@ -278,66 +278,74 @@ logins](authd/README.md#keys-mints-and-logins).
 
 ## Discoverability
 
-Every HTTP-serving daemon mounts `GET /openapi.json` returning an
-OpenAPI 3.1 doc generated from `resreg.Resource.RowType` reflection.
-One walk over the registry produces `components.schemas` (struct field
-→ property name via `json:` tag, Go kind → JSON Schema type) and
-`paths./v1/<name>` (list / read-one / create / update / delete). Public —
-no auth gate. Cached for the process lifetime; reflection is one-time at
-first hit. Drift between handler + doc is structurally impossible because
-both read the same struct. Spec: `specs/5/8-yaml-manifests.md`
-§"OpenAPI emission". Aggregator: `/pub/arizuko/reference/openapi.html`.
+Every HTTP-serving daemon mounts `GET /openapi.json`, public and mounted
+before auth. The engine emits one operation per `Endpoint` the daemon
+actually mounted, with schemas reflected from `resreg.Resource.RowType`; no
+path is invented from a PK-CRUD convention, and a daemon cannot advertise a
+resource it does not serve. Rules: [`resreg/README.md` § OpenAPI
+emission](resreg/README.md#openapi-emission). Aggregator:
+`/pub/arizuko/reference/openapi.html`.
 
 ## Cold tier vs hot tier
 
-Two management surfaces, one handler, an injected gate per surface:
+Two management surfaces, one handler, an injected gate per surface. The
+same figure heads `resreg/README.md`, which holds the rules.
+
+<!-- twin:twofaces -->
+
+```
+┌───────────────────────────────────────────────────────────────────────────┐
+│ resreg.Resource, declared once in resreg/resources/<name>.go:             │
+│ Name, Table, RowType, PKFields, Endpoints, MCPDoc, MCPArgs                │
+│ the daemon takes it by resreg.Mount and sets Authz, Handler, Store, Gate  │
+└──────────────┬─────────────────────────────────────────────┬──────────────┘
+               ▼                                             ▼
+┌──────────────────────────────────┐ ┌──────────────────────────────────────┐
+│ REST face: RegisterREST          │ │ MCP face: MCPTools                   │
+│ /v1/<name>, one op per Endpoint; │ │ deriveMCPTools: one tool per         │
+│ /openapi.json from the mounts    │ │ Endpoint that has an MCPDoc,         │
+│ caller: the bearer's sub, scope  │ │ <name>.<action> or MCPNames          │
+│ and folder claim                 │ │ caller: the turn's folder and sender │
+│ Gate: a bearer-scope check, or   │ │ Gate: AuthorizeTurn on the target;   │
+│ Authorize on <name>:<action>     │ │ routes, scheduled_tasks run it in    │
+│ routes, scheduled_tasks add      │ │ containFn behind agentAllowGate      │
+│ containFn: ownsFolder            │ │                                      │
+└──────────────┬───────────────────┘ └──────────────────┬───────────────────┘
+               └────────────────────┬───────────────────┘
+                                    ▼
+┌───────────────────────────────────────────────────────────────────────────┐
+│ invoke: Authz ► Gate ► Handler ► one GuardedBatch with the handler's      │
+│ writes and one audit_log row; a read writes no row                        │
+└───────────────────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────────────────┐
+│ beside it: a forwarder (Store nil: no gate, no row here) for secrets on   │
+│ routd and proxyd_routes on webd; the hot tier, MCP-only in ipc/ipc.go:    │
+│ reply, send, like, inspect_*                                              │
+└───────────────────────────────────────────────────────────────────────────┘
+```
+
+<!-- /twin -->
 
 - **Cold tier** — operator config resources (`routes`, `acl`, `groups`,
   `secrets`, `scheduled_tasks`, `network_rules`, `web_routes`,
-  `route_tokens`, `onboarding_gates`, `proxyd_routes`). One in-process
-  `resreg.Resource` per resource wears **two faces**: an annotated REST
-  `/v1/<name>` for humans + external tools, and a generated MCP facade
-  (flat tool specs via `deriveMCPTools`) for the agent. Both dispatch the
-  same handler in-process (`Store != nil`), so the audit row lands in the
-  mutation's own batch. An HTTP forwarder (`Store == nil`, skips the local audit)
-  is used only for a cross-daemon resource (`proxyd_routes` — proxyd owns
-  the table, webd serves the MCP face). Spec
-  [`5/17`](specs/5/17-openapi-mcp.md); rollout
-  [`5/16`](specs/5/16-mcp-rest-unification.md). All seven agent-MCP faces
-  (`web_routes`, `acl`, `routes`, `scheduled_tasks`, `network_rules`,
-  `route_tokens`, `groups`) ride one `resreg.Resource`; the REST second
-  face is folded onto the same handler for `web_routes`, `acl`, `routes`,
-  `scheduled_tasks` and `secrets` (routd), plus onbod's `/v1/invites` and
-  `/v1/gates` (`network_rules` is agent-only, no REST twin). Not yet folded:
-  the hand-rolled `route_tokens` REST face, the `groups` REST twin, and
-  one-owner federation.
+  `route_tokens`, `onboarding_gates`, `proxyd_routes`, and the rest in
+  `resreg/resources/names.go`). Not every resource wears both faces:
+  `secrets` is REST-only and write-only, `network_rules` is agent-only, and
+  the `groups` REST twin is list-only.
 - **Hot tier** — agent runtime actions (`reply`, `send`, `like`, `delete`,
-  `engage`, `inspect_*`). **MCP-only by design** in `ipc/ipc.go`; no REST
-  twin — an operator doesn't `reply` to a chat.
+  `engage`, `inspect_*`), MCP-only by design in `ipc/ipc.go`.
   `submit_turn` and `submit_status` sit below the hot tier: JSON-RPC methods
   on the same socket, absent from `tools/list`, with no REST twin and no
   resreg resource. They are delivery plumbing, not a managed entity.
 
-`resreg` carries no auth policy — the authz gate is INJECTED per surface.
-Operator REST uses the default `auth.Authorize` (scope/ACL); the
-agent MCP socket injects
-`db.AuthorizeTurn(sender, turn-folder, target, "mcp:"+tool, params)` over the
-folder's granted `acl` rows, unioned with the attested sender's own rows inside
-that folder's subtree (`specs/5/33` §"Two axes"). Same folder-containment
-discipline, two
-identity sources (agent socket scope vs human JWT folder), two gates. Which
-tools a caller even sees is `auth.EffectiveActions` over those same rows at
-the agent socket, not resreg.
+Which tools a caller sees is `auth.EffectiveActions` over the same rows the
+gate reads. A handler that takes a `jid`, `folder` or `run_id` binds it to
+the caller's folder; `POST /v1/messages` is cross-folder by design.
 
-For the resources (`routes`, `scheduled_tasks`) whose _target_ folder is
-what a mutation acts on, per-target containment is a routd-internal
-per-face predicate (`containFn`) closed into the shared handler rather
-than the `Gate`: the agent face re-runs `auth.Authorize` with the ACTUAL
-target as the scope, so a delegated row scoped to a subtree covers exactly
-that subtree; the REST face uses own-or-descendant folder containment
-(`ownsFolder`). `web_routes` and `acl` need no such seam —
-the caller acts on its own folder's row / scope, so their containment stays
-in the injected `Gate`.
+Config and runtime tables follow different rules. `arizuko apply` writes
+config tables only, and a runtime table is never bulk-deleted. No daemon
+caches config rows in memory, so an apply is live on the next read.
+Removing a group clears its routing side-channels and keeps its history.
 
 ## The three planes
 
@@ -697,6 +705,11 @@ booleans on the run request. The figure, the agent socket's two axes and
 every rule: [`auth/README.md` § Authorization is one row and one
 question](auth/README.md#authorization-is-one-row-and-one-question).
 
+routd stays the policy decision point and keeps `acl` and `acl_membership`
+in its own store, with no `/v1/authorize` endpoint. Both tables are read
+in-process on every agent tool call and every REST mutation, so moving them
+to authd would put an HTTP hop on the busiest paths.
+
 ## Operator
 
 An operator is a member of `role:operator`, which holds the seeded row
@@ -783,6 +796,14 @@ missing. See `egress/README.md` and `SECURITY.md` (Network egress isolation).
 Self-service token-based onboarding with optional admission gates. Turns
 inbound JIDs into provisioned groups via OAuth + `container.SetupGroup`.
 See `onbod/README.md`.
+
+World, agent and session are words for folder shapes, and none is a table.
+A world is a top-level folder and owns nothing of its own: its roster is the
+`acl` rows on `<world>/**` and their members, its vhost is derived from the
+name, and its secrets resolve by folder ancestry. A `worlds` table would be
+a second path beside each of those. Creating a world is operator work on
+the CLI: a top-level `register_group` from the agent socket is refused with
+"worlds are CLI-only".
 
 ## Scheduler (timed/)
 
@@ -975,6 +996,14 @@ turn is scoped to its own folder subtree. Full tool table in
 - `ipc/<folder>/` — MCP unix sockets.
 - `web/pub/`, `web/priv/` — the unified web trees the per-group slots
   project into (table below).
+
+A daemon mounts only the subpaths it opens (`compose/compose_test.go`
+`wantDataMounts`), because a mount of the whole tree hands it every other
+owner's files and every live MCP socket under `ipc/`. routd and runed take
+the whole tree: routd reads `connectors.toml`, `surrogate/*.toml` and
+`tts/` from the root and creates `audit-*.jl` there, and runed drives the
+spawn path. dashd mounts `groups/` and `surrogate/`, onbod `groups/` and
+`web/`; authd, webd and proxyd mount nothing.
 
 ## Design principles
 

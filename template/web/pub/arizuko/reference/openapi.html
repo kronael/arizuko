@@ -105,7 +105,7 @@
 
     <p>Daemons that own no resources still emit a valid OpenAPI document so external tooling can introspect them uniformly. The schemas + paths blocks are empty but <code>info</code>, <code>servers</code>, and the standard <code>components/responses</code> (400, 401, 403, 404, 409, 500) are present.</p>
 
-    <p>routd's own <code>/openapi.json</code> lists the nine resources above &mdash; sixteen paths &mdash; and only those, because it advertises only what it actually mounts. An endpoint in the document is an endpoint you can call; there is no separate list to forget to update. Four of the eight are narrower than full CRUD, and deliberately so:</p>
+    <p>routd's own <code>/openapi.json</code> lists the resources above and only those, because it advertises only what it actually mounts. An endpoint in the document is an endpoint you can call; there is no separate list to forget to update. Several are narrower than full CRUD, and deliberately so:</p>
 
     <ul>
       <li><code>secrets</code> is <strong>write-only</strong> &mdash; it declares a create and a key-delete and no read op at all, so a sealed value cannot leak through a convention <code>GET</code>.</li>
@@ -118,7 +118,38 @@
 
     <div class="callout"><strong>One path is not <code>/v1/&lt;name&gt;</code>:</strong> <code>scheduled_tasks</code> is served at <code>/v1/tasks</code>. <code>timed</code> already calls <code>GET /v1/tasks</code> and its fire loop shares the prefix (<code>/v1/tasks/due</code>, <code>/v1/tasks/runlog</code>, <code>/v1/tasks/{id}/reschedule</code>), all from a separate container that restarts on its own schedule &mdash; renaming half of a live control surface is the drift, not the fix. So this one is a deliberate exception, written down here so nobody files it as a bug. The name is still the identity everywhere else: the MCP tool prefix, the <code>operationId</code>, and the <code>resource=</code> column in the audit log all read <code>scheduled_tasks</code>. A new resource does not get the exception &mdash; it is served at <code>/v1/&lt;name&gt;</code>.</div>
 
-    <p>Three more resources live in the same registry and drive the <code>arizuko export</code>/<code>apply</code> YAML surface (see <a href="cli.html">CLI reference</a>) without appearing in routd's REST document. <code>network_rules</code> is agent-MCP-only by design, so it has no REST face to advertise; <code>acl_membership</code> is dashd-FS-managed; <code>proxyd_routes</code> lives in routd's database but is served by proxyd, which advertises it in its own document.</p>
+    <p>Three more resources live in the same registry and drive the <code>arizuko export</code>/<code>apply</code> YAML surface (see <a href="cli.html">CLI reference</a>) without appearing in routd's REST document. <code>network_rules</code> is agent-MCP-only by design, so it has no REST face to advertise; <code>acl_membership</code> has one face, the pairing undo <code>DELETE /v1/acl_membership</code> (<code>unpair</code> for the agent); <code>proxyd_routes</code> lives in routd's database but is served by proxyd, which advertises it in its own document.</p>
+
+    <h2>One handler, two faces</h2>
+    <p>Here is what sits behind every operation in the document. One declaration, two ways in, one handler, one audit row. Read the gates: the REST face checks the bearer, the agent face checks the folder&rsquo;s grants against the actual target.</p>
+    <pre id="twin-twofaces"><code>┌───────────────────────────────────────────────────────────────────────────┐
+│ resreg.Resource, declared once in resreg/resources/&lt;name&gt;.go:             │
+│ Name, Table, RowType, PKFields, Endpoints, MCPDoc, MCPArgs                │
+│ the daemon takes it by resreg.Mount and sets Authz, Handler, Store, Gate  │
+└──────────────┬─────────────────────────────────────────────┬──────────────┘
+               ▼                                             ▼
+┌──────────────────────────────────┐ ┌──────────────────────────────────────┐
+│ REST face: RegisterREST          │ │ MCP face: MCPTools                   │
+│ /v1/&lt;name&gt;, one op per Endpoint; │ │ deriveMCPTools: one tool per         │
+│ /openapi.json from the mounts    │ │ Endpoint that has an MCPDoc,         │
+│ caller: the bearer's sub, scope  │ │ &lt;name&gt;.&lt;action&gt; or MCPNames          │
+│ and folder claim                 │ │ caller: the turn's folder and sender │
+│ Gate: a bearer-scope check, or   │ │ Gate: AuthorizeTurn on the target;   │
+│ Authorize on &lt;name&gt;:&lt;action&gt;     │ │ routes, scheduled_tasks run it in    │
+│ routes, scheduled_tasks add      │ │ containFn behind agentAllowGate      │
+│ containFn: ownsFolder            │ │                                      │
+└──────────────┬───────────────────┘ └──────────────────┬───────────────────┘
+               └────────────────────┬───────────────────┘
+                                    ▼
+┌───────────────────────────────────────────────────────────────────────────┐
+│ invoke: Authz ► Gate ► Handler ► one GuardedBatch with the handler's      │
+│ writes and one audit_log row; a read writes no row                        │
+└───────────────────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────────────────┐
+│ beside it: a forwarder (Store nil: no gate, no row here) for secrets on   │
+│ routd and proxyd_routes on webd; the hot tier, MCP-only in ipc/ipc.go:    │
+│ reply, send, like, inspect_*                                              │
+└───────────────────────────────────────────────────────────────────────────┘</code></pre>
 
     <h2>How it works</h2>
 
@@ -127,12 +158,13 @@
     <ul>
       <li>One <code>components.schemas.&lt;Name&gt;</code> per <code>RowType</code>. Property name from the <code>json:</code> tag; type inferred from the Go kind (<code>string</code>, <code>integer</code>, <code>boolean</code>, array, object). <code>omitempty</code> removes the field from <code>required</code>.</li>
       <li>One operation per declared <code>Endpoint</code> &mdash; its real mounted verb and path. That is what lets a resource be write-only or read-only, or carry a custom verb like <code>POST /v1/route_tokens/chat</code>, and still be described honestly.</li>
-      <li>A resource that declares no <code>Endpoints</code> falls back to the five-operation CRUD convention: <code>GET /v1/&lt;name&gt;</code> (list), <code>GET /v1/&lt;name&gt;/{pk}</code> (read one), <code>POST /v1/&lt;name&gt;</code> (create), <code>PATCH /v1/&lt;name&gt;/{pk}</code> (update), <code>DELETE /v1/&lt;name&gt;/{pk}</code> (delete). Composite PKs collapse to one URL parameter; the description flags the encoding so clients know to URL-encode separators.</li>
+      <li>No operation is invented. A resource that declares no <code>Endpoints</code> contributes its schema and no path &mdash; there is no CRUD convention to fall back on, so the document can never show a path nobody serves.</li>
+      <li>Each operation&rsquo;s <code>operationId</code> is <code>&lt;action&gt;_&lt;name&gt;</code>, verb first with an underscore (<code>list_routes</code>), because client generators mangle a dotted id. The MCP twin of the same operation is <code>&lt;name&gt;.&lt;action&gt;</code>, or a flat name the resource declares (<code>unpair</code>).</li>
       <li>Standard error responses (400, 401, 403, 404, 409, 500) defined once in <code>components.responses</code> and <code>$ref</code>-d from every operation.</li>
       <li>One <code>servers[]</code> entry from <code>baseURL</code>.</li>
     </ul>
 
-    <p>Spec: <a href="https://github.com/kronael/arizuko/blob/main/specs/5/17-openapi-mcp.md"><code>specs/5/17-openapi-mcp.md</code></a>, which owns OpenAPI emission. The row-schema half of <code>resreg.Resource</code> &mdash; <code>RowType</code>, <code>Table</code>, <code>PKFields</code>, <code>Scope</code> &mdash; belongs to <a href="https://github.com/kronael/arizuko/blob/main/specs/5/8-yaml-manifests.md"><code>specs/5/8-yaml-manifests.md</code></a>.</p>
+    <p>The engine and its rules: <a href="https://github.com/kronael/arizuko/blob/main/resreg/README.md"><code>resreg/README.md</code></a>.</p>
 
     <h2>The MCP twin: <code>x-mcp-when</code></h2>
 
@@ -146,7 +178,7 @@
 
     <p>The rule is strict on purpose: an action with no agent-facing description gets <strong>neither</strong> an MCP tool nor an <code>x-mcp-when</code> annotation. That is how an operation is made REST-only &mdash; by saying nothing, rather than by maintaining an exclusion list. The reverse also holds: the hot-tier agent actions (<code>reply</code>, <code>send</code>, <code>inspect_*</code>) are MCP-only and appear in no OpenAPI document, because there is no operator endpoint to mirror &mdash; nobody administers a chat reply.</p>
 
-    <div class="callout"><strong>Note:</strong> the document describes the <em>shape</em> of a surface, never a permission. Whether a given caller may perform an operation is decided per call by <a href="grants.html">grants</a>, and the two faces use different identity sources &mdash; a bearer token for REST, the folder-bound socket for MCP &mdash; against the same evaluator.</div>
+    <div class="callout"><strong>Note:</strong> the document describes the <em>shape</em> of a surface, never a permission. Whether a given caller may perform an operation is decided per call by <a href="grants.html">grants</a>, and the two faces check different things &mdash; the REST face the bearer&rsquo;s scope and folder claim, the MCP face the turn folder&rsquo;s grants against the actual target.</div>
 
     <h2>Browsing the spec</h2>
 

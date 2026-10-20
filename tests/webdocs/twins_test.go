@@ -66,6 +66,11 @@ var twins = []twin{
 		"auth/README.md",
 		"template/web/pub/arizuko/concepts/grants.html",
 	}},
+	{name: "twofaces", files: []string{
+		"resreg/README.md",
+		"ARCHITECTURE.md",
+		"template/web/pub/arizuko/reference/openapi.html",
+	}},
 }
 
 var (

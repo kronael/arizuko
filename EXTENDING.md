@@ -465,7 +465,10 @@ by each. Reference: `specs/5/7-proxyd-standalone.md`,
 Connectors are global and operator-defined. Every `[[connector]]` block in
 `<data_dir>/connectors.toml` registers at the deployment level, and a group
 reaches a connector's tools through grant rows (`mcp:<connector>:*`), never
-by registering an MCP endpoint of its own.
+by registering an MCP endpoint of its own. `connectors.toml` is the one source:
+there is no `mcp_connectors` resource, so a connector change is a file edit
+and a routd restart, and the file read once at boot is the destination
+allowlist.
 
 A block with `transport = "mcp"` declares one HTTPS endpoint: `url`, the
 `secrets` the broker may resolve for it, and a `headers` map whose

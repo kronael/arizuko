@@ -80,6 +80,10 @@ where the caller comes from.
   skip the action lattice, because through it the operator's `(*, **)` row
   would hold every tool and hand every folder secret to every operator
   turn.
+- **Visibility is not the gate.** `EffectiveActions` lists a tool when the
+  caller holds its action at any scope; a lattice row (`*`, `admin`,
+  `mcp:*`) lists every `mcp:` tool. A deny row is scope-specific, so it hides
+  nothing: `Authorize` refuses the call instead.
 - **A bearer's scope is not a grant.** `HasScope` checks what a token
   carries; `Authorize` checks what a principal holds. The two are never
   merged, because a leaked token must carry less than its owner.
@@ -134,9 +138,10 @@ is the unix socket routd bound for the turn (`ipc/README.md`). `TokenClaims`
 
 `Extra` (`map[string]string`) round-trips as top-level claims, not a
 nested object — e.g. `arz/folder` is read back as `Subject.Extra["arz/folder"]`.
-Scopes are `<resource>:<verb>` pairs; wildcards are namespace-only
-(`tasks:*`), there is no global `*:*` (operators carry the enumerated
-resource list).
+Scopes are `<resource>:<verb>` pairs, optionally `<resource>:<verb>:own_group`,
+the same verb confined to the caller's own folder subtree. Wildcards are
+namespace-only (`tasks:*`), and there is no global `*:*`: operators carry
+the enumerated resource list.
 
 **Signing** (`SigningKey`, ES256 P-256 keypair; `Kid` rides the JWS
 header for rotation):
