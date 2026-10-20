@@ -58,47 +58,53 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">components</a> &rsaquo; channel adapters</p>
       <h1>channel adapters</h1>
 
-<h2>What they are</h2>
-<p>In plain terms, a channel adapter is a translator between one chat app and arizuko. Each app &mdash; Telegram, Slack, WhatsApp &mdash; has its own way of talking; the adapter turns that into the one format arizuko understands, and turns arizuko&rsquo;s replies back into something the app can post.</p>
-<p>A channel adapter is a small daemon that speaks one upstream platform&rsquo;s protocol on one side and arizuko&rsquo;s HTTP contract on the other. Telegram on the left, <code>routd</code> on the right.</p>
+<h2>An adapter translates between one chat platform and routd</h2>
+<p>A channel adapter translates between one chat app and arizuko. Each app, such as Telegram, Slack or WhatsApp, talks in its own way. The adapter turns that into the one format that arizuko understands, and turns the replies of arizuko into posts that the app accepts.</p>
+<p>A channel adapter is a small daemon. It speaks the protocol of one platform on one side, such as Telegram, and the HTTP contract of arizuko on the other side, toward <code>routd</code>.</p>
 
-<p>Inbound: the adapter receives a message from the platform and POSTs it to <code>routd</code> at <code>/v1/messages</code>, bearing the <code>service:&lt;daemon&gt;</code> ES256 token it exchanged <code>AUTHD_SERVICE_KEY</code> for. Outbound: <code>routd</code> calls the adapter back at <code>POST /send</code> with the agent&rsquo;s reply, and the adapter pushes it to the platform.</p>
+<p>For inbound messages, the adapter receives a message from the platform and posts it to <code>routd</code> at <code>/v1/messages</code>. It sends the <code>service:&lt;daemon&gt;</code> ES256 token that it got in exchange for <code>AUTHD_SERVICE_KEY</code>. For outbound messages, <code>routd</code> calls the adapter at <code>POST /send</code> with the reply of the agent, and the adapter posts it to the platform.</p>
 
-<p>One adapter per platform. One container per adapter. Each runs on <code>LISTEN_ADDR=:8080</code> inside its container; Docker networking keeps the ports collision-free.</p>
+<p>Each platform has one adapter, and each adapter has one container. Each listens on <code>LISTEN_ADDR=:8080</code> inside its container, and Docker networking keeps the ports apart.</p>
 
-<h2>Why they exist</h2>
-<p>Every platform has its own protocol &mdash; Telegram long-polls, Discord holds a websocket, Slack posts events, email speaks IMAP. Putting any of that into <code>routd</code> would bind the message loop to one platform&rsquo;s quirks. The adapter absorbs the quirks so <code>routd</code> only ever sees an authenticated <code>POST /v1/messages</code>. Add a platform by adding an adapter; <code>routd</code> doesn&rsquo;t change.</p>
+<h2>Adapters keep platform details out of routd</h2>
+<p>Every platform has its own protocol. Telegram uses long polling, Discord holds a websocket, Slack posts events, and email uses IMAP. Any of that inside <code>routd</code> would tie the message loop to the details of one platform. The adapter takes those details, so <code>routd</code> only ever sees an authenticated <code>POST /v1/messages</code>. To add a platform, add an adapter, and <code>routd</code> does not change.</p>
 
-<h2>The shared shape</h2>
+<h2>Every adapter implements one interface</h2>
 <p>Every Go adapter implements one interface, <code>chanlib.BotHandler</code> in <code>chanlib/handler.go</code>:</p>
 
-<ul>
-  <li><code>Send</code>, <code>SendFile</code>, <code>SendVoice</code>, <code>Typing</code> &mdash; the messaging half. An adapter without files or voice embeds <code>chanlib.NoFileSender</code> or <code>chanlib.NoVoiceSender</code>.</li>
-  <li><code>Post</code>, <code>Like</code>, <code>Dislike</code>, <code>Forward</code>, <code>Quote</code>, <code>Repost</code>, <code>Edit</code>, <code>Delete</code>, <code>Pin</code>, <code>Unpin</code> &mdash; the social half of <code>BotHandler</code>. Implemented where the platform has the verb; an adapter without them embeds <code>chanlib.NoSocial</code> and each returns <code>chanlib.ErrUnsupported</code>.</li>
+<dl>
+  <dt>The messaging half</dt>
+  <dd><code>Send</code>, <code>SendFile</code>, <code>SendVoice</code> and <code>Typing</code>. An adapter without files or voice embeds <code>chanlib.NoFileSender</code> or <code>chanlib.NoVoiceSender</code>.</dd>
+  <dt>The social half</dt>
+  <dd><code>Post</code>, <code>Like</code>, <code>Dislike</code>, <code>Forward</code>, <code>Quote</code>, <code>Repost</code>, <code>Edit</code>, <code>Delete</code>, <code>Pin</code> and <code>Unpin</code>. An adapter implements a verb where the platform has it. An adapter without them embeds <code>chanlib.NoSocial</code>, and each verb returns <code>chanlib.ErrUnsupported</code>.</dd>
+  <dt><code>HistoryProvider</code></dt>
+  <dd>Optional. It reads older messages from the platform API when the agent asks for context.</dd>
+</dl>
 
-  <li><code>HistoryProvider</code> &mdash; optional. Pull older messages from the platform API when the agent asks for context.</li>
-</ul>
+<p>Every Go adapter serves the same HTTP endpoints, which <code>chanlib</code> mounts:</p>
 
-<p>Every adapter serves the same HTTP endpoints (mounted by <code>chanlib</code>):</p>
+<dl>
+  <dt><code>GET /health</code></dt>
+  <dd>503 when the link to the platform is down, for example an unscanned QR code, a dropped stream or an expired token. Otherwise 200, with the status <code>stale</code> when the channel has been quiet for longer than its threshold. A quiet channel is normal, so it never returns 503.</dd>
+  <dt><code>POST /send</code>, <code>/send-file</code>, <code>/send-voice</code>, <code>/typing</code></dt>
+  <dd><code>routd</code> gives the adapter an outbound row to deliver.</dd>
+  <dt><code>POST /post</code>, <code>/like</code>, <code>/dislike</code>, <code>/forward</code>, <code>/quote</code>, <code>/repost</code>, <code>/edit</code>, <code>/delete</code>, <code>/pin</code>, <code>/unpin</code></dt>
+  <dd>The social verbs, one route each.</dd>
+  <dt><code>GET /v1/history</code></dt>
+  <dd>Returns 501 when the adapter has no <code>HistoryProvider</code>.</dd>
+</dl>
 
-<ul>
-  <li><code>GET /health</code> &mdash; 503 when the platform link is down (QR unscanned, stream dropped, token expired); 200 otherwise, with status <code>stale</code> when the channel has been quiet past its threshold. A quiet channel is normal, so it never 503s.</li>
-  <li><code>POST /send</code>, <code>/send-file</code>, <code>/send-voice</code>, <code>/typing</code> &mdash; <code>routd</code> hands the adapter an outbound row to deliver.</li>
-  <li><code>POST /post</code>, <code>/like</code>, <code>/dislike</code>, <code>/forward</code>, <code>/quote</code>, <code>/repost</code>, <code>/edit</code>, <code>/delete</code>, <code>/pin</code>, <code>/unpin</code> &mdash; the social verbs, one route each.</li>
-  <li><code>GET /v1/history</code> &mdash; answers 501 when the adapter has no <code>HistoryProvider</code>.</li>
-</ul>
+<h2>An adapter never posts the same message twice</h2>
+<p><code>routd</code> writes an outbound row as <code>pending</code>, gives it to the adapter, and marks it <code>sent</code> when the adapter answers. If no answer arrives, the row stays <code>pending</code>, and a sweep every 30 seconds gives it to the adapter again. <code>MAX_OUTBOUND_RETRY</code>, 10 by default, limits the attempts, and then the row goes to the dead letters. So an adapter can see the same message more than once by design, and it must not post it twice.</p>
 
-<h2>Delivering exactly once</h2>
-<p><code>routd</code> writes an outbound row <code>pending</code>, hands it to the adapter, and marks it <code>sent</code> when the adapter answers. If that answer never arrives the row stays <code>pending</code> and a 30-second sweep hands it over again &mdash; bounded by <code>MAX_OUTBOUND_RETRY</code>, then dead-lettered. So an adapter sees the same message more than once by design, and it must not post it twice.</p>
+<p>Each send carries an <code>idempotency_key</code>: the stable id of the outbound row. Before the adapter calls the platform, it claims that key in its own table. After the post lands, it settles the claim with the message id from the platform. A repeat of a settled key returns the recorded id and calls nothing.</p>
 
-<p>Each send carries an <code>idempotency_key</code>: the outbound row&rsquo;s stable id. Before calling the platform the adapter claims that key in its own table, and settles the claim with the platform&rsquo;s message id once the post lands. A repeat of a settled key returns the recorded id and calls nothing.</p>
+<p>The hard case is a claim that never settled: the adapter called the platform and never learned the result. It cannot tell a lost answer from a lost request, and <code>chat.postMessage</code> of Slack has no key of its own. So both guesses are wrong: another post shows the message twice, and a skip loses it. The adapter refuses instead. <code>routd</code> uses up its retries and moves the row to the dead letters, where an operator sees it. A visible failure is better than a double post.</p>
 
-<p>The hard case is a claim that never settled &mdash; the adapter called the platform and never learned the outcome. It cannot tell a lost answer from a lost request, and Slack&rsquo;s <code>chat.postMessage</code> offers no key of its own, so either guess is wrong: post again and the user sees it twice, skip and the message is gone. The adapter refuses instead. <code>routd</code> exhausts its retries and dead-letters the row, which puts it in front of an operator. Visible beats doubled.</p>
+<p>The same rule applies one layer down. An adapter retries a platform call that failed with <code>429</code>, a refusal with a <code>Retry-After</code> that says when to try again. It never retries a create call that failed with a <code>5xx</code> or a dropped connection, because that call may have created the message already.</p>
 
-<p>The same reasoning applies one layer down. An adapter retries a platform call that failed with <code>429</code> &mdash; a refusal, with a <code>Retry-After</code> telling it when &mdash; but never retries a create call that failed with a <code>5xx</code> or a dropped connection, because those may have created the message already.</p>
-
-<h2>How they fit</h2>
-<p>Here&rsquo;s the whole conversation between one adapter and <code>routd</code>, top to bottom: register once, get pinged for health, push inbound, get called for outbound. The left column is what the adapter says or holds; the right column is what <code>routd</code> checks.</p>
+<h2>One adapter and routd exchange four kinds of call</h2>
+<p>The figure shows the whole exchange between one adapter and <code>routd</code>, from top to bottom. The adapter registers once, answers health checks, pushes inbound messages and receives outbound calls. The left column is what the adapter sends or holds. The right column is what <code>routd</code> checks.</p>
 <pre id="twin-channel"><code>adapter, chanlib.Run                   routd
   │ every call carries an ES256 service bearer:
   │ service:&lt;daemon&gt; to routd, service:routd to the adapter
@@ -129,57 +135,56 @@
   │◄─────────────────────────────────────┤ only for an advertised
   │ typing TTL: 90% of RUNED_RUN_TIMEOUT │ capability; else 501, no call</code></pre>
 
-<p>Two things there are worth a second look. The outbound queue is <code>routd</code>&rsquo;s pending row and nothing else &mdash; the adapter keeps a ledger of what it already posted, not a queue. And a verb the adapter never advertised doesn&rsquo;t even make a network call: <code>routd</code> answers the agent with an &ldquo;unsupported&rdquo; hint on the spot.</p>
+<p>Two details in the figure matter. First, the outbound queue is only the pending row of <code>routd</code>. The adapter keeps a record of what it already posted, not a queue. Second, a verb that the adapter never advertised causes no network call: <code>routd</code> answers the agent at once with an &ldquo;unsupported&rdquo; hint.</p>
 
-<p>The trust contract is symmetric, and both directions are ES256 bearers verified against <code>authd</code>&rsquo;s JWKS &mdash; no shared HMAC secret. Inbound, <code>routd</code> requires a <code>service:</code> subject; outbound, the adapter&rsquo;s <code>chanlib</code> gate requires the subject to be exactly <code>service:routd</code>. Each token is exchanged from <code>AUTHD_SERVICE_KEY</code> and rotates roughly hourly. See <a href="../concepts/auth.html">auth</a>.</p>
+<p>Trust works the same in both directions: both are ES256 bearers, verified against the JWKS of <code>authd</code>, with no shared HMAC secret. For inbound calls, <code>routd</code> requires a <code>service:</code> subject. For outbound calls, the <code>chanlib</code> gate of the adapter requires exactly <code>service:routd</code>. Each token comes from <code>AUTHD_SERVICE_KEY</code> and rotates about every hour. See <a href="../concepts/auth.html">auth</a>.</p>
 
-<h2>The adapters</h2>
+<h2>Ten adapters ship with arizuko</h2>
 <table>
   <thead>
     <tr><th>name</th><th>platform</th><th>language</th><th>notes</th></tr>
   </thead>
   <tbody>
-    <tr><td class="name"><a href="../components/slakd.html">slakd</a></td><td>Slack</td><td>Go</td><td>Assistant pane &mdash; suggested prompts and conversation title; reactions map to likes.</td></tr>
-    <tr><td class="name"><a href="../components/teled.html">teled</a></td><td>Telegram</td><td>Go</td><td>Long-poll bot API, file uploads, native voice messages.</td></tr>
-    <tr><td class="name"><a href="../components/discd.html">discd</a></td><td>Discord</td><td>Go</td><td>Gateway over websocket, ActionRow buttons, channel threads.</td></tr>
-    <tr><td class="name"><a href="../components/bskyd.html">bskyd</a></td><td>Bluesky</td><td>Go</td><td>AT Protocol, post threading.</td></tr>
-    <tr><td class="name"><a href="../components/reditd.html">reditd</a></td><td>Reddit</td><td>Go</td><td>Comments and posts; native dislike via downvote (the one platform with a true downvote).</td></tr>
-    <tr><td class="name"><a href="../components/emaid.html">emaid</a></td><td>email</td><td>Go</td><td>IMAP receive, SMTP send, threading by Message-ID.</td></tr>
-    <tr><td class="name"><a href="../components/linkd.html">linkd</a></td><td>LinkedIn</td><td>Go</td><td>Messaging API, connection-scoped DMs.</td></tr>
-    <tr><td class="name"><a href="../components/whapd.html">whapd</a></td><td>WhatsApp</td><td>TypeScript</td><td>Baileys client, QR pairing, voice notes.</td></tr>
-    <tr><td class="name"><a href="../components/twitd.html">twitd</a></td><td>X / Twitter</td><td>TypeScript</td><td>Mentions and DMs.</td></tr>
-    <tr><td class="name"><a href="../components/gitd.html">gitd</a></td><td>GitHub</td><td>Go</td><td>Signed webhook ingress. With <code>GITHUB_TOKEN</code> it posts and edits its own comments; merges, labels and reviews go through the GitHub MCP connector.</td></tr>
+    <tr><td class="name"><a href="../components/slakd.html">slakd</a></td><td>Slack</td><td>Go</td><td>The assistant pane with suggested prompts and a conversation title. Reactions map to likes.</td></tr>
+    <tr><td class="name"><a href="../components/teled.html">teled</a></td><td>Telegram</td><td>Go</td><td>The Bot API with long polling, file uploads and native voice messages.</td></tr>
+    <tr><td class="name"><a href="../components/discd.html">discd</a></td><td>Discord</td><td>Go</td><td>The gateway over a websocket, ActionRow buttons and channel threads.</td></tr>
+    <tr><td class="name"><a href="../components/bskyd.html">bskyd</a></td><td>Bluesky</td><td>Go</td><td>The AT Protocol, with post threads.</td></tr>
+    <tr><td class="name"><a href="../components/reditd.html">reditd</a></td><td>Reddit</td><td>Go</td><td>Comments and posts. A native dislike is a downvote, and Reddit is the one platform with a real downvote.</td></tr>
+    <tr><td class="name"><a href="../components/emaid.html">emaid</a></td><td>email</td><td>Go</td><td>IMAP in, SMTP out, and threads by Message-ID.</td></tr>
+    <tr><td class="name"><a href="../components/linkd.html">linkd</a></td><td>LinkedIn</td><td>Go</td><td>The messaging API and DMs with connections.</td></tr>
+    <tr><td class="name"><a href="../components/whapd.html">whapd</a></td><td>WhatsApp</td><td>TypeScript</td><td>A Baileys client, QR pairing and voice notes.</td></tr>
+    <tr><td class="name"><a href="../components/twitd.html">twitd</a></td><td>X</td><td>TypeScript</td><td>Mentions and DMs.</td></tr>
+    <tr><td class="name"><a href="../components/gitd.html">gitd</a></td><td>GitHub</td><td>Go</td><td>Signed webhook intake. With <code>GITHUB_TOKEN</code>, it posts and edits its own comments. Merges, labels and reviews go through the GitHub MCP connector.</td></tr>
   </tbody>
 </table>
 
-<p>Which adapter has which verb is one table: <a href="https://github.com/kronael/arizuko/blob/main/EXTENDING.md#verb-support-matrix">EXTENDING.md &sect; Verb support matrix</a>. An adapter without a platform verb returns <code>chanlib.ErrUnsupported</code> rather than failing quietly. The agent reads that response and picks another action instead of dropping the call.</p>
+<p>One table lists which adapter has which verb: <a href="https://github.com/kronael/arizuko/blob/main/EXTENDING.md#verb-support-matrix">[EXTENDING.md &sect; Verb support matrix]</a>. An adapter without a platform verb returns <code>chanlib.ErrUnsupported</code> and does not fail without a sign. The agent reads that response and picks another action.</p>
 
-<p>Per-platform quirks stay inside the adapter. Slack threads, Discord ActionRows, WhatsApp QR pairing, IMAP folder watching &mdash; none of it leaks into <code>routd</code>. The DB sees a uniform <code>messages</code> row no matter where the message came from.</p>
+<p>The details of each platform stay inside its adapter. Slack threads, Discord ActionRows, WhatsApp QR pairing and IMAP folder watching never reach <code>routd</code>. The store sees the same <code>messages</code> row for every source.</p>
 
-<p>Output rendering follows the same one-renderer rule. The agent picks a Claude Code output style per channel: <code>slack</code> emits Slack mrkdwn (<code>*bold*</code>, <code>_italic_</code>, <code>&lt;url|text&gt;</code>); other channels use CommonMark. runed selects the style when it renders the turn (<code>runed/settings.go</code> <code>pickOutputStyle</code>) so the adapter receives text already shaped for the channel.</p>
+<p>Output rendering follows the same rule of one renderer. The agent uses one Claude Code output style per channel. <code>slack</code> writes Slack mrkdwn: <code>*bold*</code>, <code>_italic_</code> and <code>&lt;url|text&gt;</code>. Other channels use CommonMark. runed selects the style when it renders the turn, in <code>pickOutputStyle</code> in <code>runed/settings.go</code>, so the adapter receives text that is already shaped for the channel.</p>
 
-<p>Language choice follows the upstream SDK. Most platforms have a maintained Go client, so the adapter is Go. WhatsApp and X have their best-maintained clients in TypeScript (Baileys, twitter-api-v2), so those adapters run on Node. The HTTP contract is identical either way.</p>
+<p>The upstream SDK decides the language. Most platforms have a maintained Go client, so their adapter is Go. WhatsApp and X have their best clients in TypeScript, Baileys and twitter-api-v2, so those adapters are TypeScript: whapd runs on Node and twitd on Bun. The HTTP contract is the same for all adapters.</p>
 
-<h2>Adding a new adapter</h2>
-<p>Two artifacts, no edits to <code>proxyd</code> or <code>compose</code>:</p>
+<h2>A new adapter is a daemon and a compose fragment</h2>
+<p>A new adapter needs two files and no edit to <code>proxyd</code> or <code>compose</code>:</p>
 
 <ol>
-  <li>Write the daemon. Implement <code>chanlib.BotHandler</code>, embedding <code>NoSocial</code> and <code>NoVoiceSender</code> for what the platform does not have. Serve the standard HTTP endpoints on <code>LISTEN_ADDR=:8080</code>.</li>
-  <li>Drop a <code>template/services/&lt;daemon&gt;.yml</code> &mdash; a partial compose file docker <code>include</code>s verbatim &mdash; with the service's env block. If the adapter takes inbound web traffic, add a sibling <code>&lt;daemon&gt;.yaml</code> &mdash; its config manifest, with a <code>proxyd_routes</code> block. The next <code>arizuko run</code> picks up both.</li>
+  <li>Write the daemon. Implement <code>chanlib.BotHandler</code>, and embed <code>NoSocial</code> and <code>NoVoiceSender</code> for what the platform does not have. Serve the standard HTTP endpoints on <code>LISTEN_ADDR=:8080</code>.</li>
+  <li>Add <code>template/services/&lt;daemon&gt;.yml</code>, a partial compose file that docker includes as written, with the environment block of the service. If the adapter takes inbound web traffic, add the configuration manifest <code>&lt;daemon&gt;.yaml</code> next to it, with a <code>proxyd_routes</code> block. The next <code>arizuko run</code> uses both.</li>
 </ol>
 
-<p>The delivery contract every adapter keeps, and the error classes it returns: <code>chanlib/README.md</code>. Extension points: <a href="https://github.com/kronael/arizuko/blob/main/EXTENDING.md">EXTENDING.md</a>.</p>
+<p><a href="https://github.com/kronael/arizuko/blob/main/chanlib/README.md">[chanlib/README.md]</a> has the delivery contract of every adapter and the error classes it returns. <a href="https://github.com/kronael/arizuko/blob/main/EXTENDING.md">[EXTENDING.md]</a> has the extension points.</p>
 
-<h2>Asymmetric channels</h2>
-<p>An inbound channel and an outbound channel do not have to be the same daemon. A message can arrive on email and the reply can go out on Slack &mdash; the route table decides. See <a href="../howto/asymmetric-channels.html">howto/asymmetric-channels</a>.</p>
+<h2>A reply can leave on another channel</h2>
+<p>The inbound and the outbound channel do not have to be the same daemon. A message can arrive by email, and the reply can go out on Slack: the route table decides. See <a href="../howto/asymmetric-channels.html">howto/asymmetric-channels</a>.</p>
 
-<h2>Go deeper</h2>
+<h2>Three sources cover the details</h2>
 <ul>
-  <li><code>chanlib/handler.go</code> &mdash; <code>BotHandler</code>, the fourteen verbs and their request types.</li>
-  <li><code>chanlib/</code> and <code>chanreg/</code> &mdash; shared HTTP plumbing every adapter mounts.</li>
-  <li><a href="../concepts/routing.html">concepts/routing</a> &mdash; routd, the other end of every adapter&rsquo;s HTTP calls, and how an inbound message picks its group and reply channel.</li>
+  <li><a href="https://github.com/kronael/arizuko/blob/main/chanlib/handler.go">[chanlib/handler.go]</a>: <code>BotHandler</code>, the fourteen verbs and their request types.</li>
+  <li><code>chanlib/</code> and <code>chanreg/</code>: the shared HTTP code that every adapter mounts.</li>
+  <li><a href="../concepts/routing.html">concepts/routing</a>: routd, the other end of every adapter call, and how an inbound message picks its group and reply channel.</li>
 </ul>
-
 
       <nav class="docs-pager" aria-label="Pager">
         <a rel="prev" href="bskyd.html">&larr; bskyd</a>

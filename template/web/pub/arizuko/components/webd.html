@@ -58,42 +58,47 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">components</a> &rsaquo; webd</p>
       <h1>webd</h1>
 
-    <h2>What it is</h2>
-    <p>In plain terms, webd is what puts the agent in a web browser. It serves the chat box on a web page and streams each reply back as the agent writes it.</p>
+    <h2>webd puts the agent in a web browser</h2>
+    <p>webd serves the chat box on a web page and streams each reply back while the agent writes it.</p>
 
-    <p>webd is the web channel adapter. It registers with routd as channel <code>web</code> (JID prefix <code>web:</code>) and pushes per-turn agent output to browsers over Server-Sent Events (a one-way live stream from server to browser). It serves three URLs: the public chat widget at <code>/chat/&lt;token&gt;/</code>, the webhook ingest at <code>/hook/&lt;token&gt;</code>, and the authed operator panel at <code>/panel/&lt;folder&gt;</code>. Tokens come from the <a href="../components/tokens.html">route_tokens</a> table; <code>/slink/*</code> URLs answer 308 to <code>/chat/*</code>.</p>
+    <p>webd is the web channel adapter. It registers with routd as the channel <code>web</code>, with the JID prefix <code>web:</code>. It sends the output of each turn to browsers over Server-Sent Events, a one-way live stream from the server to the browser. It serves three URLs: the public chat widget at <code>/chat/&lt;token&gt;/</code>, the webhook intake at <code>/hook/&lt;token&gt;</code>, and the operator panel with login at <code>/panel/&lt;folder&gt;</code>. Tokens come from the <a href="../components/tokens.html">route_tokens</a> table. <code>/slink/*</code> URLs answer with a 308 redirect to <code>/chat/*</code>.</p>
 
-    <p>From routd&rsquo;s point of view it is a normal channel adapter, same protocol as <code>teled</code> or <code>slakd</code>. From a browser&rsquo;s point of view it is an HTTP server with one open SSE stream per active chat.</p>
+    <p>For routd, webd is a normal channel adapter with the same protocol as <code>teled</code> or <code>slakd</code>. For a browser, webd is an HTTP server with one open SSE stream per active chat.</p>
 
-    <h2>Why it exists</h2>
-    <p>Telegram and Discord come with their own clients. The web does not. To talk to an arizuko group from a browser, something has to host HTML, accept a POST, push agent output to the page, and look like one more channel to routd. Splitting that into its own adapter keeps routd free of HTML and puts every web client (built-in widget, JS SDK, third-party MCP client) on one code path.</p>
+    <h2>The web has no client of its own, so webd is that client</h2>
+    <p>Telegram and Discord have their own clients. The web does not. To talk to an arizuko group from a browser, a program must host HTML and accept a POST. It must also push agent output to the page and look like one more channel to routd. A separate adapter keeps HTML out of routd and puts every web client on one code path. The clients are the built-in widget, the JS SDK and MCP clients of other parties.</p>
 
-    <p>Without webd there is no browser chat, no slink widget, no operator MCP-over-HTTP. The dashboard would still work because dashd is a separate daemon, but end users could only reach the agent through a platform adapter.</p>
+    <p>Without webd, there is no browser chat, no slink widget and no operator MCP over HTTP. The dashboard still works, because dashd is a separate daemon, but end users can reach the agent only through a platform adapter.</p>
 
-    <h2>The transport</h2>
-    <p>Web chat runs over plain HTTP, no WebSockets. The browser POSTs a message and gets back a <code>turn_id</code>. It then opens an SSE stream at the round&rsquo;s URL and reads <code>event: message</code> frames as the agent produces them; the stream closes on <code>event: round_done</code>. Dropped connections reconnect with <code>Last-Event-Id</code> and replay missed frames.</p>
+    <h2>Web chat uses plain HTTP and SSE</h2>
+    <p>Web chat uses plain HTTP and no WebSockets. The browser posts a message and gets back a <code>turn_id</code>. It then opens an SSE stream at the URL of the round and reads <code>event: message</code> frames as the agent produces them. The stream closes on <code>event: round_done</code>. A dropped connection reconnects with <code>Last-Event-Id</code>, and webd sends the missed frames again.</p>
 
-    <h2>How it fits</h2>
+    <h2>webd sits between proxyd and routd</h2>
     <div class="callout">
       <pre><code>browser / curl / MCP client
-        |  HTTP + SSE
-        v
+        │  HTTP + SSE
+        ▼
       proxyd          (auth for /api/*, /mcp ; optional on /chat/*)
-        |
-        v
-      webd  --POST /v1/messages--&gt;  routd     (service:webd ES256 bearer)
-        ^                            |
-        |                            v
-        +--POST /send----------  the agent's guest
+        │
+        ▼
+      webd  ── POST /v1/messages ──►  routd     (service:webd ES256 bearer)
+        ▲                              │
+        │                              ▼
+        └── POST /send ──────────  the agent's guest
             (routd calls webd back; webd fans to SSE subscribers)</code></pre>
     </div>
 
-    <p>Inputs: HTTP from browsers and MCP clients; HTTP callbacks from routd (<code>/send</code>, <code>/edit</code>, <code>/v1/round_done</code>) authenticated by a <code>service:routd</code> ES256 bearer; identity headers forwarded from proxyd. Outputs: HTML pages and SSE frames to the browser, and POSTs to routd&rsquo;s <code>/v1/messages</code> bearing webd&rsquo;s own <code>service:webd</code> token.</p>
+    <dl>
+      <dt>Inputs</dt>
+      <dd>HTTP from browsers and MCP clients. HTTP callbacks from routd on <code>/send</code>, <code>/edit</code> and <code>/v1/round_done</code>, with a <code>service:routd</code> ES256 bearer. Identity headers from proxyd.</dd>
+      <dt>Outputs</dt>
+      <dd>HTML pages and SSE frames to the browser, and posts to <code>/v1/messages</code> on routd with the own <code>service:webd</code> token of webd.</dd>
+      <dt>Dependencies</dt>
+      <dd>A reachable routd at <code>$ROUTER_URL</code>, and the tables of routd: the <code>/api/*</code> chat reads of webd read them directly. A move of these reads to <code>/v1/messages</code> is deferred.</dd>
+    </dl>
 
-    <p>Hard deps: a reachable routd at <code>$ROUTER_URL</code>, and routd&rsquo;s tables (webd&rsquo;s <code>/api/*</code> chat reads still go straight to them today; they migrate to <code>/v1/messages</code> when that ships).</p>
-
-    <h2>Standalone usage</h2>
-    <p>Yes, as a process &mdash; but useless without routd. webd does not store messages; it forwards them. Run it on its own only when pointing at a running routd.</p>
+    <h2>webd runs alone only next to a routd</h2>
+    <p>webd runs as a process, but it is of no use without routd. webd does not store messages: it forwards them. Run it alone only with a running routd.</p>
 
     <pre><code># with routd already up on the same data dir
 cd /srv/data/myinstance
@@ -105,28 +110,30 @@ AUTHD_SERVICE_KEY=$(grep ^AUTHD_SERVICE_KEY .env | cut -d= -f2) \
 WEB_HOST=localhost:9001 \
 /path/to/webd</code></pre>
 
-    <p>On startup webd calls <code>POST $ROUTER_URL/v1/channels/register</code> with name <code>web</code>, caps <code>send_text</code> + <code>edit</code>, and its own callback URL. If registration fails the process exits. <code>GET /health</code> returns 200 once registered.</p>
-    <p>An <code>/edit</code> from routd publishes a frame with the same id and the new text, so the browser replaces the status message instead of adding a second one. webd renders no typing indicator and does not advertise <code>typing</code>.</p>
+    <p>At startup, webd calls <code>POST $ROUTER_URL/v1/channels/register</code> with the name <code>web</code>, the capabilities <code>send_text</code> and <code>edit</code>, and its own callback URL. If the registration fails, the process exits. <code>GET /health</code> returns 200 after the registration.</p>
+    <p>An <code>/edit</code> from routd publishes a frame with the same id and the new text. So the browser replaces the status message and does not add a second one. webd shows no typing indicator and does not advertise <code>typing</code>.</p>
 
-    <h2>Key env vars</h2>
+    <h2>Six environment variables configure webd</h2>
+    <dl>
+      <dt><code>WEBD_LISTEN</code></dt>
+      <dd>The HTTP listen address, <code>:8080</code> by default.</dd>
+      <dt><code>WEBD_URL</code></dt>
+      <dd>The URL that routd calls back, <code>http://webd:8080</code> by default.</dd>
+      <dt><code>ROUTER_URL</code></dt>
+      <dd>Where routd is, <code>http://routd:8080</code> by default.</dd>
+      <dt><code>AUTHD_URL</code>, <code>AUTHD_SERVICE_KEY</code></dt>
+      <dd>webd exchanges the key for the <code>service:webd</code> ES256 token that it presents on <code>/v1/*</code>. The JWKS from <code>AUTHD_URL</code> verifies the callbacks of routd on <code>/send</code> and <code>/edit</code>.</dd>
+      <dt><code>WEB_HOST</code>, <code>ASSISTANT_NAME</code></dt>
+      <dd>Values that webd renders into the chat widget and the URLs it issues.</dd>
+    </dl>
+    <p>webd shares no secret with proxyd. webd trusts the identity headers on <code>/api/*</code>, <code>/x/*</code> and <code>/mcp</code> only behind the <code>service:proxyd</code> bearer, which it checks against the same JWKS with <code>auth.ProxydTransit</code>. <a href="../reference/env.html">reference/env</a> has the full list and the defaults.</p>
+
+    <h2>Three pages cover the details</h2>
     <ul>
-      <li><code>WEBD_LISTEN</code> &mdash; HTTP listen address (default <code>:8080</code>).</li>
-      <li><code>WEBD_URL</code> &mdash; URL routd should call back on (default <code>http://webd:8080</code>).</li>
-      <li><code>ROUTER_URL</code> &mdash; where routd is reachable (default <code>http://routd:8080</code>).</li>
-      <li><code>AUTHD_URL</code>, <code>AUTHD_SERVICE_KEY</code> &mdash; exchanged for the <code>service:webd</code> ES256 token webd presents on <code>/v1/*</code>, and the JWKS it verifies routd&rsquo;s callbacks against on <code>/send</code> + <code>/edit</code>.</li>
-      <li>No shared secret with proxyd. The identity headers on <code>/api/*</code>, <code>/x/*</code> and <code>/mcp</code> are trusted only behind proxyd&rsquo;s <code>service:proxyd</code> bearer, which webd checks against that same JWKS (<code>auth.ProxydTransit</code>).</li>
-      <li><code>WEB_HOST</code>, <code>ASSISTANT_NAME</code> &mdash; rendered into the chat widget and issued URLs.</li>
+      <li><a href="https://github.com/kronael/arizuko/blob/main/webd/README.md">[webd/README.md]</a>: the full HTTP endpoints, the token contract, the limits of the SSE hub and the blocking-poll transport.</li>
+      <li><a href="../components/tokens.html">components/route tokens</a>: the public chat and webhook URLs that webd hosts.</li>
+      <li><a href="../concepts/routing.html">concepts/routing</a>: how routd sends a message to the agent.</li>
     </ul>
-
-    <p>Full list and defaults in <a href="../reference/env.html">reference/env</a>.</p>
-
-    <h2>Go deeper</h2>
-    <ul>
-      <li><code>webd/README.md</code> &mdash; full HTTP surface, token contract, the SSE hub&rsquo;s limits and the blocking-poll transport.</li>
-      <li><a href="../components/tokens.html">components/route tokens</a> &mdash; the public chat + webhook URLs webd hosts.</li>
-      <li><a href="../concepts/routing.html">concepts/routing</a> &mdash; how routd dispatches to the agent.</li>
-    </ul>
-
 
       <nav class="docs-pager" aria-label="Pager">
         <a rel="prev" href="vited.html">&larr; vited</a>
@@ -134,7 +141,7 @@ WEB_HOST=localhost:9001 \
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/components/webd.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-17">2026-10-17</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-20">2026-10-20</time>
       </div>
     </main>
 

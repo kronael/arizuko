@@ -58,45 +58,56 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">components</a> &rsaquo; whapd</p>
       <h1>whapd</h1>
 
-    <h2>What it is</h2>
-    <p>In plain terms, whapd is the connector that plugs WhatsApp into arizuko, so the agent can read and reply in WhatsApp chats and groups.</p>
+    <h2>whapd connects WhatsApp to arizuko</h2>
+    <p>whapd connects WhatsApp to arizuko, so the agent can read and reply in WhatsApp chats and groups.</p>
 
-    <p>whapd is the WhatsApp channel adapter. It speaks WhatsApp Web through the Baileys socket library (TypeScript / Node, the only non-Go adapter in the core), posts inbound to routd, and sends outbound through the same socket. JID prefix is <code>whatsapp:</code>; per-conversation JIDs are <code>whatsapp:&lt;jid&gt;</code> where <code>jid</code> is the Baileys-native form (phone-number@s.whatsapp.net or group-id@g.us).</p>
+    <p>whapd is the WhatsApp channel adapter. It speaks WhatsApp Web through the Baileys socket library, in TypeScript on Node. It posts inbound messages to routd and sends outbound messages through the same socket. The JID prefix is <code>whatsapp:</code>. A conversation has the JID <code>whatsapp:&lt;jid&gt;</code>, where <code>jid</code> is the native Baileys form: <code>&lt;phone&gt;@s.whatsapp.net</code> for a person or <code>&lt;group-id&gt;@g.us</code> for a group.</p>
 
-    <h2>Why it exists</h2>
-    <p>WhatsApp has no usable consumer API. The official Cloud API is partner-gated and quota-limited; everyone else uses a WhatsApp Web client. Baileys has no Go port, so whapd lives in TypeScript. Pairing credentials persist in <code>$WHATSAPP_AUTH_DIR/creds.json</code> with an atomic <code>.bak</code> rotation; a fresh install requires pairing.</p>
+    <h2>WhatsApp has no usable consumer API</h2>
+    <p>WhatsApp has no consumer API that arizuko can use. The official Cloud API needs partner approval and has quotas, so other tools use a WhatsApp Web client. Baileys has no Go port, so whapd is written in TypeScript. whapd keeps the pairing credentials in <code>$WHATSAPP_AUTH_DIR/creds.json</code>, with an atomic <code>.bak</code> copy. A new install needs pairing.</p>
 
-    <h2>How it fits</h2>
+    <h2>whapd sits between WhatsApp and routd</h2>
     <div class="callout">
       <pre><code>WhatsApp (web.whatsapp.com socket)
-        |  Baileys multi-device socket
-        v
+        │  Baileys multi-device socket
+        ▼
       whapd     (LISTEN_ADDR=:8080, Node runtime)
-        |  POST /v1/messages    (service:<daemon> ES256 bearer)
-        v
+        │  POST /v1/messages    (service:&lt;daemon&gt; ES256 bearer)
+        ▼
       routd
-        |  POST /send           (callback to whapd)
-        v
+        │  POST /send           (callback to whapd)
+        ▼
       whapd     (sock.sendMessage / reactMessage / delete)
-        |
-        v
+        │
+        ▼
       WhatsApp</code></pre>
     </div>
 
-    <p>Wired verbs (<code>whapd/src/server.ts</code>): <code>send</code> (<code>sendMessage(jid, {text})</code>, honours <code>reply_to</code> via Baileys <code>quoted</code>), <code>send_file</code> (image / video / audio / document by mime sniff), <code>typing</code> (composing / paused presence with refresher), <code>like</code> (reaction; emoji selectable via <code>reaction</code> field, default <span>&#128077;</span>), <code>edit</code> (own messages, 15-min window), <code>delete</code> (own-message redaction), <code>forward</code> (best-effort &mdash; synthesizes forwarded text since Baileys only gives <code>source_msg_id</code>). <code>quote</code>, <code>repost</code>, <code>dislike</code>, <code>post</code> are 501-with-hint &mdash; <code>dislike</code> redirects to <code>like(reaction='&#128078;')</code>.</p>
+    <p>The wired verbs are in <code>whapd/src/server.ts</code>:</p>
+    <dl>
+      <dt><code>send</code></dt><dd><code>sendMessage(jid, {text})</code>, with <code>reply_to</code> as the Baileys <code>quoted</code> message.</dd>
+      <dt><code>send_file</code></dt><dd>An image, video, audio file or document, chosen from the MIME type.</dd>
+      <dt><code>typing</code></dt><dd>The composing and paused presence, refreshed while the turn runs.</dd>
+      <dt><code>like</code></dt><dd>A reaction. The <code>reaction</code> field selects the emoji, <span>&#128077;</span> by default.</dd>
+      <dt><code>edit</code></dt><dd>Own messages, within 15 minutes.</dd>
+      <dt><code>delete</code></dt><dd>Removal of an own message.</dd>
+      <dt><code>forward</code></dt><dd>Best effort: whapd builds the forwarded text itself, because Baileys gives only <code>source_msg_id</code>.</dd>
+    </dl>
+    <p><code>quote</code>, <code>repost</code>, <code>dislike</code> and <code>post</code> return 501 with a hint. The hint for <code>dislike</code> points to <code>like(reaction='&#128078;')</code>.</p>
 
-    <p>No <code>fetch_history</code>: Baileys&rsquo; history sync is unreliable across the LID/JID translation Meta introduced in 2024; the gateway falls back to its local cache.</p>
+    <p>whapd has no <code>fetch_history</code>. The history sync of Baileys is not reliable across the LID and JID translation of Meta, so routd uses its local cache.</p>
 
-    <h2>Pairing</h2>
-    <p>Two paths, both token-less:</p>
-    <ul>
-      <li><strong>QR code</strong> &mdash; the default. whapd prints a QR ascii to the container log; scan it from WhatsApp on the phone (<em>Settings &rarr; Linked devices &rarr; Link a device</em>).</li>
-      <li><strong>Pairing code</strong> &mdash; <code>--pair &lt;phone&gt;</code> on the binary, or the self-service flow at <code>/dash/channels/whatsapp/pair</code> (shipped v0.40.2). The operator enters the bot phone number; whapd prints an 8-character code; the operator types it on the phone instead of scanning a QR. Useful for headless deploys.</li>
-    </ul>
+    <h2>Two pairing methods need no token</h2>
+    <dl>
+      <dt>QR code</dt>
+      <dd>The default. whapd prints a QR code in ASCII to its log. Scan it with WhatsApp on the phone, in <em>Settings, Linked devices, Link a device</em>.</dd>
+      <dt>Pairing code</dt>
+      <dd><code>--pair &lt;phone&gt;</code> on the binary, or the self-service page <code>/dash/channels/whatsapp/pair</code>. The operator enters the phone number of the bot, and whapd prints an 8-character code. The operator types the code on the phone instead of scanning a QR code. Use it for deploys without a screen.</dd>
+    </dl>
 
-    <p>Lose <code>creds.json</code> and the device is unlinked &mdash; re-pair. whapd backs up to <code>creds.json.bak</code> on every save and recovers from it on a crash. The outbound queue is persisted to disk and auto-resumes on reconnect.</p>
+    <p>If <code>creds.json</code> is lost, the device is unlinked, and you must pair again. whapd writes a backup to <code>creds.json.bak</code> on every save and recovers from it after a crash. whapd keeps the outbound queue on disk and resumes it after a reconnect.</p>
 
-    <h2>Standalone usage</h2>
+    <h2>whapd runs alone with routd and an auth directory</h2>
     <pre><code>export ROUTER_URL=http://routd:8080
 export AUTHD_URL=http://authd:8080
 export AUTHD_SERVICE_KEY=$(grep ^AUTHD_SERVICE_KEY .env | cut -d= -f2)
@@ -105,21 +116,20 @@ export WHATSAPP_AUTH_DIR=/srv/data/store/whatsapp-auth
 export DATA_DIR=/srv/data/arizuko_demo
 node dist/main.js</code></pre>
 
-    <p><code>GET /health</code> returns 503 while waiting for QR / pairing-code scan and while the Baileys socket is disconnected. The container log carries the QR; <code>sudo docker logs arizuko-&lt;inst&gt;-whapd-1</code> on the host.</p>
+    <p><code>GET /health</code> returns 503 while whapd waits for a QR or pairing-code scan, and while the Baileys socket is disconnected. The QR code is in the journal of the instance, because every service runs attached under the systemd unit of the instance. Run <code>sudo journalctl -u arizuko_&lt;inst&gt;</code> on the host.</p>
 
-    <h2>Go deeper</h2>
+    <h2>Two sources cover the details</h2>
     <ul>
-      <li><a href="../components/channels.html">components/channels</a> &mdash; cross-adapter verb matrix.</li>
-      <li><code>whapd/README.md</code> &mdash; verb table, file map, edit/delete window.</li>
+      <li><a href="../components/channels.html">components/channels</a>: the verb table across adapters.</li>
+      <li><a href="https://github.com/kronael/arizuko/blob/main/whapd/README.md">[whapd/README.md]</a>: the verb table, the file map and the edit and delete windows.</li>
     </ul>
-
 
       <nav class="docs-pager" aria-label="Pager">
         <a rel="prev" href="webd.html">&larr; webd</a>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/components/whapd.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-09-19">2026-09-19</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-16">2026-10-16</time>
       </div>
     </main>
 

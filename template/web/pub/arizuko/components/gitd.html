@@ -56,94 +56,93 @@
 
     <main class="docs-content">
     <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">components</a> &rsaquo; gitd</p>
-
     <h1>gitd</h1>
-    <p class="lede">A GitHub repository talks to the agent the way a Slack channel does. gitd takes GitHub's signed webhook deliveries, turns each one into an ordinary inbound message, and hands it to routd. From there a pull request is just another conversation.</p>
+    <p class="lede">gitd lets a GitHub repository talk to the agent in the same way as a Slack channel. It takes the signed webhook deliveries of GitHub, turns each one into an ordinary inbound message and gives it to routd. After that, a pull request is one more conversation.</p>
 
-    <h2>What it is</h2>
-    <p>gitd is a channel adapter, the same shape as <a href="slakd.html">slakd</a> or <a href="teled.html">teled</a>. It listens for webhook POSTs, checks the signature, and posts one <code>chanlib.InboundMsg</code> to routd. Everything the agent does back to the repo &mdash; merge, label, review, close &mdash; goes through the GitHub MCP connector rather than through channel verbs, because those are repository actions, not chat.</p>
+    <h2>gitd is a channel adapter for GitHub webhooks</h2>
+    <p>gitd is a channel adapter with the same shape as <a href="slakd.html">slakd</a> or <a href="teled.html">teled</a>. It listens for webhook posts, checks the signature and posts one <code>chanlib.InboundMsg</code> to routd. The actions of the agent on the repository, such as merge, label, review or close, go through the GitHub MCP connector. They do not use channel verbs, because they are repository actions, not chat.</p>
 
-    <h2>Why it exists</h2>
-    <p>Without it a repository is a place the agent can be told about but cannot hear from. Someone has to paste the pull request, and the agent answers about a snapshot that has already moved. gitd makes the repo a participant: the comment arrives as a message, the agent reads the thread it belongs to, and the reply lands back on the same pull request.</p>
+    <h2>gitd lets the agent hear from a repository</h2>
+    <p>Without gitd, the agent can be told about a repository but cannot hear from it. Someone has to paste the pull request, and the agent answers about a snapshot that has already changed. With gitd, the repository takes part. The comment arrives as a message, the agent reads its thread, and the reply lands on the same pull request.</p>
 
-    <p>It stays an ingress and nothing more on purpose. Merging, labelling and reviewing are repository actions with their own permissions, and routing them through chat verbs would mean inventing a second permission model beside GitHub&rsquo;s. They go through the MCP connector instead, where the token&rsquo;s own scope is the limit.</p>
+    <p>gitd only receives, by design. Merging, labelling and reviewing are repository actions with their own permissions. To route them through chat verbs would need a second permission model next to the one of GitHub. They go through the MCP connector instead, where the scope of the token is the limit.</p>
 
-    <h2>How it fits</h2>
-    <div class="callout"><strong>Shape:</strong> GitHub webhook &rarr; gitd (verify signature, resolve the source, build the JID) &rarr; routd (route table decides the folder, and whether this fires a turn) &rarr; the agent. Outbound is the GitHub MCP connector, not gitd &mdash; except <code>send_text</code>, which posts a comment when <code>GITHUB_TOKEN</code> is set.</div>
+    <h2>gitd sits between GitHub and routd</h2>
+    <div class="callout"><strong>A webhook becomes an inbound message.</strong> The path starts at the GitHub webhook. gitd verifies the signature, resolves the source and builds the JID. In routd, the route table decides the folder and whether a turn starts. Then the agent runs. Outbound actions go through the GitHub MCP connector, not gitd. The exception is <code>send_text</code>, which posts a comment when <code>GITHUB_TOKEN</code> is set.</div>
 
-    <p>gitd depends on routd for delivery and on routd&rsquo;s <code>github_sources</code> table for the secrets. Nothing depends on gitd: remove it and the repo simply stops talking.</p>
+    <p>gitd depends on routd for delivery and on the <code>github_sources</code> table of routd for the secrets. Nothing depends on gitd: without it, the repository stops talking to the agent.</p>
 
-    <h2>Sources</h2>
-    <p>A <strong>source</strong> is one webhook secret registered against a folder. GitHub sends the same signed POST for all three kinds, and one receiver handles them:</p>
+    <h2>A source is one webhook secret for one folder</h2>
+    <p>A <strong>source</strong> is one webhook secret registered for a folder. GitHub sends the same signed post for all three kinds, and one receiver handles them:</p>
 
     <table>
       <tr><th>kind</th><th>name</th><th>paste the URL and secret into</th></tr>
-      <tr><td><code>repo</code></td><td><code>&lt;owner&gt;/&lt;repo&gt;</code></td><td>the repo&rsquo;s Settings &rarr; Webhooks</td></tr>
-      <tr><td><code>org</code></td><td><code>&lt;owner&gt;</code></td><td>the org&rsquo;s Settings &rarr; Webhooks, covering every repo it owns</td></tr>
-      <tr><td><code>app</code></td><td><code>&lt;slug&gt;</code></td><td>the GitHub App&rsquo;s Webhook settings, covering every installation</td></tr>
+      <tr><td><code>repo</code></td><td><code>&lt;owner&gt;/&lt;repo&gt;</code></td><td>the Webhooks page in the settings of the repository</td></tr>
+      <tr><td><code>org</code></td><td><code>&lt;owner&gt;</code></td><td>the Webhooks page in the settings of the organization, for every repository it owns</td></tr>
+      <tr><td><code>app</code></td><td><code>&lt;slug&gt;</code></td><td>the webhook settings of the GitHub App, for every installation</td></tr>
     </table>
 
     <pre><code>arizuko github &lt;inst&gt; add app arizuko-krons eng   # prints url + secret ONCE
 arizuko github &lt;inst&gt; list                        # secrets never print again
 arizuko github &lt;inst&gt; rm app/arizuko-krons eng    # 404s the URL, drops the routes</code></pre>
 
-    <p>The secret is sealed under <code>SECRETS_KEY</code> in routd&rsquo;s <code>github_sources</code> table and unsealed per delivery. The URL path <code>/github/&lt;kind&gt;/&lt;name&gt;</code> picks which secret verifies the signature, so a payload never chooses its own verifier. A repo or org source is bound to its repo or org as well: a payload naming a different repo is refused with 400 even when the signature checks out.</p>
+    <p>routd seals the secret under <code>SECRETS_KEY</code> in its <code>github_sources</code> table, and gitd unseals it for each delivery. The URL path <code>/github/&lt;kind&gt;/&lt;name&gt;</code> selects the secret that verifies the signature, so a payload never chooses its own verifier. A repository or organization source is also bound to its repository or organization. gitd refuses a payload that names another repository with 400, even when the signature is valid.</p>
 
-    <h2>The JID</h2>
+    <h2>The JID names the owner, the repository and the thread</h2>
     <pre><code>github:&lt;owner&gt;                    account or org event, no repository
 github:&lt;owner&gt;/&lt;repo&gt;             repo event &mdash; push, release, …
 github:&lt;owner&gt;/&lt;repo&gt;/pr/&lt;n&gt;      one pull request,  topic=pr/&lt;n&gt;
 github:&lt;owner&gt;/&lt;repo&gt;/issue/&lt;n&gt;   one issue,         topic=issue/&lt;n&gt;</code></pre>
 
-    <p>Owner and repo ride in the JID, so one App secret serving fifty repos yields fifty JIDs and the ordinary <a href="../reference/cli.html">route table</a> maps them. The sender is <code>github:&lt;login&gt;</code> &mdash; the same principal <a href="authd.html">authd</a> mints for a GitHub sign-in, so a person&rsquo;s dashboard login and their PR comment are one identity.</p>
+    <p>The owner and the repository are in the JID, so one App secret for fifty repositories gives fifty JIDs. The ordinary <a href="../reference/cli.html">route table</a> maps them. The sender is <code>github:&lt;login&gt;</code>, the same principal that <a href="authd.html">authd</a> creates for a GitHub sign-in. So the dashboard login of a person and the comment of that person on a pull request are one identity.</p>
 
-    <h2>What triggers a turn</h2>
-    <p>Registering a source seeds route rows. Human content triggers a turn: a comment, a new pull request, a new issue. Everything else &mdash; push, merge, label, CI &mdash; lands as <code>&lt;folder&gt;#observe</code>, so the agent reads it without answering.</p>
+    <h2>Human content starts a turn and the rest is observed</h2>
+    <p>A new source gets seeded route rows. Human content starts a turn: a comment, a new pull request or a new issue. Everything else, such as a push, a merge, a label or a CI event, lands as <code>&lt;folder&gt;#observe</code>. The agent reads it and does not answer.</p>
 
-    <p>Repo rows sit at seq 10 and 100, org at 20 and 200, app at 30 and 300, so a narrower registration wins. Change the split by editing the rows in <code>/dash/routd/</code> or with <code>arizuko routes</code>. gitd never decides it.</p>
+    <p>Repository rows use seq 10 and 100, organization rows 20 and 200, and App rows 30 and 300, so a narrower registration wins. To change the split, edit the rows on <code>/dash/routd/</code> or with <code>arizuko route</code>. gitd never decides it.</p>
 
-    <h2>Replying</h2>
-    <p><code>send_text</code> is the only verb, and gitd advertises it only when <code>GITHUB_TOKEN</code> is set. It posts the reply as a comment on the pull request or issue the JID names, and returns <code>gh-c&lt;id&gt;</code> &mdash; the same id that comment carries when it arrives inbound. The token&rsquo;s own comments are dropped at ingest, as is anything from a <code>Bot</code> sender, so the agent cannot answer itself. Without a token gitd is ingress-only and <code>reply</code> on a <code>github:</code> JID returns an Unsupported hint.</p>
+    <h2>gitd can post one kind of reply</h2>
+    <p><code>send_text</code> is the only verb, and gitd advertises it only when <code>GITHUB_TOKEN</code> is set. It posts the reply as a comment on the pull request or issue that the JID names. It returns <code>gh-c&lt;id&gt;</code>, the same id that the comment carries when it arrives inbound. gitd drops the own comments of the token at intake, and also anything from a <code>Bot</code> sender, so the agent cannot answer itself. Without a token, gitd only receives, and <code>reply</code> on a <code>github:</code> JID returns an Unsupported hint.</p>
 
-    <h2>Env</h2>
+    <h2>Five environment variables configure gitd</h2>
     <table>
       <tr><th>var</th><th>default</th><th>note</th></tr>
       <tr><td><code>ROUTER_URL</code></td><td>required</td><td></td></tr>
-      <tr><td><code>SECRETS_KEY</code></td><td>required</td><td>the keyring routd seals <code>github_sources</code> with</td></tr>
+      <tr><td><code>SECRETS_KEY</code></td><td>unset</td><td>the keyring that seals <code>github_sources</code>. gitd needs it to unseal the secrets</td></tr>
       <tr><td><code>GITHUB_TOKEN</code></td><td>unset</td><td>enables <code>send_text</code></td></tr>
       <tr><td><code>GITHUB_API_URL</code></td><td><code>https://api.github.com</code></td><td></td></tr>
       <tr><td><code>LISTEN_ADDR</code></td><td><code>:8080</code></td><td></td></tr>
     </table>
 
-    <h2>Reading a delivery</h2>
-    <p>GitHub&rsquo;s &ldquo;Recent deliveries&rdquo; tab shows gitd&rsquo;s answer, which is the fastest way to tell what happened:</p>
+    <h2>The answer to a delivery shows what happened</h2>
+    <p>The &ldquo;Recent deliveries&rdquo; tab on GitHub shows the answer of gitd, which is the fastest way to see what happened:</p>
 
     <table>
       <tr><th>answer</th><th>meaning</th></tr>
       <tr><td><code>200 {"ok":true,…}</code></td><td>delivered to routd</td></tr>
-      <tr><td><code>202 {"retained":true}</code></td><td>routd was down; the row waits in gitd&rsquo;s tables for re-delivery</td></tr>
+      <tr><td><code>202 {"retained":true}</code></td><td>routd was down, and the row waits in the tables of gitd for delivery</td></tr>
       <tr><td><code>200 {"dropped":"bot"|"self"}</code></td><td>ignored on purpose</td></tr>
       <tr><td><code>401</code></td><td>bad signature</td></tr>
       <tr><td><code>404</code></td><td>unknown source</td></tr>
-      <tr><td><code>400</code></td><td>payload outside the source, or routd refused it</td></tr>
+      <tr><td><code>400</code></td><td>a payload outside the source, or routd refused it</td></tr>
     </table>
 
-    <p><code>GET /dash/gitd/</code> lists the last accepted delivery per source. It is the shared adapter page, rendered by the same code every other adapter uses.</p>
+    <p><code>GET /dash/gitd/</code> lists the last accepted delivery for each source. It is the shared adapter page, rendered by the same code as for every other adapter.</p>
 
-    <h2>Standalone usage</h2>
-    <p>gitd runs on its own. It needs routd to deliver to and a store to read its sources from, and nothing else:</p>
+    <h2>gitd runs alone with routd and the store</h2>
+    <p>gitd runs alone. It needs routd to deliver to and a store to read its sources from, and nothing more:</p>
 
     <pre><code>export ROUTER_URL=http://routd:8080
 export SECRETS_KEY=$(grep ^SECRETS_KEY .env | cut -d= -f2)
 export DYNAMODB_URL=https://extenddb:18443
-export AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=... AWS_REGION=us-east-1
-export GITHUB_TOKEN=ghp_...        # optional; enables send_text
+export AWS_ACCESS_KEY_ID=&lt;key id&gt; AWS_SECRET_ACCESS_KEY=&lt;secret&gt; AWS_REGION=us-east-1
+export GITHUB_TOKEN=&lt;token&gt;        # optional; enables send_text
 export LISTEN_ADDR=:8080
 ./gitd</code></pre>
 
-    <p>Point a webhook at <code>http://&lt;host&gt;:8080/github/&lt;kind&gt;/&lt;name&gt;</code> with the secret <code>arizuko github add</code> printed. Anything that speaks routd&rsquo;s <code>POST /v1/messages</code> can stand in for routd, which is how the end-to-end tests run it.</p>
+    <p>Point a webhook at <code>http://&lt;host&gt;:8080/github/&lt;kind&gt;/&lt;name&gt;</code> with the secret that <code>arizuko github add</code> printed. Any program that speaks <code>POST /v1/messages</code> like routd can replace routd, and the end-to-end tests run gitd in that way.</p>
 
-    <p class="dim">Source: <a href="https://github.com/kronael/arizuko/blob/main/gitd/README.md">gitd/README.md</a>. Spec: <a href="https://github.com/kronael/arizuko/blob/main/specs/6/27-git-channel.md">specs/6/27-git-channel.md</a>.</p>
+    <p class="dim"><a href="https://github.com/kronael/arizuko/blob/main/gitd/README.md">[gitd/README.md]</a> has the full detail.</p>
 
       <nav class="docs-pager" aria-label="Pager">
         <a rel="prev" href="emaid.html">&larr; emaid</a>
@@ -151,7 +150,7 @@ export LISTEN_ADDR=:8080
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/components/gitd.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-16">2026-10-16</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-20">2026-10-20</time>
       </div>
   </main>
 

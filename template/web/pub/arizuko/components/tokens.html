@@ -58,61 +58,60 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">components</a> &rsaquo; route tokens</p>
       <h1>route tokens</h1>
 
-    <h2>What it is</h2>
-    <p>In plain terms, a route token is a secret string in a URL. Hand someone the URL and they reach one specific chat or drop-box &mdash; no login, no account, just the link.</p>
+    <h2>A route token is a secret string in a URL</h2>
+    <p>A route token is a secret string in a URL. A person with the URL reaches one specific chat or intake, with no login and no account.</p>
 
-    <p>The <code>route_tokens</code> table plus the two URL prefixes that read from it: <code>/chat/&lt;token&gt;/</code> for visitor web chat, <code>/hook/&lt;token&gt;</code> for inbound webhooks. One row per token, four columns (<code>token_hash</code>, <code>jid</code>, <code>owner_folder</code>, <code>created_at</code>). The JID prefix tells webd which surface a token belongs to.</p>
+    <p>Route tokens are the <code>route_tokens</code> table and the two URL prefixes that read it: <code>/chat/&lt;token&gt;/</code> for visitor web chat and <code>/hook/&lt;token&gt;</code> for inbound webhooks. Each token has one row under the hash of the token. The row holds the JID, the owner folder, the target folder, an optional context and the creation time. The JID prefix tells webd which kind of URL a token belongs to.</p>
 
-    <p>Each token is 32 random bytes, base64url-encoded. Stored as <code>sha256(token)</code>; raw token returned once at issuance.</p>
+    <p>Each token is 32 random bytes, base64url-encoded. The store keeps <code>sha256(token)</code>, and the issuer gets the raw token once.</p>
 
-    <h2>Why it exists</h2>
-    <p>Two long-standing needs &mdash; &ldquo;give my site a chat URL&rdquo; and &ldquo;let GitHub POST events to the agent&rdquo; &mdash; want the same primitive: a URL bound to a destination JID. Before this table the chat URL was hardcoded as one column on the <code>groups</code> table and webhooks improvised on top of it. Pulling the token out into a first-class row gives every inbound URL a uniform shape, a uniform way to mint it, and a uniform way to revoke it.</p>
+    <h2>One row type serves chat links and webhooks</h2>
+    <p>Two needs use the same thing: a URL bound to a target JID. The needs are &ldquo;give my site a chat URL&rdquo; and &ldquo;let GitHub post events to the agent&rdquo;. A token as its own row gives every inbound URL the same shape. Every URL is created and revoked in the same way.</p>
 
-    <h2>The two surfaces</h2>
+    <h2>Two URLs read the same table</h2>
     <pre><code>GET  /chat/&lt;token&gt;/            &rarr; chat widget (HTML)
 POST /chat/&lt;token&gt;/            &rarr; message in; SSE reply stream out
 POST /hook/&lt;token&gt;             &rarr; one inbound at the JID; 204; no reply</code></pre>
 
-    <p>Chat tokens carry JIDs prefixed <code>web:</code>; hook tokens carry <code>hook:</code>. Both URL prefixes accept any valid token &mdash; the kind is metadata for the agent, not a URL gate. Inbound JID is whatever the token row stores; the surface contract (widget+SSE vs fire-and-forget) is fixed by the URL.</p>
+    <p>Chat tokens carry JIDs with the prefix <code>web:</code>, and hook tokens carry <code>hook:</code>. Both URL prefixes accept any valid token: the kind is metadata for the agent, not a URL gate. The inbound JID is what the token row stores. The URL fixes the contract: widget and SSE for <code>/chat/</code>, and no reply for <code>/hook/</code>.</p>
 
-    <h2>How it fits</h2>
+    <h2>webd reads the token and routd delivers the message</h2>
     <div class="callout">
       <pre><code>browser / curl / GitHub / Linear / ...
-        |
-        v   /chat/&lt;token&gt;/...   or   /hook/&lt;token&gt;
-        |
-      proxyd     (public path; per-token rate shield)
-        |
-      webd       (hash token, look up row, append inbound at row.jid)
-        |
+        │
+        ▼   /chat/&lt;token&gt;/...   or   /hook/&lt;token&gt;
+        │
+      proxyd     (public path, auth optional)
+        │
+      webd       (hash token, look up row, rate limit, append inbound at row.jid)
+        │
       routd      (route + spawn the agent; SSE replies only for /chat/)</code></pre>
     </div>
 
-    <p>Issuance is handled in routd &mdash; both the MCP tools (<code>issue_chat_link</code>, <code>issue_webhook</code>) and the REST endpoints (<code>POST /v1/route_tokens/chat</code>, <code>POST /v1/route_tokens/hook</code>) call one internal <code>insertRouteToken</code> writer. webd never writes the table; routd never reads the <code>/chat/</code> or <code>/hook/</code> URLs.</p>
+    <p>routd handles issuance. The MCP tools <code>issue_chat_link</code> and <code>issue_webhook</code> and the REST endpoints <code>POST /v1/route_tokens/chat</code> and <code>POST /v1/route_tokens/hook</code> all call one writer, <code>store.InsertRouteToken</code>. webd never writes the table, and routd never serves the <code>/chat/</code> or <code>/hook/</code> URLs.</p>
 
-    <h2>Mint authorization</h2>
-    <p>The caller's <a href="../concepts/grants.html">grants</a> bound which folders they can mint for. Minting a public endpoint is not in the default role, so a plain folder cannot mint at all; it takes <code>/root</code> or a delegated <code>mcp:issue_*</code> row, whose scope glob then decides the reachable folders. Over REST the target must equal or descend from <code>owner_folder</code>. The row's <code>owner_folder</code> records the issuer's folder, not the JID target &mdash; revocation requires admin on <code>owner_folder</code>.</p>
+    <h2>Grants decide who can create a token</h2>
+    <p>The <a href="../concepts/grants.html">grants</a> of the caller limit the folders it can create tokens for. The default role cannot create a public endpoint, so a plain folder cannot create one at all. It needs <code>/root</code> or a delegated <code>mcp:issue_*</code> row, and the scope glob of the row decides the reachable folders. Over REST, the target must equal <code>owner_folder</code> or be below it. The <code>owner_folder</code> of the row records the folder of the issuer, not the JID target, and a revoke requires admin on <code>owner_folder</code>.</p>
 
-    <h2>Rate limits</h2>
-    <p>Per-token in-memory bucket in webd. The bucket ceiling is chosen by JID prefix: <code>web:</code> uses a smaller bucket sized for human typing; <code>hook:</code> uses a larger bucket sized for machine bursts. Body cap is 1 MiB. Excess returns 429.</p>
+    <h2>webd limits the rate per token</h2>
+    <p>webd keeps an in-memory bucket per token. The JID prefix sets the size of the bucket. <code>web:</code> uses a smaller bucket for human typing, and <code>hook:</code> uses a larger bucket for bursts from machines. The body limit is 1 MiB. A request over the limit gets 429.</p>
 
-    <h2>What it does not do</h2>
-    <p>No body signature verification (no <code>X-Hub-Signature</code> check), no second-factor auth on the URL, no per-IP fingerprinting. The bearer model is intentional &mdash; the URL <em>is</em> the credential. Upstream HMAC validation is a skill concern, executed on the agent side from the row's <code>headers</code> field.</p>
+    <h2>The URL is the whole credential</h2>
+    <p>Route tokens have no body signature check, such as <code>X-Hub-Signature</code>, no second factor on the URL and no fingerprint per IP. The bearer model is deliberate: the URL <em>is</em> the credential. A skill on the agent side can validate an upstream HMAC.</p>
 
-    <p>No automatic reissue on schedule. No back-channel reply on <code>/hook/</code> &mdash; agents that want to acknowledge a webhook reply on a different channel (Slack, email).</p>
+    <p>Nothing issues tokens again on a schedule. <code>/hook/</code> has no reply channel. An agent that wants to acknowledge a webhook replies on another channel, such as Slack or email.</p>
 
-    <h2>Standalone usage</h2>
-    <p>The table and writer live in routd; the URL handlers live in webd. Neither runs standalone &mdash; both need routd's tables and its <code>/v1/messages</code> endpoint to deliver inbounds. The unit of standalone use is webd itself; see <a href="../components/webd.html">components/webd</a>.</p>
+    <h2>Route tokens do not run alone</h2>
+    <p>The table and its writer live in routd, and the URL handlers live in webd. Neither runs alone: both need the tables of routd and its <code>/v1/messages</code> endpoint to deliver messages. The unit that runs alone is webd itself. See <a href="../components/webd.html">components/webd</a>.</p>
 
-    <h2>Go deeper</h2>
+    <h2>Five pages cover the details</h2>
     <ul>
-      <li><a href="../concepts/tokens.html">concepts/route tokens</a> &mdash; the primitive, the JID prefixes, the bearer model.</li>
-      <li><a href="../reference/tokens.html">reference/tokens</a> &mdash; full endpoint table, payload shapes, SSE events, MCP tools.</li>
-      <li><a href="../howto/chat-link.html">how-to: chat link</a> &mdash; issue a chat URL, paste it on a site.</li>
-      <li><a href="../howto/webhooks.html">how-to: webhooks</a> &mdash; wire GitHub, Linear, custom alerts.</li>
-      <li><a href="../components/webd.html">components/webd</a> &mdash; the daemon that hosts <code>/chat/*</code> and <code>/hook/*</code>.</li>
+      <li><a href="../concepts/tokens.html">concepts/route tokens</a>: the token, the JID prefixes and the bearer model.</li>
+      <li><a href="../reference/tokens.html">reference/tokens</a>: the full endpoint table, payload shapes, SSE events and MCP tools.</li>
+      <li><a href="../howto/chat-link.html">how-to: chat link</a>: issue a chat URL and paste it on a site.</li>
+      <li><a href="../howto/webhooks.html">how-to: webhooks</a>: connect GitHub, Linear and custom alerts.</li>
+      <li><a href="../components/webd.html">components/webd</a>: the daemon that hosts <code>/chat/*</code> and <code>/hook/*</code>.</li>
     </ul>
-
 
       <nav class="docs-pager" aria-label="Pager">
         <a rel="prev" href="timed.html">&larr; timed</a>
@@ -120,7 +119,7 @@ POST /hook/&lt;token&gt;             &rarr; one inbound at the JID; 204; no repl
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/components/tokens.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-16">2026-10-16</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-20">2026-10-20</time>
       </div>
     </main>
 

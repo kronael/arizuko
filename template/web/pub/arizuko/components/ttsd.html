@@ -58,53 +58,57 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">components</a> &rsaquo; ttsd</p>
       <h1>ttsd</h1>
 
-    <h2>What it is</h2>
-    <p>In plain terms, ttsd is a translator for voice-making engines &mdash; text goes in, audio comes out, always through one request format. Swap the engine behind it and nothing else has to change.</p>
+    <h2>ttsd gives every TTS engine one request format</h2>
+    <p>ttsd translates for text-to-speech engines: text goes in and audio comes out, always in one request format. If you replace the engine behind it, nothing else changes.</p>
 
-    <p>ttsd is a thin reverse proxy in front of a text-to-speech backend. It accepts <code>POST /v1/audio/speech</code> in the same request format OpenAI uses (<code>{model, voice, input, response_format}</code>), forwards the request verbatim to the configured backend, and streams audio bytes back to the caller.</p>
+    <p>ttsd is a thin reverse proxy in front of a text-to-speech backend. It accepts <code>POST /v1/audio/speech</code> in the request format of OpenAI, <code>{model, voice, input, response_format}</code>. It forwards the request unchanged to the configured backend and streams the audio bytes back to the caller.</p>
 
-    <p>It also exposes <code>GET /v1/voices</code> (a passthrough for backends that list voices) and a <code>GET /health</code> that returns 503 when the upstream is unreachable.</p>
+    <p>It also serves <code>GET /v1/voices</code>, which passes through to backends that list voices, and <code>GET /health</code>, which returns 503 when the backend is unreachable.</p>
 
-    <h2>Why it exists</h2>
-    <p>arizuko speaks one TTS protocol &mdash; OpenAI&rsquo;s. ttsd pins that contract at the daemon boundary so the gateway and the <code>send_voice</code> MCP tool never see the choice of backend. Default is the bundled Kokoro-FastAPI container; flip <code>TTS_BACKEND_URL</code> to Piper, Coqui, OpenAI cloud, or anything else that speaks <code>/v1/audio/speech</code>, and no caller code changes.</p>
+    <h2>ttsd keeps the backend choice out of routd</h2>
+    <p>arizuko speaks one TTS protocol: the protocol of OpenAI. ttsd fixes that contract at the daemon boundary, so routd and the <code>send_voice</code> MCP tool never see which backend runs. The default is the bundled Kokoro-FastAPI container. Change <code>TTS_BACKEND_URL</code> to Piper, Coqui, the OpenAI cloud or any other server that speaks <code>/v1/audio/speech</code>, and no caller code changes.</p>
 
-    <p>It also normalises the health signal. Kokoro&rsquo;s readiness probe and OpenAI&rsquo;s 401 on an unauthenticated <code>HEAD</code> would each need a custom check; ttsd hides that and reports one <code>{status:"ok"|"disconnected"}</code> shape matching every other arizuko adapter.</p>
+    <p>ttsd also gives one health signal. The readiness probe of Kokoro and the 401 of OpenAI on an unauthenticated <code>HEAD</code> would each need their own check. ttsd hides that and reports one <code>{status:"ok"|"disconnected"}</code> shape, the same as every other arizuko adapter.</p>
 
-    <h2>The loop</h2>
-    <p>One request, one upstream call. ttsd runs an <code>httputil.NewSingleHostReverseProxy</code> against <code>TTS_BACKEND_URL</code>:</p>
+    <h2>Each request makes one call to the backend</h2>
+    <p>ttsd runs an <code>httputil.NewSingleHostReverseProxy</code> against <code>TTS_BACKEND_URL</code>:</p>
 
     <ol>
-      <li>Receive <code>POST /v1/audio/speech</code> with the OpenAI body.</li>
-      <li>Director copies <code>URL.Path</code> verbatim onto the backend URL.</li>
-      <li>Stream the response (audio bytes, any <code>Content-Type</code>) back to the caller.</li>
-      <li>On dial error, return <code>502 tts backend unreachable</code>.</li>
+      <li>It receives <code>POST /v1/audio/speech</code> with the OpenAI body.</li>
+      <li>The director copies <code>URL.Path</code> unchanged onto the backend URL.</li>
+      <li>It streams the response, audio bytes of any <code>Content-Type</code>, back to the caller.</li>
+      <li>On a dial error, it returns <code>502 tts backend unreachable</code>.</li>
     </ol>
 
-    <p>The <code>/health</code> handler probes the backend&rsquo;s <code>/health</code> with a 3-second timeout, falling back to a <code>HEAD /</code> for backends that don&rsquo;t expose one. routd doesn&rsquo;t read it &mdash; <code>TTS_ENABLED</code> is fixed at boot &mdash; so it&rsquo;s there for you and your monitoring. With the backend down, <code>send_voice</code> fails with a synthesize error and the agent sends text instead.</p>
+    <p>The <code>/health</code> handler checks the <code>/health</code> of the backend with a 3-second timeout. For a backend without one, it sends <code>HEAD /</code>. routd does not read this health, because <code>TTS_ENABLED</code> is fixed at boot, so it is for you and your monitoring. When the backend is down, <code>send_voice</code> fails with a synthesis error, and the agent sends text instead.</p>
 
-    <h2>How it fits</h2>
+    <h2>ttsd sits between routd and the engine</h2>
     <div class="callout">
       <pre><code>agent
-   |  send_voice(chat_jid, text, voice)
-   v
- routd  ---&gt;  POST TTS_BASE_URL/v1/audio/speech
-   |
-   v
- ttsd  ---&gt;  POST TTS_BACKEND_URL/v1/audio/speech
-   |
-   v
+   │  send_voice(chat_jid, text, voice)
+   ▼
+ routd  ──►  POST TTS_BASE_URL/v1/audio/speech
+   │
+   ▼
+ ttsd  ──►  POST TTS_BACKEND_URL/v1/audio/speech
+   │
+   ▼
  kokoro / piper / openai cloud
-   |
-   v  audio bytes (ogg, mp3, &hellip;)
+   │
+   ▼  audio bytes (ogg, mp3, &hellip;)
  routd caches at &lt;data_dir&gt;/tts/&lt;hash&gt;.ogg, hands to adapter</code></pre>
     </div>
 
-    <p>Inputs: HTTP from routd (or any other OpenAI-shaped TTS caller). Outputs: audio bytes from the upstream backend. Hard deps: a reachable backend at <code>TTS_BACKEND_URL</code>.</p>
+    <dl>
+      <dt>Inputs</dt><dd>HTTP from routd, or from any other caller that speaks the OpenAI TTS format.</dd>
+      <dt>Outputs</dt><dd>Audio bytes from the backend.</dd>
+      <dt>Dependencies</dt><dd>A reachable backend at <code>TTS_BACKEND_URL</code>.</dd>
+    </dl>
 
-    <p>Concepts: <a href="../concepts/voice.html">concepts/voice</a> covers the full voice-in / voice-out flow including transcription, voice selection, caching, and per-platform delivery.</p>
+    <p><a href="../concepts/voice.html">concepts/voice</a> covers the full voice flow in both directions: transcription, voice selection, the cache and delivery on each platform.</p>
 
-    <h2>Standalone usage</h2>
-    <p>Yes. ttsd has no DB, no auth, no admin UI &mdash; just an env-configured reverse proxy. Front it with proxyd or any other auth layer when exposing it.</p>
+    <h2>ttsd runs alone</h2>
+    <p>ttsd runs alone. It has no database, no auth and no admin page: it is a reverse proxy configured by environment variables. Put proxyd or another auth layer in front of it when you expose it.</p>
 
     <pre><code># bundled Kokoro backend
 docker run -d --name kokoro -p 8881:8880 \
@@ -120,23 +124,21 @@ curl -s -X POST localhost:8880/v1/audio/speech \
   -d '{"model":"kokoro","voice":"af_sky","input":"hello","response_format":"mp3"}' \
   --output hello.mp3</code></pre>
 
-    <h2>Key env vars</h2>
+    <h2>Three environment variables configure ttsd</h2>
+    <dl>
+      <dt><code>TTSD_ADDR</code></dt><dd>The listen address, <code>:8880</code> by default.</dd>
+      <dt><code>TTS_BACKEND_URL</code></dt><dd>The TTS backend compatible with OpenAI, <code>http://kokoro:8880</code> by default.</dd>
+      <dt><code>LOG_LEVEL</code></dt><dd>One of <code>debug</code>, <code>info</code>, <code>warn</code> or <code>error</code>.</dd>
+    </dl>
+
+    <p><a href="../reference/env.html">reference/env</a> has the full list and the defaults.</p>
+
+    <h2>Three sources cover the details</h2>
     <ul>
-      <li><code>TTSD_ADDR</code> &mdash; listen address (default <code>:8880</code>).</li>
-      <li><code>TTS_BACKEND_URL</code> &mdash; OpenAI-compatible TTS backend (default <code>http://kokoro:8880</code>).</li>
-      <li><code>LOG_LEVEL</code> &mdash; <code>debug</code> / <code>info</code> / <code>warn</code> / <code>error</code>.</li>
+      <li><a href="../concepts/voice.html">concepts/voice</a>: transcription, voice selection, the cache, delivery on each platform, and what happens when ttsd is down.</li>
+      <li><a href="https://github.com/kronael/arizuko/blob/main/ttsd/README.md">[ttsd/README.md]</a>: the endpoint contract and the backend options.</li>
+      <li><a href="../concepts/routing.html">concepts/routing</a>: routd, the caller that hashes, caches and sends the audio.</li>
     </ul>
-
-    <p>Full list and defaults in <a href="../reference/env.html">reference/env</a>.</p>
-
-    <h2>Go deeper</h2>
-    <ul>
-      <li><a href="../concepts/voice.html">concepts/voice</a> &mdash; transcription, voice selection, caching, platform delivery.</li>
-      <li><code>ttsd/README.md</code> &mdash; endpoint contract and backend options.</li>
-      <li><a href="../concepts/voice.html">concepts/voice</a> &mdash; voice resolution, the cache, and what happens when ttsd is down.</li>
-      <li><a href="../concepts/routing.html">concepts/routing</a> &mdash; routd, the caller that hashes, caches, and dispatches the audio.</li>
-    </ul>
-
 
       <nav class="docs-pager" aria-label="Pager">
         <a rel="prev" href="tokens.html">&larr; route tokens</a>
@@ -144,7 +146,7 @@ curl -s -X POST localhost:8880/v1/audio/speech \
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/components/ttsd.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-16">2026-10-16</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-20">2026-10-20</time>
       </div>
     </main>
 

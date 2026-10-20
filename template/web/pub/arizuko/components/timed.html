@@ -58,51 +58,56 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">components</a> &rsaquo; timed</p>
       <h1>timed</h1>
 
-    <h2>What it is</h2>
-    <p>In plain terms, timed is the alarm clock. It sends the agent a message at a set time or on a repeating schedule, so things happen without anyone there to type.</p>
+    <h2>timed sends the agent a message on a schedule</h2>
+    <p>timed is the alarm clock. It sends the agent a message at a set time or on a repeating schedule, so work happens when nobody is there to type.</p>
 
-    <p>timed is the scheduler daemon. One Go binary that ticks every 60 seconds, asks routd for the tasks that are due, and posts each task&rsquo;s prompt back to routd as a message, as if a user had just typed it. It opens no store: every read and write goes over routd&rsquo;s HTTP API with a <code>service:timed</code> token.</p>
+    <p>timed is the scheduler daemon: one Go binary that ticks every 60 seconds. On each tick, it asks routd for the due tasks. It posts the prompt of each task back to routd as a message, as if a user had typed it. It opens no store. Every read and write goes over the HTTP API of routd with a <code>service:timed</code> token.</p>
 
-    <p>Once the message lands in <code>messages</code>, routd picks it up through the normal poll loop and routes it to the task&rsquo;s folder. The agent has no idea the prompt came from a clock.</p>
+    <p>When the message is in <code>messages</code>, routd reads it in the normal poll loop and routes it to the folder of the task. The agent cannot tell that the prompt came from a clock.</p>
 
-    <h2>Why it exists</h2>
-    <p>Cron, recurring runs, and one-shot reminders all collapse to one need: drop a prompt into a folder at a future time. Keeping that loop inside routd would mix two clocks &mdash; one for inbound polling, one for scheduling &mdash; and tie cron behavior to gateway restarts.</p>
+    <h2>A separate scheduler keeps routd a pure router</h2>
+    <p>Cron jobs, recurring runs and one-time reminders all need one thing: a prompt in a folder at a future time. A scheduling loop inside routd would mix two clocks, one for inbound polling and one for scheduling, and tie cron behavior to restarts of routd.</p>
 
-    <p>A separate daemon driving routd over HTTP means routd stays a pure router and the only writer of its tables. Without timed, no task ever fires. The cron tools (<code>schedule_task</code>, <code>pause_task</code>, &hellip;) still write rows, but nothing claims them.</p>
+    <p>A separate daemon that drives routd over HTTP keeps routd a pure router and the only writer of its tables. Without timed, no task ever runs. The cron tools, such as <code>schedule_task</code> and <code>pause_task</code>, still write rows, but nothing claims them.</p>
 
-    <h2>The loop</h2>
-    <p>Each 60-second tick:</p>
+    <h2>Each tick runs four steps</h2>
+    <p>Every 60 seconds, timed runs these steps:</p>
 
     <ol>
-      <li><code>GET /v1/tasks/due</code> on routd. routd claims every active task whose <code>next_run</code> has passed, in one guarded write, and returns them. Two timed instances cannot double-fire the same task.</li>
-      <li>For each task, <code>POST /v1/messages</code> with <code>sender='timed'</code> (or <code>timed-isolated:&lt;id&gt;</code> when the task asked for an isolated session) and the task&rsquo;s <code>chat_jid</code>. The message id is <code>sched-&lt;task&gt;@&lt;next_run&gt;</code>, so a retry of the same fire is a duplicate routd drops.</li>
-      <li>Compute the next fire with <code>core.NextRun</code>: the <code>cron</code> value as a 5-field cron expression in the daemon&rsquo;s <code>TZ</code>, or as a millisecond interval, or empty for a one-shot.</li>
-      <li><code>POST /v1/tasks/{id}/reschedule</code> with the new <code>next_run</code> (a fired one-shot is marked completed), then <code>POST /v1/tasks/runlog</code> for the <code>task_run_logs</code> row.</li>
+      <li>It calls <code>GET /v1/tasks/due</code> on routd. routd claims every active task whose <code>next_run</code> has passed, in one guarded write, and returns them. So two timed instances cannot run the same task twice.</li>
+      <li>For each task, it calls <code>POST /v1/messages</code> with the <code>chat_jid</code> of the task. The sender is <code>timed</code>, or <code>timed-isolated:&lt;id&gt;</code> for a task with an isolated session. The message id derives from the task and its scheduled time, so routd drops a repeated post of the same run as a duplicate.</li>
+      <li>It computes the next run with <code>core.NextRun</code>. The <code>cron</code> value is a 5-field cron expression in the <code>TZ</code> of the daemon, a millisecond interval, or empty for a one-time task.</li>
+      <li>It calls <code>POST /v1/tasks/{id}/reschedule</code> with the new <code>next_run</code>, which marks a one-time task completed. Then it calls <code>POST /v1/tasks/runlog</code> for the <code>task_run_logs</code> row.</li>
     </ol>
 
-    <h2>How it fits</h2>
+    <h2>timed reads and writes only through routd</h2>
     <div class="callout">
       <pre><code>agent (or operator)
-   |  schedule_task / pause_task / &hellip;
-   v
+   │  schedule_task / pause_task / &hellip;
+   ▼
  scheduled_tasks  (rows with cron + next_run)
-   |
-   |  timed ticks every 60s: GET /v1/tasks/due (routd claims them)
-   v
+   │
+   │  timed ticks every 60s: GET /v1/tasks/due (routd claims them)
+   ▼
  POST /v1/messages  (one message per fire, sender='timed')
-   |
-   v
- routd  ---&gt;  routes by chat_jid  ---&gt;  agent run</code></pre>
+   │
+   ▼
+ routd  ──►  routes by chat_jid  ──►  agent run</code></pre>
     </div>
 
-    <p>Inputs: the due tasks routd hands back, which agents and operators created through routd&rsquo;s task tools. Outputs: one message per fire and one <code>task_run_logs</code> row, both written by routd on timed&rsquo;s request.</p>
+    <dl>
+      <dt>Inputs</dt>
+      <dd>The due tasks that routd returns. Agents and operators create those tasks through the task tools of routd.</dd>
+      <dt>Outputs</dt>
+      <dd>One message per run and one <code>task_run_logs</code> row. routd writes both on request of timed.</dd>
+      <dt>Dependencies</dt>
+      <dd>A reachable routd, which owns <code>scheduled_tasks</code> and serves <code>/v1/tasks</code>, and an authd that exchanges <code>AUTHD_SERVICE_KEY</code> for a token. timed itself serves <code>/health</code>, an empty <code>/openapi.json</code> because it mounts no resource, and the operator page <code>/dash/timed/</code>.</dd>
+    </dl>
 
-    <p>Hard deps: a reachable routd, which owns <code>scheduled_tasks</code> and serves <code>/v1/tasks</code>, and an authd to exchange <code>AUTHD_SERVICE_KEY</code> with. timed itself serves <code>/health</code>, <code>/openapi.json</code> (empty, since it mounts no resource) and the operator page <code>/dash/timed/</code>.</p>
+    <p><a href="../concepts/tasks.html">concepts/tasks</a> describes the task row, the context modes and the MCP tools that agents use to manage tasks.</p>
 
-    <p>Concepts: <a href="../concepts/tasks.html">concepts/tasks</a> covers the row anatomy, context modes, and the five MCP tools agents use to manage tasks.</p>
-
-    <h2>Standalone usage</h2>
-    <p>Yes. timed is a plain Go binary and it opens no database of its own &mdash; it reads and writes tasks over routd's HTTP API, so point it at a running routd. <code>scheduled_tasks</code> and <code>task_run_logs</code> are routd's, which routd owns and creates.</p>
+    <h2>timed runs alone against a running routd</h2>
+    <p>timed is a plain Go binary and opens no database of its own. It reads and writes tasks over the HTTP API of routd, so point it at a running routd. routd owns and creates <code>scheduled_tasks</code> and <code>task_run_logs</code>.</p>
 
     <pre><code># build
 make build              # produces ./timed
@@ -113,24 +118,26 @@ AUTHD_URL=http://authd:8080 \
 AUTHD_SERVICE_KEY=$(grep ^AUTHD_SERVICE_KEY .env | cut -d= -f2) \
 TZ=Europe/Prague ./timed</code></pre>
 
-    <p><code>GET /health</code> on <code>:8080</code> always returns 200 &mdash; timed holds no database handle to check. Red flag: no rows appearing in <code>task_run_logs</code> while <code>scheduled_tasks</code> has active rows past their <code>next_run</code>.</p>
+    <p><code>GET /health</code> on <code>:8080</code> always returns 200, because timed holds no database handle to check. A problem shows as active <code>scheduled_tasks</code> rows past their <code>next_run</code> with no new rows in <code>task_run_logs</code>.</p>
 
-    <h2>Key env vars</h2>
+    <h2>Three environment variables configure timed</h2>
+    <dl>
+      <dt><code>ROUTER_URL</code></dt>
+      <dd>Required: the address of routd, for example <code>http://routd:8080</code>.</dd>
+      <dt><code>AUTHD_URL</code>, <code>AUTHD_SERVICE_KEY</code></dt>
+      <dd>timed exchanges the key at boot for a <code>service:timed</code> token. Without them, routd refuses every call.</dd>
+      <dt><code>TZ</code></dt>
+      <dd>The timezone for cron expressions, <code>UTC</code> by default.</dd>
+    </dl>
+
+    <p><a href="../reference/env.html">reference/env</a> has the full list and the defaults.</p>
+
+    <h2>Three sources cover the details</h2>
     <ul>
-      <li><code>ROUTER_URL</code> &mdash; required; routd's address, e.g. <code>http://routd:8080</code>.</li>
-      <li><code>AUTHD_URL</code> / <code>AUTHD_SERVICE_KEY</code> &mdash; exchanged at boot for a <code>service:timed</code> token. Unset, routd denies every call.</li>
-      <li><code>TZ</code> &mdash; timezone used to evaluate cron expressions (default <code>UTC</code>).</li>
+      <li><a href="../concepts/tasks.html">concepts/tasks</a>: the task row, triggers, MCP tools and the failure model.</li>
+      <li><a href="https://github.com/kronael/arizuko/blob/main/timed/README.md">[timed/README.md]</a>: the run loop, the rule of one id per run and the token contract.</li>
+      <li><a href="../concepts/routing.html">concepts/routing</a>: how routd reads every synthetic message.</li>
     </ul>
-
-    <p>Full list and defaults in <a href="../reference/env.html">reference/env</a>.</p>
-
-    <h2>Go deeper</h2>
-    <ul>
-      <li><a href="../concepts/tasks.html">concepts/tasks</a> &mdash; row anatomy, triggers, MCP tools, failure model.</li>
-      <li><code>timed/README.md</code> &mdash; the fire loop, the one-fire-one-id rule, the token contract.</li>
-      <li><a href="../concepts/routing.html">concepts/routing</a> &mdash; how routd picks up every synthetic message.</li>
-    </ul>
-
 
       <nav class="docs-pager" aria-label="Pager">
         <a rel="prev" href="teled.html">&larr; teled</a>
@@ -138,7 +145,7 @@ TZ=Europe/Prague ./timed</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/components/timed.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-16">2026-10-16</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-20">2026-10-20</time>
       </div>
     </main>
 

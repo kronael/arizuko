@@ -58,53 +58,57 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">components</a> &rsaquo; vited</p>
       <h1>vited</h1>
 
-    <h2>What it is</h2>
-    <p>vited is a Vite static-file server that hands out the instance&rsquo;s web tree &mdash; the docs site under <code>/pub/</code>, web assets, and the static pages each group publishes &mdash; sitting behind <a href="../components/proxyd.html">proxyd</a>.</p>
+    <h2>vited serves the static web tree behind proxyd</h2>
+    <p>vited is a Vite static-file server behind <a href="../components/proxyd.html">proxyd</a>. It serves the web tree of the instance: the docs site under <code>/pub/</code>, web assets, and the static pages that each group publishes.</p>
 
-    <p>It is not a Go daemon and there is no <code>vited/</code> package in the repo. It is a service that compose generation writes into the docker-compose file (<code>compose/compose.go:873</code>, the <code>vitedService</code> function). The container runs the <code>arizuko-vite:latest</code> image, which is plain <a href="https://vite.dev/">Vite</a> in dev mode serving a mounted directory. You can tell it&rsquo;s Vite from any served page: it injects a <code>/@vite/client</code> script.</p>
+    <p>vited is not a Go daemon. The <code>vited/</code> directory in the repo holds only a README. Compose generation writes the service into the docker-compose file with the <code>vitedService</code> function in <code>compose/compose.go</code>. The container runs the <code>arizuko-vite:latest</code> image, which is plain <a href="https://vite.dev/">Vite</a> in dev mode that serves a mounted directory. Every served page shows that it is Vite: Vite injects a <code>/@vite/client</code> script.</p>
 
-    <h2>Why it exists</h2>
-    <p>proxyd is a reverse proxy &mdash; it routes requests but serves no files of its own. Something behind it has to be the origin for static content. That origin is vited. In the route table, <code>/*</code> matches against the DB-backed <code>web_routes</code> table by longest prefix, and anything that doesn&rsquo;t match falls through, auth-gated, to vited (<code>proxyd/README.md</code> &sect; A request through proxyd).</p>
+    <h2>proxyd serves no files, so vited is the origin</h2>
+    <p>proxyd is a reverse proxy: it routes requests but serves no files. A program behind it must be the origin for static content, and that program is vited. In the route table, <code>/*</code> matches the <code>web_routes</code> table in the store by longest prefix. A request that matches no row goes to vited, behind the auth check. The section &ldquo;A request through proxyd&rdquo; of <code>proxyd/README.md</code> shows the order.</p>
 
-    <p>Without vited those routes have no backend. The public docs at <code>/pub/</code> would 502, group-published pages would have nowhere to come from, and the default web route would point at nothing. proxyd would still verify JWTs and sign headers, but the request would arrive at an empty seat.</p>
+    <p>Without vited, those routes have no backend. The public docs at <code>/pub/</code> would return 502, pages that groups publish would have no source, and the default web route would point at nothing. proxyd would still verify JWTs and sign headers, but no backend would answer the request.</p>
 
-    <h2>How it fits</h2>
+    <h2>vited serves one mounted directory</h2>
     <div class="callout">
       <pre><code>browser
-        |  HTTP request for a static path
-        v
+        │  HTTP request for a static path
+        ▼
       proxyd     auth check, longest-prefix route match
-        |        ( /pub/* public ; default auth-gated )
-        v
+        │        ( /pub/* public ; default auth-gated )
+        ▼
       vited      arizuko-vite:latest, serves the mounted dir
-        ^
-        |  bind mount  &lt;data-dir&gt;/web : /web
+        ▲
+        │  bind mount  &lt;data-dir&gt;/web : /web
       &lt;data-dir&gt;/web/pub/   (the docs + group pages)</code></pre>
     </div>
 
-    <p>The config source is <code>compose/compose.go:873</code> (<code>vitedService</code>). It writes a service named <code>vited</code>, container name <code>&lt;app&gt;_vited_&lt;flavor&gt;</code>, image <code>arizuko-vite:latest</code>, and one volume: the instance data dir&rsquo;s <code>web/</code> folder mounted at <code>/web</code> inside the container. There are no published ports &mdash; proxyd reaches it over the docker network &mdash; and no environment block; vited reads no arizuko config.</p>
+    <p>The <code>vitedService</code> function in <code>compose/compose.go</code> is the configuration source. It writes a service named <code>vited</code> with the container name <code>&lt;app&gt;_vited_&lt;flavor&gt;</code> and the image <code>arizuko-vite:latest</code>. The service has one volume: the <code>web/</code> folder of the instance data directory, mounted at <code>/web</code>. The service publishes no ports, because proxyd reaches it over the docker network. It has no environment block, and vited reads no arizuko configuration.</p>
 
-    <p>Vite has no <code>/health</code> route, so the healthcheck probes <code>/@vite/client</code> instead, which Vite always answers with 200 in dev mode. Inputs: HTTP from proxyd. Output: file bytes from <code>&lt;data-dir&gt;/web</code>. Hard dep: proxyd in front of it; on its own it serves files but nobody routes to it.</p>
+    <p>Vite has no <code>/health</code> route, so the healthcheck reads <code>/@vite/client</code>, which Vite always answers with 200 in dev mode.</p>
+    <dl>
+      <dt>Inputs</dt><dd>HTTP from proxyd.</dd>
+      <dt>Outputs</dt><dd>File bytes from <code>&lt;data-dir&gt;/web</code>.</dd>
+      <dt>Dependencies</dt><dd>proxyd in front of it. Alone, vited serves files, but nothing routes to it.</dd>
+    </dl>
 
-    <h2>Standalone usage</h2>
-    <p>vited is, underneath, just Vite serving a directory &mdash; so running it outside arizuko means running Vite and pointing proxyd (or any reverse proxy) at it. It is a static origin, nothing more.</p>
+    <h2>vited alone is Vite serving a directory</h2>
+    <p>vited is Vite that serves a directory. To run it outside arizuko, run Vite and point proxyd, or any reverse proxy, at it. It is a static origin and nothing more.</p>
 
-    <p>Its config is generated, not hand-written. The <code>vitedService</code> function in <code>compose/compose.go</code> emits the compose block; the Vite config itself is baked into the <code>arizuko-vite</code> image and is not something you edit per instance. To serve a different tree, change what gets mounted at <code>/web</code>, not the config.</p>
+    <p>Its configuration is generated, not written by hand. The <code>vitedService</code> function in <code>compose/compose.go</code> writes the compose block. The Vite configuration is part of the <code>arizuko-vite</code> image, and you do not edit it per instance. To serve another tree, change what is mounted at <code>/web</code>, not the configuration.</p>
 
     <pre><code># the shape of what the container runs: Vite serving a static dir
 vite --host 0.0.0.0 --port 8080
 # the dir comes from the bind mount &lt;data-dir&gt;/web : /web</code></pre>
 
-    <p>vited reads no arizuko env vars &mdash; the <code>vitedService</code> compose block declares no environment. See <a href="../reference/env.html">reference/env</a> for the variables the daemons in front of and beside it use.</p>
+    <p>vited reads no arizuko environment variables, because the <code>vitedService</code> compose block declares no environment. <a href="../reference/env.html">reference/env</a> lists the variables of the daemons in front of it and beside it.</p>
 
-    <h2>Go deeper</h2>
+    <h2>Four sources cover the details</h2>
     <ul>
-      <li><a href="../components/proxyd.html">components/proxyd</a> &mdash; the reverse proxy that routes to vited and gates its auth.</li>
-      <li><a href="../components/webd.html">components/webd</a> &mdash; the other web-facing backend, for chat rather than static files.</li>
-      <li><code>proxyd/README.md</code> &mdash; the route table where <code>/*</code> falls through to vited.</li>
-      <li><code>compose/compose.go</code> &mdash; <code>vitedService</code>, the source of truth for the container, image, and mount.</li>
+      <li><a href="../components/proxyd.html">components/proxyd</a>: the reverse proxy that routes to vited and checks its auth.</li>
+      <li><a href="../components/webd.html">components/webd</a>: the other web backend, for chat and not for static files.</li>
+      <li><a href="https://github.com/kronael/arizuko/blob/main/proxyd/README.md">[proxyd/README.md]</a>: the route table where <code>/*</code> goes to vited.</li>
+      <li><a href="https://github.com/kronael/arizuko/blob/main/compose/compose.go">[compose/compose.go]</a>: <code>vitedService</code>, the source for the container, the image and the mount.</li>
     </ul>
-
 
       <nav class="docs-pager" aria-label="Pager">
         <a rel="prev" href="twitd.html">&larr; twitd</a>
@@ -112,7 +116,7 @@ vite --host 0.0.0.0 --port 8080
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/components/vited.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-16">2026-10-16</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-20">2026-10-20</time>
       </div>
     </main>
 

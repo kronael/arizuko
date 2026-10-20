@@ -58,60 +58,59 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; components</p>
       <h1>components</h1>
 
-<p class="lede">An arizuko deployment is a handful of small programs, each doing one job. A daemon is one such program that runs in the background. The core daemons ship in every instance; channel adapters connect outside platforms like Slack or Telegram, and an instance runs as many as it needs. Each row links to that program&rsquo;s page.</p>
+<p class="lede">An arizuko deployment is a set of small programs, and each program does one job. A daemon is such a program that runs in the background. Every instance runs the core daemons. Channel adapters connect outside platforms such as Slack or Telegram, and an instance runs the adapters it needs. Each row links to the page of that program.</p>
 
-<h2>Core</h2>
+<h2>The core daemons run in every instance</h2>
 <table>
   <thead>
     <tr><th>name</th><th>role</th></tr>
   </thead>
   <tbody>
-    <tr><td class="name"><a href="../components/routd.html">routd</a></td><td>routing plane &mdash; message loop, resolves event&rarr;group, hosts the agent MCP socket, owns the <code>routd.*</code> tables and the grant/ACL authority. See <a href="../concepts/routing.html">concepts/routing</a></td></tr>
-    <tr><td class="name"><a href="../components/runed.html">runed</a></td><td>execution plane &mdash; boots and reaps the per-turn KVM guest; the only daemon wired to <code>/dev/kvm</code>; owns the <code>runed.*</code> tables</td></tr>
-    <tr><td class="name"><a href="../components/authd.html">authd</a></td><td>auth plane &mdash; mints and verifies tokens, OAuth provider routes, owns the <code>authd.*</code> tables. See <a href="../concepts/auth.html">concepts/auth</a></td></tr>
-    <tr><td class="name"><a href="../components/webd.html">webd</a></td><td>web channel &mdash; SSE hub, the <a href="../components/tokens.html">route-token</a> URLs, MCP endpoint</td></tr>
-    <tr><td class="name"><a href="../components/proxyd.html">proxyd</a></td><td>auth-gated reverse proxy &mdash; verifies JWTs, signs identity headers for backends</td></tr>
-    <tr><td class="name"><a href="../components/vited.html">vited</a></td><td>static origin &mdash; Vite server behind proxyd for the <code>/pub/</code> docs tree and group web pages</td></tr>
-    <tr><td class="name"><a href="../components/dashd.html">dashd</a></td><td>operator dashboard &mdash; browse groups, grants, messages in a browser</td></tr>
-    <tr><td class="name"><a href="../components/onbod.html">onbod</a></td><td>onboarding daemon &mdash; admission queue, invite tokens, OAuth handshake</td></tr>
-    <tr><td class="name"><a href="../components/timed.html">timed</a></td><td>scheduler &mdash; claims due tasks over routd&rsquo;s HTTP API and enqueues each prompt as a message; opens no store of its own</td></tr>
-    <tr><td class="name"><a href="../components/ttsd.html">ttsd</a></td><td>text-to-speech proxy &mdash; OpenAI-compatible endpoint for voice replies</td></tr>
-    <tr><td class="name"><a href="../components/davd.html">davd</a></td><td>WebDAV workspace browser &mdash; mount a group&rsquo;s folder in a file manager</td></tr>
-    <tr><td class="name"><a href="../components/tokens.html">route tokens</a></td><td><code>/chat/&lt;token&gt;/</code> visitor chat + <code>/hook/&lt;token&gt;</code> webhook ingest, both served by webd</td></tr>
-    <tr><td class="name"><a href="../components/egress.html">egress</a></td><td>forward proxy &mdash; one per agent spawn, one fixed host allowlist, one client; runed starts it and kills it with the turn</td></tr>
-    <tr><td class="name"><a href="../components/litellm.html">litellm</a></td><td>model gateway (package) &mdash; holds the model credential, each turn's guest gets a virtual key; one JSON log line per request, token and cost spans over OTLP</td></tr>
+    <tr><td class="name"><a href="../components/routd.html">routd</a></td><td>The routing plane. It runs the message loop, resolves each event to a group, hosts the agent MCP socket, and owns the <code>routd.*</code> tables and the grant authority. See <a href="../concepts/routing.html">concepts/routing</a>.</td></tr>
+    <tr><td class="name"><a href="../components/runed.html">runed</a></td><td>The execution plane. It starts and stops the KVM guest of each turn, is the only daemon with <code>/dev/kvm</code>, and owns the <code>runed.*</code> tables.</td></tr>
+    <tr><td class="name"><a href="../components/authd.html">authd</a></td><td>The auth plane. It creates and verifies tokens, serves the OAuth provider routes, and owns the <code>authd.*</code> tables. See <a href="../concepts/auth.html">concepts/auth</a>.</td></tr>
+    <tr><td class="name"><a href="../components/webd.html">webd</a></td><td>The web channel: the SSE hub, the <a href="../components/tokens.html">route-token</a> URLs and the MCP endpoint.</td></tr>
+    <tr><td class="name"><a href="../components/proxyd.html">proxyd</a></td><td>The reverse proxy with auth. It verifies JWTs and signs identity headers for backends.</td></tr>
+    <tr><td class="name"><a href="../components/vited.html">vited</a></td><td>The static origin, a Vite server behind <code>proxyd</code> for the <code>/pub/</code> docs and the web pages of groups.</td></tr>
+    <tr><td class="name"><a href="../components/dashd.html">dashd</a></td><td>The operator dashboard, to browse groups, grants and messages in a browser.</td></tr>
+    <tr><td class="name"><a href="../components/onbod.html">onbod</a></td><td>The onboarding daemon: the pairing greeting, the admission queue and invite tokens.</td></tr>
+    <tr><td class="name"><a href="../components/timed.html">timed</a></td><td>The scheduler. It claims due tasks over the HTTP API of <code>routd</code> and posts each prompt as a message. It opens no store of its own.</td></tr>
+    <tr><td class="name"><a href="../components/ttsd.html">ttsd</a></td><td>The text-to-speech proxy, an endpoint compatible with OpenAI for voice replies.</td></tr>
+    <tr><td class="name"><a href="../components/davd.html">davd</a></td><td>The WebDAV server, to mount the folder of a group in a file manager.</td></tr>
+    <tr><td class="name"><a href="../components/tokens.html">route tokens</a></td><td>The <code>/chat/&lt;token&gt;/</code> visitor chat and the <code>/hook/&lt;token&gt;</code> webhook intake, both served by <code>webd</code>.</td></tr>
+    <tr><td class="name"><a href="../components/egress.html">egress</a></td><td>The forward proxy: one per turn, with one fixed host allowlist and one client. <code>runed</code> starts it and stops it with the turn.</td></tr>
+    <tr><td class="name"><a href="../components/litellm.html">litellm</a></td><td>The model gateway package. It holds the model credential, and the guest of each turn gets a virtual key. It writes one JSON log line per request and sends token and cost spans over OTLP.</td></tr>
   </tbody>
 </table>
 
-<h2>Channel adapters</h2>
+<h2>Channel adapters connect outside platforms</h2>
 <table>
   <thead>
     <tr><th>name</th><th>role</th></tr>
   </thead>
   <tbody>
-    <tr><td class="name"><a href="../components/channels.html">channels</a></td><td>overview &mdash; shared shape, common HTTP surface, how to add a new adapter</td></tr>
-    <tr><td class="name"><a href="../components/slakd.html">slakd</a></td><td>Slack &mdash; Events API listener, bot user, threaded replies</td></tr>
-    <tr><td class="name"><a href="../components/teled.html">teled</a></td><td>Telegram &mdash; bot API, groups and DMs, voice and media</td></tr>
-    <tr><td class="name"><a href="../components/discd.html">discd</a></td><td>Discord &mdash; gateway client, server channels, threads</td></tr>
-    <tr><td class="name"><a href="../components/bskyd.html">bskyd</a></td><td>Bluesky &mdash; AT Protocol firehose, posts and replies</td></tr>
-    <tr><td class="name"><a href="../components/reditd.html">reditd</a></td><td>Reddit &mdash; subreddit and inbox polling, comments and DMs</td></tr>
-    <tr><td class="name"><a href="../components/emaid.html">emaid</a></td><td>email &mdash; IMAP inbound, SMTP outbound, threading by message-id</td></tr>
-    <tr><td class="name"><a href="../components/linkd.html">linkd</a></td><td>LinkedIn &mdash; messaging API, connection-scoped DMs</td></tr>
-    <tr><td class="name"><a href="../components/whapd.html">whapd</a></td><td>WhatsApp &mdash; TypeScript adapter on Baileys, QR or pairing-code login</td></tr>
-    <tr><td class="name"><a href="../components/twitd.html">twitd</a></td><td>X / Twitter &mdash; TypeScript adapter, mentions and DMs</td></tr>
-    <tr><td class="name"><a href="../components/gitd.html">gitd</a></td><td>GitHub &mdash; signed webhook ingress; the agent answers back through the GitHub MCP connector</td></tr>
+    <tr><td class="name"><a href="../components/channels.html">channels</a></td><td>The overview: the shape that all adapters share, their common HTTP endpoints, and how to add an adapter.</td></tr>
+    <tr><td class="name"><a href="../components/slakd.html">slakd</a></td><td>Slack: an Events API listener, a bot user and threaded replies.</td></tr>
+    <tr><td class="name"><a href="../components/teled.html">teled</a></td><td>Telegram: the Bot API, groups and DMs, voice and media.</td></tr>
+    <tr><td class="name"><a href="../components/discd.html">discd</a></td><td>Discord: a gateway client, server channels and threads.</td></tr>
+    <tr><td class="name"><a href="../components/bskyd.html">bskyd</a></td><td>Bluesky: polls the AT Protocol notifications for mentions and replies.</td></tr>
+    <tr><td class="name"><a href="../components/reditd.html">reditd</a></td><td>Reddit: subreddit and inbox polling, comments and DMs.</td></tr>
+    <tr><td class="name"><a href="../components/emaid.html">emaid</a></td><td>Email: IMAP in, SMTP out, and threads by message-id.</td></tr>
+    <tr><td class="name"><a href="../components/linkd.html">linkd</a></td><td>LinkedIn: the messaging API and DMs with connections.</td></tr>
+    <tr><td class="name"><a href="../components/whapd.html">whapd</a></td><td>WhatsApp: a TypeScript adapter on Baileys, with a QR or pairing-code login.</td></tr>
+    <tr><td class="name"><a href="../components/twitd.html">twitd</a></td><td>X: a TypeScript adapter for mentions and DMs.</td></tr>
+    <tr><td class="name"><a href="../components/gitd.html">gitd</a></td><td>GitHub: signed webhook intake. The agent answers through the GitHub MCP connector.</td></tr>
   </tbody>
 </table>
 
-<p class="dim">See <a href="https://github.com/kronael/arizuko/blob/main/ARCHITECTURE.md">ARCHITECTURE.md</a> for the repository map behind this page and how the pieces fit.</p>
-
+<p class="dim"><a href="https://github.com/kronael/arizuko/blob/main/ARCHITECTURE.md">[ARCHITECTURE.md]</a> has the repository map behind this table and shows how the parts fit.</p>
 
       <nav class="docs-pager" aria-label="Pager">
         <a rel="next" href="bskyd.html">bskyd &rarr;</a>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/components/index.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-16">2026-10-16</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-20">2026-10-20</time>
       </div>
     </main>
 

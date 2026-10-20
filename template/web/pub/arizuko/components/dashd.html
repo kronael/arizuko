@@ -58,16 +58,16 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">components</a> &rsaquo; dashd</p>
       <h1>dashd</h1>
 
-    <h2>What it is</h2>
-    <p>In plain terms, dashd is the control panel for whoever runs the instance. Open <code>/dash/</code> in a browser to see groups, messages and tasks, edit routes and grants, answer held tool calls, and edit a few of the agent&rsquo;s files.</p>
+    <h2>dashd is the control panel of the operator</h2>
+    <p>dashd is the control panel for the person who runs the instance. Open <code>/dash/</code> in a browser to see groups, messages and tasks. There you can also edit routes, grants and some files of the agent, and answer held tool calls.</p>
 
-    <p>It is two things. The <strong>hub</strong> at <code>/dash/services/</code> is a grid of tiles, one per daemon, each linking to that daemon&rsquo;s own page. The <strong>cross-cutting pages</strong> &mdash; anything that spans daemons or covers the whole instance &mdash; live in dashd itself. A page about one daemon&rsquo;s runtime lives in that daemon: routd serves <code>/dash/routd/</code>, runed serves <code>/dash/runed/</code>, and so on, each from handlers next to its own <code>/v1</code>.</p>
+    <p>dashd has two parts. The <strong>hub</strong> at <code>/dash/services/</code> is a grid of tiles, one per daemon, and each tile links to the own page of that daemon. The <strong>cross-daemon pages</strong> live in dashd itself: every page that spans daemons or covers the whole instance. A page about the runtime of one daemon lives in that daemon. routd serves <code>/dash/routd/</code>, runed serves <code>/dash/runed/</code>, and so on, each from handlers next to its own <code>/v1</code>.</p>
 
-    <h2>Why it exists</h2>
-    <p>Without dashd, operators inspect an arizuko instance through each daemon&rsquo;s <code>/v1</code>, <code>journalctl -u arizuko_&lt;inst&gt;</code>, and the <code>arizuko</code> CLI. That works for an engineer, but it asks a lot of anyone else, and it never gives a one-screen answer to &ldquo;what is this instance doing right now&rdquo;.</p>
+    <h2>Without dashd, only an engineer can read the instance</h2>
+    <p>Without dashd, an operator inspects an instance through the <code>/v1</code> API of each daemon, <code>journalctl -u arizuko_&lt;inst&gt;</code> and the <code>arizuko</code> CLI. That works for an engineer, but it is hard for anyone else, and it never shows on one screen what the instance does now.</p>
 
-    <h2>How it fits</h2>
-    <p>Here&rsquo;s every door dashd uses. The left box is what it touches with its own store key; the right box is what it asks other daemons for over HTTP.</p>
+    <h2>dashd reads some tables directly and asks for the rest</h2>
+    <p>The figure shows every path that dashd uses. The left box is what dashd reads and writes with its own store key. The right box is what it asks other daemons for over HTTP.</p>
 
 <pre id="twin-dashd"><code>browser
    │ /dash/...
@@ -97,67 +97,72 @@ proxyd: auth "user", strips and stamps X-User-*, adds service:proxyd
                                └───────────────────────────────┘
 groups/&lt;folder&gt;/ files: memory pages, skill toggles, group bootstrap</code></pre>
 
-    <p>The split isn&rsquo;t arbitrary. dashd holds a store key for routd&rsquo;s and onbod&rsquo;s tables and nobody else&rsquo;s. Writes stay direct because <code>AsUser</code> puts <em>your</em> sub on the audit row, in the same batch as the write &mdash; a call over <code>/v1</code> would carry only <code>service:dashd</code>, and routd takes a forwarded user only from proxyd. Reads go over the owner&rsquo;s <code>/v1</code> wherever the owner serves one. The exception is your own secrets page: routd&rsquo;s <code>secrets</code> resource is write-only on purpose, so dashd lists the key names straight from the table rather than ask routd to publish an API that lists secrets.</p>
+    <p>The split has a reason. dashd holds a store key for the tables of routd and onbod and for no others. Writes go directly to the store, because <code>AsUser</code> puts <em>your</em> sub on the audit row, in the same batch as the write. A call over <code>/v1</code> would carry only <code>service:dashd</code>, and routd accepts a forwarded user only from proxyd. Reads go over the <code>/v1</code> of the owner wherever the owner serves one. Your own secrets page is the exception. The <code>secrets</code> resource of routd is write-only on purpose. So dashd lists the key names from the table, and routd publishes no API that lists secrets.</p>
 
-    <p>Identity comes from <a href="../components/proxyd.html">proxyd</a>. Every <code>/dash/*</code> handler &mdash; read views included &mdash; runs through <code>guard</code>, which checks proxyd&rsquo;s <code>service:proxyd</code> transit bearer before it trusts <code>X-User-Sub</code> and <code>X-User-Groups</code>. A request that skips proxyd never reaches a handler. Only <code>/health</code>, <code>/openapi.json</code> and the htmx asset stay public. Admin writes also run <code>requireAdmin</code> (an <code>admin</code> grant on the folder) and a same-origin CSRF check.</p>
+    <p>Identity comes from <a href="../components/proxyd.html">proxyd</a>. Every <code>/dash/*</code> handler, read views included, runs through <code>guard</code>. <code>guard</code> checks the <code>service:proxyd</code> transit bearer before it trusts <code>X-User-Sub</code> and <code>X-User-Groups</code>. So a request that does not pass proxyd never reaches a handler. Only <code>/health</code>, <code>/openapi.json</code> and the htmx asset stay public. Admin writes also run <code>requireAdmin</code>, which needs an <code>admin</code> grant on the folder, and a same-origin CSRF check.</p>
 
-    <h2>The hub</h2>
-    <p>Each visit probes every daemon&rsquo;s <code>/health</code> at once, with a 500&nbsp;ms timeout, so one slow daemon can&rsquo;t stall the page. A tile is <code>ok</code>, <code>err</code> (refused, timed out, or not 2xx) or <code>unknown</code> (the name doesn&rsquo;t resolve, so the container isn&rsquo;t deployed). There&rsquo;s no &ldquo;up but denied&rdquo; state, because <code>/health</code> is public on every daemon. davd has no <code>/health</code>, so its tile probes <code>GET /</code>.</p>
+    <h2>The hub checks every daemon on each visit</h2>
+    <p>Each visit checks the <code>/health</code> of every daemon at the same time, with a 500&nbsp;ms timeout, so one slow daemon cannot stop the page. A tile shows one of three states:</p>
+    <dl>
+      <dt><code>ok</code></dt><dd>The daemon answered with 2xx.</dd>
+      <dt><code>err</code></dt><dd>The daemon refused, timed out or answered with something other than 2xx.</dd>
+      <dt><code>unknown</code></dt><dd>The name does not resolve, so the container is not deployed.</dd>
+    </dl>
+    <p>No &ldquo;up but denied&rdquo; state exists, because <code>/health</code> is public on every daemon. davd has no <code>/health</code>, so its tile checks <code>GET /</code>.</p>
 
-    <p>A tile links only if proxyd actually routes its <code>/dash/&lt;daemon&gt;/</code> &mdash; dashd asks proxyd&rsquo;s <code>/v1/proxyd_routes</code>. The route is the registration; nothing is discovered. If proxyd doesn&rsquo;t answer, the hub links the core daemons only, so you never click into a 404. A red dot never hides a link: the daemon that&rsquo;s down is the one you want to open.</p>
+    <p>A tile is a link only if proxyd routes its <code>/dash/&lt;daemon&gt;/</code>. dashd asks <code>/v1/proxyd_routes</code> on proxyd: the route is the registration, and dashd discovers nothing. If proxyd does not answer, the hub links only the core daemons, so you never open a 404. A red dot never hides a link, because the daemon that is down is the one you want to open.</p>
 
-    <h2>Standalone usage</h2>
-    <p>dashd needs a port and a way to reach routd&rsquo;s tables &mdash; the store endpoint the instance is served from. Point <code>AUTHD_URL</code> at authd and dashd verifies proxyd&rsquo;s transit bearer against its keyset on every <code>/dash/*</code> request. Leave authd unwired for local dev and the guard passes through, which is why you still front dashd with proxyd on the public internet: proxyd terminates TLS, runs the login flow, and stamps the <code>X-User-*</code> headers dashd trusts.</p>
+    <h2>dashd runs alone with a port and the store</h2>
+    <p>dashd needs a port and access to the tables of routd: the store server of the instance. Point <code>AUTHD_URL</code> at authd, and dashd verifies the transit bearer of proxyd against its key set on every <code>/dash/*</code> request. Without authd, for local development, the guard lets every request through. For this reason, put proxyd in front of dashd on the public internet. proxyd runs the login flow and sets the <code>X-User-*</code> headers that dashd trusts.</p>
 
     <pre><code>export DATA_DIR=/srv/data/arizuko_demo
 export DASH_PORT=:8080
 ./dashd
 # browse http://localhost:8080/dash/</code></pre>
 
-    <p><code>DYNAMODB_URL</code> names the store server, and dashd reads routd&rsquo;s and onbod&rsquo;s tables from it. <code>DATA_DIR</code> resolves the groups tree at <code>$DATA_DIR/groups/</code>, which is files on disk. <code>GET /health</code> answers 200 as soon as the process is up; a store that won&rsquo;t open shows up as a red banner on the pages that need it, not as a failed health check.</p>
+    <p><code>DYNAMODB_URL</code> names the store server, and dashd reads the tables of routd and onbod from it. <code>DATA_DIR</code> locates the groups tree at <code>$DATA_DIR/groups/</code>, which is files on disk. <code>GET /health</code> returns 200 as soon as the process is up. A store that does not open shows as a red banner on the pages that need it, not as a failed health check.</p>
 
-    <h2>The page set</h2>
+    <h2>Ten pages read and ten pages write</h2>
     <p>Read views:</p>
 
+    <dl>
+      <dt><code>/dash/</code></dt><dd>The portal index, with links to the other pages.</dd>
+      <dt><code>/dash/status/</code></dt><dd>Groups, sessions and channels on one screen. For the operator, it also shows which chats got no answer.</dd>
+      <dt><code>/dash/activity/</code></dt><dd>The most recent messages across all groups.</dd>
+      <dt><code>/dash/tasks/</code></dt><dd>Scheduled tasks.</dd>
+      <dt><code>/dash/groups/</code></dt><dd>Group folders with their channel routes.</dd>
+      <dt><code>/dash/memory/</code></dt><dd>The editable markdown view of each group.</dd>
+      <dt><code>/dash/packages/</code></dt><dd>Installed packages and blended products from <code>installed_packages</code>, with name, source, revision and owned assets. The page is read-only. The <a href="../reference/cli.html#packages"><code>arizuko packages</code></a> CLI installs, upgrades and removes packages.</dd>
+      <dt><code>/dash/profile/</code></dt><dd>The subs linked to your login.</dd>
+      <dt><code>/dash/usage/</code></dt><dd>Model spend and turn counts per folder. The spend comes from the model gateway through <code>/v1/cost/summary</code> on routd. An instance with no gateway has no meter, and the page says so and does not show a zero.</dd>
+      <dt><code>/dash/audit/</code></dt><dd>The <a href="../concepts/audit.html">audit trail</a>, newest first, with filters for category, actor and folder. It merges the trails of routd, runed, authd and onbod. Each serves its own <code>audit_log</code> at <code>GET /v1/audit</code>, and dashd shows the merged rows with a Source column. onbod is a source only where its store exists, because onboarding is optional, and a daemon that you never deployed is not a failed source. The &ldquo;older&rdquo; cursor keeps one position per source. Rows of two owners can share a timestamp, and a cursor on time alone would drop some. A source that does not answer gets a red banner with its name, and the rest still show. An audit page that says nothing about runed when runed did not answer would mislead you.</dd>
+    </dl>
+
+    <p>Write pages, which need an admin grant and pass a CSRF check:</p>
+
+    <dl>
+      <dt><code>/dash/routes/</code></dt><dd>The message-routing table: which folder an inbound message goes to. For the operator, it also lists the <strong>unrouted chats</strong>: every chat that messaged the instance and reaches no group. A <strong>claim</strong> button writes the rule.</dd>
+      <dt><code>/dash/groups/new</code>, <code>/dash/groups/{folder}</code></dt><dd>Create a group, and change its settings, grants and skill toggles, or delete it.</dd>
+      <dt><code>/dash/tasks/</code></dt><dd>Create, pause, resume and cancel tasks. The create form takes a cron expression. It refuses a one-time RFC3339 time, which the <code>schedule_task</code> tool of the agent accepts.</dd>
+      <dt><code>/dash/tokens/{folder}/</code></dt><dd>List and revoke route tokens. No dashboard page creates one.</dd>
+      <dt><code>/dash/me/secrets</code>, <code>/dash/me/env</code>, <code>/dash/me/connections</code></dt><dd>Your own capability tokens, your model keys and the &ldquo;Connect GitHub&rdquo; OAuth connection.</dd>
+      <dt><code>/dash/approvals/</code></dt><dd>Held tool calls that wait for a person, limited to the folders where you hold <code>admin</code>.</dd>
+      <dt><code>/dash/engagement/</code></dt><dd>Every conversation that the agent is <a href="../concepts/engagement.html">staying in</a> without being addressed, with a <strong>disengage</strong> button. Only operators can open it.</dd>
+      <dt><code>/dash/proactive/</code></dt><dd>Which groups can <a href="../concepts/proactive.html">speak first</a>. The page is read-only, because <code>mode:</code> stays in the <code>CLAUDE.md</code> of the group.</dd>
+      <dt><code>/dash/invites/</code></dt><dd>Create and revoke invites. Only operators can open it.</dd>
+      <dt><code>/dash/channels/whatsapp/pair</code></dt><dd>Pair WhatsApp again with a code. Only operators can open it. dashd calls <code>/v1/pair/start</code> on whapd and writes an audit row.</dd>
+    </dl>
+
+    <p>When an owner does not answer, the page shows a red banner with its name, never an empty table. &ldquo;No routes&rdquo; or &ldquo;costs nothing&rdquo; are statements you would act on, and they are false when the source did not reply.</p>
+
+    <h2>dashd owns no table and sends no messages</h2>
+    <p>dashd does not send messages, create tokens or show the runtime of another daemon. Runs, keys, the proxy route table and the onboarding queue are on the pages of their own daemons. dashd owns no table: every write goes into a table of routd or onbod.</p>
+
+    <h2>Two pages cover the details</h2>
     <ul>
-      <li><code>/dash/</code> &mdash; portal index linking the other pages.</li>
-      <li><code>/dash/status/</code> &mdash; groups, sessions, channels at a glance; for the operator, also which chats got no answer.</li>
-      <li><code>/dash/activity/</code> &mdash; the most recent messages across all groups.</li>
-      <li><code>/dash/tasks/</code> &mdash; scheduled tasks.</li>
-      <li><code>/dash/groups/</code> &mdash; group folders with their channel routes.</li>
-      <li><code>/dash/memory/</code> &mdash; the editable markdown view per group.</li>
-      <li><code>/dash/packages/</code> &mdash; installed packages and blended products from <code>installed_packages</code> (name, source, revision, owned assets). Read-only; install / upgrade / remove is the <a href="../reference/cli.html#packages"><code>arizuko packages</code></a> CLI.</li>
-      <li><code>/dash/profile/</code> &mdash; the subs linked to your login.</li>
-      <li><code>/dash/usage/</code> &mdash; per-folder model spend and turn counts. The spend comes from the model gateway through routd&rsquo;s <code>/v1/cost/summary</code>; an instance with no gateway has no meter, and the page says so rather than showing a zero.</li>
-      <li><code>/dash/audit/</code> &mdash; the <a href="../concepts/audit.html">audit trail</a>: newest first, filtered by category, actor or folder. Federated across routd, runed, authd and onbod &mdash; each serves its own <code>audit_log</code> at <code>GET /v1/audit</code> and dashd merges them, with a Source column. onbod joins only when its store is there: onboarding is optional, and a daemon you never deployed isn&rsquo;t a source that failed. The &ldquo;older&rdquo; cursor carries one position per source, because two owners&rsquo; rows can share an instant and paging on the time alone would drop some. A source that doesn&rsquo;t answer gets a red banner with its name, and the rest still render: an audit page that goes quiet about runed is lying about runed.</li>
+      <li><a href="../reference/env.html#dashd">reference/env: dashd</a>: the full table of environment variables.</li>
+      <li><a href="../components/proxyd.html">components/proxyd</a>: the auth gate in front of dashd.</li>
     </ul>
-
-    <p>Write pages (admin grant + CSRF):</p>
-
-    <ul>
-      <li><code>/dash/routes/</code> &mdash; the message-routing table: which folder an inbound message lands in. For the operator it also lists the <strong>unrouted chats</strong> &mdash; every chat that has messaged the instance and reaches no group &mdash; with a one-click <strong>claim</strong> that writes the rule.</li>
-      <li><code>/dash/groups/new</code> and <code>/dash/groups/{folder}</code> &mdash; group create, settings, grants, skill toggles, delete.</li>
-      <li><code>/dash/tasks/</code> &mdash; create, pause, resume, cancel. The create form takes a cron expression; a one-shot RFC3339 time is refused here, though the agent&rsquo;s <code>schedule_task</code> accepts it.</li>
-      <li><code>/dash/tokens/{folder}/</code> &mdash; list and revoke route tokens. Nothing in the cockpit mints one.</li>
-      <li><code>/dash/me/secrets</code>, <code>/dash/me/env</code>, <code>/dash/me/connections</code> &mdash; your own capability tokens, model keys, and &ldquo;Connect GitHub&rdquo; style OAuth.</li>
-      <li><code>/dash/approvals/</code> &mdash; held tool calls waiting for a human, scoped to the folders you hold <code>admin</code> on.</li>
-      <li><code>/dash/engagement/</code> &mdash; every conversation the agent is <a href="../concepts/engagement.html">staying in</a> without being addressed, with a <strong>disengage</strong> button. Operator-only.</li>
-      <li><code>/dash/proactive/</code> &mdash; which groups may <a href="../concepts/proactive.html">speak first</a>. Read-only: <code>mode:</code> stays in the group&rsquo;s <code>CLAUDE.md</code>.</li>
-      <li><code>/dash/invites/</code> &mdash; invite create and revoke. Operator-only.</li>
-      <li><code>/dash/channels/whatsapp/pair</code> &mdash; WhatsApp re-pair by code. Operator-only; dashd calls whapd&rsquo;s <code>/v1/pair/start</code> and writes an audit row.</li>
-    </ul>
-
-    <p>When an owner doesn&rsquo;t answer, the page shows a red banner naming it. Never an empty table: &ldquo;no routes&rdquo; or &ldquo;costs nothing&rdquo; are things you&rsquo;d act on, and they&rsquo;re false when the source simply didn&rsquo;t reply.</p>
-
-    <h2>What dashd does not do</h2>
-    <p>dashd does not send messages, mint tokens, or render another daemon&rsquo;s runtime &mdash; runs, keys, the proxy route table and the onboarding queue are on their own daemons&rsquo; pages. It owns no table; every write lands in routd&rsquo;s or onbod&rsquo;s.</p>
-
-    <h2>Go deeper</h2>
-    <ul>
-      <li><a href="../reference/env.html#dashd">reference/env &mdash; dashd</a> &mdash; full env var table.</li>
-      <li><a href="../components/proxyd.html">components/proxyd</a> &mdash; the auth gate that sits in front.</li>
-    </ul>
-
 
       <nav class="docs-pager" aria-label="Pager">
         <a rel="prev" href="channels.html">&larr; channel adapters</a>

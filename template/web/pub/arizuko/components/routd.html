@@ -58,50 +58,58 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">components</a> &rsaquo; routd</p>
       <h1>routd</h1>
 
-    <h2>What it is</h2>
-    <p>In plain terms, routd is the switchboard. A message comes in from any channel, routd decides which group folder it belongs to, checks the sender is allowed, runs the turn, and sends the reply back out.</p>
+    <h2>routd routes each message, checks it and delivers the reply</h2>
+    <p>routd is the switchboard. A message comes in from any channel. routd decides which group folder it belongs to, checks that the sender is allowed, runs the turn and sends the reply back out.</p>
 
-    <p>routd is the routing plane: the conversation state machine. It is the <strong>sole appender</strong> of messages &mdash; no other daemon writes to the message log. It resolves the route table (topic, sticky, and reply rules) to a target folder, runs the orchestration loop that claims each turn and dispatches it to <a href="runed.html">runed</a>, and delivers the agent&rsquo;s replies back to the channel adapter that the message came from.</p>
+    <p>routd is the routing plane: the state machine of the conversation. It is the <strong>only appender</strong> of messages, and no other daemon writes to the message log. It resolves the route table, with its topic, sticky and reply rules, to a target folder. It runs the loop that claims each turn and sends it to <a href="runed.html">runed</a>. It delivers the replies of the agent to the channel adapter that the message came from.</p>
 
-    <p>routd owns its tables and creates them itself. It reaches no sibling daemon&rsquo;s tables &mdash; cross-daemon data (authd identity, runed session logs) arrives over HTTP, never by reaching into another file.</p>
+    <p>routd owns its tables and creates them. It reads no table of another daemon. Data from other daemons, such as identity from authd and session logs from runed, arrives over HTTP.</p>
 
-    <h2>Why it exists</h2>
-    <p>An inbound message is just text plus a sender. Three things have to happen before the agent ever sees it, and all three are routd&rsquo;s job.</p>
+    <h2>Without routd, a message has no folder, no check and no tools</h2>
+    <p>An inbound message is text and a sender. Three things must happen before the agent sees it, and routd does all three.</p>
 
-    <p>First, <strong>routing</strong>: a Telegram DM, a Slack thread, and a web chat all have to land in the right group folder. The route table holds the rules &mdash; a topic-kind rule, a sticky thread that stays glued to one folder, a reply that follows its parent. Without routd resolving those rules, every message is an orphan with no folder to run in.</p>
+    <h3>Routing puts the message in a folder</h3>
+    <p>A Telegram DM, a Slack thread and a web chat must each land in the correct group folder. The route table holds the rules. Examples are a rule by topic kind, a sticky thread that stays with one folder, and a reply that follows its parent. Without routd, a message has no folder to run in.</p>
 
-    <p>Second, <strong>authorization</strong>: routd is the grant authority. It owns the <code>acl</code> and <code>acl_membership</code> tables and runs the per-action authz gate (<code>auth.AuthorizeWith</code>) on every folder-scoped request &mdash; MCP and REST alike. The question it answers is not &ldquo;who are you&rdquo; (that is authd&rsquo;s job) but &ldquo;may you do <em>this</em> to <em>these</em> params.&rdquo; A handler that resolves a <code>jid</code> or <code>folder</code> binds it to the caller&rsquo;s folder here, so a request can never reach across folders.</p>
+    <h3>Authorization checks the action</h3>
+    <p>routd is the grant authority. It owns the <code>acl</code> and <code>acl_membership</code> tables. It runs the gate for each action, <code>auth.Authorize</code>, on every request scoped to a folder, over MCP and REST alike. The question is not &ldquo;who are you&rdquo;, which authd answers. The question is &ldquo;can you do <em>this</em> to <em>these</em> parameters&rdquo;. A handler that resolves a <code>jid</code> or <code>folder</code> binds it to the folder of the caller here, so a request can never reach across folders.</p>
 
-    <p>Third, <strong>the MCP host</strong>: the agent talks to arizuko over an MCP socket, and routd hosts that socket <em>in-process</em> (<code>ServeTurnMCP</code>). It derives the folder&rsquo;s grant rules, wires the socket to its own DB and the channel deliverer, and serves the agent&rsquo;s conversation tools (<code>reply</code>, <code>send</code>, <code>like</code>, &hellip;) in-process. runed only mounts the ipc dir and sets <code>Input.ExternalMCP=true</code>; it runs no MCP server of its own.</p>
+    <h3>The MCP host serves the agent tools</h3>
+    <p>The agent talks to arizuko over an MCP socket, and routd hosts that socket in its own process with <code>ServeTurnMCP</code>. routd derives the grant rules of the folder and connects the socket to its store and to the channel deliverer. It serves the conversation tools of the agent, such as <code>reply</code>, <code>send</code> and <code>like</code>. runed only bridges the socket into the guest over vsock and runs no MCP server of its own.</p>
 
-    <p>Put differently: routd is where routing, authorization, and the MCP host all live, because all three need the same thing &mdash; the message log and the folder a turn belongs to. Splitting them across daemons would mean three copies of that state drifting apart.</p>
+    <p>Routing, authorization and the MCP host share one daemon because all three need the same data: the message log and the folder of each turn. In three daemons, three copies of that state would drift apart.</p>
 
-    <h2>How it fits</h2>
+    <h2>routd sits between the adapters and runed</h2>
     <div class="callout">
       <pre><code>channel adapter (teled / slakd / webd / &hellip;)
-        |  POST /v1/messages   (service:&lt;daemon&gt; ES256 bearer)
-        v
-      routd   resolve routes  -> target folder
-        |     authz gate       (auth.AuthorizeWith on acl / acl_membership)
-        |     append message   (sole appender -> the message store)
-        |
-        +--POST /v1/runs--&gt;  runed   (boots the guest)
-        |                      |
-        |     agent MCP socket | ServeTurnMCP in-process; runed bridges it over vsock
-        |   &lt;-reply/send/like-&gt; |  in-process (ipc.ServeMCP)
-        v
-      channel deliverer (chanreg)  -> back out to the adapter</code></pre>
+        │  POST /v1/messages   (service:&lt;daemon&gt; ES256 bearer)
+        ▼
+      routd   resolve routes   ──► target folder
+        │     authz gate       (auth.Authorize on acl / acl_membership)
+        │     append message   (sole appender ──► the message store)
+        │
+        ├── POST /v1/runs ──►  runed   (boots the guest)
+        │                       │
+        │     agent MCP socket  │ ServeTurnMCP in-process; runed bridges it over vsock
+        │   ◄── reply/send/like ┘
+        ▼
+      channel deliverer (chanreg)  ──► back out to the adapter</code></pre>
     </div>
 
-    <p>Inputs: authenticated inbound from channel adapters (<code>POST /v1/messages</code>, bearing a <code>service:&lt;daemon&gt;</code> ES256 token); the agent&rsquo;s conversation-tool calls over the in-process MCP socket; due-task claims from <a href="timed.html">timed</a>. Outputs: dispatch calls to runed (<code>POST /v1/runs</code>); delivered replies through the <code>chanreg</code> deliverer to whichever adapter owns the JID prefix.</p>
+    <dl>
+      <dt>Inputs</dt>
+      <dd>Inbound messages from channel adapters on <code>POST /v1/messages</code>, each with a <code>service:&lt;daemon&gt;</code> ES256 token. The tool calls of the agent over the MCP socket in the process. Claims of due tasks from <a href="timed.html">timed</a>.</dd>
+      <dt>Outputs</dt>
+      <dd>Run requests to runed on <code>POST /v1/runs</code>. Delivered replies through the <code>chanreg</code> deliverer to the adapter that owns the JID prefix.</dd>
+      <dt>Dependencies</dt>
+      <dd><a href="runed.html">runed</a> at <code>$RUNED_URL</code> to run turns. The JWKS of <a href="authd.html">authd</a> to verify tokens offline: routd verifies and never signs. Channel adapters register their delivery URL and their JID prefixes with <code>POST /v1/channels/register</code>.</dd>
+    </dl>
 
-    <p>Hard deps: <a href="runed.html">runed</a> reachable at <code>$RUNED_URL</code> to execute turns; <a href="authd.html">authd</a>&rsquo;s JWKS to verify tokens offline (routd verifies, never signs). Channel adapters register their egress URL and owned JID prefixes via <code>POST /v1/channels/register</code>.</p>
+    <h2>routd recovers stranded tasks at startup</h2>
+    <p>At startup, routd re-arms scheduled tasks that a crash left in <code>firing</code>, so a restart during a turn does not strand a cron task. An operator uses the route table and its endpoints to point a channel, a thread or a public <code>/chat/&lt;token&gt;/</code> URL at a folder. The endpoints are <code>/v1/routes</code>, <code>/v1/web_routes</code> and <code>/v1/route_tokens/*</code>.</p>
 
-    <h2>Routing and re-arming</h2>
-    <p>On startup routd re-arms scheduled tasks left in <code>firing</code> by an earlier crash, so a restart mid-turn doesn&rsquo;t strand a cron task. The route table and its read/write surface (<code>/v1/routes</code>, <code>/v1/web_routes</code>, <code>/v1/route_tokens/*</code>) are how an operator points a channel, a thread, or a public <code>/chat/&lt;token&gt;/</code> URL at a folder.</p>
-
-    <h2>Standalone usage</h2>
-    <p>routd runs as a daemon against its own tables, but it is useless on its own &mdash; it has nothing to route until a channel adapter registers, and nothing to run until runed answers. Run it pointing at a reachable runed and authd.</p>
+    <h2>routd runs alone but does nothing alone</h2>
+    <p>routd runs as a daemon against its own tables, but alone it does nothing. It has nothing to route until a channel adapter registers, and nothing to run until runed answers. Run it with a reachable runed and authd.</p>
 
     <pre><code>cd /srv/data/myinstance
 export DATA_DIR=/srv/data/myinstance
@@ -112,21 +120,20 @@ export AUTHD_SERVICE_KEY=$(grep ^AUTHD_SERVICE_KEY .env | cut -d= -f2)
 export WEB_HOST=localhost:8080
 ./routd</code></pre>
 
-    <p>With <code>AUTHD_URL</code> unset the token verifier runs open &mdash; local-dev only, never production. <code>GET /health</code> returns 200 once the process is up; the red flag is turns stuck unclaimed in the loop, or runed unreachable on dispatch.</p>
+    <p>Without <code>AUTHD_URL</code>, routd builds no token verifier and its API is open. Use that only for local development, never in production. <code>GET /health</code> returns 200 when the process is up. Turns that stay unclaimed in the loop, or a runed that is unreachable at dispatch, show a problem.</p>
 
-    <h2>What routd does not do</h2>
-    <p>routd does not boot guests (runed does), does not sign tokens (authd does), and does not host HTML or SSE (webd does). It routes, authorizes, appends, and delivers &mdash; the conversation plane, nothing else.</p>
+    <h2>routd does not start guests, sign tokens or serve HTML</h2>
+    <p>runed starts guests, authd signs tokens, and webd serves HTML and SSE. routd routes, authorizes, appends and delivers. It is the conversation plane and nothing more.</p>
 
-    <h2>Go deeper</h2>
+    <h2>Six pages cover the details</h2>
     <ul>
-      <li><a href="../concepts/routing.html">concepts/routing</a> &mdash; how an event resolves to a folder, topic and sticky rules.</li>
-      <li><a href="../concepts/grants.html">concepts/grants</a> &mdash; the authorization model routd enforces.</li>
-      <li><a href="../reference/schema.html#acl">reference/schema &mdash; acl</a> &mdash; the <code>acl</code> / <code>acl_membership</code> tables routd owns, plus the rest of its set.</li>
-      <li><a href="../reference/env.html#routd">reference/env &mdash; routd</a> &mdash; routd&rsquo;s config (and the <a href="../reference/env.html#split">split</a> wiring vars).</li>
-      <li><code>routd/README.md</code> &mdash; full HTTP surface, tables owned, file map.</li>
-      <li><a href="../concepts/turn.html">concepts/turn</a> &mdash; the whole turn on one drawing, from the adapter back to the chat.</li>
+      <li><a href="../concepts/routing.html">concepts/routing</a>: how an event resolves to a folder, and the topic and sticky rules.</li>
+      <li><a href="../concepts/grants.html">concepts/grants</a>: the authorization model that routd enforces.</li>
+      <li><a href="../reference/schema.html#acl">reference/schema: acl</a>: the <code>acl</code> and <code>acl_membership</code> tables that routd owns, and its other tables.</li>
+      <li><a href="../reference/env.html#routd">reference/env: routd</a>: the configuration of routd and the <a href="../reference/env.html#split">wiring variables</a> between daemons.</li>
+      <li><a href="https://github.com/kronael/arizuko/blob/main/routd/README.md">[routd/README.md]</a>: the full HTTP endpoints, the owned tables and the file map.</li>
+      <li><a href="../concepts/turn.html">concepts/turn</a>: the whole turn in one figure, from the adapter back to the chat.</li>
     </ul>
-
 
       <nav class="docs-pager" aria-label="Pager">
         <a rel="prev" href="reditd.html">&larr; reditd</a>
@@ -134,7 +141,7 @@ export WEB_HOST=localhost:8080
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/components/routd.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-16">2026-10-16</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-20">2026-10-20</time>
       </div>
     </main>
 

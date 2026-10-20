@@ -58,20 +58,20 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">components</a> &rsaquo; proxyd</p>
       <h1>proxyd</h1>
 
-    <h2>What it is</h2>
-    <p>In plain terms, proxyd is the front door. Every request from the outside hits it first, it checks who you are, and only then passes you through to the right service inside &mdash; with a tamper-proof note stapled on that says who you are.</p>
+    <h2>proxyd is the front door that checks every request</h2>
+    <p>Every request from outside reaches proxyd first. proxyd checks who you are, and only then passes the request to the correct service inside, with a signed note that says who you are.</p>
 
-    <p>proxyd is the auth-gated reverse proxy at the public edge. It terminates every inbound HTTP request, decides whether the caller is authenticated, and forwards the request to a backend daemon with a signed identity header attached.</p>
+    <p>proxyd is the reverse proxy with auth at the public edge. It receives every inbound HTTP request, decides whether the caller is authenticated, and forwards the request to a backend daemon with a signed identity header.</p>
 
-    <p>Routes are matched by longest path prefix over <code>proxyd_routes</code>, which is the only source: <code>arizuko generate</code> writes the release's routes into it, operators mutate it at runtime through <code>/v1/proxyd_routes</code>, and proxyd takes a fresh snapshot per request. There is no env var, so there is no window in which a shipped route silently stops applying.</p>
+    <p>proxyd matches routes by the longest path prefix over <code>proxyd_routes</code>, the only source of routes. <code>arizuko generate</code> writes the routes of the release into it, and operators change it at runtime through <code>/v1/proxyd_routes</code>. proxyd reads a new snapshot for each request. No environment variable holds routes, so a shipped route never stops applying without a sign.</p>
 
-    <h2>Why it exists</h2>
-    <p>Backends like <a href="../components/dashd.html">dashd</a>, <a href="../components/webd.html">webd</a>, and <a href="../components/onbod.html">onbod</a> listen on <code>:8080</code> inside their containers and trust whatever they get over the wire. Without proxyd there is no place to check a JWT, nothing to prove the caller is who the headers say, and no rate shield in front of <a href="../components/tokens.html">route-token</a> POSTs.</p>
+    <h2>proxyd is the one trust boundary</h2>
+    <p>Backends such as <a href="../components/dashd.html">dashd</a>, <a href="../components/webd.html">webd</a> and <a href="../components/onbod.html">onbod</a> listen on <code>:8080</code> inside their containers and trust what they receive. Without proxyd, nothing checks a JWT, nothing proves that the caller is who the headers say, and nothing limits the rate of <a href="../components/tokens.html">route-token</a> posts.</p>
 
-    <p>proxyd is the single trust boundary. It strips every <code>X-User-*</code> header on entry, runs the auth check, then re-stamps <code>X-User-Sub</code>, <code>X-User-Name</code>, and <code>X-User-Groups</code>. What makes a backend believe those three headers is not the headers themselves &mdash; anyone can type them &mdash; but the bearer token riding alongside: an <code>authd</code>-minted ES256 token whose subject is <code>service:proxyd</code>. A backend checks that token with <code>auth.ProxydTransit</code> (<code>auth/middleware.go</code>) and trusts the stamped identity only when it holds. Nothing else in the deployment can mint that token, so nothing else can claim to be you.</p>
+    <p>proxyd removes every <code>X-User-*</code> header on entry, runs the auth check, and then sets <code>X-User-Sub</code>, <code>X-User-Name</code> and <code>X-User-Groups</code> again. Anyone can type those headers, so a backend does not trust the headers alone. It trusts the bearer token that comes with them: an ES256 token from <code>authd</code> whose subject is <code>service:proxyd</code>. A backend checks that token with <code>auth.ProxydTransit</code> in <code>auth/middleware.go</code> and trusts the identity only when the check passes. No other part of the deployment can get that token, so no other part can claim to be you.</p>
 
-    <h2>A request through proxyd</h2>
-    <p>Here is every request, top to bottom, in the order <code>server.route</code> runs it (<code>proxyd/main.go</code>). The paths proxyd answers itself come first. Everything else loses any identity header the client typed, then meets the hard-wired paths, then the <code>proxyd_routes</code> rows, then a redirect into the public tree.</p>
+    <h2>A request passes four stages in proxyd</h2>
+    <p>The figure shows every request from top to bottom, in the order that <code>server.route</code> in <code>proxyd/main.go</code> runs it. The paths that proxyd answers itself come first. Every other request loses the identity headers that the client typed. It then meets the fixed paths, then the <code>proxyd_routes</code> rows, and then a redirect into the public tree.</p>
     <pre id="twin-proxyd"><code>request
   │
   ▼
@@ -116,19 +116,19 @@ requireAuth
                   X-User-Groups = acl scopes, read per request
   neither ──► auth_return cookie, 303 /auth/login</code></pre>
 
-    <p>The hard-wired paths stay in Go because a row can&rsquo;t express them: <code>/pub/*</code> probes an external redirect and passes websocket upgrades, <code>/priv/*</code> checks your scopes against the folder that owns the slot, and <code>/</code> sends a world&rsquo;s host to its slot. Everything else is a row. proxyd reads the table once per request and uses that one read for both the match and the backend, so a concurrent edit can&rsquo;t pair one row&rsquo;s <code>auth</code> with another row&rsquo;s backend.</p>
+    <p>The fixed paths stay in Go because a row cannot express them. <code>/pub/*</code> checks for an external redirect and passes websocket upgrades. <code>/priv/*</code> checks your scopes against the folder that owns the web folder. <code>/</code> sends the host of a world to its web folder. Everything else is a row. proxyd reads the table once per request and uses that one read for the match and for the backend. So a concurrent edit cannot pair the <code>auth</code> of one row with the backend of another row.</p>
 
-    <p>The final catch-all is where a world&rsquo;s host lands: <code>krons.example.com/guide</code> answers 302 to <code>/pub/krons/guide</code>. Every reserved prefix was dispatched above it, so the redirect can&rsquo;t shadow <code>/dash</code> or <code>/chat</code> on any host, and it can&rsquo;t loop: <code>/pub/</code> never redirects again.</p>
+    <p>The final catch-all handles the host of a world: <code>krons.example.com/guide</code> answers with a 302 to <code>/pub/krons/guide</code>. Every reserved prefix is handled above it, so the redirect cannot hide <code>/dash</code> or <code>/chat</code> on any host. It cannot loop either, because <code>/pub/</code> never redirects again.</p>
 
-    <p>Rows come from two places: a static core list in <code>compose/compose.go</code> (dashd, webd, davd, onbod) and the <code>proxyd_routes</code> block of each package&rsquo;s <code>template/services/&lt;name&gt;.yaml</code> manifest, sitting beside the <code>&lt;name&gt;.yml</code> compose fragment. <code>arizuko generate</code> drops the routes whose <code>gated_by</code> variable is off and writes the rest as rows. That manifest is the same file <code>arizuko packages install</code> applies &mdash; one declaration, two readers. Adding a channel adapter means shipping a fragment plus its manifest; no edit to <code>main.go</code>.</p>
+    <p>Rows come from two places. One is a static core list in <code>compose/compose.go</code> for dashd, webd, davd and onbod. The other is the <code>proxyd_routes</code> block in the <code>template/services/&lt;name&gt;.yaml</code> manifest of each package, next to the <code>&lt;name&gt;.yml</code> compose fragment. <code>arizuko generate</code> drops the routes whose <code>gated_by</code> variable is off and writes the rest as rows. <code>arizuko packages install</code> applies the same manifest: one declaration with two readers. To add a channel adapter, ship a fragment and its manifest, with no edit to <code>main.go</code>.</p>
 
-    <p><code>/chat/*</code> and <code>/hook/*</code> are plain rows with <code>auth: optional</code>: proxyd stamps you if your bearer checks out, forwards you anonymously if not, and attaches its own <code>service:proxyd</code> bearer either way. webd resolves the token and runs the rate limits. <code>/dav/*</code> requires auth, scopes the path to a group you belong to, and blocks writes to <code>.env</code>, <code>*.pem</code>, <code>.git</code>, and anything under <code>&lt;group&gt;/logs/</code>.</p>
+    <p><code>/chat/*</code> and <code>/hook/*</code> are plain rows with <code>auth: optional</code>. proxyd stamps your identity if your bearer is valid and forwards you anonymously if not. In both cases it attaches its own <code>service:proxyd</code> bearer. webd resolves the token and applies the rate limits. <code>/dav/*</code> requires auth, limits the path to a group you belong to, and blocks writes to <code>.env</code>, <code>*.pem</code>, <code>.git</code> and everything under <code>&lt;group&gt;/logs/</code>.</p>
 
-    <h2>Three web daemons, one rule</h2>
-    <p>The web side is three unrelated programs. proxyd is the Go part. davd is <code>dufs</code> plus <code>wget</code> for its healthcheck, and vited serves files; neither carries arizuko Go code. You could swap either for something else. What you can&rsquo;t swap is the rule they all sit behind: every web URL is scoped by the same folder and the same <code>acl</code> rows the agent works under. That&rsquo;s the part proxyd exists for.</p>
+    <h2>Three web daemons follow one rule</h2>
+    <p>The web side is three unrelated programs. proxyd is the Go part. davd is <code>dufs</code> plus <code>wget</code> for its healthcheck, and vited serves files. Neither carries arizuko Go code, and you could replace either. You cannot replace the rule that all three follow. Every web URL is scoped by the same folder and the same <code>acl</code> rows as the agent. proxyd exists to enforce that rule.</p>
 
-    <h2>Standalone usage</h2>
-    <p>proxyd needs three things to run on its own: a store to reach (the route table, <code>web_routes</code> and <code>acl</code>), an <code>authd</code> to log users in and sign tokens, and at least one row in <code>proxyd_routes</code> &mdash; written by <code>arizuko generate</code> or posted to <code>/v1/proxyd_routes</code>.</p>
+    <h2>proxyd runs alone with a store, an authd and one route</h2>
+    <p>proxyd needs three things to run alone. It needs a store with the route table, <code>web_routes</code> and <code>acl</code>. It needs an <code>authd</code> to log users in and sign tokens. It needs at least one row in <code>proxyd_routes</code>, which <code>arizuko generate</code> writes or a post to <code>/v1/proxyd_routes</code> adds.</p>
 
     <pre><code>export DATA_DIR=/srv/data/arizuko_demo
 export PROXYD_LISTEN=:8080
@@ -137,38 +137,37 @@ export AUTHD_URL=http://authd:8080
 export AUTHD_SERVICE_KEY=$(openssl rand -hex 32)
 ./proxyd</code></pre>
 
-    <p>Leave <code>AUTHD_URL</code> unset and proxyd still proxies, but it stamps <code>X-User-*</code> with no bearer behind it &mdash; fine on a laptop, never on a public port, because a backend has nothing to check. There is no shared secret to copy around: backends fetch <code>authd</code>&rsquo;s public keys and verify offline.</p>
+    <p>Without <code>AUTHD_URL</code>, proxyd still proxies, but it stamps <code>X-User-*</code> with no bearer, so a backend has nothing to check. Use that on a laptop, never on a public port. No shared secret exists to copy: backends fetch the public keys of <code>authd</code> and verify offline.</p>
 
-    <p><code>TRUSTED_PROXIES</code> is a comma-separated CIDR list. Only peers inside one of those ranges get their <code>X-Forwarded-For</code> honoured; everyone else has it replaced with the TCP peer. Empty means trust nothing.</p>
+    <p><code>TRUSTED_PROXIES</code> is a comma-separated list of CIDRs. proxyd accepts <code>X-Forwarded-For</code> only from peers in one of those ranges, and replaces it with the TCP peer for every other caller. An empty list trusts nothing.</p>
 
-    <p>Health: <code>GET /health</code> returns <code>{"ok":true}</code>. A request with no valid credential gets a 303 to <code>/auth/login</code> and a <code>Set-Cookie: auth_return=&lt;path&gt;</code>, so the login lands you back where you were. Route-token rate trips are webd&rsquo;s, and answer 429.</p>
+    <p><code>GET /health</code> returns <code>{"ok":true}</code>. A request with no valid credential gets a 303 to <code>/auth/login</code> and a <code>Set-Cookie: auth_return=&lt;path&gt;</code>, so the login returns you to the same page. webd applies the route-token rate limit and answers 429 when a caller exceeds it.</p>
 
-    <h2>Runtime route mutation</h2>
-    <p>Routes are mutable at runtime through a small set of REST endpoints. <code>GET /v1/proxyd_routes</code> lists them; <code>POST /v1/proxyd_routes</code> creates one; <code>PATCH</code> and <code>DELETE</code> on <code>/v1/proxyd_routes/{path}</code> update or drop a route. The path segment is URL-encoded, so <code>/slack/</code> becomes <code>%2Fslack%2F</code>.</p>
+    <h2>Operators change routes at runtime</h2>
+    <p>A small set of REST endpoints changes the routes at runtime. <code>GET /v1/proxyd_routes</code> lists them, and <code>POST /v1/proxyd_routes</code> creates one. <code>PATCH</code> and <code>DELETE</code> on <code>/v1/proxyd_routes/{path}</code> change or remove a route. The path segment is URL-encoded, so <code>/slack/</code> becomes <code>%2Fslack%2F</code>.</p>
 
-    <div class="callout"><strong>It is <code>proxyd_routes</code>, not <code>routes</code>.</strong> <code>routes</code> is <a href="../components/routd.html">routd</a>&rsquo;s table &mdash; the one that decides which folder an inbound <em>message</em> lands in. This one decides which backend an inbound <em>HTTP request</em> lands in. Two daemons, two tables, two names; a resource name is its address on the wire, so no two may claim the same one.</div>
+    <div class="callout"><strong>The table is <code>proxyd_routes</code>, not <code>routes</code>.</strong> <code>routes</code> is the table of <a href="../components/routd.html">routd</a> that decides which folder an inbound <em>message</em> goes to. <code>proxyd_routes</code> decides which backend an inbound <em>HTTP request</em> goes to. Two daemons have two tables with two names. A resource name is its address on the wire, so no two resources can use the same name.</div>
 
-    <p>The same five operations appear on webd&rsquo;s <code>/mcp</code> bridge as the tools <code>proxyd_routes.list</code>, <code>proxyd_routes.get</code>, <code>proxyd_routes.create</code>, <code>proxyd_routes.update</code>, and <code>proxyd_routes.delete</code> &mdash; for an operator pointing an MCP client at the instance. They are not on the agent socket: the ant inside the guest never sees them. The tool names are not written down anywhere either; they are the resource name plus the action, derived from the same declaration that mounts the REST endpoints, so the two faces cannot drift apart.</p>
+    <p>The same five operations exist as tools on the <code>/mcp</code> bridge of webd, for an operator with an MCP client. The tools are <code>proxyd_routes.list</code>, <code>proxyd_routes.get</code>, <code>proxyd_routes.create</code>, <code>proxyd_routes.update</code> and <code>proxyd_routes.delete</code>. They are not on the agent socket, so the ant in the guest never sees them. No file lists the tool names. Each name is the resource name plus the action, derived from the same declaration that mounts the REST endpoints. So the two faces cannot drift apart.</p>
 
-    <p>Operators get the third face: proxyd serves <code>/dash/proxyd/</code> itself, a page that lists the live table longest prefix first and takes an add or delete form. The forms call the same store writers as the REST handler, so the table still has one writer. A path on proxyd&rsquo;s own mux never reaches the routing code that authenticates you, which is why the page carries its own <code>requireAuth</code>.</p>
+    <p>Operators get a third face. proxyd serves <code>/dash/proxyd/</code> itself: a page that lists the live table, longest prefix first, with forms to add or delete a row. The forms call the same store writers as the REST handler, so the table still has one writer. A path on the own mux of proxyd never reaches the routing code that authenticates you, so the page carries its own <code>requireAuth</code>.</p>
 
-    <p>Authorisation is the operator gate: an ACL row wide enough to cover <code>proxyd_routes.&lt;action&gt;</code> at an empty scope &mdash; in practice the <code>**</code> operator row. The route table is global, with no per-folder axis, so there is no narrower grant to hand out. Mutations persist to the <code>proxyd_routes</code> table and take effect on the next request &mdash; no restart, no reload button, and no <code>enabled</code> column: to turn a route off, delete it.</p>
+    <p>Authorization is the operator gate: an ACL row that covers <code>proxyd_routes.&lt;action&gt;</code> at an empty scope, which in practice is the <code>**</code> operator row. The route table is global, with no folder axis, so no narrower grant exists. Changes persist to the <code>proxyd_routes</code> table and apply on the next request, with no restart and no reload button. The table has no <code>enabled</code> column: to turn a route off, delete it.</p>
 
-    <p>Both forwarders &mdash; webd for the agent, dashd for the operator &mdash; authenticate the caller themselves and then present a <code>service:webd</code> or <code>service:dashd</code> bearer. proxyd honours the stamped <code>X-User-*</code> only for those two subjects. Any other valid token arriving at <code>/v1/proxyd_routes</code> gets a 401, because a token holder who could stamp their own groups could stamp themselves an operator.</p>
+    <p>Two forwarders exist: webd for MCP clients and dashd for the operator. Each authenticates the caller itself and then presents a <code>service:webd</code> or <code>service:dashd</code> bearer. proxyd accepts the stamped <code>X-User-*</code> only for those two subjects. Any other valid token at <code>/v1/proxyd_routes</code> gets a 401, because a token holder who could stamp their own groups could make themselves an operator.</p>
 
-    <h2>What proxyd does not do</h2>
-    <p>proxyd does not run business logic. It reads three of routd&rsquo;s tables per request &mdash; <code>proxyd_routes</code>, <code>web_routes</code> and <code>acl</code> &mdash; and nothing else; route tokens are webd&rsquo;s. It does not enforce per-group scope beyond <code>/priv</code> and <code>/dav</code> (backends do, once the transit bearer checks out). It does not terminate TLS in production deployments &mdash; that belongs to a front like Caddy or nginx, which forwards to proxyd over loopback or a trusted network.</p>
+    <h2>proxyd runs no business logic</h2>
+    <p>proxyd runs no business logic. It reads three tables of routd per request, <code>proxyd_routes</code>, <code>web_routes</code> and <code>acl</code>, and nothing else. Route tokens belong to webd. proxyd enforces group scope only on <code>/priv</code> and <code>/dav</code>, and backends enforce it elsewhere after the transit bearer passes. proxyd does not terminate TLS in production. A front server such as Caddy or nginx does that and forwards to proxyd over loopback or a trusted network.</p>
 
-    <h2>Go deeper</h2>
+    <h2>Six pages cover the details</h2>
     <ul>
-      <li><a href="../reference/env.html#proxyd">reference/env &mdash; proxyd</a> &mdash; full env var table.</li>
-      <li><a href="../components/tokens.html">components/route tokens</a> &mdash; the public chat + webhook surfaces gated by proxyd.</li>
-      <li><a href="../components/dashd.html">components/dashd</a> &mdash; an auth-required backend behind proxyd.</li>
-      <li><code>SECURITY.md</code> &mdash; trust model, the transit bearer, key rotation.</li>
-      <li><code>proxyd/README.md</code> &mdash; route field semantics, the owner rules, forward auth.</li>
-      <li><a href="../reference/openapi.html">reference/openapi</a> &mdash; how one handler grows a REST face and an MCP face.</li>
+      <li><a href="../reference/env.html#proxyd">reference/env: proxyd</a>: the full table of environment variables.</li>
+      <li><a href="../components/tokens.html">components/route tokens</a>: the public chat and webhook URLs behind proxyd.</li>
+      <li><a href="../components/dashd.html">components/dashd</a>: a backend behind proxyd that requires auth.</li>
+      <li><a href="https://github.com/kronael/arizuko/blob/main/SECURITY.md">[SECURITY.md]</a>: the trust model, the transit bearer and key rotation.</li>
+      <li><a href="https://github.com/kronael/arizuko/blob/main/proxyd/README.md">[proxyd/README.md]</a>: the meaning of each route field, the owner rules and forward auth.</li>
+      <li><a href="../reference/openapi.html">reference/openapi</a>: how one handler gets a REST face and an MCP face.</li>
     </ul>
-
 
       <nav class="docs-pager" aria-label="Pager">
         <a rel="prev" href="onbod.html">&larr; onbod</a>
@@ -176,7 +175,7 @@ export AUTHD_SERVICE_KEY=$(openssl rand -hex 32)
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/components/proxyd.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-16">2026-10-16</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-20">2026-10-20</time>
       </div>
     </main>
 

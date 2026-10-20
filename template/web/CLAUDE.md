@@ -140,7 +140,9 @@ links in docs; users see index.html.
 
 Audience: operator evaluating a component or integrating it elsewhere.
 
-Each component page answers four questions in order:
+Each component page answers four questions in order. Each `h2` states the
+answer as a claim, never the question itself, for example "egress is a forward
+proxy for one client and one fixed list":
 
 1. **What is it?** One sentence. Not marketing — mechanism.
 2. **Why does it exist?** The system-design reason. What would break without it.

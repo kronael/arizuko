@@ -58,18 +58,18 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">components</a> &rsaquo; egress</p>
       <h1>egress</h1>
 
-    <h2>What it is</h2>
-    <p><code>egress</code> is a forward HTTP/CONNECT proxy that allows one fixed list of hosts, for one client. It reads the destination out of the request the client sends, matches it against the allowlist, and either splices the connection or answers <code>403</code>. That is the whole program.</p>
+    <h2>egress is a forward proxy for one client and one fixed list</h2>
+    <p><code>egress</code> is a forward HTTP and CONNECT proxy that allows one fixed list of hosts, for one client. It reads the destination from the request of the client, checks it against the allowlist, and either splices the connection or answers <code>403</code>. The program does nothing more.</p>
 
-    <p>runed starts one of these per turn, with that folder&rsquo;s allowlist baked into the process at start, and kills it when the turn ends. There is no long-lived proxy, no registry of who is who, and no admin API &mdash; every one of those exists only so that <em>one</em> proxy can serve <em>many</em> tenants, and one proxy per turn needs none of them.</p>
+    <p>runed starts one proxy per turn, with the allowlist of that folder fixed at start, and stops it when the turn ends. No long-lived proxy, no registry of clients and no admin API exist. Those parts are necessary only when <em>one</em> proxy serves <em>many</em> tenants, and one proxy per turn needs none of them.</p>
 
-    <h2>Why it exists</h2>
-    <p>An agent runs generated code with the network open. You want it to reach <code>github.com</code> and <code>api.anthropic.com</code> &mdash; not your internal services, not a crypto miner shipped in a compromised npm package, not wherever a prompt injection points it. A network-level firewall doesn&rsquo;t know which folder is calling. Per-process iptables is fiddly. The proxy sits in the one place that knows both: the single path this turn has out.</p>
+    <h2>Only the path out of the guest knows both the folder and the host</h2>
+    <p>An agent runs generated code with network access. You want it to reach <code>github.com</code> and <code>api.anthropic.com</code>. You do not want it to reach your internal services. You also do not want a crypto miner from a compromised npm package, or a host that a prompt injection names. A firewall on the network does not know which folder calls. Rules per process are hard to maintain. The proxy sits in the one place that knows both: the only path out of this turn.</p>
 
-    <p>Per-turn is also what removes a leak the shared model could not close. A shared proxy keyed tenants by source address, so it depended on the consumer unregistering when a process exited. If the reuse window landed wrong, the stale entry survived and the next tenant on that address inherited the previous folder&rsquo;s allowlist. Per-turn deletes the registry, so there is nothing to go stale.</p>
+    <p>One proxy per turn also prevents a leak. A shared proxy must identify tenants by source address and depends on each tenant unregistering when its process exits. If an address is reused at the wrong moment, a stale entry gives the next tenant the allowlist of the previous folder. With one proxy per turn, no registry exists, so no entry can go stale.</p>
 
-    <h2>How it fits</h2>
-    <p>runed brings up the turn&rsquo;s tap and its rule set, starts the proxy on the tap&rsquo;s host side, waits for the proxy&rsquo;s <code>/health</code>, and only then boots the guest. Everything the guest sends meets the tap first:</p>
+    <h2>The tap rule set confines the guest, and the proxy filters hosts</h2>
+    <p>runed brings up the tap of the turn and its rule set, and starts the proxy on the host side of the tap. It waits for the <code>/health</code> of the proxy, and only then starts the guest. Everything that the guest sends reaches the tap first:</p>
     <pre id="twin-egress"><code>┌──────────────────────────────┐
 │ KVM guest                    │  a raw socket to any address,
 │ no resolver, one tap,        ├──────────────────────► dropped by the tap
@@ -95,34 +95,42 @@
                ▼
           allowed host</code></pre>
 
-    <p><strong>The proxy is not what confines the agent &mdash; the tap rule set is.</strong> The guest has exactly one network interface, its tap, and that tap&rsquo;s static rule set accepts only the guest&rsquo;s own proxy port and drops every other packet, both directions, UDP/53 included. The proxy runs on the host side of that tap, inside runed&rsquo;s own container, so it reaches the network runed itself is on. A guest process that ignores <code>HTTPS_PROXY</code> and opens a raw socket to an IP literal reaches nothing, because the tap drops it below the kernel the agent runs on &mdash; there is no shared network namespace to escape into, because there is nothing else on that tap to share.</p>
+    <h3>The tap rule set does the confinement</h3>
+    <p>The guest has exactly one network interface, its tap. The static rule set of that tap accepts only the proxy port of the guest and drops every other packet in both directions, UDP/53 included. The proxy runs on the host side of that tap, inside the container of runed, so it reaches the network that runed is on. A process in the guest can ignore <code>HTTPS_PROXY</code> and open a raw socket to an IP address. It reaches nothing, because the tap drops the packet below the kernel of the agent. No shared network namespace exists to escape into, because nothing else is on that tap.</p>
 
-    <p><strong>Order is enforced, not hoped for.</strong> The proxy answers <code>GET /health</code> with 200 only once its listener is bound and its allowlist is loaded. runed polls that (15s ceiling) and starts the guest only on a 200; a TCP connect would not do, since it succeeds the moment the port is bound. A proxy that fails to start or never reports healthy <strong>fails the turn</strong> &mdash; and so does a missing <code>egress</code> binary: runed refuses to start at all rather than let a turn run unfiltered.</p>
+    <h3>The proxy is healthy before the guest starts</h3>
+    <p>The proxy answers <code>GET /health</code> with 200 only after its listener is bound and its allowlist is loaded. runed polls that endpoint for up to 15 seconds and starts the guest only on a 200. A TCP connect would not be enough, because it succeeds as soon as the port is bound. If the proxy does not start or never reports healthy, <strong>the turn fails</strong>. If the <code>egress</code> binary is missing, runed refuses to start at all, so no turn ever runs without the filter.</p>
 
-    <p><strong>The proxy serves exactly one address.</strong> <code>--client</code> is the guest&rsquo;s tap address; every other peer gets a 403, including a concurrent turn in the same folder. That matters because concurrent turns in one folder do not all hold the same list &mdash; an elevated <code>/root</code> turn&rsquo;s is unrestricted &mdash; so without the pin a plain turn could send its CONNECT to a neighbour&rsquo;s proxy and borrow rules it was never granted. It is a bind scope, not a lookup: nothing is registered, and a second client is refused rather than served from some other rule set.</p>
+    <h3>The proxy serves exactly one address</h3>
+    <p><code>--client</code> is the tap address of the guest, and every other peer gets a 403, including a concurrent turn in the same folder. Concurrent turns in one folder do not all hold the same list: an elevated <code>/root</code> turn has no limit. Without the pin, a plain turn could send its CONNECT to the proxy of a neighbour and use rules that it was never granted. The pin is a bind scope, not a lookup: nothing is registered, and the proxy refuses a second client.</p>
 
-    <p>Inputs: the resolved allowlist for the folder (<code>store.ResolveAllowlist</code> walks the folder ancestry over <code>network_rules</code> and dedupes). Outputs: one proxy process per turn, and a <code>403</code> for anything off the list.</p>
+    <dl>
+      <dt>Inputs</dt>
+      <dd>The resolved allowlist of the folder. <code>store.ResolveAllowlist</code> reads the <code>network_rules</code> of the folder and its ancestors and removes duplicates.</dd>
+      <dt>Outputs</dt>
+      <dd>One proxy process per turn, and a <code>403</code> for every host not on the list.</dd>
+    </dl>
 
-    <h3>Matching</h3>
-    <p>Host names only &mdash; exact, subdomain-aware (<code>--allow github.com</code> covers <code>api.github.com</code>), case-insensitive, trailing dot stripped. A bare <code>*</code> allows everything. IP entries in the list are skipped: the filter works on the NAME, because the name is what the client puts in the request line. No path rules, no method rules.</p>
+    <h3>The proxy matches host names only</h3>
+    <p>The proxy matches host names only, without case and without a trailing dot. A name with a dot matches itself and its subdomains, so <code>--allow github.com</code> covers <code>api.github.com</code>, and <code>*.example.com</code> means the same as <code>example.com</code>. A name without a dot, such as <code>localhost</code> or a container service name, matches only itself and never as a suffix. Without this rule, an entry such as <code>com</code> would allow every host under <code>.com</code>. The proxy checks the NAME, because the client puts the name in the request line. No rules for paths or methods exist.</p>
 
-    <p>An empty allowlist denies everything. That is a legitimate rule &mdash; a folder with no network grants &mdash; so the proxy starts and logs a warning rather than refusing to run.</p>
+    <p>An empty allowlist denies everything. That is a valid rule for a folder with no network grants. So the proxy starts, logs a warning and does not refuse to run.</p>
 
-    <p>The wildcard <code>*</code> is appended only when the folder holds the <code>egress</code> grant, or the turn is an elevated <code>/root</code> turn. The default <code>role:member</code> does not carry it, at any folder depth.</p>
+    <p>Allow-all is a separate mode, <code>--allow-all</code>, not a list entry. runed turns it on only when the folder holds the <code>egress</code> grant or the turn is an elevated <code>/root</code> turn. The default <code>role:member</code> does not carry that grant at any folder depth. A <code>--deny</code> entry wins over every allow, also in allow-all mode, and covers the subdomains of the name.</p>
 
-    <h3>What it doesn&rsquo;t do</h3>
+    <h3>The proxy never decrypts traffic</h3>
     <ul>
-      <li>no TLS termination, no CA, no key material &mdash; CONNECT is tunnelled, never decrypted</li>
-      <li>no request or response body access, no content filtering, no secret injection</li>
-      <li>no registry, no admin API, no client library</li>
-      <li>no transparent interception and no SNI peeking &mdash; forward mode reads the destination from the request line, so it never needed either</li>
-      <li>no DNS lookup of its own, and none is needed &mdash; the proxy never sees a bare DNS query, because the guest ships no resolver at all and a name is only meaningful inside a CONNECT line (<a href="../security/">security</a> &sect; No DNS filter)</li>
-      <li>no supervision &mdash; the turn&rsquo;s lifetime is the proxy&rsquo;s lifetime, and runed owns both</li>
+      <li>No TLS termination, no CA and no key material: the proxy tunnels CONNECT and never decrypts it.</li>
+      <li>No access to request or response bodies, no content filter and no secret injection.</li>
+      <li>No registry, no admin API and no client library.</li>
+      <li>No transparent interception and no SNI reading: forward mode reads the destination from the request line, so neither is necessary.</li>
+      <li>No DNS lookup of its own, and none is necessary. The proxy never sees a plain DNS query, because the guest has no resolver, and a name means something only inside a CONNECT line. See the &ldquo;No DNS filter&rdquo; section of <a href="../security/">security</a>.</li>
+      <li>No supervision: the lifetime of the turn is the lifetime of the proxy, and runed owns both.</li>
     </ul>
-    <p>Interception stays declined. Injecting a header into an opaque client was the only job that needed it, and a CA inside every guest costs more than that leftover is worth. A proxy that never terminates TLS has nothing to leak if it is compromised, which is what keeps it small enough to audit.</p>
+    <p>The proxy does not intercept TLS, by design. Header injection into an opaque client would be the only use for interception. A CA inside every guest costs more than that use is worth. A proxy that never terminates TLS has nothing to leak if an attacker controls it, and that keeps it small enough to audit.</p>
 
-    <h2>Standalone usage</h2>
-    <p>Yes. <code>egress</code> is a plain Go binary with three flags and no dependency on anything else in arizuko.</p>
+    <h2>egress runs alone as one binary</h2>
+    <p><code>egress</code> runs alone. It is a plain Go binary with no dependency on any other part of arizuko.</p>
 
     <pre><code># build the image (repo root)
 make images                 # produces arizuko-egress
@@ -136,37 +144,40 @@ make -C egress build        # produces ./egress/egress
     <table>
       <tr><th>flag</th><th>env</th><th>default</th><th>meaning</th></tr>
       <tr><td><code>--listen</code></td><td><code>EGRESS_LISTEN</code></td><td><code>:3128</code></td><td>listen address</td></tr>
-      <tr><td><code>--allow</code></td><td><code>EGRESS_ALLOW</code></td><td>(empty)</td><td>comma-separated allowlist; a bare <code>*</code> allows all</td></tr>
-      <tr><td><code>--client</code></td><td><code>EGRESS_CLIENT</code></td><td>(empty)</td><td>the only peer address served; empty accepts any peer</td></tr>
+      <tr><td><code>--allow</code></td><td><code>EGRESS_ALLOW</code></td><td>empty</td><td>comma-separated allowlist of host names</td></tr>
+      <tr><td><code>--deny</code></td><td><code>EGRESS_DENY</code></td><td>empty</td><td>comma-separated denylist. A deny wins over every allow</td></tr>
+      <tr><td><code>--allow-all</code></td><td><code>EGRESS_ALLOW_ALL</code></td><td>off</td><td>allow every host name. <code>--deny</code> and the address checks still apply</td></tr>
+      <tr><td><code>--client</code></td><td><code>EGRESS_CLIENT</code></td><td>empty</td><td>the only peer address served. Empty accepts any peer</td></tr>
+      <tr><td><code>--deny-private</code></td><td><code>EGRESS_DENY_PRIVATE</code></td><td>off</td><td>also refuse destinations that resolve into a private range</td></tr>
+      <tr><td><code>--allow-loopback</code></td><td><code>EGRESS_ALLOW_LOOPBACK</code></td><td>off</td><td>allow destinations on this host, for local development</td></tr>
     </table>
 
-    <p>The allowlist is fixed for the life of the process. To change the rules, start a new proxy &mdash; which is what a per-spawn proxy does on every turn anyway.</p>
+    <p>For each turn, runed passes <code>--listen</code>, <code>--client</code>, <code>--allow</code> and, with the grant, <code>--allow-all</code>. The allowlist is fixed for the life of the process. To change the rules, start a new proxy, which is what happens on every turn.</p>
 
-    <p><code>GET /health</code> returns 200 <code>{"status":"ok"}</code> once the listener is bound and the allowlist loaded, 503 <code>{"status":"starting"}</code> before. It is answered before the <code>--client</code> check, because whoever starts the sandbox is not the client. Proxy requests arrive in absolute form (<code>GET http://host/path</code>), so an origin-form <code>GET /health</code> is unambiguously a probe of this process rather than traffic to forward.</p>
+    <p><code>GET /health</code> returns 200 <code>{"status":"ok"}</code> after the listener is bound and the allowlist is loaded, and 503 <code>{"status":"starting"}</code> before. The proxy answers it before the <code>--client</code> check, because the program that starts the sandbox is not the client. Proxy requests arrive in absolute form, <code>GET http://host/path</code>, so an origin-form <code>GET /health</code> is clearly a probe of this process and not traffic to forward.</p>
 
-    <h3>Running the proxy locally</h3>
-    <p>Start the binary on its own to try the same shape on your own machine. Production does exactly this &mdash; runed starts one <code>egress</code> process per spawn and stops it with the turn.</p>
+    <h3>You can run the same proxy on your own machine</h3>
+    <p>Start the binary alone to try the same setup on your own machine. Production does the same: runed starts one <code>egress</code> process per turn and stops it with the turn.</p>
 
     <pre><code>egress --listen 127.0.0.1:3128 --client 127.0.0.1 --allow github.com,api.anthropic.com
 HTTPS_PROXY=http://127.0.0.1:3128 curl https://github.com</code></pre>
 
-    <p>Production puts this same proxy on the host side of the guest&rsquo;s tap, so the guest&rsquo;s only route out is through it &mdash; enforced below the kernel the agent runs, rather than by a network with no route. There is no setting that turns this off.</p>
+    <p>Production puts the same proxy on the host side of the tap of the guest. So the only route out of the guest is through the proxy. The tap enforces this below the kernel that the agent runs on. No setting turns it off.</p>
 
-    <h2>Key env vars</h2>
-    <p>None. Egress isolation is not a switch &mdash; every turn gets a proxy, and runed refuses to start at all if the <code>egress</code> binary is missing. What&rsquo;s left to configure is the allowlist itself, per folder:</p>
+    <h2>The allowlist is the only setting</h2>
+    <p>egress isolation has no switch: every turn gets a proxy, and runed refuses to start if the <code>egress</code> binary is missing. The allowlist of each folder is what you configure:</p>
     <pre><code>arizuko network &lt;instance&gt; allow &lt;folder&gt; api.github.com</code></pre>
 
-    <p>The tap subnet and the proxy&rsquo;s port are runed&rsquo;s own tunables, not the <code>egress</code> binary&rsquo;s (see <code>runed/README.md</code>).</p>
+    <p>The tap subnet and the proxy port are settings of runed, not of the <code>egress</code> binary. See <a href="https://github.com/kronael/arizuko/blob/main/runed/README.md">[runed/README.md]</a>.</p>
 
-    <h2>Go deeper</h2>
+    <h2>Five sources cover the details</h2>
     <ul>
-      <li><a href="../security/">security</a> &mdash; where egress sits among the other agent-run controls.</li>
-      <li><a href="runed.html">components/runed</a> &mdash; the daemon that starts the proxy and the agent, in that order.</li>
-      <li><a href="../reference/cli.html">reference/cli</a> &mdash; <code>arizuko network allow / deny / list / resolve</code>, which write the rules the proxy is started with.</li>
-      <li><code>egress/README.md</code> &mdash; the directory and what is in it.</li>
-      <li><a href="https://github.com/kronael/arizuko/blob/main/SECURITY.md#network-egress-isolation"><code>SECURITY.md</code> &sect; Network egress isolation</a> &mdash; the rule set, the IPv6 seal and the allowlist rules in one place.</li>
+      <li><a href="../security/">security</a>: where egress sits among the other controls on an agent run.</li>
+      <li><a href="runed.html">components/runed</a>: the daemon that starts the proxy and then the agent, in that order.</li>
+      <li><a href="../reference/cli.html">reference/cli</a>: <code>arizuko network allow</code>, <code>deny</code>, <code>list</code> and <code>resolve</code>, which write the rules that the proxy starts with.</li>
+      <li><a href="https://github.com/kronael/arizuko/blob/main/egress/README.md">[egress/README.md]</a>: the directory and its contents.</li>
+      <li><a href="https://github.com/kronael/arizuko/blob/main/SECURITY.md#network-egress-isolation">[SECURITY.md &sect; Network egress isolation]</a>: the rule set, the IPv6 seal and the allowlist rules in one place.</li>
     </ul>
-
 
       <nav class="docs-pager" aria-label="Pager">
         <a rel="prev" href="discd.html">&larr; discd</a>
@@ -174,7 +185,7 @@ HTTPS_PROXY=http://127.0.0.1:3128 curl https://github.com</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/components/egress.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-16">2026-10-16</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-20">2026-10-20</time>
       </div>
     </main>
 

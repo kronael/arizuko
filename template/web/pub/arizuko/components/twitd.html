@@ -58,47 +58,64 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">components</a> &rsaquo; twitd</p>
       <h1>twitd</h1>
 
-    <h2>What it is</h2>
-    <p>In plain terms, twitd is the connector that plugs X (Twitter) into arizuko, so the agent can read mentions and DMs and reply.</p>
+    <h2>twitd connects X to arizuko</h2>
+    <p>twitd connects X, also known as Twitter, to arizuko, so the agent can read mentions and DMs and reply.</p>
 
-    <p>twitd is the X / Twitter channel adapter. It wraps <code>agent-twitter-client</code> (the ai16z fork of <code>@the-convocation/twitter-scraper</code>) to drive X via browser emulation &mdash; cookies, not an API key. TypeScript / Bun, JID prefix <code>twitter:</code>.</p>
+    <p>twitd is the X channel adapter. It wraps <code>agent-twitter-client</code>, the ai16z fork of <code>@the-convocation/twitter-scraper</code>, to drive X through browser emulation with cookies and no API key. It runs in TypeScript on Bun, with the JID prefix <code>twitter:</code>.</p>
 
-    <h2>Why it exists</h2>
-    <p>X&rsquo;s official v2 API is paywalled past the point of being useful for a hobbyist bot: writing tweets, mentioning users, posting DMs &mdash; none of it is available on the free tier. <code>agent-twitter-client</code> drives the same web surface a logged-in user sees, which is the only path that works for arizuko deployments. Account suspensions are common; the README documents an account-loss runbook.</p>
+    <h2>The web interface is the only usable path to X</h2>
+    <p>The official v2 API of X costs too much for a small bot: the free tier cannot post tweets, mention users or send DMs. <code>agent-twitter-client</code> drives the same web interface that a logged-in user sees, which is the only path that works for arizuko deployments. X often suspends such accounts, and the README has a runbook for a lost account.</p>
 
-    <h2>How it fits</h2>
+    <h2>twitd sits between X and routd</h2>
     <div class="callout">
       <pre><code>X (twitter.com web surface)
-        |  agent-twitter-client poll (mentions, DM convs)
-        v
+        │  agent-twitter-client poll (mentions, DM convs)
+        ▼
       twitd     (LISTEN_ADDR=:8080, Bun runtime)
-        |  POST /v1/messages    (service:<daemon> ES256 bearer)
-        v
+        │  POST /v1/messages    (service:&lt;daemon&gt; ES256 bearer)
+        ▼
       routd
-        |  POST /send           (callback to twitd)
-        v
+        │  POST /send           (callback to twitd)
+        ▼
       twitd     (sendTweet | sendDirectMessage | favorite | ...)
-        |
-        v
+        │
+        ▼
       X</code></pre>
     </div>
 
-    <p>JID forms: <code>twitter:home</code> for the timeline / mentions, <code>twitter:tweet/&lt;id&gt;</code> for a specific tweet, <code>twitter:dm/&lt;conv_id&gt;</code> for a DM thread, <code>twitter:user/&lt;handle&gt;</code> for a profile.</p>
+    <p>twitd uses four JID forms:</p>
+    <dl>
+      <dt><code>twitter:home</code></dt><dd>The timeline and mentions.</dd>
+      <dt><code>twitter:tweet/&lt;id&gt;</code></dt><dd>One tweet.</dd>
+      <dt><code>twitter:dm/&lt;conv_id&gt;</code></dt><dd>One DM thread.</dd>
+      <dt><code>twitter:user/&lt;handle&gt;</code></dt><dd>One profile.</dd>
+    </dl>
 
-    <p>Wired verbs (<code>twitd/src/verbs.ts</code>): <code>send</code> (DM via <code>sendDirectMessage</code>), <code>post</code> (tweet), <code>reply</code> (<code>sendTweet(text, replyToId)</code>), <code>repost</code> (retweet), <code>quote</code> (quote-tweet; empty body returns hint to <code>repost</code>), <code>like</code> (favorite &mdash; binary, no emoji), <code>delete</code> (own tweets), <code>send_file</code> (image / video for tweets; DM attachments degrade to text-only). <code>forward</code>, <code>dislike</code>, <code>edit</code> are 501-with-hint &mdash; X has no downvote and X Premium edit is not exposed by the library.</p>
+    <p>The wired verbs are in <code>twitd/src/verbs.ts</code>:</p>
+    <dl>
+      <dt><code>send</code></dt><dd>A DM through <code>sendDirectMessage</code>.</dd>
+      <dt><code>post</code></dt><dd>A tweet.</dd>
+      <dt><code>reply</code></dt><dd><code>sendTweet(text, replyToId)</code>.</dd>
+      <dt><code>repost</code></dt><dd>A retweet.</dd>
+      <dt><code>quote</code></dt><dd>A quote tweet. An empty body returns a hint to use <code>repost</code>.</dd>
+      <dt><code>like</code></dt><dd>A favorite, on or off, with no emoji.</dd>
+      <dt><code>delete</code></dt><dd>Own tweets.</dd>
+      <dt><code>send_file</code></dt><dd>An image or video for tweets. In DMs, the attachment becomes text only.</dd>
+    </dl>
+    <p><code>forward</code>, <code>dislike</code> and <code>edit</code> return 501 with a hint, because X has no downvote and the library does not expose the edit of X Premium.</p>
 
-    <p>No streaming. twitd polls mentions on <code>TWITTER_POLL_INTERVAL</code> (default 90 s).</p>
+    <p>X has no stream for this client, so twitd polls mentions every <code>TWITTER_POLL_INTERVAL</code> seconds, 90 by default.</p>
 
-    <h2>Auth (3 paths, priority order)</h2>
+    <h2>twitd tries three login methods in order</h2>
     <ol>
-      <li><strong>Cookie file</strong> at <code>$TWITTER_AUTH_DIR/cookies.json</code>. Export from a logged-in browser. Recommended &mdash; skips 2FA.</li>
-      <li><strong>Username + password</strong> via <code>TWITTER_USERNAME</code>, <code>TWITTER_PASSWORD</code>, <code>TWITTER_EMAIL</code>, <code>TWITTER_2FA_SECRET</code>. Used only when cookies are missing or invalid; on success cookies are persisted.</li>
-      <li><strong>Pair mode</strong>: <code>bun dist/main.js --pair</code> performs login with env creds, persists cookies, exits. Useful for warm-up.</li>
+      <li><strong>A cookie file</strong> at <code>$TWITTER_AUTH_DIR/cookies.json</code>, exported from a logged-in browser. This method is recommended, because it skips 2FA.</li>
+      <li><strong>Username and password</strong> in <code>TWITTER_USERNAME</code>, <code>TWITTER_PASSWORD</code>, <code>TWITTER_EMAIL</code> and <code>TWITTER_2FA_SECRET</code>. twitd uses them only when the cookies are missing or not valid, and it saves the cookies after a successful login.</li>
+      <li><strong>Pair mode</strong>: <code>bun dist/main.js --pair</code> logs in with the credentials from the environment, saves the cookies and exits. Use it to prepare the cookies before the first start.</li>
     </ol>
 
-    <p>Cookies are atomically rotated to <code>cookies.json.bak</code> on every save.</p>
+    <p>On every save, twitd rotates the cookies atomically to <code>cookies.json.bak</code>.</p>
 
-    <h2>Standalone usage</h2>
+    <h2>twitd runs alone with routd and a cookie file</h2>
     <pre><code>export ROUTER_URL=http://routd:8080
 export AUTHD_URL=http://authd:8080
 export AUTHD_SERVICE_KEY=$(grep ^AUTHD_SERVICE_KEY .env | cut -d= -f2)
@@ -106,20 +123,18 @@ export LISTEN_ADDR=:8080
 export TWITTER_AUTH_DIR=/srv/data/store/twitter-auth
 export TWITTER_POLL_INTERVAL=90
 # either: drop a cookies.json into TWITTER_AUTH_DIR, or:
-export TWITTER_USERNAME=...  TWITTER_PASSWORD=...  TWITTER_EMAIL=...
+export TWITTER_USERNAME=&lt;user&gt;  TWITTER_PASSWORD=&lt;password&gt;  TWITTER_EMAIL=&lt;email&gt;
 bun dist/main.js</code></pre>
 
-    <p><code>GET /health</code> returns 503 with <code>{status:"disconnected"}</code> while unauthenticated, and 503 <code>{status:"stale"}</code> if no inbound has flowed in 5 minutes. Triage: cookies expired &rarr; drop a new <code>cookies.json</code>, restart twitd. 2FA challenge during password login &rarr; switch to the cookie path.</p>
+    <p><code>GET /health</code> returns 503 with <code>{status:"disconnected"}</code> while twitd is not logged in. It also returns 503 with <code>{status:"stale"}</code> when no inbound message arrived for 5 minutes. If the cookies expired, put a new <code>cookies.json</code> in place and restart twitd. If the password login hits a 2FA challenge, use the cookie method.</p>
 
-    <p>The library (<code>agent-twitter-client@0.0.18</code>) is solo-maintained; pin the version so X-side breakage stays out of the dep graph until the operator chooses to upgrade.</p>
+    <p>One person maintains the library, <code>agent-twitter-client@0.0.18</code>. Pin the version, so a breakage on the X side stays out of the dependency graph until the operator decides to upgrade.</p>
 
-    <h2>Go deeper</h2>
+    <h2>Two sources cover the details</h2>
     <ul>
-      <li><a href="../components/channels.html">components/channels</a> &mdash; cross-adapter verb matrix.</li>
-      <li><code>twitd/README.md</code> &mdash; verb table, account-loss runbook, env table.</li>
-      <li><code>specs/2/k-twitter-adapter.md</code> &mdash; adapter spec.</li>
+      <li><a href="../components/channels.html">components/channels</a>: the verb table across adapters.</li>
+      <li><a href="https://github.com/kronael/arizuko/blob/main/twitd/README.md">[twitd/README.md]</a>: the verb table, the runbook for a lost account and the table of environment variables.</li>
     </ul>
-
 
       <nav class="docs-pager" aria-label="Pager">
         <a rel="prev" href="ttsd.html">&larr; ttsd</a>
@@ -127,7 +142,7 @@ bun dist/main.js</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/components/twitd.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-09-19">2026-09-19</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-16">2026-10-16</time>
       </div>
     </main>
 

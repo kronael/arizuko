@@ -58,62 +58,70 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">components</a> &rsaquo; teled</p>
       <h1>teled</h1>
 
-    <h2>What it is</h2>
-    <p>In plain terms, teled is the connector that plugs Telegram into arizuko, so the agent can read and reply in Telegram chats and groups.</p>
+    <h2>teled connects Telegram to arizuko</h2>
+    <p>teled connects Telegram to arizuko, so the agent can read and reply in Telegram chats and groups.</p>
 
-    <p>teled is the Telegram channel adapter. It long-polls the Telegram Bot API for updates, posts inbound messages and reactions to routd, and serves outbound calls back to the Bot API. JID prefix is <code>telegram:</code>; per-chat JIDs look like <code>telegram:&lt;chat_id&gt;</code>.</p>
+    <p>teled is the Telegram channel adapter. It long-polls the Telegram Bot API for updates, posts inbound messages and reactions to routd, and sends outbound calls to the Bot API. The JID prefix is <code>telegram:</code>. A DM has the JID <code>telegram:user/&lt;id&gt;</code>, and a group has <code>telegram:group/&lt;id&gt;</code>, where teled removes the minus sign of the Telegram group id.</p>
 
-    <h2>Why it exists</h2>
-    <p>Telegram is the workhorse personal channel for arizuko deployments &mdash; it is free, has a stable bot API, and supports voice notes and file uploads up to 50&nbsp;MB without partner approval. teled gives arizuko the long-poll loop, the file proxy, and the reaction translation that routd does not do itself.</p>
+    <h2>Telegram is the main personal channel</h2>
+    <p>Telegram is the main personal channel of arizuko deployments. It is free, has a stable bot API, and supports voice notes and file uploads up to 50&nbsp;MB without partner approval. teled gives arizuko the long-poll loop, the file proxy and the reaction translation, which routd does not do itself.</p>
 
-    <h2>How it fits</h2>
+    <h2>teled sits between Telegram and routd</h2>
     <div class="callout">
       <pre><code>Telegram (api.telegram.org)
-        |  long-poll getUpdates (allowed_updates=[message, message_reaction])
-        v
+        │  long-poll getUpdates (allowed_updates=[message, message_reaction])
+        ▼
       teled     (LISTEN_ADDR=:8080)
-        |  POST /v1/messages    (service:<daemon> ES256 bearer)
-        v
+        │  POST /v1/messages    (service:&lt;daemon&gt; ES256 bearer)
+        ▼
       routd
-        |  POST /send           (callback to teled)
-        v
+        │  POST /send           (callback to teled)
+        ▼
       teled     (sendMessage / sendPhoto / setMessageReaction / ...)
-        |
-        v
+        │
+        ▼
       Telegram</code></pre>
     </div>
 
-    <p>Wired verbs (<code>teled/bot.go</code>): <code>send</code>, <code>send_file</code> (photo / video / document by extension), <code>post</code>, <code>like</code> (<code>setMessageReaction</code>, default <span>&#128077;</span>), <code>delete</code>, <code>forward</code> (true <code>forwardMessage</code> when the source carries <code>chatJid|id</code>), <code>edit</code> (own messages, 48 h window), <code>typing</code> (refreshed every 4 s). <code>dislike</code>, <code>quote</code>, <code>repost</code> are 501-with-hint &mdash; the agent gets a structured pointer to <code>like(emoji='&#128078;')</code> / <code>reply</code> / <code>forward</code>.</p>
+    <p>The wired verbs are in <code>teled/bot.go</code>:</p>
+    <dl>
+      <dt><code>send</code>, <code>post</code>, <code>delete</code></dt><dd>Plain Bot API calls.</dd>
+      <dt><code>send_file</code></dt><dd>A photo, video or document, chosen by the file extension.</dd>
+      <dt><code>like</code></dt><dd><code>setMessageReaction</code>, with <span>&#128077;</span> by default.</dd>
+      <dt><code>forward</code></dt><dd>A real <code>forwardMessage</code> when the source carries <code>chatJid|id</code>.</dd>
+      <dt><code>edit</code></dt><dd>Own messages only, within a 48-hour window.</dd>
+      <dt><code>typing</code></dt><dd>Refreshed every 4 seconds.</dd>
+    </dl>
+    <p><code>dislike</code>, <code>quote</code> and <code>repost</code> return 501 with a hint. The agent gets a structured pointer to <code>like(emoji='&#128078;')</code>, <code>reply</code> or <code>forward</code>.</p>
 
-    <p>Inbound mention detection: the bot&rsquo;s own user-id is filtered from incoming traffic, but messages from other bots are passed through (fixed in v0.40.5 &mdash; before that, all bot-authored messages were silently dropped). Reply-to-bot and reactions on bot messages are promoted to <code>verb=mention</code> by the gateway.</p>
+    <p>teled filters out the own user id of the bot from inbound traffic and passes messages from other bots through. routd promotes a reply to the bot and a reaction on a bot message to <code>verb=mention</code>.</p>
 
-    <p>Telegram bot-token file URLs are short-lived, so teled proxies them via <code>GET /files/&lt;file_id&gt;</code> for the agent.</p>
+    <p>Telegram file URLs that contain the bot token expire quickly, so teled serves them to the agent through <code>GET /files/&lt;file_id&gt;</code>.</p>
 
-    <h2>Standalone usage</h2>
-    <p>teled is a plain Go binary. It needs a reachable routd, a bot token from <code>@BotFather</code>, and a writable data dir for the poll offset.</p>
+    <h2>teled runs alone with routd and a bot token</h2>
+    <p>teled is a plain Go binary. It needs a reachable routd, a bot token from <code>@BotFather</code> and a writable data directory for the poll offset.</p>
 
     <pre><code>export ROUTER_URL=http://routd:8080
 export AUTHD_URL=http://authd:8080
 export AUTHD_SERVICE_KEY=$(grep ^AUTHD_SERVICE_KEY .env | cut -d= -f2)
 export LISTEN_ADDR=:8080
-export TELEGRAM_BOT_TOKEN=123456:ABC-...
+export TELEGRAM_BOT_TOKEN=&lt;bot token&gt;
 export DATA_DIR=/srv/data/arizuko_demo
 export ASSISTANT_NAME=arizuko
 ./teled</code></pre>
 
-    <p>Telegram-side setup: talk to <code>@BotFather</code>, create a bot, grab the token. For group chats: add the bot, then either give it admin or disable privacy mode so it can read non-command messages. No webhook setup required &mdash; teled long-polls.</p>
+    <p>On the Telegram side, talk to <code>@BotFather</code>, create a bot and copy the token. For group chats, add the bot, and then make it an admin or turn off privacy mode. Then it can read messages that are not commands. teled long-polls, so no webhook setup is necessary.</p>
 
-    <p><code>GET /health</code> returns 200 when connected AND inbound has flowed in the last 5 minutes; 503 with <code>{status:"disconnected"}</code> otherwise.</p>
+    <p><code>GET /health</code> returns 503 with <code>{status:"disconnected"}</code> when the link to Telegram is down. Otherwise it returns 200, with the status <code>stale</code> when no inbound message arrived for 5 minutes.</p>
 
-    <h2>Verb support</h2>
-    <p>Notes from <code>teled/README.md</code>: reactions are bounded by the chat&rsquo;s admin allow-list (off-list emojis 400). <code>delete</code> for other users&rsquo; messages requires <code>can_delete_messages</code>. <code>fetch_history</code> returns <code>source: "unsupported"</code> &mdash; Telegram Bot API has no per-chat history endpoint; the gateway falls back to its local cache.</p>
+    <h2>Telegram limits some verbs</h2>
+    <p>The chat admin allow-list limits reactions, and an emoji outside the list gets a 400. To <code>delete</code> the messages of other users, the bot needs <code>can_delete_messages</code>. <code>fetch_history</code> returns <code>source: "unsupported"</code>, because the Telegram Bot API has no history endpoint per chat. routd then uses its local cache.</p>
 
-    <h2>Go deeper</h2>
+    <h2>Two sources cover the details</h2>
     <ul>
-      <li><a href="../components/channels.html">components/channels</a> &mdash; cross-adapter verb matrix.</li>
-      <li><code>teled/README.md</code> &mdash; full env vars, verb table, limitations.</li>
+      <li><a href="../components/channels.html">components/channels</a>: the verb table across adapters.</li>
+      <li><a href="https://github.com/kronael/arizuko/blob/main/teled/README.md">[teled/README.md]</a>: the full environment variables, the verb table and the limits.</li>
     </ul>
-
 
       <nav class="docs-pager" aria-label="Pager">
         <a rel="prev" href="slakd.html">&larr; slakd</a>
@@ -121,7 +129,7 @@ export ASSISTANT_NAME=arizuko
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/components/teled.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-09-19">2026-09-19</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-16">2026-10-16</time>
       </div>
     </main>
 

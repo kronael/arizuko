@@ -58,94 +58,98 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">components</a> &rsaquo; authd</p>
       <h1>authd</h1>
 
-    <h2>What it is</h2>
-    <p>In plain terms, authd is the ID office. It checks who you are &mdash; through GitHub, Google, Discord, or Telegram &mdash; and hands back a signed token that proves it. Every other daemon trusts that token.</p>
+    <h2>authd is the only daemon that signs tokens</h2>
+    <p>authd is the ID office. It checks who you are through GitHub, Google, Discord or Telegram and returns a signed token that proves it. Every other daemon trusts that token.</p>
 
-    <p>authd is the auth plane: the sole platform-token signer and JWKS publisher. It holds the active ES256 (P-256) signing key in memory, mints every access and refresh token, and acts as the OAuth provider. Backends never sign &mdash; they fetch authd&rsquo;s public JWKS and verify tokens locally through the <code>auth/</code> library. authd owns <code>auth.db</code> and migrates it itself.</p>
+    <p>authd is the auth plane: the only signer of platform tokens and the only JWKS publisher. It holds the active ES256 signing key, on the P-256 curve, in memory. It creates every access and refresh token and acts as the OAuth provider. Backends never sign. They fetch the public JWKS of authd and verify tokens locally with the <code>auth/</code> library. authd owns the <code>authd.*</code> tables in the store.</p>
 
-    <p>One line to keep straight: <strong>authd authenticates, <a href="routd.html">routd</a> authorizes.</strong> authd answers &ldquo;who are you, and what is the ceiling of what you could be allowed&rdquo;; it does <em>not</em> decide whether a given action on a given folder is permitted. That gate lives in routd, the ACL owner.</p>
+    <p>Keep one line straight: <strong>authd authenticates, and <a href="routd.html">routd</a> authorizes.</strong> authd answers &ldquo;who are you, and what is the most you could be allowed&rdquo;. It does <em>not</em> decide whether one action on one folder is permitted. That gate lives in routd, the owner of the ACL.</p>
 
-    <h2>Why it exists</h2>
-    <p>If every daemon signed its own tokens, every daemon would hold a signing key, and a leak anywhere would be a leak everywhere. Concentrating the key in one daemon means there is exactly one secret to protect and one place to rotate it. authd is that daemon.</p>
+    <h2>One signing key in one daemon means one secret to protect</h2>
+    <p>If every daemon signed its own tokens, every daemon would hold a signing key, and a leak in one place would be a leak everywhere. With the key in one daemon, there is exactly one secret to protect and one place to rotate it. authd is that daemon.</p>
 
-    <p>It does the login dance: a user signs in with GitHub, Google, Discord, or the Telegram widget, and authd exchanges that successful login for a short-lived ES256 access token plus a refresh token. The access token&rsquo;s scope is bounded by a snapshot of the subject&rsquo;s grants &mdash; which authd fetches from routd at mint time, because routd owns the ACL. Refresh tokens rotate with reuse detection: replay a spent token and the whole family is revoked.</p>
+    <p>authd runs the login flow. A user signs in with GitHub, Google, Discord or the Telegram widget. authd exchanges that login for a short-lived ES256 access token and a refresh token. A snapshot of the grants of the subject limits the scope of the access token. authd fetches that snapshot from routd when it creates the token, because routd owns the ACL. Refresh tokens rotate with reuse detection: if someone presents a used token again, authd revokes the whole family.</p>
 
-    <p>It also bootstraps the daemons themselves. At boot authd self-mints <code>service:authd</code>, and it exchanges each daemon&rsquo;s service key for a <code>service:&lt;name&gt;</code> token &mdash; so routd, runed, webd, and proxyd all carry an identity authd can verify. Key rotation keeps one active key (enforced by a partial-unique index) while still serving recently-retired keys until their window closes; <code>RevokeAllNow</code> is the emergency cut.</p>
+    <p>authd also gives the daemons their identity. At boot, authd creates <code>service:authd</code> for itself. It exchanges the service key of each daemon for a <code>service:&lt;name&gt;</code> token. So routd, runed, webd and proxyd all carry an identity that authd can verify. One key is active at a time: a rotation retires the old key and installs the new key in one guarded batch. authd still serves recently retired keys until their window closes.</p>
 
-    <h2>How it fits</h2>
+    <h2>Backends verify offline with the public keys</h2>
     <div class="callout">
       <pre><code>browser login (GitHub / Google / Discord / Telegram)
-        |  GET /auth/*
-        v
-      authd   snapshot grants  &lt;-- routd (GRANTS_URL, the ACL owner)
-        |     mint ES256 access + refresh token
-        v
+        │  GET /auth/*
+        ▼
+      authd   snapshot grants  ◄── routd (GRANTS_URL, the ACL owner)
+        │     mint ES256 access + refresh token
+        ▼
       user / daemon holds a token
 
       every backend (routd / runed / webd / proxyd / dashd / onbod)
-        |  GET /v1/keys  (public JWKS, fetched once, cached)
-        v
+        │  GET /v1/keys  (public JWKS, fetched once, cached)
+        ▼
       auth.VerifyToken   verifies offline, no call back to authd per request</code></pre>
     </div>
 
-    <p>Inputs: OAuth callbacks on <code>/auth/*</code>; mint and downscope requests on <code>POST /v1/tokens</code>; daemon service-key exchange on <code>POST /v1/service-token</code>; refresh rotation on <code>POST /v1/refresh</code>; the grants ceiling fetched from routd. Outputs: ES256 tokens; the public JWKS at <code>GET /v1/keys</code> that every backend reads to verify offline.</p>
+    <dl>
+      <dt>Inputs</dt>
+      <dd>OAuth callbacks on <code>/auth/*</code>. Requests to create or narrow a token on <code>POST /v1/tokens</code>. Service-key exchange for daemons on <code>POST /v1/service-token</code>. Refresh rotation on <code>POST /v1/refresh</code>. The grants ceiling, fetched from routd.</dd>
+      <dt>Outputs</dt>
+      <dd>ES256 tokens. The public JWKS at <code>GET /v1/keys</code>, which every backend reads to verify offline.</dd>
+      <dt>Dependencies</dt>
+      <dd>Its own tables, which no other daemon reads. routd through <code>GRANTS_URL</code> for the scope ceiling at login. Without it, sessions have an empty scope. authd is <em>not</em> the grants authority: it reads the ceiling and does not set it.</dd>
+    </dl>
 
-    <p>Hard deps: its own tables, which nothing else reaches. Soft dep: routd via <code>GRANTS_URL</code> for the login-time scope ceiling &mdash; unset, sessions come back empty-scope. authd is <em>not</em> the grants authority; it reads the ceiling, it does not set it.</p>
+    <h2>One daemon creates tokens, and every backend verifies them</h2>
+    <p>The split is deliberate. Creation is central, with one key in one daemon. Verification is distributed, in every backend, with no round trip. A request with a token never calls authd, because the backend already has the JWKS and checks the signature locally. If authd is down for a moment, existing tokens still verify. Only new logins and refreshes wait.</p>
 
-    <h2>Verify offline, mint in one place</h2>
-    <p>The split is deliberate: minting is centralized (one key, one daemon), verification is distributed (every backend, no round-trip). A request carrying a token never calls back to authd &mdash; the backend already has the JWKS and checks the signature locally. authd can be momentarily down and existing tokens still verify; only new logins and refreshes block.</p>
-
-    <h2>Standalone usage</h2>
-    <p>authd is the most standalone of the split daemons &mdash; it owns its tables and its signing key, and it needs no other daemon to mint and verify tokens. The one soft tie is <code>GRANTS_URL</code>: without routd, it still issues tokens, but their scope ceiling is empty.</p>
+    <h2>authd runs alone</h2>
+    <p>authd is the most independent of the split daemons. It owns its tables and its signing key, and it needs no other daemon to create and verify tokens. Its one soft link is <code>GRANTS_URL</code>: without routd, authd still issues tokens, but their scope ceiling is empty.</p>
 
     <pre><code>cd /srv/data/myinstance
 export DATA_DIR=/srv/data/myinstance
 export DYNAMODB_URL=https://extenddb:18443       # the instance's store server
-export AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=... AWS_REGION=us-east-1
+export AWS_ACCESS_KEY_ID=&lt;key id&gt; AWS_SECRET_ACCESS_KEY=&lt;secret&gt; AWS_REGION=us-east-1
 export LISTEN_ADDR=:8080
 export AUTHD_SERVICE_KEY=$(grep ^AUTHD_SERVICE_KEY .env | cut -d= -f2)
-export AUTHD_SERVICE_KEYS='routd=...,runed=...,webd=...,proxyd=...'
+export AUTHD_SERVICE_KEYS='routd=&lt;key&gt;,runed=&lt;key&gt;,webd=&lt;key&gt;,proxyd=&lt;key&gt;'
 export GRANTS_URL=http://routd:8080
 # OAuth provider config, mount /auth/* only when present:
-export GITHUB_CLIENT_ID=... GITHUB_CLIENT_SECRET=...
+export GITHUB_CLIENT_ID=&lt;id&gt; GITHUB_CLIENT_SECRET=&lt;secret&gt;
 export AUTH_BASE_URL=https://example.com
 ./authd</code></pre>
 
-    <p>The <code>/auth/*</code> routes mount only when provider config is present. <code>GET /health</code> returns 200 once the signer is live with at least one serving key.</p>
+    <p>The <code>/auth/*</code> routes mount only when a provider configuration is present. <code>GET /health</code> returns 200 when the signer is live with at least one serving key.</p>
 
-    <h2>Looking inside: keys and sessions</h2>
-    <p>Two questions come up the moment something goes wrong, and for a long time neither had an answer short of opening the database by hand: <em>which key is signing right now</em>, and <em>who is logged in</em>.</p>
+    <h2>Two endpoints show the keys and the sessions</h2>
+    <p>Two questions come up as soon as something fails: <em>which key signs now</em>, and <em>who is logged in</em>. authd answers both, read-only, and ends a session on request:</p>
 
-    <p>authd answers both, read-only, and ends a session on request:</p>
+    <dl>
+      <dt><code>GET /v1/signing_keys</code></dt>
+      <dd>The history of each key, not the key. It shows the id, the creation time, whether the key signs now, and for a retired key, when its signed tokens stop being accepted. <code>/v1/keys</code>, the JWK Set, holds only what a verifier needs and none of this. No query and no response names the private half, so no caller and no argument can reach it.</dd>
+      <dt><code>GET /v1/sessions</code></dt>
+      <dd>One row per login: who, what they can reach, and when it started. The row also shows when and how often it renewed, and whether it is active, revoked or expired. authd stores only a hash of a refresh token, never the token, so there is no token to withhold.</dd>
+      <dt><code>DELETE /v1/sessions/{family_id}</code></dt>
+      <dd>Ends one login. Use it during an incident, when a session must end and its holder cannot or does not end it. <code>/auth/logout</code> covers the case where the holder ends it. authd marks the row as ended and does not delete it, because that mark catches a stolen token when someone presents it again.</dd>
+    </dl>
 
+    <div class="callout"><strong>An ended session stops renewing, not the current token.</strong> The browser cannot get a new token and goes back to the login screen. A page that is already open keeps working for up to fifteen minutes, the lifetime of one token, and then stops. Short lifetimes replace a revocation list that every backend would have to check.</div>
+
+    <p>Reading the list and ending a session are separate permissions. So a dashboard that shows who is logged in cannot log anyone out because of that. No person can hold either permission. They are <code>resource:verb</code> permissions, and the permissions of a person are folder paths, so even the all-folders <code>**</code> does not match them. The only holder is the dashboard daemon, and its page is limited to operators, so two different mechanisms enforce the rule.</p>
+
+    <p>That page is <code>/dash/authd/</code>, described in <a href="dashd.html">components/dashd</a>. It shows both tables and puts a sign-out button on each live login.</p>
+
+    <p>No HTTP endpoint, CLI command or button signs everyone out at once. That would mean retiring the active signing key. The code has a <code>RevokeAllNow</code> function for this, and no production code calls it.</p>
+
+    <h2>authd does not authorize</h2>
+    <p>authd creates and verifies tokens, runs the OAuth flow and rotates keys. It never decides whether a caller can touch a particular folder. routd makes that decision, every time.</p>
+
+    <h2>Six pages cover the details</h2>
     <ul>
-      <li><code>GET /v1/signing_keys</code> &mdash; the key&rsquo;s life story, not the key. Its id, when it was created, whether it is the one signing now, and &mdash; for a key that has been rotated out &mdash; when the passes it already signed stop being accepted. <code>/v1/keys</code>, the JWK Set, deliberately carries none of this: it holds what a verifier needs and nothing more. The private half is named in no query and no response, so no caller and no argument can reach it.</li>
-      <li><code>GET /v1/sessions</code> &mdash; one row per login. Who, what they can reach, when it started, when it last renewed itself, how many times, and whether it is active, revoked or expired. There is no token to withhold: authd stores only a hash of a refresh token, never the token.</li>
-      <li><code>DELETE /v1/sessions/{family_id}</code> &mdash; end one login. This is the incident-response verb, for when a session has to die and the person holding it cannot or will not do it; <code>/auth/logout</code> already covered the case where they do it themselves. The row is tombstoned rather than deleted, because the tombstone is the evidence that catches a stolen token being replayed.</li>
+      <li><a href="../concepts/auth.html">concepts/auth</a>: the authentication model, with the providers, the tokens and the JWKS verify path.</li>
+      <li><a href="../concepts/scopes.html">concepts/scopes</a>: what a scope is and how the grants ceiling limits a token.</li>
+      <li><a href="../reference/env.html#split">reference/env: split daemons</a>: <code>AUTHD_URL</code>, <code>AUTHD_SERVICE_KEY</code>, <code>AUTHD_SERVICE_KEYS</code>, <code>GRANTS_URL</code> and the other wiring variables.</li>
+      <li><a href="routd.html">components/routd</a>: the authorization authority that authd defers to.</li>
+      <li><a href="dashd.html">components/dashd</a>: <code>/dash/authd/</code>, the operator page that reads the key and session endpoints above.</li>
+      <li><a href="https://github.com/kronael/arizuko/blob/main/authd/README.md">[authd/README.md]</a>: the endpoints that create tokens, key rotation and the file map.</li>
     </ul>
-
-    <div class="callout"><strong>Note:</strong> ending a session stops the <em>renewal</em>, not the current pass. The browser cannot get a new one and drops back to the login screen, but a page already open keeps working for up to fifteen minutes &mdash; the lifetime of one pass &mdash; and then stops. That is the whole revocation model: short lifetimes instead of a revocation list every backend has to consult.</div>
-
-    <p>Reading the list and ending a session are separate permissions, so a dashboard that shows you who is logged in does not thereby gain the ability to log them out. Neither permission is one a person can hold: they are <code>resource:verb</code> permissions, and a human&rsquo;s permissions are folder paths &mdash; even the all-folders <code>**</code> does not match one. The only holder is the dashboard daemon, and the page it serves is operator-gated, so this is enforced twice by two different mechanisms.</p>
-
-    <p>That page is <code>/dash/authd/</code> (see <a href="dashd.html">components/dashd</a>). It renders both tables and puts a sign-out button on each live login.</p>
-
-    <p><strong>Signing everyone out at once</strong> is a different operation, and there is no button for it. It means retiring the active signing key, which invalidates every pass in every browser within the hour. arizuko keeps that out-of-band &mdash; you do it by restarting authd with a fresh key &mdash; so a whole-fleet logout cannot happen on a mis-click.</p>
-
-    <h2>What authd does not do</h2>
-    <p>authd does not authorize. It mints and verifies, runs the OAuth dance, and rotates keys &mdash; but it never decides whether a caller may touch a particular folder. That decision is routd&rsquo;s, every time.</p>
-
-    <h2>Go deeper</h2>
-    <ul>
-      <li><a href="../concepts/auth.html">concepts/auth</a> &mdash; the authentication model: providers, tokens, the JWKS verify path.</li>
-      <li><a href="../concepts/scopes.html">concepts/scopes</a> &mdash; what a scope is and how the grants ceiling bounds a token.</li>
-      <li><a href="../reference/env.html#split">reference/env &mdash; split daemons</a> &mdash; <code>AUTHD_URL</code>, <code>AUTHD_SERVICE_KEY(S)</code>, <code>GRANTS_URL</code> and the rest of the wiring.</li>
-      <li><a href="routd.html">components/routd</a> &mdash; the authorization authority authd defers to.</li>
-      <li><a href="dashd.html">components/dashd</a> &mdash; <code>/dash/authd/</code>, the operator page that reads the key and session surfaces above.</li>
-      <li><code>authd/README.md</code> &mdash; mint surface, key rotation, file map.</li>
-      <li><code>specs/5/1</code> &mdash; the auth plane split.</li>
-    </ul>
-
 
       <nav class="docs-pager" aria-label="Pager">
         <a rel="prev" href="index.html">&larr; components</a>
@@ -153,7 +157,7 @@ export AUTH_BASE_URL=https://example.com
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/components/authd.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-16">2026-10-16</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-20">2026-10-20</time>
       </div>
     </main>
 
