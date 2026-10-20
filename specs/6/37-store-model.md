@@ -1,5 +1,6 @@
 ---
-status: shipped
+status: defected
+defects: [L483]
 depends:
   [
     22-proxyd-cut,

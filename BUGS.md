@@ -112,10 +112,6 @@ line; none can be answered from the code.
 
 **A contract or design decision, measured since.**
 
-- `L390` — `specs/5/12` promises a 4 s doubling retry backoff and the code has no
-  wait at all, re-feeding on a 2 s tick. Which of the two is the design is yours;
-  three attempts in six seconds against a failing turn is not cosmetic.
-
 - `L404` — a BYOC row is dropped under a gateway and `6/23` says it is translated. The
   silence is fixed; whether a user's own credential should fund a gateway key is yours.
 - `L398` — the suite's slowness is MEASURED and it is not a slow test: 783 routd tests,
@@ -217,6 +213,30 @@ reads those words now.
 - `M4` — `vited` in production: the crash class is fixed and the cost premise was
   REFUTED, so what is left is posture.
 
+**Found by the docs fold (2026-10-20); each re-measured in the code.**
+
+- `L493` — a deny row never subtracts from `/priv`: proxyd gates it on the
+  allow-only listing. Same class as `F5`, on a path that returns file bytes.
+- `L495` — `forward` checks the target chat and never the source message; on
+  Telegram the source chat rides inside the argument.
+- `L492` — dashd's re-pair page presents `service:dashd` and whapd admits only
+  `service:routd`: let whapd admit dashd on `/v1/pair/*`, or route through routd.
+- `L497` — a group's `open` flag has no reader: wire it into the observed
+  window or delete the flag, the tool and the form.
+- `L499` — the claude harness replaces Claude Code's system prompt whenever a
+  persona or output style exists: intended, or pass `append`?
+- `L490` — only GitHub's surrogate OAuth client reaches routd and dashd; the
+  other providers' keys in `.env` are dropped.
+- `L483` — the DynamoDB driver sends no `ConsistentRead`, which `6/37` and
+  `6/42` assume. One line; live impact nil on PostgreSQL.
+- `L484`, `L485`, `L486`, `L494`, `L496` — small fixes, each bounded in its
+  entry: the TS adapters' stale `/health` code, the RFC 3339 one-shot dashd
+  refuses, linkd's stubbed last-inbound, onbod's route writes on any allow row,
+  extra mounts with no blocklist.
+- `L488` — `mcpfw/Dockerfile` cannot build (measured); one line.
+- `L487`, `L489`, `L491`, `L498`, `L500`, `L501`, `L502` — doc and
+  comment drift against the code, each naming the sentence to change.
+
 **Found while folding the lowercase `bugs.md` into this file (2026-10-20).**
 
 - `L480` — slakd sends a whole reply as one `chat.postMessage`; `chanlib.Chunk`
@@ -301,9 +321,444 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
 - **`F77` — the skill-guard's per-line scan is evadable by splitting a payload.** The
   demonstrated case is fixed; the class is out of scope by `5/23`, which says the guard
   raises the cost of one move and is not a containment boundary.
+- **`L390` — a failed turn's retry DOES wait: 4 s, doubling to a 60 s cap.** Filed
+  as "`specs/5/12` promises a backoff and the code has none". `runTurn` returns
+  `busy=true` for a retry (`routd/dispatch.go:481`), and the caller's busy branch
+  (`:138-141`) calls `noteBusy` for every busy return, retry included, so the
+  spec is right. Measured 2026-10-20: after the first failed attempt
+  `TestTurnRetry_SchedulesRetryOnError` finds `busyWait` holding `delay=4s`.
 - **`L15` — the 2026-08-11 dead-code sweep's rejected hits.** `deadcode ./...` gave 149
   hits, 56 under `-test`; nine survived verification and were filed separately. Kept so
   the next sweep does not re-report the same ~135.
+
+## L483 — the DynamoDB driver sends no `ConsistentRead` on `Query`, and `6/37` and `6/42` say it does (2026-10-20, open)
+
+FOUND 2026-10-20 by the docs fold. Measured at `62d7233a`:
+`objstore/dynstore/query.go:111-135` builds the whole `dynamodb.QueryInput`
+(table, key condition, filter, projection, limit) and sets neither
+`ConsistentRead` nor `IndexName`; `git grep -n -i ConsistentRead -- '*.go'`
+finds no production hit. The service reads eventually consistent by default.
+`specs/6/42-dynamo-over-postgres.md:246` ("The driver sends `ConsistentRead:
+true` on every `Query`") and `:428`, and `specs/6/37-store-model.md:402` ("the
+authorization read stays a strongly consistent read of the base table"), say
+the opposite. `objstore.Increment` re-reads its counter to tell a lost race
+from a refusal, and revocation is an authorization read.
+
+Live impact today is nil: the deployed server (ExtendDB over PostgreSQL)
+answers committed state either way (`6/42:246`). The gap shows on Amazon's own
+service, or on any endpoint behind `ARIZUKO_TEST_DYNAMO_ENDPOINT` that is
+eventual.
+
+The second half of the filed premise is REFUTED. `6/42:435` says
+`ClientRequestToken` is fresh per call and reused across retries.
+`dynstore/batch.go:159` sets none, but the SDK does:
+`aws-sdk-go-v2/service/dynamodb@v1.68.0/api_op_TransactWriteItems.go:321-340`
+fills a UUID when the field is nil, at the Initialize step, so the SDK's own
+retries reuse it, and `dynstore.go:77-86` leaves the provider alone. Not a
+defect.
+
+**Fix:** `ConsistentRead: aws.Bool(true)` on the input at `query.go:111`, with
+a test that captures the `QueryInput`. Until then `6/37` and `6/42` carry
+`status: defected` and `defects: [L483]`. No test yet — this pass records only.
+
+- **Status:** open (record only).
+
+## L484 — whapd and twitd answer `/health` 503 when inbound is five minutes old, and chanlib answers 200 (2026-10-20, open)
+
+FOUND 2026-10-20 by the docs fold. `whapd/src/server.ts:210-222` and
+`twitd/src/server.ts:99-110` set `status = 'stale'; code = 503` once
+`last > 0 && staleSec > 5 * 60`. `chanlib/handler.go:604-607` states the rule
+the Go adapters follow: stale inbound is informational, `/health` stays 200
+with `status=stale`, and "a quiet workspace must not 503". `handleHealth`
+(`chanlib/handler.go:610-640`) does that. The comment at `whapd/src/server.ts:99`
+says the 5-minute threshold "matches the chanlib Go default"; the threshold
+matches and the verdict does not.
+
+`chanreg/health.go:38-49` (`healthPing`) reads the body and counts `stale` as
+alive, so routd never deregisters a quiet WhatsApp or X adapter. A reader of
+the status code (a `curl -f`, an external monitor) sees the same quiet adapter
+as down.
+
+**Fix:** answer 200 for `stale` in both servers and keep 503 for
+`disconnected`. A Go producer and a TS consumer share one contract test that
+reads both sources (`CLAUDE.md` § Conventions); this pair has none. No test
+yet — this pass records only.
+
+- **Status:** open (record only).
+
+## L485 — routd accepts an RFC 3339 one-shot schedule and dashd refuses it (2026-10-20, open)
+
+FOUND 2026-10-20 by the docs fold. `routd/scheduled_tasks_resource.go:222-233`
+(`parseTaskSchedule`) reads the `cron` argument as an RFC 3339 timestamp
+first and, if it parses, stores a one-shot with an empty cron. dashd's create
+path (`dashd/tasks_admin.go:244`) calls `taskNextRun` (`:22`), which hands the
+value to `core.NextRun` (`core/cron.go:45`); that reads a millisecond count or
+a cron expression, so an RFC 3339 string fails and the handler answers 400
+"invalid cron expression" (`:246-248`). The same task is creatable by the agent
+and not by the operator on the page that lists it.
+
+**Fix:** one parser for both. dashd calls the function routd uses, which
+means moving `parseTaskSchedule` to `core` beside `NextRun`. No test yet —
+this pass records only.
+
+- **Status:** open (record only).
+
+## L486 — linkd reports "now" as its last inbound, and the comment says it has no inbound (2026-10-20, open)
+
+FOUND 2026-10-20 by the docs fold. `linkd/server.go:23-26` sets
+`lastInbound := func() int64 { return time.Now().Unix() }` under the comment
+"linkd is a stub adapter with no inbound plumbing". It has inbound: the poll
+loop delivers each new comment with `router.SendMessage` at
+`linkd/client.go:499`. `linkd/README.md:40-42` documents the stub value as the
+design ("`/health` never turns `stale`"). So the comment is false, the README
+states the consequence, and a poll loop that dies while the OAuth token stays
+valid never shows in `/health`'s `last_inbound_at` or `stale_seconds`. Stale is
+informational in chanlib (200), so the cost is the missing diagnostic and no
+outage.
+
+**Fix:** store the time of the last delivery at `client.go:499` and return it
+from `lastInbound`; drop the comment and the README sentence. No test yet —
+this pass records only.
+
+- **Status:** open (record only).
+
+## L487 — spec `11/15` and the CHANGELOG announce an `admin.pair` audit row, and the code writes a different one (2026-10-20, open)
+
+FOUND 2026-10-20 by the docs fold. `git grep -n 'admin\.pair'` finds only
+`CHANGELOG.md:3670` and `specs/11/15-whapd-self-rebind.md:185`. The spec says
+every `/v1/pair/start` writes a `messages` row (`sender=whapd:pair`,
+`verb=admin.pair`, `chat_jid=arizuko:admin/whapd`). `dashd/channels.go:217-228`
+(`auditPairStart`) writes an `audit_log` event instead, `Action:
+"channel.pair.start"`; its own comment (`:213-216`) says it replaced a
+synthetic `messages` insert nobody could read. The audit exists under another
+name and in another table, and a reader who greps the spec's verb finds
+nothing. `specs/11/15` is `status: shipped` and has not been changed to match.
+
+**Fix:** rewrite the spec's § Audit to `channel.pair.start` in `audit_log`.
+The CHANGELOG line is history and stays. No test — docs.
+
+- **Status:** open (record only).
+
+## L488 — `mcpfw/Dockerfile` pins `golang:1.25-alpine` and the module needs go 1.27, so the image cannot build (2026-10-20, open)
+
+FOUND 2026-10-20 by the docs fold; MEASURED at `62d7233a`. The build context
+is the repository root and uses the root module: the Dockerfile copies
+`go.mod go.sum` and builds `./mcpfw/cmd/mcpfw`, and `mcpfw/` has no `go.mod` of
+its own. `go.mod` says `go 1.27` and `toolchain go1.27rc2`. Every other
+root-module image uses `golang:1.27rc2-alpine` (`Dockerfile:4`,
+`anteval/Dockerfile:3`, `egress/Dockerfile:1`, `linkd/Dockerfile:3`,
+`ttsd/Dockerfile:1`). Command and result:
+
+```
+$ sudo docker build --no-cache -f mcpfw/Dockerfile -t mcpfw-probe-g3 .
+Step 4/9 : RUN go mod download
+go: go.mod requires go >= 1.27 (running go 1.25.14; GOTOOLCHAIN=local)
+The command '/bin/sh -c go mod download' returned a non-zero code: 1
+```
+
+`template/web/pub/arizuko/concepts/ant.html:159` lists `mcpfw` as one of three
+components shipped for use alone; the image for it does not build. Nothing in `Makefile` or
+`.github` builds it, which is why nothing failed.
+
+**Fix:** `FROM golang:1.27rc2-alpine`. Add the image to the build gate so the
+next toolchain bump cannot skip it. No test — ops.
+
+- **Status:** open (record only).
+
+## L489 — the comment above `channelAuth` says a channel name is pinned to an `(originIP, principal)` pair, and the IP is never compared (2026-10-20, open)
+
+FOUND 2026-10-20 by the docs fold. `routd/channels.go:41-43` says the origin pin
+"locks a name to its FIRST (originIP, principal) pair". `chanreg/chanreg.go:35`
+says the opposite: "OriginIP is RECORDED, never compared", because an
+adapter's address is its container IP and changes on every legitimate restart.
+The comparison at `chanreg/chanreg.go:137-141` tests the principal hash and
+`old.OriginIP != ""` only as a switch for whether to check. A reader of routd's
+comment believes a second container cannot take a name from a different
+address; it can, if it holds the same principal.
+
+**Fix:** state "locks a name to the first principal that registered it; the
+origin IP is recorded for the audit and never compared". No test — docs.
+
+- **Status:** open (record only).
+
+## L490 — only the GitHub surrogate OAuth client reaches routd and dashd, so every other provider's `SURROGATE_<NAME>_CLIENT_*` in `.env` is dropped (2026-10-20, open)
+
+FOUND 2026-10-20 by the docs fold. `auth/surrogate/engine.go:70-75` reads
+`SURROGATE_<NAME>_CLIENT_ID` and `_CLIENT_SECRET` for each provider in the
+registry, and `EXTENDING.md:719` tells the operator to set them in `.env`.
+`compose/compose.go:96` states "Unlisted keys never reach the daemon", and the
+`routd` list (`:146`) and the `dashd` list (`:207`) name only
+`SURROGATE_GITHUB_CLIENT_ID` and `SURROGATE_GITHUB_CLIENT_SECRET`. The embedded
+`google` provider (`auth/surrogate/providers/google.toml`) and any provider an
+operator drops into `<datadir>/surrogate/` therefore load with no credentials;
+the engine's comment calls that "inert, not fatal", so the Connect flow errors
+at the first use and nothing at boot says why. Same class as `L422` (a key the
+code reads and generation never delivers); `L422`'s thirteen rows do not
+include these.
+
+**Fix:** a provider's key pair is dynamic data (`CLAUDE.md` § Conventions: what
+a package can install belongs in a daemon's DB, not a generated env var). The
+small step is to list the `google` pair beside github's; the real one is the
+owner's call.
+
+- **Status:** open — needs a decision. **Options:** (a) list every embedded
+  provider's pair in both lists and tell operators a datadir provider needs an
+  `.env` and a restart of compose generation; (b) move provider client
+  credentials into the folder-secret store `dashd` already writes. **Default if
+  nothing is decided:** only GitHub works from `.env`; the others stay inert.
+
+## L491 — `ant/examples/slack-team/PRODUCT.md` lists a skill `resolve` that no longer exists (2026-10-20, open)
+
+FOUND 2026-10-20 by the docs fold. `ant/examples/slack-team/PRODUCT.md:4`
+lists `"resolve"` among its skills. `ls ant/skills` has no `resolve`; every
+other name on that line (`diary`, `recall-memories`, `users`, `issues`, `web`,
+`dispatch`, `find`, `oracle`) has a directory. Migration `054` seeded
+`/resolve`; the shipped skill since is `dispatch`. The manifest's `skills` list
+is only printed (`cmd/arizuko/main.go:364-365`), so nothing fails and the
+product advertises a skill it does not ship.
+
+**Fix:** drop `"resolve"` from the line. No test — config.
+
+- **Status:** open (record only).
+
+## L492 — dashd's WhatsApp re-pair page presents `service:dashd` and whapd admits only `service:routd`, so the page cannot pair (2026-10-20, open)
+
+FOUND 2026-10-20 by the docs fold. `dashd/channels.go:150` posts to whapd
+`/v1/pair/start` through `bearerCall`, which presents dashd's own service token
+(`dashd/engagement_page.go:202-207`; sub `service:dashd`). The comment at
+`dashd/channels.go:16-18` says "whapd verifies it". `whapd/src/server.ts:233-238`
+gates every route after `/health` with `verifyRoutd`, and
+`whapd/src/auth.ts:130` accepts `payload.sub === 'service:routd'` only
+(`CallerRoutd`, `:19`: "routd is the only principal that drives an adapter").
+With a verifier wired (`AUTHD_URL` set), every pair start from the page
+answers 401 "invalid service token" and the page shows "pair-start failed". Relevant to `L63` (krons whapd needs a re-pair): the page built for a re-pair
+cannot perform one.
+
+**Fix:** whapd admits `service:dashd` on `/v1/pair/*` only, or the page goes
+through routd. A change to which principal may drive an adapter is an auth
+change. No test yet — this pass records only.
+
+- **Status:** open — needs sign-off. **Options:** (a) whapd accepts
+  `service:dashd` on `/v1/pair/start` and `/v1/pair/status`; (b) dashd calls a
+  routd verb that forwards. **Default if nothing is decided:** the page stays
+  dead and `whapd`'s own `--pair` start-up flag is the only path.
+
+## L493 — a deny row never subtracts from `/priv`, because proxyd gates it on the allow-only `UserScopes` listing (2026-10-20, open — needs sign-off)
+
+FOUND 2026-10-20 by the docs fold. `proxyd/main.go:550-566` serves `/priv/*`
+after `auth.MatchSlot(gs, slotPath)`, where `gs` is the `X-User-Groups` header
+that `groupsForSub` (`proxyd/main.go:975-987`) fills from `auth.UserScopes`.
+`UserScopes` skips every `Effect == "deny"` row (`auth/authorize.go:251`), and
+its own doc comment says it "can never be the decision: a `[]string` carries no
+action and cannot represent a deny row, so anything gating access MUST call
+Authorize". `/priv` is a file-serving gate and calls no `Authorize`. A deny row
+on a private slot therefore leaves the files readable by anyone holding an allow
+row that covers them. Same class as `F5` (the dashd read gate), on a path that
+returns file bytes. `F5` records that krons has a deny row.
+
+**Fix:** decide whether a deny row applies to `/priv`; if yes, the gate calls
+`auth.Authorize` per slot with the action `5/32` names for a read.
+
+- **Status:** open — needs sign-off (auth semantics, `5/32`). **Options:** (a)
+  `/priv` calls `Authorize(…, "interact", slotFolder, nil)` per request; (b)
+  document that a deny row hides a folder from the dashboard and not from its
+  private files. **Default if nothing is decided:** unchanged.
+
+## L494 — onbod's route add and delete accept any `allow` row on the target folder, while its world picker needs `admin` (2026-10-20, open)
+
+FOUND 2026-10-20 by the docs fold. The picker lists `adminFolders`
+(`onbod/main.go:961`), which asks `auth.Authorize(…, "admin", f, nil)` per
+folder. The write actions use `userFolders` (`onbod/main.go:1428-1452`): every
+`allow` row's scope for the sub and its ancestors, whatever the action, with no
+deny handling, then `auth.MatchGroups(folders, route.Target)` at `:1486`
+(delete) and `:1587` (add). A user with only an `interact` grant on `acme/**`
+can delete any route that targets a folder under it; an add also needs
+`userOwnsMatch` for a non-operator (`:1591`), a delete does not. The page shows
+the narrower set and enforces the wider one. A second hand-written evaluator,
+which `CLAUDE.md` § Auth forbids ("Never a second hand-rolled check").
+
+**Fix:** both write handlers call `auth.Authorize(…, "admin", target, nil)`.
+No test yet — this pass records only.
+
+- **Status:** open (record only).
+
+## L495 — `forward` authorizes the target chat and never the source message, so an agent can relay another folder's message (2026-10-20, open — needs sign-off)
+
+FOUND 2026-10-20 by the docs fold. `ipc/ipc.go:1480-1491` registers `forward`
+with `args: sourceMsgId, targetJid, comment` and `jidArg: "targetJid"`; the gate
+at `:1421-1431` checks that one JID. The source is never checked. On Telegram
+the source chat rides inside the argument: `teled/bot.go:599-617` splits
+`"<sourceChatJid>|<messageId>"` and calls `NewForward(toID, fromID, msgID)`, so
+any chat the bot can read is a source. An agent in folder A can forward a
+message from a chat that routes to folder B into a chat it may send to, and
+read it there. `CLAUDE.md` says a handler that resolves a `jid` param MUST bind
+it to the caller's folder; `quote` and `repost` bind `chatJid`, so only `forward`
+has a parameter that names a chat and is not bound. Whether the other adapters
+accept a foreign source was not measured.
+
+**Fix:** authorize the chat that `sourceMsgId` names (parse it in `ipc`, or have
+the adapters reject a source that is not the target's chat). No test yet — this
+pass records only.
+
+- **Status:** open — needs sign-off (cross-folder access; fix touches the
+  agent-facing contract of `forward`). **Default if nothing is decided:**
+  unchanged.
+
+## L496 — extra mounts pass no blocklist and no symlink resolution, and `SECURITY.md` says they do (2026-10-20, open)
+
+FOUND 2026-10-20 by the docs fold. `runed/mounts.go:139` builds
+`mountsec.Allowlist{NonMainReadOnly: true}` with allowed roots and no
+`BlockedPatterns`; `git grep -n BlockedPatterns` finds a non-test use only in
+`mountsec/mountsec.go:106`, which tests the field the caller left empty.
+`validateOne` (`mountsec/mountsec.go:97-136`) cleans the path and tests prefix
+containment; it never calls `filepath.EvalSymlinks`. The default blocklist
+(`.ssh`, `.aws`, `.env`, `id_rsa`, …) and the symlink resolution live in
+`ValidateFilePath` (`:45-62`), which only the MCP file tools call
+(`ipc/ipc.go:1309,1383`). `SECURITY.md:115` lists "Additional mounts:
+`ValidateAdditionalMounts` + `ValidateFilePath` blocklist/symlink guard".
+`runed/README.md:314` states the split correctly ("`ValidateFilePath` is the
+other half. It guards a path that an MCP tool receives"). An operator who allows
+`/home/op` therefore mounts `/home/op/.ssh` into a guest, and a symlink under
+the root that points out of it is followed. The mount is operator configured, so
+this is hardening and no escape by the agent.
+
+**Fix:** pass `defaultBlocked` as `BlockedPatterns` in `runed/mounts.go` and
+resolve the host path with `EvalSymlinks` before the root test; or correct
+`SECURITY.md:115`. No test yet — this pass records only.
+
+- **Status:** open (record only).
+
+## L497 — a group's `open` flag is stored and shown, and nothing reads it (2026-10-20, open)
+
+FOUND 2026-10-20 by the docs fold. `open` is set by the agent tool
+`set_group_open` (`ipc/ipc.go:1809-1835`) and by the dashd form
+(`dashd/groups_admin.go:344-351`), and `SCREENS.md:623` and
+`ant/skills/self/mcp.md:73` tell the operator and the agent that it makes
+messages visible to sibling groups. The readers are `Store.IsGroupOpen`
+(`store/groups.go:391`) and `Store.SiblingFolders` (`store/groups.go:506`,
+which skips closed siblings). `git grep -n 'IsGroupOpen(\|SiblingFolders('`
+finds no caller outside `store/*_test.go`, and the only other read is the
+dashd display (`dashd/groups_admin.go:260`). `ObservedSince`
+(`routd/prompt_db.go:82`) does not consult `open`. The flag changes no turn.
+`specs/9/7-configurable-autocalls.md:262` plans `SiblingFolders` as a consumer;
+`specs/5/F-topic-lineage.md:90` describes the flag as exposing observed rows to
+open siblings.
+
+**Fix:** either wire the flag into the ambient query, which is a visibility
+change for every sibling set, or remove the setter, the tool and the form.
+
+- **Status:** open — needs sign-off. **Options:** (a) wire `open` into the
+  observed-window read so a closed group's rows stay out of its siblings' window;
+  (b) delete `open`, `set_group_open` and the form. **Default if nothing is
+  decided:** the flag stays inert.
+
+## L498 — `specs/5/19` describes an `async` hold and a waiter that flips its row at `HITL_WAIT`, and neither exists (2026-10-20, open)
+
+FOUND 2026-10-20 by the docs fold. § "Blocking is the default"
+(`specs/5/19-hitl-firewall.md:239-267`) has a table of two hold effects, one of
+them `async` ("returns at once … the agent, re-issuing"), and says a waiter
+that reaches `HITL_WAIT` "flips its row to `async` before giving up" so that
+`resolveHoldTx` writes the re-issue trigger for a late approval. The code has
+one effect: `auth.EffectHoldBlock`, and the writer refuses every spelling but
+`allow` and `deny` (`auth/checkhold_test.go:240-243`). `awaitVerdict`
+(`routd/pending_actions.go:444-483`) expires the row at the deadline
+(`expirePendingAction`, `:380`) and answers `NOT RUN … nobody answered in time`;
+the row is closed as `expired`. The function the spec names is
+`resolveHoldInto` (`routd/pending_actions.go:337`); `resolveHoldTx` survives in
+`dashd/approvals_page.go:20`, `dashd/README.md:125` and `specs/5/19:223,237,256`.
+`specs/5/19` is `status: shipped`.
+
+**Fix:** rewrite the section to the one blocking effect and the expiry; per
+`specs/CLAUDE.md` the spec carries `status: defected` until then. No test —
+docs.
+
+- **Status:** open (record only).
+
+## L499 — the claude harness replaces Claude Code's system prompt whenever a persona or output style exists, and three comments say the persona appends (2026-10-20, open — needs a decision)
+
+FOUND 2026-10-20 by the docs fold. `buildSystemPrompt`
+(`ant/src/index.ts:48-68`) joins `systemMd`, the manual, `persona` and the
+output style into one string, or returns `undefined` when all are empty.
+`ant/src/claude.ts:495` passes `turn.systemPrompt ?? { type: 'preset',
+preset: 'claude_code' }`, so any non-empty string goes to the SDK as a custom
+prompt in place of the `claude_code` preset. The comments say otherwise:
+`ant/src/index.ts:54` ("PERSONA.md appends to it"), `ant/src/index.test.ts:189`
+("SYSTEM.md replaces the base prompt and PERSONA.md appends to it"). For
+claude, a group with only a `PERSONA.md`, or any channel with an output style,
+loses the preset's tool guidance. Whether that loss is intended was not
+measured; `claude.ts:494` reads as intended ("the chassis renders the text
+layers").
+
+**Fix:** if replacement is intended, correct the three comments; if not, pass
+`{ type: 'preset', preset: 'claude_code', append: <string> }` when only the
+persona and style are present. No test yet — this pass records only.
+
+- **Status:** open — needs a decision. **Options:** as above. **Default if
+  nothing is decided:** replacement, as the code does.
+
+## L500 — the `diary` skill tells the agent a Stop hook nudges it, and ant registers no Stop hook (2026-10-20, open)
+
+FOUND 2026-10-20 by the docs fold. `ant/skills/diary/SKILL.md:5` ("Stop-hook
+nudge") and `:41` ("the Stop hook nudges; don't wait to be asked") promise a
+hook. `ant/src/claude.ts:522-525` registers `PreCompact` plus the rows of
+`policy.ts`, and `ant/src/policy.ts:27` types the events as `PreToolUse |
+PostToolUse`; `grep -n Stop ant/src/*.ts` finds only the `lastStop` variable in `pi.ts` outside tests. The
+agent reads the skill, waits for a nudge that never comes, and writes no diary.
+
+**Fix:** drop the claim from the skill, or add the hook. A change under
+`ant/skills/` reaches agents only with a `MIGRATION_VERSION` bump. No test —
+docs.
+
+- **Status:** open (record only).
+
+## L501 — eight code comments describe things that no longer exist (2026-10-20, open)
+
+FOUND 2026-10-20 by the docs fold. Each was read at `62d7233a`.
+
+- `runed/manager.go:316`, `runed/hold.go:84`, `kernel/guest-init/main.go:685`
+  cite `dockerRuntime`; `runed/docker.go` is gone and no `dockerRuntime` type
+  exists. `runed.Runtime` has one production type, the VM one.
+- `onbod/main.go:835-838` ("messages.db in monolith, routd.db in the split …
+  INSERT OR IGNORE + RowsAffected") describes SQL; `writeWorld` is a guarded
+  batch (`:885`).
+- `groupfolder/folder.go:25-26` says `store/groups.go` "renders the same rule as
+  a statement", and `store/groups.go:8-9,513` say the containment is `substr`
+  and never `LIKE`. The read is `objstore.PrefixKey` (`:513-516`).
+- `auth/authorize.go:32` names `store.SeedMemberRoleTx`; the function is
+  `store.SeedMemberRole`.
+- `auth/authorize.go:650-655` says the agent socket authorizes the ext scope
+  "not the tool's `mcp:` name". `ipc/ipc.go:1197` authorizes the ext scope at
+  registration and `granted(...)` (`:1087-1097`) authorizes `mcp:<name>` at the
+  call, so a REST connector tool needs both grants.
+- `dashd/approvals_page.go:20` cites `resolveHoldTx`; the function is
+  `resolveHoldInto` (see `L498`).
+- `Makefile:186,192` call the `integration` target "red today — BUGS L349" and
+  cite `L349` for a 124 s kill; `L349` is fixed and pruned (`afac6bfa`).
+- `tests/lab/product-lab.sh:10` says `arizuko create` and `products apply` are
+  "filesystem + SQLite only"; the store is DynamoDB.
+
+**Fix:** one sentence each. No test — docs.
+
+- **Status:** open (record only).
+
+## L502 — `CLAUDE.md` and `specs/CLAUDE.md` say operator REST uses the default `auth.Authorize`, and 21 of 25 resource files set their own gate (2026-10-20, open)
+
+FOUND 2026-10-20 by the docs fold. `CLAUDE.md:102` and `specs/CLAUDE.md:29`:
+"Operator REST uses the default `auth.Authorize` (scope/ACL)". `resreg`
+applies `defaultGate` only when `Resource.Gate` is nil (`resreg/resreg.go:587-591`).
+`for f in $(git grep -l 'resreg.Mount(' -- '*.go'); do grep -c 'Gate =' $f; done`
+gives 21 of 25 files with an assignment: every `authd/*_resource.go`, every
+`onbod/*_resource.go`, `runed/audit_resource.go` and 13 of 15 routd files
+(for example `routd/acl_resource.go:48` `res.Gate = s.aclRESTGate`). Those gates
+check the bearer's scope and folder claim. The four files without one
+(`proxyd/resource.go`, `routd/groups_resource.go`, `routd/secrets_resource.go`,
+`webd/routes_mcp.go`) were not read. The rule that authz is injected per surface
+stands; the sentence about the default describes the exception.
+
+**Fix:** reword both lines to "REST resources inject a gate; the default is
+`auth.Authorize` where none is set". No test — docs.
+
+- **Status:** open (record only).
 
 ## L480 — slakd posts a whole reply as ONE chat.postMessage, so a long reply is cut by Slack (2026-10-20, open)
 
@@ -1080,17 +1535,18 @@ attributes, 0 `<svg`, 120/120 pages link `hub.css`).
   outside the token blocks. no test — the entry is about the test
 - **Status:** open
 
-## L429 — four classes the pages use are defined nowhere, so the elements render unstyled (2026-10-16, open)
+## L429 — three classes the pages use are defined nowhere, so the elements render unstyled (2026-10-16, open)
 
-`class="docs-updated"` on 114 pages, `group-header` on `reference/stats.html`,
-`tbl` on `reference/packages.html` and `docs-main` on `components/gitd.html`
-have no rule in `template/web/pub/arizuko/assets/hub.css`. All four predate the
-conversion (`989c440c`). `docs-updated` is part of the shell in
-`template/web/CLAUDE.md`, so it may be a deliberate unstyled hook; the other
-three read as leftovers.
+`class="docs-updated"` on 119 pages and `tbl` on `reference/packages.html` have
+no rule in `template/web/pub/arizuko/assets/hub.css`, and `chanlib/dash.go:55`
+renders `<div class="crumb">` where `theme/theme.go:109` defines only `.crumbs`.
+All predate the conversion (`989c440c`). `docs-updated` is part of the shell in
+`template/web/CLAUDE.md`, so it may be a deliberate unstyled hook; the other two
+read as leftovers. `group-header` and `docs-main`, named when this was filed,
+no longer occur in any page (re-measured 2026-10-20).
 
 - **Severity:** low
-- **Scope:** `template/web/pub/arizuko/assets/hub.css`, the four pages
+- **Scope:** `template/web/pub/arizuko/assets/hub.css`, `theme/theme.go`, the pages
 - **Fix:** define or drop each; a test that every `class="…"` token resolves to
   a hub.css rule would hold it. no test — docs
 - **Status:** open
@@ -1995,31 +2451,6 @@ and `:8880` stay, and they cost the host nothing.
   and `go test ./...` cannot run outside a container, and the host had
   391 MB free with swap full. A redesign of that reach ships with the test
   suite green, not with a vited fix.
-
-## L390 — `specs/5/12` says a retry waits on a doubling backoff, and no such wait exists (2026-09-29)
-
-`specs/5/12-turn-retry.md:37` says the re-feed happens "on the busy backoff (4s,
-doubling to a 60s cap)".
-
-`routd/dispatch.go:484-492` returns `retry=true` with **no delay and no `noteBusy`
-call** — the batch stays un-advanced and re-feeds on the next poll tick, which
-`routd/loop.go:184-185` defaults to 2s with nothing setting it otherwise. `noteBusy` is
-called from one place, `routd/dispatch.go:141`, which is the STEER path, not the retry
-path.
-
-So a reader who sizes a retry budget from the spec is out by more than an order of
-magnitude, and two operator pages repeated the spec's number until this sweep removed
-it.
-
-- **Severity:** low in behaviour, and it is the spec that is wrong about the code
-- **Scope:** `specs/5/12-turn-retry.md` — and whichever of the two is the intended
-  design
-- **Source:** web-docs sweep, 2026-09-29; the absent call verified at both sites
-- **Status:** open, and it needs a DECISION rather than an edit: either the retry
-  should back off, in which case the code is missing `noteBusy` and this is a defect,
-  or it should re-feed immediately, in which case the spec's sentence goes. A 2s
-  re-feed loop against a failing turn is three attempts in six seconds, so the
-  question is not cosmetic.
 
 ## L379 — anteval's callback sink is unreachable from a guest, so eight of nine cases time out on a working substrate (2026-09-27, open)
 
