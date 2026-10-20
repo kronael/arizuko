@@ -224,8 +224,7 @@ ipc/<folder>/        the turn's MCP socket
 web/pub/ web/priv/   the web trees the per-folder slots project into
 ```
 
-A tar of the directory carries every row, because the store's PostgreSQL data
-sits under `store/`. Business state, such as gates, grants and onboarding, is
+Business state, such as gates, grants and onboarding, is
 rows; infra toggles are env vars.
 
 ## The store server
@@ -371,22 +370,6 @@ instance on this host must set `STORE_HOST_PORT` in its `.env` first** — the
 published port defaults to 18443 and two instances cannot share it. Set the
 key, never edit `template/services/extenddb.yml`: an edited fragment is frozen
 from the catalog and stops taking store changes.
-
-### Backing up the store
-
-Stop the instance, then tar its data dir:
-
-```bash
-sudo systemctl stop arizuko_<name>
-sudo tar -C /srv/data -czf arizuko_<name>-$(date +%F).tar.gz arizuko_<name>
-sudo systemctl start arizuko_<name>
-```
-
-The tar holds the store server's PostgreSQL data under `store/extenddb_db/`,
-its config and TLS key under `store/extenddb/`, the group folders and `.env`.
-A tar of a running instance is not a backup: PostgreSQL writes its files while
-the copy reads them. `arizuko archive export` is the logical export of one
-instance (`cmd/arizuko/README.md`).
 
 ### A shared server for several instances
 
@@ -728,6 +711,96 @@ sudo systemctl restart arizuko_demo               # arizuko run regenerates, sta
 - A maintainer's release runs the five post-deploy gates in
   [`.claude/skills/eval/gates.md`](.claude/skills/eval/gates.md). The last
   gate, `anteval --smoke`, is the only one that proves a live agent answers.
+
+## Backup and restore
+
+A tar of the stopped data directory is the whole instance. `arizuko archive`
+is a logical copy that `archive apply` restores into the same instance or
+into another one.
+
+### A tar of the stopped instance
+
+The tar carries every row, because the store server's PostgreSQL data sits
+under `store/`. Stop the instance first. PostgreSQL writes its files while it
+runs, so a tar of a running instance is not a backup.
+
+```bash
+sudo systemctl stop arizuko_<name>
+sudo tar -C /srv/data -czf arizuko_<name>-$(date +%F).tar.gz arizuko_<name>
+sudo systemctl start arizuko_<name>
+```
+
+The tar holds the PostgreSQL data under `store/extenddb_db/`, the server's
+config and TLS key under `store/extenddb/`, the group folders, `.env` with
+`SECRETS_KEY`, and `images/`. Every rootfs tree in `images/` is about 8.3 GB
+by the Makefile's measure. `--exclude=arizuko_<name>/images` leaves them out;
+a restore then runs `make images` and `make kernel` and repoints `.env`. An
+instance on a shared store server keeps its rows on that server, so its tar
+holds no rows.
+
+To restore, move the current directory aside and unpack the tar in its place:
+
+```bash
+sudo systemctl stop arizuko_<name>
+sudo mv /srv/data/arizuko_<name> /srv/data/arizuko_<name>.before-restore
+sudo tar -C /srv/data -xzf arizuko_<name>-<date>.tar.gz
+sudo systemctl start arizuko_<name>
+```
+
+### Export and apply an archive
+
+`arizuko archive export <name> [file] [--quiesced]` writes one tar:
+
+| Entry                | Holds                                                                             |
+| -------------------- | --------------------------------------------------------------------------------- |
+| `archive.yaml`       | `format_version` and `consistency`                                                |
+| `routd.yaml`         | routd's config rows, the same document `arizuko export` writes                    |
+| `onbod.yaml`         | onbod's config rows                                                               |
+| `routd.secrets.yaml` | secret values, sealed; route token hashes; invites; pending onboarding admissions |
+| `routd.messages.jl`  | the whole message history                                                         |
+| `groups.tar`         | every `groups/<folder>/` tree                                                     |
+
+authd's and runed's stores, `.env`, `SECRETS_KEY` and the guest artifacts are
+not in it. Export reads the live store, so the store server must run. Without
+`--quiesced`, `consistency` is `live`: each subsystem is a snapshot taken at
+its own moment. `--quiesced` only writes `quiesced` into `archive.yaml`. It
+stops nothing and checks nothing, so pass it only when every writer is down.
+Export writes the file with mode 0644; `chmod 600` it.
+
+`arizuko archive apply <name> <archive.tar> [--force] [--stopped]` restores:
+
+- It refuses an archive whose `format_version` is newer than the binary, and a
+  row that names a folder which is not a group.
+- It applies the config documents through the same claim-gated path as
+  `arizuko apply`, with a rollback if a later subsystem fails. `--force` skips
+  the content-hash check.
+- It opens every secret against the target's `SECRETS_KEY` before it writes
+  one. A target with another key needs the source key in its keyring:
+  `SECRETS_KEY=<target key>,<source key>`.
+- Route tokens, invites and pending onboarding restore only with `--force`,
+  and only into an empty table.
+- It skips a group folder that exists and is not empty. `--force` overwrites
+  it.
+- It appends the message history and sets each chat's cursor to its newest
+  message, so the restored agent does not answer old messages again.
+
+Before apply overwrites a folder's tree, it claims that folder's run slot from
+runed at `RUNED_URL`, so no turn writes the folder during the restore. The
+default `RUNED_URL` is `http://runed:8080`, a compose name the host does not
+resolve, and apply stops when it cannot claim the slot. `--stopped` skips the
+claim: stop the instance, start only the store server, then apply.
+
+```bash
+sudo systemctl stop arizuko_<name>
+cd /srv/data/arizuko_<name>
+sudo docker compose up -d extenddb_db extenddb
+cd -
+./arizuko archive apply <name> <archive.tar> --stopped
+sudo systemctl start arizuko_<name>
+```
+
+The archive carries the config rows and not a daemon's runtime settings such
+as its port (BUGS `L249`).
 
 ## Troubleshooting
 
