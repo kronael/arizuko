@@ -330,15 +330,14 @@ func TestApprovalResolve_AlwaysSendsStandingOnApprove(t *testing.T) {
 	}
 }
 
-// The page prints the rule the `always` button will write — routd's `matcher`,
-// never one rendered here — plus the two properties that widen it: a rule
-// constrains only the arguments it NAMES, and no rule can constrain a
-// non-scalar argument (spec 6/26 § "The predicate is part of the verdict").
-func TestApprovalsPage_ShowsTheRuleAlwaysWouldWrite(t *testing.T) {
+// The page prints routd's `ask` and `rule_text` as they arrive — never a rule
+// or a phrase rendered here (specs/6/49-approval-ask.md).
+func TestApprovalsPage_ShowsTheStringsRoutdRendered(t *testing.T) {
 	u := newRoutdUpstream(t)
 	u.respond = `{"pending":[
-		{"id":"ab12","group_folder":"solo","tool":"create_pr","args":"{}","status":"held",
-		 "matcher":"repo=kronael/arizuko","unmatchable":["files"],
+		{"id":"ab12","group_folder":"solo","tool":"like","args":"{}","status":"held",
+		 "ask":"solo wants to react 👀 to message 156",
+		 "rule_text":"Always: every like call with reaction=👀 in solo runs without asking.",
 		 "created_at":"2026-08-08T06:00:00Z"}]}`
 	mux := approvalsDash(t, u)
 
@@ -349,14 +348,13 @@ func TestApprovalsPage_ShowsTheRuleAlwaysWouldWrite(t *testing.T) {
 	if !strings.Contains(body, `value="always"`) {
 		t.Error("a statable rule must offer the always button")
 	}
-	if !strings.Contains(body, "create_pr(repo=kronael/arizuko)") {
-		t.Errorf("the page must print the exact rule:\n%s", body)
-	}
-	if !strings.Contains(body, "Arguments it does not name are unconstrained") {
-		t.Errorf("the page must state the names-only widening:\n%s", body)
-	}
-	if !strings.Contains(body, "No rule can constrain files") {
-		t.Errorf("the page must name the unmatchable argument:\n%s", body)
+	for _, want := range []string{
+		"solo wants to react 👀 to message 156",
+		"Always: every like call with reaction=👀 in solo runs without asking.",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the page must print %q:\n%s", want, body)
+		}
 	}
 }
 
@@ -367,6 +365,7 @@ func TestApprovalsPage_NoAlwaysButtonWhenNoRuleCanBeWritten(t *testing.T) {
 	u.respond = `{"pending":[
 		{"id":"ab12","group_folder":"solo","tool":"delete","args":"{}","status":"held",
 		 "matcher_error":"argument \"target\": its value cannot be written as an exact rule",
+		 "rule_text":"Always is not offered: argument \"target\": its value cannot be written as an exact rule",
 		 "created_at":"2026-08-08T06:00:00Z"}]}`
 	mux := approvalsDash(t, u)
 
@@ -377,24 +376,7 @@ func TestApprovalsPage_NoAlwaysButtonWhenNoRuleCanBeWritten(t *testing.T) {
 	if strings.Contains(body, `value="always"`) {
 		t.Error("a rule that cannot be stated must not be offered")
 	}
-	if !strings.Contains(body, "no standing answer for this call") {
+	if !strings.Contains(body, "Always is not offered") {
 		t.Errorf("the page must say why the button is missing:\n%s", body)
-	}
-}
-
-// A held call with no scalar arguments yields an UNNARROWED rule. That is
-// honest but large, so the page says so rather than letting "always" read as
-// "always this one call".
-func TestApprovalsPage_UnnarrowedRuleSaysSo(t *testing.T) {
-	u := newRoutdUpstream(t)
-	u.respond = `{"pending":[
-		{"id":"ab12","group_folder":"solo","tool":"wipe","args":"{}","status":"held",
-		 "created_at":"2026-08-08T06:00:00Z"}]}`
-	mux := approvalsDash(t, u)
-
-	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, asOperator(httptest.NewRequest("GET", "/dash/approvals/", nil)))
-	if body := w.Body.String(); !strings.Contains(body, "EVERY call to this tool will run") {
-		t.Errorf("an unnarrowed rule must be described as one:\n%s", body)
 	}
 }

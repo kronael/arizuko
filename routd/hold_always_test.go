@@ -86,20 +86,10 @@ func TestAlways_WritesTheRuleAndStopsHolding(t *testing.T) {
 func TestAlways_WritesExactlyTheDisplayedMatcher(t *testing.T) {
 	_, d, dl, id := holdOnce(t, "create_pr", map[string]any{"repo": "kronael/arizuko", "draft": true})
 	notice := dl.sends[0].text
-	if !strings.Contains(notice, "/always "+id) {
-		t.Fatalf("the notice must offer the standing verdict:\n%s", notice)
-	}
 	want := "draft=true,repo=kronael/arizuko"
-	if !strings.Contains(notice, "create_pr("+want+")") {
-		t.Fatalf("the notice must display the exact rule %q:\n%s", want, notice)
-	}
-	// The two properties that widen the rule past what an operator assumes are
-	// stated in words, because neither is visible in the rule text.
-	if !strings.Contains(notice, "arguments it does not name are unconstrained") {
-		t.Errorf("the notice must say a rule constrains only what it names:\n%s", notice)
-	}
-	if !strings.Contains(notice, "skips approval only") {
-		t.Errorf("the notice must say the mcp: grant still gates the call:\n%s", notice)
+	line := "Always: every create_pr call with " + want + " in atlas runs without asking."
+	if !strings.HasSuffix(notice, line) {
+		t.Fatalf("the notice must end with the exact rule %q:\n%s", line, notice)
 	}
 
 	if err := always(t, d, id, "google:op"); err != nil {
@@ -134,7 +124,7 @@ func TestAlways_WritesExactlyTheDisplayedMatcher(t *testing.T) {
 // never saw — a widening they did not agree to.
 func TestAlways_RefusesAnUnstatableMatcher(t *testing.T) {
 	_, d, dl, id := holdOnce(t, "delete", map[string]any{"target": "prod-*"})
-	if notice := dl.sends[0].text; !strings.Contains(notice, "/always is not offered") {
+	if notice := dl.sends[0].text; !strings.Contains(notice, "Always is not offered") {
 		t.Errorf("the notice must say why no standing verdict is offered:\n%s", notice)
 	}
 	err := always(t, d, id, "google:op")
@@ -161,28 +151,12 @@ func TestAlways_RefusesAnUnstatableMatcher(t *testing.T) {
 	}
 }
 
-// A non-scalar argument can never be matched — stringArgs skips it — so the
-// notice must name it. Otherwise an operator reads a rule over `repo` and does
-// not learn that `files` is free to be anything next time.
-func TestAlways_NamesTheArgumentsNoRuleCanConstrain(t *testing.T) {
-	_, _, dl, _ := holdOnce(t, "create_pr", map[string]any{
-		"repo": "kronael/arizuko", "files": []any{"a.go", "b.go"},
-	})
-	notice := dl.sends[0].text
-	if !strings.Contains(notice, "no rule can constrain files") {
-		t.Errorf("the notice must name the unmatchable argument:\n%s", notice)
-	}
-	if !strings.Contains(notice, "create_pr(repo=kronael/arizuko)") {
-		t.Errorf("the rule must still carry the scalar it CAN state:\n%s", notice)
-	}
-}
-
 // A call with no scalar arguments yields an unnarrowed rule. That is honest —
 // there is nothing to constrain — but it is a large grant, so the notice says
 // so rather than letting "always" read as "always this one call".
 func TestAlways_UnnarrowedRuleSaysSo(t *testing.T) {
 	_, _, dl, _ := holdOnce(t, "wipe", map[string]any{})
-	if notice := dl.sends[0].text; !strings.Contains(notice, "EVERY call to this tool will run") {
+	if notice := dl.sends[0].text; !strings.HasSuffix(notice, "Always: every wipe call in atlas runs without asking.") {
 		t.Errorf("an unnarrowed rule must be described as one:\n%s", notice)
 	}
 }
@@ -209,4 +183,31 @@ func TestNever_IsNotOffered(t *testing.T) {
 func awaitNotice(t *testing.T, dl *recDeliverer) {
 	t.Helper()
 	dl.waitSends(t, 1)
+}
+
+// Each verdict is acknowledged in one line; an /always names the rule and where
+// to revoke it, and quotes no remove_acl call.
+func TestResolveHold_AcknowledgesInOneLine(t *testing.T) {
+	cases := []struct {
+		verdict  string
+		standing bool
+		want     func(id string) string
+	}{
+		{PendingRejected, false, func(id string) string { return "⛔ rejected (" + id + ")." }},
+		{PendingApproved, false, func(id string) string { return "✅ ok (" + id + ") — the agent runs it now." }},
+		{PendingApproved, true, func(id string) string {
+			return "✅ ok (" + id + "). Always: every create_pr call with repo=kronael/arizuko in atlas " +
+				"runs without asking. Undo: revoke the hold:mcp:create_pr skip row on the grants page."
+		}},
+	}
+	for _, c := range cases {
+		_, d, _, id := holdOnce(t, "create_pr", map[string]any{"repo": "kronael/arizuko"})
+		dl := &recDeliverer{}
+		l := &Loop{db: d, deliver: dl}
+		l.cmdResolveHold("tg:1", "atlas", id, "google:op", c.verdict, c.standing)
+		got := dl.sentMsgs()
+		if len(got) != 1 || got[0].text != c.want(id) {
+			t.Errorf("%s standing=%v: ack = %+v, want %q", c.verdict, c.standing, got, c.want(id))
+		}
+	}
 }

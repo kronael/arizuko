@@ -304,58 +304,35 @@ func TestListPendingActions_ExpiryFilteredAfterTransform(t *testing.T) {
 	}
 }
 
-// The held notice carries the operator's browser route to THIS call (spec 6/26
-// § Gap 3) beside the chat commands. It is a deep link, never a bearer: the
-// notice lands in the chat the agent shares with its users, and the page's own
-// operator gate is what authorizes the verdict.
-func TestNotifyHeld_CarriesApprovalDeepLink(t *testing.T) {
+// A held `like` is two lines — the ask, then what `always` would do — and the
+// three verdicts as buttons. The chat carries no reaction hint, no command list
+// and no dashboard link, even when WEB_HOST is set.
+func TestNotifyHeld_LikeIsTwoLinesAndThreeButtons(t *testing.T) {
 	d := memDB(t)
 	dl := &recDeliverer{}
 	srv := &Server{db: d, deliver: dl, webHost: "krons.fiu.wtf"}
 	if err := addACLRow(d, core.ACLRow{
-		Principal: "folder:atlas", Action: auth.HoldPrefix + "mcp:delete",
+		Principal: "folder:atlas", Action: auth.HoldPrefix + "like",
 		Scope: "atlas", Effect: "allow",
 	}); err != nil {
 		t.Fatal(err)
 	}
 	gate := srv.holdGate(turnMCP{folder: "atlas", chatJID: "tg:1", turnID: "t9"})
 
-	if _, held := gate("mcp:delete", map[string]any{"target": "prod"}); !held {
+	args := map[string]any{"chatJid": "tg:1", "targetId": "156", "reaction": "👀"}
+	if _, held := gate("like", args); !held {
 		t.Fatal("a matching hold rule must suspend the call")
 	}
 	id := awaitHeldID(t, d)
 	if len(dl.sends) != 1 {
 		t.Fatalf("held call must notify once, got %d sends", len(dl.sends))
 	}
-	text := dl.sends[0].text
-	// A BARE WEB_HOST must still produce a followable URL (the F43 shape).
-	want := "https://krons.fiu.wtf/dash/approvals/?id=" + id
-	if !strings.Contains(text, want) {
-		t.Errorf("notice missing deep link %q:\n%s", want, text)
+	want := "⏸ atlas wants to react 👀 to message 156 — ok? (" + id + ")\n" +
+		"Always: every like call with chatJid=tg:1,reaction=👀,targetId=156 in atlas runs without asking."
+	if got := dl.sends[0].text; got != want {
+		t.Errorf("notice =\n%s\nwant\n%s", got, want)
 	}
-	if !strings.Contains(text, "/approve "+id) {
-		t.Errorf("notice must still carry the chat command:\n%s", text)
-	}
-}
-
-// With WEB_HOST unset there is no URL to hand out, so the notice is the chat
-// commands alone — never a broken link the operator cannot follow.
-func TestNotifyHeld_NoWebHostNoLink(t *testing.T) {
-	d := memDB(t)
-	dl := &recDeliverer{}
-	srv := &Server{db: d, deliver: dl}
-	if err := addACLRow(d, core.ACLRow{
-		Principal: "folder:atlas", Action: auth.HoldPrefix + "mcp:delete",
-		Scope: "atlas", Effect: "allow",
-	}); err != nil {
-		t.Fatal(err)
-	}
-	gate := srv.holdGate(turnMCP{folder: "atlas", chatJID: "tg:1", turnID: "t9"})
-
-	if _, held := gate("mcp:delete", map[string]any{"target": "prod"}); !held {
-		t.Fatal("a matching hold rule must suspend the call")
-	}
-	if text := dl.sends[0].text; strings.Contains(text, "/dash/approvals/") {
-		t.Errorf("no WEB_HOST must mean no link:\n%s", text)
+	if n := len(dl.sends[0].options); n != 3 {
+		t.Errorf("options = %d, want approve, reject and always", n)
 	}
 }

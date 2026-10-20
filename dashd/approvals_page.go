@@ -49,25 +49,25 @@ func (d *dash) handleApprovals(w http.ResponseWriter, r *http.Request) {
 
 // pendingRow mirrors routd's PendingAction JSON — the fields this page shows.
 //
-// matcher/unmatchable/matcher_error are routd's, DERIVED there: they are the
-// rule an `always` would write, and this page must display exactly what the
+// ask/rule_text/matcher_error are routd's, DERIVED there: the call in words and
+// the rule an `always` would write, and this page must display exactly what the
 // writer will store. Rendering them here from `args` would be a second renderer
 // of one fact, which is how a surface ends up showing one grant and writing
-// another (spec 6/26 § "The predicate is part of the verdict").
+// another (specs/6/49-approval-ask.md).
 type pendingRow struct {
-	ID           string   `json:"id"`
-	GroupFolder  string   `json:"group_folder"`
-	Tool         string   `json:"tool"`
-	Args         string   `json:"args"`
-	Status       string   `json:"status"`
-	ChatJID      string   `json:"chat_jid"`
-	CreatedAt    string   `json:"created_at"`
-	ReviewedBy   string   `json:"reviewed_by"`
-	ReviewedAt   string   `json:"reviewed_at"`
-	ReviewerNote string   `json:"reviewer_note"`
-	Matcher      string   `json:"matcher"`
-	Unmatchable  []string `json:"unmatchable"`
-	MatcherError string   `json:"matcher_error"`
+	ID           string `json:"id"`
+	GroupFolder  string `json:"group_folder"`
+	Tool         string `json:"tool"`
+	Args         string `json:"args"`
+	Status       string `json:"status"`
+	ChatJID      string `json:"chat_jid"`
+	CreatedAt    string `json:"created_at"`
+	ReviewedBy   string `json:"reviewed_by"`
+	ReviewedAt   string `json:"reviewed_at"`
+	ReviewerNote string `json:"reviewer_note"`
+	Ask          string `json:"ask"`
+	RuleText     string `json:"rule_text"`
+	MatcherError string `json:"matcher_error"`
 }
 
 // renderApprovals writes the held-call queue and the recent verdicts off one
@@ -130,7 +130,7 @@ func (d *dash) renderApprovals(w http.ResponseWriter, r *http.Request) {
 		}
 		heldRows = append(heldRows, []string{
 			group,
-			`<code>` + esc(p.Tool) + `</code>`,
+			`<code>` + esc(p.Tool) + `</code><div class="dim">` + esc(p.Ask) + `</div>`,
 			approvalArgsCell(p.Args),
 			d.chatJIDCell(p.ChatJID),
 			abbrTS(p.CreatedAt),
@@ -198,37 +198,13 @@ func approvalVerdictCell(p pendingRow) string {
 			` <button class="btn-danger btn-sm" type="submit" name="verdict" value="reject">reject</button>`,
 		id)
 	if p.MatcherError != "" {
-		return out + `</form><div class="dim">no standing answer for this call: ` +
-			esc(p.MatcherError) + `</div>`
+		return out + `</form><div class="dim">` + esc(p.RuleText) + `</div>`
 	}
 	return out +
 		` <button class="btn btn-sm" type="submit" name="verdict" value="always">always</button>` +
-		`</form><div class="dim">always &rarr; skip approval for <code>` +
-		esc(alwaysRuleText(p)) + `</code> in <code>` + esc(p.GroupFolder) + `</code>. ` +
-		esc(alwaysCaveat(p)) +
+		`</form><div class="dim">` + esc(p.RuleText) +
 		` It skips approval only; the grant still has to allow the call. ` +
 		`Undo it by removing that acl row.</div>`
-}
-
-// alwaysRuleText spells the rule routd will write, from routd's own matcher.
-func alwaysRuleText(p pendingRow) string {
-	if p.Matcher == "" {
-		return p.Tool
-	}
-	return p.Tool + "(" + p.Matcher + ")"
-}
-
-// alwaysCaveat states what the rule text cannot show: which arguments it leaves
-// free. Both widen it past what an operator reading the rule assumes.
-func alwaysCaveat(p pendingRow) string {
-	s := "Arguments it does not name are unconstrained."
-	if p.Matcher == "" {
-		s = "No argument constrains it: EVERY call to this tool will run."
-	}
-	if len(p.Unmatchable) > 0 {
-		s += " No rule can constrain " + strings.Join(p.Unmatchable, ", ") + "."
-	}
-	return s
 }
 
 // approvalStatusClass maps a resolved status to its color: approved ran (ok),

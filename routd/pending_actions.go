@@ -16,7 +16,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"net/url"
+	"maps"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -47,13 +48,13 @@ type PendingAction struct {
 	// into this call's verdict.
 	NoticeID string `json:"notice_id"`
 
-	// DERIVED from Args, never stored: what an `always` verdict would write,
-	// computed by the one renderer (withMatcher) so the notice, the REST row
-	// and the writer cannot disagree about the rule (spec 6/26).
-	Matcher string `json:"matcher"`
-	// Unmatchable names the arguments no rule can constrain (stringArgs skips
-	// every non-scalar). Stated in words wherever Matcher is shown.
-	Unmatchable []string `json:"unmatchable,omitempty"`
+	// DERIVED from Args, never stored: the ask line, what an `always` verdict
+	// would write and that rule in words, computed by the one renderer
+	// (withMatcher) so the notice, the acknowledgement, the REST row, the
+	// approvals page and the writer cannot disagree (specs/6/49-approval-ask.md).
+	Ask      string `json:"ask"`
+	Matcher  string `json:"matcher"`
+	RuleText string `json:"rule_text"`
 	// Non-empty means `always` is refused rather than approximated.
 	MatcherError string `json:"matcher_error,omitempty"`
 }
@@ -503,34 +504,74 @@ func verdictRefusal(p PendingAction, tool string) string {
 // human speed.
 var hitlPoll = 2 * time.Second
 
-// withMatcher fills the derived verdict fields — the ONE renderer of the rule
-// an `always` would write, read by the chat notice, the REST row and the
-// writer; a second renderer would let a surface display one rule and store
-// another (spec 6/26). It reads the recorded arguments, which are the
-// arguments that will run: nothing edits them between the notice and the call.
+// holdAsks says how a held call reads to a human: the tool's name for the
+// call, its placeholders filled from the call's scalar arguments. A tool with
+// no entry reads as its name and its arguments.
+var holdAsks = map[string]string{
+	"like":    "react {reaction} to message {targetId}",
+	"dislike": "dislike message {targetId}",
+	"edit":    "edit message {targetId}",
+	"delete":  "delete message {targetId}",
+}
+
+// withMatcher fills the derived fields — the ONE renderer of the ask line and
+// of the rule an `always` would write, read by the chat notice, the
+// acknowledgement, the REST row, the approvals page and the writer; a second
+// renderer would let a surface display one rule and store another. It reads
+// the recorded arguments, which are the arguments that will run: nothing edits
+// them between the notice and the call.
 func withMatcher(p PendingAction) PendingAction {
-	raw := p.Args
 	var args map[string]any
-	if raw != "" {
-		if err := json.Unmarshal([]byte(raw), &args); err != nil {
+	if p.Args != "" {
+		if err := json.Unmarshal([]byte(p.Args), &args); err != nil {
 			p.MatcherError = "the recorded arguments are not readable as JSON: " + err.Error()
-			return p
 		}
 	}
 	scalars := stringArgs(args)
-	for k := range args {
-		if _, ok := scalars[k]; !ok {
-			p.Unmatchable = append(p.Unmatchable, k)
+	p.Ask = p.GroupFolder + " wants to " + askText(p.Tool, scalars)
+	if p.MatcherError == "" {
+		spec, err := auth.ParamsSpec(scalars)
+		if err != nil {
+			p.MatcherError = err.Error()
 		}
+		p.Matcher = spec
 	}
-	sort.Strings(p.Unmatchable)
-	spec, err := auth.ParamsSpec(scalars)
-	if err != nil {
-		p.MatcherError = err.Error()
+	if p.MatcherError != "" {
+		p.RuleText = "Always is not offered: " + p.MatcherError
 		return p
 	}
-	p.Matcher = spec
+	p.RuleText = "Always: every " + p.Tool + " call"
+	if p.Matcher != "" {
+		p.RuleText += " with " + p.Matcher
+	}
+	p.RuleText += " in " + p.GroupFolder + " runs without asking."
 	return p
+}
+
+// askText reads one call as a phrase that follows "wants to".
+func askText(tool string, scalars map[string]string) string {
+	names := slices.Sorted(maps.Keys(scalars))
+	if ask, ok := holdAsks[tool]; ok {
+		pairs := make([]string, 0, 2*len(names))
+		for _, k := range names {
+			pairs = append(pairs, "{"+k+"}", shortValue(scalars[k]))
+		}
+		return strings.NewReplacer(pairs...).Replace(ask)
+	}
+	out := "run " + tool
+	for _, k := range names {
+		out += " " + k + "=" + shortValue(scalars[k])
+	}
+	return out
+}
+
+// shortValue keeps one argument on one line, at most 40 characters.
+func shortValue(v string) string {
+	v = strings.Join(strings.Fields(v), " ")
+	if r := []rune(v); len(r) > 40 {
+		return string(r[:40]) + "…"
+	}
+	return v
 }
 
 // stringArgs flattens tool args for the acl `params` glob matcher. A
@@ -551,18 +592,11 @@ func stringArgs(args map[string]any) map[string]string {
 	return out
 }
 
-// notifyHeld tells the chat a call is waiting; delivery failure is logged, the
-// row is already recorded. The deep link names WHICH decision while the page's
-// operator gate names WHO — deliberately not a bearer, because the notice
-// lands in a chat every reader shares (spec 6/26-personal-mode §"Decision 6").
+// notifyHeld tells the chat a call is waiting: the ask, what `always` would
+// write, and the verdicts as buttons. Delivery failure is logged, the row is
+// already recorded.
 func (s *Server) notifyHeld(t turnMCP, p PendingAction) {
-	text := fmt.Sprintf("⏸ %s held for approval (id %s)\n/approve %s   /reject %s"+
-		"\nor react ✅ / ❌ to this message",
-		p.Tool, p.ID, p.ID, p.ID)
-	text += "\n" + alwaysOffer(p)
-	if url := s.approvalURL(p.ID); url != "" {
-		text += "\n" + url
-	}
+	text := fmt.Sprintf("⏸ %s — ok? (%s)\n%s", p.Ask, p.ID, p.RuleText)
 	if id := s.notifyHold(t, "hitl-"+p.ID, text, verdictOptions(p)); id != "" {
 		if err := s.db.SetPendingNotice(p.ID, id); err != nil {
 			slog.Error("hitl notice id not recorded; a reaction cannot resolve this call",
@@ -572,7 +606,7 @@ func (s *Server) notifyHeld(t turnMCP, p PendingAction) {
 }
 
 // verdictOptions are the verdict commands as pickable answers; `/always` is
-// offered only when an exact rule exists, the condition alwaysOffer states.
+// offered only when an exact rule exists, the condition RuleText states.
 func verdictOptions(p PendingAction) []chanlib.Option {
 	out := []chanlib.Option{
 		{Label: "✅ Approve", Data: "/approve " + p.ID},
@@ -582,44 +616,6 @@ func verdictOptions(p PendingAction) []chanlib.Option {
 		out = append(out, chanlib.Option{Label: "♾ Always", Data: "/always " + p.ID})
 	}
 	return out
-}
-
-// alwaysOffer is the `always` half of the notice: the EXACT row the verdict
-// would write, plus in words the two ways it is wider than it looks — a rule
-// constrains only the parameters it NAMES, and a non-scalar argument can never
-// be matched (spec 6/26). With no exact rule the offer is replaced by the
-// reason, so the operator knows why the button is missing.
-func alwaysOffer(p PendingAction) string {
-	if p.MatcherError != "" {
-		return "/always is not offered for this call: " + p.MatcherError
-	}
-	rule := p.Tool
-	if p.Matcher != "" {
-		rule += "(" + p.Matcher + ")"
-	}
-	out := fmt.Sprintf("/always %s → skip approval for\n  %s  in folder %s",
-		p.ID, rule, p.GroupFolder)
-	if p.Matcher == "" {
-		out += "\n  (no argument constrains it: EVERY call to this tool will run)"
-	} else {
-		out += "\n  (arguments it does not name are unconstrained)"
-	}
-	if len(p.Unmatchable) > 0 {
-		out += "\n  (no rule can constrain " + strings.Join(p.Unmatchable, ", ") + ")"
-	}
-	out += "\n  (skips approval only; the mcp: grant still has to allow the call)"
-	return out
-}
-
-// approvalURL is the operator's browser route to one held call. Empty when
-// WEB_HOST is unset — the chat commands are the whole notice then, not a
-// broken link.
-func (s *Server) approvalURL(id string) string {
-	base := core.PublicBaseURL(s.webHost)
-	if base == "" {
-		return ""
-	}
-	return base + "/dash/approvals/?id=" + url.QueryEscape(id)
 }
 
 // notifyHoldFailed reports a call the gate blocked but could not record: no

@@ -71,7 +71,8 @@ func TestWorld_HoldsWhatTheOwnerShouldSeeAndRunsTheRest(t *testing.T) {
 
 	// The person is told, in the chat, with the id they answer on.
 	sends := dl.sentMsgs()
-	if len(sends) != 1 || !containsAll(sends[0].text, "schedule_task", "/approve "+id) {
+	if len(sends) != 1 || !containsAll(sends[0].text, "schedule_task", id) ||
+		sends[0].options[0].Data != "/approve "+id {
 		t.Fatalf("the owner was not asked: %+v", sends)
 	}
 

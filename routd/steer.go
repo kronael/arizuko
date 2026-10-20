@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/router"
 	"github.com/kronael/arizuko/store"
@@ -613,27 +614,13 @@ func (l *Loop) cmdResolveHold(chatJID, folder, arg, sender, verdict string, stan
 		l.ack(chatJID, "Failed: "+err.Error())
 		return
 	}
-	if verdict == PendingRejected {
-		l.ack(chatJID, fmt.Sprintf("rejected %s (%s)", id, p.Tool))
-		return
+	switch {
+	case verdict == PendingRejected:
+		l.ack(chatJID, fmt.Sprintf("⛔ rejected (%s).", id))
+	case standing:
+		l.ack(chatJID, fmt.Sprintf("✅ ok (%s). %s Undo: revoke the %s%s skip row on the grants page.",
+			id, p.RuleText, auth.HoldPrefix, p.Tool))
+	default:
+		l.ack(chatJID, fmt.Sprintf("✅ ok (%s) — the agent runs it now.", id))
 	}
-	msg := fmt.Sprintf("approved %s (%s) — the agent runs it now", id, p.Tool)
-	if standing {
-		// Name the rule AND how to undo it: removing this row is the only revocation.
-		msg += "\n" + standingWritten(p)
-	}
-	l.ack(chatJID, msg)
-}
-
-// standingWritten spells the skip-approval row an /always wrote as the
-// remove_acl call that undoes it: deny-wins is absolute, so a narrower hold
-// cannot restore the approval and removing this row is the ONLY revocation
-// (spec 6/26 gap 2.1).
-func standingWritten(p PendingAction) string {
-	r := skipApprovalRow(p, "")
-	return fmt.Sprintf(
-		"standing rule written: skip approval for %s in %s.\n"+
-			"undo it with remove_acl(principal=%q, action=%q, scope=%q, effect=%q, params=%q) — "+
-			"removing this row is the only way back, a narrower hold cannot restore the approval.",
-		p.Tool, p.GroupFolder, r.Principal, r.Action, r.Scope, r.Effect, r.Params)
 }

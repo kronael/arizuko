@@ -1,5 +1,5 @@
 ---
-status: draft
+status: partial
 depends: [../5/19-hitl-firewall, ../5/32-acl-unified, 26-personal-mode]
 ---
 
@@ -110,11 +110,11 @@ chat: a green or red reaction still resolves the row
 All nine measured holds were answered, or expired, in the chat.
 
     ⏸ rhias/nemo wants to react 👀 to message 156 — ok? (647ec18e)
-    Always: every 👀 reaction in rhias/nemo runs without asking.
-    [✅ Yes] [⛔ No] [♾ Always]
+    Always: every like call with reaction=👀 in rhias/nemo runs without asking.
+    [✅ Approve] [⛔ Reject] [♾ Always]
 
-When no exact rule exists, the second line is the reason and the third button
-is absent. An adapter without buttons receives the same two lines, and
+When no exact rule exists, the second line is `Always is not offered: <reason>`
+and the third button is absent. An adapter without buttons receives the same two lines, and
 `chanreg.foldOptions` (`chanreg/httpchan.go:161`) appends one typed command
 per verdict.
 
@@ -122,7 +122,7 @@ Each verdict is acknowledged in one line:
 
     ✅ ok (647ec18e) — the agent runs it now.
     ⛔ rejected (647ec18e).
-    ✅ ok (647ec18e), and every 👀 reaction in rhias/nemo now runs without asking. Undo: revoke the hold:mcp:like skip row on the grants page.
+    ✅ ok (647ec18e). Always: every like call with reaction=👀 in rhias/nemo runs without asking. Undo: revoke the hold:mcp:like skip row on the grants page.
 
 The `remove_acl` call with its five quoted fields leaves the acknowledgement.
 The grants page (`dashd/grants_admin.go:86`) and `arizuko group <inst> grants`
@@ -139,10 +139,9 @@ Three artifacts own the approval, each in one place:
   is declared once, beside the tool's MCP declaration
   (§"Proposed — the hold shape").
 - **The renderer** is one function in routd that fills the derived fields of
-  the pending row: `ask`, `rule`, `rule_text` and `matcher_error`. It replaces
-  `withMatcher`, `alwaysOffer`, `verdictOptions`
-  (`routd/pending_actions.go:511-612`) and the text of `standingWritten`
-  (`routd/steer.go:632`).
+  the pending row: `ask`, `matcher`, `rule_text` and `matcher_error`.
+  `withMatcher` is that function; `alwaysOffer`, `approvalURL` and
+  `standingWritten` are gone.
 
 Every sink shows the renderer's strings and derives nothing: the chat notice,
 the acknowledgement, the `/v1/pending_actions` row, and the approvals page,
@@ -225,9 +224,9 @@ type HoldShape struct {
   argument fills.
 
 The pending row carries four derived fields, filled by the renderer and never
-stored: `ask`, `rule` (the params spec the row would carry), `rule_text` (the
-second line) and `matcher_error`. `matcher` is renamed `rule`; the REST row
-and the approvals page read the new names.
+stored: `ask`, `matcher` (the params spec the row would carry), `rule_text`
+(the second line) and `matcher_error`. The field keeps its name `matcher`;
+`unmatchable` is gone, since the rule pins the declared keys and no others.
 
 ## Proposed — the floor record
 
