@@ -141,6 +141,47 @@ The index is an in-memory BM25 index over the `messages` entity
   subtree over `routed_to`, tested with `groupfolder.Contains`, never a
   `LIKE`. The caller filters the hits to the folders it may read.
 
+## The model gateway
+
+With `MODEL_GATEWAY_URL` set (the `litellm` package), the gateway holds the
+model credential and is the spend ledger; routd stores no spend.
+`gateway.go` and `budget.go` map arizuko's nouns onto the gateway's:
+
+| arizuko                  | gateway                                              | why                                                                                                                                       |
+| ------------------------ | ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| folder                   | `team_id`, verbatim                                  | the id IS the folder, so no folder→team row exists to drift from a wiped gateway                                                          |
+| `cost_cap_cents_per_day` | team `max_budget`, `budget_duration "1d"`            | the meter enforces the cap on the request                                                                                                 |
+| person                   | internal `user_id`, set by routd at mint             | the body `user` field and the `x-litellm-end-user-id` header are written in the guest, so the spender would choose whose budget it spends |
+| turn                     | one key: TTL = the run ceiling, no budget of its own | revoke is deleting the key; `turn_context.gateway_key_hash` answers `GET /v1/cost?turn_id=`                                               |
+
+- **One `GET /team/info` per turn.** The pre-spawn gate creates the team when
+  the gateway has none, because a key naming an unknown team is accepted and
+  then every model call answers 404. The same call converges the team's
+  budget on the operator's cap and reads the spend the refusal quotes. The
+  gate runs with `COST_CAPS_ENABLED` off too: off reports both caps as
+  uncapped and clears them at the gateway, or the gateway would keep
+  refusing turns arizuko does not cap.
+- **A spent cap refuses the next turn.** The refusal goes to the chat and
+  consumes the batch. There is no mid-turn budget notice: an over-cap turn
+  runs to its end and the next turn's gate refuses. A call outside the
+  gateway is a log line, never a row.
+- **The gateway failing is a dependency outage.** A gate read or a key mint
+  that fails returns `queue.ErrDependencyDown` (`dispatch.go`): no guest
+  starts, the batch re-feeds and the folder's breaker streak stays as it was.
+  A turn never runs unmetered. A failed spend read is an error, never an
+  empty spend.
+- **Limits.** A message that steers into a running guest spends that run's
+  key, so its tokens land on the first turn's key and user. A user's own model
+  key is dropped under a gateway, with a warning in runed's log, because
+  nothing translates it into a gateway key (BUGS `L404`).
+- **No gateway, no meter.** The dashboard says so instead of a number the
+  agent chose. A cap on such an instance is enforced by nothing, and the gate
+  logs that on every turn.
+
+The package ships its own Postgres (`litellm_db`) for keys and spend: the
+gateway's bookkeeping, not the instance's store. Every operator surface
+reads spend back through `/v1/cost/summary`.
+
 ## Tables owned
 
 The `routd` owner — every one an objstore entity, made at boot by routd
@@ -163,7 +204,7 @@ itself (`Open` → `store.PrepareOwner`):
 - Counters: `counters` — one server-minted number, `routes.id`
 - People: `user_profiles` — the username a person's folder is named after
   and their per-day spend cap (authd owns identity). Spend itself belongs to
-  the model gateway (spec 6/39).
+  the model gateway (§ The model gateway).
 - Network: `network_rules`
 - Packages: `installed_packages` (installed-package record, keyed
   (folder, name) with `''` = instance-wide; the CLI writes it directly,
@@ -261,7 +302,10 @@ Endpoints (`server.go`, `channels.go`):
   composed and already failed row back to `pending`. `delivery_attempts` tells
   the two dead-letter causes apart — 0 = the platform refused it, the cap =
   retries ran out. Agent twins `list_dead_letters` / `replay_dead_letter`.
-- `POST /v1/cost` — cost log write
+- `GET /v1/cost?turn_id=` — what the gateway charged one turn's key;
+  `GET /v1/cost/summary?folder=&since=` — what it metered per folder over a
+  window (`cost:read`, `cost:read:own_group`). Both read the gateway; 404 or
+  an explicit "no meter" when the instance has none
 - `GET /openapi.json` — OpenAPI 3.1 doc (public, pre-auth)
 - `GET /health` — healthcheck (public)
 
@@ -388,6 +432,6 @@ optional observability webhook — not the source of truth.
 - `unrouted.go`, `dead_letters_db.go` — the two holds an operator has to see:
   a chat no rule claims, and a message delivery gave up on
 - `gateway.go`, `budget.go` — the model gateway's per-turn virtual key and the
-  folder spend gate (spec 6/39)
+  folder spend gate (§ The model gateway)
 - `surrogate_refresh.go` — the near-expiry refresh behind surrogate OAuth
 - `sibling_db.go`, `ext.go`, `channels.go`, `network.go`, `tokens.go` — helpers

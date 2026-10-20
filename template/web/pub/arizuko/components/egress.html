@@ -61,7 +61,7 @@
     <h2>What it is</h2>
     <p><code>egress</code> is a forward HTTP/CONNECT proxy that allows one fixed list of hosts, for one client. It reads the destination out of the request the client sends, matches it against the allowlist, and either splices the connection or answers <code>403</code>. That is the whole program.</p>
 
-    <p>runed starts one of these per turn, with that folder&rsquo;s allowlist baked into the process at start, and kills it when the turn ends. There is no long-lived proxy, no registry of who is who, and no admin API &mdash; every one of those existed so that <em>one</em> proxy could serve <em>many</em> tenants, and one proxy per turn needs none of them (<a href="https://github.com/kronael/arizuko/blob/main/specs/6/24-crackbox-lightest.md"><code>specs/6/24</code></a>).</p>
+    <p>runed starts one of these per turn, with that folder&rsquo;s allowlist baked into the process at start, and kills it when the turn ends. There is no long-lived proxy, no registry of who is who, and no admin API &mdash; every one of those exists only so that <em>one</em> proxy can serve <em>many</em> tenants, and one proxy per turn needs none of them.</p>
 
     <h2>Why it exists</h2>
     <p>An agent runs generated code with the network open. You want it to reach <code>github.com</code> and <code>api.anthropic.com</code> &mdash; not your internal services, not a crypto miner shipped in a compromised npm package, not wherever a prompt injection points it. A network-level firewall doesn&rsquo;t know which folder is calling. Per-process iptables is fiddly. The proxy sits in the one place that knows both: the single path this turn has out.</p>
@@ -69,17 +69,31 @@
     <p>Per-turn is also what removes a leak the shared model could not close. A shared proxy keyed tenants by source address, so it depended on the consumer unregistering when a process exited. If the reuse window landed wrong, the stale entry survived and the next tenant on that address inherited the previous folder&rsquo;s allowlist. Per-turn deletes the registry, so there is nothing to go stale.</p>
 
     <h2>How it fits</h2>
-    <div class="callout">
-      <pre><code>runed spawn
-  |
-  | 1. bring up this turn's tap; the rule set accepts the proxy port, drops
-  |    everything else, both directions, on that tap
-  | 2. start egress on the tap's host side, --client &lt;guest ip&gt;, allowlist baked in
-  | 3. poll the proxy's /health until 200   <-- the guest does not exist yet
-  | 4. start the guest, HTTP_PROXY -> the proxy
-  v
-guest  --its one tap-->  its proxy  --runed's own network-->  allowed hosts only</code></pre>
-    </div>
+    <p>runed brings up the turn&rsquo;s tap and its rule set, starts the proxy on the tap&rsquo;s host side, waits for the proxy&rsquo;s <code>/health</code>, and only then boots the guest. Everything the guest sends meets the tap first:</p>
+    <pre id="twin-egress"><code>┌──────────────────────────────┐
+│ KVM guest                    │  a raw socket to any address,
+│ no resolver, one tap,        ├──────────────────────► dropped by the tap
+│ HTTPS_PROXY = its own proxy  │  DNS on UDP/53, IPv6
+└──────────────┬───────────────┘
+               │ TCP to the proxy port: the one accepted path
+               ▼
+┌─────────────────────────────────────────────────────────────┐
+│ tap rule set on the host side, iptables                     │
+│ ACCEPT guest ip ► host ip on the proxy port, and the reply  │
+│ DROP every other packet on the tap: INPUT, OUTPUT, FORWARD  │
+│ disable_ipv6 on the tap before the link comes up            │
+└──────────────┬──────────────────────────────────────────────┘
+               ▼
+┌─────────────────────────────────────────────────────────────┐
+│ egress proxy: one process per turn, healthy before boot     ├──► 403 to
+│ --client: the guest's address only                          │    any other
+│ --allow: network_rules of the folder and its ancestors,     │    peer, or a
+│ resolved by routd at dispatch, plus the gateway host        │    host off
+│ --allow-all only with the egress grant or a /root turn      │    the list
+│ CONNECT spliced, never decrypted; dials the checked address │
+└──────────────┬──────────────────────────────────────────────┘
+               ▼
+          allowed host</code></pre>
 
     <p><strong>The proxy is not what confines the agent &mdash; the tap rule set is.</strong> The guest has exactly one network interface, its tap, and that tap&rsquo;s static rule set accepts only the guest&rsquo;s own proxy port and drops every other packet, both directions, UDP/53 included. The proxy runs on the host side of that tap, inside runed&rsquo;s own container, so it reaches the network runed itself is on. A guest process that ignores <code>HTTPS_PROXY</code> and opens a raw socket to an IP literal reaches nothing, because the tap drops it below the kernel the agent runs on &mdash; there is no shared network namespace to escape into, because there is nothing else on that tap to share.</p>
 
@@ -105,7 +119,7 @@ guest  --its one tap-->  its proxy  --runed's own network-->  allowed hosts only
       <li>no DNS lookup of its own, and none is needed &mdash; the proxy never sees a bare DNS query, because the guest ships no resolver at all and a name is only meaningful inside a CONNECT line (<a href="../security/">security</a> &sect; No DNS filter)</li>
       <li>no supervision &mdash; the turn&rsquo;s lifetime is the proxy&rsquo;s lifetime, and runed owns both</li>
     </ul>
-    <p>Interception stays declined (<code>specs/5/13-ext-mcp.md</code>): a proxy that never terminates TLS has nothing to leak if it is compromised, which is what keeps it small enough to audit.</p>
+    <p>Interception stays declined. Injecting a header into an opaque client was the only job that needed it, and a CA inside every guest costs more than that leftover is worth. A proxy that never terminates TLS has nothing to leak if it is compromised, which is what keeps it small enough to audit.</p>
 
     <h2>Standalone usage</h2>
     <p>Yes. <code>egress</code> is a plain Go binary with three flags and no dependency on anything else in arizuko.</p>
@@ -136,7 +150,7 @@ make -C egress build        # produces ./egress/egress
     <pre><code>egress --listen 127.0.0.1:3128 --client 127.0.0.1 --allow github.com,api.anthropic.com
 HTTPS_PROXY=http://127.0.0.1:3128 curl https://github.com</code></pre>
 
-    <p>Production puts this same proxy on the host side of the guest&rsquo;s tap, so the guest&rsquo;s only route out is through it &mdash; enforced below the kernel the agent runs, rather than by a network with no route (<a href="https://github.com/kronael/arizuko/blob/main/specs/6/41-qemu-substrate.md"><code>specs/6/41</code></a>). There is no setting that turns this off.</p>
+    <p>Production puts this same proxy on the host side of the guest&rsquo;s tap, so the guest&rsquo;s only route out is through it &mdash; enforced below the kernel the agent runs, rather than by a network with no route. There is no setting that turns this off.</p>
 
     <h2>Key env vars</h2>
     <p>None. Egress isolation is not a switch &mdash; every turn gets a proxy, and runed refuses to start at all if the <code>egress</code> binary is missing. What&rsquo;s left to configure is the allowlist itself, per folder:</p>
@@ -150,8 +164,7 @@ HTTPS_PROXY=http://127.0.0.1:3128 curl https://github.com</code></pre>
       <li><a href="runed.html">components/runed</a> &mdash; the daemon that starts the proxy and the agent, in that order.</li>
       <li><a href="../reference/cli.html">reference/cli</a> &mdash; <code>arizuko network allow / deny / list / resolve</code>, which write the rules the proxy is started with.</li>
       <li><code>egress/README.md</code> &mdash; the directory and what is in it.</li>
-      <li><a href="https://github.com/kronael/arizuko/blob/main/specs/6/24-crackbox-lightest.md"><code>specs/6/24</code></a> &mdash; the cut: what the shared model cost and why per-spawn is safer, not just smaller.</li>
-      <li><a href="https://github.com/kronael/arizuko/blob/main/specs/6/41-qemu-substrate.md"><code>specs/6/41</code></a> &mdash; the KVM substrate: the tap, the rule set, and why this proxy sits on its host side.</li>
+      <li><a href="https://github.com/kronael/arizuko/blob/main/SECURITY.md#network-egress-isolation"><code>SECURITY.md</code> &sect; Network egress isolation</a> &mdash; the rule set, the IPv6 seal and the allowlist rules in one place.</li>
     </ul>
 
 
@@ -161,7 +174,7 @@ HTTPS_PROXY=http://127.0.0.1:3128 curl https://github.com</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/components/egress.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-09-25">2026-09-25</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-16">2026-10-16</time>
       </div>
     </main>
 

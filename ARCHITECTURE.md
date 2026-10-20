@@ -616,70 +616,11 @@ Threat model: `SECURITY.md` § Model.
 
 ### Secret injection
 
-Three credential types (spec [`5/14`](specs/5/14-credentials.md)), two
-delivery paths:
-
-- **Env-profile keys** (model creds: `ANTHROPIC_API_KEY`,
-  `CLAUDE_CODE_OAUTH_TOKEN`, `OPENAI_API_KEY`, `CODEX_API_KEY`) — pick which
-  model a spawn talks to. The operator default lives in the host `.env`
-  (`runed/secrets.go:readSecrets()`); a user's own key (BYOA) at user
-  scope in the `secrets` table overrides it. **Spawn-inject** — merged into
-  the guest env at start. This is the only table-backed credential that
-  gets there, because the key is spent by the Claude Code SDK subprocess and
-  there is no tool call to attach a broker to.
-- **Capability credentials** (per-service tokens like `GITHUB_TOKEN`) —
-  **brokered on the host at call time, never in the guest env.** The tool
-  call resolves them through `routd/mcp.go:ResolveConnectorSecrets` →
-  `ConnectorSecrets(folder, callerSub, required)` (user rows win over folder
-  for real user triggers; timed/system use `service:routd` → folder scope),
-  narrowed to the keys that call declares, spent as a header on the
-  connector's HTTPS request (`ipc/connector.go`) or on the outbound REST
-  request (`ipc/extcall.go`), and scrubbed from the
-  result. Grant-gated. A capability row is written either by a pasted PAT
-  (`/dash/me/secrets`) or via **surrogate OAuth** — the dashboard's
-  "Connect GitHub" button (`/dash/me/connections`, `auth/surrogate/`, spec
-  [`5/15`](specs/5/15-surrogate-oauth.md)) runs the OAuth dance and writes
-  access + refresh tokens into the same `secrets` row; the broker refreshes
-  near-expiry tokens at call time (`ConnectorSecrets`).
-- **Infra / platform anchors** (`AUTHD_SERVICE_KEY`, `SECRETS_KEY`, bot
-  credentials) — instance-wide, host `.env` only, never in the `secrets`
-  table.
-
-`mergeSecrets(anchors, userEnvProfileKeys)` builds the guest env, and
-`routd/sibling_db.go:EnvProfileSecrets(userSub)` is what supplies the second
-argument — a `scope_kind='user'` query filtered to the four model keys, so no
-folder row and no capability credential can reach the guest. A folder secret
-and a daemon env var can share a name (`GH_TOKEN` in `.env`, `GH_TOKEN` in
-the folder's `secrets` rows) and hold different values; a connector reads the
-folder's row through the broker and never the daemon's environment. See
-`SECURITY.md § Secret injection`, [`5/14`](specs/5/14-credentials.md), and
-[`5/13`](specs/5/13-ext-mcp.md).
-
-**Model gateway** ([`6/23`](specs/6/23-llm-gateway.md)) — with the
-`litellm` package installed, the model credential stops at the gateway
-container: `template/services/litellm.yml` reads `ANTHROPIC_API_KEY` (or
-`CLAUDE_CODE_OAUTH_TOKEN`) straight from the instance `.env`, and the guest
-receives `MODEL_GATEWAY_URL` + `MODEL_GATEWAY_KEY` instead — a
-virtual key litellm checks, worth nothing anywhere else. One key per TURN:
-routd mints it with the run ceiling as its TTL, carrying the folder as its
-team and the caller as its user, hands it to runed with the run, and deletes
-it after.
-
-**The gateway is the ledger** ([`6/39`](specs/6/39-gateway-owns-spend.md)) —
-arizuko stores no spend. A folder's `cost_cap_cents_per_day` becomes its
-team's `max_budget` with `budget_duration: "1d"`, and a person's becomes
-their internal user's, so the cap is enforced by the thing that meters it and
-the refusal happens on the request. The pre-spawn gate is one
-`GET /team/info` doing three jobs: it creates the team a turn's key needs to
-exist at all, converges its budget on the cap the operator set, and reads the
-spend the refusal quotes. Every operator surface reads back through routd's
-`/v1/cost/summary`. The package ships the Postgres litellm needs for keys and
-spend (`litellm_db`), which is the gateway's bookkeeping and not the
-instance's own store.
-
-With no gateway there is no meter: the dashboard says so rather than showing
-a number the agent chose, and a cap set on such an instance is enforced by
-nothing, which the gate says in the log.
+A model key enters the guest's env at spawn. A capability credential stays
+on the host and routd spends it inside one tool call. With the `litellm`
+package the model key stays at the gateway too, and the gateway is the
+spend ledger. Figure and rules: [`SECURITY.md` § Secret
+injection](SECURITY.md#secret-injection).
 
 ## IPC (ipc package)
 

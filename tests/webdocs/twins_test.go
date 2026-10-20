@@ -54,6 +54,14 @@ var twins = []twin{
 		"runed/README.md",
 		"template/web/pub/arizuko/components/runed.html",
 	}},
+	{name: "secrets", files: []string{
+		"SECURITY.md",
+		"template/web/pub/arizuko/concepts/secrets.html",
+	}},
+	{name: "egress", files: []string{
+		"SECURITY.md",
+		"template/web/pub/arizuko/components/egress.html",
+	}},
 }
 
 var (

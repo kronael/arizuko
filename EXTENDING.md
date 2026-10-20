@@ -471,9 +471,16 @@ server's tools per folder with that folder's credential, names them
 call resolves the declared secrets, renders the headers, proxies
 `tools/call`, and scrubs every resolved value out of the result. The loader
 refuses any other table name or transport value, so a misspelt block fails
-routd's boot instead of configuring nothing. Specs: `specs/5/13-ext-mcp.md`
-§ "Shape 2 — MCP HTTP connector", `specs/6/19-unified-tool-declaration.md`;
-operator copies in `template/connectors/`.
+routd's boot instead of configuring nothing. Operator copies live in
+`template/connectors/`.
+
+Boot parses and validates the file and dials nothing, because the
+credential is per folder and boot has no folder. A `url` that is not
+`https://` is refused at load, except `localhost` and `127.0.0.1`: the
+credential rides in a header. Discovery runs per folder with that folder's
+credential. A connector that cannot be reached or authenticated registers no
+tools and logs an error; it never fails the turn, because one unreachable
+third party must not cost the agent every other tool.
 
 ```toml
 [[connector]]
@@ -512,8 +519,7 @@ Namecheap) plugs in as the same `[[connector]]` block with
 `transport = "rest"` and one `[[connector.tool]]` per endpoint.
 `routd/ext.go` `LoadExtProviders` reads the blocks at boot, and each tool
 becomes one REST-backed MCP tool (`ipc/extcall.go` `ExtTool`) that maps a
-tool call to one outbound HTTP request. This is shape 3 of the credential
-model (`specs/5/13-ext-mcp.md`); the MCP connector above is shape 2. The
+tool call to one outbound HTTP request. The
 block below is the first two tools of the shipped
 `routd/extproviders/cloudflare.toml`:
 
@@ -568,8 +574,8 @@ is a different value.
 ## Add an OAuth provider
 
 Where an API needs an OAuth "Connect" dance (the user authorizes arizuko to
-act as them) rather than a static key, add a **surrogate OAuth provider** (spec
-`specs/5/15`). Pure config — no Go, no rebuild:
+act as them) rather than a static key, add a **surrogate OAuth provider**.
+Pure config — no Go, no rebuild:
 
 1. **Drop a descriptor** at `<datadir>/surrogate/<name>.toml` (or edit an
    embedded default by shadowing its name):
@@ -583,6 +589,10 @@ act as them) rather than a static key, add a **surrogate OAuth provider** (spec
    allowed_domain = "slack.com"
    access_type    = ""                   # "offline" for providers that gate refresh_tokens (google)
    ```
+
+   `allowed_domain` is documentation only: no code reads it, so it bounds
+   nothing. The provider's API host still needs its own `network_rules` row
+   for any agent shell that calls it.
 
    `auth_url`, `token_url`, `secret_key` are required — a missing one is a hard
    boot error naming the file. So is two providers sharing a `secret_key`: the
@@ -605,6 +615,17 @@ act as them) rather than a static key, add a **surrogate OAuth provider** (spec
 The token then reads like any other secret — reference `secret_key` from an
 `[[connector]]` block, `transport = "rest"` or `"mcp"` (above), to give agents tools
 backed by the user's OAuth grant. `github` and `google` ship as built-ins.
+Connecting grants nothing: the agent still needs the connector's grant.
+
+Limits of the dance today:
+
+- One row per user and `secret_key`: a second account at one provider
+  replaces the first.
+- Confidential clients only. Every dance carries PKCE and presents the
+  operator's client secret.
+- The broker refreshes only at tool-call time. A provider whose
+  `secret_key` is one of the four model keys reaches the guest at spawn as
+  stored, with no refresh.
 
 ## Adding a chat-SDK page
 

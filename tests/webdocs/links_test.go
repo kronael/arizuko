@@ -240,8 +240,9 @@ func TestWebDocsSpecIDsResolve(t *testing.T) {
 		}
 	}
 	t.Logf("resolved %d prose spec IDs", checked)
-	// 54 today; same reasoning as the path floor above.
-	if checked < 40 {
+	// 36 at the C4 docs fold; the fold moves spec IDs out of the pages, so
+	// the floor follows the count down. Same reasoning as the path floor above.
+	if checked < 30 {
 		t.Fatalf("only %d prose spec IDs found; the extraction is broken", checked)
 	}
 }

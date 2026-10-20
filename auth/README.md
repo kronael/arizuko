@@ -67,6 +67,10 @@ header for rotation):
   containment. `atlas` covers exactly `atlas`, `atlas/*` its direct children,
   `atlas/**` the whole subtree, `**` everything. A parent scope does NOT reach
   a child by position.
+- Web slots: `MatchSlot(allowed, slotPath)` gates `/priv/<path>`. It admits
+  every path below a prefix a scope covers, because slot trees nest on disk:
+  folder `atlas`'s `~/private_html` holds `atlas/search`'s slot. That is
+  filesystem containment for web slots only, never a folder decision.
 - Authorization: `Authorize(store, caller, action, scope, params) bool` —
   deny-wins row grants, no fallback. `EffectiveActions` is the `tools/list`
   visibility view over the same rows, so the listing and the gate agree.
@@ -74,8 +78,8 @@ header for rotation):
   must not). `Delegate` bounds re-delegation to a subset of rows held WITH
   GRANT OPTION. `ShellEnvKeys` answers which `shell:env:<KEY>` secrets a
   folder may take into its shell. `CheckHold` decides whether a call is held
-  for human approval (spec 5/19). `ValidateParams` / `ParamsSpec` /
-  `MatchSlot` are the param-glob half.
+  for human approval (spec 5/19). `ValidateParams` / `ParamsSpec` are
+  the param-glob half.
 - Token verify: `VerifyToken(token, ks)`, `VerifyHTTP(r, ks)`,
   `HasScope(scope, resource, verb)`, `HasScopeCoveredBy`.
 - JWKS: `PublicJWKS(keys…)` (authd's `/v1/keys`); `FetchKeys(ctx, authdURL)`,
