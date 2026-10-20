@@ -20,34 +20,41 @@
         <em>are</em> the agent. The conversation is the console.
       </p>
       <p>
-        Small daemons keep that bounded: <code>routd</code> routes and
-        authorizes, <code>runed</code> runs each turn in a fresh virtual machine,
-        <code>authd</code> issues identity. Those are the hard walls around what
-        language can reshape. Agent content lands as plain files. Routes,
-        grants and secrets are rows on the instance&rsquo;s own store server,
-        and one directory on your server holds both. You change an agent in
-        chat, then read the diff on disk.
+        arizuko is simple on purpose, and the simplicity is the reason it is
+        flexible. An agent is a folder of plain files. A route is a row in
+        the store, the database of the instance, that sends the messages of
+        one chat to one folder. A grant is a row that lets one person or
+        agent do one action. You read a folder as files and a row with the
+        <code>arizuko</code> command.
       </p>
-      <p class="dim">
-        A daemon is a small program that runs in the background all the time.
-        The trailing &ldquo;d&rdquo; is the naming convention.
-      </p>
-      <pre><code># pick a product, make it yours
-arizuko create demo --product slack-team
-$EDITOR /srv/data/arizuko_demo/.env    # paste the tokens the checklist asks for
-# bring up the store server once: setup guide, step 4
-arizuko run demo                       # compose up; @mention the bot in a channel</code></pre>
       <p>
-        <a href="howto/">Setup guide</a> &middot;
-        <a href="products/">all products</a> &middot;
-        <a href="https://github.com/kronael/arizuko">source on GitHub</a> (MIT).
+        Daemons do the work around the folders. A daemon is a program that
+        runs in the background all the time, and its name ends in
+        &ldquo;d&rdquo;. <code>routd</code> decides which folder answers a
+        message. <code>runed</code> runs each turn in its own KVM guest, a
+        small virtual machine that exists for that one turn. A turn is one
+        run of an agent. <code>authd</code> signs identity tokens. One
+        directory on your server holds the folders and the store. You change
+        an agent in chat, then read the result in its files.
+      </p>
+      <p>The short form of an install is three commands:</p>
+      <pre><code>arizuko create demo --product slack-team   # makes /srv/data/arizuko_demo, prints the keys to set
+$EDITOR /srv/data/arizuko_demo/.env         # the keys that create printed
+arizuko run demo                            # starts the instance</code></pre>
+      <p>
+        The <a href="howto/">setup guide</a> adds the build, the store
+        server and the chat connection. See also
+        <a href="products/">all products</a> and the
+        <a href="https://github.com/kronael/arizuko">source on GitHub</a>.
+        arizuko is free under the MIT license.
       </p>
 
-      <h2>start from a product</h2>
+      <h2>a product is an agent you install and own</h2>
       <p>
-        A product is a specialized agent you install and then own: a folder
-        with persona, skills, routes, knowledge. Three of the fifteen in the
-        catalog:
+        A product is a folder of persona, skills, routes and knowledge. The
+        catalog has fifteen products. Eleven install with
+        <code>arizuko create --product</code>, and four describe a setup you
+        build yourself. Three of them:
       </p>
       <div class="grid">
         <div class="card">
@@ -84,172 +91,133 @@ arizuko run demo                       # compose up; @mention the bot in a chann
         different folder contents.
       </p>
 
-      <h2>many agents, one platform</h2>
+      <h2>many agents run side by side</h2>
       <p>
-        Those three aren&rsquo;t three installs. On one instance they&rsquo;re
-        three folders in one tree, and that&rsquo;s the bet: an agent does
-        its job well when it&rsquo;s specialized. A focused persona with a
-        tight set of skills holds intent. A do-everything assistant drifts.
-        The platform&rsquo;s work is making specialization cheap and
-        coexistence safe.
+        Those three are three folders in one instance, not three installs.
+        The design bet is that a focused persona with a small set of skills
+        stays on task, and a do-everything assistant drifts. arizuko makes
+        many focused agents cheap to run and safe to run together.
       </p>
       <ul>
         <li><strong>Isolation that keeps memory.</strong> Each folder has its
-          own persona, memory and secrets, and every turn runs in a fresh
-          KVM guest. Outbound traffic leaves through that guest&rsquo;s own
-          <a href="components/egress.html">egress</a> proxy, which reaches the
-          host names the folder allowed and nothing else. The guest&rsquo;s one
-          network interface drops every packet that tries to skip the proxy.
-          A support agent can face strangers on a public channel and still
-          remember its own history, because another folder&rsquo;s home is
-          never shared into its guest.</li>
-        <li><strong>Agents hand work along the tree.</strong> Each
-          department shapes its own agent. An agent delegates down to a
-          child, escalates up to its parent, and can subscribe to another
-          folder&rsquo;s inbound where grants allow. Every link is explicit
-          and permission-checked &mdash; not a free-for-all mesh.</li>
+          own persona, memory and secrets. Every turn runs in a fresh KVM
+          guest. Outbound traffic leaves through the
+          <a href="components/egress.html">egress proxy</a> of that guest,
+          a gate that opens only the host names the folder allows. The
+          network interface of the guest drops every packet that skips the
+          proxy. A support agent can face strangers on a public channel and
+          keep its own history. A normal turn never receives the home folder
+          of another agent.</li>
+        <li><strong>Agents hand work along the tree.</strong> A folder path
+          such as <code>corp/eng/sre</code> is the org chart. An agent hands
+          a prompt down to a child folder or up to its parent folder, and
+          every link needs a grant.</li>
         <li><strong>People move between agents.</strong> Send
-          <code>@acme/sales</code> on its own and the chat is pinned to the
-          sales agent, for everyone in it. A bare <code>@</code> takes it
-          back. Change agents without changing the app you chat in.</li>
+          <code>@acme/sales</code> on its own, and the whole chat goes to the
+          sales agent. A bare <code>@</code> sends it back. You change
+          agents without changing the app you chat in.</li>
       </ul>
 
-      <h2>trace one event</h2>
+      <h2>every event takes the same six steps</h2>
       <p>
-        The feature list looks like sprawl &mdash; channels, topics, tasks,
-        webhooks, secrets, delegation. Trace one event top to bottom and it
-        isn&rsquo;t: when an event fires a turn, it&rsquo;s these six steps,
-        every time.
+        A Slack mention in #eng, a scheduled task, a webhook and an email all
+        take these steps in this order. The Slack mention ends as a reply in
+        the Slack thread.
       </p>
-      <pre><code>Slack @mention in #eng
-  &rarr; Event          one inbox row
-  &rarr; Routing        &rarr; corp/eng/oncall
-  &rarr; Agent          folder loaded: persona, skills, memory
-  &rarr; Authorization  may it read / send / delegate here?
-  &rarr; Turn           one guest boots, answers, powers off
-  &rarr; State          rows written, files edited
-  &rarr; reply in the Slack thread</code></pre>
+      <ol>
+        <li><strong>Event.</strong> Anything that happens becomes one row in
+          the inbox: a chat message, a call from another service, a clock
+          tick.</li>
+        <li><strong>Routing.</strong> The route table maps the event to the
+          folder that answers. The first matching route wins.</li>
+        <li><strong>Agent.</strong> The folder loads its persona, skills and
+          memory.</li>
+        <li><strong>Authorization.</strong> One question decides: may this
+          person or agent do this action here? A grant row answers it.</li>
+        <li><strong>Turn.</strong> A fresh KVM guest runs the agent once and
+          powers off. The guest sees only the files shared into it and
+          reaches only the hosts its proxy allows.</li>
+        <li><strong>State.</strong> The store keeps the rows, and the folder
+          keeps the files.</li>
+      </ol>
       <p>
-        A scheduled task is the same six steps &mdash; the event is a clock
-        tick. A webhook is the same six steps &mdash; the event is a POST.
-        An email, a WebDAV file drop, a reaction: rows in the same inbox,
-        through the same pipeline. Some events stop earlier on purpose: an
-        observe route files the message and ends there. Nothing is a
-        special case, so the parts don&rsquo;t multiply.
-      </p>
-
-      <h2>the six primitives</h2>
-      <p>Each step is one primitive with one job:</p>
-      <ul>
-        <li><strong>Event</strong> &mdash; anything that happens becomes one
-          row in the inbox table. A chat message, a webhook POST, a tick.</li>
-        <li><strong>Routing</strong> &mdash; maps the event to the folder
-          that reacts. A route table, first match wins, with layered
-          overrides: direct address, engagement, sticky topics.</li>
-        <li><strong>Agent</strong> &mdash; a folder of files: persona,
-          skills, memory, permissions. The org chart is the folder tree
-          (<code>corp/eng/sre</code>).</li>
-        <li><strong>Authorization</strong> &mdash; one question: may this
-          principal do this action here?</li>
-        <li><strong>Turn</strong> &mdash; a fresh virtual machine runs the
-          agent once, then powers off. Platform actions are permission-checked
-          tool calls. File reach is what was shared in, and network reach is
-          what the guest&rsquo;s own egress proxy allows.</li>
-        <li><strong>State</strong> &mdash; two durable stores, by design:
-          the tables and the agent&rsquo;s folder on disk.</li>
-      </ul>
-      <p>
-        Identity is the coordinate system the six are addressed in:
-        folders, JIDs, roles, scopes. The primitives aren&rsquo;t
-        independent. They&rsquo;re layered on purpose, and the claim that
-        holds is smaller: one job each, fixed pipeline, no special cases.
-        <a href="concepts/primitives.html">The six primitives, in full &rarr;</a>
-      </p>
-
-      <h2>the stack</h2>
-      <p>Those primitives stack into what you deploy and what you ship:</p>
-      <table>
-        <tr><th>Layer</th><th>What it is</th><th>Examples</th></tr>
-        <tr><td>Primitives</td><td>the concepts</td><td>Event, Routing, Agent, Authorization, Turn, State</td></tr>
-        <tr><td>Components</td><td>Go packages</td><td><code>store</code>, <code>router</code>, <code>auth</code>, <code>runed</code></td></tr>
-        <tr><td>Daemons</td><td>running processes</td><td><code>authd</code> + <code>routd</code> + <code>runed</code>; <code>webd</code>, <code>timed</code>, <code>slakd</code></td></tr>
-        <tr><td>Products</td><td>agents you install</td><td>Slack team agent, repo worker, company brain</td></tr>
-      </table>
-      <p>
-        A product sits at the bottom: the same pipeline, a different folder.
-        A support agent and a personal life agent run the same code &mdash;
-        the difference is what&rsquo;s in the folder, not the machinery
-        underneath.
+        An observe route stores the message and fires no turn.
+        <a href="concepts/primitives.html">The six steps in full &rarr;</a>
       </p>
 
       <h2>you own the files</h2>
       <p>An instance is one directory. Everything the system is lives in it:</p>
       <pre><code>/srv/data/arizuko_demo/
 &#9500;&#9472;&#9472; .env                 tokens and config
-&#9500;&#9472;&#9472; store/               every row, on the instance&rsquo;s own store server
+&#9500;&#9472;&#9472; store/               every row, on the store server of the instance
 &#9474;   &#9500;&#9472;&#9472; extenddb/        the server&rsquo;s config and certificate
 &#9474;   &#9492;&#9472;&#9472; extenddb_db/     its PostgreSQL data
 &#9500;&#9472;&#9472; groups/
 &#9474;   &#9500;&#9472;&#9472; main/            one agent
 &#9474;   &#9474;   &#9500;&#9472;&#9472; PERSONA.md   who it is
 &#9474;   &#9474;   &#9500;&#9472;&#9472; CLAUDE.md    how it operates
-&#9474;   &#9474;   &#9500;&#9472;&#9472; skills/      what it can do
+&#9474;   &#9474;   &#9500;&#9472;&#9472; .claude/skills/  what it can do
 &#9474;   &#9474;   &#9500;&#9472;&#9472; facts/       what it has learned
-&#9474;   &#9474;   &#9500;&#9472;&#9472; diary/       what happened, dated
-&#9474;   &#9474;   &#9492;&#9472;&#9472; public_html/ what it publishes at /pub/main/
-&#9474;   &#9492;&#9472;&#9472; ops/             a second agent &mdash; same shape, its own memory
-&#9492;&#9472;&#9472; web/pub/             the public site &mdash; these docs included</code></pre>
+&#9474;   &#9474;   &#9492;&#9472;&#9472; diary/       what happened, dated
+&#9474;   &#9492;&#9472;&#9472; ops/             a second agent, same shape, its own memory
+&#9492;&#9472;&#9472; web/pub/             public pages, one folder per agent, and these docs</code></pre>
       <p>
-        Change the persona by editing a file and the next turn picks it up.
-        Stop the instance, and one <code>tar</code> of the directory is a
-        complete backup: every row, memory, secrets, the site. Want history?
-        It&rsquo;s plain files. Put <code>groups/</code> under git yourself
-        and review the agent&rsquo;s changes as commits. The agent image
-        ships git and a commit skill, and the platform doesn&rsquo;t version
-        the folder for you. The files need no export step. They&rsquo;re
-        already yours, on your disk.
+        Edit the persona file, and the next turn uses it. Stop the instance,
+        and one <code>tar</code> of the directory is a complete backup: every
+        row, every memory, the secrets and the site. The platform does not
+        version the folders. Put <code>groups/</code> under git yourself, and
+        each change the agent makes shows as a diff, the list of lines that
+        changed. The agent image ships git and a commit skill.
       </p>
 
-      <h2>honest constraints</h2>
+      <h2>what arizuko needs and what it does not do</h2>
       <ul>
-        <li><strong>Linux, Docker and KVM.</strong> One host: the daemons are
-          compose services, and a turn is a KVM guest, so the box needs
-          <code>/dev/kvm</code>. No Kubernetes, no Redis. Every daemon&rsquo;s
-          tables live on one store server, and its data sits inside this
-          directory like everything else.</li>
-        <li><strong>Self-hosted only.</strong> There&rsquo;s no managed
-          control plane. That&rsquo;s the feature, not an oversight.</li>
-        <li><strong>The split is the topology.</strong> A minimal deploy is
-          the store server, the three core daemons (<code>authd</code>,
-          <code>routd</code>, <code>runed</code>), <code>timed</code> and one
-          channel adapter. The web layer (<code>proxyd</code>,
-          <code>webd</code>, <code>vited</code>, <code>dashd</code>) comes up
-          when you set <code>WEB_PORT</code>, and <code>onbod</code> when you
-          turn onboarding on.</li>
-        <li><strong>Egress is not a switch.</strong> runed starts one
-          <a href="components/egress.html"><code>egress</code></a> proxy per
-          turn and refuses to start without the binary. The guest has no
-          resolver, and its tap drops every packet not addressed to that
-          proxy, so a compromised turn can only call the hosts you already
-          allowlisted.</li>
-        <li><strong>MCP and REST from one handler.</strong> Every platform
-          action is an MCP tool call. Every management resource also answers
-          on REST at <code>/v1/&lt;name&gt;</code>, from the same handler.
-          Only the verbs an agent uses inside a turn, <code>reply</code> and
-          <code>send</code>, stay MCP-only.</li>
-        <li><strong>Connectors, with the credential kept back.</strong> One
-          TOML block gives an agent somebody else&rsquo;s API as a tool. The
-          call goes out from the host, the secret is filled in on the way,
-          and no token ever enters the guest &mdash;
-          <a href="concepts/ext-mcp.html">connectors</a>.</li>
-        <li><strong>Sized for agent teams.</strong> Dozens of messages a
-          day per group, not consumer-scale traffic.</li>
+        <li><strong>One Linux host with Docker and KVM.</strong> The daemons
+          run as Docker Compose services, and each turn is a KVM guest, so
+          the host needs <code>/dev/kvm</code>. Compose on one host is the
+          tested path. A Helm chart for Kubernetes exists, and no cluster has
+          run it.</li>
+        <li><strong>You pay for the host and the model.</strong> arizuko is
+          free software. The model provider bills the key you supply. The
+          default network allowlist opens <code>anthropic.com</code> and
+          <code>api.anthropic.com</code>.</li>
+        <li><strong>Self-hosted only.</strong> arizuko has no managed control
+          plane and no hosted service.</li>
+        <li><strong>Sized for agent teams.</strong> arizuko serves teams of
+          agents behind chat channels, not consumer traffic.</li>
+        <li><strong>Not a search system.</strong> arizuko has no document
+          connectors, no vector index and no routing across model providers.
+          The agent runtime is Claude Code.</li>
+        <li><strong>The parts a deploy needs.</strong> The store server runs
+          ExtendDB over PostgreSQL. A daemon without a store key exits, and
+          <code>runed</code> does not start without <code>/dev/kvm</code>. A
+          minimal deploy is the store server, <code>authd</code>,
+          <code>routd</code>, <code>runed</code>, <code>timed</code> and one
+          channel adapter. The web daemons start when you set
+          <code>WEB_PORT</code>, and <code>onbod</code> starts when you turn
+          onboarding on.</li>
+        <li><strong>Egress is not a switch.</strong> <code>runed</code>
+          starts one <a href="components/egress.html">egress proxy</a> per
+          turn and refuses to start without the proxy binary. The guest has
+          no DNS resolver, so a compromised turn can call only the hosts you
+          allowed.</li>
+        <li><strong>Two faces, one handler.</strong> An agent calls platform
+          actions as MCP tools, the Model Context Protocol for agent tools. A
+          person or script calls the same actions as REST, ordinary web
+          requests at <code>/v1/&lt;name&gt;</code>. Actions that only an agent
+          uses in a turn, such as <code>reply</code> and <code>send</code>,
+          exist as MCP alone.</li>
+        <li><strong>Connectors keep the credential on the host.</strong> One
+          TOML block gives an agent the API of another service as a tool. The
+          call leaves from the host, the host adds the secret, and the
+          secret never enters the guest.
+          <a href="concepts/ext-mcp.html">Connectors</a> has the detail.</li>
       </ul>
 
       <h2>go deeper</h2>
       <ul>
         <li><a href="concepts/">concepts</a> &mdash; the guided tour; start
-          with <a href="concepts/primitives.html">the six primitives</a>.</li>
+          with <a href="concepts/primitives.html">the six steps</a>.</li>
         <li><a href="products/">products</a> &mdash; all fifteen, an intro
           and a setup page each.</li>
         <li><a href="components/">components</a> &mdash; one page per
@@ -269,16 +237,16 @@ arizuko run demo                       # compose up; @mention the bot in a chann
           operator&rsquo;s side of it.</li>
         <li><a href="strategy/">strategy</a> &mdash; positioning and direction.</li>
         <li><a href="research/">research</a> &mdash; longer write-ups.</li>
-        <li>Threat model:
-          <a href="https://github.com/kronael/arizuko/blob/main/SECURITY.md">SECURITY.md</a>;
-          routing rules:
+        <li>Repository files:
+          <a href="https://github.com/kronael/arizuko/blob/main/SECURITY.md">SECURITY.md</a>
+          and
           <a href="https://github.com/kronael/arizuko/blob/main/ROUTING.md">ROUTING.md</a>.</li>
       </ul>
 
       <p class="dim">
         MIT &middot; Go, Docker and KVM.
       </p>
-      <p class="docs-footer">updated <time class="docs-updated" datetime="2026-10-15">2026-10-15</time></p>
+      <p class="docs-footer">updated <time class="docs-updated" datetime="2026-10-16">2026-10-16</time></p>
     </div>
     <button class="theme-toggle">&#127769;</button>
     <script src="assets/hub.js"></script>

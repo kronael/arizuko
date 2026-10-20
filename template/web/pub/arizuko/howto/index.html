@@ -48,21 +48,23 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; how-to</p>
       <h1>getting started</h1>
 
-    <p class="lede">This guide takes a new host to a running instance with one channel and one invited user. One block of commands does the install. The sections after the block explain each part.</p>
+    <p class="lede">This guide takes a new host to a running instance with one channel and one invited user. One block of commands does the install. The sections after the block explain each part. The section <a href="#terms">Eight terms recur in these guides</a> defines group, agent, turn, channel, skill, grant, JID and route token.</p>
 
-    <h2>The host needs KVM, Docker and Go</h2>
+    <h2>The host needs KVM, Docker, Go and enough memory</h2>
     <ul>
-      <li>A Linux host where you can use <code>sudo</code>. The tests run on Debian 12.</li>
-      <li>Docker with the <code>docker compose</code> plugin. The daemons run as containers.</li>
-      <li>Hardware virtualization, with <code>/dev/kvm</code> available. Each turn is one KVM guest that <code>runed</code> starts with <code>qemu-system-x86_64</code>. Without <code>/dev/kvm</code>, <code>runed</code> does not start.</li>
-      <li>Go 1.27, to build the <code>arizuko</code> CLI and the daemons.</li>
-      <li>Free disk under <code>/srv/data/</code> for the guest rootfs. One rootfs tree is about 8.3 GB, and a host keeps at least two.</li>
-      <li>A public domain and TLS, only for web chat, OAuth login or inbound webhooks. A local instance needs neither.</li>
+      <li>A Linux x86_64 host where you can use <code>sudo</code>. The tests run on Debian 12.</li>
+      <li>Docker with Compose v2.20 or newer. The daemons, the background programs of arizuko, run as Docker containers.</li>
+      <li>Hardware virtualization, with <code>/dev/kvm</code>, <code>/dev/vhost-vsock</code> and <code>/dev/net/tun</code> available. <code>runed</code> is the daemon that runs turns. It starts each turn as a KVM guest, a small virtual machine, with <code>qemu-system-x86_64</code>. Without <code>/dev/kvm</code>, <code>runed</code> does not start.</li>
+      <li>Memory for the guests. <code>RUNED_GUEST_MEM</code> times <code>MAX_CONCURRENT_CONTAINERS</code> must not exceed the memory of the host, or <code>runed</code> does not start. The defaults are 2 GiB and 5 guests, so they need 10 GiB.</li>
+      <li>Go 1.21 or newer, to build the <code>arizuko</code> command and the daemons. Go fetches the pinned 1.27 toolchain on the first build when the host can reach go.dev.</li>
+      <li>Free disk under <code>/srv/data/</code> for the guest rootfs, the root filesystem of a guest. One rootfs tree is about 8.3 GB, and <code>make images</code> keeps two.</li>
+      <li>A key for the model provider, for example an Anthropic API key, and a token for one chat platform. arizuko is free. The model provider bills the usage.</li>
+      <li>A public domain and a TLS certificate for HTTPS, only for web chat, OAuth login or inbound webhooks. A local instance needs neither.</li>
       <li>No open ports by default. The channel adapters use the docker network. Only when <code>WEB_PORT</code> is set does <code>proxyd</code> publish that port on the host.</li>
     </ul>
 
     <h2 id="install">One block of commands installs an instance</h2>
-    <p>Clone the repository. The daemon images, the guest kernel and the agent rootfs build from it. Nothing mounts the checkout at run time, because the image contains <code>ant/</code>. <code>make images</code> and <code>make kernel</code> need <code>sudo</code>. <code>./arizuko</code> runs as you.</p>
+    <p>Clone the repository. The daemon images, the guest kernel and the agent rootfs build from it. Nothing mounts the checkout at run time, because the image contains the agent code from <code>ant/</code>. <code>make images</code> and <code>make kernel</code> need <code>sudo</code>. <code>./arizuko</code> runs as you.</p>
     <pre id="twin-install"><code>git clone https://github.com/kronael/arizuko &amp;&amp; cd arizuko
 make build                                        # ./arizuko + daemon binaries
 sudo make images DATA_DIR=/srv/data/arizuko_demo  # daemon images + the guest rootfs
@@ -92,6 +94,7 @@ cd -
 ./arizuko packages demo add teled                 # one channel adapter
 ./arizuko group demo add telegram:group/123456789 main
 ./arizuko run demo                                # generate compose, docker compose up</code></pre>
+    <p>The commands from <code>packages demo add extenddb</code> to the <code>DYNAMODB_URL</code> line set up the store server, the database that holds every row. The command <code>packages demo add teled</code> adds the Telegram adapter. The command <code>group demo add telegram:group/123456789 main</code> sends the messages of one Telegram chat to the folder <code>main</code>. The text <code>telegram:group/123456789</code> is the address of that chat, called a JID. Replace the number with the id of your chat.</p>
     <p><code>go install github.com/kronael/arizuko/cmd/arizuko@latest</code> installs only the CLI. A full deploy still needs the repository for the images.</p>
     <p><code>make images</code> is the longest step, several minutes on the first run. It builds the daemon images and <code>arizuko-ant:latest</code>, the agent image. Then it exports the guest rootfs into <code>DATA_DIR</code>. <code>make kernel</code> builds the guest kernel once. Without <code>DATA_DIR</code>, <code>make kernel</code> does not start, and <code>make images</code> builds every image and then fails at the rootfs export. <code>arizuko run</code> writes a Docker Compose file and starts the stack. Docker Compose is the deploy path. For Kubernetes, read <a href="kubernetes.html">Kubernetes</a>.</p>
 
@@ -101,11 +104,11 @@ cd -
       <dt><code>.env</code></dt>
       <dd>The instance configuration, with a new <code>AUTH_SECRET</code> and <code>SECRETS_KEY</code>. The file mode is <code>0600</code>. Add API keys here later.</dd>
       <dt><code>store/</code></dt>
-      <dd>Empty until the store server runs. Then it holds the server configuration and certificate under <code>store/extenddb/</code> and the PostgreSQL data under <code>store/extenddb_db/</code>. One copy of the data directory therefore holds every row. Each daemon writes its own rows at its first start: <code>routd</code> writes the ACL floor, the egress floor and the default group <code>main</code>.</dd>
+      <dd>Empty until the store server runs. Then it holds the server configuration and certificate under <code>store/extenddb/</code> and the PostgreSQL data under <code>store/extenddb_db/</code>. One copy of the data directory therefore holds every row. Each daemon writes its own rows at its first start: <code>routd</code> writes the starting grants, the starting list of allowed hosts and the default group <code>main</code>.</dd>
       <dt><code>groups/main/</code></dt>
       <dd>The home of the first agent, with <code>.claude/</code> and <code>logs/</code>. A product adds its files here, for example <code>PERSONA.md</code> and <code>facts/</code>.</dd>
       <dt><code>web/pub/main/</code> and <code>web/priv/main/</code></dt>
-      <dd>The public and the private web folder of the group. The agent sees them as <code>~/public_html</code> and <code>~/private_html</code>.</dd>
+      <dd>The public and the private web folder of the group. A group with the <code>web:publish</code> grant sees them as <code>~/public_html</code> and <code>~/private_html</code>.</dd>
       <dt><code>services/</code> and <code>surrogate/</code></dt>
       <dd>The installed compose fragments and your own OAuth provider files.</dd>
     </dl>
@@ -118,7 +121,7 @@ cd -
     <h2>arizuko run starts the stack in the foreground</h2>
     <p><code>arizuko run</code> writes <code>docker-compose.yml</code> from the instance state and runs <code>docker compose up</code> in the foreground. <code>extenddb</code>, <code>authd</code>, <code>routd</code>, <code>runed</code> and <code>timed</code> start. <code>onbod</code> starts when <code>ONBOARDING_ENABLED=true</code>, and the web layer starts when <code>WEB_PORT</code> is set. In a second shell, check the status:</p>
     <pre><code>./arizuko status demo</code></pre>
-    <p>For production, run the instance as the systemd service <code>arizuko_demo</code>. The logs are then in <code>journalctl -u arizuko_demo</code>. The docker log driver is <code>none</code>, so <code>docker logs</code> shows nothing.</p>
+    <p>For production, run the instance as the systemd service <code>arizuko_demo</code>. <a href="https://github.com/kronael/arizuko/blob/main/INSTALL.md">[INSTALL.md]</a> &sect; systemd keeps the instance running has the unit file. The logs are then in <code>journalctl -u arizuko_demo</code>. When the Docker log driver is <code>none</code>, <code>docker logs</code> shows nothing, so read the journal.</p>
 
     <h2>A channel adapter brings messages in</h2>
     <p>An instance without a channel adapter receives no messages. Pick one platform to start. Each guide shows the app or bot setup on the platform, the variables for <code>.env</code>, and the <code>arizuko group add</code> command that connects a chat to a folder.</p>
@@ -130,9 +133,9 @@ cd -
     <p>The repository has adapters for Telegram, WhatsApp, Slack, Discord, Bluesky, Reddit, email, X and LinkedIn. Their setup has the same shape. Read the <code>README.md</code> in the directory of each daemon, for example <code>teled/</code> or <code>whapd/</code>.</p>
 
     <h2>An invite link gives a user a folder</h2>
-    <p>Make a one-time invite link. The target glob sets the folders that the new user gets. <code>main/**</code> means the <code>main</code> group and every group under it.</p>
+    <p>Make a one-time invite link. The target glob, a pattern with wildcards, sets the folders that the new user gets. <code>main/**</code> means the <code>main</code> group and every group under it.</p>
     <pre><code>./arizuko invite demo create 'main/**' --max-uses 1 --expires 24h</code></pre>
-    <p>The command prints a token. Send <code>https://&lt;your-host&gt;/invite/&lt;token&gt;</code> to the user. The user signs in with one of the OAuth providers and confirms on the next page. <code>onbod</code> then grants the user the admin role on the target folder. <code>arizuko invite demo list</code> shows the invites with a reference for each. <code>arizuko invite demo revoke &lt;ref&gt;</code> cancels one. The invite path needs <code>ONBOARDING_ENABLED=true</code>.</p>
+    <p>The command prints a token. Send <code>https://&lt;your-host&gt;/invite/&lt;token&gt;</code> to the user. The user signs in with an OAuth provider, such as GitHub or Google, and confirms on the next page. <code>onbod</code> then grants the user the admin role on the target folder. <code>arizuko invite demo list</code> shows the invites with a reference for each. <code>arizuko invite demo revoke &lt;ref&gt;</code> cancels one. The invite path needs <code>ONBOARDING_ENABLED=true</code> and a set <code>WEB_PORT</code>, because the link opens in a browser through <code>proxyd</code>.</p>
 
     <h2>Two checks show that the agent answers</h2>
     <p>From the host, send a message and wait for the reply:</p>
@@ -152,24 +155,30 @@ cd -
     </dl>
     <p><a href="operate.html">Operate</a> lists each incident with its log line, its cause and its fix.</p>
 
-    <h2>One manifest and the group folders back up an instance</h2>
-    <p>The configuration of an instance is data. Export it to one YAML manifest, keep the manifest in git, and apply it again to rebuild the instance on this host or on another host.</p>
+    <h2>A manifest backs up the configuration and an archive backs up everything</h2>
+    <p>The configuration of an instance is data. Export it to one YAML manifest, keep the manifest in git, and apply it again to rebuild the configuration on this host or on another host.</p>
     <pre><code>arizuko export demo &gt; demo.yaml   # groups, routes, grants, ACL, web routes, schedules
 git add demo.yaml &amp;&amp; git commit -m "demo config"
 arizuko plan demo demo.yaml         # dry run: what would change
 arizuko apply demo demo.yaml        # apply the manifest</code></pre>
-    <p>The export and the import give the same configuration. If you apply a manifest to an empty store and export again, you get the same manifest. <code>resreg/engine_test.go</code> tests this. The files of an agent are plain files under <code>groups/&lt;folder&gt;/</code>: the persona, the memory, the skills and the diary. Back them up with <code>git</code> or a file copy. The manifest and the group folder together are the whole agent.</p>
+    <p>If you apply a manifest to an empty store and export again, you get the same manifest. <code>resreg/engine_test.go</code> tests this. The manifest leaves out secret values, route tokens, invites, message history and the files of the agents. <code>arizuko archive export demo</code> writes one tar that holds all of them. The files of an agent are plain files under <code>groups/&lt;folder&gt;/</code>: the persona, the memory, the skills and the diary.</p>
 
-    <h2>Five terms appear on every page</h2>
+    <h2 id="terms">Eight terms recur in these guides</h2>
     <dl>
       <dt>group</dt>
       <dd>A workspace with files, a diary, skills and one agent. Its folder name is, for example, <code>main</code> or <code>corp/eng/sre</code>.</dd>
       <dt>agent</dt>
       <dd>The Claude Code process of a group. It runs in its own KVM guest, one guest for each turn. The guest starts on demand and stops when the turn ends.</dd>
+      <dt>turn</dt>
+      <dd>One run of an agent. A KVM guest starts, answers the new messages, and powers off.</dd>
       <dt>channel</dt>
       <dd>The place where messages come in and go out: Slack, Discord, Telegram, web or email. Each adapter is a separate daemon.</dd>
       <dt>skill</dt>
       <dd>A Markdown file under <code>groups/&lt;folder&gt;/.claude/skills/</code> that the agent loads at start. One skill gives one capability.</dd>
+      <dt>grant</dt>
+      <dd>A row that lets one person or agent do one action on a set of folders. Read <a href="../concepts/grants.html">grants</a>.</dd>
+      <dt>JID</dt>
+      <dd>The address of a chat, for example <code>telegram:group/123456789</code>. The part before <code>:</code> names the platform.</dd>
       <dt>route token</dt>
       <dd>A credential in a URL that points to a group. <code>/chat/&lt;token&gt;/</code> opens the guest chat page. <code>/hook/&lt;token&gt;</code> accepts webhooks. <code>/slink/&lt;token&gt;</code> answers with a 308 redirect to <code>/chat/&lt;token&gt;/</code>. Read <a href="../concepts/tokens.html">route tokens</a>.</dd>
     </dl>
