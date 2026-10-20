@@ -72,7 +72,7 @@ pub/arizuko/
   concepts/       EXPLANATION — guided walkthrough, curriculum-ordered (spec
                   5/D); the narrative twin of a reference noun
   reference/      LOOKUP — env vars, CLI, MCP tools, store tables, grants,
-                  JIDs, OpenAPI, packages, route tokens, topics, stats
+                  JIDs, OpenAPI, packages, route tokens, topics
   howto/          guided procedures, product-branded
   security/       threat model and the operator's side of it
   strategy/       positioning and direction
@@ -310,6 +310,44 @@ cue, not a painted block.
 No framework, no build tooling. Edit HTML directly. Test with any
 static file server or by deploying to a running instance (`/pub/`).
 
+### Reference-page rhythm
+
+A `reference/` page follows one rhythm: H1, a one-sentence lede, the
+definition, usage, examples, troubleshooting, then the pager and the footer.
+A catalogue page (`cli`, `env`, `mcp`, `schema`, `openapi`) groups its items
+as H3 under H2s by concern. A leaf page (`grants`, `jid`, `tokens`, `topics`)
+follows the rhythm literally.
+
+- One captioned code block per shape. Never a tab widget.
+- Type, default and "required" go into the definition prose. A table earns its
+  place only when it compares items.
+- 3 to 6 H2 on a page, H3 only where an item is named, no H4.
+- A version difference is an inline sentence ("Available since v0.45.4"),
+  never a version banner.
+
+Do not adopt these from other doc sites: Docusaurus, React or the dbt look; a
+version selector, because the site has one current version and the footer
+stamp tells the reader how old a page is; a tabbed code widget; reading-time
+or feedback widgets; a hosted search index.
+
+### Two footers and no search index
+
+`injectFooter()` in `hub.js` writes the site-wide footer with the version
+stamp. The page writes its own `.docs-footer`: the edit link and
+`<time class="docs-updated">`, as in §"The shell a page copies".
+
+The `stamp-docs` hook in `.pre-commit-config.yaml` runs `stamp-docs.py` on
+every staged page. The script writes the date of the file's last commit into
+that `<time>`. The hook runs before the new commit exists, so the date is the
+one of the page's previous commit. When the hook rewrites a page, the commit
+fails: stage the page again and commit again. Without git metadata the script
+keeps the existing stamp and never blanks it.
+
+The reader finds things through the arizuko agent on krons, not through a
+search index. `injectAskAgent()` and `injectSelectionPopup()` open a chat with
+that agent, and the top-bar search box that `fillTopbar()` adds sends its
+query to the same chat. A page never adds a search widget of its own.
+
 ## Maintenance — keep docs current (same-commit rule)
 
 Docs are part of a change, not a later chore. **When you change a
@@ -362,7 +400,7 @@ skipped anyway — six shipped products had no page and four pages had no tree
 ## concepts/ ↔ reference split (spec 5/D)
 
 `concepts/` is NOT dissolved — it is the Explanation **walkthrough**
-(curriculum-ordered, spec 5/D). The ownership rule:
+(curriculum-ordered, §"Maintenance" Discipline). The ownership rule:
 
 - A noun needing both narrative and exhaustive surface (grants, jid,
   tokens, topics) keeps BOTH: `concepts/<x>.html` (narrative, in the
@@ -376,8 +414,7 @@ Real top-level moves (only these): `crackbox/` → `components/crackbox.html`;
 
 ## Current state
 
-`pub/arizuko/` holds 123 files. The counts move, so read the tree rather than
-a number here: `find template/web/pub/arizuko -type f | wc -l` against
+The file count moves, so read the tree rather than a number here: `find template/web/pub/arizuko -type f | wc -l` against
 `find <data-dir>/web/pub/arizuko -type f | wc -l` tells you whether live and
 source agree, and `comm -13` on the two sorted lists names anything live is
 carrying that source does not.
