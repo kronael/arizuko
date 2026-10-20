@@ -68,7 +68,6 @@ var twins = []twin{
 	}},
 	{name: "twofaces", files: []string{
 		"resreg/README.md",
-		"ARCHITECTURE.md",
 		"template/web/pub/arizuko/reference/openapi.html",
 	}},
 	{name: "proxyd", files: []string{

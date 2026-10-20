@@ -221,7 +221,7 @@ chromium and `agent-browser` for the web, `ffmpeg` and `yt-dlp` for media,
 `gh`, `git`, `jq`, `ripgrep`, `imagemagick`, `pandoc` and the build
 toolchains. Read it there; a second list in prose drifts. Media the platform
 receives is transcribed before the turn starts, by routd rather than by the
-agent: `ARCHITECTURE.md` § "Inbound Media Pipeline".
+agent: `chanlib/README.md` § Media: the transcript is appended and kept.
 
 ## Layout
 

@@ -139,9 +139,9 @@ Pre-commit hooks configured via `.pre-commit-config.yaml`.
 - **INSTALL.md** — prerequisites, blocker fixes, `.env`, adapter tokens,
   troubleshooting (the "healthchecks green but no reply" checklist). Start
   here when helping a user install arizuko.
-- **ARCHITECTURE.md** — package graph, message flow, SQLite schema, core vs
-  integrations, data dir + container mount layout, observability, design
-  principles.
+- **ARCHITECTURE.md** — repository map + layer rule, the three planes, data
+  ownership, message flow, daemon conventions, the "Decided, and why" table,
+  and where every other concern lives.
 - **SECURITY.md** — threat model, egress, secrets, identity header trust
   (`proxyd` is the sole `X-User-*` stamper; backends trust the headers only
   behind its `service:proxyd` bearer).
@@ -182,7 +182,7 @@ Never derive the advertised set by probing paths (`resreg/README.md`).
 Every daemon calls `defer obs.Setup("name", instance)()` at the top of
 `main()`; with `OTEL_EXPORTER_OTLP_ENDPOINT` unset that is zero overhead.
 `audit_log` stays SQLite-canonical; OTLP is observability only. Wiring
-rules: `obs/README.md`; model: `ARCHITECTURE.md` §Observability.
+rules and model: `obs/README.md`.
 
 ## Bug triage: record AND fix
 

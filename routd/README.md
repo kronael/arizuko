@@ -110,6 +110,12 @@ half keeps these rules.
   always dead-letters (`ipc/ipc.go` `recordOutboundFailure`).
 - **Delivery dedup** is the adapter's: `chanlib/README.md` § Delivery is
   claimed before the platform call.
+- **A row names its source and its writer.** `messages.source` is the adapter
+  of record that ingest carries, and an outbound reply reads it back with
+  `LatestSource(jid)`, so a reply leaves through the bot that received the
+  message. A turn's prose reply and its progress row take an `out-<hex>` id
+  (`turns.go` `outboundRow`); an MCP send takes `mcp-<unix nanos>`
+  (`core.MsgID`). Inbound polling filters bot rows.
 - **A proactive turn starts from a synthetic row.** The scanner
   (`proactive.go`) appends an inbound row with sender `timed-proactive`
   (`store.ProactiveSelfSender`). That row never resets the chat's silence

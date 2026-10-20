@@ -72,4 +72,4 @@ substrate. `runed/README.md` §"The turn envelope" holds both tables.
 
 ## Related docs
 
-- `ARCHITECTURE.md` (Guest Lifecycle, Mount Security)
+- `runed/README.md` § The turn envelope and § Mounts

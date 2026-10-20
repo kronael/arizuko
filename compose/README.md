@@ -72,6 +72,16 @@ All Go daemons listen on `:8080` inside the container, except `ttsd` at
 `:8880`. The third-party images keep their own ports: kokoro `:8880`,
 litellm `:4000`.
 
+## A daemon mounts only what it opens
+
+A daemon mounts only the data-dir subpaths it opens
+(`compose_test.go` `wantDataMounts`), because the whole tree holds every
+owner's files and every live MCP socket under `ipc/`. routd and runed take the
+whole tree: routd reads `connectors.toml`, `surrogate/*.toml` and `tts/` from
+the root and writes `audit-*.jl` there, and runed drives the spawn path. dashd
+mounts `groups/` and `surrogate/`, onbod `groups/` and `web/`. authd, webd and
+proxyd mount nothing.
+
 ## The compose-managed .env block
 
 `Generate` rewrites one block in `<dataDir>/.env` and leaves the operator

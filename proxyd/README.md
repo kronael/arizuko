@@ -342,6 +342,6 @@ write-block and forward auth are covered.
 
 ## Related docs
 
-- [ARCHITECTURE.md § Web channel](../ARCHITECTURE.md#web-channel-proxyd)
+- [ARCHITECTURE.md § Daemon conventions](../ARCHITECTURE.md#daemon-conventions) — the hot-path exception
 - [SECURITY.md](../SECURITY.md) — the transit bearer and the trust zones
 - [webd/README.md](../webd/README.md) — the route-token surface behind `/chat/` and `/hook/`

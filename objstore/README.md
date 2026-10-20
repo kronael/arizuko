@@ -57,6 +57,35 @@ folder as the whole coordinate — because they answer three different questions
 authd took one constant for a whole daemon, and every non-point read there is
 a whole-partition read.
 
+## Why the store has this shape
+
+1. **The engine is a server, not a library.** ExtendDB over PostgreSQL speaks
+   the DynamoDB wire protocol, and arizuko is one client of it through a
+   driver on the official SDK. No component holds a state of record on local
+   disk. The protocol was chosen because it has transactions, conditional
+   writes and a second implementation to fall back to, and because the same
+   driver reaches Amazon's service by changing one `BaseEndpoint`.
+2. **There is no database layer.** `objstore.Store` is two methods, `Query`
+   and `GuardedBatch` (`objstore/objstore.go`), derived from the five
+   operations arizuko needs: containment by path prefix, the guarded batch,
+   the versioned replace, the reachability guard and the claim-and-return. A
+   caller states a coordinate and a condition, never a plan, so the engine
+   can change without a rewrite. `tests/components/imports_test.go`
+   `TestNoPackageOpensSQL` fails the build if any package reaches
+   `database/sql`.
+3. **A deployment is an account, not a database.** The `tables` registry is
+   keyed `(account_id, table_name)`, so one server can hold every instance on
+   a host and keep them apart on the account. A PostgreSQL role is NOT the
+   tenancy boundary and must not be used as one.
+4. **The engine splits its own state in two.** `<data-db>` holds one
+   PostgreSQL table per DynamoDB table; `<data-db>_catalog` holds accounts,
+   IAM, the table registry and `settings`. They differ in size, in read
+   pattern and in what a restore destroys, so a control-plane read never
+   contends with a tenant's scan and a tenant restore cannot take the account
+   registry with it. The `connection_string` names the **catalog**, which is
+   the root of discovery: `settings` carries the data database's name and
+   connection string, along with the deployment's encryption key.
+
 ## Two primitives
 
 ```go

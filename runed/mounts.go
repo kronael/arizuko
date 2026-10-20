@@ -30,7 +30,7 @@ const (
 )
 
 // buildMounts renders the mount table's right-hand side: the guest paths of
-// ARCHITECTURE.md §"Container mount layout" and the host paths that back them.
+// runed/README.md § Mounts and the host paths that back them.
 // It creates the host side where a missing directory would otherwise be
 // materialized by the substrate as root.
 func buildMounts(

@@ -26,5 +26,5 @@ None (stdlib only).
 
 ## Related docs
 
-- `ARCHITECTURE.md` (Mount Security)
+- `runed/README.md` § Mounts
 - `SECURITY.md`

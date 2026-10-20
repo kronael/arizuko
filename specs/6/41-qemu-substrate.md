@@ -33,7 +33,7 @@ day estimate is accepted only after step 0 reports.
 
 The turn model of [`5/A`](../5/A-primitives-framing.md) holds unchanged: the guest is
 stateless, the folder and the database carry every fact across turns, and the
-container mount table in `ARCHITECTURE.md` §"Container mount layout" is the
+container mount table in `runed/README.md` § Mounts is the
 contract the agent sees — the same left column, delivered by a different
 right-hand side. `ant/` changes by zero lines.
 

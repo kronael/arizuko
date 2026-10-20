@@ -236,6 +236,6 @@ delivered messages.
 
 ## Related docs
 
-- [`ARCHITECTURE.md` § Web Channel](../ARCHITECTURE.md#web-channel-proxyd)
+- [`ARCHITECTURE.md` § Message Flow](../ARCHITECTURE.md#message-flow)
 - [`SECURITY.md` § Pairing](../SECURITY.md#pairing-consent-is-the-boundary) — the pairing surface webd serves
 - [`resreg/README.md`](../resreg/README.md) — the federated `/v1/*` contract

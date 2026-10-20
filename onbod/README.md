@@ -114,6 +114,17 @@ caller's sub and `added_via` with the act: `picker` when the person chose,
 provenance is a column on the row and not an audit row, because onbod's
 audit log and routd's are different tables.
 
+### A world is a top-level folder
+
+World, agent and session are words for folder shapes, and none is a table. A
+world owns nothing of its own: its roster is the `acl` rows on `<world>/**`
+and their members, its vhost derives from the name, and its secrets resolve by
+folder ancestry. A `worlds` table would be a second path beside each of those.
+An agent cannot create a world: a top-level `register_group` from the agent
+socket answers "worlds are CLI-only" (`routd/groups_resource.go`). The CLI
+creates one, and onbod creates one for a person admitted through an enabled
+gate or holding an invite to `/`.
+
 ### Invites
 
 An invite is a bearer link to `/invite/<token>` that grants a place in the
@@ -298,4 +309,4 @@ rather than panicking. Do not remove this nil-check.
 
 - [`auth/README.md`](../auth/README.md) — the `acl` row and `acl_membership`
 - [`resreg/README.md`](../resreg/README.md) — the `/v1/*` contract
-- [`ARCHITECTURE.md` § Onboarding](../ARCHITECTURE.md#onboarding-onbod)
+- [`ARCHITECTURE.md` § Data ownership](../ARCHITECTURE.md#data-ownership) — the routd tables onbod opens

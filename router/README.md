@@ -81,6 +81,6 @@ semantics, precedence.
 ## Related docs
 
 - `../ROUTING.md` — canonical rule grammar + table walkthrough
-- `ARCHITECTURE.md` (Prompt Assembly, Routing)
+- `routd/README.md` § Prompt assembly
 - `../store/README.md` — owns the persistent `routes` table the
   evaluator walks

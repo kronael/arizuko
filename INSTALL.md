@@ -212,6 +212,22 @@ at that daemon's first boot: routd seeds the ACL floor, the egress floor and the
 `main` group there, carrying the `--product` choice `create` wrote into
 `ARIZUKO_DEFAULT_PRODUCT`.
 
+The instance directory, `${PREFIX:-/srv}/data/arizuko_<name>/`, holds:
+
+```
+.env                 config and anchor secrets; daemons read it from cwd
+store/               extenddb/ server config and certificate, extenddb_db/
+                     PostgreSQL data, <adapter>/ files an adapter owns
+groups/<folder>/     the agent's home: session state in .claude/, diary,
+                     logs, media/<YYYYMMDD>/ inbound attachments
+ipc/<folder>/        the turn's MCP socket
+web/pub/ web/priv/   the web trees the per-folder slots project into
+```
+
+A tar of the directory carries every row, because the store's PostgreSQL data
+sits under `store/`. Business state, such as gates, grants and onboarding, is
+rows; infra toggles are env vars.
+
 ## The store server
 
 Every owner's tables live on a DynamoDB-protocol server — ExtendDB over

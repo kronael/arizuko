@@ -98,4 +98,4 @@ timed's next sweep fired all five (BUGS `L312`).
 
 ## Related docs
 
-- `ARCHITECTURE.md` (Key Types)
+- `ARCHITECTURE.md` § Where a change lands

@@ -265,5 +265,5 @@ sorted into the wrong place (BUGS `L97`).
 
 ## Related docs
 
-- `ARCHITECTURE.md` (Channel Protocol, Inbound Media Pipeline)
+- `ARCHITECTURE.md` § Message Flow
 - `EXTENDING.md`

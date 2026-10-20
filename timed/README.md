@@ -82,7 +82,7 @@ appearing despite active tasks.
 
 ## Related docs
 
-- `ARCHITECTURE.md` (Scheduler section)
+- `ARCHITECTURE.md` § Data ownership — timed holds no store key
 - `diary/README.md` § Compaction — the five memory tasks every group is
   seeded with
 

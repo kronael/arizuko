@@ -64,7 +64,7 @@
     <p>It is not a Go daemon and there is no <code>vited/</code> package in the repo. It is a service that compose generation writes into the docker-compose file (<code>compose/compose.go:873</code>, the <code>vitedService</code> function). The container runs the <code>arizuko-vite:latest</code> image, which is plain <a href="https://vite.dev/">Vite</a> in dev mode serving a mounted directory. You can tell it&rsquo;s Vite from any served page: it injects a <code>/@vite/client</code> script.</p>
 
     <h2>Why it exists</h2>
-    <p>proxyd is a reverse proxy &mdash; it routes requests but serves no files of its own. Something behind it has to be the origin for static content. That origin is vited. In the route table, <code>/*</code> matches against the DB-backed <code>web_routes</code> table by longest prefix, and anything that doesn&rsquo;t match falls through, auth-gated, to vited (<code>ARCHITECTURE.md:131</code>, <code>:165</code>).</p>
+    <p>proxyd is a reverse proxy &mdash; it routes requests but serves no files of its own. Something behind it has to be the origin for static content. That origin is vited. In the route table, <code>/*</code> matches against the DB-backed <code>web_routes</code> table by longest prefix, and anything that doesn&rsquo;t match falls through, auth-gated, to vited (<code>proxyd/README.md</code> &sect; A request through proxyd).</p>
 
     <p>Without vited those routes have no backend. The public docs at <code>/pub/</code> would 502, group-published pages would have nowhere to come from, and the default web route would point at nothing. proxyd would still verify JWTs and sign headers, but the request would arrive at an empty seat.</p>
 
@@ -101,7 +101,7 @@ vite --host 0.0.0.0 --port 8080
     <ul>
       <li><a href="../components/proxyd.html">components/proxyd</a> &mdash; the reverse proxy that routes to vited and gates its auth.</li>
       <li><a href="../components/webd.html">components/webd</a> &mdash; the other web-facing backend, for chat rather than static files.</li>
-      <li><code>ARCHITECTURE.md</code> &mdash; the route table where <code>/*</code> falls through to vited.</li>
+      <li><code>proxyd/README.md</code> &mdash; the route table where <code>/*</code> falls through to vited.</li>
       <li><code>compose/compose.go</code> &mdash; <code>vitedService</code>, the source of truth for the container, image, and mount.</li>
     </ul>
 
@@ -112,7 +112,7 @@ vite --host 0.0.0.0 --port 8080
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/components/vited.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-09-19">2026-09-19</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-16">2026-10-16</time>
       </div>
     </main>
 
