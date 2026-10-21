@@ -75,8 +75,8 @@ pub/arizuko/
                   JIDs, OpenAPI, packages, route tokens, topics
   howto/          guided procedures, product-branded
   security/       threat model and the operator's side of it
-  strategy/       positioning and direction; outside the sidebar, linked
-                  from the landing
+  strategy/       the comparable systems and arizuko's open limits; outside
+                  the sidebar, linked from the landing
   research/       a dated write-up; outside the sidebar, linked from the
                   landing
   changelog/      what shipped, dated
