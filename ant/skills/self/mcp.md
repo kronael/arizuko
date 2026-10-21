@@ -159,10 +159,10 @@ a `<config-file>:<entry>` pair — never a command — so the `socat` bridge is
 declared as a stdio entry in a config file:
 
 ```bash
-cat > "$HOME/gated.mcp.json" <<JSON
-{"mcpServers":{"gated":{"command":"socat","args":["UNIX-CONNECT:$ARIZUKO_MCP_SOCKET","-"]}}}
+cat > "$HOME/arizuko.mcp.json" <<JSON
+{"mcpServers":{"arizuko":{"command":"socat","args":["UNIX-CONNECT:$ARIZUKO_MCP_SOCKET","-"]}}}
 JSON
-mcpc connect "$HOME/gated.mcp.json:gated" @s
+mcpc connect "$HOME/arizuko.mcp.json:arizuko" @s
 trap 'mcpc @s close' EXIT
 
 mcpc @s tools-list

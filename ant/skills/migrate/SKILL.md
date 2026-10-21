@@ -284,10 +284,10 @@ MSG="<output of script above>"
 latest="${MSG%% — *}"
 guard=~/.announced-version
 
-cat > "$HOME/gated.mcp.json" <<JSON
-{"mcpServers":{"gated":{"command":"socat","args":["UNIX-CONNECT:$ARIZUKO_MCP_SOCKET","-"]}}}
+cat > "$HOME/arizuko.mcp.json" <<JSON
+{"mcpServers":{"arizuko":{"command":"socat","args":["UNIX-CONNECT:$ARIZUKO_MCP_SOCKET","-"]}}}
 JSON
-mcpc connect "$HOME/gated.mcp.json:gated" @s
+mcpc connect "$HOME/arizuko.mcp.json:arizuko" @s
 trap 'mcpc @s close' EXIT
 
 # --json, because plain tools-call prints a human banner and EXITS 0, so the

@@ -1,7 +1,7 @@
 # Network egress
 
 You run with no Claude Code permission prompt and no sandbox — arizuko
-isolates you at the Docker + **egress proxy** + gated MCP-socket layer
+isolates you at the KVM guest + **egress proxy** + MCP-socket layer
 instead. Editing `~/.claude/settings.json` `permissions`/`sandbox` to
 grant yourself network does NOTHING (the platform rewrites those keys
 every spawn). Reach is governed only by the **egress allowlist**, a
