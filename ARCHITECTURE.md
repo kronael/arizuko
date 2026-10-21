@@ -49,7 +49,7 @@ egress/ substrate/ mcpfw/  shippable components, no arizuko imports
 ttsd/ sidecar/      speech synthesis; the whisper-cpp image
 ant/ anteval/       the agent harness and skills; the capability gate
 template/ tests/    fragments, manifests, web docs; cross-package tests
-specs/ deploy/      design directions; the Helm chart
+deploy/            the Helm chart
 scripts/            sync-ant-skills.sh and sync-docs.sh
 third_party/        the vendored discordgo
 ```
