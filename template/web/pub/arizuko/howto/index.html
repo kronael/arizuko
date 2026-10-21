@@ -57,7 +57,7 @@
       <li>Go 1.21 or newer, to build the <code>arizuko</code> command and the daemons. Go fetches the pinned 1.27 toolchain on the first build when the host can reach go.dev.</li>
       <li>Free disk under <code>/srv/data/</code> for the guest rootfs, the root filesystem of a guest. One rootfs tree is about 7 GB. <code>sudo arizuko images &lt;name&gt; --prune</code> removes the trees the instance does not use.</li>
       <li>A key for the model provider, for example an Anthropic API key, and a token for one chat platform. arizuko is free. The model provider bills the usage.</li>
-      <li>A public domain and a TLS certificate for HTTPS, only for web chat, OAuth login or inbound webhooks. A local instance needs neither.</li>
+      <li>A public domain and a TLS certificate, the file that lets browsers trust HTTPS, only for web chat, OAuth login or inbound webhooks. A local instance needs neither.</li>
       <li>No open ports by default. The channel adapters use the docker network. Only when <code>WEB_PORT</code> is set does <code>proxyd</code> publish that port on the host.</li>
     </ul>
 

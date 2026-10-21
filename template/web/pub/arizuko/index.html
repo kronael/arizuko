@@ -114,7 +114,7 @@ arizuko run demo                            # starts the instance</code></pre>
         the folder. <code>runed</code> starts one proxy per turn and refuses
         to start without the proxy binary. The network interface of the guest
         drops every packet that skips the proxy, and the guest has no DNS
-        resolver. A support agent can face strangers on a public
+        resolver, the service that turns a host name into an address. A support agent can face strangers on a public
         channel and keep its own history.
       </p>
       <p>
@@ -199,8 +199,8 @@ arizuko run demo                            # starts the instance</code></pre>
         <li>One Linux host with Docker and KVM runs it. The daemons run as
           Docker Compose services, and each turn is a KVM guest, so the host
           needs <code>/dev/kvm</code>. Compose on one host is the tested
-          path. A Helm chart for Kubernetes exists, and no cluster has run
-          it.</li>
+          path. A Helm chart, the install recipe for Kubernetes, exists, and no
+          cluster has run it.</li>
         <li>You pay for the host and the model. arizuko is free software.
           The model provider bills the key you supply. The default network
           allowlist opens <code>anthropic.com</code> and
@@ -209,7 +209,8 @@ arizuko run demo                            # starts the instance</code></pre>
           channels, not consumer traffic. The
           <a href="https://github.com/kronael/arizuko/blob/main/README.md#what-arizuko-does-not-include">[README]</a>
           lists what it does not include.</li>
-        <li>The store server runs ExtendDB over PostgreSQL. A daemon without
+        <li>The store server runs ExtendDB, a database server for the DynamoDB
+          protocol that keeps its data in PostgreSQL. A daemon without
           a store key exits, and <code>runed</code> does not start without
           <code>/dev/kvm</code>. A minimal deploy is the store server,
           <code>authd</code>, <code>routd</code>, <code>runed</code>,
@@ -222,7 +223,7 @@ arizuko run demo                            # starts the instance</code></pre>
           <code>/v1/&lt;name&gt;</code>. Actions that only an agent uses in
           a turn, such as <code>reply</code> and <code>send</code>, exist as
           MCP alone.</li>
-        <li>One TOML block gives an agent the API of another service as a
+        <li>One TOML block, a short settings text, gives an agent the API of another service as a
           tool. The call leaves from the host, the host adds the secret, and
           the secret never enters the guest. <a href="concepts/ext-mcp.html">Connectors</a>
           has the detail.</li>
