@@ -51,6 +51,8 @@ https://krons.fiu.wtf/pub/arizuko/.
   content.
 - Many tenants on one deployment. `corp/eng/sre` and `solo/inbox` run the
   same code at any folder depth.
+  [concepts/scaling.html](template/web/pub/arizuko/concepts/scaling.html)
+  adds a tenant with rows and a folder.
 
 Under all of these, one folder path binds the tenant, its grants, its routes,
 its egress, its web host and its file tree, and one evaluator answers both
