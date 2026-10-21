@@ -38,8 +38,9 @@ Each group has these isolated parts:
   Every tool call resolves through `auth.Authorize` against that folder and
   never against a claim of the caller, see `ipc/ipc.go` and `auth/middleware.go`.
 - **Secrets.** AES-256-GCM encrypts secrets at rest. The environment of the
-  guest holds model credentials only. Capability credentials never enter the
-  guest, because the broker resolves them on the host for each tool call. With
+  guest holds model credentials and each key that a `shell:env:<KEY>` grant
+  names. The broker resolves every other capability credential on the host for
+  each tool call. With
   the `litellm` package, the model credential stays out of the guest as well.
   [Secret injection](#secret-injection) draws
   both doors.
@@ -428,12 +429,12 @@ has its own spender.
 - **Env-profile keys** are the five model keys in `store.EnvProfileKeys`:
   `ANTHROPIC_API_KEY`, `ANTHROPIC_OAUTH_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN`,
   `OPENAI_API_KEY` and `CODEX_API_KEY`. The harness subprocess spends them,
-  and no tool call exists to attach a broker to. They are therefore the one
-  credential that is stored in a table and also enters the guest. The store
+  and no tool call exists to attach a broker to. They are therefore a credential
+  that a table stores and the guest also receives. The store
   refuses one at folder scope.
 - **Capability credentials** are tokens for one service, such as
-  `GITHUB_TOKEN`, at folder scope or user scope. They never enter the
-  environment of the guest.
+  `GITHUB_TOKEN`, at folder scope or user scope. They enter the environment
+  of the guest only through a `shell:env:<KEY>` grant.
 - **Infrastructure anchors** are `SECRETS_KEY`, `AUTHD_SERVICE_KEY` and bot
   tokens. They live in the host `.env` only and are never a `secrets` row.
 
