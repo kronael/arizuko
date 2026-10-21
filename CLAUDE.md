@@ -299,10 +299,11 @@ returns the worktree path + branch. The parallel-edit ban is in
 agent` fail without it).
 - **krons** is the test/deploy target. Always deploy here first; other
   instances only on explicit user request.
-- **A deploy is not done until `anteval --smoke` passes.** Gates 1-4 (build,
-  ship, schema, census) pass on a fleet whose agents answer nothing — BUGS
-  `L149` shipped green through all of them. Procedure:
-  `.claude/skills/eval/gates.md`.
+- **`anteval` never runs against a live instance.** It runs against a
+  throwaway instance it creates and removes (`specs/6/50`, draft); until that
+  ships, gate 5 is not run. Gates 1-4 (build, ship, schema, census) pass on a
+  fleet whose agents answer nothing — BUGS `L149` shipped green through all of
+  them. Procedure: `.claude/skills/eval/gates.md`.
 - **A release is an image.** `ant/` — skills, `CLAUDE.md`, output-styles —
   is baked to `/opt/arizuko` by the Dockerfile. `APP_SRC_DEV=1` binds
   `HOST_APP_DIR` read-only for the dev loop; NEVER set it on an instance —
@@ -322,7 +323,7 @@ forgetting it is silent. The `CHANGELOG.md` entry follows "## Announcing".
 
 1. Move CHANGELOG.md [Unreleased] to `[vX.Y.Z] — YYYY-MM-DD`
 2. `git tag vX.Y.Z`, tag docker images (`arizuko:vX.Y.Z`, `arizuko-ant:vX.Y.Z`)
-3. Run the five post-deploy gates; `anteval --smoke` is not optional on a tag.
+3. Run the post-deploy gates 1-4; gate 5 runs only on a throwaway instance.
 4. **Release the docs too**: bump `ARIZUKO_VERSION` in
    `template/web/pub/arizuko/assets/hub.js` (the only copy), update any page
    whose surface changed (`template/web/CLAUDE.md` maintenance map), deploy

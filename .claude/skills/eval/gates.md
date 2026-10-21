@@ -5,8 +5,9 @@ an instance whose eval folder does not exist yet.
 
 ## Post-deploy gates
 
-**Every deploy runs all five gates, in order. A deploy is not done until
-gate 5 passes.** Gates 1-3 are free and catch everything mechanical; 4 is a
+**Every deploy runs gates 1-4, in order. Gate 5 runs `anteval` against a
+throwaway instance only, never against krons or another live instance
+(`specs/6/50`, draft); until that ships, gate 5 is not run.** Gates 1-3 are free and catch everything mechanical; 4 is a
 minute; 5 is the only one that proves a live agent still works, and it is
 the only one that costs money (~$5).
 
@@ -34,7 +35,7 @@ sq routd.chats "select count(*) from e where attrs->'errored'->>'S' = '1'"   # n
 sudo docker exec arizuko_runed_$I sh -c 'env | grep -qE "^(ANTHROPIC_API_KEY|CLAUDE_CODE_OAUTH_TOKEN)="'
 ```
 
-**5. `anteval --smoke` — the live-agent gate.** Nothing above proves an
+**5. `anteval --smoke` — the live-agent gate, on a throwaway instance only.** The commands below and the setup section target that instance; `$I` is never a live one. Nothing above proves an
 agent can still operate the platform; every check up to here passes on a
 fleet whose agents answer nothing (BUGS `L149` shipped green through all of
 them). Run it on every release, and after any deploy touching routd, runed,
