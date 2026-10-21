@@ -169,10 +169,6 @@ secrets:
       serviceKey: ''
       storeKeyId: ''
       storeSecret: ''
-    linkd:
-      serviceKey: ''
-      storeKeyId: ''
-      storeSecret: ''
 
   # Platform tokens. adapters[].secretEnv names which ones reach which adapter;
   # a listed key with no value here fails the render.
@@ -186,10 +182,6 @@ secrets:
   emailSmtpHost: '' # EMAIL_SMTP_HOST        (emaid)
   emailAccount: '' # EMAIL_ACCOUNT          (emaid)
   emailPassword: '' # EMAIL_PASSWORD         (emaid)
-  linkedinClientId: '' # LINKEDIN_CLIENT_ID     (linkd)
-  linkedinClientSecret: '' # LINKEDIN_CLIENT_SECRET (linkd)
-  linkedinAccessToken: '' # LINKEDIN_ACCESS_TOKEN  (linkd)
-  linkedinRefreshToken: '' # LINKEDIN_REFRESH_TOKEN (linkd)
 
 # ---------------------------------------------------------------------------
 # Web plane. proxyd is the public entry; webd + vited sit behind it. Every
@@ -270,18 +262,6 @@ adapters:
       - EMAIL_SMTP_HOST
       - EMAIL_ACCOUNT
       - EMAIL_PASSWORD
-
-  - name: linkd
-    enabled: false
-    entrypoint: ['linkd']
-    env:
-      LINKEDIN_POLL_INTERVAL: '300s'
-      LINKEDIN_AUTO_PUBLISH: 'false'
-    secretEnv:
-      - LINKEDIN_CLIENT_ID
-      - LINKEDIN_CLIENT_SECRET
-      - LINKEDIN_ACCESS_TOKEN
-      - LINKEDIN_REFRESH_TOKEN
 
 # Resource requests/limits applied to each daemon pod (override per-need).
 resources: {}

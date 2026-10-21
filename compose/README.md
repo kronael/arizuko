@@ -175,7 +175,7 @@ services:
 
 The bundled catalog at `template/services/` holds a `<name>.yml` fragment
 and a `<name>.yaml` manifest for each of `bskyd`, `discd`, `emaid`,
-`extenddb`, `gitd`, `linkd`, `litellm`, `slakd`, `teled`, `ttsd`,
+`extenddb`, `gitd`, `litellm`, `slakd`, `teled`, `ttsd`,
 `twitd` and `whapd`, plus `kokoro.yml` alone and the variant
 `teled-jynx.yml`.
 

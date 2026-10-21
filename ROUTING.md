@@ -18,7 +18,6 @@ globs over `/`.
 | teled   | `telegram:` | `telegram:user/<id>`, `telegram:group/<id>`                          |
 | whapd   | `whatsapp:` | `whatsapp:1234567@s.whatsapp.net`                                    |
 | bskyd   | `bluesky:`  | `bluesky:user/<did>`, with each `:` in the DID written as `%3A`      |
-| linkd   | `linkedin:` | `linkedin:post/<urn>`                                                |
 | emaid   | `email:`    | `email:thread/<id>`                                                  |
 | twitd   | `twitter:`  | `twitter:home`, `twitter:dm/<id>`                                    |
 | webd    | `web:`      | `web:<folder>`, for example `web:atlas`; see the next section        |
@@ -158,13 +157,12 @@ verbs, and `routd` rewrites some of them at ingest:
 | teled, discd, slakd | `mention` on an explicit `@bot` in a group chat, else no verb, stored as `message` |
 | slakd               | also `join` and `pane_open`                                                        |
 | bskyd               | `message`, `reply`                                                                 |
-| linkd               | `comment`, `reply`                                                                 |
 | twitd               | `message`, `reply`                                                                 |
 | a reaction          | `like` or `dislike`, from `chanlib.ClassifyEmoji`                                  |
 | emaid               | `untrusted` on mail that fails DMARC and the allowlist                             |
 | routd, at ingest    | `mention` (see the verb promotion below); an empty verb becomes `message`          |
 
-The three social adapters, bskyd, linkd and twitd, never emit
+The two social adapters, bskyd and twitd, never emit
 `mention`. On those platforms, a rule on `verb=mention` or `verb=like` for the
 first post of a stranger matches nothing, and nothing reports the failure.
 

@@ -61,7 +61,7 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">concepts</a> &rsaquo; addressing</p>
 <h1>jid</h1>
 
-    <p class="lede">A JID is the one address shape that every adapter uses for its chats and senders. The prefixes are <code>telegram</code>, <code>discord</code>, <code>whatsapp</code>, <code>slack</code>, <code>bluesky</code>, <code>twitter</code>, <code>linkedin</code>, <code>email</code>, <code>github</code>, <code>gdrive</code>, <code>web</code> for browser chats and <code>hook</code> for webhooks. Every address has the shape <code>&lt;platform&gt;:&lt;rest&gt;</code>. So one routing rule such as <code>chat_jid=telegram:group/*</code> matches every Telegram group and nothing else, and routes and grants can ignore the details of each platform.</p>
+    <p class="lede">A JID is the one address shape that every adapter uses for its chats and senders. The prefixes are <code>telegram</code>, <code>discord</code>, <code>whatsapp</code>, <code>slack</code>, <code>bluesky</code>, <code>twitter</code>, <code>email</code>, <code>github</code>, <code>gdrive</code>, <code>web</code> for browser chats and <code>hook</code> for webhooks. Every address has the shape <code>&lt;platform&gt;:&lt;rest&gt;</code>. So one routing rule such as <code>chat_jid=telegram:group/*</code> matches every Telegram group and nothing else, and routes and grants can ignore the details of each platform.</p>
 
     <h2>The platform comes before the colon</h2>
     <p>Each platform names things in its own way. Telegram chat IDs are signed integers, and a negative number means a group. teled writes the kind into the JID and drops the minus sign. WhatsApp adds a server name, <code>@g.us</code> for groups and <code>@s.whatsapp.net</code> for DMs.</p>

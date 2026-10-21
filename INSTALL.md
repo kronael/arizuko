@@ -61,7 +61,7 @@ Two more pins move with that toolchain:
 
 - **The Docker base image.** Each Dockerfile that builds the root module names
   `golang:1.27rc2-alpine`. The files are `Dockerfile`, `anteval/Dockerfile`,
-  `egress/Dockerfile`, `linkd/Dockerfile` and `ttsd/Dockerfile`. Nothing derives
+  `egress/Dockerfile` and `ttsd/Dockerfile`. Nothing derives
   the name from `go.mod`, so change them in the same commit as `go.mod`.
   `kernel/guest-init` is its own module on `go 1.25` and keeps its own base.
 - **`golang.org/x/net`.** `go.mod` requires v0.57.0, and the version must not
@@ -289,7 +289,6 @@ test names the policy to rewrite.
 | `discd`       | `discd.*`                       |
 | `emaid`       | `emaid.*`                       |
 | `gitd`        | `routd.*`, `gitd.*`             |
-| `linkd`       | `linkd.*`                       |
 | `onbod`       | `onbod.*`, `routd.*`            |
 | `proxyd`      | `routd.*`                       |
 | `routd`       | `routd.*`                       |

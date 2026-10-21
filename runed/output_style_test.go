@@ -111,7 +111,6 @@ func TestPickOutputStyle_ShippedStyleExists(t *testing.T) {
 	}{
 		{"whatsapp", "whatsapp", "whatsapp:1@s.whatsapp.net", true},
 		{"bluesky", "bluesky", "bluesky:user/did%3Aplc%3Aa", true},
-		{"linkedin", "linkedin", "linkedin:post/urn%3Ali%3Ashare%3A1", true},
 		{"twitter", "twitter", "twitter:user/alice", true},
 		{"slack dm", "slack", "slack:T1/dm/D1", true},
 		{"slack channel", "slack", "slack:T1/channel/C1", true},

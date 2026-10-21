@@ -701,8 +701,7 @@ func TestBotStop_NoPoll(t *testing.T) {
 }
 
 // F56: the DATA_DIR code default must be teled's OWN state directory, never the
-// container data mount root. Same class as linkd's (which persists a refreshed
-// OAuth token there); teled persists the getUpdates offset, and losing or
+// container data mount root. teled persists the getUpdates offset, and losing or
 // misplacing it makes Telegram re-deliver its ~24h backlog.
 //
 // Asserted against the fragment itself, so drift in EITHER place fails — the

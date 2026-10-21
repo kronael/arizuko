@@ -86,7 +86,6 @@
         { "href": "egress.html", "label": "egress" },
         { "href": "emaid.html", "label": "emaid" },
         { "href": "gitd.html", "label": "gitd" },
-        { "href": "linkd.html", "label": "linkd" },
         { "href": "litellm.html", "label": "litellm" },
         { "href": "onbod.html", "label": "onbod" },
         { "href": "proxyd.html", "label": "proxyd" },

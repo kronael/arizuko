@@ -21,7 +21,6 @@ user-invocable: true
 | twitter   | photo / video media types via platform lib                                |
 | bluesky   | image-only — `.jpg/.jpeg/.png/.webp/.gif` upload as `app.bsky.embed.images`; non-image returns "Bluesky's PDS embed surface only accepts image blobs" → host elsewhere, post the URL via `send` |
 | email     | MIME multipart attachment                                                 |
-| linkedin | no file surface (`chanlib.NoFileSender`) — `send_file` errors. Host the file on `/pub/` and link via `send` |
 
 ## Voice vs file
 

@@ -24,10 +24,6 @@ volume in compose and are not in the default list.
     "EMAIL_SMTP_HOST"        "emailSmtpHost"
     "EMAIL_ACCOUNT"          "emailAccount"
     "EMAIL_PASSWORD"         "emailPassword"
-    "LINKEDIN_CLIENT_ID"     "linkedinClientId"
-    "LINKEDIN_CLIENT_SECRET" "linkedinClientSecret"
-    "LINKEDIN_ACCESS_TOKEN"  "linkedinAccessToken"
-    "LINKEDIN_REFRESH_TOKEN" "linkedinRefreshToken"
 -}}
 {{- range .Values.adapters }}
 {{- if .enabled }}

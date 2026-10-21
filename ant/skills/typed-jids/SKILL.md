@@ -28,7 +28,6 @@ not cross `/`.
 | whatsapp   | `whatsapp:<id>@<server>` (unchanged — no kind segment)     |
 | email      | `email:thread/<id>`, `email:address/<addr>`                |
 | bluesky    | `bluesky:user/<percent-encoded-did>`, `bluesky:post/<at_uri>` |
-| linkedin   | `linkedin:user/<urn>`, `linkedin:post/<urn>`               |
 | twitter    | `twitter:user/<id>`, `twitter:tweet/<id>`, `twitter:dm/<id>` |
 | slack      | `slack:<workspace>/channel/<id>`, `slack:<workspace>/dm/<id>`, `slack:<workspace>/group/<id>` |
 | web        | `web:<folder>` (folder-keyed identity layer; no kind segment) |

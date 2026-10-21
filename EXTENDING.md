@@ -136,23 +136,23 @@ For an empty cell, `routd` answers with `UnsupportedError` and makes no call. Re
 the table from the `caps` of each adapter in `<adapter>/main.go`, or from the
 `capabilities` block in `src/client.ts` for whapd and twitd.
 
-| Verb         | discd | slakd | bskyd | teled | emaid | linkd | whapd | twitd | gitd | googd |
-| ------------ | ----- | ----- | ----- | ----- | ----- | ----- | ----- | ----- | ---- | ----- |
-| `send`       | ✓     | ✓     | ✓     | ✓     | ✓     | ✓     | ✓     | ✓     | ✓¹   | ✓²    |
-| `reply`      | ✓     | ✓     | ✓     | ✓     | ✓     | ✓     | ✓     | ✓     | ✓¹   | ✓²    |
-| `send_file`  | ✓     | ✓     | ✓     | ✓     |       |       | ✓     | ✓     | ✓¹   |       |
-| `send_voice` | ✓     |       |       | ✓     |       |       | ✓     |       |      |       |
-| `post`       |       | ✓     | ✓     | ✓     |       | ✓     |       | ✓     |      |       |
-| `like`       | ✓     | ✓     | ✓     | ✓     |       | ✓     | ✓     | ✓     |      |       |
-| `dislike`    |       | ✓     |       |       |       |       |       |       |      |       |
-| `delete`     | ✓     | ✓     | ✓     | ✓     |       | ✓     | ✓     | ✓     |      |       |
-| `edit`       | ✓     | ✓     |       | ✓     |       |       | ✓     |       | ✓¹   |       |
-| `forward`    |       |       |       | ✓     |       |       | ✓     |       |      |       |
-| `quote`      | ✓     |       | ✓     |       |       |       |       | ✓     |      |       |
-| `repost`     |       |       | ✓     |       |       | ✓     |       | ✓     |      |       |
-| `pin`        | ✓     | ✓     |       | ✓     |       |       |       |       |      |       |
-| `unpin`      | ✓     | ✓     |       | ✓     |       |       |       |       |      |       |
-| `unpin_all`  | ³     | ✓     |       | ✓     |       |       |       |       |      |       |
+| Verb         | discd | slakd | bskyd | teled | emaid | whapd | twitd | gitd | googd |
+| ------------ | ----- | ----- | ----- | ----- | ----- | ----- | ----- | ---- | ----- |
+| `send`       | ✓     | ✓     | ✓     | ✓     | ✓     | ✓     | ✓     | ✓¹   | ✓²    |
+| `reply`      | ✓     | ✓     | ✓     | ✓     | ✓     | ✓     | ✓     | ✓¹   | ✓²    |
+| `send_file`  | ✓     | ✓     | ✓     | ✓     |       | ✓     | ✓     | ✓¹   |       |
+| `send_voice` | ✓     |       |       | ✓     |       | ✓     |       |      |       |
+| `post`       |       | ✓     | ✓     | ✓     |       |       | ✓     |      |       |
+| `like`       | ✓     | ✓     | ✓     | ✓     |       | ✓     | ✓     |      |       |
+| `dislike`    |       | ✓     |       |       |       |       |       |      |       |
+| `delete`     | ✓     | ✓     | ✓     | ✓     |       | ✓     | ✓     |      |       |
+| `edit`       | ✓     | ✓     |       | ✓     |       | ✓     |       | ✓¹   |       |
+| `forward`    |       |       |       | ✓     |       | ✓     |       |      |       |
+| `quote`      | ✓     |       | ✓     |       |       |       | ✓     |      |       |
+| `repost`     |       |       | ✓     |       |       |       | ✓     |      |       |
+| `pin`        | ✓     | ✓     |       | ✓     |       |       |       |      |       |
+| `unpin`      | ✓     | ✓     |       | ✓     |       |       |       |      |       |
+| `unpin_all`  | ³     | ✓     |       | ✓     |       |       |       |      |       |
 
 ¹ gitd advertises its verbs only when `GITHUB_TOKEN` is set. It posts a comment
 on the PR or issue that the JID names, and it edits a comment that it wrote.
@@ -379,7 +379,7 @@ Every adapter keeps this delivery contract, whatever its platform:
   `template/services/<name>.yaml`, gated by the own credential of the adapter.
   The route and the tile on the hub then exist exactly when the adapter runs.
 
-The social adapters bskyd, linkd and twitd cover only the notification
+The social adapters bskyd and twitd cover only the notification
 stream of the bot: mentions, replies and direct messages. It does not poll
 hashtags, keywords, competitors, trends or whole threads. Monitoring has its
 own scale, authentication and trust. Unbounded polling on the path that

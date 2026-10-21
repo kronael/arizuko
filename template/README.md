@@ -14,7 +14,7 @@ scaffold that `vited` serves in dev.
 - `env.example` — default `.env` with every knob and a comment per var
 - `services/*.yml` — bundled adapter packages (partial compose files):
   `teled`, `discd`, `slakd`, `bskyd`, `emaid`,
-  `whapd`, `twitd`, `linkd`, `ttsd`, `kokoro`, `litellm`. A package that
+  `whapd`, `twitd`, `ttsd`, `kokoro`, `litellm`. A package that
   needs anything from the system ships `<name>.yaml` beside it — its package
   manifest: a `proxyd_routes` block for inbound web paths (see `slakd`),
   an `env` block for what its process needs from `.env` (see `litellm`,

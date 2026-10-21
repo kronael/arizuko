@@ -22,19 +22,19 @@ instance. Every daemon listens on `:8080` inside its container.
 
 ## What it deploys
 
-| Template        | Daemon                                        | Role                                                                                     | Volume                  | From compose                |
-| --------------- | --------------------------------------------- | ---------------------------------------------------------------------------------------- | ----------------------- | --------------------------- |
-| `authd.yaml`    | authd                                         | Auth authority: JWKS, service-token exchange, login                                      | none                    | `authdService`              |
-| `routd.yaml`    | routd                                         | Router: conversation state, group tree, one MCP socket per turn                          | whole                   | `routdService`              |
-| `runed.yaml`    | runed                                         | Execution plane: one KVM guest per turn                                                  | whole + `/dev/*`        | `runedService`              |
-| `webd.yaml`     | webd                                          | Chat widget, panel, `/api`, `/me`                                                        | none                    | `webdService`               |
-| `proxyd.yaml`   | proxyd                                        | Public reverse proxy + auth gate; the Ingress target                                     | none                    | `proxydService`             |
-| `vited.yaml`    | vited                                         | Static `/pub` + `/priv` tree                                                             | `web/`, read-only       | `vitedService`              |
-| `timed.yaml`    | timed                                         | Scheduled messages                                                                       | none                    | `timedService`              |
-| `dashd.yaml`    | dashd                                         | Operator dashboard (`/dash`)                                                             | `groups/`, `surrogate/` | `dashdService`              |
-| `onbod.yaml`    | onbod                                         | Onboarding / admission queue (`/onboard`)                                                | `groups/`, `web/`       | `onbodService`              |
-| `davd.yaml`     | davd                                          | WebDAV over `groups/` (`/dav`)                                                           | `groups/`               | `davdService`               |
-| `adapters.yaml` | teled / discd / slakd / bskyd / emaid / linkd | Channel adapters, one Deployment + Service + Secret per enabled `.Values.adapters` entry | none                    | `template/services/<d>.yml` |
+| Template        | Daemon                                | Role                                                                                     | Volume                  | From compose                |
+| --------------- | ------------------------------------- | ---------------------------------------------------------------------------------------- | ----------------------- | --------------------------- |
+| `authd.yaml`    | authd                                 | Auth authority: JWKS, service-token exchange, login                                      | none                    | `authdService`              |
+| `routd.yaml`    | routd                                 | Router: conversation state, group tree, one MCP socket per turn                          | whole                   | `routdService`              |
+| `runed.yaml`    | runed                                 | Execution plane: one KVM guest per turn                                                  | whole + `/dev/*`        | `runedService`              |
+| `webd.yaml`     | webd                                  | Chat widget, panel, `/api`, `/me`                                                        | none                    | `webdService`               |
+| `proxyd.yaml`   | proxyd                                | Public reverse proxy + auth gate; the Ingress target                                     | none                    | `proxydService`             |
+| `vited.yaml`    | vited                                 | Static `/pub` + `/priv` tree                                                             | `web/`, read-only       | `vitedService`              |
+| `timed.yaml`    | timed                                 | Scheduled messages                                                                       | none                    | `timedService`              |
+| `dashd.yaml`    | dashd                                 | Operator dashboard (`/dash`)                                                             | `groups/`, `surrogate/` | `dashdService`              |
+| `onbod.yaml`    | onbod                                 | Onboarding / admission queue (`/onboard`)                                                | `groups/`, `web/`       | `onbodService`              |
+| `davd.yaml`     | davd                                  | WebDAV over `groups/` (`/dav`)                                                           | `groups/`               | `davdService`               |
+| `adapters.yaml` | teled / discd / slakd / bskyd / emaid | Channel adapters, one Deployment + Service + Secret per enabled `.Values.adapters` entry | none                    | `template/services/<d>.yml` |
 
 `authd`, `routd` and `runed` always render; the rest have an `enabled`
 toggle. Supporting objects: `configmap.yaml` (non-secret env, every daemon
