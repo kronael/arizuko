@@ -17,7 +17,6 @@ globs over `/`.
 | slakd   | `slack:`    | `slack:<workspace>/<kind>/<id>` with kind `channel`, `dm` or `group` |
 | teled   | `telegram:` | `telegram:user/<id>`, `telegram:group/<id>`                          |
 | whapd   | `whatsapp:` | `whatsapp:1234567@s.whatsapp.net`                                    |
-| reditd  | `reddit:`   | `reddit:subreddit/<name>`, `reddit:user/<name>`                      |
 | bskyd   | `bluesky:`  | `bluesky:user/<did>`, with each `:` in the DID written as `%3A`      |
 | linkd   | `linkedin:` | `linkedin:post/<urn>`                                                |
 | emaid   | `email:`    | `email:thread/<id>`                                                  |
@@ -159,20 +158,19 @@ verbs, and `routd` rewrites some of them at ingest:
 | teled, discd, slakd | `mention` on an explicit `@bot` in a group chat, else no verb, stored as `message` |
 | slakd               | also `join` and `pane_open`                                                        |
 | bskyd               | `message`, `reply`                                                                 |
-| reditd              | `message`, `reply`, `post`                                                         |
 | linkd               | `comment`, `reply`                                                                 |
 | twitd               | `message`, `reply`                                                                 |
 | a reaction          | `like` or `dislike`, from `chanlib.ClassifyEmoji`                                  |
 | emaid               | `untrusted` on mail that fails DMARC and the allowlist                             |
 | routd, at ingest    | `mention` (see the verb promotion below); an empty verb becomes `message`          |
 
-The four social adapters, bskyd, reditd, linkd and twitd, never emit
+The three social adapters, bskyd, linkd and twitd, never emit
 `mention`. On those platforms, a rule on `verb=mention` or `verb=like` for the
 first post of a stranger matches nothing, and nothing reports the failure.
 
 ```bash
-# Reddit submissions only, from any subreddit
-arizuko route krons add 'platform=reddit verb=post' atlas/posts
+# Slack mentions only, from any workspace
+arizuko route krons add 'platform=slack verb=mention' atlas/mentions
 
 # All Twitter DMs (twitter:dm/<conv>) but not the timeline
 arizuko route krons add 'platform=twitter room=dm/*' atlas/dm

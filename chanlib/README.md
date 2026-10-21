@@ -57,7 +57,7 @@ cares about message order on a socket.
   Retries run out at `MAX_OUTBOUND_RETRY`; the row then becomes `failed`,
   the dead letter.
 - **Inbound has no adapter queue unless the platform forgets.** A
-  cursor-gated adapter (teled, bskyd, reditd, linkd, emaid) leaves the
+  cursor-gated adapter (teled, bskyd, linkd, emaid) leaves the
   event on the platform until routd accepts it. An adapter that consumes the
   Text, file and voice sends carry optional `thread_id` and `thread_root`.
   Adapters advertise each supported placement in their capability map.
@@ -141,7 +141,7 @@ missing.
   consume their platform event on arrival (slakd, discd, gitd). A failed
   `SendMessage` is retained in the adapter's own store and a 15s sweep
   re-delivers it; a routd REFUSAL (400/403/413/422) is dropped with an ERROR
-  line instead. Cursor-gated adapters (teled, bskyd, reditd, linkd, emaid) must
+  line instead. Cursor-gated adapters (teled, bskyd, linkd, emaid) must
   NOT wire it — the platform is already their queue (BUGS `L25`).
 - `OpenAdapterStore(service) (AdapterStore, error)` — prepares chanlib's
   entities on the adapter's own table prefix on the instance's store server.
@@ -174,7 +174,7 @@ missing.
 - `SlackJID`, `ParseSlackJID`, `FormatSlackJID` — Slack JID parsing (format: `slack:<workspace>/<kind>/<id>`)
 - `TypingRefresher` — presence re-sender with hard TTL
 - `AckMark` — the `👀` mark for adapters with no native presence (slakd, gitd): pins the trigger message, persists the mark in `ack_marks`, removes it at turn end, backstop TTL, `Sweep` at boot; `Stop` removes no mark
-- `URLCache` — 12-hex LRU short-ID proxy (cap 4096) shared by discd/reditd
+- `URLCache` — 12-hex LRU short-ID proxy (cap 4096) shared by discd and slakd
 - `FileProxyHandler(opts)` — /files/<id> handler with opaque-id→CDN resolution
 - `WriteJSON`, `WriteErr`, `Chunk`, `ProxyFile`, `LogMiddleware`
 - `ShortHash(s)` — 4-byte hex of sha256(s) for logging sensitive strings
@@ -187,7 +187,7 @@ missing.
 `/health` returns:
 
 - `503 {status:"disconnected"}` when `isConnected()` is false (platform link down — whapd waiting on QR, slakd `auth.test` failing).
-- `200 {status:"stale", last_inbound_at, stale_seconds}` when no inbound within the staleness threshold (5m default, 10m for email, 60m for reddit). Informational only — a quiet-but-connected channel is normal and must not 503. Real death surfaces through `isConnected()`.
+- `200 {status:"stale", last_inbound_at, stale_seconds}` when no inbound within the staleness threshold (5m default, 10m for email). Informational only — a quiet-but-connected channel is normal and must not 503. Real death surfaces through `isConnected()`.
 - `200 {status:"ok"}` otherwise.
 
 `pending_inbound` rides on any of the three when the adapter is holding inbound

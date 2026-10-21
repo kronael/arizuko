@@ -25,7 +25,7 @@ import (
 // maxRouterResponseBytes caps decoded router responses to guard against OOM.
 const maxRouterResponseBytes = 10 << 20
 
-// UserAgent names arizuko to a third party (Reddit requires one). It carries
+// UserAgent names arizuko to a third party (a third party may require one). It carries
 // NO version: a frozen number told GitHub something false, and a second copy
 // of the version is a second thing to keep in step.
 const UserAgent = "arizuko (+https://github.com/kronael/arizuko)"

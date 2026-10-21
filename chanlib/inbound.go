@@ -3,7 +3,7 @@ package chanlib
 // Durable inbound for adapters that cannot ask the platform for the message a
 // second time (slakd acks Slack BEFORE calling routd, discd's gateway hands
 // each event over exactly once), so a routd restart does not lose it (BUGS
-// L25). teled, bskyd, reditd, linkd and emaid advance their platform cursor
+// L25). teled, bskyd, linkd and emaid advance their platform cursor
 // ONLY after routd accepts, so the platform IS their queue — they must NOT
 // wire this. The retained row carries the adapter's own stable message id,
 // the `messages` primary key, so a re-delivery of a row routd already took

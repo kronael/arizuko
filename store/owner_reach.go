@@ -28,7 +28,6 @@ var StoreReach = map[string][]string{
 	"bskyd":  {"bskyd"},
 	"linkd":  {"linkd"},
 	"emaid":  {"emaid"},
-	"reditd": {"reditd"},
 	"timed":  {},
 	"ttsd":   {},
 	// The operator CLI: routd for groups, grants, routes and secrets; onbod for

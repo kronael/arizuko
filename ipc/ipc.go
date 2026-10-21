@@ -1424,7 +1424,7 @@ func buildMCPServer(routd RoutdFns, db StoreFns, folder string, isRoot bool, cal
 			return toolJSON(map[string]any{"ok": true, "id": platformID})
 		})
 
-	registerRaw("post", "Create a new top-level post on a platform (bluesky post, discord channel message, reddit submission). Use for broadcast/announcement content that isn't replying to anyone. Not for replies (`reply`), direct messages (`send`), or file delivery (`send_file`). Returns the new post's `id` (for `edit`, `delete`, or as `replyToId` to chain a thread).",
+	registerRaw("post", "Create a new top-level post on a platform (bluesky post, discord channel message). Use for broadcast/announcement content that isn't replying to anyone. Not for replies (`reply`), direct messages (`send`), or file delivery (`send_file`). Returns the new post's `id` (for `edit`, `delete`, or as `replyToId` to chain a thread).",
 		[]mcp.ToolOption{
 			mcp.WithString("chatJid", mcp.Required()),
 			mcp.WithString("content", mcp.Required()),
@@ -1619,7 +1619,7 @@ func buildMCPServer(routd RoutdFns, db StoreFns, folder string, isRoot bool, cal
 
 	regSocial(socialAct{
 		name: "pin_message",
-		desc: "Pin a message to a chat/channel (Slack pins.add, Discord channel pin, Telegram pinned message). `targetId` is the `platform_id=` attribute of the message XML, never `id=`. Use to mark a live status surface (deploy progress, standup link) or anchor a reference. Not for editing content (`edit`) or amplifying on a feed (`repost`/`quote`). Bluesky/Reddit/Email/WhatsApp return unsupported.",
+		desc: "Pin a message to a chat/channel (Slack pins.add, Discord channel pin, Telegram pinned message). `targetId` is the `platform_id=` attribute of the message XML, never `id=`. Use to mark a live status surface (deploy progress, standup link) or anchor a reference. Not for editing content (`edit`) or amplifying on a feed (`repost`/`quote`). Bluesky/Email/WhatsApp return unsupported.",
 		args: []string{"chatJid", "targetId"},
 		call: func(a map[string]string) (string, error) {
 			if routd.Pin == nil {

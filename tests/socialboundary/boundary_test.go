@@ -8,9 +8,7 @@
 // delivers a user's message.
 //
 // The boundary is a source fact, so this reads it from source — the same way
-// tests/shutdown reads signal ordering. It was written after the spec's own
-// migration section was found to be wrong: it claimed every social adapter was
-// already thin, and reditd was not.
+// tests/shutdown reads signal ordering.
 package socialboundary
 
 import (
@@ -22,10 +20,10 @@ import (
 
 const root = "../.."
 
-// socialAdapters are the four social adapters 6/33 names. twitd is here with
-// the three Go ones: the markers below are plain strings and the boundary is
+// socialAdapters are the social adapters 6/33 names. twitd is here with
+// the Go ones: the markers below are plain strings and the boundary is
 // the same one, so the implementation language decides nothing.
-var socialAdapters = []string{"bskyd", "reditd", "linkd", "twitd"}
+var socialAdapters = []string{"bskyd", "linkd", "twitd"}
 
 // observerMarkers are the shapes that mean broad monitoring rather than
 // bot-directed notification. Deliberately blunt: a false positive costs a
@@ -33,18 +31,10 @@ var socialAdapters = []string{"bskyd", "reditd", "linkd", "twitd"}
 // unbounded polling nobody noticed.
 var observerMarkers = []string{"hashtag", "trending", "competitor"}
 
-// feedPollExceptions records the adapters that ALREADY cross the boundary,
-// with the reason. reditd polls each configured subreddit's /new feed — a feed
-// the bot is not addressed in — and it predates this spec. Removing it would
-// take a working capability off a deployed adapter with no replacement, and
-// the observer that should own it is unspecced, so it is recorded rather than
-// deleted (6/33 §"The one exception: reditd's subreddit poll").
-//
-// The point of the map is that it is a CLOSED list: a second adapter cannot
-// start polling a feed without editing this line and reading why.
-var feedPollExceptions = map[string]string{
-	"reditd": "/r/<sr>/new.json per SUBREDDITS — pending the observer",
-}
+// feedPollExceptions records the adapters that cross the boundary, with the
+// reason. It is a CLOSED list: an adapter cannot start polling a feed without
+// editing this map and reading why. It is empty.
+var feedPollExceptions = map[string]string{}
 
 // adapterSource concatenates one adapter's non-test source. A Go adapter keeps
 // its source in the package directory and a TypeScript one under `src/`, so both
@@ -91,8 +81,8 @@ func TestSocialAdaptersCarryNoObserverLogic(t *testing.T) {
 	}
 }
 
-// A feed poll is the subtler form of the same thing, and one adapter already
-// does it. This pins the exception list closed.
+// A feed poll is the subtler form of the same thing. This pins the exception
+// list closed.
 func TestFeedPollingIsOnlyWhereItIsRecorded(t *testing.T) {
 	// The marker is the shape of "fetch a listing the bot is not addressed in".
 	const feedMarker = "/new.json"
@@ -109,14 +99,5 @@ func TestFeedPollingIsOnlyWhereItIsRecorded(t *testing.T) {
 			t.Errorf("%s is listed as a feed-poll exception but no longer polls one; "+
 				"delete the entry so the list stays honest", name)
 		}
-	}
-}
-
-// The bot-directed poll is what an adapter IS for, so it must not be lost while
-// tightening the rule above.
-func TestReditdStillPollsItsOwnInbox(t *testing.T) {
-	if !strings.Contains(adapterSource(t, "reditd"), "/message/inbox.json") {
-		t.Error("reditd no longer polls its own inbox — that is the notification " +
-			"stream 6/33 requires an adapter to cover")
 	}
 }

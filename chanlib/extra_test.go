@@ -472,7 +472,7 @@ func TestProxyFile_Non200Upstream(t *testing.T) {
 	}
 }
 
-// HealthCheck custom thresholds (email name → 10-min stale, reddit → 60-min)
+// HealthCheck custom thresholds (email name → 10-min stale)
 
 func TestHandlerHealthEmailThreshold(t *testing.T) {
 	// email: stale after 10min. 6min old → NOT stale.

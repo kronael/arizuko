@@ -51,15 +51,15 @@ func mountFor(volumes []string, target string) (string, bool) {
 }
 
 // An adapter that writes a FILE must mount a bind for it, and that mount must be
-// the narrow subpath the daemon actually needs. teled/bskyd/reditd/linkd shipped
+// the narrow subpath the daemon actually needs. teled/bskyd/linkd shipped
 // with NO volumes at all (BUGS E1), so every container recreate wiped the
-// Telegram offset, the Bluesky session, the Reddit cursors and the LinkedIn
+// Telegram offset, the Bluesky session and the LinkedIn
 // refresh token — teled then re-answered Telegram's ~24h backlog.
 //
 // An adapter that writes no file is NOT here: its tables are on the store server
 // and it mounts no part of the instance tree.
 func TestStatefulFragmentsMountTheirStateDir(t *testing.T) {
-	for _, name := range []string{"bskyd", "linkd", "reditd", "teled"} {
+	for _, name := range []string{"bskyd", "linkd", "teled"} {
 		svc := readFragment(t, name).Services[name]
 		dataDir, _ := svc.Environment["DATA_DIR"].(string)
 		if dataDir == "" {

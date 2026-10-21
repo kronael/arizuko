@@ -362,15 +362,15 @@ func TestFormatMessagesPlatformVerb(t *testing.T) {
 	ts := time.Date(2025, 3, 7, 12, 0, 0, 0, time.UTC)
 	msgs := []core.Message{
 		{ChatJID: "bluesky:123", Sender: "bluesky:123", Content: "liked", Verb: "like", Timestamp: ts},
-		{ChatJID: "reddit:456", Sender: "reddit:alice", Content: "followed", Verb: "follow", Timestamp: ts},
+		{ChatJID: "discord:456", Sender: "discord:alice", Content: "followed", Verb: "follow", Timestamp: ts},
 		{ChatJID: "telegram:789", Sender: "telegram:789", Content: "hi", Verb: "message", Timestamp: ts},
 	}
 	got := FormatMessages(msgs)
 	if !strings.Contains(got, `platform="bluesky"`) {
 		t.Fatal("should include bluesky platform attr")
 	}
-	if !strings.Contains(got, `platform="reddit"`) {
-		t.Fatal("should include reddit platform attr")
+	if !strings.Contains(got, `platform="discord"`) {
+		t.Fatal("should include discord platform attr")
 	}
 	if !strings.Contains(got, `verb="like"`) {
 		t.Fatal("should include like verb attr")

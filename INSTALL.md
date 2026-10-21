@@ -292,7 +292,6 @@ test names the policy to rewrite.
 | `linkd`       | `linkd.*`                       |
 | `onbod`       | `onbod.*`, `routd.*`            |
 | `proxyd`      | `routd.*`                       |
-| `reditd`      | `reditd.*`                      |
 | `routd`       | `routd.*`                       |
 | `runed`       | `runed.*`                       |
 | `slakd`       | `routd.*`, `slakd.*`            |

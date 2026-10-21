@@ -12,7 +12,7 @@ import (
 func TestServiceAdapterGrants(t *testing.T) {
 	adapters := []string{
 		"teled", "whapd", "discd", "slakd",
-		"bskyd", "reditd", "emaid", "twitd", "linkd", "gitd",
+		"bskyd", "emaid", "twitd", "linkd", "gitd",
 	}
 	for _, a := range adapters {
 		principal := "service:" + a

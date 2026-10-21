@@ -39,16 +39,15 @@ var serviceGrants = map[string][]string{
 	// Channel adapters post inbound to routd's /v1/messages; a missing entry
 	// means empty scope and every inbound 401/403s. Multi-account variants
 	// share the base principal.
-	"service:teled":  {"messages:write"},
-	"service:whapd":  {"messages:write"},
-	"service:discd":  {"messages:write"},
-	"service:slakd":  {"messages:write"},
-	"service:bskyd":  {"messages:write"},
-	"service:reditd": {"messages:write"},
-	"service:emaid":  {"messages:write"},
-	"service:twitd":  {"messages:write"},
-	"service:linkd":  {"messages:write"},
-	"service:gitd":   {"messages:write"},
+	"service:teled": {"messages:write"},
+	"service:whapd": {"messages:write"},
+	"service:discd": {"messages:write"},
+	"service:slakd": {"messages:write"},
+	"service:bskyd": {"messages:write"},
+	"service:emaid": {"messages:write"},
+	"service:twitd": {"messages:write"},
+	"service:linkd": {"messages:write"},
+	"service:gitd":  {"messages:write"},
 	// webd is web ingress, not a channel adapter, but it posts the same way;
 	// without this entry every form/widget submission 403s.
 	"service:webd": {"messages:write"},

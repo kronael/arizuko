@@ -100,6 +100,6 @@ on that default (BUGS `L398`). A package that reaches the timeout prints a gorou
   `<daemon>/integration_test.go`: dashd, discd, onbod, proxyd, slakd, teled
   and webd have one. routd's is `routd/authd_integration_test.go`.
 - A channel adapter tests its `chanlib.BotHandler` against a stub platform in
-  `<adapter>/bothandler_test.go`: bskyd, discd, emaid, linkd, reditd, slakd and
+  `<adapter>/bothandler_test.go`: bskyd, discd, emaid, linkd, slakd and
   teled have one.
 - A test that crosses two or more daemons goes in `tests/`.

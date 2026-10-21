@@ -596,10 +596,9 @@ func handleUnpin(bot BotHandler) http.HandlerFunc {
 }
 
 // staleThresholds: /health flips to stale when lastInboundAt is older than this.
-// email: IDLE+poll-fallback is lumpier. reddit: sparse subreddits can be quiet for hours.
+// email: IDLE+poll-fallback is lumpier.
 var staleThresholds = map[string]time.Duration{
-	"email":  10 * time.Minute,
-	"reddit": 60 * time.Minute,
+	"email": 10 * time.Minute,
 }
 
 // Stale inbound is informational only: a quiet-but-connected channel is

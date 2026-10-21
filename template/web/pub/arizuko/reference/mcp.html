@@ -121,7 +121,7 @@
     <h2 id="messages">messages</h2>
 
     <h3 id="post"><code>post</code></h3>
-    <p>Create a new top-level post on a platform (bluesky post, discord channel message, reddit submission). Use for broadcast/announcement content that is not replying to anyone. Not for replies (<code>reply</code>), direct messages (<code>send</code>), or file delivery (<code>send_file</code>).</p>
+    <p>Create a new top-level post on a platform (bluesky post, discord channel message). Use for broadcast/announcement content that is not replying to anyone. Not for replies (<code>reply</code>), direct messages (<code>send</code>), or file delivery (<code>send_file</code>).</p>
     <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1427"><code>ipc/ipc.go:1427</code></a> &middot; Grant action: <code>post(jid=...)</code>.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
@@ -278,7 +278,7 @@
     <p class="returns"><strong>Returns:</strong> JSON <code>{"ok": true, "id": "&lt;platformId&gt;"}</code>.</p>
 
     <h3 id="pin_message"><code>pin_message</code></h3>
-    <p>Pin a message to a chat/channel (Slack <code>pins.add</code>, Discord channel pin, Telegram pinned message). Use to mark a live status surface (deploy progress, standup link) or anchor a reference. Targets any message in the chat &mdash; not author-scoped like <code>edit</code>/<code>delete</code>. Bluesky, Reddit, email, WhatsApp return unsupported.</p>
+    <p>Pin a message to a chat/channel (Slack <code>pins.add</code>, Discord channel pin, Telegram pinned message). Use to mark a live status surface (deploy progress, standup link) or anchor a reference. Targets any message in the chat &mdash; not author-scoped like <code>edit</code>/<code>delete</code>. Bluesky, email, WhatsApp return unsupported.</p>
     <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1621"><code>ipc/ipc.go:1621</code></a> &middot; Grant action: <code>pin_message(jid=...)</code></p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>

@@ -21,7 +21,7 @@ user-invocable: true
 | twitter   | photo / video media types via platform lib                                |
 | bluesky   | image-only — `.jpg/.jpeg/.png/.webp/.gif` upload as `app.bsky.embed.images`; non-image returns "Bluesky's PDS embed surface only accepts image blobs" → host elsewhere, post the URL via `send` |
 | email     | MIME multipart attachment                                                 |
-| reddit, linkedin | no file surface (`chanlib.NoFileSender`) — `send_file` errors. Host the file on `/pub/` and link via `send` |
+| linkedin | no file surface (`chanlib.NoFileSender`) — `send_file` errors. Host the file on `/pub/` and link via `send` |
 
 ## Voice vs file
 
@@ -36,7 +36,7 @@ adapters return `chanlib.ErrUnsupported` (HTTP 501) for verbs they
 don't implement. The MCP layer maps this to a structured response —
 catch it and degrade gracefully (`send_file` fail → host + `send` URL).
 
-Reddit and some adapters return `ErrUnsupported` for `like` — do not
+Some adapters return `ErrUnsupported` for `like` — do not
 retry. A Slack `like` that errors usually means the bot token lacks the
 `reactions:write` scope: log it with `/issues`, do NOT loop-retry, do NOT
 tell the user the channel is broken.

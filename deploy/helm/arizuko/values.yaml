@@ -165,10 +165,6 @@ secrets:
       serviceKey: ''
       storeKeyId: ''
       storeSecret: ''
-    reditd:
-      serviceKey: ''
-      storeKeyId: ''
-      storeSecret: ''
     emaid:
       serviceKey: ''
       storeKeyId: ''
@@ -186,10 +182,6 @@ secrets:
   slackSigningSecret: '' # SLACK_SIGNING_SECRET   (slakd)
   blueskyIdentifier: '' # BLUESKY_IDENTIFIER     (bskyd)
   blueskyPassword: '' # BLUESKY_PASSWORD       (bskyd)
-  redditClientId: '' # REDDIT_CLIENT_ID       (reditd)
-  redditClientSecret: '' # REDDIT_CLIENT_SECRET   (reditd)
-  redditUsername: '' # REDDIT_USERNAME        (reditd)
-  redditPassword: '' # REDDIT_PASSWORD        (reditd)
   emailImapHost: '' # EMAIL_IMAP_HOST        (emaid)
   emailSmtpHost: '' # EMAIL_SMTP_HOST        (emaid)
   emailAccount: '' # EMAIL_ACCOUNT          (emaid)
@@ -269,15 +261,6 @@ adapters:
     secretEnv:
       - BLUESKY_IDENTIFIER
       - BLUESKY_PASSWORD
-
-  - name: reditd
-    enabled: false
-    entrypoint: ['reditd']
-    secretEnv:
-      - REDDIT_CLIENT_ID
-      - REDDIT_CLIENT_SECRET
-      - REDDIT_USERNAME
-      - REDDIT_PASSWORD
 
   - name: emaid
     enabled: false

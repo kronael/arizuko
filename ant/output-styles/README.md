@@ -28,13 +28,12 @@ never read.
 | bluesky  | (no split — single `bluesky.md`)          |
 | linkedin | (no split — single `linkedin.md`)         |
 | twitter  | (no split — single `twitter.md`)          |
-| reddit   | none — stock markdown is already correct  |
 | github   | none — stock markdown is already correct  |
 
-`reditd` and `gitd` post the agent's text verbatim into a field their
-platform renders as real markdown, so a style file would add a surface to
-maintain and change nothing. `runed/output_style_test.go` pins that
-decision; shipping a file for either flips a bool there.
+`gitd` posts the agent's text verbatim into a field GitHub renders as real
+markdown, so a style file would add a surface to maintain and change
+nothing. `runed/output_style_test.go` pins that decision; shipping a file
+flips a bool there.
 
 ## Selection algorithm
 

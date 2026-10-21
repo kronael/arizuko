@@ -121,10 +121,8 @@ func TestPickOutputStyle_ShippedStyleExists(t *testing.T) {
 		{"discord channel", "discord", "discord:G1/C1", true},
 		{"email", "email", "email:someone@example.com", true},
 		{"web", "web", "web:solo/inbox", true},
-		// reditd and gitd post the agent's text verbatim into a field their
-		// platform renders as real markdown, so stock formatting already lands
-		// correctly on both.
-		{"reddit", "reddit", "reddit:r_golang", false},
+		// gitd posts the agent's text verbatim into a field GitHub renders as
+		// real markdown, so stock formatting already lands correctly.
 		{"github", "github", "github:o/r/issue/1", false},
 	}
 	for _, c := range cases {

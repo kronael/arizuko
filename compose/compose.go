@@ -221,10 +221,9 @@ var daemonKeys = map[string][]string{
 	"discd": {"AUTHD_URL", "AUTHD_SERVICE_KEY", "DISCORD_BOT_TOKEN"},
 	// bskyd reads BLUESKY_IDENTIFIER/BLUESKY_PASSWORD, not
 	// BLUESKY_HANDLE/BLUESKY_APP_PASSWORD.
-	"bskyd":  {"AUTHD_URL", "AUTHD_SERVICE_KEY"},
-	"reditd": {"AUTHD_URL", "AUTHD_SERVICE_KEY", "REDDIT_CLIENT_ID", "REDDIT_CLIENT_SECRET", "REDDIT_USERNAME", "REDDIT_PASSWORD"},
-	"slakd":  {"AUTHD_URL", "AUTHD_SERVICE_KEY", "SLACK_BOT_TOKEN", "SLACK_SIGNING_SECRET", "SLAKD_USERS_CACHE_TTL"},
-	"linkd":  {"AUTHD_URL", "AUTHD_SERVICE_KEY", "LINKEDIN_CLIENT_ID", "LINKEDIN_CLIENT_SECRET", "LINKEDIN_ACCESS_TOKEN", "LINKEDIN_REFRESH_TOKEN"},
+	"bskyd": {"AUTHD_URL", "AUTHD_SERVICE_KEY"},
+	"slakd": {"AUTHD_URL", "AUTHD_SERVICE_KEY", "SLACK_BOT_TOKEN", "SLACK_SIGNING_SECRET", "SLAKD_USERS_CACHE_TTL"},
+	"linkd": {"AUTHD_URL", "AUTHD_SERVICE_KEY", "LINKEDIN_CLIENT_ID", "LINKEDIN_CLIENT_SECRET", "LINKEDIN_ACCESS_TOKEN", "LINKEDIN_REFRESH_TOKEN"},
 	// The five auth keys are load-bearing: with EMAIL_TRUSTED_AUTHSERV absent
 	// emaid classifies EVERY inbound as untrusted (fail-closed, spec 11/17)
 	// and EMAIL_STRICT_AUTH can never take effect, so an operator who sets
@@ -253,7 +252,7 @@ var foreignImages = map[string]bool{"kokoro": true}
 // base. Keep in sync with authd serviceGrants.
 var adapterDaemons = map[string]bool{
 	"teled": true, "whapd": true, "discd": true, "slakd": true,
-	"bskyd": true, "reditd": true, "emaid": true, "twitd": true, "linkd": true,
+	"bskyd": true, "emaid": true, "twitd": true, "linkd": true,
 	"gitd": true,
 }
 

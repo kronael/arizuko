@@ -26,7 +26,6 @@ not cross `/`.
 | telegram   | `telegram:user/<id>`, `telegram:group/<id>`                |
 | discord    | `discord:<guild>/<channel>`, `discord:dm/<channel>`, `discord:user/<id>` |
 | whatsapp   | `whatsapp:<id>@<server>` (unchanged — no kind segment)     |
-| reddit     | `reddit:user/<name>`, `reddit:subreddit/<name>`, `reddit:comment/<id>`, `reddit:submission/<id>` |
 | email      | `email:thread/<id>`, `email:address/<addr>`                |
 | bluesky    | `bluesky:user/<percent-encoded-did>`, `bluesky:post/<at_uri>` |
 | linkedin   | `linkedin:user/<urn>`, `linkedin:post/<urn>`               |
@@ -62,18 +61,16 @@ rewrites the common prefix-only forms automatically:
 # Before                          # After
 chat_jid=telegram:*       →       chat_jid=telegram:*/*
 chat_jid=discord:*        →       chat_jid=discord:*/*
-chat_jid=reddit:t1_*      →       chat_jid=reddit:comment/*    (manual)
 ```
 
-Operator-edited globs that referenced legacy specifics (the
-`reddit:t1_/t2_/t3_` prefix hack, the telegram sign-bit DM/group split)
-need manual review — the migration only catches the prefix-only case.
+Operator-edited globs that referenced legacy specifics (the telegram
+sign-bit DM/group split) need manual review — the migration only catches the prefix-only case.
 
 ## Why the format changed
 
 One URL = one resource. Legacy collided different kinds on the same
 prefix: `telegram:1234` was either a DM or a group disambiguated by
-sign bit; `reddit:t1_xyz` and `reddit:t2_<user>` shared `reddit:`;
+sign bit;
 `discord:<channel>` lost guild context. Typed JIDs encode the
 discriminator structurally so glob rules don't need platform-specific
 guesswork.

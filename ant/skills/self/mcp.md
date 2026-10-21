@@ -27,7 +27,7 @@ expect is missing, you were not granted it — ask, don't work around it.
 | `send_voice`     | Synthesize text and deliver as voice (Telegram/WhatsApp PTT, Discord audio) |
 | `post`           | Create a new top-level post on a feed/timeline (bluesky, discord, …)     |
 | `like`           | Like/favourite/react to an existing message                               |
-| `dislike`        | Endorse-negative (discord 👎, reddit downvote, telegram 👎, whatsapp 👎)   |
+| `dislike`        | Endorse-negative (discord 👎, telegram 👎, whatsapp 👎)   |
 | `delete`         | Delete a message previously created by this agent                         |
 | `edit`           | Modify a message previously sent by this agent in-place                   |
 | `forward`        | Redeliver an existing message to a different chat (telegram, whatsapp)    |

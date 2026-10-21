@@ -131,7 +131,7 @@ func TestDeltaSectionsAreOptionalAndRendered(t *testing.T) {
 		t.Error("an adapter with no DashSections rendered one")
 	}
 
-	with := handleAdapterDash("reditd", nil, &sectionBot{
+	with := handleAdapterDash("bskyd", nil, &sectionBot{
 		secs: []DashSection{{Title: "Poll sources and cursors", Rows: [][2]string{
 			{"inbox", "t4_abc"}, {"sr:golang", "(never read)"},
 		}}},
@@ -153,7 +153,7 @@ func TestEmptySectionStillSaysSo(t *testing.T) {
 	}
 }
 
-// Section values are adapter state — a subreddit name is operator-supplied.
+// Section values are adapter state — a poll-source name is operator-supplied.
 func TestSectionValuesAreEscaped(t *testing.T) {
 	got := renderSection(DashSection{Title: "x", Rows: [][2]string{{"<b>k</b>", "<script>v</script>"}}})
 	if strings.Contains(got, "<script>") || strings.Contains(got, "<b>k</b>") {
