@@ -11,14 +11,17 @@ folder answers a chat: [ROUTING](ROUTING.md). The threat model:
 A change touches the layers from the bottom up: the shared ID in `types/`, the
 row shape in `core/`, the entity in the owner's store package, the resource in
 `resreg/resources/`, the owning daemon's handler, and last its `api/v1/`, the
-only package another daemon imports. `tests/components/imports_test.go` fails
-on an upward edge.
+only package another daemon imports. `tests/components/imports_test.go` gates
+the shippable components, the substrate, `container` and SQL. No test gates the
+layer order below.
 
 ```
 types/ obs/ core/  layer 0: shared IDs, telemetry, config and row types
-audit/ auth/       layer 1: the audit row; token verify, the acl evaluator
-resreg/ chanlib/   layer 2: resource registry; the adapter library
-store/ objstore/   owner entities; Query and GuardedBatch, dynstore
+objstore/          layer 1: Query and GuardedBatch, dynstore
+audit/             layer 2: the audit row
+store/             layer 3: owner entities
+auth/              layer 4: token verify, the acl evaluator
+resreg/ chanlib/   layer 5: resource registry; the adapter library
 
 routd/     router plane: sole message appender, routing, prompt, MCP host
   │
@@ -213,12 +216,12 @@ bulk-deletes a runtime table: a removed group keeps its history.
 - **Naming.** A daemon ends in `d`: a process that owns at most one set of
   tables and serves REST, MCP or both. A library does not end in `d` and is
   imported, never run. One Go module holds both.
-- **Layers.** The layer rule heads the map above. Layer 3 is the daemons,
-  which import layers 0-2 and other daemons' `api/v1/`. `types/` holds the
+- **Layers.** The layer rule heads the map above. The daemons sit above layer 5
+  and import every layer and other daemons' `api/v1/`. `types/` holds the
   cross-boundary IDs as named types with no methods, which breaks the cycle
   between each `api/v1/` and `core/`.
 - **`<daemon>/api/v1/` is the contract**: wire types and a thin HTTP client,
-  importing nothing beyond `types/`. The daemon's handlers stay private, and
+  importing nothing beyond `types/` and `obs/`. The daemon's handlers stay private, and
   `v2/` sits beside `v1/` when the shape breaks.
 - **Component contract.** `egress`, `substrate` and `mcpfw` ship alone and
   import no arizuko package except each other (`imports_test.go`
