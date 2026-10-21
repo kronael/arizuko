@@ -122,7 +122,7 @@
 
     <h3 id="post"><code>post</code></h3>
     <p>Create a new top-level post on a platform (bluesky post, discord channel message, reddit submission). Use for broadcast/announcement content that is not replying to anyone. Not for replies (<code>reply</code>), direct messages (<code>send</code>), or file delivery (<code>send_file</code>).</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1359"><code>ipc/ipc.go:1359</code></a> &middot; Grant action: <code>post(jid=...)</code>.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1427"><code>ipc/ipc.go:1427</code></a> &middot; Grant action: <code>post(jid=...)</code>.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
@@ -135,7 +135,7 @@
 
     <h3 id="reply"><code>reply</code></h3>
     <p>Use <code>reply</code> for answers to the user. Omit <code>replyToId</code> to use the current conversation, or supply an earlier message to quote. A declared task summary keeps replies inside its thread where supported. Existing threads take precedence.</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1250"><code>ipc/ipc.go:1250</code></a> &middot; Grant action: <code>reply(jid=...)</code> &middot; In <code>role:member</code>, granted to every folder at create.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1312"><code>ipc/ipc.go:1312</code></a> &middot; Grant action: <code>reply(jid=...)</code> &middot; In <code>role:member</code>, granted to every folder at create.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
@@ -148,7 +148,7 @@
 
     <h3 id="send"><code>send</code></h3>
     <p>Use <code>send</code> for a notification or an explicit different chat. Within a declared task, <code>send</code> shares the task&rsquo;s thread placement. An explicit foreign chat keeps its own destination. Use <code>reply</code> for answers and <code>send_file</code> for files.</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1227"><code>ipc/ipc.go:1227</code></a> &middot; Grant action: <code>send(jid=...)</code> &middot; In <code>role:member</code>, granted to every folder at create.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1286"><code>ipc/ipc.go:1286</code></a> &middot; Grant action: <code>send(jid=...)</code> &middot; In <code>role:member</code>, granted to every folder at create.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
@@ -160,7 +160,7 @@
 
     <h3 id="send_file"><code>send_file</code></h3>
     <p>Deliver a file from the group workspace (<code>~/</code>) to a chat. Works on every platform whose channel registered the tool. The <code>caption</code> IS the accompanying message &mdash; never follow with <code>send</code>. Not for inline text the user can read in-chat.</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1282"><code>ipc/ipc.go:1282</code></a> &middot; Grant action: <code>send_file(jid=...)</code> &middot; Path validated via <code>mountsec.ValidateFilePath</code>.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1347"><code>ipc/ipc.go:1347</code></a> &middot; Grant action: <code>send_file(jid=...)</code> &middot; Path validated via <code>mountsec.ValidateFilePath</code>.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
@@ -175,7 +175,7 @@
 
     <h3 id="send_voice"><code>send_voice</code></h3>
     <p>Deliver <code>text</code> as a synthesized voice message on the platform &mdash; push-to-talk on Telegram/WhatsApp, audio attachment on Discord. <code>voice</code> defaults to <code>PERSONA.md</code> frontmatter or the instance default; pass an explicit name to override.</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1322"><code>ipc/ipc.go:1322</code></a> &middot; Grant action: <code>send_voice(jid=...)</code> &middot; Max 5000 chars; requires <code>TTS_BASE_URL</code> (otherwise <code>UnsupportedError</code> propagates).</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1390"><code>ipc/ipc.go:1390</code></a> &middot; Grant action: <code>send_voice(jid=...)</code> &middot; Max 5000 chars; requires <code>TTS_BASE_URL</code> (otherwise <code>UnsupportedError</code> propagates).</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
@@ -187,11 +187,11 @@
     <p class="returns"><strong>Returns:</strong> JSON <code>{"ok": true, "id": "&lt;platformId&gt;"}</code>; on adapter unsupported, error text with platform hint.</p>
 
     <h2 id="social">social actions</h2>
-    <p>All registered via the <code>regSocial</code>/<code>socialAct</code> helper at <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1322"><code>ipc/ipc.go:1322</code></a>. All take string args; the first arg (or <code>jidArg</code>) is grant-checked + folder-authorized. All adapter errors are rendered through <code>toolMaybeUnsupported</code>, surfacing the platform hint to the agent.</p>
+    <p>All registered via the <code>regSocial</code>/<code>socialAct</code> helper at <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1390"><code>ipc/ipc.go:1390</code></a>. All take string args; the first arg (or <code>jidArg</code>) is grant-checked + folder-authorized. All adapter errors are rendered through <code>toolMaybeUnsupported</code>, surfacing the platform hint to the agent.</p>
 
     <h3 id="delete"><code>delete</code></h3>
     <p>Delete a post/message previously created by this agent (platform enforces authorship). Use to retract an incorrect or superseded post. No edit tool &mdash; delete and re-post.</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1468"><code>ipc/ipc.go:1468</code></a> &middot; Grant action: <code>delete(jid=...)</code></p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1539"><code>ipc/ipc.go:1539</code></a> &middot; Grant action: <code>delete(jid=...)</code></p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
@@ -203,7 +203,7 @@
 
     <h3 id="dislike"><code>dislike</code></h3>
     <p>Endorse-negative on a message (Discord 👎 reaction). Native only &mdash; Bluesky and most platforms have no native downvote and return unsupported with a hint.</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1523"><code>ipc/ipc.go:1523</code></a> &middot; Grant action: <code>dislike(jid=...)</code> &middot; See user-pref: on emoji-reaction platforms, prefer <code>like(reaction='👎')</code>.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1594"><code>ipc/ipc.go:1594</code></a> &middot; Grant action: <code>dislike(jid=...)</code> &middot; See user-pref: on emoji-reaction platforms, prefer <code>like(reaction='👎')</code>.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
@@ -215,7 +215,7 @@
 
     <h3 id="edit"><code>edit</code></h3>
     <p>Modify a message previously sent by this agent in-place (Discord, Slack, Bluesky, Telegram own bot messages). Preserves the platform message id. Email is unsupported.</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1535"><code>ipc/ipc.go:1535</code></a> &middot; Grant action: <code>edit(jid=...)</code></p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1606"><code>ipc/ipc.go:1606</code></a> &middot; Grant action: <code>edit(jid=...)</code></p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
@@ -228,7 +228,7 @@
 
     <h3 id="forward"><code>forward</code></h3>
     <p>Redeliver an existing message to a different chat with provenance preserved (Telegram forward, WhatsApp forward, email <code>Fwd:</code>). Not for replying within the same chat (<code>reply</code>) or amplifying on a public feed (<code>repost</code> / <code>quote</code>).</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1480"><code>ipc/ipc.go:1480</code></a> &middot; Grant action: <code>forward(jid=&lt;targetJid&gt;)</code> &mdash; <code>jidArg</code> is <code>targetJid</code>, not the source.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1551"><code>ipc/ipc.go:1551</code></a> &middot; Grant action: <code>forward(jid=&lt;targetJid&gt;)</code> &mdash; <code>jidArg</code> is <code>targetJid</code>, not the source.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
@@ -241,7 +241,7 @@
 
     <h3 id="like"><code>like</code></h3>
     <p>Like an existing message (unicode emoji on Discord, like on Bluesky). Use when acknowledging or endorsing a specific earlier message without sending text. Platform decides what <code>reaction</code> strings are valid; unsupported platforms return an error.</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1456"><code>ipc/ipc.go:1456</code></a> &middot; Grant action: <code>like(jid=...)</code></p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1527"><code>ipc/ipc.go:1527</code></a> &middot; Grant action: <code>like(jid=...)</code></p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
@@ -254,7 +254,7 @@
 
     <h3 id="quote"><code>quote</code></h3>
     <p>Republish a message on your own feed with added commentary (Bluesky quote, X quote-tweet). Native only &mdash; Discord has no quote primitive and returns unsupported with a hint to use <code>post(content=..., source_url=...)</code>.</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1495"><code>ipc/ipc.go:1495</code></a> &middot; Grant action: <code>quote(jid=...)</code>.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1566"><code>ipc/ipc.go:1566</code></a> &middot; Grant action: <code>quote(jid=...)</code>.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
@@ -267,7 +267,7 @@
 
     <h3 id="repost"><code>repost</code></h3>
     <p>Amplify a message on your own feed without added text (Bluesky repost, X retweet). Use to endorse-and-share. Not for commentary (<code>quote</code>) or sending a copy to a different chat (<code>forward</code>).</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1509"><code>ipc/ipc.go:1509</code></a> &middot; Grant action: <code>repost(jid=...)</code>.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1580"><code>ipc/ipc.go:1580</code></a> &middot; Grant action: <code>repost(jid=...)</code>.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
@@ -279,7 +279,7 @@
 
     <h3 id="pin_message"><code>pin_message</code></h3>
     <p>Pin a message to a chat/channel (Slack <code>pins.add</code>, Discord channel pin, Telegram pinned message). Use to mark a live status surface (deploy progress, standup link) or anchor a reference. Targets any message in the chat &mdash; not author-scoped like <code>edit</code>/<code>delete</code>. Bluesky, Reddit, email, WhatsApp return unsupported.</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1547"><code>ipc/ipc.go:1547</code></a> &middot; Grant action: <code>pin_message(jid=...)</code></p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1621"><code>ipc/ipc.go:1621</code></a> &middot; Grant action: <code>pin_message(jid=...)</code></p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
@@ -291,7 +291,7 @@
 
     <h3 id="unpin_message"><code>unpin_message</code></h3>
     <p>Remove the pin on a specific message (Slack <code>pins.remove</code>, Discord channel unpin, Telegram <code>unpinChatMessage</code>). Use to retire a status surface or rotate the pinned reference. Not for clearing every pin (<code>unpin_all</code>) or deleting the message (<code>delete</code>).</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1559"><code>ipc/ipc.go:1559</code></a> &middot; Grant action: <code>unpin_message(jid=...)</code></p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1633"><code>ipc/ipc.go:1633</code></a> &middot; Grant action: <code>unpin_message(jid=...)</code></p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
@@ -303,7 +303,7 @@
 
     <h3 id="unpin_all"><code>unpin_all</code></h3>
     <p>Clear every pin in a chat/channel (Slack iterates <code>pins.list</code> + <code>pins.remove</code>; Telegram <code>unpinAllChatMessages</code>). Use when wholesale resetting a channel's pinned set. Discord has no bulk primitive &mdash; call <code>unpin_message</code> per id.</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1571"><code>ipc/ipc.go:1571</code></a> &middot; Grant action: <code>unpin_all(jid=...)</code></p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1645"><code>ipc/ipc.go:1645</code></a> &middot; Grant action: <code>unpin_all(jid=...)</code></p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
@@ -316,7 +316,7 @@
 
     <h3 id="fetch_history"><code>fetch_history</code></h3>
     <p>Pull authoritative conversation history from the channel adapter and cache it. Use to reconstruct context before replying, especially on first contact or after a <code>reset_session</code>. Falls back to local cache if the adapter is down. Not for DB/routing audits (<code>inspect_messages</code>) or single-thread slices (<code>get_thread</code>).</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L2315"><code>ipc/ipc.go:2315</code></a> &middot; Registered only when <code>gated.FetchPlatformHistory != nil</code>. An ordinary caller must have the JID routed to its folder; an elevated <code>/root</code> turn is unrestricted.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L2389"><code>ipc/ipc.go:2389</code></a> &middot; Registered only when <code>gated.FetchPlatformHistory != nil</code>. An ordinary caller must have the JID routed to its folder; an elevated <code>/root</code> turn is unrestricted.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
@@ -329,7 +329,7 @@
 
     <h3 id="get_thread"><code>get_thread</code></h3>
     <p>Return rows from the message store scoped to one thread (chat_jid + topic). Use when a chat fans out into per-topic conversations (Telegram forum topics, web-chat topics).</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L2271"><code>ipc/ipc.go:2271</code></a> &middot; Registered only when <code>db.MessagesByThread != nil</code>.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L2345"><code>ipc/ipc.go:2345</code></a> &middot; Registered only when <code>db.MessagesByThread != nil</code>.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
@@ -343,7 +343,7 @@
 
     <h3 id="inspect_messages"><code>inspect_messages</code></h3>
     <p>Return rows from the message store for one <code>chat_jid</code>, including outbound/bot rows and errored entries. Use for routing/delivery audits or to verify what the store recorded.</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L2192"><code>ipc/ipc.go:2192</code></a> &middot; Registered only when <code>db.MessagesBefore != nil</code>.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L2266"><code>ipc/ipc.go:2266</code></a> &middot; Registered only when <code>db.MessagesBefore != nil</code>.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
@@ -356,7 +356,7 @@
 
     <h3 id="find_messages"><code>find_messages</code></h3>
     <p>Ranked search over every message the instance has recorded. <code>query</code> is words and all of them must appear: <code>budget review</code> needs both. A <code>"quoted phrase"</code> matches those words adjacent and in order; a leading <code>-</code> excludes a word or a phrase. There is no <code>OR</code>, no <code>prefix*</code> wildcard and no <code>NEAR</code>. Use to find a past message by what it said. Not for whole-chat scroll (<code>inspect_messages</code>), single-thread slices (<code>get_thread</code>), or platform-truth fallback (<code>fetch_history</code>).</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L2201"><code>ipc/ipc.go:2201</code></a> &middot; Registered only when <code>db.FindMessages != nil</code>. An ordinary caller sees only rows whose <code>chat_jid</code> is routed to its folder (post-fetch ACL via <code>db.JIDRoutedToFolder</code>); an elevated <code>/root</code> turn bypasses the filter. Answered from an in-memory BM25 index routd keeps over the <code>messages</code> entity (<a href="https://github.com/kronael/arizuko/tree/main/routd/msgsearch"><code>routd/msgsearch</code></a>), walked from the store at boot and fed by routd's own writes. A search made while that walk is running is refused, never answered empty.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L2275"><code>ipc/ipc.go:2275</code></a> &middot; Registered only when <code>db.FindMessages != nil</code>. An ordinary caller sees only rows whose <code>chat_jid</code> is routed to its folder (post-fetch ACL via <code>db.JIDRoutedToFolder</code>); an elevated <code>/root</code> turn bypasses the filter. Answered from an in-memory BM25 index routd keeps over the <code>messages</code> entity (<a href="https://github.com/kronael/arizuko/tree/main/routd/msgsearch"><code>routd/msgsearch</code></a>), walked from the store at boot and fed by routd's own writes. A search made while that walk is running is refused, never answered empty.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
@@ -409,7 +409,7 @@
 
     <h3 id="delegate_group"><code>delegate_group</code></h3>
     <p>Hand a prompt down to a specific child group for async execution; the child runs in its own session and workspace. Depth capped at 1.</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1996"><code>ipc/ipc.go:1996</code></a> &middot; Grant action: <code>delegate_group</code> (delegated, not a default) &middot; <code>auth.Authorize</code> on the target folder.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L2070"><code>ipc/ipc.go:2070</code></a> &middot; Grant action: <code>delegate_group</code> (delegated, not a default) &middot; <code>auth.Authorize</code> on the target folder.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
@@ -423,7 +423,7 @@
 
     <h3 id="escalate_group"><code>escalate_group</code></h3>
     <p>Hand a prompt up to this group's parent folder; the parent responds back through this child. Use when the request exceeds this group's authority or needs operator review. Depth capped at 1.</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1941"><code>ipc/ipc.go:1941</code></a> &middot; Grant action: <code>escalate_group</code> (delegated, not a default) &middot; Wraps the prompt in <code>&lt;escalation_origin/&gt;</code> with reply_to provenance.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L2015"><code>ipc/ipc.go:2015</code></a> &middot; Grant action: <code>escalate_group</code> (delegated, not a default) &middot; Wraps the prompt in <code>&lt;escalation_origin/&gt;</code> with reply_to provenance.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
@@ -453,7 +453,7 @@
 
     <h3 id="set_group_open"><code>set_group_open</code></h3>
     <p>Toggle this group's visibility to sibling folders. When <code>open=true</code>, sibling folders' ambient messages surface in this group's <code>&lt;observed&gt;</code> block (and this group's messages surface to open siblings). Default: open. Use to seal off a sensitive folder from cross-folder ambient context. Concept: <a href="../concepts/scopes.html">scopes</a>.</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1806"><code>ipc/ipc.go:1806</code></a> &middot; Grant action: <code>set_group_open</code> &middot; <code>auth.Authorize</code> re-run with the calling folder as the scope.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1880"><code>ipc/ipc.go:1880</code></a> &middot; Grant action: <code>set_group_open</code> &middot; <code>auth.Authorize</code> re-run with the calling folder as the scope.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
@@ -465,7 +465,7 @@
 
     <h3 id="set_observe_window"><code>set_observe_window</code></h3>
     <p>Override this group's ambient observe-window caps (messages and/or chars). Per-group caps win over instance env defaults (<a href="env.html#OBSERVE_WINDOW_MESSAGES"><code>OBSERVE_WINDOW_MESSAGES</code></a>, <a href="env.html#OBSERVE_WINDOW_CHARS"><code>OBSERVE_WINDOW_CHARS</code></a>); per-route caps still win over both. Pass <code>-1</code> to clear an override; omit a field to leave it unchanged.</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1760"><code>ipc/ipc.go:1760</code></a> &middot; Grant action: <code>set_observe_window</code>.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1834"><code>ipc/ipc.go:1834</code></a> &middot; Grant action: <code>set_observe_window</code>.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
@@ -480,12 +480,12 @@
 
     <h3 id="get_work"><code>get_work</code></h3>
     <p>Read this group's <code>work.md</code> &mdash; current work, blockers, next steps. Use at the start of a turn to recover what was in-flight. Returns empty content when the file does not exist.</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L2354"><code>ipc/ipc.go:2354</code></a> &middot; Unconditionally registered; not grant-filtered.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L2428"><code>ipc/ipc.go:2428</code></a> &middot; Unconditionally registered; not grant-filtered.</p>
     <p class="returns"><strong>Params:</strong> none. <strong>Returns:</strong> JSON <code>{content, exists}</code>.</p>
 
     <h3 id="inject_message"><code>inject_message</code></h3>
     <p>Write a synthetic inbound message into the store as if received from chat, triggering the normal agent loop. Use for programmatic prompts, tests, or scheduling one-off runs from tool code.</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1898"><code>ipc/ipc.go:1898</code></a> &middot; Grant action: <code>inject_message</code></p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1972"><code>ipc/ipc.go:1972</code></a> &middot; Grant action: <code>inject_message</code></p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
@@ -512,7 +512,7 @@
 
     <h3 id="pane_set_prompts"><code>pane_set_prompts</code></h3>
     <p>Slack only &mdash; stage suggested-prompt buttons shown at the bottom of the assistant pane after your next reply lands. Fire-and-forget; the buttons appear once and persist until your next call. Use after a reply when you can anticipate the user&rsquo;s likely follow-ups (e.g. &ldquo;dig deeper&rdquo;, &ldquo;summarise&rdquo;, &ldquo;export&rdquo;). 3-4 prompts is the visible cap. Adapters without pane semantics return <code>chanlib.ErrUnsupported</code>. Concept: <a href="../concepts/slack-pane.html">slack pane</a>.</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1583"><code>ipc/ipc.go:1583</code></a> &middot; Grant action: <code>pane_set_prompts</code>.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1657"><code>ipc/ipc.go:1657</code></a> &middot; Grant action: <code>pane_set_prompts</code>.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
@@ -524,7 +524,7 @@
 
     <h3 id="pane_set_title"><code>pane_set_title</code></h3>
     <p>Slack only &mdash; override the title shown at the top of the assistant pane. Fires after your next reply lands. Use to reflect the active topic (e.g. &ldquo;atlas &mdash; debugging the build&rdquo;). Defaults to <code>&lt;assistant&gt; &mdash; chat</code> when never set.</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1607"><code>ipc/ipc.go:1607</code></a> &middot; Grant action: <code>pane_set_title</code>.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1681"><code>ipc/ipc.go:1681</code></a> &middot; Grant action: <code>pane_set_title</code>.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
@@ -536,7 +536,7 @@
 
     <h3 id="engage"><code>engage</code></h3>
     <p>Mark <code>(jid, topic)</code> engaged for the <code>ENGAGEMENT_TTL</code> window so subsequent inbounds fire even when the route table would not route them here. Use before a scheduled or autonomous turn, or to recover after a failed reply. The caller may engage a conversation nobody holds, one it already holds, or one whose chat routes to its folder; the active turn&rsquo;s own chat counts as routed. Claiming another folder&rsquo;s live window is refused.</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1688"><code>ipc/ipc.go:1688</code></a> &middot; Grant action: <code>engage</code>.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1762"><code>ipc/ipc.go:1762</code></a> &middot; Grant action: <code>engage</code>.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
@@ -548,7 +548,7 @@
 
     <h3 id="disengage"><code>disengage</code></h3>
     <p>Clear engagement for <code>(jid, topic)</code>. Subsequent inbounds need a fresh mention to re-fire. Use when the bot is done helping or when a corrective fork is closing. The caller must hold the live window, or the chat must route to its folder.</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1715"><code>ipc/ipc.go:1715</code></a> &middot; Grant action: <code>disengage</code>. Included in <code>role:member</code>.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1789"><code>ipc/ipc.go:1789</code></a> &middot; Grant action: <code>disengage</code>. Included in <code>role:member</code>.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
@@ -560,7 +560,7 @@
 
     <h3 id="reset_session"><code>reset_session</code></h3>
     <p>Drop the Claude session for a group so the next message starts fresh context. Use when the user asks for <code>/new</code>, when context is confused/polluted, or before a topic switch. Not for injecting content (<code>inject_message</code>).</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1739"><code>ipc/ipc.go:1739</code></a> &middot; Grant action: <code>reset_session</code> &middot; <code>auth.Authorize</code> on target folder.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1813"><code>ipc/ipc.go:1813</code></a> &middot; Grant action: <code>reset_session</code> &middot; <code>auth.Authorize</code> on target folder.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
@@ -571,7 +571,7 @@
 
     <h3 id="set_work"><code>set_work</code></h3>
     <p>Overwrite this group's <code>work.md</code> with a fresh snapshot of current work, blockers, and next steps. Use at turn end to checkpoint state. This replaces the file &mdash; read with <code>get_work</code> first if merging.</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L2371"><code>ipc/ipc.go:2371</code></a> &middot; Always registered &mdash; no grant needed. Atomic rename via <code>.tmp</code>.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L2445"><code>ipc/ipc.go:2445</code></a> &middot; Always registered &mdash; no grant needed. Atomic rename via <code>.tmp</code>.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
@@ -755,7 +755,7 @@
 
     <h3 id="invite_create"><code>invite_create</code></h3>
     <p>Issue an invite token granting access to a path glob. The recipient accepts via <code>/invite/&lt;token&gt;</code> and gets an <code>acl(admin, target_glob)</code> row. The agent's authority must cover <code>target_glob</code> &mdash; you cannot issue access you do not have.</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L2044"><code>ipc/ipc.go:2044</code></a> &middot; Grant action: <code>invite_create</code> &middot; Issued by <code>agent:&lt;folder&gt;</code>.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L2118"><code>ipc/ipc.go:2118</code></a> &middot; Grant action: <code>invite_create</code> &middot; Issued by <code>agent:&lt;folder&gt;</code>.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
@@ -768,12 +768,12 @@
 
     <h3 id="invite_list"><code>invite_list</code></h3>
     <p>List the invites this agent has issued: reference, target glob, expiry and use count. The raw token is never readable again. Read-only; shows only this folder's invites. Use to audit outstanding invites before revoking. REST twin: <code>GET /v1/invites</code>.</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L2100"><code>ipc/ipc.go:2100</code></a> &middot; Grant action: <code>invite_list</code> &middot; Scoped to <code>issued_by="agent:&lt;folder&gt;"</code>; no caller-supplied folder arg.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L2174"><code>ipc/ipc.go:2174</code></a> &middot; Grant action: <code>invite_list</code> &middot; Scoped to <code>issued_by="agent:&lt;folder&gt;"</code>; no caller-supplied folder arg.</p>
     <p class="returns"><strong>Params:</strong> none. <strong>Returns:</strong> JSON <code>{"invites": [{ref, target_glob, max_uses, used_count, expires_at?}, ...]}</code>.</p>
 
     <h3 id="invite_revoke"><code>invite_revoke</code></h3>
     <p>Revoke an invite that you issued, so nobody can redeem it. You can revoke only invites of your own folder. <code>invite_list</code> gives the reference. REST twin: <code>DELETE /v1/invites/{ref}</code>.</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L2127"><code>ipc/ipc.go:2127</code></a> &middot; Grant action: <code>invite_revoke</code> &middot; <code>auth.Authorize</code> re-run with the caller's folder as the scope; ownership enforced in routd closure.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L2201"><code>ipc/ipc.go:2201</code></a> &middot; Grant action: <code>invite_revoke</code> &middot; <code>auth.Authorize</code> re-run with the caller's folder as the scope; ownership enforced in routd closure.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
@@ -798,7 +798,7 @@
 
     <h3 id="get_web_presence"><code>get_web_presence</code></h3>
     <p>Report a folder's public web presence: derived canonical hostname, public/private base URLs, and the <code>/pub/&lt;folder&gt;/</code> path that works even without <code>HOSTING_DOMAIN</code>. Read-only. You may query any folder your <code>mcp:get_web_presence</code> grant covers. REST twin: <code>GET /v1/web_presence?folder=&lt;f&gt;</code>.</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L2400"><code>ipc/ipc.go:2400</code></a> &middot; Grant action: <code>get_web_presence</code> &middot; Computed by <code>ipc.WebPresenceFor</code> from <code>WEB_HOST</code>, <code>HOSTING_DOMAIN</code>, <code>WEB_VHOST_ALIASES</code>.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L2474"><code>ipc/ipc.go:2474</code></a> &middot; Grant action: <code>get_web_presence</code> &middot; Computed by <code>ipc.WebPresenceFor</code> from <code>WEB_HOST</code>, <code>HOSTING_DOMAIN</code>, <code>WEB_VHOST_ALIASES</code>.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
@@ -843,7 +843,7 @@
     <h3 id="submit_turn"><code>submit_turn</code></h3>
     <p>Per-turn agent result delivery. Not a tool &mdash; a JSON-RPC method on the same MCP unix socket. Hidden from <code>tools/list</code>; the agent loop calls it directly with the turn payload. Idempotency enforced by <code>routd</code> on <code>(folder, turn_id)</code>: the first call wins, a repeat answers <code>ok</code> and changes nothing.</p>
     <p>An empty <code>result</code> is the agent deciding to stay quiet, and that is the point of a method call: a marker on stdout cannot tell &ldquo;nothing to say&rdquo; from &ldquo;crashed&rdquo;. A non-empty <code>result</code> goes out only when the turn did not already <code>reply</code> or <code>send</code>, and never from an isolated cron turn. <code>&lt;internal&gt;</code>, <code>&lt;think&gt;</code> and <code>&lt;status&gt;</code> blocks are stripped before anyone sees it.</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L523"><code>ipc/ipc.go:523</code></a> (method dispatch) and <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L523"><code>ipc/ipc.go:523</code></a> (handler).</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L534"><code>ipc/ipc.go:534</code></a> (method dispatch) and <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L534"><code>ipc/ipc.go:534</code></a> (handler).</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
