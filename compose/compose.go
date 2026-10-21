@@ -115,6 +115,7 @@ var daemonKeys = map[string][]string{
 		// 30m, so routd's deadline fired first and the next poll ran the SAME
 		// turn twice.
 		"RUNED_RUN_TIMEOUT",
+		"MAX_CONCURRENT_CONTAINERS",
 		// routd detects the route miss that fires chat-initiated onboarding;
 		// without these a new group is stored, never onboarded.
 		"ONBOARDING_ENABLED", "ONBOARDING_PLATFORMS",

@@ -1176,3 +1176,19 @@ func TestMetricsEnabledReachesTheDaemons(t *testing.T) {
 		}
 	}
 }
+
+// TestRoutdAndRunedReadOneRunCap pins BUGS L521. routd sizes its queue and
+// runed its admission from MAX_CONCURRENT_CONTAINERS, and the two must agree: with
+// the variable missing from routd's env, routd admitted 5 turns against runed's 2
+// and the refused ones looped on Busy, so krons migrated no folder in 9 hours.
+func TestRoutdAndRunedReadOneRunCap(t *testing.T) {
+	dir := seed(t, "MAX_CONCURRENT_CONTAINERS=2\n")
+	gen(t, dir)
+	for _, d := range []string{"routd", "runed"} {
+		env := read(t, dir, "env/"+d+".env")
+		if !strings.Contains(env, "MAX_CONCURRENT_CONTAINERS=2") {
+			t.Errorf("%s reads MAX_CONCURRENT_CONTAINERS and compose does not emit it, "+
+				"so its cap stays at the default 5 while the other daemon holds 2:\n%s", d, env)
+		}
+	}
+}
