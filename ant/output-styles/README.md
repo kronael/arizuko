@@ -26,7 +26,6 @@ never read.
 | email    | (no split — single `email.md`)            |
 | whatsapp | (no split — single `whatsapp.md`)         |
 | bluesky  | (no split — single `bluesky.md`)          |
-| twitter  | (no split — single `twitter.md`)          |
 | github   | none — stock markdown is already correct  |
 
 `gitd` posts the agent's text verbatim into a field GitHub renders as real
@@ -74,7 +73,7 @@ Should cover:
   Discord CommonMark; Telegram markdown `**bold**`/`` `code` ``/`#`→bold,
   which `teled.mdToHTML` converts to Telegram HTML — never emit raw HTML;
   WhatsApp markdown `**bold**`, which `whapd.mdToWa` converts to `*bold*`
-  and converts nothing else; plain text for Bluesky/X, which run
+  and converts nothing else; plain text for Bluesky, which run
   no markdown renderer at all; plain for email/web/RSS)
 
 An adapter's send path decides what the file may ask for. Read it before
@@ -110,5 +109,5 @@ teaches the agent a syntax the user sees raw.
 `bluesky.md`, `discord-channel.md`, `discord-dm.md`, `discord.md`,
 `email.md`, `slack-channel.md`, `slack-dm.md`,
 `slack-pane.md`, `slack-thread.md`, `slack.md`, `telegram-dm.md`,
-`telegram-group.md`, `telegram.md`, `twitter.md`, `web.md`,
+`telegram-group.md`, `telegram.md`, `web.md`,
 `whatsapp.md`.

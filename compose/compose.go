@@ -229,7 +229,6 @@ var daemonKeys = map[string][]string{
 	// them in .env would see no change at all.
 	"emaid": {"AUTHD_URL", "AUTHD_SERVICE_KEY", "EMAIL_IMAP_HOST", "EMAIL_SMTP_HOST", "EMAIL_ACCOUNT", "EMAIL_PASSWORD", "EMAIL_ACCESS_TOKEN", "EMAIL_IMAP_PORT", "EMAIL_SMTP_PORT", "EMAIL_TRUSTED_AUTHSERV", "EMAIL_TRUSTED_DOMAINS", "EMAIL_STRICT_AUTH", "EMAIL_UNVERIFIED_SUBJECT_PREFIX", "EMAIL_VERIFY_DKIM"},
 	"whapd": {"AUTHD_URL", "AUTHD_SERVICE_KEY"},
-	"twitd": {"AUTHD_URL", "AUTHD_SERVICE_KEY", "TWITTER_USERNAME", "TWITTER_PASSWORD", "TWITTER_EMAIL", "TWITTER_2FA_SECRET", "TWITTER_POLL_INTERVAL"},
 	// gitd unseals github_sources secrets from routd's store, so it needs the
 	// same SECRETS_KEY. GITHUB_TOKEN is optional: it only enables send_text.
 	"gitd": {"AUTHD_URL", "AUTHD_SERVICE_KEY", "SECRETS_KEY", "GITHUB_TOKEN"},
@@ -251,7 +250,7 @@ var foreignImages = map[string]bool{"kokoro": true}
 // base. Keep in sync with authd serviceGrants.
 var adapterDaemons = map[string]bool{
 	"teled": true, "whapd": true, "discd": true, "slakd": true,
-	"bskyd": true, "emaid": true, "twitd": true,
+	"bskyd": true, "emaid": true,
 	"gitd": true,
 }
 

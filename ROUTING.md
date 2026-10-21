@@ -19,7 +19,6 @@ globs over `/`.
 | whapd   | `whatsapp:` | `whatsapp:1234567@s.whatsapp.net`                                    |
 | bskyd   | `bluesky:`  | `bluesky:user/<did>`, with each `:` in the DID written as `%3A`      |
 | emaid   | `email:`    | `email:thread/<id>`                                                  |
-| twitd   | `twitter:`  | `twitter:home`, `twitter:dm/<id>`                                    |
 | webd    | `web:`      | `web:<folder>`, for example `web:atlas`; see the next section        |
 
 A Telegram group has a negative chat id. The JID drops the minus sign, so group
@@ -28,7 +27,7 @@ both parts, `<guild_id>/<channel_id>`. The sender of an email is
 `email:address/<address>`, and the sender of a Slack message is
 `slack:user/<id>`.
 
-`core.JidPlatform("twitter:dm/abc")` returns `twitter`, and `core.JidRoom`
+`core.JidPlatform("discord:dm/abc")` returns `discord`, and `core.JidRoom`
 returns `dm/abc`. Use `platform=` predicates to match a whole platform. Use
 `room=` globs to match the kind or a segment.
 
@@ -157,21 +156,20 @@ verbs, and `routd` rewrites some of them at ingest:
 | teled, discd, slakd | `mention` on an explicit `@bot` in a group chat, else no verb, stored as `message` |
 | slakd               | also `join` and `pane_open`                                                        |
 | bskyd               | `message`, `reply`                                                                 |
-| twitd               | `message`, `reply`                                                                 |
 | a reaction          | `like` or `dislike`, from `chanlib.ClassifyEmoji`                                  |
 | emaid               | `untrusted` on mail that fails DMARC and the allowlist                             |
 | routd, at ingest    | `mention` (see the verb promotion below); an empty verb becomes `message`          |
 
-The two social adapters, bskyd and twitd, never emit
-`mention`. On those platforms, a rule on `verb=mention` or `verb=like` for the
+The social adapter bskyd never emits
+`mention`. On that platform, a rule on `verb=mention` or `verb=like` for the
 first post of a stranger matches nothing, and nothing reports the failure.
 
 ```bash
 # Slack mentions only, from any workspace
 arizuko route krons add 'platform=slack verb=mention' atlas/mentions
 
-# All Twitter DMs (twitter:dm/<conv>) but not the timeline
-arizuko route krons add 'platform=twitter room=dm/*' atlas/dm
+# All Slack direct messages
+arizuko route krons add 'platform=slack room=*/dm/*' atlas/dm
 ```
 
 ### A target can name the sender

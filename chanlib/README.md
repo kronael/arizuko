@@ -105,8 +105,8 @@ in-memory state and never open its files or tables.
   alive and the platform link is quiet.
 - The capability strip probes each verb with `isStubVerb`, the same check as
   `CapImplReport`, so a Go adapter cannot show a verb it stubs. The
-  TypeScript adapters, whapd and twitd, declare their list
-  (`supportedVerbs`), so theirs can drift from the code.
+  TypeScript adapter, whapd, declares its list
+  (`supportedVerbs`), so it can drift from the code.
 - The page trusts the stamped `X-User-*` only behind proxyd's
   `service:proxyd` bearer (`auth.RequireOperator`). Reading the scope header
   alone would let anyone inside the compose network claim the operator page.

@@ -68,22 +68,20 @@ means that no test proves the behaviour, and the entry `L<id>` in
 
 The verbs each adapter supports are in [EXTENDING.md § Verb support matrix](EXTENDING.md#verb-support-matrix).
 
-| Feature        | Behaviour today                                                                                               | Evidence                                                                      |
-| -------------- | ------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| teled inbound  | teled turns a Telegram update into a message with a group JID and a `telegram:user/<id>` sender.              | `teled/integration_test.go::TestBotHandle_RoutesInbound`                      |
-| teled outbound | teled sends text to the chat id in the JID.                                                                   | `teled/integration_test.go::TestBotSend_Simple`                               |
-| discd inbound  | discd turns a gateway message into a message and drops its own mention.                                       | `discd/integration_test.go::TestOnMessage_Inbound`                            |
-| discd outbound | discd posts the content to the channel and returns the message id.                                            | `discd/integration_test.go::TestSend_Success`                                 |
-| slakd inbound  | slakd turns a signed Events API mention into a message with verb `mention`.                                   | `slakd/integration_test.go::TestInbound_ChannelMention`                       |
-| slakd outbound | slakd posts to the channel.                                                                                   | `slakd/integration_test.go::TestOutbound_Send`                                |
-| bskyd inbound  | bskyd reads unread notifications, delivers the oldest first, and marks them seen.                             | `bskyd/xrpc_test.go::TestFetchNotifications_Dispatches`                       |
-| bskyd outbound | bskyd creates an `app.bsky.feed.post` record with the text.                                                   | `bskyd/xrpc_test.go::TestSend`                                                |
-| emaid inbound  | emaid turns an IMAP message into a message on `email:thread/<id>`, with verb `untrusted` unless DMARC passes. | `emaid/server_test.go::TestFetchMsgToInbound`                                 |
-| emaid outbound | emaid sends SMTP mail with `In-Reply-To` and `References` from the thread root.                               | `emaid/bothandler_test.go::TestBotHandler_Send_Success`                       |
-| whapd inbound  | whapd turns a WhatsApp message into a `whatsapp:` message with the sender and the group flag.                 | `whapd/src/inbound.test.ts::builds DM text payload with whatsapp: prefix`     |
-| whapd outbound | `POST /send` sends text through the WhatsApp socket.                                                          | `whapd/src/server.test.ts::sends when connected`                              |
-| twitd inbound  | twitd reads mentions, delivers the oldest first, and advances the cursor to the newest.                       | `twitd/src/poll.test.ts::delivers oldest-first and advances cursor to newest` |
-| twitd outbound | `POST /send` with `reply_to` posts a reply to that tweet.                                                     | `twitd/src/server.test.ts::calls sendTweet with replyTo id`                   |
+| Feature        | Behaviour today                                                                                               | Evidence                                                                  |
+| -------------- | ------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| teled inbound  | teled turns a Telegram update into a message with a group JID and a `telegram:user/<id>` sender.              | `teled/integration_test.go::TestBotHandle_RoutesInbound`                  |
+| teled outbound | teled sends text to the chat id in the JID.                                                                   | `teled/integration_test.go::TestBotSend_Simple`                           |
+| discd inbound  | discd turns a gateway message into a message and drops its own mention.                                       | `discd/integration_test.go::TestOnMessage_Inbound`                        |
+| discd outbound | discd posts the content to the channel and returns the message id.                                            | `discd/integration_test.go::TestSend_Success`                             |
+| slakd inbound  | slakd turns a signed Events API mention into a message with verb `mention`.                                   | `slakd/integration_test.go::TestInbound_ChannelMention`                   |
+| slakd outbound | slakd posts to the channel.                                                                                   | `slakd/integration_test.go::TestOutbound_Send`                            |
+| bskyd inbound  | bskyd reads unread notifications, delivers the oldest first, and marks them seen.                             | `bskyd/xrpc_test.go::TestFetchNotifications_Dispatches`                   |
+| bskyd outbound | bskyd creates an `app.bsky.feed.post` record with the text.                                                   | `bskyd/xrpc_test.go::TestSend`                                            |
+| emaid inbound  | emaid turns an IMAP message into a message on `email:thread/<id>`, with verb `untrusted` unless DMARC passes. | `emaid/server_test.go::TestFetchMsgToInbound`                             |
+| emaid outbound | emaid sends SMTP mail with `In-Reply-To` and `References` from the thread root.                               | `emaid/bothandler_test.go::TestBotHandler_Send_Success`                   |
+| whapd inbound  | whapd turns a WhatsApp message into a `whatsapp:` message with the sender and the group flag.                 | `whapd/src/inbound.test.ts::builds DM text payload with whatsapp: prefix` |
+| whapd outbound | `POST /send` sends text through the WhatsApp socket.                                                          | `whapd/src/server.test.ts::sends when connected`                          |
 
 ## authd signs every token and each daemon verifies it
 

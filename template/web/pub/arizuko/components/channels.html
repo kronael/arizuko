@@ -38,7 +38,6 @@
             <li><a href="timed.html">timed</a></li>
             <li><a href="tokens.html">route tokens</a></li>
             <li><a href="ttsd.html">ttsd</a></li>
-            <li><a href="twitd.html">twitd</a></li>
             <li><a href="vited.html">vited</a></li>
             <li><a href="webd.html">webd</a></li>
             <li><a href="whapd.html">whapd</a></li>
@@ -150,7 +149,6 @@
     <tr><td class="name"><a href="../components/bskyd.html">bskyd</a></td><td>Bluesky</td><td>Go</td><td>The AT Protocol, with post threads.</td></tr>
     <tr><td class="name"><a href="../components/emaid.html">emaid</a></td><td>email</td><td>Go</td><td>IMAP in, SMTP out, and threads by Message-ID.</td></tr>
     <tr><td class="name"><a href="../components/whapd.html">whapd</a></td><td>WhatsApp</td><td>TypeScript</td><td>A Baileys client, QR pairing and voice notes.</td></tr>
-    <tr><td class="name"><a href="../components/twitd.html">twitd</a></td><td>X</td><td>TypeScript</td><td>Mentions and DMs.</td></tr>
     <tr><td class="name"><a href="../components/gitd.html">gitd</a></td><td>GitHub</td><td>Go</td><td>Signed webhook intake. With <code>GITHUB_TOKEN</code>, it posts and edits its own comments. Merges, labels and reviews go through the GitHub MCP connector.</td></tr>
   </tbody>
 </table>
@@ -161,7 +159,7 @@
 
 <p>Output rendering follows the same rule of one renderer. The agent uses one Claude Code output style per channel. <code>slack</code> writes Slack mrkdwn: <code>*bold*</code>, <code>_italic_</code> and <code>&lt;url|text&gt;</code>. Other channels use CommonMark. runed selects the style when it renders the turn, in <code>pickOutputStyle</code> in <code>runed/settings.go</code>, so the adapter receives text that is already shaped for the channel.</p>
 
-<p>The upstream SDK decides the language. Most platforms have a maintained Go client, so their adapter is Go. WhatsApp and X have their best clients in TypeScript, Baileys and twitter-api-v2, so those adapters are TypeScript: whapd runs on Node and twitd on Bun. The HTTP contract is the same for all adapters.</p>
+<p>The upstream SDK decides the language. Most platforms have a maintained Go client, so their adapter is Go. WhatsApp has its best client in TypeScript, Baileys, so whapd is TypeScript and runs on Node. The HTTP contract is the same for all adapters.</p>
 
 <h2>A new adapter is a daemon and a compose fragment</h2>
 <p>A new adapter needs two files and no edit to <code>proxyd</code> or <code>compose</code>:</p>

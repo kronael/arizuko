@@ -291,7 +291,6 @@ images:
 	$(DOCKER) builder prune -f --keep-storage 8GB
 	$(DOCKER_BUILD) -t arizuko .
 	$(DOCKER_BUILD) -t arizuko-whatsapp -f whapd/Dockerfile .
-	$(DOCKER_BUILD) -t arizuko-twitter -f twitd/Dockerfile .
 	$(DOCKER_BUILD) -t arizuko-egress -f egress/Dockerfile .
 	$(DOCKER_BUILD) -t arizuko-davd -f davd/Dockerfile .
 	$(DOCKER_BUILD) -t arizuko-ttsd -f ttsd/Dockerfile .

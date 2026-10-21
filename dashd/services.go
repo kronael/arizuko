@@ -62,7 +62,6 @@ var services = []service{
 	// The two TypeScript adapters re-implement the same contract in their own
 	// source (6/31): they cannot import chanlib.
 	{"whapd", "whapd", "/dash/whapd/", "WhatsApp adapter", ""},
-	{"twitd", "twitd", "/dash/twitd/", "Twitter adapter", ""},
 }
 
 // healthTimeout caps each /health probe. The grid probes all daemons

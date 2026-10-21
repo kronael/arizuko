@@ -16,7 +16,7 @@ import (
 // Architecture": daemons end in `d`, libraries don't): a top-level directory
 // whose name ends in `d` and holds a Go `package main`, either directly or
 // under cmd/<name>/. Directories with no Go main are the TypeScript adapters
-// (whapd, twitd) and the image-only services (davd, vited) — they have no
+// (whapd) and the image-only services (davd, vited) — they have no
 // main() to wire. Shippable sibling components (egress, substrate, mcpfw) are out
 // by the same rule and by design: their orthogonality is the import-graph rule
 // (root CLAUDE.md "Canonical paths" — no arizuko-internal subpackage imports),

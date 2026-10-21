@@ -119,7 +119,6 @@ Each adapter routes attachments differently:
 | Discord   | rich preview by ContentType (any extension) |
 | Bluesky   | image extensions only · non-images: link in post text |
 | WhatsApp  | platform-native dispatch (Baileys)          |
-| X         | photo/video media types                     |
 | Email | no adapter wiring — file silently dropped |
 
 `.gif` becomes an animation on Telegram, a regular preview on Discord. A `.pdf` lands as a document on Telegram, a rich preview on Discord, and is unsupported on Bluesky. If a send "looks ignored," check the adapter's capability before assuming a bug.
@@ -219,7 +218,7 @@ agent  <get_thread → 14 messages → summary>
 
 **TLDR:** Routing rules use typed JIDs: `<platform>:<kind>/<id>`. Bare-id form is stale.
 
-Every chat ID is a typed JID — `telegram:user/<id>`, `telegram:group/<id>`, `discord:<guild>/<channel>`, `discord:dm/<channel>`, `discord:user/<id>`, `email:thread/<id>`, `email:address/<addr>`, `bluesky:user/<did>`, `bluesky:post/<uri>`, `twitter:user/<id>`, `twitter:tweet/<id>`, `web:folder/<group>`. The old bare form (`telegram:1234`) still parse but no new rule should use them.
+Every chat ID is a typed JID — `telegram:user/<id>`, `telegram:group/<id>`, `discord:<guild>/<channel>`, `discord:dm/<channel>`, `discord:user/<id>`, `email:thread/<id>`, `email:address/<addr>`, `bluesky:user/<did>`, `bluesky:post/<uri>`, `web:folder/<group>`. The old bare form (`telegram:1234`) still parse but no new rule should use them.
 
 Routing patterns are globs over the typed form. `telegram:group/*` matches every Telegram group; `discord:dm/*` matches every Discord DM; `*:user/*` matches a user on any platform. Rewriting an old rule is a one-step move: `telegram:*` becomes `telegram:*/*`, then narrow the kind if you only want groups or DMs.
 

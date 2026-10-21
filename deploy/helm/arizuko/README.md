@@ -232,7 +232,7 @@ kubectl -n arizuko port-forward svc/arizuko-proxyd 8080:8080
 
 ## Not included
 
-- **whapd, twitd, gitd, ttsd, kokoro**: other images and auth volumes in
+- **whapd, gitd, ttsd, kokoro**: other images and auth volumes in
   compose; add them as your own entries.
 - **The model gateway** (`MODEL_GATEWAY_URL`) and **OAuth
   provider credentials** for authd (`GITHUB_CLIENT_ID`, …): not modeled.

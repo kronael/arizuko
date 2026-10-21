@@ -308,8 +308,8 @@ Three rows need care:
 - `cmd/arizuko` is the operator command on the host. Its key goes in
   `env/operator.env`, not in the file of a daemon.
 
-Every other adapter in the table gets its own prefix and nothing else. `whapd`,
-`twitd` and `googd` open no store and need no key: none of them is in
+Every other adapter in the table gets its own prefix and nothing else. `whapd`
+and `googd` open no store and need no key: none of them is in
 `StoreReach`, and none calls `OpenAdapterStore`.
 
 For each row, create the user, put the policy, and mint the key. This example

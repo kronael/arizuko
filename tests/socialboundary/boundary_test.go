@@ -20,10 +20,9 @@ import (
 
 const root = "../.."
 
-// socialAdapters are the social adapters 6/33 names. twitd is here with
-// the Go ones: the markers below are plain strings and the boundary is
-// the same one, so the implementation language decides nothing.
-var socialAdapters = []string{"bskyd", "twitd"}
+// socialAdapters are the social adapters 6/33 names. The markers below are
+// plain strings, so the implementation language of an adapter decides nothing.
+var socialAdapters = []string{"bskyd"}
 
 // observerMarkers are the shapes that mean broad monitoring rather than
 // bot-directed notification. Deliberately blunt: a false positive costs a

@@ -3,8 +3,8 @@ package chanlib
 // dash.go is THE adapter dashboard (spec 6/31), implemented once and mounted
 // by every Go adapter through NewAdapterMux: one renderer with per-adapter
 // deltas, never ten copies of a shared grammar — every fact the page shows is
-// already a parameter of NewAdapterMux. The two TypeScript adapters (whapd,
-// twitd) re-implement the contract in their own source, which is why 6/31
+// already a parameter of NewAdapterMux. The TypeScript adapter (whapd)
+// re-implements the contract in its own source, which is why 6/31
 // writes it down rather than leaving it implied by this file.
 
 import (

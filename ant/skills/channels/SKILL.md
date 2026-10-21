@@ -2,7 +2,7 @@
 name: channels
 description: >
   Per-platform `send_file` routing matrix — telegram/discord/whatsapp/
-  twitter/bluesky/email/etc. USE before sending media, "how do I send
+  bluesky/email/etc. USE before sending media, "how do I send
   this image on X", "why did my attachment land as a doc", "what
   platforms support video", capability discovery for `send_file`. NOT
   for voice/PTT (use voice skill / `send_voice`).
@@ -18,7 +18,6 @@ user-invocable: true
 | telegram  | extension-based: `.png/.jpg/.jpeg/.webp` → photo; `.mp4/.mov/.webm` → video; `.gif` → animation; `.mp3/.m4a/.flac/.ogg` → audio (music — voice notes use `send_voice`); other → document |
 | discord   | any extension; mime set per extension (`image/png`, `video/mp4`, `audio/mpeg`, …) → rich-media bubble. PDFs and unknown types attach as plain files |
 | whatsapp  | platform-native dispatch (Baileys infers type)                            |
-| twitter   | photo / video media types via platform lib                                |
 | bluesky   | image-only — `.jpg/.jpeg/.png/.webp/.gif` upload as `app.bsky.embed.images`; non-image returns "Bluesky's PDS embed surface only accepts image blobs" → host elsewhere, post the URL via `send` |
 | email     | MIME multipart attachment                                                 |
 

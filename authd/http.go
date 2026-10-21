@@ -45,7 +45,6 @@ var serviceGrants = map[string][]string{
 	"service:slakd": {"messages:write"},
 	"service:bskyd": {"messages:write"},
 	"service:emaid": {"messages:write"},
-	"service:twitd": {"messages:write"},
 	"service:gitd":  {"messages:write"},
 	// webd is web ingress, not a channel adapter, but it posts the same way;
 	// without this entry every form/widget submission 403s.

@@ -7,7 +7,7 @@ exchanges its key as service:<name>. `env` entries are literal; `secretEnv`
 names Secret keys to inject as env vars of the same name, each from the
 secrets.* value $tokens maps it to.
 
-WhatsApp (whapd), X/Twitter (twitd) and gitd run other images or need an auth
+WhatsApp (whapd) and gitd run other images or need an auth
 volume in compose and are not in the default list.
 */}}
 {{- $ctx := . -}}

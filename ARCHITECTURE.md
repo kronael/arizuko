@@ -43,7 +43,7 @@ proxyd/ proxycfg/   the one HTTP entry; its routes as a Caddyfile
 webd/ davd/ vited/  web chat adapter; WebDAV; the static origin
 dashd/ onbod/ timed/  cockpit hub; onboarding; the scheduler
 compose/ cmd/ theme/  compose generation; the CLI; shared page CSS
-teled/ discd/ slakd/ bskyd/ emaid/ whapd/ twitd/ gitd/
+teled/ discd/ slakd/ bskyd/ emaid/ whapd/ gitd/
 googd/              channel adapters, one daemon per platform
 egress/ substrate/ mcpfw/  shippable components, no arizuko imports
 ttsd/ sidecar/      speech synthesis; the whisper-cpp image
@@ -112,7 +112,7 @@ list disagree.
 └──────────────┘
 ```
 
-timed, ttsd, googd, whapd and twitd hold no store key. timed calls an owner's `/v1`.
+timed, ttsd, googd and whapd hold no store key. timed calls an owner's `/v1`.
 
 | Owner                                      | Entities                                                                                                   | Declared in                            | Column detail                                |
 | ------------------------------------------ | ---------------------------------------------------------------------------------------------------------- | -------------------------------------- | -------------------------------------------- |

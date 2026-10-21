@@ -32,7 +32,7 @@ expect is missing, you were not granted it — ask, don't work around it.
 | `edit`           | Modify a message previously sent by this agent in-place                   |
 | `forward`        | Redeliver an existing message to a different chat (telegram, whatsapp)    |
 | `quote`          | Republish on your feed with commentary (bluesky native)                  |
-| `repost`         | Amplify a message on your feed (bluesky repost, twitter retweet)         |
+| `repost`         | Amplify a message on your feed (bluesky repost)         |
 | `inject_message` | Inject a message into the store for a chat (system-generated)             |
 
 `forward` relays SOMEONE ELSE'S message with its provenance. Use `send` for

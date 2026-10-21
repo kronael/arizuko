@@ -55,7 +55,7 @@ go test ./routd/... -count=1 -run TestName
 ```
 
 No make target runs the TypeScript suites. Run them in their directory:
-`cd ant && bun test src/`, `cd whapd && bun run test`, `cd twitd && bun run test`.
+`cd ant && bun test src/`, `cd whapd && bun run test`.
 
 `kernel/guest-init` is its own Go module. The root `./...` does not include
 it, so run `cd kernel/guest-init && go test ./...`.
