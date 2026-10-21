@@ -50,9 +50,9 @@
         &mdash; without you re-explaining it.
       </p>
 
-      <h2>Fiu writes durable facts after each session</h2>
-      <p>Fiu handles the usual range of work: questions, drafts, task tracking, research and reminders. It also does one thing on purpose: after each session, it writes the durable facts into <code>facts/</code>, and before the next answer, it reads the diary. Memory here is two files and a habit.</p>
-      <p>The habit matters more than the storage. Fiu refers to earlier context, for example "you mentioned last week", and it never invents details about your life. If a fact is not in <code>facts/</code> or the diary, Fiu asks.</p>
+      <h2>The persona tells Fiu to write durable facts after each session</h2>
+      <p>Fiu handles questions, drafts, task tracking, research and reminders. The persona tells Fiu to read the diary when a session opens and to write durable facts into <code>facts/</code> when a session ends. The memory is the <code>facts/</code> directory and the diary.</p>
+      <p>The persona tells Fiu to refer to earlier context, for example "you mentioned last week", and never to invent details about your life. If a fact is not in <code>facts/</code> or the diary, Fiu asks.</p>
 
       <h2>A sample exchange</h2>
       <pre><code>user   what was I going to do about the visa thing?
@@ -72,8 +72,7 @@ agent  Two weeks ago you decided to apply for the D-type rather than
       </table>
       <p>The product also ships its tests in <code>eval/</code>.</p>
 
-      <h2>One person with one long conversation needs it</h2>
-      <p>One person, one folder and one long conversation. The product is the simplest in structure and the deepest in continuity: its value grows over months, not in the first session. For a version that holds several ongoing situations as named threads, see <a href="../reality/">the reality agent</a>.</p>
+      <p>For several ongoing situations as named threads, see <a href="../reality/">the reality agent</a>.</p>
 
       <p><a href="setup.html">Set it up &rsaquo;</a></p>
 

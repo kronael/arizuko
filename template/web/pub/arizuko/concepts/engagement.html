@@ -18,7 +18,6 @@
           <ul class="nav-children">
             <li><a href="./">Start here</a></li>
             <li><a href="primitives.html">Primitives</a></li>
-            <li><a href="built.html">Development</a></li>
             <li><a href="store.html">The store</a></li>
             <li><a href="scaling.html">Scaling</a></li>
             <li><a href="ant.html">The ant</a></li>
@@ -62,7 +61,7 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">concepts</a> &rsaquo; engagement</p>
 <h1>engagement</h1>
 
-    <p class="lede">Engagement decides whether the bot keeps listening after a mention. A mention on every message breaks the flow of a conversation. So after the bot replies in a chat and topic pair, that pair is &ldquo;engaged&rdquo; for a time window. Later inbound messages in the pair start the agent without another mention.</p>
+    <p class="lede">Engagement decides whether the bot keeps listening after a mention. After the bot replies in a chat and topic pair, that pair is &ldquo;engaged&rdquo; for a time window. Later inbound messages in the pair start the agent without another mention.</p>
 
     <h2>A chat and topic pair is engaged or idle</h2>
     <p>A pair of a <code>jid</code> and a topic is either <strong>engaged</strong> or <strong>idle</strong>. Four transitions exist:</p>
@@ -91,15 +90,17 @@
     <p>Sometimes the user corrects the last reply of the bot, for example &ldquo;no, that is wrong&rdquo; or &ldquo;rephrase&rdquo;, instead of continuing. The agent can then <a href="../concepts/topics.html">fork</a> the topic to <code>&lt;current&gt;#fix</code> and run the correction there. The main thread stays clean, and the correction happens in a child thread on the incorrect reply. When the correction is complete, the agent posts one corrected answer to the parent and calls <code>disengage()</code> on the fix topic.</p>
     <p>The fork is a convention. The agent decides when to fork, and <code>routd</code> does not enforce it.</p>
 
-    <h2>A surface hint sets the reply length</h2>
-    <p>Every turn carries a <code>&lt;surface&gt;</code> hint, so the agent can limit the length of its reply:</p>
-    <pre><code>&lt;surface&gt;slack-channel-thread&lt;/surface&gt;   threaded reply, full ceiling
-&lt;surface&gt;slack-channel&lt;/surface&gt;          rare: top-level, hard-cap 200 chars
-&lt;surface&gt;slack-dm&lt;/surface&gt;               full ceiling
-&lt;surface&gt;slack-pane&lt;/surface&gt;             assistant sidebar, full ceiling
-&lt;surface&gt;discord-channel&lt;/surface&gt;        default ceiling
-&lt;surface&gt;telegram-dm&lt;/surface&gt;            full ceiling</code></pre>
-    <p><code>routd</code> computes the hint from the shape of the chat JID and the thread context. The agent reads the hint and follows it.</p>
+    <h2>An output style sets the reply length for each surface</h2>
+    <p>On every spawn, <code>runed</code> sets the <code>outputStyle</code> of the agent to <code>&lt;platform&gt;-&lt;surface&gt;</code>, or to <code>&lt;platform&gt;</code> when the platform has no surface split. The function <code>pickOutputStyle</code> in <code>runed/settings.go</code> derives the surface from the chat JID, the topic and the Slack pane lookup. The file of that name in <code>ant/output-styles/</code> holds the length and format rules.</p>
+    <table>
+      <thead><tr><th>Platform</th><th>Surfaces</th></tr></thead>
+      <tbody>
+        <tr><td>Slack</td><td><code>dm</code>, <code>channel</code>, <code>thread</code> when a topic is set, <code>pane</code></td></tr>
+        <tr><td>Discord</td><td><code>dm</code>, <code>channel</code></td></tr>
+        <tr><td>Telegram</td><td><code>dm</code>, <code>group</code></td></tr>
+      </tbody>
+    </table>
+    <p>Other platforms use one file named after the platform, such as <code>web.md</code>. <code>routd</code> adds one <code>&lt;surface&gt;</code> tag to a prompt, <code>&lt;surface&gt;slack-pane&lt;/surface&gt;</code>, for the Slack assistant pane. The code is in <code>routd/prompt.go</code>.</p>
 
     <h2>Two MCP tools control the window</h2>
     <dl>
@@ -119,12 +120,10 @@
       <li>A <code>disengage</code> at or after the start of a turn blocks the renewal by that turn. So a reply already in progress cannot undo the stop.</li>
       <li>An MCP <code>send</code> or <code>reply</code> that gets no message id from the platform renews nothing, because the next reply has no message to thread under.</li>
     </ul>
-    <p>Engagement has four limits by design. The window length is one <code>ENGAGEMENT_TTL</code> for the instance, not one per route. Engagement has no model of several bots in one chat. A bot reply never disengages automatically. No special message ends a window: only a <code>disengage</code> call or the clock ends it.</p>
 
     <h2>The dashboard lists every open window</h2>
-    <p>From outside, engagement is not visible. The only sign is a bot that answers a message without an @mention. The dashboard page <code>/dash/engagement/</code> lists every conversation that the bot stays in, with its group and the time left in the window. Only an operator can open the page, because it covers the whole instance and not one folder.</p>
-    <p>Each row has a <strong>disengage</strong> button. Most windows need no action, because they expire. Use the button when the bot talks in a chat it must stay out of. The window ends at once, and the bot does not speak there again until someone names it. The button asks you to confirm first, because the people in that chat see the effect at once.</p>
-    <p>The button sends the same <code>POST</code> as the example below and does not edit the database. So it passes the same folder check and writes the same audit entry. Every early end records who did it: the dashboard, the API or the <code>disengage()</code> call of the agent.</p>
+    <p>The dashboard page <code>/dash/engagement/</code> lists every conversation that the bot stays in, with its group and the time left in the window. Only an operator can open the page, because it covers the whole instance and not one folder.</p>
+    <p>Each row has a <strong>disengage</strong> button, after a confirmation. The window ends at once, and the bot does not speak there again until someone names it. The button sends the same <code>POST</code> as the example below and does not edit the database. So it passes the same folder check and writes the same audit entry. Every early end records who did it: the dashboard, the API or the <code>disengage()</code> call of the agent.</p>
     <p>For a script, or for one known conversation, call <code>routd</code> directly:</p>
     <pre><code># one conversation: which folder holds it, and until when
 curl -H "Authorization: Bearer $TOKEN" \
@@ -138,8 +137,7 @@ curl -X POST -H "Authorization: Bearer $TOKEN" \
   -d '{"jid":"slack:T01/channel/C02","topic":"","folder":"sales","ttl_seconds":0}' \
   https://&lt;host&gt;/v1/engagement</code></pre>
     <p>The read for one conversation also returns <code>last_reply_id</code>, the message that the next reply threads under. That id outlives the window, so an idle conversation still reports it while <code>engaged_until</code> is empty.</p>
-    <p>A token sees only the windows that its folder owns. A token with no folder, which is a root or service token, sees every window on the instance. Only such a token gets the full list, by design, and the depth of a folder has no effect on it.</p>
-    <p>The same limit applies to ending a window. A live window belongs to the folder that claimed it, and the <code>POST</code> checks that folder. A different <code>folder</code> in the body does not widen the check. So you can end only a window that you can see in the list, and only a root or service token can end any window.</p>
+    <p>A token sees only the windows that its folder owns. A token with no folder, which is a root or service token, sees every window on the instance. Ending a window follows the same rule: a live window belongs to the folder that claimed it, the <code>POST</code> checks that folder, and a different <code>folder</code> in the body does not widen the check.</p>
     <div class="callout"><strong>The three endpoints are not in <code>openapi.json</code>.</strong> They are written by hand and do not come from the resource registry like <a href="../reference/openapi.html">the cold-tier tables</a>. Engagement is live conversation state, not operator configuration. It shares its rows with the agent tools <code>engage</code> and <code>disengage</code>, and a registry entry would add a second path to the same rows. <code>/dash/engagement/</code> reads and writes through the same three endpoints, not the table.</div>
 
     <h2>Three pages show how engagement connects</h2>

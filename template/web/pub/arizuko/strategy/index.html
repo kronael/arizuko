@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>strategy &middot; arizuko</title>
+  <title>comparable systems &middot; arizuko</title>
   <link rel="stylesheet" href="../assets/hub.css">
 </head>
 <body>
@@ -25,79 +25,27 @@
     </nav>
 
     <main class="docs-content">
-      <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; strategy</p>
-      <h1>strategy</h1>
+      <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; comparable systems</p>
+      <h1>comparable systems</h1>
 
-      <p class="lede">GitOps for agents: from multi-channel orchestration to a declarative product platform.</p>
+      <p class="lede">The systems that overlap with arizuko on channels, tenancy, isolation or memory, and how each one differs.</p>
 
-      <div class="callout"><strong>One sentence:</strong> <strong>Arizuko is GitOps for agents.</strong> Persona, skills, ACL, routes, secrets, diaries, decisions — all in git. The gateway commits per turn. Containers run against the working tree. The store is derived cache. Audit, fork, distribute — native git verbs.</div>
-
-      <p>This page documents the research direction: from today's multi-channel orchestration platform to tomorrow's declarative product platform. Four tiers map competitive gaps to shippable features. Each agent research topic (<a href="https://krons.fiu.wtf/pub/krons/agents/tools/">tools/security</a>, <a href="https://krons.fiu.wtf/pub/krons/agents/memory/">memory</a>, <a href="https://krons.fiu.wtf/pub/krons/agents/subagents/">subagents</a>, <a href="https://krons.fiu.wtf/pub/krons/agents/project-management/">project management</a>) projects into concrete platform capabilities.</p>
-
-      <h2>Why GitOps?</h2>
-      <ul>
-        <li><strong>State lives in git, not the database.</strong> <code>agents.toml</code> (products + deployments), <code>acl/</code>, <code>routes/</code>, <code>skills/</code>, <code>personas/</code>, <code>MEMORY.md</code>, <code>.diary/</code>, <code>decisions/</code>, secrets (age-encrypted). The store becomes an operational cache — rebuildable from git + inbound message log.</li>
-        <li><strong>Gateway is the only writer.</strong> Agents act through MCP; gateway sees every state-changing call and commits at turn boundary. Prevents "agent forgot to commit" bugs. One commit per turn with JSON sidecar listing events.</li>
-        <li><strong>Audit = <code>git log</code>. Fork = <code>git worktree</code>. Distribute = <code>git push</code>.</strong> No bespoke versioning machinery. Signed commits + branch protection = compliance trail.</li>
-        <li><strong>Products are TOML files in shared repos.</strong> Same shape as Terraform modules. <code>arizuko product fetch &lt;url&gt;</code> includes via submodule. One repo per instance (krons, marinade, sloth); products defined elsewhere.</li>
-      </ul>
-
-      <h2>Competitive landscape</h2>
-      <p class="dim">Replacement candidates by buyer segment. Every competitor is strong on 1-2 axes; none have the combination.</p>
-
-      <table>
-        <tr>
-          <th>Buyer</th>
-          <th>Threat</th>
-          <th>Why they win</th>
-          <th>Why we can win</th>
-        </tr>
-        <tr>
-          <td>SMB long-tail</td>
-          <td><strong>Zapier Agents</strong></td>
-          <td>Gravity. SOC2/SAML shipped, 1M+ existing Zapier users</td>
-          <td>Multi-channel + per-folder identity + BYOC</td>
-        </tr>
-        <tr>
-          <td>Slack+Notion buyer</td>
-          <td><strong>Dust.tt</strong></td>
-          <td>Only credible full substitute, SOC2+HIPAA, optional self-host</td>
-          <td>12 adapters vs 3, product templates, single-host footprint</td>
-        </tr>
-        <tr>
-          <td>Enterprise CX</td>
-          <td><strong>Sierra</strong> ($150k+/yr)<br><strong>Salesforce Agentforce</strong><br><strong>Cohere North</strong> (air-gap)</td>
-          <td>Enterprise sales motion, compliance theater, air-gap for Cohere</td>
-          <td>Go daemons + one store endpoint vs PostgreSQL+ClickHouse+Redis, operator-owned infra</td>
-        </tr>
-        <tr>
-          <td>Dev-leaning self-host</td>
-          <td><strong>n8n + Anthropic Skills</strong><br>assembled <strong>OpenHands+Langfuse+E2B</strong></td>
-          <td>Familiar primitives, composable</td>
-          <td>6-12 engineer-months to assemble + ongoing drift vs one binary</td>
-        </tr>
-        <tr>
-          <td>Most threatening</td>
-          <td><strong>CrewAI Enterprise (AMP)</strong></td>
-          <td>One product decision (add Slack/Teams adapters) from covering 70% of our pitch</td>
-          <td>Speed to Tier A+B before they ship adapters</td>
-        </tr>
-      </table>
+      <p class="dim"><a href="#comparable">Systems</a> &middot; <a href="#limits">Limits</a></p>
 
       <h2 id="comparable">Each comparable system does a part of the job</h2>
-      <p>The systems below overlap with arizuko on channels, tenancy, isolation or memory. Each line says how the system differs. The agents hub on krons at <a href="https://krons.fiu.wtf/pub/krons/agents/">https://krons.fiu.wtf/pub/krons/agents/</a> reads the source of many of them, and <a href="https://krons.fiu.wtf/pub/krons/agents/comparison/">https://krons.fiu.wtf/pub/krons/agents/comparison/</a> compares five side by side.</p>
+      <p>Each line says how the system differs from arizuko. The agents hub on krons at <a href="https://krons.fiu.wtf/pub/krons/agents/">https://krons.fiu.wtf/pub/krons/agents/</a> reads the source of many of them, and <a href="https://krons.fiu.wtf/pub/krons/agents/comparison/">https://krons.fiu.wtf/pub/krons/agents/comparison/</a> compares five side by side. krons at <a href="https://krons.fiu.wtf">https://krons.fiu.wtf</a> is the reference deployment of arizuko.</p>
 
       <h3>Personal agent gateways serve one operator</h3>
       <table>
         <tr><th>System</th><th>Address</th><th>How it differs</th></tr>
         <tr><td>OpenClaw</td><td><a href="https://github.com/openclaw/openclaw">https://github.com/openclaw/openclaw</a></td><td>A personal assistant on many chat platforms from one Node.js process. An agent is a row in its config. A Docker sandbox for tools is optional, and no VM runs a turn.</td></tr>
-        <tr><td>NanoClaw</td><td><a href="https://github.com/nanocoai/nanoclaw">https://github.com/nanocoai/nanoclaw</a></td><td>A small rewrite of the OpenClaw model. The Claude Agent SDK runs in one container per session, and a per-session SQLite file is the only channel to the host. arizuko took the container per session and adds routes, grants and a VM.</td></tr>
+        <tr><td>NanoClaw</td><td><a href="https://github.com/nanocoai/nanoclaw">https://github.com/nanocoai/nanoclaw</a></td><td>A small rewrite of the OpenClaw model. The Claude Agent SDK runs in one container per session, and a per-session SQLite file is the only channel to the host. arizuko runs each turn in its own KVM guest and reaches the host through an MCP socket.</td></tr>
         <tr><td>Muaddib</td><td><a href="https://github.com/pasky/muaddib">https://github.com/pasky/muaddib</a></td><td>A chat assistant for teams that runs tool calls in QEMU micro-VMs. The model SDK and the web tools run on the host, and all users of a channel share one VM.</td></tr>
         <tr><td>ElizaOS</td><td><a href="https://github.com/elizaOS/eliza">https://github.com/elizaOS/eliza</a></td><td>A framework with <code>character.json</code> personas and a plugin marketplace. Agents run in the host process with no sandbox, and memory is PostgreSQL with pgvector.</td></tr>
         <tr><td>Milady</td><td><a href="https://github.com/milady-ai/milady">https://github.com/milady-ai/milady</a></td><td>ElizaOS as a desktop and mobile app for one person, local first.</td></tr>
         <tr><td>Hermes Agent</td><td><a href="https://github.com/NousResearch/hermes-agent">https://github.com/NousResearch/hermes-agent</a></td><td>A long-running Python agent that writes its own skills and scans skills for threats. One process keeps a session across many turns, with no VM per turn.</td></tr>
         <tr><td>takopi</td><td><a href="https://github.com/banteg/takopi">https://github.com/banteg/takopi</a></td><td>A Telegram bridge to the coding CLIs Codex, Claude Code, OpenCode and Pi, with one git worktree per branch. One operator and no tenants.</td></tr>
-        <tr><td>Letta</td><td><a href="https://github.com/letta-ai/letta">https://github.com/letta-ai/letta</a><br><a href="https://github.com/letta-ai/letta-code">https://github.com/letta-ai/letta-code</a></td><td>A server for agents that keep memory across runs, local or in Letta Cloud. letta-code sends replies only through a message tool, as arizuko does, for one operator with no tenants.</td></tr>
+        <tr><td>Letta</td><td><a href="https://github.com/letta-ai/letta">https://github.com/letta-ai/letta</a><br><a href="https://github.com/letta-ai/letta-code">https://github.com/letta-ai/letta-code</a></td><td>A server for agents that keep memory across runs, local or in Letta Cloud. letta-code sends replies only through a message tool, for one operator with no tenants. An arizuko turn delivers its final text block.</td></tr>
         <tr><td>brainpro</td><td><a href="https://github.com/jgarzik/brainpro">https://github.com/jgarzik/brainpro</a></td><td>A Rust coding assistant that sends each kind of task to a different model provider. A chat pairs to a session with a code, and no sandbox runs the tools.</td></tr>
         <tr><td>HOME23</td><td><a href="https://github.com/notforyou23/home23">https://github.com/notforyou23/home23</a></td><td>An agent that runs all the time in continuous loops. An arizuko agent runs only during a turn.</td></tr>
       </table>
@@ -105,11 +53,11 @@
       <h3>Team harnesses keep a sandbox per scope or per thread</h3>
       <table>
         <tr><th>System</th><th>Address</th><th>How it differs</th></tr>
-        <tr><td>qm</td><td><a href="https://github.com/yc-software/qm">https://github.com/yc-software/qm</a></td><td>A multiplayer agent harness in Slack and on the web, hosted in the cloud account of the team. It keeps one durable sandbox per scope, filters egress with Envoy and uses MCP servers without serving one. Its scopes are five flat kinds, where an arizuko folder nests to any depth.</td></tr>
-        <tr><td>Centaur</td><td><a href="https://github.com/paradigmxyz/centaur">https://github.com/paradigmxyz/centaur</a></td><td>Slack agents in one Kubernetes pod per thread, a workflow engine that replays steps, and a proxy that adds credentials on the wire. arizuko has no workflow engine: a failed turn runs again whole.</td></tr>
+        <tr><td>qm</td><td><a href="https://github.com/yc-software/qm">https://github.com/yc-software/qm</a></td><td>A multiplayer agent harness in Slack and on the web, hosted in the cloud account of the team. It keeps one durable sandbox per scope, filters egress with Envoy and uses MCP servers without serving one. Its scopes are five flat kinds, where the path of an arizuko folder has no depth limit.</td></tr>
+        <tr><td>Centaur</td><td><a href="https://github.com/paradigmxyz/centaur">https://github.com/paradigmxyz/centaur</a></td><td>Slack agents in one Kubernetes pod per thread, a workflow engine that replays steps, and a proxy that adds credentials on the wire. arizuko has no workflow engine. <code>routd</code> runs a turn that fails without a reply again, up to <code>MAX_TURN_RETRY</code> times, default 3.</td></tr>
         <tr><td>OpenClaw Managed Agents</td><td><a href="https://github.com/stainlu/openclaw-managed-agents">https://github.com/stainlu/openclaw-managed-agents</a></td><td>An open implementation of the Anthropic Managed Agents API over one Docker container per session. The API has four nouns: agent, environment, session and event.</td></tr>
         <tr><td>Cloudflare Agents</td><td><a href="https://github.com/cloudflare/agents">https://github.com/cloudflare/agents</a></td><td>An SDK for agents that run as Durable Objects on Cloudflare, each with its own SQLite state. Cloudflare runs the platform, where arizuko runs on a host you own.</td></tr>
-        <tr><td>Dust</td><td><a href="https://dust.tt/">https://dust.tt/</a></td><td>A hosted service for agents over company data, with many data connectors. arizuko has no connector sync and no hosted service.</td></tr>
+        <tr><td>Dust</td><td><a href="https://dust.tt/">https://dust.tt/</a></td><td>A hosted service for agents over company data, with many data connectors. arizuko has no connector sync and is not a hosted service.</td></tr>
         <tr><td>Zapier Agents</td><td><a href="https://zapier.com/agents">https://zapier.com/agents</a></td><td>Hosted agents that act through the app integrations of Zapier.</td></tr>
       </table>
 
@@ -135,206 +83,18 @@
         <tr><td>Onyx</td><td><a href="https://github.com/onyx-dot-app/onyx">https://github.com/onyx-dot-app/onyx</a></td><td>Self-hosted search and chat over company documents, with connectors. It does the retrieval that arizuko does not do.</td></tr>
       </table>
 
-      <h2>Defensible wedge</h2>
-      <p>The <em>combination</em>, not any single axis. Each axis has a stronger specialist alone; nobody has all four:</p>
-
-      <ol>
-        <li><strong>Multi-channel persistent team agent</strong> — 11 adapters in tree (Telegram, Discord, WhatsApp, Slack, email, Bluesky, Reddit, X/Twitter, LinkedIn, web chat, webhooks)</li>
-        <li><strong>Per-folder agent identity</strong> — PERSONA + skills + MEMORY + .diary + ACL + secrets; filesystem as tenant boundary</li>
-        <li><strong>Operator-owned footprint</strong> — Go daemons in Docker, one KVM guest per turn, one store endpoint the operator runs or rents; no ClickHouse, no Redis, no managed control plane</li>
-        <li><strong>Uniform MCP+REST per resource</strong> — agent-first protocol, REST as impedance match for external tools</li>
-      </ol>
-
-      <h2>Real gaps (we lose today)</h2>
-      <ul>
-        <li><strong>Observability</strong> — every daemon exports OTLP when <code>OTEL_EXPORTER_OTLP_ENDPOINT</code> is set, but journalctl + dashd is still not Langfuse.</li>
-        <li><strong>Sandbox strength</strong> — the turn runs in one KVM guest, so the boundary is a hypervisor and the agent's kernel is not the host's. The gap is <code>runed</code>'s <em>own</em> container, which compose runs as root with <code>NET_ADMIN</code>, <code>SYS_ADMIN</code> and <code>apparmor=unconfined</code> because AppArmor's default denies the staging tree's <code>mount(2)</code>. A profile that permits just that one mount is unwritten.</li>
-        <li><strong>Product abstraction</strong> — no <code>arizuko product clone</code>, no manifest, no registry.</li>
-        <li><strong>No K8s / cloud-provider templates</strong> — the Helm chart in <code>deploy/helm/arizuko/</code> renders and no cluster has installed it; no operator; the turn path still pins <code>routd</code> and <code>runed</code> to one node.</li>
-        <li><strong>Evals at scale</strong> — specs/10/1-self-healing-loop.md is a draft; none of the judge/evaluate/repair loop is built.</li>
-      </ul>
-
-      <h2>GitOps architecture</h2>
-      <p class="dim">Three layers. Truth shifted out of the database.</p>
-
-      <pre><code>GIT TREE   source of truth: versioned, signed, distributed
-  agents.toml            products + deployments
-  acl/ routes/ skills/ personas/
-  MEMORY.md  .diary/  decisions/
-  secrets/               age-encrypted blobs or vault refs
-  turns/                 per-turn markdown, the trace
-    &darr; derive
-STORE      operational cache: one endpoint, rebuildable from git + input log
-  messages queue + cursors
-  indexes                fast routing and dispatch
-  in-flight turn state
-  materialized projections (graph view)
-    &darr; projects
-GUESTS     ephemeral: a projection of git@HEAD into runtime
-  read the working tree at turn start
-  MCP over vsock to routd's per-group socket
-  gateway commits state changes at turn end</code></pre>
-
-      <p><code>arizuko apply</code> = read <code>agents.toml</code> from git → diff against the store → reconcile.<br>
-      Audit = <code>git log</code>. Fork = <code>git worktree</code>. Distribute = <code>git push</code>.</p>
-
-      <h2>The path forward</h2>
-      <p class="dim">Four tiers map gaps to shippable capabilities. GitOps direction influences every tier.</p>
-
-      <div class="grid wide">
-        <div class="card">
-          <div class="card-title">Tier A</div>
-          <div class="card-meta">4 weeks · Declarative composition</div>
-          <ul>
-            <li><code>agents.toml</code> schema (products + deployments) — committed to git, source of truth</li>
-            <li><code>arizuko plan</code> / <code>arizuko apply</code> verbs (Terraform-for-agents)</li>
-            <li><code>deployments</code> table in the store (cache; rebuildable from git)</li>
-            <li>Three canonical product templates: oncall, support, sales-assist</li>
-            <li>Folder/user-scope secrets layering (BYOA primitive) — specs/5/14-credentials.md</li>
-            <li><strong>Spec:</strong> specs/5/8-yaml-manifests.md — it decides the opposite of this card: the store is authoritative, the YAML manifest is a dump/import artifact, and no <code>agents.toml</code> is a source of truth</li>
-          </ul>
-        </div>
-
-        <div class="card">
-          <div class="card-title">Tier B</div>
-          <div class="card-meta">6 weeks · Monitoring + sandbox + git-as-event-log</div>
-          <ul>
-            <li><strong>Drop the bespoke events table.</strong> Gateway becomes the only git writer; commits per turn with sidecar event list</li>
-            <li>Projection function over working tree + the store's hot path → graph view for plan/dashd/fork/OTLP</li>
-            <li>OTLP-out via OpenLLMetry → Langfuse self-host (operator's choice)</li>
-            <li><s>gVisor RuntimeClass under existing Docker</s> — superseded. The turn is a KVM guest as of 6/41 step 4; the unwritten piece is a narrow AppArmor profile for <code>runed</code> itself.</li>
-          </ul>
-        </div>
-
-        <div class="card">
-          <div class="card-title">Tier C</div>
-          <div class="card-meta">10 weeks · Distribution + proof product</div>
-          <ul>
-            <li>Product registry = git repo of TOML files</li>
-            <li><code>arizuko fork &lt;folder&gt; --at &lt;commit&gt;</code> = <code>git worktree add</code> + spawn container against that worktree</li>
-            <li>Eval primitive — Haiku-judge as gated post-turn hook</li>
-            <li><strong>Ship oncall agent end-to-end</strong> through the whole pipeline as the proof</li>
-          </ul>
-        </div>
-
-        <div class="card">
-          <div class="card-title">Tier D</div>
-          <div class="card-meta">When deals demand it · Enterprise</div>
-          <ul>
-            <li>Helm + multi-node — federation via <code>git remote</code> basically free</li>
-            <li>Signed product manifests + cosigned images</li>
-            <li>OPA/Rego as policy alternative</li>
-          </ul>
-        </div>
-      </div>
-
-      <h2>Bridge: agent research → platform features</h2>
-      <p class="dim">For each major research topic, how it becomes a shippable arizuko feature and which tier it slots into.</p>
-
-      <div class="grid wide">
-        <div class="card">
-          <div class="card-title"><a href="https://krons.fiu.wtf/pub/krons/agents/tools/">Tools &amp; security</a></div>
-          <ul>
-            <li><strong>Tier A:</strong> Per-product tool profiles in <code>agents.toml</code> (minimal/coding/messaging/full)</li>
-            <li><strong>Tier B:</strong> Hermes threat-pattern scanner (932 LOC) → product sandbox profiles with gVisor. Tap (credential injection proxy) already exists — ships with Tier B.</li>
-            <li><strong>Research insight:</strong> Muaddib's host/guest tool split is cleanest privilege model; smolagents' code-first approach eliminates schemas. NanoClaw's IPC proxy = tap component.</li>
-          </ul>
-        </div>
-
-        <div class="card">
-          <div class="card-title"><a href="https://krons.fiu.wtf/pub/krons/agents/memory/">Memory</a></div>
-          <ul>
-            <li><strong>Tier A Phase C:</strong> BYOA primitive = bring-your-own-pgvector as alternative to in-folder markdown. ElizaOS pgvector pattern, OpenClaw hybrid (vector + BM25).</li>
-            <li><strong>Tier C:</strong> Memory projection function: <code>MEMORY.md</code> + <code>.diary/</code> + <code>facts/</code> → unified queryable surface across all products.</li>
-            <li><strong>Research insight:</strong> All converge on markdown as substrate; differ on write safety (LLM-editable vs operator-only).</li>
-          </ul>
-        </div>
-
-        <div class="card">
-          <div class="card-title"><a href="https://krons.fiu.wtf/pub/krons/agents/subagents/">Subagents</a></div>
-          <ul>
-            <li><strong>Tier A:</strong> Product mixins in <code>agents.toml</code>. Compose a support product from (base-agent + slack-responder + escalation-child) fragments.</li>
-            <li><strong>Already shipped:</strong> <code>delegate_group</code>, <code>escalate_group</code>, <code>observe_group</code> MCP tools. Per-folder isolation is one guest per turn, per folder.</li>
-            <li><strong>Research insight:</strong> Six trust models compared; we already ship the strongest (a hypervisor boundary per turn, per folder).</li>
-          </ul>
-        </div>
-
-        <div class="card">
-          <div class="card-title"><a href="https://krons.fiu.wtf/pub/krons/agents/project-management/">Project management</a></div>
-          <ul>
-            <li><strong>Tier C:</strong> Oncall agent proof — autonomous PM loop (Stripe ships 1,300 PRs/week from Slack messages, zero human interaction).</li>
-            <li><strong>Tier B:</strong> Git-as-event-log enables post-turn eval hooks (Aeon's Haiku-scores-Opus quality gate).</li>
-            <li><strong>Research insight:</strong> Autonomy spectrum maps to isolation strength. More autonomous = stronger boundaries needed.</li>
-          </ul>
-        </div>
-
-        <div class="card">
-          <div class="card-title"><a href="https://krons.fiu.wtf/pub/krons/agents/patterns/">Building blocks</a></div>
-          <ul>
-            <li><strong>Tier A:</strong> Doom loop prevention (max-turns cap, explicit continue required). Network isolation (per-spawn egress allowlist).</li>
-            <li><strong>Tier B:</strong> Harness engineering — per-product test harness in TOML. Blueprints = product templates.</li>
-            <li><strong>Research insight:</strong> 13 patterns distilled; most map directly to <code>agents.toml</code> declarative config.</li>
-          </ul>
-        </div>
-
-        <div class="card">
-          <div class="card-title"><a href="https://krons.fiu.wtf/pub/krons/agents/aeon/">Aeon</a></div>
-          <ul>
-            <li><strong>Tier C:</strong> Self-healing batch loop = git-as-database (already Tier B direction) + Haiku quality gate (eval primitive) + reactive triggers (scheduled tasks already exist) + category repair playbooks (product templates).</li>
-            <li><strong>All mechanisms already designed.</strong> Tier C integrates them.</li>
-            <li><strong>Research insight:</strong> GitHub Actions runtime is the container orchestration we already have (Docker Compose).</li>
-          </ul>
-        </div>
-      </div>
-
-      <h2>What we will not do</h2>
-      <ul>
-        <li><strong>Runtime-graph fantasy</strong> — The interior of an agent is Turing-complete; don't model it. The organizational layer (products + deployments + folders + ACL + channels) IS a graph, expressed as files in git. No bespoke projection beyond <code>git checkout</code>.</li>
-        <li><strong>Pure event-sourcing</strong> — ActiveGraph (arxiv:2605.21997) overreaches. Hard parts (bit-perfect replay across stochastic LLM calls, cheap-prefix-share fork, schema migration via events) are future work. We need enough history to analyze + improve + audit — not bit-perfect replay. Git already ships this.</li>
-        <li><strong>K8s pre-emptive</strong> — Docker on a host the operator owns wins on operator burden until deals demand multi-node; <a href="../howto/kubernetes.html">the Kubernetes page</a> says which daemons can move and which cannot. Federation via <code>git remote</code> is Tier D (when revenue forces it).</li>
-      </ul>
-
-      <h2>Open questions</h2>
-      <ol>
-        <li><strong>Inbound message storage</strong> — Per-day JSONL in git, or fully hot in the store? Lean per-day in git for replay-enough.</li>
-        <li><strong>Crash recovery</strong> — Between a store write and a git commit, what's the recovery protocol? Idempotent reapply on restart?</li>
-        <li><strong>Fork lifecycle</strong> — Does forked branch get its own container? Same DB? Separate cache? Spec the lifecycle.</li>
-        <li><strong>Operator UX</strong> — <code>arizuko log</code>, <code>arizuko diff</code>, <code>arizuko revert</code> wrappers — what's the surface?</li>
-        <li><strong>dashd admin write</strong> — Currently writes the store directly. Under GitOps: commit → apply, or commit-immediate-apply? Pick a default.</li>
-        <li><strong>Tracing granularity vs audit granularity</strong> — Commit-per-turn loses sub-turn lineage; sidecar restores it; is sidecar enough or do we need per-event commits on a side branch?</li>
-        <li><strong>Is "GitOps" the right term?</strong> Too K8s-coded? Substitute "git-native"? Sharper positioning vs Argo CD ("Argo CD for AI agent fleets") or against it?</li>
-      </ol>
-
-      <h2>Three-lens synthesis</h2>
+      <h2 id="limits">Four limits of arizuko are open</h2>
       <table>
-        <tr>
-          <th>Lens</th>
-          <th>Status under GitOps</th>
-        </tr>
-        <tr>
-          <td><strong>agent is data</strong></td>
-          <td>Data lives in git ✓</td>
-        </tr>
-        <tr>
-          <td><strong>agent-first platform</strong></td>
-          <td>MCP/REST verbs are git-aware mutations ✓</td>
-        </tr>
-        <tr>
-          <td><strong>agent is a graph</strong></td>
-          <td>Working tree IS the graph; commit DAG IS the lineage; no bespoke projection needed beyond <code>git checkout</code> ✓</td>
-        </tr>
+        <tr><th>Limit</th><th>What is true now</th></tr>
+        <tr><td>The runed container is not locked down</td><td>Compose runs <code>runed</code> as root with <code>NET_ADMIN</code>, <code>SYS_ADMIN</code> and <code>apparmor=unconfined</code>, because the default AppArmor profile denies the <code>mount(2)</code> calls of the staging tree. The turn itself runs in a KVM guest. No narrower AppArmor profile for <code>runed</code> is written.</td></tr>
+        <tr><td>No cluster has run the Helm chart</td><td>The chart in <code>deploy/helm/arizuko/</code> passes <code>helm lint</code> and <code>helm template</code>. It runs <code>routd</code> and <code>runed</code> as one replica each on the node that holds the data volume.</td></tr>
+        <tr><td>No trace viewer</td><td>Every daemon exports OTLP logs and spans when <code>OTEL_EXPORTER_OTLP_ENDPOINT</code> is set. The collector and the viewer belong to the operator.</td></tr>
+        <tr><td>No loop judges finished turns</td><td><code>anteval</code> runs eval suites when an operator starts it. No daemon scores a turn after the turn ends.</td></tr>
       </table>
 
-      <p><strong>Trace vs projection distinction:</strong></p>
-      <ul>
-        <li>Trace = <code>git log</code> (history, queryable)</li>
-        <li>Projection = working tree at HEAD (current shape, queryable as graph)</li>
-        <li>Fork = <code>git worktree add</code> on a sha + spawn container</li>
-        <li>Replay-enough = <code>git checkout &lt;sha&gt;</code> + walk the tree</li>
-        <li>Audit = signed commits + branch protection</li>
-      </ul>
+      <p>Design directions for arizuko live in the <code>specs/</code> directory of the repository. A spec that is folded into the docs is deleted and stays in git history: <code>git log --diff-filter=D --name-only -- specs/</code>.</p>
 
-      <p class="note">Research direction for <a href="../">arizuko</a>. Cross-references the <a href="https://krons.fiu.wtf/pub/krons/agents/">agent research hub</a> (11 systems dissected). Framing session: ondrej × claude, 2026-05-23. Source: <code>/home/node/research/agent-hub-arizuko-next-steps.md</code>.</p>
+      <p class="note">Sources for arizuko: <a href="https://github.com/kronael/arizuko/blob/4cfb63a5e49a893fbefca1f1299132356b90391d/README.md#L157-L164">[README.md]</a> <a href="https://github.com/kronael/arizuko/blob/4cfb63a5e49a893fbefca1f1299132356b90391d/routd/loop.go#L172-L174">[routd/loop.go]</a> <a href="https://github.com/kronael/arizuko/blob/4cfb63a5e49a893fbefca1f1299132356b90391d/groupfolder/folder.go#L70-L84">[groupfolder/folder.go]</a> <a href="https://github.com/kronael/arizuko/blob/4cfb63a5e49a893fbefca1f1299132356b90391d/ant/CLAUDE.md#L95">[ant/CLAUDE.md]</a> <a href="https://github.com/kronael/arizuko/blob/4cfb63a5e49a893fbefca1f1299132356b90391d/compose/compose.go#L1279-L1285">[compose/compose.go]</a> <a href="https://github.com/kronael/arizuko/blob/4cfb63a5e49a893fbefca1f1299132356b90391d/deploy/helm/arizuko/README.md#L8-L22">[deploy/helm/arizuko/README.md]</a> <a href="https://github.com/kronael/arizuko/blob/4cfb63a5e49a893fbefca1f1299132356b90391d/obs/README.md">[obs/README.md]</a>. The other systems are described from their repositories and the krons hub. This page does not re-measure them.</p>
 
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/strategy/index.html">Edit this page</a>

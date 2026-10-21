@@ -18,7 +18,6 @@
           <ul class="nav-children">
             <li><a href="./">Start here</a></li>
             <li><a href="primitives.html">Primitives</a></li>
-            <li><a href="built.html">Development</a></li>
             <li><a href="store.html">The store</a></li>
             <li><a href="scaling.html">Scaling</a></li>
             <li><a href="ant.html">The ant</a></li>
@@ -62,10 +61,10 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">concepts</a> &rsaquo; onboarding</p>
     <h1>onboarding</h1>
 
-    <p class="lede">Onboarding is how a new user gets in and how a group comes to exist. When a new user arrives, the <code>onbod</code> daemon decides whether the user gets in and which group the user lands in. It also binds the identity of the user to one canonical sub. Nobody creates a group by hand: every group is the result of an admission. Three paths lead in: invite tokens, the admission queue, and pairing a second chat to an account that already has a world.</p>
+    <p class="lede">Onboarding is how a new user gets in and gets a first group. When a new user arrives, the <code>onbod</code> daemon decides whether the user gets in and which group the user lands in. It also binds the identity of the user to one canonical sub. Three paths lead in: invite tokens, the admission queue, and pairing a second chat to an account that already has a world.</p>
 
     <h2>A chat needs a pairing and a route before an agent answers</h2>
-    <p>The figure follows a chat that no route claims, from its first message to its route. Read it from top to bottom. Two separate facts must become true before an agent answers. First, the identity of the chat is tied to a person, which is the pairing edge. Second, the chat points at a folder, which is the route row. Routing never reads the ACL, and the ACL never creates a route, so a stranger with neither gets nothing from either side.</p>
+    <p>The figure follows a chat that no route claims, from its first message to its route. Two separate facts must become true before an agent answers. First, the identity of the chat is tied to a person, which is the pairing edge. Second, the chat points at a folder, which is the route row. Routing never reads the ACL, and the ACL never creates a route.</p>
     <pre id="twin-pairing"><code>inbound message, no route claims the chat
   │
   ▼
@@ -134,10 +133,10 @@ arizuko invite &lt;instance&gt; revoke &lt;ref&gt;</code></pre>
     <h2>The greeting is a pairing link</h2>
     <p>When <code>ONBOARDING_ENABLED=true</code>, a chat that messages the instance and matches no route gets a reply. The reply is one link, valid for ten minutes, that proves the person who opens it can read that chat. An agent creates the same link with <code>issue_pairing_link</code>, so onboarding has no login of its own. The greeting is fixed text plus the link, never an agent turn. A chat that belongs to no folder has no spend cap to limit a turn. The link signs the person in, shows exactly which chat account it attaches to their name, and asks for confirmation. Nothing is written until the person confirms.</p>
     <p>The confirmation binds an identity and nothing more. It does not decide where the messages of the chat go. The next screen decides that, as a choice the person makes. See <a href="routing.html">routing</a>.</p>
-    <p>An expired link is not a dead end. Ten minutes is short on purpose, because the protection is the confirm page, not the clock. A new message in the same chat brings a greeting with a new link. Two conditions prevent noise: the chat must speak again, and the previous link must have expired. A chat that has a route since then, or that stopped speaking, never gets a second greeting.</p>
+    <p>A new message in the same chat brings a greeting with a new link when two conditions hold: the chat speaks again, and the previous link has expired. A chat that has a route since then, or that stopped speaking, never gets a second greeting.</p>
 
     <h2>The admission queue decides whether the instance takes you</h2>
-    <p>Pairing says who you are, and the queue says whether this instance takes you. The two are separate on purpose, and they happen at different times. The binding is immediate. The verdict arrives at the next poll of <code>onbod</code>, every 10 seconds by default.</p>
+    <p>Pairing says who you are, and the queue says whether this instance takes you. The binding is immediate. The verdict arrives at the next poll of <code>onbod</code>, every 10 seconds by default.</p>
     <p>Rows in the <code>onboarding_gates</code> table of <code>onbod</code> control the queue. You manage them with <code>arizuko gate</code> or <code>/v1/gates</code>. A gate key names an identity provider:</p>
     <dl>
       <dt><code>*</code></dt>
@@ -155,19 +154,17 @@ arizuko invite &lt;instance&gt; revoke &lt;ref&gt;</code></pre>
 
     <h2>An approval lets you create a workspace only when a gate exists</h2>
     <p>An approval lets you create your own workspace. You pick a username, and that name becomes a top-level world that you administer. You need no invite and no admin. This is the purpose of the queue: an approval gives a real right.</p>
-    <p>The right exists only on an instance with at least one gate. This condition is the switch between two very different instances. With no gates, everyone who pairs is approved. If an approval alone allowed a workspace, anyone who messaged the bot on a new instance could take a tenant. Because a gate is required, nothing changes until you decide.</p>
-    <p>The two setups are:</p>
+    <p>The right exists only on an instance with at least one gate. If an approval alone allowed a workspace, anyone who messaged the bot on a new instance could take a tenant.</p>
     <dl>
       <dt>No gates</dt>
       <dd>The default. Workspaces come only from invites. People can still pair chats and get approved, but an approval gives no workspace.</dd>
       <dt>One or more gates</dt>
       <dd>Self-service signup, limited by the gate. The gate decides <em>who</em> can queue, and its daily limit decides <em>how fast</em> they get in.</dd>
     </dl>
-    <p>A disabled gate does not count, so a gate must be enabled. The same rule decides who gets queued and whether an approval gives a workspace, so the two can never disagree.</p>
-    <p><code>onbod</code> checks the right when it writes the workspace, not when it draws the page. A hidden button is not a lock, so a request to the address of the button gets the same refusal.</p>
+    <p>A disabled gate does not count. <code>admitJID</code> and <code>mayCreateFirstWorld</code> both read the enabled gates through <code>loadGates</code>, and <code>handleCreateWorld</code> calls <code>mayCreateFirstWorld</code> again when it writes the workspace.</p>
 
     <h2>SetupGroup writes every new group</h2>
-    <p>When a user has the right to a workspace, through an invite or through an approval under a gate, <code>onbod</code> calls <code>container.SetupGroup(cfg, folder, seedDir)</code>. That function is the only correct way to create a group. Never <code>mkdir</code> a folder under <code>groups/</code> by hand.</p>
+    <p>When a user has the right to a workspace, through an invite or through an approval under a gate, <code>onbod</code> calls <code>container.SetupGroup(cfg, folder, seedDir)</code>. <code>arizuko create</code>, <code>arizuko group add</code> and <code>dashd</code> call the same function. <code>register_group</code> does not.</p>
     <p>The function creates the group directory and <code>logs/</code>. If a <code>seedDir</code> is given, it copies that directory in: the CLI passes a product template, and onboarding passes none. Then it runs <code>seedGroupDir</code>, which writes four things:</p>
     <dl>
       <dt><code>.claude/skills/</code></dt>
@@ -179,7 +176,7 @@ arizuko invite &lt;instance&gt; revoke &lt;ref&gt;</code></pre>
       <dt>Ownership</dt>
       <dd>Every file belongs to uid 1000, so the <code>node</code> user of the guest can write.</dd>
     </dl>
-    <p>A folder made without <code>SetupGroup</code> is a folder the agent cannot use: it has no skills, no settings and the wrong owner. Everything that <code>onbod</code> does for a new user goes through this one call.</p>
+    <p>A folder made without <code>SetupGroup</code> has none of these four. <code>runed</code> still writes <code>settings.json</code> into it on every spawn.</p>
 
     <h2>A second chat pairs to the same account</h2>
     <p>A person who already has a world and arrives on another platform does not onboard again. The person pairs the new chat to the existing account, and the chat gets everything that account holds. No queue and no new group are involved.</p>

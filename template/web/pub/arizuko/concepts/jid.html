@@ -18,7 +18,6 @@
           <ul class="nav-children">
             <li><a href="./">Start here</a></li>
             <li><a href="primitives.html">Primitives</a></li>
-            <li><a href="built.html">Development</a></li>
             <li><a href="store.html">The store</a></li>
             <li><a href="scaling.html">Scaling</a></li>
             <li><a href="ant.html">The ant</a></li>
@@ -62,11 +61,11 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">concepts</a> &rsaquo; addressing</p>
 <h1>jid</h1>
 
-    <p class="lede">A JID is the one address shape that every adapter uses for its chats and senders: Telegram chats, web chats, voice notes and webhooks alike. Every address has the shape <code>&lt;platform&gt;:&lt;rest&gt;</code>. So one routing rule such as <code>chat_jid=telegram:group/*</code> matches every Telegram group and nothing else, and routes and grants can ignore the details of each platform.</p>
+    <p class="lede">A JID is the one address shape that every adapter uses for its chats and senders. The prefixes are <code>telegram</code>, <code>discord</code>, <code>whatsapp</code>, <code>slack</code>, <code>reddit</code>, <code>bluesky</code>, <code>twitter</code>, <code>linkedin</code>, <code>email</code>, <code>github</code>, <code>gdrive</code>, <code>web</code> for browser chats and <code>hook</code> for webhooks. Every address has the shape <code>&lt;platform&gt;:&lt;rest&gt;</code>. So one routing rule such as <code>chat_jid=telegram:group/*</code> matches every Telegram group and nothing else, and routes and grants can ignore the details of each platform.</p>
 
     <h2>The platform comes before the colon</h2>
     <p>Each platform names things in its own way. Telegram chat IDs are signed integers, and a negative number means a group. teled writes the kind into the JID and drops the minus sign. WhatsApp adds a server name, <code>@g.us</code> for groups and <code>@s.whatsapp.net</code> for DMs. Reddit uses prefixes such as <code>t1_</code>, <code>t2_</code> and <code>t3_</code> for comments, users and submissions.</p>
-    <p>arizuko writes one shape over all of them. The platform goes before the colon. Everything after the colon belongs to the platform: <code>routd</code> keeps it as an opaque string and only matches it with globs:</p>
+    <p>arizuko writes one shape over all of them. The platform goes before the colon. Everything after the colon belongs to the platform:</p>
     <pre><code>telegram:user/123              # telegram DM with user 123
 telegram:group/1001234567      # telegram group, supergroup, or channel
 discord:dm/456                 # discord DM channel
@@ -82,10 +81,10 @@ hook:&lt;folder&gt;/&lt;source&gt;[/...]   # webhook ingest: folder is the desti
 match='chat_jid=discord:dm/*'        # all discord DMs
 match='chat_jid=whatsapp:*@g.us'     # all whatsapp groups
 match='sender=telegram:user/[0-9]*'  # any numeric telegram user</code></pre>
-    <p>The platform has its own segment, so <code>platform=telegram</code> means every Telegram chat of any kind. You need not know how Telegram uses the sign of an ID.</p>
+    <p>The platform has its own segment, so <code>platform=telegram</code> means every Telegram chat of any kind.</p>
 
     <h2>A JID is a plain string in Go</h2>
-    <p>In the code, a JID is a <code>string</code>. Two helpers in <code>core/types.go</code> split it. <code>core.JidPlatform(jid)</code> returns the part before the first colon, and <code>core.JidRoom(jid)</code> returns the part after it. Matching is <code>path.Match</code> against the glob of the route, the same call that <code>router.RouteMatches</code> makes. No parse step exists, and chats and senders have no separate types: both are addresses that <code>routd</code> only matches with globs.</p>
+    <p>In the code, a JID is a <code>string</code>. Two helpers in <code>core/types.go</code> split it. <code>core.JidPlatform(jid)</code> returns the part before the first colon, and <code>core.JidRoom(jid)</code> returns the part after it. Matching is <code>path.Match</code> against the glob of the route, the same call that <code>router.RouteMatches</code> makes. No parse step exists, and chats and senders have no separate types.</p>
 
     <h2>Each adapter owns the shapes of its platform</h2>
     <p><code>routd</code> treats everything after <code>platform:</code> as an opaque string and only matches it with globs. Each adapter, such as <code>teled/</code>, <code>discd/</code> and <code>whapd/</code>, parses and builds its own paths. A new platform, or a new <em>kind</em> inside an existing platform, is a change in one adapter. <code>routd</code> and the routes table do not change.</p>

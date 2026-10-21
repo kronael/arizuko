@@ -35,7 +35,6 @@ var twins = []twin{
 	}},
 	{name: "install", files: []string{
 		"INSTALL.md",
-		"README.md",
 		"template/web/pub/arizuko/howto/index.html",
 	}},
 	{name: "turn", files: []string{

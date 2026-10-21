@@ -147,7 +147,9 @@ source = "github.com/org/our-brand"  # a git source is cloned and pinned to its 
 anteval validate --cases &lt;data-dir&gt;/groups/&lt;folder&gt;/eval
 
 # live: real turns against a running instance, uses model credits
-anteval run https://&lt;host&gt; --cases &lt;data-dir&gt;/groups/&lt;folder&gt;/eval</code></pre>
+anteval run https://&lt;host&gt; --cases &lt;data-dir&gt;/groups/&lt;folder&gt;/eval \
+  --token "$AGENTEVAL_TOKEN" --chat &lt;chat-jid&gt; --folder &lt;folder&gt;</code></pre>
+      <p>The live run needs three flags. <code>--token</code> is a bearer for the folder, from <code>arizuko token &lt;instance&gt; issue bearer &lt;folder&gt; --scope messages:write,messages:read,cost:read --ttl 6h</code>. <code>--chat</code> is a chat that routes to the folder. <code>--folder</code> is the folder that owns the chat, and <code>anteval</code> stops without it.</p>
       <p>A case gives the agent one prompt and checks an effect that you can see from outside. For a product, the useful check is usually <code>rest_reply</code>: the reply of the bot must contain a string.</p>
       <pre><code>[[case]]
 id = "helpdesk-refuses-to-promise-a-refund"

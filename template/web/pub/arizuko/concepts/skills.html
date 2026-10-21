@@ -18,7 +18,6 @@
           <ul class="nav-children">
             <li><a href="./">Start here</a></li>
             <li><a href="primitives.html">Primitives</a></li>
-            <li><a href="built.html">Development</a></li>
             <li><a href="store.html">The store</a></li>
             <li><a href="scaling.html">Scaling</a></li>
             <li><a href="ant.html">The ant</a></li>
@@ -62,7 +61,7 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">concepts</a> &rsaquo; skills</p>
     <h1>skills</h1>
 
-    <p class="lede">A skill is a directory of markdown that the agent reads when it needs to do a specific task. It is one more set of files in the ant. The agent ships with a built-in set, and the operator can add more. Skills do not start on their own. A model does not reliably notice that a skill applies, so every turn tells the agent to run <code>/solve</code>, which matches skills through <code>/dispatch</code>. Discovery is a deliberate step.</p>
+    <p class="lede">A skill is a directory of markdown that the agent reads when it needs to do a specific task. It is one more set of files in the ant. The agent ships with a built-in set, and the operator can add more. Skills do not start on their own: every turn tells the agent to run <code>/solve</code>, which matches skills through <code>/dispatch</code>.</p>
 
     <h2>A skill is one directory with a SKILL.md</h2>
     <p>A skill is one directory under <code>ant/skills/</code>. Every skill has a <code>SKILL.md</code> with YAML frontmatter and a body:</p>
@@ -77,7 +76,7 @@ Skill instructions here...</code></pre>
     <h2>Skills come from three sources</h2>
     <dl>
       <dt>Built-in</dt>
-      <dd>Everything under <code>ant/skills/</code> in the arizuko repo, such as <code>self</code>, <code>migrate</code>, <code>diary</code>, <code>find</code>, <code>oracle</code>, <code>persona</code> and <code>visual</code>. The count is 93, measured at commit f0762846c1dfdcc71ea15798cc28ad17ddc6c10d with <code>ls -d ant/skills/*/ | wc -l</code>. They ship inside the <code>arizuko-ant</code> image, and <code>container.seedSkills()</code> copies them into every new group. <a href="../concepts/onboarding.html">onboarding</a> describes the copy.</dd>
+      <dd>Everything under <code>ant/skills/</code> in the arizuko repo, such as <code>self</code>, <code>migrate</code>, <code>diary</code>, <code>find</code>, <code>oracle</code>, <code>persona</code> and <code>visual</code>. They ship inside the <code>arizuko-ant</code> image, and <code>container.seedSkills()</code> copies them into every new group. <a href="../concepts/onboarding.html">onboarding</a> describes the copy.</dd>
       <dt>Package</dt>
       <dd>A package can ship a <code>skills/</code> folder. <code>arizuko generate</code> copies each of its skills into every existing group and overwrites the copy of the group. It skips a skill that the group disabled or whose name a built-in skill already uses.</dd>
       <dt>User</dt>
@@ -86,16 +85,15 @@ Skill instructions here...</code></pre>
     <p>Every <code>/migrate</code> run refreshes the built-in skills and never overwrites user skills.</p>
 
     <h2>The prompt tells the agent to find its skills</h2>
-    <p>A model does not reliably start a skill from its description. So <code>runed</code> ends every prompt with a <code>[solve]</code> line that tells the agent to run <code>/solve</code> first. <code>/solve</code> classifies the message, recalls the context and then runs <code>/dispatch</code>. <code>/dispatch</code> compares the <code>description</code> of every skill with the request and loads the matches. Without that line, the agent does not use its skills.</p>
-    <p>The always-loaded file is not the place for these instructions. The agent reads that file on every turn, whether the turn needs it or not. A rule belongs there only for two reasons. The agent needs it before it can know to ask, or a break in it fails without an error. Everything else is a skill, loaded when it applies.</p>
+    <p><code>runed</code> adds a <code>[solve]</code> line to the notes at the start of every prompt. The line tells the agent to run <code>/solve</code> first. <code>/solve</code> classifies the message, recalls the context and then runs <code>/dispatch</code>. <code>/dispatch</code> compares the <code>description</code> of every skill with the request and loads the matches.</p>
 
     <h2>One version number triggers the skill update and the announcement</h2>
-    <p>The agent image carries a version number in <code>ant/skills/self/MIGRATION_VERSION</code>, a single integer. Every release with skill changes increments it. Before each turn, <code>runed</code> compares the version of the image with the last version the group saw:</p>
+    <p>The agent image carries a version number in <code>ant/skills/self/MIGRATION_VERSION</code>, a single integer. Every release increments it, a docs-only release included. Before each turn, <code>runed</code> compares the version of the image with the last version the group saw:</p>
     <ul>
       <li>If the image is newer, the prompt carries a <code>[pending migration]</code> line, and the agent runs <code>/migrate</code>. <code>/migrate</code> copies new and changed skill files from the image into <code>.claude/skills/</code> of the group. It replaces built-in skills and keeps user skills.</li>
-      <li>The same step posts the release announcement. <code>/migrate</code> takes the <code>&gt;</code> blockquote at the top of the new <code>CHANGELOG.md</code> entry and posts it into the chat. The skill update and the announcement travel together, and the version increment is the one trigger.</li>
+      <li>The same run announces the release. <code>/migrate</code> sends one message to each channel that a route marks <code>#announce</code>: the version, the first bullet of the <code>&gt;</code> blockquote at the top of the new <code>CHANGELOG.md</code> entry, and the changelog link. A group with no <code>#announce</code> route announces nowhere.</li>
     </ul>
-    <p>Each version increment has a matching <code>ant/skills/self/migrations/NNN-vX.Y.Z-summary.md</code> file. The file triggers the announcement, and a release with only doc changes can use a short file.</p>
+    <p>Each version increment has a matching <code>ant/skills/self/migrations/NNN-vX.Y.Z-summary.md</code> file. A release with only doc changes can use a short file.</p>
 
     <h2>Related pages cover seeding and shipping</h2>
     <p><a href="../concepts/onboarding.html">onboarding</a> shows how a group gets its first skills. The &ldquo;Skills&rdquo; section of <a href="https://github.com/kronael/arizuko/blob/main/EXTENDING.md">[EXTENDING.md]</a> has the format rules and the layout of a skill. The &ldquo;Shipping changes&rdquo; section of <a href="https://github.com/kronael/arizuko/blob/main/CLAUDE.md">[CLAUDE.md]</a> has the release steps that increment <code>MIGRATION_VERSION</code> and add a migration file. <a href="../changelog/">changelog</a> lists what each version ships.</p>

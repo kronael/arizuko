@@ -18,7 +18,6 @@
           <ul class="nav-children">
             <li><a href="./">Start here</a></li>
             <li><a href="primitives.html">Primitives</a></li>
-            <li><a href="built.html">Development</a></li>
             <li><a href="store.html">The store</a></li>
             <li><a href="scaling.html">Scaling</a></li>
             <li><a href="ant.html">The ant</a></li>
@@ -62,10 +61,10 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">concepts</a> &rsaquo; voice</p>
 <h1>voice</h1>
 
-    <p class="lede">Voice adds audio without a change to the agent: the agent stays a text process, and the conversion happens at the edges. For voice in, a user sends an audio note, and Whisper turns it into text before the agent reads anything. For voice out, the agent calls <code>send_voice</code>, and the TTS daemon turns the text into an ogg file. The chat platform delivers it as a real voice note. The agent never handles audio. It reads and writes text, and the daemons convert on both sides.</p>
+    <p class="lede">The agent reads and writes only text: Whisper turns an incoming voice note into text, and the <code>send_voice</code> tool turns text into an ogg file that the chat platform delivers as a voice note.</p>
 
     <h2>Whisper turns a voice note into text before the agent reads it</h2>
-    <p>When a voice note arrives at an adapter, such as Telegram, WhatsApp or Discord, the adapter downloads the audio and gives it to <code>routd</code>. If <code>WHISPER_BASE_URL</code> is set and <code>VOICE_TRANSCRIPTION_ENABLED=true</code>, <code>routd</code> posts the audio to that Whisper server before the agent sees the message. The transcript comes back as plain text, and <code>routd</code> adds it to the attachment tag in the prompt:</p>
+    <p>When a voice note arrives at an adapter, such as Telegram, WhatsApp or Discord, the adapter downloads the audio and gives it to <code>routd</code>. If <code>VOICE_TRANSCRIPTION_ENABLED=true</code>, <code>routd</code> posts the audio to the Whisper server at <code>WHISPER_BASE_URL</code> before the agent sees the message. The transcript comes back as plain text, and <code>routd</code> adds it to the attachment tag in the prompt:</p>
     <pre><code>&lt;attachment path="/home/node/media/20260515/note.ogg"
             mime="audio/ogg"
             transcript="hey can you check the inbox"&gt;</code></pre>
@@ -81,20 +80,20 @@
     </ol>
     <p>The text limit is 5000 characters. The TTS endpoint is compatible with OpenAI, so to use Piper, Coqui or the OpenAI cloud, change <code>TTS_BACKEND_URL</code> on <code>ttsd</code>.</p>
 
-    <h2>Three platforms deliver voice notes</h2>
+    <h2>Telegram, WhatsApp and Discord deliver voice notes</h2>
     <table>
       <tr><th>Platform</th><th>How <code>send_voice</code> is delivered</th></tr>
       <tr><td>Telegram</td><td><code>sendVoice</code>, with the push-to-talk UI</td></tr>
       <tr><td>WhatsApp</td><td>audio with <code>ptt:true</code> through Baileys</td></tr>
       <tr><td>Discord</td><td>an <code>audio/ogg</code> attachment</td></tr>
-      <tr><td>Reddit, Bluesky, LinkedIn, X, email</td><td>not supported: <code>chanlib.ErrUnsupported</code>, and the agent uses <code>send</code> instead</td></tr>
+      <tr><td>Every other adapter, such as Slack, Reddit, Bluesky, LinkedIn, X and email</td><td>not supported: <code>chanlib.ErrUnsupported</code>, and the agent uses <code>send</code> instead</td></tr>
     </table>
 
-    <h2>The persona decides when the agent speaks</h2>
-    <p>The persona decides. A persona built for voice, such as an assistant used only by phone, always speaks. A persona built for text speaks only when the user spoke first. A reply in the same mode is easier for the user than audio for every message. The agent makes the choice from its instructions, and the system converts nothing automatically.</p>
+    <h2>The agent calls send_voice when its instructions say so</h2>
+    <p>The system never turns a text reply into voice by itself. The agent chooses <code>send_voice</code> or <code>send</code> for each reply.</p>
 
     <h2>Two failures have two different results</h2>
-    <p>With <code>TTS_ENABLED=false</code> on the instance, <code>send_voice</code> returns an &ldquo;unsupported&rdquo; error with a hint, and the agent sends plain text with <code>send</code>. If <code>ttsd</code> itself is down, nothing turns voice off for you. <code>routd</code> does not watch the <code>/health</code> of <code>ttsd</code>, so the call fails with a synthesis error, and the agent must send text instead. In both cases the user must get text, not silence, but in the second case the agent decides.</p>
+    <p>With <code>TTS_ENABLED=false</code> on the instance, <code>send_voice</code> returns an &ldquo;unsupported&rdquo; error with a hint, and the agent sends plain text with <code>send</code>. If <code>ttsd</code> itself is down, nothing turns voice off for you. <code>routd</code> does not watch the <code>/health</code> of <code>ttsd</code>, so the call fails with a synthesis error, and the agent must send text instead.</p>
 
     <h2>Related pages cover the persona and the address</h2>
     <p>The <code>voice:</code> frontmatter that sets a voice per agent lives in <code>PERSONA.md</code>. <a href="../concepts/ant.html">ant</a> shows the folder layout. <a href="../concepts/jid.html">jid</a> shows the shape of the JIDs in <code>send_voice(chatJid, &hellip;)</code>.</p>

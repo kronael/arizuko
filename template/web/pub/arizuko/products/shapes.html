@@ -76,7 +76,7 @@
         <dt>State</dt>
         <dd>The message rows on the store server, and <code>facts/retailers.md</code> and <code>facts/cache/</code> on disk. Nothing carries over from one user to the next.</dd>
       </dl>
-      <p>The structure is the same for ten users or ten thousand. The limit is the number of concurrent guests, <code>MAX_CONCURRENT_CONTAINERS</code>, default 5, not the number of users.</p>
+      <p>The limit is the number of concurrent guests, <code>MAX_CONCURRENT_CONTAINERS</code>, default 5, not the number of users.</p>
       <pre><code>telegram &middot; DM
 
   user   where's the cheapest whole milk this week?
@@ -93,10 +93,10 @@
         <li>No per-user memory. Every user starts with nothing.</li>
         <li>No folder tree. One folder on one level.</li>
         <li>No grant rows. The route is the fence.</li>
-        <li>No scheduled tasks. The agent runs only when a message arrives.</li>
+        <li>No scheduled task of its own. Only the five default <code>compact-memories</code> tasks of every group run on a schedule.</li>
         <li>No OAuth, no linked identities and no web dashboard for users.</li>
       </ul>
-      <p>No user data is collected. The message history is on the store server, and the cached prices are files under <code>/srv/data/arizuko_&lt;name&gt;/groups/supermarket/</code>. The outbound paths are the channel and Anthropic. Web search goes through the <a href="../components/egress.html">egress</a> proxy of the turn.</p>
+      <p>The message history is on the store server, and the cached prices are files under <code>/srv/data/arizuko_&lt;name&gt;/groups/supermarket/</code>. The outbound paths are the channel and Anthropic. Web search goes through the <a href="../components/egress.html">egress</a> proxy of the turn.</p>
 
       <h3>Seven commands set it up</h3>
       <pre><code>arizuko create shop
@@ -120,7 +120,7 @@ Ignore cache files older than one day.</code></pre>
       <pre><code>arizuko network shop allow supermarket tesco.com
 arizuko network shop allow supermarket sainsburys.co.uk
 arizuko network shop allow supermarket lidl.co.uk</code></pre>
-      <p>A blocked agent says that it could not reach the site and does not return old data. To check the shape, ask a price question: the reply must cite its sources. To force new results, delete the files in <code>facts/cache/</code>.</p>
+      <p>The proxy answers 403 for a domain that the list does not allow. To check the shape, ask a price question: the reply must cite its sources. To force new results, delete the files in <code>facts/cache/</code>.</p>
 
       <h2 id="discord-team">The Discord team agent gives each guild member memory and grants</h2>
       <p>One agent in a Discord guild, with channel-scoped persona and thread
@@ -152,16 +152,9 @@ arizuko network shop allow supermarket lidl.co.uk</code></pre>
   bot    Saved to your memory.</code></pre>
       <p>The team sees the answer. The write of Bob goes to the workspace of Bob, and the preference of Alice goes to her memory file.</p>
 
-      <h3>Three things differ from Slack</h3>
-      <dl>
-        <dt>No AI pane</dt>
-        <dd>Discord has no assistant pane, and <code>discd</code> shows no suggested prompts. Mentions and DMs work as on Slack.</dd>
-        <dt>Mention-only by default</dt>
-        <dd><code>arizuko group add</code> for a Discord server channel writes two routes: a <code>verb=mention</code> route that starts turns, and an <code>#observe</code> route for the other messages. A reply to a bot message also counts as a mention.</dd>
-        <dt>Different JIDs</dt>
-        <dd>A channel is <code>discord:&lt;guild_id&gt;/&lt;channel_id&gt;</code>, and a DM is <code>discord:dm/&lt;channel_id&gt;</code>.</dd>
-      </dl>
-      <p>The channel files and the member memory are under <code>/srv/data/arizuko_&lt;name&gt;/groups/</code>. The tool keys live in the <code>secrets</code> table and never enter the guest. A member in one channel cannot open the files and the persona of another channel without an explicit grant.</p>
+      <h3>A Discord channel starts a turn only on a mention</h3>
+      <p><code>arizuko group add</code> for a Discord server channel writes two routes: a <code>verb=mention</code> route that starts turns, and an <code>#observe</code> route for the other messages. A reply to a bot message also counts as a mention. A DM is <code>discord:dm/&lt;channel_id&gt;</code>. The <a href="slack-team/">Slack team agent</a> page lists the other differences from Slack: no AI pane, the mention format and the JIDs.</p>
+      <p>The channel files and the member memory are under <code>/srv/data/arizuko_&lt;name&gt;/groups/</code>. The tool keys live in the <code>secrets</code> table and stay on the host, unless a <code>shell:env:&lt;KEY&gt;</code> grant names a key. A member in one channel cannot open the files and the persona of another channel without an explicit grant.</p>
 
       <h3>Five commands and a Discord bot set it up</h3>
       <pre><code>arizuko create acme
@@ -184,7 +177,7 @@ arizuko run acme</code></pre>
         briefs, escalating issues, coordinating across folders on schedule.</p>
 
       <h3>The company brain acts on knowledge and does not search it</h3>
-      <p>Agents read intake, write daily briefs, escalate issues to the right team and coordinate across the folder tree. The company brain is not a search engine, and it is not a pipeline that syncs Confluence into a vector store. For semantic search over 10,000 documents, add Onyx or a retrieval skill, and the company brain acts on the results.</p>
+      <p>Agents read intake, write daily briefs, escalate issues to the right team and coordinate across the folder tree. The agents search <code>facts/</code> with <code>grep</code> and have no vector index.</p>
       <dl>
         <dt>Folder tree as org chart</dt>
         <dd>Each team gets its own group folder: <code>corp/eng/sre</code> is the SRE team, and <code>corp/intake</code> is the shared desk for inbound triage.</dd>
@@ -221,7 +214,7 @@ arizuko run acme</code></pre>
       <h3 id="company-brain-limits">Three limits apply</h3>
       <dl>
         <dt>No connector sync</dt>
-        <dd>You fill <code>facts/</code> by hand, over WebDAV, or through agents that a webhook starts. No OAuth crawler for Confluence, Notion or Google Drive exists. The product works for hundreds of documents. It fails for corpora of enterprise size without a connector.</dd>
+        <dd>You fill <code>facts/</code> by hand, over WebDAV, or through agents that a webhook starts. No OAuth crawler for Confluence, Notion or Google Drive exists.</dd>
         <dt>No embeddings and no vector search</dt>
         <dd>The agent searches <code>facts/</code> with <code>grep</code>. <code>find_messages</code> is a BM25 search in memory over the stored messages, not over <code>facts/</code>. For tens of thousands of documents, the agent calls a retrieval service over MCP.</dd>
         <dt>No permissions from source systems</dt>
@@ -229,7 +222,6 @@ arizuko run acme</code></pre>
       </dl>
 
       <h3>The setup makes folders, routes and tasks</h3>
-      <p>Draw the org chart first, because it becomes the folder tree. Start with two levels at most, and add a level when a real coordination problem needs it. An empty folder adds nothing and needs a route.</p>
       <pre><code>arizuko create corp
 arizuko packages corp add slakd
 $EDITOR /srv/data/arizuko_corp/.env     # SLACK_BOT_TOKEN, SLACK_SIGNING_SECRET, ANTHROPIC_API_KEY
@@ -279,9 +271,9 @@ arizuko run corp</code></pre>
            multiplication as equal groups, and division as sharing.
            Each is a prerequisite edge into "Introduce fractions".</code></pre>
       <p>The example uses the Marble Skill Taxonomy v1: 1,590 micro-topics for grades K to 5, connected by 3,221 prerequisite edges across 8 subjects. The taxonomy is &copy; Marble, <a href="https://withmarble.com">withmarble.com</a>, under CC BY-SA 4.0. Keep the attribution in the <code>CLAUDE.md</code> and cite it in replies.</p>
-      <p>A public lookup bot does not need a large model. Run it on Haiku with most skills turned off, and each answer costs little and comes fast. Nothing is specific to Marble: replace <code>taxonomy/*.json</code> with any dataset, describe it in <code>CLAUDE.md</code>, and the same bot answers over your data.</p>
+      <p>Nothing is specific to Marble: replace <code>taxonomy/*.json</code> with any dataset, describe it in <code>CLAUDE.md</code>, and the same bot answers over your data.</p>
 
-      <h3>Four steps set it up</h3>
+      <h3>Five commands set it up</h3>
       <pre><code>arizuko group &lt;instance&gt; add web:&lt;folder&gt; &lt;folder&gt;
 mkdir -p /srv/data/arizuko_&lt;instance&gt;/groups/&lt;folder&gt;/taxonomy
 cp topics.json dependencies.json clusters.json \
@@ -289,7 +281,7 @@ cp topics.json dependencies.json clusters.json \
 $EDITOR /srv/data/arizuko_&lt;instance&gt;/groups/&lt;folder&gt;/CLAUDE.md
 arizuko token &lt;instance&gt; issue chat &lt;folder&gt;    # the public chat link</code></pre>
       <p>The agent reads the dataset from <code>~/taxonomy/</code> in its guest. The files must have the same owner as the rest of <code>groups/</code>. Keep <code>CLAUDE.md</code> short, because the agent reads every line at each turn: who it is, what it answers, how it cites, and the attribution.</p>
-      <p>Set the model at <code>/dash/groups/&lt;folder&gt;/settings</code> &rarr; <strong>Model</strong> &rarr; <em>Claude Haiku 4.5</em>. The setting writes the model into the config of the group, and <code>runed</code> gives it to the guest as <code>ARIZUKO_MODEL</code> at the next turn. On the same page, keep <code>self</code>, <code>migrate</code> and <code>hello</code> and turn off the other skills. Each turn starts a new guest with no prompt cache, so fewer skills make a smaller prompt and a faster turn. The dashboard writes a <code>.disabled</code> marker in the directory of each skill that you turn off.</p>
+      <p>Set the model at <code>/dash/groups/&lt;folder&gt;/settings</code> &rarr; <strong>Model</strong> &rarr; <em>Claude Haiku 4.5</em>. The setting writes the model into the config of the group, and <code>runed</code> gives it to the guest as <code>ARIZUKO_MODEL</code> at the next turn. On the same page, keep <code>self</code>, <code>migrate</code> and <code>hello</code> and turn off the other skills. Each turn starts a new guest with no prompt cache, so fewer skills make a smaller prompt. The dashboard writes a <code>.disabled</code> marker in the directory of each skill that you turn off.</p>
       <p>To check the shape, <code>curl -sI https://&lt;WEB_HOST&gt;/chat/&lt;token&gt;/ | head -1</code> returns <code>200</code>, and a question in the chat gets a reply in a few seconds.</p>
 
       <nav class="docs-pager" aria-label="Pager">

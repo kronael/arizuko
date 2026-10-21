@@ -18,7 +18,6 @@
           <ul class="nav-children">
             <li><a href="./">Start here</a></li>
             <li><a href="primitives.html">Primitives</a></li>
-            <li><a href="built.html">Development</a></li>
             <li><a href="store.html">The store</a></li>
             <li><a href="scaling.html">Scaling</a></li>
             <li><a href="ant.html">The ant</a></li>
@@ -62,7 +61,7 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">concepts</a> &rsaquo; the store</p>
 <h1>the store</h1>
 
-    <p class="lede">Every row arizuko keeps, such as messages, routes, grants, runs and logins, lives on one DynamoDB-protocol server. Each instance is one account on that server, and each daemon has its own key. No daemon keeps a state of record on its own disk.</p>
+    <p class="lede">Every row arizuko keeps, such as messages, routes, grants, runs and logins, lives on one DynamoDB-protocol server. Each instance is one account on that server, and each daemon has its own key. The group folders on disk are the second durable store.</p>
 
     <h2>A row passes four layers from a daemon to PostgreSQL</h2>
     <p>Read the figure from top to bottom. A daemon asks for rows by key, and four layers later PostgreSQL writes them.</p>
@@ -98,7 +97,7 @@
 </code></pre>
 
     <h2>The store interface has two methods</h2>
-    <p>Every daemon talks to the store through <code>objstore.Store</code>, which has exactly two methods. <code>Query</code> reads by key. <code>GuardedBatch</code> writes a set of items, all or none, and only if every condition holds. A refused batch is an answer, not an error: another writer changed the items first. Counters, the replacement of a whole scope and the cycle check on group membership use the two methods. They are never added as new methods. Because the interface stays this small, a second engine needs only a second driver and no daemon changes.</p>
+    <p>Every daemon talks to the store through <code>objstore.Store</code>, which has exactly two methods. <code>Query</code> reads by key. <code>GuardedBatch</code> writes a set of items, all or none, and only if every condition holds. A refused batch is an answer, not an error: another writer changed the items first. Counters, the replacement of a whole scope and the cycle check on group membership use the two methods. They are never added as new methods.</p>
 
     <h2>Each instance is one account on the server</h2>
     <p>The server is ExtendDB. ExtendDB speaks the DynamoDB wire protocol and keeps the data in PostgreSQL. An arizuko instance is one <em>account</em> on that server, so one server can hold every instance on a host and still keep the instances apart. The account is the boundary, not a PostgreSQL role. If you point the same driver at Amazon&rsquo;s own DynamoDB, nothing above the driver changes.</p>
@@ -117,7 +116,7 @@
     </ul>
 
       <nav class="docs-pager" aria-label="Pager">
-        <a rel="prev" href="built.html">&larr; Development</a>
+        <a rel="prev" href="primitives.html">&larr; Primitives</a>
         <a rel="next" href="scaling.html">Scaling &rarr;</a>
       </nav>
       <div class="docs-footer">

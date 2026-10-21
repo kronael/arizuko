@@ -18,7 +18,6 @@
           <ul class="nav-children">
             <li><a href="./">Start here</a></li>
             <li><a href="primitives.html">Primitives</a></li>
-            <li><a href="built.html">Development</a></li>
             <li><a href="store.html">The store</a></li>
             <li><a href="scaling.html">Scaling</a></li>
             <li><a href="ant.html">The ant</a></li>
@@ -62,14 +61,13 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">concepts</a> &rsaquo; scaling</p>
       <h1>scaling</h1>
 
-      <p class="lede">The same code runs <code>solo/inbox</code> and <code>corp/eng/sre/oncall</code>. To add users, you add rows and folders, not new infrastructure. A deployment usually grows from solo to dogfood to team to internet.</p>
+      <p class="lede">The same code runs <code>solo/inbox</code> and <code>corp/eng/sre/oncall</code>. To add users, you add rows and folders, not new infrastructure.</p>
 
       <h2>A new tenant is rows and a folder</h2>
-      <p><a href="grants.html">Grants</a>, <a href="routing.html">routes</a>, <a href="secrets.html">secrets</a> and <a href="tasks.html">scheduled work</a> keep their state as rows. To add a tenant, you write rows into those tables and create a folder under <code>groups/</code>. The daemon graph does not change: one <code>routd</code>, one <code>authd</code>, one adapter per platform, and one KVM guest for each running turn. The architecture is the same for ten users and for ten thousand users.</p>
-      <p>A folder tree has no fixed depth, and depth gives no rights. <code>solo/inbox</code> and <code>corp/eng/sre/oncall</code> get the same starting <a href="grants.html">grants</a> and run the same code path. Beyond the messaging floor, a folder can do only what another principal delegated to it. The chat of one user and the inbox of a support team use the same <code>routd</code>, <code>runed</code> and guest image.</p>
+      <p><a href="grants.html">Grants</a>, <a href="routing.html">routes</a>, <a href="secrets.html">secrets</a> and <a href="tasks.html">scheduled work</a> keep their state as rows. To add a tenant, you write rows into those tables and create a folder under <code>groups/</code>. The daemon graph does not change: one <code>routd</code>, one <code>authd</code>, one adapter per platform, and one KVM guest for each running turn.</p>
+      <p>A folder tree has no fixed depth, and depth gives no rights. <code>solo/inbox</code> and <code>corp/eng/sre/oncall</code> get the same starting <a href="grants.html">grants</a> and run the same code path. Beyond the messaging floor, a folder can do only what another principal delegated to it.</p>
 
-      <h2>Each growth stage is a configuration change</h2>
-      <p>Most deployments go through four stages. No stage needs a rebuild.</p>
+      <h2>Four setups run the same code</h2>
 
       <table>
         <thead><tr><th>Stage</th><th>Shape</th><th>What changes</th></tr></thead>
@@ -96,8 +94,6 @@
           </tr>
         </tbody>
       </table>
-
-      <p>To go from solo to dogfood, you add a Slack bot token and a few invites. To go from team to internet, you add a route token and narrower egress rules. You do not redeploy, add a container or migrate a schema.</p>
 
       <h3>Solo</h3>
       <pre><code>arizuko create myagent
@@ -131,13 +127,9 @@ arizuko gate myagent add '*' 50/day</code></pre>
         <dt>Egress filtering</dt>
         <dd>Each turn gets its own <code>egress</code> proxy with the allowlist of that folder, on a tap with no other route out. The proxy always runs, and the rules apply per folder.</dd>
       </dl>
-      <p>The guest mount, the grant gate and the egress proxy all bind to the folder. For this reason, a turn in one group cannot read the files or the context of another group.</p>
 
       <h2>A full host means a second instance</h2>
-      <p>Growth is a question of host capacity, not of architecture. When a host is full, you start a second instance with its own data directory and its own systemd unit. You do not rewrite anything. Each instance is independent: the instances share no state and route nothing to each other.</p>
-      <p>The model is many small instances, not one distributed cluster. A support team runs one instance and a product team runs another. They share only the binary, so a failure stays inside one instance.</p>
-
-      <div class="callout"><strong>No central service controls the instances.</strong> No service coordinates instances, no billing layer limits usage, and no SaaS dashboard collects metrics. Each instance is a unit you run on your own host, by design.</div>
+      <p>When a host is full, you start a second instance with its own data directory and its own systemd unit. You do not rewrite anything. The instances share no state and route nothing to each other.</p>
 
       <nav class="docs-pager" aria-label="Pager">
         <a rel="prev" href="store.html">&larr; The store</a>

@@ -18,7 +18,6 @@
           <ul class="nav-children">
             <li><a href="./">Start here</a></li>
             <li><a href="primitives.html">Primitives</a></li>
-            <li><a href="built.html">Development</a></li>
             <li><a href="store.html">The store</a></li>
             <li><a href="scaling.html">Scaling</a></li>
             <li><a href="ant.html">The ant</a></li>
@@ -61,21 +60,19 @@
     <main class="docs-content">
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">concepts</a> &rsaquo; web-native agents</p>
     <h1>web-native agents</h1>
-    <p class="dim">each folder is a microsite</p>
 
-    <p class="lede">An arizuko folder owns a public website with no extra services. The site has static pages, an embedded chat widget, a form intake, and content that the agent writes itself. Many agent platforms put a model behind a chat box in the product of another company. In arizuko, the folder <em>is</em> the microsite, because the agent is the folder.</p>
+    <p class="lede">An arizuko folder can serve a public website. The site has pages that the agent writes into <code>~/public_html/</code>, an embedded chat widget and a form intake. A folder needs the <code>web:publish</code> grant for the site to exist.</p>
 
     <section>
-      <h2>One folder serves four kinds of content</h2>
-      <p>One folder has four web parts, which share one guest per turn and one history:</p>
+      <h2>One folder serves pages, a chat widget and a form</h2>
+      <p>The three web parts share one guest per turn and one history:</p>
       <table>
         <tr><th>part</th><th>what it does</th><th>path</th></tr>
-        <tr><td>public page</td><td>The agent writes into <code>~/public_html/</code>, and <code>vited</code> serves it to anyone.</td><td><code>/pub/&lt;folder&gt;/*</code></td></tr>
+        <tr><td>public page</td><td>The agent writes HTML, PNG or JSON into <code>~/public_html/</code>, a bind mount of the folder web directory, and <code>vited</code> serves it to anyone on the next request.</td><td><code>/pub/&lt;folder&gt;/*</code></td></tr>
         <tr><td>chat widget</td><td><code>slink</code> embeds in the page, and messages land at <code>web:&lt;folder&gt;</code>.</td><td><code>/chat/&lt;token&gt;/</code></td></tr>
         <tr><td>form intake</td><td>Each POST lands at <code>web:&lt;folder&gt;/&lt;sub&gt;</code>. That JID needs a real child group, for example one made with <code>register_group</code> for <code>atlas/strengths/submissions</code>, because each web JID maps to exactly one group.</td><td><code>/chat/&lt;token&gt;/</code> with a suffixed JID</td></tr>
-        <tr><td>generated content</td><td>The agent writes HTML, PNG or JSON into <code>~/public_html/</code> over WebDAV, and <code>vited</code> serves it on the next request.</td><td>the same <code>/pub/&lt;folder&gt;/</code> tree</td></tr>
       </table>
-      <p>The diary, facts and notes per user collect in the same folder. A private counterpart, <code>~/private_html/</code>, is served at <code>/priv/&lt;folder&gt;/</code> behind OAuth, for content that is not public.</p>
+      <p>A private counterpart, <code>~/private_html/</code>, is served at <code>/priv/&lt;folder&gt;/</code> behind OAuth, for content that is not public.</p>
       <p>The <code>/pub/&lt;folder&gt;/</code> path always works. A world can also get a short host name. When <code>HOSTING_DOMAIN</code> is set, <code>proxyd</code> answers <code>&lt;folder&gt;.&lt;HOSTING_DOMAIN&gt;</code> with a 302 redirect to <code>/pub/&lt;folder&gt;/</code>, with no configuration per host and no map file. An agent finds its own public URL with the <code>get_web_presence</code> tool.</p>
     </section>
 
@@ -94,39 +91,23 @@
                                           ▼
                                     guest (agent)
                                           │
-        davd write  ◄──  ~/public_html/&lt;name&gt;.html
+        agent writes  ──►  ~/public_html/&lt;name&gt;.html
                                           │
                                           ▼
                           next GET /pub/&lt;folder&gt;/&lt;name&gt;.html
                           serves the file the agent just wrote</code></pre>
-      <p>The form post lands in a separate chat thread, and routing keeps it apart from the page chat.</p>
+      <p>The form token has the suffix <code>submissions</code>, so its JID is <code>web:&lt;folder&gt;/submissions</code>. That JID names a child group, which keeps form posts apart from the page chat.</p>
     </section>
 
     <section>
       <h2>A form post becomes a personal report</h2>
-      <p>A visitor opens <code>/pub/atlas/strengths/</code> and sees an intake form. The visitor pastes Gallup CliftonStrengths results and clicks submit.</p>
+      <p>This example assumes a skill that you write, named <code>process-strengths</code> here. No such skill ships in <code>ant/skills/</code>. A visitor opens <code>/pub/atlas/strengths/</code> and sees an intake form. The visitor pastes Gallup CliftonStrengths results and clicks submit.</p>
       <ol>
         <li>The form posts to <code>/chat/&lt;form-token&gt;/</code>, and <code>webd</code> writes a message into <code>web:atlas/strengths/submissions</code>. The group <code>atlas/strengths/submissions</code> must exist, because each web JID maps to exactly one group folder and the route table does not apply.</li>
         <li><code>routd</code> starts the turn, and <code>runed</code> starts the <code>atlas/strengths/submissions</code> guest to process the form post.</li>
-        <li>The agent runs its <code>process-strengths</code> skill and writes <code>~/public_html/strengths/&lt;name&gt;.html</code> through <code>davd</code>. The file is served at <code>/pub/atlas/strengths/submissions/strengths/&lt;name&gt;.html</code>.</li>
-        <li>The visitor is redirected to that new path, and <code>vited</code> serves the personal report on the next request.</li>
+        <li>The agent runs the <code>process-strengths</code> skill and writes <code>~/public_html/strengths/&lt;name&gt;.html</code>. The file is served at <code>/pub/atlas/strengths/submissions/strengths/&lt;name&gt;.html</code>.</li>
+        <li>The agent replies with that path, and <code>vited</code> serves the personal report on the next request.</li>
       </ol>
-    </section>
-
-    <section>
-      <h2>One folder replaces four services</h2>
-      <p>On a typical stack, the same work needs four services. They are a Webflow page, a Zapier or Make webhook, an OpenAI call from a backend, and a storage bucket. Here it is one folder, with no CMS, no glue service and no backend code except a skill that writes HTML. The agent is the CMS, the ETL step and the generator.</p>
-    </section>
-
-    <section>
-      <h2>Five kinds of site fit this shape</h2>
-      <dl>
-        <dt>Personal reports</dt><dd>Paste data and get a report URL: CliftonStrengths, resume reviews, lab results.</dd>
-        <dt>Tools</dt><dd>Calculators, generators and intake forms where a model must write the answer.</dd>
-        <dt>Customer demos</dt><dd>A one-page site that shows what the agent does, with a working chat next to it.</dd>
-        <dt>Submission queues</dt><dd>Intake forms whose entries the agent triages, answers or escalates to a topic.</dd>
-        <dt>Tutors</dt><dd>Context per user across visits, with the page as the workbook.</dd>
-      </dl>
     </section>
 
     <section>

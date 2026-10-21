@@ -58,7 +58,7 @@
         <dt>Personal cloud storage</dt>
         <dd>Each teammate has a private workspace over WebDAV. Mount it with rclone and open it in Finder, VS Code or another file manager. Notes, uploads and agent outputs stay across sessions.</dd>
         <dt>Web chat</dt>
-        <dd>A browser chat at <code>/chat/&lt;token&gt;/</code> talks to the same agent. Move the conversation from Slack to a phone or a laptop and keep the context.</dd>
+        <dd>A browser chat at <code>/chat/&lt;token&gt;/</code> talks to the same agent.</dd>
         <dt>Google Docs and web pages</dt>
         <dd>The agent reads public web pages and Google Docs that you share. Paste a URL, and the agent fetches the content. A private document must be shared by link, because the agent has no OAuth access to your Google account.</dd>
         <dt>Dashboard</dt>
@@ -84,8 +84,8 @@
       </dl>
 
       <h2>One workspace can hold an agent for each department</h2>
-      <p>The setup for one channel grows to a whole organisation with no new parts. Folders nest, for example <code>acme/eng</code>, <code>acme/sales</code> and <code>acme/support</code>, and each Slack channel routes to the folder of its department. Each department then shapes its own agent: its persona, its skills and its knowledge, edited by the people who own that work. Eng changes the agent of eng, and sales sees no change.</p>
-      <p>The agents reach each other through the tree. A department agent that gets a question outside its work escalates to the parent. The parent can delegate work to another child. The platform checks the grant of each step and allows one level of delegation, and the answer comes back in the chat of the question.</p>
+      <p>Folders nest, for example <code>acme/eng</code>, <code>acme/sales</code> and <code>acme/support</code>, and each Slack channel routes to the folder of its department. Each department then shapes its own agent: its persona, its skills and its knowledge, edited by the people who own that work. Eng changes the agent of eng, and sales sees no change.</p>
+      <p>The agents reach each other through the tree. A department agent that gets a question outside its work escalates to the parent. The parent can delegate work to another child. The platform checks the grant of each call. The tools carry a depth limit of 1, but the caller supplies the depth value, so grants bound the chain and the limit does not.</p>
       <pre><code>#sales &middot; routed to acme/sales
 
   dana   @bot can we promise SSO for the Klein deal by Q3?
@@ -94,7 +94,7 @@
   bot    From eng: OIDC lands mid-Q3, SAML is still in review.
          Safe to promise OIDC-based SSO; caveat SAML.
 </code></pre>
-      <p>People move as easily as the work. Type <code>@eng</code> alone in a chat, and the chat talks to the eng agent. Type <code>@sales</code>, and the chat goes back. Each department keeps its files, memory and secrets in its own folder. An agent that fails or acts wrongly in one folder reaches nothing in another folder.</p>
+      <p>Type <code>@eng</code> alone in a chat, and the chat talks to the eng agent. Type <code>@sales</code>, and the chat goes back. Each department keeps its files, memory and secrets in its own folder. A turn mounts its own folder and the shared directory <code>/var/lib/share</code> of its world, not the folders of other departments.</p>
 
       <h2>A shared thread keeps per-user state apart</h2>
       <pre><code>#eng-support &middot; thread
@@ -128,73 +128,19 @@
         <dd>A reaction on a bot message arrives as <code>verb=like</code> or <code>verb=dislike</code>. A route that matches the verb starts a turn, for example for a "thumbs up to confirm" flow.</dd>
       </dl>
 
-      <h2>Three uses share the same product</h2>
+      <h2>A knowledge-base channel is the support desk product</h2>
+      <p>A channel that answers from a <code>facts/</code> directory and cites the file is the <a href="../support/">support desk</a> product in a Slack channel.</p>
 
-      <h3>A support agent answers from a knowledge base</h3>
-      <p>The agent answers questions from a knowledge base, cites the sources and escalates when it does not know. It fits internal help desks, customer support channels and questions about documentation.</p>
-      <ul>
-        <li>Searches a <code>facts/</code> directory of Markdown files for answers.</li>
-        <li>Cites the source file and the line number.</li>
-        <li>Says when it does not know, and does not guess.</li>
-        <li>Can sort and tag issues and track their status.</li>
-        <li>Escalates to a person when it cannot answer or when the user asks.</li>
-      </ul>
-      <pre><code>#eng-support
-
-  user   How do I reset my API key?
-  bot    To reset your API key:
-         1. Go to Settings &rarr; API Keys
-         2. Click "Regenerate" next to the key you want to reset
-         3. Copy the new key immediately &mdash; it won't be shown again
-         source: docs/api-keys.md:45
-
-  user   What about enterprise SSO setup?
-  bot    I don't have documentation on enterprise SSO in my knowledge base.
-         I've flagged this for the team. Someone will follow up.
-</code></pre>
-
-      <h3>A research agent collects market observations</h3>
-      <p>A shared research agent reads news, tracks market data and writes analysis. It works best when several teammates add observations and the agent combines them.</p>
-      <ul>
-        <li>Fetches and summarises news from URLs that you paste.</li>
-        <li>Records the observations of teammates over time.</li>
-        <li>Keeps a shared research diary with dated entries.</li>
-        <li>Compares several sources to find patterns.</li>
-        <li>Writes a summary report on request.</li>
-      </ul>
-      <pre><code>#market-watch
-
-  alice  https://example.com/article-about-earnings
-  bot    Summarized: Q2 earnings beat estimates by 12%. Key drivers:
-         cloud revenue +34% YoY, hardware flat. Guidance raised for Q3.
-         Logged to research diary.
-
-  bob    I noticed unusual options activity on XYZ today
-  bot    Noted. Adding to today's observations. You've logged 3 observations
-         this week on XYZ &mdash; want me to compile a summary?
-
-  alice  Yes, give us the weekly synthesis
-  bot    Weekly synthesis for XYZ:
-         - Monday: Earnings beat, guidance raised (source: earnings article)
-         - Wednesday: Insider filing showed CEO sold 10k shares
-         - Today: Unusual options activity (Bob's observation)
-         Pattern: Mixed signals. Fundamentals strong but insider selling
-         and options activity suggest caution.
-</code></pre>
-
-      <h3>A general team assistant</h3>
-      <p>The default setup: questions and answers, summaries, file processing and task tracking for a team channel.</p>
-
-      <h2>Your data stays on your server</h2>
+      <h2>Files stay on your server and model calls go to Anthropic</h2>
       <dl>
         <dt>Your server</dt>
         <dd>The channel files, the per-user memory and the agent state are files under <code>/srv/data/arizuko_&lt;name&gt;/groups/</code>. The conversation history and the secrets are on the store server of the instance.</dd>
         <dt>Outbound paths</dt>
         <dd>Slack for the bot, Anthropic for model calls. Other traffic of the agent goes through <a href="../../components/egress.html">egress</a> and reaches only the hosts that you allow for each channel.</dd>
         <dt>Channel secrets</dt>
-        <dd>The API keys of the tools live in the <code>secrets</code> table, encrypted with AES-256-GCM under <code>SECRETS_KEY</code>. They never enter the guest. The broker on the host reads the key for each tool call, uses it in the outbound request and removes it from the result.</dd>
+        <dd>The API keys of the tools live in the <code>secrets</code> table, encrypted with AES-256-GCM under <code>SECRETS_KEY</code>. They stay out of the guest unless a <code>shell:env:&lt;KEY&gt;</code> grant names the key. The broker on the host reads the key for each tool call, uses it in the outbound request and removes the exact value from the result.</dd>
         <dt>Channel boundary</dt>
-        <dd>A teammate in #eng-support sees the context of that channel and the own user area. The files and the persona of #design stay closed without an explicit grant.</dd>
+        <dd>A teammate in #eng-support sees the context of that channel and the own user area. The turn does not mount the folder or the persona of #design.</dd>
       </dl>
 
       <h2>The same shape works on Discord</h2>

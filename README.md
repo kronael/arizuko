@@ -125,50 +125,21 @@ lists the comparable systems and how each one differs.
 ## Getting started
 
 You need a Linux x86_64 host with `/dev/kvm`, Docker with Compose v2.20 or
-newer, Go, write access to `/srv/data/`, and a token for one channel.
-
-<!-- twin:install -->
+newer, Go, write access to `/srv/data/`, and a token for one channel. Three
+commands create, configure and start an instance, after the images and the
+store server exist:
 
 ```bash
-git clone https://github.com/kronael/arizuko && cd arizuko
-make build                                        # ./arizuko + daemon binaries
-sudo make images DATA_DIR=/srv/data/arizuko_demo  # daemon images + the guest rootfs
-sudo make kernel DATA_DIR=/srv/data/arizuko_demo  # the guest kernel, built once
-./arizuko create demo                             # /srv/data/arizuko_demo + .env
-./arizuko packages demo add extenddb              # the store server, two passwords
-./arizuko generate demo
-cd /srv/data/arizuko_demo
-set -a; . ./.env; set +a                          # load the STORE_* values into this shell
-sudo docker compose up -d extenddb_db
-sudo docker compose run --rm extenddb init \
-  --pg-host extenddb_db --pg-port 5432 \
-  --pg-user arizuko_demo --pg-pass "$STORE_DB_PASSWORD" \
-  --extenddb-user arizuko_demo_app --extenddb-pass "$STORE_APP_PASSWORD" \
-  --bind-addr 0.0.0.0 --tls-san extenddb \
-  --config /var/lib/extenddb/extenddb.toml
-vim .env    # STORE_ADMIN_PASSWORD and STORE_ACCOUNT_ID, which init prints once;
-            # ASSISTANT_NAME, a model key, a bot token, RUNED_KERNEL_DIR, RUNED_ROOTFS_DIR
-set -a; . ./.env; set +a                          # load the STORE_* values into this shell
-sudo docker compose up -d extenddb
-sudo docker exec -e EXTENDDB_PASSWORD=$STORE_ADMIN_PASSWORD arizuko_extenddb_demo \
-  extenddb settings -c /var/lib/extenddb/extenddb.toml set control_plane_delay_seconds 0
-echo "STORE_CA=$(sudo base64 -w0 store/extenddb/.extenddb/tls/cert.pem)" | sudo tee -a .env
-echo 'DYNAMODB_URL=https://extenddb:18443' | sudo tee -a .env
-# one store key per daemon: INSTALL.md § The per-daemon store keys
-cd -
-./arizuko packages demo add teled                 # one channel adapter
-./arizuko group demo add telegram:group/123456789 main
-./arizuko run demo                                # generate compose, docker compose up
+./arizuko create demo --product slack-team   # makes /srv/data/arizuko_demo, prints the keys to set
+$EDITOR /srv/data/arizuko_demo/.env          # the keys that create printed
+./arizuko run demo                           # generates compose, starts the instance
 ```
 
-<!-- /twin -->
-
-[INSTALL.md](INSTALL.md) has the full walk: prerequisites, the store server
-and its access keys, adapter tokens, backup, and the checklist for an agent
-that does not reply. Mint the access key of a daemon before you enable its
-package. A daemon that reaches the store with no key exits, and the whole
-instance restarts in a loop. [EXTENDING.md](EXTENDING.md) covers packages,
-products and adapters.
+[INSTALL.md](INSTALL.md#the-whole-install-in-one-block) lists every command
+from the clone to the first reply and explains each one. Mint the store key of
+a daemon before you enable its package, or the whole instance restarts in a
+loop. INSTALL.md also holds the checklist for an agent that does not reply.
+[EXTENDING.md](EXTENDING.md) covers packages, products and adapters.
 
 ## How it works
 
@@ -177,11 +148,10 @@ folder answers. `runed` boots one KVM guest per turn. `authd` signs every
 token. Adapters, the web chat and the scheduler call `routd` over HTTP. Each
 daemon keeps its own tables on one store server and signs in with its own key.
 [ARCHITECTURE.md](ARCHITECTURE.md#where-a-change-lands) draws the repository
-map, the table owners and the turn from start to end.
-
-Each chat platform has its own adapter daemon.
-[EXTENDING.md](EXTENDING.md#verb-support-matrix) lists the adapters and the
-verbs each one supports. [components/channels.html](template/web/pub/arizuko/components/channels.html)
+map, the table owners and the turn from start to end. Each chat platform has
+its own adapter daemon: [EXTENDING.md](EXTENDING.md#verb-support-matrix) lists
+the adapters and the verbs each supports, and
+[components/channels.html](template/web/pub/arizuko/components/channels.html)
 describes the protocol they speak.
 
 ## What arizuko does not include
@@ -201,32 +171,21 @@ grants, schedule tasks, act across channels.
 ## Security model
 
 Each turn runs in its own KVM guest with its own network tap. A proxy that
-lives for one turn filters the egress of the guest. Only model credentials
-enter the guest. One function reads the `acl` table and decides every action,
-and a deny row wins. Only `proxyd` stamps identity headers. [SECURITY.md](SECURITY.md)
-holds the threat model and the boundary table.
+lives for one turn filters the egress of the guest. Model credentials enter the
+guest, and so does each key that a `shell:env:<KEY>` grant names. One function
+reads the `acl` table and decides every action, and a deny row wins. Only
+`proxyd` stamps identity headers. [SECURITY.md](SECURITY.md) holds the threat
+model and the boundary table.
 
-## The store is the source of truth
+## One handler serves each stored resource
 
-- Each stored resource, such as routes or tasks, has one handler. It serves a
-  REST interface for people and an MCP interface for agents, behind one
-  authorization gate. [ARCHITECTURE.md](ARCHITECTURE.md#cold-tier-vs-hot-tier)
-  lists the exceptions.
-- The store holds the live state. `arizuko export` writes it to a YAML
-  manifest, and `arizuko apply` reads a manifest back. A manifest is a copy,
-  not a second source.
-- Designed, not built: the core daemons of one world in one process.
-- Planned, not started: end-user agent provisioning, where a POST of a
-  definition returns a tenant and a chat token, and the rename of `group` and
-  `folder` to `path`.
-
-## Build and test
-
-[INSTALL.md](INSTALL.md) lists the build, image and smoke targets.
-[tests/README.md](tests/README.md) says how to run the tests and what each
-suite needs. [`anteval/`](anteval/README.md) checks what an agent can do. It
-runs real tasks through the public REST, HTTP and MCP interfaces of a live
-instance and grades the visible effects.
+Each stored resource, such as routes or tasks, has one handler. It serves a
+REST interface for people and an MCP interface for agents, behind one
+authorization gate. [ARCHITECTURE.md](ARCHITECTURE.md#cold-tier-vs-hot-tier)
+lists the exceptions. The store holds messages, routes, grants and tasks. The
+folder on disk holds the files of each agent. Both survive a restart.
+`arizuko export` writes the store config to a YAML manifest, and `arizuko
+apply` reads one back. A manifest is a copy, not a second source.
 
 ## How to read this
 
@@ -244,7 +203,8 @@ instance and grades the visible effects.
 |       | [`cmd/arizuko/README.md`](cmd/arizuko/README.md) | What does each `arizuko` subcommand do?                               |
 |       | [FEATURES.md](FEATURES.md)                       | What does it do today, and which test proves it?                      |
 |       | [`tests/README.md`](tests/README.md)             | How do I run the tests, and what does each suite need?                |
-|       | [`specs/index.md`](specs/index.md)               | Which change is in flight, why, and where do retired specs go?        |
+|       | [`anteval/`](anteval/README.md)                  | What can an agent do on a live instance, graded on real tasks?        |
+|       | [`specs/index.md`](specs/index.md)               | Where do design directions live, and how do I list the retired specs? |
 |       | [`BUGS.md`](BUGS.md)                             | What is open, and what waits on a person?                             |
 |       | [LICENSE](LICENSE)                               | MIT.                                                                  |
 

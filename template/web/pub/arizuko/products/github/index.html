@@ -57,11 +57,10 @@
       <p>On a pull request, it reads the diff, not the description, and cites <code>path:line</code>. When it did not open a file, it says so. It acts through its GitHub tools: it opens the pull request, writes the comment and applies the label.</p>
       <p>Most events are context, not requests: a push, a label or a release. The agent reads them, remembers them and stays quiet. It answers when someone addresses it.</p>
 
-      <h2>Merging is always held</h2>
-      <p>Merge, force-push and the close of someone else's work are not decisions for the agent. They are <a href="../../reference/grants.html">held calls</a>: the agent asks, stops and tells you what it waits for. Approve with <code>/approve &lt;id&gt;</code> in any chat that you use, or on <code>/dash/approvals/</code>.</p>
-      <p>The hold matters more here than in most products. Every other tool of the agent costs a message, but a merge changes your main branch.</p>
+      <h2>A hold grant that you add stops the merge</h2>
+      <p>The persona tells the agent that merge, force-push and the close of someone else's work are not its decisions. The product ships no hold, so the platform does not stop a merge until you add one. Grant <code>hold:mcp:github_merge_pull_request</code> to the folder, as <a href="setup.html">setup</a> shows. Then the platform stops the <a href="../../reference/grants.html">held call</a>, and the persona tells the agent to say what it waits for. Approve with <code>/approve &lt;id&gt;</code> in any chat that you use, or on <code>/dash/approvals/</code>.</p>
 
-      <h2>A sample exchange</h2>
+      <h2>A sample exchange with the merge hold granted</h2>
       <pre><code>user   is #412 safe to merge?
 
 agent  no. store/secrets.go:115 drops the error from Decrypt and
@@ -90,10 +89,7 @@ agent  opened #413 with the error returned. merge is held:
           <tr><td><code>eval/github.toml</code></td><td>the tests of the product; run them to check that the persona still holds</td></tr>
         </tbody>
       </table>
-      <p><code>facts/repo.md</code> is the minimum. If you leave it as shipped, the agent finds your build and test commands from the source at each turn, and sometimes it gets them wrong.</p>
-
-      <h2>One developer with own repositories needs it</h2>
-      <p>The product is for one developer with own repositories, not for a team with a review rota. It assumes that you are the only approver, so every gate is a question to you. A team that wants shared triage needs the <a href="../slack-team/">Slack team agent</a> shape.</p>
+      <p>For a shared team channel, see <a href="../slack-team/">the Slack team agent</a>.</p>
 
       <p><a href="setup.html">Set it up &rsaquo;</a></p>
 

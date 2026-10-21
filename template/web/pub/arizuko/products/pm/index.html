@@ -51,8 +51,8 @@
       </p>
 
       <h2>Sloth keeps the board in a Markdown file</h2>
-      <p>The board is <code>facts/tasks.md</code>, a file in the group that you can read and diff. Sloth updates it on an explicit instruction, for example "mark X done" or "add Y, owner Z, Friday". It confirms the owner and the deadline before it writes, and it reports blocked or late tasks before anyone asks.</p>
-      <p>Decisions go into <code>facts/decisions/</code>, one file for each decision, with the context that produced it. Most task trackers lose that part: six weeks later, the board says what the team decided, and this file says why.</p>
+      <p>The board is <code>facts/tasks.md</code>, a file in the group that you can read and diff. The persona tells Sloth to update it on an explicit instruction, for example "mark X done" or "add Y, owner Z, Friday", and to confirm the owner and the deadline before it writes. It tells Sloth to flag blocked or overdue tasks. The product ships no scheduled task, so Sloth flags them in a turn that a message, or a task that you add, starts.</p>
+      <p>The persona tells Sloth to put each decision in <code>facts/decisions/</code>, one file for each decision, with the context that produced it.</p>
 
       <h2>A sample exchange</h2>
       <pre><code>user   mark the migration task done
@@ -77,8 +77,7 @@ agent  Done. Two tasks still blocked: "route token rotation" (waiting on
       </table>
       <p>The product also ships its tests in <code>eval/</code>.</p>
 
-      <h2>A small team with the board in its chat needs it</h2>
-      <p>The product is for a small team that wants the board in the same channel as the work and accepts Markdown for it. By design, it runs no code and changes no infrastructure: it tracks the work, and other agents do the work.</p>
+      <p>The persona tells Sloth never to run code or touch infrastructure. Sloth tracks the work, and other agents do the work.</p>
 
       <p><a href="setup.html">Set it up &rsaquo;</a></p>
 

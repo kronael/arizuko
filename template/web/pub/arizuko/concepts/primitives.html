@@ -18,7 +18,6 @@
           <ul class="nav-children">
             <li><a href="./">Start here</a></li>
             <li><a href="primitives.html">Primitives</a></li>
-            <li><a href="built.html">Development</a></li>
             <li><a href="store.html">The store</a></li>
             <li><a href="scaling.html">Scaling</a></li>
             <li><a href="ant.html">The ant</a></li>
@@ -85,10 +84,10 @@
       <dl>
         <dt>Event</dt>
         <dd>The one inbox. A chat message, a webhook POST, an inbound email, a
-          WebDAV file drop, a scheduled tick and a reaction each land as one
-          row in <code>messages</code>. The channel adapters,
-          <code>emaid</code>, the webhooks, <code>timed</code> and
-          <code>davd</code> are event sources that write rows.</dd>
+          scheduled tick and a reaction each land as one row in
+          <code>messages</code>. The channel adapters, <code>emaid</code>, the
+          webhooks and <code>timed</code> are event sources that write
+          rows.</dd>
         <dt>Routing</dt>
         <dd>Event to folder. One route table, where the first match wins, with
           layers on top: direct address, engagement, sticky topics and observe.
@@ -110,7 +109,9 @@
         <dt>Turn</dt>
         <dd>The bounded reaction. One ephemeral KVM guest runs the agent loop
           for one turn and then powers off. Every side effect is one tool call
-          through the auth gate, and each call writes one audit row. Tasks,
+          through the auth gate. A call that changes state writes one audit
+          row, and a denied or failed call writes one too. A successful read
+          writes none. See <a href="audit.html">audit trail</a>. Tasks,
           autocalls and interjections are turns that a different event
           starts.</dd>
         <dt>State</dt>
@@ -118,8 +119,9 @@
           holds events, routes, grants, the ACL and sessions. The folder on
           disk holds the persona, skills, memory and diary. The folder is not a
           cache: the guest&rsquo;s own filesystem keeps nothing, and each turn
-          gets the folder mounted again. A tar of the instance directory is a
-          full backup. See <a href="secrets.html">secrets</a>.</dd>
+          gets the folder mounted again. A tar of the stopped data directory is a
+          full backup, because the store data lives under <code>store/</code>
+          there. See <a href="secrets.html">secrets</a>.</dd>
       </dl>
 
       <h2>Identity addresses the steps but is not a step</h2>
@@ -131,13 +133,11 @@
         and <a href="jid.html">addressing</a>.</p>
 
       <h2>A workflow is a discipline, not a primitive</h2>
-      <p>A multi-step job goes in circles when the agent improvises again from
-        the chat history on every turn. arizuko has no workflow engine for
-        this. Instead, the session boundary runs a fixed opening: load the
-        context, open a plan file, apply the folder&rsquo;s runbook and scan the
-        skills. After the opening, the conversation stays free. The mechanism
-        is Turn, State and the session lifecycle, so a workflow is a
-        combination of existing parts too.</p>
+      <p>arizuko has no workflow engine. A folder can hold a plan file and a
+        <code>## Session opening</code> section in its <code>CLAUDE.md</code>,
+        and the agent follows them. The platform does not enforce the section.
+        A workflow is Turn, State and the session lifecycle, used with a
+        convention. See <a href="workflows.html">workflows</a>.</p>
 
       <h2>Every feature maps to the six primitives</h2>
       <p>The table maps each part that looks like a feature to the primitives
@@ -148,13 +148,13 @@
         </thead>
         <tbody>
           <tr><td>Channel adapters</td><td>event sources that write rows</td><td>Event</td></tr>
-          <tr><td>Webhooks, email, WebDAV</td><td>more event sources</td><td>Event</td></tr>
+          <tr><td>Webhooks, email</td><td>more event sources</td><td>Event</td></tr>
           <tr><td>Scheduled tasks</td><td>events on a clock tick that start a turn</td><td>Event and Turn</td></tr>
           <tr><td>Topics</td><td>a field on the event and a routing layer</td><td>Event and Routing</td></tr>
           <tr><td>Engagement, observe</td><td>routing overrides</td><td>Routing</td></tr>
           <tr><td>Delegation, escalation</td><td>routes to a child or a parent folder</td><td>Routing and Agent</td></tr>
           <tr><td>Personas, skills, memory</td><td>folder contents</td><td>Agent</td></tr>
-          <tr><td>Workflows</td><td>a fixed opening at the session boundary</td><td>Turn and State</td></tr>
+          <tr><td>Workflows</td><td>a CLAUDE.md section and a plan file that the agent follows</td><td>Turn and State</td></tr>
           <tr><td>Grants, scopes</td><td>views over the one authorization question</td><td>Authorization</td></tr>
           <tr><td>Secrets, egress allowlist</td><td>folder state that a turn resolves</td><td>State and Turn</td></tr>
           <tr><td>A product</td><td>a folder with a persona, skills and routes</td><td>Agent</td></tr>
@@ -187,14 +187,10 @@
         They are not independent. Routing reads the shape of the event, and engagement
         overrides routing. Authorization is several gates, not one switch. A
         turn needs its grants and egress resolved before the guest starts. The
-        claim is one job each, a fixed pipeline and no special cases. The three
-        daemons <code>authd</code>, <code>routd</code> and <code>runed</code>
-        are the only topology. The single MCP and REST handler per resource
-        reaches more resources with each release and does not cover all of
-        them yet.</div>
+        claim is one job each, a fixed pipeline and no special cases.</div>
       <nav class="docs-pager" aria-label="Pager">
         <a rel="prev" href="./">&larr; Concepts</a>
-        <a rel="next" href="built.html">Development &rarr;</a>
+        <a rel="next" href="store.html">The store &rarr;</a>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/concepts/primitives.html">Edit this page</a>

@@ -56,9 +56,10 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; components</p>
       <h1>components</h1>
 
-<p class="lede">An arizuko deployment is a set of small programs, and each program does one job. A daemon is such a program that runs in the background. Every instance runs the core daemons. Channel adapters connect outside platforms such as Slack or Telegram, and an instance runs the adapters it needs. Each row links to the page of that program.</p>
+<p class="lede">An arizuko deployment is a set of daemons, programs that run in the background. The compose file that <code>arizuko generate</code> writes always holds four of them. A setting or a package starts the others. Each row links to the page of that program.</p>
 
-<h2>The core daemons run in every instance</h2>
+<h2>Four daemons start in every instance</h2>
+<p><code>authd</code>, <code>routd</code> and <code>runed</code> keep their tables on the store server. The <code>extenddb</code> package adds that server, and <a href="../howto/">getting started</a> shows the commands.</p>
 <table>
   <thead>
     <tr><th>name</th><th>role</th></tr>
@@ -66,22 +67,52 @@
   <tbody>
     <tr><td class="name"><a href="../components/routd.html">routd</a></td><td>The routing plane. It runs the message loop, resolves each event to a group, hosts the agent MCP socket, and owns the <code>routd.*</code> tables and the grant authority. See <a href="../concepts/routing.html">concepts/routing</a>.</td></tr>
     <tr><td class="name"><a href="../components/runed.html">runed</a></td><td>The execution plane. It starts and stops the KVM guest of each turn, is the only daemon with <code>/dev/kvm</code>, and owns the <code>runed.*</code> tables.</td></tr>
-    <tr><td class="name"><a href="../components/authd.html">authd</a></td><td>The auth plane. It creates and verifies tokens, serves the OAuth provider routes, and owns the <code>authd.*</code> tables. See <a href="../concepts/auth.html">concepts/auth</a>.</td></tr>
+    <tr><td class="name"><a href="../components/authd.html">authd</a></td><td>The auth plane. It signs every platform token, publishes the public keys, serves the OAuth provider routes and owns the <code>authd.*</code> tables. The other daemons verify tokens offline. See <a href="../concepts/auth.html">concepts/auth</a>.</td></tr>
+    <tr><td class="name"><a href="../components/timed.html">timed</a></td><td>The scheduler. It claims due tasks over the HTTP API of <code>routd</code> and posts each prompt as a message. It opens no store of its own.</td></tr>
+  </tbody>
+</table>
+
+<h2>Two settings start the web layer and onboarding</h2>
+<p><code>WEB_PORT</code> starts <code>webd</code>, <code>proxyd</code>, <code>vited</code> and <code>dashd</code>. It starts <code>davd</code> too, unless <code>WEBDAV_ENABLED</code> is <code>false</code>. <code>ONBOARDING_ENABLED=true</code> starts <code>onbod</code>.</p>
+<table>
+  <thead>
+    <tr><th>name</th><th>role</th></tr>
+  </thead>
+  <tbody>
     <tr><td class="name"><a href="../components/webd.html">webd</a></td><td>The web channel: the SSE hub, the <a href="../components/tokens.html">route-token</a> URLs and the MCP endpoint.</td></tr>
     <tr><td class="name"><a href="../components/proxyd.html">proxyd</a></td><td>The reverse proxy with auth. It verifies JWTs and signs identity headers for backends.</td></tr>
     <tr><td class="name"><a href="../components/vited.html">vited</a></td><td>The static origin, a Vite server behind <code>proxyd</code> for the <code>/pub/</code> docs and the web pages of groups.</td></tr>
     <tr><td class="name"><a href="../components/dashd.html">dashd</a></td><td>The operator dashboard, to browse groups, grants and messages in a browser.</td></tr>
-    <tr><td class="name"><a href="../components/onbod.html">onbod</a></td><td>The onboarding daemon: the pairing greeting, the admission queue and invite tokens.</td></tr>
-    <tr><td class="name"><a href="../components/timed.html">timed</a></td><td>The scheduler. It claims due tasks over the HTTP API of <code>routd</code> and posts each prompt as a message. It opens no store of its own.</td></tr>
-    <tr><td class="name"><a href="../components/ttsd.html">ttsd</a></td><td>The text-to-speech proxy, an endpoint compatible with OpenAI for voice replies.</td></tr>
     <tr><td class="name"><a href="../components/davd.html">davd</a></td><td>The WebDAV server, to mount the folder of a group in a file manager.</td></tr>
+    <tr><td class="name"><a href="../components/onbod.html">onbod</a></td><td>The onboarding daemon: the pairing greeting, the admission queue and invite tokens.</td></tr>
     <tr><td class="name"><a href="../components/tokens.html">route tokens</a></td><td>The <code>/chat/&lt;token&gt;/</code> visitor chat and the <code>/hook/&lt;token&gt;</code> webhook intake, both served by <code>webd</code>.</td></tr>
+  </tbody>
+</table>
+
+<h2>The egress proxy starts with each turn</h2>
+<table>
+  <thead>
+    <tr><th>name</th><th>role</th></tr>
+  </thead>
+  <tbody>
     <tr><td class="name"><a href="../components/egress.html">egress</a></td><td>The forward proxy: one per turn, with one fixed host allowlist and one client. <code>runed</code> starts it and stops it with the turn.</td></tr>
+  </tbody>
+</table>
+
+<h2>A package adds text-to-speech or the model gateway</h2>
+<p>The command <code>arizuko packages &lt;instance&gt; add &lt;name&gt;</code> installs a package.</p>
+<table>
+  <thead>
+    <tr><th>name</th><th>role</th></tr>
+  </thead>
+  <tbody>
+    <tr><td class="name"><a href="../components/ttsd.html">ttsd</a></td><td>The text-to-speech proxy, an endpoint compatible with OpenAI for voice replies.</td></tr>
     <tr><td class="name"><a href="../components/litellm.html">litellm</a></td><td>The model gateway package. It holds the model credential, and the guest of each turn gets a virtual key. It writes one JSON log line per request and sends token and cost spans over OTLP.</td></tr>
   </tbody>
 </table>
 
 <h2>Channel adapters connect outside platforms</h2>
+<p>The command <code>arizuko packages &lt;instance&gt; add &lt;name&gt;</code> installs an adapter, and the instance runs the adapters it has.</p>
 <table>
   <thead>
     <tr><th>name</th><th>role</th></tr>

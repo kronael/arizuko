@@ -18,7 +18,6 @@
           <ul class="nav-children">
             <li><a href="./">Start here</a></li>
             <li><a href="primitives.html">Primitives</a></li>
-            <li><a href="built.html">Development</a></li>
             <li><a href="store.html">The store</a></li>
             <li><a href="scaling.html">Scaling</a></li>
             <li><a href="ant.html">The ant</a></li>
@@ -62,10 +61,10 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">concepts</a> &rsaquo; personas</p>
 <h1>personas</h1>
 
-    <p class="lede">A persona gives an agent its voice. It is a <code>PERSONA.md</code> file in the group folder, so it is one more file in the ant: the agent is the folder. The frontmatter holds named fields, such as the TTS voice and a short reminder of how to sound. The body is the long voice guide, which goes into the system prompt. You change the persona by editing the file, and no persona table exists to keep in sync.</p>
+    <p class="lede">A persona gives an agent its voice. It is a <code>PERSONA.md</code> file in the group folder, so it is one more file in the ant: the agent is the folder. The frontmatter holds named fields, such as the TTS voice and a short reminder of how to sound. The body is the long voice guide, which goes into the system prompt. You change the persona by editing the file.</p>
 
     <h2>Each group has one persona file</h2>
-    <p>Each group has one file, at <code>&lt;data-dir&gt;/groups/&lt;folder&gt;/PERSONA.md</code>. The operator edits it directly, through WebDAV, an editor on the host or the dashboard. No persona table exists: the file is the source of truth.</p>
+    <p>Each group has one file, at <code>&lt;data-dir&gt;/groups/&lt;folder&gt;/PERSONA.md</code>. The operator edits it directly, through WebDAV, an editor on the host or the dashboard. No persona table exists.</p>
 
     <h2>The frontmatter holds three fields</h2>
     <p>The file uses standard YAML frontmatter between <code>---</code> lines:</p>
@@ -110,14 +109,12 @@ Direct, no preamble. Defaults to short answers. Lowercase info, capitalized erro
       <dt>Length and format</dt>
       <dd>The output style, one file per surface in <code>ant/output-styles/</code>, one style per session.</dd>
     </dl>
-    <p>A change to one layer does not change the other two.</p>
 
     <h2>An incomplete persona file gives no persona block</h2>
     <p>If <code>PERSONA.md</code> is missing, has no frontmatter, has no <code>summary</code> field or has an empty summary, <code>personaBlock</code> returns <code>""</code>. It does not fall back to the body text, guess from the folder name or use the persona of a parent folder. The agent runs in its default register.</p>
-    <p>This is by design. With a fallback, the persona block would sometimes hold operator data and sometimes a guess, and the agent could not tell which. With strict rules, the block is either real persona text or nothing.</p>
 
     <h2>A persona edit applies on the next turn</h2>
-    <p>Personas belong to the group, not to the agent image. An edit to <code>PERSONA.md</code> applies on the next turn, with no migration and no rebuild. The agent image ships skills and base prompts, and the group holds the voice. A release changes <code>MIGRATION_VERSION</code> for skill changes, never for persona edits.</p>
+    <p>An edit to <code>PERSONA.md</code> applies on the next turn, with no migration and no rebuild.</p>
 
     <h2>Related pages cover the prompt and the voice</h2>
     <p><a href="../concepts/ant.html">the ant</a> shows what else goes into the prompt and where it is built. <a href="../concepts/voice.html">voice</a> shows the TTS path that reads the <code>voice</code> field. <a href="../concepts/scopes.html">scopes</a> shows how groups, folders and the files in each folder relate.</p>
