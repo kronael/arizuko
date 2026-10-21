@@ -242,6 +242,8 @@ reads those words now.
 - `L503` — the "depth capped at 1" of `delegate_group` and `escalate_group`
   checks an argument the caller sets: carry a hop count on the row, or drop
   the claim from both tool descriptions.
+- `L504` — the docs shell's top bar, sidebar and contents rail scroll away;
+  `overflow-x: hidden` on `html, body` makes the body the sticky container.
 
 **Found while folding the lowercase `bugs.md` into this file (2026-10-20).**
 
@@ -788,6 +790,27 @@ page, and the tool descriptions are code.
   delegation row into the child turn, which changes the message contract (`L2`
   names the same bound for `send`). The other fix drops the sentence from both
   descriptions. No test — a test would pin the current gap.
+
+## L504 — the docs shell's top bar, sidebar and contents rail scroll away with the page (2026-10-21, open)
+
+FOUND 2026-10-21 by the docs style pass, measured at `8c8ae96e` in Chromium
+through `agent-browser` at 1440×900. `template/web/CLAUDE.md` says "The top bar
+is sticky at every width", and `hub.css` gives `.docs-topbar`, `.docs-nav` and
+`.docs-toc` `position: sticky` (`assets/hub.css:174`, `:258`, `:346`). On
+`reference/env.html` scrolled by 1400px, `.docs-topbar` reads
+`getBoundingClientRect().top` = -1400 and `.docs-nav` -1324: neither sticks.
+The cause is `html, body { overflow-x: hidden }` (`assets/hub.css:119`). With
+both elements non-visible, the body's overflow does not pass to the viewport,
+so the body computes `overflow-y: auto` and becomes the scroll container that
+every sticky element binds to. The window scrolls and the body never does. The
+live krons site carries the same `hub.css`, so every page there has the defect.
+
+- **Severity:** low — navigation still works; the shell does not hold its
+  place as the docs say.
+- **Scope:** the operator docs site.
+- **Affected:** `template/web/pub/arizuko/assets/hub.css`.
+- **Status:** open. `overflow-x: clip` stops the sideways scroll and makes no
+  scroll container.
 
 ## L480 — slakd posts a whole reply as ONE chat.postMessage, so a long reply is cut by Slack (2026-10-20, open)
 
