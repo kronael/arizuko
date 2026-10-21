@@ -272,6 +272,17 @@ rows and the test to write; none needs a decision except where it says so.
 - `L520` — sloth's ExtendDB grew to 2.7 GB in 54 h and fell to 152 MiB on
   restart; is it load or a leak?
 
+**Found by the rhias evaluation (2026-10-21).**
+
+- `L521` — a prompt lists the addressed message twice, once as `<message>`
+  and once as `<observed>`.
+- `L522` — a rhias turn takes 9–14 min from a message to its first reply:
+  6 min of it inside the guest before the first model call.
+- `L523` — the nemo agent answered with the wrong listing's distances; both
+  listings were in its context.
+- `L524` — a message the running turn already answered gets a second turn of
+  its own.
+
 **Found while folding the lowercase `bugs.md` into this file (2026-10-20).**
 
 - `L480` — slakd sends a whole reply as one `chat.postMessage`; `chanlib.Chunk`
@@ -1025,6 +1036,65 @@ defaults. One 1.5 GB block of large allocations and 12 allocator arenas. After
 - **Severity:** medium — the largest single memory holder on the host.
 - **Fix:** sample both stores for 48 h to tell load from a leak, then
   `MALLOC_ARENA_MAX=2` or an upstream report (memory plan step 6).
+- **Status:** open.
+
+## L521 — a prompt lists the addressed message twice (2026-10-21, open)
+
+MEASURED on krons 2026-10-21 in `groups/rhias/nemo/.claude/projects/-home-node/71e82fa5-1967-43d4-a169-2fbcbdd3c8bc.jsonl`,
+the 19:57 turn: message `telegram:group/1004358948112/239` (Nikol, 19:32,
+the Žebrák listing) appears as `<message id=".../239">` and again as
+`<observed id=".../239">` in the same prompt. The agent reads one request as
+two inputs.
+
+- **Severity:** low — doubled text, possible double handling.
+- **Fix:** the observed window excludes the ids the `<messages>` block carries.
+- **Status:** open.
+
+## L522 — rhias turns take 9–14 minutes from a message to the first reply (2026-10-21, open)
+
+MEASURED on krons 2026-10-21 (journal + transcripts):
+
+- Kron at 20:10:02 → first status 20:19:46. The first dispatch failed with
+  "guest did not open ctl within 30s"; the retry's guest was ready at 20:11:35
+  (boot 9 s, normal ~2 s); the first `api.anthropic.com` connect came at
+  20:17:34 and the SDK enqueued the prompt at 20:18:48 — six minutes inside
+  the guest before the model.
+- The 19:54 nemo turn: container start 19:54:17, prompt enqueue 19:57:30.
+- rhias/niki: "Helo" 19:57:58 → guest ready 19:58:21 → reply 20:11:43.
+
+Host load was 17–20 on 2 CPUs (the stuck auto-migrate redispatches, under
+investigation, and two instances). The guest console shows
+`hrtimer: interrupt took 53090170 ns`, a CPU-starved guest.
+
+- **Severity:** high — the owner reads it as "the agent is lost".
+- **Fix:** first remove the load (stuck migrate retries, memory plan); then
+  measure what ant does between guest ready and the SDK enqueue.
+- **Status:** open.
+
+## L523 — the nemo agent answered with the wrong listing (2026-10-21, open)
+
+OBSERVED on krons 2026-10-21 in `telegram:group/1004358948112`: Nikol posted
+the Žebrák plot (19:32, id 239); the turn's status at 20:04 said "čtu GPS
+Žebráku", and its 20:08:40 reply gave the drive times for Soběhrdy-Mezihoří,
+the earlier listing (id 232). Both listings were in the prompt (`L521`
+doubled 239). Cause not measured: the agent's own state files, the doubled
+message, or the model.
+
+- **Severity:** medium — a wrong answer that reads as right.
+- **Fix:** read the turn's tool calls in the transcript first.
+- **Status:** open.
+
+## L524 — a message the running turn already answered gets a second turn (2026-10-21, open)
+
+MEASURED on krons 2026-10-21, `telegram:user/8177590051` → `rhias/niki`:
+turn `.../3384` ("Helo", 19:57:58) also received "Find where to buy quercetin…"
+(id 3385, 20:01:33) while it ran and answered it at 20:11:43. routd then
+dispatched turn `.../3385` for the same message at 20:12:21 (failed ctl, retried
+20:13:20). The cursor did not pass a message the turn had already consumed.
+
+- **Severity:** medium — a second, late answer to one question, and a guest
+  slot spent on it. Related: `L347` (the cursor after a steered turn).
+- **Fix:** advance the cursor past messages the running turn consumed.
 - **Status:** open.
 
 ## L480 — slakd posts a whole reply as ONE chat.postMessage, so a long reply is cut by Slack (2026-10-20, open)
