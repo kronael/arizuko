@@ -22,15 +22,15 @@ Every cold-tier resource is written once and served twice: REST for people and e
 │ caller: the bearer's sub, scope  │ │ <name>.<action> or MCPNames          │
 │ and folder claim                 │ │ caller: the turn's folder and sender │
 │ Gate: a bearer-scope check, or   │ │ Gate: AuthorizeTurn on the target;   │
-│ Authorize on <name>:<action>     │ │ routes, scheduled_tasks run it in    │
-│ routes, scheduled_tasks add      │ │ containFn behind agentAllowGate      │
-│ containFn: ownsFolder            │ │                                      │
+│ Authorize on <name>:<action>     │ │ target-folder resources run it in    │
+│ target-folder resources add      │ │ containFn behind agentAllowGate      │
+│ containFn, one per resource      │ │                                      │
 └──────────────┬───────────────────┘ └──────────────────┬───────────────────┘
                └────────────────────┬───────────────────┘
                                     ▼
 ┌───────────────────────────────────────────────────────────────────────────┐
 │ invoke: Authz ► Gate ► Handler ► one GuardedBatch with the handler's      │
-│ writes and one audit_log row; a read writes no row                        │
+│ writes and one audit_log row; a successful read writes no row             │
 └───────────────────────────────────────────────────────────────────────────┘
 ┌───────────────────────────────────────────────────────────────────────────┐
 │ beside it: a forwarder (Store nil: no gate, no row here) for secrets on   │
