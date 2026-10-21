@@ -94,42 +94,56 @@ arizuko run demo                            # starts the instance</code></pre>
         </div>
       </div>
       <p>
-        Twelve more sit in <a href="products/">the catalog</a>: a support
-        desk, a personal assistant with memory, a PM board, a domain
-        researcher, a public price bot. Each is the same engine with
-        different folder contents.
+        Eight more products ship as templates in
+        <a href="products/">the catalog</a>: a support desk, a personal
+        assistant with memory, a PM board and a domain researcher among
+        them. Four products are shapes without a template, and
+        <a href="products/shapes.html">one page</a> describes them.
       </p>
 
       <h2>many agents run side by side</h2>
       <p>
         Those three are three folders in one instance, not three installs.
-        The design bet is that a focused persona with a small set of skills
-        stays on task, and a do-everything assistant drifts. arizuko runs
-        many focused agents in one instance, and each folder keeps its own
-        grants and secrets.
+        Each folder keeps its own persona, memory, grants and secrets.
+      </p>
+      <h3>each turn runs in its own guest behind a proxy</h3>
+      <p>
+        Every turn runs in a fresh KVM guest. Outbound traffic leaves
+        through the <a href="components/egress.html">egress proxy</a> of that
+        guest, a proxy that forwards only the host names in the allowlist of
+        the folder. <code>runed</code> starts one proxy per turn and refuses
+        to start without the proxy binary. The network interface of the guest
+        drops every packet that skips the proxy, and the guest has no DNS
+        resolver. A support agent can face strangers on a public
+        channel and keep its own history.
+      </p>
+      <p>
+        A normal turn does not receive the home folder of another agent.
+        Two mounts share files across agents:
       </p>
       <ul>
-        <li><strong>Isolation that keeps memory.</strong> Each folder has its
-          own persona, memory and secrets. Every turn runs in a fresh KVM
-          guest. Outbound traffic leaves through the
-          <a href="components/egress.html">egress proxy</a> of that guest,
-          a gate that opens only the host names the folder allows. The
-          network interface of the guest drops every packet that skips the
-          proxy. A support agent can face strangers on a public channel and
-          keep its own history. A normal turn never receives the home folder
-          of another agent.</li>
-        <li><strong>Agents hand work along the tree.</strong> A folder path
-          such as <code>corp/eng/sre</code> is the org chart. An agent hands
-          a prompt down to a child folder or up to its parent folder, and
-          every link needs a grant. The child runs its own turn in its own
-          KVM guest, so each sub-agent gets a machine of its own.
-          <a href="concepts/turn.html#children">A child folder runs in its
-          own guest</a> gives the limits.</li>
-        <li><strong>People move between agents.</strong> Send
-          <code>@acme/sales</code> on its own, and the whole chat goes to the
-          sales agent. A bare <code>@</code> sends it back. You change
-          agents without changing the app you chat in.</li>
+        <li>Every turn of one world mounts the same writable directory at
+          <code>/var/lib/share</code>. A world is the top-level folder of a
+          path. A <code>share_mount</code> grant with
+          <code>readonly=true</code> makes it read-only for one
+          folder.</li>
+        <li>An elevated operator turn mounts every group at
+          <code>/var/lib/groups</code>.</li>
       </ul>
+      <h3>agents hand work down and up the folder tree</h3>
+      <p>
+        An agent hands a prompt down to a child folder, such as
+        <code>corp/eng/sre</code> below <code>corp/eng</code>, or up to its
+        parent folder. Every link needs a grant. The child runs its own turn
+        in its own KVM guest, so each sub-agent gets a machine of its own.
+        <a href="concepts/turn.html#children">A child folder runs in its own
+        guest</a> gives the limits.
+      </p>
+      <h3>one chat can move between agents</h3>
+      <p>
+        Send <code>@acme/sales</code> on its own, and the whole chat goes to
+        the sales agent. A bare <code>@</code> resets the routing to the default.
+      </p>
 
       <h2>every event takes the same six steps</h2>
       <p>
@@ -138,20 +152,17 @@ arizuko run demo                            # starts the instance</code></pre>
         the Slack thread.
       </p>
       <ol>
-        <li><strong>Event.</strong> Anything that happens becomes one row in
-          the inbox: a chat message, a call from another service, a clock
-          tick.</li>
-        <li><strong>Routing.</strong> The route table maps the event to the
-          folder that answers. The first matching route wins.</li>
-        <li><strong>Agent.</strong> The folder loads its persona, skills and
-          memory.</li>
-        <li><strong>Authorization.</strong> One question decides: may this
-          person or agent do this action here? A grant row answers it.</li>
-        <li><strong>Turn.</strong> A fresh KVM guest runs the agent once and
-          powers off. The guest sees only the files shared into it and
-          reaches only the hosts its proxy allows.</li>
-        <li><strong>State.</strong> The store keeps the rows, and the folder
-          keeps the files.</li>
+        <li>An event becomes one row in the inbox: a chat message, a call
+          from another service or a clock tick.</li>
+        <li>The route table maps the event to the folder that answers. The
+          first matching route wins.</li>
+        <li>The folder loads its persona, skills and memory.</li>
+        <li>One question decides authorization: may this person or agent do
+          this action here? A grant row answers it.</li>
+        <li>A fresh KVM guest runs the agent once and powers off. The guest
+          sees only the files shared into it and reaches only the hosts its
+          proxy allows.</li>
+        <li>The store keeps the rows, and the folder keeps the files.</li>
       </ol>
       <p>
         An observe route stores the message and fires no turn.
@@ -185,53 +196,44 @@ arizuko run demo                            # starts the instance</code></pre>
 
       <h2>what arizuko needs and what it does not do</h2>
       <ul>
-        <li><strong>One Linux host with Docker and KVM.</strong> The daemons
-          run as Docker Compose services, and each turn is a KVM guest, so
-          the host needs <code>/dev/kvm</code>. Compose on one host is the
-          tested path. A Helm chart for Kubernetes exists, and no cluster has
-          run it.</li>
-        <li><strong>You pay for the host and the model.</strong> arizuko is
-          free software. The model provider bills the key you supply. The
-          default network allowlist opens <code>anthropic.com</code> and
+        <li>One Linux host with Docker and KVM runs it. The daemons run as
+          Docker Compose services, and each turn is a KVM guest, so the host
+          needs <code>/dev/kvm</code>. Compose on one host is the tested
+          path. A Helm chart for Kubernetes exists, and no cluster has run
+          it.</li>
+        <li>You pay for the host and the model. arizuko is free software.
+          The model provider bills the key you supply. The default network
+          allowlist opens <code>anthropic.com</code> and
           <code>api.anthropic.com</code>.</li>
-        <li><strong>Self-hosted only.</strong> arizuko has no managed control
-          plane and no hosted service.</li>
-        <li><strong>Sized for agent teams.</strong> arizuko serves teams of
-          agents behind chat channels, not consumer traffic.</li>
-        <li><strong>Not a search system.</strong> arizuko has no document
-          connectors, no vector index and no choice of model provider per
-          task. One harness serves the whole instance: Claude Code by
-          default, or <code>codex</code> or <code>pi</code> through
+        <li>arizuko is self-hosted only. It has no managed control plane and
+          no hosted service, and it serves teams of agents behind chat
+          channels, not consumer traffic.</li>
+        <li>arizuko has no document connectors and no vector index. One
+          harness serves the whole instance: Claude Code by default, or
+          <code>codex</code> or <code>pi</code> through
           <code>ARIZUKO_BACKEND</code>.</li>
-        <li><strong>The parts a deploy needs.</strong> The store server runs
-          ExtendDB over PostgreSQL. A daemon without a store key exits, and
-          <code>runed</code> does not start without <code>/dev/kvm</code>. A
-          minimal deploy is the store server, <code>authd</code>,
-          <code>routd</code>, <code>runed</code>, <code>timed</code> and one
-          channel adapter. The web daemons start when you set
-          <code>WEB_PORT</code>, and <code>onbod</code> starts when you turn
-          onboarding on.</li>
-        <li><strong>Egress is not a switch.</strong> <code>runed</code>
-          starts one <a href="components/egress.html">egress proxy</a> per
-          turn and refuses to start without the proxy binary. The guest has
-          no DNS resolver, so a compromised turn can call only the hosts you
-          allowed.</li>
-        <li><strong>Two faces, one handler.</strong> An agent calls platform
-          actions as MCP tools, the Model Context Protocol for agent tools. A
-          person or script calls the same actions as REST, ordinary web
-          requests at <code>/v1/&lt;name&gt;</code>. Actions that only an agent
-          uses in a turn, such as <code>reply</code> and <code>send</code>,
-          exist as MCP alone.</li>
-        <li><strong>Connectors keep the credential on the host.</strong> One
-          TOML block gives an agent the API of another service as a tool. The
-          call leaves from the host, the host adds the secret, and the
-          secret never enters the guest.
-          <a href="concepts/ext-mcp.html">Connectors</a> has the detail.</li>
+        <li>The store server runs ExtendDB over PostgreSQL. A daemon without
+          a store key exits, and <code>runed</code> does not start without
+          <code>/dev/kvm</code>. A minimal deploy is the store server,
+          <code>authd</code>, <code>routd</code>, <code>runed</code>,
+          <code>timed</code> and one channel adapter. The web daemons start
+          when you set <code>WEB_PORT</code>, and <code>onbod</code> starts
+          when you turn onboarding on.</li>
+        <li>An agent calls platform actions as MCP tools, the Model Context
+          Protocol for agent tools. A person or script calls the same
+          actions as REST, ordinary web requests at
+          <code>/v1/&lt;name&gt;</code>. Actions that only an agent uses in
+          a turn, such as <code>reply</code> and <code>send</code>, exist as
+          MCP alone.</li>
+        <li>One TOML block gives an agent the API of another service as a
+          tool. The call leaves from the host, the host adds the secret, and
+          the secret never enters the guest. <a href="concepts/ext-mcp.html">Connectors</a>
+          has the detail.</li>
       </ul>
 
-      <h2>go deeper</h2>
+      <h2>where to read next</h2>
       <ul>
-        <li><a href="concepts/">concepts</a> &mdash; the guided tour; start
+        <li><a href="concepts/">concepts</a> &mdash; one idea per page; start
           with <a href="concepts/primitives.html">the six steps</a>.</li>
         <li><a href="products/">products</a> &mdash; all fifteen, an intro
           and a setup page each.</li>
@@ -250,9 +252,10 @@ arizuko run demo                            # starts the instance</code></pre>
         <li><a href="changelog/">changelog</a> &mdash; what shipped, dated.</li>
         <li><a href="security/">security</a> &mdash; the threat model and the
           operator&rsquo;s side of it.</li>
-        <li><a href="strategy/">strategy</a> &mdash; positioning, direction
+        <li><a href="strategy/">strategy</a> &mdash; the position of arizuko
           and <a href="strategy/#comparable">the comparable systems</a>.</li>
-        <li><a href="research/">research</a> &mdash; longer write-ups.</li>
+        <li><a href="research/">research</a> &mdash; write-ups on architecture,
+          security, patterns and skills.</li>
         <li>Repository files:
           <a href="https://github.com/kronael/arizuko/blob/main/SECURITY.md">SECURITY.md</a>
           and
