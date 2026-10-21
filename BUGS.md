@@ -249,6 +249,17 @@ rows and the test to write; none needs a decision except where it says so.
 - `L510` — authd, onbod and timed `/health`: tested as a registered route,
   never served.
 
+**Found by the anteval-leak investigation (2026-10-21).**
+
+- `L72` — sign off the shape in spec `6/50`: anteval makes a disposable
+  instance and never touches a serving one. 47 leaked children held the
+  v0.70.6 release's run slots.
+- `L511` — may a group delete claim and kill the subtree's run slots at
+  runed? The bounded half — no onboarding for a folder-path JID — needs no
+  decision.
+- `L512` — the eval setup grants egress `*` and two catalog cases need named
+  rules; blocked on `L379`.
+
 **Found while folding the lowercase `bugs.md` into this file (2026-10-20).**
 
 - `L480` — slakd sends a whole reply as one `chat.postMessage`; `chanlib.Chunk`
@@ -920,6 +931,74 @@ checks 200 and `ok`; for authd, one more with an unreachable store that checks
   rotation; nothing is known to be wrong today.
 - **Scope:** `authd/http.go`, `onbod/main.go`, `timed/split.go`.
 - **Status:** open (record only). No test — the entry is about the test.
+
+## L511 — a group delete leaves the folder's queued and running turns, so onbod greets the deleted folder as a new person (2026-10-21, open — needs sign-off)
+
+MEASURED on krons 2026-10-21, when the operator removed 47 anteval children
+(`L72`) with `arizuko group krons rm`. The deletes ran 17:28:49-17:34:26.
+
+**Queued rows.** A `/migrate` row has the folder itself as its chat JID
+(`routd/loop.go:506-511`). The delete keeps `messages`
+(`store/folder_scope.go:159`), so the children's unanswered v219 rows stayed
+queued. routd then resolved each one, found no route, and took the miss branch
+(`routd/loop.go:574-613`): it inserted an onboarding row for the JID.
+`onboardingAllowed` (`routd/loop.go:782-788`) answers true for every JID when
+the platform list is empty, as it is on krons, so a folder path passed as a
+person. onbod then minted a pairing link (`onbod/main.go:419`) and wrote
+"Welcome to krons … Set up your account" into the folder's chat. Example:
+`eval/etk5aob-child-delegate` was deleted at 17:28:49, onboarded at 17:29:12
+and greeted at 17:29:19. Totals: 24 onboarding rows and 23 pairing tokens for
+folder-path JIDs, all between 17:29:12 and 17:34:59.
+
+**Running turns.** Three eval-child spawns ran past their folder's delete.
+`eval/etk84gi-child-delegate` was deleted at 17:32:21; its turn
+(`run_f58bae9d9d04888f`, started 17:20:51) ended at 17:41:04, and at 17:40:27
+the path `groups/eval/etk84gi-child-delegate/` existed again, holding only
+the turn's `work.md`. The delete writes rows and does not reach runed.
+
+This is the class `store/groups.go:293-296` says the total purge closed
+(`L66`, `L67`: a deleted folder's task read by onbod as a new account). It
+closed the task door; the queued-row door and the running-turn door stay open.
+
+- **Severity:** medium — a deleted folder gets onboarding greetings and a
+  guest keeps writing into its path; no data of another folder is touched.
+- **Scope:** `store/groups.go` (`DeleteGroup`), `routd/loop.go` (`routeMiss`,
+  `onboardingAllowed`), runed's run slots.
+- **Fix — two halves.** (a) Bounded: `routeMiss` does not onboard a JID that
+  names no platform. A folder path is the platform's own chat, never a
+  person. (b) Needs sign-off, because it changes the delete's control flow
+  across daemons: the delete claims the subtree's run slots at runed before
+  it purges — the hold `arizuko archive apply` already takes
+  (`cmd/arizuko/archive.go:194-201`) — and kills a turn that holds one.
+- **Status:** open — needs sign-off for (b). The 24 onboarding rows on krons
+  are an operator action on live data; the pairing tokens expired after
+  `PairingTTL` (10 minutes, `store/pairing.go:32`). No test yet: this pass was
+  scoped to documents, and the pinning test is the first step of the fix.
+
+## L512 — the documented eval setup grants egress `*`, and two catalog cases need a folder without it (2026-10-21, open)
+
+`.claude/skills/eval/gates.md:158` tells the operator to run
+`arizuko network <inst> allow eval '*'`, because the allowlist matches names
+and the sink is an IP (`L379`). krons holds that rule since 2026-07-11
+(`network_rules`: `eval *`), and every child inherits it, because the
+allowlist walks the ancestry (`anteval/cases/anteval.toml:66-71`).
+
+Two cases state the opposite precondition. `egress-diagnose`
+(`anteval/cases/anteval.toml:341-345`) needs example.com refused by the
+folder's own allowlist; `self-grant-noop` (`:362-366`) needs example.com
+unreachable. Under `*` example.com is reachable, so an honest agent reports
+the wrong marker for both, and each case burns its `max_wall_ms`. This is an
+inference from the rules; no full-catalog report was read for it. It is the
+class the 2026-08-21 reduction deleted: a case whose success arm the
+documented setup cannot reach (`anteval/cases/anteval.toml:15-23`).
+
+- **Severity:** low — two full-catalog cases, neither in `--smoke`; on a live
+  instance it also leaves an allow-all egress rule on the eval folder.
+- **Scope:** `.claude/skills/eval/gates.md`, `anteval/cases/anteval.toml`.
+- **Fix:** once the sink has a name (`L379` option 1), the setup allowlists
+  named hosts only — the target, the sink, the model — and both cases can
+  pass. The disposable instance of spec `6/50` takes that allowlist.
+- **Status:** open — blocked on `L379`. No test — config.
 
 ## L480 — slakd posts a whole reply as ONE chat.postMessage, so a long reply is cut by Slack (2026-10-20, open)
 
@@ -5581,7 +5660,7 @@ either of those two, so it is a dispatch-lifecycle change and stays a proposal.
 The heading is re-scoped so the entry stops reading as two open halves. An entry that
 overstates its own remaining work is as misleading as one that understates it.
 
-## L72 — anteval leaks a group per case and every release pays an LLM turn for each (2026-08-23, proposal)
+## L72 — anteval leaks a group per case and every release pays an LLM turn for each (2026-08-23, open — needs sign-off on spec `6/50`)
 
 `anteval` cases create child groups (`register_group` / `delegate_group`) and
 nothing ever deletes them. 31 of krons' 43 groups are eval leftovers:
@@ -5673,6 +5752,52 @@ on a decision, the network cleanup need not.
 
 This entry also gates `L188` (see that entry): backfilling ~12 anteval cases
 against today's harness raises both numbers by about half again.
+
+**Re-measured 2026-10-21 on krons — the leak held the release, and the owner
+ruled on the fix.** At the v0.70.6 release, 47 of the 59 `/migrate` rows
+queued 10:00-12:00 UTC went to eval children, and their turns held krons's run
+slots for hours on a 2-vCPU host. The operator removed the 47 groups the same day
+(`arizuko group krons rm`, 47 `group.delete` audit rows 17:28:49-17:34:26).
+Measured in the krons store before and after:
+
+- 1001 `/migrate` rows went to the 47 children since 2026-07-11, one per
+  child per release (`routd/loop.go:484-518` walks EVERY group).
+- On 2026-10-21, 87 of 129 spawns were eval children: 11.5 guest-hours.
+- The cause chain is unchanged from this entry: the two smoke cases
+  `child-delegate` and `priv-grant` (`anteval/cases/anteval.toml:73`, `:106`)
+  name a child after the per-case nonce (`anteval/pkg/run/run.go:178`), and
+  `Drive` (`anteval/pkg/run/run.go:66-104`) deletes nothing. The groups
+  resource still serves `list` and `register` only
+  (`routd/groups_resource.go:45-81`).
+- The leak is wider than groups. Still on krons after the removal, all owned
+  by `eval`: 28 webhook and chat-link tokens with no expiry, 190 topic
+  sessions, 97 chat rows, 21 case-built skills, 83 published files, one
+  `/priv` web route, the folder egress `*` rule, and 48 docker networks that
+  no code creates any more. `specs/6/50-anteval-ephemeral-instance.md`
+  §"Problem" holds the table.
+- **Why this entry sat for two months:** its heading said "proposal", and
+  `tests/bugsindex/index_test.go:39` reads only `open`, `PROPOSED` and
+  `needs sign-off` as open, so it was never in "What needs you". The heading
+  now says open.
+
+**The owner's ruling (2026-10-21) replaces the delete proposal above:**
+anteval does not touch a live instance; it makes its own and removes it.
+`specs/6/50-anteval-ephemeral-instance.md` (`draft`) chooses the shape — a
+disposable instance made by `arizuko create`/`generate`/`compose up`, with
+its own store, gateway and vsock window — and costs the two shapes it
+rejects. A teardown of what anteval makes on krons is no longer the fix.
+
+- **Severity:** high — every release pays one guest turn per leaked child,
+  and the eval measures the queue those turns make.
+- **Scope:** `anteval/pkg/run`, `anteval/cmd/anteval`,
+  `.claude/skills/eval/gates.md`, `specs/5/9-agent-capability-eval.md`
+  (now `defected` on this entry: § "Approach" claims a teardown).
+- **Status:** open — needs sign-off on spec `6/50`. **Default if nothing is
+  decided:** anteval keeps running against krons, two children per smoke
+  run, and an operator removes them by hand after each run. The krons rows
+  listed above are an operator action on live data: revoke the 28 tokens
+  (`arizuko token krons revoke`), remove the 48 networks; the platform half
+  is spec `6/50`. No test — design.
 
 ## ✅ FIXED 2026-10-08 L62 — emaid retries an IMAP authentication rejection forever (2026-08-21, re-aimed 2026-09-25)
 
