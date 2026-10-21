@@ -61,7 +61,7 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">concepts</a> &rsaquo; connectors</p>
 <h1>connectors</h1>
 
-    <p class="lede">A connector gives the agent a tool it did not ship with, and keeps the credential out of the guest. The tool can be a DNS registrar, an internal API or the MCP server of another party. You write one TOML block. <code>routd</code> makes the call on the host, inserts the secret into the outbound request, and gives the agent the response body and nothing else.</p>
+    <p class="lede">A connector gives the agent a tool it did not ship with, such as a DNS registrar or an internal API. You write one TOML block. <code>routd</code> makes the call on the host, inserts the secret into the request and returns the response body to the agent.</p>
 
     <h2>The agent gets the tool and the host keeps the credential</h2>
     <p>Inside the guest, an MCP tool called <code>cloudflare_dns_list</code> exists, and the connector puts no <code>CF_API_TOKEN</code> in the environment, the filesystem or <code>/proc</code>. A <code>shell:env:&lt;KEY&gt;</code> grant for the same key would still add it to the guest environment.</p>

@@ -61,7 +61,7 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">concepts</a> &rsaquo; auth</p>
     <h1>auth</h1>
 
-    <p class="lede">Auth is how the platform knows who is calling. Before any check can authorize a principal, something must create that principal, and that job belongs to <code>authd</code>, the only token authority. <code>authd</code> turns a browser login with GitHub, Google, Discord or Telegram into one canonical user id. It also issues a signed JWT that carries that id. Backends check the JWT against the public key list of <code>authd</code>, its JWKS. No other daemon signs. Every later permission check reads the id that this token carries.</p>
+    <p class="lede">Auth answers who is calling. <code>authd</code>, the only token authority, turns a provider login into one canonical user id and signs a JWT that carries it. Every later permission check reads that id.</p>
 
     <h2>Each provider login gives a sub</h2>
     <p>You can log in with any provider. Each provider returns a string that the auth code calls a <strong>sub</strong>, short for &ldquo;subject&rdquo;: the id of this user at this provider. A sub always starts with its provider:</p>
@@ -93,7 +93,7 @@ telegram:user/5511234</code></pre>
       <li><code>dashd</code> wraps every <code>/dash/*</code> handler in the middleware from <code>auth/middleware.go</code>. The middleware calls <code>auth.ProxydTransit</code>. It verifies the signature, expiry and issuer of the bearer against the JWKS of <code>authd</code>, and checks that the subject is <code>service:proxyd</code>. Only then does it trust the three headers. If the bearer is missing or wrong, the middleware removes the headers and redirects to <code>/auth/login</code>.</li>
       <li>The handler reads <code>r.Header.Get("X-User-Sub")</code> and trusts it. <code>auth.Authorize</code> uses that sub to decide what the user can do.</li>
     </ol>
-    <div class="callout"><strong>One key signs at both boundaries.</strong> <code>authd</code> holds the only ES256 private key. It signs the JWT that the browser carries to <code>proxyd</code>, and the <code>service:proxyd</code> transit bearer that <code>proxyd</code> attaches for backends. Both are verified in the same way, with ES256 against the public JWKS of <code>authd</code>. <code>AUTH_SECRET</code> is an HMAC key that signs the OAuth state cookie and verifies no bearer. The <code>X-User-*</code> headers carry no signature of their own. The transit bearer makes them trustworthy.</div>
+    <div class="callout"><strong>One key signs at both boundaries.</strong> <code>authd</code> holds the only ES256 private key. It signs the browser JWT and the <code>service:proxyd</code> transit bearer, and both verify against its public JWKS. <code>AUTH_SECRET</code> is an HMAC key for the OAuth state cookie and verifies no bearer. The <code>X-User-*</code> headers carry no signature, so the transit bearer makes them trustworthy.</div>
 
     <h2>A refresh token used twice ends the whole login</h2>
     <p>A refresh token works once. When you present it, <code>authd</code> uses it up and returns a successor. <code>authd</code> keeps the used row, marks it and never deletes it. That mark is how <code>authd</code> detects reuse. If the same token arrives a second time, one of the two holders is not you, and <code>authd</code> cannot tell which. So it revokes the whole chain, every token that came from that login, and logs out both holders.</p>

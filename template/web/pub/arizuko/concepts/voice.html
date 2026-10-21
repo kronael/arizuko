@@ -61,7 +61,7 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">concepts</a> &rsaquo; voice</p>
 <h1>voice</h1>
 
-    <p class="lede">The agent reads and writes only text: Whisper turns an incoming voice note into text, and the <code>send_voice</code> tool turns text into an ogg file that the chat platform delivers as a voice note.</p>
+    <p class="lede">The agent reads and writes only text. Whisper turns an incoming voice note into text. The <code>send_voice</code> tool turns text into an ogg file, which the chat platform delivers as a voice note.</p>
 
     <h2>Whisper turns a voice note into text before the agent reads it</h2>
     <p>When a voice note arrives at an adapter, such as Telegram, WhatsApp or Discord, the adapter downloads the audio and gives it to <code>routd</code>. If <code>VOICE_TRANSCRIPTION_ENABLED=true</code>, <code>routd</code> posts the audio to the Whisper server at <code>WHISPER_BASE_URL</code> before the agent sees the message. The transcript comes back as plain text, and <code>routd</code> adds it to the attachment tag in the prompt:</p>

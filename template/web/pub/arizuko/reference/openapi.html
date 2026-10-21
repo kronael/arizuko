@@ -41,7 +41,7 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">reference</a> &rsaquo; OpenAPI</p>
 <h1>openapi</h1>
 
-    <p class="lede">Every HTTP-serving daemon exposes its API at <code>GET /openapi.json</code>. The document is generated from the resource registry &mdash; <code>components/schemas</code> comes from <code>resreg.Resource.RowType</code> reflection, and the paths come from the resource's <code>Endpoints</code>, the same slice the daemon mounts its handlers from. Doc and handler read one declaration, so they move together.</p>
+    <p class="lede">Every HTTP-serving daemon exposes its API at <code>GET /openapi.json</code>. The resource registry generates the document. <code>components/schemas</code> comes from <code>resreg.Resource.RowType</code> reflection. The paths come from the resource's <code>Endpoints</code>, the same slice the daemon mounts its handlers from. Doc and handler read one declaration, so they move together.</p>
 
     <h2>Every HTTP daemon publishes an OpenAPI 3.1 document</h2>
     <p>OpenAPI 3.1 JSON. Public &mdash; no auth gate. Cached for the process lifetime; reflection runs once per daemon. Paste a URL into any conformant tool (Swagger UI, Redoc, Stoplight Elements, an SDK generator) and the daemon's surface is browsable, callable, and codegen-ready.</p>

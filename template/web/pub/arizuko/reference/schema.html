@@ -40,7 +40,7 @@
     <main class="docs-content">
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">reference</a> &rsaquo; Store schema</p>
 <h1>schema</h1>
-    <p class="lede">Every table arizuko keeps is an entity: one item per row, addressed by a <em>(partition, sort)</em> coordinate, with the rest of the row as string attributes. One DynamoDB-protocol server per instance serves them, named by <code>DYNAMODB_URL</code>, and nothing above the driver knows which server it is.</p>
+    <p class="lede">Every table arizuko keeps is an entity. One row is one item, addressed by a <em>(partition, sort)</em> coordinate, and the rest of the row is string attributes. One DynamoDB-protocol server per instance serves them, named by <code>DYNAMODB_URL</code>, and nothing above the driver knows which server it is.</p>
 
     <p>How the layers stack, from a daemon down to PostgreSQL, is drawn on <a href="../concepts/store.html">the store</a>. The coordinate is what a read costs, so each entity's coordinate is argued in the file that writes it. <a href="https://github.com/kronael/arizuko/blob/main/store/entities.go"><code>store/entities.go</code></a> names the set each owner holds.</p>
 
