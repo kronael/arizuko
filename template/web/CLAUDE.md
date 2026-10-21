@@ -75,8 +75,10 @@ pub/arizuko/
                   JIDs, OpenAPI, packages, route tokens, topics
   howto/          guided procedures, product-branded
   security/       threat model and the operator's side of it
-  strategy/       positioning and direction
-  research/       longer write-ups
+  strategy/       positioning and direction; outside the sidebar, linked
+                  from the landing
+  research/       a dated write-up; outside the sidebar, linked from the
+                  landing
   changelog/      what shipped, dated
   assets/
     hub.css       single stylesheet (dark/light, prose, code, nav)
@@ -514,8 +516,8 @@ the version and the search slot in the top bar, and the move of
 `.theme-toggle` into the bar. Leave `.docs-toc` empty and leave
 `aria-current` out of the markup — a hand-written copy of either drifts.
 
-The sidebar lists every section of the site and expands the one the reader is
-in. The top bar is sticky at every width. Below 1200px the sidebar collapses
+The sidebar lists the seven sections in `nav.json` and expands the one the
+reader is in. Strategy and research are outside it; the landing links them. The top bar is sticky at every width. Below 1200px the sidebar collapses
 behind `.docs-navtoggle` and the right rail drops.
 
 ### Components

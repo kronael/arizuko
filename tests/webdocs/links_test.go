@@ -59,8 +59,9 @@ const specsDir = "../../specs"
 // points back, so deleting a spec never breaks a page.
 //
 // changelog/index.html is a record of what was true when it was written.
-// strategy/index.html and research/index.html wait on owner decision D-1 and
-// leave this list when it is taken.
+// strategy/index.html and research/index.html sit outside the sidebar and are
+// linked from the landing page: research is a dated write-up, and strategy
+// names the specs where a direction is decided.
 var specCitationExempt = map[string]bool{
 	"changelog/index.html": true,
 	"strategy/index.html":  true,

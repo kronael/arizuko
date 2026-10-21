@@ -128,8 +128,6 @@
       ]
     },
     { "dir": "security", "label": "Security" },
-    { "dir": "strategy", "label": "Strategy" },
-    { "dir": "research", "label": "Research" },
     { "dir": "changelog", "label": "Changelog" }
   ]
 }
