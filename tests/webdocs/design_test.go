@@ -34,15 +34,9 @@ var (
 // it may break the rule. An entry is a decision, so the list starts empty.
 var styleExceptions = map[string]string{}
 
-// shellLess is every page that does not carry the docs shell: the landing page
-// by design, and four zero-second redirects that no reader sees.
-var shellLess = map[string]bool{
-	"index.html":                    true,
-	"components/crackbox.html":      true,
-	"crackbox/index.html":           true,
-	"crackbox/reference/index.html": true,
-	"examples/chat-sdk.html":        true,
-}
+// shellLess is the one page that does not carry the docs shell: the landing
+// page, by design.
+const shellLess = "index.html"
 
 // navSections is the top-level list every sidebar carries, in order. The site
 // has no build step, so each page holds its own copy of the sidebar.
@@ -152,35 +146,31 @@ func TestStyleGuardSeesWhatItGuards(t *testing.T) {
 	}
 }
 
-// TestWebDocsShellLessPagesAreTheKnownFive requires every page without the
-// docs shell to be one of the five named above, and every one of those to
-// exist and to lack the shell.
-func TestWebDocsShellLessPagesAreTheKnownFive(t *testing.T) {
-	root := filepath.Join(pubDir, siteRoot)
-	seen := map[string]bool{}
-	pages := 0
+// TestWebDocsOnlyTheLandingIsShellLess requires every page except the landing
+// page to carry the docs shell, and the landing page to exist without it.
+func TestWebDocsOnlyTheLandingIsShellLess(t *testing.T) {
+	pages, landing := 0, false
 	for _, f := range htmlFiles(t) {
 		body, err := os.ReadFile(f)
 		if err != nil {
 			t.Fatalf("read %s: %v", f, err)
 		}
 		pages++
-		name := rel(t, f)
-		if strings.Contains(string(body), `class="docs-layout"`) {
+		hasShell := strings.Contains(string(body), `class="docs-layout"`)
+		if rel(t, f) == shellLess {
+			landing = true
+			if hasShell {
+				t.Errorf("%s carries the docs shell; the landing page has none by design", f)
+			}
 			continue
 		}
-		seen[name] = true
-		if !shellLess[name] {
+		if !hasShell {
 			t.Errorf("%s has no docs-layout shell — copy the shell from "+
 				"concepts/primitives.html (template/web/CLAUDE.md §Visual design system)", f)
 		}
 	}
-	for name := range shellLess {
-		if _, err := os.Stat(filepath.Join(root, name)); err != nil {
-			t.Errorf("shellLess names %s, which does not exist: %v", name, err)
-		} else if !seen[name] {
-			t.Errorf("shellLess names %s, but it now carries the shell — drop it from the list", name)
-		}
+	if !landing {
+		t.Errorf("the landing page %s does not exist", shellLess)
 	}
 	if pages < 100 {
 		t.Fatalf("only %d pages scanned for the shell; the walk is broken", pages)
@@ -287,7 +277,7 @@ func TestWebDocsSectionNavListsEverySibling(t *testing.T) {
 		name := rel(t, f)
 		section, _, _ := strings.Cut(name, "/")
 		want, inSection := index[section]
-		if !inSection || shellLess[name] {
+		if !inSection || name == shellLess {
 			continue
 		}
 		body, err := os.ReadFile(f)

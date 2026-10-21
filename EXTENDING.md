@@ -746,11 +746,10 @@ A page from a third party talks to a chat link through the embedded JS SDK at
 page calls `Arizuko.connect(token)` and streams frames.
 
 - The SDK source is `webd/assets/arizuko-client.js`, embedded in `webd`.
-- The walkthrough is
-  [howto/chat-sdk.html](template/web/pub/arizuko/howto/chat-sdk.html), and the
-  sample page is
-  [examples/chat-sdk.html](template/web/pub/arizuko/examples/chat-sdk.html). Copy
-  the sample to `<data-dir>/web/pub/<app>/index.html` and replace the token.
+- The walkthrough
+  [howto/chat-sdk.html](template/web/pub/arizuko/howto/chat-sdk.html) carries
+  the sample page. Copy the sample to `<data-dir>/web/pub/<app>/index.html` and
+  replace the token.
 - [`webd/README.md`](webd/README.md#the-browser-sdk) covers caching, CORS and
   the `/config` discovery field.
 

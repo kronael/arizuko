@@ -78,8 +78,6 @@ pub/arizuko/
   strategy/       positioning and direction
   research/       longer write-ups
   changelog/      what shipped, dated
-  crackbox/       the egress sandbox's own pages
-  examples/       runnable samples
   assets/
     hub.css       single stylesheet (dark/light, prose, code, nav)
     hub.js        theme toggle, minimal nav, the version stamp
@@ -256,10 +254,8 @@ break navigation. Use `../assets/hub.css`, `../../assets/hub.js`, etc.
 based on the file's depth under `pub/`.
 
 Every page copies the shell in §"Visual design system" below. Only the landing
-page and the four redirect stubs (`examples/chat-sdk.html`,
-`components/crackbox.html`, `crackbox/index.html`, `crackbox/reference/index.html`)
-are shell-less, in a bare `.hub-container`; `tests/webdocs`
-`TestWebDocsShellLessPagesAreTheKnownFive` fails on any other page without the
+page is shell-less, in a bare `.hub-container`; `tests/webdocs`
+`TestWebDocsOnlyTheLandingIsShellLess` fails on any other page without the
 shell.
 
 Breadcrumb: always present, links to parent sections. Format: `arizuko › components › gated`.
@@ -395,9 +391,6 @@ skipped anyway — six shipped products had no page and four pages had no tree
 - Daemon detail lives in `components/<daemon>.html`; the cross-cutting
   _idea_ it implements stays a concept (`concepts/voice.html` is the
   idea, `components/ttsd.html` is the daemon).
-
-Real top-level moves (only these): `crackbox/` → `components/crackbox.html`;
-`examples/chat-sdk.html` → `howto/`. Redirect the old paths.
 
 ## Current state
 

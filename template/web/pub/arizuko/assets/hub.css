@@ -245,7 +245,7 @@ h3 {
   align-items: start;
 }
 
-/* A page with no shell: the landing page, and the redirect stubs. */
+/* The one page with no shell: the landing page. */
 .hub-container {
   max-width: var(--w-prose);
   margin: 0 auto;
