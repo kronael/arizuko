@@ -126,7 +126,7 @@ func TestHandleSubmitTurn_MissingTurnID(t *testing.T) {
 	dir := t.TempDir()
 	sock := dir + "/gated.sock"
 	gated := GatedFns{
-		SubmitTurn: func(folder string, t TurnResult) error { return nil },
+		SubmitTurn: func(folder string, t TurnResult) (TurnAck, error) { return TurnAck{OK: true}, nil },
 	}
 	stop, err := ServeMCP(sock, gated, StoreFns{}, "world", false, 0, "")
 	if err != nil {

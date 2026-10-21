@@ -38,10 +38,10 @@ type GatedFns struct {
 	// minted inside the send would never match it, so the adapter opened a fresh
 	// claim and posted the message a second time (BUGS L106). The caller mints
 	// it before the send, so a failed send records the same id it tried.
-	SendMessage          func(jid, text, msgID string) (string, error)
+	SendMessage          func(jid, text, msgID string) (platformID, threadRoot string, err error)
 	SendReply            func(jid, text, replyToId, msgID string) (platformID, threadRoot string, err error)
-	SendDocument         func(jid, path, filename, caption, replyTo, threadID, msgID string) (string, error)
-	SendVoice            func(jid, text, voice, folder, threadID string) (string, error)
+	SendDocument         func(jid, path, filename, caption, replyTo, threadID, msgID string) (platformID, threadRoot string, err error)
+	SendVoice            func(jid, text, voice, folder, threadID string) (platformID, threadRoot string, err error)
 	Post                 func(jid, content string, mediaPaths []string) (string, error)
 	Like                 func(jid, targetID, reaction string) error
 	Delete               func(jid, targetID string) error
@@ -60,11 +60,11 @@ type GatedFns struct {
 	CreateInvite         func(targetGlob, issuedBySub string, maxUses int, expiresAt *time.Time) (InviteInfo, error)
 	ListInvites          func(issuedBy string) ([]InviteInfo, error)
 	RevokeInvite         func(ref string) error
-	SubmitTurn           func(folder string, t TurnResult) error
-	// SubmitStatus delivers a mid-turn progress notice as the turn's one "⏳ ..."
-	// message, without ending the turn. A channel that cannot edit receives
-	// nothing. Nil = method unconfigured.
-	SubmitStatus func(folder, turnID, text string) error
+	SubmitTurn           func(folder string, t TurnResult) (TurnAck, error)
+	CheckTurn            func(folder, turnID string) (TurnCheck, error)
+	// SubmitStatus declares the task summary or updates progress without ending
+	// the turn. Nil = method unconfigured.
+	SubmitStatus func(folder string, status TurnStatus) error
 	// Per-group ambient controls (spec 5/F-topic-lineage).
 	SetGroupOpen          func(folder string, open bool) error
 	SetGroupObserveWindow func(folder string, msgs, chars int) error
@@ -118,10 +118,8 @@ type TurnResult struct {
 	TurnID    string `json:"turn_id"`
 	SessionID string `json:"session_id,omitempty"`
 	Status    string `json:"status"` // success | error
-	Result    string `json:"result,omitempty"`
 	Error     string `json:"error,omitempty"`
-	// TimedOut marks a result that is the graceful query-timeout summary
-	// rather than a normal completion. routd logs a WARN; outcome stays OK.
+	// TimedOut reports harness time or turn-limit exhaustion.
 	TimedOut bool `json:"timed_out,omitempty"`
 
 	// Models carries per-model token usage + pre-computed cost, as the
@@ -129,6 +127,19 @@ type TurnResult struct {
 	// report. routd logs it and stores nothing: the model gateway is the
 	// ledger (spec 6/39).
 	Models map[string]ModelUsage `json:"models,omitempty"`
+}
+
+// TurnAck acknowledges a submission, optionally holding the turn open for a nudge.
+type TurnAck struct {
+	OK    bool   `json:"ok"`
+	Nudge string `json:"nudge,omitempty"`
+}
+
+// TurnCheck is the shared delivery decision returned to a harness Stop hook.
+type TurnCheck struct {
+	Delivered bool   `json:"delivered"`
+	Owed      bool   `json:"owed"`
+	Nudge     string `json:"nudge"`
 }
 
 // ModelUsage is one model's tokens + pre-computed cost for a turn.
@@ -528,6 +539,10 @@ func serveConn(ctx context.Context, c net.Conn, srv *server.MCPServer, gated Gat
 			handleSubmitStatus(raw, head.ID, gated, folder, reply)
 			continue
 		}
+		if head.Method == "check_turn" {
+			handleCheckTurn(raw, head.ID, gated, folder, reply)
+			continue
+		}
 
 		// mcp_tool span (spec 5/O-observability): every tools/call funnels through
 		// HandleMessage. Parse the tool name for the span attr; non-tool methods
@@ -563,6 +578,31 @@ func serveConn(ctx context.Context, c net.Conn, srv *server.MCPServer, gated Gat
 	}
 }
 
+func handleCheckTurn(raw []byte, id any, gated GatedFns, folder string, write func(any)) {
+	var req struct {
+		Params struct {
+			TurnID string `json:"turn_id"`
+		} `json:"params"`
+	}
+	if err := json.Unmarshal(raw, &req); err != nil || req.Params.TurnID == "" {
+		write(map[string]any{"jsonrpc": "2.0", "id": id,
+			"error": map[string]any{"code": -32602, "message": "turn_id required"}})
+		return
+	}
+	if gated.CheckTurn == nil {
+		write(map[string]any{"jsonrpc": "2.0", "id": id,
+			"error": map[string]any{"code": -32603, "message": "check_turn not configured"}})
+		return
+	}
+	check, err := gated.CheckTurn(folder, req.Params.TurnID)
+	if err != nil {
+		write(map[string]any{"jsonrpc": "2.0", "id": id,
+			"error": map[string]any{"code": -32603, "message": err.Error()}})
+		return
+	}
+	write(map[string]any{"jsonrpc": "2.0", "id": id, "result": check})
+}
+
 func handleSubmitTurn(raw []byte, id any, gated GatedFns, folder string, write func(any)) {
 	var req struct {
 		Params TurnResult `json:"params"`
@@ -588,7 +628,8 @@ func handleSubmitTurn(raw []byte, id any, gated GatedFns, folder string, write f
 		})
 		return
 	}
-	if err := gated.SubmitTurn(folder, req.Params); err != nil {
+	ack, err := gated.SubmitTurn(folder, req.Params)
+	if err != nil {
 		write(map[string]any{
 			"jsonrpc": "2.0", "id": id,
 			"error": map[string]any{"code": -32603, "message": err.Error()},
@@ -600,19 +641,27 @@ func handleSubmitTurn(raw []byte, id any, gated GatedFns, folder string, write f
 		"status", req.Params.Status)
 	write(map[string]any{
 		"jsonrpc": "2.0", "id": id,
-		"result": map[string]any{"ok": true},
+		"result": ack,
 	})
 }
 
-// handleSubmitStatus is the mid-turn progress hook: it delivers the agent's
-// <status> text as the turn's one "⏳ ..." message, without ending the turn.
-// Hidden from tools/list, same as submit_turn.
+type StatusKind string
+
+const (
+	StatusSummary  StatusKind = "summary"
+	StatusProgress StatusKind = "progress"
+)
+
+type TurnStatus struct {
+	TurnID string     `json:"turn_id"`
+	Text   string     `json:"text"`
+	Kind   StatusKind `json:"kind,omitempty"`
+}
+
+// handleSubmitStatus is hidden from tools/list, like submit_turn.
 func handleSubmitStatus(raw []byte, id any, gated GatedFns, folder string, write func(any)) {
 	var req struct {
-		Params struct {
-			TurnID string `json:"turn_id"`
-			Text   string `json:"text"`
-		} `json:"params"`
+		Params TurnStatus `json:"params"`
 	}
 	if err := json.Unmarshal(raw, &req); err != nil {
 		write(map[string]any{
@@ -628,6 +677,11 @@ func handleSubmitStatus(raw []byte, id any, gated GatedFns, folder string, write
 		})
 		return
 	}
+	if req.Params.Kind != "" && req.Params.Kind != StatusSummary && req.Params.Kind != StatusProgress {
+		write(map[string]any{"jsonrpc": "2.0", "id": id,
+			"error": map[string]any{"code": -32602, "message": "kind must be summary or progress"}})
+		return
+	}
 	if gated.SubmitStatus == nil {
 		write(map[string]any{
 			"jsonrpc": "2.0", "id": id,
@@ -635,7 +689,7 @@ func handleSubmitStatus(raw []byte, id any, gated GatedFns, folder string, write
 		})
 		return
 	}
-	if err := gated.SubmitStatus(folder, req.Params.TurnID, req.Params.Text); err != nil {
+	if err := gated.SubmitStatus(folder, req.Params); err != nil {
 		write(map[string]any{
 			"jsonrpc": "2.0", "id": id,
 			"error": map[string]any{"code": -32603, "message": err.Error()},
@@ -721,11 +775,10 @@ func activeTopic(db StoreFns, folder string) string {
 
 // recordOutbound appends the durable row for a DELIVERED outbound message.
 func recordOutbound(gated GatedFns, db StoreFns, jid, text, platformID, folder, msgID string) {
-	putOutboundRow(gated, db, jid, text, platformID, folder, "", "", msgID, core.MessageStatusSent)
+	putOutboundRow(gated, db, jid, text, platformID, folder, "", activeTopic(db, folder), msgID, core.MessageStatusSent)
 }
 
-// recordOutboundReply is recordOutbound for the verb that can ROOT a thread. The
-// root is the reply's own, so only the reply path has one to pass.
+// recordOutboundReply records the thread resolved by the delivery path.
 func recordOutboundReply(gated GatedFns, db StoreFns, jid, text, platformID, folder, threadRoot, msgID string) {
 	putOutboundRow(gated, db, jid, text, platformID, folder, "", threadRoot, msgID, core.MessageStatusSent)
 }
@@ -773,14 +826,7 @@ func putOutboundRow(gated GatedFns, db StoreFns, jid, text, platformID, folder, 
 	// key the gateway seeds (SetLastReply at turn start). "" would chain
 	// the next in-thread reply off the wrong (root) key.
 	turnTopic := activeTopic(db, folder)
-	topic := turnTopic
-	// A reply that ROOTED a platform thread lands in that thread, and for a
-	// parent-channel turn the active topic is "" — so without this the row said
-	// nothing about where it went. The turn's own topic still wins when it has
-	// one: this is deliverRow's policy (routd/turns.go), not a second one.
-	if topic == "" {
-		topic = threadRoot
-	}
+	topic := threadRoot
 	if platformID != "" && db.SetLastReply != nil {
 		_ = db.SetLastReply(jid, topic, platformID, folder)
 	}
@@ -847,11 +893,11 @@ func internalSend(gated GatedFns, db StoreFns, folder, jid, text string, files [
 			return "", fmt.Errorf("send not configured")
 		}
 		msgID := core.MsgID("mcp")
-		platformID, err := gated.SendMessage(jid, text, msgID)
+		platformID, thread, err := gated.SendMessage(jid, text, msgID)
 		if err != nil {
-			return "", recordOutboundFailure(gated, db, jid, text, folder, "", "", msgID, true, err)
+			return "", recordOutboundFailure(gated, db, jid, text, folder, "", thread, msgID, true, err)
 		}
-		recordOutbound(gated, db, jid, text, platformID, folder, msgID)
+		recordOutboundReply(gated, db, jid, text, platformID, folder, thread, msgID)
 		return platformID, nil
 	}
 	if gated.SendDocument == nil {
@@ -861,11 +907,11 @@ func internalSend(gated GatedFns, db StoreFns, folder, jid, text string, files [
 	for _, f := range files {
 		// One id per file: each file is its own delivery and its own row.
 		msgID := core.MsgID("mcp")
-		platformID, err := gated.SendDocument(jid, f.LocalPath, f.Filename, text, f.ReplyTo, f.ThreadID, msgID)
+		platformID, thread, err := gated.SendDocument(jid, f.LocalPath, f.Filename, text, f.ReplyTo, f.ThreadID, msgID)
 		if err != nil {
-			return "", recordOutboundFailure(gated, db, jid, text, folder, f.ReplyTo, "", msgID, false, err)
+			return "", recordOutboundFailure(gated, db, jid, text, folder, f.ReplyTo, thread, msgID, false, err)
 		}
-		recordOutbound(gated, db, jid, text, platformID, folder, msgID)
+		recordOutboundReply(gated, db, jid, text, platformID, folder, thread, msgID)
 		lastID = platformID
 	}
 	return lastID, nil
@@ -1020,6 +1066,19 @@ func parseBefore(req mcp.CallToolRequest) (time.Time, error) {
 		return time.Time{}, fmt.Errorf("invalid before timestamp: %w", err)
 	}
 	return t, nil
+}
+
+// refuseText checks the delivery arguments, without rewriting the agent's words.
+func refuseText(text string, allowEmpty bool) error {
+	if !allowEmpty && strings.TrimSpace(text) == "" {
+		return fmt.Errorf("delivery text is empty")
+	}
+	for _, literal := range []string{"$WEB_HOST", "/home/node/", "/var/lib/www/"} {
+		if strings.Contains(text, literal) {
+			return fmt.Errorf("delivery text contains %s; use the public URL instead", literal)
+		}
+	}
+	return nil
 }
 
 // buildMCPServer wires one group's tool surface.
@@ -1224,7 +1283,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 			})
 	}
 
-	registerRaw("send", "A fresh top-level message that is NOT a reply to the current conversation. Use ONLY when you explicitly need that — a proactive/unprompted notification, or a message to a different chat. For responding to the user (the normal case) use `reply`, which threads. Not for threaded replies (`reply`) or file delivery (`send_file` — its caption replaces this call). Returns the sent message's `id` — use it with `edit` to update this message in place (a live status/checklist).",
+	registerRaw("send", "Send a notification or a message to an explicit chat. Use `reply` for answers and `send_file` for files. Where supported, sends share the current task's existing thread or the declared summary's thread. An explicit different chat keeps its own destination. Returns the sent message's `id`. Use `<status>` and `TodoWrite` for live progress.",
 		[]mcp.ToolOption{
 			mcp.WithString("chatJid", mcp.Required()),
 			mcp.WithString("text", mcp.Required()),
@@ -1235,6 +1294,9 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 				return toolErr(err.Error())
 			}
 			text := req.GetString("text", "")
+			if err := refuseText(text, false); err != nil {
+				return toolErr(err.Error())
+			}
 			snippet := text
 			if len(snippet) > 60 {
 				snippet = snippet[:60]
@@ -1247,7 +1309,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 			return toolJSON(map[string]any{"ok": true, "id": platformID})
 		})
 
-	registerRaw("reply", "THE DEFAULT way to respond — use this for virtually every answer to the user. Delivers your message into the thread of the conversation you're answering: on Slack/Discord it lands in a thread off the triggering message (started for you if one doesn't exist yet), keeping the channel clean. Omit replyToId to thread to the current conversation automatically, or pass it to target a specific earlier message in the SAME thread. A target outside the current thread still delivers — the text lands in the thread without the quote banner, because the platform resolves a reference inside the destination channel only. The place is what the reader needs; the banner is decoration. Only reach for `send` when you deliberately need a fresh top-level message in a channel that is NOT a reply. Returns the posted message's `id` — pass it to `edit` to update this message in place (a live status/checklist), or as the next `replyToId` to build a thread.",
+	registerRaw("reply", "Deliver the answer in the current conversation. Existing threads take precedence. Where supported, replies follow the declared task summary's thread. Omit `replyToId` to use the current conversation, or supply an earlier message to quote. A quote outside the destination thread may be omitted. An explicit different chat keeps its own destination. Returns the posted message's `id`. Use `<status>` and `TodoWrite` for live progress.",
 		[]mcp.ToolOption{
 			mcp.WithString("chatJid", mcp.Required()),
 			mcp.WithString("text", mcp.Required()),
@@ -1262,6 +1324,9 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 				return toolErr("reply not configured")
 			}
 			text := req.GetString("text", "")
+			if err := refuseText(text, false); err != nil {
+				return toolErr(err.Error())
+			}
 			replyToID := req.GetString("replyToId", "")
 			if replyToID == "" && db.GetLastReplyID != nil {
 				// Resolve under the active turn's topic — the same key the
@@ -1285,7 +1350,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 			mcp.WithString("filepath", mcp.Required()),
 			mcp.WithString("filename"),
 			mcp.WithString("caption", mcp.Description("Message text to accompany the file. This IS the message — do not output separate text.")),
-			mcp.WithString("replyToId", mcp.Description("Post the file into a thread (Slack thread_ts). Omit to post at channel root.")),
+			mcp.WithString("replyToId", mcp.Description("Optional reply target where supported. Omit to use the current task's thread placement. An explicit different chat keeps its own destination.")),
 		},
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			jid := req.GetString("chatJid", "")
@@ -1295,6 +1360,9 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 			fp := req.GetString("filepath", "")
 			name := req.GetString("filename", "")
 			caption := req.GetString("caption", "")
+			if err := refuseText(caption, true); err != nil {
+				return toolErr(err.Error())
+			}
 			replyToID := req.GetString("replyToId", "")
 			// Fall back to the active turn's topic so a file sent inside a
 			// thread lands in that thread, not the channel root. Same key
@@ -1334,8 +1402,8 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 				return toolErr("send_voice not configured")
 			}
 			text := strings.TrimSpace(req.GetString("text", ""))
-			if text == "" {
-				return toolErr("send_voice: text is empty")
+			if err := refuseText(text, false); err != nil {
+				return toolErr(err.Error())
 			}
 			if len(text) > 5000 {
 				return toolErr("send_voice: text too long (max 5000 chars)")
@@ -1348,11 +1416,11 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 			slog.Info("send_voice", "folder", folder, "jid", jid, "voice", voice, "text", snippet)
 			// Thread the voice reply to the active turn's topic so it lands
 			// in the originating thread, not the channel root (bug-1 mirror).
-			platformID, err := gated.SendVoice(jid, text, voice, folder, activeTopic(db, folder))
+			platformID, thread, err := gated.SendVoice(jid, text, voice, folder, activeTopic(db, folder))
 			if err != nil {
 				return toolMaybeUnsupported(err)
 			}
-			recordOutbound(gated, db, jid, text, platformID, folder, "")
+			recordOutboundReply(gated, db, jid, text, platformID, folder, thread, "")
 			return toolJSON(map[string]any{"ok": true, "id": platformID})
 		})
 
@@ -1371,6 +1439,9 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 				return toolErr("post not configured")
 			}
 			content := req.GetString("content", "")
+			if err := refuseText(content, false); err != nil {
+				return toolErr(err.Error())
+			}
 			var mediaPaths []string
 			if raw := req.GetStringSlice("media", nil); len(raw) > 0 {
 				for _, fp := range raw {
@@ -1536,6 +1607,9 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 		desc: "Modify a message previously sent by this agent in-place (Discord, Slack, Bluesky, Telegram own bot messages) — corrections, a live status. `targetId` is the `platform_id=` attribute of the message XML or the `id` that `reply`/`send` returned, never the XML `id=`. Preserves the platform message id. Platform windows apply (Telegram ≤48h, WhatsApp ~15m); past the window the adapter returns unsupported — do not retry. Not for retract-and-resend (use `delete` then `post`/`send`). Email is unsupported.",
 		args: []string{"chatJid", "targetId", "content"},
 		call: func(a map[string]string) (string, error) {
+			if err := refuseText(a["content"], false); err != nil {
+				return "", err
+			}
 			if gated.Edit == nil {
 				return "", errors.New("edit not configured")
 			}

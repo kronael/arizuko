@@ -42,6 +42,7 @@ const (
 	attrTurnRetryCount  = "retry_count"
 	attrTurnGatewayKey  = "gateway_key_hash"
 	attrTurnAddressed   = "addressed"
+	attrTurnNudged      = "nudged"
 	// AttrTurnStartedAt is when the turn was dispatched, the only attribute
 	// here compared by order. Exported because the move that carries these
 	// rows names the instant it re-renders.
@@ -79,6 +80,7 @@ type TurnContext struct {
 	// Addressed: a person put a question to the folder and is owed an answer.
 	// False for a turn bound before the attribute existed.
 	Addressed bool
+	Nudged    int
 }
 
 // turnKey is the coordinate of one turn.
@@ -107,6 +109,7 @@ func turnFrom(it objstore.Item) TurnContext {
 	}
 	tc.StartedAt, _ = time.Parse(time.RFC3339Nano, it.Attrs[AttrTurnStartedAt])
 	tc.RetryCount, _ = strconv.Atoi(it.Attrs[attrTurnRetryCount])
+	tc.Nudged, _ = strconv.Atoi(it.Attrs[attrTurnNudged])
 	return tc
 }
 
@@ -221,6 +224,16 @@ func (s *Store) SetTurnState(turnID, state string) error {
 	return s.setTurnAttrs(turnID, map[string]string{attrTurnState: state})
 }
 
+// IncrementNudged records a handed-out delivery nudge. The caller serializes
+// the turn's decision and this write under its turn lock.
+func (s *Store) IncrementNudged(turnID string) error {
+	tc, ok := s.TurnContextOf(turnID)
+	if !ok {
+		return fmt.Errorf("no turn context for turn_id")
+	}
+	return s.setTurnAttrs(turnID, map[string]string{attrTurnNudged: strconv.Itoa(tc.Nudged + 1)})
+}
+
 // SetTurnAddressed records whether a person put a question to the turn's folder
 // (spec 6/47 §"Addressed"). The attribute is a set flag and false removes it, so
 // a re-dispatch that resolves differently clears a stale true.
@@ -235,8 +248,7 @@ func (s *Store) SetTurnAddressed(turnID string, addressed bool) error {
 	} else {
 		write.Remove = []string{attrTurnAddressed}
 	}
-	// A refusal is a turn nobody bound.
-	if _, err := s.TryWriteEntities(context.Background(), nil, write); err != nil {
+	if err := s.WriteEntities(context.Background(), nil, write); err != nil {
 		return fmt.Errorf("update turn %s: %w", turnID, err)
 	}
 	return nil

@@ -58,7 +58,7 @@
     <p class="lede">gitd lets a GitHub repository talk to the agent in the same way as a Slack channel. It takes the signed webhook deliveries of GitHub, turns each one into an ordinary inbound message and gives it to routd. After that, a pull request is one more conversation.</p>
 
     <h2>gitd is a channel adapter for GitHub webhooks</h2>
-    <p>gitd is a channel adapter with the same shape as <a href="slakd.html">slakd</a> or <a href="teled.html">teled</a>. It listens for webhook posts, checks the signature and posts one <code>chanlib.InboundMsg</code> to routd. The actions of the agent on the repository, such as merge, label, review or close, go through the GitHub MCP connector. They do not use channel verbs, because they are repository actions, not chat.</p>
+    <p>gitd is a channel adapter with the same shape as <a href="slakd.html">slakd</a> or <a href="teled.html">teled</a>. It checks the signed webhook deliveries and posts <code>chanlib.InboundMsg</code> rows to routd. A completed CI delivery can produce one row for each associated pull request. The actions of the agent on the repository, such as merge, label, review or close, go through the GitHub MCP connector. They do not use channel verbs, because they are repository actions, not chat.</p>
 
     <h2>gitd lets the agent hear from a repository</h2>
     <p>Without gitd, the agent can be told about a repository but cannot hear from it. Someone has to paste the pull request, and the agent answers about a snapshot that has already changed. With gitd, the repository takes part. The comment arrives as a message, the agent reads its thread, and the reply lands on the same pull request.</p>
@@ -94,20 +94,22 @@ github:&lt;owner&gt;/&lt;repo&gt;/issue/&lt;n&gt;   one issue,         topic=iss
 
     <p>The owner and the repository are in the JID, so one App secret for fifty repositories gives fifty JIDs. The ordinary <a href="../reference/cli.html">route table</a> maps them. The sender is <code>github:&lt;login&gt;</code>, the same principal that <a href="authd.html">authd</a> creates for a GitHub sign-in. So the dashboard login of a person and the comment of that person on a pull request are one identity.</p>
 
-    <h2>Human content starts a turn and the rest is observed</h2>
-    <p>A new source gets seeded route rows. Human content starts a turn: a comment, a new pull request or a new issue. Everything else, such as a push, a merge, a label or a CI event, lands as <code>&lt;folder&gt;#observe</code>. The agent reads it and does not answer.</p>
+    <h2>Requests to the bot start a turn and the rest is observed</h2>
+    <p>A new source gets seeded route rows. These events start a turn: a pull request mention, a direct reply to a bot comment, and an assignment or review request that names the bot. To watch the state changes and the completed CI of a pull request, assign the bot to it. Plain comments land as <code>&lt;folder&gt;#observe</code>, also on a watched pull request and in a thread that the bot started. Issue-only events, requests for other people and repository events land there too. Engagement does not promote any of them.</p>
 
-    <p>Repository rows use seq 10 and 100, organization rows 20 and 200, and App rows 30 and 300, so a narrower registration wins. To change the split, edit the rows on <code>/dash/routd/</code> or with <code>arizuko route</code>. gitd never decides it.</p>
+    <p>For CI, subscribe to <code>check_run</code>, <code>check_suite</code> and <code>workflow_run</code>. A completed event reads the current assignees of the pull request, so the token needs the Pull requests read permission. An event with no associated pull request, a queued event and an in-progress event do no lookup. One delivery allows ten distinct pull requests and ten seconds for the lookups. If a lookup fails, gitd answers 503 before it forwards any row. The redeliver button of GitHub then retries the same delivery safely.</p>
 
-    <h2>gitd can post one kind of reply</h2>
-    <p><code>send_text</code> is the only verb, and gitd advertises it only when <code>GITHUB_TOKEN</code> is set. It posts the reply as a comment on the pull request or issue that the JID names. It returns <code>gh-c&lt;id&gt;</code>, the same id that the comment carries when it arrives inbound. gitd drops the own comments of the token at intake, and also anything from a <code>Bot</code> sender, so the agent cannot answer itself. Without a token, gitd only receives, and <code>reply</code> on a <code>github:</code> JID returns an Unsupported hint.</p>
+    <p>Repository rows use seq 10 and 100, organization rows 20 and 200, and App rows 30 and 300, so a narrower registration wins. To change the split, edit the rows on <code>/dash/routd/</code> or with <code>arizuko route</code>.</p>
+
+    <h2>gitd posts replies as comments</h2>
+    <p><code>send_text</code>, <code>send_file</code> and <code>edit</code> need <code>GITHUB_TOKEN</code>. A reply goes to the pull request or issue that the JID names. A reply to an inline review comment stays in that review thread. gitd drops the own comments of the token and the comments of other bots, so the agent cannot answer itself. Typed pull request state events and CI events from automation stay eligible. Without a token, gitd only receives.</p>
 
     <h2>Five environment variables configure gitd</h2>
     <table>
       <tr><th>var</th><th>default</th><th>note</th></tr>
       <tr><td><code>ROUTER_URL</code></td><td>required</td><td></td></tr>
       <tr><td><code>SECRETS_KEY</code></td><td>unset</td><td>the keyring that seals <code>github_sources</code>. gitd needs it to unseal the secrets</td></tr>
-      <tr><td><code>GITHUB_TOKEN</code></td><td>unset</td><td>enables <code>send_text</code></td></tr>
+      <tr><td><code>GITHUB_TOKEN</code></td><td>unset</td><td>enables <code>send_text</code>, <code>send_file</code> and <code>edit</code></td></tr>
       <tr><td><code>GITHUB_API_URL</code></td><td><code>https://api.github.com</code></td><td></td></tr>
       <tr><td><code>LISTEN_ADDR</code></td><td><code>:8080</code></td><td></td></tr>
     </table>
@@ -123,10 +125,10 @@ github:&lt;owner&gt;/&lt;repo&gt;/issue/&lt;n&gt;   one issue,         topic=iss
       <tr><td><code>401</code></td><td>bad signature</td></tr>
       <tr><td><code>404</code></td><td>unknown source</td></tr>
       <tr><td><code>400</code></td><td>a payload outside the source, or routd refused it</td></tr>
+      <tr><td><code>503</code></td><td>CI lookup failed, or neither routd nor retention accepted the message</td></tr>
     </table>
 
     <p><code>GET /dash/gitd/</code> lists the last accepted delivery for each source. It is the shared adapter page, rendered by the same code as for every other adapter.</p>
-
     <h2>gitd runs alone with routd and the store</h2>
     <p>gitd runs alone. It needs routd to deliver to and a store to read its sources from, and nothing more:</p>
 

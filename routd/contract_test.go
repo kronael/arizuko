@@ -23,6 +23,7 @@ import (
 // {outcome:ok, session_id:stub}. Mirrors the stub runed of spec 5/E-routd
 // §"Code pointers", the standalone-readiness bar.
 type stubRunner struct {
+	t        *testing.T
 	srv      *Server
 	gotBatch string
 	gotTurn  string
@@ -39,7 +40,7 @@ func (r *stubRunner) Run(_ context.Context, req runedv1.RunRequest) (runedv1.Run
 	}
 	// the agent's reply lands through routd's append-and-deliver (the sole
 	// appender).
-	r.srv.appendAndDeliver(req.TurnID, req.ChatJID, "hello back")
+	r.srv.replyForTest(r.t, req.TurnID, req.ChatJID, "hello back")
 	// the agent submits its turn.
 	first, _ := r.srv.db.RecordTurnResult(string(req.Folder), req.TurnID, "sess-stub", "success", "")
 	if first {
@@ -55,7 +56,7 @@ func newTestRoutd(t *testing.T) (*DB, *Server, *stubRunner) {
 		t.Fatalf("open mem db: %v", err)
 	}
 	t.Cleanup(func() { db.Close() })
-	runner := &stubRunner{}
+	runner := &stubRunner{t: t}
 	loop := NewLoop(db, runner, LoopConfig{})
 	loop.StopQueue() // drive processGroupMessages directly; no async dispatch races
 	srv := NewServer(db, loop, nil, nil, DefaultEngagementTTL, "https://example.test")
@@ -323,7 +324,7 @@ func TestTurnReplyAppendsAndDelivers(t *testing.T) {
 	srv := NewServer(db, nil, dl, nil, 0, "")
 	db.PutTurnContext("t1", "demo", "", "slack:T/C/U", "u1", "")
 
-	srv.appendAndDeliver("t1", "slack:T/C/U", "answer")
+	srv.replyForTest(t, "t1", "slack:T/C/U", "answer")
 	if dl.sends != 1 {
 		t.Fatalf("deliverer sends=%d want 1", dl.sends)
 	}
@@ -350,14 +351,14 @@ func TestResultRecordsOutcome(t *testing.T) {
 	body := apiv1.TurnResult{TurnID: "t9", SessionID: "sX", Status: "success",
 		Models: map[string]apiv1.ModelCost{"claude": {Input: 100, Output: 20, CostCents: 3}}}
 	first, err := srv.recordTurnResult("t9", body)
-	if err != nil || !first {
+	if err != nil || !first.OK {
 		t.Fatalf("first result: recorded=%v err=%v", first, err)
 	}
 	if got := db.SessionID("demo", "main"); got != "sX" {
 		t.Fatalf("session not persisted: %q", got)
 	}
 	// duplicate → recorded:false.
-	if again, err := srv.recordTurnResult("t9", body); err != nil || again {
+	if again, err := srv.recordTurnResult("t9", body); err != nil || !again.OK {
 		t.Fatalf("duplicate result: recorded=%v err=%v (want dropped)", again, err)
 	}
 }
@@ -424,19 +425,19 @@ func (d *fakeDeliverer) SendOptions(_, _ string, _ []chanlib.Option, _, _ string
 	return d.platformID, nil
 }
 func (d *fakeDeliverer) React(_, _, _ string) error      { return nil }
-func (d *fakeDeliverer) Edit(_, _, _ string) error       { return nil }
-func (d *fakeDeliverer) CanEdit(_ string) bool           { return false }
+func (d *fakeDeliverer) Edit(_, _, _, _ string) error    { return nil }
+func (d *fakeDeliverer) HasCapability(_, _ string) bool  { return false }
 func (d *fakeDeliverer) Delete(_, _ string) error        { return nil }
 func (d *fakeDeliverer) Pin(_, _ string) error           { return nil }
 func (d *fakeDeliverer) Unpin(_, _ string, _ bool) error { return nil }
 func (d *fakeDeliverer) Typing(_ string, _ bool) error   { return nil }
-func (d *fakeDeliverer) Document(_, _, _, _, _, _, _ string) (string, error) {
+func (d *fakeDeliverer) Document(_, _, _, _, _, _, _, _ string) (string, error) {
 	if d.docErr != nil {
 		return "", d.docErr
 	}
 	return d.platformID, nil
 }
-func (d *fakeDeliverer) SendVoice(_, _, _, _ string) (string, error) {
+func (d *fakeDeliverer) SendVoice(_, _, _, _, _ string) (string, error) {
 	return d.platformID, nil
 }
 

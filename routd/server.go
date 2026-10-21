@@ -38,11 +38,8 @@ type Deliverer interface {
 	// is non-deterministic. Empty channel is exactly Send with no threading.
 	SendVia(channel, jid, text string) (platformID string, err error)
 	React(jid, platformID, reaction string) error
-	Edit(jid, platformID, content string) error
-	// CanEdit reports whether the channel owning jid advertises `edit`: the
-	// capability map decides where a progress message may live, never a
-	// platform error (routd/progress.go).
-	CanEdit(jid string) bool
+	Edit(jid, platformID, content, threadID string) error
+	HasCapability(jid, capability string) bool
 	Delete(jid, platformID string) error
 	Pin(jid, platformID string) error
 	Unpin(jid, platformID string, all bool) error
@@ -50,10 +47,10 @@ type Deliverer interface {
 	Typing(jid string, on bool) error
 	// Document delivers a file at path on the shared group volume both routd
 	// and the adapter mount.
-	Document(jid, path, name, caption, replyToID, threadID, idempotencyKey string) (platformID string, err error)
+	Document(jid, path, name, caption, replyToID, threadID, idempotencyKey, threadRoot string) (platformID string, err error)
 	// SendVoice delivers a synthesized voice note (Opus/Ogg); routd synthesizes
 	// via TTS first (tts.go).
-	SendVoice(jid, audioPath, caption, threadID string) (platformID string, err error)
+	SendVoice(jid, audioPath, caption, threadID, threadRoot string) (platformID string, err error)
 	// The social/feed surface; SetSuggestions/SetName stage Slack assistant-pane
 	// controls.
 	Post(jid, content string, mediaPaths []string) (platformID string, err error)
@@ -488,11 +485,17 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	m.ReplyToText = truncate(m.ReplyToText, replyExcerptChars)
-	directReply := hasParent && parent.BotMsg &&
+	canPromoteReply := true
+	github := strings.HasPrefix(m.ChatJID, "github:")
+	if github {
+		jid, valid := chanlib.ParseGitHubJID(m.ChatJID)
+		canPromoteReply = valid && jid.Kind == "pr" && (verb == "message" || verb == "mention")
+	}
+	directReply := canPromoteReply && hasParent && parent.BotMsg &&
 		(verb != "message" || m.ReplyTo != m.Topic ||
 			core.JidPlatform(m.ChatJID) != "slack")
 	threadMention := false
-	if verb != "untrusted" && verb != "mention" && !directReply && m.Topic != "" {
+	if !github && verb != "untrusted" && verb != "mention" && !directReply && m.Topic != "" {
 		stopped, err := s.db.store().ThreadDisengaged(m.ChatJID, m.Topic)
 		if err != nil {
 			writeErr(w, 500, "store_error", err.Error())

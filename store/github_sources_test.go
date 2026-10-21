@@ -52,14 +52,12 @@ func TestGitHubSourceRoutes(t *testing.T) {
 	}{
 		{"repo/kronael/arizuko", []core.Route{
 			{Seq: 10, Match: "chat_jid=github:kronael/arizuko/pr/* verb=mention", Target: "eng"},
-			{Seq: 10, Match: "chat_jid=github:kronael/arizuko/issue/* verb=mention", Target: "eng"},
 			{Seq: 100, Match: "chat_jid=github:kronael/arizuko/pr/*", Target: "eng#observe"},
 			{Seq: 100, Match: "chat_jid=github:kronael/arizuko/issue/*", Target: "eng#observe"},
 			{Seq: 100, Match: "chat_jid=github:kronael/arizuko", Target: "eng#observe"},
 		}},
 		{"org/kronael", []core.Route{
 			{Seq: 20, Match: "chat_jid=github:kronael/*/pr/* verb=mention", Target: "eng"},
-			{Seq: 20, Match: "chat_jid=github:kronael/*/issue/* verb=mention", Target: "eng"},
 			{Seq: 200, Match: "chat_jid=github:kronael/*/pr/*", Target: "eng#observe"},
 			{Seq: 200, Match: "chat_jid=github:kronael/*/issue/*", Target: "eng#observe"},
 			{Seq: 200, Match: "chat_jid=github:kronael/*", Target: "eng#observe"},
@@ -67,7 +65,6 @@ func TestGitHubSourceRoutes(t *testing.T) {
 		}},
 		{"app/arizuko-krons", []core.Route{
 			{Seq: 30, Match: "chat_jid=github:*/*/pr/* verb=mention", Target: "eng"},
-			{Seq: 30, Match: "chat_jid=github:*/*/issue/* verb=mention", Target: "eng"},
 			{Seq: 300, Match: "chat_jid=github:*/*/pr/*", Target: "eng#observe"},
 			{Seq: 300, Match: "chat_jid=github:*/*/issue/*", Target: "eng#observe"},
 			{Seq: 300, Match: "chat_jid=github:*/*", Target: "eng#observe"},
@@ -133,8 +130,8 @@ func TestGitHubSource_AddListSecretRemove(t *testing.T) {
 		t.Fatalf("list other = %+v", other)
 	}
 	routes := s.AllRoutes()
-	if len(routes) != 6 {
-		t.Fatalf("seeded routes = %d, want 6: %+v", len(routes), routes)
+	if len(routes) != 5 {
+		t.Fatalf("seeded routes = %d, want 5: %+v", len(routes), routes)
 	}
 	if _, err := s.AddGitHubSource(GitHubSource{Source: "org/kronael", OwnerFolder: "eng"}, "eng"); !errors.Is(err, ErrGitHubSourceExists) {
 		t.Fatalf("duplicate register err = %v", err)

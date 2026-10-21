@@ -2,6 +2,15 @@
 
 Live in your session — callable directly, no skill invocation needed.
 
+Only explicit delivery tools reach the user. ALWAYS call `reply` for an
+answer; printed prose stays in the transcript. A successful `like` counts as
+a reply when a reaction conveys the answer. Narration uses `<status>` as
+described in the resident manual's § Unattended.
+
+If Telegram confirms a missing reply target and says `not delivered, and no retry follows`, ALWAYS recover in the same `chatJid`.
+ALWAYS inspect that chat, then choose an earlier `replyToId` or a fresh same-chat `send`.
+If the error says `queued` and `do NOT send it again`, NEVER resend — ALWAYS leave the retry to the router.
+
 A tool appears in your list only if your folder holds `mcp:<tool>`. The
 messaging verbs come from `role:member`, which every folder gets at
 create; everything else is a grant an operator or an ancestor delegated

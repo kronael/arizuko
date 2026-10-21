@@ -272,12 +272,12 @@ function createPreCompactHook(assistantName?: string): HookCallback {
 // claudeHooks is the claude RENDERER (spec 6/16): it turns policy.ts's binding
 // table into the SDK's hooks object. claude honours all four verdicts, so no row
 // is refused here.
-function claudeHooks(rows: Binding[]): Record<PolicyEvent, Array<{ matcher?: string; hooks: HookCallback[] }>> {
+export function claudeHooks(rows: Binding[]): Record<PolicyEvent, Array<{ matcher?: string; hooks: HookCallback[] }>> {
   const forEvent = (event: PolicyEvent) =>
     rows
       .filter((b) => b.event === event)
       .map((b) => ({ ...(b.matcher ? { matcher: b.matcher } : {}), hooks: [asHookCallback(b)] }));
-  return { PreToolUse: forEvent('PreToolUse'), PostToolUse: forEvent('PostToolUse') };
+  return { PreToolUse: forEvent('PreToolUse'), PostToolUse: forEvent('PostToolUse'), Stop: forEvent('Stop') };
 }
 
 function asHookCallback(b: Binding): HookCallback {
@@ -287,6 +287,7 @@ function asHookCallback(b: Binding): HookCallback {
       case 'allow':
         return {};
       case 'deny':
+        if (b.event === 'Stop') return { decision: 'block', reason: verdict.reason };
         return {
           hookSpecificOutput: {
             hookEventName: 'PreToolUse',
@@ -432,28 +433,6 @@ export class ClaudeTurn {
   }
 }
 
-async function summarizeMaxTurns(resumeId: string | undefined): Promise<ResultFrame | null> {
-  if (!resumeId) return null;
-  log('Max turns hit; requesting summary + resumption nudge');
-  let text = 'ran out of turns; say "continue" to resume.';
-  for await (const msg of query({
-    prompt: 'You ran out of turns mid-task. Summarise concisely: what you accomplished, what is still pending. Then tell the user they can say "continue" to resume where you left off.',
-    options: {
-      cwd: HOME,
-      maxTurns: 3,
-      resume: resumeId,
-      permissionMode: 'bypassPermissions' as const,
-      allowDangerouslySkipPermissions: true,
-      sandbox: { enabled: false },
-    },
-  })) {
-    if (msg.type === 'result') {
-      text = (msg as { result?: string }).result ?? text;
-    }
-  }
-  return { kind: 'result', ok: true, text };
-}
-
 // runClaude is one turn: unpack the continuity token, drive query(), reduce
 // the SDK stream to frames.
 async function* runClaude(turn: Turn): AsyncGenerator<Frame> {
@@ -532,12 +511,8 @@ async function* runClaude(turn: Turn): AsyncGenerator<Frame> {
       }
       // A result terminates the turn: close the prompt stream so the SDK concludes.
       if (m.type === 'result') stream.end();
-      // error_max_turns is claude-specific: the harness ran out of turns mid-task. Run
-      // a summary subquery and emit one success result carrying it.
       if (m.type === 'result' && m.subtype === 'error_max_turns') {
-        const summary = await summarizeMaxTurns(reducer.sessionId);
-        // No session to resume → deliver nothing (pre-seam behavior).
-        if (summary) yield summary;
+        yield timeoutFrame();
         continue;
       }
       yield* reducer.push(message);
@@ -548,11 +523,8 @@ async function* runClaude(turn: Turn): AsyncGenerator<Frame> {
     // reply. A manual interrupt (no timedOut flag) re-throws; runed's hard kill
     // bounds it.
     if (!timedOut) throw err;
-    log('Query timeout: delivering graceful summary instead of aborting silently');
-    const summary = await summarizeMaxTurns(reducer.sessionId);
-    // No resumable session for a summary subquery → the shared minimal graceful
-    // turn; the user still gets one reply, never silence.
-    yield summary ? { ...summary, timedOut: true } : timeoutFrame();
+    log('Query timeout: submitting timed-out outcome');
+    yield timeoutFrame();
   } finally {
     clearTimeout(timer);
     turn.signal?.removeEventListener('abort', onAbort);

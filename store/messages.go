@@ -798,25 +798,38 @@ func (s *Store) TurnFrames(chatJID, turnID, afterID string, limit int) ([]core.M
 	return messagesFrom(items), nil
 }
 
-// TurnHasBotReply reports whether the agent already delivered a bot row for one
-// turn, so the result path does not send its prose a second time. Interim
-// verb="status" rows are excluded: an auto-status must never count as the
-// reply, or the agent's real answer is swallowed (spec 5/24).
+// TurnHasBotReply accepts sent rows and router-owned pending deliveries.
+// Failed attempts and interim status rows cannot satisfy the turn's reply.
 func (s *Store) TurnHasBotReply(chatJID, turnID string) bool {
-	items, err := s.Obj().Query(context.Background(), objstore.Query{
+	ctx := context.Background()
+	items, err := s.Obj().Query(ctx, objstore.Query{
 		Entity: Messages, Partition: chatJID,
 		Where: []objstore.Cmp{
 			{Attr: attrMsgTurnID, Op: objstore.Eq, Value: turnID},
 			{Attr: attrMsgBot, Op: objstore.Present},
 			{Attr: attrMsgVerb, Op: objstore.Ne, Value: verbStatus},
+			{Attr: attrMsgVerb, Op: objstore.Ne, Value: VerbStatusSummary},
 		},
-		Limit: 1,
 	})
-	return err == nil && len(items) > 0
+	if err != nil {
+		return false
+	}
+	for _, item := range items {
+		_, failed, err := s.itemAt(ctx, MessageDelivery, deliveryKey(core.MessageStatusFailed, item.Key))
+		if err != nil {
+			return false
+		}
+		if !failed {
+			return true
+		}
+	}
+	return false
 }
 
 // verbStatus is the verb of a turn's progress row (routd/progress.go).
 const verbStatus = "status"
+
+const VerbStatusSummary = "status_summary"
 
 // LastStatusRow answers the newest status row of one turn, delivered or not.
 // A row whose first send is still owed has no platform id yet, and the caller
@@ -1180,5 +1193,9 @@ func (s *Store) LastHumanMessage(ctx context.Context, jid string) (core.Message,
 // answered, a different fact from an answer that arrived before the question.
 func (s *Store) LastBotMessage(ctx context.Context, jid string) (core.Message, bool, error) {
 	return s.lastMessageWhere(ctx, jid, "bot",
-		[]objstore.Cmp{{Attr: attrMsgBot, Op: objstore.Present}})
+		[]objstore.Cmp{
+			{Attr: attrMsgBot, Op: objstore.Present},
+			{Attr: attrMsgVerb, Op: objstore.Ne, Value: verbStatus},
+			{Attr: attrMsgVerb, Op: objstore.Ne, Value: VerbStatusSummary},
+		})
 }

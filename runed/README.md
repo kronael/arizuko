@@ -10,11 +10,14 @@ runed does these jobs:
 
 - It serves `POST /v1/runs`, the contract between routd and runed: claim, spawn, return.
 - It serves `POST /v1/holds`. A hold claims the run slot of a folder for an external job that needs the folder alone. Examples are a filesystem restore, a vacuum and a migration. No agent turn starts in that folder until the hold ends.
-- It runs the lifecycle of each KVM guest: one `qemu-system-x86_64` process, its virtio-fs shares, its tap and its egress proxy. A steer is a ctl frame over vsock. A kill reaps every pid that the record of the turn names. The section "The guest's turn, step by step" describes the steps.
+- It runs the lifecycle of each KVM guest: one `qemu-system-x86_64` process, its virtio-fs shares, its tap and its egress proxy. A ctl frame over vsock carries the stop and the deadline warning. A kill reaps every pid that the record of the turn names. The section "The guest's turn, step by step" describes the steps.
 - It enforces `RUNED_RUN_TIMEOUT` per run. An hourly sweep deletes spawns older than seven days. The retention bounds the one partition that all spawns share.
 - On graceful shutdown it detaches the runs in flight. A guest outlives the daemon, and the next runed reaps it from the record on disk.
 
 ## Entities runed owns
+
+A live folder returns `busy=true`; routd retains the batch for refeed after
+the active run ends, then dispatches it with its own turn identity.
 
 The `runed` owner is separate from routd. It owns `spawns`, `session_log`, `circuit_breaker` and `audit_log`. These tables hold runtime state that has no home in routd. They are not configuration that a manifest addresses, so `/openapi.json` exposes only the read path of `audit`.
 
@@ -174,14 +177,13 @@ The renderer also writes the per-turn files that the mounts point at:
 
 ### Admission is claim or reject
 
-`Manager.Run` (`manager.go`) answers in one of three ways and keeps no queue. A second queue inside runed would drift from the queue of routd, which already holds the batch.
+`Manager.Run` (`manager.go`) answers in one of two ways and keeps no queue. A second queue inside runed would drift from the queue of routd, which already holds the batch.
 
-| Folder state                         | Answer                                               | routd then                                                     |
-| ------------------------------------ | ---------------------------------------------------- | -------------------------------------------------------------- |
-| a live guest                         | the batch goes in as a steer frame; `steered` on ack | marks this turn done; the first run owns the batch             |
-| a live spawn row, no ack             | `busy`                                               | re-feeds the batch later, no cursor advance, no breaker charge |
-| cap `MAX_CONCURRENT_CONTAINERS` full | `busy`                                               | the same                                                       |
-| idle, under the cap                  | a `spawns` row in `queued`, then the guest           | waits for the outcome                                          |
+| Folder state                         | Answer                                     | routd then                                                     |
+| ------------------------------------ | ------------------------------------------ | -------------------------------------------------------------- |
+| a live guest or spawn row            | `busy`                                     | re-feeds the batch later, no cursor advance, no breaker charge |
+| cap `MAX_CONCURRENT_CONTAINERS` full | `busy`                                     | the same                                                       |
+| idle, under the cap                  | a `spawns` row in `queued`, then the guest | waits for the outcome                                          |
 
 - runed keeps no state outside the store. Every admission decision reads the `spawns` rows under one mutex for check and claim. A map in memory would lie after a restart: a folder would stay wedged, or the cap would reset. At boot, `ExpireOrphans` ends every row that a dead runed left live, as `exited` with outcome `error` and never `killed` (`runstore/spawns.go`).
 - `StartSpawn` takes the claim with a condition on `state='queued'`. A `DELETE` that lands between the claim and the launch wins, and the run answers `busy`. A `killed` row makes the folder read free, so a launch without this guard would put two guests on one mount.
@@ -220,9 +222,9 @@ The host assigns the CID of the guest, and the vhost driver of the host drops ev
 
 To reach the tools of folder B, an agent in folder A would need the CID of B. Or the bridge of A would have to dial the socket of B. The host kernel refuses the first, and the bridge holds one path, which refuses the second. A unix socket does not cross virtio-fs, so the socket of the guest lives on a tmpfs inside the guest and never on the share.
 
-### Steer and stop
+### Deadline warning and stop
 
-A follow-up for a folder with a live guest is a `steer` frame on `ctl`. `guest-init` writes the batch under `/run/ipc/input`, signals the agent and answers `steer_ack`. The closure returns true only on that ack. routd marks the turn done on an accepted steer, so an unacknowledged batch must answer false. The guest tmpfs that held it is gone at power-off, and false makes routd feed the batch again.
+A follow-up for a folder with a live guest is refused with `busy`; routd keeps the batch and feeds it again after the run ends. The run deadline sends a `steer` frame on `ctl` that warns the agent. `guest-init` writes it under `/run/ipc/input`, signals the agent and answers `steer_ack`.
 
 The run deadline sends `stop`. `guest-init` sends SIGTERM to the agent and powers off after 10 seconds. runed waits `RUNED_REAP_GRACE` for the `exit` frame. Then it sends SIGKILL to the QEMU pid and confirms that the process is gone, because a guest power-off does not prove that QEMU exited. `DELETE /v1/runs/{run_id}` reaps the same way, from the record on disk.
 

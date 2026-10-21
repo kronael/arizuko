@@ -16,12 +16,17 @@ import (
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/chanreg"
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/ipc"
 	apiv1 "github.com/kronael/arizuko/routd/api/v1"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 	"github.com/kronael/arizuko/store"
 )
 
 const progressJID = "slack:T/C/U"
+
+func (s *Server) mcpSubmitStatus(turnID, text string) error {
+	return s.submitStatus(ipc.TurnStatus{TurnID: turnID, Text: text})
+}
 
 func newProgressTurn(t *testing.T, dl *recDeliverer, returnTo string) (*DB, *Server) {
 	t.Helper()
@@ -132,6 +137,28 @@ func TestProgress_HardEditErrorSurfaces(t *testing.T) {
 	}
 }
 
+func TestProgress_ThreadContextReachesUpdatesAndCompletion(t *testing.T) {
+	dl := &recDeliverer{}
+	db, srv := newProgressTurn(t, dl, "")
+	if _, err := db.PutTurnContext("threaded", "demo", "th-7", progressJID, "u1", ""); err != nil {
+		t.Fatal(err)
+	}
+	for _, text := range []string{"first", "second"} {
+		if err := srv.mcpSubmitStatus("threaded", text); err != nil {
+			t.Fatal(err)
+		}
+	}
+	finishTurn(db, dl, "threaded", endDone)
+	if len(dl.edits) != 2 {
+		t.Fatalf("edits=%+v", dl.edits)
+	}
+	for _, edit := range dl.edits {
+		if edit.threadID != "th-7" {
+			t.Fatalf("edit lost its persisted thread: %+v", edit)
+		}
+	}
+}
+
 func TestProgress_RefusedEditPostsNothing(t *testing.T) {
 	dl := &recDeliverer{editErr: chanlib.ErrUnsupported}
 	db, srv := newProgressTurn(t, dl, "")
@@ -156,9 +183,9 @@ func TestProgress_ResultStatusAlreadyStreamedPostsOnce(t *testing.T) {
 	if err := srv.mcpSubmitStatus("t1", "verified; writing review"); err != nil {
 		t.Fatal(err)
 	}
+	srv.replyForTest(t, "t1", progressJID, "the review")
 	_, err := srv.recordTurnResult("t1", apiv1.TurnResult{
 		TurnID: "t1", SessionID: "sX", Status: "success",
-		Result: "<status>verified; writing review</status>the review",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -187,7 +214,8 @@ func TestProgress_FailedResultUpdateStillDeliversReply(t *testing.T) {
 	if err := srv.mcpSubmitStatus("t1", "a"); err != nil {
 		t.Fatal(err)
 	}
-	srv.appendAndDeliver("t1", progressJID, "<status>b</status>the answer")
+	_ = srv.mcpSubmitStatus("t1", "b")
+	srv.replyForTest(t, "t1", progressJID, "the answer")
 	if last := dl.sends[len(dl.sends)-1]; last.text != "the answer" {
 		t.Fatalf("a failed progress edit withheld the reply: %+v", dl.sends)
 	}
@@ -253,12 +281,12 @@ func TestProgress_IsTheOnlyProgressWriter(t *testing.T) {
 	}
 }
 
-func TestChanDeliverer_CanEditReadsTheCapabilityMap(t *testing.T) {
+func TestChanDeliverer_HasCapabilityReadsTheCapabilityMap(t *testing.T) {
 	t.Setenv("CHANNEL_REGISTER_ALLOW_PUBLIC", "1")
 	a := newFakeAdapter(t, "pid")
 	reg := chanreg.New()
 	for name, caps := range map[string]map[string]bool{
-		"editd":  {"send_text": true, "edit": true},
+		"editd":  {"send_text": true, "edit": true, "thread_root": true},
 		"plaind": {"send_text": true},
 	} {
 		prefix := name + ":"
@@ -274,8 +302,13 @@ func TestChanDeliverer_CanEditReadsTheCapabilityMap(t *testing.T) {
 		"nobody:1": false,
 		"muted:1":  false,
 	} {
-		if got := d.CanEdit(jid); got != want {
-			t.Errorf("CanEdit(%s) = %v, want %v", jid, got, want)
+		for _, capability := range []string{"edit", "thread_root"} {
+			if got := d.HasCapability(jid, capability); got != want {
+				t.Errorf("HasCapability(%s, %s) = %v, want %v", jid, capability, got, want)
+			}
+		}
+		if d.HasCapability(jid, "thread_id") {
+			t.Errorf("undeclared capability accepted for %s", jid)
 		}
 	}
 }
@@ -297,8 +330,10 @@ func TestProgress_EndEditsTerminalDone(t *testing.T) {
 	dl := &recDeliverer{}
 	db, srv := progressWithRow(t, dl)
 
-	if _, err := srv.recordTurnResult("t1", apiv1.TurnResult{TurnID: "t1", SessionID: "s", Status: "success"}); err != nil {
-		t.Fatal(err)
+	srv.replyForTest(t, "t1", progressJID, "done")
+	ack, err := srv.recordTurnResult("t1", apiv1.TurnResult{TurnID: "t1", SessionID: "s", Status: "success"})
+	if err != nil || !ack.OK || ack.Nudge != "" {
+		t.Fatalf("delivered completion: ack=%+v err=%v", ack, err)
 	}
 	if len(dl.edits) != 1 || dl.edits[0].content != "✓ working" {
 		t.Fatalf("edits=%+v, want one edit reading %q", dl.edits, "✓ working")
@@ -534,8 +569,10 @@ func TestProgress_RecoveredTurnEditsItsRowWhenItCompletes(t *testing.T) {
 	}
 
 	srv := NewServer(db, loop, after, nil, 0, "")
-	if _, err := srv.recordTurnResult("t1", apiv1.TurnResult{TurnID: "t1", SessionID: "s", Status: "success"}); err != nil {
-		t.Fatal(err)
+	srv.replyForTest(t, "t1", progressJID, "done")
+	ack, err := srv.recordTurnResult("t1", apiv1.TurnResult{TurnID: "t1", SessionID: "s", Status: "success"})
+	if err != nil || !ack.OK || ack.Nudge != "" {
+		t.Fatalf("delivered completion after restart: ack=%+v err=%v", ack, err)
 	}
 	if len(after.edits) != 1 || after.edits[0].content != "✓ working" {
 		t.Fatalf("edits after the restart = %+v, want one ✓ edit of the persisted message", after.edits)

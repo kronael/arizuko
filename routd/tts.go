@@ -42,7 +42,7 @@ var httpClient = &http.Client{Timeout: 30 * time.Second}
 // sendVoice synthesizes text → Opus via the TTS service, memoized on (text,
 // voice, model), and hands the cached path to the Deliverer. The ipc tool layer
 // persists the bot row (recordOutbound), so this must NOT — deliver-only.
-func (s *Server) sendVoice(jid, text, voice, folder, threadID string) (string, error) {
+func (s *Server) sendVoice(jid, text, voice, folder, threadID, threadRoot string) (string, error) {
 	if s.deliver == nil {
 		return "", nil
 	}
@@ -63,7 +63,7 @@ func (s *Server) sendVoice(jid, text, voice, folder, threadID string) (string, e
 	if err != nil {
 		return "", fmt.Errorf("synthesize: %w", err)
 	}
-	return s.deliver.SendVoice(jid, audioPath, "", threadID)
+	return s.deliver.SendVoice(jid, audioPath, "", threadID, threadRoot)
 }
 
 func (s *Server) resolveVoice(arg, folder string) string {

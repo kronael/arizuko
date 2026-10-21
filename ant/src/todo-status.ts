@@ -54,7 +54,7 @@ export function todoStatus(
       // Only a genuinely multi-step list earns a live checklist; a 1-item list is
       // noise (progress skill: "three milestones beat ten micro-updates").
       if (!todos || todos.length < 2) return ALLOW;
-      await send({ turn_id: turnID, text: renderTodos(todos) });
+      await send({ turn_id: turnID, text: renderTodos(todos), kind: 'progress' });
     } catch (err) {
       // never let a status update break a tool call
       console.error(`[ant] todo-status failed: ${err instanceof Error ? err.message : String(err)}`);

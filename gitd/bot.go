@@ -166,11 +166,15 @@ func statusErr(resp *http.Response, raw []byte) error {
 // call makes one GitHub request and returns its body, or the refusal
 // statusErr classifies.
 func (b *bot) call(method, url string, body []byte, want []int) ([]byte, error) {
+	return b.callContext(context.Background(), method, url, body, want)
+}
+
+func (b *bot) callContext(ctx context.Context, method, url string, body []byte, want []int) ([]byte, error) {
 	var rdr io.Reader
 	if body != nil {
 		rdr = bytes.NewReader(body)
 	}
-	hreq, err := http.NewRequest(method, url, rdr)
+	hreq, err := http.NewRequestWithContext(ctx, method, url, rdr)
 	if err != nil {
 		return nil, err
 	}
@@ -275,7 +279,7 @@ const uploadHint = "commit it to a branch with the github connector and link it 
 // the content in a fenced block. GitHub has no API that attaches a file to a
 // comment, so a file that is not text, or does not fit the comment cap, is
 // refused before any request with the connector tool that can hold it.
-func (b *bot) SendFile(jid, path, name, caption, replyTo, _ string) (string, error) {
+func (b *bot) SendFile(jid, path, name, caption, replyTo, _, _ string) (string, error) {
 	if b.cfg.Token == "" {
 		return "", chanlib.Unsupported("send_file", "github", "GITHUB_TOKEN unset; "+uploadHint)
 	}

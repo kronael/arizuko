@@ -13,11 +13,10 @@ depends:
 # specs/6/46 — turn progress: one declaration, two renderings, a declared degradation per sink
 
 routd declares that a turn is running, what it is doing, and that it ended.
-Every channel renders that declaration with the two primitives it has — an
-ephemeral presence mark and one message edited in place — and a channel that
-has neither says so in its capability map and renders nothing. No adapter
-decides on its own what "the agent is working" looks like, and no channel
-receives a second progress message for one turn.
+Every channel declares its presence, edit and thread capabilities. A compatible
+channel keeps an immutable `🤖` task opener with one editable progress message
+and answers in its thread. Other editable channels keep one progress message;
+channels without `edit` render no progress message.
 
 `status: partial`: the renderer, the terminal mark, the `edit` sinks gitd and webd
 and the shared `👀` mark are built (§"Build state"). Not built: the `Typing` port
@@ -25,6 +24,10 @@ change (D3, declined), Drive `edit` (blocked on the Drive API, §"Unverified") a
 the measurement on krons (§"Acceptance").
 
 ## Build state
+
+The voluntary-reply contract (`47-voluntary-reply.md`) removes the historical
+final-result status reader below. Only ant extracts `<status>` blocks;
+`submit_status` remains routd's progress input.
 
 | Step | What                                                                        | State                                                                       | Pointer                                               |
 | ---- | --------------------------------------------------------------------------- | --------------------------------------------------------------------------- | ----------------------------------------------------- |
@@ -85,18 +88,38 @@ offers is a reply, edited.
 ## The declaration
 
 routd owns the turn, so routd declares its progress. One renderer,
-`routd/progress.go`, has three entry points and is the only code that calls
-`Typing`, or sends or edits a `verb=status` row:
+`routd/progress.go`, is the only code that calls `Typing`, or sends or edits
+progress-only rows:
 
-| Event             | Called from                                                                                                     | Carries                      |
-| ----------------- | --------------------------------------------------------------------------------------------------------------- | ---------------------------- |
-| `Begin(turn)`     | the dispatch, once, before the run                                                                              | chat JID, trigger message id |
-| `Update(turn, t)` | `submit_status` (the `TodoWrite` hook and streamed `<status>` blocks), and each `<status>` block in the result  | the text                     |
-| `End(turn, o)`    | `finishTurn`, the one function every state→`done` site calls (result recorded, terminal failure, silent, clean) | outcome ∈ {`done`, `failed`} |
+| Event              | Called from                                                                                                     | Carries                      |
+| ------------------ | --------------------------------------------------------------------------------------------------------------- | ---------------------------- |
+| `Begin(turn)`      | the dispatch, once, before the run                                                                              | chat JID, trigger message id |
+| `Summary(turn, t)` | the first streamed model `<status>` through `submit_status`                                                     | one-line task summary        |
+| `Update(turn, t)`  | `submit_status` from `TodoWrite` and later streamed `<status>` blocks                                           | progress text                |
+| `End(turn, o)`     | `finishTurn`, the one function every state→`done` site calls (result recorded, terminal failure, silent, clean) | outcome ∈ {`done`, `failed`} |
 
-In code the three are `Loop.beginProgress`, `Server.updateProgress` and
-`endProgress`, which `finishTurn` calls (`routd/progress.go`). The renderer emits
-two renderings and nothing else.
+In code these are `Loop.beginProgress`, `Server.declareSummary`,
+`Server.updateProgress` and `endProgress`, called by `finishTurn`.
+
+**The task summary** is a durable `verb=status_summary` row with deterministic
+id `summary-<turnID>`. The hidden `submit_status` method accepts optional
+`kind: "summary"` or `kind: "progress"`; omission keeps legacy progress input.
+The declared summary is never inferred from a task list. It stays `🤖` when
+progress ends. Both progress verbs confer an answer obligation and are excluded
+from final delivery and last-answer tracking.
+
+`routd/placement.go` places progress, text, files, voice, terminal notices and
+outbound retries. An existing topic wins without creating a nested thread.
+Otherwise `thread_root`, a group chat and enabled `thread_replies` permit the
+opener to anchor the task thread. Existing topics require `thread_id`.
+Without compatible placement, the summary uses the single editable progress
+card and final placement stays unchanged. A channel without `edit` posts no progress.
+
+A pending opener keeps its durable row and idempotency key. An unresolved or
+unreadable opener refuses an unplaced child without queueing a guessed
+destination. The agent can retry after recovery. A platform thread failure
+returns through normal delivery classification; no child escapes to the parent.
+All summary readers use the same error-aware reader.
 
 **Presence** is `Typing(on)` at `Begin` and `Typing(off)` at `End`, on the
 chat that receives the reply and, at `End`, on every chat the run owns
@@ -115,9 +138,7 @@ with it is the sink's declaration (§"The sink's declaration").
   the update is dropped and logged at debug with the turn id. There is no
   fallback to a fresh send: a stream of `⏳` posts is the defect this spec
   exists for, not a degradation.
-- Each later `Update` edits it. An `Update` whose text equals the row's current
-  text is a no-op, which is what makes the two extraction sites (ant's
-  `statusBlocks` and routd's `ExtractStatusBlocks`) safe to keep.
+- Each later `Update` edits it. Equal text is a no-op.
 - The row's content is rewritten on every edit, so the row is the message as
   the user sees it.
 - `End` edits it once more into its terminal form: the leading `⏳ ` becomes
@@ -131,8 +152,8 @@ with it is the sink's declaration (§"The sink's declaration").
 The live message id is the newest `verb=status` row's `platform_id`
 (`store/messages.go` `LastStatusRow`), so the message survives a routd
 restart: `recoverPending` re-enqueues the running turn, the turn reaches
-`finishTurn`, and `End` finds the row. `TurnHasBotReply` keeps excluding
-status rows. A `(turn, chat)` never has two status rows.
+`finishTurn`, and `End` finds the row. A `(turn, chat)` never has two checklist
+rows. The separate summary never receives a terminal mark.
 
 `End` fires when the turn ends, not when the reply lands: an agent that
 replies through the `reply` tool and then writes its diary is still working,
@@ -143,11 +164,13 @@ and the message says so until it is not.
 An adapter's capability map says what it renders. routd reads it; it never
 probes a platform error to find out.
 
-| Capability | Meaning under this spec                                                                          |
-| ---------- | ------------------------------------------------------------------------------------------------ |
-| `typing`   | the sink renders presence: a native indicator, or an acknowledgement mark on the trigger message |
-| `edit`     | a progress message may live here; the sink edits its own posts                                   |
-| neither    | the sink renders nothing for progress; routd sends it nothing for progress                       |
+| Capability    | Meaning under this spec                                                                          |
+| ------------- | ------------------------------------------------------------------------------------------------ |
+| `typing`      | the sink renders presence: a native indicator, or an acknowledgement mark on the trigger message |
+| `edit`        | a progress message may live here; the sink edits its own posts                                   |
+| `thread_id`   | the sink places sends in an existing thread                                                      |
+| `thread_root` | the sink creates or reuses a thread from a message before sending content                        |
+| neither       | the sink renders nothing for progress; routd sends it nothing for progress                       |
 
 **The acknowledgement mark** is a reaction that carries no social meaning —
 `👀` on Slack and GitHub. A like, an upvote or a heart is a public statement
@@ -322,8 +345,13 @@ on step 7.
   edits, and a terminal `✓` edit; the row's content equals the last text.
 - The same turn on a channel without `edit` leaves no status row and no
   platform message, and a debug log line per dropped update.
-- A turn whose final result repeats a streamed `<status>` posts it once
-  (`TestProgress_ResultStatusAlreadyStreamedPostsOnce`).
+- Duplicate progress text posts once
+  (`TestProgress_EqualTextIsNoOp`).
+- `routd/summary_delivery_test.go` covers opener placement, pending opener
+  refusal and replay identity. `routd/summary_degradation_test.go` covers
+  existing topics, unsupported new threads and explicit foreign destinations.
+- `routd/summary_read_failure_test.go` proves summary faults block sends,
+  declarations, progress and completion checks until reads recover.
 - A failed turn's message ends `✗`; the failure notice is a separate message.
 - gitd and slakd set and remove the `👀` through the shared helper; a
   persisted mark older than `DefaultTypingMaxTTL` at boot is removed; no

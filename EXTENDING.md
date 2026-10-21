@@ -396,9 +396,9 @@ it came from. `forwarded_from` on a stored row is something else. It is the
 return address of a delegation. See
 [ROUTING.md](ROUTING.md#reply-routing).
 
-### Showing progress with the typing and edit capabilities
+### Showing progress and placing threads
 
-`routd` shows a running turn through two capabilities in the registration of
+`routd` shows a running turn through capabilities in the registration of
 the adapter. It sends a channel nothing that the adapter did not advertise.
 Advertise only what you implement. `chanlib.CapImplReport` checks every verb in
 the map except `typing`.
@@ -417,12 +417,20 @@ the map except `typing`.
 - `edit` commits `POST /edit` to replace the text of a message that this
   adapter sent. The id that its `/send` returned names the message. Any other
   id is `chanlib.ErrInvalidRequest`, and an adapter never edits the message of
-  another party. With `edit`, `routd` posts one `⏳` message at the first
-  status of the turn and edits it on each later status. At the end of the turn
-  it edits the message to `✓` or `✗`.
-- With neither capability, `routd` sends the channel no presence and no
-  progress message. That is the right choice for a platform where a second post
-  is a public statement.
+  another party. The optional `thread_id` gives edit context where the
+  platform needs it. Progress edits change one `⏳` message. At the end of the
+  turn the message becomes `✓` or `✗`.
+- `thread_id` places text, files and voice in an existing thread.
+- `thread_root` creates or reuses a thread rooted at a message before it sends
+  text, files or voice. A refused thread destination returns an error. The
+  adapter never sends the child at the parent instead.
+- With `edit` and compatible thread placement, `routd` posts an immutable `🤖`
+  summary opener and keeps progress and answers in its thread. An existing
+  thread wins. Without new-thread support, `routd` keeps one editable progress
+  card.
+- With neither `typing` nor `edit`, `routd` sends the channel no presence and
+  no progress message. That is the right choice for a platform where a second
+  post is a public statement.
 
 ### Offering pickable answers with the buttons capability
 
@@ -910,7 +918,12 @@ speaks that protocol as its own process. It publishes its agent tools through
 code changes, and any language works.
 
 That process must do three things. It reads the JSON turn input on stdin. It
-runs the turn against the socket. It calls `submit_turn` exactly once. The
+runs the turn against the socket. It delivers through an explicit delivery tool
+(`reply`, `send`, `send_file` or `send_voice`) and calls `submit_turn`. Prose is
+never a reply. A nonempty `nudge` in the `submit_turn` response continues the
+same turn ID and session, and the harness then submits again. The hidden
+`check_turn` method lets a Stop hook ask the same decision early. The broker
+hands out one nudge across both readers. The
 harness handles steering in the middle of a turn in its own way. ant drains
 `/run/ipc/input` between tool calls (`pollIpcDuringQuery` in
 `ant/src/index.ts`), and another harness maps it to whatever its protocol
@@ -921,8 +934,8 @@ runtime half is reused: it parses stdin, steers by IPC, runs the `<status>`
 pipeline and makes `submit_turn` idempotent. The harness half is one interface and one file for each backend. The
 interface takes a `Turn`, returns `Frame`s, and has one `run()` and a capability
 profile. The files are `ant/src/claude.ts`, the default, `codex.ts` and
-`pi.ts`. Select a backend with `ARIZUKO_BACKEND=codex|pi` in the `.env` of
-the instance. The CLI of the backend must be baked into the agent image. The
+`pi.ts`. Select a backend with `ARIZUKO_BACKEND=codex` in the `.env` of
+the instance. ant refuses `pi` until it has a delivery-tool bridge. The CLI of the backend must be baked into the agent image. The
 `HarnessProfile` of each backend in `ant/src/backend.ts` says what it can and
 cannot do with MCP tools, skills and the skill guard. The profile states the
 differences truthfully and does not claim parity.

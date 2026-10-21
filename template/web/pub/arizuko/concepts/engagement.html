@@ -104,6 +104,7 @@
     <h2>Two MCP tools control the window</h2>
     <dl>
       <dt><code>engage(jid, topic)</code></dt>
+    <p>Engagement can open a turn for context without addressing the agent. Such a turn may remain silent. An addressed request, or a turn that posts progress, owes an explicit delivery; terminal prose never becomes a chat reply.</p>
       <dd>Opens the window explicitly, for example before a scheduled autonomous turn.</dd>
       <dt><code>disengage(jid, topic)</code></dt>
       <dd>Clears the window, so the next inbound message needs a new mention.</dd>

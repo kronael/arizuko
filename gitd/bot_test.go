@@ -457,7 +457,7 @@ func TestSendFile_PostsTextAsFencedBlock(t *testing.T) {
 	gh, reqs, bodies := fakeGitHub(t, 201, `{"id":901}`)
 	b := newBot(config{Token: "ghp_test", APIBase: gh.URL})
 	path := writeTemp(t, "main.go", []byte("package main\n\n// ``` inside\nfunc main() {}\n"))
-	id, err := b.SendFile("github:kronael/arizuko/pr/12", path, "main.go", "the entrypoint", "", "")
+	id, err := b.SendFile("github:kronael/arizuko/pr/12", path, "main.go", "the entrypoint", "", "", "")
 	if err != nil || id != "gh-c901" {
 		t.Fatalf("SendFile = %q, %v", id, err)
 	}
@@ -479,7 +479,7 @@ func TestSendFile_RefusesBeforeAnyRequest(t *testing.T) {
 
 	t.Run("oversize", func(t *testing.T) {
 		path := writeTemp(t, "big.txt", []byte(strings.Repeat("x", 65536)))
-		_, err := b.SendFile(jid, path, "big.txt", "", "", "")
+		_, err := b.SendFile(jid, path, "big.txt", "", "", "", "")
 		if !errors.Is(err, chanlib.ErrInvalidRequest) {
 			t.Fatalf("err = %v, want ErrInvalidRequest", err)
 		}
@@ -490,7 +490,7 @@ func TestSendFile_RefusesBeforeAnyRequest(t *testing.T) {
 	t.Run("fits exactly at the cap", func(t *testing.T) {
 		overhead := len(fileComment("a.txt", "", ""))
 		path := writeTemp(t, "a.txt", []byte(strings.Repeat("x", 65536-overhead-1)+"\n"))
-		if _, err := b.SendFile(jid, path, "a.txt", "", "", ""); err != nil {
+		if _, err := b.SendFile(jid, path, "a.txt", "", "", "", ""); err != nil {
 			t.Fatalf("a file that fits was refused: %v", err)
 		}
 	})
@@ -502,7 +502,7 @@ func TestSendFile_RefusesBeforeAnyRequest(t *testing.T) {
 			"x.bin": {0xff, 0xfe, 'a'},
 		} {
 			path := writeTemp(t, name, data)
-			_, err := b.SendFile(jid, path, name, "", "", "")
+			_, err := b.SendFile(jid, path, name, "", "", "", "")
 			if !errors.Is(err, chanlib.ErrUnsupported) {
 				t.Fatalf("%s: err = %v, want Unsupported", name, err)
 			}
@@ -518,7 +518,7 @@ func TestSendFile_RefusesBeforeAnyRequest(t *testing.T) {
 
 func TestSendFile_WithoutTokenIsUnsupported(t *testing.T) {
 	b := newBot(config{})
-	_, err := b.SendFile("github:kronael/arizuko/pr/12", "x.txt", "x.txt", "", "", "")
+	_, err := b.SendFile("github:kronael/arizuko/pr/12", "x.txt", "x.txt", "", "", "", "")
 	if !errors.Is(err, chanlib.ErrUnsupported) {
 		t.Fatalf("err = %v, want Unsupported", err)
 	}

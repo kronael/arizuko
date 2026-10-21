@@ -46,37 +46,6 @@ func TestFormatMessagesEscape(t *testing.T) {
 	}
 }
 
-func TestFormatOutbound(t *testing.T) {
-	cases := []struct {
-		name, in, want string
-	}{
-		{"plain", "hello world", "hello world"},
-		{"strips internal", "before<internal>secret</internal>after", "beforeafter"},
-		{"multiline internal", "a<internal>\nfoo\nbar\n</internal>b", "ab"},
-		{"trims whitespace", "  hello  ", "hello"},
-		// silent-refusal meta-comments suppressed at boundary.
-		{"silent: no response requested", "No response requested.", ""},
-		{"silent: no period", "no response requested", ""},
-		{"silent: bracket remaining silent", "[Remaining silent]", ""},
-		{"silent: bare remaining silent", "Remaining silent.", ""},
-		{"silent: bracket silent", "[Silent]", ""},
-		{"silent: parens no response", "(no response)", ""},
-		{"silent: no reply needed", "no reply needed", ""},
-		{"silent: nothing to add", "nothing to add.", ""},
-		{"silent: staying silent", "staying silent.", ""},
-		{"silent: acknowledged", "Acknowledged.", ""},
-		{"keeps when substring", "I have no response requested as a tool", "I have no response requested as a tool"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			got := FormatOutbound(tc.in)
-			if got != tc.want {
-				t.Fatalf("got %q, want %q", got, tc.want)
-			}
-		})
-	}
-}
-
 func TestIsAuthorizedRoutingTarget(t *testing.T) {
 	cases := []struct {
 		name           string
@@ -98,49 +67,6 @@ func TestIsAuthorizedRoutingTarget(t *testing.T) {
 					tc.source, tc.target, got, tc.want)
 			}
 		})
-	}
-}
-
-func TestStripThinkBlocks(t *testing.T) {
-	cases := []struct {
-		name, in, want string
-	}{
-		{"no blocks", "hello world", "hello world"},
-		{"simple", "before<think>hidden</think>after", "beforeafter"},
-		{"nested", "a<think>x<think>y</think>z</think>b", "ab"},
-		{"unclosed hides rest", "before<think>rest", "before"},
-		{"multiple", "a<think>1</think>b<think>2</think>c", "abc"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			got := StripThinkBlocks(tc.in)
-			if got != tc.want {
-				t.Fatalf("got %q, want %q", got, tc.want)
-			}
-		})
-	}
-}
-
-func TestExtractStatusBlocks(t *testing.T) {
-	cleaned, statuses := ExtractStatusBlocks("before<status>working on it</status>after")
-	if cleaned != "beforeafter" {
-		t.Fatalf("cleaned = %q", cleaned)
-	}
-	if len(statuses) != 1 || statuses[0] != "working on it" {
-		t.Fatalf("statuses = %v", statuses)
-	}
-
-	cleaned, statuses = ExtractStatusBlocks("no status here")
-	if cleaned != "no status here" || len(statuses) != 0 {
-		t.Fatal("should pass through")
-	}
-
-	cleaned, statuses = ExtractStatusBlocks("<status>  </status>text")
-	if len(statuses) != 0 {
-		t.Fatal("empty status should be filtered")
-	}
-	if strings.TrimSpace(cleaned) != "text" {
-		t.Fatalf("cleaned = %q", cleaned)
 	}
 }
 
@@ -202,19 +128,6 @@ func TestUserContextXml(t *testing.T) {
 	}
 	if !strings.Contains(got, "<user ") {
 		t.Fatalf("should be user tag, got %q", got)
-	}
-}
-
-func TestFormatOutboundThinkAndStatus(t *testing.T) {
-	got := FormatOutbound("text<think>hidden</think> more<status>s</status> end")
-	if strings.Contains(got, "hidden") || strings.Contains(got, "<think>") {
-		t.Fatal("should strip think blocks")
-	}
-	if strings.Contains(got, "<status>") {
-		t.Fatal("should strip status blocks")
-	}
-	if !strings.Contains(got, "text") || !strings.Contains(got, "more") {
-		t.Fatal("should keep surrounding text")
 	}
 }
 
@@ -586,47 +499,6 @@ func TestResolveRouteTarget_ObserveAboveMentionShadowsIt(t *testing.T) {
 	}
 	if rt.Folder != "main" {
 		t.Errorf("folder = %q, want main", rt.Folder)
-	}
-}
-
-// A desk agent decided correctly that a conversation was not for it, then said
-// so in the chat: "Not addressed to me — [user] is continuing the geopolitics
-// discussion ... Staying silent." The whole-string guard could not catch it,
-// because the reasoning came first (BUGS L329). The whole block goes: an agent
-// that closes by announcing silence has told us the words before it were
-// deliberation.
-func TestFormatOutboundDropsReasoningThatEndsInARefusal(t *testing.T) {
-	for _, raw := range []string{
-		"Not addressed to me — michal is continuing the geopolitics discussion with susheen, no @mention or tag. Desk norm is reply only when tagged.  ... Staying silent.",
-		"Staying silent.",
-		"<think>Not addressed to me.</think>\nStaying silent.",
-		"They're talking to each other, not me. No reply needed.",
-		"This one is for the other desk. Not addressed to me.",
-		"I'm staying silent",
-	} {
-		if got := FormatOutbound(raw); got != "" {
-			t.Errorf("FormatOutbound(%.40q…) = %q, want empty — the agent said it was not replying", raw, got)
-		}
-	}
-}
-
-// The guard must not eat an answer. "silent" and "acknowledged" end real
-// sentences, which is why the trailing pattern takes only phrases that can
-// mean nothing but a decision about replying.
-func TestFormatOutboundKeepsAnAnswerThatMerelyMentionsSilence(t *testing.T) {
-	for _, raw := range []string{
-		"I checked the alert history: between 02:00 and 06:00 the pager stayed silent.",
-		"Your request is acknowledged by the upstream API, which returns 202.",
-		"The log line is there but the handler is silent",
-		"Nothing to add to the config — it already sets the timeout.",
-		// The whole-string list widened to this anchor would eat these two:
-		// the phrase is the last SENTENCE, not the whole message.
-		"The upstream API returns 202. Acknowledged.",
-		"I pinged the pager at 02:00 and again at 06:00. Silent.",
-	} {
-		if got := FormatOutbound(raw); got != raw {
-			t.Errorf("FormatOutbound(%q) = %q, want it delivered unchanged", raw, got)
-		}
 	}
 }
 

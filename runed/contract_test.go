@@ -90,9 +90,8 @@ func TestContractRun(t *testing.T) {
 	}
 }
 
-// TestSteerIntoRunning checks a second POST /v1/runs for a folder with a
-// live spawn returns steered:true (an ack), not a fresh turn-boundary.
-func TestSteerIntoRunning(t *testing.T) {
+// A second POST for a live folder returns busy without feeding its guest.
+func TestLiveFolderRejectsFreshTurn(t *testing.T) {
 	// FakeRuntime that blocks until we release it, simulating a live run.
 	release := make(chan struct{})
 	started := make(chan struct{})
@@ -116,16 +115,17 @@ func TestSteerIntoRunning(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ActiveRunID: %v", err)
 	}
-	srv.mgr.SetSteer(live, func(batch string) bool { return true })
+	steered := false
+	srv.mgr.SetSteer(live, func(batch string) bool { steered = true; return true })
 
 	rec := doRun(t, h, runedv1.RunRequest{Folder: "demo", ChatJID: "j", TurnID: "t2", MessageBatch: "steered"})
 	var out runedv1.RunOutcome
 	json.Unmarshal(rec.Body.Bytes(), &out)
-	if !out.Steered {
-		t.Fatalf("second run steered=%v want true (out=%+v)", out.Steered, out)
-	}
 	close(release)
 	<-done
+	if rec.Code != 200 || !out.Busy || out.Steered || out.RunID != "" || steered {
+		t.Fatalf("fresh turn entered live run: status=%d out=%+v steered=%v", rec.Code, out, steered)
+	}
 }
 
 func doRun(t *testing.T, h http.Handler, req runedv1.RunRequest) *httptest.ResponseRecorder {

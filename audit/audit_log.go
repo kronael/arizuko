@@ -46,6 +46,35 @@ func EnsureEntities(ctx context.Context, s EntityMaker) error {
 	return s.CreateEntity(ctx, Entity)
 }
 
+// HasSuccessfulTurnAction reads an action's existing compliance record without
+// the operator history page's cap. Both the turn and folder must match exactly.
+func HasSuccessfulTurnAction(ctx context.Context, s objstore.Store, turnID, folder string, since time.Time, actions ...string) (bool, error) {
+	if since.IsZero() {
+		return false, fmt.Errorf("turn action read requires started_at")
+	}
+	items, err := s.Query(ctx, objstore.Query{
+		Entity: Entity, Partition: logPartition,
+		Key: objstore.KeyPredicate{Op: objstore.GeKey, Value: idAt(core.TS(since), strings.Repeat("0", suffixHex))},
+		Where: []objstore.Cmp{
+			{Attr: attrTurnID, Op: objstore.Eq, Value: turnID},
+			{Attr: attrFolder, Op: objstore.Eq, Value: folder},
+			{Attr: attrCategory, Op: objstore.Eq, Value: CategoryAgent},
+			{Attr: attrOutcome, Op: objstore.Eq, Value: OutcomeOK},
+		}, Project: []string{attrAction},
+	})
+	if err != nil {
+		return false, err
+	}
+	for _, item := range items {
+		for _, action := range actions {
+			if item.Attrs[attrAction] == action {
+				return true, nil
+			}
+		}
+	}
+	return false, nil
+}
+
 // logPartition is the one partition every event lives in.
 const logPartition = "audit"
 

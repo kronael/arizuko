@@ -459,26 +459,20 @@ denying turns, which is the trust that host already carries.
 
 ## Steer and stop
 
-The steer is a write to `/run/ipc/input` plus a signal (`runed/docker.go:202-214`,
-`ant/src/index.ts:39,93`). In the VM, `/run/ipc` is guest-local, so both halves
-travel on `ctl`: runed sends `{steer: batch}`; `guest-init` writes the batch
-into the guest's `/run/ipc/input/` and sends `SIGUSR1` to ant's pid. The
-closure `RegisterSteer` hands back returns false when `ctl` is closed — the
-same documented race, the same fall-through to a fresh spawn.
+A follow-up for a folder with a live guest is refused: `Manager.Run` answers
+`busy`, routd keeps the batch and feeds it again after the run ends, with its
+own turn context and MCP binding. runed never writes a follow-up into a live
+guest.
 
-**A steer is acknowledged by the guest, never by the socket write.** routd marks
-the turn `done` the moment a steer is accepted (`routd/dispatch.go:465-469`:
-`if out.Steered { SetTurnState(turnID, "done") }`), because the original run owns
-the batch. A write to `ctl` that returns no error proves only that the host
-queued bytes, and the guest tmpfs holding the pending batch is discarded at
-power-off — so a steer lost between the two makes a user's message vanish while
-the turn reads as delivered. That is a silent failure on a user-facing path,
-which the project forbids. Therefore `guest-init` answers every `{steer}` with
-`{steer_ack: id}` AFTER it writes the batch into `/run/ipc/input/` and delivers
-`SIGUSR1`, and the closure returns true ONLY on that ack, inside the grace it
-already waits. No ack is a false return, which is the documented fall-through to
-a fresh spawn, so the batch is re-fed rather than lost. An ack that arrives after
-the guest starts power-off counts as no ack.
+The `{steer}` frame on `ctl` remains for one use, the deadline warning: runed
+sends `{steer: batch}`; `guest-init` writes the batch into the guest's
+`/run/ipc/input/` and sends `SIGUSR1` to ant's pid. The frame is acknowledged by
+the guest, never by the socket write: `guest-init` answers with `{steer_ack: id}`
+AFTER it writes the batch and delivers `SIGUSR1`, and the closure
+`RegisterSteer` hands back returns true ONLY on that ack, inside the grace runed
+already waits. An ack that arrives after the guest starts power-off counts as no
+ack. A write to `ctl` that returns no error proves only that the host queued
+bytes.
 
 `{stop}` sends ant `SIGTERM`; after the grace runed already uses for
 `docker stop`, `guest-init` powers off regardless. The deadline kill is

@@ -520,6 +520,8 @@ func TestProactiveSilentOutcomeArmsCooldown(t *testing.T) {
 // assertion cannot pass merely because this fixture never engages anything.
 func TestProactiveTurnDoesNotBumpEngagement(t *testing.T) {
 	db, srv, _ := newTestRoutd(t)
+	dl := &recDeliverer{}
+	srv.deliver = dl
 	_ = db.PutGroup(core.Group{Folder: "demo"})
 	_ = db.PutGroup(core.Group{Folder: "other"})
 	doSetRoutes(t, db, []core.Route{{Match: "platform=slack", Target: "demo"}})
@@ -555,6 +557,9 @@ func TestProactiveTurnDoesNotBumpEngagement(t *testing.T) {
 	}
 	if _, ok := db.Engaged(humanJID, ""); !ok {
 		t.Fatal("control: a human turn opened no engagement window — the assertion below would prove nothing")
+	}
+	if len(dl.sends) != 2 {
+		t.Fatalf("proactive and human replies must both reach the adapter: sends=%+v", dl.sends)
 	}
 
 	if folder, ok := db.Engaged(proJID, ""); ok {

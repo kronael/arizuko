@@ -50,10 +50,49 @@ func (l *Loop) beginProgress(jid string) {
 	_ = l.deliver.Typing(jid, true)
 }
 
+func summaryID(turnID string) string { return "summary-" + turnID }
+
+func readTaskSummary(db *DB, jid, turnID string) (core.Message, bool, error) {
+	rows, err := db.MessagesSince(jid, "")
+	if err != nil {
+		return core.Message{}, false, err
+	}
+	for _, row := range rows {
+		if row.ID == summaryID(turnID) {
+			return row, true, nil
+		}
+	}
+	return core.Message{}, false, nil
+}
+
+func (s *Server) declareSummary(tc TurnContext, jid, text string) error {
+	text = strings.TrimSpace(text)
+	if text == "" || strings.ContainsAny(text, "\r\n") {
+		return errors.New("task summary must be one nonempty line")
+	}
+	if tc.State == store.TurnDone {
+		return nil
+	}
+	if !summaryThreadEnabled(s.db, s.deliver, tc, jid) {
+		return s.updateProgress(tc, jid, text)
+	}
+	_, ok, err := readTaskSummary(s.db, jid, tc.TurnID)
+	if err != nil {
+		return err
+	}
+	if ok {
+		return nil
+	}
+	row := s.outboundRow(tc, jid, "🤖 "+text, "")
+	row.ID = summaryID(tc.TurnID)
+	row.Verb = store.VerbStatusSummary
+	status := s.deliverRow(tc, jid, &row, "", tc.Topic)
+	return s.db.PutOutbound(row, status)
+}
+
 // updateProgress is the only code that creates or edits a turn's verb=status
 // row. The first update sends the message, a later one edits it and rewrites
-// the row, and an update whose text the row already holds does nothing: the
-// agent's stream and its final result carry the same <status> block.
+// the row, and an update whose text the row already holds does nothing.
 //
 // A channel that does not advertise edit receives nothing. A hard edit failure
 // returns to the caller unchanged and is never re-posted as a fresh message.
@@ -61,11 +100,6 @@ func (l *Loop) beginProgress(jid string) {
 func (s *Server) updateProgress(tc TurnContext, jid, text string) error {
 	text = strings.TrimSpace(text)
 	if text == "" {
-		return nil
-	}
-	if s.deliver == nil || s.mutedGroup(tc.Folder) || !s.deliver.CanEdit(jid) {
-		slog.Debug("progress update dropped: no editable message here",
-			"turn_id", tc.TurnID, "jid", jid)
 		return nil
 	}
 	if tc.State == store.TurnDone {
@@ -78,7 +112,11 @@ func (s *Server) updateProgress(tc TurnContext, jid, text string) error {
 	if !ok {
 		row = s.outboundRow(tc, jid, content, "")
 		row.Verb = verbStatus
-		status := s.deliverTurn(tc, jid, &row)
+		place, err := placeTurnDelivery(s.db, s.deliver, tc, jid, "", true)
+		if err != nil {
+			return err
+		}
+		status := s.deliverRow(tc, place.jid, &row, place.threadRoot, place.threadID)
 		return s.db.PutOutbound(row, status)
 	}
 	if row.Content == content {
@@ -93,7 +131,7 @@ func (s *Server) updateProgress(tc TurnContext, jid, text string) error {
 // leaves the row as the user still sees it.
 func rewriteStatusRow(db *DB, dl Deliverer, turnID, jid string, row core.Message, content string) error {
 	if row.PlatformID != "" {
-		err := dl.Edit(jid, row.PlatformID, content)
+		err := dl.Edit(jid, row.PlatformID, content, row.Topic)
 		if errors.Is(err, chanlib.ErrUnsupported) {
 			slog.Warn("progress edit refused although the channel advertises edit",
 				"turn_id", turnID, "jid", jid, "err", err)
@@ -116,6 +154,10 @@ func rewriteStatusRow(db *DB, dl Deliverer, turnID, jid string, row core.Message
 func finishTurn(db *DB, dl Deliverer, turnID string, end turnEnd) {
 	unlock := lockTurn(turnID)
 	defer unlock()
+	finishTurnLocked(db, dl, turnID, end)
+}
+
+func finishTurnLocked(db *DB, dl Deliverer, turnID string, end turnEnd) {
 	if end != endSteered && dl != nil {
 		endProgress(db, dl, turnID, end)
 	}

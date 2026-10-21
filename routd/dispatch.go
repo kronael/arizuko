@@ -356,7 +356,7 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, addressed bool, tr
 	if err := l.db.SetTurnAddressed(turnID, addressed); err != nil {
 		return false, false, false, "", err
 	}
-	// A threaded reply roots its platform thread on the trigger (replyThreadRoot).
+	// A threaded reply can root its platform thread on the trigger.
 	_ = l.db.SetTurnTriggerMsg(turnID, last.ID)
 	_ = l.db.SetLastReply(chatJID, topic, last.ID, folder)
 
@@ -520,7 +520,14 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, addressed bool, tr
 		return false, false, false, "", nil
 	}
 	end := endDone
-	recorded := l.db.TurnResultRecorded(folder, turnID)
+	result, err := l.db.store().GetTurnResult(folder, turnID)
+	if err != nil {
+		return false, false, false, "", err
+	}
+	if result.Status == "error" {
+		end = endFailed
+	}
+	recorded := result.Status != "pending"
 	// Deliberate silence still records a result, so this fires only on a
 	// malfunction: a 0-result SDK run, a config-less spawn, a swallowed
 	// submit_turn. Not transient — never retry; tell the chat.
@@ -644,10 +651,6 @@ func retryExhaustedNotice(attempts int) string {
 func terminalFailureNotice(cause string) string {
 	return "⚠️ Agent run failed and a retry cannot fix it: " + cause
 }
-
-// silentTurnNotice is sent when a clean run delivered nothing — a malfunction,
-// not deliberate silence, which records a result.
-const silentTurnNotice = "⚠️ I couldn't produce a reply to that — please re-send."
 
 // ghostGroupNotice is sent when a chat routes to a folder with no group row.
 const ghostGroupNotice = "⚠️ This chat routes to a group that isn't set up — an operator needs to register it."

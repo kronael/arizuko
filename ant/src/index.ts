@@ -6,7 +6,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { submitTurn, submitStatus } from './mcp.js';
+import { submitTurn, submitStatus, type TurnAck } from './mcp.js';
 import { injectMcpEnv } from './mcp-servers.js';
 import { Harness, HarnessProfile, Turn, selectHarness } from './backend.js';
 import { STEER_SPOOL, appendLines, drainLines } from './spool.js';
@@ -26,7 +26,6 @@ interface ContainerInput {
 
 interface ContainerOutput {
   status: 'success' | 'error';
-  result: string | null;
   newSessionId?: string;
   error?: string;
   // Per-model usage harvested from the harness's result frame (spec 6/39).
@@ -114,17 +113,16 @@ async function readStdin(): Promise<string> {
   });
 }
 
-async function deliverTurn(turnID: string, output: ContainerOutput): Promise<void> {
+async function deliverTurn(turnID: string, output: ContainerOutput) {
   if (!turnID) {
     log(`deliverTurn skipped: no turn_id (status=${output.status})`);
     return;
   }
   try {
-    await submitTurn({
+    return await submitTurn({
       turn_id: turnID,
       session_id: output.newSessionId,
       status: output.status,
-      result: output.result ?? undefined,
       error: output.error,
       models: output.models,
       timed_out: output.timedOut,
@@ -180,9 +178,10 @@ async function streamStatuses(
   if (!turnID) return;
   for (const s of statusBlocks(text)) {
     if (seen.has(s)) continue;
-    seen.add(s);
+    const kind = seen.size === 0 ? 'summary' : 'progress';
     try {
-      await send({ turn_id: turnID, text: s });
+      await send({ turn_id: turnID, text: s, kind });
+      seen.add(s);
     } catch (err) {
       log(`submit_status failed: ${err instanceof Error ? err.message : String(err)}`);
     }
@@ -259,6 +258,7 @@ interface TurnResult {
   // "Turn failed (terminal)" while the log on disk said "You've hit your individual
   // spend limit" (BUGS `L397`).
   failedReason?: string;
+  nudge?: string;
 }
 
 // EXIT_TERMINAL is sysexits.h EX_CONFIG: "something was found in an
@@ -271,14 +271,14 @@ const EXIT_TERMINAL = 78;
 // never delivered — the caller retries with no continuity. A retryFresh on a turn
 // that was ALREADY fresh has nothing to retry, so it delivers as an error:
 // suppressing it too was a silent-turn path.
-export async function runTurn(
+async function runAttempt(
   harness: Harness,
   prompt: string,
   continuity: string | undefined,
   containerInput: ContainerInput,
   env: Record<string, string>,
   turnID: string,
-  deliver: (turnID: string, output: ContainerOutput) => Promise<void> = deliverTurn,
+  deliver: (turnID: string, output: ContainerOutput) => Promise<TurnAck | void> = deliverTurn,
   sendStatus: typeof submitStatus = submitStatus,
 ): Promise<TurnResult> {
   const controller = new AbortController();
@@ -352,9 +352,8 @@ export async function runTurn(
             out.failed = frame.terminal ? 'terminal' : 'retryable';
             out.failedReason = frame.text;
           }
-          await deliver(turnID, {
+          const ack = await deliver(turnID, {
             status: frame.ok ? 'success' : 'error',
-            result: frame.ok ? frame.text || null : null,
             newSessionId: out.sessionId,
             error: frame.ok
               ? undefined
@@ -364,6 +363,7 @@ export async function runTurn(
             models: frame.usage,
             timedOut: frame.timedOut,
           });
+          if (ack?.nudge) out.nudge = ack.nudge;
         }
       }
     }
@@ -387,7 +387,6 @@ export async function runTurn(
     out.failed = 'retryable';
     await deliver(turnID, {
       status: 'error',
-      result: null,
       newSessionId: out.sessionId,
       error: 'harness produced no result for this turn',
     });
@@ -396,6 +395,28 @@ export async function runTurn(
   out.closedDuringQuery = closedDuringQuery;
   log(`Turn done. Frames: ${frameCount}, results: ${resultCount}, sessionId: ${out.sessionId || 'none'}, closedDuringQuery: ${closedDuringQuery}`);
   return out;
+}
+
+export async function runTurn(
+  harness: Harness,
+  prompt: string,
+  continuity: string | undefined,
+  containerInput: ContainerInput,
+  env: Record<string, string>,
+  turnID: string,
+  deliver: (turnID: string, output: ContainerOutput) => Promise<TurnAck | void> = deliverTurn,
+  sendStatus: typeof submitStatus = submitStatus,
+) {
+  let sessionId: string | undefined;
+  while (true) {
+    const result = await runAttempt(harness, prompt, continuity, containerInput, env, turnID, deliver, sendStatus);
+    continuity = result.token ?? continuity;
+    sessionId = result.sessionId ?? sessionId;
+    if (!result.nudge || result.failed || result.closedDuringQuery || result.retryFresh) {
+      return { ...result, token: continuity, sessionId };
+    }
+    prompt = result.nudge;
+  }
 }
 
 async function main(): Promise<void> {
@@ -513,7 +534,6 @@ async function main(): Promise<void> {
       const turnID = turnIndex === 0 ? seedTurnID : `${seedTurnID}:${turnIndex}`;
       await deliverTurn(turnID, {
         status: 'error',
-        result: null,
         newSessionId: lastSessionId,
         error: errorMessage,
       });

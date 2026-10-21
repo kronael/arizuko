@@ -23,8 +23,8 @@ const (
 )
 
 // Manager owns the execution plane's run lifecycle: per-folder serialization
-// (one live spawn per folder), the global concurrency cap, the
-// steer-into-running path, the circuit breaker and the Runtime envelope
+// (one live spawn per folder), the global concurrency cap, the circuit breaker
+// and the Runtime envelope
 // (spec 5/P-runed). Admission is a pure claim-or-reject decision off the DB; runed
 // keeps NO internal admission queue, and a caller that cannot be admitted
 // gets a retryable busy outcome and routd re-feeds it. The only in-memory
@@ -128,11 +128,8 @@ func kindOf(kind string) string {
 	return kind
 }
 
-// Run executes (or steers) one agent turn as a pure claim-or-reject executor;
-// routd owns all queueing (spec 5/P-runed). Three exits: admitted (claim the slot,
-// spawn, block until the run completes), steered (folder busy with a live
-// container: write the batch in and ack), or busy (folder busy with a dead
-// container, or the global cap is hit).
+// Run executes one agent turn as a pure claim-or-reject executor; routd owns
+// all queueing. A busy folder or global cap rejects without claiming a slot.
 func (m *Manager) Run(ctx context.Context, req runedv1.RunRequest) (runedv1.RunOutcome, error) {
 	kind := kindOf(req.Kind)
 	if err := m.requireExecutor(kind); err != nil {
@@ -203,32 +200,13 @@ func (m *Manager) admit(ctx context.Context, req runedv1.RunRequest, kind string
 	folder := string(req.Folder)
 	m.mu.Lock()
 
-	// Folder busy? Steer into the live container, else reject as busy.
 	active, err := m.db.LiveSpawnInFolder(ctx, folder)
 	if err != nil {
 		m.mu.Unlock()
 		return claim{}, runedv1.RunOutcome{}, false, fmt.Errorf("check active spawn: %w", err)
 	}
 	if active != nil {
-		// A non-agent request carries no message and must never be steered
-		// into a live agent's container (spec 5/8).
-		var steered bool
-		if kind == KindAgent {
-			steer := m.steerFns[active.RunID]
-			steered = steer != nil && steer(req.MessageBatch)
-		}
-		runID := active.RunID
 		m.mu.Unlock()
-		if steered {
-			if merr := m.db.MarkSteered(ctx, runID); merr != nil {
-				slog.Error("runed: could not record the steer", "run_id", runID, "err", merr)
-			}
-			return claim{}, runedv1.RunOutcome{
-				RunID: runID, Outcome: runedv1.OutcomeOK, Steered: true,
-			}, false, nil
-		}
-		// Steer failed (container exited), not attempted, or not yet wired:
-		// busy, and routd re-feeds.
 		return claim{}, runedv1.RunOutcome{Busy: true}, false, nil
 	}
 
@@ -455,10 +433,8 @@ func (m *Manager) endRun(ctx context.Context, folder, runID string, failed bool,
 	return tripped
 }
 
-// SetSteer wires a run's steer callback once the container is up. No liveness
-// check: the run_id IS the key, so a callback for a run that has already
-// ended is an entry nothing can reach, since admit only looks up the run_id
-// the DB reports active.
+// SetSteer records the substrate's guest-input callback for the run's lifetime.
+// Fresh Run admission does not invoke it.
 func (m *Manager) SetSteer(runID string, steer func(batch string) bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

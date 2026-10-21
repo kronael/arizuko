@@ -13,7 +13,53 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
-- A multi-account adapter variant (`teled-jynx`) reads its own `env/<name>.env`; `<KEY>_<LABEL>` in `.env` replaces `<KEY>` there. Two Telegram services no longer poll one bot. Bundled `template/services/teled-jynx.yml`.
+## [v0.70.6] — 2026-10-21
+
+> arizuko v0.70.6 — explicit answers, one task thread
+>
+> Agents deliver answers explicitly, keep task updates together, and start GitHub work only for requests or watched pull requests.
+>
+> • Explicit answers — addressed work gets one reminder before a visible failure notice.
+> • Task threads — immutable summaries keep checklists, answers and attachments together.
+> • Queued follow-ups — new requests wait for the active task instead of joining its running turn.
+> • GitHub asks only — PR requests, assigned-PR changes and completed CI can start turns.
+> • Shorter approvals — a hold asks in one line, and /always pins only the tool's declared keys.
+> • Separate bot accounts — nonempty labeled keys override each account's base credential.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Compatibility and security
+
+- Turn results no longer deliver `result` prose; use `reply`, `send`, `send_file` or `send_voice`.
+- Hidden status, completion and Stop checks reject turn IDs that do not match their MCP socket.
+- `ARIZUKO_BACKEND=pi` is refused until its MCP bridge ships; select `claude` or `codex`.
+- Go file/voice send methods add `threadRoot`; message edits carry explicit thread context.
+- `turn_context` adds `addressed` and `nudged`; existing rows read as false and zero.
+- Replace `arizuko_prose_fallback_turns_total` with `arizuko_nudged_turns_total{folder,outcome}`.
+- routd sends its service bearer only to a registered adapter host, never to an attachment host.
+- The archive export file and its entries are mode 0600; they hold secret rows and route tokens.
+
+### Reliability
+
+- Thread sends, edits, files and retries keep placement; failures never post at the parent.
+- Adapter calls allow 60 seconds for routd under load; social errors retain platform details.
+- Reading marks recover during replacement, and rate limits no longer produce a fabricated status.
+- A missing Telegram reply target is a visible failure; retry with a valid target or a new send.
+- A reply into a thread the bot started forks from the answered turn's session, not from nothing.
+- The observed context window drops scheduled-task prompts, so cron rows no longer crowd out the chat.
+
+### Operator notes
+
+- `arizuko images <instance> [--prune]` lists rootfs and kernel trees, marks the ones in use
+  (`RUNED_ROOTFS_DIR`, `RUNED_KERNEL_DIR`), and with `--prune` removes the rest.
+- Approvals: a hold shows one line written as the agent's request, with three buttons (spec `6/49`).
+- Bundled `template/services/teled-jynx.yml` reads its own `env/<name>.env`.
+  Nonempty `<KEY>_<LABEL>` in `.env` replaces `<KEY>`; empty overrides inherit the base value.
+  Set distinct bot tokens so two Telegram services do not poll one bot.
+- For existing GitHub sources, remove legacy `verb=message` and issue-mention trigger routes.
+  Keep PR mention routes and observation fallbacks.
+- Subscribe to `check_run`, `check_suite` and `workflow_run` for completed CI on assigned PRs.
+  The token needs Pull requests read access. Other CI events remain observations.
 
 ## [v0.70.5] — 2026-10-18
 

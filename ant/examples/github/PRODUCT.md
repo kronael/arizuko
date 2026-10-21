@@ -29,7 +29,10 @@ skills  = ["diary", "recall-memories", "users", "issues", "oracle", "web"]
 #    Paste the printed URL and secret into the repo's Settings > Webhooks.
 #    Set application/json and select the events the agent should receive.
 #    The secret is sealed in routd's store. Registration seeds github: routes:
-#    comments and new issues/PRs trigger turns; other events go to dev#observe.
+#    PR mentions, direct replies and requests trigger turns. Assign the token's
+#    user to each PR to watch its state and completed CI. Plain comments and
+#    issue-only events go to dev#observe. Select check_run, check_suite and
+#    workflow_run events for CI; the token needs Pull requests read access.
 #    Within one repository, each PR or issue uses its own topic, pr/<n> or issue/<n>.
 #    For an installed GitHub App, use add app <slug> dev and paste the URL
 #    and secret into the App's webhook settings. Installation-token issuance

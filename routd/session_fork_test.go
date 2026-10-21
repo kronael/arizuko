@@ -232,12 +232,16 @@ func TestReplyIntoBotRootedThreadCopiesParentSession(t *testing.T) {
 	srv := NewServer(db, loop, dl, nil, 0, "")
 	_ = db.SetChatIsGroup(jid, true)
 	threadTurn(t, db, "t1", folder, jid, jid+"/151")
-	srv.appendAndDeliver("t1", jid, "answer")
+	if _, root, err := srv.mcpDeliver("t1", jid, "answer", "", "m1", true); err != nil || root != "151" {
+		t.Fatalf("mcpDeliver thread root = %q, %v; want the bare thread id 151", root, err)
+	}
 	if got := dl.sends[0].threadRoot; got != "151" {
 		t.Errorf("thread root sent = %q, want the bare thread id 151", got)
 	}
-	if bot, _ := db.MessageByID(jid, jid+"/152"); bot.Topic != "151" {
-		t.Errorf("bot reply topic = %q, want 151", bot.Topic)
+	bot := core.Message{ID: "out-1", ChatJID: jid, Sender: "main", BotMsg: true, FromMe: true,
+		Timestamp: time.Now().UTC(), Topic: "151", PlatformID: "152"}
+	if err := db.PutOutbound(bot, core.MessageStatusSent); err != nil {
+		t.Fatal(err)
 	}
 
 	last := core.Message{ChatJID: jid, Topic: "151", ReplyToID: jid + "/152"}

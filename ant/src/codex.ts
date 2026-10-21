@@ -223,6 +223,7 @@ const POLICY_CLI = '/tmp/dist/policy-cli.js';
 export function verdictToCodexJson(verdict: Verdict, event: PolicyEvent): string {
   switch (verdict.kind) {
     case 'deny':
+      if (event === 'Stop') return JSON.stringify({ decision: 'block', reason: verdict.reason });
       return JSON.stringify({
         hookSpecificOutput: {
           hookEventName: 'PreToolUse',

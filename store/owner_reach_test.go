@@ -226,7 +226,7 @@ func TestInstallDocumentsTheReach(t *testing.T) {
 // the declaration cannot say different things about the same daemon.
 func installRow(daemon string, owners []string) string {
 	if len(owners) == 0 {
-		return "| `" + daemon + "` | — |"
+		return "| `" + daemon + "` | none |"
 	}
 	quoted := make([]string, len(owners))
 	for i, o := range owners {

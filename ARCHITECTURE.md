@@ -153,9 +153,9 @@ guest lives in `runed`. One synchronous HTTP call joins them: `POST /v1/runs`.
      │                                             │ RunOutcome returns
      │                                             ▼
      │                        ┌──────────────────────────────────────────┐
-     │                        │ runed Manager.Run: a live guest takes a  │
-     │                        │ steer frame; a full cap answers busy;    │
-     │                        │ else it claims the spawns row            │
+     │                        │ runed Manager.Run: a live folder or a    │
+     │                        │ full cap answers busy, else it claims    │
+     │                        │ the spawns row                           │
      │                        └────────────────────┬─────────────────────┘
      │                                             ▼
      │                        ┌──────────────────────────────────────────┐
@@ -174,9 +174,9 @@ guest lives in `runed`. One synchronous HTTP call joins them: `POST /v1/runs`.
      │                                             │ submit_turn
      │                                             ▼
      │ POST <url>/send        ┌──────────────────────────────────────────┐
-     │ the reply rows and     │ bridge ► routd socket: mcpDeliver, or    │
-     │ one edited status row  │ recordTurnResult ► appendAndDeliver ►    │
-     └────────────────────────┤ chanDeliverer.Send                       │
+     │ the reply rows and     │ bridge ► routd socket: mcpDeliver ►      │
+     │ one edited status row  │ chanDeliverer.Send; submit_turn ►        │
+     └────────────────────────┤ recordTurnResult (outcome only)          │
                               └──────────────────────────────────────────┘
 ```
 
@@ -202,8 +202,8 @@ The figure and the rules head
 
 The cold tier is every name in `resreg/resources/names.go`; `secrets` is
 REST-only, `network_rules` agent-only, the `groups` REST twin list-only. The
-hot tier is MCP-only. `submit_turn` and `submit_status` sit below it, hidden
-from `tools/list`. `arizuko apply` writes config tables only, and no daemon
+hot tier is MCP-only. `submit_turn`, `check_turn` and `submit_status` sit below
+it, hidden from `tools/list`. `arizuko apply` writes config tables only, and no daemon
 caches a config row, so an apply is live on the next read. Nothing
 bulk-deletes a runtime table: a removed group keeps its history.
 
@@ -274,25 +274,25 @@ and the reason. A change that reverses a row answers the reason first.
 
 ## Where the rest lives
 
-| Concern                                            | Home                                                                                 |
-| -------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| A request through proxyd, the web channel          | [`proxyd/README.md`](proxyd/README.md), [`webd/README.md`](webd/README.md)           |
-| Keys, mints, cookies and logins                    | [`authd/README.md` § Keys, mints and logins](authd/README.md#keys-mints-and-logins)  |
-| `GET /openapi.json` on every daemon                | [`resreg/README.md` § OpenAPI emission](resreg/README.md#openapi-emission)           |
-| The channel protocol, typing, inbound media        | [`chanlib/README.md`](chanlib/README.md), [`chanreg/README.md`](chanreg/README.md)   |
-| Authorization, the operator role                   | [`auth/README.md`](auth/README.md), [GRANTS.md](GRANTS.md)                           |
-| The turn envelope, steer, stop, the guest's mounts | [`runed/README.md`](runed/README.md)                                                 |
-| Secret injection                                   | [`SECURITY.md` § Secret injection](SECURITY.md#secret-injection)                     |
-| The MCP socket and `submit_turn`                   | [`ipc/README.md`](ipc/README.md)                                                     |
-| One turn per folder, the two circuit breakers      | [`queue/README.md`](queue/README.md)                                                 |
-| Routes, topics, replies, autoviv                   | [ROUTING.md](ROUTING.md)                                                             |
-| Compose, profiles, packages                        | [`compose/README.md`](compose/README.md)                                             |
-| Onboarding, pairing, worlds                        | [`onbod/README.md`](onbod/README.md)                                                 |
-| The scheduler                                      | [`timed/README.md`](timed/README.md)                                                 |
-| The dashboards                                     | [`dashd/README.md`](dashd/README.md)                                                 |
-| The agent's memory layers                          | [`diary/README.md`](diary/README.md)                                                 |
-| Prompt assembly                                    | [`routd/README.md` § Prompt assembly](routd/README.md#prompt-assembly)               |
-| The turn deadline                                  | [`ant/README.md` § The turn deadline](ant/README.md#the-turn-deadline)               |
-| Audit, logs, traces                                | [`obs/README.md`](obs/README.md), [`audit/README.md`](audit/README.md)               |
-| Row types and the config loader                    | [`core/README.md`](core/README.md)                                                   |
-| The guest kernel; what a substrate declares        | [`kernel/README.md`](kernel/README.md), [`substrate/README.md`](substrate/README.md) |
+| Concern                                           | Home                                                                                 |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| A request through proxyd, the web channel         | [`proxyd/README.md`](proxyd/README.md), [`webd/README.md`](webd/README.md)           |
+| Keys, mints, cookies and logins                   | [`authd/README.md` § Keys, mints and logins](authd/README.md#keys-mints-and-logins)  |
+| `GET /openapi.json` on every daemon               | [`resreg/README.md` § OpenAPI emission](resreg/README.md#openapi-emission)           |
+| The channel protocol, typing, inbound media       | [`chanlib/README.md`](chanlib/README.md), [`chanreg/README.md`](chanreg/README.md)   |
+| Authorization, the operator role                  | [`auth/README.md`](auth/README.md), [GRANTS.md](GRANTS.md)                           |
+| The turn envelope, busy, stop, the guest's mounts | [`runed/README.md`](runed/README.md)                                                 |
+| Secret injection                                  | [`SECURITY.md` § Secret injection](SECURITY.md#secret-injection)                     |
+| The MCP socket and `submit_turn`                  | [`ipc/README.md`](ipc/README.md)                                                     |
+| One turn per folder, the two circuit breakers     | [`queue/README.md`](queue/README.md)                                                 |
+| Routes, topics, replies, autoviv                  | [ROUTING.md](ROUTING.md)                                                             |
+| Compose, profiles, packages                       | [`compose/README.md`](compose/README.md)                                             |
+| Onboarding, pairing, worlds                       | [`onbod/README.md`](onbod/README.md)                                                 |
+| The scheduler                                     | [`timed/README.md`](timed/README.md)                                                 |
+| The dashboards                                    | [`dashd/README.md`](dashd/README.md)                                                 |
+| The agent's memory layers                         | [`diary/README.md`](diary/README.md)                                                 |
+| Prompt assembly                                   | [`routd/README.md` § Prompt assembly](routd/README.md#prompt-assembly)               |
+| The turn deadline                                 | [`ant/README.md` § The turn deadline](ant/README.md#the-turn-deadline)               |
+| Audit, logs, traces                               | [`obs/README.md`](obs/README.md), [`audit/README.md`](audit/README.md)               |
+| Row types and the config loader                   | [`core/README.md`](core/README.md)                                                   |
+| The guest kernel; what a substrate declares       | [`kernel/README.md`](kernel/README.md), [`substrate/README.md`](substrate/README.md) |

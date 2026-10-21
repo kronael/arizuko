@@ -97,7 +97,7 @@ func newVerifiedRoutd(t *testing.T, a *stubAuthd) (*DB, *Server, *stubRunner) {
 		}
 		return s.Sub, s.Scope, s.Extra["arz/folder"], nil
 	})
-	runner := &stubRunner{}
+	runner := &stubRunner{t: t}
 	loop := NewLoop(db, runner, LoopConfig{})
 	loop.StopQueue()
 	srv := NewServer(db, loop, &fakeDeliverer{platformID: "1716.0042"}, verify, 0, "https://example.test")

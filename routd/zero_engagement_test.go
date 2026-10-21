@@ -10,7 +10,7 @@ import (
 )
 
 func TestZeroEngagementTTLDoesNotRenewReplies(t *testing.T) {
-	for _, path := range []string{"prose", "tool"} {
+	for _, path := range []string{"tool"} {
 		for _, stopped := range []bool{false, true} {
 			t.Run(path, func(t *testing.T) {
 				db, err := OpenMem()
@@ -34,9 +34,7 @@ func TestZeroEngagementTTLDoesNotRenewReplies(t *testing.T) {
 					t.Fatal(err)
 				}
 				srv := NewServer(db, nil, &recDeliverer{pid: "answer"}, nil, 0, "")
-				if path == "prose" {
-					srv.appendAndDeliver("turn", jid, "answer")
-				} else {
+				{
 					ipcDir := filepath.Join(t.TempDir(), "ipc")
 					stop, err := srv.ServeTurnMCP(turnMCP{folder: folder, chatJID: jid, topic: topic, turnID: "turn", trigger: "user"}, ipcDir)
 					if err != nil {
@@ -64,7 +62,7 @@ func TestZeroEngagementTTLDoesNotRenewReplies(t *testing.T) {
 }
 
 func TestZeroEngagementTTLPreservesExistingLease(t *testing.T) {
-	for _, path := range []string{"prose", "tool"} {
+	for _, path := range []string{"tool"} {
 		t.Run(path, func(t *testing.T) {
 			db, err := OpenMem()
 			if err != nil {
@@ -86,9 +84,7 @@ func TestZeroEngagementTTLPreservesExistingLease(t *testing.T) {
 				t.Fatal(err)
 			}
 			srv := NewServer(db, nil, &recDeliverer{pid: "answer"}, nil, 0, "")
-			if path == "prose" {
-				srv.appendAndDeliver("turn", jid, "answer")
-			} else {
+			{
 				ipcDir := filepath.Join(t.TempDir(), "ipc")
 				stop, err := srv.ServeTurnMCP(turnMCP{folder: folder, chatJID: jid, topic: topic, turnID: "turn", trigger: "user"}, ipcDir)
 				if err != nil {

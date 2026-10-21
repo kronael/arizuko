@@ -85,7 +85,11 @@ function toToolEvent(ev: PiToolCallEvent, event: ToolEvent['hook_event_name'], r
 // happens in the default export and nowhere else: skill-rescan RENAMES files
 // under <home>/.claude/skills.
 export function registerWith(pi: PiApi, ctx: PolicyContext): void {
-  const rows = runnableBy(bindings(ctx), PI_HONOURS, (m) => console.error(`[ant:pi] ${m}`));
+  const rows = runnableBy(bindings(ctx).filter((row) => {
+    if (row.event !== 'Stop') return true;
+    console.error(`[ant:pi] policy ${row.id} not rendered: Stop is unavailable`);
+    return false;
+  }), PI_HONOURS, (m) => console.error(`[ant:pi] ${m}`));
 
   pi.on('tool_call', async (ev) => {
     const verdict = await runRows(rows, 'PreToolUse', toToolEvent(ev, 'PreToolUse'));

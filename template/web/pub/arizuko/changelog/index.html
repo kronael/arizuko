@@ -30,6 +30,19 @@
 
       <p>What shipped, dated, terse. Reverse chronological. The chat broadcast for each release lives at the top of every block; the bullets below expand it for operators.</p>
 
+      <h2>arizuko v0.70.6 <span class="dim">&mdash; 21 October 2026</span></h2>
+      <p>Agents deliver answers explicitly, keep task updates together, and start GitHub work only for requests or watched pull requests.</p>
+      <ul>
+        <li><strong>Explicit answers</strong> &mdash; addressed work gets one reminder before a visible failure notice.</li>
+        <li><strong>Task threads</strong> &mdash; an immutable summary opens the conversation, with live progress, answers and attachments inside its thread where supported.</li>
+        <li><strong>Queued follow-ups</strong> &mdash; fresh requests wait for the active turn.</li>
+        <li><strong>GitHub requests</strong> &mdash; PR mentions, direct requests, assigned-PR changes and completed CI trigger work; incidental activity remains context.</li>
+        <li><strong>Shorter approvals</strong> &mdash; a hold asks in one line, and <code>/always</code> pins only the tool&rsquo;s declared keys.</li>
+        <li><strong>Separate bot accounts</strong> &mdash; each variant reads its account profile; nonempty labeled keys override base credentials.</li>
+      </ul>
+      <p>Turn-result prose stays private. Hidden callbacks require the socket&rsquo;s exact turn ID. Select <code>claude</code> or <code>codex</code> if <code>pi</code> is configured. Existing GitHub sources need legacy trigger-route cleanup and CI event subscriptions; the full notes include the operator steps and API changes.</p>
+      <p class="note">Full notes: <a href="https://github.com/kronael/arizuko/blob/main/CHANGELOG.md#v0706--2026-10-21">CHANGELOG &sect; v0.70.6</a>. Placement: <a href="../concepts/progress.html">live progress</a>.</p>
+
       <h2>arizuko v0.70.5 <span class="dim">&mdash; 18 October 2026</span></h2>
       <p>The agent shows its work as a single message it keeps rewriting, and it can hand you a file on a pull request.</p>
       <ul>

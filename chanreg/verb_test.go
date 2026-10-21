@@ -28,7 +28,7 @@ func TestHTTPChannelVerbNoCapUnsupported(t *testing.T) {
 		"post":    postErr,
 		"delete":  ch.Delete(ctx, "x:1", "m1"),
 		"dislike": ch.Dislike(ctx, "x:1", "m1"),
-		"edit":    ch.Edit(ctx, "x:1", "m1", "txt"),
+		"edit":    ch.Edit(ctx, "x:1", "m1", "txt", ""),
 		"pin":     ch.Pin(ctx, "x:1", "m1"),
 		"unpin":   ch.Unpin(ctx, "x:1", "m1", false),
 	}

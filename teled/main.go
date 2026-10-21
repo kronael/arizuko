@@ -15,6 +15,7 @@ import (
 // too: the Bot API can't read past messages, so the gateway serves history
 // from its own messages.db cache. The cap↔impl consistency test guards this.
 var caps = map[string]bool{
+	"thread_id":  true,
 	"send_text":  true,
 	"send_file":  true,
 	"send_voice": true,

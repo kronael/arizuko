@@ -109,8 +109,17 @@ func TestEveryVerbPostsItsDocumentedPathAndBody(t *testing.T) {
 		},
 		{
 			verb: "edit", cap: "edit", wantPath: "/edit",
-			call:     func(h *HTTPChannel) error { return h.Edit(ctx, "x:1", "m1", "new text") },
+			call:     func(h *HTTPChannel) error { return h.Edit(ctx, "x:1", "m1", "new text", "") },
 			wantBody: map[string]any{"chat_jid": "x:1", "target_id": "m1", "content": "new text"},
+		},
+		{
+			verb: "thread edit", cap: "edit", wantPath: "/edit",
+			call: func(h *HTTPChannel) error {
+				return h.Edit(ctx, "x:1", "m1", "new text", "th-7")
+			},
+			wantBody: map[string]any{
+				"chat_jid": "x:1", "target_id": "m1", "content": "new text", "thread_id": "th-7",
+			},
 		},
 		{
 			verb: "pin", cap: "pin", wantPath: "/pin",
@@ -373,8 +382,8 @@ func TestSendVoiceUploadsTheFileAsMultipart(t *testing.T) {
 	}
 
 	var (
-		gotPath, gotName, gotJID, gotCaption, gotThread, gotContent string
-		gotFile                                                     []byte
+		gotPath, gotName, gotJID, gotCaption, gotThread, gotContent, gotRoot string
+		gotFile                                                              []byte
 	)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
@@ -387,6 +396,7 @@ func TestSendVoiceUploadsTheFileAsMultipart(t *testing.T) {
 		gotName = r.FormValue("filename")
 		gotCaption = r.FormValue("caption")
 		gotThread = r.FormValue("thread_id")
+		gotRoot = r.FormValue("thread_root")
 		f, _, err := r.FormFile("file")
 		if err != nil {
 			t.Errorf("no `file` part: %v", err)
@@ -399,11 +409,11 @@ func TestSendVoiceUploadsTheFileAsMultipart(t *testing.T) {
 	t.Cleanup(srv.Close)
 	ctx := context.Background()
 
-	if _, err := chanWithCaps(t, srv.URL).SendVoiceCtx(ctx, "x:1", audio, "", ""); !errors.Is(err, chanlib.ErrUnsupported) {
+	if _, err := chanWithCaps(t, srv.URL).SendVoiceCtx(ctx, "x:1", audio, "", "", ""); !errors.Is(err, chanlib.ErrUnsupported) {
 		t.Errorf("send_voice without the cap = %v, want Unsupported", err)
 	}
 
-	id, err := chanWithCaps(t, srv.URL, "send_voice").SendVoiceCtx(ctx, "x:1", audio, "listen", "thr-1")
+	id, err := chanWithCaps(t, srv.URL, "send_voice").SendVoiceCtx(ctx, "x:1", audio, "listen", "thr-1", "root-7")
 	if err != nil {
 		t.Fatalf("SendVoiceCtx: %v", err)
 	}
@@ -412,6 +422,9 @@ func TestSendVoiceUploadsTheFileAsMultipart(t *testing.T) {
 	}
 	if gotPath != "/send-voice" {
 		t.Errorf("path = %q", gotPath)
+	}
+	if gotRoot != "root-7" {
+		t.Fatalf("voice lost its thread root: %q", gotRoot)
 	}
 	if mt, _, _ := mime.ParseMediaType(gotContent); mt != "multipart/form-data" {
 		t.Errorf("Content-Type = %q, want multipart/form-data", gotContent)
@@ -437,7 +450,7 @@ func TestSendVoiceRefusesAMissingFileWithoutPosting(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	_, err := chanWithCaps(t, srv.URL, "send_voice").
-		SendVoiceCtx(context.Background(), "x:1", filepath.Join(t.TempDir(), "gone.ogg"), "", "")
+		SendVoiceCtx(context.Background(), "x:1", filepath.Join(t.TempDir(), "gone.ogg"), "", "", "")
 	if err == nil {
 		t.Fatal("a missing audio file was uploaded as a success")
 	}
@@ -449,7 +462,7 @@ func TestSendVoiceRefusesAMissingFileWithoutPosting(t *testing.T) {
 func TestSendFileNeedsItsCapability(t *testing.T) {
 	var got recorded
 	srv := stubAdapter(t, &got)
-	_, err := chanWithCaps(t, srv.URL).SendFileCtx(context.Background(), "x:1", "/tmp/x", "x", "", "", "", "")
+	_, err := chanWithCaps(t, srv.URL).SendFileCtx(context.Background(), "x:1", "/tmp/x", "x", "", "", "", "", "")
 	if err == nil {
 		t.Fatal("SendFile ran without the send_file capability")
 	}
@@ -574,7 +587,7 @@ func TestSendFileUploadsMultipartWithTheIdempotencyKey(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var gotPath, gotJID, gotName, gotCaption, gotReplyTo, gotIdem string
+	var gotPath, gotJID, gotName, gotCaption, gotReplyTo, gotIdem, gotRoot string
 	var gotFile []byte
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
@@ -585,6 +598,7 @@ func TestSendFileUploadsMultipartWithTheIdempotencyKey(t *testing.T) {
 		gotJID, gotName = r.FormValue("chat_jid"), r.FormValue("filename")
 		gotCaption, gotReplyTo = r.FormValue("caption"), r.FormValue("reply_to")
 		gotIdem = r.FormValue("idempotency_key")
+		gotRoot = r.FormValue("thread_root")
 		f, _, err := r.FormFile("file")
 		if err != nil {
 			t.Errorf("no file part: %v", err)
@@ -597,8 +611,7 @@ func TestSendFileUploadsMultipartWithTheIdempotencyKey(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	// The no-context wrapper is what routd's delivery path calls.
-	id, err := chanWithCaps(t, srv.URL, "send_file").
-		SendFile("x:1", doc, "report.pdf", "here", "m0", "", "idem-9")
+	id, err := chanWithCaps(t, srv.URL, "send_file").SendFile("x:1", doc, "report.pdf", "here", "m0", "", "idem-9", "root-7")
 	if err != nil {
 		t.Fatalf("SendFile: %v", err)
 	}
@@ -613,6 +626,9 @@ func TestSendFileUploadsMultipartWithTheIdempotencyKey(t *testing.T) {
 	}
 	if gotIdem != "idem-9" {
 		t.Errorf("idempotency_key = %q; the pending sweep would double-post the attachment", gotIdem)
+	}
+	if gotRoot != "root-7" {
+		t.Fatalf("file lost its thread root: %q", gotRoot)
 	}
 	if string(gotFile) != "%PDF-fake" {
 		t.Errorf("uploaded bytes = %q", gotFile)
@@ -634,7 +650,7 @@ func TestSendFileClassifiesTheAdapterStatus(t *testing.T) {
 			w.WriteHeader(status)
 		}))
 		_, err := chanWithCaps(t, srv.URL, "send_file").
-			SendFileCtx(context.Background(), "x:1", doc, "x.txt", "", "", "", "")
+			SendFileCtx(context.Background(), "x:1", doc, "x.txt", "", "", "", "", "")
 		if err == nil {
 			t.Errorf("status %d: send-file reported success", status)
 			srv.Close()
@@ -660,7 +676,7 @@ func TestSendVoiceWrapperReachesTheSameEndpoint(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	if _, err := chanWithCaps(t, srv.URL, "send_voice").SendVoice("x:1", audio, "", ""); err != nil {
+	if _, err := chanWithCaps(t, srv.URL, "send_voice").SendVoice("x:1", audio, "", "", ""); err != nil {
 		t.Fatalf("SendVoice: %v", err)
 	}
 	if path != "/send-voice" {
@@ -802,8 +818,7 @@ func TestSendFileOmitsTheOptionalPartsItHasNoValueFor(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	if _, err := chanWithCaps(t, srv.URL, "send_file").
-		SendFile("x:1", doc, "", "", "", "", ""); err != nil {
+	if _, err := chanWithCaps(t, srv.URL, "send_file").SendFile("x:1", doc, "", "", "", "", "", ""); err != nil {
 		t.Fatalf("SendFile: %v", err)
 	}
 	want := []string{"chat_jid", "filename"}

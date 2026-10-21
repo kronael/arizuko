@@ -303,11 +303,12 @@ state mount (`variantOf`, `compose.go:263`). Only a name whose base is a
 channel adapter is a variant.
 
 The variant reads `env/<adapter>-<label>.env`. `writeEnvFile` fills it with
-the base adapter's keys, and a `<KEY>_<LABEL>` line in `.env` replaces
-`<KEY>`, so each account holds its own credential
-(`TELEGRAM_BOT_TOKEN_JYNX` replaces `TELEGRAM_BOT_TOKEN`). The label is
+the base adapter's keys, and a non-empty `<KEY>_<LABEL>` line in `.env`
+replaces `<KEY>`, so each account holds its own credential
+(`TELEGRAM_BOT_TOKEN_JYNX` replaces `TELEGRAM_BOT_TOKEN`). An unset or empty
+override keeps the base value. The label is
 upper-cased and every other non-alphanumeric byte becomes `_`
 (`variantKey`). Only the adapter's own `daemonKeys` take an override; the
 common keys and the service key stay the base adapter's, so every account
-signs as the same `service:<adapter>`. A variant with no override line
-polls the same account as the base.
+signs as the same `service:<adapter>`. A variant with no non-empty
+override line polls the same account as the base.

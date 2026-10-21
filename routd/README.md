@@ -20,17 +20,21 @@ routd injects the agent's authorization gate into the socket: `db.AuthorizeTurn(
 
 ### Progress has one writer
 
-`progress.go` is the only code that calls `Typing` or creates or edits a `verb="status"` row. The tool `submit_status` (`mcpSubmitStatus`) and each `<status>` block in a result both call `updateProgress`.
+`progress.go` is the only code that calls `Typing` or creates or edits a `verb="status"` row. The hidden method `submit_status` receives the declared task summary and the progress updates. `placement.go` gives every delivery of the turn one destination.
 
-- The first update sends one message that starts with `⏳`.
-- A later update edits that message and rewrites the row.
-- An update whose text the row already holds does nothing.
-- A channel that does not advertise `edit` gets no progress message.
+- A compatible channel gets an immutable `🤖` summary opener. One editable `⏳` progress message follows inside its thread.
+- An existing thread wins.
+- A channel without new-thread support gets one editable progress card.
+- A channel without `edit` gets no progress message.
+- Persisted message rows keep the edits and the opener identity across a restart.
+- `placement.go` sends progress, text, files, voice, terminal notices and retries to the same destination.
+- An unresolved opener refuses an unplaced child. routd does not queue it.
+- A failed summary read or thread error goes back to the caller. No child falls back to the parent.
 - A real edit failure goes back to the caller. routd never posts it again as a new message.
 
-The message id is the `platform_id` of the newest `verb="status"` row, so edit in place survives a restart. The `verb="status"` stamp makes `TurnHasBotReply` skip the row, because a status must never count as the agent's reply.
+Both progress verbs confer a reply obligation. Final delivery and last-answer tracking skip them, because a progress row must never count as the agent's reply.
 
-`Typing(on)` fires at dispatch. `Typing(off)` fires when the turn ends in `finishTurn`, the one writer of `done`. `finishTurn` also edits the leading `⏳` to `✓` or `✗`. A run that returns without ending its turn clears `Typing` and leaves the message at `⏳`.
+`Typing(on)` fires at dispatch. `Typing(off)` fires when the turn ends in `finishTurn`, the one writer of `done`. `finishTurn` changes only the leading `⏳` of the progress message to `✓` or `✗`. A run that returns without ending its turn clears `Typing` and leaves the message at `⏳`.
 
 ## The turn in routd
 
@@ -57,11 +61,11 @@ The message id is the `platform_id` of the newest `verb="status"` row, so edit i
 - **Terminal.** runed decides whether a failure is terminal. routd never parses runed's text to decide. A terminal notice names the cause: the agent's own reported failure, otherwise the error text from runed.
 - **Retry count.** `MAX_TURN_RETRY` set to 0 means 3 retries, and -1 disables retries (`loop.go`). `turn_context.retry_count` and `state='pending_retry'` survive a routd restart. A retry turn starts with a note that it is a retry.
 - **Turn lifecycle.** `submit_turn` is hidden from `tools/list` and recorded once. The `turn_results` key removes duplicates, so the first terminal signal wins the cursor and the delivery. A `running` turn older than the run timeout moves to `expired`, never `done`. Crash recovery looks for `running`, and the guard against a second live run looks for `done`.
-- **One turn per folder.** A new inbound message for a busy folder steers into the live guest or waits in the queue. The observed cursor is at-least-once. It advances on the same success path as the message cursor. So a turn that routd feeds again sees the context of the failed attempt.
+- **One turn per folder.** A new inbound message for a busy folder waits. runed answers `busy`, and routd keeps the batch. After the run ends, routd feeds the batch again with its own turn context and MCP binding. The observed cursor is at-least-once. It advances on the same success path as the message cursor. So a turn that routd feeds again sees the context of the failed attempt.
 - **Outbound.** The pending bot row is the outbox. `chanreg` and the adapters hold no queue. A sweep every 30 s sends `pending` rows again, and each row waits its own gap. The gap starts at 30 s and doubles per failure up to a cap of 1 h. A flat 30 s gap would spend ten attempts in five minutes, and a routine adapter restart lasts longer. A 4xx answer dead-letters the row at once with `delivery_attempts` 0. A transient failure spends one attempt, up to `MAX_OUTBOUND_RETRY`. An age rule would discard rows that the sweep never tried, so routd uses no age bound.
 - **A failed send writes its row.** The MCP tools `send`, `reply` and `send_file` return the error to the agent and record the undelivered row. The row is `pending` after a transient failure and `failed` after a permanent one. A failed `send_file` always dead-letters (`recordOutboundFailure` in `ipc/ipc.go`).
 - **Delivery dedup belongs to the adapter.** `chanlib/README.md` section "Delivery is claimed before the platform call" describes it.
-- **A row names its source and its writer.** `messages.source` holds the adapter of record that ingest carries. An outbound reply reads it with `LatestSource(jid)`, so a reply leaves through the bot that received the message. A turn's prose reply and its progress row take an `out-<hex>` id (`outboundRow` in `turns.go`). An MCP send takes `mcp-<unix nanos>` (`core.MsgID`). Inbound polling filters bot rows.
+- **A row names its source and its writer.** `messages.source` holds the adapter of record that ingest carries. An outbound reply reads it with `LatestSource(jid)`, so a reply leaves through the bot that received the message. A turn's delivery rows and its progress row take an `out-<hex>` id (`outboundRow` in `turns.go`). An MCP send takes `mcp-<unix nanos>` (`core.MsgID`). Inbound polling filters bot rows.
 - **A proactive turn starts from a synthetic row.** The scanner in `proactive.go` appends an inbound row with sender `timed-proactive` (`store.ProactiveSelfSender`). That row never resets the chat's silence clock, because the trigger must not feed itself. The `timed-` prefix puts the turn on the path of every task turn: it renews no engagement, runs no slash command and carries no caller sub.
 
 ## Prompt assembly
@@ -145,7 +149,7 @@ When `MODEL_GATEWAY_URL` is set, the gateway holds the model credential and keep
 - **The gate runs when `COST_CAPS_ENABLED` is off.** The gate then reports both caps as uncapped and clears them at the gateway. Otherwise the gateway would keep refusing turns that arizuko does not cap.
 - **A spent cap refuses the next turn.** The refusal goes to the chat and consumes the batch. There is no budget notice during a turn. An over-cap turn runs to its end, and the gate of the next turn refuses. A call outside the gateway is a log line and never a row.
 - **A gateway failure is a dependency outage.** When a gate read or a key mint fails, routd returns `queue.ErrDependencyDown` (`dispatch.go`). No guest starts, routd feeds the batch again, and the breaker streak of the folder stays as it was. A turn never runs without a meter. A failed spend read is an error and never an empty spend.
-- **Two limits.** A message that steers into a running guest spends the key of that run. So its tokens land on the key and the user of the first turn. A gateway drops the model key of a user, with a warning in the runed log, because nothing translates it into a gateway key. BUGS `L404` tracks this limit.
+- **One limit.** A gateway drops the model key of a user, with a warning in the runed log, because nothing translates it into a gateway key. BUGS `L404` tracks this limit.
 - **No gateway means no meter.** The dashboard says so, and shows no number that the agent chose. A cap on such an instance is enforced by nothing, and the gate logs that fact on every turn.
 
 The package ships its own Postgres (`litellm_db`) for keys and spend. It holds the bookkeeping of the gateway and not the store of the instance. Every operator surface reads spend through `/v1/cost/summary`.
@@ -268,7 +272,7 @@ Core variables:
 Behaviour:
 
 - `ASSISTANT_NAME` is the instance identity. The default is `arizuko`.
-- `ENGAGEMENT_TTL` is the engagement window of the reply state. The default is 30m, and `0` disables automatic engagement.
+- `ENGAGEMENT_TTL` is the engagement window of the reply state. The default is 30m, and `0` disables automatic engagement. GitHub uses explicit routes, as [the trigger policy of gitd](../gitd/README.md#observe-vs-trigger) describes.
 - `SESSION_IDLE_EXPIRY` is the session reset threshold. The default is 2d.
 - `ARIZUKO_DEFAULT_MODEL` is the fallback model of a group that has none. The default is empty, and the run request then names no model.
 - `ARIZUKO_DEFAULT_EFFORT` is the fallback effort. The default is empty.
@@ -330,8 +334,8 @@ The audit source of truth is the `audit_log` entity in the tables of routd. Ever
 - `channels.go` registers and deregisters adapters and runs the channel health loop.
 - `loop.go` is the orchestration loop: poll, claim and dispatch.
 - `dispatch.go` dispatches the turn to runed, enriches it and applies the budget gate.
-- `turns.go` handles the outbound of a turn: prose result, status delivery and `submit_turn` recording.
-- `progress.go` owns the turn's progress message and `finishTurn`.
+- `turns.go` handles the end of a turn: the check for an explicit delivery, the one shared nudge decision and `submit_turn` recording.
+- `progress.go` owns the turn's summary, progress message and `finishTurn`. `placement.go` places each delivery of the turn.
 - `deliver.go` is the channel Deliverer, the egress fan-out through `chanreg`.
 - `mcp.go` is the in-process per-turn MCP socket (`ServeTurnMCP`, `buildGatedFns`).
 - `prompt.go` and `prompt_db.go` build the message string of the turn, as "Prompt assembly" describes.

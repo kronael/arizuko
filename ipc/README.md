@@ -77,25 +77,31 @@ credential).
 
 ## submit_turn ends the turn
 
-`submit_turn` and `submit_status` are JSON-RPC methods on the same socket.
-`tools/list` does not show them, they have no REST twin, and they are not
-resreg resources. The guest's stdout is discarded.
+`submit_turn`, `check_turn` and `submit_status` are JSON-RPC methods on the
+same socket. `tools/list` does not show them, they have no REST twin, and they
+are not resreg resources. They use the same bound socket and peer checks as
+tool calls. The guest's stdout is discarded.
 
 - **One result per turn.** `turn_id` is required. routd records the first
   call per folder and `turn_id` (`routd/turns.go` `recordTurnResult`); a
   later call answers `ok` and changes nothing. The first terminal signal
   takes the cursor and the delivery.
-- **Silence is a value.** An empty `result` means the agent chose to say
-  nothing. A non-empty `result` is delivered only when the turn sent no
-  `reply` or `send` of its own, and never for an isolated cron turn.
+- **Prose is never delivered.** `submit_turn` carries the outcome and the
+  session id, not assistant prose. Only the delivery tools (`reply`, `send`,
+  `send_file`, `send_voice`) send an answer to the user.
+- **One nudge.** The response is `{ok:true,nudge?:string}`. A turn that owes a
+  delivery and made none gets a `nudge` once, and the turn continues. The
+  hidden `check_turn` method takes `turn_id` and returns
+  `{delivered,owed,nudge}` to a Stop hook. Both readers share the same
+  persisted nudge count.
 - **What the user never sees.** `router.FormatOutbound` strips `<internal>`,
   `<think>` and `<status>` blocks, and drops a whole message that only
   announces silence.
 - **Why a method and not stdout.** A method call makes silence explicit. A
   marker on stdout cannot tell "no output" from "the agent crashed".
 
-`submit_status` carries mid-turn `<status>` text to the turn's progress row
-and does not end the turn.
+`submit_status` carries the task summary and the mid-turn progress text to the
+turn's progress rows and does not end the turn.
 
 ## Who may call what
 

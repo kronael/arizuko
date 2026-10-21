@@ -11,6 +11,7 @@ import (
 
 	"github.com/kronael/arizuko/chanlib/chanstore"
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/objstore/dynstore"
 )
 
 // platform stands in for the two calls an adapter hands AckMark. It keeps the
@@ -156,7 +157,13 @@ func TestAckMark_BootSweepRearmsTheBackstopOfAFreshMark(t *testing.T) {
 		t.Fatal("the sweep removed a mark younger than the backstop")
 	}
 	waitUntil(t, func() bool { return len(p.targets()) == 0 }, "the backstop never removed the swept mark")
-	if _, held, _ := st.MarkFor(t.Context(), markJID); held {
+	m.mu.Lock()
+	_, held, err := st.MarkFor(t.Context(), markJID)
+	m.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if held {
 		t.Error("the backstop left the record behind")
 	}
 }
@@ -259,11 +266,17 @@ func TestAckMark_FailedRemovalKeepsTheRecord(t *testing.T) {
 
 // A mark that cannot be recorded cannot be found again, so it does not stay.
 func TestAckMark_UnrecordableMarkIsTakenOff(t *testing.T) {
+	testStore(t)
+	driver, err := dynstore.FromEnv(dynstore.Prefix("testadapter"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	p := newPlatform()
 	_, srv := newRoutdStub(200)
 	defer srv.Close()
 	rc := NewRouterClient(srv.URL)
-	m := NewAckMark(rc, chanstore.New(refusingStore{}), p.add, p.remove)
+	store := &markFailureStore{Store: driver, putErr: errStoreRefused}
+	m := NewAckMark(rc, chanstore.New(store), p.add, p.remove)
 	t.Cleanup(m.Stop)
 
 	inbound(t, rc, "m1", "message")

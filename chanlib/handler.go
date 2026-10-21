@@ -56,8 +56,8 @@ func (o Option) Send() string {
 // embed NoVoiceSender; those without social verbs embed NoSocial.
 type BotHandler interface {
 	Send(req SendRequest) (string, error)
-	SendFile(jid, path, name, caption, replyTo, threadID string) (string, error)
-	SendVoice(jid, audioPath, caption, threadID string) (string, error)
+	SendFile(jid, path, name, caption, replyTo, threadID, threadRoot string) (string, error)
+	SendVoice(jid, audioPath, caption, threadID, threadRoot string) (string, error)
 	Typing(jid string, on bool)
 	Post(req PostRequest) (string, error)
 	Like(req LikeRequest) error
@@ -114,6 +114,7 @@ type EditRequest struct {
 	ChatJID  string `json:"chat_jid"`
 	TargetID string `json:"target_id"`
 	Content  string `json:"content"`
+	ThreadID string `json:"thread_id,omitempty"`
 }
 
 type PinRequest struct {
@@ -190,8 +191,8 @@ func (NoSocial) Unpin(UnpinRequest) error               { return ErrUnsupported 
 var gatedVerbProbes = map[string]func(BotHandler) error{
 	// A .png name so adapters that only accept image blobs (bskyd) take their
 	// real branch instead of an extension-default Unsupported.
-	"send_file":  func(b BotHandler) error { _, e := b.SendFile("", "x.png", "x.png", "", "", ""); return e },
-	"send_voice": func(b BotHandler) error { _, e := b.SendVoice("", "", "", ""); return e },
+	"send_file":  func(b BotHandler) error { _, e := b.SendFile("", "x.png", "x.png", "", "", "", ""); return e },
+	"send_voice": func(b BotHandler) error { _, e := b.SendVoice("", "", "", "", ""); return e },
 	"delete":     func(b BotHandler) error { return b.Delete(DeleteRequest{}) },
 	"edit":       func(b BotHandler) error { return b.Edit(EditRequest{}) },
 	"pin":        func(b BotHandler) error { return b.Pin(PinRequest{}) },
@@ -274,13 +275,13 @@ type HistoryProvider interface {
 
 type NoFileSender struct{}
 
-func (NoFileSender) SendFile(_, _, _, _, _, _ string) (string, error) {
+func (NoFileSender) SendFile(_, _, _, _, _, _, _ string) (string, error) {
 	return "", Unsupported("send_file", "", "this adapter does not support file uploads")
 }
 
 type NoVoiceSender struct{}
 
-func (NoVoiceSender) SendVoice(_, _, _, _ string) (string, error) {
+func (NoVoiceSender) SendVoice(_, _, _, _, _ string) (string, error) {
 	return "", ErrUnsupported
 }
 
@@ -447,7 +448,7 @@ func handleSendFile(bot BotHandler, st *chanstore.Store) http.HandlerFunc {
 		replyTo := r.FormValue("reply_to")
 		threadID := r.FormValue("thread_id")
 		id, err := deliverOnce(st, r.FormValue("idempotency_key"), jid, func() (string, error) {
-			return bot.SendFile(jid, localPath, name, caption, replyTo, threadID)
+			return bot.SendFile(jid, localPath, name, caption, replyTo, threadID, r.FormValue("thread_root"))
 		})
 		writeBotResult(w, id, err)
 	}
@@ -461,7 +462,7 @@ func handleSendVoice(bot BotHandler) http.HandlerFunc {
 		}
 		defer cleanup()
 		threadID := r.FormValue("thread_id")
-		id, err := bot.SendVoice(jid, localPath, caption, threadID)
+		id, err := bot.SendVoice(jid, localPath, caption, threadID, r.FormValue("thread_root"))
 		writeBotResult(w, id, err)
 	}
 }

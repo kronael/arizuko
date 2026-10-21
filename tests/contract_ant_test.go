@@ -17,7 +17,6 @@ import (
 	"testing"
 
 	"github.com/kronael/arizuko/ipc"
-	"github.com/kronael/arizuko/router"
 )
 
 // antSource reads one ant/src file, failing loudly rather than skipping — a
@@ -105,14 +104,13 @@ func TestSubmitTurnPayloadFieldsMatchAcrossLanguages(t *testing.T) {
 }
 
 // Field names matching is not enough: a name can survive while the reader drops
-// the value, which is exactly what happened to `result`. Decode a payload with
+// the value. Decode a payload with
 // every field set and assert each one arrives non-zero.
 func TestSubmitTurnDecodeKeepsEveryField(t *testing.T) {
 	payload := map[string]any{
 		"turn_id":    "t-1",
 		"session_id": "11111111-2222-3333-4444-555555555555",
 		"status":     "success",
-		"result":     "the answer the user waits for",
 		"error":      "",
 		"timed_out":  true,
 		"models": map[string]any{
@@ -138,9 +136,6 @@ func TestSubmitTurnDecodeKeepsEveryField(t *testing.T) {
 	if got.Status == "" {
 		t.Error("status dropped in decode")
 	}
-	if got.Result == "" {
-		t.Error("result dropped in decode — the user gets an empty reply and nothing logs an error")
-	}
 	if !got.TimedOut {
 		t.Error("timed_out dropped in decode — a timeout summary reads as a normal completion")
 	}
@@ -154,61 +149,5 @@ func TestSubmitTurnDecodeKeepsEveryField(t *testing.T) {
 	}
 	if errCase.Error == "" {
 		t.Error("error dropped in decode — a failed turn reports as silence")
-	}
-}
-
-// antStatusRE compiles ant's own <status> pattern out of index.ts.
-func antStatusRE(t *testing.T) *regexp.Regexp {
-	t.Helper()
-	src := antSource(t, "index.ts")
-	m := regexp.MustCompile(`(?m)^const STATUS_RE = /(.+)/(\w*);`).FindStringSubmatch(src)
-	if m == nil {
-		t.Fatal("ant/src/index.ts no longer declares `const STATUS_RE = /…/;` — update this extractor to ant's current status grammar")
-	}
-	pattern := strings.ReplaceAll(m[1], `[\s\S]`, `(?s).`)
-	re, err := regexp.Compile(pattern)
-	if err != nil {
-		t.Fatalf("ant's STATUS_RE %q does not compile as a Go regexp: %v", pattern, err)
-	}
-	return re
-}
-
-// <status> is the one grammar parsed in BOTH languages: ant forwards each block
-// mid-turn so the user sees progress, and routd strips the same blocks out of
-// the final reply so they are not delivered twice. Two parsers of one format
-// drift silently — the user then sees a progress notice repeated as the answer,
-// or loses it entirely. Both must agree on every input.
-func TestStatusGrammarAgreesAcrossLanguages(t *testing.T) {
-	antRE := antStatusRE(t)
-	for _, tc := range []struct {
-		name, in string
-		want     []string
-	}{
-		{"one block", "before <status>working</status> after", []string{"working"}},
-		{"two blocks", "<status>a</status>mid<status>b</status>", []string{"a", "b"}},
-		{"multiline", "<status>line one\nline two</status>", []string{"line one\nline two"}},
-		{"none", "plain prose with no markup", nil},
-		{"unclosed", "<status>never closed", nil},
-		{"empty", "<status></status>", nil},
-		{"whitespace only", "<status>   </status>", nil},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			_, goGot := router.ExtractStatusBlocks(tc.in)
-
-			var antGot []string
-			for _, m := range antRE.FindAllStringSubmatch(tc.in, -1) {
-				if s := strings.TrimSpace(m[1]); s != "" {
-					antGot = append(antGot, s)
-				}
-			}
-
-			if !reflect.DeepEqual(goGot, antGot) {
-				t.Errorf("the two <status> parsers disagree on %q:\n  go  (router.ExtractStatusBlocks) = %q\n  ant (index.ts STATUS_RE)       = %q",
-					tc.in, goGot, antGot)
-			}
-			if !reflect.DeepEqual(goGot, tc.want) {
-				t.Errorf("ExtractStatusBlocks(%q) = %q, want %q", tc.in, goGot, tc.want)
-			}
-		})
 	}
 }

@@ -30,10 +30,20 @@ message and the primary input to picking a return adapter.
 call when the capability is false rather than discovering it from a
 platform error. Gates live in `chanreg/httpchan.go` (`HasCap`):
 `send_text`, `send_file`, `send_voice`, `typing`, `fetch_history`,
-`fwd`, `quote`, `repost`, `dislike`, `edit`, `delete`, `pin`. Unknown
+`fwd`, `quote`, `repost`, `dislike`, `edit`, `delete`, `pin`. Render capabilities
+`thread_id` and `thread_root` declare existing-thread placement and creation
+from a root message. Unknown
 capabilities are ignored. `/like`, `/post` are not capability-gated —
 adapters that can't satisfy them answer `501` with a structured
 `{tool, platform, hint}` body.
+
+Text JSON and file/voice multipart sends carry optional `thread_id` and
+`thread_root`. An explicit existing thread wins over a root. The adapter must
+materialize the declared thread before sending the actual content. A thread
+failure returns an error; the adapter must not send the child at the parent.
+`/edit` accepts optional `thread_id` for platforms whose edit URL needs the
+thread channel. Slack edits still use the parent channel and message timestamp.
+The shared placement policy is in `../6/46-turn-progress.md`.
 
 **Adapters authenticate as the DAEMON, not the channel.** An adapter
 exchanges its `AUTHD_SERVICE_KEY` bootstrap secret for a

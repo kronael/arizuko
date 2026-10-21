@@ -87,9 +87,9 @@
      │                                             │ RunOutcome returns
      │                                             ▼
      │                        ┌──────────────────────────────────────────┐
-     │                        │ runed Manager.Run: a live guest takes a  │
-     │                        │ steer frame; a full cap answers busy;    │
-     │                        │ else it claims the spawns row            │
+     │                        │ runed Manager.Run: a live folder or a    │
+     │                        │ full cap answers busy, else it claims    │
+     │                        │ the spawns row                           │
      │                        └────────────────────┬─────────────────────┘
      │                                             ▼
      │                        ┌──────────────────────────────────────────┐
@@ -108,9 +108,9 @@
      │                                             │ submit_turn
      │                                             ▼
      │ POST &lt;url&gt;/send        ┌──────────────────────────────────────────┐
-     │ the reply rows and     │ bridge ► routd socket: mcpDeliver, or    │
-     │ one edited status row  │ recordTurnResult ► appendAndDeliver ►    │
-     └────────────────────────┤ chanDeliverer.Send                       │
+     │ the reply rows and     │ bridge ► routd socket: mcpDeliver ►      │
+     │ one edited status row  │ chanDeliverer.Send; submit_turn ►        │
+     └────────────────────────┤ recordTurnResult (outcome only)          │
                               └──────────────────────────────────────────┘
 </code></pre>
 
@@ -118,7 +118,7 @@
     <p>The adapter posts the message to <code>routd</code>, and <code>routd</code> writes it with <code>PutMessage</code>. No other function appends a message. For this reason, one cursor per chat, <code>agent_cursor</code>, is enough to record what the agent has seen. A worker for each folder then picks the folder and builds the prompt. Before the worker calls <code>runed</code>, it binds the MCP socket of the folder and records the session id that the turn resumes. The order matters for two reasons. An agent whose first tool call finds no socket answers nothing. A turn that stops halfway must find its session on the next attempt.</p>
     <p><code>runed</code> answers <code>POST /v1/runs</code> in one of three ways:</p>
     <ul>
-      <li>If the folder already has a live guest, the new messages go in as a steer, and the running turn reads them.</li>
+      <li>If the folder already has a live guest, <code>runed</code> answers <code>busy</code> and does not feed the guest. <code>routd</code> keeps the new messages and sends them again as a new turn after the run ends.</li>
       <li>If the guest cap is full, <code>runed</code> answers <code>busy</code>. <code>routd</code> tries again after 4 seconds and doubles the wait each time, up to one minute.</li>
       <li>Otherwise, <code>runed</code> starts a new KVM guest for this one turn.</li>
     </ul>
@@ -143,7 +143,7 @@
     </ul>
 
     <h2>The reply goes out through the adapter</h2>
-    <p>The agent calls <code>reply</code> or <code>send</code>, and <code>routd</code> delivers the message through the <code>/send</code> endpoint of the adapter. If the agent finishes without a call to either tool, the text of its final result is the reply. While the agent works, the chat shows typing. On a channel that can edit messages, one status line changes in place. When the guest powers off, <code>runed</code> returns the outcome on the same HTTP call that started the turn.</p>
+    <p>The agent calls <code>reply</code> or <code>send</code>, and <code>routd</code> delivers the message through the <code>/send</code> endpoint of the adapter. Only an explicit delivery tool (<code>reply</code>, <code>send</code>, <code>send_file</code> or <code>send_voice</code>) reaches the user. The text of the final result stays in the transcript. If an addressed turn ends without a delivery, <code>routd</code> asks the agent once more through the <code>submit_turn</code> response. While the agent works, the chat shows typing. On a channel that can edit messages, one status line changes in place. When the guest powers off, <code>runed</code> returns the outcome on the same HTTP call that started the turn.</p>
     <p>A failed delivery stays as a <code>pending</code> row, and a sweep tries it again with a longer gap each time. A turn that stops without a reply runs again up to three times. The exception is a failure that <code>runed</code> marks terminal, because a retry cannot fix it. Examples are a VMM that does not start and an exhausted model quota.</p>
 
     <h2>Five pages explain the parts of the figure</h2>

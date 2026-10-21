@@ -11,7 +11,7 @@ Every turn runs in a fresh KVM guest booted from this image's exported rootfs.
 loads the group's `PERSONA.md` / `CLAUDE.md` / `~/.claude/settings.json`,
 assembles MCP servers (core `arizuko` server via socat to `gated.sock` +
 third-party connectors from `settings.json`), runs the Claude Code SDK,
-and delivers the result via the `submit_turn` JSON-RPC method back to
+and reports the outcome via the `submit_turn` JSON-RPC method back to
 `routd`.
 
 ## TS runtime (`src/`)
@@ -25,7 +25,11 @@ The shipping runtime uses `@anthropic-ai/claude-agent-sdk` 0.3.278
 ant does not implement an agent loop; it wraps one. `src/claude.ts`
 drives Claude Code via `@anthropic-ai/claude-agent-sdk` — spawn the
 harness, reduce its message stream to frames (`ClaudeTurn`), report the
-turn once over `submit_turn`. Model calls, tool execution, retries and
+turn over `submit_turn`. Only delivery tools send an answer; printed prose
+stays in the transcript. A nonempty `nudge` response resumes the same turn ID
+and continuity token before completion. Claude and Codex Stop hooks ask the
+same `check_turn` decision. Pi is refused until it has delivery tools.
+Model calls, tool execution, retries and
 session state are all the harness's, never ant's.
 
 Harness independence lives at the **process boundary**: the agent tool

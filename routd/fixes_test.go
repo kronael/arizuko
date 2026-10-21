@@ -29,13 +29,14 @@ type recDeliverer struct {
 	editErr error
 	// noEdit makes the channel not advertise `edit`: a progress update is
 	// dropped, never sent as a fresh message.
-	noEdit   bool
-	docs     []sentMsg
-	voices   []sentVoice
-	reacts   int
-	posts    int
-	dislikes int
-	failSend bool
+	noEdit    bool
+	canThread bool
+	docs      []sentMsg
+	voices    []sentVoice
+	reacts    int
+	posts     int
+	dislikes  int
+	failSend  bool
 	// failIdem fails ONLY the send whose idempotency key (the message id)
 	// matches, so a test can put one dead row among healthy ones.
 	failIdem string
@@ -73,10 +74,12 @@ type sentMsg struct {
 
 type sentVoice struct {
 	jid, audioPath, caption, threadID string
+	threadRoot                        string
 }
 
 type sentEdit struct {
 	jid, platformID, content string
+	threadID                 string
 }
 
 func (d *recDeliverer) Send(jid, text, replyTo, threadID, threadRoot, idem string) (string, error) {
@@ -125,13 +128,18 @@ func (d *recDeliverer) React(_, _, _ string) error {
 	d.reacts++
 	return nil
 }
-func (d *recDeliverer) Edit(jid, platformID, content string) error {
+func (d *recDeliverer) Edit(jid, platformID, content, threadID string) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	d.edits = append(d.edits, sentEdit{jid, platformID, content})
+	d.edits = append(d.edits, sentEdit{jid, platformID, content, threadID})
 	return d.editErr
 }
-func (d *recDeliverer) CanEdit(_ string) bool           { return !d.noEdit }
+func (d *recDeliverer) HasCapability(_, capability string) bool {
+	if capability == "edit" {
+		return !d.noEdit
+	}
+	return d.canThread && (capability == "thread_root" || capability == "thread_id")
+}
 func (d *recDeliverer) Delete(_, _ string) error        { return nil }
 func (d *recDeliverer) Pin(_, _ string) error           { return nil }
 func (d *recDeliverer) Unpin(_, _ string, _ bool) error { return nil }
@@ -141,16 +149,16 @@ func (d *recDeliverer) Typing(jid string, on bool) error {
 	d.typings = append(d.typings, typingEvent{jid, on})
 	return nil
 }
-func (d *recDeliverer) Document(jid, _, _, _, replyTo, threadID, idem string) (string, error) {
+func (d *recDeliverer) Document(jid, _, _, _, replyTo, threadID, idem, threadRoot string) (string, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	d.docs = append(d.docs, sentMsg{jid: jid, replyTo: replyTo, threadID: threadID, idem: idem})
+	d.docs = append(d.docs, sentMsg{jid: jid, replyTo: replyTo, threadID: threadID, threadRoot: threadRoot, idem: idem})
 	return d.pid, nil
 }
-func (d *recDeliverer) SendVoice(jid, audioPath, caption, threadID string) (string, error) {
+func (d *recDeliverer) SendVoice(jid, audioPath, caption, threadID, threadRoot string) (string, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	d.voices = append(d.voices, sentVoice{jid, audioPath, caption, threadID})
+	d.voices = append(d.voices, sentVoice{jid, audioPath, caption, threadID, threadRoot})
 	return d.pid, nil
 }
 func (d *recDeliverer) Post(_, _ string, _ []string) (string, error) {
@@ -185,44 +193,6 @@ var errSend = errSendT("send failed")
 type errSendT string
 
 func (e errSendT) Error() string { return string(e) }
-
-// TestEarlySubmitTurnKeepsCallbacksLive is the [blocker] fix: an early
-// submit_turn flips state→done, but the trailing frames the still-live run
-// emits stay valid until POST /v1/runs returns (run_returned). Only after the
-// run-response is a late frame dropped (spec 5/E-routd § Post-terminal callbacks).
-func TestEarlySubmitTurnKeepsCallbacksLive(t *testing.T) {
-	db, err := OpenMem()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	dl := &recDeliverer{}
-	srv := NewServer(db, nil, dl, nil, 0, "")
-	db.PutTurnContext("t1", "demo", "", "slack:T/C/U", "u1", "")
-
-	// submit_turn arrives early (flips state→done, run_returned stays 0).
-	if _, err := srv.recordTurnResult("t1", apiv1.TurnResult{TurnID: "t1", SessionID: "sX", Status: "success"}); err != nil {
-		t.Fatal(err)
-	}
-	if tc, _ := db.GetTurnContext("t1"); tc.State != "done" || tc.RunReturned {
-		t.Fatalf("after early submit_turn: state=%q run_returned=%v (want done/false)", tc.State, tc.RunReturned)
-	}
-
-	// a trailing frame BEFORE the run-response is still delivered.
-	srv.appendAndDeliver("t1", "slack:T/C/U", "trailing frame")
-	if countBots(t, db, "slack:T/C/U") != 1 || len(dl.sends) != 1 {
-		t.Fatalf("trailing frame after early submit_turn: bots=%d sends=%d, want 1/1",
-			countBots(t, db, "slack:T/C/U"), len(dl.sends))
-	}
-
-	// the run returns → run_returned set; a late frame is dropped.
-	_ = db.SetRunReturned("t1")
-	srv.appendAndDeliver("t1", "slack:T/C/U", "too late")
-	if countBots(t, db, "slack:T/C/U") != 1 || len(dl.sends) != 1 {
-		t.Fatalf("post-run-return frame was delivered: bots=%d sends=%d, want 1/1",
-			countBots(t, db, "slack:T/C/U"), len(dl.sends))
-	}
-}
 
 // TestSubmitStatusDeliversInterimWithoutEndingTurn is the mid-turn streaming
 // fix: submit_status delivers the agent's <status> text immediately as a "⏳ ..."
@@ -1132,106 +1102,6 @@ func TestUnsetTextFieldsReadAsEmpty(t *testing.T) {
 	}
 	if len(again) != 0 {
 		t.Fatalf("the consumed row was fed again: %+v", again)
-	}
-}
-
-// TestSubmitTurnResultDelivered: a submit_turn carrying a prose result for a
-// turn that called no reply/send tool delivers that result as the reply — the
-// agent's "text outside <think> is delivered" contract. Regression: the split
-// dropped result-delivery, so normal Q&A turns produced output that never
-// reached the user (krons no-reply outage 2026-06-08).
-func TestSubmitTurnResultDelivered(t *testing.T) {
-	db, err := OpenMem()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	dl := &recDeliverer{}
-	srv := NewServer(db, nil, dl, nil, 0, "")
-	db.PutTurnContext("t1", "demo", "", "slack:T/C/U", "u1", "")
-
-	if _, err := srv.recordTurnResult("t1",
-		apiv1.TurnResult{TurnID: "t1", SessionID: "sX", Status: "success", Result: "the answer"}); err != nil {
-		t.Fatal(err)
-	}
-
-	if len(dl.sends) != 1 || dl.sends[0].text != "the answer" {
-		t.Fatalf("submit_turn result not delivered: sends=%+v", dl.sends)
-	}
-	if countBots(t, db, "slack:T/C/U") != 1 {
-		t.Fatal("result not persisted as a bot row")
-	}
-}
-
-// TestSubmitTurnResultSkippedWhenAlreadyReplied: when the agent already delivered
-// via the reply tool, submit_turn's result is NOT delivered again (no double-send).
-func TestSubmitTurnResultSkippedWhenAlreadyReplied(t *testing.T) {
-	db, err := OpenMem()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	dl := &recDeliverer{}
-	srv := NewServer(db, nil, dl, nil, 0, "")
-	db.PutTurnContext("t1", "demo", "", "slack:T/C/U", "u1", "")
-
-	srv.appendAndDeliver("t1", "slack:T/C/U", "explicit reply")
-	if _, err := srv.recordTurnResult("t1",
-		apiv1.TurnResult{TurnID: "t1", Status: "success", Result: "would-be duplicate"}); err != nil {
-		t.Fatal(err)
-	}
-
-	if len(dl.sends) != 1 {
-		t.Fatalf("double-send: want 1 send, got %d (%+v)", len(dl.sends), dl.sends)
-	}
-}
-
-// TestSubmitTurnResultSilentForIsolated: an isolated cron turn (compact-memories)
-// never delivers its result prose to chat even when the agent left a closing
-// line ("Silent cron compaction complete — wrote …"). Output is the file + audit.
-func TestSubmitTurnResultSilentForIsolated(t *testing.T) {
-	db, err := OpenMem()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	dl := &recDeliverer{}
-	srv := NewServer(db, nil, dl, nil, 0, "")
-	db.PutTurnContext("t1", "demo", "", "slack:T/C/U", "timed-isolated:compact-memories", "")
-
-	if _, err := srv.recordTurnResult("t1",
-		apiv1.TurnResult{TurnID: "t1", Status: "success", Result: "Silent cron compaction complete — wrote ~/episodes/x.md"}); err != nil {
-		t.Fatal(err)
-	}
-
-	if len(dl.sends) != 0 {
-		t.Fatalf("isolated cron leaked to chat: sends=%+v", dl.sends)
-	}
-}
-
-// TestSubmitTurnResultPureThinkDropsSilently: a result that is only a <think>
-// block strips to empty in appendAndDeliver (clean=="") → no reply sent, no bot
-// row persisted, and the turn still completes successfully. Guards the
-// silent-drop path: a pure-reasoning turn must not error or leave a blank bot row.
-func TestSubmitTurnResultPureThinkDropsSilently(t *testing.T) {
-	db, err := OpenMem()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	dl := &recDeliverer{}
-	srv := NewServer(db, nil, dl, nil, 0, "")
-	db.PutTurnContext("t1", "demo", "", "slack:T/C/U", "u1", "")
-
-	if _, err := srv.recordTurnResult("t1", apiv1.TurnResult{TurnID: "t1", SessionID: "sX", Status: "success",
-		Result: "<think>just reasoning, nothing to say</think>"}); err != nil {
-		t.Fatalf("pure-think result: %v", err)
-	}
-	if len(dl.sends) != 0 {
-		t.Fatalf("pure-think delivered a message: sends=%+v", dl.sends)
-	}
-	if n := countBots(t, db, "slack:T/C/U"); n != 0 {
-		t.Fatalf("pure-think persisted %d bot rows, want 0", n)
 	}
 }
 

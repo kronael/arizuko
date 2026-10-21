@@ -11,7 +11,7 @@ import (
 
 func TestDisengageSurvivesTrailingReply(t *testing.T) {
 	for _, topic := range []string{"", "thread-1"} {
-		for _, path := range []string{"prose", "tool", "new-thread"} {
+		for _, path := range []string{"tool", "new-thread"} {
 			t.Run(topic+"/"+path, func(t *testing.T) {
 				db, err := OpenMem()
 				if err != nil {
@@ -32,19 +32,14 @@ func TestDisengageSurvivesTrailingReply(t *testing.T) {
 					t.Fatal(err)
 				}
 				destTopic := topic
-				switch path {
-				case "prose":
-					srv.appendAndDeliver("old", jid, "summary")
-				default:
-					if path == "new-thread" && topic == "" {
-						destTopic = "new-thread"
-					}
-					if err := fns.SetLastReply(jid, destTopic, "answer", folder); err != nil {
-						t.Fatal(err)
-					}
-					if err := fns.BumpEngagement(jid, destTopic, folder, time.Now().Add(time.Hour)); err != nil {
-						t.Fatal(err)
-					}
+				if path == "new-thread" && topic == "" {
+					destTopic = "new-thread"
+				}
+				if err := fns.SetLastReply(jid, destTopic, "answer", folder); err != nil {
+					t.Fatal(err)
+				}
+				if err := fns.BumpEngagement(jid, destTopic, folder, time.Now().Add(time.Hour)); err != nil {
+					t.Fatal(err)
 				}
 				if _, live := db.Engaged(jid, topic); live {
 					t.Fatal("trailing answer reopened disengaged conversation")
@@ -55,7 +50,7 @@ func TestDisengageSurvivesTrailingReply(t *testing.T) {
 				if _, err := db.PutTurnContext("fresh", folder, topic, jid, "user", ""); err != nil {
 					t.Fatal(err)
 				}
-				srv.appendAndDeliver("fresh", jid, "fresh mention answer")
+				srv.replyForTest(t, "fresh", jid, "fresh mention answer")
 				if owner, live := db.Engaged(jid, topic); !live || owner != folder {
 					t.Fatalf("fresh turn engagement = %q,%v", owner, live)
 				}
@@ -122,7 +117,7 @@ func TestMemberCanDisengageOwnConversation(t *testing.T) {
 	if _, errText := callToolOverSock(t, sock, "reply", map[string]any{"chatJid": jid, "text": "one-shot answer"}); errText != "" {
 		t.Fatal(errText)
 	}
-	srv.appendAndDeliver("turn", jid, "final answer")
+	srv.replyForTest(t, "turn", jid, "final answer")
 	for _, topic := range []string{"", "thread-root"} {
 		if _, live := db.Engaged(jid, topic); live {
 			t.Fatalf("answer cancelled member disengage on %q", topic)

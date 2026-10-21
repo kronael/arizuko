@@ -393,7 +393,16 @@ func (l *Loop) maybeRetryOutbound(now time.Time) {
 		if now.Sub(m.Timestamp) < backoffDelay(p.Attempts) {
 			continue
 		}
-		pid, derr := l.deliver.Send(m.ChatJID, m.Content, m.ReplyToID, m.Topic, "", m.ID)
+		place := deliveryPlace{jid: m.ChatJID, threadID: m.Topic}
+		if tc, ok := l.db.GetTurnContext(m.TurnID); ok && m.Verb != store.VerbStatusSummary {
+			resolved, err := placeTurnDelivery(l.db, l.deliver, tc, m.ChatJID, m.Topic, m.Topic != "")
+			if err != nil {
+				slog.Warn("retry outbound: resolve thread", "id", m.ID, "err", err)
+				continue
+			}
+			place = resolved
+		}
+		pid, derr := l.deliver.Send(place.jid, m.Content, m.ReplyToID, place.threadID, place.threadRoot, m.ID)
 		switch {
 		case derr == nil:
 			if err := l.db.MarkDelivered(m, pid); err != nil {
@@ -642,7 +651,7 @@ func (l *Loop) resolveFolder(chatJID string, last core.Message) resolution {
 	if direct := l.directFolder(chatJID); direct != "" && l.db.GroupExists(direct) {
 		// Only a person typing in a web chat is a question; a hook is an event
 		// and a bare folder is a system turn.
-		return resolution{Folder: direct, ok: true, Addressed: strings.HasPrefix(chatJID, "web:")}
+		return resolution{Folder: direct, ok: true, Addressed: core.JidPlatform(chatJID) == "web"}
 	}
 	// 2. Route table.
 	routes, err := l.db.Routes()
@@ -689,6 +698,9 @@ func (l *Loop) effectiveTopic(chatJID, msgTopic string) string {
 // engaged folder (a stale ingress claim) is NOT a route: false, so resolve
 // falls through instead of dispatching to "".
 func (l *Loop) engaged(chatJID, topic string) (string, bool) {
+	if strings.HasPrefix(chatJID, "github:") {
+		return "", false
+	}
 	folder, ok := l.db.Engaged(chatJID, topic)
 	if !ok && topic != "" {
 		stopped, err := l.db.store().ThreadDisengaged(chatJID, topic)

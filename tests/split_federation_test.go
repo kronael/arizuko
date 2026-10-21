@@ -154,15 +154,15 @@ func (fedDeliverer) SendOptions(_, _ string, _ []chanlib.Option, _, _ string) (s
 	return "platform-fed-1", nil
 }
 func (fedDeliverer) React(_, _, _ string) error      { return nil }
-func (fedDeliverer) Edit(_, _, _ string) error       { return nil }
+func (fedDeliverer) Edit(_, _, _, _ string) error    { return nil }
 func (fedDeliverer) Delete(_, _ string) error        { return nil }
 func (fedDeliverer) Pin(_, _ string) error           { return nil }
 func (fedDeliverer) Unpin(_, _ string, _ bool) error { return nil }
 func (fedDeliverer) Typing(_ string, _ bool) error   { return nil }
-func (fedDeliverer) Document(_, _, _, _, _, _, _ string) (string, error) {
+func (fedDeliverer) Document(_, _, _, _, _, _, _, _ string) (string, error) {
 	return "platform-fed-doc", nil
 }
-func (fedDeliverer) SendVoice(_, _, _, _ string) (string, error)        { return "platform-fed-voice", nil }
+func (fedDeliverer) SendVoice(_, _, _, _, _ string) (string, error)     { return "platform-fed-voice", nil }
 func (fedDeliverer) Post(_, _ string, _ []string) (string, error)       { return "platform-fed-post", nil }
 func (fedDeliverer) Forward(_, _, _ string) (string, error)             { return "", nil }
 func (fedDeliverer) Quote(_, _, _ string) (string, error)               { return "", nil }
@@ -170,7 +170,7 @@ func (fedDeliverer) Repost(_, _ string) (string, error)                 { return
 func (fedDeliverer) Dislike(_, _ string) error                          { return nil }
 func (fedDeliverer) SetSuggestions(_ string, _ []core.PanePrompt) error { return nil }
 func (fedDeliverer) SetName(_, _ string) error                          { return nil }
-func (fedDeliverer) CanEdit(_ string) bool                              { return false }
+func (fedDeliverer) HasCapability(_, _ string) bool                     { return false }
 func (fedDeliverer) RoundDone(_, _, _, _ string) error                  { return nil }
 func (fedDeliverer) FetchHistory(_ string, _ time.Time, _ int) ([]byte, error) {
 	return nil, nil

@@ -452,7 +452,7 @@ func TestOutboundDocument_AdapterReceivesMultipart(t *testing.T) {
 	if err := os.WriteFile(tmp, []byte("# report body"), 0o644); err != nil {
 		t.Fatalf("write file: %v", err)
 	}
-	if _, err := dl.Document("telegram:user/9", tmp, "report.md", "here you go", "", "", "doc-idem-1"); err != nil {
+	if _, err := dl.Document("telegram:user/9", tmp, "report.md", "here you go", "", "", "doc-idem-1", ""); err != nil {
 		t.Fatalf("document: %v", err)
 	}
 	a.mu.Lock()
@@ -480,7 +480,7 @@ func TestOutboundSendVoice_AdapterReceivesMultipart(t *testing.T) {
 	if err := os.WriteFile(tmp, []byte("OggS synthesized opus"), 0o644); err != nil {
 		t.Fatalf("write file: %v", err)
 	}
-	if _, err := dl.SendVoice("telegram:user/9", tmp, "", ""); err != nil {
+	if _, err := dl.SendVoice("telegram:user/9", tmp, "", "", ""); err != nil {
 		t.Fatalf("send voice: %v", err)
 	}
 	a.mu.Lock()
@@ -514,7 +514,7 @@ func TestOutboundChan_SendFileCarriesIdempotencyKey(t *testing.T) {
 	if err := os.WriteFile(tmp, []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ch.SendFile("telegram:user/9", tmp, "f.bin", "", "", "", "out-abc123"); err != nil {
+	if _, err := ch.SendFile("telegram:user/9", tmp, "f.bin", "", "", "", "out-abc123", ""); err != nil {
 		t.Fatalf("SendFile: %v", err)
 	}
 	a.mu.Lock()
@@ -532,7 +532,7 @@ func TestOutboundChan_SendFileNonexistentPath(t *testing.T) {
 		t.Fatalf("register: %v", err)
 	}
 	ch := chanreg.NewHTTPChannel(reg.Resolve("telegram", "telegram:user/9"), func(context.Context) (string, error) { return "", nil })
-	_, err := ch.SendFile("telegram:user/9", "/no/such/file.bin", "x.bin", "", "", "", "")
+	_, err := ch.SendFile("telegram:user/9", "/no/such/file.bin", "x.bin", "", "", "", "", "")
 	if err == nil {
 		t.Fatal("SendFile with a nonexistent path must error")
 	}
@@ -554,10 +554,10 @@ func TestOutboundChan_NoCapUnsupported(t *testing.T) {
 
 	tmp := filepath.Join(t.TempDir(), "f.bin")
 	os.WriteFile(tmp, []byte("x"), 0o644)
-	if _, err := ch.SendFile("telegram:user/9", tmp, "f.bin", "", "", "", ""); err == nil {
+	if _, err := ch.SendFile("telegram:user/9", tmp, "f.bin", "", "", "", "", ""); err == nil {
 		t.Error("SendFile must be unsupported when cap absent")
 	}
-	if _, err := ch.SendVoice("telegram:user/9", tmp, "", ""); err == nil {
+	if _, err := ch.SendVoice("telegram:user/9", tmp, "", "", ""); err == nil {
 		t.Error("SendVoice must be unsupported when cap absent")
 	}
 	if a.fileHits != 0 || a.voiceHits != 0 {

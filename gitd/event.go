@@ -46,6 +46,9 @@ type payload struct {
 	} `json:"sender"`
 	RequestedReviewer *account `json:"requested_reviewer"`
 	Assignee          *account `json:"assignee"`
+	CheckRun          *ciRun   `json:"check_run"`
+	CheckSuite        *ciRun   `json:"check_suite"`
+	WorkflowRun       *ciRun   `json:"workflow_run"`
 	Issue             *struct {
 		Number      int       `json:"number"`
 		Title       string    `json:"title"`
@@ -79,6 +82,7 @@ type payload struct {
 		Path        string `json:"path"`
 		InReplyToID int64  `json:"in_reply_to_id"`
 		CreatedAt   string `json:"created_at"`
+		UpdatedAt   string `json:"updated_at"`
 	} `json:"comment"`
 	Review *struct {
 		ID          int64  `json:"id"`
@@ -110,6 +114,12 @@ var appAcceptsRepo = chanlib.EnvOr("GITHUB_APP_ACCEPTS_REPO", "") == "1"
 // an App delivery must carry an installation (its ping precedes any install).
 // The secret proves the sender holds the credential; this proves its scope.
 func checkSource(kind, name, event string, p *payload) error {
+	if p.Repository != nil {
+		_, err := store.GitHubSourceKey(store.GitHubSourceRepo, p.Repository.FullName)
+		if err != nil || !strings.EqualFold(p.Repository.FullName, p.Repository.Owner.Login+"/"+p.Repository.Name) {
+			return errSourceMismatch
+		}
+	}
 	switch kind {
 	case store.GitHubSourceRepo:
 		if p.Repository == nil || !strings.EqualFold(p.Repository.FullName, name) {
@@ -163,18 +173,20 @@ func mentions(login, text string) bool {
 	return regexp.MustCompile(`(?i)(?:^|[^A-Za-z0-9])@` + regexp.QuoteMeta(login) + `(?:[^A-Za-z0-9-]|$)`).MatchString(text)
 }
 
-// speech is the verb of human content: a mention when text @-mentions login or
-// assignees hold it, a message otherwise.
-func speech(login, text string, assignees []account) string {
+func speech(login, text string) string {
 	if mentions(login, text) {
 		return "mention"
 	}
+	return "message"
+}
+
+func hasAssignee(login string, assignees []account) bool {
 	for i := range assignees {
 		if assignees[i].hasLogin(login) {
-			return "mention"
+			return true
 		}
 	}
-	return "message"
+	return false
 }
 
 func (a *account) hasLogin(login string) bool {
@@ -200,14 +212,14 @@ func parseTime(s string, fallback time.Time) time.Time {
 	return fallback
 }
 
-// mapEvent turns one delivery into the InboundMsg routd ingests. Human-authored
-// content (a comment, a new PR or issue) carries verb=message, or verb=mention
-// when it @-mentions botLogin or its conversation is assigned to botLogin. A review requested from botLogin or an
-// assignment to it carries no text but is a direct ask, so it is a mention
-// too. Every other event carries its GitHub event name as the verb and a
-// one-line body, so a route row can trigger on the former and observe the
-// latter (spec 6/27 decision 4). A bot sender returns drop != "" and no
-// message.
+func (p *payload) isStateAction(event string) bool {
+	return (event == "pull_request" && p.Action != "review_requested" &&
+		p.Action != "review_request_removed" && p.Action != "assigned" && p.Action != "unassigned") ||
+		event == "pull_request_review_thread" ||
+		(event == "pull_request_review" && p.Review != nil && (p.Action == "dismissed" ||
+			(p.Action == "submitted" && (p.Review.State == "approved" || p.Review.State == "changes_requested"))))
+}
+
 func mapEvent(kind, name, event, delivery string, body []byte, now time.Time, botLogin string) (msg chanlib.InboundMsg, drop string, err error) {
 	var p payload
 	if err := json.Unmarshal(body, &p); err != nil {
@@ -219,8 +231,18 @@ func mapEvent(kind, name, event, delivery string, body []byte, now time.Time, bo
 	if p.Sender.Login == "" && event != "ping" {
 		return msg, "", errors.New("payload has no sender")
 	}
-	if p.Sender.Type == "Bot" {
+	run, isCI := p.ciRun(event)
+	if isCI && run == nil {
+		return msg, "", errors.New("CI event without its run")
+	}
+	stateAction := p.isStateAction(event)
+	self := botLogin != "" && strings.EqualFold(p.Sender.Login, botLogin)
+	metadata := isCI || stateAction || event == "pull_request"
+	if p.Sender.Type == "Bot" && !metadata {
 		return msg, "bot", nil
+	}
+	if self && !metadata {
+		return msg, "self", nil
 	}
 	if delivery == "" {
 		delivery = chanlib.ShortHash(string(body))
@@ -265,7 +287,7 @@ func mapEvent(kind, name, event, delivery string, body []byte, now time.Time, bo
 		jid.Kind, jid.Number = "issue", p.Issue.Number
 		head := fmt.Sprintf("%s issue #%d: %s", p.Action, p.Issue.Number, p.Issue.Title)
 		if p.Action == "opened" || p.Action == "reopened" {
-			msg.Verb = speech(botLogin, p.Issue.Body, p.Issue.Assignees)
+			msg.Verb = speech(botLogin, p.Issue.Body)
 			msg.Content = withBody(head+"\n"+p.Issue.HTMLURL, p.Issue.Body)
 		} else {
 			if p.Action == "assigned" && p.Assignee.hasLogin(botLogin) {
@@ -282,8 +304,8 @@ func mapEvent(kind, name, event, delivery string, body []byte, now time.Time, bo
 		msg.Timestamp = parseTime(pr.UpdatedAt, now).Unix()
 		head := fmt.Sprintf("%s PR #%d: %s (%s → %s)", p.Action, pr.Number, pr.Title, pr.Head.Ref, pr.Base.Ref)
 		switch {
-		case p.Action == "opened" || p.Action == "reopened" || p.Action == "ready_for_review":
-			msg.Verb = speech(botLogin, pr.Body, pr.Assignees)
+		case p.Action == "opened" || p.Action == "reopened" || p.Action == "ready_for_review" || p.Action == "edited":
+			msg.Verb = speech(botLogin, pr.Body)
 			msg.Content = withBody(head+"\n"+pr.HTMLURL, pr.Body)
 		case p.Action == "closed" && pr.Merged:
 			msg.Content = fmt.Sprintf("%s merged PR #%d: %s", login, pr.Number, pr.Title)
@@ -302,40 +324,56 @@ func mapEvent(kind, name, event, delivery string, body []byte, now time.Time, bo
 		if p.Issue.PullRequest != nil {
 			jid.Kind = "pr"
 		}
-		msg.ID = issueIDPrefix + strconv.FormatInt(p.Comment.ID, 10)
-		msg.Timestamp = parseTime(p.Comment.CreatedAt, now).Unix()
 		if p.Action == "created" {
-			msg.Verb = speech(botLogin, p.Comment.Body, p.Issue.Assignees)
+			msg.ID = issueIDPrefix + strconv.FormatInt(p.Comment.ID, 10)
+			msg.Timestamp = parseTime(p.Comment.CreatedAt, now).Unix()
+			msg.Verb = speech(botLogin, p.Comment.Body)
 			msg.Content = p.Comment.Body
 		} else {
 			msg.Content = fmt.Sprintf("%s %s a comment", login, p.Action)
+			if p.Action == "edited" {
+				msg.Timestamp = parseTime(p.Comment.UpdatedAt, now).Unix()
+				if mentions(botLogin, p.Comment.Body) {
+					msg.Verb = "mention"
+				}
+				msg.Content = withBody(msg.Content, p.Comment.Body)
+			}
 		}
 	case "pull_request_review_comment":
 		if p.PullRequest == nil || p.Comment == nil {
 			return msg, "", errors.New("review comment event without pull_request or comment")
 		}
 		jid.Kind, jid.Number = "pr", p.PullRequest.Number
-		msg.ID = reviewIDPrefix + strconv.FormatInt(p.Comment.ID, 10)
-		msg.Timestamp = parseTime(p.Comment.CreatedAt, now).Unix()
 		if p.Comment.InReplyToID != 0 {
 			msg.ReplyTo = reviewIDPrefix + strconv.FormatInt(p.Comment.InReplyToID, 10)
 		}
 		if p.Action == "created" {
-			msg.Verb = speech(botLogin, p.Comment.Body, p.PullRequest.Assignees)
+			msg.ID = reviewIDPrefix + strconv.FormatInt(p.Comment.ID, 10)
+			msg.Timestamp = parseTime(p.Comment.CreatedAt, now).Unix()
+			msg.Verb = speech(botLogin, p.Comment.Body)
 			msg.Content = withBody("on "+p.Comment.Path+":", p.Comment.Body)
 		} else {
 			msg.Content = fmt.Sprintf("%s %s a review comment on %s", login, p.Action, p.Comment.Path)
+			if p.Action == "edited" {
+				msg.Timestamp = parseTime(p.Comment.UpdatedAt, now).Unix()
+				if mentions(botLogin, p.Comment.Body) {
+					msg.Verb = "mention"
+				}
+				msg.Content = withBody(msg.Content, p.Comment.Body)
+			}
 		}
 	case "pull_request_review":
 		if p.PullRequest == nil || p.Review == nil {
 			return msg, "", errors.New("review event without pull_request or review")
 		}
 		jid.Kind, jid.Number = "pr", p.PullRequest.Number
-		msg.ID = "gh-r" + strconv.FormatInt(p.Review.ID, 10)
-		msg.Timestamp = parseTime(p.Review.SubmittedAt, now).Unix()
+		if p.Action == "submitted" {
+			msg.ID = "gh-r" + strconv.FormatInt(p.Review.ID, 10)
+			msg.Timestamp = parseTime(p.Review.SubmittedAt, now).Unix()
+		}
 		head := fmt.Sprintf("%s review (%s) on PR #%d", login, p.Review.State, p.PullRequest.Number)
-		if p.Action == "submitted" && strings.TrimSpace(p.Review.Body) != "" {
-			msg.Verb = speech(botLogin, p.Review.Body, p.PullRequest.Assignees)
+		if (p.Action == "submitted" || p.Action == "edited") && strings.TrimSpace(p.Review.Body) != "" {
+			msg.Verb = speech(botLogin, p.Review.Body)
 		}
 		msg.Content = withBody(head, p.Review.Body)
 	default:
@@ -344,6 +382,21 @@ func mapEvent(kind, name, event, delivery string, body []byte, now time.Time, bo
 			head += " " + p.Action
 		}
 		msg.Content = head
+	}
+	if isCI {
+		msg.Content = fmt.Sprintf("%s %s: %s (%s)\n%s", event, p.Action, run.Name, run.Conclusion, run.HTMLURL)
+	}
+	if p.PullRequest != nil && jid.Kind == "" {
+		jid.Kind, jid.Number = "pr", p.PullRequest.Number
+	}
+	if jid.Kind == "pr" {
+		if stateAction && p.PullRequest != nil && hasAssignee(botLogin, p.PullRequest.Assignees) {
+			msg.Verb = "mention"
+		} else if stateAction && (self || p.Sender.Type == "Bot") {
+			msg.Verb = event
+		}
+	} else if msg.Verb == "mention" {
+		msg.Verb = "message"
 	}
 	msg.ChatJID = jid.String()
 	msg.Topic = jid.Topic()

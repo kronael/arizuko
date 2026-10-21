@@ -58,8 +58,14 @@ cares about message order on a socket.
 - **Inbound has no adapter queue unless the platform forgets.** A
   cursor-gated adapter (teled, bskyd, reditd, linkd, emaid) leaves the
   event on the platform until routd accepts it. An adapter that consumes the
+  Text, file and voice sends carry optional `thread_id` and `thread_root`.
+  Adapters advertise each supported placement in their capability map.
+  `EditRequest.ThreadID` carries the existing thread context for edits.
+  Protocol: [channel adapter contract](../specs/5/34-channel-protocol.md).
+
   event on arrival (slakd, discd, gitd) holds it in its own store
   (`RetainInbound`). A second queue is a second thing to drift.
+
 - **Capabilities are declared, never probed from platform errors.** routd
   forwards a verb only when the adapter registered its capability
   (`chanreg/README.md` § Capabilities).

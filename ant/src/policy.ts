@@ -9,6 +9,7 @@ import { bashScrub, bashSkillRescan, ghWriteGate } from './guards.js';
 import { skillGuard } from './skillguard.js';
 import { toolLogPost, toolLogPre } from './tool-log.js';
 import { todoStatus } from './todo-status.js';
+import { replyOwed } from './reply-owed.js';
 import { STEER_SPOOL, drainLines } from './spool.js';
 
 // ToolEvent is the shape claude and codex already agree on — measured against
@@ -22,9 +23,10 @@ export interface ToolEvent {
   session_id: string;
   cwd?: string;
   tool_response?: unknown;
+  stop_hook_active?: boolean;
 }
 
-export type PolicyEvent = 'PreToolUse' | 'PostToolUse';
+export type PolicyEvent = 'PreToolUse' | 'PostToolUse' | 'Stop';
 
 // Verdict is what a policy may answer. 'rewrite' is claude-only: codex's
 // PreToolUse decision is approve|block|allow and updatedInput lives on its
@@ -60,6 +62,7 @@ export function bindings(ctx: PolicyContext): Binding[] {
   const rescan = bashSkillRescan(ctx.home);
   const todo = todoStatus(ctx.turnID);
   return [
+    { id: 'reply-owed', event: 'Stop', returns: ['deny'], run: replyOwed(ctx.turnID) },
     // A skill the agent writes today runs in its NEXT session. Scans the file the
     // write would PRODUCE, not the fragment it carries (BUGS J9).
     { id: 'skill-guard', event: 'PreToolUse', matcher: 'Write|Edit|MultiEdit', returns: ['deny'], run: async (ev) => skillGuard(ev) },

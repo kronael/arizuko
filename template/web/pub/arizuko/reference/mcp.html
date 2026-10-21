@@ -134,7 +134,7 @@
     <p class="returns"><strong>Returns:</strong> JSON <code>{"ok": true, "id": "&lt;platformId&gt;"}</code>; on adapter "unsupported", returns error text with platform hint.</p>
 
     <h3 id="reply"><code>reply</code></h3>
-    <p>The default way to respond &mdash; use for virtually every answer to the user. Delivers a message threaded to the conversation (quote/reply UI on the platform; on Slack it lands in the thread, not the channel root). Omit <code>replyToId</code> to thread to the current conversation automatically, or pass it to target a specific earlier message. Only reach for <code>send</code> when you deliberately need a fresh top-level message that is NOT a reply.</p>
+    <p>Use <code>reply</code> for answers to the user. Omit <code>replyToId</code> to use the current conversation, or supply an earlier message to quote. A declared task summary keeps replies inside its thread where supported. Existing threads take precedence.</p>
     <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1250"><code>ipc/ipc.go:1250</code></a> &middot; Grant action: <code>reply(jid=...)</code> &middot; In <code>role:member</code>, granted to every folder at create.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
@@ -147,7 +147,7 @@
     <p class="returns"><strong>Returns:</strong> JSON <code>{"ok": true, "id": "&lt;platformId&gt;"}</code>; <code>routd</code> records the outbound row in <code>messages</code> with that id. Pass the id to <code>edit</code> to change the message in place.</p>
 
     <h3 id="send"><code>send</code></h3>
-    <p>Deliver a fresh top-level message that is NOT a reply to the current conversation. Use ONLY when you explicitly need that &mdash; a proactive/unprompted notification, or a message to a different chat. For responding to the user (the normal case) use <code>reply</code>, which threads. Not for threaded replies (<code>reply</code>) or file delivery (<code>send_file</code> &mdash; its <code>caption</code> replaces this call).</p>
+    <p>Use <code>send</code> for a notification or an explicit different chat. Within a declared task, <code>send</code> shares the task&rsquo;s thread placement. An explicit foreign chat keeps its own destination. Use <code>reply</code> for answers and <code>send_file</code> for files.</p>
     <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1227"><code>ipc/ipc.go:1227</code></a> &middot; Grant action: <code>send(jid=...)</code> &middot; In <code>role:member</code>, granted to every folder at create.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
