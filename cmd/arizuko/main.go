@@ -47,6 +47,7 @@ func main() {
 		fmt.Println("  invite   <instance> list [--issued-by|-b SUB]")
 		fmt.Println("  invite   <instance> revoke <token>")
 		fmt.Println("  network  <instance> allow <folder> <target> | deny <folder> <target> | list [<folder>]")
+		fmt.Println("  images   <instance> [--prune|-p]  — list rootfs/kernel trees and mark the in-use ones; --prune removes the rest")
 		fmt.Println("  route    <instance> list | add <match> <target> [--seq|-s N] | rm <id>")
 		fmt.Println("  packages <instance> list | add <name> | remove <name>")
 		fmt.Println("  packages <instance> install <git-url-or-dir> | upgrade <name> | sync")
@@ -90,6 +91,7 @@ func main() {
 		"pair":         cmdPair,
 		"network":      cmdNetwork,
 		"route":        cmdRoute,
+		"images":       cmdImages,
 		"packages":     cmdPackages, // spec 5/27-compose-native-packaging
 		"products":     cmdProducts, // spec 5/28-packages composition
 		"secret":       cmdSecret,

@@ -362,7 +362,7 @@ func reapVM(rec *vmRecord, p procs, grace, poll time.Duration, tree *turnTree, n
 	// The record's job is to name the processes a dead runed must reap. Once every
 	// pid it names is confirmed gone that job is done, so the record goes and the
 	// CID comes back. The tree is reported by path for a person instead — an
-	// operator action on live data, the same split `make rootfs-stale` takes.
+	// operator action on live data, the same split `arizuko images --prune` takes.
 	if tree != nil {
 		if err := tree.teardown(); err != nil {
 			slog.Error("vm teardown: staging tree kept, record released anyway",

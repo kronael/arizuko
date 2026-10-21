@@ -805,12 +805,18 @@ commitment to an estimate, not to a design.
    device and capability lines, the `virtiofsd` package
    (§"The peer credential"), and the two host-budget guards
    (§"The host budget"): the memory-times-cap refusal at runed start and the
-   overlay `size=`, plus the rootfs export and its retention in `make images`.
-   **The retention REPORTS and does not delete** (built 2026-09-24): a tree is
-   ~8.3 GB in an instance's data dir, a turn may have it mounted through
-   virtio-fs at that moment, and a recursive delete of a wrong path removes a
-   release. `make rootfs-stale` names every tree past the newest two and the
-   operator removes it — the same split every other live-data action takes. No
+   overlay `size=`, plus the rootfs export in `make images` and its retention
+   in `arizuko images <instance> [--prune]`.
+   **Retention is an operator command, not a build target**: a tree is
+   ~7 GB in an instance's data dir, a turn may have it mounted through
+   virtio-fs at that moment, and a delete of a wrong path removes a
+   release. `make images` removes nothing. `arizuko images <instance>` lists
+   every `rootfs-*` and `kernel-*` tree with its size. `--prune` removes every
+   tree that `RUNED_ROOTFS_DIR` and `RUNED_KERNEL_DIR` in the instance `.env`
+   do not name. It refuses when either key is unset or names a tree that is not
+   in `<data_dir>/images/`, and it removes nothing while a mount exists at or
+   under a tree it would remove (every process's `mountinfo`, read as root). It
+   touches only direct children of `<data_dir>/images/`, never a symlink. No
    file under `runed/runstore`, `store/` or
    `objstore/` is touched. Tests without a hypervisor cover the record, the
    argument rendering, the frame codec and the tree builder; `make

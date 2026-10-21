@@ -318,7 +318,7 @@ rootfs:
 	      [ -s "$(ROOTFS_DIR)/usr/local/bin/node" ] && [ -s "$(ROOTFS_DIR)/.image-env.json" ] && \
 	      [ "$$(cat "$(ROOTFS_DIR)/.image-env.json")" = "$$image_env" ]; then \
 	      echo "rootfs: $(ROOTFS_DIR) is current for $(ROOTFS_KEY)"; \
-	      $(MAKE) --no-print-directory rootfs-stale DATA_DIR=$(DATA_DIR); exit 0; fi; \
+	      echo "rootfs: free old trees with: arizuko images <instance> --prune"; exit 0; fi; \
 	    echo "rootfs: $(ROOTFS_DIR) is incomplete; keep it for inspection" >&2; exit 1; fi; \
 	  $(DOCKER_SUDO) mkdir -p "$(dir $(ROOTFS_DIR))"; \
 	  stage=$$($(DOCKER_SUDO) mktemp -d "$(dir $(ROOTFS_DIR)).rootfs-partial.XXXXXX"); \
@@ -337,25 +337,10 @@ rootfs:
 	    echo "rootfs: $(ROOTFS_DIR) appeared during export; $$stage kept" >&2; exit 1; fi; \
 	  $(DOCKER_SUDO) mv -T "$$stage" "$(ROOTFS_DIR)"; \
 	  echo "rootfs: $(ROOTFS_DIR)"; \
-	  $(MAKE) --no-print-directory rootfs-stale DATA_DIR=$(DATA_DIR)
+	  echo "rootfs: free old trees with: arizuko images <instance> --prune"
 
-# rootfs-stale NAMES the trees beyond the newest two: the one a running turn may
-# still have mounted, and the one before it, so a rollback needs no re-export. At
-# ~8.3 GB each an unbounded set fills the volume, which is how this host reached
-# 99% (BUGS L359).
-#
-# It REPORTS and does not delete, and that is the design rather than a gap. The
-# tree sits in an instance's data dir, a turn may have it mounted through
-# virtiofs this second, and a recursive delete of a wrong path removes a release.
-# The platform names what is stale; the operator removes it, which is the same
-# split every other live-data action in this repo takes.
-rootfs-stale:
-	@cd $(DATA_DIR)/images 2>/dev/null || exit 0; \
-	  stale=$$(ls -1dt rootfs-* 2>/dev/null | tail -n +3); \
-	  if [ -z "$$stale" ]; then echo "rootfs-stale: none, two or fewer trees kept"; exit 0; fi; \
-	  echo "rootfs-stale: these trees are past the two kept, ~8.3 GB each:"; \
-	  for d in $$stale; do echo "  $(DATA_DIR)/images/$$d"; done; \
-	  echo "rootfs-stale: a turn may still have one mounted, so removal is yours"
+# Old rootfs trees are ~7 GB each and fill the volume (BUGS L359). Freeing them
+# is runtime state of an instance, so the operator CLI owns it: `arizuko images`.
 
 BENCH_PAIRS ?= 20
 BENCH_MODE ?= microvm
@@ -432,4 +417,4 @@ vite-image:
 agent:
 	make -C ant image DOCKER="$(DOCKER)"
 
-.PHONY: build lint test clean images agent vite-image rootfs rootfs-stale bench-boot
+.PHONY: build lint test clean images agent vite-image rootfs bench-boot

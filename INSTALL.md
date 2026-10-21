@@ -156,11 +156,20 @@ sudo make kernel DATA_DIR=/srv/data/arizuko_<name>
 # kernel/check-config.sh or kernel/guest-init/*.go change.
 ```
 
-`make images` keeps the two newest rootfs trees. A running turn can have the
-newest tree mounted, and the older tree makes a rollback possible without a new
-export. The command then runs `make rootfs-stale`. That target names every
-older tree and deletes none, because a turn can still have one mounted. You
-remove the old trees.
+`make images` removes no tree. Each tree in `images/` is about 7 GB, so old
+trees fill the disk. Free them with the operator command, on the host, as root:
+
+```bash
+sudo arizuko images <name>            # list every rootfs and kernel tree, with its size
+sudo arizuko images <name> --prune    # remove every tree that is not in use
+```
+
+The in-use trees are the two that `RUNED_ROOTFS_DIR` and `RUNED_KERNEL_DIR` name
+in `/srv/data/arizuko_<name>/.env`. The command refuses to run if the `.env` does
+not name both, or if a named tree is not on disk. It removes nothing if a mount
+exists at or under a tree that it would remove. It removes only the direct
+children of `images/` named `rootfs-*` or `kernel-*`. To keep a rollback tree,
+set `RUNED_ROOTFS_DIR` to it first, or do not prune.
 
 Never run `docker image prune -a` on an arizuko host. No container holds
 `arizuko-ant` between turns, so the prune deletes it, and the rootfs export
@@ -681,8 +690,9 @@ sudo systemctl restart arizuko_demo               # arizuko run regenerates and 
 ```
 
 - `make images` exports a new rootfs tree only when the `arizuko-ant` image
-  changed. It keeps the two newest trees. To roll back the guest, set
-  `RUNED_ROOTFS_DIR` to the older tree and restart.
+  changed. It removes no tree. To roll back the guest, set `RUNED_ROOTFS_DIR`
+  to an older tree that is still on disk and restart. `arizuko images <name>
+--prune` removes every tree that `.env` does not name.
 - `make kernel` builds only when `kernel/Dockerfile`, `kernel/arizuko.fragment`,
   `kernel/check-config.sh` or `kernel/guest-init/*.go` changed. Otherwise it
   prints `is current` and `RUNED_KERNEL_DIR` stays as it is.

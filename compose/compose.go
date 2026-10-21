@@ -19,8 +19,8 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
-// containerDataMount is the container-side path where the data dir is mounted.
-const containerDataMount = "/srv/app/home"
+// ContainerDataMount is the container-side path where the data dir is mounted.
+const ContainerDataMount = "/srv/app/home"
 
 // containerSrcMount is where HOST_APP_DIR is mounted under APP_SRC_DEV;
 // bakedAppSrc is where the Dockerfile stages `ant/`, the default (appSrc).
@@ -1123,11 +1123,11 @@ func seedSharedDefaults(env map[string]string) {
 // pre-exist: docker creates a missing bind source as root.
 func dataMounts(dataDir string, subdirs []string) []string {
 	if len(subdirs) == 0 {
-		return []string{fmt.Sprintf("%s:%s", dataDir, containerDataMount)}
+		return []string{fmt.Sprintf("%s:%s", dataDir, ContainerDataMount)}
 	}
 	out := make([]string, 0, len(subdirs))
 	for _, sub := range subdirs {
-		out = append(out, fmt.Sprintf("%s/%s:%s/%s", dataDir, sub, containerDataMount, sub))
+		out = append(out, fmt.Sprintf("%s/%s:%s/%s", dataDir, sub, ContainerDataMount, sub))
 	}
 	return out
 }
@@ -1165,7 +1165,7 @@ func writeSvc(def svcDef) string {
 		b.WriteString("    environment:\n")
 	}
 	if def.dataDir != "" {
-		fmt.Fprintf(&b, "      DATA_DIR: '%s'\n", containerDataMount)
+		fmt.Fprintf(&b, "      DATA_DIR: '%s'\n", ContainerDataMount)
 	}
 	if len(def.environment) > 0 {
 		writeEnv(&b, def.environment)
@@ -1236,7 +1236,7 @@ func routdService(app, flavor, dataDir string, env map[string]string) string {
 // answers; a value outside it is a shared artifact and gets one.
 func hostViewPaths(env map[string]string) []string {
 	var out []string
-	seen := map[string]bool{containerDataMount: true}
+	seen := map[string]bool{ContainerDataMount: true}
 	for _, v := range append([]string{
 		env["HOST_CODEX_DIR"], env["RUNED_KERNEL_DIR"], env["RUNED_ROOTFS_DIR"],
 	}, core.ParseCSV(env["MOUNT_ALLOWED_ROOTS"])...) {
@@ -1245,7 +1245,7 @@ func hostViewPaths(env map[string]string) []string {
 			continue
 		}
 		// Already reachable: the data dir is mounted whole.
-		if strings.HasPrefix(v, containerDataMount+"/") {
+		if strings.HasPrefix(v, ContainerDataMount+"/") {
 			continue
 		}
 		seen[v] = true
@@ -1284,7 +1284,7 @@ func runedService(app, flavor, dataDir string, env map[string]string) string {
 	// that permits this one mount is tighter and is the operator's to write.
 	b.WriteString("    security_opt: [apparmor=unconfined]\n")
 	b.WriteString("    volumes:\n")
-	fmt.Fprintf(&b, "      - %s:%s\n", dataDir, containerDataMount)
+	fmt.Fprintf(&b, "      - %s:%s\n", dataDir, ContainerDataMount)
 	// A guest can be shown only what RUNED can open: virtiofsd is runed's own
 	// child, not a daemon on the host, so a host path outside the data dir needs a
 	// mount here or the turn's staging tree refuses it (BUGS `L370`). Each one
@@ -1295,7 +1295,7 @@ func runedService(app, flavor, dataDir string, env map[string]string) string {
 		fmt.Fprintf(&b, "      - %s:%s:ro\n", p, p)
 	}
 	vol, src := appSrc(env)
-	runedEnv := map[string]string{"DATA_DIR": containerDataMount, "APP_SRC_DIR": src}
+	runedEnv := map[string]string{"DATA_DIR": ContainerDataMount, "APP_SRC_DIR": src}
 	if vol != "" {
 		fmt.Fprintf(&b, "      - %s\n", vol)
 	}

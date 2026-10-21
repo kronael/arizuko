@@ -828,7 +828,7 @@ func TestDataMountsAreScopedPerDaemon(t *testing.T) {
 		}
 		// The whole-tree mount is exactly `<dataDir>:/srv/app/home`. A scoped
 		// daemon must never carry it — that is the boundary this test defends.
-		if want[0] != ":/srv/app/home" && strings.Contains(s, "- "+dir+":"+containerDataMount+"\n") {
+		if want[0] != ":/srv/app/home" && strings.Contains(s, "- "+dir+":"+ContainerDataMount+"\n") {
 			t.Errorf("%s mounts the whole data dir; it is scoped to %v:\n%s", svc, want, s)
 		}
 	}
@@ -861,7 +861,7 @@ func TestDataMountsAreScopedPerDaemon(t *testing.T) {
 func TestRoutdKeepsTheWholeTreeForItsRootPathReaders(t *testing.T) {
 	dir := seed(t, "API_PORT=8080\n")
 	routd := serviceBlock(gen(t, dir), "routd")
-	if !strings.Contains(routd, "- "+dir+":"+containerDataMount+"\n") {
+	if !strings.Contains(routd, "- "+dir+":"+ContainerDataMount+"\n") {
 		t.Errorf("routd lost the whole-tree mount; connectors.toml, surrogate/, tts/ "+
 			"and audit-*.jl all sit at the data-dir root and all fail SILENTLY when "+
 			"unmounted:\n%s", routd)
@@ -883,12 +883,12 @@ func TestScopedDaemonsGetNoOtherOwnersDB(t *testing.T) {
 		}
 		s := serviceBlock(out, svc)
 		// A bare store/ bind would re-hand every owner's DB in one line.
-		if strings.Contains(s, "- "+dir+"/store:"+containerDataMount+"/store\n") {
+		if strings.Contains(s, "- "+dir+"/store:"+ContainerDataMount+"/store\n") {
 			t.Errorf("%s mounts store/ wholesale; it must name owner subdirs:\n%s", svc, s)
 		}
 		for _, owner := range owners {
 			mount := "/store/" + owner + ":"
-			wanted := slices.Contains(want, "/store/"+owner+":"+containerDataMount+"/store/"+owner)
+			wanted := slices.Contains(want, "/store/"+owner+":"+ContainerDataMount+"/store/"+owner)
 			got := strings.Contains(s, "- "+dir+mount)
 			if got && !wanted {
 				t.Errorf("%s reaches %s's database; it is scoped to %v:\n%s", svc, owner, want, s)
@@ -908,8 +908,8 @@ func TestScopedDaemonsKeepDataDirEnv(t *testing.T) {
 	// writeSvc's own line (single quotes) — assert the value, not the quoting.
 	for svc := range wantDataMounts {
 		s := serviceBlock(out, svc)
-		if !strings.Contains(s, `DATA_DIR: "`+containerDataMount+`"`) &&
-			!strings.Contains(s, `DATA_DIR: '`+containerDataMount+`'`) {
+		if !strings.Contains(s, `DATA_DIR: "`+ContainerDataMount+`"`) &&
+			!strings.Contains(s, `DATA_DIR: '`+ContainerDataMount+`'`) {
 			t.Errorf("%s lost DATA_DIR; got:\n%s", svc, s)
 		}
 	}
