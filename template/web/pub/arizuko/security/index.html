@@ -28,7 +28,7 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; security</p>
       <h1>security</h1>
 
-      <p class="lede">arizuko treats every agent run as untrusted code. Three controls hold today. Each turn reaches the network only through its own egress proxy, which allows a fixed list of hosts. The edge daemon <code>proxyd</code> checks every web login, and every backend can verify the proof it attaches. A broker keeps every credential except the model keys out of the guest. The <a href="#glossary">glossary</a> at the end defines the terms.</p>
+      <p class="lede">arizuko treats every agent run as untrusted code. Three controls hold today. Each turn reaches the network only through its own egress proxy, which allows a fixed list of hosts. The edge daemon <code>proxyd</code> checks every web login, and every backend can verify the proof it attaches. A broker keeps every credential out of the guest, except the model keys and each key that a <code>shell:env</code> grant names. The <a href="#glossary">glossary</a> at the end defines the terms.</p>
 
       <h2 id="threat">The agent is the threat, so the platform walls it in</h2>
       <p>An agent can run shell commands, fetch web pages and run scripts that it wrote. Claude Code runs with <code>bypassPermissions</code> inside its guest, so it does not ask before it acts. A prompt injection, a bug in a tool or a hostile skill gives an attacker the same reach. The platform assumes this and limits what the guest can reach.</p>
@@ -43,7 +43,7 @@
       <pre><code>arizuko network &lt;instance&gt; allow &lt;folder&gt; api.github.com</code></pre>
       <p>The wildcard <code>*</code> is added only for a folder that holds the <code>egress</code> grant, or for an elevated <code>/root</code> turn. The allowlist matches names. A row written as an IP address matches nothing and grants no access.</p>
 
-      <h2 id="secrets">Only the model keys enter the guest</h2>
+      <h2 id="secrets">Model keys enter the guest, and a shell:env grant adds a folder secret</h2>
       <p>A credential takes one of two doors. The five model keys enter the environment of the guest at spawn. They are <code>ANTHROPIC_API_KEY</code>, <code>ANTHROPIC_OAUTH_TOKEN</code>, <code>CLAUDE_CODE_OAUTH_TOKEN</code>, <code>OPENAI_API_KEY</code> and <code>CODEX_API_KEY</code>. The agent runtime spends them, and no tool call exists to attach a broker to.</p>
       <p>Every other credential stays on the host. When a connector call needs <code>GITHUB_TOKEN</code>, <code>routd</code> looks it up and puts it in the outbound request. The agent receives the answer with the value removed. A <code>shell:env:&lt;KEY&gt;</code> grant is the one way to put a folder secret into the shell of the guest. Infrastructure keys such as <code>SECRETS_KEY</code> never leave the host <code>.env</code>.</p>
       <p>With the <a href="../components/litellm.html">litellm</a> package the model key stays out as well. The gateway holds it, and <code>routd</code> mints a <code>MODEL_GATEWAY_KEY</code> for each turn. AES-256-GCM encrypts the values in the <code>secrets</code> table at rest, and <a href="../reference/env.html#SECRETS_KEY"><code>SECRETS_KEY</code></a> is required. The <a href="../concepts/secrets.html">secrets page</a> draws the two doors.</p>
@@ -77,7 +77,7 @@ Authorization: Bearer &lt;ES256 service:proxyd token&gt;</code></pre>
         <li><strong>Encryption at rest covers secrets only.</strong> The <code>secrets</code> table is encrypted. The rest of <code>/srv/data/&lt;instance&gt;/</code> is plain files, and the operator trusts the disk and the file permissions.</li>
         <li><strong>No SAML or OIDC login of its own.</strong> Sign-in uses GitHub, Google, Discord and Telegram OAuth, and Dex when <code>DEX_ISSUER</code> and <code>DEX_CLIENT_ID</code> are set. Invite links onboard new users.</li>
         <li><strong>No defense against host root.</strong> The operator owns the host. arizuko does not keep secrets from the person who runs it.</li>
-        <li><strong>No revocation list for tokens.</strong> An access token lives 15 minutes and a refresh token 30 days. The short life is the only revocation. A revoked grant takes effect at the next tool call.</li>
+        <li><strong>No revocation list for tokens.</strong> The verifiers stay offline, so an access token lives out its 15 minutes. A refresh token lasts 30 days. An operator ends a login with <code>DELETE /v1/sessions/{family_id}</code>, which stops the renewal. A revoked grant takes effect at the next tool call.</li>
         <li><strong>No IPv6 for the guest.</strong> <code>runed</code> turns IPv6 off on the tap before the link comes up. The rule set of the tap covers IPv4 only. A turn whose tap cannot be sealed fails.</li>
       </ul>
 
