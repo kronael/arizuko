@@ -1,5 +1,9 @@
 ---
-status: shipped
+status: defected
+# defects: an OPEN BUGS entry contradicts this spec —
+# §"Approach" says teardown is best-effort; the driver has none, and every
+# run leaves its child groups on the live instance
+defects: [L72]
 ---
 
 # 5/9 — agent-capability eval (`anteval`)
