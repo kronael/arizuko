@@ -104,8 +104,9 @@ list disagree.
 ┌──────────────┐ written by that adapter; gitd and slakd also open
 │ <adapter>.*  │ routd.*
 └──────────────┘
-timed, ttsd, googd, whapd and twitd hold no store key; timed and ttsd call an owner's /v1
 ```
+
+timed, ttsd, googd, whapd and twitd hold no store key. timed and ttsd call an owner's `/v1`.
 
 | Owner                                      | Entities                                                                                                   | Declared in                            | Column detail                                |
 | ------------------------------------------ | ---------------------------------------------------------------------------------------------------------- | -------------------------------------- | -------------------------------------------- |
