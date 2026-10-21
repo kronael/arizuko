@@ -778,8 +778,13 @@ func (l *Loop) onCircuitBreakerOpen(chatJID, folder string) {
 }
 
 // onboardingAllowed reports whether jid's platform prefix is eligible for
-// chat-initiated onboarding. Empty platforms = all allowed.
+// chat-initiated onboarding. Empty platforms = all allowed. A JID with no
+// platform prefix is a bare folder chat, the platform's own system chat, never
+// a person.
 func onboardingAllowed(jid string, platforms []string) bool {
+	if core.JidPlatform(jid) == "" {
+		return false
+	}
 	if len(platforms) == 0 {
 		return true
 	}

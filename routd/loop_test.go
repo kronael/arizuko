@@ -166,6 +166,35 @@ func TestQueuePathRouteMissInsertsOnboarding(t *testing.T) {
 	}
 }
 
+// TestRouteMissBareFolderJIDNotOnboarded: a /migrate-shaped system message to a
+// bare folder JID whose group row is gone misses resolution, and the miss must
+// not queue an onboarding row (krons 2026-10-21: 23 rows for eval/<child>). The
+// telegram control above still onboards.
+func TestRouteMissBareFolderJIDNotOnboarded(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	loop := NewLoop(db, nopRunner{}, LoopConfig{OnboardingEnabled: true})
+	loop.StopQueue()
+	fo := &fakeOnbod{}
+	loop.SetOnbodClient(fo)
+	const jid = "eval/gone-child"
+	_ = db.PutMessage(core.Message{ID: "m1", ChatJID: jid, Sender: store.SystemSender,
+		Content: "/migrate", Timestamp: time.Now().UTC(), Verb: "message"})
+
+	if _, err := loop.processGroupMessages(jid); err != nil {
+		t.Fatalf("process: %v", err)
+	}
+	if len(fo.onboarded) != 0 {
+		t.Fatalf("bare folder JID onboarded: %v", fo.onboarded)
+	}
+	if db.GetAgentCursor(jid) == "" {
+		t.Fatal("miss did not advance cursor")
+	}
+}
+
 // TestHookJIDDispatchesToOwnerFolder pins the BUGS L1 fix: the mint writes the
 // target folder into a hook: JID (spec 5/W), so route resolution dispatches the
 // payload to that folder. Before the fix the JID missed resolution, onbod

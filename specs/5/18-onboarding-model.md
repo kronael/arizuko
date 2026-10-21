@@ -36,6 +36,10 @@ An anonymous sender in an unrouted JID yields **nothing** — no turn, no reply,
 no grant. That is structural: routing never consults the ACL (`ROUTING.md` § Unrouted chats are held, not delivered), and the
 ACL never creates routes.
 
+A bare folder JID (no `platform:` prefix, such as `eval/child`) is never
+onboarded, with any `ONBOARDING_PLATFORMS` value: it is the platform's own
+system chat (`/migrate`, scheduled tasks), never a person.
+
 **This spec owns the location axis only.** It CONSUMES an authenticated session
 and never mints one; the pairing act belongs to [`5/31`](31-identity-pairing.md).
 
