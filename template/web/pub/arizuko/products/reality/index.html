@@ -51,7 +51,7 @@
         judge it, but because someone has to remember.
       </p>
 
-      <p>Rhias is a long-running agent with your own notes, diary and message history. It is not a task bot and not a search box. It keeps threads about the real situations in your life: a relationship, a decision, a project. The template is in <code>ant/examples/reality/</code>.</p>
+      <p>Rhias is a long-running agent with your own notes, diary and message history. It keeps threads about the real situations in your life: a relationship, a decision, a project. The template is in <code>ant/examples/reality/</code>.</p>
 
       <h2>Five parts hold your context</h2>
       <dl>
@@ -62,13 +62,13 @@
         <dt>Reflection</dt>
         <dd>At the end of a session or on request, the agent gives a structured summary of what you discussed and what is still open.</dd>
         <dt>Monthly sweep</dt>
-        <dd>A scheduled task in <code>timed</code> compacts the diary and the episodes. It reports what changed, what is resolved and what is still open, with no prompt from you.</dd>
+        <dd>The product ships no scheduled task. After you schedule one, as <a href="setup.html">setup</a> shows, <code>timed</code> sends the prompt each month. The persona tells the agent to compact the diary and the episodes and to report what changed, what is resolved and what is still open.</dd>
         <dt>Content folder</dt>
         <dd>A separate <code>rhias/content</code> group for longer writing, such as drafts, edits and publishing. It has its own memory and persona, apart from the main conversation.</dd>
       </dl>
 
-      <h2>Rhias asks before it files anything</h2>
-      <p>Rhias is curious and does not judge. It holds context without a request, asks questions before it files anything, never gives advice without a request, and refers to earlier threads. The persona file of the template encodes that voice. A <code>CLAUDE.md</code> for each deployment tunes it and does not replace it.</p>
+      <h2>The persona tells Rhias to ask before it files anything</h2>
+      <p>The persona file of the template tells Rhias to hold context without a request, to ask questions before it files a thread, to give no advice without a request and to refer to earlier threads. A <code>CLAUDE.md</code> for each deployment tunes that voice and does not replace it.</p>
 
       <h2>A thread lasts for weeks</h2>
       <pre><code>telegram &middot; DM
@@ -88,7 +88,7 @@
   rhias  Want me to file that under q3-architecture or open a new
          thread? It reads like related-but-distinct.
 </code></pre>
-      <p>Two weeks passed, several threads exist, and the user explains nothing again. The agent starts the session with a scan of the diary for recent context. After the session, it updates <code>facts/threads/q3-architecture.md</code> without a request.</p>
+      <p>The persona tells the agent to scan the diary for recent context when a session opens, and to update the thread file, here <code>facts/threads/q3-architecture.md</code>, after the session.</p>
 
       <h2>The product lists six skills</h2>
       <ul>
@@ -114,19 +114,19 @@
 20   platform=whatsapp room=120363012345678901@g.us  rhias/nemo#observe
 </code></pre>
       <p>The pattern extends to more sources: RSS, partner WhatsApp groups or a Slack workspace into one folder, with replies on one main channel. <a href="../../concepts/routing.html#modes">Routing modes</a> lists the fragments.</p>
-      <p>The <code>CLAUDE.md</code> of the agent can add a rule such as "never <code>send</code> or <code>reply</code> to WhatsApp". With the route mode in place, the rule changes nothing, because <code>routd</code> already enforces <code>#observe</code>.</p>
+      <p>The <code>CLAUDE.md</code> of the agent can add a rule such as "never <code>send</code> or <code>reply</code> to WhatsApp". The route mode does not replace that rule. <code>#observe</code> only stops an inbound message from starting a turn. <code>send</code> and <code>reply</code> still work for a chat that has a route, so only the <code>CLAUDE.md</code> rule or a grant on the tool limits outbound sends.</p>
 
-      <h2>One user, a long horizon</h2>
-      <p>Rhias has the same single-user shape as the <a href="../trip/">trip planner</a>, for life context instead of a project. The folder grows, with threads, diary and episodes, and the structure stays the same. No hierarchy, no per-user rows and no user dashboard exist. When several people need the same agent, use the <a href="../slack-team/">slack-team</a> shape.</p>
+      <h2>Rhias is a single-user shape</h2>
+      <p>Rhias has the same single-user shape as the <a href="../trip/">trip planner</a>, for life context instead of a project. When several people need the same agent, use the <a href="../slack-team/">slack-team</a> shape.</p>
 
-      <h2>Your data stays on your server</h2>
+      <h2>Files stay on your server and model calls go to Anthropic</h2>
       <dl>
         <dt>Your server</dt>
         <dd>The threads, the diary and the memory are files under <code>/srv/data/arizuko_&lt;name&gt;/groups/</code>. The channel history is on the store server of the instance.</dd>
         <dt>Outbound paths</dt>
         <dd>Telegram and WhatsApp for the bot, Anthropic for model calls. Other traffic goes through <a href="../../components/egress.html">egress</a> and reaches only the hosts that you allow for each group.</dd>
         <dt>Separate memory for each group</dt>
-        <dd>The main group and the <code>content</code> folder have separate memories. Nothing crosses between them.</dd>
+        <dd>The main group and the <code>content</code> folder have separate home folders and memories. Both see the shared directory <code>/var/lib/share</code> of their world.</dd>
       </dl>
 
       <h2>Five commands set it up</h2>

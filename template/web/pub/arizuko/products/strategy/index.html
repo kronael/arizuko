@@ -50,9 +50,9 @@
         inferred from speculative, every time.
       </p>
 
-      <h2>Prometheus writes the same four sections every week</h2>
-      <p>Prometheus watches the sources in <code>facts/watchlist.md</code> and writes the same four sections each week: an executive summary, the key developments, the signals to watch and the recommended actions. Every finding has a confidence marker and a citation in the text: the URL, the publication and the date. The briefings go into <code>facts/reports/</code>, so the archive is a directory that you can grep.</p>
-      <p>The useful part is the focus: what <em>changed</em> since the last briefing, not a new summary of the domain. A weekly report that reads like the last one is a report that nobody opens twice.</p>
+      <h2>The persona tells Prometheus to write the same four sections every week</h2>
+      <p>The persona tells Prometheus to follow the sources in <code>facts/watchlist.md</code> and to write four sections: an executive summary, the key developments, the signals to watch and the recommended actions. It tells Prometheus to mark each finding with a confidence level and a citation in the text: the URL, the publication and the date. It tells Prometheus to store each briefing in <code>facts/reports/</code>, so the archive is a directory that you can grep.</p>
+      <p>The product ships no scheduled task, so the weekly briefing needs a task that you add, as <a href="setup.html">setup</a> shows. The persona tells Prometheus to report what changed since the last briefing.</p>
 
       <h2>A sample exchange</h2>
       <pre><code>user   anything on the licensing change?
@@ -75,9 +75,6 @@ agent  Confirmed: BSL 1.1 as of 2026-08-11 (vendor blog, 11 Aug).
         </tbody>
       </table>
       <p>The product also ships its tests in <code>eval/</code>.</p>
-
-      <h2>A team that tracks one domain needs it</h2>
-      <p>The product is for a team that must stay current in one domain and does it now with many browser tabs. It is for research, not for conversation: the output is a document, and the chat is where you ask for one.</p>
 
       <p><a href="setup.html">Set it up &rsaquo;</a></p>
 

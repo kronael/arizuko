@@ -52,10 +52,10 @@
         Preferences persist across every future trip.
       </p>
 
-      <p>May is an agent for one user, with your travel profile and your past trips. May is not a search engine. May reads your preferences first, asks questions before the research, and writes a structured document, not a list of links. The template is in <code>ant/examples/trip/</code>.</p>
+      <p>May is an agent for one user, with your travel profile and your past trips. The template is in <code>ant/examples/trip/</code>.</p>
 
-      <h2>May asks before she researches</h2>
-      <p>May is methodical and exact. She cites sources in the text, for example "per the Japan visa gov page" or "per Lonely Planet &sect;Kyoto". Before the research, she asks about the dates, the budget and the travel style, and she starts the plan only when these are clear. She does not invent visa rules, prices or opening hours: she checks them or says that she is not sure. She delivers a day-by-day schedule, a logistics block, a budget estimate and a packing list.</p>
+      <h2>The persona tells May to ask before she researches</h2>
+      <p>The persona tells May to cite sources in the text, for example "per the Japan visa gov page" or "per Lonely Planet &sect;Kyoto". It tells her to ask about the dates, the budget and the travel style before the research, and to start the plan only when these are clear. It tells her not to invent visa rules, prices or opening hours, but to check them or say that she is not sure. The output is a day-by-day schedule, a logistics block, a budget estimate and a packing list.</p>
 
       <h2>Six parts make the planner</h2>
       <dl>
@@ -102,8 +102,8 @@
          Osaka 2 nights (Dotonbori, Kuromon market, takoyaki circuit),
          Nara half-day. Budget est. ~&yen;142k total (ex flights).</code></pre>
 
-      <h2>The planner is one user with deep state</h2>
-      <p>The planner is in the middle of the range: one user and one folder, but a turn with much research and a state that grows with each trip. The <a href="../shapes.html#supermarket">supermarket agent</a> is simpler, with a shared folder and no memory. The <a href="../reality/">reality agent</a> has the same single-user shape for life context instead of travel. The team shapes start at <a href="../slack-team/">slack-team</a>.</p>
+      <h2>The planner is a single-user shape</h2>
+      <p>The <a href="../reality/">reality agent</a> has the same single-user shape for life context instead of travel. The <a href="../shapes.html#supermarket">supermarket agent</a> has a shared folder and no memory. The team shapes start at <a href="../slack-team/">slack-team</a>.</p>
 
       <h2>The product lists five skills</h2>
       <dl>
@@ -116,7 +116,7 @@
       <h2>Telegram is the main channel</h2>
       <p>Telegram fits a personal planner for one user. WhatsApp works for users without Telegram. The asymmetric pattern of the reality agent also works here: route WhatsApp to <code>#observe</code>, and May brings the relevant messages into the Telegram chat. The <a href="../reality/#case-study">reality agent case study</a> shows the route table.</p>
 
-      <h2>Your data stays on your server</h2>
+      <h2>Files stay on your server and model calls go to Anthropic</h2>
       <dl>
         <dt>Your server</dt>
         <dd>The preferences, the trip archive and the diary are files under <code>/srv/data/arizuko_&lt;name&gt;/groups/</code>. The conversation history is on the store server of the instance.</dd>

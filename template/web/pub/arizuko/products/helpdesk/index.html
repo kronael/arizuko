@@ -51,22 +51,22 @@
         a product can ship.
       </p>
 
-      <h2>The agent answers technical questions and escalates the rest</h2>
-      <p>A message arrives on the channel that you connected. The agent puts it in one of three classes: billing, technical or account. It answers the technical questions from the knowledge that you added, and it escalates the other two classes instead of a guess. Every reply quotes the ticket ID, because a support answer without the ID costs one more message.</p>
-      <p>The escalation rule is the purpose of the product. An agent that guesses about a refund is worse than one that says "this needs a human, I flagged it". Four lines in a file that you can read make the difference between the two.</p>
+      <h2>The rules in CLAUDE.md make the agent escalate billing</h2>
+      <p>A message arrives on the channel that you connected. The <code>triage</code> skill puts it in one class: billing, technical or account. The <code>CLAUDE.md</code> rules tell the agent to quote the ticket ID in every reply, to escalate billing and account-deletion questions, and never to promise a refund. The agent answers the other questions from <code>facts/</code>.</p>
+      <p>An escalation to a person is a message. An escalation to another agent is a delegation, and the agent needs a grant for it. <a href="setup.html">Setup</a> shows both.</p>
 
       <h2>A sample exchange</h2>
       <pre><code>user   I was charged twice for March, ticket 4417.
 
 agent  Ticket 4417 — that's a billing question, so I'm escalating it
-       rather than guessing at your account state. Flagged for the
-       billing rota now.
+       rather than guessing at your account state. Flagged for
+       billing now.
 
 user   how long until someone looks at it?
 
 agent  Ticket 4417 — first response target is 2 hours during business
        hours.</code></pre>
-      <p>The second answer comes from <code>facts/sla.md</code>, a file with one line. Knowledge is a file in the group, not a fine-tune and not a vector store.</p>
+      <p>The second answer comes from <code>facts/sla.md</code>, a file with one line.</p>
 
       <h2>Helpdesk ships one file of each kind</h2>
       <p>The other products ship a persona and knowledge. Helpdesk ships one file of <em>every</em> payload kind that has a consumer. Copy it when you want to see the whole shape:</p>
@@ -84,9 +84,6 @@ agent  Ticket 4417 — first response target is 2 hours during business
         </tbody>
       </table>
       <p><a href="../../howto/build-a-product.html">Build a product</a> takes this tree from an empty directory to an applied group. <code>tests/lab/product-lab.sh</code> applies it on a temporary instance, so you can see where each file goes.</p>
-
-      <h2>A team with repetitive support needs it</h2>
-      <p>The product fits a team whose support is mostly repetitive and sometimes expensive. It is conservative by design: it escalates and does not try to be clever. That is the correct default when a wrong answer costs a refund dispute.</p>
 
       <p><a href="setup.html">Set it up &rsaquo;</a></p>
 

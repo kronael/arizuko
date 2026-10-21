@@ -50,9 +50,9 @@
         approval.
       </p>
 
-      <h2>Phosphene proposes where and when, then waits</h2>
-      <p>Give Phosphene content, and it proposes where and when to post it, with a short reason. After your approval, it posts and cross-posts through the adapters that you installed, watches the reply threads and reports the engagement plainly: numbers and patterns, with no hype in its own voice.</p>
-      <p>It reads <code>facts/channels.md</code> and <code>facts/voice.md</code> before every action, because each platform has its own tone: a good Bluesky post is a bad Discord message.</p>
+      <h2>The persona tells Phosphene to propose where and when, then wait</h2>
+      <p>The persona tells Phosphene to propose where and when to post content, with a short reason. After you approve, it posts and cross-posts through the adapters that you installed, and it reports the engagement as numbers and patterns. The platform does not enforce the approval step. Posting is an adapter action with a grant, so the agent posts only where it has both.</p>
+      <p>The persona tells Phosphene to read <code>facts/channels.md</code> and <code>facts/voice.md</code> before every action, and to post only to platforms that <code>facts/channels.md</code> lists. The product ships no scheduled task, so the weekly digest and the reply checks need a task that you add.</p>
 
       <h2>A sample exchange</h2>
       <pre><code>user   here's the post. where does it go?
@@ -77,8 +77,7 @@ agent  Posted to Bluesky. I'll check replies in 4h and again tomorrow.</code></p
       </table>
       <p>The product also ships its tests in <code>eval/</code>.</p>
 
-      <h2>A person with several accounts needs it</h2>
-      <p>The product is for a person with more than one account who loses time on the mechanics, not on the writing. Add <a href="../creator/">the content pipeline</a> when drafting is also a limit.</p>
+      <p>For drafting, see <a href="../creator/">the content pipeline</a>.</p>
 
       <p><a href="setup.html">Set it up &rsaquo;</a></p>
 

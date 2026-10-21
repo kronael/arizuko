@@ -51,11 +51,11 @@
       </p>
 
       <h2>Atlas answers from your files and cites the path</h2>
-      <p>Atlas searches <code>facts/</code> and <code>refs/</code> before anything else. Training data is the last source. Every answer starts with the answer and names the path that it came from. So a wrong answer is a file that you can fix, not a model that you must argue with.</p>
-      <p>The voice is a choice: dry, lowercase and without corporate warmth. Atlas says "I don't have that recorded" plainly and logs the question, so the gap in the knowledge base becomes visible.</p>
+      <p>Atlas searches <code>facts/</code> and <code>refs/</code> before anything else. Training data is the last source. Every answer starts with the answer and names the path that it came from.</p>
+      <p>The persona sets a dry, lowercase voice. When the files hold no answer, the persona tells Atlas to say "I don't have that recorded", and <code>CLAUDE.md</code> tells it to log the question to <code>~/issues.md</code>.</p>
 
-      <h2>Helpdesk teaches the shape, and Atlas holds the documents</h2>
-      <p>Both products sort inbound questions. They differ in where the knowledge lives. <a href="../helpdesk/">Helpdesk</a> is the reference product: a small Slack triage loop with a classification skill that shows the whole product shape. Atlas is the knowledge-base product: a larger <code>facts/</code> tree, the citation habit and a web chat for a product site. Pick Helpdesk to learn the shape. Pick Atlas when the answers already exist in documents.</p>
+      <h2>Helpdesk classifies messages, and Atlas cites documents</h2>
+      <p>Both products sort inbound questions. <a href="../helpdesk/">Helpdesk</a> ships a <code>triage</code> skill that classifies a message as billing, technical or account, and one file of every kind a product can ship. Atlas ships no <code>skills/</code> directory. It searches <code>facts/</code> and <code>refs/</code> and cites the path.</p>
 
       <h2>A sample exchange</h2>
       <pre><code>user   does the export endpoint support pagination?
@@ -79,9 +79,6 @@ agent  i don't have that recorded. logging it and escalating &mdash;
         </tbody>
       </table>
       <p>The product also ships its tests in <code>eval/</code>.</p>
-
-      <h2>A team with written answers needs it</h2>
-      <p>The product is for a team whose answers already exist in writing, such as documents, runbooks or a changelog, and who want the agent to quote them, not to paraphrase them. If your answers do not exist in writing yet, the product tells you so on the first question.</p>
 
       <p><a href="setup.html">Set it up &rsaquo;</a></p>
 
