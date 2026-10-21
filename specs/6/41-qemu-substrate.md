@@ -54,7 +54,7 @@ is not shipped.
 | Packages the runed image needs | Alpine carries `qemu-system-x86_64`, `virtiofsd`, `socat` (`apk search` from `arizuko:latest`, 2026-09-12); none of the three is installed in `arizuko:latest` today, so the image gains them (§"The runed deploy topology"). `nftables`/`iptables` verified at build, §Open.                                                                                                                                                                          |
 | Host disk                      | hel1v5: **9.4 GB free of 256 GB** after `docker builder prune -f` recovered 4.37 GB of layer cache (2026-09-23); before it, 5.2 GB. `arizuko-ant` holds `latest` at 7.85 GB and two release tags at 8.26 GB. One rootfs export fits, and the operator reclaims (§"The host budget").                                                                                                                                                                   |
 | virtiofsd and the uid clamp    | The packaged daemon is QEMU's C build at `/usr/lib/qemu/virtiofsd` (not on `PATH`), with NO id-mapping flags, and it needs real root: `setgroups()` fails in a user namespace, unprivileged, and in both sandbox modes. `mount_setattr(MOUNT_ATTR_IDMAP)` works on this 6.1 kernel but translates the caller, so it refuses a root caller with `EOVERFLOW`. The clamp is therefore the Rust `virtiofsd` (§"The peer credential"), measured 2026-09-24. |
-| Host memory and concurrency    | `MAX_CONCURRENT_CONTAINERS` defaults to **5** (`core/config.go:246`) and caps total live spawns (`runed/manager.go:47-53`). Five guests at `-m 4G` is 20 GB against 15 GB total and ~5 GB free, so the guest size and the cap are one budget (§"The host budget").                                                                                                                                                                                     |
+| Host memory and concurrency    | `MAX_CONCURRENT_CONTAINERS` defaults to **5** (`core/config.go:229`) and caps total live spawns (`runed/manager.go:47-53`). Five guests at `-m 4G` is 20 GB against 15 GB total and ~5 GB free, so the guest size and the cap are one budget (§"The host budget").                                                                                                                                                                                     |
 
 ## The engine: `qemu-system-x86_64`, owned by arizuko
 
@@ -616,7 +616,7 @@ Three host resources bound this substrate, and the guest size is not free in
 any of them. Measured on hel1v5 (the krons host) 2026-09-23.
 
 - **Memory is the guest size times the concurrency cap.** `-m 4G` with
-  `MAX_CONCURRENT_CONTAINERS` at its default 5 (`core/config.go:246`,
+  `MAX_CONCURRENT_CONTAINERS` at its default 5 (`core/config.go:229`,
   `runed/manager.go:47-53`) is a 20 GB ceiling on a 15 GB host with ~5 GB free.
   `memory-backend-memfd` commits pages on touch, so the ceiling is not a
   reservation — but two guests that each touch 2 GB already exceed what is
