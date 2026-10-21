@@ -243,8 +243,6 @@ reads those words now.
 **Coverage gaps found by the FEATURES.md pass (2026-10-21).** Each names the
 rows and the test to write; none needs a decision except where it says so.
 
-- `L506` — rule order by id, the `#topic` prefix and the group observe window:
-  routd paths that no test drives.
 - `L507` — reditd and linkd post an inbound message; both tests stub the
   router and discard the body.
 - `L508` — `POST /auth/telegram` and the two login allowlists: only their
@@ -839,49 +837,6 @@ live krons site carries the same `hub.css`, so every page there has the defect.
   same probe reads 0 for the top bar at 1440 and at 375 wide, and the page is
   no wider than the viewport. Measured: `tests/webdocs/design_test.go::TestShellStaysSticky`,
   red against `overflow-x: hidden`.
-
-## L506 — three routd routing behaviours have no test: rule order by id, the `#topic` prefix and the group observe window (2026-10-21, open)
-
-FOUND 2026-10-21 by the FEATURES.md pass, read at `4d500588`. Three rows of
-`FEATURES.md` named no test.
-
-- **Route order.** `routeOrder` (`store/routes.go:174-181`) sorts the table by
-  `(seq, id)` after the read. The file header (`:12-14`) says 58 of 58 rules on
-  krons sit at seq 0, so the id picks the rule that fires. The only order test,
-  `TestRouteSeqSortsNumerically` (`store/coordinates_test.go:248`), reads the
-  raw driver items and says in its comment that the `(seq, id)` sort runs
-  afterwards. `router/router_test.go:571-577` builds its slice by hand. No test
-  writes two rules at one seq and reads the table back.
-- **`#topic` prefix.** `handlePrefixLayer` (`routd/steer.go:474`) writes the
-  stripped text with `Topic: "#"+name` and calls `Enqueue` (`:500-510`).
-  `parsePrefix` is tested (`routd/parity_routing_test.go:343`) and
-  `TestChildDelegation` (`routd/parity_test.go:223`) drives the `@child`
-  branch. No test sends `#topic text` through `processGroupMessages`.
-- **Observe window per group.** `observeWindow` (`routd/prompt.go:183-213`)
-  starts at the config default, replaces it with the group window, then
-  replaces that with the first route override; `ROUTING.md:231-234` says the
-  same. `TestObserveWindow_FirstRouteWins` (`routd/parity_extra_test.go:19`)
-  sets no group window, and `store/groups_test.go:57-100` tests the accessor
-  alone. The row said "the group setting before the route override" and read as
-  group-wins; it now states the order.
-
-Mutation, measured 2026-10-21 with all three applied at once: `routeOrder`
-comparing `b.ID - a.ID`, the `#` branch writing `Topic: ""`, and the group
-block of `observeWindow` behind `false &&`. `go test ./routd -short` passed
-(1718 s), and so did `go test ./router ./dashd` and `go test ./store -run
-'Route|Coordinate|Replace|Seq'`. A full `go test ./store` ran past go's 10
-minute default under load, and `./tests` was not run, so the order claim rests
-on the filtered store run, three callers and the grep.
-
-**Fix:** one test each. Two rules at one seq inserted in reverse id order must
-read back in id order. A `#deploy hello` message must leave a row with topic
-`#deploy` and content `hello` and queue the chat. A group window of (3, 100)
-must size the window, and a route override on top must replace it. No test
-yet; this pass records only.
-
-- **Severity:** low — coverage gap, nothing live.
-- **Scope:** `store/routes.go`, `routd/steer.go`, `routd/prompt.go`.
-- **Status:** open (record only). No test — the entry is about the test.
 
 ## L507 — reditd and linkd post an inbound message that no test reads (2026-10-21, open)
 
