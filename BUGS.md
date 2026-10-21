@@ -243,8 +243,6 @@ reads those words now.
 **Coverage gaps found by the FEATURES.md pass (2026-10-21).** Each names the
 rows and the test to write; none needs a decision except where it says so.
 
-- `L507` — reditd and linkd post an inbound message; both tests stub the
-  router and discard the body.
 - `L508` — `POST /auth/telegram` and the two login allowlists: only their
   helpers are tested. The allowlist half needs a seam for the provider client.
 - `L509` — the PreCompact hook text and the `users/<id>.md` attributes.
@@ -837,38 +835,6 @@ live krons site carries the same `hub.css`, so every page there has the defect.
   same probe reads 0 for the top bar at 1440 and at 375 wide, and the page is
   no wider than the viewport. Measured: `tests/webdocs/design_test.go::TestShellStaysSticky`,
   red against `overflow-x: hidden`.
-
-## L507 — reditd and linkd post an inbound message that no test reads (2026-10-21, open)
-
-FOUND 2026-10-21 by the FEATURES.md pass, read at `4d500588`. `handleThing`
-(`reditd/client.go:403-419`) builds the JID, calls `thingToMsg` (`:349-400`)
-and posts the result. `TestCursorAdvance` and `TestFirstPollSkip`
-(`reditd/client_test.go:67-115`) use `stubRouterSrv` (`:56`), which answers
-`{"ok":true}` and discards the body. The one test that reaches `thingToMsg`,
-`TestFetchHistory_Subreddit` (`:313`), feeds two `t3` posts and checks the id,
-the order, the chat JID and the verb. A `t4` inbox item, the sender, the
-content, `IsGroup` and the attachment suffix are pinned by nothing.
-
-`deliverComment` (`linkd/client.go:442-507`) builds the linkd message.
-`TestDeliverComment` (`linkd/linkd_test.go:253`) stubs the router the same way,
-and its comment at `:284-285` says it cannot tell whether the own-comment skip
-delivered anything. So the `linkd seen` row's "skips its own comments" has no
-assertion either; `TestFetchHistory_Comments` (`:327`) filters own comments on
-the history path only.
-
-Mutation, measured 2026-10-21: the reditd sender prefix `reddit:user/` changed
-to `x:`, and the linkd `deliverComment` content set to `""`. `go test ./reditd
-./linkd` passed.
-
-**Fix:** a router stub that keeps the request body, and assertions on the chat
-JID, sender, content, verb, topic, reply-to and `IsGroup` for a `t4` item, a
-`t1` reply, a linkd comment and a linkd reply, plus one assertion that an own
-linkd comment posts nothing. If an adapter is deleted, its half of this entry
-and its rows go with it. No test yet; this pass records only.
-
-- **Severity:** low — coverage gap, nothing live.
-- **Scope:** `reditd/client_test.go`, `linkd/linkd_test.go`.
-- **Status:** open (record only). No test — the entry is about the test.
 
 ## L508 — authd's Telegram login and its two login allowlists have no test at the handler (2026-10-21, open)
 
