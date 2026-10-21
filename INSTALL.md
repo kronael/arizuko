@@ -283,7 +283,6 @@ test names the policy to rewrite.
 | daemon        | policy resources                |
 | ------------- | ------------------------------- |
 | `authd`       | `authd.*`                       |
-| `bskyd`       | `bskyd.*`                       |
 | `cmd/arizuko` | `authd.*`, `onbod.*`, `routd.*` |
 | `dashd`       | `onbod.*`, `routd.*`            |
 | `discd`       | `discd.*`                       |
@@ -521,7 +520,6 @@ Add the credentials for the adapters that you choose:
 | **teled** (Telegram) | `TELEGRAM_BOT_TOKEN`                                                                                      | @BotFather, then /newbot           |
 | **discd** (Discord)  | `DISCORD_BOT_TOKEN`                                                                                       | discord.com/developers, Bot, Token |
 | **slakd** (Slack)    | `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`                                                                 | api.slack.com, App, OAuth          |
-| **bskyd** (Bluesky)  | `BLUESKY_HANDLE`, `BLUESKY_APP_PASSWORD`                                                                  | Settings, App passwords            |
 | **emaid** (Email)    | `EMAIL_IMAP_HOST`, `EMAIL_SMTP_HOST`, `EMAIL_ACCOUNT`, `EMAIL_PASSWORD`                                   | Your email provider                |
 | **whapd** (WhatsApp) | none; the adapter pairs with a QR code                                                                    | `./arizuko pair <name> whapd`      |
 | **gitd** (GitHub)    | none in `.env`; `./arizuko github <name> add …` mints the secret. `GITHUB_TOKEN` is optional, for replies | GitHub, Settings, Webhooks or App  |

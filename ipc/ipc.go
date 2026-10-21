@@ -1424,7 +1424,7 @@ func buildMCPServer(routd RoutdFns, db StoreFns, folder string, isRoot bool, cal
 			return toolJSON(map[string]any{"ok": true, "id": platformID})
 		})
 
-	registerRaw("post", "Create a new top-level post on a platform (bluesky post, discord channel message). Use for broadcast/announcement content that isn't replying to anyone. Not for replies (`reply`), direct messages (`send`), or file delivery (`send_file`). Returns the new post's `id` (for `edit`, `delete`, or as `replyToId` to chain a thread).",
+	registerRaw("post", "Create a new top-level post on a platform (discord channel message). Use for broadcast/announcement content that isn't replying to anyone. Not for replies (`reply`), direct messages (`send`), or file delivery (`send_file`). Returns the new post's `id` (for `edit`, `delete`, or as `replyToId` to chain a thread).",
 		[]mcp.ToolOption{
 			mcp.WithString("chatJid", mcp.Required()),
 			mcp.WithString("content", mcp.Required()),
@@ -1525,7 +1525,7 @@ func buildMCPServer(routd RoutdFns, db StoreFns, folder string, isRoot bool, cal
 
 	regSocial(socialAct{
 		name: "like",
-		desc: "Add a reaction to an existing message (unicode emoji on discord/slack/telegram, like on bluesky). `targetId` MUST be the platform-native id: the `platform_id=` attribute of the message XML, never `id=` (an internal DB id no platform accepts). Prefer a reaction over a limp text 'ok'/'done' when its meaning is unambiguous (👍 ack, ✅ done, 👀 seen, ❤️ warmth); when nuance or a question is present, react AND `reply` — a reaction alone reads as dismissal. Mirror the user's own emoji register and never inject enthusiasm they haven't shown; in DMs react sparingly, never to your own messages, never 👍 on something that deserves a word. Not for new posts (`post`). Platform decides what reaction strings are valid; unsupported platforms return an error — do not retry.",
+		desc: "Add a reaction to an existing message (unicode emoji on discord/slack/telegram). `targetId` MUST be the platform-native id: the `platform_id=` attribute of the message XML, never `id=` (an internal DB id no platform accepts). Prefer a reaction over a limp text 'ok'/'done' when its meaning is unambiguous (👍 ack, ✅ done, 👀 seen, ❤️ warmth); when nuance or a question is present, react AND `reply` — a reaction alone reads as dismissal. Mirror the user's own emoji register and never inject enthusiasm they haven't shown; in DMs react sparingly, never to your own messages, never 👍 on something that deserves a word. Not for new posts (`post`). Platform decides what reaction strings are valid; unsupported platforms return an error — do not retry.",
 		args: []string{"chatJid", "targetId", "reaction"},
 		call: func(a map[string]string) (string, error) {
 			if routd.Like == nil {
@@ -1564,7 +1564,7 @@ func buildMCPServer(routd RoutdFns, db StoreFns, folder string, isRoot bool, cal
 
 	regSocial(socialAct{
 		name:   "quote",
-		desc:   "Republish a message on your own feed with added commentary (Bluesky quote, X quote-tweet). Native only — Discord has no quote primitive and returns unsupported with a hint to use `post(content=..., source_url=...)`. Not for in-chat threaded replies (`reply`) or simple amplification (`repost`).",
+		desc:   "Republish a message on your own feed with added commentary (a quote post). Native only — Discord has no quote primitive and returns unsupported with a hint to use `post(content=..., source_url=...)`. Not for in-chat threaded replies (`reply`) or simple amplification (`repost`).",
 		args:   []string{"chatJid", "sourceMsgId", "comment"},
 		idOut:  true,
 		record: func(a map[string]string) string { return a["comment"] },
@@ -1578,7 +1578,7 @@ func buildMCPServer(routd RoutdFns, db StoreFns, folder string, isRoot bool, cal
 
 	regSocial(socialAct{
 		name:   "repost",
-		desc:   "Amplify a message on your own feed without added text (Bluesky repost, X retweet). Use to endorse-and-share. Not for commentary (`quote`) or sending a copy to a different chat (`forward`).",
+		desc:   "Amplify a message on your own feed without added text (a repost). Use to endorse-and-share. Not for commentary (`quote`) or sending a copy to a different chat (`forward`).",
 		args:   []string{"chatJid", "sourceMsgId"},
 		idOut:  true,
 		record: func(a map[string]string) string { return "" },
@@ -1592,7 +1592,7 @@ func buildMCPServer(routd RoutdFns, db StoreFns, folder string, isRoot bool, cal
 
 	regSocial(socialAct{
 		name: "dislike",
-		desc: "Endorse-negative on a message (Discord 👎 reaction). `targetId` is the `platform_id=` attribute of the message XML, never `id=`. Native only — Bluesky and most platforms have no native downvote and return unsupported with a hint.",
+		desc: "Endorse-negative on a message (Discord 👎 reaction). `targetId` is the `platform_id=` attribute of the message XML, never `id=`. Native only — most platforms have no native downvote and return unsupported with a hint.",
 		args: []string{"chatJid", "targetId"},
 		call: func(a map[string]string) (string, error) {
 			if routd.Dislike == nil {
@@ -1604,7 +1604,7 @@ func buildMCPServer(routd RoutdFns, db StoreFns, folder string, isRoot bool, cal
 
 	regSocial(socialAct{
 		name: "edit",
-		desc: "Modify a message previously sent by this agent in-place (Discord, Slack, Bluesky, Telegram own bot messages) — corrections, a live status. `targetId` is the `platform_id=` attribute of the message XML or the `id` that `reply`/`send` returned, never the XML `id=`. Preserves the platform message id. Platform windows apply (Telegram ≤48h, WhatsApp ~15m); past the window the adapter returns unsupported — do not retry. Not for retract-and-resend (use `delete` then `post`/`send`). Email is unsupported.",
+		desc: "Modify a message previously sent by this agent in-place (Discord, Slack, Telegram own bot messages) — corrections, a live status. `targetId` is the `platform_id=` attribute of the message XML or the `id` that `reply`/`send` returned, never the XML `id=`. Preserves the platform message id. Platform windows apply (Telegram ≤48h, WhatsApp ~15m); past the window the adapter returns unsupported — do not retry. Not for retract-and-resend (use `delete` then `post`/`send`). Email is unsupported.",
 		args: []string{"chatJid", "targetId", "content"},
 		call: func(a map[string]string) (string, error) {
 			if err := refuseText(a["content"], false); err != nil {
@@ -1619,7 +1619,7 @@ func buildMCPServer(routd RoutdFns, db StoreFns, folder string, isRoot bool, cal
 
 	regSocial(socialAct{
 		name: "pin_message",
-		desc: "Pin a message to a chat/channel (Slack pins.add, Discord channel pin, Telegram pinned message). `targetId` is the `platform_id=` attribute of the message XML, never `id=`. Use to mark a live status surface (deploy progress, standup link) or anchor a reference. Not for editing content (`edit`) or amplifying on a feed (`repost`/`quote`). Bluesky/Email/WhatsApp return unsupported.",
+		desc: "Pin a message to a chat/channel (Slack pins.add, Discord channel pin, Telegram pinned message). `targetId` is the `platform_id=` attribute of the message XML, never `id=`. Use to mark a live status surface (deploy progress, standup link) or anchor a reference. Not for editing content (`edit`) or amplifying on a feed (`repost`/`quote`). Email/WhatsApp return unsupported.",
 		args: []string{"chatJid", "targetId"},
 		call: func(a map[string]string) (string, error) {
 			if routd.Pin == nil {

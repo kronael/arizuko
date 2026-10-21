@@ -43,7 +43,6 @@ var serviceGrants = map[string][]string{
 	"service:whapd": {"messages:write"},
 	"service:discd": {"messages:write"},
 	"service:slakd": {"messages:write"},
-	"service:bskyd": {"messages:write"},
 	"service:emaid": {"messages:write"},
 	"service:gitd":  {"messages:write"},
 	// webd is web ingress, not a channel adapter, but it posts the same way;

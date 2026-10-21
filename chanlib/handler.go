@@ -189,8 +189,8 @@ func (NoSocial) Unpin(UnpinRequest) error               { return ErrUnsupported 
 // verb; `fwd` gates Forward and `pin` gates both Pin and Unpin. `like`/`post`
 // are NOT gated, so they are omitted.
 var gatedVerbProbes = map[string]func(BotHandler) error{
-	// A .png name so adapters that only accept image blobs (bskyd) take their
-	// real branch instead of an extension-default Unsupported.
+	// A .png name so adapters that only accept image blobs take their real
+	// branch instead of an extension-default Unsupported.
 	"send_file":  func(b BotHandler) error { _, e := b.SendFile("", "x.png", "x.png", "", "", "", ""); return e },
 	"send_voice": func(b BotHandler) error { _, e := b.SendVoice("", "", "", "", ""); return e },
 	"delete":     func(b BotHandler) error { return b.Delete(DeleteRequest{}) },

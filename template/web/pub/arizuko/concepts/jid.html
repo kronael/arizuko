@@ -61,7 +61,7 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">concepts</a> &rsaquo; addressing</p>
 <h1>jid</h1>
 
-    <p class="lede">A JID is the one address shape that every adapter uses for its chats and senders. The prefixes are <code>telegram</code>, <code>discord</code>, <code>whatsapp</code>, <code>slack</code>, <code>bluesky</code>, <code>email</code>, <code>github</code>, <code>gdrive</code>, <code>web</code> for browser chats and <code>hook</code> for webhooks. Every address has the shape <code>&lt;platform&gt;:&lt;rest&gt;</code>. So one routing rule such as <code>chat_jid=telegram:group/*</code> matches every Telegram group and nothing else, and routes and grants can ignore the details of each platform.</p>
+    <p class="lede">A JID is the one address shape that every adapter uses for its chats and senders. The prefixes are <code>telegram</code>, <code>discord</code>, <code>whatsapp</code>, <code>slack</code>, <code>email</code>, <code>github</code>, <code>gdrive</code>, <code>web</code> for browser chats and <code>hook</code> for webhooks. Every address has the shape <code>&lt;platform&gt;:&lt;rest&gt;</code>. So one routing rule such as <code>chat_jid=telegram:group/*</code> matches every Telegram group and nothing else, and routes and grants can ignore the details of each platform.</p>
 
     <h2>The platform comes before the colon</h2>
     <p>Each platform names things in its own way. Telegram chat IDs are signed integers, and a negative number means a group. teled writes the kind into the JID and drops the minus sign. WhatsApp adds a server name, <code>@g.us</code> for groups and <code>@s.whatsapp.net</code> for DMs.</p>
@@ -70,7 +70,6 @@
 telegram:group/1001234567      # telegram group, supergroup, or channel
 discord:dm/456                 # discord DM channel
 whatsapp:789@g.us              # whatsapp group
-bluesky:user/did%3Aplc%3Aabc    # bluesky account
 web:&lt;folder&gt;[/&lt;suffix&gt;]        # browser chat at folder; URL token resolves to this JID
 hook:&lt;folder&gt;/&lt;source&gt;[/...]   # webhook ingest: folder is the destination, source is the agent-chosen label</code></pre>
 
@@ -89,7 +88,7 @@ match='sender=telegram:user/[0-9]*'  # any numeric telegram user</code></pre>
     <p><code>routd</code> treats everything after <code>platform:</code> as an opaque string and only matches it with globs. Each adapter, such as <code>teled/</code>, <code>discd/</code> and <code>whapd/</code>, parses and builds its own paths. A new platform, or a new <em>kind</em> inside an existing platform, is a change in one adapter. <code>routd</code> and the routes table do not change.</p>
 
     <h2>A colon after the first one stays in the rest</h2>
-    <p><code>core.JidPlatform</code> splits on the <em>first</em> colon and returns the part before it. The rest stays unchanged, so an ID that contains a colon does not break the split. A Bluesky DID is a string such as <code>did:plc:abc123def456ghi789jkl012</code>. The adapter percent-encodes its colons, as in <code>bluesky:user/did%3Aplc%3Aabc123def456ghi789jkl012</code>, so a glob never stops at them.</p>
+    <p><code>core.JidPlatform</code> splits on the <em>first</em> colon and returns the part before it. The rest stays unchanged, so an ID that contains a colon does not break the split.</p>
 
     <h2>The reference lists every platform shape</h2>
     <p><a href="../reference/jid.html">reference/jid</a> has the exact shape for every platform, the match keys and the glob rules. <a href="../concepts/routing.html">routing</a> shows how routes match these addresses to folders.</p>

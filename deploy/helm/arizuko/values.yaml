@@ -161,10 +161,6 @@ secrets:
       serviceKey: ''
       storeKeyId: ''
       storeSecret: ''
-    bskyd:
-      serviceKey: ''
-      storeKeyId: ''
-      storeSecret: ''
     emaid:
       serviceKey: ''
       storeKeyId: ''
@@ -176,8 +172,6 @@ secrets:
   discordBotToken: '' # DISCORD_BOT_TOKEN      (discd)
   slackBotToken: '' # SLACK_BOT_TOKEN        (slakd)
   slackSigningSecret: '' # SLACK_SIGNING_SECRET   (slakd)
-  blueskyIdentifier: '' # BLUESKY_IDENTIFIER     (bskyd)
-  blueskyPassword: '' # BLUESKY_PASSWORD       (bskyd)
   emailImapHost: '' # EMAIL_IMAP_HOST        (emaid)
   emailSmtpHost: '' # EMAIL_SMTP_HOST        (emaid)
   emailAccount: '' # EMAIL_ACCOUNT          (emaid)
@@ -246,13 +240,6 @@ adapters:
     secretEnv:
       - SLACK_BOT_TOKEN
       - SLACK_SIGNING_SECRET
-
-  - name: bskyd
-    enabled: false
-    entrypoint: ['bskyd']
-    secretEnv:
-      - BLUESKY_IDENTIFIER
-      - BLUESKY_PASSWORD
 
   - name: emaid
     enabled: false

@@ -25,7 +25,6 @@ var StoreReach = map[string][]string{
 	"slakd":  {OwnerRoutd, "slakd"},
 	"teled":  {"teled"},
 	"discd":  {"discd"},
-	"bskyd":  {"bskyd"},
 	"emaid":  {"emaid"},
 	"timed":  {},
 	"ttsd":   {},

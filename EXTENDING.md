@@ -136,23 +136,23 @@ For an empty cell, `routd` answers with `UnsupportedError` and makes no call. Re
 the table from the `caps` of each adapter in `<adapter>/main.go`, or from the
 `capabilities` block in `src/client.ts` for whapd.
 
-| Verb         | discd | slakd | bskyd | teled | emaid | whapd | gitd | googd |
-| ------------ | ----- | ----- | ----- | ----- | ----- | ----- | ---- | ----- |
-| `send`       | ✓     | ✓     | ✓     | ✓     | ✓     | ✓     | ✓¹   | ✓²    |
-| `reply`      | ✓     | ✓     | ✓     | ✓     | ✓     | ✓     | ✓¹   | ✓²    |
-| `send_file`  | ✓     | ✓     | ✓     | ✓     |       | ✓     | ✓¹   |       |
-| `send_voice` | ✓     |       |       | ✓     |       | ✓     |      |       |
-| `post`       |       | ✓     | ✓     | ✓     |       |       |      |       |
-| `like`       | ✓     | ✓     | ✓     | ✓     |       | ✓     |      |       |
-| `dislike`    |       | ✓     |       |       |       |       |      |       |
-| `delete`     | ✓     | ✓     | ✓     | ✓     |       | ✓     |      |       |
-| `edit`       | ✓     | ✓     |       | ✓     |       | ✓     | ✓¹   |       |
-| `forward`    |       |       |       | ✓     |       | ✓     |      |       |
-| `quote`      | ✓     |       | ✓     |       |       |       |      |       |
-| `repost`     |       |       | ✓     |       |       |       |      |       |
-| `pin`        | ✓     | ✓     |       | ✓     |       |       |      |       |
-| `unpin`      | ✓     | ✓     |       | ✓     |       |       |      |       |
-| `unpin_all`  | ³     | ✓     |       | ✓     |       |       |      |       |
+| Verb         | discd | slakd | teled | emaid | whapd | gitd | googd |
+| ------------ | ----- | ----- | ----- | ----- | ----- | ---- | ----- |
+| `send`       | ✓     | ✓     | ✓     | ✓     | ✓     | ✓¹   | ✓²    |
+| `reply`      | ✓     | ✓     | ✓     | ✓     | ✓     | ✓¹   | ✓²    |
+| `send_file`  | ✓     | ✓     | ✓     |       | ✓     | ✓¹   |       |
+| `send_voice` | ✓     |       | ✓     |       | ✓     |      |       |
+| `post`       |       | ✓     | ✓     |       |       |      |       |
+| `like`       | ✓     | ✓     | ✓     |       | ✓     |      |       |
+| `dislike`    |       | ✓     |       |       |       |      |       |
+| `delete`     | ✓     | ✓     | ✓     |       | ✓     |      |       |
+| `edit`       | ✓     | ✓     | ✓     |       | ✓     | ✓¹   |       |
+| `forward`    |       |       | ✓     |       | ✓     |      |       |
+| `quote`      | ✓     |       |       |       |       |      |       |
+| `repost`     |       |       |       |       |       |      |       |
+| `pin`        | ✓     | ✓     | ✓     |       |       |      |       |
+| `unpin`      | ✓     | ✓     | ✓     |       |       |      |       |
+| `unpin_all`  | ³     | ✓     | ✓     |       |       |      |       |
 
 ¹ gitd advertises its verbs only when `GITHUB_TOKEN` is set. It posts a comment
 on the PR or issue that the JID names, and it edits a comment that it wrote.
@@ -378,16 +378,6 @@ Every adapter keeps this delivery contract, whatever its platform:
 - **The dashboard route is the registration.** Declare `/dash/<name>/` in
   `template/services/<name>.yaml`, gated by the own credential of the adapter.
   The route and the tile on the hub then exist exactly when the adapter runs.
-
-The social adapter bskyd covers only the notification
-stream of the bot: mentions, replies and direct messages. It does not poll
-hashtags, keywords, competitors, trends or whole threads. Monitoring has its
-own scale, authentication and trust. Unbounded polling on the path that
-delivers the message of a user would slow that path for every user.
-`tests/socialboundary` keeps the list of exceptions closed, and it is empty. The
-payload is the notification only. It has no thread context, no quoted post and no author history, and the
-adapter never blocks on enrichment. The route and the agent decide whether to
-engage.
 
 `chanlib.InboundMsg` carries no forward attribution. A message that a user
 forwarded from elsewhere arrives as plain content, and no adapter records where

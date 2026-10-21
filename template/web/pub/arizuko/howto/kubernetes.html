@@ -105,7 +105,7 @@ helm install arizuko deploy/helm/arizuko \
         <li><code>teled</code> writes its Telegram <code>getUpdates</code> offset to <code>&lt;DATA_DIR&gt;/teled-offset-&lt;name&gt;</code>. Without the file, Telegram sends about one day of old messages again, and the agent answers them again. Two pollers on one bot token also compete for the same long poll.</li>
         <li><code>whapd</code> keeps the paired WhatsApp session in <code>WHATSAPP_AUTH_DIR</code>. Two processes that write it break the pairing, and you must pair again by hand.</li>
       </ul>
-      <p>So run one replica for each adapter account, with a small persistent volume. Two Telegram bots are two Deployments, not two replicas. The chart mounts no volume into an adapter, so the state of <code>teled</code>, <code>bskyd</code> and <code>slakd</code> is lost with the pod. The chart does not include <code>whapd</code>.</p>
+      <p>So run one replica for each adapter account, with a small persistent volume. Two Telegram bots are two Deployments, not two replicas. The chart mounts no volume into an adapter, so the state of <code>teled</code> and <code>slakd</code> is lost with the pod. The chart does not include <code>whapd</code>.</p>
 
       <h2>The shared volume holds five directories</h2>
       <p>When the rows are on the store server, the shared volume holds only files:</p>

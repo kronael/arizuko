@@ -295,7 +295,7 @@ inside the same trust zone as `proxyd`, and not on a rented edge.
 │                                                          │
 │  ┌─ arizuko_<instance> (docker-compose, trusted) ──────┐ │
 │  │  authd routd runed onbod dashd webd proxyd timed    │ │
-│  │  teled   discd   slakd   bskyd   whapd   ...        │ │
+│  │  teled   discd   slakd   whapd   ...                │ │
 │  └─────────────────────────────────────────────────────┘ │
 │                                                          │
 │  ┌─ KVM guest (per-turn, partially trusted) ───────────┐ │

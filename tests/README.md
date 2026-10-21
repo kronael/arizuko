@@ -88,7 +88,6 @@ on that default (BUGS `L398`). A package that reaches the timeout prints a gorou
 | `tests/components/`                        | import rules: `egress/`, `substrate/` and `mcpfw/` import no arizuko package, `container/` does not import `ipc/`, no package imports `database/sql`                      | nothing                                                |
 | `tests/resident/`                          | the pointers in the always-loaded `CLAUDE.md` files resolve                                                                                                               | nothing                                                |
 | `tests/shutdown/`                          | each daemon arms its signal handler before it listens                                                                                                                     | nothing                                                |
-| `tests/socialboundary/`                    | social adapters do not do observer work                                                                                                                                   | nothing                                                |
 | `tests/dynamo/`                            | each daemon opens its store from its environment                                                                                                                          | docker                                                 |
 | `tests/testutils/`                         | shared helpers, `fakellm.go` and `testutils.go`; no tests                                                                                                                 | —                                                      |
 | `tests/dashd-playwright/`                  | every `/dash/` page in a browser                                                                                                                                          | Node and `npx playwright install --with-deps chromium` |
@@ -100,6 +99,6 @@ on that default (BUGS `L398`). A package that reaches the timeout prints a gorou
   `<daemon>/integration_test.go`: dashd, discd, onbod, proxyd, slakd, teled
   and webd have one. routd's is `routd/authd_integration_test.go`.
 - A channel adapter tests its `chanlib.BotHandler` against a stub platform in
-  `<adapter>/bothandler_test.go`: bskyd, discd, emaid, slakd and
+  `<adapter>/bothandler_test.go`: discd, emaid, slakd and
   teled have one.
 - A test that crosses two or more daemons goes in `tests/`.

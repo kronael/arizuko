@@ -8,7 +8,7 @@
     "Operates in a sandboxed workspace with access to tools and MCP extensions.",
     "Can spawn subagents to parallelize complex work.",
     "Scheduled tasks run automatically on cron schedules.",
-    "Communicates over Telegram, Discord, WhatsApp, Slack, or Bluesky."
+    "Communicates over Telegram, Discord, WhatsApp, or Slack."
   ],
   "topics": [
     "file operations",

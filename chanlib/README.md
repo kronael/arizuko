@@ -57,7 +57,7 @@ cares about message order on a socket.
   Retries run out at `MAX_OUTBOUND_RETRY`; the row then becomes `failed`,
   the dead letter.
 - **Inbound has no adapter queue unless the platform forgets.** A
-  cursor-gated adapter (teled, bskyd, emaid) leaves the
+  cursor-gated adapter (teled, emaid) leaves the
   event on the platform until routd accepts it. An adapter that consumes the
   Text, file and voice sends carry optional `thread_id` and `thread_root`.
   Adapters advertise each supported placement in their capability map.
@@ -141,7 +141,7 @@ missing.
   consume their platform event on arrival (slakd, discd, gitd). A failed
   `SendMessage` is retained in the adapter's own store and a 15s sweep
   re-delivers it; a routd REFUSAL (400/403/413/422) is dropped with an ERROR
-  line instead. Cursor-gated adapters (teled, bskyd, emaid) must
+  line instead. Cursor-gated adapters (teled, emaid) must
   NOT wire it — the platform is already their queue (BUGS `L25`).
 - `OpenAdapterStore(service) (AdapterStore, error)` — prepares chanlib's
   entities on the adapter's own table prefix on the instance's store server.

@@ -61,9 +61,9 @@
       <div class="callout"><strong>The draft quality follows this one file.</strong> If the drafts read as if nobody wrote them, fix this file. The fix is not in the prompt and not in the model.</div>
 
       <h2>A publish adapter lets the agent post</h2>
-      <pre><code>arizuko packages &lt;instance&gt; add bskyd</code></pre>
-      <pre><code>BLUESKY_IDENTIFIER=you.bsky.social
-BLUESKY_PASSWORD=REPLACE_ME</code></pre>
+      <pre><code>arizuko packages &lt;instance&gt; add slakd</code></pre>
+      <pre><code>SLACK_BOT_TOKEN=REPLACE_ME
+SLACK_SIGNING_SECRET=REPLACE_ME</code></pre>
       <p>Publishing is a normal adapter call, so the agent can post only where you installed an adapter and granted the action. Without an adapter, the agent does not publish, and the drafts come back in the chat.</p>
 
       <h2>The agent must ask for a brief</h2>

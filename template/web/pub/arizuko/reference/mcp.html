@@ -121,7 +121,7 @@
     <h2 id="messages">messages</h2>
 
     <h3 id="post"><code>post</code></h3>
-    <p>Create a new top-level post on a platform (bluesky post, discord channel message). Use for broadcast/announcement content that is not replying to anyone. Not for replies (<code>reply</code>), direct messages (<code>send</code>), or file delivery (<code>send_file</code>).</p>
+    <p>Create a new top-level post on a platform (discord channel message). Use for broadcast/announcement content that is not replying to anyone. Not for replies (<code>reply</code>), direct messages (<code>send</code>), or file delivery (<code>send_file</code>).</p>
     <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1427"><code>ipc/ipc.go:1427</code></a> &middot; Grant action: <code>post(jid=...)</code>.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
@@ -202,7 +202,7 @@
     <p class="returns"><strong>Returns:</strong> text <code>"ok"</code>.</p>
 
     <h3 id="dislike"><code>dislike</code></h3>
-    <p>Endorse-negative on a message (Discord 👎 reaction). Native only &mdash; Bluesky and most platforms have no native downvote and return unsupported with a hint.</p>
+    <p>Endorse-negative on a message (Discord 👎 reaction). Native only &mdash; most platforms have no native downvote and return unsupported with a hint.</p>
     <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1594"><code>ipc/ipc.go:1594</code></a> &middot; Grant action: <code>dislike(jid=...)</code> &middot; See user-pref: on emoji-reaction platforms, prefer <code>like(reaction='👎')</code>.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
@@ -214,7 +214,7 @@
     <p class="returns"><strong>Returns:</strong> text <code>"ok"</code>.</p>
 
     <h3 id="edit"><code>edit</code></h3>
-    <p>Modify a message previously sent by this agent in-place (Discord, Slack, Bluesky, Telegram own bot messages). Preserves the platform message id. Email is unsupported.</p>
+    <p>Modify a message previously sent by this agent in-place (Discord, Slack, Telegram own bot messages). Preserves the platform message id. Email is unsupported.</p>
     <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1606"><code>ipc/ipc.go:1606</code></a> &middot; Grant action: <code>edit(jid=...)</code></p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
@@ -240,20 +240,20 @@
     <p class="returns"><strong>Returns:</strong> JSON <code>{"ok": true, "id": "&lt;platformId&gt;"}</code>.</p>
 
     <h3 id="like"><code>like</code></h3>
-    <p>Like an existing message (unicode emoji on Discord, like on Bluesky). Use when acknowledging or endorsing a specific earlier message without sending text. Platform decides what <code>reaction</code> strings are valid; unsupported platforms return an error.</p>
+    <p>Like an existing message (unicode emoji on Discord). Use when acknowledging or endorsing a specific earlier message without sending text. Platform decides what <code>reaction</code> strings are valid; unsupported platforms return an error.</p>
     <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1527"><code>ipc/ipc.go:1527</code></a> &middot; Grant action: <code>like(jid=...)</code></p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
         <tr><td class="name">chatJid</td><td class="type">string</td><td class="req req-y">yes</td><td>Chat the message lives in.</td></tr>
         <tr><td class="name">targetId</td><td class="type">string</td><td class="req req-y">yes</td><td>Platform id to react to.</td></tr>
-        <tr><td class="name">reaction</td><td class="type">string</td><td class="req req-y">yes</td><td>Platform-specific reaction (emoji on Discord; <code>like</code> on Slack/Bluesky).</td></tr>
+        <tr><td class="name">reaction</td><td class="type">string</td><td class="req req-y">yes</td><td>Platform-specific reaction (emoji on Discord; <code>like</code> on Slack).</td></tr>
       </tbody>
     </table>
     <p class="returns"><strong>Returns:</strong> text <code>"ok"</code>.</p>
 
     <h3 id="quote"><code>quote</code></h3>
-    <p>Republish a message on your own feed with added commentary (Bluesky quote, X quote-tweet). Native only &mdash; Discord has no quote primitive and returns unsupported with a hint to use <code>post(content=..., source_url=...)</code>.</p>
+    <p>Republish a message on your own feed with added commentary (a quote post). Native only &mdash; Discord has no quote primitive and returns unsupported with a hint to use <code>post(content=..., source_url=...)</code>.</p>
     <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1566"><code>ipc/ipc.go:1566</code></a> &middot; Grant action: <code>quote(jid=...)</code>.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
@@ -266,7 +266,7 @@
     <p class="returns"><strong>Returns:</strong> JSON <code>{"ok": true, "id": "&lt;platformId&gt;"}</code>.</p>
 
     <h3 id="repost"><code>repost</code></h3>
-    <p>Amplify a message on your own feed without added text (Bluesky repost, X retweet). Use to endorse-and-share. Not for commentary (<code>quote</code>) or sending a copy to a different chat (<code>forward</code>).</p>
+    <p>Amplify a message on your own feed without added text (a repost). Use to endorse-and-share. Not for commentary (<code>quote</code>) or sending a copy to a different chat (<code>forward</code>).</p>
     <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1580"><code>ipc/ipc.go:1580</code></a> &middot; Grant action: <code>repost(jid=...)</code>.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
@@ -278,7 +278,7 @@
     <p class="returns"><strong>Returns:</strong> JSON <code>{"ok": true, "id": "&lt;platformId&gt;"}</code>.</p>
 
     <h3 id="pin_message"><code>pin_message</code></h3>
-    <p>Pin a message to a chat/channel (Slack <code>pins.add</code>, Discord channel pin, Telegram pinned message). Use to mark a live status surface (deploy progress, standup link) or anchor a reference. Targets any message in the chat &mdash; not author-scoped like <code>edit</code>/<code>delete</code>. Bluesky, email, WhatsApp return unsupported.</p>
+    <p>Pin a message to a chat/channel (Slack <code>pins.add</code>, Discord channel pin, Telegram pinned message). Use to mark a live status surface (deploy progress, standup link) or anchor a reference. Targets any message in the chat &mdash; not author-scoped like <code>edit</code>/<code>delete</code>. Email and WhatsApp return unsupported.</p>
     <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1621"><code>ipc/ipc.go:1621</code></a> &middot; Grant action: <code>pin_message(jid=...)</code></p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>

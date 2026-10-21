@@ -20,7 +20,7 @@ complexity it chose to create.
 **Channels — the flagship, and the most bloated.** Hermes speaks the
 same six chat platforms (Telegram, Discord, Slack, WhatsApp, Signal, CLI)
 from **one gateway process**. arizuko runs them as **separate daemons**
-(teled, discd, slakd, bskyd, whapd, …), each with its own
+(teled, discd, slakd, whapd, …), each with its own
 compose service, port, healthcheck, systemd unit, and service-token
 exchange. The daemon-per-adapter pattern buys **nothing** Hermes' single
 process doesn't already do — and it manufactures its own bug class: the

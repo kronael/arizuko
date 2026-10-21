@@ -219,9 +219,6 @@ var daemonKeys = map[string][]string{
 	// routd call (spec 5/1).
 	"teled": {"AUTHD_URL", "AUTHD_SERVICE_KEY", "TELEGRAM_BOT_TOKEN"},
 	"discd": {"AUTHD_URL", "AUTHD_SERVICE_KEY", "DISCORD_BOT_TOKEN"},
-	// bskyd reads BLUESKY_IDENTIFIER/BLUESKY_PASSWORD, not
-	// BLUESKY_HANDLE/BLUESKY_APP_PASSWORD.
-	"bskyd": {"AUTHD_URL", "AUTHD_SERVICE_KEY"},
 	"slakd": {"AUTHD_URL", "AUTHD_SERVICE_KEY", "SLACK_BOT_TOKEN", "SLACK_SIGNING_SECRET", "SLAKD_USERS_CACHE_TTL"},
 	// The five auth keys are load-bearing: with EMAIL_TRUSTED_AUTHSERV absent
 	// emaid classifies EVERY inbound as untrusted (fail-closed, spec 11/17)
@@ -250,8 +247,8 @@ var foreignImages = map[string]bool{"kokoro": true}
 // base. Keep in sync with authd serviceGrants.
 var adapterDaemons = map[string]bool{
 	"teled": true, "whapd": true, "discd": true, "slakd": true,
-	"bskyd": true, "emaid": true,
-	"gitd": true,
+	"emaid": true,
+	"gitd":  true,
 }
 
 // variantOf splits a multi-account variant `<adapter>-<label>` (spec

@@ -78,7 +78,6 @@
       "label": "Components",
       "pages": [
         { "href": "authd.html", "label": "authd" },
-        { "href": "bskyd.html", "label": "bskyd" },
         { "href": "channels.html", "label": "channel adapters" },
         { "href": "dashd.html", "label": "dashd" },
         { "href": "davd.html", "label": "davd" },

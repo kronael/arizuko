@@ -43,7 +43,7 @@ proxyd/ proxycfg/   the one HTTP entry; its routes as a Caddyfile
 webd/ davd/ vited/  web chat adapter; WebDAV; the static origin
 dashd/ onbod/ timed/  cockpit hub; onboarding; the scheduler
 compose/ cmd/ theme/  compose generation; the CLI; shared page CSS
-teled/ discd/ slakd/ bskyd/ emaid/ whapd/ gitd/
+teled/ discd/ slakd/ emaid/ whapd/ gitd/
 googd/              channel adapters, one daemon per platform
 egress/ substrate/ mcpfw/  shippable components, no arizuko imports
 ttsd/ sidecar/      speech synthesis; the whisper-cpp image

@@ -2,7 +2,7 @@
 name: channels
 description: >
   Per-platform `send_file` routing matrix — telegram/discord/whatsapp/
-  bluesky/email/etc. USE before sending media, "how do I send
+  email/etc. USE before sending media, "how do I send
   this image on X", "why did my attachment land as a doc", "what
   platforms support video", capability discovery for `send_file`. NOT
   for voice/PTT (use voice skill / `send_voice`).

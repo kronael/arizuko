@@ -131,7 +131,7 @@ func TestDeltaSectionsAreOptionalAndRendered(t *testing.T) {
 		t.Error("an adapter with no DashSections rendered one")
 	}
 
-	with := handleAdapterDash("bskyd", nil, &sectionBot{
+	with := handleAdapterDash("emaid", nil, &sectionBot{
 		secs: []DashSection{{Title: "Poll sources and cursors", Rows: [][2]string{
 			{"inbox", "t4_abc"}, {"sr:golang", "(never read)"},
 		}}},

@@ -45,7 +45,6 @@ COPY --from=build /webd /usr/local/bin/webd
 COPY --from=build /slakd /usr/local/bin/slakd
 COPY --from=build /gitd /usr/local/bin/gitd
 COPY --from=build /emaid /usr/local/bin/emaid
-COPY --from=build /bskyd /usr/local/bin/bskyd
 # /opt/arizuko is the DEFAULT source runed and routd read `ant/` from: skills,
 # CLAUDE.md and the per-surface output-styles all ship in the image, so a
 # release is a build and not whatever sits in a checkout on the host.

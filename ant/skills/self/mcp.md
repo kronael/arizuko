@@ -25,14 +25,14 @@ expect is missing, you were not granted it — ask, don't work around it.
 | `reply`          | Reply to current conversation (auto-injects replyTo); returns `id`        |
 | `send_file`      | Send a file from workspace to user as platform-native attachment; returns `id` |
 | `send_voice`     | Synthesize text and deliver as voice (Telegram/WhatsApp PTT, Discord audio) |
-| `post`           | Create a new top-level post on a feed/timeline (bluesky, discord, …)     |
+| `post`           | Create a new top-level post on a feed/timeline (discord, …)     |
 | `like`           | Like/favourite/react to an existing message                               |
 | `dislike`        | Endorse-negative (discord 👎, telegram 👎, whatsapp 👎)   |
 | `delete`         | Delete a message previously created by this agent                         |
 | `edit`           | Modify a message previously sent by this agent in-place                   |
 | `forward`        | Redeliver an existing message to a different chat (telegram, whatsapp)    |
-| `quote`          | Republish on your feed with commentary (bluesky native)                  |
-| `repost`         | Amplify a message on your feed (bluesky repost)         |
+| `quote`          | Republish on your feed with commentary (native only)                  |
+| `repost`         | Amplify a message on your feed (native only)         |
 | `inject_message` | Inject a message into the store for a chat (system-generated)             |
 
 `forward` relays SOMEONE ELSE'S message with its provenance. Use `send` for

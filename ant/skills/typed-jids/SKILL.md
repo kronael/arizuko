@@ -27,7 +27,6 @@ not cross `/`.
 | discord    | `discord:<guild>/<channel>`, `discord:dm/<channel>`, `discord:user/<id>` |
 | whatsapp   | `whatsapp:<id>@<server>` (unchanged — no kind segment)     |
 | email      | `email:thread/<id>`, `email:address/<addr>`                |
-| bluesky    | `bluesky:user/<percent-encoded-did>`, `bluesky:post/<at_uri>` |
 | slack      | `slack:<workspace>/channel/<id>`, `slack:<workspace>/dm/<id>`, `slack:<workspace>/group/<id>` |
 | web        | `web:<folder>` (folder-keyed identity layer; no kind segment) |
 

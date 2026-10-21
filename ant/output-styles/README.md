@@ -13,8 +13,8 @@ and it belongs to the Slack assistant pane, not to formatting.
 `telegram-group.md`. Channel-only fallback `<channel>.md` (e.g.
 `web.md`) when the channel has no per-surface split.
 
-The channel is the JID scheme (`whatsapp`, `bluesky`), never the daemon
-name (`whapd`, `bskyd`) — a file named after the daemon ships and is
+The channel is the JID scheme (`whatsapp`, `discord`), never the daemon
+name (`whapd`, `discd`) — a file named after the daemon ships and is
 never read.
 
 | Channel  | Surfaces                                  |
@@ -25,7 +25,6 @@ never read.
 | web      | (no split — single `web.md`)              |
 | email    | (no split — single `email.md`)            |
 | whatsapp | (no split — single `whatsapp.md`)         |
-| bluesky  | (no split — single `bluesky.md`)          |
 | github   | none — stock markdown is already correct  |
 
 `gitd` posts the agent's text verbatim into a field GitHub renders as real
@@ -73,8 +72,7 @@ Should cover:
   Discord CommonMark; Telegram markdown `**bold**`/`` `code` ``/`#`→bold,
   which `teled.mdToHTML` converts to Telegram HTML — never emit raw HTML;
   WhatsApp markdown `**bold**`, which `whapd.mdToWa` converts to `*bold*`
-  and converts nothing else; plain text for Bluesky, which run
-  no markdown renderer at all; plain for email/web/RSS)
+  and converts nothing else; plain for email/web/RSS)
 
 An adapter's send path decides what the file may ask for. Read it before
 writing a style — `teled.mdToHTML` and `whapd.mdToWa` each rewrite a
@@ -106,7 +104,7 @@ teaches the agent a syntax the user sees raw.
 
 ## Files
 
-`bluesky.md`, `discord-channel.md`, `discord-dm.md`, `discord.md`,
+`discord-channel.md`, `discord-dm.md`, `discord.md`,
 `email.md`, `slack-channel.md`, `slack-dm.md`,
 `slack-pane.md`, `slack-thread.md`, `slack.md`, `telegram-dm.md`,
 `telegram-group.md`, `telegram.md`, `web.md`,

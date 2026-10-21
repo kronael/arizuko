@@ -61,11 +61,8 @@
       <p><code>facts/voice.md</code> holds the brand voice and the list of do and do not. Keep it short and specific, because a long list of adjectives changes nothing.</p>
 
       <h2>Each publish adapter needs its package and its keys</h2>
-      <pre><code>arizuko packages &lt;instance&gt; add bskyd
-arizuko packages &lt;instance&gt; add discd</code></pre>
-      <pre><code>BLUESKY_IDENTIFIER=you.bsky.social
-BLUESKY_PASSWORD=REPLACE_ME
-DISCORD_BOT_TOKEN=REPLACE_ME</code></pre>
+      <pre><code>arizuko packages &lt;instance&gt; add discd</code></pre>
+      <pre><code>DISCORD_BOT_TOKEN=REPLACE_ME</code></pre>
       <p>Posting is an adapter action with a grant, so the agent can publish only where it has both. Revoke the grant to stop it. The next turn uses the change. <a href="../../concepts/grants.html">Grants</a> explains the rows.</p>
 
       <h2>The agent must propose and wait</h2>

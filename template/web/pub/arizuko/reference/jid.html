@@ -74,7 +74,6 @@ kind     := first segment of rest before &quot;/&quot;</code></pre>
       <tr><td><code>dm</code></td><td><code>discord:dm/&lt;channel_id&gt;</code></td><td><code>discord:dm/54321</code></td></tr>
       <tr><td><code>user</code></td><td><code>discord:user/&lt;user_id&gt;</code></td><td><code>discord:user/u123</code></td></tr>
       <tr><td><code>whatsapp</code></td><td>&mdash; (server suffix)</td><td><code>whatsapp:&lt;id&gt;@&lt;server&gt;</code></td><td><code>whatsapp:1234@g.us</code>, <code>whatsapp:1234@s.whatsapp.net</code>, <code>whatsapp:1234@lid</code></td></tr>
-      <tr><td><code>bluesky</code></td><td><code>user</code></td><td><code>bluesky:user/&lt;did&gt;</code>, with the <code>:</code> of the DID percent-encoded</td><td><code>bluesky:user/did%3Aplc%3A123</code></td></tr>
       <tr><td rowspan="2"><code>email</code></td><td><code>address</code></td><td><code>email:address/&lt;addr&gt;</code></td><td><code>email:address/foo@bar.com</code></td></tr>
       <tr><td><code>thread</code></td><td><code>email:thread/&lt;msgid&gt;</code></td><td><code>email:thread/&lt;Message-ID&gt;</code></td></tr>
       <tr><td><code>web</code></td><td><code>folder</code></td><td><code>web:&lt;folder&gt;[/&lt;suffix&gt;]</code></td><td><code>web:acme/support</code></td></tr>
@@ -142,9 +141,6 @@ match='chat_jid=discord:dm/*'
 # all WhatsApp groups (server suffix discriminates)
 match='chat_jid=whatsapp:*@g.us'
 
-# every Bluesky DID (typed user segment)
-match='chat_jid=bluesky:user/*'
-
 # one Telegram group; teled drops the minus sign of the group ID (room=&lt;rest after colon&gt;)
 match='platform=telegram room=group/100123456'
 
@@ -166,8 +162,8 @@ match='chat_jid=telegram:group/*'  # route: only telegram groups (path.Match: * 
     <ul>
       <li><strong>Kind in the path.</strong> The first segment after the colon discriminates resource kind on the wire. The role (chat vs sender) is which message field holds the string &mdash; <code>ChatJID</code> or <code>Sender</code> &mdash; not a distinct Go type.</li>
       <li><strong>Adapter owns its schema.</strong> Core only splits <code>&lt;platform&gt;:&lt;rest&gt;</code> via <code>JidPlatform</code>/<code>JidRoom</code>. Each adapter constructs and parses <code>&lt;rest&gt;</code> per its own declared shape.</li>
-      <li><strong>URI-clean.</strong> Adapters percent-encode reserved chars in <code>&lt;rest&gt;</code> (a Bluesky DID's colons, for example) so the platform/rest split holds.</li>
-      <li><strong>One URL = one resource.</strong> No sign-bit hacks, no <code>t1_</code>/<code>t2_</code>/<code>t3_</code> prefix soup, no in-band server suffixes for code (WhatsApp keeps <code>@server</code> because its existing shape already encodes kind).</li>
+      <li><strong>URI-clean.</strong> Adapters percent-encode reserved chars in <code>&lt;rest&gt;</code> so the platform/rest split holds.</li>
+      <li><strong>One URL = one resource.</strong> No sign-bit hacks, no in-band server suffixes for code (WhatsApp keeps <code>@server</code> because its existing shape already encodes kind).</li>
       <li><strong>A run is not addressable.</strong> A JID has no session or run segment; the routable unit below a chat is the <a href="../concepts/topics.html">topic</a>. A run segment would need every web JID rewritten, because web JIDs are keyed by folder.</li>
       <li><strong>Adding a kind later is one string.</strong> A new platform kind earns its place when an adapter, <code>routd</code> or the agent treats it differently from siblings. No system-wide format change and no rewrite of existing rows.</li>
     </ul>

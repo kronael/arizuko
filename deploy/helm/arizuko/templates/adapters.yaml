@@ -18,8 +18,6 @@ volume in compose and are not in the default list.
     "DISCORD_BOT_TOKEN"      "discordBotToken"
     "SLACK_BOT_TOKEN"        "slackBotToken"
     "SLACK_SIGNING_SECRET"   "slackSigningSecret"
-    "BLUESKY_IDENTIFIER"     "blueskyIdentifier"
-    "BLUESKY_PASSWORD"       "blueskyPassword"
     "EMAIL_IMAP_HOST"        "emailImapHost"
     "EMAIL_SMTP_HOST"        "emailSmtpHost"
     "EMAIL_ACCOUNT"          "emailAccount"

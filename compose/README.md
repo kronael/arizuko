@@ -174,7 +174,7 @@ services:
 ```
 
 The bundled catalog at `template/services/` holds a `<name>.yml` fragment
-and a `<name>.yaml` manifest for each of `bskyd`, `discd`, `emaid`,
+and a `<name>.yaml` manifest for each of `discd`, `emaid`,
 `extenddb`, `gitd`, `litellm`, `slakd`, `teled`, `ttsd`,
 and `whapd`, plus `kokoro.yml` alone and the variant
 `teled-jynx.yml`.

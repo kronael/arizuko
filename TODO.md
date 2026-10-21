@@ -237,7 +237,6 @@ touched, not all at once:
 | discord   | shipped | Go       |
 | email     | shipped | Go       |
 | telegram  | shipped | Go       |
-| bluesky   | shipped | Go       |
 | web/slink | open    | Go       |
 | twitter   | open    | —        |
 | facebook  | open    | —        |

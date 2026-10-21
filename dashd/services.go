@@ -58,7 +58,6 @@ var services = []service{
 	{"teled", "teled", "/dash/teled/", "Telegram adapter", ""},
 	{"discd", "discd", "/dash/discd/", "Discord adapter", ""},
 	{"emaid", "emaid", "/dash/emaid/", "Email adapter", ""},
-	{"bskyd", "bskyd", "/dash/bskyd/", "Bluesky adapter", ""},
 	// The two TypeScript adapters re-implement the same contract in their own
 	// source (6/31): they cannot import chanlib.
 	{"whapd", "whapd", "/dash/whapd/", "WhatsApp adapter", ""},
