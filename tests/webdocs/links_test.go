@@ -1,7 +1,6 @@
 // Package webdocs tests the static operator site in template/web/pub as
 // content: every internal link resolves, every spec the pages cite is in the
-// corpus, and the hand-copied product nav in every page names exactly the
-// pages that exist.
+// corpus, and every sidebar is the render of template/web/nav.json.
 //
 // The site has no build step, so nothing but a test can catch a dangling
 // link. Retiring the aws-devops product (242b7d10) deleted its two pages and
@@ -344,66 +343,6 @@ func resolve(from, raw string) (string, bool) {
 		target = filepath.Join(target, "index.html")
 	}
 	return target, true
-}
-
-// TestProductNavMatchesCatalog gates step 2 of template/web/CLAUDE.md
-// §"Adding a new product": the nav-children list is hand-copied into every
-// page under products/, so a new product means 30 edits and a retired one
-// means 30 deletions. TestProductCatalogMatchesCorpus checks the directories;
-// this checks that all 30 copies agree with them.
-func TestProductNavMatchesCatalog(t *testing.T) {
-	productsDir := filepath.Join(pubDir, siteRoot, "products")
-	entries, err := os.ReadDir(productsDir)
-	if err != nil {
-		t.Fatalf("read %s: %v", productsDir, err)
-	}
-	want := map[string]bool{}
-	for _, e := range entries {
-		if e.IsDir() {
-			want[e.Name()] = true
-		}
-	}
-	if len(want) < 5 {
-		t.Fatalf("only %d product pages found — the path is wrong", len(want))
-	}
-
-	navRe := regexp.MustCompile(`(?s)<ul class="nav-children">(.*?)</ul>`)
-	hrefRe := regexp.MustCompile(`href="(?:\.\./)?([a-z0-9-]+)/"`)
-
-	pages := 0
-	for _, f := range htmlFiles(t) {
-		if !strings.HasPrefix(filepath.ToSlash(f), filepath.ToSlash(productsDir)+"/") {
-			continue
-		}
-		body, err := os.ReadFile(f)
-		if err != nil {
-			t.Fatalf("read %s: %v", f, err)
-		}
-		nav := navRe.FindStringSubmatch(string(body))
-		if nav == nil {
-			t.Errorf("%s has no <ul class=\"nav-children\"> — every product page carries the list", f)
-			continue
-		}
-		pages++
-		got := map[string]bool{}
-		for _, m := range hrefRe.FindAllStringSubmatch(nav[1], -1) {
-			got[m[1]] = true
-		}
-		for name := range want {
-			if !got[name] {
-				t.Errorf("%s: nav omits product %q", f, name)
-			}
-		}
-		for name := range got {
-			if !want[name] {
-				t.Errorf("%s: nav names %q, which has no page — a retired product "+
-					"leaves one dead entry per page", f, name)
-			}
-		}
-	}
-	if pages < len(want) {
-		t.Fatalf("only %d product pages carried a nav list, want at least %d", pages, len(want))
-	}
 }
 
 // TestProductPagerChainIsWhole requires every rel="prev"/rel="next" on a

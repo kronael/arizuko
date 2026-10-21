@@ -85,14 +85,16 @@ pub/arizuko/
 
 Two rules the tree enforces:
 
+- The sidebar has one declaration, `template/web/nav.json`: the sections in
+  order and, for each section the sidebar expands, its pages in order. Every
+  page holds a static copy of the sidebar, so the site needs no script to show
+  it. After an edit to `nav.json`, run `make docs-nav`: it writes the render
+  into every page. `tests/webdocs` `TestWebDocsNavIsGenerated` fails on a
+  page whose copy differs, and `TestNavDeclaresEveryPage` fails on a page in a
+  listed section that `nav.json` does not list.
 - A new daemon needs THREE edits: its own `components/<name>.html`, a row in
-  `components/index.html`, and a line in the nav every component page carries.
-  Miss the third and the page exists but nothing links to it.
+  `components/index.html`, and its line in `nav.json`.
 - `hub.js` holds `ARIZUKO_VERSION`, the only copy. Bump it when you tag.
-- A new top-level section needs one `<li>` in the sidebar of every page that
-  carries one. The site has no build step, so each page holds its own copy;
-  `tests/webdocs` `TestWebDocsNavListsEverySection` names each page that is
-  missing an entry.
 
 ## Section purposes
 
@@ -353,18 +355,16 @@ Discipline:
 
 - **Concepts is an ordered curriculum**, not an alphabetical set. A new
   concept goes where it belongs in the learning arc — re-stitch
-  `concepts/index.html` order and the prev/next pagers of its
-  neighbours. Don't default to appending at the end.
-- A new `reference/` page updates the inlined left-nav tree in its
-  sibling pages, same commit (static-nav drift).
+  `concepts/index.html` order, its line in `nav.json` and the prev/next
+  pagers of its neighbours. Don't default to appending at the end.
 - Verify-before-announce: every touched `/pub/*` URL returns 200 before
   you call it done, then sync to krons (see Deploy procedure above).
 
 ## Adding a new product
 
 1. Create `pub/products/<name>/index.html` (intro) and `setup.html`
-2. Add a row to the product grid in `pub/products/index.html`, and the entry
-   to the `nav-children` list in EVERY page under `pub/products/`
+2. Add a row to the product grid in `pub/products/index.html` and the entry
+   in `nav.json`, then run `make docs-nav`
 3. Add a link to the landing page `go deeper` section if it's a flagship product
 4. Create `specs/7/product-<name>.md` (if not already there)
 

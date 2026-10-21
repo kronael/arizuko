@@ -3,15 +3,14 @@ package webdocs
 // The design-system guard. template/web/CLAUDE.md §"Visual design system"
 // says every value lives in assets/hub.css and a page carries classes only.
 // These tests fail on the two ways a page carries a value of its own (a
-// <style> tag, a colour in a style attribute) and on the two ways the shell
-// wears away (a page with no sidebar, a sidebar missing a section).
+// <style> tag, a colour in a style attribute) and on a page without the shell.
+// nav_test.go owns the sidebar.
 
 import (
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strings"
 	"testing"
 )
@@ -37,13 +36,6 @@ var styleExceptions = map[string]string{}
 // shellLess is the one page that does not carry the docs shell: the landing
 // page, by design.
 const shellLess = "index.html"
-
-// navSections is the top-level list every sidebar carries, in order. The site
-// has no build step, so each page holds its own copy of the sidebar.
-var navSections = []string{
-	"concepts", "reference", "howto", "components", "products",
-	"security", "strategy", "research", "changelog",
-}
 
 // lineOf returns the 1-based line of byte offset i in s.
 func lineOf(s string, i int) int {
@@ -174,128 +166,5 @@ func TestWebDocsOnlyTheLandingIsShellLess(t *testing.T) {
 	}
 	if pages < 100 {
 		t.Fatalf("only %d pages scanned for the shell; the walk is broken", pages)
-	}
-}
-
-// TestWebDocsNavListsEverySection requires every sidebar to carry all nine
-// top-level sections, in order.
-func TestWebDocsNavListsEverySection(t *testing.T) {
-	root := filepath.Join(pubDir, siteRoot)
-	for _, s := range navSections {
-		if _, err := os.Stat(filepath.Join(root, s, "index.html")); err != nil {
-			t.Fatalf("navSections names %q, which has no index.html: %v", s, err)
-		}
-	}
-	navRe := regexp.MustCompile(`(?s)<nav class="docs-nav".*?</nav>`)
-	sectionRe := regexp.MustCompile(`class="nav-section"\s+href="([^"]*)"`)
-
-	pages := 0
-	var bad []string
-	for _, f := range htmlFiles(t) {
-		body, err := os.ReadFile(f)
-		if err != nil {
-			t.Fatalf("read %s: %v", f, err)
-		}
-		nav := navRe.FindString(string(body))
-		if nav == "" {
-			continue // the shell-less pages; the test above owns those
-		}
-		pages++
-		var got []string
-		for _, m := range sectionRe.FindAllStringSubmatch(nav, -1) {
-			target, ok := resolve(f, m[1])
-			if !ok {
-				continue
-			}
-			r, err := filepath.Rel(root, filepath.Dir(target))
-			if err != nil {
-				t.Fatalf("rel %s: %v", target, err)
-			}
-			got = append(got, filepath.ToSlash(r))
-		}
-		if strings.Join(got, ",") != strings.Join(navSections, ",") {
-			bad = append(bad, rel(t, f)+": "+strings.Join(got, ","))
-		}
-	}
-	sort.Strings(bad)
-	for _, b := range bad {
-		t.Errorf("sidebar does not list the nine sections in order (%s)", b)
-	}
-	// 115 today.
-	if pages < 100 {
-		t.Fatalf("only %d sidebars found; the extraction is broken", pages)
-	}
-}
-
-// childSections are the sections whose pages carry their siblings in the
-// sidebar. Each page holds its own copy of the list, so a page added to one
-// copy and not the others is a drift no reader of the index sees.
-var childSections = []string{"concepts", "reference", "howto", "components", "products"}
-
-var sectionChildrenRe = regexp.MustCompile(`(?s)class="nav-section"\s+href="([^"]*)"[^>]*>[^<]*</a>\s*<ul class="nav-children">(.*?)</ul>`)
-
-// sectionChildren returns the resolved targets of the nav-children list that
-// sits under the sidebar entry for section, in order, and whether one exists.
-func sectionChildren(f, body, section string) ([]string, bool) {
-	want := filepath.Join(pubDir, siteRoot, section, "index.html")
-	for _, m := range sectionChildrenRe.FindAllStringSubmatch(body, -1) {
-		if target, ok := resolve(f, m[1]); !ok || filepath.Clean(target) != want {
-			continue
-		}
-		var out []string
-		for _, h := range linkRe.FindAllStringSubmatch(m[2], -1) {
-			if target, ok := resolve(f, h[1]); ok {
-				out = append(out, filepath.Clean(target))
-			}
-		}
-		return out, true
-	}
-	return nil, false
-}
-
-// TestWebDocsSectionNavListsEverySibling requires every page in a section to
-// carry the section index's nav-children list: the same targets, in the same
-// order. Mutation proof, run when the test was written: one <li> removed from
-// concepts/topics.html turned it red.
-func TestWebDocsSectionNavListsEverySibling(t *testing.T) {
-	root := filepath.Join(pubDir, siteRoot)
-	index := map[string][]string{}
-	for _, s := range childSections {
-		f := filepath.Join(root, s, "index.html")
-		body, err := os.ReadFile(f)
-		if err != nil {
-			t.Fatalf("read %s: %v", f, err)
-		}
-		list, ok := sectionChildren(f, string(body), s)
-		if !ok || len(list) < 5 {
-			t.Fatalf("%s: section nav has %d children; the extraction is broken", f, len(list))
-		}
-		index[s] = list
-	}
-	pages := 0
-	for _, f := range htmlFiles(t) {
-		name := rel(t, f)
-		section, _, _ := strings.Cut(name, "/")
-		want, inSection := index[section]
-		if !inSection || name == shellLess {
-			continue
-		}
-		body, err := os.ReadFile(f)
-		if err != nil {
-			t.Fatalf("read %s: %v", f, err)
-		}
-		pages++
-		got, ok := sectionChildren(f, string(body), section)
-		if !ok {
-			t.Errorf("%s: sidebar has no nav-children list under %s", name, section)
-			continue
-		}
-		if strings.Join(got, ",") != strings.Join(want, ",") {
-			t.Errorf("%s: section nav differs from %s/index.html — copy the "+
-				"index's list (%d entries, want %d)", name, section, len(got), len(want))
-		}
-	}
-	if pages < 100 {
-		t.Fatalf("only %d section pages checked; the walk is broken", pages)
 	}
 }

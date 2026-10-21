@@ -118,10 +118,10 @@
   }
 
   // ── docs three-pane chrome ──────────────────────────────────────────
-  // Only fires on pages that opt in with .docs-layout. The reference and
-  // concepts shells inline their own left-nav tree (renders before this
-  // script); buildTOC fills the right rail; markCurrentNav highlights the
-  // active link; the drawer is the <1200px collapse of the left nav.
+  // Only fires on pages that opt in with .docs-layout. Every page carries
+  // its own static left-nav tree, rendered from template/web/nav.json by
+  // `make docs-nav`; buildTOC fills the right rail; markCurrentNav highlights
+  // the active link; the drawer is the <1200px collapse of the left nav.
 
   function slug(s) {
     return s
@@ -196,17 +196,31 @@
 
   // Set aria-current="page" on the nav link pointing at this page, matching
   // on the resolved (absolute) href so relative `../x.html` links normalize
-  // against the browser's own resolution.
+  // against the browser's own resolution. A page the sidebar does not list,
+  // such as products/<name>/setup.html, marks the page entry whose directory
+  // holds it; a section link never takes the mark this way.
   function markCurrentNav() {
     var nav = document.querySelector('.docs-nav');
     if (!nav) return;
     var here = normPath(window.location.pathname);
-    var links = nav.querySelectorAll('a[href]');
-    links.forEach(function (a) {
-      if (normPath(new URL(a.href, window.location.href).pathname) === here) {
+    var exact = false;
+    var best = null;
+    var bestLen = 0;
+    nav.querySelectorAll('a[href]').forEach(function (a) {
+      var p = normPath(new URL(a.href, window.location.href).pathname);
+      if (p === here) {
         a.setAttribute('aria-current', 'page');
+        exact = true;
+      } else if (
+        !a.classList.contains('nav-section') &&
+        here.indexOf(p + '/') === 0 &&
+        p.length > bestLen
+      ) {
+        best = a;
+        bestLen = p.length;
       }
     });
+    if (!exact && best) best.setAttribute('aria-current', 'page');
   }
 
   // <1200px: the left nav collapses behind a topbar button. aria-expanded

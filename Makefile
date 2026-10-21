@@ -120,6 +120,12 @@ lint:
 	fi
 	go test ./tests/webdocs ./tests/specrefs ./tests/bugsindex -count=1
 
+# docs-nav writes the sidebar declared in template/web/nav.json into every page
+# of the operator site; `lint` fails on a page whose copy differs.
+docs-nav:
+	go test ./tests/webdocs -run TestWebDocsNavIsGenerated -count=1 -write-nav
+.PHONY: docs-nav
+
 # The tree's own Go, excluding vendored and scratch checkouts.
 GOFMT_DIRS = $(shell git ls-files '*.go' | grep -v '^third_party/' | xargs -r dirname | sort -u)
 
