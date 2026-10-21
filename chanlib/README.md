@@ -61,7 +61,7 @@ cares about message order on a socket.
   Text, file and voice sends carry optional `thread_id` and `thread_root`.
   Adapters advertise each supported placement in their capability map.
   `EditRequest.ThreadID` carries the existing thread context for edits.
-  Protocol: [channel adapter contract](../specs/5/34-channel-protocol.md).
+  The verbs and their capability map: [EXTENDING.md](../EXTENDING.md#each-adapter-advertises-only-the-verbs-it-implements).
 
   event on arrival (slakd, discd, gitd) holds it in its own store
   (`RetainInbound`). A second queue is a second thing to drift.
