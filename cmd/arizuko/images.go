@@ -260,7 +260,9 @@ func readMounts(procDir string) (all, self []mountEntry, err error) {
 			continue
 		}
 		mounts, err := readMountinfo(filepath.Join(procDir, e.Name(), "mountinfo"))
-		if errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ESRCH) {
+		// A process that exited, or a zombie (EINVAL), has no mounts to hold.
+		if errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ESRCH) ||
+			errors.Is(err, syscall.EINVAL) {
 			continue
 		}
 		if err != nil {
