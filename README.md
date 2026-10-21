@@ -116,6 +116,8 @@ no vector index; pair it with a retrieval system and let arizuko act on the
 results (see [What arizuko does not include](#what-arizuko-does-not-include)).
 For a coding assistant on one developer machine, a single-user tool is a
 closer fit. arizuko is for agents that sit behind channels and serve teams.
+[strategy/index.html](template/web/pub/arizuko/strategy/index.html#comparable)
+lists the comparable systems and how each one differs.
 
 ## Getting started
 
@@ -247,7 +249,7 @@ instance and grades the visible effects.
 
 | Project                                                  | Author        | Contribution                                        |
 | -------------------------------------------------------- | ------------- | --------------------------------------------------- |
-| [nanoclaw](https://github.com/qwibitai/nanoclaw)         | qwibitai      | Container-per-session model                         |
+| [nanoclaw](https://github.com/nanocoai/nanoclaw)         | nanocoai      | Container-per-session model                         |
 | [kanipi](https://github.com/kronael/kanipi)              | kronael       | TS proof-of-concept; routing, MCP IPC, skill system |
 | [ElizaOS](https://github.com/elizaOS/eliza)              | elizaOS       | character.json persona model                        |
 | [Claude Code](https://github.com/anthropics/claude-code) | Anthropic     | The agent runtime                                   |

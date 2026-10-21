@@ -34,7 +34,7 @@
 
       <div class="callout"><strong>One sentence:</strong> <strong>Arizuko is GitOps for agents.</strong> Persona, skills, ACL, routes, secrets, diaries, decisions — all in git. The gateway commits per turn. Containers run against the working tree. The store is derived cache. Audit, fork, distribute — native git verbs.</div>
 
-      <p>This page documents the research direction: from today's multi-channel orchestration platform to tomorrow's declarative product platform. Four tiers map competitive gaps to shippable features. Each agent research topic (<a href="/pub/krons/agents/tools/">tools/security</a>, <a href="/pub/krons/agents/memory/">memory</a>, <a href="/pub/krons/agents/subagents/">subagents</a>, <a href="/pub/krons/agents/project-management/">project management</a>) projects into concrete platform capabilities.</p>
+      <p>This page documents the research direction: from today's multi-channel orchestration platform to tomorrow's declarative product platform. Four tiers map competitive gaps to shippable features. Each agent research topic (<a href="https://krons.fiu.wtf/pub/krons/agents/tools/">tools/security</a>, <a href="https://krons.fiu.wtf/pub/krons/agents/memory/">memory</a>, <a href="https://krons.fiu.wtf/pub/krons/agents/subagents/">subagents</a>, <a href="https://krons.fiu.wtf/pub/krons/agents/project-management/">project management</a>) projects into concrete platform capabilities.</p>
 
       <h2>Why GitOps?</h2>
       <ul>
@@ -84,6 +84,57 @@
           <td>One product decision (add Slack/Teams adapters) from covering 70% of our pitch</td>
           <td>Speed to Tier A+B before they ship adapters</td>
         </tr>
+      </table>
+
+      <h2 id="comparable">Each comparable system does a part of the job</h2>
+      <p>The systems below overlap with arizuko on channels, tenancy, isolation or memory. Each line says how the system differs. The agents hub on krons at <a href="https://krons.fiu.wtf/pub/krons/agents/">https://krons.fiu.wtf/pub/krons/agents/</a> reads the source of many of them, and <a href="https://krons.fiu.wtf/pub/krons/agents/comparison/">https://krons.fiu.wtf/pub/krons/agents/comparison/</a> compares five side by side.</p>
+
+      <h3>Personal agent gateways serve one operator</h3>
+      <table>
+        <tr><th>System</th><th>Address</th><th>How it differs</th></tr>
+        <tr><td>OpenClaw</td><td><a href="https://github.com/openclaw/openclaw">https://github.com/openclaw/openclaw</a></td><td>A personal assistant on many chat platforms from one Node.js process. An agent is a row in its config. A Docker sandbox for tools is optional, and no VM runs a turn.</td></tr>
+        <tr><td>NanoClaw</td><td><a href="https://github.com/nanocoai/nanoclaw">https://github.com/nanocoai/nanoclaw</a></td><td>A small rewrite of the OpenClaw model. The Claude Agent SDK runs in one container per session, and a per-session SQLite file is the only channel to the host. arizuko took the container per session and adds routes, grants and a VM.</td></tr>
+        <tr><td>Muaddib</td><td><a href="https://github.com/pasky/muaddib">https://github.com/pasky/muaddib</a></td><td>A chat assistant for teams that runs tool calls in QEMU micro-VMs. The model SDK and the web tools run on the host, and all users of a channel share one VM.</td></tr>
+        <tr><td>ElizaOS</td><td><a href="https://github.com/elizaOS/eliza">https://github.com/elizaOS/eliza</a></td><td>A framework with <code>character.json</code> personas and a plugin marketplace. Agents run in the host process with no sandbox, and memory is PostgreSQL with pgvector.</td></tr>
+        <tr><td>Milady</td><td><a href="https://github.com/milady-ai/milady">https://github.com/milady-ai/milady</a></td><td>ElizaOS as a desktop and mobile app for one person, local first.</td></tr>
+        <tr><td>Hermes Agent</td><td><a href="https://github.com/NousResearch/hermes-agent">https://github.com/NousResearch/hermes-agent</a></td><td>A long-running Python agent that writes its own skills and scans skills for threats. One process keeps a session across many turns, with no VM per turn.</td></tr>
+        <tr><td>takopi</td><td><a href="https://github.com/banteg/takopi">https://github.com/banteg/takopi</a></td><td>A Telegram bridge to the coding CLIs Codex, Claude Code, OpenCode and Pi, with one git worktree per branch. One operator and no tenants.</td></tr>
+        <tr><td>Letta</td><td><a href="https://github.com/letta-ai/letta">https://github.com/letta-ai/letta</a><br><a href="https://github.com/letta-ai/letta-code">https://github.com/letta-ai/letta-code</a></td><td>A server for agents that keep memory across runs, local or in Letta Cloud. letta-code sends replies only through a message tool, as arizuko does, for one operator with no tenants.</td></tr>
+        <tr><td>brainpro</td><td><a href="https://github.com/jgarzik/brainpro">https://github.com/jgarzik/brainpro</a></td><td>A Rust coding assistant that sends each kind of task to a different model provider. A chat pairs to a session with a code, and no sandbox runs the tools.</td></tr>
+        <tr><td>HOME23</td><td><a href="https://github.com/notforyou23/home23">https://github.com/notforyou23/home23</a></td><td>An agent that runs all the time in continuous loops. An arizuko agent runs only during a turn.</td></tr>
+      </table>
+
+      <h3>Team harnesses keep a sandbox per scope or per thread</h3>
+      <table>
+        <tr><th>System</th><th>Address</th><th>How it differs</th></tr>
+        <tr><td>qm</td><td><a href="https://github.com/yc-software/qm">https://github.com/yc-software/qm</a></td><td>A multiplayer agent harness in Slack and on the web, hosted in the cloud account of the team. It keeps one durable sandbox per scope, filters egress with Envoy and uses MCP servers without serving one. Its scopes are five flat kinds, where an arizuko folder nests to any depth.</td></tr>
+        <tr><td>Centaur</td><td><a href="https://github.com/paradigmxyz/centaur">https://github.com/paradigmxyz/centaur</a></td><td>Slack agents in one Kubernetes pod per thread, a workflow engine that replays steps, and a proxy that adds credentials on the wire. arizuko has no workflow engine: a failed turn runs again whole.</td></tr>
+        <tr><td>OpenClaw Managed Agents</td><td><a href="https://github.com/stainlu/openclaw-managed-agents">https://github.com/stainlu/openclaw-managed-agents</a></td><td>An open implementation of the Anthropic Managed Agents API over one Docker container per session. The API has four nouns: agent, environment, session and event.</td></tr>
+        <tr><td>Cloudflare Agents</td><td><a href="https://github.com/cloudflare/agents">https://github.com/cloudflare/agents</a></td><td>An SDK for agents that run as Durable Objects on Cloudflare, each with its own SQLite state. Cloudflare runs the platform, where arizuko runs on a host you own.</td></tr>
+        <tr><td>Dust</td><td><a href="https://dust.tt/">https://dust.tt/</a></td><td>A hosted service for agents over company data, with many data connectors. arizuko has no connector sync and no hosted service.</td></tr>
+        <tr><td>Zapier Agents</td><td><a href="https://zapier.com/agents">https://zapier.com/agents</a></td><td>Hosted agents that act through the app integrations of Zapier.</td></tr>
+      </table>
+
+      <h3>Frameworks and builders leave the hosting to you</h3>
+      <table>
+        <tr><th>System</th><th>Address</th><th>How it differs</th></tr>
+        <tr><td>LangGraph</td><td><a href="https://github.com/langchain-ai/langgraph">https://github.com/langchain-ai/langgraph</a></td><td>A library for agent programs as graphs. You write the service, the channels and the tenancy.</td></tr>
+        <tr><td>AutoGen</td><td><a href="https://github.com/microsoft/autogen">https://github.com/microsoft/autogen</a></td><td>A framework from Microsoft for conversations between several agents in one program.</td></tr>
+        <tr><td>CrewAI</td><td><a href="https://github.com/crewAIInc/crewAI">https://github.com/crewAIInc/crewAI</a></td><td>A Python framework for crews of agents with roles that work on one task, and a hosted enterprise product.</td></tr>
+        <tr><td>smolagents</td><td><a href="https://github.com/huggingface/smolagents">https://github.com/huggingface/smolagents</a></td><td>A small Python library in which the agent writes its actions as code.</td></tr>
+        <tr><td>Flue</td><td><a href="https://github.com/withastro/flue">https://github.com/withastro/flue</a></td><td>A TypeScript agent framework that runs tools in an in-memory virtual shell by default. A container is an option, not the default.</td></tr>
+        <tr><td>Dify</td><td><a href="https://github.com/langgenius/dify">https://github.com/langgenius/dify</a></td><td>A visual builder for LLM apps, workflows and retrieval. An agent is a node in a graph, not a folder.</td></tr>
+        <tr><td>Flowise</td><td><a href="https://github.com/FlowiseAI/Flowise">https://github.com/FlowiseAI/Flowise</a></td><td>A visual builder for LLM flows.</td></tr>
+        <tr><td>n8n</td><td><a href="https://github.com/n8n-io/n8n">https://github.com/n8n-io/n8n</a></td><td>Workflow automation with AI agent nodes. An agent is a step in a workflow.</td></tr>
+      </table>
+
+      <h3>Adjacent tools share one part of the shape</h3>
+      <table>
+        <tr><th>System</th><th>Address</th><th>How it differs</th></tr>
+        <tr><td>Aeon</td><td><a href="https://github.com/aeonfun/aeon">https://github.com/aeonfun/aeon</a></td><td>Agents that run skills on GitHub Actions on a schedule and commit their state to git. A run is a scheduled job, not an answer to a chat message.</td></tr>
+        <tr><td>Autolith</td><td><a href="https://github.com/lambda-symbolics/autolith">https://github.com/lambda-symbolics/autolith</a></td><td>A Common Lisp agent that changes its own running image and can roll it back. arizuko keeps no live image: each turn boots a new guest.</td></tr>
+        <tr><td>Entire</td><td><a href="https://entire.io/">https://entire.io/</a></td><td>A git host that links each agent session to the commit it made. arizuko is not a git host.</td></tr>
+        <tr><td>Onyx</td><td><a href="https://github.com/onyx-dot-app/onyx">https://github.com/onyx-dot-app/onyx</a></td><td>Self-hosted search and chat over company documents, with connectors. It does the retrieval that arizuko does not do.</td></tr>
       </table>
 
       <h2>Defensible wedge</h2>
@@ -184,7 +235,7 @@ GUESTS     ephemeral: a projection of git@HEAD into runtime
 
       <div class="grid wide">
         <div class="card">
-          <div class="card-title"><a href="/pub/krons/agents/tools/">Tools &amp; security</a></div>
+          <div class="card-title"><a href="https://krons.fiu.wtf/pub/krons/agents/tools/">Tools &amp; security</a></div>
           <ul>
             <li><strong>Tier A:</strong> Per-product tool profiles in <code>agents.toml</code> (minimal/coding/messaging/full)</li>
             <li><strong>Tier B:</strong> Hermes threat-pattern scanner (932 LOC) → product sandbox profiles with gVisor. Tap (credential injection proxy) already exists — ships with Tier B.</li>
@@ -193,7 +244,7 @@ GUESTS     ephemeral: a projection of git@HEAD into runtime
         </div>
 
         <div class="card">
-          <div class="card-title"><a href="/pub/krons/agents/memory/">Memory</a></div>
+          <div class="card-title"><a href="https://krons.fiu.wtf/pub/krons/agents/memory/">Memory</a></div>
           <ul>
             <li><strong>Tier A Phase C:</strong> BYOA primitive = bring-your-own-pgvector as alternative to in-folder markdown. ElizaOS pgvector pattern, OpenClaw hybrid (vector + BM25).</li>
             <li><strong>Tier C:</strong> Memory projection function: <code>MEMORY.md</code> + <code>.diary/</code> + <code>facts/</code> → unified queryable surface across all products.</li>
@@ -202,7 +253,7 @@ GUESTS     ephemeral: a projection of git@HEAD into runtime
         </div>
 
         <div class="card">
-          <div class="card-title"><a href="/pub/krons/agents/subagents/">Subagents</a></div>
+          <div class="card-title"><a href="https://krons.fiu.wtf/pub/krons/agents/subagents/">Subagents</a></div>
           <ul>
             <li><strong>Tier A:</strong> Product mixins in <code>agents.toml</code>. Compose a support product from (base-agent + slack-responder + escalation-child) fragments.</li>
             <li><strong>Already shipped:</strong> <code>delegate_group</code>, <code>escalate_group</code>, <code>observe_group</code> MCP tools. Per-folder isolation is one guest per turn, per folder.</li>
@@ -211,7 +262,7 @@ GUESTS     ephemeral: a projection of git@HEAD into runtime
         </div>
 
         <div class="card">
-          <div class="card-title"><a href="/pub/krons/agents/project-management/">Project management</a></div>
+          <div class="card-title"><a href="https://krons.fiu.wtf/pub/krons/agents/project-management/">Project management</a></div>
           <ul>
             <li><strong>Tier C:</strong> Oncall agent proof — autonomous PM loop (Stripe ships 1,300 PRs/week from Slack messages, zero human interaction).</li>
             <li><strong>Tier B:</strong> Git-as-event-log enables post-turn eval hooks (Aeon's Haiku-scores-Opus quality gate).</li>
@@ -220,7 +271,7 @@ GUESTS     ephemeral: a projection of git@HEAD into runtime
         </div>
 
         <div class="card">
-          <div class="card-title"><a href="/pub/krons/agents/patterns/">Building blocks</a></div>
+          <div class="card-title"><a href="https://krons.fiu.wtf/pub/krons/agents/patterns/">Building blocks</a></div>
           <ul>
             <li><strong>Tier A:</strong> Doom loop prevention (max-turns cap, explicit continue required). Network isolation (per-spawn egress allowlist).</li>
             <li><strong>Tier B:</strong> Harness engineering — per-product test harness in TOML. Blueprints = product templates.</li>
@@ -229,7 +280,7 @@ GUESTS     ephemeral: a projection of git@HEAD into runtime
         </div>
 
         <div class="card">
-          <div class="card-title"><a href="/pub/krons/agents/aeon/">Aeon</a></div>
+          <div class="card-title"><a href="https://krons.fiu.wtf/pub/krons/agents/aeon/">Aeon</a></div>
           <ul>
             <li><strong>Tier C:</strong> Self-healing batch loop = git-as-database (already Tier B direction) + Haiku quality gate (eval primitive) + reactive triggers (scheduled tasks already exist) + category repair playbooks (product templates).</li>
             <li><strong>All mechanisms already designed.</strong> Tier C integrates them.</li>
@@ -285,11 +336,11 @@ GUESTS     ephemeral: a projection of git@HEAD into runtime
         <li>Audit = signed commits + branch protection</li>
       </ul>
 
-      <p class="note">Research direction for <a href="../">arizuko</a>. Cross-references the <a href="/pub/krons/agents/">agent research hub</a> (11 systems dissected). Framing session: ondrej × claude, 2026-05-23. Source: <code>/home/node/research/agent-hub-arizuko-next-steps.md</code>.</p>
+      <p class="note">Research direction for <a href="../">arizuko</a>. Cross-references the <a href="https://krons.fiu.wtf/pub/krons/agents/">agent research hub</a> (11 systems dissected). Framing session: ondrej × claude, 2026-05-23. Source: <code>/home/node/research/agent-hub-arizuko-next-steps.md</code>.</p>
 
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/strategy/index.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-20">2026-10-20</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-21">2026-10-21</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>
