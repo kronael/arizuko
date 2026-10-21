@@ -29,8 +29,7 @@ sudo journalctl -u arizuko_${INSTANCE} --since "5 min ago" --no-pager | tail -30
 ```
 
 **Pass**: see `"running"` (routd/runed) and `"channel registered"` (adapters) once
-per restart. (Post-split there is no `gated` daemon — do NOT grep for it; that
-filter returns nothing and looks like a dead stack.)
+per restart.
 **Fail**: no log activity at all for > 2 min (routd may be hung or polling stopped).
 
 Red flags: `"error in message loop"`, `"circuit breaker open"`, `"failed to start MCP server"`.
@@ -159,8 +158,7 @@ sudo journalctl -u arizuko_${INSTANCE} --since "1 hour ago" --no-pager \
 ### 8. MCP sockets
 
 ```bash
-# Sockets live at ipc/<folder>/gated.sock (the file name is legacy — kept in code
-# after the gated daemon was removed; routd now hosts the socket). Nested folders
+# routd serves one socket per folder at ipc/<folder>/gated.sock. Nested folders
 # nest the dir, so use find.
 sudo find /srv/data/arizuko_${INSTANCE}/ipc -name 'gated.sock' 2>/dev/null || \
   echo "No MCP sockets found"
