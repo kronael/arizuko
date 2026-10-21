@@ -237,6 +237,12 @@ reads those words now.
 - `L487`, `L489`, `L491`, `L498`, `L500`, `L501`, `L502` — doc and
   comment drift against the code, each naming the sentence to change.
 
+**Found by the product-docs pass (2026-10-21).**
+
+- `L503` — the "depth capped at 1" of `delegate_group` and `escalate_group`
+  checks an argument the caller sets: carry a hop count on the row, or drop
+  the claim from both tool descriptions.
+
 **Found while folding the lowercase `bugs.md` into this file (2026-10-20).**
 
 - `L480` — slakd sends a whole reply as one `chat.postMessage`; `chanlib.Chunk`
@@ -759,6 +765,29 @@ stands; the sentence about the default describes the exception.
 `auth.Authorize` where none is set". No test — docs.
 
 - **Status:** open (record only).
+
+## L503 — `delegate_group` and `escalate_group` say "Depth capped at 1", and the cap reads an argument the caller sets (2026-10-21, open — needs sign-off)
+
+FOUND 2026-10-21 by the product-docs pass, read at `a3015fcf`. Both tool
+descriptions end "Depth capped at 1." (`ipc/ipc.go:1941`, `:1996`), and
+`reference/mcp.html` copies them. Each handler reads `depth :=
+req.GetInt("depth", 0)` and refuses `depth >= 1` (`:1961-1964`, `:2013-2016`).
+The delegation row carries only the prompt (`:2019-2025`), and
+`grep -rn '"depth"' --include=*.go --include=*.ts .` finds no other reader or
+writer. So a child turn starts with no depth, calls `delegate_group` with the
+default 0, and passes. A chain parent → child → grandchild runs as far as the
+grants of each folder reach, and a parent and a child that hold both tools
+can hand one prompt back and forth with no bound. `concepts/routing.html`
+said "Both tools refuse to go more than one level"; this pass corrected the
+page, and the tool descriptions are code.
+
+- **Severity:** low — grants still bound every hop; the stated limit is false.
+- **Scope:** agent hand-off tools.
+- **Affected:** ipc (`delegate_group`, `escalate_group`).
+- **Status:** open — needs sign-off. A real cap is a hop count carried on the
+  delegation row into the child turn, which changes the message contract (`L2`
+  names the same bound for `send`). The other fix drops the sentence from both
+  descriptions. No test — a test would pin the current gap.
 
 ## L480 — slakd posts a whole reply as ONE chat.postMessage, so a long reply is cut by Slack (2026-10-20, open)
 
