@@ -2,7 +2,7 @@
 
 The agent runtime for arizuko. Wraps Claude Code (via
 `@anthropic-ai/claude-agent-sdk`), injects group identity + skills +
-memory, and exposes MCP tools over a gated unix socket.
+memory, and exposes MCP tools over routd's unix socket.
 
 ## What it does
 

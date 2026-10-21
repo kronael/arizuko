@@ -1,7 +1,7 @@
 #!/bin/bash
 # ant — run a Claude agent (ant) in a container
 # Standalone use: ant [options] <dir> [prompt]
-# With gated:     ant -g <socket> <dir> [prompt]
+# With routd:     ant -g <socket> <dir> [prompt]
 set -euo pipefail
 
 IMAGE="${ANT_IMAGE:-arizuko-ant:latest}"
@@ -16,7 +16,7 @@ Usage: ant [options] <dir> [prompt]
 
 Options:
   -i image      Docker image (default: arizuko-ant:latest)
-  -g socket     Path to gated MCP socket (enables IPC bridge)
+  -g socket     Path to routd MCP socket (enables IPC bridge)
   -s name       Session name for continuity
   -h            Show this help
 

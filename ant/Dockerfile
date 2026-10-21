@@ -208,6 +208,6 @@ USER node
 WORKDIR /home/node
 
 # Agent container is one-shot (stdin JSON in, stdout JSON out). Liveness is
-# tracked by gated directly — no HEALTHCHECK is meaningful here.
+# tracked by runed — no HEALTHCHECK is meaningful here.
 
 ENTRYPOINT ["/app/entrypoint.sh"]
