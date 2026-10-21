@@ -168,3 +168,27 @@ func TestWebDocsOnlyTheLandingIsShellLess(t *testing.T) {
 		t.Fatalf("only %d pages scanned for the shell; the walk is broken", pages)
 	}
 }
+
+// rootOverflowRe finds an overflow declaration in a rule whose selector list
+// names only html and body.
+var rootOverflowRe = regexp.MustCompile(`(?m)^\s*((?:html|body)(?:\s*,\s*(?:html|body))*)\s*\{[^}]*\boverflow(?:-x|-y)?\s*:\s*([a-z]+)`)
+
+// TestShellStaysSticky is BUGS L504: `overflow-x: hidden` on html and body made
+// the body the scroll container, so the sticky top bar, sidebar and contents
+// rail scrolled away with the page. Only `clip` and `visible` keep the viewport
+// as the container that the sticky elements bind to.
+func TestShellStaysSticky(t *testing.T) {
+	if !rootOverflowRe.MatchString("html, body { max-width: 100vw; overflow-x: hidden; }") {
+		t.Fatal("rootOverflowRe no longer matches the rule it guards")
+	}
+	css, err := os.ReadFile(filepath.Join(pubDir, siteRoot, "assets", "hub.css"))
+	if err != nil {
+		t.Fatalf("read hub.css: %v", err)
+	}
+	for _, m := range rootOverflowRe.FindAllStringSubmatch(string(css), -1) {
+		if m[2] != "clip" && m[2] != "visible" {
+			t.Errorf("hub.css sets overflow %s on %q — the body becomes the scroll "+
+				"container and the sticky shell stops sticking; use clip", m[2], m[1])
+		}
+	}
+}
