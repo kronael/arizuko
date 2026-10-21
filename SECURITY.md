@@ -616,7 +616,7 @@ binary is absent.
 │ --client: the guest's address only                          │    any other
 │ --allow: network_rules of the folder and its ancestors,     │    peer, or a
 │ resolved by routd at dispatch, plus the gateway host        │    host off
-│ --allow-all only with the egress grant or a /root turn      │    the list
+│ --allow-all: egress grant, /root turn or a `*` row          │    the list
 │ CONNECT spliced, never decrypted; dials the checked address │
 └──────────────┬──────────────────────────────────────────────┘
                ▼
@@ -648,8 +648,9 @@ binary is absent.
 - The default seed is `anthropic.com` and `api.anthropic.com`
   , see `store/seed.go`. An operator adds rules with
   `arizuko network <instance> allow <folder> <target>`.
-- The wildcard `"*"` is added only when the folder holds the `egress` grant, or
-  when the turn is an elevated `/root` turn. Without that grant, a folder stays
+- The wildcard `"*"` is added when the folder holds the `egress` grant, when
+  the turn is an elevated `/root` turn, or when the operator wrote a `*` row with
+  `arizuko network`. Without that grant, a folder stays
   on its allowlist, whatever its depth. The default `role:member` does not
   carry the grant.
 - The proxy never terminates TLS. arizuko declines MITM egress. Header

@@ -89,7 +89,7 @@
 │ --client: the guest's address only                          │    any other
 │ --allow: network_rules of the folder and its ancestors,     │    peer, or a
 │ resolved by routd at dispatch, plus the gateway host        │    host off
-│ --allow-all only with the egress grant or a /root turn      │    the list
+│ --allow-all: egress grant, /root turn or a `*` row          │    the list
 │ CONNECT spliced, never decrypted; dials the checked address │
 └──────────────┬──────────────────────────────────────────────┘
                ▼
@@ -116,7 +116,7 @@
 
     <p>An empty allowlist denies everything. That is a valid rule for a folder with no network grants. So the proxy starts, logs a warning and does not refuse to run.</p>
 
-    <p>Allow-all is a separate mode, <code>--allow-all</code>, not a list entry. runed turns it on only when the folder holds the <code>egress</code> grant or the turn is an elevated <code>/root</code> turn. The default <code>role:member</code> does not carry that grant at any folder depth. A <code>--deny</code> entry wins over every allow, also in allow-all mode, and covers the subdomains of the name.</p>
+    <p>Allow-all is a separate mode, <code>--allow-all</code>, not a list entry. runed turns it on when the folder holds the <code>egress</code> grant, when the turn is an elevated <code>/root</code> turn, or when the operator wrote a <code>*</code> row with <code>arizuko network</code>. The default <code>role:member</code> does not carry that grant at any folder depth. A <code>--deny</code> entry wins over every allow, also in allow-all mode, and covers the subdomains of the name.</p>
 
     <h3>The proxy never decrypts traffic</h3>
     <ul>
