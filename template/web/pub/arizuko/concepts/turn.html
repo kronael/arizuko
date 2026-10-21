@@ -128,6 +128,22 @@
     <h2>The guest runs one program before the agent</h2>
     <p>The guest boots a pinned kernel with one small program as PID 1, <code>guest-init</code>. <code>guest-init</code> mounts the folder at <code>/home/node</code>, starts <code>socat</code> on <code>/run/ipc/gated.sock</code> and runs the agent. A tool call goes from the agent to that socket, then over vsock to a bridge on the host, then into <code>routd</code>. The host kernel stamps the vsock CID of the guest on every packet, and the bridge accepts only the CID of its own guest. That stamp is the credential of the turn, so the agent has no token that a shell command could leak.</p>
 
+    <h2 id="children">A child folder runs in its own guest</h2>
+    <p><code>guest-init</code> builds the root of the guest with overlayfs. The release rootfs is the read-only lower layer, and a tmpfs of 512 MiB in RAM is the writable upper layer. The folder home at <code>/home/node</code> and the web directories come from the host and keep what the agent writes. A write anywhere else is gone when the guest powers off. <a href="https://github.com/kronael/arizuko/blob/main/kernel/guest-init/main.go">[kernel/guest-init/main.go]</a></p>
+    <p>A turn runs in one folder, and a folder has at most one live guest. To give work to a sub-agent on a second machine, an agent uses a second folder:</p>
+    <ul>
+      <li><code>register_group</code> creates a child folder and its first route. The caller needs a grant on <code>mcp:register_group</code> with a scope that covers the new folder. No count limits the children of a folder.</li>
+      <li><code>delegate_group</code> writes the prompt as a message on the chat of the target folder. <code>routd</code> resolves that chat to the folder and calls <code>runed</code>, and <code>runed</code> boots a guest for the child. The child turn has its own session. Its reply goes to the chat that the parent names in <code>chatJid</code>.</li>
+      <li><code>escalate_group</code> writes the prompt on the chat of the parent folder in the same way, and the parent answers through the child.</li>
+    </ul>
+    <p>The parent turn and the child turn run at the same time, in two guests. <code>MAX_CONCURRENT_CONTAINERS</code>, default 5, caps the live guests of the whole instance. Past the cap, <code>runed</code> answers busy and <code>routd</code> tries again.</p>
+    <p>Three more limits apply:</p>
+    <ul>
+      <li>The grant scope of <code>delegate_group</code> sets which folders an agent can name. A grant on <code>corp/eng/**</code> keeps it inside that subtree.</li>
+      <li>Both hand-off tools refuse a call with a <code>depth</code> argument of 1 or more. No code passes a depth to the child turn, so the check does not stop a chain of hand-offs.</li>
+      <li>Claude Code subagents that the agent starts with its <code>Task</code> tool run inside the guest of the turn. They cannot reach <code>runed</code>, so they get no guest of their own.</li>
+    </ul>
+
     <h2>The reply goes out through the adapter</h2>
     <p>The agent calls <code>reply</code> or <code>send</code>, and <code>routd</code> delivers the message through the <code>/send</code> endpoint of the adapter. If the agent finishes without a call to either tool, the text of its final result is the reply. While the agent works, the chat shows typing. On a channel that can edit messages, one status line changes in place. When the guest powers off, <code>runed</code> returns the outcome on the same HTTP call that started the turn.</p>
     <p>A failed delivery stays as a <code>pending</code> row, and a sweep tries it again with a longer gap each time. A turn that stops without a reply runs again up to three times. The exception is a failure that <code>runed</code> marks terminal, because a retry cannot fix it. Examples are a VMM that does not start and an exhausted model quota.</p>

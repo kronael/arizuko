@@ -83,6 +83,23 @@ step.
 A product is a template for the contents of a folder, such as `support` or
 `personal`. Every product passes the same six steps.
 
+## Each turn runs on its own machine
+
+Every turn boots its own KVM guest. The guest root is the release rootfs,
+read-only, under a writable layer of 512 MiB in RAM. The folder home and its
+web directories come from the host and keep what the agent writes. When the
+turn ends, the guest powers off and the writable layer is gone. A folder runs one guest at a
+time, and a message that arrives during a turn goes into the running guest.
+
+An agent gives work to a sub-agent on a machine of its own through a second
+folder. `register_group` creates a child folder, and `delegate_group` puts a
+prompt in the queue of that folder. The child runs its own turn, in its own
+guest and session, and replies in the chat that the parent names.
+`escalate_group` sends a prompt up to the parent folder. Each tool needs a
+grant. Claude Code subagents that start inside a turn share the guest of that
+turn. [concepts/turn.html](template/web/pub/arizuko/concepts/turn.html#children)
+gives the limits.
+
 ## When to use arizuko
 
 Use it when an agent has to live in real chat channels and keep a separate

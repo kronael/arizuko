@@ -118,7 +118,10 @@ arizuko run demo                            # starts the instance</code></pre>
         <li><strong>Agents hand work along the tree.</strong> A folder path
           such as <code>corp/eng/sre</code> is the org chart. An agent hands
           a prompt down to a child folder or up to its parent folder, and
-          every link needs a grant.</li>
+          every link needs a grant. The child runs its own turn in its own
+          KVM guest, so each sub-agent gets a machine of its own.
+          <a href="concepts/turn.html#children">A child folder runs in its
+          own guest</a> gives the limits.</li>
         <li><strong>People move between agents.</strong> Send
           <code>@acme/sales</code> on its own, and the whole chat goes to the
           sales agent. A bare <code>@</code> sends it back. You change
@@ -253,7 +256,7 @@ arizuko run demo                            # starts the instance</code></pre>
       <p class="dim">
         MIT &middot; Go, Docker and KVM.
       </p>
-      <p class="docs-footer">updated <time class="docs-updated" datetime="2026-10-20">2026-10-20</time></p>
+      <p class="docs-footer">updated <time class="docs-updated" datetime="2026-10-21">2026-10-21</time></p>
     </div>
     <button class="theme-toggle">&#127769;</button>
     <script src="assets/hub.js"></script>
