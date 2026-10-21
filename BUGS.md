@@ -243,8 +243,6 @@ reads those words now.
 **Coverage gaps found by the FEATURES.md pass (2026-10-21).** Each names the
 rows and the test to write; none needs a decision except where it says so.
 
-- `L508` — `POST /auth/telegram` and the two login allowlists: only their
-  helpers are tested. The allowlist half needs a seam for the provider client.
 - `L509` — the PreCompact hook text and the `users/<id>.md` attributes.
 - `L510` — authd, onbod and timed `/health`: tested as a registered route,
   never served.
@@ -846,36 +844,6 @@ live krons site carries the same `hub.css`, so every page there has the defect.
   same probe reads 0 for the top bar at 1440 and at 375 wide, and the page is
   no wider than the viewport. Measured: `tests/webdocs/design_test.go::TestShellStaysSticky`,
   red against `overflow-x: hidden`.
-
-## L508 — authd's Telegram login and its two login allowlists have no test at the handler (2026-10-21, open)
-
-FOUND 2026-10-21 by the FEATURES.md pass, read at `4d500588`. `telegram`
-(`authd/oauth.go:275-289`) verifies the widget hash and calls `dispatch`.
-`googleCallback` (`:205-229`) applies `GoogleAllowedEmails` at `:222`, and
-`githubCallback` (`:231-253`) applies `GitHubAllowedOrg` at `:248`. The helpers
-have tests in `auth`: `auth/auth_test.go:64-79` for the widget hash and
-`auth/oauth_guard_test.go:21`, `:59` and `:92` for the allowlist and the org
-check. `TestOAuthDispatchMintsES256AndCreatesUser` (`authd/oauth_test.go:29`)
-calls `dispatch` directly. No test requests `POST /auth/telegram` or either
-callback, so nothing proves the handler reads the config key, passes the right
-value, or sends a refused user to `/auth/login?error=unauthorized`.
-
-The callbacks reach the provider through the unexported `httpClient` of `auth`
-(`auth/oauth.go:30`). `auth`'s own tests swap it (`auth/provider_test.go:34`);
-authd's tests cannot, so they have no way to stub Google or GitHub.
-
-Mutation, measured 2026-10-21: the provider name changed to `telegramx`, and
-both allowlist conditions set to `false &&`. `go test ./authd` passed.
-
-**Fix:** a signed widget form posted to `o.telegram` needs no network and
-covers the first row. The allowlist rows need one seam, an exported setter or a
-config field for the provider HTTP client; that is the decision. No test yet;
-this pass records only.
-
-- **Severity:** low — the allowlist is a login gate, so a silent regression
-  admits users; nothing is known to be wrong today.
-- **Scope:** `authd/oauth.go`, `authd/oauth_test.go`.
-- **Status:** open (record only). No test — the entry is about the test.
 
 ## L509 — the PreCompact hook text and the `users/<id>.md` attributes have no test (2026-10-21, open)
 
