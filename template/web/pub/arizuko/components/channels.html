@@ -129,11 +129,12 @@
   │◄─────────────────────────────────────┤ the pending bot row is the
   │ deliverOnce: claim, post, record     │ outbox
   ├─────────────────────────────────────►│ 200 sent; 4xx dead-letters;
-  │ 200 {id}, 400, 501 or 502            │ 5xx waits for the 30 s sweep
+  │ 200 {id}, 400, 501 or 502            │ 5xx retries at 30 s, doubling
   │                                      │
   │ POST &lt;url&gt;/typing, /&lt;verb&gt;           │
   │◄─────────────────────────────────────┤ only for an advertised
-  │ typing TTL: 90% of RUNED_RUN_TIMEOUT │ capability; else 501, no call</code></pre>
+  │ typing TTL: 90% of RUNED_RUN_TIMEOUT │ capability; else typing sends
+  │                                      │ nothing and a verb gets 501</code></pre>
 
 <p>Two details in the figure matter. First, the outbound queue is only the pending row of <code>routd</code>. The adapter keeps a record of what it already posted, not a queue. Second, a verb that the adapter never advertised causes no network call: <code>routd</code> answers the agent at once with an &ldquo;unsupported&rdquo; hint.</p>
 

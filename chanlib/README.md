@@ -36,11 +36,12 @@ adapter, chanlib.Run                   routd
   │◄─────────────────────────────────────┤ the pending bot row is the
   │ deliverOnce: claim, post, record     │ outbox
   ├─────────────────────────────────────►│ 200 sent; 4xx dead-letters;
-  │ 200 {id}, 400, 501 or 502            │ 5xx waits for the 30 s sweep
+  │ 200 {id}, 400, 501 or 502            │ 5xx retries at 30 s, doubling
   │                                      │
   │ POST <url>/typing, /<verb>           │
   │◄─────────────────────────────────────┤ only for an advertised
-  │ typing TTL: 90% of RUNED_RUN_TIMEOUT │ capability; else 501, no call
+  │ typing TTL: 90% of RUNED_RUN_TIMEOUT │ capability; else typing sends
+  │                                      │ nothing and a verb gets 501
 ```
 
 <!-- /twin -->
