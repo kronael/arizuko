@@ -37,7 +37,7 @@ export interface SubmitStatusPayload {
 
 let nextId = 1;
 
-// rpc fires one JSON-RPC request at the gated MCP socket and resolves when the
+// rpc fires one JSON-RPC request at routd's MCP socket and resolves when the
 // daemon answers (or rejects on rpc-level error). One round-trip, one connection
 // — shared by submit_turn (turn-end) and submit_status (mid-turn).
 export function rpc(method: string, params: unknown, socketPath = MCP_SOCK): Promise<unknown> {

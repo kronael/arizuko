@@ -2,7 +2,7 @@
 // (spec 6/16). codex resumes layer 1 natively: `codex exec resume <thread_id>`
 // continues a rollout under CODEX_HOME, verified against codex-cli 0.147.0.
 // arizuko tools reach it through its native MCP client — turn.tools is rendered
-// into -c mcp_servers.* overrides, so every call still crosses the gated socket.
+// into -c mcp_servers.* overrides, so every call still crosses the MCP socket.
 // Skills arrive as a prompt index (skills-scan.ts).
 
 import {
@@ -40,7 +40,7 @@ export function tomlValue(v: string | string[] | Record<string, string>): string
 export function codexArgs(turn: Pick<Turn, 'cwd' | 'model' | 'continuity' | 'tools' | 'env'>): string[] {
   const args = turn.continuity ? ['exec', 'resume'] : ['exec'];
   args.push(
-    // The container is the perimeter (Docker + egress proxy + gated socket); codex's
+    // The container is the perimeter (KVM guest + egress proxy + MCP socket); codex's
     // own bwrap sandbox fails on no-userns kernels and guards nothing extra.
     '--dangerously-bypass-approvals-and-sandbox',
     '--skip-git-repo-check',

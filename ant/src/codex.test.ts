@@ -109,7 +109,7 @@ test('tomlValue: strings, arrays and tables render as TOML, never JSON', () => {
   expect(tomlValue({ FOO: 'bar' })).toBe('{"FOO" = "bar"}');
 });
 
-test('codexArgs: renders turn.tools into -c overrides so tools cross the gated socket', () => {
+test('codexArgs: renders turn.tools into -c overrides so tools cross the MCP socket', () => {
   const args = codexArgs({
     cwd: '/home/node',
     env: {},

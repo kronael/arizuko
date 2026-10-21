@@ -309,7 +309,7 @@ function asHookCallback(b: Binding): HookCallback {
 }
 
 // extractModelUsage converts the SDK's modelUsage record to the snake_case
-// shape gated expects. costUSD → cost_cents via × 100 + round. Spec 11/19.
+// shape routd expects. costUSD → cost_cents via × 100 + round. Spec 11/19.
 function extractModelUsage(modelUsage: unknown): Record<string, ModelUsage> | undefined {
   if (!modelUsage || typeof modelUsage !== 'object') return undefined;
   const out: Record<string, ModelUsage> = {};
@@ -482,7 +482,7 @@ async function* runClaude(turn: Turn): AsyncGenerator<Frame> {
         agents: AGENTS,
         // No allowedTools allowlist: under bypassPermissions every tool is available
         // with no prompt (allowedTools is only an auto-approve hint, not a restriction).
-        // arizuko gates side effects at the gated MCP socket and the egress proxy.
+        // arizuko gates side effects at routd's MCP socket and the egress proxy.
         // sandbox off for the same reason — the container IS the sandbox.
         sandbox: { enabled: false },
         env: claudeEnv(turn.env),

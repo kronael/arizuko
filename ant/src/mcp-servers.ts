@@ -14,7 +14,7 @@ export type McpServerConfig = {
 const GATED_SOCKET = '/run/ipc/gated.sock';
 
 // injectMcpEnv builds the agent's whole MCP server map. arizuko — socat to the
-// per-turn gated socket — is the ONLY server, so every tool call crosses
+// per-turn MCP socket — is the ONLY server, so every tool call crosses
 // ipc.serveConn and meets the grant check, the audit row and CheckHold.
 //
 // A server the agent (or a product) declares in ~/.claude/settings.json is NOT

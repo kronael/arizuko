@@ -2,7 +2,7 @@
 // an occupant rather than one SDK's options object: Turn in, Frames out, one
 // run() per harness, a profile declaring capabilities as data. One file per
 // harness (claude.ts, codex.ts, pi.ts). The outer contract stays the process
-// boundary: envelope on stdin, tools on the gated MCP socket, submit_turn.
+// boundary: envelope on stdin, tools on routd's MCP socket, submit_turn.
 
 import { spawn, ChildProcess } from 'child_process';
 import type { Readable } from 'stream';
