@@ -243,19 +243,19 @@ The verbs each adapter supports are in [EXTENDING.md § Verb support matrix](EXT
 
 ## Each turn gets the memory of its folder
 
-| Feature             | Behaviour today                                                                      | Evidence                                                                 |
-| ------------------- | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------ |
-| Group watchers      | A watch merges the deliveries of the watched folder into the window of the observer. | `routd/prompt_test.go::TestObservedSince_WatchedSources`                 |
-| Persona summary     | routd puts the `summary` of `PERSONA.md` into a `<persona>` block.                   | `routd/parity_prompt_test.go::TestPersonaBlock_WithSummary`              |
-| System prompt order | ant puts `SYSTEM.md` first and the persona after it.                                 | `ant/src/index.test.ts::persona follows systemMd in the rendered prompt` |
-| Diary               | The turn gets the summaries of the 14 newest diary entries.                          | `diary/diary_test.go::TestReadWithSummary`                               |
-| Episodes            | The turn gets up to three newest episodes of each type.                              | `container/episodes_test.go::TestReadRecentEpisodes_WithFiles`           |
-| Pre-compaction hook | The PreCompact hook tells the agent to run `/diary`.                                 | untested — L509                                                          |
-| User tag            | The turn carries a `<user id>` tag for each sender other than `system`.              | `router/router_test.go::TestUserContextXml`                              |
-| User file           | The tag gains `name` and `memory` attributes when `users/<id>.md` exists.            | untested — L509                                                          |
-| Skill seeding       | Seeding writes missing skill files and does not overwrite edits.                     | `container/container_test.go::TestSeedSkills_PreservesOursOnRerun`       |
-| `/solve` prefix     | runed starts every prompt with the `/solve` instruction.                             | `runed/render_test.go::TestPreparePayloadWithoutLayers`                  |
-| Migration check     | routd queues `/migrate` for each group with an old skill version.                    | `routd/migrate_test.go::TestCheckMigrationVersion`                       |
+| Feature             | Behaviour today                                                                      | Evidence                                                                                                                    |
+| ------------------- | ------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
+| Group watchers      | A watch merges the deliveries of the watched folder into the window of the observer. | `routd/prompt_test.go::TestObservedSince_WatchedSources`                                                                    |
+| Persona summary     | routd puts the `summary` of `PERSONA.md` into a `<persona>` block.                   | `routd/parity_prompt_test.go::TestPersonaBlock_WithSummary`                                                                 |
+| System prompt order | ant puts `SYSTEM.md` first and the persona after it.                                 | `ant/src/index.test.ts::persona follows systemMd in the rendered prompt`                                                    |
+| Diary               | The turn gets the summaries of the 14 newest diary entries.                          | `diary/diary_test.go::TestReadWithSummary`                                                                                  |
+| Episodes            | The turn gets up to three newest episodes of each type.                              | `container/episodes_test.go::TestReadRecentEpisodes_WithFiles`                                                              |
+| Pre-compaction hook | The PreCompact hook tells the agent to run `/diary`.                                 | `ant/src/claude.test.ts::createPreCompactHook: an unreadable transcript still returns the /diary instruction and keep-list` |
+| User tag            | The turn carries a `<user id>` tag for each sender other than `system`.              | `router/router_test.go::TestUserContextXml`                                                                                 |
+| User file           | The tag gains `name` and `memory` attributes when `users/<id>.md` exists.            | `router/router_test.go::TestUserContextXml_UserFile`                                                                        |
+| Skill seeding       | Seeding writes missing skill files and does not overwrite edits.                     | `container/container_test.go::TestSeedSkills_PreservesOursOnRerun`                                                          |
+| `/solve` prefix     | runed starts every prompt with the `/solve` instruction.                             | `runed/render_test.go::TestPreparePayloadWithoutLayers`                                                                     |
+| Migration check     | routd queues `/migrate` for each group with an old skill version.                    | `routd/migrate_test.go::TestCheckMigrationVersion`                                                                          |
 
 ## webd serves the chat widget and the webhook URL
 

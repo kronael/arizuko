@@ -243,7 +243,6 @@ reads those words now.
 **Coverage gaps found by the FEATURES.md pass (2026-10-21).** Each names the
 rows and the test to write; none needs a decision except where it says so.
 
-- `L509` — the PreCompact hook text and the `users/<id>.md` attributes.
 - `L510` — authd, onbod and timed `/health`: tested as a registered route,
   never served.
 
@@ -844,35 +843,6 @@ live krons site carries the same `hub.css`, so every page there has the defect.
   same probe reads 0 for the top bar at 1440 and at 375 wide, and the page is
   no wider than the viewport. Measured: `tests/webdocs/design_test.go::TestShellStaysSticky`,
   red against `overflow-x: hidden`.
-
-## L509 — the PreCompact hook text and the `users/<id>.md` attributes have no test (2026-10-21, open)
-
-FOUND 2026-10-21 by the FEATURES.md pass, read at `4d500588`.
-
-- **PreCompact hook.** `createPreCompactHook` (`ant/src/claude.ts:236-270`)
-  archives the transcript and returns the system message "Invoke /diary before
-  continuing", with the list of files to keep in the summary. It is not
-  exported, `claude.ts:523` registers it, and `git grep -l PreCompact --
-  '*.test.ts' tests ant/src` finds only `claude.ts`.
-- **User file.** `UserContextXml` (`router/router.go:256-284`) emits the
-  `<user id>` tag for every sender except `system`, and adds `name` and
-  `memory="~/users/<id>"` when `users/<id>.md` exists. `TestUserContextXml`
-  (`router/router_test.go:190`) passes `/nonexistent/group`, so only the
-  tag-without-file case runs. The row said the tag appears only when the file
-  exists; it is now two rows, `User tag` (tested) and `User file`.
-
-Mutation, measured 2026-10-21: the `memory` attribute path changed to
-`~/uzers/`. `go test ./router` passed. The hook has no mutation run: no test
-file names it.
-
-**Fix:** export `createPreCompactHook` or test it through the options object
-that registers it, and assert the `/diary` sentence. Write a temp
-`users/tg-123.md` with a `name:` line and assert both attributes. No test yet;
-this pass records only.
-
-- **Severity:** low — coverage gap, nothing live.
-- **Scope:** `ant/src/claude.ts`, `router/router.go`.
-- **Status:** open (record only). No test — the entry is about the test.
 
 ## L510 — authd, onbod and timed `/health` are tested as a registered route and never served (2026-10-21, open)
 
