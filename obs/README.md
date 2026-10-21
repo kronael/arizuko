@@ -143,7 +143,7 @@ collectors exist either way, so the recording helpers stay cheap when the
 endpoint is off, and `MetricsHandler` answers 404 rather than nothing. Mount it
 BEFORE auth — it is a public endpoint.
 
-Twelve metrics, declared once in `metrics.go`:
+Thirteen metrics, declared once in `metrics.go`:
 
 | metric                                                                                             | what it counts                                               |
 | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
