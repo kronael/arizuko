@@ -240,6 +240,19 @@ reads those words now.
 - `L505` — which keyed read replaces the whole-chat scan for the task summary
   row? It needs a store method that returns an error.
 
+**Coverage gaps found by the FEATURES.md pass (2026-10-21).** Each names the
+rows and the test to write; none needs a decision except where it says so.
+
+- `L506` — rule order by id, the `#topic` prefix and the group observe window:
+  routd paths that no test drives.
+- `L507` — reditd and linkd post an inbound message; both tests stub the
+  router and discard the body.
+- `L508` — `POST /auth/telegram` and the two login allowlists: only their
+  helpers are tested. The allowlist half needs a seam for the provider client.
+- `L509` — the PreCompact hook text and the `users/<id>.md` attributes.
+- `L510` — authd, onbod and timed `/health`: tested as a registered route,
+  never served.
+
 **Found while folding the lowercase `bugs.md` into this file (2026-10-20).**
 
 - `L480` — slakd sends a whole reply as one `chat.postMessage`; `chanlib.Chunk`
@@ -827,6 +840,166 @@ live krons site carries the same `hub.css`, so every page there has the defect.
   same probe reads 0 for the top bar at 1440 and at 375 wide, and the page is
   no wider than the viewport. Measured: `tests/webdocs/design_test.go::TestShellStaysSticky`,
   red against `overflow-x: hidden`.
+
+## L506 — three routd routing behaviours have no test: rule order by id, the `#topic` prefix and the group observe window (2026-10-21, open)
+
+FOUND 2026-10-21 by the FEATURES.md pass, read at `4d500588`. Three rows of
+`FEATURES.md` named no test.
+
+- **Route order.** `routeOrder` (`store/routes.go:174-181`) sorts the table by
+  `(seq, id)` after the read. The file header (`:12-14`) says 58 of 58 rules on
+  krons sit at seq 0, so the id picks the rule that fires. The only order test,
+  `TestRouteSeqSortsNumerically` (`store/coordinates_test.go:248`), reads the
+  raw driver items and says in its comment that the `(seq, id)` sort runs
+  afterwards. `router/router_test.go:571-577` builds its slice by hand. No test
+  writes two rules at one seq and reads the table back.
+- **`#topic` prefix.** `handlePrefixLayer` (`routd/steer.go:474`) writes the
+  stripped text with `Topic: "#"+name` and calls `Enqueue` (`:500-510`).
+  `parsePrefix` is tested (`routd/parity_routing_test.go:343`) and
+  `TestChildDelegation` (`routd/parity_test.go:223`) drives the `@child`
+  branch. No test sends `#topic text` through `processGroupMessages`.
+- **Observe window per group.** `observeWindow` (`routd/prompt.go:183-213`)
+  starts at the config default, replaces it with the group window, then
+  replaces that with the first route override; `ROUTING.md:231-234` says the
+  same. `TestObserveWindow_FirstRouteWins` (`routd/parity_extra_test.go:19`)
+  sets no group window, and `store/groups_test.go:57-100` tests the accessor
+  alone. The row said "the group setting before the route override" and read as
+  group-wins; it now states the order.
+
+Mutation, measured 2026-10-21 with all three applied at once: `routeOrder`
+comparing `b.ID - a.ID`, the `#` branch writing `Topic: ""`, and the group
+block of `observeWindow` behind `false &&`. `go test ./routd -short` passed
+(1718 s), and so did `go test ./router ./dashd` and `go test ./store -run
+'Route|Coordinate|Replace|Seq'`. A full `go test ./store` ran past go's 10
+minute default under load, and `./tests` was not run, so the order claim rests
+on the filtered store run, three callers and the grep.
+
+**Fix:** one test each. Two rules at one seq inserted in reverse id order must
+read back in id order. A `#deploy hello` message must leave a row with topic
+`#deploy` and content `hello` and queue the chat. A group window of (3, 100)
+must size the window, and a route override on top must replace it. No test
+yet; this pass records only.
+
+- **Severity:** low — coverage gap, nothing live.
+- **Scope:** `store/routes.go`, `routd/steer.go`, `routd/prompt.go`.
+- **Status:** open (record only). No test — the entry is about the test.
+
+## L507 — reditd and linkd post an inbound message that no test reads (2026-10-21, open)
+
+FOUND 2026-10-21 by the FEATURES.md pass, read at `4d500588`. `handleThing`
+(`reditd/client.go:403-419`) builds the JID, calls `thingToMsg` (`:349-400`)
+and posts the result. `TestCursorAdvance` and `TestFirstPollSkip`
+(`reditd/client_test.go:67-115`) use `stubRouterSrv` (`:56`), which answers
+`{"ok":true}` and discards the body. The one test that reaches `thingToMsg`,
+`TestFetchHistory_Subreddit` (`:313`), feeds two `t3` posts and checks the id,
+the order, the chat JID and the verb. A `t4` inbox item, the sender, the
+content, `IsGroup` and the attachment suffix are pinned by nothing.
+
+`deliverComment` (`linkd/client.go:442-507`) builds the linkd message.
+`TestDeliverComment` (`linkd/linkd_test.go:253`) stubs the router the same way,
+and its comment at `:284-285` says it cannot tell whether the own-comment skip
+delivered anything. So the `linkd seen` row's "skips its own comments" has no
+assertion either; `TestFetchHistory_Comments` (`:327`) filters own comments on
+the history path only.
+
+Mutation, measured 2026-10-21: the reditd sender prefix `reddit:user/` changed
+to `x:`, and the linkd `deliverComment` content set to `""`. `go test ./reditd
+./linkd` passed.
+
+**Fix:** a router stub that keeps the request body, and assertions on the chat
+JID, sender, content, verb, topic, reply-to and `IsGroup` for a `t4` item, a
+`t1` reply, a linkd comment and a linkd reply, plus one assertion that an own
+linkd comment posts nothing. If an adapter is deleted, its half of this entry
+and its rows go with it. No test yet; this pass records only.
+
+- **Severity:** low — coverage gap, nothing live.
+- **Scope:** `reditd/client_test.go`, `linkd/linkd_test.go`.
+- **Status:** open (record only). No test — the entry is about the test.
+
+## L508 — authd's Telegram login and its two login allowlists have no test at the handler (2026-10-21, open)
+
+FOUND 2026-10-21 by the FEATURES.md pass, read at `4d500588`. `telegram`
+(`authd/oauth.go:275-289`) verifies the widget hash and calls `dispatch`.
+`googleCallback` (`:205-229`) applies `GoogleAllowedEmails` at `:222`, and
+`githubCallback` (`:231-253`) applies `GitHubAllowedOrg` at `:248`. The helpers
+have tests in `auth`: `auth/auth_test.go:64-79` for the widget hash and
+`auth/oauth_guard_test.go:21`, `:59` and `:92` for the allowlist and the org
+check. `TestOAuthDispatchMintsES256AndCreatesUser` (`authd/oauth_test.go:29`)
+calls `dispatch` directly. No test requests `POST /auth/telegram` or either
+callback, so nothing proves the handler reads the config key, passes the right
+value, or sends a refused user to `/auth/login?error=unauthorized`.
+
+The callbacks reach the provider through the unexported `httpClient` of `auth`
+(`auth/oauth.go:30`). `auth`'s own tests swap it (`auth/provider_test.go:34`);
+authd's tests cannot, so they have no way to stub Google or GitHub.
+
+Mutation, measured 2026-10-21: the provider name changed to `telegramx`, and
+both allowlist conditions set to `false &&`. `go test ./authd` passed.
+
+**Fix:** a signed widget form posted to `o.telegram` needs no network and
+covers the first row. The allowlist rows need one seam, an exported setter or a
+config field for the provider HTTP client; that is the decision. No test yet;
+this pass records only.
+
+- **Severity:** low — the allowlist is a login gate, so a silent regression
+  admits users; nothing is known to be wrong today.
+- **Scope:** `authd/oauth.go`, `authd/oauth_test.go`.
+- **Status:** open (record only). No test — the entry is about the test.
+
+## L509 — the PreCompact hook text and the `users/<id>.md` attributes have no test (2026-10-21, open)
+
+FOUND 2026-10-21 by the FEATURES.md pass, read at `4d500588`.
+
+- **PreCompact hook.** `createPreCompactHook` (`ant/src/claude.ts:236-270`)
+  archives the transcript and returns the system message "Invoke /diary before
+  continuing", with the list of files to keep in the summary. It is not
+  exported, `claude.ts:523` registers it, and `git grep -l PreCompact --
+  '*.test.ts' tests ant/src` finds only `claude.ts`.
+- **User file.** `UserContextXml` (`router/router.go:256-284`) emits the
+  `<user id>` tag for every sender except `system`, and adds `name` and
+  `memory="~/users/<id>"` when `users/<id>.md` exists. `TestUserContextXml`
+  (`router/router_test.go:190`) passes `/nonexistent/group`, so only the
+  tag-without-file case runs. The row said the tag appears only when the file
+  exists; it is now two rows, `User tag` (tested) and `User file`.
+
+Mutation, measured 2026-10-21: the `memory` attribute path changed to
+`~/uzers/`. `go test ./router` passed. The hook has no mutation run: no test
+file names it.
+
+**Fix:** export `createPreCompactHook` or test it through the options object
+that registers it, and assert the `/diary` sentence. Write a temp
+`users/tg-123.md` with a `name:` line and assert both attributes. No test yet;
+this pass records only.
+
+- **Severity:** low — coverage gap, nothing live.
+- **Scope:** `ant/src/claude.ts`, `router/router.go`.
+- **Status:** open (record only). No test — the entry is about the test.
+
+## L510 — authd, onbod and timed `/health` are tested as a registered route and never served (2026-10-21, open)
+
+FOUND 2026-10-21 by the FEATURES.md pass, read at `4d500588`. `handleHealth`
+(`authd/http.go:133-141`) answers 503 when the store is unreachable and `ok`
+otherwise. onbod (`onbod/main.go:186-189`) and timed (`timed/split.go:35-37`)
+answer `ok`. The tests that name `/health` are
+`TestAuthdMux_CoversTheWholeServedSurface` (`authd/openapi_test.go:56`),
+`TestOnbodMux_ServesItsPublicRoutes` (`onbod/openapi_test.go:48`) and
+`TestTimedMux_ServesItsThreeRoutes` (`timed/split_openapi_test.go:39`). Each
+asks `mux.Handler` for a pattern and never serves a request.
+`onbod/integration_test.go:89` defines its own `/health` handler instead of
+calling onbod's. routd and runed have served-request tests
+(`tests/feat_health_test.go`).
+
+Mutation, measured 2026-10-21: authd's 503 branch replaced by `_ = err`, so an
+unreachable store answers 200 with an empty body. `go test ./authd` passed.
+
+**Fix:** one test per daemon that serves `GET /health` through its mux and
+checks 200 and `ok`; for authd, one more with an unreachable store that checks
+503. No test yet; this pass records only.
+
+- **Severity:** low — a health probe that answers wrong keeps a dead authd in
+  rotation; nothing is known to be wrong today.
+- **Scope:** `authd/http.go`, `onbod/main.go`, `timed/split.go`.
+- **Status:** open (record only). No test — the entry is about the test.
 
 ## L480 — slakd posts a whole reply as ONE chat.postMessage, so a long reply is cut by Slack (2026-10-20, open)
 
