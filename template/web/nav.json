@@ -111,20 +111,17 @@
       "pages": [
         { "href": "", "label": "Start here" },
         { "href": "helpdesk/", "label": "Helpdesk (reference)" },
-        { "href": "supermarket/", "label": "Supermarket price agent" },
         { "href": "trip/", "label": "Trip planner (May)" },
         { "href": "slack-team/", "label": "Slack team agent" },
-        { "href": "discord-team/", "label": "Discord team agent" },
         { "href": "github/", "label": "Repo worker (Atlas)" },
         { "href": "reality/", "label": "Reality agent" },
-        { "href": "company-brain/", "label": "Company brain" },
-        { "href": "marble/", "label": "Taxonomy chat (Marble)" },
         { "href": "support/", "label": "Support desk (Atlas)" },
         { "href": "personal/", "label": "Personal assistant (Fiu)" },
         { "href": "pm/", "label": "PM agent (Sloth)" },
         { "href": "creator/", "label": "Content pipeline (Inari)" },
         { "href": "socials/", "label": "Social presence (Phosphene)" },
-        { "href": "strategy/", "label": "Domain researcher (Prometheus)" }
+        { "href": "strategy/", "label": "Domain researcher (Prometheus)" },
+        { "href": "shapes.html", "label": "Shapes" }
       ]
     },
     { "dir": "security", "label": "Security" },

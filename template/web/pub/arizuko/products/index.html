@@ -22,20 +22,17 @@
           <ul class="nav-children">
             <li><a href="./">Start here</a></li>
             <li><a href="helpdesk/">Helpdesk (reference)</a></li>
-            <li><a href="supermarket/">Supermarket price agent</a></li>
             <li><a href="trip/">Trip planner (May)</a></li>
             <li><a href="slack-team/">Slack team agent</a></li>
-            <li><a href="discord-team/">Discord team agent</a></li>
             <li><a href="github/">Repo worker (Atlas)</a></li>
             <li><a href="reality/">Reality agent</a></li>
-            <li><a href="company-brain/">Company brain</a></li>
-            <li><a href="marble/">Taxonomy chat (Marble)</a></li>
             <li><a href="support/">Support desk (Atlas)</a></li>
             <li><a href="personal/">Personal assistant (Fiu)</a></li>
             <li><a href="pm/">PM agent (Sloth)</a></li>
             <li><a href="creator/">Content pipeline (Inari)</a></li>
             <li><a href="socials/">Social presence (Phosphene)</a></li>
             <li><a href="strategy/">Domain researcher (Prometheus)</a></li>
+            <li><a href="shapes.html">Shapes</a></li>
           </ul>
         </li>
         <li><a class="nav-section" href="../security/">Security</a></li>
@@ -48,7 +45,7 @@
       <h1>products</h1>
 
 
-      <p class="lede">Each product is the shape of one folder: a persona, a set of skills, the channel setup and an operator setup guide. Eleven products ship as templates that <code>arizuko create --product &lt;id&gt;</code> copies into a group. Four are <em>shapes</em>: their pages describe them, you assemble them from the same parts, and each page says so. In both cases, the result is files that you edit.</p>
+      <p class="lede">Each product is the shape of one folder: a persona, a set of skills, the channel setup and an operator setup guide. Eleven products ship as templates that <code>arizuko create --product &lt;id&gt;</code> copies into a group. Four are <em>shapes</em>: <a href="shapes.html">one page</a> describes them, and you assemble them from the same parts. In both cases, the result is files that you edit.</p>
       <p>A product adds no code. It uses the same <a href="../concepts/primitives.html">six-step pipeline</a> as every arizuko agent, with the folder files and the routes set for one job. So you can read, diff and change every product: a product you own, not a blob you rent.</p>
       <p>A group can have more than one product. List the products in <code>~/products.toml</code> and run <code>arizuko products &lt;instance&gt; apply &lt;folder&gt;</code> to combine them, for example a support product for the job and a brand product for the voice. arizuko merges no file line by line. Each kind of file has one rule, and when two products claim the same file, the apply stops and drops nothing. The <a href="../reference/packages.html#blending-several-products-into-one-group">packages reference</a> lists the rules.</p>
       <p>The products go from one shared folder with one job to a full tree of folders that follows an org chart. Pick the shape that fits, then change the files.</p>
@@ -64,10 +61,10 @@
       </div>
 
       <div class="tablecard">
-        <h3><a href="supermarket/">Supermarket price agent</a></h3>
+        <h3><a href="shapes.html#supermarket">Supermarket price agent</a></h3>
         <p class="meta">channel: Telegram &middot; web chat &middot; webhook &middot; mass-consumer / minimal-config</p>
         <p>One folder, one catch-all route, no per-user state. Answers &ldquo;where&rsquo;s X cheapest?&rdquo; for any number of users without changing structure. The minimal end of the spectrum: same code serves 10 or 10,000 users &mdash; the limit is concurrent guest slots, not registered users.</p>
-        <p><a href="supermarket/">intro</a> &middot; <a href="supermarket/setup.html">setup</a></p>
+        <p><a href="shapes.html#supermarket">shape and setup</a></p>
         <p class="dim">No template ships for this one yet &mdash; the page describes the shape; you assemble it from the primitives.</p>
       </div>
 
@@ -88,10 +85,10 @@
       </div>
 
       <div class="tablecard">
-        <h3><a href="discord-team/">Discord team agent</a></h3>
+        <h3><a href="shapes.html#discord-team">Discord team agent</a></h3>
         <p class="meta">channel: Discord &middot; shared workspace &middot; dashboard</p>
         <p>One agent per Discord guild: channel-scoped persona, per-member memory and grants, personal cloud storage, web interface, and usage dashboard. Use cases include support agents (KB-backed Q&amp;A with citations) and collaborative research (news ingestion, observation tracking, synthesis).</p>
-        <p><a href="discord-team/">intro</a> &middot; <a href="discord-team/setup.html">setup</a></p>
+        <p><a href="shapes.html#discord-team">shape and setup</a></p>
         <p class="dim">No template ships for this one yet &mdash; the page describes the shape; you assemble it from the primitives.</p>
       </div>
 
@@ -112,18 +109,18 @@
       </div>
 
       <div class="tablecard">
-        <h3><a href="company-brain/">Company brain</a></h3>
+        <h3><a href="shapes.html#company-brain">Company brain</a></h3>
         <p class="meta">channel: Slack &middot; email &middot; webhook &middot; complex-org</p>
         <p>A network of per-team agents with their own inboxes, knowledge bases, and scheduled briefs. Folder tree mirrors the org chart. Intake from Slack, email, and webhooks. The complex end of the spectrum: all six primitives at full depth.</p>
-        <p><a href="company-brain/">intro</a> &middot; <a href="company-brain/setup.html">setup</a></p>
+        <p><a href="shapes.html#company-brain">shape and setup</a></p>
         <p class="dim">No template ships for this one yet &mdash; the page describes the shape; you assemble it from the primitives.</p>
       </div>
 
       <div class="tablecard">
-        <h3><a href="marble/">Taxonomy chat (Marble)</a></h3>
+        <h3><a href="shapes.html#marble">Taxonomy chat (Marble)</a></h3>
         <p class="meta">channel: web chat &middot; public &middot; bundled dataset / minimal-config</p>
         <p>A read-only chat over a fixed dataset that ships inside the folder. The agent answers by running <code>jq</code> over bundled JSON &mdash; no web-search egress, no per-user state. Runs on a cheap model with trimmed skills. Swap the dataset and the same bot answers over your data.</p>
-        <p><a href="marble/">intro</a> &middot; <a href="marble/setup.html">setup</a></p>
+        <p><a href="shapes.html#marble">shape and setup</a></p>
         <p class="dim">No template ships for this one yet &mdash; the page describes the shape; you assemble it from the primitives.</p>
       </div>
 
@@ -184,7 +181,7 @@
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/index.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-20">2026-10-20</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-21">2026-10-21</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

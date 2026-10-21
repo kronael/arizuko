@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>arizuko &middot; shapes</title>
+  <link rel="stylesheet" href="../assets/hub.css">
+</head>
+<body>
+  <header class="docs-topbar">
+    <button class="docs-navtoggle" aria-label="Toggle navigation" aria-expanded="false">&#9776;</button>
+    <a class="docs-wordmark" href="../">arizuko</a>
+  </header>
+  <div class="docs-layout">
+    <nav class="docs-nav" aria-label="Products">
+      <ul>
+        <li><a class="nav-section" href="../concepts/">Concepts</a></li>
+        <li><a class="nav-section" href="../reference/">Reference</a></li>
+        <li><a class="nav-section" href="../howto/">How-to</a></li>
+        <li><a class="nav-section" href="../components/">Components</a></li>
+        <li><a class="nav-section" href="./">Products</a>
+          <ul class="nav-children">
+            <li><a href="./">Start here</a></li>
+            <li><a href="helpdesk/">Helpdesk (reference)</a></li>
+            <li><a href="trip/">Trip planner (May)</a></li>
+            <li><a href="slack-team/">Slack team agent</a></li>
+            <li><a href="github/">Repo worker (Atlas)</a></li>
+            <li><a href="reality/">Reality agent</a></li>
+            <li><a href="support/">Support desk (Atlas)</a></li>
+            <li><a href="personal/">Personal assistant (Fiu)</a></li>
+            <li><a href="pm/">PM agent (Sloth)</a></li>
+            <li><a href="creator/">Content pipeline (Inari)</a></li>
+            <li><a href="socials/">Social presence (Phosphene)</a></li>
+            <li><a href="strategy/">Domain researcher (Prometheus)</a></li>
+            <li><a href="shapes.html">Shapes</a></li>
+          </ul>
+        </li>
+        <li><a class="nav-section" href="../security/">Security</a></li>
+        <li><a class="nav-section" href="../changelog/">Changelog</a></li>
+      </ul>
+    </nav>
+
+    <main class="docs-content">
+      <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">products</a> &rsaquo; shapes</p>
+      <h1>shapes</h1>
+
+      <p class="lede">Four products are shapes. You assemble each one from the six primitives with commands that you run yourself.</p>
+
+      <div class="callout">
+        <strong>This is a shape, not a template.</strong> No tree ships for
+        these four in <code>ant/examples/</code>, so <code>arizuko create
+        --product</code> refuses their names. The <a href="./">catalog</a>
+        marks which products ship as templates.
+      </div>
+
+      <p>Every shape needs the build part of the <a href="../howto/index.html#install">install</a>: the binary, the images and the guest kernel, with <code>DATA_DIR</code> set to the data directory of the instance. A turn is one KVM guest, so the host needs <code>/dev/kvm</code>. Every shape also needs Anthropic API access. For production, run the instance as a systemd service, as <a href="../howto/">getting started</a> shows.</p>
+
+      <h2 id="supermarket">The supermarket price agent answers every user from one folder</h2>
+      <p>&ldquo;Where&rsquo;s milk cheapest this week?&rdquo; &mdash; the agent
+        searches, compares, and replies with sources. One shared folder serves
+        everyone who asks.</p>
+
+      <h3>One folder and one route serve every user</h3>
+      <p>The supermarket agent is the smallest product shape. The six steps of the pipeline are at their smallest:</p>
+      <dl>
+        <dt>Event</dt>
+        <dd>A Telegram message, a web chat message or a webhook POST. All arrive as rows in the same inbox. The agent does not know which channel sent a message.</dd>
+        <dt>Routing</dt>
+        <dd>One catch-all route sends every inbound message to the <code>supermarket</code> folder. No per-user routing and no topics exist.</dd>
+        <dt>Agent</dt>
+        <dd>The folder holds a <code>CLAUDE.md</code> with the allowed tools, the citation format and the refusals, and <code>facts/retailers.md</code>. The operator writes that file: the retailers to check, their URLs and their known problems.</dd>
+        <dt>Authorization</dt>
+        <dd>The route is the only fence. Anyone who reaches the bot or the chat URL can ask.</dd>
+        <dt>Turn</dt>
+        <dd>One short-lived guest for each question. The agent reads <code>facts/retailers.md</code>, searches the named retailers on the live web and replies. It caches the results in <code>facts/cache/</code> by item and date, so a second question about the same item on the same day needs no search.</dd>
+        <dt>State</dt>
+        <dd>The message rows on the store server, and <code>facts/retailers.md</code> and <code>facts/cache/</code> on disk. Nothing carries over from one user to the next.</dd>
+      </dl>
+      <p>The structure is the same for ten users or ten thousand. The limit is the number of concurrent guests, <code>MAX_CONCURRENT_CONTAINERS</code>, default 5, not the number of users.</p>
+      <pre><code>telegram &middot; DM
+
+  user   where's the cheapest whole milk this week?
+  agent  Checked Tesco, Sainsbury's, Lidl (prices as of today):
+         Tesco: 2L semi-skimmed £1.09 (Clubcard price £0.95)
+         Sainsbury's: 2L whole milk £1.10
+         Lidl: 2L whole milk £0.99
+
+         Cheapest: Lidl £0.99.
+         source: lidl.co.uk/grocery/dairy, tesco.com/groceries, sainsburys.co.uk</code></pre>
+
+      <h3>The shape leaves out five features</h3>
+      <ul>
+        <li>No per-user memory. Every user starts with nothing.</li>
+        <li>No folder tree. One folder on one level.</li>
+        <li>No grant rows. The route is the fence.</li>
+        <li>No scheduled tasks. The agent runs only when a message arrives.</li>
+        <li>No OAuth, no linked identities and no web dashboard for users.</li>
+      </ul>
+      <p>No user data is collected. The message history is on the store server, and the cached prices are files under <code>/srv/data/arizuko_&lt;name&gt;/groups/supermarket/</code>. The outbound paths are the channel and Anthropic. Web search goes through the <a href="../components/egress.html">egress</a> proxy of the turn.</p>
+
+      <h3>Seven commands set it up</h3>
+      <pre><code>arizuko create shop
+$EDITOR /srv/data/arizuko_shop/.env                  # WEB_HOST, WEB_PORT, ANTHROPIC_API_KEY
+arizuko group shop add web:supermarket supermarket   # the folder and its route
+arizuko route shop add '' supermarket                # catch-all: every channel
+$EDITOR /srv/data/arizuko_shop/groups/supermarket/facts/retailers.md
+$EDITOR /srv/data/arizuko_shop/groups/supermarket/CLAUDE.md
+arizuko run shop</code></pre>
+      <p>An empty match matches every message. For Telegram, set <code>TELEGRAM_BOT_TOKEN</code>, run <code>arizuko packages shop add teled</code>, and use the narrower match <code>'platform=telegram'</code> when the bot is the only entrance. Without Telegram, a web chat token gives the chat URL: <code>arizuko token shop issue chat supermarket</code> prints the token, and the URL is <code>https://shop.example.com/chat/&lt;token&gt;/</code>.</p>
+      <p><code>facts/retailers.md</code> lists each retailer with its URL and notes, for example &ldquo;Prices update Thursday&rdquo;. The agent searches no other retailer. The product ships no <code>CLAUDE.md</code>, so write one that makes the cache and the citations true:</p>
+      <pre><code># Supermarket price agent
+
+Answer "where is X cheapest" questions. Read facts/retailers.md first;
+search only the retailers listed there. Always cite source URLs.
+
+Cache results in facts/cache/&lt;item&gt;-&lt;YYYYMMDD&gt;.md. Before searching,
+check the cache; a file dated today answers without a new search.
+Ignore cache files older than one day.</code></pre>
+      <p>The proxy blocks every domain that the list does not allow, so allow each retailer:</p>
+      <pre><code>arizuko network shop allow supermarket tesco.com
+arizuko network shop allow supermarket sainsburys.co.uk
+arizuko network shop allow supermarket lidl.co.uk</code></pre>
+      <p>A blocked agent says that it could not reach the site and does not return old data. To check the shape, ask a price question: the reply must cite its sources. To force new results, delete the files in <code>facts/cache/</code>.</p>
+
+      <h2 id="discord-team">The Discord team agent gives each guild member memory and grants</h2>
+      <p>One agent in a Discord guild, with channel-scoped persona and thread
+        context but per-member memory, grants, and a full web workspace.</p>
+
+      <h3>The Slack team agent holds the shared parts</h3>
+      <p>The Discord team agent has the same folder model, grants and web workspace as the <a href="slack-team/">Slack team agent</a>. A Discord channel maps to a group folder, and the <code>CLAUDE.md</code> of the folder holds the rules of the channel. A Discord thread is a topic under the JID of its parent channel, and replies stay in the thread.</p>
+      <dl>
+        <dt>Personal cloud storage</dt>
+        <dd>Each member has a private workspace over WebDAV at <code>/dav/&lt;folder&gt;/</code>. A WebDAV client needs a Bearer token, as <a href="../howto/webdav.html">WebDAV</a> shows.</dd>
+        <dt>Web chat and dashboard</dt>
+        <dd>A browser chat at <code>/chat/&lt;token&gt;/</code> talks to the same agent. Members with the grants see their folders at <code>/dash/</code>.</dd>
+        <dt>Per-member memory and grants</dt>
+        <dd>The agent keeps one memory file for each member. Grant rows decide which actions each member can ask the agent to do.</dd>
+        <dt>Linked identities</dt>
+        <dd>The channel needs no sign-in, because membership of the guild is the fence. A member who signs in at <code>/auth/login</code> with GitHub, Google or Discord reaches the same memory and grants from the web chat or a DM.</dd>
+      </dl>
+      <pre><code>#dev-chat &middot; thread
+
+  alice  @bot summarize the fix from the cold-start runbook for this thread
+  bot    Bundle growth after deploy is coming from broad SDK imports.
+         Recommended: switch back to per-service imports.
+         source: /docs/runbooks/lambda-cold-start.md:67
+
+  bob    @bot save that conclusion to my notes
+  bot    Wrote notes/lambda-cold-start.md in your workspace.
+
+  alice  @bot remember: prefer per-service imports for any new lambda
+  bot    Saved to your memory.</code></pre>
+      <p>The team sees the answer. The write of Bob goes to the workspace of Bob, and the preference of Alice goes to her memory file.</p>
+
+      <h3>Three things differ from Slack</h3>
+      <dl>
+        <dt>No AI pane</dt>
+        <dd>Discord has no assistant pane, and <code>discd</code> shows no suggested prompts. Mentions and DMs work as on Slack.</dd>
+        <dt>Mention-only by default</dt>
+        <dd><code>arizuko group add</code> for a Discord server channel writes two routes: a <code>verb=mention</code> route that starts turns, and an <code>#observe</code> route for the other messages. A reply to a bot message also counts as a mention.</dd>
+        <dt>Different JIDs</dt>
+        <dd>A channel is <code>discord:&lt;guild_id&gt;/&lt;channel_id&gt;</code>, and a DM is <code>discord:dm/&lt;channel_id&gt;</code>.</dd>
+      </dl>
+      <p>The channel files and the member memory are under <code>/srv/data/arizuko_&lt;name&gt;/groups/</code>. The tool keys live in the <code>secrets</code> table and never enter the guest. A member in one channel cannot open the files and the persona of another channel without an explicit grant.</p>
+
+      <h3>Five commands and a Discord bot set it up</h3>
+      <pre><code>arizuko create acme
+arizuko packages acme add discd
+$EDITOR /srv/data/arizuko_acme/.env    # WEB_HOST, WEB_PORT, DISCORD_BOT_TOKEN, a model key
+arizuko group acme add discord:123456789/987654321 main
+arizuko run acme</code></pre>
+      <p>No <code>discord-team</code> template exists, so the <code>main</code> group starts with the generic persona. The nearest start is <code>ant/examples/slack-team/</code>: copy its <code>PERSONA.md</code> and <code>CLAUDE.md</code> into <code>groups/main/</code> and remove the Slack lines. For linked identities, add <code>GITHUB_CLIENT_ID</code>, <code>GOOGLE_CLIENT_ID</code> or <code>DISCORD_CLIENT_ID</code> with its secret to <code>.env</code>.</p>
+      <p>At <a href="https://discord.com/developers/applications">discord.com/developers/applications</a>, make the application and its bot, copy the token, and enable the Message Content Intent. Without that intent, the bot gets message events with no text. Invite the bot with the OAuth2 URL generator: scope <code>bot</code>, and the permissions Send Messages, Read Message History, Add Reactions and Attach Files. <a href="../howto/discord.html">Discord</a> has each step.</p>
+      <p>A guild bot usually answers every DM and stays quiet in channels until someone mentions it. These rows do that for every guild, with <code>arizuko route acme add &lt;match&gt; &lt;target&gt; --seq N</code>:</p>
+      <pre><code>seq  match                                target
+-2   chat_jid=discord:dm/*                main
+-1   chat_jid=discord:*/* verb=mention    main
+0    chat_jid=discord:*/*                 main#observe</code></pre>
+      <p>To check the shape, send <code>@acme hello</code> in a channel that the bot can see; the agent replies. When the bot answers in DMs and not in channels, the channel routes are <code>#observe</code> only: add a <code>verb=mention</code> route to <code>main</code>. When <code>discd</code> is unhealthy, the token changed or the bot left the guild: copy the new token into <code>DISCORD_BOT_TOKEN</code> and restart the instance. A new channel is one more group: <code>arizuko group acme add 'discord:123456789/987654321' dev-chat</code>.</p>
+
+      <h2 id="company-brain">The company brain runs one agent for each team</h2>
+      <p>A network of per-team agents, each with its own inbox and memory,
+        reading intake from Slack, email, and webhooks &mdash; writing
+        briefs, escalating issues, coordinating across folders on schedule.</p>
+
+      <h3>The company brain acts on knowledge and does not search it</h3>
+      <p>Agents read intake, write daily briefs, escalate issues to the right team and coordinate across the folder tree. The company brain is not a search engine, and it is not a pipeline that syncs Confluence into a vector store. For semantic search over 10,000 documents, add Onyx or a retrieval skill, and the company brain acts on the results.</p>
+      <dl>
+        <dt>Folder tree as org chart</dt>
+        <dd>Each team gets its own group folder: <code>corp/eng/sre</code> is the SRE team, and <code>corp/intake</code> is the shared desk for inbound triage.</dd>
+        <dt>Memory for each team</dt>
+        <dd>Each folder holds a <code>PERSONA.md</code>, a <code>facts/</code> knowledge base and a diary. Context stays in the team until an agent delegates or escalates.</dd>
+        <dt>Scheduled briefs</dt>
+        <dd>A <code>timed</code> task starts a turn on a schedule: a daily standup summary, a weekly digest or an on-call handoff. No cron on the host is necessary.</dd>
+        <dt>Many input sources</dt>
+        <dd>Slack messages, inbound email through <code>emaid</code>, webhook POSTs from GitHub, Sentry, Linear or PagerDuty, and WebDAV file drops all arrive as events in a team inbox.</dd>
+        <dt>Escalation and delegation</dt>
+        <dd>The SRE agent calls <code>escalate_group</code> to reach <code>corp/eng</code>. A triage agent calls <code>delegate_group</code> to give work to the responsible team.</dd>
+        <dt>Observed channels</dt>
+        <dd>A Slack channel can route to <code>corp/eng#observe</code>. The agent stores the messages, starts no turn, and finds them later with <code>find_messages</code>.</dd>
+        <dt>ACL for each folder</dt>
+        <dd>The <code>acl</code> rows of a folder decide which MCP tools and which external hosts its agent can reach. Other teams cannot read the memory, facts and diary of a team without a delegation or a grant.</dd>
+      </dl>
+      <pre><code>[Sentry webhook fires]
+  POST /hook/&lt;token&gt;
+  {"issue": "OOM in billing-worker", "level": "error"}
+
+  &darr; Event lands in corp/eng/sre/oncall
+  &darr; Agent reads alert + facts/runbooks/billing-worker-oom.md
+  &darr; Checks find_messages for recent occurrences (last 7 days)
+
+  &darr; Sends to #eng-oncall Slack channel
+  sre-bot   OOM in billing-worker — seen 3x this week.
+             Last fix (2026-05-30): heap limit too low post-deploy,
+             fix was rolling restart + config bump.
+             Action: restart billing-worker pod + check HEAP_MAX.
+
+  &darr; Creates task: "Raise HEAP_MAX cap — billing-worker"
+  &darr; Logs to diary: alert handled, task created</code></pre>
+
+      <h3 id="company-brain-limits">Three limits apply</h3>
+      <dl>
+        <dt>No connector sync</dt>
+        <dd>You fill <code>facts/</code> by hand, over WebDAV, or through agents that a webhook starts. No OAuth crawler for Confluence, Notion or Google Drive exists. The product works for hundreds of documents. It fails for corpora of enterprise size without a connector.</dd>
+        <dt>No embeddings and no vector search</dt>
+        <dd>The agent searches <code>facts/</code> with <code>grep</code>. <code>find_messages</code> is a BM25 search in memory over the stored messages, not over <code>facts/</code>. For tens of thousands of documents, the agent calls a retrieval service over MCP.</dd>
+        <dt>No permissions from source systems</dt>
+        <dd>arizuko does not copy Jira roles, Salesforce profiles or Confluence space permissions. The two permission systems are separate, and the operator manages both.</dd>
+      </dl>
+
+      <h3>The setup makes folders, routes and tasks</h3>
+      <p>Draw the org chart first, because it becomes the folder tree. Start with two levels at most, and add a level when a real coordination problem needs it. An empty folder adds nothing and needs a route.</p>
+      <pre><code>arizuko create corp
+arizuko packages corp add slakd
+$EDITOR /srv/data/arizuko_corp/.env     # SLACK_BOT_TOKEN, SLACK_SIGNING_SECRET, ANTHROPIC_API_KEY
+
+# one folder for each team: the JID first, then the folder; the route is written for you
+arizuko group corp add 'slack:T012ABCD/channel/C0ONCALL' corp/eng/sre/oncall
+arizuko group corp add 'slack:T012ABCD/channel/C0ENG'    corp/eng
+arizuko group corp add 'web:corp/intake'                 corp/intake
+arizuko route corp add '' corp/intake --seq 10           # catch-all for unrouted messages
+
+# webhook intake: a hook token, then a route for its JID
+arizuko token corp issue webhook corp/eng/sre/oncall sentry
+arizuko route corp add 'chat_jid=hook:corp/eng/sre/oncall/sentry' corp/eng/sre/oncall --seq -10
+
+$EDITOR /srv/data/arizuko_corp/groups/corp/eng/sre/oncall/facts/runbooks/billing-worker-oom.md
+arizuko run corp</code></pre>
+      <p>A lower <code>seq</code> comes first, so put specific routes before wide ones. The hook URL is <code>https://brain.example.com/hook/&lt;token&gt;</code>, and the body arrives unchanged in the target folder. <a href="../howto/webhooks.html">Webhooks</a> explains signature checks.</p>
+      <p>No CLI subcommand for tasks exists. Add tasks on the tasks page of <code>/dash/</code>, or ask the agent, which writes the row with the <code>schedule_task</code> MCP tool:</p>
+      <pre><code>@corp-brain schedule a recurring task:
+  folder: corp/eng   cron: "0 9 * * 1-5"
+  task: write daily standup summary to facts/briefs/today.md and send to #eng-standup</code></pre>
+      <p>Make each task instruction say what to produce, where to write it and where to send it. A brief with no send step writes to <code>facts/</code> and stays silent. When a webhook arrives and no turn starts, compare <code>arizuko route corp list</code> with the JID in the <code>hook inbound</code> log line. A grant gives a person admin over a folder subtree: <code>arizuko group corp grant google:cto@acme.com 'corp/**'</code>. <a href="../concepts/grants.html">Grants</a> has the full rule syntax.</p>
+
+      <h2 id="marble">Marble answers questions over a dataset in its folder</h2>
+      <p>&ldquo;What does a child need to learn before fractions?&rdquo; &mdash;
+        the agent traces the prerequisite graph of an open education dataset
+        and answers in plain words. One folder, one bundled dataset, a public
+        chat widget anyone can open.</p>
+
+      <h3>A public link reaches a read-only dataset</h3>
+      <p>Marble is a read-only knowledge bot over a fixed dataset. The <a href="#supermarket">supermarket agent</a> searches the live web at each turn. Marble queries a dataset inside its folder, with no outbound fetch for data and no per-user state.</p>
+      <dl>
+        <dt>Event and routing</dt>
+        <dd>A message from the public web chat arrives in the inbox of the folder. A <code>/chat/&lt;token&gt;/</code> link is the only entrance, and one route maps the JID of the chat to the <code>marble</code> folder.</dd>
+        <dt>Agent</dt>
+        <dd>The folder holds a <code>CLAUDE.md</code> and a <code>taxonomy/</code> directory with <code>topics.json</code>, <code>dependencies.json</code> and <code>clusters.json</code>. The agent answers with <code>jq</code> over those files.</dd>
+        <dt>Authorization</dt>
+        <dd>One public chat token. Anyone with the link can ask.</dd>
+        <dt>Turn and state</dt>
+        <dd>One short-lived guest for each question. The agent reads the JSON and writes nothing back. The only persistent state is the message log.</dd>
+      </dl>
+      <pre><code>web chat &middot; public link
+
+  visitor  what does a child need before fractions?
+  marble   Before fractions, these foundations come first:
+           whole-number place value, equal sharing / partitioning,
+           multiplication as equal groups, and division as sharing.
+           Each is a prerequisite edge into "Introduce fractions".</code></pre>
+      <p>The example uses the Marble Skill Taxonomy v1: 1,590 micro-topics for grades K to 5, connected by 3,221 prerequisite edges across 8 subjects. The taxonomy is &copy; Marble, <a href="https://withmarble.com">withmarble.com</a>, under CC BY-SA 4.0. Keep the attribution in the <code>CLAUDE.md</code> and cite it in replies.</p>
+      <p>A public lookup bot does not need a large model. Run it on Haiku with most skills turned off, and each answer costs little and comes fast. Nothing is specific to Marble: replace <code>taxonomy/*.json</code> with any dataset, describe it in <code>CLAUDE.md</code>, and the same bot answers over your data.</p>
+
+      <h3>Four steps set it up</h3>
+      <pre><code>arizuko group &lt;instance&gt; add web:&lt;folder&gt; &lt;folder&gt;
+mkdir -p /srv/data/arizuko_&lt;instance&gt;/groups/&lt;folder&gt;/taxonomy
+cp topics.json dependencies.json clusters.json \
+   /srv/data/arizuko_&lt;instance&gt;/groups/&lt;folder&gt;/taxonomy/
+$EDITOR /srv/data/arizuko_&lt;instance&gt;/groups/&lt;folder&gt;/CLAUDE.md
+arizuko token &lt;instance&gt; issue chat &lt;folder&gt;    # the public chat link</code></pre>
+      <p>The agent reads the dataset from <code>~/taxonomy/</code> in its guest. The files must have the same owner as the rest of <code>groups/</code>. Keep <code>CLAUDE.md</code> short, because the agent reads every line at each turn: who it is, what it answers, how it cites, and the attribution.</p>
+      <p>Set the model at <code>/dash/groups/&lt;folder&gt;/settings</code> &rarr; <strong>Model</strong> &rarr; <em>Claude Haiku 4.5</em>. The setting writes the model into the config of the group, and <code>runed</code> gives it to the guest as <code>ARIZUKO_MODEL</code> at the next turn. On the same page, keep <code>self</code>, <code>migrate</code> and <code>hello</code> and turn off the other skills. Each turn starts a new guest with no prompt cache, so fewer skills make a smaller prompt and a faster turn. The dashboard writes a <code>.disabled</code> marker in the directory of each skill that you turn off.</p>
+      <p>To check the shape, <code>curl -sI https://&lt;WEB_HOST&gt;/chat/&lt;token&gt;/ | head -1</code> returns <code>200</code>, and a question in the chat gets a reply in a few seconds.</p>
+
+      <nav class="docs-pager" aria-label="Pager">
+        <a rel="prev" href="./">&larr; Products</a>
+      </nav>
+      <div class="docs-footer">
+        <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/shapes.html">Edit this page</a>
+        &middot; updated <time class="docs-updated" datetime="2026-10-21">2026-10-21</time>
+      </div>
+    </main>
+    <aside class="docs-toc" aria-label="On this page"></aside>
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="../assets/hub.js"></script>
+</body>
+</html>

@@ -370,11 +370,16 @@ Discipline:
 3. Add a link to the landing page `go deeper` section if it's a flagship product
 4. Create `specs/7/product-<name>.md` (if not already there)
 
-`container/product_seed_test.go` `TestProductCatalogMatchesCorpus` gates steps
-1–2: every tree in `ant/examples/` must have both pages, and a page with no tree
-must carry the "This is a shape, not a template" note. The ritual existed and was
-skipped anyway — six shipped products had no page and four pages had no tree
-(BUGS `L38`), which is why it is a test now and not only a list.
+A product with no tree in `ant/examples/` is a shape. A shape gets a section
+in `pub/products/shapes.html`, never a page pair, and the grid row links that
+section.
+
+`tests/webdocs` `TestProductCatalogMatchesCorpus` gates steps 1–2: every tree
+in `ant/examples/` must have both pages, every product directory must have a
+tree, and `shapes.html` must carry the "This is a shape, not a template" note
+and no section for a shipped product. The ritual existed and was skipped
+anyway — six shipped products had no page and four pages had no tree (BUGS
+`L38`), which is why it is a test now and not only a list.
 
 ## Adding a new component page
 
