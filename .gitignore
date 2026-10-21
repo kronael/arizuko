@@ -50,7 +50,6 @@ reditd/reditd
 reditd/cursors.json
 linkd/linkd
 slakd/slakd
-crackbox/crackbox
 egress/egress
 ttsd/ttsd
 *.py

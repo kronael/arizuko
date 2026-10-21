@@ -337,7 +337,7 @@ kind = "callback"
 # ── Egress ───────────────────────────────────────────────────────────────────
 
 # Doc: ant/CLAUDE.md "Network egress" — a host not on your allowlist 403s on
-# EVERY path (crackbox refusing the host), NOT the target's auth gate. Neutral
+# EVERY path (the egress proxy refusing the host), NOT the target's auth gate. Neutral
 # prompt offers both diagnoses; the agent self-reports. PRECONDITION: the eval
 # folder must allowlist specific hosts ({target}+{sink}), NOT a blanket `*` —
 # else the control host is reachable and there is nothing to diagnose.
@@ -370,7 +370,7 @@ max_wall_ms = 120000
 [case.check]
 kind = "callback"
 
-# Doc: ant/CLAUDE.md egress — a blocked host (crackbox refusal) is distinct from a
+# Doc: ant/CLAUDE.md egress — a blocked host (egress proxy refusal) is distinct from a
 # host that does not resolve (DNS miss). Real incident (logs, marinade): agent had
 # to tell "no such host" apart from an egress block; misdiagnosis sends the operator
 # chasing the wrong fix (allowlist vs a nonexistent API). Three-way self-report.

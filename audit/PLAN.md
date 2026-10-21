@@ -60,7 +60,7 @@ CREATE TABLE audit_log (
   actor_sub       TEXT,
   resource        TEXT,
   scope           TEXT,                 -- folder or other scope identifier
-  surface         TEXT,                 -- mcp | rest | cli | gateway | cron | crackbox | agent_pretool | agent_posttool
+  surface         TEXT,                 -- mcp | rest | cli | gateway | cron | egress | agent_pretool | agent_posttool
   params_summary  TEXT,                 -- JSON object, secrets redacted, ≤512 chars
   outcome         TEXT    NOT NULL,     -- ok | error | denied
   error_msg       TEXT,
@@ -100,7 +100,7 @@ in a follow-up commit rather than smuggling it in as a one-off action.
 | `access`    | Resource reads worth recording (secret read; sensitive list) | IAM 3005 Account Change      |
 | `mutation`  | Generic state change on a registry resource                  | Application 6003             |
 | `system`    | Daemon lifecycle, migration, config load                     | System 1001 File Activity    |
-| `network`   | Egress allowlist mutation, crackbox connect/deny             | Network 4001 Network         |
+| `network`   | Egress allowlist mutation, egress proxy connect/deny         | Network 4001 Network         |
 | `channel`   | Adapter (re)register, channel inbound/outbound bind          | Application 6004             |
 | `agent`     | Container lifecycle, turn boundaries, MCP tool call          | Process 1007 / 6005          |
 | `secret`    | Secret CRUD + secret read (high-signal subset of `access`)   | IAM 3005                     |
@@ -118,7 +118,7 @@ Justification:
   signal. CloudTrail dedicates a separate "AWS KMS" event source for
   the same reason.
 - `network` (vs `system`) — egress allowlist decisions are a
-  distinct surface (crackbox + container/network) with their own
+  distinct surface (egress proxy + container/network) with their own
   threat model, mirrors OCSF Network class.
 - `agent` (vs `mutation`) — turn boundaries / container lifecycle
   don't mutate any registry resource but ARE critical state changes
@@ -188,8 +188,8 @@ system:
 network:
   egress.allow.add       store.AddNetworkRule
   egress.allow.remove    store.RemoveNetworkRule
-  egress.connect         crackbox: outbound TCP allowed by proxy
-  egress.block           crackbox: outbound TCP refused by proxy
+  egress.connect         egress proxy: outbound TCP allowed (not built)
+  egress.block           egress proxy: outbound TCP refused (not built)
 
 channel:
   channel.register       chanreg.Register row inserted
@@ -223,68 +223,68 @@ Every event below MUST emit exactly one `audit_log` row. Pseudo-keyed
 by `category.action`. Trigger sites are file references (line numbers
 will drift; the function name is the anchor).
 
-| Cat       | Action              | Trigger site                                                                               | Resource shape          | Who          | Rationale                                                |
-| --------- | ------------------- | ------------------------------------------------------------------------------------------ | ----------------------- | ------------ | -------------------------------------------------------- |
-| authn     | login               | `onbod/main.go` magic-link consume / OAuth callback                                        | `identities/<sub>`      | user         | OWASP V8.2: every authentication                         |
-| authn     | logout              | `store.DeleteAuthSession` callers                                                          | `sessions/<hash>`       | user         | session destruction                                      |
-| authn     | token.mint          | `store.CreateAuthSession`                                                                  | `sessions/<hash>`       | user         | every credential issuance                                |
-| authn     | token.expire        | scheduled prune of expired sessions                                                        | `sessions/<hash>`       | system       | distinguish revoke vs expiry                             |
-| authn     | identity.link       | `store.LinkSub` / `LinkSubToCanonical`                                                     | `identities/<id>`       | system/user  | identity drift forensics                                 |
-| authn     | identity.unlink     | `store.UnlinkSub`                                                                          | `identities/<id>`       | operator     | inverse of link                                          |
-| authn     | invite.create       | `store.CreateInvite`                                                                       | `invites/<token-hash>`  | operator     | onboarding chain of custody                              |
-| authn     | invite.consume      | `store.ConsumeInvite`                                                                      | `invites/<token-hash>`  | user         | who used which invite                                    |
-| authn     | invite.revoke       | `store.RevokeInvite`                                                                       | `invites/<token-hash>`  | operator     | revocation trail                                         |
-| authn     | link_code.mint      | `store.MintLinkCode`                                                                       | `link_codes/<code>`     | user         | identity linking                                         |
-| authn     | link_code.consume   | `store.ConsumeLinkCode`                                                                    | `link_codes/<code>`     | user         | identity linking                                         |
-| authz     | authz.deny          | `auth.Authorize` failure; `resreg.audit … denied`; `ipc.emitAuthzDenied`                   | n/a                     | any          | every refused call (CloudTrail `errorCode=AccessDenied`) |
-| authz     | acl.add             | `store.AddACLRow`                                                                          | `acl/<row>`             | operator     | every grant change                                       |
-| authz     | acl.remove          | `store.RemoveACLRow`                                                                       | `acl/<row>`             | operator     | grant change                                             |
-| authz     | membership.add      | `store.AddMembership`                                                                      | `acl_membership/<row>`  | operator     | role nesting change                                      |
-| authz     | membership.remove   | `store.RemoveMembership`                                                                   | `acl_membership/<row>`  | operator     | role nesting change                                      |
-| access    | secret.read         | crackbox broker secret resolve; `store.LookupSecret` from `dashd /me`                      | `secrets/<scope>/<key>` | agent/user   | forensic — who saw which secret when                     |
-| mutation  | route.create        | `store.AddRoute` / `store.SetRoutes`                                                       | `routes/<id>`           | operator/MCP | route table mutation                                     |
-| mutation  | route.update        | `proxyd updateProxydRouteTx`                                                               | `proxyd_routes/<path>`  | operator     | proxyd-route mutation                                    |
-| mutation  | route.delete        | `store.DeleteRoute` / `proxyd deleteProxydRouteTx`                                         | `routes/<id>`           | operator/MCP | route removal                                            |
-| mutation  | web_route.set       | `routd putWebRouteTx`                                                                      | `web_routes/<prefix>`   | operator     | webd routing change                                      |
-| mutation  | web_route.delete    | `routd web_routes_resource`                                                                | `web_routes/<prefix>`   | operator     | webd routing change                                      |
-| mutation  | task.create         | `store.CreateTask`                                                                         | `scheduled_tasks/<id>`  | operator/MCP | crontab mutation                                         |
-| mutation  | task.update         | `store.UpdateTask`                                                                         | `scheduled_tasks/<id>`  | operator/MCP | crontab mutation                                         |
-| mutation  | task.delete         | `store.DeleteTask`                                                                         | `scheduled_tasks/<id>`  | operator/MCP | crontab mutation                                         |
-| mutation  | group.create        | `store.PutGroup` (insert path) / `onbod.SetupGroup`                                        | `groups/<folder>`       | operator     | group lifecycle                                          |
-| mutation  | group.update        | `store.PutGroup` (update path), `SetGroupOpen`, `SetGroupModel`, `SetGroupContainerConfig` | `groups/<folder>`       | operator     | per-group toggle                                         |
-| mutation  | group.delete        | `store.DeleteGroup`                                                                        | `groups/<folder>`       | operator     | group teardown                                           |
-| mutation  | watcher.add         | `store.AddGroupWatcher`                                                                    | `group_watchers/<row>`  | operator     | cross-folder visibility                                  |
-| mutation  | watcher.remove      | `store.RemoveGroupWatcher`                                                                 | `group_watchers/<row>`  | operator     | cross-folder visibility                                  |
-| mutation  | pane.create         | `store.InsertPaneSession`                                                                  | `pane_sessions/<id>`    | user         | dashd session                                            |
-| mutation  | pane.update         | `store.UpdatePaneSession`                                                                  | `pane_sessions/<id>`    | user         | dashd session                                            |
-| mutation  | gate.set            | `store.PutGate` / `EnableGate`                                                             | `onboarding_gates/<g>`  | operator     | onboarding-tier change                                   |
-| mutation  | gate.delete         | `store.DeleteGate`                                                                         | `onboarding_gates/<g>`  | operator     | onboarding-tier change                                   |
-| mutation  | onboarding.queue    | `onbod/main.go` UPDATE onboarding SET status=...                                           | `onboarding/<jid>`      | system       | who joined when                                          |
-| mutation  | user.cost_cap.set   | `store.SetUserCostCap`                                                                     | `auth_users/<sub>`      | operator     | budget gate change                                       |
-| mutation  | group.cost_cap.set  | `store.SetGroupCostCap`                                                                    | `groups/<folder>`       | operator     | budget gate change                                       |
-| system    | daemon.start        | each daemon's `main()`                                                                     | `daemons/<name>`        | system       | startup signal                                           |
-| system    | daemon.stop         | signal handler                                                                             | `daemons/<name>`        | system       | shutdown signal                                          |
-| system    | migration.apply     | `db_utils.Migrate` per applied file                                                        | `migrations/<file>`     | system       | schema-evolution trail                                   |
-| system    | config.load         | `core.LoadConfig`                                                                          | `config`                | system       | what config was active when                              |
-| network   | egress.allow.add    | `store.AddNetworkRule`                                                                     | `network_rules/<row>`   | operator     | network policy change                                    |
-| network   | egress.allow.remove | `store.RemoveNetworkRule`                                                                  | `network_rules/<row>`   | operator     | network policy change                                    |
-| network   | egress.connect      | crackbox proxy `(allowed=true)`                                                            | `egress/<host>`         | container    | per-connection log                                       |
-| network   | egress.block        | crackbox proxy `(allowed=false)`                                                           | `egress/<host>`         | container    | denied connections (highest forensic value)              |
-| channel   | channel.register    | `chanreg.Register`                                                                         | `channels/<jid>`        | operator     | adapter binding                                          |
-| channel   | channel.deregister  | inverse                                                                                    | `channels/<jid>`        | operator     | adapter binding                                          |
-| channel   | route_token.mint    | `store.InsertRouteToken`                                                                   | `route_tokens/<hash>`   | operator     | public chat link issuance                                |
-| channel   | route_token.revoke  | `store.RevokeRouteToken`                                                                   | `route_tokens/<hash>`   | operator     | revocation                                               |
-| agent     | run.hold            | `runed.Server.handleHold`                                                                  | `runs/<run_id>`         | operator     | who paused a folder, and why                             |
-| agent     | run.kill            | `runed.Server.handleRunKill` / `handleRunStop`                                             | `runs/<run_id>`         | operator     | who stopped a run (spawns records neither)               |
-| agent     | turn.start          | `store.LogSession`                                                                         | `sessions/<id>`         | gateway      | conversational turn boundary                             |
-| agent     | turn.end            | `store.LogTurnResult`                                                                      | `sessions/<id>`         | gateway      | conversational turn boundary                             |
-| agent     | mcp.tool.invoke     | `ipc.ServeMCP` emitSys (every state-change tool)                                           | `mcp/<tool>`            | agent        | every state-change MCP call                              |
-| secret    | secret.set          | `store.SetSecret`                                                                          | `secrets/<scope>/<key>` | operator     | secret CRUD                                              |
-| secret    | secret.delete       | `store.DeleteSecret`                                                                       | `secrets/<scope>/<key>` | operator     | secret CRUD                                              |
-| secret    | secret.read         | crackbox broker resolve / `dashd/me_secrets.go`                                            | `secrets/<scope>/<key>` | agent/user   | high-frequency, high-value                               |
-| scheduler | task.fire           | `timed/main.go` SET status='firing'                                                        | `scheduled_tasks/<id>`  | cron         | per-fire row                                             |
-| scheduler | task.complete       | `timed/main.go` SET status IN ('active','completed')                                       | `scheduled_tasks/<id>`  | cron         | per-fire result                                          |
-| scheduler | task.error          | `timed/main.go` error path                                                                 | `scheduled_tasks/<id>`  | cron         | failed fires                                             |
+| Cat       | Action              | Trigger site                                                                                      | Resource shape          | Who          | Rationale                                                |
+| --------- | ------------------- | ------------------------------------------------------------------------------------------------- | ----------------------- | ------------ | -------------------------------------------------------- |
+| authn     | login               | `onbod/main.go` magic-link consume / OAuth callback                                               | `identities/<sub>`      | user         | OWASP V8.2: every authentication                         |
+| authn     | logout              | `store.DeleteAuthSession` callers                                                                 | `sessions/<hash>`       | user         | session destruction                                      |
+| authn     | token.mint          | `store.CreateAuthSession`                                                                         | `sessions/<hash>`       | user         | every credential issuance                                |
+| authn     | token.expire        | scheduled prune of expired sessions                                                               | `sessions/<hash>`       | system       | distinguish revoke vs expiry                             |
+| authn     | identity.link       | `store.LinkSub` / `LinkSubToCanonical`                                                            | `identities/<id>`       | system/user  | identity drift forensics                                 |
+| authn     | identity.unlink     | `store.UnlinkSub`                                                                                 | `identities/<id>`       | operator     | inverse of link                                          |
+| authn     | invite.create       | `store.CreateInvite`                                                                              | `invites/<token-hash>`  | operator     | onboarding chain of custody                              |
+| authn     | invite.consume      | `store.ConsumeInvite`                                                                             | `invites/<token-hash>`  | user         | who used which invite                                    |
+| authn     | invite.revoke       | `store.RevokeInvite`                                                                              | `invites/<token-hash>`  | operator     | revocation trail                                         |
+| authn     | link_code.mint      | `store.MintLinkCode`                                                                              | `link_codes/<code>`     | user         | identity linking                                         |
+| authn     | link_code.consume   | `store.ConsumeLinkCode`                                                                           | `link_codes/<code>`     | user         | identity linking                                         |
+| authz     | authz.deny          | `auth.Authorize` failure; `resreg.audit … denied`; `ipc.emitAuthzDenied`                          | n/a                     | any          | every refused call (CloudTrail `errorCode=AccessDenied`) |
+| authz     | acl.add             | `store.AddACLRow`                                                                                 | `acl/<row>`             | operator     | every grant change                                       |
+| authz     | acl.remove          | `store.RemoveACLRow`                                                                              | `acl/<row>`             | operator     | grant change                                             |
+| authz     | membership.add      | `store.AddMembership`                                                                             | `acl_membership/<row>`  | operator     | role nesting change                                      |
+| authz     | membership.remove   | `store.RemoveMembership`                                                                          | `acl_membership/<row>`  | operator     | role nesting change                                      |
+| access    | secret.read         | routd broker resolve (`store.LogSecretUse`, surface `mcp`); `store.LookupSecret` from `dashd /me` | `secrets/<scope>/<key>` | agent/user   | forensic — who saw which secret when                     |
+| mutation  | route.create        | `store.AddRoute` / `store.SetRoutes`                                                              | `routes/<id>`           | operator/MCP | route table mutation                                     |
+| mutation  | route.update        | `proxyd updateProxydRouteTx`                                                                      | `proxyd_routes/<path>`  | operator     | proxyd-route mutation                                    |
+| mutation  | route.delete        | `store.DeleteRoute` / `proxyd deleteProxydRouteTx`                                                | `routes/<id>`           | operator/MCP | route removal                                            |
+| mutation  | web_route.set       | `routd putWebRouteTx`                                                                             | `web_routes/<prefix>`   | operator     | webd routing change                                      |
+| mutation  | web_route.delete    | `routd web_routes_resource`                                                                       | `web_routes/<prefix>`   | operator     | webd routing change                                      |
+| mutation  | task.create         | `store.CreateTask`                                                                                | `scheduled_tasks/<id>`  | operator/MCP | crontab mutation                                         |
+| mutation  | task.update         | `store.UpdateTask`                                                                                | `scheduled_tasks/<id>`  | operator/MCP | crontab mutation                                         |
+| mutation  | task.delete         | `store.DeleteTask`                                                                                | `scheduled_tasks/<id>`  | operator/MCP | crontab mutation                                         |
+| mutation  | group.create        | `store.PutGroup` (insert path) / `onbod.SetupGroup`                                               | `groups/<folder>`       | operator     | group lifecycle                                          |
+| mutation  | group.update        | `store.PutGroup` (update path), `SetGroupOpen`, `SetGroupModel`, `SetGroupContainerConfig`        | `groups/<folder>`       | operator     | per-group toggle                                         |
+| mutation  | group.delete        | `store.DeleteGroup`                                                                               | `groups/<folder>`       | operator     | group teardown                                           |
+| mutation  | watcher.add         | `store.AddGroupWatcher`                                                                           | `group_watchers/<row>`  | operator     | cross-folder visibility                                  |
+| mutation  | watcher.remove      | `store.RemoveGroupWatcher`                                                                        | `group_watchers/<row>`  | operator     | cross-folder visibility                                  |
+| mutation  | pane.create         | `store.InsertPaneSession`                                                                         | `pane_sessions/<id>`    | user         | dashd session                                            |
+| mutation  | pane.update         | `store.UpdatePaneSession`                                                                         | `pane_sessions/<id>`    | user         | dashd session                                            |
+| mutation  | gate.set            | `store.PutGate` / `EnableGate`                                                                    | `onboarding_gates/<g>`  | operator     | onboarding-tier change                                   |
+| mutation  | gate.delete         | `store.DeleteGate`                                                                                | `onboarding_gates/<g>`  | operator     | onboarding-tier change                                   |
+| mutation  | onboarding.queue    | `onbod/main.go` UPDATE onboarding SET status=...                                                  | `onboarding/<jid>`      | system       | who joined when                                          |
+| mutation  | user.cost_cap.set   | `store.SetUserCostCap`                                                                            | `auth_users/<sub>`      | operator     | budget gate change                                       |
+| mutation  | group.cost_cap.set  | `store.SetGroupCostCap`                                                                           | `groups/<folder>`       | operator     | budget gate change                                       |
+| system    | daemon.start        | each daemon's `main()`                                                                            | `daemons/<name>`        | system       | startup signal                                           |
+| system    | daemon.stop         | signal handler                                                                                    | `daemons/<name>`        | system       | shutdown signal                                          |
+| system    | migration.apply     | `db_utils.Migrate` per applied file                                                               | `migrations/<file>`     | system       | schema-evolution trail                                   |
+| system    | config.load         | `core.LoadConfig`                                                                                 | `config`                | system       | what config was active when                              |
+| network   | egress.allow.add    | `store.AddNetworkRule`                                                                            | `network_rules/<row>`   | operator     | network policy change                                    |
+| network   | egress.allow.remove | `store.RemoveNetworkRule`                                                                         | `network_rules/<row>`   | operator     | network policy change                                    |
+| network   | egress.connect      | egress proxy `(allowed=true)`, not built                                                          | `egress/<host>`         | container    | per-connection log                                       |
+| network   | egress.block        | egress proxy `(allowed=false)`, not built                                                         | `egress/<host>`         | container    | denied connections (highest forensic value)              |
+| channel   | channel.register    | `chanreg.Register`                                                                                | `channels/<jid>`        | operator     | adapter binding                                          |
+| channel   | channel.deregister  | inverse                                                                                           | `channels/<jid>`        | operator     | adapter binding                                          |
+| channel   | route_token.mint    | `store.InsertRouteToken`                                                                          | `route_tokens/<hash>`   | operator     | public chat link issuance                                |
+| channel   | route_token.revoke  | `store.RevokeRouteToken`                                                                          | `route_tokens/<hash>`   | operator     | revocation                                               |
+| agent     | run.hold            | `runed.Server.handleHold`                                                                         | `runs/<run_id>`         | operator     | who paused a folder, and why                             |
+| agent     | run.kill            | `runed.Server.handleRunKill` / `handleRunStop`                                                    | `runs/<run_id>`         | operator     | who stopped a run (spawns records neither)               |
+| agent     | turn.start          | `store.LogSession`                                                                                | `sessions/<id>`         | gateway      | conversational turn boundary                             |
+| agent     | turn.end            | `store.LogTurnResult`                                                                             | `sessions/<id>`         | gateway      | conversational turn boundary                             |
+| agent     | mcp.tool.invoke     | `ipc.ServeMCP` emitSys (every state-change tool)                                                  | `mcp/<tool>`            | agent        | every state-change MCP call                              |
+| secret    | secret.set          | `store.SetSecret`                                                                                 | `secrets/<scope>/<key>` | operator     | secret CRUD                                              |
+| secret    | secret.delete       | `store.DeleteSecret`                                                                              | `secrets/<scope>/<key>` | operator     | secret CRUD                                              |
+| secret    | secret.read         | routd broker resolve (`store.LogSecretUse`) / `dashd/me_secrets.go`                               | `secrets/<scope>/<key>` | agent/user   | high-frequency, high-value                               |
+| scheduler | task.fire           | `timed/main.go` SET status='firing'                                                               | `scheduled_tasks/<id>`  | cron         | per-fire row                                             |
+| scheduler | task.complete       | `timed/main.go` SET status IN ('active','completed')                                              | `scheduled_tasks/<id>`  | cron         | per-fire result                                          |
+| scheduler | task.error          | `timed/main.go` error path                                                                        | `scheduled_tasks/<id>`  | cron         | failed fires                                             |
 
 **Count: 60 distinct events** (covers the ≥40 floor). Counted from the
 table above, which had drifted past the stated 53 before runed's rows
@@ -404,7 +404,7 @@ landed.
   "category": "network",
   "action": "egress.block",
   "actor": "agent:atlas/support",
-  "surface": "crackbox",
+  "surface": "egress",
   "resource": "egress/raw.githubusercontent.com:443",
   "folder": "atlas/support",
   "outcome": "denied",

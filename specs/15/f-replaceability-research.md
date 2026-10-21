@@ -9,7 +9,7 @@ status: draft
 
 ## Why
 
-crackbox was built in two days and shipped to production. The features are
+The egress proxy was built in two days and shipped to production. The features are
 small, but each one is a maintenance line forever. A clean piece of
 off-the-shelf software plus a sentence of glue would be cheaper.
 

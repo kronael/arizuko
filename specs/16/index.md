@@ -14,7 +14,7 @@ among them).
 Centaur and arizuko are near-twins in shape: both are self-hosted
 multi-tenant agent routers with channel adapters, per-conversation
 container isolation, and network-level credential injection. arizuko
-already matches or beats Centaur on isolation (crackbox vs iron-proxy),
+already matches or beats Centaur on isolation (the egress proxy vs iron-proxy),
 secret broker, per-folder identity, and surface uniformity (MCP+REST).
 The honest gaps are all on the **multiplayer** axis — Centaur's word
 for _multiple humans collaborating in one shared, observable,

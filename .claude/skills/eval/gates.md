@@ -151,7 +151,7 @@ sudo ./arizuko group $I grants folder:eval
 Read the grants back with the principal `folder:eval`. `grants eval` prints
 "no grants" for a folder that holds all sixteen.
 
-**4. Egress `*`.** crackbox matches the allowlist by name and the sink is an
+**4. Egress `*`.** The egress proxy matches the allowlist by name and the sink is an
 IP, so only a folder `*` rule covers it:
 
 ```bash
