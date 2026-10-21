@@ -7,15 +7,16 @@ tests.
 
 Each row names one behaviour and one test. A test cited as
 `path::TestName/sub` is the subtest `sub` of `TestName` in that file. A
-TypeScript test is cited by the name its file gives it. `untested` means that
-no test proves the behaviour.
+TypeScript test is cited by the name its file gives it. `untested — L<id>`
+means that no test proves the behaviour, and the entry `L<id>` in
+[BUGS.md](BUGS.md) names the gap.
 
 ## routd sends a message to the first route that matches
 
 | Feature             | Behaviour today                                                                                                     | Evidence                                                                             |
 | ------------------- | ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
 | Route table         | routd tries the route rows in order and sends the message to the first rule whose predicates all match.             | `router/router_test.go::TestResolveRouteTemplate`                                    |
-| Route order         | The store sorts the rules by seq, then by id, before the router reads them.                                         | untested                                                                             |
+| Route order         | The store sorts the rules by seq, then by id, before the router reads them.                                         | untested — L506                                                                      |
 | Platform match      | A rule with `platform=slack` sends slack chats to its folder before a later catch-all rule.                         | `tests/feat_routing_test.go::TestFeature_MessageRouting/prefix-precedence`           |
 | Room match          | A rule with `room=42` sends chat `telegram:42` to its folder.                                                       | `tests/feat_routing_test.go::TestFeature_MessageRouting/room-match`                  |
 | Predicate glob      | Every `key=glob` predicate must match, and `*` does not match across `/`.                                           | `router/router_test.go::TestRouteMatch_GlobFields/platform AND room match`           |
@@ -31,7 +32,7 @@ no test proves the behaviour.
 | Topic fork          | `ForkTopic` records `parent_topic`, a new session id and a cursor, and refuses a duplicate without `force`.         | `store/sessions_test.go::TestForkTopic_WritesLineage`                                |
 | `@child` prefix     | A leading `@child` writes the text without the prefix to the child folder and queues it.                            | `routd/parity_test.go::TestChildDelegation`                                          |
 | Delegation target   | A folder that is not root delegates only to a direct child in its own world.                                        | `router/router_test.go::TestIsAuthorizedRoutingTarget/grandchild`                    |
-| `#topic` prefix     | A leading `#topic` posts the text again under that topic and queues the chat.                                       | untested                                                                             |
+| `#topic` prefix     | A leading `#topic` posts the text again under that topic and queues the chat.                                       | untested — L506                                                                      |
 | Forwarding          | A delegated turn carries `forwarded_from`, and its reply goes back to the origin chat.                              | `routd/parity_test.go::TestDelegatedReplyReturnsToOrigin`                            |
 | Inbound to reply    | An adapter POST to `/v1/messages` reaches the turn of the folder through runed, and one bot message is stored.      | `tests/feat_routing_test.go::TestFeature_MessageRouting/inbound-to-dispatch`         |
 | Token JIDs          | routd sends a `web:` or `hook:` JID to the folder recorded at mint and does not read the route table.               | `routd/loop_test.go::TestSuffixedRouteTokenDispatchesToMintedFolder/web with suffix` |
@@ -46,7 +47,7 @@ no test proves the behaviour.
 | Context mode             | An isolated scheduled task runs with no session, and a group task resumes the session of the folder.       | `routd/isolated_session_test.go::TestDispatchRun_IsolatedTaskGetsNoSession` |
 | Model per group          | routd sends the model of the group, or the instance default when the group has none.                       | `routd/parity_test.go::TestDefaultModelFallback`                            |
 | Observe window           | routd sizes the observed context from the first route override, else the config default.                   | `routd/parity_extra_test.go::TestObserveWindow_FirstRouteWins`              |
-| Observe window per group | routd uses the group setting before the route override.                                                    | untested                                                                    |
+| Observe window per group | The group window replaces the config default, and the first route override replaces the group window.      | untested — L506                                                             |
 | Folder queue             | Two JIDs that map to one folder never run at the same time.                                                | `queue/queue_test.go::TestEnqueueSerializesByFolder`                        |
 | Steer                    | runed gives a message for a busy folder to the live guest, and the guest wakes the agent.                  | `kernel/guest-init/main_test.go::TestSteerIsAckedWithTheRequestsID`         |
 | No second spawn          | runed steers into a live run and does not start a second one.                                              | `runed/manager_test.go::TestSteerWhenLive`                                  |
@@ -78,12 +79,12 @@ The verbs each adapter supports are in [EXTENDING.md § Verb support matrix](EXT
 | bskyd inbound          | bskyd reads unread notifications, delivers the oldest first, and marks them seen.                             | `bskyd/xrpc_test.go::TestFetchNotifications_Dispatches`                       |
 | bskyd outbound         | bskyd creates an `app.bsky.feed.post` record with the text.                                                   | `bskyd/xrpc_test.go::TestSend`                                                |
 | reditd cursor          | reditd stores a cursor and advances it after each poll.                                                       | `reditd/client_test.go::TestCursorAdvance`                                    |
-| reditd inbound content | reditd turns an inbox item into a message.                                                                    | untested                                                                      |
+| reditd inbound content | reditd turns an inbox item into a message.                                                                    | untested — L507                                                               |
 | reditd outbound        | reditd submits a post.                                                                                        | `reditd/bothandler_test.go::TestBotHandler_Send`                              |
 | emaid inbound          | emaid turns an IMAP message into a message on `email:thread/<id>`, with verb `untrusted` unless DMARC passes. | `emaid/server_test.go::TestFetchMsgToInbound`                                 |
 | emaid outbound         | emaid sends SMTP mail with `In-Reply-To` and `References` from the thread root.                               | `emaid/bothandler_test.go::TestBotHandler_Send_Success`                       |
 | linkd seen             | linkd marks each comment on its own posts seen once and skips its own comments.                               | `linkd/linkd_test.go::TestDeliverComment`                                     |
-| linkd inbound content  | linkd turns a comment into a message.                                                                         | untested                                                                      |
+| linkd inbound content  | linkd turns a comment into a message.                                                                         | untested — L507                                                               |
 | linkd outbound         | linkd posts a comment on a post URN.                                                                          | `linkd/linkd_test.go::TestPostCommentOutbound`                                |
 | whapd inbound          | whapd turns a WhatsApp message into a `whatsapp:` message with the sender and the group flag.                 | `whapd/src/inbound.test.ts::builds DM text payload with whatsapp: prefix`     |
 | whapd outbound         | `POST /send` sends text through the WhatsApp socket.                                                          | `whapd/src/server.test.ts::sends when connected`                              |
@@ -102,8 +103,8 @@ The verbs each adapter supports are in [EXTENDING.md § Verb support matrix](EXT
 | Service token       | authd exchanges a daemon secret for a `service:<daemon>` token with the scopes of that daemon.       | `authd/authd_test.go::TestServiceTokenEndpoint`                               |
 | Scope resolution    | A token with a narrow folder claim carries the full resolved grant set.                              | `tests/split_federation_test.go::TestSplitFederation_StampResolvesFullGrants` |
 | OAuth login         | authd handles the Google callback, creates the user, and issues an ES256 token and a refresh token.  | `authd/oauth_test.go::TestOAuthDispatchMintsES256AndCreatesUser`              |
-| Telegram login      | `POST /auth/telegram` signs a user in when `TELEGRAM_TOKEN` is set.                                  | untested                                                                      |
-| Login allowlists    | The callbacks apply `GoogleAllowedEmails` and `GitHubAllowedOrg`.                                    | untested                                                                      |
+| Telegram login      | `POST /auth/telegram` signs a user in when `TELEGRAM_TOKEN` is set.                                  | untested — L508                                                               |
+| Login allowlists    | The callbacks apply `GoogleAllowedEmails` and `GitHubAllowedOrg`.                                    | untested — L508                                                               |
 | Refresh token reuse | authd rotates the refresh token on each use, and a second use of a spent token revokes the family.   | `authd/authd_test.go::TestRefreshReuseRevokesFamily`                          |
 | proxyd transit      | A backend trusts `X-User-*` only with a valid `service:proxyd` bearer.                               | `auth/transit_test.go::TestProxydTransitRejectsEveryOtherValidToken`          |
 
@@ -150,7 +151,7 @@ The verbs each adapter supports are in [EXTENDING.md § Verb support matrix](EXT
 | HTTP create              | `POST /v1/route_tokens/chat` answers 201 with `routes:write` and 403 without it.              | `tests/feat_tokens_test.go::TestFeature_RouteTokens/http-create-requires-scope`         |
 | Hook label               | A `source_label` outside `^[\w-]+$` gets 400.                                                 | `tests/feat_tokens_test.go::TestFeature_RouteTokens/hook-label-validation`              |
 | Hook JID                 | A hook token becomes `hook:<folder>/<label>` with an optional suffix.                         | `routd/loop_test.go::TestSuffixedRouteTokenDispatchesToMintedFolder/hook with suffix`   |
-| REST owner containment   | The REST gate answers 403 for an `owner_folder` outside the folder of the caller.             | untested                                                                                |
+| REST owner containment   | The shared REST gate answers 403 for an `owner_folder` outside the folder of the caller.      | `routd/gdrive_files_resource_test.go::TestGDriveFiles_RESTOwnerOutsideTokenFolderIs403` |
 | Agent revoke containment | An agent revoke of another folder's token deletes nothing.                                    | `routd/route_tokens_resource_test.go::TestRouteTokensMCP_RevokeCrossFolderDenied`       |
 | Mint containment         | The mint refuses a `target_folder` outside the grant scope of the caller.                     | `routd/route_tokens_resource_test.go::TestRouteTokensMCP_MintTargetContainment`         |
 | Hook revoke by path      | `DELETE /v1/route_tokens/hook:demo/github` revokes a token whose JID contains a slash.        | `tests/feat_tokens_test.go::TestFeature_RouteTokens/http-revoke-slash-bearing-hook-jid` |
@@ -248,8 +249,9 @@ The verbs each adapter supports are in [EXTENDING.md § Verb support matrix](EXT
 | System prompt order | ant puts `SYSTEM.md` first and the persona after it.                                 | `ant/src/index.test.ts::persona follows systemMd in the rendered prompt` |
 | Diary               | The turn gets the summaries of the 14 newest diary entries.                          | `diary/diary_test.go::TestReadWithSummary`                               |
 | Episodes            | The turn gets up to three newest episodes of each type.                              | `container/episodes_test.go::TestReadRecentEpisodes_WithFiles`           |
-| Pre-compaction hook | The PreCompact hook tells the agent to run `/diary`.                                 | untested                                                                 |
-| User file           | The turn gets a `<user>` tag when `users/<id>.md` exists.                            | untested                                                                 |
+| Pre-compaction hook | The PreCompact hook tells the agent to run `/diary`.                                 | untested — L509                                                          |
+| User tag            | The turn carries a `<user id>` tag for each sender other than `system`.              | `router/router_test.go::TestUserContextXml`                              |
+| User file           | The tag gains `name` and `memory` attributes when `users/<id>.md` exists.            | untested — L509                                                          |
 | Skill seeding       | Seeding writes missing skill files and does not overwrite edits.                     | `container/container_test.go::TestSeedSkills_PreservesOursOnRerun`       |
 | `/solve` prefix     | runed starts every prompt with the `/solve` instruction.                             | `runed/render_test.go::TestPreparePayloadWithoutLayers`                  |
 | Migration check     | routd queues `/migrate` for each group with an old skill version.                    | `routd/migrate_test.go::TestCheckMigrationVersion`                       |
@@ -276,7 +278,7 @@ The verbs each adapter supports are in [EXTENDING.md § Verb support matrix](EXT
 | proxyd health              | `/health` answers 200.                                                     | `proxyd/integration_test.go::TestHealthEndpoint`                              |
 | dashd health               | `/health` answers `{"ok":true}`.                                           | `dashd/main_test.go::TestDashHealth`                                          |
 | webd health                | `/health` reports the adapter data.                                        | `webd/api_test.go::TestHandleHealth`                                          |
-| authd, onbod, timed health | Each daemon serves `/health`.                                              | untested                                                                      |
+| authd, onbod, timed health | Each daemon serves `/health`.                                              | untested — L510                                                               |
 | Audit row                  | `audit.Emit` writes a row with category, action, actor and instance.       | `audit/log_test.go::TestEmit_Inserts`                                         |
 | Audit with mutation        | The audit row commits with its change, and a refused change leaves no row. | `audit/audit_log_test.go::TestTheAuditRowIsOneCommitWithItsMutation`          |
 | Audit redaction            | Sensitive param keys appear as `<redacted:...>`.                           | `audit/log_test.go::TestRedactParams_HidesSensitiveKeys`                      |
