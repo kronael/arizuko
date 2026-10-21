@@ -440,7 +440,7 @@ Type — the body face is monospace and stays monospace:
 | ------------------------ | ---------------------------------------------- |
 | `--font-mono`            | the one family                                 |
 | `--fs-root`              | body size; every size below is relative to it  |
-| `--fs-xs`                | badge, TOC label                               |
+| `--fs-xs`                | TOC label, version stamp                       |
 | `--fs-sm`                | caption, meta, note, footer, pager             |
 | `--fs-md`                | table, nav, secondary prose                    |
 | `--fs-base`              | body copy                                      |
@@ -452,7 +452,7 @@ Type — the body face is monospace and stays monospace:
 Spacing is one scale, `--sp-0` (0.15em) through `--sp-7` (3em). A gap that is
 not on the scale is a mistake.
 
-Radius is three steps: `--r-sm` for a badge, a code span and a small control,
+Radius is three steps: `--r-sm` for a code span and a small control,
 `--r-md` for a callout, a `pre` and a tablecard, `--r-lg` for a card.
 
 Shadow is `--shadow-1` and `--shadow-2`. Only a floating element casts one.
@@ -534,7 +534,6 @@ behind `.docs-navtoggle` and the right rail drops.
 | table      | a plain `<table>`; `hub.js` wraps it in `.table-scroll`; hairline rows, no fill |
 | card       | `<div class="card"><div class="card-title">…</div>…</div>`, in a `.grid`        |
 | pager      | `<nav class="docs-pager"><a rel="prev" …><a rel="next" …></nav>`                |
-| badge      | `<span class="tier">core</span>`                                                |
 
 The callout's quiet-inset rule and the nav current-item rule are in
 §"Style rules" above. Read them before you touch either.

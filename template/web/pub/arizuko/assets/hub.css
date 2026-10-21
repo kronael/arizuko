@@ -32,7 +32,7 @@
   /* Type. Monospace body is the house face — do not swap it for a UI sans. */
   --font-mono: "SF Mono", "Fira Code", "JetBrains Mono", Consolas, monospace;
   --fs-root: 14px;        /* body; everything below is relative to it */
-  --fs-xs: 0.78em;        /* badge, toc label, table head */
+  --fs-xs: 0.78em;        /* toc label, version stamp */
   --fs-sm: 0.85em;        /* caption, meta, note, footer, pager */
   --fs-md: 0.9em;         /* table body, nav, secondary prose */
   --fs-base: 1em;         /* body copy */
@@ -53,7 +53,7 @@
   --sp-7: 3em;
 
   /* Radius. Three steps, inherited from the live site. */
-  --r-sm: 3px;            /* badge, code span, small control */
+  --r-sm: 3px;            /* code span, small control */
   --r-md: 4px;            /* callout, pre, tablecard */
   --r-lg: 6px;            /* card */
 
@@ -519,19 +519,6 @@ pre code { background: none; padding: 0; border-radius: 0; font-size: inherit; }
 }
 .docs-content .tablecard h3 { margin-top: var(--sp-0); }
 
-/* ==================== COMPONENT: BADGE ==================== */
-
-.tier {
-  display: inline-block;
-  border: 1px solid var(--border);
-  border-radius: var(--r-sm);
-  padding: 0 var(--sp-1);
-  font-size: var(--fs-xs);
-  color: var(--accent3);
-  white-space: nowrap;
-}
-.docs-content h3 .tier { margin-left: var(--sp-1); vertical-align: middle; }
-
 /* ==================== COMPONENT: SMALL PROSE MARKS ==================== */
 
 .docs-content .caption {
@@ -586,9 +573,6 @@ blockquote { margin: var(--sp-5) 0; color: var(--dim); font-style: italic; }
 .docs-content .req-n { color: var(--dim); }
 .docs-content .returns { font-size: var(--fs-md); margin: var(--sp-0) 0 var(--sp-1); }
 .docs-content h3 code { font-size: inherit; padding: 0; background: transparent; }
-
-/* schema.html — the vestigial-table note. */
-.docs-content .dead { font-size: var(--fs-sm); color: var(--dim); font-style: italic; }
 
 /* A numbered walkthrough; pairs with a diagram inside .grid.wide. */
 .tour { list-style: none; margin: var(--sp-2) 0 1.2em; padding: 0; counter-reset: step; }
