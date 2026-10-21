@@ -450,14 +450,18 @@ pre code { background: none; padding: 0; border-radius: 0; font-size: inherit; }
   margin: var(--sp-2) 0;
   font-size: var(--fs-md);
 }
+/* Rows are separated by a hairline under each row, never boxed in a grid,
+   and the head row carries weight, not a fill. */
 :is(.docs-content, .hub-container) th,
 :is(.docs-content, .hub-container) td {
-  border: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
   padding: var(--sp-1) var(--sp-2);
   text-align: left;
   vertical-align: top;
 }
-:is(.docs-content, .hub-container) th { background: var(--code-bg); font-weight: 600; }
+:is(.docs-content, .hub-container) th { color: var(--bright); font-weight: 600; }
+:is(.docs-content, .hub-container) thead th,
+:is(.docs-content, .hub-container) tr:first-child > th { border-bottom-color: var(--dim); }
 .docs-content td.n {
   text-align: right;
   font-variant-numeric: tabular-nums;

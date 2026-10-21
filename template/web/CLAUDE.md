@@ -425,9 +425,9 @@ Colour — these are the palette and they do not change:
 | ----------- | --------------------------------------------------------- |
 | `--bg`      | the page background                                       |
 | `--card`    | a raised box: card, tablecard, top-bar control            |
-| `--code-bg` | code span, `pre`, table head, hover wash                  |
+| `--code-bg` | code span, `pre`, hover wash                              |
 | `--border`  | every hairline                                            |
-| `--bright`  | the one word on a page that must win                      |
+| `--bright`  | a table head, the one word on a page that must win        |
 | `--fg`      | body text                                                 |
 | `--dim`     | metadata, captions, an inactive nav link                  |
 | `--accent`  | gold: `h1`, links, the active nav link, the callout label |
@@ -440,9 +440,9 @@ Type — the body face is monospace and stays monospace:
 | ------------------------ | ---------------------------------------------- |
 | `--font-mono`            | the one family                                 |
 | `--fs-root`              | body size; every size below is relative to it  |
-| `--fs-xs`                | badge, TOC label, table head                   |
+| `--fs-xs`                | badge, TOC label                               |
 | `--fs-sm`                | caption, meta, note, footer, pager             |
-| `--fs-md`                | table body, nav, secondary prose               |
+| `--fs-md`                | table, nav, secondary prose                    |
 | `--fs-base`              | body copy                                      |
 | `--fs-lg`                | lede, `h3`                                     |
 | `--fs-xl`                | `h2`                                           |
@@ -527,14 +527,14 @@ behind `.docs-navtoggle` and the right rail drops.
 
 ### Components
 
-| Component  | Markup                                                                   |
-| ---------- | ------------------------------------------------------------------------ |
-| callout    | `<div class="callout"><strong>Claim.</strong> text.</div>`               |
-| code block | `<pre><code>…</code></pre>` — the box scrolls, the page does not         |
-| table      | a plain `<table>`; `hub.js` wraps it in `.table-scroll`                  |
-| card       | `<div class="card"><div class="card-title">…</div>…</div>`, in a `.grid` |
-| pager      | `<nav class="docs-pager"><a rel="prev" …><a rel="next" …></nav>`         |
-| badge      | `<span class="tier">core</span>`                                         |
+| Component  | Markup                                                                          |
+| ---------- | ------------------------------------------------------------------------------- |
+| callout    | `<div class="callout"><strong>Claim.</strong> text.</div>`                      |
+| code block | `<pre><code>…</code></pre>` — the box scrolls, the page does not                |
+| table      | a plain `<table>`; `hub.js` wraps it in `.table-scroll`; hairline rows, no fill |
+| card       | `<div class="card"><div class="card-title">…</div>…</div>`, in a `.grid`        |
+| pager      | `<nav class="docs-pager"><a rel="prev" …><a rel="next" …></nav>`                |
+| badge      | `<span class="tier">core</span>`                                                |
 
 The callout's quiet-inset rule and the nav current-item rule are in
 §"Style rules" above. Read them before you touch either.
