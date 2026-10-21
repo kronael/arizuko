@@ -90,7 +90,7 @@
         │
         ├── POST /v1/runs ──►  runed   (boots the guest)
         │                       │
-        │     agent MCP socket  │ ServeTurnMCP in-process; runed bridges it over vsock
+        │     agent MCP socket  │ in-process; runed bridges it over vsock
         │   ◄── reply/send/like ┘
         ▼
       channel deliverer (chanreg)  ──► back out to the adapter</code></pre>
