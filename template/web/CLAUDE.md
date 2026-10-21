@@ -258,9 +258,10 @@ break navigation. Use `../assets/hub.css`, `../../assets/hub.js`, etc.
 based on the file's depth under `pub/`.
 
 Every page copies the shell in §"Visual design system" below. Only the landing
-page is shell-less, in a bare `.hub-container`; `tests/webdocs`
+page is shell-less: it carries the top bar, with no drawer button, and a bare
+`.hub-container` with no sidebar. `tests/webdocs`
 `TestWebDocsOnlyTheLandingIsShellLess` fails on any other page without the
-shell.
+shell and on a landing page without the top bar.
 
 Breadcrumb: always present, links to parent sections. Format: `arizuko › components › gated`.
 

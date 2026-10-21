@@ -139,7 +139,8 @@ func TestStyleGuardSeesWhatItGuards(t *testing.T) {
 }
 
 // TestWebDocsOnlyTheLandingIsShellLess requires every page except the landing
-// page to carry the docs shell, and the landing page to exist without it.
+// page to carry the docs shell, and the landing page to exist without it and
+// with the top bar.
 func TestWebDocsOnlyTheLandingIsShellLess(t *testing.T) {
 	pages, landing := 0, false
 	for _, f := range htmlFiles(t) {
@@ -153,6 +154,9 @@ func TestWebDocsOnlyTheLandingIsShellLess(t *testing.T) {
 			landing = true
 			if hasShell {
 				t.Errorf("%s carries the docs shell; the landing page has none by design", f)
+			}
+			if !strings.Contains(string(body), `class="docs-topbar"`) {
+				t.Errorf("%s has no docs-topbar; every page carries the top bar", f)
 			}
 			continue
 		}
