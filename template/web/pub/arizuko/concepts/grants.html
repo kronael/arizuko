@@ -134,25 +134,25 @@ acl_membership:  child: google:114alice   parent: role:editor</code></pre>
     <p>A second editor is one more edge. A new scope for editors is one more <code>acl</code> row. A role can contain roles: <code>role:senior-editor</code> as a child of <code>role:editor</code> works in the same way. The store refuses a write that would make a principal its own ancestor, so the walk always ends.</p>
 
     <h2>A pairing edge links a channel id to a person</h2>
-    <p>Alice posts in Discord as <code>discord:user/811270095431860224</code>. She also has a Google login. The agent gives her a pairing link. She opens it in a browser where she is logged in with Google, and she confirms. The confirmation writes one membership edge:</p>
+    <p>Alice posts in Discord as <code>discord:user/811270095431860224</code> and has a Google login. She confirms a pairing link in a browser where she is logged in with Google. <a href="onboarding.html">Onboarding</a> follows the flow. The confirmation writes one membership edge:</p>
     <pre><code>acl_membership:  child: discord:user/811270095431860224   parent: google:114alice   added_by: pairing</code></pre>
-    <p>That edge <em>is</em> the claim, and only the confirmation in the browser of Alice can write it. Her next Discord message expands to include the canonical sub, so every grant on <code>google:114alice</code> applies. No <code>acl</code> row changes, no migration runs, and the channel id keeps working.</p>
+    <p>Her next Discord message expands to include the canonical sub, so every grant on <code>google:114alice</code> applies. No <code>acl</code> row changes.</p>
 
     <h2>The sender does not lend the agent their rights</h2>
     <p>On the agent socket, a turn has two principals: the folder it runs in and the person who sent the message. The grants of the folder count everywhere they reach. The grants of the sender count only inside the subtree of that folder, and only on the exact action. Without this limit, an operator who chats in a team room would give the agent of that room the reach of the operator. Anyone who could make the operator say something there could then use that reach. A deny counts on both principals, so a deny on the person still refuses the turn that the person started.</p>
 
     <h2>Agents and operators pass the same check</h2>
-    <p>Every gate asks the same question: can this principal do this action on this scope? A message that enters a folder passes a gate once, and a tool call that leaves the folder passes one again. The REST and MCP faces share the handler, the folder-containment rule and the check. A REST call from an operator and an MCP call from an agent both go to <code>auth.Authorize</code>, over the same <code>acl</code> rows. Only the source of the principal differs: a JWT subject on one side and the folder of the socket on the other. Agents have no second mechanism, and the position of a folder in the tree gives no default. <a href="../reference/grants.html">reference / grants</a> has the full call signature.</p>
+    <p>The REST and MCP faces share the handler, the folder-containment rule and the check. A REST call from an operator and an MCP call from an agent both go to <code>auth.Authorize</code>, over the same <code>acl</code> rows. Only the source of the principal differs: a JWT subject on one side and the folder of the socket on the other. <a href="../reference/grants.html">reference / grants</a> has the full call signature.</p>
 
     <h3>A subagent holds exactly what its parent holds</h3>
-    <p>When an agent starts a Claude Code subagent inside its turn, the subagent uses the same unix socket. So the gate sees the same principal and gives the same answer. A narrower job gets no narrower set. A subagent that summarises one file can still call every tool of the parent, secrets and outbound requests included. This is by design, because the socket is the boundary, and a second socket would give a second answer to the same question. Limit the <em>parent</em> folder to what you let a subagent do, not only to what the agent itself needs.</p>
+    <p>When an agent starts a Claude Code subagent inside its turn, the subagent uses the same unix socket. So the gate sees the same principal and gives the same answer. A narrower job gets no narrower set. A subagent that summarises one file can still call every tool of the parent, secrets and outbound requests included. Limit the <em>parent</em> folder to what you let a subagent do, not only to what the agent itself needs.</p>
 
     <h2>Five patterns cause problems</h2>
     <dl>
       <dt>Do not add deny rows to take back access</dt>
       <dd>Remove the allow row or the membership edge. A deny is for a real exception, such as one banned user in an open channel, not for undoing a grant.</dd>
       <dt>Do not grant <code>admin</code> with a params predicate</dt>
-      <dd><code>admin</code> means full write in the scope, and a conditional admin surprises the reader. For a narrow capability, use <code>mcp:&lt;tool&gt;</code> with params.</dd>
+      <dd><code>admin</code> means full write in the scope. For a narrow capability, use <code>mcp:&lt;tool&gt;</code> with params.</dd>
       <dt>Do not put routing into the ACL</dt>
       <dd>The <code>routes</code> table answers where a message goes. <code>acl</code> answers whether a principal can act there. The two tables share the names of room ids but never merge.</dd>
       <dt>Do not skip roles for operators</dt>

@@ -61,7 +61,7 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">concepts</a> &rsaquo; the ant</p>
 <h1>ant</h1>
 
-    <p class="lede">An ant is the agent you talk to: one Claude Code process in its own KVM guest. Each group has one ant, and the folder of the group on disk is the ant. The diary, the skills and <code>PERSONA.md</code> are files in that folder. Every later concept is about a file in that folder or about a rule for who can change it.</p>
+    <p class="lede">An ant is the agent you talk to: one Claude Code process in its own KVM guest. Each group has one ant, and the folder of the group on disk is the ant. The diary, the skills and <code>PERSONA.md</code> are files in that folder.</p>
 
     <h2>The folder is the agent</h2>
     <p>Every group lives at <code>/srv/data/arizuko_&lt;instance&gt;/groups/&lt;folder&gt;/</code> on the host. When a message arrives, <code>runed</code> starts a guest and mounts that folder at <code>/home/node/</code> inside the guest. The agent sees what is in the folder:</p>
@@ -131,13 +131,13 @@ ant    buildSystemPrompt, ant/src/index.ts:49 ─► the system prompt
 
     <h2>Each turn gets a new guest</h2>
     <p>The guest lives for one turn. <code>runed</code> starts it when a message arrives, the agent reads the prompt and replies, and the guest powers off. Nothing that matters lives inside the guest, only in the mounted folder. The next turn gets a new guest and a new kernel with the same folder.</p>
-    <p>A turn has one deadline, <code>RUNED_RUN_TIMEOUT</code>, and the default is 20 minutes. The timeout of the agent is 30 seconds shorter, so the agent can report before <code>runed</code> stops the guest. For a longer job, split it into turns, write checkpoints to <code>~/facts/</code> or <code>~/tmp/</code>, or use a background task. Do not raise the timeout.</p>
+    <p>A turn has one deadline, <code>RUNED_RUN_TIMEOUT</code>, and the default is 20 minutes. The timeout of the agent is 30 seconds shorter, and never below 60 seconds, so the agent can report before <code>runed</code> stops the guest. For a longer job, split it into turns, write checkpoints to <code>~/facts/</code> or <code>~/tmp/</code>, or use a background task. Do not raise the timeout.</p>
 
     <h2>A grant gives capability, not the folder depth</h2>
-    <p>The depth of a folder says nothing about what its ant can do. <code>solo/inbox</code> and <code>corp/eng/sre/oncall</code> start with the same rights: the <code>role:member</code> role. Every folder gets this role at creation, and it carries the messaging verbs and nothing more. Every other right is a row that a principal gave to the folder for a subtree. Examples are the rights to register groups, edit routes, open egress or schedule tasks. If an ant has no row for a tool, the ant does not see the tool at all. Every agent has the same shape, and only the grants change.</p>
+    <p>The depth of a folder says nothing about what its ant can do. <code>solo/inbox</code> and <code>corp/eng/sre/oncall</code> start with the same rights: the <code>role:member</code> role. Every folder gets this role at creation, and it carries the messaging verbs and nothing more. Every other right is a row that a principal gave to the folder for a subtree. Examples are the rights to register groups, edit routes, open egress or schedule tasks. If an ant has no row for a tool, the ant does not see the tool at all.</p>
 
     <h2>The agent calls tools over one socket</h2>
-    <p>The agent calls MCP tools, such as <code>send</code> or <code>find_messages</code>, over a unix socket. <code>routd</code> hosts one socket per group at <code>ipc/&lt;folder&gt;/gated.sock</code> on the host. For each turn, <code>runed</code> runs a small bridge that accepts the vsock connection of the guest and connects it to that socket. Inside the guest, the <code>mcpServers</code> config of Claude Code points at a local path. Every tool call is a JSON-RPC message over that socket. <code>routd</code> runs the same grant check on it as on a call to the matching REST endpoint. So agents and operators pass one gate.</p>
+    <p>The agent calls MCP tools, such as <code>send</code> or <code>find_messages</code>, over a unix socket. <code>routd</code> hosts one socket per group at <code>ipc/&lt;folder&gt;/gated.sock</code> on the host. For each turn, <code>runed</code> runs a small bridge that accepts the vsock connection of the guest and connects it to that socket. Inside the guest, the <code>mcpServers</code> config of Claude Code points at a local path. Every tool call is a JSON-RPC message over that socket. <code>routd</code> runs the same grant check on it as on a call to the matching REST endpoint.</p>
 
     <h2>Each group updates its own skills</h2>
     <p>A new arizuko version can ship new built-in skills, and every group folder must get them. <code>runed</code> reads <code>ant/skills/self/MIGRATION_VERSION</code> from the agent image and compares it with <code>&lt;group&gt;/.claude/skills/self/MIGRATION_VERSION</code>. If the group is older, <code>runed</code> adds a <code>[pending migration]</code> line to the next prompt. The agent then runs <code>/migrate</code>, which copies the new skills into its own folder. Each group updates at its own pace, and nothing overwrites a folder from outside.</p>
@@ -150,10 +150,6 @@ ant    buildSystemPrompt, ant/src/index.ts:49 ─► the system prompt
       <dd>The guest, all files in <code>/tmp</code> inside it, and all process state in RAM. The own filesystem of the guest is a tmpfs overlay that power-off discards.</dd>
     </dl>
     <p>For this reason, an edit to the folder is enough. Change <code>PERSONA.md</code> on the host or through <a href="../concepts/webdav.html">WebDAV</a>, and the next guest uses the new persona without a restart or a reload.</p>
-
-    <h2>ant runs only inside a guest</h2>
-    <p>Every arizuko group is an ant folder. <code>arizuko chat &lt;instance&gt; --folder &lt;folder&gt;</code> opens one for interactive use, and <code>runed</code> starts guests from the same folders for inbound chat messages.</p>
-    <p>ant is the agent layer, not a daemon you deploy alone. It runs in the guest that <code>runed</code> gives it and talks over a stdin and stdout protocol. For this reason, a second harness such as pi or codex is a sibling of ant, not of <code>runed</code>. ant uses the tool list that the platform renders and is part of no other component. The parts that arizuko ships for use alone are <code>egress</code>, <code>substrate</code> and <code>mcpfw</code>.</p>
 
     <h2>Four pages continue from here</h2>
     <ul>

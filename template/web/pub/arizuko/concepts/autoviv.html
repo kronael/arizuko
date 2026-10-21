@@ -84,9 +84,6 @@
       <li>The agent replies in the thread from <code>atlas</code>. The next message in that channel goes directly to <code>atlas/eng-support</code>, with its own folder, its own session and its own <code>CLAUDE.md</code>.</li>
     </ol>
 
-    <h2>Autoviv needs no setting or daemon</h2>
-    <p>Autoviv is not a separate feature. It uses parts that already exist: <a href="../concepts/routing.html">glob route matching</a>, the <code>register_group</code> MCP tool and the <a href="../reference/grants.html">operator grant</a>. An operator who wants a folder per channel writes a catch-all route and a paragraph in the <code>CLAUDE.md</code> of the world agent. An operator who prefers to register each channel by hand leaves out both. The code path is the same in both cases.</p>
-
     <h2>The world agent needs one paragraph of instructions</h2>
     <p>Paste a paragraph like this into the <code>CLAUDE.md</code> or <code>PERSONA.md</code> of the world agent:</p>
     <pre><code>When you receive a message from a Slack channel JID
@@ -98,10 +95,6 @@ lowercase, replace spaces and punctuation with '-'.
 Reply once in the new folder confirming the channel
 is now registered. Do not register channels for non-operator
 senders &mdash; ask the operator instead.</code></pre>
-    <p>You can change the policy: register only channels that match a pattern, ask the operator first, or register only on an explicit request. The agent makes the policy decision, and the platform runs the call.</p>
-
-    <h2>A folder with the publish grant gets two web folders</h2>
-    <p>A group with the <code>web:publish</code> grant gets two writable web folders in the guest: <code>~/public_html/</code> and <code>~/private_html/</code>, as in the Apache <code>mod_userdir</code> convention. The agent writes a file into <code>~/public_html/</code>, and <code>vited</code> serves it at <code>/pub/&lt;folder&gt;/</code>. Each folder gets one path segment, not its own subdomain. <code>~/private_html/</code> is served at <code>/priv/&lt;folder&gt;/</code> behind an OAuth or JWT check. A child made by autoviv, such as <code>atlas/eng-support</code>, is served at <code>/pub/atlas/eng-support/</code> and shares the host name of the instance with every other folder.</p>
 
     <h2>Autoviv has three limits</h2>
     <dl>
@@ -110,12 +103,11 @@ senders &mdash; ask the operator instead.</code></pre>
       <dt>A second call writes nothing new</dt>
       <dd>The route key is its <code>seq</code>, match and target. So a second <code>register_group</code> call with the same JID and folder adds no second route.</dd>
       <dt>The new folder gets no seed</dt>
-      <dd><code>register_group</code> does not call <code>container.SetupGroup</code>, so the new folder starts without the skills and settings that onboarding and the CLI write. Check <code>groups/&lt;folder&gt;/</code> if the new agent knows nothing.</dd>
+      <dd><code>register_group</code> does not call <code>container.SetupGroup</code>, so the new folder starts without the skills, the <code>.claude/CLAUDE.md</code> copy and the <code>.claude.json</code> that onboarding and the CLI write. The first spawn writes <code>settings.json</code>, and the missing <code>MIGRATION_VERSION</code> file adds a <code>[pending migration]</code> line to the prompt. Check <code>groups/&lt;folder&gt;/</code> if the new agent knows nothing.</dd>
     </dl>
-    <p><a href="../reference/mcp.html#register_group">reference / mcp</a> has the full <code>register_group</code> signature. <a href="../reference/grants.html">reference / grants</a> has the grant it needs.</p>
 
     <h2>Routing and grants explain the parts</h2>
-    <p><a href="../concepts/routing.html">routing</a> covers route tables, glob matching and the <code>#observe</code> mode. <a href="../reference/grants.html">grants reference</a> covers grants, roles and delegation. <a href="../reference/mcp.html#register_group">mcp reference</a> covers <code>register_group</code> and the other MCP tools.</p>
+    <p><a href="../concepts/routing.html">routing</a> covers route tables, glob matching and the <code>#observe</code> mode. <a href="../reference/grants.html">grants reference</a> covers grants, roles and delegation. <a href="../reference/mcp.html#register_group">mcp reference</a> covers <code>register_group</code> and the other MCP tools. <a href="web-native-agents.html">web-native agents</a> covers the web folders that a folder with the <code>web:publish</code> grant gets.</p>
 
       <nav class="docs-pager" aria-label="Pager">
         <a rel="prev" href="onboarding.html">&larr; Onboarding</a>

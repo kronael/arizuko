@@ -64,8 +64,7 @@
     <p class="lede">A connector gives the agent a tool it did not ship with, and keeps the credential out of the guest. The tool can be a DNS registrar, an internal API or the MCP server of another party. You write one TOML block. <code>routd</code> makes the call on the host, inserts the secret into the outbound request, and gives the agent the response body and nothing else.</p>
 
     <h2>The agent gets the tool and the host keeps the credential</h2>
-    <p>An agent that can only talk is of little use. It must read a DNS zone, file a ticket or query your own service. The usual method puts an API token in the guest and lets the agent call <code>curl</code>. That works, but then anything the agent runs can read the token, including text it was asked to summarise from a web page.</p>
-    <p>A connector splits the two halves: the agent gets the <em>tool</em>, and the host keeps the <em>credential</em>. Inside the guest, an MCP tool called <code>cloudflare_dns_list</code> exists, and no <code>CF_API_TOKEN</code> exists in the environment, the filesystem or <code>/proc</code>.</p>
+    <p>Inside the guest, an MCP tool called <code>cloudflare_dns_list</code> exists, and the connector puts no <code>CF_API_TOKEN</code> in the environment, the filesystem or <code>/proc</code>. A <code>shell:env:&lt;KEY&gt;</code> grant for the same key would still add it to the guest environment.</p>
 
     <h2>One block has one of two transports</h2>
     <p>Every connector is one <code>[[connector]]</code> block, and <code>transport</code> picks its dispatch path. A field that one transport does not use is absent for it, and no field has two meanings:</p>
@@ -75,7 +74,7 @@
       <dt><code>rest</code></dt>
       <dd>The far side is an ordinary REST API with no MCP support. You declare one <code>[[connector.tool]]</code> per endpoint, and you can use all three credential sinks.</dd>
     </dl>
-    <p>Connectors use HTTP, never stdio. The MCP OAuth flow is defined only for the HTTP transport, so a stdio connector could never carry the own authorisation of a user.</p>
+    <p>Connectors use HTTP only. No stdio transport exists.</p>
 
     <h2>A REST connector needs one block and one tool entry</h2>
     <pre><code># connectors.toml in the instance directory
@@ -104,22 +103,31 @@ headers   = { Authorization = "Bearer {secret:CF_API_TOKEN}" }
         <tr><td class="name">body</td><td><code>{ apikey = "{secret:PB_API_KEY}", secretapikey = "{secret:PB_SECRET}" }</code></td></tr>
       </tbody>
     </table>
-    <p>&ldquo;Bearer&rdquo; is a literal prefix that you typed, not a mode that the loader knows. For this reason, a provider with an unusual scheme needs no new case. A provider with four credentials is written in the same way as a provider with one.</p>
+    <p>&ldquo;Bearer&rdquo; is a literal prefix that you typed, not a mode that the loader knows.</p>
     <p>Three things happen to the value on every call:</p>
     <ul>
-      <li><code>routd</code> looks it up <strong>for the triggering user</strong>. The own key of the user wins over the folder default, so one connector serves a team whose members each hold their own token.</li>
-      <li><code>routd</code> <strong>scrubs it from the response</strong> before the text reaches the agent. An API that echoes your key does not leak it into the transcript.</li>
-      <li>If a declared key resolves to nothing, <code>routd</code> <strong>drops the whole entry</strong>. An unset secret sends no header at all. It does not send the literal text <code>{secret:CF_API_TOKEN}</code> upstream, which would cause a confusing 401.</li>
+      <li><code>routd</code> looks it up for the triggering user. The own key of the user wins over the folder default, so one connector serves a team whose members each hold their own token.</li>
+      <li><code>routd</code> scrubs it from the response before the text reaches the agent. The scrub replaces each exact secret value with <code>&laquo;redacted&raquo;</code>. A response that echoes the key in another form, such as base64, passes.</li>
+      <li>If a declared key resolves to nothing, <code>routd</code> drops the whole entry. An unset secret sends no header at all, and the literal text <code>{secret:CF_API_TOKEN}</code> never goes upstream.</li>
     </ul>
     <p>The key is a row in the <code>secrets</code> table of <code>routd</code>, set with <code>arizuko secret</code> or at <code>/dash/me/secrets</code>. It is not in the daemon environment. One name can exist in both places with different values. <code>GH_TOKEN</code> in the instance <code>.env</code> belongs to a daemon process, and <code>GH_TOKEN</code> in the secrets of a folder is what the connector sends. The connector reads only the row of the folder, through the broker, so a token in <code>.env</code> says nothing about what the connector has.</p>
 
     <h2>The grant decides which folder sees the tool</h2>
     <p>Each tool carries a <code>scope</code> in the form <code>ext:&lt;service&gt;:&lt;operation&gt;</code>. Grants filter registration as for every other MCP tool: the tool joins <code>tools/list</code> only where <code>Authorize(folder, scope)</code> passes. A folder without the grant gets no refusal. It does not see the tool. The check at call time runs anyway, as a second defence.</p>
-    <p>So one <code>connectors.toml</code> can declare all your external APIs, and a grant per folder decides which folder gets which tool:</p>
+    <p>A grant per folder decides which folder gets which tool:</p>
     <pre><code>arizuko group &lt;instance&gt; grant folder:main/infra 'main/infra/**' 'ext:cloudflare:dns:read'</code></pre>
 
     <h2>Four DNS registrars ship as descriptors</h2>
-    <p>arizuko ships descriptors for four DNS registrars: Cloudflare, Porkbun, Gandi and Namecheap. Each covers list, create and delete. A descriptor does nothing until the operator sets the token of that provider, because a descriptor is a shape, not a credential.</p>
+    <p>arizuko embeds descriptors in <code>routd/extproviders/</code>. A descriptor does nothing until the operator sets the token of that provider.</p>
+    <table>
+      <thead><tr><th>provider</th><th>tools</th></tr></thead>
+      <tbody>
+        <tr><td class="name">Cloudflare</td><td><code>dns_list</code>, <code>dns_create</code>, <code>dns_delete</code>, <code>zone_list</code></td></tr>
+        <tr><td class="name">Porkbun</td><td><code>dns_list</code>, <code>dns_create</code>, <code>dns_delete</code></td></tr>
+        <tr><td class="name">Gandi</td><td><code>dns_list</code>, <code>dns_set</code></td></tr>
+        <tr><td class="name">Namecheap</td><td><code>dns_list</code></td></tr>
+      </tbody>
+    </table>
 
     <h2>Connectors have three limits</h2>
     <dl>
