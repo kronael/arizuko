@@ -1,5 +1,7 @@
 FROM node:22-alpine AS build
 WORKDIR /src
+# libsignal, a dependency of baileys, installs from git.
+RUN apk add --no-cache git
 COPY whapd/package.json whapd/package-lock.json* ./
 RUN npm install
 COPY whapd/tsconfig.json ./

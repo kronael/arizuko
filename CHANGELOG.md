@@ -47,6 +47,7 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 - A missing Telegram reply target is a visible failure; retry with a valid target or a new send.
 - A reply into a thread the bot started forks from the answered turn's session, not from nothing.
 - The observed context window drops scheduled-task prompts, so cron rows no longer crowd out the chat.
+- The whapd image installs git, which its `libsignal` dependency needs, so it builds from a cold cache.
 
 ### Operator notes
 
