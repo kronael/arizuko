@@ -215,11 +215,12 @@ var folderPartitionPurge = []string{MessageFolders}
 // `groups` items went and, separately, how many rows of every OTHER entity did:
 // an orphan sweep counts only in the second, and counting only the first made
 // a sweep indistinguishable from a no-op (BUGS L323). The deletes are chunked
-// because a large subtree can exceed MaxBatchActions.
-func (s *Store) purgeFolder(ctx context.Context, folder string) (int, int, error) {
+// because a large subtree can exceed MaxBatchActions. It also returns the
+// folders it owned, read before the purge, so a caller can act on each one.
+func (s *Store) purgeFolder(ctx context.Context, folder string) ([]string, int, int, error) {
 	// An empty folder names the subtree of everything.
 	if folder == "" {
-		return 0, 0, nil
+		return nil, 0, 0, nil
 	}
 	// Read FIRST, off `groups`, because the loop below deletes those rows.
 	owned := append([]string{folder}, s.subtreeFolders(ctx, folder)...)
@@ -227,7 +228,7 @@ func (s *Store) purgeFolder(ctx context.Context, folder string) (int, int, error
 	for _, e := range entityScopePurge {
 		items, err := s.Obj().Query(ctx, objstore.Query{Entity: e.entity, Partition: OwnerRoutd})
 		if err != nil {
-			return 0, 0, err
+			return nil, 0, 0, err
 		}
 		var writes []objstore.Write
 		for _, it := range items {
@@ -261,13 +262,13 @@ func (s *Store) purgeFolder(ctx context.Context, folder string) (int, int, error
 			func(ctx context.Context, chunk []objstore.Write) (bool, error) {
 				return s.TryWriteEntities(ctx, nil, chunk...)
 			}); err != nil {
-			return 0, 0, err
+			return nil, 0, 0, err
 		}
 	}
 	if err := s.purgeFolderPartitions(ctx, owned); err != nil {
-		return 0, 0, err
+		return nil, 0, 0, err
 	}
-	return removed, swept, nil
+	return owned, removed, swept, nil
 }
 
 // purgeFolderPartitions empties the partitions the deleted subtree OWNS. It

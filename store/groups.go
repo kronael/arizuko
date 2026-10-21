@@ -300,17 +300,42 @@ func (s *Store) PutGroupRow(g core.Group) error {
 // counting only the first made a sweep read as "no group at X" (BUGS L323). A
 // subtree holding nothing records no audit row.
 func (s *Store) DeleteGroup(folder string) (int, int, error) {
-	ctx := context.Background()
+	_, removed, swept, err := s.deleteGroup(context.Background(), folder)
+	return removed, swept, err
+}
+
+// DeleteGroupStopping is DeleteGroup plus a stop for the run in each folder the
+// purge removed, the folder itself and every folder under it. The purge
+// commits first: a folder that still resolves when its run is stopped can be
+// dispatched again, so the order is the contract. A stop error does not undo
+// the purge, because the rows are gone; the errors of every stop and of the
+// audit row come back joined, with the counts. A purge that fails stops
+// nothing. `stop` is the caller's, so store never imports the runed client.
+func (s *Store) DeleteGroupStopping(ctx context.Context, folder string, stop func(ctx context.Context, folder string) error) (int, int, error) {
+	owned, removed, swept, err := s.deleteGroup(ctx, folder)
+	if len(owned) == 0 {
+		return removed, swept, err
+	}
+	errs := []error{err}
+	for _, f := range owned {
+		if serr := stop(ctx, f); serr != nil {
+			errs = append(errs, fmt.Errorf("stop %s: %w", f, serr))
+		}
+	}
+	return removed, swept, errors.Join(errs...)
+}
+
+func (s *Store) deleteGroup(ctx context.Context, folder string) ([]string, int, int, error) {
 	// `groups` goes first, which makes the folder unreachable: a failure
 	// part-way leaves rows nothing can find, and the next run collects them.
-	removed, swept, err := s.purgeFolder(ctx, folder)
+	owned, removed, swept, err := s.purgeFolder(ctx, folder)
 	// The error comes FIRST: testing the count first reported a failed query
 	// as an empty folder.
 	if err != nil {
-		return 0, 0, err
+		return nil, 0, 0, err
 	}
 	if removed == 0 && swept == 0 {
-		return 0, 0, nil
+		return owned, 0, 0, nil
 	}
 	actor, actorSub, surface := s.auditIdentity()
 	_, rec := audit.WriteFor(audit.Event{
@@ -325,9 +350,9 @@ func (s *Store) DeleteGroup(folder string) (int, int, error) {
 		ParamsSummary: map[string]any{"groups_removed": removed, "orphans_swept": swept},
 	})
 	if err := s.WriteEntities(ctx, nil, rec); err != nil {
-		return removed, swept, err
+		return owned, removed, swept, err
 	}
-	return removed, swept, nil
+	return owned, removed, swept, nil
 }
 
 // GroupFolders lists every group's folder in path order, capped at limit (0 is
