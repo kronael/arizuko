@@ -18,6 +18,10 @@ as files and a row with the `arizuko` command.
 arizuko runs only on a host you own: one Linux host with Docker and KVM. It
 serves agent teams, not consumer traffic.
 
+krons, at https://krons.fiu.wtf, is the reference deployment. The maintainers
+run it, every release deploys there first, and it serves the web docs at
+https://krons.fiu.wtf/pub/arizuko/.
+
 ## Glossary
 
 - **folder**: one agent, with its persona, skills, memory and diary.
