@@ -303,7 +303,7 @@ images:
 # inputs: `arizuko-ant:latest` moves under you, and a guest booting last week's
 # rootfs against this week's ant is the failure that has no error message.
 #
-# MEASURED: the tree is ~8.3 GB, against a host that has had 3.5 GB free. There is
+# MEASURED: the tree is ~7 GB (7.2 GB on krons, 2026-10-21), against a host that has had 3.5 GB free. There is
 # deliberately NO free-space check here — the operator's lever is `docker builder
 # prune -f`, and a guard would refuse a build that the lever makes fit.
 ROOTFS_KEY = $(shell $(DOCKER) image inspect --format '{{.Id}}' arizuko-ant:latest 2>/dev/null | cut -d: -f2 | cut -c1-12)

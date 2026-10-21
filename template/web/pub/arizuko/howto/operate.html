@@ -168,13 +168,13 @@ routd ──► adapter ──► platform reply</code></pre>
     <h3 id="disk">Old rootfs trees fill the data disk</h3>
     <dl>
       <dt>Read</dt>
-      <dd><code>sudo make rootfs-stale DATA_DIR=/srv/data/arizuko_&lt;name&gt;</code> lists every rootfs tree after the newest two. The Makefile gives the size of one tree as approximately 8.3 GB.</dd>
+      <dd><code>sudo arizuko images &lt;name&gt;</code> lists every rootfs and kernel tree of the instance with its size, and marks each tree as in use, mounted or unused. One rootfs tree is about 7 GB.</dd>
       <dt>Cause</dt>
       <dd>A release with a changed agent image exports a new <code>images/rootfs-&lt;hash&gt;/</code> tree. <code>make images</code> deletes no tree, because a running turn can use an older tree.</dd>
       <dt>Fix</dt>
-      <dd>Remove each listed tree by its full path. Instances on the same <code>arizuko-ant</code> image can use one <code>DATA_DIR</code> for the artifacts, so the export occurs once. <code>docker builder prune -f</code> removes the build cache. Do not run <code>docker image prune -a</code>: no container holds <code>arizuko-ant</code> between turns, so the prune deletes it, and the next rootfs export fails.</dd>
+      <dd><code>sudo arizuko images &lt;name&gt; --prune</code> removes every unused tree. It keeps the trees that <code>RUNED_ROOTFS_DIR</code> and <code>RUNED_KERNEL_DIR</code> name, and it removes nothing while a tree has a mount. Instances on the same <code>arizuko-ant</code> image can use one <code>DATA_DIR</code> for the artifacts, so the export occurs once. <code>docker builder prune -f</code> removes the build cache. Do not run <code>docker image prune -a</code>: no container holds <code>arizuko-ant</code> between turns, so the prune deletes it, and the next rootfs export fails.</dd>
       <dt>Source</dt>
-      <dd><code>Makefile:352</code> <code>rootfs-stale</code>, <code>compose/compose.go:1237</code> <code>hostViewPaths</code></dd>
+      <dd><code>cmd/arizuko/images.go</code> <code>runImages</code>, <code>compose/compose.go:1237</code> <code>hostViewPaths</code></dd>
     </dl>
 
     <h3 id="whatsapp">whapd stays up without a WhatsApp session</h3>
