@@ -85,7 +85,6 @@
 
     <h2>A hook posts the plan, not the model</h2>
     <p>The agent plans with the <code>TodoWrite</code> tool of the SDK. The agent writes that list to organise its own work, not to report to you, so it writes the list whether anyone watches or not. arizuko attaches a hook to that tool. Each time the list changes, the hook reads the new list, renders it and sends it. Nothing asks the model to report progress, so the model cannot skip the report.</p>
-    <p>A design that asks the model to narrate its progress fails, because models follow such instructions unevenly. Users then get either silence for ten minutes or many separate plan, step and done messages. Progress is bookkeeping over a list that already exists, not a decision for the model.</p>
 
     <h2>Later updates edit the first message</h2>
     <p>The first update of a turn sends a new message, and every later update edits that message. <code>routd</code> finds the message to edit from the last status row that it stored for the turn. No table in memory tracks live messages. So if <code>routd</code> restarts in the middle of a long turn, it reads the message from the database and continues to edit it.</p>
@@ -94,8 +93,8 @@
     <p>The channel also shows that the agent is busy. Telegram, Discord and WhatsApp use their own typing indicator. Slack and GitHub have no such indicator, so they put an eyes reaction, &#128064;, on the message that started the turn. The indicator stays on until the turn ends, not until the first reply. So an agent that answers and then continues to work still looks busy. If the adapter restarts during the turn, the reaction stays: the adapter records it and removes it when the turn ends.</p>
 
     <h2>Channels that cannot edit show only the answer</h2>
-    <p>Email, Bluesky, LinkedIn and X cannot edit a sent message. On these channels, arizuko drops the status updates, and you get only the answer. A stream of separate &ldquo;still working&rdquo; posts is what the checklist exists to avoid, so these channels get no fallback. Google Drive comments behave the same way, because the Drive adapter does not edit its replies.</p>
-    <p>An edit can fail for a real reason, such as an expired token, an adapter timeout or a 500 from the platform. Such a failure appears as an error. arizuko never posts it again as a new message, because a silent duplicate looks the same as the stream of messages that the checklist replaces.</p>
+    <p>Email, Bluesky, LinkedIn and X cannot edit a sent message. On these channels, arizuko drops the status updates, and you get only the answer. Google Drive comments behave the same way, because the Drive adapter does not edit its replies.</p>
+    <p>A hard edit failure, such as an expired token or a 500 from the platform, returns an error. <code>routd</code> never posts that update again as a new message.</p>
 
     <h2>The checklist never counts as the answer</h2>
     <div class="callout"><strong>Status messages are not replies.</strong> Each status message carries <code>verb="status"</code> in the <code>messages</code> table, and <code>routd</code> skips these rows when it asks whether the turn has replied. Without that rule, a checklist would count as the reply of the agent, and <code>routd</code> would drop the real answer.</div>

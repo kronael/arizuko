@@ -125,8 +125,9 @@
     <h2>The guest runs one program before the agent</h2>
     <p>The guest boots a pinned kernel with one small program as PID 1, <code>guest-init</code>. <code>guest-init</code> mounts the folder at <code>/home/node</code>, starts <code>socat</code> on <code>/run/ipc/gated.sock</code> and runs the agent. A tool call goes from the agent to that socket, then over vsock to a bridge on the host, then into <code>routd</code>. The host kernel stamps the vsock CID of the guest on every packet, and the bridge accepts only the CID of its own guest. That stamp is the credential of the turn, so the agent has no token that a shell command could leak.</p>
 
-    <h2 id="children">A child folder runs in its own guest</h2>
     <p><code>guest-init</code> builds the root of the guest with overlayfs. The release rootfs is the read-only lower layer, and a tmpfs of 512 MiB in RAM is the writable upper layer. The folder home at <code>/home/node</code> and the web directories come from the host and keep what the agent writes. A write anywhere else is gone when the guest powers off. <a href="https://github.com/kronael/arizuko/blob/main/kernel/guest-init/main.go">[kernel/guest-init/main.go]</a></p>
+
+    <h2 id="children">A child folder runs in its own guest</h2>
     <p>A turn runs in one folder, and a folder has at most one live guest. To give work to a sub-agent on a second machine, an agent uses a second folder:</p>
     <ul>
       <li><code>register_group</code> creates a child folder and its first route. The caller needs a grant on <code>mcp:register_group</code> with a scope that covers the new folder. No count limits the children of a folder.</li>

@@ -61,42 +61,39 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">concepts</a> &rsaquo; slack pane</p>
 <h1>slack pane</h1>
 
-    <p class="lede">The Slack pane is a feature that only Slack offers, and the agent can use it where it exists. Slack has a sidebar for installed agent apps: the user clicks the AI icon and gets a split pane with the bot. The pane does more than a DM. The bot can set a title, suggest follow-up prompts, show a typing indicator, and know which channel the user is looking at. On a platform with no pane, the same tool calls do nothing, so the agent does not branch on the platform.</p>
+    <p class="lede">Slack has a sidebar for installed agent apps: the user clicks the AI icon and gets a split pane with the bot. In the pane, the bot can set a title, suggest follow-up prompts and see which channel the user is looking at. Two MCP tools control the title and the prompts. On a chat with no open pane, both tools return an error.</p>
 
     <h2>The pane is a Slack thread with extra events</h2>
-    <p>The pane is a special Slack thread with a fixed <code>thread_ts</code> that Slack opens when the user clicks. Slack sends two extra events to the app. <code>assistant_thread_started</code> arrives when the user opens the pane. <code>assistant_thread_context_changed</code> arrives when the user moves to another channel while the pane is open. In the other direction, the app can call <code>assistant.threads.setStatus</code>, <code>setTitle</code> and <code>setSuggestedPrompts</code>.</p>
+    <p>The pane is a special Slack thread with a fixed <code>thread_ts</code> that Slack opens when the user clicks. Slack sends two extra events to the app. <code>assistant_thread_started</code> arrives when the user opens the pane. <code>assistant_thread_context_changed</code> arrives when the user moves to another channel while the pane is open. In the other direction, <code>slakd</code> calls <code>assistant.threads.setTitle</code> and <code>setSuggestedPrompts</code>. It never calls <code>setStatus</code>: a pane shows the busy state with the same eyes reaction as any other Slack chat.</p>
 
-    <h2>The pane adds four things a DM lacks</h2>
-    <p>A DM is only a message stream. The pane adds four things:</p>
+    <h2>The pane adds three things a DM lacks</h2>
     <dl>
       <dt>Title</dt>
-      <dd>The pane history shows what the conversation was about, not only &ldquo;chat with bot&rdquo;.</dd>
+      <dd>The pane history shows it. <code>slakd</code> sets a default and the agent replaces it.</dd>
       <dt>Suggested prompts</dt>
-      <dd>Starter buttons at the bottom of the pane. The agent sets them with <code>pane_set_prompts</code> after a reply, so the next click is fast.</dd>
-      <dt>Typing indicator</dt>
-      <dd><code>setStatus("thinking&hellip;")</code> while the agent runs.</dd>
+      <dd>Buttons at the bottom of the pane. <code>slakd</code> sets three defaults when the pane opens, and the agent replaces them with <code>pane_set_prompts</code>.</dd>
       <dt>Pane context</dt>
-      <dd>The bot can read which channel the user was looking at when they clicked the AI icon, and refer to it.</dd>
+      <dd>The prompt of a pane turn carries <code>&lt;pane-context jid="..."/&gt;</code> with the channel the user is looking at. <code>slakd</code> updates that channel when the user moves to another one.</dd>
     </dl>
 
     <h2>slakd records each pane and starts it</h2>
-    <p>For each pane, <code>slakd</code> stores a row in <code>pane_sessions</code> with the key <code>(team_id, user_id, thread_ts)</code>. The row holds the DM channel of the pane and the optional <code>context_jid</code> that the user is looking at. When <code>assistant_thread_started</code> arrives, <code>slakd</code> does four things:</p>
+    <p>For each pane, <code>slakd</code> asks <code>routd</code>, the owner of the table, to store a row in <code>pane_sessions</code> with the key <code>(team_id, user_id, thread_ts)</code>. The row holds the DM channel of the pane and the optional <code>context_jid</code> that the user is looking at. When <code>assistant_thread_started</code> arrives, <code>slakd</code> does four things:</p>
     <ol>
-      <li>It writes or updates the <code>pane_sessions</code> row.</li>
+      <li>It sends the row to <code>routd</code>, which writes or updates it.</li>
       <li>It sets the pane title with <code>bot.paneTitle()</code>: &ldquo;&lt;assistant&gt; &mdash; chat&rdquo; when <code>ASSISTANT_NAME</code> is set, and &ldquo;chat&rdquo; otherwise.</li>
       <li>It sets default suggested prompts from the starter list in the bot. The agent replaces them per pane with <a href="../reference/mcp.html#pane_set_prompts"><code>pane_set_prompts</code></a> calls.</li>
       <li>It creates an inbound message with <code>verb="pane_open"</code>, so the route table can match it.</li>
     </ol>
-    <p>On every agent reply in a pane, <code>slakd</code> posts with <code>chat.postMessage</code> and sets <code>thread_ts</code> to the thread of the pane. It then calls <code>setSuggestedPrompts</code> if the agent set prompts with <code>pane_set_prompts</code>.</p>
+    <p>On every agent reply in a pane, <code>slakd</code> posts with <code>chat.postMessage</code> and sets <code>thread_ts</code> to the thread of the pane. It then applies the title and the prompts that the agent staged with the two tools, once.</p>
 
     <h2>Two MCP tools control the pane</h2>
     <dl>
-      <dt><code>pane_set_prompts(jid, prompts)</code></dt>
-      <dd>Sets 3 or 4 follow-up buttons that appear after the next reply.</dd>
-      <dt><code>pane_set_title(jid, title)</code></dt>
-      <dd>Replaces the pane title for the current conversation.</dd>
+      <dt><code>pane_set_prompts(chatJid, prompts)</code></dt>
+      <dd>Stages follow-up buttons that appear after the next reply. The tool text names 3 to 4 as the visible cap.</dd>
+      <dt><code>pane_set_title(chatJid, title)</code></dt>
+      <dd>Stages a new pane title that applies after the next reply.</dd>
     </dl>
-    <p>On platforms without a pane, such as Discord and Telegram, both tools do nothing.</p>
+    <p>On a platform with no pane, such as Discord or Telegram, and on a Slack chat with no open pane, <code>chanreg</code> returns an unsupported error and the tool call fails. The agent sends no buttons.</p>
 
     <h2>Three settings in the Slack app turn the pane on</h2>
     <p>In the Slack app configuration at <a href="https://api.slack.com/apps">api.slack.com/apps</a>:</p>

@@ -63,9 +63,6 @@
 
     <p class="lede">Every turn runs in its own short-lived virtual machine. Sometimes that guest stops in the middle of a turn, because it runs out of memory or reaches the run time limit. Then no answer comes back. <code>routd</code> sees the run with no reply and runs the turn again, up to three times, without a message to you. You get one slower reply instead of silence.</p>
 
-    <h2>A stopped guest leaves the chat with no reply</h2>
-    <p>A guest that stops never returns its answer. For you, the bot simply stops. Also, <code>routd</code> has a guard that prevents it from giving a finished turn to the agent again. Without retries, the message never gets another attempt, and the only way out is a new @mention of the bot. A long research answer that stops halfway would stay unfinished.</p>
-
     <h2>A turn fails only if no bot message arrived</h2>
     <p>The test is <strong>&ldquo;did any bot message arrive?&rdquo;</strong>, not &ldquo;did the agent finish without an error?&rdquo;. An agent that posted half an answer and then stopped counts as a success, and <code>routd</code> does not retry it. A partial reply that you can read is better than a wait while the agent does the whole task again. Only a turn with no bot message at all starts a retry.</p>
 
@@ -80,13 +77,12 @@
     <pre><code>&lt;system-note&gt;This is retry attempt 2 of 3. The previous attempt was
 killed before completing. Be conservative with resource
 usage.&lt;/system-note&gt;</code></pre>
-    <p>The last sentence matters most. The most common cause of a stopped guest is an agent that does too much at once and runs out of memory. The most useful change for the agent is to do less. Without the note, the same failure would happen three times.</p>
     <p>The rest stays the same: the same message and attachments and the same conversation history, in a new guest.</p>
 
     <h2>The retry count survives a restart</h2>
     <p>The attempt count is not in memory. Each retry increments <code>turn_context.retry_count</code> and sets the turn to <code>state='pending_retry'</code>. The crash-recovery sweep of <code>routd</code> picks up <code>pending_retry</code> turns in the same way as running ones. If <code>routd</code> restarts during a retry, the turn still gets its attempt, with the correct count of attempts already used.</p>
 
-    <h2>Three kinds of turn never retry</h2>
+    <h2>Four kinds of turn never retry</h2>
     <dl>
       <dt>Turns that replied</dt>
       <dd>Any bot message, even a partial one, counts as done.</dd>
@@ -94,6 +90,8 @@ usage.&lt;/system-note&gt;</code></pre>
       <dd>If the agent reports its own failure and the guest then powers off normally, the run is clean, and it never reaches the retry path.</dd>
       <dt>Runs that an operator stopped</dt>
       <dd>A deliberate stop is recorded as killed, not as an error.</dd>
+      <dt>Runs that <code>runed</code> marks terminal</dt>
+      <dd>A retry cannot repair these failures: a guest that does not start, or an exhausted model quota. The notice to the chat names the cause.</dd>
     </dl>
 
     <div class="callout"><strong>A network failure uses a different path.</strong> If the call from <code>routd</code> to <code>runed</code> fails on the network, <code>routd</code> does not know whether the run happened. So it leaves its read cursor in place, and the next poll gives the message to the agent again. Retries apply when <code>runed</code> answered and the answer was &ldquo;the run stopped&rdquo;.</div>

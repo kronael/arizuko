@@ -65,8 +65,7 @@
         WebDAV mounts a group folder as a file workspace for you. Each group
         folder is available at <code>https://&lt;host&gt;/dav/&lt;group&gt;/</code>,
         so you can mount it with <code>rclone</code>, sync it or
-        edit a file in any editor. Because the folder is the ant, the next
-        agent turn uses your changes, with no deploy and no reload.
+        edit a file in any editor.
         <a href="../howto/webdav.html">how-to / webdav</a> has the setup steps.
       </p>
 
@@ -121,25 +120,19 @@ vim ~/mnt/&lt;group&gt;/CLAUDE.md</code></pre>
         <code>**</code> grant reaches any folder.
       </p>
 
-      <h2>proxyd blocks writes to three kinds of path</h2>
+      <h2>proxyd blocks writes to two kinds of path</h2>
       <p>
         Even with a valid grant, <code>proxyd</code> refuses writes to some
-        paths inside the group folder. Reads still pass, so the operator can
-        always inspect them.
+        paths inside the group folder. Only GET, HEAD, OPTIONS and PROPFIND
+        pass on these paths. Every other method returns 403. For COPY and MOVE,
+        <code>proxyd</code> checks the <code>Destination</code> path too.
       </p>
       <dl>
         <dt>Files that can hold secrets</dt>
         <dd><code>.env</code>, <code>*.pem</code> and everything under
-          <code>.git/</code>. PUT, DELETE, MOVE, MKCOL and PROPPATCH return
-          403.</dd>
+          <code>.git/</code>.</dd>
         <dt><code>&lt;group&gt;/logs/</code></dt>
-        <dd>Read-only. GET and PROPFIND pass, and every write returns 403. The
-          agent cannot overwrite its own logs, and you cannot delete them by
-          mistake.</dd>
-        <dt>Other groups</dt>
-        <dd>The path check in <code>proxyd</code> applies per group. A request
-          to <code>/dav/other-group/</code> is checked against
-          <em>other-group</em> and succeeds only if your grant covers it.</dd>
+        <dd>Read-only, at any folder depth.</dd>
       </dl>
 
       <h2>Only clients that send a Bearer header can sign in</h2>
@@ -151,8 +144,6 @@ vim ~/mnt/&lt;group&gt;/CLAUDE.md</code></pre>
           <a href="../howto/webdav.html">how-to / webdav</a> has the steps.</li>
         <li>The JWT cookie of the browser opens <code>/dav/</code> as well.
           Basic auth is not available.</li>
-        <li>Your edits are what the agent reads on the next turn.</li>
-        <li>You can read secrets and logs but not overwrite them.</li>
       </ul>
 
       <h2>Auth and grants explain the token and the claim</h2>

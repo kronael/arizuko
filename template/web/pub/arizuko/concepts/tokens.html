@@ -64,7 +64,7 @@
     <p class="lede">A route token lets a caller in without a login: a public chat box on a website, or a webhook from GitHub. The token is a 32-byte random string that maps to one JID. A POST to a URL with that token puts the body into an inbound message at the mapped JID. The JID prefix carries the routing intent. <code>web:</code> is for a browser chat, and <code>hook:</code> is for a webhook from GitHub, Linear or any other sender of JSON. Whoever has the URL has the whole credential.</p>
 
     <h2>One URL carries three independent things</h2>
-    <p>A route-token URL combines three independent things, and the separation makes its behavior predictable.</p>
+    <p>A route-token URL combines three independent things.</p>
     <dl>
       <dt>Routing: the token</dt>
       <dd>Which folder the URL feeds. A random secret that <code>routd</code> looks up in the store. To revoke it, delete the row.</dd>
@@ -73,7 +73,7 @@
       <dt>Context: optional instructions on the link</dt>
       <dd>How the agent handles what arrives through the link. Free text set when the token is created, such as &ldquo;bug reports from the acme site; triage, do not chat back&rdquo;. <code>routd</code> stamps it on each message, and the agent sees it as a <code>&lt;link-context&gt;</code> block. Two links into the same folder can carry two different instructions.</dd>
     </dl>
-    <p>None of the three depends on another. A leaked token does not impersonate a user, and a stolen session does not reveal tokens. Only the principal who was allowed to create the token sets the context.</p>
+    <p>Only the principal who was allowed to create the token sets the context.</p>
 
     <h2>One table serves two URLs</h2>
     <p>All tokens live in the <code>route_tokens</code> table. The store hashes the raw token to a lookup key and maps it to a JID. The row records the folder that created it and the folder it delivers to. The row stores the delivery folder and does not read it from the JID, because a JID with a suffix is ambiguous. <code>web:acme/support</code> reads exactly like a plain token for a folder named <code>acme/support</code>.</p>

@@ -108,7 +108,7 @@
                     │ and the next turn resumes the id routd minted    │
                     └──────────────────────────────────────────────────┘
 </code></pre>
-    <p><code>routd</code> records the id before the guest starts and never learns it from the guest afterwards. So a turn that a deploy or a deadline stops leaves a transcript, and the next turn continues it. A chat that is idle for two days, the default of <code>SESSION_IDLE_EXPIRY</code>, starts a new session. A model that resumes an old session mixes stale state into the answer of today.</p>
+    <p><code>routd</code> records the id before the guest starts and never learns it from the guest afterwards. So a turn that a deploy or a deadline stops leaves a transcript, and the next turn continues it. A chat that is idle for two days, the default of <code>SESSION_IDLE_EXPIRY</code>, starts a new session.</p>
 
     <h2>A topic isolates the session and the reply chain</h2>
     <p>The agent keeps one Claude session per pair of folder and topic. So <code>/new #support</code> resets the support thread and changes nothing else in the folder. The store also records the last bot message per topic, so replies on the platform attach to the correct message.</p>

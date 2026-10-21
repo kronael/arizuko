@@ -65,7 +65,7 @@
 
     <h2>A folder is a scope</h2>
     <p>Every group is a folder under the data directory: <code>solo/inbox</code>, <code>corp/eng/sre</code>, <code>corp/eng/oncall</code>. The folder path is also the identity of the agent that runs there, and the value that the scope glob of a grant matches. Depth gives no authority. A &ldquo;world&rdquo; folder such as <code>corp/eng</code> is an ordinary tenant, and it can do what the <code>acl</code> rows that name it allow. Siblings share a parent.</p>
-    <p>One agent runs per group, so the folder boundary does the isolation. The <code>corp/eng/sre</code> agent holds the conversation history, diary and skills of the SRE team. <code>corp/eng/oncall</code> holds those of the oncall team. No shared chat history mixes the two. The Claude Code session of each agent lives in its own folder, with its own prompt window and its own memory.</p>
+    <p>One agent runs per group. The <code>corp/eng/sre</code> agent keeps its own conversation history, diary and skills, and <code>corp/eng/oncall</code> keeps its own.</p>
 
     <h2 id="files-and-grants">Files and grants read one path tree in two ways</h2>
     <p>A few names first. A <em>folder</em> is one agent. A <em>group</em> is a folder that <code>routd</code> knows. A <em>world</em> is a top-level folder, such as <code>corp</code>. A <em>chat</em> is one JID, the room where people talk. A <em>route</em> sends a chat to a folder. Many chats can reach one agent, and each topic in a chat has its own session.</p>
@@ -84,15 +84,13 @@ groups/corp/                          a row on corp/** covers:
       <dt>As grants, a path covers its subtree</dt>
       <dd>An <code>acl</code> row with the scope <code>corp/eng/**</code> covers <code>corp/eng</code> and every folder under it. A holder can grant others only a subset of what it holds, and only with the grant option. Egress allow rules add up along the path: a rule on a parent opens the host for every descendant. All groups of a world share one directory, <code>/var/lib/share</code> in the guest.</dd>
     </dl>
-    <p>A parent can also give one message to a child with <code>delegate_group</code>. The tool exists, but it is rarely the right one: a route or a shared file usually does the job.</p>
 
     <h2>Siblings see each other</h2>
-    <p>Two folders under the same parent see each other&rsquo;s messages as ambient <code>&lt;observed&gt;</code> context on every turn. The default sibling list is every folder with the same immediate parent. So <code>corp/eng/sre</code> and <code>corp/eng/oncall</code> each see the traffic of the other. This helps when an incident in one team matters to the other.</p>
+    <p>Two folders under the same parent see each other&rsquo;s messages as ambient <code>&lt;observed&gt;</code> context on every turn. The default sibling list is every folder with the same immediate parent. So <code>corp/eng/sre</code> and <code>corp/eng/oncall</code> each see the traffic of the other.</p>
     <p>The agent sees a limited part of the sibling messages, not all of them. <a href="../reference/env.html#OBSERVE_WINDOW_MESSAGES"><code>OBSERVE_WINDOW_MESSAGES</code></a> and <a href="../reference/env.html#OBSERVE_WINDOW_CHARS"><code>OBSERVE_WINDOW_CHARS</code></a> set the instance default. <code>routes.observe_window_messages</code> and <code>routes.observe_window_chars</code> override it for one route.</p>
 
     <h2>Children are isolated</h2>
     <p>A child folder is <em>not</em> a sibling. <code>corp/eng/oncall/incident-42</code> sits under <code>oncall</code>. The parent does not see the child automatically, and the child does not see the siblings of its parent. To connect them, route the traffic of the child up with a routing rule, or grant a specific ACL across the folders.</p>
-    <p>For this reason, a deep tree stays useful. Create an incident folder, talk freely, and archive it when you finish. The folders above get no noise.</p>
 
     <h2>An incident folder stays quiet for its parent</h2>
     <pre><code>corp/
@@ -100,7 +98,7 @@ groups/corp/                          a row on corp/** covers:
     sre/         &larr; sees oncall (sibling)
     oncall/      &larr; sees sre (sibling)
       incident-42/   &larr; isolated; oncall does not auto-see it</code></pre>
-    <p>An SRE who asks a question in <code>corp/eng/sre</code> sees recent oncall messages as ambient context. An incident lead in <code>corp/eng/oncall/incident-42</code> talks only to the agent of the incident folder. The wider oncall channel stays quiet, and the incident folder stays focused.</p>
+    <p>An SRE who asks a question in <code>corp/eng/sre</code> sees recent oncall messages as ambient context. An incident lead in <code>corp/eng/oncall/incident-42</code> talks only to the agent of the incident folder.</p>
 
     <h2>Each topic has its own observed cursor</h2>
     <p>Inside one folder, every <a href="../concepts/topics.html">topic</a> keeps its own position in the observed messages. So <code>#triage</code> and <code>#deploy</code> in the same folder both see the same ambient messages, and one topic does not use them up for the other. The cursor is per pair of folder and topic, in <code>sessions.observed_cursor</code>.</p>

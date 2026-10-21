@@ -122,7 +122,6 @@
         <tr><td><code>folder</code></td><td>Stores the message under <code>folder</code> and starts a turn on the main topic. This is the default.</td></tr>
         <tr><td><code>folder#observe</code></td><td>Stores the message under <code>folder</code> and starts no turn. A later turn sees the message in the history, with the full ACL of the folder. Engagement overrides every route target: if the chat and topic pair is engaged, <code>routd</code> ignores this mode and starts a turn. See <a href="../concepts/engagement.html">engagement</a>.</td></tr>
         <tr><td><code>folder#announce</code></td><td>Starts a turn as usual, because the tail does not change inbound handling. It also marks the channel as the release-note target of the group. On a version change, the migrate skill posts the changelog line only to <code>#announce</code> channels, one per server: a Slack workspace, a Discord guild or a Telegram chat. With no <code>#announce</code> route, the group announces nowhere. Remove the tail to stop the posts.</td></tr>
-        <tr><td><code>folder#deploy</code></td><td>Stores the message under <code>folder</code> with the topic <code>#deploy</code> and starts a turn there. Use it to send a webhook source to its own topic without an operator prefix.</td></tr>
       </tbody>
     </table>
     <p>Combine a tail with <code>verb=mention</code> and <code>seq</code> to answer only mentions. One row starts a turn on mentions, and a catch-all row observes everything else. An example for Discord, where <code>1100223344</code> is the ID of one guild:</p>
@@ -131,8 +130,6 @@
 20   platform=discord verb=mention               main
 30   platform=discord                            main#observe</code></pre>
     <p>Row 10 starts a turn on every message in guild <code>1100223344</code>. Row 20 starts a turn on a mention anywhere else on Discord. Row 30 stores the rest in <code>main</code> as context and does not start the agent.</p>
-    <p>Plain rows are easier to check than a score per message. With rows, you read the table and see whether a message starts a turn. With a score, you have to simulate it. For the same reason, the prompt carries a rule for <code>#observe</code> context: observed messages are context, not requests, so the agent does not answer them.</p>
-    <p>A new tail can add a new behavior without a new table column.</p>
 
     <h2>ROUTING.md has the full rules</h2>
     <p><a href="https://github.com/kronael/arizuko/blob/main/ROUTING.md">[ROUTING.md]</a> has the full rules: the reply chain, authorization across folders, and complete traces. <a href="../concepts/jid.html">jid</a> shows the address strings in the <code>match</code> column. <a href="../concepts/topics.html">topics</a> shows how <code>#topic</code> isolates a thread inside one folder.</p>
