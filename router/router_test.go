@@ -1,6 +1,8 @@
 package router
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -128,6 +130,44 @@ func TestUserContextXml(t *testing.T) {
 	}
 	if !strings.Contains(got, "<user ") {
 		t.Fatalf("should be user tag, got %q", got)
+	}
+}
+
+// users/<id>.md present: the tag gains name (from the file's `name:` line) and
+// memory="~/users/<id>". A file with no `name:` line gains memory only. The
+// name is XML-escaped. Another sender's file adds nothing to this tag.
+func TestUserContextXml_UserFile(t *testing.T) {
+	cases := []struct {
+		name, file, want string
+	}{
+		{"name and memory", "name: Alice\nrole: dev\n", `<user id="tg-123" name="Alice" memory="~/users/tg-123" />`},
+		{"memory only without a name line", "role: dev\n", `<user id="tg-123" memory="~/users/tg-123" />`},
+		{"name is XML-escaped", "name: A & \"B\"\n", `<user id="tg-123" name="A &amp; &quot;B&quot;" memory="~/users/tg-123" />`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			if err := os.MkdirAll(filepath.Join(dir, "users"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, "users", "tg-123.md"), []byte(tc.file), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if got := UserContextXml("telegram:123", dir); got != tc.want {
+				t.Fatalf("got %q, want %q", got, tc.want)
+			}
+		})
+	}
+
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "users"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "users", "tg-999.md"), []byte("name: Bob\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := UserContextXml("telegram:123", dir), `<user id="tg-123" />`; got != want {
+		t.Fatalf("got %q, want %q", got, want)
 	}
 }
 

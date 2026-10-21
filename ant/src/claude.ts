@@ -233,7 +233,7 @@ function extraDirs(env: Record<string, string>): string[] {
   return dirs;
 }
 
-function createPreCompactHook(assistantName?: string): HookCallback {
+export function createPreCompactHook(assistantName?: string): HookCallback {
   return async (input, _toolUseId, _context) => {
     const { transcript_path: transcriptPath, session_id: sessionId } = input as PreCompactHookInput;
     try {

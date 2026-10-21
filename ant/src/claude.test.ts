@@ -8,6 +8,7 @@ import {
   ClaudeTurn,
   claudeEnv,
   claudeResultStatus,
+  createPreCompactHook,
   isRateLimitRejected,
   packContinuity,
   permanentAPIError,
@@ -277,4 +278,29 @@ test('ClaudeTurn leaves a failure retryable when the rate limit was informationa
   const r = frames[0];
   if (r.kind !== 'result') throw new Error('expected result frame');
   expect(r.terminal).toBeUndefined();
+});
+
+// --- PreCompact hook (BUGS L509) ------------------------------------------
+
+// A missing transcript makes the archive step fail and log. The hook must still
+// return the /diary instruction and the keep-list, so a failed archive never
+// drops them. The path is absent, so nothing is written under /home/node.
+test('createPreCompactHook: an unreadable transcript still returns the /diary instruction and keep-list', async () => {
+  const hook = createPreCompactHook('Atlas');
+  const out = (await hook(
+    {
+      hook_event_name: 'PreCompact',
+      trigger: 'auto',
+      custom_instructions: null,
+      transcript_path: '/nonexistent/transcript.jsonl',
+      session_id: UUID,
+      cwd: '/home/node',
+    },
+    undefined,
+    { signal: new AbortController().signal },
+  )) as { systemMessage: string };
+  expect(out.systemMessage).toContain('Invoke /diary before continuing.');
+  for (const keep of ['PERSONA.md', 'CLAUDE.md', 'diary/ entries', 'facts/', 'users/']) {
+    expect(out.systemMessage).toContain(`- ${keep}`);
+  }
 });
