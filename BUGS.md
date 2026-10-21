@@ -255,6 +255,23 @@ rows and the test to write; none needs a decision except where it says so.
 - `L512` — the eval setup grants egress `*` and two catalog cases need named
   rules; blocked on `L379`.
 
+**Found by the memory and cleanup pass (2026-10-21).**
+
+- `L513` — may runed's start check sum the guest budget of every instance on
+  the host? Today each instance passes alone; krons and sloth together cap 8 GB
+  of guests on a 16 GB host.
+- `L514` — the whisper server loads `WHISPER_MODEL` at start and ignores the
+  `turbo` routd sends; which side owns the model choice?
+- `L515` — pin the kokoro image to a digest instead of `:latest`.
+- `L516` — krons rhias/nemo turns end at the 20-minute deadline with no exit
+  frame; find what the turn waits on.
+- `L517` — onbod never sweeps expired pairing rows.
+- `L518` — a `web:` or `hook:` JID whose folder is gone is still onboarded.
+- `L519` — the `repost` verb has no adapter since the social adapters were
+  retired: drop the verb, or keep it for a future adapter?
+- `L520` — sloth's ExtendDB grew to 2.7 GB in 54 h and fell to 152 MiB on
+  restart; is it load or a leak?
+
 **Found while folding the lowercase `bugs.md` into this file (2026-10-20).**
 
 - `L480` — slakd sends a whole reply as one `chat.postMessage`; `chanlib.Chunk`
@@ -915,6 +932,100 @@ documented setup cannot reach (`anteval/cases/anteval.toml:15-23`).
   named hosts only — the target, the sink, the model — and both cases can
   pass. The disposable instance of spec `6/50` takes that allowlist.
 - **Status:** open — blocked on `L379`. No test — config.
+
+## L513 — runed's host-budget check counts one instance, so two instances overcommit guest memory (2026-10-21, open — needs sign-off)
+
+MEASURED on hel1v5 2026-10-21: `memoryFits` (`runed/qemuhost.go:313`, called at
+`:202`) multiplies the guest size by this instance's `MAX_CONCURRENT_CONTAINERS`
+and compares it with host memory. krons and sloth each run 2 slots of 2 GB, so
+each passes alone, and together they allow 8 GB of guests on a 16 GB host that
+also runs two store stacks; swap was full (5 GB) that day.
+
+- **Severity:** medium — overcommit shows as swap and slow guest boots (20–30 s
+  instead of about 2 s).
+- **Fix:** a host-wide budget the instances share. It crosses instances, so it
+  is a redesign (memory plan step 9, `ship/plan-memory-20261021.md`).
+- **Status:** open — needs sign-off.
+
+## L514 — the whisper server ignores the model routd asks for (2026-10-21, open)
+
+MEASURED 2026-10-21: routd sends `model=turbo` (`core/config.go:33`
+`DefaultWhisperModel`). The host service `kanipi-whisper` builds one
+`WhisperModel(MODEL_SIZE)` at import from `WHISPER_MODEL` (`/app/main.py:7,12`
+in the image) and never reads the request's model. The unit ran
+`WHISPER_MODEL=large-v3`: 3.0 GB, almost all in swap. The operator set
+`large-v3-turbo` in `/etc/systemd/system/whisper.service` on 2026-10-21; the
+container now holds 1.53 GiB and `/docs` answers 200. The unit lives outside
+this repo, so a re-provision of hel1v5 can bring `large-v3` back.
+
+- **Severity:** low — memory, and routd's setting does nothing.
+- **Fix:** drop the request field from routd, or make the server honour it.
+- **Status:** open.
+
+## L515 — the kokoro fragment pulls `:latest` (2026-10-21, open)
+
+`template/services/kokoro.yml:7` names
+`ghcr.io/remsky/kokoro-fastapi-cpu:latest`, so two hosts or two pulls can run
+different builds. Every other third-party image should be pinned the same way.
+
+- **Severity:** low.
+- **Fix:** pin a digest.
+- **Status:** open.
+
+## L516 — krons rhias/nemo turns end at the 20-minute deadline with no exit frame (2026-10-21, open)
+
+OBSERVED by the memory pass 2026-10-21: rhias/nemo turns at 18:42 and 19:25
+UTC ran to runed's 20-minute deadline (`runed/manager.go:21`
+`defaultRunTTL`) and ended with no exit frame. One sampled turn peaked at
+600 MiB of guest memory. What the turn waited on is not measured.
+
+- **Severity:** medium — the turn holds a guest slot for 20 minutes.
+- **Fix:** read the two turns' transcripts and runed logs first.
+- **Status:** open.
+
+## L517 — expired pairing rows are never swept (2026-10-21, open)
+
+MEASURED on krons 2026-10-21: the only code that removes a pairing row is
+`RedeemPairing`; nothing deletes an expired one. After the eval cleanup, 3
+expired rows from 2026-10-14 remain. The cleanup had to delete 24 rows with a
+one-off `objstore` program because no API exists.
+
+- **Severity:** low — dead rows, no access.
+- **Fix:** sweep expired rows in onbod's existing loop.
+- **Status:** open.
+
+## L518 — a `web:` or `hook:` JID whose folder is gone is still onboarded (2026-10-21, open)
+
+MEASURED on krons 2026-10-21: `hook:eval/etjgjnv` (2026-08-08) and
+`web:krons/docs` hold onboarding rows. `3beb1503` stops a bare folder JID from
+onboarding (`L511` half a); a `web:` or `hook:` JID has a platform prefix, so it
+still passes `onboardingAllowed` (`routd/loop.go`).
+
+- **Severity:** low — a greeting into a dead web or hook chat.
+- **Fix:** do not onboard a `web:`/`hook:` JID whose folder has no group row.
+- **Status:** open.
+
+## L519 — the `repost` verb has no adapter (2026-10-21, open — needs sign-off)
+
+The social adapters bskyd, twitd and linkd were the only ones that implemented
+`repost`; they were retired 2026-10-21 (`4d542b98`..`a1732dc1`). The verb and
+its tool text (`ipc/ipc.go:1552`) remain.
+
+- **Severity:** low — the tool returns unsupported on every platform.
+- **Fix:** drop the verb, or keep it for a future adapter.
+- **Status:** open — needs sign-off.
+
+## L520 — sloth's ExtendDB grows to gigabytes and a restart frees it (2026-10-21, open)
+
+MEASURED 2026-10-21: `arizuko_extenddb_sloth` held 2309 MiB plus 391 MiB swap
+after 54 h up, against krons' 607 MiB; both `extenddb.toml` files carry only
+defaults. One 1.5 GB block of large allocations and 12 allocator arenas. After
+`docker restart` at 19:59 UTC it held 152 MiB with no swap.
+
+- **Severity:** medium — the largest single memory holder on the host.
+- **Fix:** sample both stores for 48 h to tell load from a leak, then
+  `MALLOC_ARENA_MAX=2` or an upstream report (memory plan step 6).
+- **Status:** open.
 
 ## L480 — slakd posts a whole reply as ONE chat.postMessage, so a long reply is cut by Slack (2026-10-20, open)
 
