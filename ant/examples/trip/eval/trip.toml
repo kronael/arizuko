@@ -1,6 +1,7 @@
 # trip (May) product eval — run by arizuko's own harness:
 #
-#   anteval run <target> --cases <data-dir>/groups/<folder>/eval
+#   anteval run <target> --cases <data-dir>/groups/<folder>/eval \
+#     --token "$AGENTEVAL_TOKEN" --chat <chat-jid> --folder <folder>
 #
 # These test THIS PRODUCT (persona, rules), not arizuko. Authoring guide and the
 # check-kind list: howto/build-a-product.html §"Ship tests with it".

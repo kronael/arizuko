@@ -93,7 +93,9 @@ arizuko group &lt;inst&gt; grant folder:dev dev "mcp:github_&lt;tool&gt;"</code>
       <h2>The agent must quote facts/repo.md</h2>
       <pre><code>arizuko send &lt;inst&gt; dev "what are the build and test commands here?" --wait</code></pre>
       <p>A correct answer quotes <code>facts/repo.md</code>. If the agent guesses from the source tree, the product files are not in that folder. Then run the tests of the product against the live agent:</p>
-      <pre><code>anteval run &lt;host&gt; --cases &lt;data-dir&gt;/groups/dev/eval</code></pre>
+      <pre><code>anteval run https://&lt;host&gt; --cases &lt;data-dir&gt;/groups/dev/eval \
+  --token "$AGENTEVAL_TOKEN" --chat &lt;chat-jid&gt; --folder dev</code></pre>
+      <p>The three flags and the token command are in <a href="../../howto/build-a-product.html#ship-tests-with-it">Ship tests with it</a>.</p>
 
       <nav class="docs-pager" aria-label="Pager">
         <a rel="prev" href="index.html">&larr; Repo worker (Atlas)</a>
