@@ -263,7 +263,7 @@ func main() {
 		filepath.Join(dataDir, "tts"),
 	))
 	srv.SetChannelRegistry(reg)
-	// Audit writer for mutating MCP tool calls (GatedFns.Audit). Writes
+	// Audit writer for mutating MCP tool calls (RoutdFns.Audit). Writes
 	// audit-system.jl in DATA_DIR — observability only, never the routd.db
 	// audit_log table (audit.Init above owns that). AUDIT_ENABLED unset → noop.
 	srv.SetAudit(audit.New(audit.LoadConfig(dataDir, os.Getenv("ARIZUKO_INSTANCE"))))

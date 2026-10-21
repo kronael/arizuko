@@ -124,7 +124,7 @@ func TestCheckTurnReadsSocialDelivery(t *testing.T) {
 			if kind == "like" {
 				bound := socialTurn()
 				sock := t.TempDir() + "/gated.sock"
-				stop, err := ipc.ServeMCP(sock, srv.buildGatedFns(bound), srv.buildStoreFns(bound), "demo", true, 0, "")
+				stop, err := ipc.ServeMCP(sock, srv.buildRoutdFns(bound), srv.buildStoreFns(bound), "demo", true, 0, "")
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -155,7 +155,7 @@ func TestCheckTurnReadsSocialDelivery(t *testing.T) {
 // The hidden turn check cannot name another turn through a bound MCP socket.
 func TestCheckTurnSocketBinding(t *testing.T) {
 	srv := &Server{}
-	fns := srv.buildGatedFns(turnMCP{turnID: "bound"})
+	fns := srv.buildRoutdFns(turnMCP{turnID: "bound"})
 	if _, err := fns.CheckTurn("demo", "other"); err == nil {
 		t.Fatal("foreign turn accepted")
 	}

@@ -1,7 +1,7 @@
 // Integration tests for session-spanning features shipped in spec 5/F-topic-lineage
 // (topic lineage + plain-cp fork + cross-folder ambient + per-group
 // observe-window) — MCP edge. Each test boots an in-memory store,
-// wires GatedFns the way gated does, binds an MCP socket, and drives
+// wires RoutdFns the way routd does, binds an MCP socket, and drives
 // the tool over the wire. Dashd HTTP coverage lives in
 // dashd/admin_integration_test.go (different package).
 
@@ -56,7 +56,7 @@ func newMCPHarness(t *testing.T, folder string) *mcpHarness {
 		t.Fatal(err)
 	}
 
-	gated := ipc.GatedFns{
+	gated := ipc.RoutdFns{
 		ForkTopic: func(f, parent, child string, force bool) error {
 			h.ForkCalls = append(h.ForkCalls, forkCall{f, parent, child, force})
 			return s.ForkTopic(f, parent, child, core.NewSessionID(), force)

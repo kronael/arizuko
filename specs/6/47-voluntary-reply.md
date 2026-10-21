@@ -349,7 +349,7 @@ existing turn context (`addressed`, `nudged`), owned by routd like
 - `store/messages.go:805` `TurnHasBotReply` — **delivered**; `:163`
   `defaultVerb` is why the `verb` attribute is always present for the query.
 - `ipc/ipc.go:566` `handleSubmitTurn` — the response gains `nudge`; `:63`
-  `GatedFns.SubmitTurn` returns it; `check_turn` is registered beside `:610`.
+  `RoutdFns.SubmitTurn` returns it; `check_turn` is registered beside `:610`.
 - `ipc/ipc.go:1227`, `:1250`, `:1282`, `:1359` — the door and its three checks.
 - `ant/src/index.ts:117` `deliverTurn`, `:357` the `result` that leaves the
   payload, `:468` the turn id a nudge round keeps.

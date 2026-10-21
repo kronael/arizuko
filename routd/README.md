@@ -337,7 +337,7 @@ The audit source of truth is the `audit_log` entity in the tables of routd. Ever
 - `turns.go` handles the end of a turn: the check for an explicit delivery, the one shared nudge decision and `submit_turn` recording.
 - `progress.go` owns the turn's summary, progress message and `finishTurn`. `placement.go` places each delivery of the turn.
 - `deliver.go` is the channel Deliverer, the egress fan-out through `chanreg`.
-- `mcp.go` is the in-process per-turn MCP socket (`ServeTurnMCP`, `buildGatedFns`).
+- `mcp.go` is the in-process per-turn MCP socket (`ServeTurnMCP`, `buildRoutdFns`).
 - `prompt.go` and `prompt_db.go` build the message string of the turn, as "Prompt assembly" describes.
 - `proactive.go` runs the proactive interjection, and `steer.go` dispatches slash commands.
 - `routes_http.go`, `tokens_http.go`, `web_routes_http.go`, `tasks_http.go` and `reads_http.go` serve REST.

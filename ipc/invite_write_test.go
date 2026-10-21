@@ -7,7 +7,7 @@ import (
 
 // invite_create/invite_list/invite_revoke are the MCP twins of REST
 // POST/GET/DELETE /v1/invites (spec 5/16-mcp-rest-unification). A tier-0 (operator) caller drives all
-// three; the closures funnel to onbod (faked here as the GatedFns funcs).
+// three; the closures funnel to onbod (faked here as the RoutdFns funcs).
 func TestServeMCP_InviteWrite_Tier0(t *testing.T) {
 	dir := t.TempDir()
 	sock := dir + "/gated.sock"
@@ -15,7 +15,7 @@ func TestServeMCP_InviteWrite_Tier0(t *testing.T) {
 	var createdGlob, createdIssuer string
 	var revoked string
 	exp := time.Date(2030, 1, 2, 3, 4, 5, 0, time.UTC)
-	gated := GatedFns{
+	routd := RoutdFns{
 		CreateInvite: func(targetGlob, issuedBySub string, maxUses int, expiresAt *time.Time) (InviteInfo, error) {
 			createdGlob, createdIssuer = targetGlob, issuedBySub
 			return InviteInfo{Ref: "ref-1", Token: "tok-1", TargetGlob: targetGlob, IssuedBySub: issuedBySub, MaxUses: maxUses, ExpiresAt: expiresAt}, nil
@@ -31,7 +31,7 @@ func TestServeMCP_InviteWrite_Tier0(t *testing.T) {
 		RevokeInvite: func(ref string) error { revoked = ref; return nil },
 	}
 	// folder "root" → tier 0 (operator).
-	stop, err := ServeMCP(sock, gated, StoreFns{}, "root", true, 0, "")
+	stop, err := ServeMCP(sock, routd, StoreFns{}, "root", true, 0, "")
 	if err != nil {
 		t.Fatalf("ServeMCP: %v", err)
 	}
@@ -89,7 +89,7 @@ func TestServeMCP_InviteWrite_Denied(t *testing.T) {
 	sock := dir + "/gated.sock"
 
 	createCalls, revokeCalls := 0, 0
-	gated := GatedFns{
+	routd := RoutdFns{
 		CreateInvite: func(_, _ string, _ int, _ *time.Time) (InviteInfo, error) {
 			createCalls++
 			return InviteInfo{}, nil
@@ -102,7 +102,7 @@ func TestServeMCP_InviteWrite_Denied(t *testing.T) {
 	db := StoreFns{Authorize: func(_, action string, _ map[string]string) bool {
 		return action == "mcp:invite_list"
 	}}
-	stop, err := ServeMCP(sock, gated, db, "world/a/b", false, 0, "folder:world/a/b")
+	stop, err := ServeMCP(sock, routd, db, "world/a/b", false, 0, "folder:world/a/b")
 	if err != nil {
 		t.Fatalf("ServeMCP: %v", err)
 	}

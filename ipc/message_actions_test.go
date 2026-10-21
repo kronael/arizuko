@@ -8,7 +8,7 @@ import (
 )
 
 // Spec 5/Z-message-actions — pin_message, unpin_message, unpin_all MCP tool integration.
-// Tests verify the gateway wiring: tool calls dispatch to GatedFns.Pin/Unpin
+// Tests verify the routd wiring: tool calls dispatch to RoutdFns.Pin/Unpin
 // and gracefully handle missing capabilities (nil funcs → error, not panic).
 
 func TestServeMCP_PinMessage(t *testing.T) {
@@ -16,7 +16,7 @@ func TestServeMCP_PinMessage(t *testing.T) {
 	sock := dir + "/gated.sock"
 
 	var pinJID, pinTarget string
-	gated := GatedFns{
+	routd := RoutdFns{
 		Pin: func(jid, targetID string) error {
 			pinJID = jid
 			pinTarget = targetID
@@ -26,7 +26,7 @@ func TestServeMCP_PinMessage(t *testing.T) {
 	db := StoreFns{
 		DefaultFolderForJID: func(jid string) string { return "world" },
 	}
-	stop, err := ServeMCP(sock, gated, db, "world", true, 0, "")
+	stop, err := ServeMCP(sock, routd, db, "world", true, 0, "")
 	if err != nil {
 		t.Fatalf("ServeMCP: %v", err)
 	}
@@ -53,7 +53,7 @@ func TestServeMCP_UnpinMessage(t *testing.T) {
 
 	var unpinJID, unpinTarget string
 	var unpinAll bool
-	gated := GatedFns{
+	routd := RoutdFns{
 		Unpin: func(jid, targetID string, all bool) error {
 			unpinJID = jid
 			unpinTarget = targetID
@@ -64,7 +64,7 @@ func TestServeMCP_UnpinMessage(t *testing.T) {
 	db := StoreFns{
 		DefaultFolderForJID: func(jid string) string { return "world" },
 	}
-	stop, err := ServeMCP(sock, gated, db, "world", true, 0, "")
+	stop, err := ServeMCP(sock, routd, db, "world", true, 0, "")
 	if err != nil {
 		t.Fatalf("ServeMCP: %v", err)
 	}
@@ -94,7 +94,7 @@ func TestServeMCP_UnpinAll(t *testing.T) {
 
 	var unpinJID, unpinTarget string
 	var unpinAll bool
-	gated := GatedFns{
+	routd := RoutdFns{
 		Unpin: func(jid, targetID string, all bool) error {
 			unpinJID = jid
 			unpinTarget = targetID
@@ -105,7 +105,7 @@ func TestServeMCP_UnpinAll(t *testing.T) {
 	db := StoreFns{
 		DefaultFolderForJID: func(jid string) string { return "world" },
 	}
-	stop, err := ServeMCP(sock, gated, db, "world", true, 0, "")
+	stop, err := ServeMCP(sock, routd, db, "world", true, 0, "")
 	if err != nil {
 		t.Fatalf("ServeMCP: %v", err)
 	}
@@ -128,16 +128,16 @@ func TestServeMCP_UnpinAll(t *testing.T) {
 	}
 }
 
-// Pin/Unpin tools with nil GatedFns return an error, not a panic.
+// Pin/Unpin tools with nil RoutdFns return an error, not a panic.
 func TestServeMCP_PinUnpin_NilFuncs(t *testing.T) {
 	dir := t.TempDir()
 	sock := dir + "/gated.sock"
 
-	gated := GatedFns{} // Pin and Unpin are nil
+	routd := RoutdFns{} // Pin and Unpin are nil
 	db := StoreFns{
 		DefaultFolderForJID: func(jid string) string { return "world" },
 	}
-	stop, err := ServeMCP(sock, gated, db, "world", true, 0, "")
+	stop, err := ServeMCP(sock, routd, db, "world", true, 0, "")
 	if err != nil {
 		t.Fatalf("ServeMCP: %v", err)
 	}
@@ -167,7 +167,7 @@ func TestServeMCP_PinMessage_Unsupported(t *testing.T) {
 	dir := t.TempDir()
 	sock := dir + "/gated.sock"
 
-	gated := GatedFns{
+	routd := RoutdFns{
 		Pin: func(jid, targetID string) error {
 			return chanlib.ErrUnsupported
 		},
@@ -175,7 +175,7 @@ func TestServeMCP_PinMessage_Unsupported(t *testing.T) {
 	db := StoreFns{
 		DefaultFolderForJID: func(jid string) string { return "world" },
 	}
-	stop, err := ServeMCP(sock, gated, db, "world", true, 0, "")
+	stop, err := ServeMCP(sock, routd, db, "world", true, 0, "")
 	if err != nil {
 		t.Fatalf("ServeMCP: %v", err)
 	}
@@ -200,7 +200,7 @@ func TestServeMCP_PinMessage_CrossFolderDenied(t *testing.T) {
 	sock := dir + "/gated.sock"
 
 	pinCalled := false
-	gated := GatedFns{
+	routd := RoutdFns{
 		Pin: func(jid, targetID string) error {
 			pinCalled = true
 			return nil
@@ -210,7 +210,7 @@ func TestServeMCP_PinMessage_CrossFolderDenied(t *testing.T) {
 		// JID is routed to "other", not "world/a/b"
 		DefaultFolderForJID: func(jid string) string { return "other" },
 	}
-	stop, err := ServeMCP(sock, gated, db, "world/a/b", false, 0, "")
+	stop, err := ServeMCP(sock, routd, db, "world/a/b", false, 0, "")
 	if err != nil {
 		t.Fatalf("ServeMCP: %v", err)
 	}

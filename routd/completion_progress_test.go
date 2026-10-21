@@ -40,7 +40,7 @@ func TestCompletionProgressRetryPreservesOutcome(t *testing.T) {
 				}
 				if mode == "social" {
 					bound := turnMCP{folder: "demo", chatJID: req.ChatJID, turnID: req.TurnID, trigger: req.TriggerSender}
-					if err := srv.buildGatedFns(bound).Like(req.ChatJID, "p9", "👍"); err != nil {
+					if err := srv.buildRoutdFns(bound).Like(req.ChatJID, "p9", "👍"); err != nil {
 						return runedv1.RunOutcome{}, err
 					}
 				}

@@ -10,7 +10,7 @@ func TestSubmitStatusKindsUseTheExistingHiddenMethod(t *testing.T) {
 		t.Run(kind, func(t *testing.T) {
 			var got TurnStatus
 			called := false
-			gated := GatedFns{SubmitStatus: func(folder string, status TurnStatus) error {
+			routd := RoutdFns{SubmitStatus: func(folder string, status TurnStatus) error {
 				if folder != "demo" {
 					t.Errorf("folder=%q", folder)
 				}
@@ -19,7 +19,7 @@ func TestSubmitStatusKindsUseTheExistingHiddenMethod(t *testing.T) {
 			}}
 			raw := []byte(fmt.Sprintf(`{"params":{"turn_id":"t1","text":"the task","kind":%q}}`, kind))
 			var response any
-			handleSubmitStatus(raw, 7, gated, "demo", func(v any) { response = v })
+			handleSubmitStatus(raw, 7, routd, "demo", func(v any) { response = v })
 			if response == nil || called != (kind != "other") {
 				t.Fatalf("called=%v response=%+v", called, response)
 			}

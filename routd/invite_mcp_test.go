@@ -5,10 +5,10 @@ import (
 	"time"
 )
 
-// buildGatedFns.RevokeInvite enforces folder ownership: onbod's DELETE is
+// buildRoutdFns.RevokeInvite enforces folder ownership: onbod's DELETE is
 // ref-only, so the closure first lists the folder's own invites and refuses a
 // ref it didn't issue — an agent can't revoke another folder's invite.
-func TestBuildGatedFns_RevokeInvite_OwnershipGate(t *testing.T) {
+func TestBuildRoutdFns_RevokeInvite_OwnershipGate(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
 		t.Fatal(err)
@@ -20,7 +20,7 @@ func TestBuildGatedFns_RevokeInvite_OwnershipGate(t *testing.T) {
 	loop.SetOnbodClient(fo)
 	srv := NewServer(db, loop, nil, nil, 0, "")
 
-	fns := srv.buildGatedFns(turnMCP{folder: "demo"})
+	fns := srv.buildRoutdFns(turnMCP{folder: "demo"})
 
 	// Owned ref → revoked.
 	if err := fns.RevokeInvite("ref-mine"); err != nil {
@@ -42,7 +42,7 @@ func TestBuildGatedFns_RevokeInvite_OwnershipGate(t *testing.T) {
 
 // CreateInvite + ListInvites federate to onbod and map to ipc.InviteInfo;
 // ListInvites scopes to "agent:<folder>" so an agent sees only its own.
-func TestBuildGatedFns_InviteCreateList(t *testing.T) {
+func TestBuildRoutdFns_InviteCreateList(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
 		t.Fatal(err)
@@ -54,7 +54,7 @@ func TestBuildGatedFns_InviteCreateList(t *testing.T) {
 	loop := NewLoop(db, &recRunner{}, LoopConfig{})
 	loop.SetOnbodClient(fo)
 	srv := NewServer(db, loop, nil, nil, 0, "")
-	fns := srv.buildGatedFns(turnMCP{folder: "demo"})
+	fns := srv.buildRoutdFns(turnMCP{folder: "demo"})
 
 	inv, err := fns.CreateInvite("demo/sub", "agent:demo", 1, &exp)
 	if err != nil {
@@ -80,14 +80,14 @@ func TestBuildGatedFns_InviteCreateList(t *testing.T) {
 
 // nil onbod (ONBOD_URL unset) → the invite closures return a clear error
 // instead of nil-derefing.
-func TestBuildGatedFns_InviteNoOnbod(t *testing.T) {
+func TestBuildRoutdFns_InviteNoOnbod(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
 	srv := NewServer(db, NewLoop(db, &recRunner{}, LoopConfig{}), nil, nil, 0, "")
-	fns := srv.buildGatedFns(turnMCP{folder: "demo"})
+	fns := srv.buildRoutdFns(turnMCP{folder: "demo"})
 
 	if _, err := fns.CreateInvite("demo/", "agent:demo", 1, nil); err == nil {
 		t.Fatalf("CreateInvite with nil onbod should error")

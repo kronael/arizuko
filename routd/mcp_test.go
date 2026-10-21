@@ -11,12 +11,12 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
-// TestBuildGatedFnsSendReply: SendReply is deliver-only — it fans the text out
+// TestBuildRoutdFnsSendReply: SendReply is deliver-only — it fans the text out
 // to the Deliverer and returns the platform id, matching gated's SendReply. It
 // does NOT persist the bot row; that is the ipc tool layer's recordOutbound (not
 // invoked when the closure is called directly). The full socket path including
 // the persist is covered by TestServeTurnMCP_ReplyOverSocket.
-func TestBuildGatedFnsSendReply(t *testing.T) {
+func TestBuildRoutdFnsSendReply(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
 		t.Fatal(err)
@@ -29,7 +29,7 @@ func TestBuildGatedFnsSendReply(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	fns := srv.buildGatedFns(turnMCP{folder: "demo", topic: "", chatJID: "tg:42", turnID: "t1", trigger: "u1"})
+	fns := srv.buildRoutdFns(turnMCP{folder: "demo", topic: "", chatJID: "tg:42", turnID: "t1", trigger: "u1"})
 	pid, _, err := fns.SendReply("tg:42", "answer", "", "mcp-1")
 	if err != nil {
 		t.Fatalf("SendReply: %v", err)

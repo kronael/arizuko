@@ -101,7 +101,7 @@ func serveAuditMCP(t *testing.T, db *DB, folder, callerSub string) string {
 	sock := groupfolder.IpcSocket(t.TempDir())
 	pb := srv.auditPostBuild(folder, callerSub, srv.turnAuthorize(turnMCP{folder: folder}),
 		srv.turnVisible(turnMCP{folder: folder}))
-	stop, err := ipc.ServeMCP(sock, srv.buildGatedFns(turnMCP{folder: folder}),
+	stop, err := ipc.ServeMCP(sock, srv.buildRoutdFns(turnMCP{folder: folder}),
 		srv.buildStoreFns(turnMCP{folder: folder}), folder, false, 0, callerSub, pb)
 	if err != nil {
 		t.Fatalf("ServeMCP: %v", err)

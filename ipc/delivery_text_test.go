@@ -19,7 +19,7 @@ func TestDeliveryTextRefusedBeforeSideEffects(t *testing.T) {
 		t.Fatal(err)
 	}
 	calls, writes := 0, 0
-	gated := GatedFns{
+	routd := RoutdFns{
 		GroupsDir:    dir,
 		SendMessage:  func(_, _, _ string) (string, string, error) { calls++; return "sent", "", nil },
 		SendReply:    func(_, _, _, _ string) (string, string, error) { calls++; return "sent", "", nil },
@@ -29,7 +29,7 @@ func TestDeliveryTextRefusedBeforeSideEffects(t *testing.T) {
 		Edit:         func(_, _, _ string) error { calls++; return nil },
 	}
 	sock := filepath.Join(dir, "gated.sock")
-	stop, err := ServeMCP(sock, gated, StoreFns{PutOutbound: func(core.Message, string) error { writes++; return nil }}, "demo", true, 0, "")
+	stop, err := ServeMCP(sock, routd, StoreFns{PutOutbound: func(core.Message, string) error { writes++; return nil }}, "demo", true, 0, "")
 	if err != nil {
 		t.Fatal(err)
 	}

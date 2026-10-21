@@ -289,7 +289,7 @@ func TestConnectorCall_ReceivesResolvedSecret(t *testing.T) {
 
 	ipcDir := t.TempDir()
 	sock := groupfolder.IpcSocket(ipcDir)
-	stop, err := ipc.ServeMCP(sock, srv.buildGatedFns(turnMCP{folder: "main"}),
+	stop, err := ipc.ServeMCP(sock, srv.buildRoutdFns(turnMCP{folder: "main"}),
 		srv.buildStoreFns(turnMCP{folder: "main"}), "main", false, 0, "")
 	if err != nil {
 		t.Fatalf("ServeMCP: %v", err)

@@ -35,7 +35,7 @@ take `targetId` directly instead of a lookup tool being added.
 social verbs at all; `NoPinSupport` (`:225`) is for adapters that have
 social verbs but no pins (email, linkd). Plumbing:
 `chanlib.BotHandler.Pin/Unpin` + `PinRequest`/`UnpinRequest`,
-`chanreg.HTTPChannel.Pin/Unpin`, `core.Socializer`, `ipc.GatedFns`.
+`chanreg.HTTPChannel.Pin/Unpin`, `core.Socializer`, `ipc.RoutdFns`.
 
 ## Platform coverage
 

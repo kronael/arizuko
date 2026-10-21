@@ -33,11 +33,11 @@ func captureStore(rows *[]outboundRow) StoreFns {
 // owns the retry.
 func TestSendTransientFailureRecordsPendingRow(t *testing.T) {
 	var rows []outboundRow
-	gated := GatedFns{
+	routd := RoutdFns{
 		SendMessage: func(string, string, string) (string, string, error) { return "", "", fmt.Errorf("adapter down") },
 	}
 
-	_, err := internalSend(gated, captureStore(&rows), "demo", "slack:T/C/U", "do not lose me", nil)
+	_, err := internalSend(routd, captureStore(&rows), "demo", "slack:T/C/U", "do not lose me", nil)
 	if err == nil {
 		t.Fatal("internalSend returned nil on a failed send — the agent must get the error")
 	}
@@ -60,13 +60,13 @@ func TestSendTransientFailureRecordsPendingRow(t *testing.T) {
 // PendingOutbound.
 func TestSendPermanentFailureDeadLetters(t *testing.T) {
 	var rows []outboundRow
-	gated := GatedFns{
+	routd := RoutdFns{
 		SendMessage: func(string, string, string) (string, string, error) {
 			return "", "", fmt.Errorf("channel slack send: %w: status 400", chanlib.ErrPermanent)
 		},
 	}
 
-	_, err := internalSend(gated, captureStore(&rows), "demo", "slack:T/C/U", "the chat is gone", nil)
+	_, err := internalSend(routd, captureStore(&rows), "demo", "slack:T/C/U", "the chat is gone", nil)
 	if err == nil {
 		t.Fatal("internalSend returned nil on a permanent refusal")
 	}
@@ -83,13 +83,13 @@ func TestSendPermanentFailureDeadLetters(t *testing.T) {
 // dead-letters — even on a transient error.
 func TestSendFileFailureDeadLetters(t *testing.T) {
 	var rows []outboundRow
-	gated := GatedFns{
+	routd := RoutdFns{
 		SendDocument: func(string, string, string, string, string, string, string) (string, string, error) {
 			return "", "", fmt.Errorf("adapter down")
 		},
 	}
 
-	_, err := internalSend(gated, captureStore(&rows), "demo", "slack:T/C/U", "the report",
+	_, err := internalSend(routd, captureStore(&rows), "demo", "slack:T/C/U", "the report",
 		[]internalSendFile{{LocalPath: "/srv/x.pdf", Filename: "x.pdf", ReplyTo: "p1"}})
 	if err == nil {
 		t.Fatal("internalSend returned nil on a failed file send")
@@ -109,11 +109,11 @@ func TestSendFileFailureDeadLetters(t *testing.T) {
 // exactly one 'sent' row carrying its own platform id.
 func TestSendSuccessRecordsSentRow(t *testing.T) {
 	var rows []outboundRow
-	gated := GatedFns{
+	routd := RoutdFns{
 		SendMessage: func(string, string, string) (string, string, error) { return "pid-7", "", nil },
 	}
 
-	id, err := internalSend(gated, captureStore(&rows), "demo", "slack:T/C/U", "hello", nil)
+	id, err := internalSend(routd, captureStore(&rows), "demo", "slack:T/C/U", "hello", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

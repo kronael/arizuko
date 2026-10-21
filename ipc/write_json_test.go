@@ -24,7 +24,7 @@ import (
 // a future result type puts in StructuredContent.
 func TestServeMCP_AResponseThatWillNotEncodeReachesTheCaller(t *testing.T) {
 	sock := t.TempDir() + "/gated.sock"
-	stop, err := ServeMCP(sock, GatedFns{}, StoreFns{}, "world", false, 0, "",
+	stop, err := ServeMCP(sock, RoutdFns{}, StoreFns{}, "world", false, 0, "",
 		func(srv *server.MCPServer) {
 			srv.AddTool(mcp.NewTool("unencodable"),
 				func(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {

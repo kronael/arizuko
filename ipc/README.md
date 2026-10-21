@@ -259,7 +259,7 @@ store.
 
 ## Public API
 
-- `ServeMCP(sockPath string, gated GatedFns, db StoreFns, folder string, isRoot bool, expectedUID int, callerSub string, postBuild ...func(*server.MCPServer)) (stop func(), err error)`
+- `ServeMCP(sockPath string, routd RoutdFns, db StoreFns, folder string, isRoot bool, expectedUID int, callerSub string, postBuild ...func(*server.MCPServer)) (stop func(), err error)`
   — `expectedUID` is the kernel-attested uid required on every accept
   (1000 = the ant image's `node` user in prod; ≤0 disables the check for
   tests). `isRoot` marks an elevated `/root` turn. `callerSub` is the
@@ -267,7 +267,7 @@ store.
   actor; a non-empty value turns the row-based gate on. `postBuild` are
   routd's resreg seams that mount the cold-tier tools. Returns a stop func
   that tears down the listener and removes the socket.
-- `GatedFns` — callbacks into routd (enqueue, register channel, social
+- `RoutdFns` — callbacks into routd (enqueue, register channel, social
   verbs, `SubmitTurn`, `SubmitStatus`).
 - `StoreFns` — callbacks into the store (a typed subset, not the full
   `*store.Store`), plus `Authorize`, `Visible` and `CheckHold`.

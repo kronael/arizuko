@@ -11,12 +11,12 @@ func TestServeMCP_WebPresence_Derived(t *testing.T) {
 	dir := t.TempDir()
 	sock := dir + "/gated.sock"
 
-	gated := GatedFns{
+	routd := RoutdFns{
 		WebHost:       "krons.fiu.wtf",
 		HostingDomain: "fiu.wtf",
 	}
 	// folder "atlas" → tier 0 (root): may query any folder.
-	stop, err := ServeMCP(sock, gated, StoreFns{}, "atlas", true, 0, "")
+	stop, err := ServeMCP(sock, routd, StoreFns{}, "atlas", true, 0, "")
 	if err != nil {
 		t.Fatalf("ServeMCP: %v", err)
 	}
@@ -50,12 +50,12 @@ func TestServeMCP_WebPresence_Alias(t *testing.T) {
 	dir := t.TempDir()
 	sock := dir + "/gated.sock"
 
-	gated := GatedFns{
+	routd := RoutdFns{
 		WebHost:       "krons.fiu.wtf",
 		HostingDomain: "fiu.wtf",
 		VhostAliases:  map[string]string{"fab.krons.cx": "atlas"},
 	}
-	stop, err := ServeMCP(sock, gated, StoreFns{}, "atlas", true, 0, "")
+	stop, err := ServeMCP(sock, routd, StoreFns{}, "atlas", true, 0, "")
 	if err != nil {
 		t.Fatalf("ServeMCP: %v", err)
 	}
@@ -85,9 +85,9 @@ func TestServeMCP_WebPresence_Tier1Containment(t *testing.T) {
 	dir := t.TempDir()
 	sock := dir + "/gated.sock"
 
-	gated := GatedFns{WebHost: "krons.fiu.wtf", HostingDomain: "fiu.wtf"}
+	routd := RoutdFns{WebHost: "krons.fiu.wtf", HostingDomain: "fiu.wtf"}
 	// folder "world/a" → tier 1.
-	stop, err := ServeMCP(sock, gated, StoreFns{}, "world/a", false, 0, "")
+	stop, err := ServeMCP(sock, routd, StoreFns{}, "world/a", false, 0, "")
 	if err != nil {
 		t.Fatalf("ServeMCP: %v", err)
 	}

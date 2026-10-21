@@ -63,7 +63,7 @@ func TestThreadReplyRetryPreservesPlacement(t *testing.T) {
 				topic: test.topic,
 			}
 			sock := t.TempDir() + "/gated.sock"
-			stop, err := ipc.ServeMCP(sock, srv.buildGatedFns(bound),
+			stop, err := ipc.ServeMCP(sock, srv.buildRoutdFns(bound),
 				srv.buildStoreFns(bound), "demo", true, 0, "")
 			if err != nil {
 				t.Fatal(err)

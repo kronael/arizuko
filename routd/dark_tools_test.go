@@ -325,7 +325,7 @@ func TestListTasks_OwnDB(t *testing.T) {
 
 // TestFetchHistory_AdapterRows: fetch_history proxies to the owning adapter
 // (Deliverer.FetchHistory), decodes the HistoryResponse, and returns the rows.
-// GatedFns.FetchPlatformHistory was nil in routd → the tool was dark.
+// RoutdFns.FetchPlatformHistory was nil in routd → the tool was dark.
 func TestFetchHistory_AdapterRows(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {

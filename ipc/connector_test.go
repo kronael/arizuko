@@ -210,7 +210,7 @@ func TestConnector_EndToEndThroughMCPSocket(t *testing.T) {
 		},
 	}
 	sock := t.TempDir() + "/gated.sock"
-	stop, err := ServeMCP(sock, GatedFns{}, db, "atlas", true, 0, "")
+	stop, err := ServeMCP(sock, RoutdFns{}, db, "atlas", true, 0, "")
 	if err != nil {
 		t.Fatalf("ServeMCP: %v", err)
 	}
@@ -240,7 +240,7 @@ func TestConnector_UnreachableRegistersNothing(t *testing.T) {
 		CallTimeout: time.Second,
 	}}}
 	sock := t.TempDir() + "/gated.sock"
-	stop, err := ServeMCP(sock, GatedFns{}, db, "atlas", true, 0, "")
+	stop, err := ServeMCP(sock, RoutdFns{}, db, "atlas", true, 0, "")
 	if err != nil {
 		t.Fatalf("ServeMCP: %v", err)
 	}

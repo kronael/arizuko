@@ -29,16 +29,16 @@ type turnMCP struct {
 	elevated bool // operator /root turn: the socket authorizes every call
 }
 
-// buildGatedFns wires the write-side agent tools to routd's Deliverer;
+// buildRoutdFns wires the write-side agent tools to routd's Deliverer;
 // execution-plane tools stay nil and ipc.ServeMCP registers only the non-nil.
-func (s *Server) buildGatedFns(t turnMCP) ipc.GatedFns {
+func (s *Server) buildRoutdFns(t turnMCP) ipc.RoutdFns {
 	requireTurn := func(turnID string) error {
 		if turnID != t.turnID {
 			return fmt.Errorf("turn_id does not match this socket")
 		}
 		return nil
 	}
-	return ipc.GatedFns{
+	return ipc.RoutdFns{
 		AcceptURLBase:        s.webHost,
 		WebHost:              s.webHost,
 		HostingDomain:        s.hostingDomain,
@@ -653,5 +653,5 @@ func (s *Server) ServeTurnMCP(t turnMCP, ipcDir string) (func(), error) {
 	packages := s.installedPackagesPostBuild(t.folder, callerSub, authorize, visible)
 	auditTools := s.auditPostBuild(t.folder, callerSub, authorize, visible)
 	deadLetters := s.deadLettersPostBuild(t.folder, callerSub, authorize, visible)
-	return ipc.ServeMCP(sockPath, s.buildGatedFns(t), s.buildStoreFns(t), t.folder, callerID.IsRoot, expectedUID, callerSub, webRoutes, networkRules, scheduledTasks, routes, acl, routeTokens, githubSources, gdriveFiles, groups, membership, packages, auditTools, deadLetters)
+	return ipc.ServeMCP(sockPath, s.buildRoutdFns(t), s.buildStoreFns(t), t.folder, callerID.IsRoot, expectedUID, callerSub, webRoutes, networkRules, scheduledTasks, routes, acl, routeTokens, githubSources, gdriveFiles, groups, membership, packages, auditTools, deadLetters)
 }

@@ -21,7 +21,7 @@ func TestHandleCheckTurn(t *testing.T) {
 		{`{"turn_id":"t1"}`, 1, 0},
 	} {
 		calls := 0
-		gated := GatedFns{CheckTurn: func(folder, id string) (TurnCheck, error) {
+		routd := RoutdFns{CheckTurn: func(folder, id string) (TurnCheck, error) {
 			calls++
 			if folder != "demo" || id != "t1" {
 				t.Fatalf("folder=%q id=%q", folder, id)
@@ -29,7 +29,7 @@ func TestHandleCheckTurn(t *testing.T) {
 			return TurnCheck{Owed: true, Nudge: "deliver"}, nil
 		}}
 		var got map[string]any
-		handleCheckTurn([]byte(`{"params":`+tt.params+`}`), 1, gated, "demo", func(v any) {
+		handleCheckTurn([]byte(`{"params":`+tt.params+`}`), 1, routd, "demo", func(v any) {
 			b, err := json.Marshal(v)
 			if err != nil {
 				t.Fatal(err)
@@ -54,7 +54,7 @@ func TestHandleCheckTurn(t *testing.T) {
 // The socket dispatches check_turn directly and never advertises it as a tool.
 func TestServeMCPCheckTurn(t *testing.T) {
 	sock := t.TempDir() + "/gated.sock"
-	stop, err := ServeMCP(sock, GatedFns{CheckTurn: func(folder, id string) (TurnCheck, error) {
+	stop, err := ServeMCP(sock, RoutdFns{CheckTurn: func(folder, id string) (TurnCheck, error) {
 		if folder != "demo" || id != "t1" {
 			t.Fatalf("folder=%q id=%q", folder, id)
 		}

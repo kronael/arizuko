@@ -73,11 +73,11 @@ func TestSocialVerbIsAudited(t *testing.T) {
 					return nil
 				},
 			}
-			gated := GatedFns{
+			routd := RoutdFns{
 				Like: func(_, _, _ string) error { return tc.likeErr },
 			}
 
-			stop, err := ServeMCP(sock, gated, db, "world/a", false, 0, "folder:world/a")
+			stop, err := ServeMCP(sock, routd, db, "world/a", false, 0, "folder:world/a")
 			if err != nil {
 				t.Fatalf("ServeMCP: %v", err)
 			}

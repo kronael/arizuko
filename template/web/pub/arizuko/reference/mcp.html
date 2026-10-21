@@ -316,7 +316,7 @@
 
     <h3 id="fetch_history"><code>fetch_history</code></h3>
     <p>Pull authoritative conversation history from the channel adapter and cache it. Use to reconstruct context before replying, especially on first contact or after a <code>reset_session</code>. Falls back to local cache if the adapter is down. Not for DB/routing audits (<code>inspect_messages</code>) or single-thread slices (<code>get_thread</code>).</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L2389"><code>ipc/ipc.go:2389</code></a> &middot; Registered only when <code>gated.FetchPlatformHistory != nil</code>. An ordinary caller must have the JID routed to its folder; an elevated <code>/root</code> turn is unrestricted.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L2389"><code>ipc/ipc.go:2389</code></a> &middot; Registered only when <code>routd.FetchPlatformHistory != nil</code>. An ordinary caller must have the JID routed to its folder; an elevated <code>/root</code> turn is unrestricted.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>

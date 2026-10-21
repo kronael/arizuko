@@ -46,7 +46,7 @@ func runVoluntaryMainFixture(t *testing.T) (*DB, *recDeliverer, []string, string
 		t.Fatal(err)
 	}
 	bound := turnMCP{folder: "demo", chatJID: "tg:1", turnID: "first", trigger: "u1"}
-	fns := srv.buildGatedFns(bound)
+	fns := srv.buildRoutdFns(bound)
 	var mu sync.Mutex
 	var submitted []string
 	fns.SubmitTurn = func(folder string, result ipc.TurnResult) (ipc.TurnAck, error) {

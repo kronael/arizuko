@@ -53,7 +53,7 @@ func TestSendVoice_SynthesizesAndDelivers(t *testing.T) {
 	if _, err := db.PutTurnContext("t1", "demo", "#deploy", "tg:42", "u1", ""); err != nil {
 		t.Fatal(err)
 	}
-	fns := srv.buildGatedFns(turnMCP{folder: "demo", topic: "#deploy", chatJID: "tg:42", turnID: "t1"})
+	fns := srv.buildRoutdFns(turnMCP{folder: "demo", topic: "#deploy", chatJID: "tg:42", turnID: "t1"})
 
 	pid, _, err := fns.SendVoice("tg:42", "hello there", "", "demo", "")
 	if err != nil {

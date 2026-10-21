@@ -36,7 +36,7 @@ func serveTasksMCP(t *testing.T, db *DB, folder, callerSub string) string {
 	sock := groupfolder.IpcSocket(ipcDir)
 	pb := srv.scheduledTasksPostBuild(folder, callerSub, srv.turnAuthorize(turnMCP{folder: folder}),
 		srv.turnVisible(turnMCP{folder: folder}), auth.Resolve(folder))
-	stop, err := ipc.ServeMCP(sock, srv.buildGatedFns(turnMCP{folder: folder}),
+	stop, err := ipc.ServeMCP(sock, srv.buildRoutdFns(turnMCP{folder: folder}),
 		srv.buildStoreFns(turnMCP{folder: folder}), folder, false, 0, callerSub, pb)
 	if err != nil {
 		t.Fatalf("ServeMCP: %v", err)
@@ -61,7 +61,7 @@ func serveTasksMCPElevated(t *testing.T, db *DB, folder string) string {
 	callerSub := "folder:" + folder
 	pb := srv.scheduledTasksPostBuild(folder, callerSub, srv.turnAuthorize(turnMCP{folder: folder, elevated: true}),
 		srv.turnVisible(turnMCP{folder: folder, elevated: true}), turnIdentity(folder, true))
-	stop, err := ipc.ServeMCP(sock, srv.buildGatedFns(turnMCP{folder: folder}),
+	stop, err := ipc.ServeMCP(sock, srv.buildRoutdFns(turnMCP{folder: folder}),
 		srv.buildStoreFns(turnMCP{folder: folder}), folder, true, 0, callerSub, pb)
 	if err != nil {
 		t.Fatalf("ServeMCP: %v", err)

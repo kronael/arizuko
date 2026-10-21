@@ -125,10 +125,10 @@ func TestDecodePanePrompts_Errors(t *testing.T) {
 func TestHandleSubmitTurn_MissingTurnID(t *testing.T) {
 	dir := t.TempDir()
 	sock := dir + "/gated.sock"
-	gated := GatedFns{
+	routd := RoutdFns{
 		SubmitTurn: func(folder string, t TurnResult) (TurnAck, error) { return TurnAck{OK: true}, nil },
 	}
-	stop, err := ServeMCP(sock, gated, StoreFns{}, "world", false, 0, "")
+	stop, err := ServeMCP(sock, routd, StoreFns{}, "world", false, 0, "")
 	if err != nil {
 		t.Fatalf("ServeMCP: %v", err)
 	}
@@ -168,7 +168,7 @@ func TestHandleSubmitTurn_NilSubmitTurn(t *testing.T) {
 	dir := t.TempDir()
 	sock := dir + "/gated.sock"
 	// SubmitTurn is nil — should return a config error.
-	stop, err := ServeMCP(sock, GatedFns{}, StoreFns{}, "world", false, 0, "")
+	stop, err := ServeMCP(sock, RoutdFns{}, StoreFns{}, "world", false, 0, "")
 	if err != nil {
 		t.Fatalf("ServeMCP: %v", err)
 	}
@@ -206,7 +206,7 @@ func TestHandleSubmitTurn_NilSubmitTurn(t *testing.T) {
 func TestHandleSubmitTurn_ParseError(t *testing.T) {
 	dir := t.TempDir()
 	sock := dir + "/gated.sock"
-	stop, err := ServeMCP(sock, GatedFns{}, StoreFns{}, "world", false, 0, "")
+	stop, err := ServeMCP(sock, RoutdFns{}, StoreFns{}, "world", false, 0, "")
 	if err != nil {
 		t.Fatalf("ServeMCP: %v", err)
 	}
@@ -257,7 +257,7 @@ func TestServeMCP_InspectMessages_AccessDenied(t *testing.T) {
 		// tier-2 caller; the jid is NOT routed to their folder.
 		JIDRoutedToFolder: func(jid, folder string) bool { return false },
 	}
-	stop, err := ServeMCP(sock, GatedFns{}, db, "world/a/b", false, 0, "")
+	stop, err := ServeMCP(sock, RoutdFns{}, db, "world/a/b", false, 0, "")
 	if err != nil {
 		t.Fatalf("ServeMCP: %v", err)
 	}
@@ -281,7 +281,7 @@ func TestServeMCP_FetchHistory_AccessDenied(t *testing.T) {
 	sock := dir + "/gated.sock"
 
 	called := 0
-	gated := GatedFns{
+	routd := RoutdFns{
 		FetchPlatformHistory: func(jid string, before time.Time, limit int) (PlatformHistory, error) {
 			called++
 			return PlatformHistory{Source: "platform"}, nil
@@ -290,7 +290,7 @@ func TestServeMCP_FetchHistory_AccessDenied(t *testing.T) {
 	db := StoreFns{
 		JIDRoutedToFolder: func(jid, folder string) bool { return false },
 	}
-	stop, err := ServeMCP(sock, gated, db, "world/a/b", false, 0, "")
+	stop, err := ServeMCP(sock, routd, db, "world/a/b", false, 0, "")
 	if err != nil {
 		t.Fatalf("ServeMCP: %v", err)
 	}
@@ -314,7 +314,7 @@ func TestServeMCP_FetchHistory_HappyPath(t *testing.T) {
 	sock := dir + "/gated.sock"
 	now := time.Now()
 
-	gated := GatedFns{
+	routd := RoutdFns{
 		FetchPlatformHistory: func(jid string, before time.Time, limit int) (PlatformHistory, error) {
 			return PlatformHistory{
 				Source: "platform",
@@ -327,7 +327,7 @@ func TestServeMCP_FetchHistory_HappyPath(t *testing.T) {
 	db := StoreFns{
 		// tier-0 (root folder) bypasses JIDRoutedToFolder entirely.
 	}
-	stop, err := ServeMCP(sock, gated, db, "root", true, 0, "")
+	stop, err := ServeMCP(sock, routd, db, "root", true, 0, "")
 	if err != nil {
 		t.Fatalf("ServeMCP: %v", err)
 	}

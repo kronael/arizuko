@@ -35,7 +35,7 @@ type aclCall struct {
 	Principal, Scope, Action, Effect string
 }
 
-// fullMCPHarness wires every GatedFns/StoreFns method the MCP tools under
+// fullMCPHarness wires every RoutdFns/StoreFns method the MCP tools under
 // test need, capturing social/ACL calls for assertion.
 type fullMCPHarness struct {
 	S      *store.Store
@@ -77,7 +77,7 @@ func newFullMCPHarness(t *testing.T, folder string) *fullMCPHarness {
 		return folder
 	}
 
-	gated := ipc.GatedFns{
+	gated := ipc.RoutdFns{
 		Like: func(jid, target, reaction string) error {
 			h.LikeCalls = append(h.LikeCalls, socialCall{jid, target, reaction})
 			return nil

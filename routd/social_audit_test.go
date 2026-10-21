@@ -11,7 +11,7 @@ import (
 // (the enum in audit/event.go is closed and has no such member) and no handler
 // emitted anything at all.
 //
-// The agent drives these over the MCP socket (routd/mcp.go buildGatedFns).
+// The agent drives these over the MCP socket (routd/mcp.go buildRoutdFns).
 //
 // Falsifiable: drop auditSocial from socialTool and every case here loses its
 // row. Every other test in the package stays green either way — the row is the
@@ -79,25 +79,25 @@ func TestSocialActionsAuditedOverMCP(t *testing.T) {
 		params   string
 	}{
 		{"like", func(s *Server) error {
-			return s.buildGatedFns(socialTurn()).Like("slack:T/C/U", "p9", "🎉")
+			return s.buildRoutdFns(socialTurn()).Like("slack:T/C/U", "p9", "🎉")
 		}, "message.like", "slack:T/C/U/p9", `{"reaction":"🎉"}`},
 		{"dislike", func(s *Server) error {
-			return s.buildGatedFns(socialTurn()).Dislike("slack:T/C/U", "p9")
+			return s.buildRoutdFns(socialTurn()).Dislike("slack:T/C/U", "p9")
 		}, "message.dislike", "slack:T/C/U/p9", ""},
 		{"delete", func(s *Server) error {
-			return s.buildGatedFns(socialTurn()).Delete("slack:T/C/U", "p9")
+			return s.buildRoutdFns(socialTurn()).Delete("slack:T/C/U", "p9")
 		}, "message.delete", "slack:T/C/U/p9", ""},
 		{"edit", func(s *Server) error {
-			return s.buildGatedFns(socialTurn()).Edit("slack:T/C/U", "p9", "fixed")
+			return s.buildRoutdFns(socialTurn()).Edit("slack:T/C/U", "p9", "fixed")
 		}, "message.edit", "slack:T/C/U/p9", ""},
 		{"pin", func(s *Server) error {
-			return s.buildGatedFns(socialTurn()).Pin("slack:T/C/U", "p9")
+			return s.buildRoutdFns(socialTurn()).Pin("slack:T/C/U", "p9")
 		}, "message.pin", "slack:T/C/U/p9", ""},
 		{"unpin", func(s *Server) error {
-			return s.buildGatedFns(socialTurn()).Unpin("slack:T/C/U", "p9", false)
+			return s.buildRoutdFns(socialTurn()).Unpin("slack:T/C/U", "p9", false)
 		}, "message.unpin", "slack:T/C/U/p9", ""},
 		{"unpin_all", func(s *Server) error {
-			return s.buildGatedFns(socialTurn()).Unpin("slack:T/C/U", "", true)
+			return s.buildRoutdFns(socialTurn()).Unpin("slack:T/C/U", "", true)
 		}, "message.unpin", "slack:T/C/U", `{"all":true}`},
 	}
 	for _, tc := range cases {
@@ -138,7 +138,7 @@ func TestSocialAuditRecordsFailure(t *testing.T) {
 	db, dl, srv := socialSrv(t)
 	dl.editErr = errSend
 
-	if err := srv.buildGatedFns(socialTurn()).Edit("slack:T/C/U", "p9", "fixed"); err == nil {
+	if err := srv.buildRoutdFns(socialTurn()).Edit("slack:T/C/U", "p9", "fixed"); err == nil {
 		t.Fatal("failed edit returned no error")
 	}
 
@@ -159,7 +159,7 @@ func TestSocialAuditNeverCarriesMessageContent(t *testing.T) {
 	const secretText = "board deck leaked to bob@example.com"
 
 	db, _, srv := socialSrv(t)
-	if err := srv.buildGatedFns(socialTurn()).Edit("slack:T/C/U", "p9", secretText); err != nil {
+	if err := srv.buildRoutdFns(socialTurn()).Edit("slack:T/C/U", "p9", secretText); err != nil {
 		t.Fatal(err)
 	}
 	assertNoContent(t, db, secretText)

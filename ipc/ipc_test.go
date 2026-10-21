@@ -18,7 +18,7 @@ import (
 )
 
 func TestBuildMCPServer(t *testing.T) {
-	gated := GatedFns{
+	routd := RoutdFns{
 		SendMessage: func(jid, text, msgID string) (string, string, error) { return "", "", nil },
 		SendDocument: func(jid, path, fn, caption, replyTo, threadID, msgID string) (string, string, error) {
 			return "", "", nil
@@ -28,14 +28,14 @@ func TestBuildMCPServer(t *testing.T) {
 	}
 	db := StoreFns{}
 	// tier-0 gets all tools via ["*"] rules
-	srv := buildMCPServer(gated, db, "world", true, "")
+	srv := buildMCPServer(routd, db, "world", true, "")
 	if srv == nil {
 		t.Fatal("expected non-nil server")
 	}
 }
 
 func TestBuildMCPServer_NoTools(t *testing.T) {
-	gated := GatedFns{
+	routd := RoutdFns{
 		SendMessage: func(jid, text, msgID string) (string, string, error) { return "", "", nil },
 		SendDocument: func(jid, path, fn, caption, replyTo, threadID, msgID string) (string, string, error) {
 			return "", "", nil
@@ -45,14 +45,14 @@ func TestBuildMCPServer_NoTools(t *testing.T) {
 	}
 	db := StoreFns{}
 	// empty rules → no tools registered (except get/set_grants for tier 0-1)
-	srv := buildMCPServer(gated, db, "world", false, "")
+	srv := buildMCPServer(routd, db, "world", false, "")
 	if srv == nil {
 		t.Fatal("expected non-nil server")
 	}
 }
 
 func TestAllToolsRegistered(t *testing.T) {
-	gated := GatedFns{
+	routd := RoutdFns{
 		SendMessage: func(jid, text, msgID string) (string, string, error) { return "", "", nil },
 		SendDocument: func(jid, path, fn, caption, replyTo, threadID, msgID string) (string, string, error) {
 			return "", "", nil
@@ -70,13 +70,13 @@ func TestAllToolsRegistered(t *testing.T) {
 	}
 
 	// tier-0 with all rules — all tools should be present
-	srv := buildMCPServer(gated, db, "world", true, "")
+	srv := buildMCPServer(routd, db, "world", true, "")
 	if srv == nil {
 		t.Fatal("expected non-nil server")
 	}
 
 	// tier-3 with reply only — most tools absent
-	srv2 := buildMCPServer(gated, db, "w/a/b/c", false, "")
+	srv2 := buildMCPServer(routd, db, "w/a/b/c", false, "")
 	if srv2 == nil {
 		t.Fatal("expected non-nil server for tier-3")
 	}
@@ -84,7 +84,7 @@ func TestAllToolsRegistered(t *testing.T) {
 
 func TestSocialActionsRegistered(t *testing.T) {
 	var postCalls, reactCalls, deleteCalls int
-	gated := GatedFns{
+	routd := RoutdFns{
 		Post: func(jid, content string, media []string) (string, error) {
 			postCalls++
 			return "pid-1", nil
@@ -101,18 +101,18 @@ func TestSocialActionsRegistered(t *testing.T) {
 	}
 	// 5/33-paths-roles: visibility is db.Visible (nil → all shown); this test only checks the
 	// server builds. Root here (all tools).
-	srv := buildMCPServer(gated, StoreFns{}, "world", true, "")
+	srv := buildMCPServer(routd, StoreFns{}, "world", true, "")
 	if srv == nil {
 		t.Fatal("expected non-nil server")
 	}
-	srv2 := buildMCPServer(gated, StoreFns{}, "w/a/b/c", false, "")
+	srv2 := buildMCPServer(routd, StoreFns{}, "w/a/b/c", false, "")
 	if srv2 == nil {
 		t.Fatal("expected non-nil server for tier-3 subset")
 	}
 }
 
 func TestSendReply(t *testing.T) {
-	gated := GatedFns{
+	routd := RoutdFns{
 		SendMessage: func(jid, text, msgID string) (string, string, error) { return "", "", nil },
 		SendDocument: func(jid, path, fn, caption, replyTo, threadID, msgID string) (string, string, error) {
 			return "", "", nil
@@ -120,7 +120,7 @@ func TestSendReply(t *testing.T) {
 		SendReply: func(jid, text, rid, msgID string) (string, string, error) { return "", "", nil },
 		GroupsDir: "/tmp/groups",
 	}
-	srv := buildMCPServer(gated, StoreFns{}, "world", false, "")
+	srv := buildMCPServer(routd, StoreFns{}, "world", false, "")
 	if srv == nil {
 		t.Fatal("expected non-nil server")
 	}
@@ -135,7 +135,7 @@ func TestRecordOutboundStampsTurnID(t *testing.T) {
 		PutOutbound:   func(m core.Message, _ string) error { got = m; return nil },
 		CurrentTurnID: func(string) string { return "turn-xyz" },
 	}
-	recordOutbound(GatedFns{}, db, "slack:T/C/U", "hi", "pid-1", "demo", "")
+	recordOutbound(RoutdFns{}, db, "slack:T/C/U", "hi", "pid-1", "demo", "")
 	if got.TurnID != "turn-xyz" {
 		t.Fatalf("recordOutbound did not stamp turn_id: got %q", got.TurnID)
 	}
@@ -177,13 +177,13 @@ func TestWorkspaceRel(t *testing.T) {
 // and build without error.
 func TestWorkToolsRegistered(t *testing.T) {
 	dir := t.TempDir()
-	gated := GatedFns{GroupsDir: dir}
+	routd := RoutdFns{GroupsDir: dir}
 	// tier-0 with no rules: get_work always registers, set_work gated on tier
-	if srv := buildMCPServer(gated, StoreFns{}, "world", false, ""); srv == nil {
+	if srv := buildMCPServer(routd, StoreFns{}, "world", false, ""); srv == nil {
 		t.Fatal("tier-0 build failed")
 	}
 	// tier-3 at w/a/b/c: get_work registers, set_work does not
-	if srv := buildMCPServer(gated, StoreFns{}, "w/a/b/c", false, ""); srv == nil {
+	if srv := buildMCPServer(routd, StoreFns{}, "w/a/b/c", false, ""); srv == nil {
 		t.Fatal("tier-3 build failed")
 	}
 
@@ -215,7 +215,7 @@ func TestIdentityUsedInServer(t *testing.T) {
 func TestServeMCP_PeerCredAcceptsMatchingUID(t *testing.T) {
 	dir := t.TempDir()
 	sock := dir + "/gated.sock"
-	stop, err := ServeMCP(sock, GatedFns{}, StoreFns{}, "test", false, os.Getuid(), "")
+	stop, err := ServeMCP(sock, RoutdFns{}, StoreFns{}, "test", false, os.Getuid(), "")
 	if err != nil {
 		t.Fatalf("ServeMCP: %v", err)
 	}
@@ -241,7 +241,7 @@ func TestServeMCP_SubmitTurn(t *testing.T) {
 
 	var mu sync.Mutex
 	var got []TurnResult
-	gated := GatedFns{
+	routd := RoutdFns{
 		SubmitTurn: func(folder string, t TurnResult) (TurnAck, error) {
 			mu.Lock()
 			defer mu.Unlock()
@@ -253,7 +253,7 @@ func TestServeMCP_SubmitTurn(t *testing.T) {
 		},
 	}
 
-	stop, err := ServeMCP(sock, gated, StoreFns{}, "world", false, 0, "")
+	stop, err := ServeMCP(sock, routd, StoreFns{}, "world", false, 0, "")
 	if err != nil {
 		t.Fatalf("ServeMCP: %v", err)
 	}
@@ -314,7 +314,7 @@ func TestServeMCP_SubmitTurnHiddenFromToolsList(t *testing.T) {
 	dir := t.TempDir()
 	sock := dir + "/gated.sock"
 
-	stop, err := ServeMCP(sock, GatedFns{}, StoreFns{}, "world", true, 0, "")
+	stop, err := ServeMCP(sock, RoutdFns{}, StoreFns{}, "world", true, 0, "")
 	if err != nil {
 		t.Fatalf("ServeMCP: %v", err)
 	}
@@ -416,7 +416,7 @@ func TestServeMCP_GetThread_HappyPath(t *testing.T) {
 		},
 		JIDRoutedToFolder: func(jid, folder string) bool { return true },
 	}
-	stop, err := ServeMCP(sock, GatedFns{}, db, "world", true, 0, "")
+	stop, err := ServeMCP(sock, RoutdFns{}, db, "world", true, 0, "")
 	if err != nil {
 		t.Fatalf("ServeMCP: %v", err)
 	}
@@ -452,7 +452,7 @@ func TestServeMCP_GetThread_CrossGroupDenied(t *testing.T) {
 		// Tier-2 (folder "world/a/b") asking about a jid routed to a different folder.
 		JIDRoutedToFolder: func(jid, folder string) bool { return false },
 	}
-	stop, err := ServeMCP(sock, GatedFns{}, db, "world/a/b", false, 0, "")
+	stop, err := ServeMCP(sock, RoutdFns{}, db, "world/a/b", false, 0, "")
 	if err != nil {
 		t.Fatalf("ServeMCP: %v", err)
 	}
@@ -475,7 +475,7 @@ func TestServeMCP_PeerCredRejectsWrongUID(t *testing.T) {
 	sock := dir + "/gated.sock"
 	// Set expectedUID to a value we can't possibly be.
 	wrong := os.Getuid() + 100000
-	stop, err := ServeMCP(sock, GatedFns{}, StoreFns{}, "test", false, wrong, "")
+	stop, err := ServeMCP(sock, RoutdFns{}, StoreFns{}, "test", false, wrong, "")
 	if err != nil {
 		t.Fatalf("ServeMCP: %v", err)
 	}
@@ -525,8 +525,8 @@ func TestServeMCP_Engagement_Authz(t *testing.T) {
 			return jid == "tg:2" && folder == "world"
 		},
 	}
-	gated := GatedFns{EngagementTTL: 10 * time.Minute}
-	stop, err := ServeMCP(sock, gated, db, "world", true, 0, "")
+	routd := RoutdFns{EngagementTTL: 10 * time.Minute}
+	stop, err := ServeMCP(sock, routd, db, "world", true, 0, "")
 	if err != nil {
 		t.Fatalf("ServeMCP: %v", err)
 	}
@@ -600,8 +600,8 @@ func TestServeMCP_Engagement_FreshChatAuthz(t *testing.T) {
 		EngagedFolder:     func(jid, topic string) string { return "" }, // no prior engagement
 		JIDRoutedToFolder: func(jid, folder string) bool { return false },
 	}
-	gated := GatedFns{EngagementTTL: 10 * time.Minute}
-	stop, err := ServeMCP(sock, gated, db, "world", true, 0, "")
+	routd := RoutdFns{EngagementTTL: 10 * time.Minute}
+	stop, err := ServeMCP(sock, routd, db, "world", true, 0, "")
 	if err != nil {
 		t.Fatalf("ServeMCP: %v", err)
 	}
@@ -642,11 +642,11 @@ func TestRecordOutbound_TimedSkipsEngagement(t *testing.T) {
 			},
 		}
 	}
-	gated := GatedFns{EngagementTTL: 10 * time.Minute}
+	routd := RoutdFns{EngagementTTL: 10 * time.Minute}
 
 	// Human-triggered turn: bump fires.
 	db := mkDB("user:42")
-	recordOutbound(gated, db, "tg:1", "hi", "plat-1", "world", "")
+	recordOutbound(routd, db, "tg:1", "hi", "plat-1", "world", "")
 	if lastReplyWrites != 1 || bumps != 1 {
 		t.Fatalf("user turn: writes=%d bumps=%d, want 1/1", lastReplyWrites, bumps)
 	}
@@ -657,7 +657,7 @@ func TestRecordOutbound_TimedSkipsEngagement(t *testing.T) {
 	// Timed-triggered turn: bump skipped, last_reply still written.
 	lastReplyWrites, bumps, triggerLookup = 0, 0, ""
 	db = mkDB("timed-isolated-abc")
-	recordOutbound(gated, db, "tg:1", "hi", "plat-2", "world", "")
+	recordOutbound(routd, db, "tg:1", "hi", "plat-2", "world", "")
 	if lastReplyWrites != 1 {
 		t.Fatalf("timed turn: SetLastReply writes=%d, want 1", lastReplyWrites)
 	}
@@ -668,7 +668,7 @@ func TestRecordOutbound_TimedSkipsEngagement(t *testing.T) {
 	// Empty platformID (failed send): neither write fires.
 	lastReplyWrites, bumps = 0, 0
 	db = mkDB("user:42")
-	recordOutbound(gated, db, "tg:1", "hi", "", "world", "")
+	recordOutbound(routd, db, "tg:1", "hi", "", "world", "")
 	if lastReplyWrites != 0 || bumps != 0 {
 		t.Fatalf("empty platformID: writes=%d bumps=%d, want 0/0", lastReplyWrites, bumps)
 	}
@@ -705,13 +705,13 @@ func TestServeMCP_Reply_ThreadsViaActiveTopic(t *testing.T) {
 		PutMessage:          func(m core.Message) error { return nil },
 		DefaultFolderForJID: func(jid string) string { return "world" }, // route exists → authz passes
 	}
-	gated := GatedFns{
+	routd := RoutdFns{
 		SendReply: func(jid, text, rid, msgID string) (string, string, error) {
 			sentReplyTo = rid
 			return "new-id", "", nil
 		},
 	}
-	stop, err := ServeMCP(sock, gated, db, "world", true, 0, "")
+	stop, err := ServeMCP(sock, routd, db, "world", true, 0, "")
 	if err != nil {
 		t.Fatalf("ServeMCP: %v", err)
 	}
@@ -783,14 +783,14 @@ func TestServeMCP_SendFile_ThreadsViaActiveTopic(t *testing.T) {
 		PutOutbound:         func(m core.Message, _ string) error { recordedPlatformID = m.PlatformID; return nil },
 		DefaultFolderForJID: func(jid string) string { return "world" },
 	}
-	gated := GatedFns{
+	routd := RoutdFns{
 		GroupsDir: dir,
 		SendDocument: func(jid, path, name, caption, replyTo, threadID, msgID string) (string, string, error) {
 			sentThreadID = threadID
 			return wantPlatformID, threadID, nil
 		},
 	}
-	stop, err := ServeMCP(sock, gated, db, "world", true, 0, "")
+	stop, err := ServeMCP(sock, routd, db, "world", true, 0, "")
 	if err != nil {
 		t.Fatalf("ServeMCP: %v", err)
 	}
@@ -834,13 +834,13 @@ func TestServeMCP_SendVoice_ThreadsViaActiveTopic(t *testing.T) {
 		PutMessage:          func(m core.Message) error { return nil },
 		DefaultFolderForJID: func(jid string) string { return "world" },
 	}
-	gated := GatedFns{
+	routd := RoutdFns{
 		SendVoice: func(jid, text, voice, folder, threadID string) (string, string, error) {
 			sentThreadID = threadID
 			return "voice-id", threadID, nil
 		},
 	}
-	stop, err := ServeMCP(sock, gated, db, "world", true, 0, "")
+	stop, err := ServeMCP(sock, routd, db, "world", true, 0, "")
 	if err != nil {
 		t.Fatalf("ServeMCP: %v", err)
 	}
@@ -913,12 +913,12 @@ func TestServeMCP_FeedVerbs_RecordOutbound(t *testing.T) {
 			return nil
 		},
 	}
-	gated := GatedFns{
+	routd := RoutdFns{
 		Quote:   func(jid, src, comment string) (string, error) { return "quote-id", nil },
 		Repost:  func(jid, src string) (string, error) { return "repost-id", nil },
 		Forward: func(src, target, comment string) (string, error) { return "forward-id", nil },
 	}
-	stop, err := ServeMCP(sock, gated, db, "world", true, 0, "")
+	stop, err := ServeMCP(sock, routd, db, "world", true, 0, "")
 	if err != nil {
 		t.Fatalf("ServeMCP: %v", err)
 	}
@@ -956,7 +956,7 @@ func TestServeMCP_FeedVerbs_RecordOutbound(t *testing.T) {
 	}
 }
 
-// L65: escalate_group and delegate_group guarded on gated.EnqueueMessageCheck
+// L65: escalate_group and delegate_group guarded on routd.EnqueueMessageCheck
 // being non-nil. routd never sets it — its loop polls new messages by timestamp
 // (routd/mcp.go:121 says exactly that for InjectMessage) — so both tools were
 // registered, listed to the agent, and returned "not configured" on EVERY call
@@ -970,8 +970,8 @@ func TestDelegateGroupWorksWithoutEnqueueHook(t *testing.T) {
 		PutMessage:        func(m core.Message) error { wrote = append(wrote, m); return nil },
 		JIDRoutedToFolder: func(jid, folder string) bool { return true },
 	}
-	// GatedFns{} leaves EnqueueMessageCheck nil, exactly as routd does.
-	stop, err := ServeMCP(sock, GatedFns{}, db, "world", true, 0, "")
+	// RoutdFns{} leaves EnqueueMessageCheck nil, exactly as routd does.
+	stop, err := ServeMCP(sock, RoutdFns{}, db, "world", true, 0, "")
 	if err != nil {
 		t.Fatalf("ServeMCP: %v", err)
 	}
@@ -1002,8 +1002,8 @@ func TestEscalateGroupWorksWithoutEnqueueHook(t *testing.T) {
 		PutMessage:        func(m core.Message) error { wrote = append(wrote, m); return nil },
 		JIDRoutedToFolder: func(jid, folder string) bool { return true },
 	}
-	// GatedFns{} leaves EnqueueMessageCheck nil, exactly as routd does.
-	stop, err := ServeMCP(sock, GatedFns{}, db, "world/child", true, 0, "")
+	// RoutdFns{} leaves EnqueueMessageCheck nil, exactly as routd does.
+	stop, err := ServeMCP(sock, RoutdFns{}, db, "world/child", true, 0, "")
 	if err != nil {
 		t.Fatalf("ServeMCP: %v", err)
 	}

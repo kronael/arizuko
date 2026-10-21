@@ -18,7 +18,7 @@ func summaryBroker(t *testing.T, dl *recDeliverer) (*DB, *Server, string) {
 	doSetRoutes(t, db, []core.Route{{Match: "platform=slack", Target: "demo"}})
 	bound := turnMCP{folder: "demo", chatJID: progressJID, turnID: "t1", trigger: "u1"}
 	sock := t.TempDir() + "/gated.sock"
-	stop, err := ipc.ServeMCP(sock, srv.buildGatedFns(bound), srv.buildStoreFns(bound), "demo", true, 0, "")
+	stop, err := ipc.ServeMCP(sock, srv.buildRoutdFns(bound), srv.buildStoreFns(bound), "demo", true, 0, "")
 	if err != nil {
 		t.Fatal(err)
 	}

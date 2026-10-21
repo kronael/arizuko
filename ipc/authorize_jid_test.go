@@ -59,7 +59,7 @@ func TestRecordOutbound_StoresPlatformID(t *testing.T) {
 	var got core.Message
 	db := StoreFns{PutOutbound: func(m core.Message, _ string) error { got = m; return nil }}
 
-	recordOutbound(GatedFns{}, db, "slack:T/channel/C0B4", "hello", "1780300379.765170", "atlas/support", "")
+	recordOutbound(RoutdFns{}, db, "slack:T/channel/C0B4", "hello", "1780300379.765170", "atlas/support", "")
 
 	if got.PlatformID != "1780300379.765170" {
 		t.Fatalf("recordOutbound PlatformID = %q, want the sent TS", got.PlatformID)
@@ -80,7 +80,7 @@ func TestRecordOutbound_RoutesToTheFolderNotTheChat(t *testing.T) {
 
 	const folder = "atlas/support"
 	const jid = "slack:T/channel/C0B4"
-	recordOutbound(GatedFns{}, db, jid, "hello", "1780300379.765170", folder, "")
+	recordOutbound(RoutdFns{}, db, jid, "hello", "1780300379.765170", folder, "")
 
 	if got.RoutedTo != folder {
 		t.Fatalf("recordOutbound RoutedTo = %q, want the turn's folder %q", got.RoutedTo, folder)
@@ -141,7 +141,7 @@ func TestRecordOutboundReply_RecordsTheThreadItRooted(t *testing.T) {
 	db := StoreFns{PutOutbound: func(m core.Message, _ string) error { got = m; return nil }}
 
 	const root = "1545760882322182276"
-	recordOutboundReply(GatedFns{}, db, "discord:g/channel/C1", "answer", "m-9", "sloth/desk", root, "")
+	recordOutboundReply(RoutdFns{}, db, "discord:g/channel/C1", "answer", "m-9", "sloth/desk", root, "")
 
 	if got.Topic != root {
 		t.Fatalf("Topic = %q, want the thread it rooted (%s)", got.Topic, root)
@@ -158,7 +158,7 @@ func TestRecordOutboundReply_RecordsTheResolvedDestinationTopic(t *testing.T) {
 	}
 
 	for _, topic := range []string{"", "destination-topic"} {
-		recordOutboundReply(GatedFns{}, db, "discord:g/channel/C1", "answer", "m-9", "sloth/desk", topic, "")
+		recordOutboundReply(RoutdFns{}, db, "discord:g/channel/C1", "answer", "m-9", "sloth/desk", topic, "")
 		if got.Topic != topic {
 			t.Fatalf("Topic = %q, want resolved destination %q", got.Topic, topic)
 		}
@@ -179,7 +179,7 @@ func TestRecordOutboundFailure_KeepsTheThreadTheReplyMeantToRoot(t *testing.T) {
 	}}
 
 	const root = "1545760882322182276"
-	_ = recordOutboundFailure(GatedFns{}, db, "discord:g/channel/C1", "answer", "sloth/desk",
+	_ = recordOutboundFailure(RoutdFns{}, db, "discord:g/channel/C1", "answer", "sloth/desk",
 		"parent-msg", root, "", true, errors.New("502 bad gateway"))
 
 	if got.Topic != root {
@@ -202,7 +202,7 @@ func TestRecordOutboundFailure_KeepsTheThreadTheReplyMeantToRoot(t *testing.T) {
 func TestRecordOutboundFailure_TellsTheAgentWhoOwnsTheRetry(t *testing.T) {
 	db := StoreFns{PutOutbound: func(core.Message, string) error { return nil }}
 
-	transient := recordOutboundFailure(GatedFns{}, db, "discord:g/channel/C1", "answer",
+	transient := recordOutboundFailure(RoutdFns{}, db, "discord:g/channel/C1", "answer",
 		"sloth/desk", "", "", "", true, errors.New("502 bad gateway"))
 	if transient == nil {
 		t.Fatal("transient failure returned nil, want the error the tool hands the agent")
@@ -214,7 +214,7 @@ func TestRecordOutboundFailure_TellsTheAgentWhoOwnsTheRetry(t *testing.T) {
 		t.Errorf("transient = %q, want the agent told the router owns this retry", transient)
 	}
 
-	permanent := recordOutboundFailure(GatedFns{}, db, "discord:g/channel/C1", "answer",
+	permanent := recordOutboundFailure(RoutdFns{}, db, "discord:g/channel/C1", "answer",
 		"sloth/desk", "", "", "", true, fmt.Errorf("%w: chat gone", chanlib.ErrPermanent))
 	if permanent == nil {
 		t.Fatal("permanent failure returned nil, want the error the tool hands the agent")

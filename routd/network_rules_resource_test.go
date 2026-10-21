@@ -43,7 +43,7 @@ func serveNetworkMCP(t *testing.T, db *DB, folder, callerSub string) string {
 	ipcDir := t.TempDir()
 	sock := groupfolder.IpcSocket(ipcDir)
 	pb := srv.networkRulesPostBuild(folder, callerSub, srv.turnAuthorize(turnMCP{folder: folder}), srv.turnVisible(turnMCP{folder: folder}))
-	stop, err := ipc.ServeMCP(sock, srv.buildGatedFns(turnMCP{folder: folder}),
+	stop, err := ipc.ServeMCP(sock, srv.buildRoutdFns(turnMCP{folder: folder}),
 		srv.buildStoreFns(turnMCP{folder: folder}), folder, false, 0, callerSub, pb)
 	if err != nil {
 		t.Fatalf("ServeMCP: %v", err)
@@ -301,7 +301,7 @@ func serveNetworkMCPElevated(t *testing.T, db *DB, folder string) string {
 	sock := groupfolder.IpcSocket(ipcDir)
 	callerSub := "folder:" + folder
 	pb := srv.networkRulesPostBuild(folder, callerSub, srv.turnAuthorize(turnMCP{folder: folder, elevated: true}), srv.turnVisible(turnMCP{folder: folder, elevated: true}))
-	stop, err := ipc.ServeMCP(sock, srv.buildGatedFns(turnMCP{folder: folder}),
+	stop, err := ipc.ServeMCP(sock, srv.buildRoutdFns(turnMCP{folder: folder}),
 		srv.buildStoreFns(turnMCP{folder: folder}), folder, true, 0, callerSub, pb)
 	if err != nil {
 		t.Fatalf("ServeMCP: %v", err)

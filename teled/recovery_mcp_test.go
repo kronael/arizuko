@@ -48,7 +48,7 @@ func TestNativeTelegramMissingTargetReachesMCPAndAllowsRecovery(t *testing.T) {
 				t.Fatal(err)
 			}
 			deliver := routd.NewChannelDeliverer(reg, nil, nil)
-			gated := ipc.GatedFns{
+			gated := ipc.RoutdFns{
 				SendReply: func(jid, text, replyTo, id string) (string, string, error) {
 					pid, err := deliver.Send(jid, text, replyTo, "", "", id)
 					return pid, "", err

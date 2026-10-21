@@ -135,7 +135,7 @@ func TestWorld_HoldsOnlyWhatAPersonShouldSee(t *testing.T) {
 	worldFolder(t, d, "atlas")
 	srv := NewServer(d, nil, nil, nil, 0, "")
 	sock := groupfolder.IpcSocket(t.TempDir())
-	stop, err := ipc.ServeMCP(sock, srv.buildGatedFns(turnMCP{folder: "atlas"}),
+	stop, err := ipc.ServeMCP(sock, srv.buildRoutdFns(turnMCP{folder: "atlas"}),
 		srv.buildStoreFns(turnMCP{folder: "atlas"}), "atlas", false, 0, "")
 	if err != nil {
 		t.Fatalf("ServeMCP: %v", err)

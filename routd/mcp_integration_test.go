@@ -23,7 +23,7 @@ func (s *Server) replyForTest(t *testing.T, turnID, jid, text string) {
 	}
 	bound := turnMCP{folder: tc.Folder, topic: tc.Topic, chatJID: tc.ChatJID, turnID: turnID, trigger: tc.Trigger}
 	sock := t.TempDir() + "/gated.sock"
-	stop, err := ipc.ServeMCP(sock, s.buildGatedFns(bound), s.buildStoreFns(bound), tc.Folder, true, 0, "")
+	stop, err := ipc.ServeMCP(sock, s.buildRoutdFns(bound), s.buildStoreFns(bound), tc.Folder, true, 0, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -36,7 +36,7 @@ func (s *Server) replyForTest(t *testing.T, turnID, jid, text string) {
 // TestServeTurnMCP_ReplyOverSocket is the end-to-end proof of the cutover flip:
 // routd stands up the per-turn agent MCP socket in-process, and a real MCP
 // tools/call("reply") over that unix socket flows through buildMCPServer (grants
-// filter + authz) → the in-process GatedFns.SendReply → recordOutbound → the
+// filter + authz) → the in-process RoutdFns.SendReply → recordOutbound → the
 // bot row is persisted AND the Deliverer is invoked. No docker, no federation —
 // the same path a spawned agent drives, minus the container.
 func TestServeTurnMCP_ReplyOverSocket(t *testing.T) {

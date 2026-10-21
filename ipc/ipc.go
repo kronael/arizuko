@@ -31,7 +31,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-type GatedFns struct {
+type RoutdFns struct {
 	// msgID, in the three sends below, is the id the bot row will carry AND the
 	// idempotency key the adapter dedups on — one value, because routd's retry
 	// sweep re-sends a pending row under its OWN id (routd/loop.go). A key
@@ -113,7 +113,7 @@ type RouteTokenInfo struct {
 
 // TurnResult is the agent-submitted turn payload. The MCP `submit_turn`
 // method (hidden from tools/list) deserialises into this and calls
-// GatedFns.SubmitTurn. Idempotency is enforced by gated on (folder, TurnID).
+// RoutdFns.SubmitTurn. Idempotency is enforced by routd on (folder, TurnID).
 type TurnResult struct {
 	TurnID    string `json:"turn_id"`
 	SessionID string `json:"session_id,omitempty"`
@@ -370,7 +370,7 @@ const maxMCPConns = 8
 // is the layering seam for resreg-driven tool registration: ipc must not import
 // store/resreg, so routd passes a closure that calls resreg.MCPTools. Empty in
 // every non-routd caller.
-func ServeMCP(sockPath string, gated GatedFns, db StoreFns, folder string, isRoot bool, expectedUID int, callerSub string, postBuild ...func(*server.MCPServer)) (func(), error) {
+func ServeMCP(sockPath string, routd RoutdFns, db StoreFns, folder string, isRoot bool, expectedUID int, callerSub string, postBuild ...func(*server.MCPServer)) (func(), error) {
 	// A stale socket that will not unlink shows up as the Listen below refusing
 	// the address, which is the error the caller gets.
 	_ = os.Remove(sockPath)
@@ -395,7 +395,7 @@ func ServeMCP(sockPath string, gated GatedFns, db StoreFns, folder string, isRoo
 	slog.Info("mcp server listening",
 		"folder", folder, "sock", sockPath, "peer_uid", expectedUID)
 
-	srv := buildMCPServer(gated, db, folder, isRoot, callerSub)
+	srv := buildMCPServer(routd, db, folder, isRoot, callerSub)
 	for _, pb := range postBuild {
 		if pb != nil {
 			pb(srv)
@@ -435,7 +435,7 @@ func ServeMCP(sockPath string, gated GatedFns, db StoreFns, folder string, isRoo
 						return
 					}
 				}
-				serveConn(ctx, c, srv, gated, db, folder)
+				serveConn(ctx, c, srv, routd, db, folder)
 			}(conn)
 		}
 	}()
@@ -480,7 +480,7 @@ func rpcEncodeFailure(id any) []byte {
 		`"message":"internal error: the response could not be encoded; the call may already have taken effect"}}`)
 }
 
-func serveConn(ctx context.Context, c net.Conn, srv *server.MCPServer, gated GatedFns, db StoreFns, folder string) {
+func serveConn(ctx context.Context, c net.Conn, srv *server.MCPServer, routd RoutdFns, db StoreFns, folder string) {
 	r := bufio.NewReader(c)
 	var writeMu sync.Mutex
 	writeJSON := func(id, v any) {
@@ -532,15 +532,15 @@ func serveConn(ctx context.Context, c net.Conn, srv *server.MCPServer, gated Gat
 		reply := func(v any) { writeJSON(head.ID, v) }
 
 		if head.Method == "submit_turn" {
-			handleSubmitTurn(raw, head.ID, gated, folder, reply)
+			handleSubmitTurn(raw, head.ID, routd, folder, reply)
 			continue
 		}
 		if head.Method == "submit_status" {
-			handleSubmitStatus(raw, head.ID, gated, folder, reply)
+			handleSubmitStatus(raw, head.ID, routd, folder, reply)
 			continue
 		}
 		if head.Method == "check_turn" {
-			handleCheckTurn(raw, head.ID, gated, folder, reply)
+			handleCheckTurn(raw, head.ID, routd, folder, reply)
 			continue
 		}
 
@@ -578,7 +578,7 @@ func serveConn(ctx context.Context, c net.Conn, srv *server.MCPServer, gated Gat
 	}
 }
 
-func handleCheckTurn(raw []byte, id any, gated GatedFns, folder string, write func(any)) {
+func handleCheckTurn(raw []byte, id any, routd RoutdFns, folder string, write func(any)) {
 	var req struct {
 		Params struct {
 			TurnID string `json:"turn_id"`
@@ -589,12 +589,12 @@ func handleCheckTurn(raw []byte, id any, gated GatedFns, folder string, write fu
 			"error": map[string]any{"code": -32602, "message": "turn_id required"}})
 		return
 	}
-	if gated.CheckTurn == nil {
+	if routd.CheckTurn == nil {
 		write(map[string]any{"jsonrpc": "2.0", "id": id,
 			"error": map[string]any{"code": -32603, "message": "check_turn not configured"}})
 		return
 	}
-	check, err := gated.CheckTurn(folder, req.Params.TurnID)
+	check, err := routd.CheckTurn(folder, req.Params.TurnID)
 	if err != nil {
 		write(map[string]any{"jsonrpc": "2.0", "id": id,
 			"error": map[string]any{"code": -32603, "message": err.Error()}})
@@ -603,7 +603,7 @@ func handleCheckTurn(raw []byte, id any, gated GatedFns, folder string, write fu
 	write(map[string]any{"jsonrpc": "2.0", "id": id, "result": check})
 }
 
-func handleSubmitTurn(raw []byte, id any, gated GatedFns, folder string, write func(any)) {
+func handleSubmitTurn(raw []byte, id any, routd RoutdFns, folder string, write func(any)) {
 	var req struct {
 		Params TurnResult `json:"params"`
 	}
@@ -621,14 +621,14 @@ func handleSubmitTurn(raw []byte, id any, gated GatedFns, folder string, write f
 		})
 		return
 	}
-	if gated.SubmitTurn == nil {
+	if routd.SubmitTurn == nil {
 		write(map[string]any{
 			"jsonrpc": "2.0", "id": id,
 			"error": map[string]any{"code": -32603, "message": "submit_turn not configured"},
 		})
 		return
 	}
-	ack, err := gated.SubmitTurn(folder, req.Params)
+	ack, err := routd.SubmitTurn(folder, req.Params)
 	if err != nil {
 		write(map[string]any{
 			"jsonrpc": "2.0", "id": id,
@@ -659,7 +659,7 @@ type TurnStatus struct {
 }
 
 // handleSubmitStatus is hidden from tools/list, like submit_turn.
-func handleSubmitStatus(raw []byte, id any, gated GatedFns, folder string, write func(any)) {
+func handleSubmitStatus(raw []byte, id any, routd RoutdFns, folder string, write func(any)) {
 	var req struct {
 		Params TurnStatus `json:"params"`
 	}
@@ -682,14 +682,14 @@ func handleSubmitStatus(raw []byte, id any, gated GatedFns, folder string, write
 			"error": map[string]any{"code": -32602, "message": "kind must be summary or progress"}})
 		return
 	}
-	if gated.SubmitStatus == nil {
+	if routd.SubmitStatus == nil {
 		write(map[string]any{
 			"jsonrpc": "2.0", "id": id,
 			"error": map[string]any{"code": -32603, "message": "submit_status not configured"},
 		})
 		return
 	}
-	if err := gated.SubmitStatus(folder, req.Params); err != nil {
+	if err := routd.SubmitStatus(folder, req.Params); err != nil {
 		write(map[string]any{
 			"jsonrpc": "2.0", "id": id,
 			"error": map[string]any{"code": -32603, "message": err.Error()},
@@ -774,13 +774,13 @@ func activeTopic(db StoreFns, folder string) string {
 }
 
 // recordOutbound appends the durable row for a DELIVERED outbound message.
-func recordOutbound(gated GatedFns, db StoreFns, jid, text, platformID, folder, msgID string) {
-	putOutboundRow(gated, db, jid, text, platformID, folder, "", activeTopic(db, folder), msgID, core.MessageStatusSent)
+func recordOutbound(routd RoutdFns, db StoreFns, jid, text, platformID, folder, msgID string) {
+	putOutboundRow(routd, db, jid, text, platformID, folder, "", activeTopic(db, folder), msgID, core.MessageStatusSent)
 }
 
 // recordOutboundReply records the thread resolved by the delivery path.
-func recordOutboundReply(gated GatedFns, db StoreFns, jid, text, platformID, folder, threadRoot, msgID string) {
-	putOutboundRow(gated, db, jid, text, platformID, folder, "", threadRoot, msgID, core.MessageStatusSent)
+func recordOutboundReply(routd RoutdFns, db StoreFns, jid, text, platformID, folder, threadRoot, msgID string) {
+	putOutboundRow(routd, db, jid, text, platformID, folder, "", threadRoot, msgID, core.MessageStatusSent)
 }
 
 // recordOutboundFailure appends the durable row for an outbound message the
@@ -801,14 +801,14 @@ func recordOutboundReply(gated GatedFns, db StoreFns, jid, text, platformID, fol
 // a `reply` answered 502, the sweep delivered the row 52 s later, and the agent,
 // told only that it failed, re-sent the same text six seconds after that, so the
 // channel got both copies (BUGS L165).
-func recordOutboundFailure(gated GatedFns, db StoreFns, jid, text, folder, replyToID, threadRoot, msgID string, retryable bool, err error) error {
+func recordOutboundFailure(routd RoutdFns, db StoreFns, jid, text, folder, replyToID, threadRoot, msgID string, retryable bool, err error) error {
 	status := core.MessageStatusPending
 	if !retryable || errors.Is(err, chanlib.ErrPermanent) {
 		status = core.MessageStatusFailed
 	}
 	slog.Error("outbound send failed: recording undelivered row",
 		"folder", folder, "jid", jid, "status", status, "err", err)
-	putOutboundRow(gated, db, jid, text, "", folder, replyToID, threadRoot, msgID, status)
+	putOutboundRow(routd, db, jid, text, "", folder, replyToID, threadRoot, msgID, status)
 	if status == core.MessageStatusPending {
 		return fmt.Errorf("%w (queued: the router re-sends this message — do NOT send it again)", err)
 	}
@@ -821,7 +821,7 @@ func recordOutboundFailure(gated GatedFns, db StoreFns, jid, text, folder, reply
 // A verb whose Deliverer takes no idempotency key — voice, post and the social
 // verbs — passes msgID="" and the row mints its own id: there is nothing for it
 // to have to match.
-func putOutboundRow(gated GatedFns, db StoreFns, jid, text, platformID, folder, replyToID, threadRoot, msgID, status string) {
+func putOutboundRow(routd RoutdFns, db StoreFns, jid, text, platformID, folder, replyToID, threadRoot, msgID, status string) {
 	// Key last-reply + engagement under the active turn's topic — same
 	// key the gateway seeds (SetLastReply at turn start). "" would chain
 	// the next in-thread reply off the wrong (root) key.
@@ -834,13 +834,13 @@ func putOutboundRow(gated GatedFns, db StoreFns, jid, text, platformID, folder, 
 	// timed-* triggers skip the bump; the trigger sender for the active turn is
 	// exposed via StoreFns.CurrentTriggerSender so MCP honours the same skip
 	// without plumbing per-call context through the socket.
-	if platformID != "" && db.BumpEngagement != nil && gated.EngagementTTL > 0 {
+	if platformID != "" && db.BumpEngagement != nil && routd.EngagementTTL > 0 {
 		triggerSender := ""
 		if db.CurrentTriggerSender != nil {
 			triggerSender = db.CurrentTriggerSender(folder)
 		}
 		if !strings.HasPrefix(triggerSender, "timed-") {
-			_ = db.BumpEngagement(jid, turnTopic, folder, time.Now().Add(gated.EngagementTTL))
+			_ = db.BumpEngagement(jid, turnTopic, folder, time.Now().Add(routd.EngagementTTL))
 		}
 	}
 	turnID := ""
@@ -887,31 +887,31 @@ func putOutboundRow(gated GatedFns, db StoreFns, jid, text, platformID, folder, 
 // durable row, and a failure returns the error that names which of them owns the
 // retry. It returns the last platform-assigned message id it recorded,
 // so send and send_file can hand it back for edit/delete/branch targeting.
-func internalSend(gated GatedFns, db StoreFns, folder, jid, text string, files []internalSendFile) (string, error) {
+func internalSend(routd RoutdFns, db StoreFns, folder, jid, text string, files []internalSendFile) (string, error) {
 	if len(files) == 0 {
-		if gated.SendMessage == nil {
+		if routd.SendMessage == nil {
 			return "", fmt.Errorf("send not configured")
 		}
 		msgID := core.MsgID("mcp")
-		platformID, thread, err := gated.SendMessage(jid, text, msgID)
+		platformID, thread, err := routd.SendMessage(jid, text, msgID)
 		if err != nil {
-			return "", recordOutboundFailure(gated, db, jid, text, folder, "", thread, msgID, true, err)
+			return "", recordOutboundFailure(routd, db, jid, text, folder, "", thread, msgID, true, err)
 		}
-		recordOutboundReply(gated, db, jid, text, platformID, folder, thread, msgID)
+		recordOutboundReply(routd, db, jid, text, platformID, folder, thread, msgID)
 		return platformID, nil
 	}
-	if gated.SendDocument == nil {
+	if routd.SendDocument == nil {
 		return "", fmt.Errorf("send_file not configured")
 	}
 	var lastID string
 	for _, f := range files {
 		// One id per file: each file is its own delivery and its own row.
 		msgID := core.MsgID("mcp")
-		platformID, thread, err := gated.SendDocument(jid, f.LocalPath, f.Filename, text, f.ReplyTo, f.ThreadID, msgID)
+		platformID, thread, err := routd.SendDocument(jid, f.LocalPath, f.Filename, text, f.ReplyTo, f.ThreadID, msgID)
 		if err != nil {
-			return "", recordOutboundFailure(gated, db, jid, text, folder, f.ReplyTo, thread, msgID, false, err)
+			return "", recordOutboundFailure(routd, db, jid, text, folder, f.ReplyTo, thread, msgID, false, err)
 		}
-		recordOutboundReply(gated, db, jid, text, platformID, folder, thread, msgID)
+		recordOutboundReply(routd, db, jid, text, platformID, folder, thread, msgID)
 		lastID = platformID
 	}
 	return lastID, nil
@@ -1090,7 +1090,7 @@ func refuseText(text string, allowEmpty bool) error {
 // sender (routd.turnAuthorize). Two notions of "who" used to live in this file — the
 // socket's folder and the trigger's sender — and passing both to the gate is exactly
 // the stacking that builds a confused deputy, so only one reaches it.
-func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, callerSub string) *server.MCPServer {
+func buildMCPServer(routd RoutdFns, db StoreFns, folder string, isRoot bool, callerSub string) *server.MCPServer {
 	identity := auth.Resolve(folder)
 	identity.IsRoot = identity.IsRoot || isRoot
 	srv := server.NewMCPServer("arizuko", "1.0")
@@ -1133,8 +1133,8 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 		if db.LogIPCAudit != nil {
 			_ = db.LogIPCAudit(folder, actor, tool, "{}", "authz_denied")
 		}
-		if gated.Audit != nil {
-			gated.Audit.EmitSystem(audit.SystemEvent{
+		if routd.Audit != nil {
+			routd.Audit.EmitSystem(audit.SystemEvent{
 				ActorSub: actor,
 				Tool:     tool,
 				Folder:   folder,
@@ -1187,14 +1187,14 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 			paramsJSON, _ := json.Marshal(params)
 			_ = db.LogIPCAudit(targetFolder, actor, tool, string(paramsJSON), outcomeStr)
 		}
-		if gated.Audit == nil {
+		if routd.Audit == nil {
 			return
 		}
 		outcome := audit.Outcome{Status: "ok"}
 		if err != nil {
 			outcome = audit.Outcome{Status: "error", Detail: err.Error()}
 		}
-		gated.Audit.EmitSystem(audit.SystemEvent{
+		routd.Audit.EmitSystem(audit.SystemEvent{
 			ActorSub: actor,
 			Tool:     tool,
 			Folder:   targetFolder,
@@ -1302,7 +1302,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 				snippet = snippet[:60]
 			}
 			slog.Info("send", "folder", folder, "jid", jid, "text", snippet)
-			platformID, err := internalSend(gated, db, folder, jid, text, nil)
+			platformID, err := internalSend(routd, db, folder, jid, text, nil)
 			if err != nil {
 				return toolErr(err.Error())
 			}
@@ -1320,7 +1320,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 			if err := gateJID("reply", jid); err != nil {
 				return toolErr(err.Error())
 			}
-			if gated.SendReply == nil {
+			if routd.SendReply == nil {
 				return toolErr("reply not configured")
 			}
 			text := req.GetString("text", "")
@@ -1335,12 +1335,12 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 				replyToID = db.GetLastReplyID(jid, activeTopic(db, folder))
 			}
 			msgID := core.MsgID("mcp")
-			platformID, threadRoot, err := gated.SendReply(jid, text, replyToID, msgID)
+			platformID, threadRoot, err := routd.SendReply(jid, text, replyToID, msgID)
 			if err != nil {
-				err = recordOutboundFailure(gated, db, jid, text, folder, replyToID, threadRoot, msgID, true, err)
+				err = recordOutboundFailure(routd, db, jid, text, folder, replyToID, threadRoot, msgID, true, err)
 				return toolErr(err.Error())
 			}
-			recordOutboundReply(gated, db, jid, text, platformID, folder, threadRoot, msgID)
+			recordOutboundReply(routd, db, jid, text, platformID, folder, threadRoot, msgID)
 			return toolJSON(map[string]any{"ok": true, "id": platformID})
 		})
 
@@ -1372,13 +1372,13 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 			if err != nil {
 				return toolErr(err.Error())
 			}
-			localPath := filepath.Join(gated.GroupsDir, folder, rel)
-			groupRoot := filepath.Join(gated.GroupsDir, folder)
+			localPath := filepath.Join(routd.GroupsDir, folder, rel)
+			groupRoot := filepath.Join(routd.GroupsDir, folder)
 			if _, err := mountsec.ValidateFilePath(localPath, groupRoot); err != nil {
 				return toolErr("path outside group dir")
 			}
 			slog.Info("send_file", "folder", folder, "jid", jid, "path", localPath)
-			platformID, err := internalSend(gated, db, folder, jid, caption,
+			platformID, err := internalSend(routd, db, folder, jid, caption,
 				[]internalSendFile{{LocalPath: localPath, Filename: name, ReplyTo: replyToID, ThreadID: threadID}},
 			)
 			if err != nil {
@@ -1398,7 +1398,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 			if err := gateJID("send_voice", jid); err != nil {
 				return toolErr(err.Error())
 			}
-			if gated.SendVoice == nil {
+			if routd.SendVoice == nil {
 				return toolErr("send_voice not configured")
 			}
 			text := strings.TrimSpace(req.GetString("text", ""))
@@ -1416,11 +1416,11 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 			slog.Info("send_voice", "folder", folder, "jid", jid, "voice", voice, "text", snippet)
 			// Thread the voice reply to the active turn's topic so it lands
 			// in the originating thread, not the channel root (bug-1 mirror).
-			platformID, thread, err := gated.SendVoice(jid, text, voice, folder, activeTopic(db, folder))
+			platformID, thread, err := routd.SendVoice(jid, text, voice, folder, activeTopic(db, folder))
 			if err != nil {
 				return toolMaybeUnsupported(err)
 			}
-			recordOutboundReply(gated, db, jid, text, platformID, folder, thread, "")
+			recordOutboundReply(routd, db, jid, text, platformID, folder, thread, "")
 			return toolJSON(map[string]any{"ok": true, "id": platformID})
 		})
 
@@ -1435,7 +1435,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 			if err := gateJID("post", jid); err != nil {
 				return toolErr(err.Error())
 			}
-			if gated.Post == nil {
+			if routd.Post == nil {
 				return toolErr("post not configured")
 			}
 			content := req.GetString("content", "")
@@ -1449,8 +1449,8 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 					if err != nil {
 						return toolErr(err.Error())
 					}
-					localPath := filepath.Join(gated.GroupsDir, folder, rel)
-					groupRoot := filepath.Join(gated.GroupsDir, folder)
+					localPath := filepath.Join(routd.GroupsDir, folder, rel)
+					groupRoot := filepath.Join(routd.GroupsDir, folder)
 					if _, err := mountsec.ValidateFilePath(localPath, groupRoot); err != nil {
 						return toolErr("media path outside group dir")
 					}
@@ -1458,11 +1458,11 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 				}
 			}
 			slog.Info("post", "folder", folder, "jid", jid, "media", len(mediaPaths))
-			platformID, err := gated.Post(jid, content, mediaPaths)
+			platformID, err := routd.Post(jid, content, mediaPaths)
 			if err != nil {
 				return toolMaybeUnsupported(err)
 			}
-			recordOutbound(gated, db, jid, content, platformID, folder, "")
+			recordOutbound(routd, db, jid, content, platformID, folder, "")
 			return toolJSON(map[string]any{"ok": true, "id": platformID})
 		})
 
@@ -1514,7 +1514,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 					return toolMaybeUnsupported(err)
 				}
 				if s.record != nil {
-					recordOutbound(gated, db, jid, s.record(vals), id, folder, "")
+					recordOutbound(routd, db, jid, s.record(vals), id, folder, "")
 				}
 				if s.idOut {
 					return toolJSON(map[string]any{"ok": true, "id": id})
@@ -1528,10 +1528,10 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 		desc: "Add a reaction to an existing message (unicode emoji on discord/slack/telegram, like on bluesky). `targetId` MUST be the platform-native id: the `platform_id=` attribute of the message XML, never `id=` (an internal DB id no platform accepts). Prefer a reaction over a limp text 'ok'/'done' when its meaning is unambiguous (👍 ack, ✅ done, 👀 seen, ❤️ warmth); when nuance or a question is present, react AND `reply` — a reaction alone reads as dismissal. Mirror the user's own emoji register and never inject enthusiasm they haven't shown; in DMs react sparingly, never to your own messages, never 👍 on something that deserves a word. Not for new posts (`post`). Platform decides what reaction strings are valid; unsupported platforms return an error — do not retry.",
 		args: []string{"chatJid", "targetId", "reaction"},
 		call: func(a map[string]string) (string, error) {
-			if gated.Like == nil {
+			if routd.Like == nil {
 				return "", errors.New("like not configured")
 			}
-			return "", gated.Like(a["chatJid"], a["targetId"], a["reaction"])
+			return "", routd.Like(a["chatJid"], a["targetId"], a["reaction"])
 		},
 	})
 
@@ -1540,10 +1540,10 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 		desc: "Delete a post/message previously created by this agent (platform enforces authorship; a user's message errors — do not retry). `targetId` is the `platform_id=` attribute of the message XML, never `id=`. Use to retract an incorrect or superseded post. Not for changing text (`edit`) or for hiding inbound messages.",
 		args: []string{"chatJid", "targetId"},
 		call: func(a map[string]string) (string, error) {
-			if gated.Delete == nil {
+			if routd.Delete == nil {
 				return "", errors.New("delete not configured")
 			}
-			return "", gated.Delete(a["chatJid"], a["targetId"])
+			return "", routd.Delete(a["chatJid"], a["targetId"])
 		},
 	})
 
@@ -1555,10 +1555,10 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 		optional: map[string]bool{"comment": true},
 		idOut:    true,
 		call: func(a map[string]string) (string, error) {
-			if gated.Forward == nil {
+			if routd.Forward == nil {
 				return "", errors.New("forward not configured")
 			}
-			return gated.Forward(a["sourceMsgId"], a["targetJid"], a["comment"])
+			return routd.Forward(a["sourceMsgId"], a["targetJid"], a["comment"])
 		},
 	})
 
@@ -1569,10 +1569,10 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 		idOut:  true,
 		record: func(a map[string]string) string { return a["comment"] },
 		call: func(a map[string]string) (string, error) {
-			if gated.Quote == nil {
+			if routd.Quote == nil {
 				return "", errors.New("quote not configured")
 			}
-			return gated.Quote(a["chatJid"], a["sourceMsgId"], a["comment"])
+			return routd.Quote(a["chatJid"], a["sourceMsgId"], a["comment"])
 		},
 	})
 
@@ -1583,10 +1583,10 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 		idOut:  true,
 		record: func(a map[string]string) string { return "" },
 		call: func(a map[string]string) (string, error) {
-			if gated.Repost == nil {
+			if routd.Repost == nil {
 				return "", errors.New("repost not configured")
 			}
-			return gated.Repost(a["chatJid"], a["sourceMsgId"])
+			return routd.Repost(a["chatJid"], a["sourceMsgId"])
 		},
 	})
 
@@ -1595,10 +1595,10 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 		desc: "Endorse-negative on a message (Discord 👎 reaction). `targetId` is the `platform_id=` attribute of the message XML, never `id=`. Native only — Bluesky and most platforms have no native downvote and return unsupported with a hint.",
 		args: []string{"chatJid", "targetId"},
 		call: func(a map[string]string) (string, error) {
-			if gated.Dislike == nil {
+			if routd.Dislike == nil {
 				return "", errors.New("dislike not configured")
 			}
-			return "", gated.Dislike(a["chatJid"], a["targetId"])
+			return "", routd.Dislike(a["chatJid"], a["targetId"])
 		},
 	})
 
@@ -1610,10 +1610,10 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 			if err := refuseText(a["content"], false); err != nil {
 				return "", err
 			}
-			if gated.Edit == nil {
+			if routd.Edit == nil {
 				return "", errors.New("edit not configured")
 			}
-			return "", gated.Edit(a["chatJid"], a["targetId"], a["content"])
+			return "", routd.Edit(a["chatJid"], a["targetId"], a["content"])
 		},
 	})
 
@@ -1622,10 +1622,10 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 		desc: "Pin a message to a chat/channel (Slack pins.add, Discord channel pin, Telegram pinned message). `targetId` is the `platform_id=` attribute of the message XML, never `id=`. Use to mark a live status surface (deploy progress, standup link) or anchor a reference. Not for editing content (`edit`) or amplifying on a feed (`repost`/`quote`). Bluesky/Reddit/Email/WhatsApp return unsupported.",
 		args: []string{"chatJid", "targetId"},
 		call: func(a map[string]string) (string, error) {
-			if gated.Pin == nil {
+			if routd.Pin == nil {
 				return "", errors.New("pin not configured")
 			}
-			return "", gated.Pin(a["chatJid"], a["targetId"])
+			return "", routd.Pin(a["chatJid"], a["targetId"])
 		},
 	})
 
@@ -1634,10 +1634,10 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 		desc: "Remove the pin on a specific message (Slack pins.remove, Discord channel unpin, Telegram unpinChatMessage). `targetId` is the `platform_id=` attribute of the message XML, never `id=`. Use to retire a status surface or rotate the pinned reference. Not for clearing every pin (use `unpin_all` on Slack/Telegram) or deleting the message itself (`delete`).",
 		args: []string{"chatJid", "targetId"},
 		call: func(a map[string]string) (string, error) {
-			if gated.Unpin == nil {
+			if routd.Unpin == nil {
 				return "", errors.New("unpin not configured")
 			}
-			return "", gated.Unpin(a["chatJid"], a["targetId"], false)
+			return "", routd.Unpin(a["chatJid"], a["targetId"], false)
 		},
 	})
 
@@ -1646,14 +1646,14 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 		desc: "Clear every pin in a chat/channel (Slack: iterates pins.list+pins.remove; Telegram: unpinAllChatMessages). Use when wholesale resetting a channel's pinned set. Discord has no bulk primitive — call `unpin_message` per id. Not for removing one pin (`unpin_message`).",
 		args: []string{"chatJid"},
 		call: func(a map[string]string) (string, error) {
-			if gated.Unpin == nil {
+			if routd.Unpin == nil {
 				return "", errors.New("unpin not configured")
 			}
-			return "", gated.Unpin(a["chatJid"], "", true)
+			return "", routd.Unpin(a["chatJid"], "", true)
 		},
 	})
 
-	if gated.PaneSetPrompts != nil {
+	if routd.PaneSetPrompts != nil {
 		registerRaw("pane_set_prompts",
 			"Slack only — stage suggested-prompt buttons shown at the bottom of the assistant pane after your next reply lands. Fire-and-forget; the buttons appear once and persist until your next pane_set_prompts call. Use after a reply when you can anticipate the user's likely follow-ups (e.g. \"dig deeper\", \"summarise\", \"export\"). Not for sending messages (use `send`). 3-4 prompts is the visible cap.",
 			[]mcp.ToolOption{
@@ -1671,13 +1671,13 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 					return toolErr(err.Error())
 				}
 				slog.Info("pane_set_prompts", "folder", folder, "jid", jid, "n", len(prompts))
-				if err := gated.PaneSetPrompts(jid, prompts); err != nil {
+				if err := routd.PaneSetPrompts(jid, prompts); err != nil {
 					return toolErr(err.Error())
 				}
 				return toolOK()
 			})
 	}
-	if gated.PaneSetTitle != nil {
+	if routd.PaneSetTitle != nil {
 		registerRaw("pane_set_title",
 			"Slack only — override the title shown at the top of the assistant pane. Fires after your next reply lands. Use to reflect the active topic (e.g. \"atlas — debugging the build\"). Defaults to \"<assistant> — chat\" when never set.",
 			[]mcp.ToolOption{
@@ -1697,7 +1697,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 					return toolErr("pane_set_title: title too long (max 256 chars)")
 				}
 				slog.Info("pane_set_title", "folder", folder, "jid", jid, "title", title)
-				if err := gated.PaneSetTitle(jid, title); err != nil {
+				if err := routd.PaneSetTitle(jid, title); err != nil {
 					return toolErr(err.Error())
 				}
 				return toolOK()
@@ -1711,7 +1711,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 			mcp.WithBoolean("force"),
 		},
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			if gated.ForkTopic == nil {
+			if routd.ForkTopic == nil {
 				return toolErr("fork_topic not configured")
 			}
 			parent := req.GetString("parent", "")
@@ -1723,7 +1723,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 				return toolErr(err.Error())
 			}
 			force := req.GetBool("force", false)
-			if err := gated.ForkTopic(identity.Folder, parent, child, force); err != nil {
+			if err := routd.ForkTopic(identity.Folder, parent, child, force); err != nil {
 				if errors.Is(err, core.ErrTopicExists) {
 					return toolErr("topic_exists")
 				}
@@ -1774,13 +1774,13 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 			if err := engagementAuthz("engage", jid, topic); err != nil {
 				return toolErr(err.Error())
 			}
-			if db.SetEngagement == nil || gated.EngagementTTL <= 0 {
+			if db.SetEngagement == nil || routd.EngagementTTL <= 0 {
 				return toolErr("engage not configured")
 			}
 			// Spec 5/G-engagement §"The primitive": write engaged_folder =
 			// caller, so future inbounds steer here. Authz already validated
 			// the caller may claim this conversation.
-			if err := db.SetEngagement(jid, topic, identity.Folder, time.Now().Add(gated.EngagementTTL)); err != nil {
+			if err := db.SetEngagement(jid, topic, identity.Folder, time.Now().Add(routd.EngagementTTL)); err != nil {
 				return toolErr(err.Error())
 			}
 			return toolJSON(map[string]any{"ok": true})
@@ -1817,14 +1817,14 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 			if gf == "" {
 				return toolErr("missing groupFolder")
 			}
-			if gated.ClearSession == nil {
+			if routd.ClearSession == nil {
 				return toolErr("reset_session not configured")
 			}
 			if err := authzStructural("reset_session", gf); err != nil {
 				return toolErr(err.Error())
 			}
 			slog.Info("reset_session", "folder", folder, "targetFolder", gf)
-			gated.ClearSession(gf)
+			routd.ClearSession(gf)
 			return toolOK()
 		})
 
@@ -1842,7 +1842,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 				mcp.Description("target group folder; defaults to caller's folder. Must be caller's folder or a descendant.")),
 		},
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			if gated.SetGroupObserveWindow == nil || gated.GroupObserveWindow == nil {
+			if routd.SetGroupObserveWindow == nil || routd.GroupObserveWindow == nil {
 				return toolErr("set_observe_window not configured")
 			}
 			args := req.GetArguments()
@@ -1859,14 +1859,14 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 				return toolErr(err.Error())
 			}
 			// Absent args preserve the stored value; explicit -1 clears.
-			prevM, prevC := gated.GroupObserveWindow(target)
+			prevM, prevC := routd.GroupObserveWindow(target)
 			if !mOK {
 				msgs = prevM
 			}
 			if !cOK {
 				chars = prevC
 			}
-			if err := gated.SetGroupObserveWindow(target, msgs, chars); err != nil {
+			if err := routd.SetGroupObserveWindow(target, msgs, chars); err != nil {
 				emitSys("set_observe_window", target, callerSub,
 					map[string]any{"messages": msgs, "chars": chars}, err)
 				return toolErr(err.Error())
@@ -1886,7 +1886,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 				mcp.Description("target group folder; defaults to caller's folder. Must be caller's folder or a descendant.")),
 		},
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			if gated.SetGroupOpen == nil {
+			if routd.SetGroupOpen == nil {
 				return toolErr("set_group_open not configured")
 			}
 			args := req.GetArguments()
@@ -1905,7 +1905,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 			if err := authzStructural("set_group_open", target); err != nil {
 				return toolErr(err.Error())
 			}
-			if err := gated.SetGroupOpen(target, open); err != nil {
+			if err := routd.SetGroupOpen(target, open); err != nil {
 				emitSys("set_group_open", target, callerSub, map[string]any{"open": open}, err)
 				return toolErr(err.Error())
 			}
@@ -1924,7 +1924,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 				mcp.Description("folder to observe, e.g. corp/sales")),
 		},
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			if gated.AddGroupWatcher == nil {
+			if routd.AddGroupWatcher == nil {
 				return toolErr("observe_group not configured")
 			}
 			src := req.GetString("source", "")
@@ -1934,7 +1934,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 			if err := authzStructural("observe_group", src); err != nil {
 				return toolErr(err.Error())
 			}
-			if err := gated.AddGroupWatcher(folder, src); err != nil {
+			if err := routd.AddGroupWatcher(folder, src); err != nil {
 				emitSys("observe_group", folder, callerSub, map[string]any{"source": src}, err)
 				return toolErr(err.Error())
 			}
@@ -1950,7 +1950,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 				mcp.Description("folder to stop observing")),
 		},
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			if gated.RemoveGroupWatcher == nil {
+			if routd.RemoveGroupWatcher == nil {
 				return toolErr("unobserve_group not configured")
 			}
 			src := req.GetString("source", "")
@@ -1960,7 +1960,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 			if err := authzStructural("unobserve_group", src); err != nil {
 				return toolErr(err.Error())
 			}
-			if err := gated.RemoveGroupWatcher(folder, src); err != nil {
+			if err := routd.RemoveGroupWatcher(folder, src); err != nil {
 				emitSys("unobserve_group", folder, callerSub, map[string]any{"source": src}, err)
 				return toolErr(err.Error())
 			}
@@ -1977,7 +1977,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 			mcp.WithString("senderName"),
 		},
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			if gated.InjectMessage == nil {
+			if routd.InjectMessage == nil {
 				return toolErr("inject_message not configured")
 			}
 			jid := req.GetString("chatJid", "")
@@ -1998,7 +1998,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 			if senderName == "" {
 				senderName = "system"
 			}
-			mid, err := gated.InjectMessage(jid, req.GetString("content", ""), sender, senderName)
+			mid, err := routd.InjectMessage(jid, req.GetString("content", ""), sender, senderName)
 			if err != nil {
 				return toolErr(err.Error())
 			}
@@ -2061,8 +2061,8 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 			}); err != nil {
 				return toolErr(err.Error())
 			}
-			if gated.EnqueueMessageCheck != nil {
-				gated.EnqueueMessageCheck(parent)
+			if routd.EnqueueMessageCheck != nil {
+				routd.EnqueueMessageCheck(parent)
 			}
 			return toolJSON(map[string]any{"queued": true, "parent": parent})
 		})
@@ -2100,8 +2100,8 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 			}); err != nil {
 				return toolErr(err.Error())
 			}
-			if gated.EnqueueMessageCheck != nil {
-				gated.EnqueueMessageCheck(target)
+			if routd.EnqueueMessageCheck != nil {
+				routd.EnqueueMessageCheck(target)
 			}
 			return toolJSON(map[string]any{"queued": true})
 		})
@@ -2123,7 +2123,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 			mcp.WithString("expires_at"),
 		},
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			if gated.CreateInvite == nil {
+			if routd.CreateInvite == nil {
 				return toolErr("invite_create not configured")
 			}
 			targetGlob := req.GetString("target_glob", "")
@@ -2142,7 +2142,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 				}
 				expiresAt = &t
 			}
-			inv, err := gated.CreateInvite(targetGlob, "agent:"+folder, maxUses, expiresAt)
+			inv, err := routd.CreateInvite(targetGlob, "agent:"+folder, maxUses, expiresAt)
 			if err != nil {
 				emitSys("invite_create", folder, callerSub,
 					map[string]any{"target_glob": targetGlob, "max_uses": maxUses}, err)
@@ -2159,8 +2159,8 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 			if inv.ExpiresAt != nil {
 				out["expires_at"] = inv.ExpiresAt.Format(time.RFC3339)
 			}
-			if gated.AcceptURLBase != "" {
-				out["accept_url"] = strings.TrimRight(gated.AcceptURLBase, "/") + "/invite/" + inv.Token
+			if routd.AcceptURLBase != "" {
+				out["accept_url"] = strings.TrimRight(routd.AcceptURLBase, "/") + "/invite/" + inv.Token
 			}
 			slog.Info("invite_create", "folder", folder, "target_glob", targetGlob, "max_uses", maxUses)
 			return toolJSON(out)
@@ -2175,10 +2175,10 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 		"List the invites THIS agent has issued (ref, target glob, expiry, use count). Raw tokens are NOT returned — they're shown once at invite_create; `ref` identifies an invite for invite_revoke without being redeemable. Read-only; shows only your own folder's invites, never another folder's. Use to audit outstanding invites before invite_revoke. Not for issuing (invite_create) or revoking (invite_revoke).",
 		nil,
 		func(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			if gated.ListInvites == nil {
+			if routd.ListInvites == nil {
 				return toolErr("invite_list not configured")
 			}
-			invs, err := gated.ListInvites("agent:" + folder)
+			invs, err := routd.ListInvites("agent:" + folder)
 			if err != nil {
 				return toolErr(err.Error())
 			}
@@ -2204,7 +2204,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 			mcp.WithString("ref", mcp.Required()),
 		},
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			if gated.RevokeInvite == nil {
+			if routd.RevokeInvite == nil {
 				return toolErr("invite_revoke not configured")
 			}
 			ref := req.GetString("ref", "")
@@ -2216,7 +2216,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 			}
 			// Ownership (this invite belongs to this folder) is enforced in the
 			// routd closure, which lists the folder's invites before DELETE.
-			if err := gated.RevokeInvite(ref); err != nil {
+			if err := routd.RevokeInvite(ref); err != nil {
 				emitSys("invite_revoke", folder, callerSub, map[string]any{"ref": ref}, err)
 				return toolErr(err.Error())
 			}
@@ -2385,7 +2385,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 		})
 	}
 
-	if gated.FetchPlatformHistory != nil {
+	if routd.FetchPlatformHistory != nil {
 		srv.AddTool(mcp.NewTool("fetch_history",
 			mcp.WithDescription("Pull authoritative conversation history from the channel adapter and cache it. Use to reconstruct context before replying, especially on first contact or after a reset_session. Falls back to local cache if the adapter is down. Not for DB/routing audits (inspect_messages) or single-thread slices (get_thread)."),
 			mcp.WithString("chat_jid", mcp.Required()),
@@ -2407,7 +2407,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 			if err != nil {
 				return toolErr(err.Error())
 			}
-			h, err := gated.FetchPlatformHistory(jid, before, limitVal)
+			h, err := routd.FetchPlatformHistory(jid, before, limitVal)
 			if err != nil {
 				return toolErr("fetch_history: " + err.Error())
 			}
@@ -2428,10 +2428,10 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 	srv.AddTool(mcp.NewTool("get_work",
 		mcp.WithDescription("Read this group's work.md — current work, blockers, next steps. Use at the start of a turn to recover what was in-flight. Returns empty content when the file doesn't exist."),
 	), func(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		if gated.GroupsDir == "" {
+		if routd.GroupsDir == "" {
 			return toolErr("get_work not configured")
 		}
-		data, err := os.ReadFile(filepath.Join(gated.GroupsDir, folder, "work.md"))
+		data, err := os.ReadFile(filepath.Join(routd.GroupsDir, folder, "work.md"))
 		if err != nil {
 			if os.IsNotExist(err) {
 				return toolJSON(map[string]any{"content": "", "exists": false})
@@ -2446,11 +2446,11 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 		mcp.WithDescription("Overwrite this group's work.md with a fresh snapshot of current work, blockers, and next steps. Use at turn end to checkpoint state for the next session. This replaces the file — read with get_work first if merging."),
 		mcp.WithString("content", mcp.Required()),
 	), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		if gated.GroupsDir == "" {
+		if routd.GroupsDir == "" {
 			return toolErr("set_work not configured")
 		}
 		content := req.GetString("content", "")
-		groupDir := filepath.Join(gated.GroupsDir, folder)
+		groupDir := filepath.Join(routd.GroupsDir, folder)
 		if err := os.MkdirAll(groupDir, 0o755); err != nil {
 			return toolErr(err.Error())
 		}
@@ -2484,7 +2484,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 				!groupfolder.Contains(folder, target) {
 				return toolErr("get_web_presence: can only query own folder or descendants")
 			}
-			return toolJSON(WebPresenceFor(target, gated.WebHost, gated.HostingDomain, gated.VhostAliases))
+			return toolJSON(WebPresenceFor(target, routd.WebHost, routd.HostingDomain, routd.VhostAliases))
 		})
 
 	registerInspect(srv, db, identity, folder)
@@ -2494,7 +2494,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 
 // ListTools builds the MCP tool registry for folder and returns the tool schemas.
 // visible is the tool-visibility view (a tool shows iff the folder holds it;
-// reads are unconditional). Safe to call without a running container — GatedFns
+// reads are unconditional). Safe to call without a running container — RoutdFns
 // and StoreFns are zero-valued.
 //
 // The result is hot-tier tools PLUS the visible cold-tier facade tools, which the
@@ -2502,7 +2502,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, isRoot bool, cal
 // addFacadeTools derives them from the SAME resreg specs routd uses, so the
 // browser shows exactly the agent's surface.
 func ListTools(folder string, visible func(name string) bool) []mcp.Tool {
-	srv := buildMCPServer(GatedFns{}, StoreFns{Visible: visible}, folder, false, "")
+	srv := buildMCPServer(RoutdFns{}, StoreFns{Visible: visible}, folder, false, "")
 	addFacadeTools(srv, visible)
 	m := srv.ListTools()
 	out := make([]mcp.Tool, 0, len(m))

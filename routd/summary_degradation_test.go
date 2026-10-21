@@ -67,7 +67,7 @@ func TestTaskSummaryDelegationPreservesExplicitForeignTarget(t *testing.T) {
 	if dl.sends[0].jid != foreign || dl.sends[0].threadID != "" || dl.sends[0].threadRoot != "" {
 		t.Fatalf("explicit destination inherited delegation or thread: %+v", dl.sends[0])
 	}
-	fns := srv.buildGatedFns(turnMCP{turnID: "delegated"})
+	fns := srv.buildRoutdFns(turnMCP{turnID: "delegated"})
 	if _, topic, err := fns.SendDocument(foreign, "/tmp/report.pdf", "report.pdf", "report", "", "42", "file-id"); err != nil || topic != "" {
 		t.Fatalf("foreign file inherited the active topic: topic=%q err=%v", topic, err)
 	}

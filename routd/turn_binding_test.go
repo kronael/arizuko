@@ -70,7 +70,7 @@ func TestTurnMethodsCannotMutateForeignExistingContext(t *testing.T) {
 			}
 			bound := turnMCP{folder: "demo", chatJID: "tg:1", turnID: "bound", trigger: "u1"}
 			sock := t.TempDir() + "/gated.sock"
-			stop, err := ipc.ServeMCP(sock, srv.buildGatedFns(bound), srv.buildStoreFns(bound), "demo", true, 0, "")
+			stop, err := ipc.ServeMCP(sock, srv.buildRoutdFns(bound), srv.buildStoreFns(bound), "demo", true, 0, "")
 			if err != nil {
 				t.Fatal(err)
 			}

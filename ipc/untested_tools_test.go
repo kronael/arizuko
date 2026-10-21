@@ -20,16 +20,16 @@ import (
 // open the wrong folder, set an empty observe window.
 
 // serveTools starts a real MCP socket over the given hooks and returns its path.
-func serveTools(t *testing.T, gated GatedFns, db StoreFns, folder string) string {
+func serveTools(t *testing.T, routd RoutdFns, db StoreFns, folder string) string {
 	t.Helper()
-	if gated.GroupsDir == "" {
-		gated.GroupsDir = t.TempDir()
+	if routd.GroupsDir == "" {
+		routd.GroupsDir = t.TempDir()
 	}
 	if db.DefaultFolderForJID == nil {
 		db.DefaultFolderForJID = func(string) string { return folder }
 	}
 	sock := filepath.Join(t.TempDir(), "gated.sock")
-	stop, err := ServeMCP(sock, gated, db, folder, true, 0, "")
+	stop, err := ServeMCP(sock, routd, db, folder, true, 0, "")
 	if err != nil {
 		t.Fatalf("ServeMCP: %v", err)
 	}
@@ -57,7 +57,7 @@ func TestForkTopicPassesParentChildAndForce(t *testing.T) {
 	var gotFolder, gotParent, gotChild string
 	var gotForce bool
 	calls := 0
-	sock := serveTools(t, GatedFns{
+	sock := serveTools(t, RoutdFns{
 		ForkTopic: func(folder, parent, child string, force bool) error {
 			calls++
 			gotFolder, gotParent, gotChild, gotForce = folder, parent, child, force
@@ -93,14 +93,14 @@ func TestForkTopicPassesParentChildAndForce(t *testing.T) {
 }
 
 func TestForkTopicRefusesAnEmptyChildAndAMissingHook(t *testing.T) {
-	sock := serveTools(t, GatedFns{
+	sock := serveTools(t, RoutdFns{
 		ForkTopic: func(string, string, string, bool) error { return nil },
 	}, StoreFns{}, "acme")
 	mustFail(t, callRaw(t, sock, "fork_topic", map[string]any{
 		"parent": "design", "child": "",
 	}), "fork_topic with an empty child")
 
-	bare := serveTools(t, GatedFns{}, StoreFns{}, "acme")
+	bare := serveTools(t, RoutdFns{}, StoreFns{}, "acme")
 	mustFail(t, callRaw(t, bare, "fork_topic", map[string]any{
 		"parent": "design", "child": "x",
 	}), "fork_topic with no hook")
@@ -110,7 +110,7 @@ func TestForkTopicRefusesAnEmptyChildAndAMissingHook(t *testing.T) {
 
 func TestInjectMessageCarriesEveryField(t *testing.T) {
 	var jid, content, sender, senderName string
-	sock := serveTools(t, GatedFns{
+	sock := serveTools(t, RoutdFns{
 		InjectMessage: func(j, c, s, n string) (string, error) {
 			jid, content, sender, senderName = j, c, s, n
 			return "m-1", nil
@@ -131,7 +131,7 @@ func TestInjectMessageCarriesEveryField(t *testing.T) {
 
 func TestInjectMessageRefusesAnEmptyJID(t *testing.T) {
 	called := false
-	sock := serveTools(t, GatedFns{
+	sock := serveTools(t, RoutdFns{
 		InjectMessage: func(string, string, string, string) (string, error) {
 			called = true
 			return "", nil
@@ -151,7 +151,7 @@ func TestInjectMessageRefusesAnEmptyJID(t *testing.T) {
 // would let an agent subscribe a DIFFERENT folder to its own inbound.
 func TestObserveGroupBindsTheObserverToTheSocketFolder(t *testing.T) {
 	var addObs, addSrc, delObs, delSrc string
-	sock := serveTools(t, GatedFns{
+	sock := serveTools(t, RoutdFns{
 		AddGroupWatcher:    func(o, s string) error { addObs, addSrc = o, s; return nil },
 		RemoveGroupWatcher: func(o, s string) error { delObs, delSrc = o, s; return nil },
 	}, StoreFns{}, "acme/eng")
@@ -185,7 +185,7 @@ func TestObserveGroupBindsTheObserverToTheSocketFolder(t *testing.T) {
 
 func TestUnobserveGroupRefusesAnEmptySource(t *testing.T) {
 	called := false
-	sock := serveTools(t, GatedFns{
+	sock := serveTools(t, RoutdFns{
 		RemoveGroupWatcher: func(string, string) error { called = true; return nil },
 	}, StoreFns{}, "acme")
 	mustFail(t, callRaw(t, sock, "unobserve_group", map[string]any{"source": ""}), "unobserve_group")
@@ -199,7 +199,7 @@ func TestUnobserveGroupRefusesAnEmptySource(t *testing.T) {
 func TestPaneSetPromptsDecodesTheTitleMessagePairs(t *testing.T) {
 	var gotJID string
 	var gotPrompts []core.PanePrompt
-	sock := serveTools(t, GatedFns{
+	sock := serveTools(t, RoutdFns{
 		PaneSetPrompts: func(jid string, p []core.PanePrompt) error {
 			gotJID, gotPrompts = jid, p
 			return nil
@@ -233,7 +233,7 @@ func TestPaneSetPromptsDecodesTheTitleMessagePairs(t *testing.T) {
 func TestPaneSetTitleTrimsAndBoundsTheTitle(t *testing.T) {
 	var gotTitle string
 	calls := 0
-	sock := serveTools(t, GatedFns{
+	sock := serveTools(t, RoutdFns{
 		PaneSetTitle: func(_, title string) error { calls++; gotTitle = title; return nil },
 	}, StoreFns{}, "acme")
 
@@ -275,7 +275,7 @@ func TestPostSendsContentAndResolvesMediaInsideTheGroup(t *testing.T) {
 
 	var gotJID, gotContent string
 	var gotMedia []string
-	sock := serveTools(t, GatedFns{
+	sock := serveTools(t, RoutdFns{
 		GroupsDir: groups,
 		Post: func(jid, content string, media []string) (string, error) {
 			gotJID, gotContent, gotMedia = jid, content, media
@@ -314,7 +314,7 @@ func TestPostRefusesMediaOutsideTheGroupDirectory(t *testing.T) {
 		t.Fatal(err)
 	}
 	called := false
-	sock := serveTools(t, GatedFns{
+	sock := serveTools(t, RoutdFns{
 		GroupsDir: groups,
 		Post: func(string, string, []string) (string, error) {
 			called = true
@@ -338,7 +338,7 @@ func TestPostRefusesMediaOutsideTheGroupDirectory(t *testing.T) {
 }
 
 func TestPostRefusesWithNoHook(t *testing.T) {
-	sock := serveTools(t, GatedFns{}, StoreFns{}, "acme")
+	sock := serveTools(t, RoutdFns{}, StoreFns{}, "acme")
 	mustFail(t, callRaw(t, sock, "post", map[string]any{
 		"chatJid": "bsky:feed", "content": "x",
 	}), "post with no hook")
@@ -349,7 +349,7 @@ func TestPostRefusesWithNoHook(t *testing.T) {
 func TestResetSessionClearsTheNamedFolder(t *testing.T) {
 	var cleared string
 	calls := 0
-	sock := serveTools(t, GatedFns{
+	sock := serveTools(t, RoutdFns{
 		ClearSession: func(f string) { calls++; cleared = f },
 	}, StoreFns{}, "acme")
 
@@ -371,7 +371,7 @@ func TestSetGroupOpenCarriesBothTrueAndFalse(t *testing.T) {
 	var gotFolder string
 	var gotOpen bool
 	calls := 0
-	sock := serveTools(t, GatedFns{
+	sock := serveTools(t, RoutdFns{
 		SetGroupOpen: func(f string, open bool) error {
 			calls++
 			gotFolder, gotOpen = f, open
@@ -416,7 +416,7 @@ func TestSetGroupOpenCarriesBothTrueAndFalse(t *testing.T) {
 func TestSetObserveWindowPreservesTheHalfThatWasNotSent(t *testing.T) {
 	var gotFolder string
 	var gotMsgs, gotChars int
-	sock := serveTools(t, GatedFns{
+	sock := serveTools(t, RoutdFns{
 		GroupObserveWindow: func(string) (int, int) { return 10, 500 },
 		SetGroupObserveWindow: func(f string, m, c int) error {
 			gotFolder, gotMsgs, gotChars = f, m, c
@@ -456,7 +456,7 @@ func TestSetObserveWindowPreservesTheHalfThatWasNotSent(t *testing.T) {
 // re-storing the current window and reading as a change.
 func TestSetObserveWindowRefusesWithNeitherHalf(t *testing.T) {
 	called := false
-	sock := serveTools(t, GatedFns{
+	sock := serveTools(t, RoutdFns{
 		GroupObserveWindow:    func(string) (int, int) { return 10, 500 },
 		SetGroupObserveWindow: func(string, int, int) error { called = true; return nil },
 	}, StoreFns{}, "acme")
@@ -467,7 +467,7 @@ func TestSetObserveWindowRefusesWithNeitherHalf(t *testing.T) {
 }
 
 func TestSetObserveWindowRefusesWithNoHook(t *testing.T) {
-	sock := serveTools(t, GatedFns{}, StoreFns{}, "acme")
+	sock := serveTools(t, RoutdFns{}, StoreFns{}, "acme")
 	mustFail(t, callRaw(t, sock, "set_observe_window", map[string]any{
 		"messages": 25, "chars": 2000,
 	}), "set_observe_window with no hook")
@@ -483,7 +483,7 @@ func TestWorkRoundTripsThroughTheGroupDirectory(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(groups, folder), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	sock := serveTools(t, GatedFns{GroupsDir: groups}, StoreFns{}, folder)
+	sock := serveTools(t, RoutdFns{GroupsDir: groups}, StoreFns{}, folder)
 
 	got, errText := callTool(t, sock, "get_work", map[string]any{})
 	if errText != "" {
@@ -538,7 +538,7 @@ func TestWorkIsScopedToTheSocketFolder(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	sock := serveTools(t, GatedFns{GroupsDir: groups}, StoreFns{}, "acme/eng")
+	sock := serveTools(t, RoutdFns{GroupsDir: groups}, StoreFns{}, "acme/eng")
 	got, errText := callTool(t, sock, "get_work", map[string]any{"folder": "acme/sales", "groupFolder": "acme/sales"})
 	if errText != "" {
 		t.Fatalf("get_work: %s", errText)

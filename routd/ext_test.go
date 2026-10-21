@@ -559,7 +559,7 @@ func TestExtTool_Granted_IsListedBesideTheOtherTools(t *testing.T) {
 	srv := NewServer(db, nil, nil, nil, 0, "")
 	srv.SetExtTools(tools)
 	sock := groupfolder.IpcSocket(t.TempDir())
-	stop, err := ipc.ServeMCP(sock, srv.buildGatedFns(turnMCP{folder: "main"}),
+	stop, err := ipc.ServeMCP(sock, srv.buildRoutdFns(turnMCP{folder: "main"}),
 		srv.buildStoreFns(turnMCP{folder: "main"}), "main", false, 0, "")
 	if err != nil {
 		t.Fatalf("ServeMCP: %v", err)

@@ -38,7 +38,7 @@ func gatedConnectorSocket(t *testing.T, url string, authorize func(folder, actio
 		},
 		Authorize: authorize,
 	}
-	stop, err := ServeMCP(sock, GatedFns{}, db, "world/acme", false, 0, "folder:world/acme")
+	stop, err := ServeMCP(sock, RoutdFns{}, db, "world/acme", false, 0, "folder:world/acme")
 	if err != nil {
 		t.Fatalf("ServeMCP: %v", err)
 	}
