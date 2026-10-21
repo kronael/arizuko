@@ -61,17 +61,13 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; concepts</p>
       <h1>concepts</h1>
 
-      <p class="lede">The concepts pages explain how arizuko works, one idea per page. Read them in order the first time, because each page builds on the page before it, or go straight to the concept you need.</p>
+      <p class="lede">Each concepts page explains one idea of arizuko. The list below runs from the primitives to the address format. Complete option tables are in <a href="../reference/">reference</a>, and setup commands are in <a href="../howto/">how-to</a>.</p>
 
-      <h2>The pages follow the path of a message</h2>
-      <p>The concepts pages are a guided path, not a glossary. You meet the agent and follow a message to it. Then each page adds one layer: who can do what, and how an agent proves who calls. Later pages show where credentials and skills come from, and where the agent lives on the web. Each page holds one idea, takes a minute or two to read, and has one example from a real deployment.</p>
-      <p>Every page ends with a <strong>next</strong> link in the same order, so the pager takes you through the whole path. For the full lists, such as every flag, every column or the full JID schema, each concept links to its matching page in <a href="../reference/">reference</a>. Concepts explain the why and the shape. Reference lists the fields.</p>
-
-      <h2>Thirty pages, in reading order</h2>
+      <h2>Primitives first, then one page per idea</h2>
       <ol class="tour">
         <li><a href="primitives.html">Primitives</a>: the whole system on one page. Six parts in a fixed order, and how every feature combines them. Read it first.</li>
         <li><a href="store.html">The store</a>: where every row lives. One server, one account per instance, one key per daemon.</li>
-        <li><a href="scaling.html">Scaling</a>: the same code runs <code>solo/inbox</code> and <code>corp/eng/sre/oncall</code>. A new tenant is new rows, not new infrastructure.</li>
+        <li><a href="scaling.html">Scaling</a>: the same code runs <code>solo/inbox</code> and <code>corp/eng/sre/oncall</code>. A new tenant is rows in the grants, routes, secrets and tasks tables plus a folder under <code>groups/</code>.</li>
         <li><a href="ant.html">The ant</a>: the agent you talk to, a folder with a persona, skills, memory and secrets.</li>
         <li><a href="turn.html">A turn, end to end</a>: one figure of the whole path from the adapter through the router and the guest back to the chat.</li>
         <li><a href="routing.html">Routing</a>: how an inbound message finds the correct agent, through one table that maps JIDs to folders.</li>
@@ -99,8 +95,6 @@
         <li><a href="slack-pane.html">Slack pane</a>: the Slack assistant sidebar with a title, suggested prompts and pane context.</li>
         <li><a href="jid.html">Addressing (JID)</a>: the one address shape for every chat and sender on every adapter.</li>
       </ol>
-
-      <p>Setup commands are in <a href="../howto/">how-to</a>, and complete option tables are in <a href="../reference/">reference</a>. When you are ready to build, start with <a href="../howto/">getting started</a>.</p>
 
       <nav class="docs-pager" aria-label="Pager">
         <a rel="next" href="primitives.html">Primitives &rarr;</a>
