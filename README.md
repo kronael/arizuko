@@ -90,8 +90,9 @@ A product is a template for the contents of a folder, such as `support` or
 Every turn boots its own KVM guest. The guest root is the release rootfs,
 read-only, under a writable layer of 512 MiB in RAM. The folder home and its
 web directories come from the host and keep what the agent writes. When the
-turn ends, the guest powers off and the writable layer is gone. A folder runs one guest at a
-time, and a message that arrives during a turn goes into the running guest.
+turn ends, the guest powers off and the writable layer is gone. A folder runs
+one guest at a time, and a message that arrives during a turn goes into the
+running guest.
 
 An agent gives work to a sub-agent on a machine of its own through a second
 folder. `register_group` creates a child folder, and `delegate_group` puts a
