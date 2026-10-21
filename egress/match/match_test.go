@@ -5,10 +5,8 @@ import (
 	"testing"
 )
 
-// Host test table is ported from crackbox/internal/vm/proxy_test.go
-// (TestProxyIsAllowed). The original tests asserted ProxyServer.isAllowed
-// behavior; Host preserves the same semantics minus AllowAll, which is an
-// explicit mode on Allowed now, not a "*" list entry (spec 6/25 1b).
+// Host test table: AllowAll is an explicit mode on Allowed, not a "*" list
+// entry (spec 6/25 1b).
 
 func TestHost(t *testing.T) {
 	tests := []struct {

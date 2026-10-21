@@ -179,9 +179,8 @@ func mustAuditWrite(t *testing.T) objstore.Write {
 }
 
 // A broker secret read happens on the MCP surface — routd's
-// ResolveConnectorSecrets is the one production caller. Stamping `crackbox`
-// named a sandbox that is not on this path, so no surface query found these
-// rows (BUGS L53).
+// ResolveConnectorSecrets is the one production caller, so a surface query
+// for `mcp` finds these rows.
 func TestSecretUseLogStampsTheMCPSurface(t *testing.T) {
 	s := openMem(t)
 	if err := s.LogSecretUse(SecretUseRow{

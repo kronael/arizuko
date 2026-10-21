@@ -129,8 +129,7 @@ func (s *Store) LogSecretUse(r SecretUseRow) error {
 		Actor:    r.CallerSub,
 		ActorSub: r.CallerSub,
 		// The one production writer is routd's MCP broker middleware, so the
-		// surface is `mcp`; stamping `crackbox` made every broker read
-		// unfindable by surface (BUGS L53).
+		// surface is `mcp`.
 		Surface:    audit.SurfaceMCP,
 		Resource:   "secrets/" + r.Scope + "/" + r.Folder + "/" + r.Key,
 		Scope:      r.Scope,

@@ -1,5 +1,5 @@
 // Package match holds the pure host-matching primitives used by the egress proxy and
-// the sandbox netfilter rules. Ported from crackbox. No state, no I/O.
+// the sandbox netfilter rules. No state, no I/O.
 //
 // The package owns the rule grammar: every boundary that accepts a rule validates with
 // ValidEntry/ValidateLists, so a rule that can never match is refused where it is

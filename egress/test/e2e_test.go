@@ -7,11 +7,10 @@
 // only the proxy half of the enforcement; the other half is the sandbox's
 // internal network, which has no route out except through this proxy.
 //
-// Carried forward from crackbox/test/egress_e2e_test.go. The registry is
-// gone (the allowlist is fixed at construction) and so is case 9: the DNS
-// filter was deleted with pkg/dns, because a single-tenant proxy already
-// sees every destination in the CONNECT line and a rule expressed twice is
-// a rule that can disagree with itself (spec 6/24).
+// The allowlist is fixed at construction, so there is no registry. There is
+// no DNS filter case: a single-tenant proxy already sees every destination in
+// the CONNECT line, and a rule expressed twice can disagree with itself
+// (spec 6/24).
 package test
 
 import (

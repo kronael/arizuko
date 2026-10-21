@@ -565,15 +565,12 @@ func TestTimedWiring(t *testing.T) {
 
 // Egress isolation needs no switch any more: the guest's tap accepts the proxy
 // and drops everything else, and runed refuses to start without the proxy binary
-// (spec 6/41 §"Egress by name, sealed below the kernel"). What compose still owes
-// is the absence it always owed — no long-lived proxy service and no declared
-// networks, because the proxy is one process per turn and dies with it.
-func TestEgressDeclaresNoProxyService(t *testing.T) {
+// (spec 6/41 §"Egress by name, sealed below the kernel"). Compose declares no
+// networks and the daemon env files carry no docker-substrate egress variable,
+// because the proxy is one process per turn and dies with it.
+func TestEgressDeclaresNoNetworks(t *testing.T) {
 	dir := seed(t, "")
 	out := gen(t, dir)
-	if strings.Contains(out, "  crackbox:\n") {
-		t.Error("compose must not declare a long-lived proxy service")
-	}
 	if strings.Contains(out, "\nnetworks:\n") {
 		t.Error("compose must not declare networks — the guest's tap is per turn")
 	}
