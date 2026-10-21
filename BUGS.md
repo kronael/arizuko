@@ -282,6 +282,9 @@ rows and the test to write; none needs a decision except where it says so.
   listings were in its context.
 - `L524` — a message the running turn already answered gets a second turn of
   its own.
+- `L526` — thirteen more variables routd reads are not in `daemonKeys["routd"]`.
+  An operator names which of them to deliver, because delivering one can switch
+  a feature on.
 
 **Found while folding the lowercase `bugs.md` into this file (2026-10-20).**
 
@@ -1096,6 +1099,27 @@ dispatched turn `.../3385` for the same message at 20:12:21 (failed ctl, retried
   slot spent on it. Related: `L347` (the cursor after a steered turn).
 - **Fix:** advance the cursor past messages the running turn consumed.
 - **Status:** open.
+
+## L526 — thirteen variables routd reads are not in `daemonKeys["routd"]`, so a value in `.env` never reaches it (2026-10-21, open)
+
+MEASURED 2026-10-21 by listing every `core.*("KEY"` and `os.Getenv("KEY")` read
+in `routd/` and searching the lists in `compose/compose.go` for each. Not
+delivered: `MAX_TURN_RETRY`, `MAX_OUTBOUND_RETRY`, `COST_CAPS_ENABLED`,
+`CONNECTORS_TOML`, `CONNECTOR_CALL_TIMEOUT_MS`, `SESSION_IDLE_EXPIRY` and the
+seven `PROACTIVE_*` keys that `LoadProactiveConfig` reads
+(`routd/proactive.go:34`). The operator docs list them as settings
+(`template/web/pub/arizuko/reference/env.html`). Each one falls to its code
+default with no log line. `L388` and `L380` closed this class for runed and
+for `METRICS_ENABLED`; routd has no guard like
+`TestRunedEnvKeysCoverEveryRunedVar`.
+
+- **Severity:** medium — an operator who sets `COST_CAPS_ENABLED=false` or
+  `PROACTIVE_ENABLED=true` gets no effect and no warning.
+- **Fix:** deliver the keys the operator names, and add a routd guard shaped
+  like the runed one. `PROACTIVE_ENABLED` can switch a feature on at the next
+  deploy of an instance whose `.env` already sets it, so the operator names
+  the keys first.
+- **Status:** open — needs the operator's key list. No test — config.
 
 ## L480 — slakd posts a whole reply as ONE chat.postMessage, so a long reply is cut by Slack (2026-10-20, open)
 
