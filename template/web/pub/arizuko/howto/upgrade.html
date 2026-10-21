@@ -51,19 +51,19 @@
     <h2 id="steps">Eight commands upgrade an instance</h2>
     <p>Run the commands in the arizuko checkout. Replace <code>demo</code> with the name of the instance.</p>
     <pre><code>git pull                                          # the new release
-make build                                        # ./arizuko + daemon binaries
+make build                                        # ./arizuko and the daemon binaries
 sudo make images DATA_DIR=/srv/data/arizuko_demo  # prints rootfs: &lt;dir&gt;
 sudo make kernel DATA_DIR=/srv/data/arizuko_demo  # prints kernel: &lt;dir&gt;
 sudoedit /srv/data/arizuko_demo/.env              # RUNED_ROOTFS_DIR, RUNED_KERNEL_DIR
 ./arizuko generate demo                           # read every warning it prints
-sudo systemctl restart arizuko_demo               # arizuko run regenerates, starts
+sudo systemctl restart arizuko_demo               # arizuko run regenerates and starts
 ./arizuko send demo main "ping" --wait            # one reply proves the path</code></pre>
 
     <h2 id="artifacts">Each artifact goes into a new directory</h2>
     <p>A turn starts a guest kernel and a root filesystem from the data directory. The name of each directory contains a hash of its content. runed reads the two paths from <code>.env</code>:</p>
     <pre><code>make images ──► DATA_DIR/images/rootfs-&lt;image id&gt;/        ◄── RUNED_ROOTFS_DIR
 make kernel ──► DATA_DIR/images/kernel-&lt;version&gt;-&lt;hash&gt;/  ◄── RUNED_KERNEL_DIR</code></pre>
-    <p><code>make images</code> exports a new rootfs tree only when the <code>arizuko-ant</code> image changed. It prints the directory in both cases. It deletes no tree. <code>make rootfs-stale</code> lists the trees after the newest two, and you remove them. <code>make kernel</code> builds only when <code>kernel/Dockerfile</code>, <code>kernel/arizuko.fragment</code>, <code>kernel/check-config.sh</code> or <code>kernel/guest-init/*.go</code> changed. In all other cases it prints <code>is current</code>, and <code>RUNED_KERNEL_DIR</code> does not change.</p>
+    <p><code>make images</code> exports a new rootfs tree only when the <code>arizuko-ant</code> image changed. It prints the directory in both cases. It deletes no tree. <code>arizuko images &lt;name&gt;</code> lists every rootfs and kernel tree, and <code>arizuko images &lt;name&gt; --prune</code> removes every tree that <code>.env</code> does not name. <code>make kernel</code> builds only when <code>kernel/Dockerfile</code>, <code>kernel/arizuko.fragment</code>, <code>kernel/check-config.sh</code> or <code>kernel/guest-init/*.go</code> changed. In all other cases it prints <code>is current</code>, and <code>RUNED_KERNEL_DIR</code> does not change.</p>
     <p>When <code>RUNED_ROOTFS_DIR</code> keeps the old value, the new daemons start the guest of the previous release. No error occurs.</p>
 
     <h2 id="generate">arizuko generate shows its warnings before the restart</h2>

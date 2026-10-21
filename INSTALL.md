@@ -1,7 +1,7 @@
 # Installing arizuko
 
 This guide takes a bare Linux host to a first reply. Follow it from top to
-bottom. You need no other document.
+bottom.
 
 ## Check the host before you install
 
@@ -42,9 +42,10 @@ grep MemTotal /proc/meminfo
 ```
 
 Check the memory before you set the guest cap. `runed` refuses to start when
-`RUNED_GUEST_MEM` times `MAX_CONCURRENT_CONTAINERS` is more than `MemTotal`, see `memoryFits` in `runed/qemuhost.go`. The defaults are 2 GiB and 5, so they
-need 10 GiB. Each release rootfs needs about 8.3 GB of disk, and `make images`
-keeps two.
+`RUNED_GUEST_MEM` times `MAX_CONCURRENT_CONTAINERS` is more than `MemTotal`, see
+`memoryFits` in `runed/qemuhost.go`. The defaults are 2 GiB and 5, so they need
+10 GiB. Each release rootfs needs about 7 GB of disk, and `make images` removes
+no old tree.
 
 ## Fix a failed check
 
@@ -169,7 +170,9 @@ in `/srv/data/arizuko_<name>/.env`. The command refuses to run if the `.env` doe
 not name both, or if a named tree is not on disk. It removes nothing if a mount
 exists at or under a tree that it would remove. It removes only the direct
 children of `images/` named `rootfs-*` or `kernel-*`. To keep a rollback tree,
-set `RUNED_ROOTFS_DIR` to it first, or do not prune.
+set `RUNED_ROOTFS_DIR` to it first, or do not prune. The listed size adds the
+size of every file name in a tree, so a hard-linked file counts once for each
+name, and the sizes can add up to more than a prune frees.
 
 Never run `docker image prune -a` on an arizuko host. No container holds
 `arizuko-ant` between turns, so the prune deletes it, and the rootfs export
@@ -307,9 +310,9 @@ Three rows need care:
 - `cmd/arizuko` is the operator command on the host. Its key goes in
   `env/operator.env`, not in the file of a daemon.
 
-Every other adapter gets its own prefix and nothing else. The adapters `whapd`
-and `twitd` are not in this table, and this guide does not say which store
-access they need. That fact is not measured.
+Every other adapter in the table gets its own prefix and nothing else. `whapd`,
+`twitd` and `googd` open no store and need no key: none of them is in
+`StoreReach`, and none calls `OpenAdapterStore`.
 
 For each row, create the user, put the policy, and mint the key. This example
 is for `routd`:
@@ -732,7 +735,7 @@ The tar holds these items:
 - `.env`, with `SECRETS_KEY`
 - `images/`
 
-Every rootfs tree in `images/` is about 8.3 GB by the measure of the Makefile.
+Every rootfs tree in `images/` is about 7 GB.
 `--exclude=arizuko_<name>/images` leaves them out. A restore then runs
 `make images` and `make kernel` and sets the new paths in `.env`. An instance
 on a shared store server keeps its rows on that server, so its tar holds no
@@ -815,7 +818,8 @@ turns; N precondition(s) missing:` and lists every missing item at once.
    The items are a missing `/dev/kvm`, an unset `RUNED_KERNEL_DIR` or
    `RUNED_ROOTFS_DIR`, a missing `egress`, `iptables` or `ip` binary, and
    kernel or rootfs artifacts that are not built. Fix the named items and
-   restart. A fix for one item never hides the others, see `qemuPreconditions` in `runed/qemuhost.go`.
+   restart. A fix for one item never hides the others, see `qemuPreconditions` in
+   `runed/qemuhost.go`.
 2. **An adapter is disconnected.** `docker ps` shows `(unhealthy)`, or the
    `/health` of the adapter returns 503 with `{status:"disconnected"}` while
    the process is up. An example is `whapd` that waits for a QR scan, or a
