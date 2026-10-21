@@ -106,7 +106,7 @@ list disagree.
 └──────────────┘
 ```
 
-timed, ttsd, googd, whapd and twitd hold no store key. timed and ttsd call an owner's `/v1`.
+timed, ttsd, googd, whapd and twitd hold no store key. timed calls an owner's `/v1`.
 
 | Owner                                      | Entities                                                                                                   | Declared in                            | Column detail                                |
 | ------------------------------------------ | ---------------------------------------------------------------------------------------------------------- | -------------------------------------- | -------------------------------------------- |
