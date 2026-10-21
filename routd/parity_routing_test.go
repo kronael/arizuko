@@ -39,6 +39,23 @@ func TestResolveTarget_EmptyReplyTo(t *testing.T) {
 	}
 }
 
+// TestResolveTarget_EqualSeqFirstWrittenWins: two catch-all rules at one seq
+// send the chat to the one written first. The route coordinate orders them
+// the other way ("alpha" before "zeta"), so the rule that fires is the id's
+// choice and not the key's.
+func TestResolveTarget_EqualSeqFirstWrittenWins(t *testing.T) {
+	db, l := targetLoop(t)
+	for _, target := range []string{"zeta", "alpha"} {
+		if _, err := db.AddRoute(core.Route{Seq: 0, Match: "platform=tg", Target: target}); err != nil {
+			t.Fatalf("add the rule for %s: %v", target, err)
+		}
+	}
+	msg := core.Message{ChatJID: "tg:123", Content: "hello"}
+	if got := l.resolveTarget("tg:123", msg, "self"); got != "zeta" {
+		t.Errorf("resolveTarget = %q, want zeta, the rule with the lower id", got)
+	}
+}
+
 // TestResolveTarget_WithReplyTo: a reply to a bot row routed elsewhere follows
 // the reply chain over the route table (gated TestReplyChainRouting_WithReplyTo).
 func TestResolveTarget_WithReplyTo(t *testing.T) {

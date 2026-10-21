@@ -207,3 +207,32 @@ func TestReplaceFolderRoutes_MintsAroundHeldIDs(t *testing.T) {
 		seen[r.ID] = r.Target
 	}
 }
+
+// TestRouteTableReadsEqualSeqInIdOrder: two rules at one seq read back in the
+// order they were written, not in the order of their coordinate.
+//
+// The coordinate is seq, target, match, so the driver returns "alpha" before
+// "zeta". "zeta" was written first and holds the lower id, and the router fires
+// the first rule that matches, so the table has to read zeta, alpha.
+func TestRouteTableReadsEqualSeqInIdOrder(t *testing.T) {
+	s := openEntities(t)
+	for _, target := range []string{"zeta", "alpha"} {
+		if _, err := s.PutRouteRow(core.Route{Seq: 0, Target: target, Match: "platform=slack"}); err != nil {
+			t.Fatalf("write the rule for %s: %v", target, err)
+		}
+	}
+	rs, err := s.RouteTable()
+	if err != nil {
+		t.Fatalf("read the route table: %v", err)
+	}
+	if len(rs) != 2 {
+		t.Fatalf("read %d rules, want 2: %+v", len(rs), rs)
+	}
+	if rs[0].Target != "zeta" || rs[1].Target != "alpha" {
+		t.Fatalf("route table = %s (id %d), %s (id %d), want zeta before alpha: equal seq reads in id order",
+			rs[0].Target, rs[0].ID, rs[1].Target, rs[1].ID)
+	}
+	if rs[0].ID >= rs[1].ID {
+		t.Fatalf("ids = %d, %d, want the first rule to hold the lower id", rs[0].ID, rs[1].ID)
+	}
+}

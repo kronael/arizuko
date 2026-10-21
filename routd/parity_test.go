@@ -247,6 +247,68 @@ func TestChildDelegation(t *testing.T) {
 	}
 }
 
+// TestTopicPrefix: a "#deploy hello" message posts "hello" again on the same
+// chat under topic "#deploy", queues the chat, and advances the cursor past the
+// prefixed row, so no turn runs on the raw text.
+func TestTopicPrefix(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatalf("open mem: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+	rr := &recRunner{}
+	loop := NewLoop(db, rr, LoopConfig{})
+	queued := make(chan string, 4)
+	loop.q.SetProcessMessagesFn(func(jid string) (bool, error) {
+		queued <- jid
+		return true, nil
+	})
+	t.Cleanup(loop.StopQueue)
+
+	_ = db.PutGroup(core.Group{Folder: "root"})
+	doSetRoutes(t, db, []core.Route{{Match: "platform=slack", Target: "root"}})
+	const chat = "slack:T/C/X"
+	_ = db.PutMessage(core.Message{ID: "a", ChatJID: chat, Sender: "u", Name: "Una",
+		Content: "#deploy hello", Timestamp: time.Now().UTC().Add(-time.Minute), Verb: "message"})
+
+	if _, err := loop.processGroupMessages(chat); err != nil {
+		t.Fatalf("process: %v", err)
+	}
+	if len(rr.runs) != 0 {
+		t.Fatalf("the prefixed row fired %d turns, want none", len(rr.runs))
+	}
+
+	msgs := chatMessages(t, db, chat)
+	if len(msgs) != 2 {
+		t.Fatalf("chat holds %d rows, want the original and one topic row: %+v", len(msgs), msgs)
+	}
+	topicRow := msgs[1]
+	if topicRow.Topic != "#deploy" || topicRow.Content != "hello" {
+		t.Fatalf("topic row = topic %q content %q, want topic %q content %q",
+			topicRow.Topic, topicRow.Content, "#deploy", "hello")
+	}
+	if topicRow.Sender != "u" || topicRow.Name != "Una" {
+		t.Fatalf("topic row sender = %q (%q), want the original sender u (Una)",
+			topicRow.Sender, topicRow.Name)
+	}
+	pending, err := db.NewMessagesForChat(chat, db.GetAgentCursor(chat), 10)
+	if err != nil {
+		t.Fatalf("read pending: %v", err)
+	}
+	if len(pending) != 1 || pending[0].Topic != "#deploy" {
+		t.Fatalf("pending after the cursor = %+v, want only the topic row", pending)
+	}
+
+	select {
+	case jid := <-queued:
+		if jid != chat {
+			t.Fatalf("queued chat = %q, want %q", jid, chat)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the chat was not queued after the topic row was posted")
+	}
+}
+
 // TestObserveMarksMessages: a route in observe mode (target=folder#observe)
 // flags inbound rows is_observed=1 and routed_to=folder, fires no turn, and
 // advances the cursor (gated MarkMessagesObserved parity).

@@ -33,6 +33,49 @@ func TestObserveWindow_FirstRouteWins(t *testing.T) {
 	}
 }
 
+// TestObserveWindow_GroupWindow: the window is the config default, then the
+// group's stored window replaces it field by field, then the first route
+// override replaces that.
+func TestObserveWindow_GroupWindow(t *testing.T) {
+	cases := []struct {
+		name         string
+		groupMsgs    int
+		groupChars   int
+		route        *core.Route
+		wantN, wantC int
+	}{
+		{"no group window, no route", -1, -1, nil, 20, 1000},
+		{"group window replaces the default", 3, 100, nil, 3, 100},
+		{"group messages only keep the default chars", 3, -1, nil, 3, 1000},
+		{"group chars only keep the default messages", -1, 100, nil, 20, 100},
+		{"route override replaces the group window", 3, 100,
+			&core.Route{ObserveWindowMessages: 7, ObserveWindowChars: 700}, 7, 700},
+		{"route messages only keep the group chars", 3, 100,
+			&core.Route{ObserveWindowMessages: 7}, 7, 100},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			db, l := targetLoop(t)
+			l.observeMessages, l.observeChars = 20, 1000
+			_ = db.PutGroup(core.Group{Folder: "grp", AddedAt: time.Now().UTC()})
+			if err := db.SetGroupObserveWindow("grp", c.groupMsgs, c.groupChars); err != nil {
+				t.Fatalf("set the group window: %v", err)
+			}
+			if c.route != nil {
+				r := *c.route
+				r.Match, r.Target = "room=a", "grp"
+				if _, err := db.AddRoute(r); err != nil {
+					t.Fatalf("add the route: %v", err)
+				}
+			}
+			n, chars := l.observeWindow("grp")
+			if n != c.wantN || chars != c.wantC {
+				t.Errorf("observeWindow = (%d, %d), want (%d, %d)", n, chars, c.wantN, c.wantC)
+			}
+		})
+	}
+}
+
 // --- recoverPending re-enqueue (mirror gateway_test:TestRecoverPendingMessages) ---
 
 // TestRecoverPending_ReEnqueuesRunningTurns: on boot, recoverPending re-feeds
