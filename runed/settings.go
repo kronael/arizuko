@@ -84,7 +84,7 @@ func seedSettings(
 	settings["env"] = env
 
 	// Claude Code's permission + sandbox layer is asserted by the platform, not the
-	// agent: arizuko isolates via the egress proxy, the substrate and the gated MCP
+	// agent: arizuko isolates via the egress proxy, the substrate and the routd MCP
 	// socket. Write both authoritatively every spawn, so a stray agent-added
 	// permissions block cannot accumulate and a future SDK default cannot silently
 	// re-enable the sandbox.

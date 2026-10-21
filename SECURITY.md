@@ -351,7 +351,7 @@ and the line, so the agent can rewrite the file and not retry blindly.
   slots are data, and the mounts and the web tree gate them.
 - **The guard fails open.** A crash of the scanner or an unknown tool shape
   allows the write. The guard is not a containment boundary. The VM boundary,
-  the egress allowlist and the gated MCP socket are. The guard raises the cost
+  the egress allowlist and the routd MCP socket are. The guard raises the cost
   of one move: storing a malicious instruction for the next session.
 
 ## A package install is bounded before it writes

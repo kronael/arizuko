@@ -27,7 +27,7 @@ import (
 //
 // Typical use:
 //
-//	defer obs.Setup("gated", instance)()
+//	defer obs.Setup("routd", instance)()
 func Setup(daemon, instance string) func() {
 	stock := slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
 		Level: levelFromEnv(),

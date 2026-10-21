@@ -11,7 +11,7 @@ import (
 
 // GET /dash/groups/{folder}/tools — read-only MCP tool browser.
 // Shows the tool list the agent in this group sees: name, description, input
-// schema. Source of truth is ipc.ListTools (same path gated uses at runtime).
+// schema. Source of truth is ipc.ListTools (same path routd uses at runtime).
 func (d *dash) handleGroupTools(w http.ResponseWriter, r *http.Request) {
 	folder := groupFromPath(r, "/tools")
 	if folder == "" {
