@@ -191,7 +191,6 @@ reads those words now.
   token authorizes. Two halves of one design.
 - `L185`, `L186` — the CLI's runtime verbs need a principal and an audit surface;
   dashd's admin writes over routd's `/v1` need a forwarder trust routd does not grant.
-- `L171` — one TypeScript channel module for whapd and twitd.
 - `L151` — an adapter with a dead credential restart-loops and nothing pushes the fact
   anywhere a person sees.
 - `L2` — a delegated child is never dispatched; a measured cause and an unsigned fix.
@@ -221,10 +220,9 @@ reads those words now.
   other providers' keys in `.env` are dropped.
 - `L483` — the DynamoDB driver sends no `ConsistentRead`, which `6/37` and
   `6/42` assume. One line; live impact nil on PostgreSQL.
-- `L484`, `L485`, `L486`, `L494`, `L496` — small fixes, each bounded in its
-  entry: the TS adapters' stale `/health` code, the RFC 3339 one-shot dashd
-  refuses, linkd's stubbed last-inbound, onbod's route writes on any allow row,
-  extra mounts with no blocklist.
+- `L484`, `L485`, `L494`, `L496` — small fixes, each bounded in its
+  entry: the TS adapter's stale `/health` code, the RFC 3339 one-shot dashd
+  refuses, onbod's route writes on any allow row, extra mounts with no blocklist.
 - `L488` — `mcpfw/Dockerfile` cannot build (measured); one line.
 - `L487`, `L489`, `L491`, `L498`, `L500`, `L501`, `L502` — doc and
   comment drift against the code, each naming the sentence to change.
@@ -382,10 +380,9 @@ a test that captures the `QueryInput`. Until then `6/37` and `6/42` carry
 
 - **Status:** open (record only).
 
-## L484 — whapd and twitd answer `/health` 503 when inbound is five minutes old, and chanlib answers 200 (2026-10-20, open)
+## L484 — whapd answers `/health` 503 when inbound is five minutes old, and chanlib answers 200 (2026-10-20, open)
 
-FOUND 2026-10-20 by the docs fold. `whapd/src/server.ts:210-222` and
-`twitd/src/server.ts:99-110` set `status = 'stale'; code = 503` once
+FOUND 2026-10-20 by the docs fold. `whapd/src/server.ts:210-222` sets `status = 'stale'; code = 503` once
 `last > 0 && staleSec > 5 * 60`. `chanlib/handler.go:604-607` states the rule
 the Go adapters follow: stale inbound is informational, `/health` stays 200
 with `status=stale`, and "a quiet workspace must not 503". `handleHealth`
@@ -394,13 +391,13 @@ says the 5-minute threshold "matches the chanlib Go default"; the threshold
 matches and the verdict does not.
 
 `chanreg/health.go:38-49` (`healthPing`) reads the body and counts `stale` as
-alive, so routd never deregisters a quiet WhatsApp or X adapter. A reader of
+alive, so routd never deregisters a quiet WhatsApp adapter. A reader of
 the status code (a `curl -f`, an external monitor) sees the same quiet adapter
 as down.
 
-**Fix:** answer 200 for `stale` in both servers and keep 503 for
+**Fix:** answer 200 for `stale` in the server and keep 503 for
 `disconnected`. A Go producer and a TS consumer share one contract test that
-reads both sources (`CLAUDE.md` § Conventions); this pair has none. No test
+reads both sources (`CLAUDE.md` § Conventions); whapd has none. No test
 yet — this pass records only.
 
 - **Status:** open (record only).
@@ -418,25 +415,6 @@ and not by the operator on the page that lists it.
 
 **Fix:** one parser for both. dashd calls the function routd uses, which
 means moving `parseTaskSchedule` to `core` beside `NextRun`. No test yet —
-this pass records only.
-
-- **Status:** open (record only).
-
-## L486 — linkd reports "now" as its last inbound, and the comment says it has no inbound (2026-10-20, open)
-
-FOUND 2026-10-20 by the docs fold. `linkd/server.go:23-26` sets
-`lastInbound := func() int64 { return time.Now().Unix() }` under the comment
-"linkd is a stub adapter with no inbound plumbing". It has inbound: the poll
-loop delivers each new comment with `router.SendMessage` at
-`linkd/client.go:499`. `linkd/README.md:40-42` documents the stub value as the
-design ("`/health` never turns `stale`"). So the comment is false, the README
-states the consequence, and a poll loop that dies while the OAuth token stays
-valid never shows in `/health`'s `last_inbound_at` or `stale_seconds`. Stale is
-informational in chanlib (200), so the cost is the missing diagnostic and no
-outage.
-
-**Fix:** store the time of the last delivery at `client.go:499` and return it
-from `lastInbound`; drop the comment and the README sentence. No test yet —
 this pass records only.
 
 - **Status:** open (record only).
@@ -465,7 +443,7 @@ is the repository root and uses the root module: the Dockerfile copies
 `go.mod go.sum` and builds `./mcpfw/cmd/mcpfw`, and `mcpfw/` has no `go.mod` of
 its own. `go.mod` says `go 1.27` and `toolchain go1.27rc2`. Every other
 root-module image uses `golang:1.27rc2-alpine` (`Dockerfile:4`,
-`anteval/Dockerfile:3`, `egress/Dockerfile:1`, `linkd/Dockerfile:3`,
+`anteval/Dockerfile:3`, `egress/Dockerfile:1`,
 `ttsd/Dockerfile:1`). Command and result:
 
 ```
@@ -2490,7 +2468,7 @@ from position. Every port is `PORT_BASE + offset`:
 | 17 | slakd | 49217 | 49317 | 127.0.0.1 |
 | 18 | litellm | 49218 | 49318 | 127.0.0.1 (`--port`) |
 | 19 | litellm_db | 49219 | 49319 | 127.0.0.1 |
-| 20–25 | gitd, linkd, emaid, reditd, bskyd, twitd | 49220–49225 | 49320–49325 | 127.0.0.1 |
+| 20–25 | gitd, emaid | 49220–49225 | 49320–49325 | 127.0.0.1 |
 | — | proxyd | 49165 + 49177 | 49176 | 0.0.0.0 — the public entry point; unchanged because the edge dials these |
 
 **What the move costs**, each a file or a contract the table above does not
@@ -3746,7 +3724,7 @@ use, and drifting the INSTALL.md row each turn the matching test red.
 ```
 
 The test binds in THREE directions, not two: a daemon that opens an owner the
-map omits also fails (`owner_reach_test.go:173`), so `whapd`, `twitd` and
+map omits also fails (`owner_reach_test.go:173`), so `whapd` and
 `kokoro` being absent from the map is verified — they open no store — rather
 than forgotten.
 
@@ -4314,24 +4292,6 @@ weeks.
   That is what the operator asked for, and it changes what `reply` means for
   every turn on every platform, so it is not a default anyone should pick
   silently.
-
-## L171 — proposal: one TypeScript channel module for whapd and twitd (2026-09-05, proposal — needs sign-off)
-
-Measured at `c0594f32`: `auth.ts` (126 lines) and `log.ts` (10) are
-byte-identical between the two adapters; `dash.ts` differs in 51 of 154
-lines, `client.ts` in 40 of 74; `server.ts` differs in 505 lines of 386-513 —
-platform code, not a copy. The shared surface is ~300 lines, not the 1,236
-spec 6/36 §2 counts. Removing it means a package both Dockerfiles build, a
-tsconfig path in each adapter, and one owner for the routd-facing ES256
-verifier in TypeScript — a new package boundary, so a redesign. 6/36 open
-question 6 (share a TypeScript chanlib, or move twitd to Go) decides it.
-
-- **Severity:** low
-- **Scope:** whapd, twitd
-- **Affected:** whapd, twitd, the `Makefile` image targets
-- **Source:** `whapd/src/{auth,log,dash,client}.ts` against `twitd/src/`
-- **Status:** proposed
-- **Fix:**
 
 ## L159 — a scheduled task fires nightly into a Telegram chat teled already classified as permanently dead (2026-09-05, open — proposal; the filed trigger is UNSAFE, a narrower one is named 2026-09-21)
 
@@ -5273,10 +5233,6 @@ prompt states that a reaction arrived and on which message, (b) a route-level
 which `:531` already half does, via `ReplyTo` rather than authorship. Whoever
 signs off should also say whether a reaction should ever spend a turn on its own.
 
-Also structural, and separate: `bskyd`, `reditd` and `linkd` can SEND a reaction
-and can never receive one — no `InboundMsg` is ever built from a like or an
-upvote in those three.
-
 - **RE-MEASURED 2026-09-21 at `b3b973e2`: the 2026-09-20 note above is REFUTED
   on both of its claims, and the refutation removes all three options.** That
   note grepped for `reaction` in `routd/` and concluded from the silence that no
@@ -5317,9 +5273,7 @@ upvote in those three.
   prompt — a `reaction` attribute the mention promotion does not overwrite — or
   is a bare emoji under a `<reply-to>` header enough? Nothing here needs a
   redesign or a product decision about spending a turn per emoji: (b) is a
-  config row and (c) already ships. The structural half of this entry —
-  `bskyd`, `reditd` and `linkd` can SEND a reaction and never receive one —
-  is untouched and still open.
+  config row and (c) already ships.
 
 ## L92 — the HITL hold gate fails OPEN when the `acl` read fails (2026-08-24, proposal)
 

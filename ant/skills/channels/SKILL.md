@@ -18,7 +18,6 @@ user-invocable: true
 | telegram  | extension-based: `.png/.jpg/.jpeg/.webp` → photo; `.mp4/.mov/.webm` → video; `.gif` → animation; `.mp3/.m4a/.flac/.ogg` → audio (music — voice notes use `send_voice`); other → document |
 | discord   | any extension; mime set per extension (`image/png`, `video/mp4`, `audio/mpeg`, …) → rich-media bubble. PDFs and unknown types attach as plain files |
 | whatsapp  | platform-native dispatch (Baileys infers type)                            |
-| bluesky   | image-only — `.jpg/.jpeg/.png/.webp/.gif` upload as `app.bsky.embed.images`; non-image returns "Bluesky's PDS embed surface only accepts image blobs" → host elsewhere, post the URL via `send` |
 | email     | MIME multipart attachment                                                 |
 
 ## Voice vs file

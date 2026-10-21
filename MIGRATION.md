@@ -67,7 +67,7 @@ capability comes from its `acl` rows. Audit operator (`**`) grants.
 | `WEB_PUBLIC`                                               | Replaced by `/pub/` convention in proxyd                                              |
 | `WEBDAV_URL`                                               | Backend URL is hardcoded (`http://davd:8080`); `WEBDAV_ENABLED` still gates the route |
 | `FILE_TRANSFER_ENABLED` / `FILE_DENY_GLOBS` / `FILE_MAX_*` | File command surface not ported                                                       |
-| `TWITTER_*`, `FACEBOOK_*`                                  | Not ported (twitd/bskyd/reditd are separate Go daemons)                               |
+| `TWITTER_*`, `FACEBOOK_*`                                  | Not ported                                                                            |
 
 **Behavior**:
 
@@ -194,7 +194,7 @@ Prototype spawning is **not ported**. Groups are created explicitly with
 | Feature                     | Notes                               |
 | --------------------------- | ----------------------------------- |
 | `refresh_groups` IPC        | Adapters sync via HTTP registration |
-| Twitter / Facebook channels | bskyd/reditd/twitd separate daemons |
+| Twitter / Facebook channels | Not ported                          |
 | File transfer (`/file ...`) | Not ported                          |
 | Cross-channel preemption    | Not implemented                     |
 
