@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>research &middot; arizuko</title>
-  <meta name="description" content="Technical research hub for arizuko multi-tenant agent platform. Architecture, security model, coordination patterns, skill development.">
+  <meta name="description" content="Research write-up of how arizuko separates tenants, confines a turn and lets folders hand work to each other.">
   <link rel="stylesheet" href="../assets/hub.css">
 </head>
 <body>
@@ -29,166 +29,53 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; research</p>
       <h1>research</h1>
 
-      <p class="lede">Multi-tenant agent platform architecture, security model, coordination patterns, and skill development.</p>
+      <p class="lede">How arizuko separates tenants, confines a turn and lets folders hand work to each other.</p>
       <p class="meta">Research write-up, dated <time datetime="2026-10-20">2026-10-20</time>. The concepts and reference sections hold the current facts.</p>
-
-      <div class="callout"><strong>System model:</strong>
-        <strong>Folders are agents.</strong> Each folder is a tenant: isolated memory, persona, skills, routes.
-        <strong>MCP over unix socket.</strong> Tool calls go through routd, which decides what an agent may reach.
-        <strong>Defense-in-depth.</strong> One KVM guest per turn + a per-turn egress proxy on that guest's own tap + per-group MCP sockets + the host-side secret broker.</div>
 
       <div class="toc">
         <ul>
-          <li><a href="#architecture">Architecture</a> &mdash; tenancy, routing, groups/topics/sessions</li>
-          <li><a href="#security">Security</a> &mdash; egress filtering, MCP isolation</li>
-          <li><a href="#patterns">Patterns</a> &mdash; coordination, dispatch, resume tokens</li>
-          <li><a href="#skills">Skills</a> &mdash; MCP tradeoffs, marketplace, evals</li>
+          <li><a href="#architecture">Architecture</a> &mdash; tenancy, turns, topics, routing</li>
+          <li><a href="#security">Security</a> &mdash; threat model, layers, egress</li>
+          <li><a href="#patterns">Patterns</a> &mdash; delegation and observation</li>
+          <li><a href="#skills">Skills</a> &mdash; tools against skills</li>
         </ul>
       </div>
 
       <section id="architecture">
-        <h2>Architecture</h2>
-
-        <h3>Tenancy model</h3>
-        <p>
-          Each folder is a tenant. A folder path is a routing target, a JID prefix, a
-          home shared into the guest and a web vhost — it carries no authority. Authority is a row
-          in the <code>acl</code> table:
-        </p>
-        <table>
-          <tr>
-            <th>Principal</th>
-            <th>Holds</th>
-            <th>Authority</th>
-          </tr>
-          <tr>
-            <td><code>role:member</code></td>
-            <td>The twelve messaging verbs</td>
-            <td>Bound to every folder at creation. Reply, send, post, like, edit and the rest — nothing more.</td>
-          </tr>
-          <tr>
-            <td><code>role:operator</code></td>
-            <td><code>*</code> on <code>**</code>, WITH GRANT OPTION</td>
-            <td>The root of every delegation chain. Held by a person, invoked with <code>/root</code>.</td>
-          </tr>
-          <tr>
-            <td><code>folder:world/team</code></td>
-            <td>Whatever was delegated to it</td>
-            <td>Routing, group creation, token issuance, egress — each an explicit row, each bounded by its own scope glob.</td>
-          </tr>
-        </table>
-        <p>
-          <code>routd</code> evaluates every tool call against those rows, deny-wins, with no
-          fallback: an action with no matching allow row is refused. Delegation is bounded by
-          subset-of-held — a principal may pass on only rows it holds, and only those it holds
-          with the grant option — so authority strictly decreases down every chain and no agent
-          can escalate past its granter.
-        </p>
-
-        <h3>Execution model</h3>
-        <p>
-          When a message arrives:
-        </p>
-        <ul>
-          <li><code>routd</code> matches route predicates (<code>platform=</code>, <code>chat_jid=</code>, <code>sender=</code>) and POSTs <code>/v1/runs</code> to <code>runed</code></li>
-          <li><code>runed</code> stages that turn's tree of bind mounts in its own mount namespace, then exports two virtio-fs shares from it: the release rootfs read-only, the staging tree read-write</li>
-          <li>The tree carries <code>/home/node/</code> (the group folder), <code>/opt/arizuko</code> (the release's <code>ant/</code>) and <code>/var/lib/www</code> read-only, plus <code>~/public_html</code> and <code>~/private_html</code> when the folder may publish</li>
-          <li>One tap, its static rule set, and that turn's <code>egress</code> proxy on the tap's host side — all three before the guest exists</li>
-          <li><code>qemu-system-x86_64</code> boots the guest directly on the built kernel and initrd; the turn's env and payload arrive over a vsock control channel</li>
-          <li>The Claude Code agent runs; its tool calls reach <code>/run/ipc/gated.sock</code>, a guest-local socket forwarded over a second vsock port to a host bridge that dials <code>routd</code>'s own socket — a unix socket does not cross virtio-fs</li>
-          <li>The guest powers off; <code>runed</code> reaps QEMU, then the rule set and the tap, then the host processes that served it, then the tree. The workspace persists.</li>
-        </ul>
-        <p>
-          The guest is ephemeral and holds nothing of its own: its writable layer is a sized tmpfs
-          in RAM. All state is in <code>/home/node/</code> (shared in from the host) or routd's
-          message store, which is host-side.
-        </p>
-
-        <h3>Groups, topics, sessions</h3>
-        <table>
-          <tr>
-            <th>Primitive</th>
-            <th>Lifecycle</th>
-            <th>Isolation</th>
-            <th>Use</th>
-          </tr>
-          <tr>
-            <td><strong>Group</strong></td>
-            <td>Persistent</td>
-            <td>Folder boundary</td>
-            <td>Agent identity, memory, persona, skills</td>
-          </tr>
-          <tr>
-            <td><strong>Topic</strong></td>
-            <td>Transient</td>
-            <td>Session ID</td>
-            <td>One conversation thread, forkable</td>
-          </tr>
-          <tr>
-            <td><strong>Session</strong></td>
-            <td>Ephemeral</td>
-            <td>Claude Code session</td>
-            <td>LLM context window, reset via <code>/new</code></td>
-          </tr>
-        </table>
-        <p>
-          <strong>Groups</strong> are folders. <strong>Topics</strong> scope conversations within a group.
-          <strong>Sessions</strong> are Claude Code's execution context. Fork a topic to branch a conversation
-          while preserving parent context.
-        </p>
-
-        <h3>Routing</h3>
-        <p>
-          Routes are rows in <code>routes</code> table with <code>seq</code> (priority),
-          <code>match</code> (key=glob predicates), and <code>target</code> (folder or <code>:daemon:</code>).
-        </p>
-        <pre><code>seq  match                          target
-  100  platform=telegram room=main    corp/sales
-  200  platform=slack                 corp/eng
-  300  chat_jid=web:*                 :daemon:webd</code></pre>
-        <p>
-          First match wins. <code>routd</code> resolves predicates at message-receive time.
-          Engagement overrides routing for N turns after a reply.
-        </p>
-
-        <h3>Observable architecture</h3>
-        <p>
-          Groups can <strong>observe</strong> other groups' inbound messages without becoming the active agent:
-        </p>
-        <ul>
-          <li><code>observe_group(source)</code> — subscribe to another folder's messages</li>
-          <li><code>set_group_open(true)</code> — expose this group to sibling ambient context</li>
-          <li>Observed messages surface in <code>&lt;observed&gt;</code> blocks (gateway-injected)</li>
-        </ul>
-        <p>
-          Use for parent monitoring children, sibling awareness, or root aggregation.
-          Observed context is capped per turn (env: <code>OBSERVE_WINDOW_MESSAGES</code>,
-          <code>OBSERVE_WINDOW_CHARS</code>). See <a href="../concepts/routing.html#modes">route modes</a>.
-        </p>
+        <h2>A folder is a tenant and routd checks every call</h2>
+        <dl>
+          <dt>Tenancy</dt>
+          <dd>A folder is a tenant. Its path is a routing target and the home the guest sees. Authority comes from rows in the <code>acl</code> table, and <code>routd</code> checks them on every tool call. See <a href="../concepts/grants.html">grants</a>.</dd>
+          <dt>Turn</dt>
+          <dd><code>routd</code> matches a route and posts <code>/v1/runs</code> to <code>runed</code>. <code>runed</code> boots one QEMU guest for the turn and powers it off after the reply. See <a href="../concepts/turn.html">a turn, end to end</a>.</dd>
+          <dt>Group, topic, session</dt>
+          <dd>A group is a persistent folder. A topic is a thread inside it with its own session. A session is one Claude Code context. See <a href="../concepts/topics.html">topics</a>.</dd>
+          <dt>Routing</dt>
+          <dd>Routes are rows in the <code>routes</code> table with <code>seq</code>, <code>match</code> and <code>target</code>. The lowest <code>seq</code> that matches wins, and an engaged chat overrides the target. See <a href="../concepts/routing.html">routing</a>.</dd>
+          <dt>Observation</dt>
+          <dd><code>observe_group(source)</code> subscribes a folder to the inbound messages of another folder. <code>routd</code> shows them as <code>&lt;observed&gt;</code> context, capped by <code>OBSERVE_WINDOW_MESSAGES</code> and <code>OBSERVE_WINDOW_CHARS</code>. See <a href="../concepts/routing.html#modes">route modes</a>.</dd>
+        </dl>
       </section>
 
       <section id="security">
-        <h2>Security</h2>
-
-        <h3>Threat model</h3>
+        <h2>Four layers confine a turn that is not trusted</h2>
         <p>
-          Arizuko assumes:
+          Arizuko assumes three things:
         </p>
-        <ul>
-          <li><strong>Agents are untrusted.</strong> LLM output can be malicious or compromised.</li>
-          <li><strong>Tool calls are the attack surface.</strong> Every MCP tool call is a potential privilege escalation.</li>
-          <li><strong>Network egress is risk.</strong> Agents can exfiltrate data if unrestricted.</li>
-        </ul>
-        <p>
-          Defense: isolation at the guest, network, MCP, and secret layers.
-        </p>
+        <dl>
+          <dt>Agent output is untrusted</dt>
+          <dd>A model can produce malicious output.</dd>
+          <dt>Tool calls are the attack surface</dt>
+          <dd>Every MCP tool call can try to gain authority.</dd>
+          <dt>Network access is a risk</dt>
+          <dd>An agent with open network access can send data out.</dd>
+        </dl>
 
-        <h3>Defense in depth</h3>
         <table>
           <tr>
             <th>Layer</th>
             <th>Mechanism</th>
-            <th>Threat mitigated</th>
+            <th>Threat stopped</th>
           </tr>
           <tr>
             <td>Guest</td>
@@ -197,229 +84,87 @@
           </tr>
           <tr>
             <td>Network</td>
-            <td>One tap per guest, a static rule set, and the per-turn proxy as the only accepted destination</td>
-            <td>Exfiltration, C2 communication</td>
+            <td>One tap per guest, a static rule set that accepts only the proxy's port, and a proxy started for that turn</td>
+            <td>Data sent to a host outside the allowlist</td>
           </tr>
           <tr>
             <td>MCP</td>
-            <td>Per-group unix socket, grants enforced by <code>routd</code></td>
-            <td>Cross-tenant tool access, privilege escalation</td>
+            <td>One unix socket per folder at <code>&lt;data&gt;/ipc/&lt;folder&gt;/gated.sock</code>, with grants checked by <code>routd</code></td>
+            <td>Tool access in another tenant, privilege escalation</td>
           </tr>
           <tr>
             <td>Secrets</td>
-            <td>AES-256-GCM at rest, env-var injection, no disk persistence</td>
-            <td>Secret theft via disk access or guest inspection</td>
+            <td>AES-256-GCM at rest; <code>routd</code> resolves each capability credential on the host per tool call</td>
+            <td>Secret theft from disk or from the guest</td>
           </tr>
         </table>
-
-        <h3>Egress filtering</h3>
         <p>
-          Per-folder allowlist, enforced by a proxy started fresh for each turn:
+          The guest receives model credentials, the five keys of <code>store.EnvProfileKeys</code> <a href="https://github.com/kronael/arizuko/blob/c419018a5efa4d9320fcd878c1a19560ab932aa4/store/secrets.go#L248-L256" title="store/secrets.go lines 248 to 256">[store/secrets.go]</a>, and any key that a <code>shell:env:&lt;KEY&gt;</code> grant names <a href="https://github.com/kronael/arizuko/blob/c419018a5efa4d9320fcd878c1a19560ab932aa4/runed/render.go#L68-L75" title="runed/render.go lines 68 to 75">[runed/render.go]</a>. See <a href="../concepts/secrets.html">secrets</a>.
+          The host bridge of a turn dials the socket of that turn's folder only. See <a href="../concepts/ant.html">ant</a>.
         </p>
-        <ul>
-          <li><strong>No route out:</strong> the guest's only interface is its <code>/30</code> tap, and that tap's rule set accepts only the proxy's port, so the proxy is its only path anywhere. A raw socket to an IP literal is dropped below the kernel the agent runs on.</li>
-          <li><strong>Host matching:</strong> exact, subdomain-aware and case-insensitive, read from the request line</li>
-          <li><strong>CONNECT tunnelling:</strong> HTTPS is spliced, never decrypted &mdash; no CA, no key material, no request bodies</li>
-          <li><strong>One client:</strong> the proxy is pinned with <code>--client</code> to that one guest's address and refuses every other peer, sibling guests included</li>
-        </ul>
+
+        <h3>The proxy is the only way out of the guest</h3>
         <p>
-          The agent reaches only what the operator permitted. Example allowlist:
-          <code>["api.anthropic.com", "github.com", "pypi.org"]</code>.
+          The per-folder allowlist is enforced by a proxy that <code>runed</code> starts for each turn:
+        </p>
+        <dl>
+          <dt>No other route</dt>
+          <dd>The only interface of the guest is its <code>/30</code> tap. The rule set of that tap accepts only the proxy's port and drops the rest, so a raw socket to an IP address goes nowhere. <a href="https://github.com/kronael/arizuko/blob/c419018a5efa4d9320fcd878c1a19560ab932aa4/runed/vmnet.go#L83-L96" title="runed/vmnet.go lines 83 to 96">[runed/vmnet.go]</a></dd>
+          <dt>Host matching</dt>
+          <dd>The match is exact or by subdomain, ignores case, and reads the host from the request line. <a href="https://github.com/kronael/arizuko/blob/c419018a5efa4d9320fcd878c1a19560ab932aa4/egress/match/match.go#L39-L56" title="egress/match/match.go lines 39 to 56">[egress/match/match.go]</a></dd>
+          <dt>CONNECT tunnels</dt>
+          <dd>The proxy passes HTTPS through. It has no CA, no key and no view of request bodies. <a href="https://github.com/kronael/arizuko/blob/c419018a5efa4d9320fcd878c1a19560ab932aa4/egress/proxy.go#L1-L5" title="egress/proxy.go lines 1 to 5">[egress/proxy.go]</a></dd>
+          <dt>One client</dt>
+          <dd><code>--client</code> pins the proxy to the address of that one guest, and the proxy refuses every other peer. <a href="https://github.com/kronael/arizuko/blob/c419018a5efa4d9320fcd878c1a19560ab932aa4/runed/vmnet.go#L232-L235" title="runed/vmnet.go lines 232 to 235">[runed/vmnet.go, client]</a></dd>
+        </dl>
+        <p>
+          An allowlist example: <code>["api.anthropic.com", "github.com", "pypi.org"]</code>.
           See <a href="../components/egress.html">egress docs</a> and
           <a href="https://github.com/kronael/arizuko/blob/main/SECURITY.md">SECURITY.md</a>.
-        </p>
-
-        <h3>MCP socket isolation</h3>
-        <p>
-          Each group gets its own unix socket on the host
-          (<code>&lt;data&gt;/ipc/&lt;folder&gt;/gated.sock</code>), bound in <code>routd</code>'s
-          own process. <code>routd</code> brokers every tool call, enforces grants, and logs
-          actions. A guest cannot reach another group's socket: its bridge is forked per turn with
-          that one path and runs as the agent's uid, so there is no second path to name.
-        </p>
-
-        <h3>Secrets</h3>
-        <p>
-          Secrets are AES-256-GCM encrypted in routd&rsquo;s <code>secrets</code> table.
-          The guest's env carries model credentials only &mdash; the four env-profile keys, taken
-          from the host <code>.env</code> and overlaid with the triggering user's own rows. Every
-          capability credential stays on the host: <code>routd</code> resolves it per tool call,
-          spends it in the outbound request, and returns only the response. No secret is written to
-          <code>/home/node/</code> or to logs.
         </p>
       </section>
 
       <section id="patterns">
-        <h2>Patterns</h2>
-
-        <h3>Agent-to-agent coordination</h3>
+        <h2>Three tools move work between folders</h2>
+        <dl>
+          <dt><code>delegate_group(group, prompt, chatJid)</code></dt>
+          <dd>Hands a prompt down to a child folder. The child runs on its own, and the parent does not wait. See <a href="../concepts/turn.html#children">a child folder runs in its own guest</a>.</dd>
+          <dt><code>escalate_group(prompt, chatJid)</code></dt>
+          <dd>Hands a prompt up to the parent folder. The parent answers back through this child.</dd>
+          <dt><code>observe_group(source)</code></dt>
+          <dd>Reads the messages of another folder without taking over its routing.</dd>
+        </dl>
         <p>
-          Three MCP tools for hierarchical coordination:
-        </p>
-        <ul>
-          <li>
-            <strong><code>delegate_group(group, prompt, chatJid)</code></strong> —
-            hand work down to a child. Child runs async, parent doesn't block.
-          </li>
-          <li>
-            <strong><code>escalate_group(prompt, chatJid)</code></strong> —
-            hand work up to parent. Parent responds back through this child.
-          </li>
-          <li>
-            <strong><code>observe_group(source)</code></strong> —
-            watch another group's messages without taking over.
-          </li>
-        </ul>
-        <p>
-          Use <code>delegate</code> for specialist work. Use <code>escalate</code> when authority is needed.
-          Use <code>observe</code> for ambient awareness (sibling monitoring, aggregation).
-        </p>
-
-        <h3>Topic forking</h3>
-        <p>
-          <code>fork_topic(parent, child)</code> — create a new topic from another's session state.
-          Child gets a fresh session ID but starts with parent's Claude Code context. Use for:
-        </p>
-        <ul>
-          <li>Side-conversations that need parent context</li>
-          <li>Parallel workstreams without polluting parent</li>
-          <li>Focused exploration that can later merge findings back</li>
-        </ul>
-
-        <h3>Dispatch trigger design</h3>
-        <p>
-          Skills can specify <code>ALWAYS</code> or <code>NEVER</code> triggers in <code>SKILL.md</code>:
-        </p>
-        <pre><code>ALWAYS:
-  - "download this video" → acquire
-  - "transcribe this" → acquire
-
-  NEVER:
-  - Static pages → do NOT use agent-browser, use acquire instead</code></pre>
-        <p>
-          Gateway reads these at session start and surfaces them in <code>&lt;skills&gt;</code> block.
-          Agent uses them for fast dispatch without re-reading every <code>SKILL.md</code>.
-        </p>
-
-        <h3>Stateless iteration loops (Ralph)</h3>
-        <p>
-          Pattern for long-running tasks that survive session resets:
-        </p>
-        <ul>
-          <li>Write progress to <code>~/state/<task>.json</code></li>
-          <li>Each turn: read state, process next batch, write state</li>
-          <li>On session reset: re-read state, continue from last checkpoint</li>
-          <li>No in-memory state — stateless across turns</li>
-        </ul>
-        <p>
-          Named after "ralph loop" (stateless iteration). Use for multi-page scrapes,
-          batch processing, or any task that takes >1 session.
-        </p>
-
-        <h3>Resume tokens</h3>
-        <p>
-          For APIs with pagination or long-running operations:
-        </p>
-        <ul>
-          <li>Store resume token in <code>~/state/</code> or <code>~/facts/</code></li>
-          <li>On next turn, check for token, resume from checkpoint</li>
-          <li>Example: GitHub API pagination (<code>page=N</code>), Stripe list cursors</li>
-        </ul>
-
-        <h3>Fingerprint-based change detection</h3>
-        <p>
-          Detect file changes without storing full content:
-        </p>
-        <ul>
-          <li>Compute SHA-256 of file, store in <code>~/state/fingerprints.json</code></li>
-          <li>On next turn, recompute and compare</li>
-          <li>Only process changed files</li>
-        </ul>
-        <p>
-          Use for monitoring codebases, watching config files, or tracking external resources.
-        </p>
-
-        <h3>Multi-agent pipeline orchestration</h3>
-        <p>
-          Chain multiple agents for staged processing:
-        </p>
-        <pre><code>ingest → classify → route → specialist → review → publish</code></pre>
-        <p>
-          Each stage is a separate group. Use <code>delegate_group</code> or direct message routing.
-          Example: support intake → triage agent → specialist teams → summary agent → publish.
+          <code>fork_topic(parent, child)</code> starts a new topic with a fresh session ID and a copy of the parent's Claude Code session file. See <a href="../concepts/topics.html">topics</a>.
+          Tool definitions: <a href="https://github.com/kronael/arizuko/blob/c419018a5efa4d9320fcd878c1a19560ab932aa4/ipc/ipc.go#L1996-L2004" title="ipc/ipc.go lines 1996 to 2004">[delegate_group]</a> <a href="https://github.com/kronael/arizuko/blob/c419018a5efa4d9320fcd878c1a19560ab932aa4/ipc/ipc.go#L1941-L1946" title="ipc/ipc.go lines 1941 to 1946">[escalate_group]</a> <a href="https://github.com/kronael/arizuko/blob/c419018a5efa4d9320fcd878c1a19560ab932aa4/ipc/ipc.go#L1843-L1850" title="ipc/ipc.go lines 1843 to 1850">[observe_group]</a> <a href="https://github.com/kronael/arizuko/blob/c419018a5efa4d9320fcd878c1a19560ab932aa4/ipc/ipc.go#L1633-L1637" title="ipc/ipc.go lines 1633 to 1637">[fork_topic]</a>.
         </p>
       </section>
 
       <section id="skills">
-        <h2>Skills</h2>
-
-        <h3>MCP vs in-context skills</h3>
+        <h2>A side effect needs a tool and knowledge needs a skill</h2>
         <table>
           <tr>
             <th>Aspect</th>
-            <th>MCP Tools</th>
-            <th>In-context skills</th>
+            <th>MCP tool</th>
+            <th>Skill</th>
           </tr>
           <tr>
-            <td>Context window</td>
-            <td>Tool name + description only</td>
-            <td>Full SKILL.md in system prompt</td>
+            <td>What the agent holds</td>
+            <td>Tool name and description</td>
+            <td>Name and description; the agent reads the <code>SKILL.md</code> body when the task matches</td>
           </tr>
           <tr>
-            <td>Authority</td>
-            <td>Host-enforced grants</td>
-            <td>Agent-enforced (prompt-based)</td>
-          </tr>
-          <tr>
-            <td>State</td>
-            <td>Stateless, always available</td>
-            <td>Loaded at session start, persists</td>
-          </tr>
-          <tr>
-            <td>Best for</td>
-            <td>Platform operations (routing, groups, tokens)</td>
-            <td>Workflow patterns, domain knowledge, multi-step procedures</td>
+            <td>Who enforces the limit</td>
+            <td><code>routd</code>, through grants on each call</td>
+            <td>Nobody; the text only instructs the agent</td>
           </tr>
         </table>
         <p>
-          <strong>Rule:</strong> Use MCP for side effects (send message, create group, issue token).
-          Use in-context skills for knowledge and workflow guidance.
+          A side effect such as a message, a new group or a token goes through an MCP tool, because <code>routd</code> checks a grant on each call.
+          A procedure or domain knowledge goes in a skill.
+          Claude Code reads skills from the folder. For codex and pi, <code>ant/src/skills-scan.ts</code> checks each skill and, for codex, renders a <code>&lt;skills&gt;</code> index into the prompt.
+          See <a href="../concepts/skills.html">skills</a>.
         </p>
-
-        <h3>Skill development</h3>
-        <p>
-          Each skill is a directory under <code>~/.claude/skills/&lt;name&gt;/</code> with:
-        </p>
-        <ul>
-          <li><code>SKILL.md</code> — description, workflow, ALWAYS/NEVER triggers</li>
-          <li>Optional: scripts, templates, reference files</li>
-        </ul>
-        <p>
-          Gateway reads <code>SKILL.md</code> at session start, injects into system prompt.
-          Skills compose — agent can invoke multiple skills per turn.
-        </p>
-
-        <h3>Skill marketplace patterns</h3>
-        <p>
-          (Research in progress. Placeholder for skill discovery, versioning, dependencies,
-          and performance evals.)
-        </p>
-        <ul>
-          <li>Skill discovery: local index, remote registry?</li>
-          <li>Versioning: semver, lock file?</li>
-          <li>Dependencies: skill-to-skill references?</li>
-          <li>Evals: measurable performance improvements?</li>
-        </ul>
-
-        <h3>Performance improvements</h3>
-        <p>
-          Measurable improvements from skill-based workflows:
-        </p>
-        <ul>
-          <li>Dispatch latency: ALWAYS/NEVER triggers reduce skill-matching overhead</li>
-          <li>Context efficiency: tight skill descriptions vs bloated prompts</li>
-          <li>Eval-driven iteration: A/B test skill variants, track success rate</li>
-        </ul>
       </section>
 
       <p class="note">
