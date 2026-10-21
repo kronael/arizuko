@@ -18,7 +18,6 @@
           <ul class="nav-children">
             <li><a href="./">Start here</a></li>
             <li><a href="primitives.html">Primitives</a></li>
-            <li><a href="built.html">Development</a></li>
             <li><a href="store.html">The store</a></li>
             <li><a href="scaling.html">Scaling</a></li>
             <li><a href="ant.html">The ant</a></li>
@@ -62,76 +61,28 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">concepts</a> &rsaquo; workflows</p>
       <h1>workflows</h1>
 
-      <p class="lede">An arizuko agent handles a chat well and fails at a job
-        with many steps. It improvises every turn from the chat history, never
-        writes a plan down, does not read its own skills, and starts each
-        session with no context. A workflow fixes this with one rule, not a new
-        engine: keep the conversation free, but make the <em>opening</em>
-        strict.</p>
+      <p class="lede">A workflow is a convention, not a feature. A
+        <code>## Session opening</code> section in the <code>CLAUDE.md</code> of
+        a group and one plan file, <code>~/plans/&lt;topic&gt;.md</code>, let an
+        agent finish a job with many steps. The platform runs nothing for
+        it.</p>
 
-      <h2>Jobs with many steps go in circles for four reasons</h2>
-      <p>Watch a travel agent plan a trip of one week over chat. The pattern is
-        always the same:</p>
-      <dl>
-        <dt>The plan lives in the transcript</dt>
-        <dd>No single file holds the itinerary, so every turn rebuilds it from
-          the chat history. The agent adds the same stop, questions it, removes
-          it and adds it again within an hour. Nothing exists to converge
-          <em>on</em>.</dd>
-        <dt>Nothing forces an opening</dt>
-        <dd>The agent <em>can</em> run its triage step, but the step is only a
-          hint, and the model skips it. A plain &ldquo;hello&rdquo; can stay
-          unanswered while the agent starts on something else.</dd>
-        <dt>The context is not loaded when the agent decides</dt>
-        <dd>The agent says &ldquo;I do not have the history&rdquo; during a
-          session although the context exists, because nothing makes it load
-          memory and <code>facts/</code> before it acts.</dd>
-        <dt>The agent does not read its own skills</dt>
-        <dd>A user teaches a rule that a skill already holds, four times,
-          because nothing makes the agent read its skills at the start of the
-          job.</dd>
-      </dl>
-      <p>None of these is a missing capability: the memory, the skills and the
-        plan file all exist. What is missing is a <em>gate</em> that runs a
-        fixed opening before the agent replies freely.</p>
-
-      <h2>The chat stays free and the opening is strict</h2>
-      <p>The discipline applies at the edges of a session, not in the middle.
-        A waiter who knows you chats freely, but each time you sit down, he runs
-        the same steps: greet, recall your table, take the order, read it back,
-        then act.</p>
-      <table>
-        <thead>
-          <tr><th>Boundary</th><th>What runs</th></tr>
-        </thead>
-        <tbody>
-          <tr><td>A new session, after a cold start, an idle expiry or
-            <code>/new</code></td><td>the full opening: load the persona, memory
-            and facts, read the open plan for this topic, and confirm the goal,
-            all <em>before</em> any free reply</td></tr>
-          <tr><td>A continuation in the same session</td><td>free conversation,
-            with the plan edited in place as the work moves</td></tr>
-          <tr><td>A new topic from a fork</td><td>the context of the parent,
-            plus an opening for the new thread</td></tr>
-        </tbody>
-      </table>
-      <p>Inside a session, conversation is the default. The strict part applies
-        only at the boundaries: a new session and a new thread.</p>
-
-      <h2>One plan file is the record of the job</h2>
-      <p>A plain file stops the circles. Every job with many steps gets one
+      <h2>One plan file records the job</h2>
+      <p>Without a file, the plan exists only in the chat history, and the
+        agent rebuilds it every turn. A job with many steps gets one
         <code>~/plans/&lt;topic&gt;.md</code>, written first and edited in
-        place. The opening reads it, and the work updates it. &ldquo;Done&rdquo;
-        means that <em>the plan file is updated</em>, not a closing chat
-        message. The file is markdown that the agent owns, with no schema and no
-        database row, and you can diff it like every other file in the
+        place. The work updates it. &ldquo;Done&rdquo; means that the plan file
+        is updated, not that a chat message says so. The file is markdown that
+        the agent owns, with no schema and no database row, and you can diff it
+        like every other file in the
         <a href="primitives.html">agent folder</a>.</p>
 
-      <h2>You write the opening in CLAUDE.md</h2>
-      <p>You write what the opening <em>says</em>. Each group has a
-        <code>CLAUDE.md</code>, its operating manual, and a
-        <code>## Session opening</code> section in it is the contract. Keep the
-        section short and concrete:</p>
+      <h2>The opening goes in CLAUDE.md</h2>
+      <p>Each group has a <code>CLAUDE.md</code>, its operating manual. You write
+        a <code>## Session opening</code> section in it. The self skill of the
+        agent, <code>ant/skills/self/SKILL.md</code>, tells the agent to run that
+        section before the first reply of every new session. Keep the section
+        short and concrete:</p>
       <pre><code>## Session opening
 
 Before replying to anything multi-step:
@@ -141,27 +92,19 @@ Before replying to anything multi-step:
 4. Confirm the goal and name the deliverable, then act.
 
 "Done" means the plan file is updated — not a message that says done.</code></pre>
-      <p>Two more rules make the opening useful. Keep the persona coherent: one
-        identity and one focused <code>facts/</code>, because an agent with three
-        personas has nothing clean to load. Treat the plan file as the source of
-        truth for the whole job.</p>
 
-      <h2>A workflow is not a new primitive</h2>
-      <p>A workflow is not a seventh part of the system. It is
-        <a href="primitives.html">Turn and State</a> and the session lifecycle,
-        combined. The session boundary already starts each run fresh. The
-        discipline makes that boundary run a fixed opening and keep a plan file.
-        No state machine and no DAG runtime exist. The session lifecycle of
-        arizuko is the structure, and the agent supplies the intelligence.</p>
+      <div class="callout"><strong>The platform does not enforce the opening.</strong>
+        The agent follows the section as an instruction, and it can skip it. No
+        daemon checks that the opening ran. No durable workflow engine runs under
+        it. A checkpoint-and-replay engine needs deterministic orchestration
+        code. Here the orchestrator is a model, and a replay of a model does not
+        give the same steps back.</div>
 
-      <div class="callout"><strong>You write the opening, and the platform does not enforce it.</strong>
-        The opening is a convention that you write in <code>CLAUDE.md</code>
-        and the agent follows. The plan file and the opening section work as
-        described. The platform does not <em>enforce</em> the opening, and no
-        durable workflow engine runs under it, by design. Checkpoint-and-replay
-        engines assume that the orchestration code is deterministic. Here the
-        orchestrator is a model, and a replay of a model does not give the same
-        steps back.</div>
+      <h2>A workflow adds no seventh primitive</h2>
+      <p>A workflow is <a href="primitives.html">Turn and State</a> and the
+        session lifecycle, used with a convention. The session boundary already
+        starts each run fresh. The convention makes the agent load a fixed
+        context there and keep a plan file.</p>
 
       <h2>Existing parts give what an engine would give</h2>
       <table>
@@ -172,17 +115,6 @@ Before replying to anything multi-step:
         <tr><td>a hand-off to a child</td><td><code>delegate_group</code> and <code>escalate_group</code></td></tr>
         <tr><td>a restart without loss</td><td>store rows plus the files of the folder</td></tr>
       </table>
-      <p>This is not enough for a shipped product that needs a job of many
-        hours with side effects, where a second run of the turn is not
-        acceptable. Such a job gets its own daemon with its own store and a
-        checkpoint-or-execute step, not an engine under every turn.</p>
-
-      <h2>Agents can talk to each other with existing parts</h2>
-      <p>Long-lived groups that message each other need nothing new either. A
-        chat link or a route token gives a group an address, <code>send</code>
-        posts to it, and the skill files decide who talks to whom.
-        <code>routd</code> does not change: the topology is text in the
-        folders.</p>
 
       <nav class="docs-pager" aria-label="Pager">
         <a rel="prev" href="tasks.html">&larr; Tasks</a>

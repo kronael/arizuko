@@ -498,7 +498,7 @@ minimum touch target.
       <h2>A section</h2>
       <nav class="docs-pager" aria-label="Pager">
         <a rel="prev" href="./">&larr; Concepts</a>
-        <a rel="next" href="built.html">How it&rsquo;s built &rarr;</a>
+        <a rel="next" href="store.html">The store &rarr;</a>
       </nav>
       <div class="docs-footer">
         <a

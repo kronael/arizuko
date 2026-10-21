@@ -18,7 +18,6 @@
           <ul class="nav-children">
             <li><a href="./">Start here</a></li>
             <li><a href="primitives.html">Primitives</a></li>
-            <li><a href="built.html">Development</a></li>
             <li><a href="store.html">The store</a></li>
             <li><a href="scaling.html">Scaling</a></li>
             <li><a href="ant.html">The ant</a></li>
@@ -62,10 +61,10 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">concepts</a> &rsaquo; audit trail</p>
 <h1>audit trail</h1>
 
-    <p class="lede">The audit trail is the table that records who changed what. It answers questions such as these: who revoked a grant last Tuesday, why did a guest stop during a turn, and who changed a secret? The page describes what the trail covers and what it does not cover.</p>
+    <p class="lede">The audit trail is the table that records who changed what. It answers questions such as these: who revoked a grant last Tuesday, why did a guest stop during a turn, and who changed a secret?</p>
 
     <h2>One event can land in three places</h2>
-    <p>One event in a daemon can land in three places, and they are not three copies of the same data. The row is the record. The log line shows what happens now. The span shows one turn across four daemons as one trace, when you connect a collector.</p>
+    <p>The row is the record. The log line and the span are telemetry, and <a href="https://github.com/kronael/arizuko/blob/main/obs/README.md">[obs/README.md]</a> describes them.</p>
     <pre id="twin-observability"><code>┌───────────────────────────────────────────────────────────────────────────┐
 │ one event in a daemon: a mutation, a denial, a tool call, a turn          │
 └───────────┬───────────────────────────┬───────────────────────┬───────────┘
@@ -98,7 +97,7 @@
 </code></pre>
 
     <h2>Each change writes one row</h2>
-    <p>Every call that changes state writes one row to <code>audit_log</code>. The call can be an MCP tool call of the agent, a REST call of an operator, or a CLI command. Reads write no row. A route list or a chat fetch produces only a log line. Reads are very many, and their rows would record no decision.</p>
+    <p>Every call through the resource registry that changes state writes one row to <code>audit_log</code>. The call can be an MCP tool call of the agent or a REST call of an operator. A read that succeeds, such as a route list, writes no row and produces only a log line. A read that fails or that a gate denies writes a row, because the refusal is a decision.</p>
 
     <p>The row is written <em>in the same batch as the change</em>, so both land or neither lands. No moment exists in which a route changed and nothing recorded it, and no cleanup job must reconcile two tables.</p>
 
@@ -112,9 +111,7 @@
     <h2>Tool use inside the guest goes to the log, not the table</h2>
     <p>Harness hooks capture the tool use of the agent while it works, such as every <code>Bash</code>, <code>Edit</code> and <code>Read</code> call. The hooks print one JSON line per call. <code>runed</code> moves these lines into the log stream. None of them reaches the database.</p>
 
-    <p>This is by design. Tool use in the guest is operational detail in large volume. The calls that change platform state already went through MCP, and MCP audited them like any other call. A hook that wrote to the database would make every step of the work of the agent a distributed transaction.</p>
-
-    <p>One kind of agent action gets a row, because it leaves no other trace. This is a <code>like</code>, <code>dislike</code>, <code>edit</code>, <code>delete</code>, <code>pin</code> or <code>unpin</code> on a message already on the platform. None of these appends a <code>messages</code> row, so the <code>audit_log</code> row is the only record. It has the category <code>agent</code>, the action <code>message.&lt;verb&gt;</code>, and the chat and target message as the resource, in <code>routd/social_audit.go</code>. An edit row names the message, never the new text. <code>routd</code> writes the row after the platform call, on success or error. A failed audit write goes to the log and is not returned, because the platform message already changed and a retry would change it twice.</p>
+    <p>The calls that change platform state go through MCP, and the registry audits them. One kind of agent action gets a row, because it leaves no other trace. This is a <code>like</code>, <code>dislike</code>, <code>edit</code>, <code>delete</code>, <code>pin</code> or <code>unpin</code> on a message already on the platform. None of these appends a <code>messages</code> row, so the <code>audit_log</code> row is the only record. It has the category <code>agent</code>, the action <code>message.&lt;verb&gt;</code>, and the chat and target message as the resource, in <code>routd/social_audit.go</code>. An edit row names the message, never the new text. <code>routd</code> writes the row after the platform call, on success or error. A failed audit write goes to the log and is not returned, because the platform message already changed and a retry would change it twice.</p>
 
     <p>The two streams do not match field for field. The hook line has <code>tool</code>, <code>phase</code> and <code>args_summary</code>. The line from the registry has <code>caller</code>, <code>resource</code>, <code>action</code> and <code>surface</code>. Both end with <code>outcome</code> and <code>duration_ms</code>. <a href="https://github.com/kronael/arizuko/blob/main/audit/README.md">[audit/README.md]</a> has the full row shape.</p>
 
@@ -129,16 +126,12 @@
       <tr><td><code>onbod</code></td><td><code>onbod.audit_log</code></td><td>admissions, invites and onboarding gates</td></tr>
     </table>
 
-    <p>The same rule keeps each daemon the owner of its own schema. <code>webd</code>, <code>proxyd</code> and <code>dashd</code> keep no table of their own, and their rows go into the table of <code>routd</code>. One view still covers all four: the dashboard asks each daemon and merges the answers, and it reads no other daemon&rsquo;s tables.</p>
-
     <h2>The dashboard merges the four trails</h2>
     <p>The dashboard page <code>/dash/audit/</code> is the usual view, newest first, with fifty rows per page. It has filters for category, actor and folder, and an <code>older</code> link that keeps your filters. Only an operator can open it.</p>
 
     <p>The page shows all four trails at once. Each daemon publishes its own table at <code>GET /v1/audit</code>. The dashboard asks all of them, merges the answers by time, and shows a <strong>source</strong> column with the daemon of each row. So you can find who stopped a run in the browser, with no shell on the host.</p>
 
-    <p>The dashboard asks over the network and does not read the tables of <code>runed</code> and <code>authd</code> itself. This is the same ownership rule as everywhere else: a daemon serves its own table, so one place decides who can read what. If one daemon does not answer, a banner names it and the other sources still show. An empty section would say that nothing happened there, and an audit page must never say that by accident.</p>
-
-    <p>A read of the trail writes no row. Only changes get a row, so a page refresh adds nothing. A <em>refused</em> read does get a row.</p>
+    <p>A read of the trail that succeeds writes no row, so a page refresh adds nothing. A <em>refused</em> read does get a row.</p>
 
     <div class="callout"><strong>The same data is available over HTTP.</strong> Use an operator token:
     <pre><code>curl -s -H "Authorization: Bearer $TOKEN" \
@@ -151,12 +144,12 @@
 
     <p>Such a table never records <strong>who asked</strong>. For this reason, <code>runed</code> audits the run slot and not the run. A hold stops every turn in a folder, a kill is the decision of an operator, and both can happen without a <code>spawns</code> row.</p>
 
-    <p>One gap exists. A <em>denied</em> call gets a row for every resource that the registry serves: routes, grants, secrets, tasks, tokens and the audit read itself. The older hand-written endpoints refuse correctly but leave no row. The fix belongs at the authorization gate, and it is not complete.</p>
+    <p>A <em>denied</em> call gets a row for every resource that the registry serves. A hand-written HTTP handler outside the registry can refuse and leave no row. The token mint of <code>authd</code> does this when it answers <code>scope_exceeds_minter</code> or <code>scope_exceeds_parent</code> in <code>authd/http.go</code>.</p>
 
-    <h2>Credentials never reach the table</h2>
-    <p>The row records the arguments, so you can tell one call from another. Before the write, a marker replaces anything that looks like a credential: passwords, tokens, secrets, cookies, API keys, private keys and database connection strings. The marker keeps the length, as in <code>&lt;redacted:64chars&gt;</code>, so you can tell an empty value from a real key without storing the key.</p>
-
-    <p>Redaction happens where the row is <em>written</em>, not where it is read, so one rule applies and every daemon follows it. The match is narrow at the edges on purpose. <code>private_key</code> is hidden. <code>serving_keys</code>, a count of the keys a daemon serves, is not hidden, because too much hiding blocks the questions the table exists to answer. A very long argument is cut to its first 200 characters, with a note of its real length. The rest of the row stays complete.</p>
+    <h2>Credential-like argument names never reach the table</h2>
+    <p>The row records the arguments, so you can tell one call from another. Before the write, a marker replaces the value of every argument whose <em>name</em> looks sensitive, as in <code>&lt;redacted:64chars&gt;</code>. The marker keeps the length, so you can tell an empty value from a real key without storing the key.</p>
+    <p>The check reads the name and never the value. A name is hidden when it contains <code>pass</code>, <code>token</code>, <code>secret</code>, <code>credential</code>, <code>authorization</code>, <code>cookie</code>, <code>dsn</code> or <code>apikey</code>, or when it is <code>key</code> or ends in <code>_key</code> or <code>-key</code>. A password in an argument named <code>note</code> is stored as written. <code>serving_keys</code>, a count, stays readable.</p>
+    <p>A string value over 200 characters is cut, with a note of its real length. The encoded <code>params_summary</code> has a cap of 512 bytes. A row over the cap gets <code>_truncated: true</code>, and a row still over the cap keeps only that flag. The rest of the row stays complete. The rule lives in <code>audit/event.go</code>, so every daemon follows it.</p>
 
     <h2>Three READMEs have the detail</h2>
     <p><a href="https://github.com/kronael/arizuko/blob/main/audit/README.md">[audit/README.md]</a> describes the row, its closed enums and the redaction rule. <a href="https://github.com/kronael/arizuko/blob/main/obs/README.md">[obs/README.md]</a> describes the log and span half. <a href="../reference/schema.html">reference/schema</a> lists every column, index and writer. <a href="grants.html">grants</a> explains who can do the action that the trail records.</p>

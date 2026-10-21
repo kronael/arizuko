@@ -6,7 +6,6 @@
       "pages": [
         { "href": "", "label": "Start here" },
         { "href": "primitives.html", "label": "Primitives" },
-        { "href": "built.html", "label": "Development" },
         { "href": "store.html", "label": "The store" },
         { "href": "scaling.html", "label": "Scaling" },
         { "href": "ant.html", "label": "The ant" },
