@@ -259,7 +259,6 @@ rows and the test to write; none needs a decision except where it says so.
   exists and discd and teled use it.
 - `L481` — `5/7` promises `require_audience` per route and nothing reads `aud`:
   build the check, or strike the promise and the `audience` mint parameter.
-- `L482` — `ipc.GatedFns` is named after a deleted daemon; a rename, 156 lines.
 
 **Outside this repo.**
 
@@ -1037,17 +1036,6 @@ daemon B.
   sentence from `5/7` and stop accepting `audience` at mint, so no token ever
   carries one. **Default if nothing is decided:** unchanged, nothing issues an
   audience in production, so the gap is latent.
-
-## L482 — `ipc.GatedFns` and its `gated` parameters are named after a daemon that no longer exists (2026-10-20, open)
-
-FOUND 2026-10-20 folding `bugs.md`. Re-measured at `29ebeda0`:
-`ipc/ipc.go:34` declares `type GatedFns struct`; `git grep -c GatedFns` counts
-156 lines across `ipc/`, `routd/` (`buildGatedFns` in `routd/mcp.go`) and
-tests. It is the live capability struct routd passes to the MCP bridge, so the
-name misleads and the behaviour is right. No test — design.
-
-**Fix:** rename to `AgentFns` with the parameter `host`, in one commit with no
-other change.
 
 ## L472 — PROPOSED: a scheduled run logs "success" when its message is queued, so a turn that did nothing reads green (2026-10-20, open — needs sign-off)
 
