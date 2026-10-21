@@ -205,13 +205,10 @@ arizuko run demo                            # starts the instance</code></pre>
           The model provider bills the key you supply. The default network
           allowlist opens <code>anthropic.com</code> and
           <code>api.anthropic.com</code>.</li>
-        <li>arizuko is self-hosted only. It has no managed control plane and
-          no hosted service, and it serves teams of agents behind chat
-          channels, not consumer traffic.</li>
-        <li>arizuko has no document connectors and no vector index. One
-          harness serves the whole instance: Claude Code by default, or
-          <code>codex</code> or <code>pi</code> through
-          <code>ARIZUKO_BACKEND</code>.</li>
+        <li>arizuko is self-hosted only and serves teams of agents behind chat
+          channels, not consumer traffic. The
+          <a href="https://github.com/kronael/arizuko/blob/main/README.md#what-arizuko-does-not-include">[README]</a>
+          lists what it does not include.</li>
         <li>The store server runs ExtendDB over PostgreSQL. A daemon without
           a store key exits, and <code>runed</code> does not start without
           <code>/dev/kvm</code>. A minimal deploy is the store server,
