@@ -192,3 +192,49 @@ func TestShellStaysSticky(t *testing.T) {
 		}
 	}
 }
+
+var (
+	titleRe = regexp.MustCompile(`(?s)<title>(.*?)</title>`)
+	h1Re    = regexp.MustCompile(`(?s)<h1[^>]*>(.*?)</h1>`)
+	tagRe   = regexp.MustCompile(`<[^>]+>`)
+)
+
+// pageTitle is the <title> a shell page carries: its h1 without markup, then
+// the site name.
+func pageTitle(h1 string) string {
+	return strings.Join(strings.Fields(tagRe.ReplaceAllString(h1, "")), " ") + " &middot; arizuko"
+}
+
+// TestWebDocsTitleNamesTheH1 requires every shell page to carry one h1 and a
+// <title> that names it, so a browser tab, a bookmark and a search result
+// show the name the page gives itself.
+func TestWebDocsTitleNamesTheH1(t *testing.T) {
+	if got := pageTitle("Repo worker <span class=\"dim\">(Atlas)</span>"); got != "Repo worker (Atlas) &middot; arizuko" {
+		t.Fatalf("pageTitle strips markup wrong: %q", got)
+	}
+	pages := 0
+	for _, f := range htmlFiles(t) {
+		if rel(t, f) == shellLess {
+			continue
+		}
+		raw, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatalf("read %s: %v", f, err)
+		}
+		body := string(raw)
+		h1s := h1Re.FindAllStringSubmatch(body, -1)
+		if len(h1s) != 1 {
+			t.Errorf("%s carries %d h1, want 1", rel(t, f), len(h1s))
+			continue
+		}
+		pages++
+		want := pageTitle(h1s[0][1])
+		got := titleRe.FindStringSubmatch(body)
+		if got == nil || got[1] != want {
+			t.Errorf("%s: <title> must be %q", rel(t, f), want)
+		}
+	}
+	if pages < 100 {
+		t.Fatalf("only %d titles checked; the walk is broken", pages)
+	}
+}

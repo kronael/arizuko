@@ -521,6 +521,10 @@ the version and the search slot in the top bar, and the move of
 `.theme-toggle` into the bar. Leave `.docs-toc` empty and leave
 `aria-current` out of the markup — a hand-written copy of either drifts.
 
+The `<title>` is the page's one `h1` without markup, then ` &middot; arizuko`:
+`<title>primitives &middot; arizuko</title>`. `tests/webdocs`
+`TestWebDocsTitleNamesTheH1` fails on any other title.
+
 The sidebar lists the seven sections in `nav.json` and expands the one the
 reader is in. Strategy and research are outside it; the landing links them. The top bar is sticky at every width. Below 1200px the sidebar collapses
 behind `.docs-navtoggle` and the right rail drops.
