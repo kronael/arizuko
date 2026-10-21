@@ -37,7 +37,7 @@
         directory on your server holds the folders and the store. You change
         an agent in chat, then read the result in its files.
       </p>
-      <p>The short form of an install is three commands:</p>
+      <p>Three commands create, configure and start an instance. They work after the setup guide builds the images and sets up the store server:</p>
       <pre><code>arizuko create demo --product slack-team   # makes /srv/data/arizuko_demo, prints the keys to set
 $EDITOR /srv/data/arizuko_demo/.env         # the keys that create printed
 arizuko run demo                            # starts the instance</code></pre>
@@ -196,8 +196,10 @@ arizuko run demo                            # starts the instance</code></pre>
         <li><strong>Sized for agent teams.</strong> arizuko serves teams of
           agents behind chat channels, not consumer traffic.</li>
         <li><strong>Not a search system.</strong> arizuko has no document
-          connectors, no vector index and no routing across model providers.
-          The agent runtime is Claude Code.</li>
+          connectors, no vector index and no choice of model provider per
+          task. One harness serves the whole instance: Claude Code by
+          default, or <code>codex</code> or <code>pi</code> through
+          <code>ARIZUKO_BACKEND</code>.</li>
         <li><strong>The parts a deploy needs.</strong> The store server runs
           ExtendDB over PostgreSQL. A daemon without a store key exits, and
           <code>runed</code> does not start without <code>/dev/kvm</code>. A

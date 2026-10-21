@@ -101,7 +101,7 @@
         <li><strong>Observability</strong> — every daemon exports OTLP when <code>OTEL_EXPORTER_OTLP_ENDPOINT</code> is set, but journalctl + dashd is still not Langfuse.</li>
         <li><strong>Sandbox strength</strong> — the turn runs in one KVM guest, so the boundary is a hypervisor and the agent's kernel is not the host's. The gap is <code>runed</code>'s <em>own</em> container, which compose runs as root with <code>NET_ADMIN</code>, <code>SYS_ADMIN</code> and <code>apparmor=unconfined</code> because AppArmor's default denies the staging tree's <code>mount(2)</code>. A profile that permits just that one mount is unwritten.</li>
         <li><strong>Product abstraction</strong> — no <code>arizuko product clone</code>, no manifest, no registry.</li>
-        <li><strong>No K8s / cloud-provider templates</strong> — no Helm chart, no operator; the turn path still pins <code>routd</code> and <code>runed</code> to one node.</li>
+        <li><strong>No K8s / cloud-provider templates</strong> — the Helm chart in <code>deploy/helm/arizuko/</code> renders and no cluster has installed it; no operator; the turn path still pins <code>routd</code> and <code>runed</code> to one node.</li>
         <li><strong>Evals at scale</strong> — specs/10/1-self-healing-loop.md is a draft; none of the judge/evaluate/repair loop is built.</li>
       </ul>
 
@@ -289,7 +289,7 @@ GUESTS     ephemeral: a projection of git@HEAD into runtime
 
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/strategy/index.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-16">2026-10-16</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-20">2026-10-20</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

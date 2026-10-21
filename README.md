@@ -184,7 +184,8 @@ describes the protocol they speak.
 - connector crawlers for Confluence, Notion, Google Drive, Jira or Salesforce
 - an embedding pipeline or a vector database
 - permission sync from external systems into per-document ACLs
-- multi-model routing across providers; the agent runtime is Claude Code
+- a different model provider per task; one harness serves the whole instance,
+  Claude Code by default, or `codex` or `pi` through `ARIZUKO_BACKEND`
 - a managed control plane or a hosted service
 
 You can mount or write documents into a group's folder, and the agent reads
