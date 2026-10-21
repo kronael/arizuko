@@ -119,6 +119,12 @@ lint:
 	  echo "note: golangci-lint absent, the errcheck/nilerr gate did not run"; \
 	fi
 	go test ./tests/webdocs ./tests/specrefs ./tests/bugsindex -count=1
+	@# A Markdown doc states its fact and never links a spec. Allowed: the
+	@# reading-order row of README.md and tests/README.md, which describes specrefs.
+	@out=$$(git grep -nE 'specs/|spec [0-9]+/[0-9A-Z]' -- README.md ARCHITECTURE.md INSTALL.md \
+	  SECURITY.md ROUTING.md EXTENDING.md GRANTS.md '*/README.md' ':!ant/skills/**' \
+	  ':!third_party/**' ':!specs/**' ':!tests/README.md' | grep -v '^README.md:[0-9]*:.*\[`specs/index.md`\]'); \
+	  if [ -n "$$out" ]; then echo "lint: a Markdown doc links a spec:"; echo "$$out"; exit 1; fi
 
 # docs-nav writes the sidebar declared in template/web/nav.json into every page
 # of the operator site; `lint` fails on a page whose copy differs.
