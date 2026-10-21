@@ -19,7 +19,7 @@ objstore implements the object store interface that every arizuko daemon address
                                ▼
 ┌──────────────────────────────────────────────────────────────┐
 │ dynstore: a table is <owner>.<entity>; the daemon signs with │
-│ its own key; Query and TransactWriteItems only               │
+│ its own key; data calls: Query, TransactWriteItems           │
 └──────────────────────────────┬───────────────────────────────┘
                                │ DynamoDB protocol over TLS,
                                │ DYNAMODB_URL
