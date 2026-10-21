@@ -66,7 +66,7 @@
     <h2>The whole path fits in one figure</h2>
     <p>Read the figure from top to bottom. Each box names the function that does the work, so you can open the file and check it.</p>
     <pre id="twin-turn"><code>┌─────────┐ POST /v1/messages ┌──────────────────────────────────────────┐
-│ adapter ├──────────────────►│ routd: PutMessage, the sole appender     │
+│ adapter ├──────────────────►│ routd: PutMessage appends the row        │
 └─────────┘                   │ Enqueue; pollOnce re-enqueues a routed   │
      ▲                        │ chat with rows past its agent_cursor     │
      │                        └────────────────────┬─────────────────────┘

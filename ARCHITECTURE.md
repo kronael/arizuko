@@ -134,7 +134,7 @@ guest lives in `runed`. One synchronous HTTP call joins them: `POST /v1/runs`.
 
 ```
 ┌─────────┐ POST /v1/messages ┌──────────────────────────────────────────┐
-│ adapter ├──────────────────►│ routd: PutMessage, the sole appender     │
+│ adapter ├──────────────────►│ routd: PutMessage appends the row        │
 └─────────┘                   │ Enqueue; pollOnce re-enqueues a routed   │
      ▲                        │ chat with rows past its agent_cursor     │
      │                        └────────────────────┬─────────────────────┘
