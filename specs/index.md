@@ -1,5 +1,25 @@
 # specs
 
+## Design directions are discussed here, and retired specs stay in git
+
+Each design direction of arizuko is a spec in a phase directory, `specs/<N>/`,
+and the phase table below names each phase. A spec leaves the tree when it is
+retired: its content goes into the repository docs, or the decision is
+declined. git keeps every deleted spec. To list the deleted specs and the
+commit that deleted each one:
+
+```bash
+git log --diff-filter=D --name-only --format='%h %ad %s' --date=short -- specs/
+```
+
+To read one deleted spec, find the commit that deleted it, then show the file
+as it was in the commit before:
+
+```bash
+git log --diff-filter=D -1 --format=%h -- specs/6/20-sandbox-lifecycle-decline.md
+git show 3a655b33^:specs/6/20-sandbox-lifecycle-decline.md
+```
+
 ## The story (phases 5 → 6 → 7 → 8 → 9)
 
 **Phase 5** builds the platform's core capabilities: the surfaces

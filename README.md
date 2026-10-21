@@ -241,7 +241,7 @@ instance and grades the visible effects.
 |       | [`cmd/arizuko/README.md`](cmd/arizuko/README.md) | What does each `arizuko` subcommand do?                               |
 |       | [FEATURES.md](FEATURES.md)                       | What does it do today, and which test proves it?                      |
 |       | [`tests/README.md`](tests/README.md)             | How do I run the tests, and what does each suite need?                |
-|       | [`specs/`](specs/)                               | Which change is in flight, and why?                                   |
+|       | [`specs/index.md`](specs/index.md)               | Which change is in flight, why, and where do retired specs go?        |
 |       | [`BUGS.md`](BUGS.md)                             | What is open, and what waits on a person?                             |
 |       | [LICENSE](LICENSE)                               | MIT.                                                                  |
 
