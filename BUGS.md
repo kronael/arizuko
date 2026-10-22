@@ -269,8 +269,6 @@ reads those words now.
   6 min of it inside the guest before the first model call.
 - `L523` — the nemo agent answered with the wrong listing's distances; both
   listings were in its context.
-- `L524` — a message the running turn already answered gets a second turn of
-  its own.
 - `L526` — thirteen more variables routd reads are not in `daemonKeys["routd"]`.
   An operator names which of them to deliver, because delivering one can switch
   a feature on.
@@ -995,18 +993,46 @@ message, or the model.
 - **Fix:** read the turn's tool calls in the transcript first.
 - **Status:** open.
 
-## L524 — a message the running turn already answered gets a second turn (2026-10-21, open)
+## 📋 RECORD L524 — a message the running turn answered gets its own turn: by design, the turn READ the row, routd never delivered it (2026-10-22, closed)
 
-MEASURED on krons 2026-10-21, `telegram:user/8177590051` → `rhias/niki`:
-turn `.../3384` ("Helo", 19:57:58) also received "Find where to buy quercetin…"
-(id 3385, 20:01:33) while it ran and answered it at 20:11:43. routd then
-dispatched turn `.../3385` for the same message at 20:12:21 (failed ctl, retried
-20:13:20). The cursor did not pass a message the turn had already consumed.
+REPORTED 2026-10-21 on krons, `telegram:user/8177590051` → `rhias/niki`: turn
+`.../3384` ("Helo", 19:57:58) answered "Find where to buy quercetin…" (id 3385,
+20:01:33) at 20:11:43, and routd dispatched `.../3385` at 20:12:21. The report
+read it as "routd steered 3385 into the running turn and then failed to mark it
+consumed". The transcript says routd never steered it.
 
-- **Severity:** medium — a second, late answer to one question, and a guest
-  slot spent on it. Related: `L347` (the cursor after a steered turn).
-- **Fix:** advance the cursor past messages the running turn consumed.
-- **Status:** open.
+MEASURED 2026-10-22 in
+`groups/rhias/niki/.claude/projects/-home-node/9dfcdee5-54cd-41b2-8ea5-8a04349ed3db.jsonl`
+(the only session active 20:08-20:12):
+
+- The turn's one prompt (`queue-operation` enqueue, 20:08:01, the only one in
+  the file) holds `<messages>` with id 3384 and NO 3385.
+- No user line, attachment or queue operation carries 3385 except one
+  `tool_result`. The two `hook_additional_context` blocks are the progress
+  nudge ("Report progress to the user now"), not a message.
+- At 20:10:00 the agent called `mcp__arizuko__fetch_history` for the chat. The
+  result (`source:"cache"`, `routd/mcp.go:429`, the local `messages` rows) lists
+  3384 and 3385 ("ago 8m"). It then researched and replied to 3385 at 20:11:34
+  (`replyToId` 3385).
+
+So 3385 reached the turn by the agent's own tool call, not by routd. Delivery
+into a live run does not exist: since `3b028871` (2026-10-19) `runed` answers
+`busy=true` for a live folder (`runed/manager.go:208`; `Steered` is set by
+nothing in production), routd keeps the cursor (`routd/dispatch.go:138,444`;
+`TestBusyOutcomeRetriesWithoutAdvanceOrBreaker`) and the follow-up "starts with
+its own turn context" after the run ends (`specs/5/P-runed.md` § WHY reject).
+Row 3385 was above the cursor the whole time, so the second turn is the
+contract, not a missed advance. The 6-minute guest boot (`L522`) is what made
+the window long enough for the agent to look.
+
+NOT measured: whether that second turn would have repeated the answer. It left
+no transcript (the report records a ctl failure at 20:12:21 and a retry at
+20:13:20; the next session in the folder starts 20:54, the migrate run), and the
+chat held one bot row at the 2026-10-22 re-measure. Re-open only with a duplicate reply in the chat.
+
+A change here would make a reply (or a `fetch_history` read) consume the rows it
+names. That is a change to the consume contract (`L104`, `L347`) and needs
+sign-off; nothing is proposed.
 
 ## L526 — thirteen variables routd reads are not in `daemonKeys["routd"]`, so a value in `.env` never reaches it (2026-10-21, open)
 
