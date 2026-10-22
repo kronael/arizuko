@@ -89,7 +89,7 @@ func bootArgs(args []string, v bootVariant) ([]string, error) {
 			if v.machine == "q35" {
 				from, to = to, from
 			}
-			for _, device := range []string{"vhost-user-fs", "vhost-vsock", "virtio-net"} {
+			for _, device := range []string{"vhost-user-fs", "vhost-vsock", "virtio-net", "virtio-balloon"} {
 				key = strings.ReplaceAll(key, device+from, device+to)
 			}
 		}
@@ -244,7 +244,7 @@ func TestBootProfileArgs(t *testing.T) {
 				strings.Count(got, "virtio-mmio.force-legacy=false") != modern {
 				t.Errorf("%s to %s has invalid memory/transport: %s", source, target, got)
 			}
-			for _, device := range []string{"vhost-user-fs", "vhost-vsock", "virtio-net"} {
+			for _, device := range []string{"vhost-user-fs", "vhost-vsock", "virtio-net", "virtio-balloon"} {
 				if !strings.Contains(got, device+suffix) {
 					t.Errorf("%s to %s lacks %s%s", source, target, device, suffix)
 				}

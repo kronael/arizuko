@@ -98,7 +98,7 @@ Tunables, with their defaults:
 
 The CID space and the vsock port space belong to the host, not to the instance. Two instances on one host that both start at CID 3 and port 5555 ask for the same values. The second turn then fails with "address already in use". So each instance needs its own `RUNED_VSOCK_CID_BASE` and `RUNED_VSOCK_PORT_BASE`.
 
-The machine is an ACPI microvm with modern virtio-MMIO transports and a shared memfd bound through `memory-backend=mem`. ACPI supplies device discovery and poweroff. The kernel command line uses `loglevel=5`, which keeps warnings and errors. The pinned kernel uses LZ4 compression.
+The machine is an ACPI microvm with modern virtio-MMIO transports and a shared memfd bound through `memory-backend=mem`. A `virtio-balloon-device` with `free-page-reporting=on` gives pages that the guest frees back to the host during the turn. It does not return the page cache of the guest. The pinned kernel must set `CONFIG_VIRTIO_BALLOON` and `CONFIG_PAGE_REPORTING`; the Firecracker base config sets both. ACPI supplies device discovery and poweroff. The kernel command line uses `loglevel=5`, which keeps warnings and errors. The pinned kernel uses LZ4 compression.
 
 PID 1 is the static Go binary `guest-init` in the initrd. The release rootfs supplies the Debian and Node userspace and the agent tools. Each turn uses that rootfs read-only with a temporary writable overlay.
 

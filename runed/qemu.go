@@ -162,6 +162,12 @@ func qemuArgs(s qemuSpec) []string {
 		"-device", fmt.Sprintf("vhost-vsock-device,guest-cid=%d", s.CID),
 		"-netdev", "tap,id=net0,ifname=" + s.Tap + ",script=no,downscript=no",
 		"-device", "virtio-net-device,netdev=net0,mac=" + s.MAC,
+		// free-page-reporting makes the guest hand the pages it frees back to the
+		// host during the turn, where otherwise a touched page of the shared memfd
+		// stays charged to runed's cgroup until QEMU exits. It returns freed pages
+		// only: the guest's page cache stays resident. The device is the MMIO
+		// variant because the machine is a microvm with no PCI bus.
+		"-device", "virtio-balloon-device,free-page-reporting=on",
 		"-nodefaults",
 		"-no-reboot",
 		"-serial", "file:" + s.Console,

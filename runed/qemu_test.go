@@ -55,6 +55,7 @@ func TestQemuArgsRendersTheMeasuredMachine(t *testing.T) {
 		"-device", "vhost-vsock-device,guest-cid=7",
 		"-netdev", "tap,id=net0,ifname=arz-ab12-t04,script=no,downscript=no",
 		"-device", "virtio-net-device,netdev=net0,mac=52:54:00:00:00:07",
+		"-device", "virtio-balloon-device,free-page-reporting=on",
 		"-nodefaults",
 		"-no-reboot",
 		"-serial", "file:/g/logs/container-x.console.log",

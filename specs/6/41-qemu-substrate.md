@@ -624,6 +624,19 @@ any of them. Measured on hel1v5 (the krons host) 2026-09-23.
   one setting**: runed refuses to start when `guest_mem × MAX_CONCURRENT_CONTAINERS`
   exceeds the host's `MemTotal`, and the pair is set from Open question 4's
   peak-RSS measurement rather than from the 4 GB placeholder.
+- **The guest returns freed pages during a turn.** The machine has a
+  `virtio-balloon-device,free-page-reporting=on` (MMIO, as the other devices
+  are). When the guest frees a page, the guest kernel reports it and QEMU
+  discards it from the memfd, so the host stops charging it to runed's cgroup.
+  Without the device, a page that the guest touched stays charged until QEMU
+  exits. Only freed pages return (JS garbage collection, deleted tmpfs files):
+  the guest page cache stays resident, and virtiofsd runs `--cache=always`.
+  The pinned kernel needs `CONFIG_VIRTIO_BALLOON=y` and `CONFIG_PAGE_REPORTING=y`.
+  Both come from Firecracker's base config; `kernel/arizuko.fragment` names
+  neither, so a base-config bump can remove them without a failed build. The
+  size of the saving is not measured: compare `Peak guest memory` of the same
+  turn before and after. A page reported while virtiofsd maps the same memfd
+  is not yet tested under load; the boot tests pass with the device.
 - **A pty works, and it rests on an INHERITED config value.** The guest mounts
   `devpts` at `/dev/pts`, because a pty is allocated by opening `/dev/ptmx` and
   then the numbered slave, and without the mount that second open is `ENOENT`.
