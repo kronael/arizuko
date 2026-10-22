@@ -241,8 +241,6 @@ reads those words now.
 **Coverage gaps found by the FEATURES.md pass (2026-10-21).** Each names the
 rows and the test to write; none needs a decision except where it says so.
 
-- `L510` — authd, onbod and timed `/health`: tested as a registered route,
-  never served.
 
 **Found by the anteval-leak investigation (2026-10-21).**
 
@@ -850,32 +848,6 @@ live krons site carries the same `hub.css`, so every page there has the defect.
   same probe reads 0 for the top bar at 1440 and at 375 wide, and the page is
   no wider than the viewport. Measured: `tests/webdocs/design_test.go::TestShellStaysSticky`,
   red against `overflow-x: hidden`.
-
-## L510 — authd, onbod and timed `/health` are tested as a registered route and never served (2026-10-21, open)
-
-FOUND 2026-10-21 by the FEATURES.md pass, read at `4d500588`. `handleHealth`
-(`authd/http.go:133-141`) answers 503 when the store is unreachable and `ok`
-otherwise. onbod (`onbod/main.go:186-189`) and timed (`timed/split.go:35-37`)
-answer `ok`. The tests that name `/health` are
-`TestAuthdMux_CoversTheWholeServedSurface` (`authd/openapi_test.go:56`),
-`TestOnbodMux_ServesItsPublicRoutes` (`onbod/openapi_test.go:48`) and
-`TestTimedMux_ServesItsThreeRoutes` (`timed/split_openapi_test.go:39`). Each
-asks `mux.Handler` for a pattern and never serves a request.
-`onbod/integration_test.go:89` defines its own `/health` handler instead of
-calling onbod's. routd and runed have served-request tests
-(`tests/feat_health_test.go`).
-
-Mutation, measured 2026-10-21: authd's 503 branch replaced by `_ = err`, so an
-unreachable store answers 200 with an empty body. `go test ./authd` passed.
-
-**Fix:** one test per daemon that serves `GET /health` through its mux and
-checks 200 and `ok`; for authd, one more with an unreachable store that checks
-503. No test yet; this pass records only.
-
-- **Severity:** low — a health probe that answers wrong keeps a dead authd in
-  rotation; nothing is known to be wrong today.
-- **Scope:** `authd/http.go`, `onbod/main.go`, `timed/split.go`.
-- **Status:** open (record only). No test — the entry is about the test.
 
 ## L511 — a group delete leaves the folder's queued and running turns, so onbod greets the deleted folder as a new person (2026-10-21, open — needs sign-off)
 

@@ -269,7 +269,7 @@ The verbs each adapter supports are in [EXTENDING.md § Verb support matrix](EXT
 | proxyd health              | `/health` answers 200.                                                     | `proxyd/integration_test.go::TestHealthEndpoint`                              |
 | dashd health               | `/health` answers `{"ok":true}`.                                           | `dashd/main_test.go::TestDashHealth`                                          |
 | webd health                | `/health` reports the adapter data.                                        | `webd/api_test.go::TestHandleHealth`                                          |
-| authd, onbod, timed health | Each daemon serves `/health`.                                              | untested — L510                                                               |
+| authd, onbod, timed health | Each daemon serves `/health`.                                              | `authd/health_served_test.go::TestAuthdHealthAnswers503WhenTheStoreIsDown`    |
 | Audit row                  | `audit.Emit` writes a row with category, action, actor and instance.       | `audit/log_test.go::TestEmit_Inserts`                                         |
 | Audit with mutation        | The audit row commits with its change, and a refused change leaves no row. | `audit/audit_log_test.go::TestTheAuditRowIsOneCommitWithItsMutation`          |
 | Audit redaction            | Sensitive param keys appear as `<redacted:...>`.                           | `audit/log_test.go::TestRedactParams_HidesSensitiveKeys`                      |
