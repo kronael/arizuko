@@ -265,8 +265,6 @@ reads those words now.
 
 **Found by the rhias evaluation (2026-10-21).**
 
-- `L522` — a rhias turn takes 9–14 min from a message to its first reply:
-  6 min of it inside the guest before the first model call.
 - `L523` — the nemo agent answered with the wrong listing's distances; both
   listings were in its context.
 - `L526` — thirteen more variables routd reads are not in `daemonKeys["routd"]`.
@@ -957,27 +955,6 @@ defaults. One 1.5 GB block of large allocations and 12 allocator arenas. After
 - **Severity:** medium — the largest single memory holder on the host.
 - **Fix:** sample both stores for 48 h to tell load from a leak, then
   `MALLOC_ARENA_MAX=2` or an upstream report (memory plan step 6).
-- **Status:** open.
-
-## L522 — rhias turns take 9–14 minutes from a message to the first reply (2026-10-21, open)
-
-MEASURED on krons 2026-10-21 (journal + transcripts):
-
-- Kron at 20:10:02 → first status 20:19:46. The first dispatch failed with
-  "guest did not open ctl within 30s"; the retry's guest was ready at 20:11:35
-  (boot 9 s, normal ~2 s); the first `api.anthropic.com` connect came at
-  20:17:34 and the SDK enqueued the prompt at 20:18:48 — six minutes inside
-  the guest before the model.
-- The 19:54 nemo turn: container start 19:54:17, prompt enqueue 19:57:30.
-- rhias/niki: "Helo" 19:57:58 → guest ready 19:58:21 → reply 20:11:43.
-
-Host load was 17–20 on 2 CPUs (the stuck auto-migrate redispatches, under
-investigation, and two instances). The guest console shows
-`hrtimer: interrupt took 53090170 ns`, a CPU-starved guest.
-
-- **Severity:** high — the owner reads it as "the agent is lost".
-- **Fix:** first remove the load (stuck migrate retries, memory plan); then
-  measure what ant does between guest ready and the SDK enqueue.
 - **Status:** open.
 
 ## L523 — the nemo agent answered with the wrong listing (2026-10-21, open)
