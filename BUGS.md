@@ -274,8 +274,6 @@ rows and the test to write; none needs a decision except where it says so.
 
 **Found by the rhias evaluation (2026-10-21).**
 
-- `L521` — a prompt lists the addressed message twice, once as `<message>`
-  and once as `<observed>`.
 - `L522` — a rhias turn takes 9–14 min from a message to its first reply:
   6 min of it inside the guest before the first model call.
 - `L523` — the nemo agent answered with the wrong listing's distances; both
@@ -1039,18 +1037,6 @@ defaults. One 1.5 GB block of large allocations and 12 allocator arenas. After
 - **Severity:** medium — the largest single memory holder on the host.
 - **Fix:** sample both stores for 48 h to tell load from a leak, then
   `MALLOC_ARENA_MAX=2` or an upstream report (memory plan step 6).
-- **Status:** open.
-
-## L521 — a prompt lists the addressed message twice (2026-10-21, open)
-
-MEASURED on krons 2026-10-21 in `groups/rhias/nemo/.claude/projects/-home-node/71e82fa5-1967-43d4-a169-2fbcbdd3c8bc.jsonl`,
-the 19:57 turn: message `telegram:group/1004358948112/239` (Nikol, 19:32,
-the Žebrák listing) appears as `<message id=".../239">` and again as
-`<observed id=".../239">` in the same prompt. The agent reads one request as
-two inputs.
-
-- **Severity:** low — doubled text, possible double handling.
-- **Fix:** the observed window excludes the ids the `<messages>` block carries.
 - **Status:** open.
 
 ## L522 — rhias turns take 9–14 minutes from a message to the first reply (2026-10-21, open)
