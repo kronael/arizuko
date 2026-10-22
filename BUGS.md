@@ -271,6 +271,21 @@ reads those words now.
   An operator names which of them to deliver, because delivering one can switch
   a feature on.
 
+**Found by the dead-code sweep (2026-10-22).**
+
+- `L528` — runed serves `steered` but nothing writes it, so every spawn
+  reports `steered=false`: write it, or stop serving it?
+- `L529` — `set_group_open` writes an `open` flag that no production code
+  reads; measure whether the ambient join is unwired.
+- `L530` — the emergency revoke `RevokeAllNow` has no door: wire a CLI or
+  delete it?
+- `L531` — the F36 refresh-claim guard is tested on a twin production never
+  calls.
+- `L532` — no code writes the `task.delete` audit row that `audit/PLAN.md`
+  lists.
+- `L533` — Telegram login is never mounted: authd does not receive
+  `TELEGRAM_BOT_TOKEN`. Giving authd the bot token is a credential decision.
+
 **Found while folding the lowercase `bugs.md` into this file (2026-10-20).**
 
 - `L480` — slakd sends a whole reply as one `chat.postMessage`; `chanlib.Chunk`
@@ -1026,6 +1041,73 @@ The model also broke the prompt's `<rule>` against replying to observed rows.
 - **Fix:** show the folder's recent bot replies in the observed window, or
   share the observed cursor across a folder's topics. Either changes the
   observed-window contract, so it is a proposal.
+- **Status:** open — needs sign-off.
+
+## L528 — runed serves a `steered` flag nothing writes (2026-10-22, open)
+
+FOUND by the dead-code sweep at `90403e2d`: `runstore.(*Store).MarkSteered`
+(`runed/runstore/spawns.go:218`) has no caller (`gopls references` empty).
+`spawns.go:398` reads the attribute and `runed/server.go:215` serves it as
+`Steered`; only the test seeder `import.go:239` writes it. Every served spawn
+reports `steered=false`.
+
+- **Severity:** low — a wrong field, no known reader acts on it.
+- **Fix:** write it where a turn is steered, or drop the field from the API.
+- **Status:** open — needs sign-off (API field).
+
+## L529 — the `open` flag `set_group_open` writes has no production reader (2026-10-22, open)
+
+FOUND by the dead-code sweep at `90403e2d`: `store/groups.go:457` writes
+`open`; `store.SiblingFolders` and `IsGroupOpen`, its readers, have test
+callers only. Spec `5/F-topic-lineage` (shipped) uses it for the ambient join.
+Not measured whether the ambient join reads it by another path.
+
+- **Severity:** unknown until measured.
+- **Fix:** measure first.
+- **Status:** open.
+
+## L530 — the emergency revoke `RevokeAllNow` has no door (2026-10-22, open)
+
+FOUND by the dead-code sweep at `90403e2d`: `authd.(*Authd).RevokeAllNow`
+and `authstore.RetireActiveKeys` have test callers only; no CLI, route or tool
+reaches them. An operator who needs to revoke every token now has no command.
+
+- **Severity:** medium — an incident lever that does not exist.
+- **Fix:** an `arizuko` command over an authd endpoint, or delete both.
+- **Status:** open — needs sign-off.
+
+## L531 — the F36 refresh-claim guard is tested on a twin production never calls (2026-10-22, open)
+
+FOUND by the dead-code sweep at `90403e2d`: `authstore.ClaimRefreshToken` and
+its `familyLive` check have callers only in `authd/bugfix_test.go` and
+`authstore_test.go`. Production rotates through the batch at
+`authd/authstore/refresh_tokens.go:168`, which those tests do not drive.
+
+- **Severity:** medium — the guard's test proves nothing about production.
+- **Fix:** point the tests at the production rotation, then delete the twin.
+- **Status:** open.
+
+## L532 — no code writes the `task.delete` audit row (2026-10-22, open)
+
+FOUND by the dead-code sweep at `90403e2d`: `audit/PLAN.md:252` lists
+`task.delete`; `git grep` finds no production writer.
+
+- **Severity:** low — a deleted task leaves no audit trail.
+- **Fix:** write the row in the task delete path.
+- **Status:** open.
+
+## L533 — Telegram login is never mounted in production (2026-10-22, open)
+
+MEASURED 2026-10-22: authd mounts `/auth/telegram` only when
+`cfg.TelegramToken` is set (`authd/oauth.go:70`), read from `TELEGRAM_BOT_TOKEN`
+(`core/config.go:223`). `compose/compose.go` delivers that key to teled only
+(`:221`), not to authd; `docker exec arizuko_authd_krons printenv
+TELEGRAM_BOT_TOKEN` prints nothing. The handler is tested (`L508`) and
+unreachable on every instance.
+
+- **Severity:** medium — a documented login method does not exist.
+- **Fix:** deliver the key to authd, or drop the method. authd then holds a
+  bot credential, so it is the owner's call.
 - **Status:** open — needs sign-off.
 
 ## L526 — thirteen variables routd reads are not in `daemonKeys["routd"]`, so a value in `.env` never reaches it (2026-10-21, open)
