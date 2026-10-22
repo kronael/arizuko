@@ -25,7 +25,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/objstore"
 )
@@ -52,11 +51,6 @@ const TaskContextGroup = "group"
 // state: the fire loop moves it back to active or paused, and
 // RecoverFiringTasks re-arms whatever a crash left in it.
 const TaskStatusFiring = "firing"
-
-type TaskPatch struct {
-	Status  *string
-	NextRun *time.Time
-}
 
 // taskKey is the coordinate of one task.
 func taskKey(id string) (objstore.Key, error) {
@@ -383,58 +377,6 @@ func (s *Store) ListTasks(folder string, isRoot bool) []core.Task {
 	// Stable, so two tasks stamped in the same instant keep coordinate order.
 	slices.SortStableFunc(out, func(a, b core.Task) int { return b.Created.Compare(a.Created) })
 	return out
-}
-
-func (s *Store) UpdateTask(id string, p TaskPatch) error {
-	key, err := taskKey(id)
-	if err != nil {
-		return err
-	}
-	attrs := map[string]string{}
-	params := map[string]any{}
-	if p.Status != nil {
-		attrs[attrTaskStatus] = *p.Status
-		params["status"] = *p.Status
-	}
-	if p.NextRun != nil {
-		attrs[attrTaskNextRun] = p.NextRun.Format(time.RFC3339)
-		params["next_run"] = attrs[attrTaskNextRun]
-	}
-	if len(attrs) == 0 {
-		return nil
-	}
-	return s.writeAudited(func() ([]objstore.Write, audit.Event, error) {
-		w := objstore.Write{
-			Op: objstore.Update, Entity: ScheduledTasks, Key: key, Attrs: attrs,
-		}
-		return []objstore.Write{w}, audit.Event{
-			Category:      audit.CategoryMutation,
-			Action:        "task.update",
-			Actor:         "system",
-			Surface:       audit.SurfaceGateway,
-			Resource:      "scheduled_tasks/" + id,
-			Outcome:       audit.OutcomeOK,
-			ParamsSummary: params,
-		}, nil
-	})
-}
-
-func (s *Store) DeleteTask(id string) error {
-	key, err := taskKey(id)
-	if err != nil {
-		return err
-	}
-	return s.writeAudited(func() ([]objstore.Write, audit.Event, error) {
-		w := objstore.Write{Op: objstore.Delete, Entity: ScheduledTasks, Key: key}
-		return []objstore.Write{w}, audit.Event{
-			Category: audit.CategoryMutation,
-			Action:   "task.delete",
-			Actor:    "system",
-			Surface:  audit.SurfaceGateway,
-			Resource: "scheduled_tasks/" + id,
-			Outcome:  audit.OutcomeOK,
-		}, nil
-	})
 }
 
 func (s *Store) CountActiveTasks() int {

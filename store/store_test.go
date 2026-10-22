@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -224,8 +223,8 @@ func TestTaskCRUD(t *testing.T) {
 	}
 
 	past := now.Add(-time.Hour)
-	if err := s.UpdateTask("t1", TaskPatch{NextRun: &past}); err != nil {
-		t.Fatal("UpdateTask:", err)
+	if err := s.RescheduleTask("t1", past.Format(time.RFC3339), "active"); err != nil {
+		t.Fatal("RescheduleTask:", err)
 	}
 	got, ok = s.GetTask("t1")
 	if !ok {
@@ -262,90 +261,6 @@ func TestTaskDuplicateID(t *testing.T) {
 	err := s.CreateTask(task)
 	if err == nil {
 		t.Fatal("expected error on duplicate task ID")
-	}
-}
-
-func TestTaskUpdateEmptyPatch(t *testing.T) {
-	s := openMem(t)
-	defer s.Close()
-
-	now := time.Now()
-	s.CreateTask(core.Task{
-		ID: "ep-1", Owner: "main", ChatJID: "tg:1",
-		Prompt: "test", Status: "active", Created: now,
-	})
-
-	err := s.UpdateTask("ep-1", TaskPatch{})
-	if err != nil {
-		t.Fatal("empty patch should not error:", err)
-	}
-	got, ok := s.GetTask("ep-1")
-	if !ok {
-		t.Fatal("task not found")
-	}
-	if got.Status != "active" {
-		t.Fatalf("status changed after empty patch: %q", got.Status)
-	}
-}
-
-// TestTaskUpdateNonexistent: patching a task nobody created is an ERROR. The
-// Update requires the item to exist, and this path writes an audit_log row
-// saying `task.update` succeeded — so a swallowed refusal records a change that
-// never happened (BUGS L268).
-func TestTaskUpdateNonexistent(t *testing.T) {
-	s := openMem(t)
-	defer s.Close()
-
-	status := "paused"
-	err := s.UpdateTask("ghost", TaskPatch{Status: &status})
-	if !errors.Is(err, ErrRefused) {
-		t.Fatalf("UpdateTask on a task that is not there answered %v, want ErrRefused", err)
-	}
-}
-
-func TestTaskUpdateStatus(t *testing.T) {
-	s := openMem(t)
-	defer s.Close()
-
-	now := time.Now()
-	s.CreateTask(core.Task{
-		ID: "us-1", Owner: "main", ChatJID: "tg:1",
-		Prompt: "test", Status: "active", Created: now,
-	})
-
-	status := "paused"
-	s.UpdateTask("us-1", TaskPatch{Status: &status})
-	got, _ := s.GetTask("us-1")
-	if got.Status != "paused" {
-		t.Fatalf("status = %q, want 'paused'", got.Status)
-	}
-}
-
-func TestTaskDelete(t *testing.T) {
-	s := openMem(t)
-	defer s.Close()
-
-	now := time.Now()
-	s.CreateTask(core.Task{
-		ID: "del-1", Owner: "main", ChatJID: "tg:1",
-		Prompt: "delete me", Status: "active", Created: now,
-	})
-
-	if err := s.DeleteTask("del-1"); err != nil {
-		t.Fatal("DeleteTask:", err)
-	}
-	_, ok := s.GetTask("del-1")
-	if ok {
-		t.Fatal("task still exists after delete")
-	}
-}
-
-func TestTaskDeleteNonexistent(t *testing.T) {
-	s := openMem(t)
-	defer s.Close()
-
-	if err := s.DeleteTask("ghost"); err != nil {
-		t.Fatal("DeleteTask on nonexistent should not error:", err)
 	}
 }
 

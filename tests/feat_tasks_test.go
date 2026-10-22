@@ -32,7 +32,7 @@ func TestFeature_Tasks(t *testing.T) {
 	})
 
 	// pause → hidden from due query; resume → visible again; cancel → deleted.
-	t.Run("pause-resume-cancel", func(t *testing.T) {
+	t.Run("pause-resume", func(t *testing.T) {
 		s, _ := openSharedDB(t)
 		now := time.Now()
 		past := now.Add(-time.Minute)
@@ -52,12 +52,6 @@ func TestFeature_Tasks(t *testing.T) {
 		}
 		if n := dueCount(t, s); n != 1 {
 			t.Fatalf("resumed due = %d, want 1", n)
-		}
-		if err := s.DeleteTask("t-sm"); err != nil {
-			t.Fatal(err)
-		}
-		if _, ok := s.GetTask("t-sm"); ok {
-			t.Fatal("task still present after cancel")
 		}
 	})
 

@@ -1,13 +1,12 @@
 package store
 
-// messages_migrate_test.go proves the two things the move can get wrong without
-// failing: the cursor it derives, and the cursor the poll loop advances.
+// messages_migrate_test.go proves the thing the move can get wrong without
+// failing: the cursor the poll loop advances.
 //
-// BOTH ARE SET EQUALITIES, not value comparisons, because the value is SUPPOSED
-// to change. A derived cursor names the newest consumed message rather than the
-// moment the poller stopped, and a re-rendered one is a new string for the same
-// place — so the only question worth asking is which messages are still unfed,
-// before and after.
+// THE CHECK IS A SET EQUALITY, not a value comparison, because the value is
+// SUPPOSED to change. A re-rendered cursor is a new string for the same place —
+// so the only question worth asking is which messages are still unfed, before
+// and after.
 //
 // The interleave below is FORCED with conformance.SlipAt rather than raced.
 // SQLite serialises writers, so a body that hoped to catch the collision by
@@ -55,43 +54,6 @@ func unfedIDs(t *testing.T, s *Store, jid, cursor string) []string {
 		ids = append(ids, m.ID)
 	}
 	return ids
-}
-
-// TestTheDerivedCursorLeavesExactlyTheRowsTheInstantLeft is the migration's own
-// proof, as a test.
-//
-// The same property was measured against all three live snapshots with each
-// chat's cursor walked back twenty messages: 680 rows on krons, 580 on marinade
-// and 520 on sloth, symmetric difference 0. This is that, small enough to read.
-//
-// MUTATION TARGET: widen CursorAtOrBefore's bound from `LtKey(instant + the byte
-// after KeySep)` to `LtKey(instant)`. The derived cursor then lands one message
-// EARLIER — on the last message BEFORE the instant rather than the last one AT
-// it — and every message sharing the cursor's instant is fed a second time. The
-// walk below goes red at exactly those positions.
-func TestTheDerivedCursorLeavesExactlyTheRowsTheInstantLeft(t *testing.T) {
-	s := openEntities(t)
-	ctx := context.Background()
-	const jid = "slack:T/C/U"
-	msgs := seedChat(t, s, jid, 8)
-
-	for i, at := range msgs {
-		// The instant a pre-move chat stored: the timestamp of the message the
-		// poller last consumed.
-		instant := core.TS(at.Timestamp)
-		want := unfedIDs(t, s, jid, MessageCursor(at))
-
-		derived, err := s.CursorAtOrBefore(ctx, jid, instant)
-		if err != nil {
-			t.Fatalf("derive at %s: %v", instant, err)
-		}
-		got := unfedIDs(t, s, jid, derived)
-		if fmt.Sprint(got) != fmt.Sprint(want) {
-			t.Errorf("cursor %d: the derived position leaves %v unfed, the stored instant "+
-				"left %v — everything between the two values is re-fed or skipped for good",
-				i, got, want)
-		}
-	}
 }
 
 // TestTwoMessagesInOneInstantAreConsumedOnceEach is why the id is in the key.

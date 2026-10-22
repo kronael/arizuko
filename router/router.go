@@ -272,7 +272,7 @@ func RouteMatches(r core.Route, msg core.Message) bool {
 // RouteMatchesIgnoreVerb is RouteMatches with the verb predicate skipped, so a
 // verb-scoped route (e.g. verb=mention) matches regardless of msg.Verb. Used by
 // send-authorization to recognize a sub-folder that handles a chat only under a
-// specific verb as a legitimate sender (see store.JIDRoutableToFolder).
+// specific verb as a legitimate sender (see routd.(*DB).JIDRoutableToFolder).
 func RouteMatchesIgnoreVerb(r core.Route, msg core.Message) bool {
 	return routeMatches(r, msg, true)
 }

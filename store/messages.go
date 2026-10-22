@@ -12,8 +12,7 @@ package store
 //
 // THE CURSOR IS A WHOLE KEY: a bare instant sorts BELOW every message at it,
 // so `> cursor` would feed a message at exactly the cursor instant once per
-// poll, for ever. CursorAtOrBefore builds one from an instant as the greatest
-// key at or before it (messages_migrate_test.go).
+// poll, for ever (messages_migrate_test.go).
 //
 // THE LOG IS APPEND-ORDERED: a live append takes the chat's next position,
 // never one at or below the row the chat already ends on (appendInstant). The
@@ -37,7 +36,6 @@ import (
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/objstore"
-	"github.com/kronael/arizuko/router"
 )
 
 // The attributes a message item carries. The chat, the instant and the id are
@@ -873,23 +871,6 @@ func (s *Store) SetMessageContent(m core.Message, content string) error {
 	return nil
 }
 
-// JIDRoutableToFolder reports whether folder (or a descendant) is the target of
-// any route matching jid when the verb predicate is ignored. It recognises a
-// sub-folder that handles jid only under a verb-scoped route, so a mention-only
-// agent may reply to its own chat.
-func (s *Store) JIDRoutableToFolder(jid, folder string) bool {
-	msg := core.Message{ChatJID: jid}
-	for _, r := range s.AllRoutes() {
-		if !router.RouteMatchesIgnoreVerb(r, msg) {
-			continue
-		}
-		if groupfolder.Contains(folder, core.ParseRouteTarget(r.Target).Folder) {
-			return true
-		}
-	}
-	return false
-}
-
 // newestMessageKey answers the position of the newest message a chat holds, or
 // empty when it holds none. A KEY rather than an instant, because that is what
 // the cursor holds.
@@ -899,29 +880,6 @@ func (s *Store) newestMessageKey(ctx context.Context, jid string) (string, error
 	})
 	if err != nil {
 		return "", fmt.Errorf("newest message in %s: %w", jid, err)
-	}
-	if len(items) == 0 {
-		return "", nil
-	}
-	return items[0].Key.Sort, nil
-}
-
-// CursorAtOrBefore answers the greatest message key of a chat at or before an
-// instant, which is the cursor a stored instant becomes. It is the migration's
-// derivation and it is exact: the set the poll loop feeds is unchanged, proven
-// per chat against all three snapshots (messages_migrate_test.go). An empty
-// answer means the same as no cursor: feed from the start.
-func (s *Store) CursorAtOrBefore(ctx context.Context, jid, instant string) (string, error) {
-	if instant == "" {
-		return "", nil
-	}
-	items, err := s.Obj().Query(ctx, objstore.Query{
-		Entity: Messages, Partition: jid,
-		Key:        objstore.KeyPredicate{Op: objstore.LtKey, Value: instant + string(KeySep[0]+1)},
-		Descending: true, Limit: 1, Project: []string{},
-	})
-	if err != nil {
-		return "", fmt.Errorf("derive %s's cursor at %s: %w", jid, instant, err)
 	}
 	if len(items) == 0 {
 		return "", nil
