@@ -21,7 +21,3 @@ type UserSub string
 // ("krons", "atlas/support"). The opaque cross-boundary shape; folder
 // hierarchy semantics live in core/groupfolder.
 type Folder string
-
-// Scope is a single ACL scope expression ("messages:*:own_group"). A
-// capability set is a []Scope.
-type Scope string

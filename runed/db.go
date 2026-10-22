@@ -23,11 +23,6 @@ var ErrNotFound = runstore.ErrNotFound
 type (
 	// Spawn is one container spawn (the execution-session envelope).
 	Spawn = runstore.Spawn
-	// ActiveSpawn is a live spawn's identifying info for the steer path.
-	ActiveSpawn = runstore.ActiveSpawn
-	// Session is one session_log entry, as both the dashboard page and routd's
-	// federated read project it.
-	Session = runstore.Session
 )
 
 // DB owns runed's tables. Every read and write is runstore's, embedded so this

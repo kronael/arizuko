@@ -95,15 +95,6 @@ type Route struct {
 	ObserveWindowChars    int    `json:"observe_window_chars,omitempty"`
 }
 
-// WebRoute is one /v1/web_routes row.
-type WebRoute struct {
-	PathPrefix string `json:"path_prefix"`
-	Access     string `json:"access"` // public|auth|deny|redirect
-	RedirectTo string `json:"redirect_to"`
-	Folder     string `json:"folder"`
-	CreatedAt  string `json:"created_at"`
-}
-
 // RouteTokenRequest is POST /v1/route_tokens/{chat,hook}. The response and list
 // shapes are NOT typed here: both faces share routeTokensHandler, which emits the
 // unified {token,jid,url} / {tokens:[…]} shapes (route_tokens_resource.go, spec
@@ -344,10 +335,3 @@ type Err struct {
 	Error   string `json:"error"`
 	Message string `json:"message"`
 }
-
-// Status values shared with the message store.
-const (
-	StatusSent    = "sent"
-	StatusPending = "pending"
-	StatusFailed  = "failed"
-)

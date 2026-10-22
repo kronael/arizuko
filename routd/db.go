@@ -2,7 +2,6 @@ package routd
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -410,13 +409,6 @@ func (d *DB) RoutedToByMessageID(chatJID, id string) string {
 	return d.store().RoutedToByMessageID(chatJID, id)
 }
 
-// IsEngaged reports whether (jid, topic) has a live engagement window — the
-// topic-root normalization probe.
-func (d *DB) IsEngaged(jid, topic string) bool {
-	_, ok := d.Engaged(jid, topic)
-	return ok
-}
-
 // MarkMessagesObserved flags rows observed and stamps routed_to, so an observe
 // rule (target=folder#observe) ingests them into the folder's ambient context
 // without a turn.
@@ -449,9 +441,6 @@ func (d *DB) Routes() ([]core.Route, error) {
 func (d *DB) AddRoute(r core.Route) (int64, error) {
 	return d.store().PutRouteRow(r)
 }
-
-// ErrNotFound signals an absent row to the HTTP layer (404).
-var ErrNotFound = errors.New("not found")
 
 // SetEngagement claims an engagement window for (jid, topic) by folder until
 // now+ttl. Un-audited on purpose: its callers are the per-turn claim sites;

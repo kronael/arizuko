@@ -26,8 +26,8 @@ and the channel stays clean.
 
 A `(jid, topic)` is **engaged** or **idle**. Storage is two columns on
 `chat_reply_state`: `engaged_until` (RFC3339Nano deadline, NULL = idle)
-and `engaged_folder` (who claims it). `IsEngaged` and `EngagedFolder`
-are single-row reads — no JOIN, no subquery, no row → false.
+and `engaged_folder` (who claims it). `Engaged` is a single-row read — no
+JOIN, no subquery, no row → false.
 
 **The column carries the deadline, not the last-reply timestamp.** TTL
 is applied once at write time, so every read is a plain comparison.
