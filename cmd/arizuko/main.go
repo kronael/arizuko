@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -23,6 +24,7 @@ import (
 	"github.com/kronael/arizuko/container"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
+	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -41,7 +43,7 @@ type productManifest struct {
 func main() {
 	if len(os.Args) < 2 {
 		fmt.Println("usage: arizuko <run|create|group|gate|invite|chat|talk|status|pair|generate|packages|token|apply|plan|get|export> ...")
-		fmt.Println("  group    <instance> list | add | rm | grant | ungrant | grants | thread-replies <folder> <on|off|default>")
+		fmt.Println("  group    <instance> list | add | rm [-f] <folder> | grant | ungrant | grants | thread-replies <folder> <on|off|default>")
 		fmt.Println("  gate     <instance> list | add | rm | enable | disable")
 		fmt.Println("  invite   <instance> create <target_glob> [--max-uses|-n N] [--expires|-e DURATION]")
 		fmt.Println("  invite   <instance> list [--issued-by|-b SUB]")
@@ -479,24 +481,19 @@ func cmdGroup(args []string) {
 		fmt.Printf("added group %s -> %s\n", jid, folder)
 
 	case "rm":
-		need(args, 3, "arizuko group <instance> rm <folder>")
-		folder := args[2]
-		removed, swept, err := s.DeleteGroup(folder)
+		folder, force, err := parseGroupRm(args[2:])
 		if err != nil {
-			die("Failed: remove group: %v", err)
+			die("usage: %s", groupRmUsage)
 		}
-		// A folder whose groups row is already gone can still own acl, secret,
-		// task and route rows. Sweeping those IS the work; reporting "no group"
-		// told the operator to go and find them by hand (BUGS L323).
-		if removed == 0 && swept == 0 {
-			die("Failed: no group at %s", folder)
+		var client *runedv1.Client
+		if !force {
+			if client, err = runedClient(dataDir); err != nil {
+				die("Failed: %v", err)
+			}
 		}
-		auditCLI(s, "group rm", []string{folder})
-		if removed == 0 {
-			fmt.Printf("no group at %s — swept %d orphan row(s) under it\n", folder, swept)
-			break
+		if err := runGroupRm(context.Background(), s, client, folder, force, os.Stdout); err != nil {
+			die("Failed: %v", err)
 		}
-		fmt.Printf("removed %d group(s) under %s, with %d other row(s)\n", removed, folder, swept)
 
 	case "grant", "ungrant":
 		row, err := parseGrantArgs(action, args[2:])

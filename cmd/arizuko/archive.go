@@ -33,7 +33,6 @@ import (
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/resreg/resources"
-	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 	"github.com/kronael/arizuko/store"
 	"gopkg.in/yaml.v3"
 )
@@ -204,15 +203,11 @@ type holdFn func(folder string) (release func(), err error)
 // runed's authz wants — runs:run to claim, runs:kill to release; runed in open mode
 // needs none.
 func runedHolder(ctx context.Context, dataDir string) (holdFn, error) {
-	env, err := loadInstanceEnv(dataDir)
+	client, err := runedClient(dataDir)
 	if err != nil {
-		return nil, fmt.Errorf("load .env: %w", err)
+		return nil, err
 	}
-	base := env["RUNED_URL"]
-	if base == "" {
-		base = "http://runed:8080"
-	}
-	client := runedv1.NewClient(base, env["RUNED_TOKEN"], 30*time.Second)
+	base := client.BaseURL
 
 	return func(folder string) (func(), error) {
 		out, herr := client.Hold(ctx, folder, "arizuko archive apply: filesystem restore")
