@@ -243,9 +243,6 @@ reads those words now.
 - `L72` — sign off the shape in spec `6/50`: anteval makes a disposable
   instance and never touches a serving one. 47 leaked children held the
   v0.70.6 release's run slots.
-- `L511` — may a group delete claim and kill the subtree's run slots at
-  runed? The bounded half — no onboarding for a folder-path JID — needs no
-  decision.
 - `L512` — the eval setup grants egress `*` and two catalog cases need named
   rules; blocked on `L379`.
 
@@ -845,49 +842,6 @@ live krons site carries the same `hub.css`, so every page there has the defect.
   no wider than the viewport. Measured: `tests/webdocs/design_test.go::TestShellStaysSticky`,
   red against `overflow-x: hidden`.
 
-## L511 — a group delete leaves the folder's queued and running turns, so onbod greets the deleted folder as a new person (2026-10-21, open — needs sign-off)
-
-MEASURED on krons 2026-10-21, when the operator removed 47 anteval children
-(`L72`) with `arizuko group krons rm`. The deletes ran 17:28:49-17:34:26.
-
-**Queued rows.** A `/migrate` row has the folder itself as its chat JID
-(`routd/loop.go:506-511`). The delete keeps `messages`
-(`store/folder_scope.go:159`), so the children's unanswered v219 rows stayed
-queued. routd then resolved each one, found no route, and took the miss branch
-(`routd/loop.go:574-613`): it inserted an onboarding row for the JID.
-`onboardingAllowed` (`routd/loop.go:782-788`) answers true for every JID when
-the platform list is empty, as it is on krons, so a folder path passed as a
-person. onbod then minted a pairing link (`onbod/main.go:419`) and wrote
-"Welcome to krons … Set up your account" into the folder's chat. Example:
-`eval/etk5aob-child-delegate` was deleted at 17:28:49, onboarded at 17:29:12
-and greeted at 17:29:19. Totals: 24 onboarding rows and 23 pairing tokens for
-folder-path JIDs, all between 17:29:12 and 17:34:59.
-
-**Running turns.** Three eval-child spawns ran past their folder's delete.
-`eval/etk84gi-child-delegate` was deleted at 17:32:21; its turn
-(`run_f58bae9d9d04888f`, started 17:20:51) ended at 17:41:04, and at 17:40:27
-the path `groups/eval/etk84gi-child-delegate/` existed again, holding only
-the turn's `work.md`. The delete writes rows and does not reach runed.
-
-This is the class `store/groups.go:293-296` says the total purge closed
-(`L66`, `L67`: a deleted folder's task read by onbod as a new account). It
-closed the task door; the queued-row door and the running-turn door stay open.
-
-- **Severity:** medium — a deleted folder gets onboarding greetings and a
-  guest keeps writing into its path; no data of another folder is touched.
-- **Scope:** `store/groups.go` (`DeleteGroup`), `routd/loop.go` (`routeMiss`,
-  `onboardingAllowed`), runed's run slots.
-- **Fix — two halves.** (a) Bounded: `routeMiss` does not onboard a JID that
-  names no platform. A folder path is the platform's own chat, never a
-  person. (b) Needs sign-off, because it changes the delete's control flow
-  across daemons: the delete claims the subtree's run slots at runed before
-  it purges — the hold `arizuko archive apply` already takes
-  (`cmd/arizuko/archive.go:194-201`) — and kills a turn that holds one.
-- **Status:** open — needs sign-off for (b). The 24 onboarding rows on krons
-  are an operator action on live data; the pairing tokens expired after
-  `PairingTTL` (10 minutes, `store/pairing.go:32`). No test yet: this pass was
-  scoped to documents, and the pinning test is the first step of the fix.
-
 ## L512 — the documented eval setup grants egress `*`, and two catalog cases need a folder without it (2026-10-21, open)
 
 `.claude/skills/eval/gates.md:158` tells the operator to run
@@ -978,7 +932,7 @@ one-off `objstore` program because no API exists.
 
 MEASURED on krons 2026-10-21: `hook:eval/etjgjnv` (2026-08-08) and
 `web:krons/docs` hold onboarding rows. `3beb1503` stops a bare folder JID from
-onboarding (`L511` half a); a `web:` or `hook:` JID has a platform prefix, so it
+onboarding; a `web:` or `hook:` JID has a platform prefix, so it
 still passes `onboardingAllowed` (`routd/loop.go`).
 
 - **Severity:** low — a greeting into a dead web or hook chat.
