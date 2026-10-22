@@ -394,16 +394,13 @@ func TestGlobalWildcardScopeAuthorizesNothing(t *testing.T) {
 	}
 }
 
-// Threat: MintNarrower must never let a *:* request smuggle through. A "*:*"
-// parent covers nothing (scopeCoveredBy uses scopeMatches, which rejects *:*),
-// so requesting any concrete scope from a *:* parent fails closed.
-func TestMintNarrowerRejectsGlobalWildcardParent(t *testing.T) {
-	k, _ := NewSigningKey("k1")
-	if _, err := k.MintNarrower(
-		[]string{"*:*"},
-		TokenClaims{Sub: "agent:sub", Scope: []string{"tasks:read"}},
-		time.Minute); err != ErrScopeTooBroad {
-		t.Fatalf("a *:* parent must not cover any concrete scope, got %v", err)
+// Threat: a "*:*" parent must never let a downscope request smuggle through. A
+// "*:*" parent covers nothing (scopeMatches rejects *:*), so requesting any
+// concrete scope from it fails closed. authd.Downscope bounds a minted token
+// with this check.
+func TestHasScopeCoveredByRejectsGlobalWildcardParent(t *testing.T) {
+	if HasScopeCoveredBy([]string{"*:*"}, "tasks:read") {
+		t.Fatal("a *:* parent must not cover any concrete scope")
 	}
 }
 

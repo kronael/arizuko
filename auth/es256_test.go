@@ -182,44 +182,6 @@ func TestMintForSubjectEmptyRequestGetsAllGrants(t *testing.T) {
 	}
 }
 
-func TestMintNarrowerRejectsBroaderScope(t *testing.T) {
-	k, _ := NewSigningKey("k1")
-	// Parent has only tasks:read; requesting tasks:write must fail.
-	if _, err := k.MintNarrower(
-		[]string{"tasks:read"},
-		TokenClaims{Sub: "agent:sub", Scope: []string{"tasks:write"}},
-		time.Minute); err != ErrScopeTooBroad {
-		t.Fatalf("expected ErrScopeTooBroad, got %v", err)
-	}
-}
-
-func TestMintNarrowerAllowsSubset(t *testing.T) {
-	k, _ := NewSigningKey("k1")
-	tok, err := k.MintNarrower(
-		[]string{"tasks:read", "tasks:write"},
-		TokenClaims{Sub: "agent:sub", ParentJTI: "p1", Scope: []string{"tasks:read"}},
-		time.Minute)
-	if err != nil {
-		t.Fatalf("subset should mint: %v", err)
-	}
-	ks := NewKeySet(map[string]*ecdsa.PublicKey{"k1": &k.Priv.PublicKey})
-	sub, _ := VerifyToken(tok, ks)
-	if HasScope(sub.Scope, "tasks", "write") {
-		t.Fatalf("narrower token must not gain tasks:write: %v", sub.Scope)
-	}
-}
-
-func TestMintNarrowerWildcardParentCoversVerb(t *testing.T) {
-	k, _ := NewSigningKey("k1")
-	// Parent tasks:* covers the requested tasks:write.
-	if _, err := k.MintNarrower(
-		[]string{"tasks:*"},
-		TokenClaims{Sub: "agent:sub", Scope: []string{"tasks:write"}},
-		time.Minute); err != nil {
-		t.Fatalf("tasks:* should cover tasks:write: %v", err)
-	}
-}
-
 // typClaim decodes the minted JWS payload and returns its "typ" claim — the
 // spec-mandated token-kind claim, distinct from the JWS header "typ":"JWT".
 func typClaim(t *testing.T, tok string) string {
@@ -232,7 +194,7 @@ func typClaim(t *testing.T, tok string) string {
 }
 
 // Each mint mode stamps the spec typ claim: MintForSubject carries whatever typ
-// the caller sets ("user"/"service"); MintNarrower forces "downscoped".
+// the caller sets ("user"/"service").
 func TestTypClaimPerMintMode(t *testing.T) {
 	k, _ := NewSigningKey("k1")
 
@@ -252,15 +214,6 @@ func TestTypClaimPerMintMode(t *testing.T) {
 	}
 	if got := typClaim(t, svc); got != "service" {
 		t.Fatalf("service mint typ = %q want service", got)
-	}
-
-	down, err := k.MintNarrower([]string{"tasks:read", "tasks:write"},
-		TokenClaims{Sub: "user:1", Scope: []string{"tasks:read"}}, time.Minute)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := typClaim(t, down); got != "downscoped" {
-		t.Fatalf("downscope typ = %q want downscoped (forced by MintNarrower)", got)
 	}
 }
 

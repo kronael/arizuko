@@ -151,9 +151,6 @@ header for rotation):
 - `(*SigningKey).MintForSubject(targetGrants []string, c, ttl)` —
   authoritative issuance after OAuth/service-key exchange; granted scope
   = requested ∩ targetGrants (all of targetGrants if requested empty).
-- `(*SigningKey).MintNarrower(parentScope []string, c, ttl)` — delegated
-  downscope (backs `mint_token` MCP tool); requested scope must be a
-  subset of parent's, else `ErrScopeTooBroad`. Sets `typ=downscoped`.
 
 The crypto stack is fixed. go-oidc's `RemoteKeySet` fetches and caches
 authd's JWKS. arizuko checks its own claims rather than run
@@ -237,7 +234,7 @@ if !auth.HasScope(sub.Scope, "tasks", "write") { return 403 }
 - `acl.go` — `MatchGroups`, scope-glob matching
 - `authorize.go` — `Authorize`, `EffectiveActions` (ACL row-grant gate, `Caller`)
 - `delegate.go` — `Delegate` (subset-of-held, WITH GRANT OPTION)
-- `es256.go` — `TokenClaims`, `Subject`, `SigningKey`, `Sign`/`MintForSubject`/`MintNarrower`
+- `es256.go` — `TokenClaims`, `Subject`, `SigningKey`, `Sign`/`MintForSubject`
 - `jwks.go` — `KeySet`, `VerifyToken`, `VerifyHTTP`, `PublicJWKS`, `FetchKeys`
 - `scope.go` — `HasScope` and the coverage helpers
 - `service.go` — daemon service-token bootstrap (`ServiceToken`, `TokenSource`)

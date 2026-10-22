@@ -222,19 +222,3 @@ func (k *SigningKey) MintForSubject(targetGrants []string, c TokenClaims, ttl ti
 	}
 	return k.Sign(c, ttl)
 }
-
-// MintNarrower is delegated issuance: an agent downscoping its own token. The
-// requested scope must be a strict-or-equal subset of the parent's effective
-// scope; anything broader errors. Backs the mint_token MCP tool.
-func (k *SigningKey) MintNarrower(parentScope []string, c TokenClaims, ttl time.Duration) (string, error) {
-	for _, want := range c.Scope {
-		if !scopeCoveredBy(parentScope, want) {
-			return "", ErrScopeTooBroad
-		}
-	}
-	if len(c.Scope) == 0 {
-		c.Scope = append([]string(nil), parentScope...)
-	}
-	c.Typ = "downscoped"
-	return k.Sign(c, ttl)
-}
