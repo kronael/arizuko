@@ -16,7 +16,7 @@ import (
 func writeLog(
 	path string, t Turn,
 	dur time.Duration, code int,
-	timedOut, framed bool, stderr string,
+	timedOut, framed bool, peakKiB int64, stderr string,
 ) {
 	// A turn with NO exit frame is an error however innocent its code looks. The
 	// guest's own code is the only word on how the agent ended, and when the frame
@@ -40,6 +40,11 @@ func writeLog(
 	} else {
 		// Said in the file, because the number beside it is not the agent's.
 		b.WriteString(" (QEMU's — the guest sent no exit frame)\n")
+	}
+	if peakKiB > 0 {
+		fmt.Fprintf(&b, "Peak guest memory: %d MiB\n", (peakKiB+512)/1024)
+	} else {
+		b.WriteString("Peak guest memory: unknown\n")
 	}
 
 	b.WriteString("\n=== Mounts ===\n")

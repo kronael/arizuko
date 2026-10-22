@@ -344,6 +344,9 @@ func runGuestBoot(t *testing.T, q *qemuRuntime, cfg *core.Config, name string, v
 			t.Fatalf("guest poweroff: %v", werr)
 		}
 		t.Logf("qemu exited %v after %s", werr, time.Since(started))
+		if kib := maxrssKiB(qemu.ProcessState); kib <= 0 {
+			t.Errorf("qemu peak resident set = %d KiB, want a non-zero Maxrss", kib)
+		}
 	case <-time.After(paths.Grace):
 		t.Fatal("qemu did not exit within reap grace")
 	}

@@ -368,7 +368,13 @@ func (q *qemuRuntime) spawn(ctx context.Context, t Turn) RunResult {
 		return fail("vm record: %v", err)
 	}
 	qemuDone := make(chan error, 1)
-	go func() { qemuDone <- qemu.Wait() }()
+	peak := &guestPeak{done: make(chan struct{})}
+	go func() {
+		err := qemu.Wait()
+		peak.kib = maxrssKiB(qemu.ProcessState)
+		close(peak.done)
+		qemuDone <- err
+	}()
 
 	audit.Emit(context.Background(), audit.Event{
 		Category: audit.CategoryAgent,
@@ -438,11 +444,12 @@ func (q *qemuRuntime) spawn(ctx context.Context, t Turn) RunResult {
 	end := q.await(ctx, sess, qemuDone, served, t)
 	code, timedOut := end.code, end.timedOut
 	elapsed := time.Since(start)
+	peakKiB := peak.after(qemu.Process, q.paths.Grace)
 	logFile := filepath.Join(logsDir, "container-"+ts+".log")
-	writeLog(logFile, t, elapsed, code, timedOut, end.framed, logbuf.String()+"\nkernel console: "+console+"\n")
+	writeLog(logFile, t, elapsed, code, timedOut, end.framed, peakKiB, logbuf.String()+"\nkernel console: "+console+"\n")
 
 	slog.Info("guest exited", "folder", t.Folder, "handle", t.Handle,
-		"code", code, "duration", elapsed, "timedOut", timedOut)
+		"code", code, "duration", elapsed, "timedOut", timedOut, "peakGuestKiB", peakKiB)
 	exitOutcome := audit.OutcomeOK
 	exitErrMsg := ""
 	if timedOut {
@@ -660,6 +667,45 @@ func guestTerminalExit(code int) bool { return code == agentTerminalExit }
 // contract, not the substrate's.
 const deadlineWarning = "⚠️ SYSTEM: You have ~2 minutes before this session is forcefully terminated. " +
 	"Wrap up NOW: summarize what you accomplished, what is still pending, and deliver your response to the user."
+
+// guestPeak carries QEMU's peak resident set (touched guest pages included) out
+// of the goroutine that waits for it. It reaches the turn log and the "guest
+// exited" line only; Runtime and RunResult do not carry it
+// (specs/6/41-qemu-substrate.md, Open question 3).
+type guestPeak struct {
+	done chan struct{}
+	kib  int64
+}
+
+// after returns the peak in KiB, or 0 when unknown. The kernel hands the rusage
+// over at Wait, and a turn ends while QEMU still runs, so it sends the SIGTERM
+// the reap sends next and waits up to grace.
+func (p *guestPeak) after(proc *os.Process, grace time.Duration) int64 {
+	select {
+	case <-p.done:
+	default:
+		_ = proc.Signal(syscall.SIGTERM)
+		select {
+		case <-p.done:
+		case <-time.After(grace):
+			return 0
+		}
+	}
+	return p.kib
+}
+
+// maxrssKiB is a waited process's peak resident set in KiB; Linux reports
+// ru_maxrss in KiB.
+func maxrssKiB(ps *os.ProcessState) int64 {
+	if ps == nil {
+		return 0
+	}
+	ru, ok := ps.SysUsage().(*syscall.Rusage)
+	if !ok {
+		return 0
+	}
+	return int64(ru.Maxrss)
+}
 
 // exitCodeOf reads a process's exit code out of its Wait error.
 func exitCodeOf(err error) int {

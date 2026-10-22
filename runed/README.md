@@ -206,6 +206,8 @@ The renderer also writes the per-turn files that the mounts point at:
 
 The kernel console goes to `groups/<folder>/logs/container-<ts>.console.log`, beside the turn log `container-<ts>.log`.
 
+The turn log header carries `Peak guest memory: <n> MiB`, the peak resident set of the QEMU process of this turn (`Rusage.Maxrss`; the touched pages of the guest memory count). The line `guest exited` carries the same value as `peakGuestKiB`. It reads `unknown` (and logs 0) when QEMU did not exit within `RUNED_REAP_GRACE` after its SIGTERM. Use it to set `RUNED_GUEST_MEM`: `grep 'Peak guest memory' groups/*/logs/container-*.log`. The value is in the logs only; `Runtime` and `RunResult` do not carry it.
+
 ### The peer credential
 
 ```

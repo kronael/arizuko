@@ -19,7 +19,7 @@ func TestTurnLogWritesTheStderrWhenTheGuestSentNoExitFrame(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "container.log")
 
 	writeLog(path, Turn{Folder: "krons/content", Handle: "h1"},
-		time.Minute, 0 /*code*/, false /*timedOut*/, false /*framed*/, agentSaid)
+		time.Minute, 0 /*code*/, false /*timedOut*/, false /*framed*/, 0, agentSaid)
 
 	b, err := os.ReadFile(path)
 	if err != nil {
@@ -40,7 +40,7 @@ func TestTurnLogStaysShortWhenTheGuestReportedSuccess(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "container.log")
 
 	writeLog(path, Turn{Folder: "krons/content", Handle: "h1"},
-		time.Minute, 0, false, true /*framed*/, "chatty but harmless")
+		time.Minute, 0, false, true /*framed*/, 0, "chatty but harmless")
 
 	b, err := os.ReadFile(path)
 	if err != nil {
