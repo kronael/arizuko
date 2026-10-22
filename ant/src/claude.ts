@@ -15,7 +15,7 @@ import {
 import { Binding, PolicyEvent, ToolEvent, bindings, runRow } from './policy.js';
 import type { ModelUsage } from './mcp.js';
 import { QUERY_TIMEOUT_MS, timeoutFrame } from './backend.js';
-import type { Frame, Harness, ResultFrame, Turn } from './backend.js';
+import type { Frame, Harness, Turn } from './backend.js';
 import { modelGateway } from './gateway.js';
 import { AGENTS } from './agents.js';
 

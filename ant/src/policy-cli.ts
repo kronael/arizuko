@@ -10,7 +10,7 @@
 
 import os from 'os';
 import { PolicyEvent, ToolEvent, bindings, runRows } from './policy.js';
-import { CODEX_HONOURS, codexRows, verdictToCodexJson } from './codex.js';
+import { codexRows, verdictToCodexJson } from './codex.js';
 import { spoolStderr } from './spool.js';
 
 function readStdin(): Promise<string> {
