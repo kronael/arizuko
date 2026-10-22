@@ -530,3 +530,38 @@ func TestObservedSince_WatchedSourcesWithCursor(t *testing.T) {
 		t.Fatalf("watched + cursor: got %+v, want [c-1]", got)
 	}
 }
+
+// BUGS L521: on krons a turn's own message also stood in its observed window,
+// so the prompt carried it as <message> and again as <observed>.
+func TestBuildAgentPrompt_TriggerNotRepeatedAsObserved(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	_ = db.PutGroup(core.Group{Folder: "main"})
+	loop := NewLoop(db, runnerFn(nil), LoopConfig{
+		ObserveWindowMessages: 10, ObserveWindowChars: 4000,
+	})
+	loop.StopQueue()
+
+	msg := core.Message{ID: "m239", ChatJID: "tg:1", Sender: "u",
+		Content: "the zebrak listing", Timestamp: time.Now(), RoutedTo: "main", Verb: "message"}
+	if err := db.PutMessage(msg); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.MarkMessagesObserved("main", []core.Message{msg}); err != nil {
+		t.Fatal(err)
+	}
+
+	got, mark := loop.buildAgentPrompt("main", "", []core.Message{msg})
+	if n := strings.Count(got, "the zebrak listing"); n != 1 {
+		t.Errorf("trigger text appears %d times, want 1:\n%s", n, got)
+	}
+	if strings.Contains(got, "<observed") {
+		t.Errorf("trigger repeated as observed:\n%s", got)
+	}
+	if mark == "" {
+		t.Error("watermark lost: the filtered row must still advance the observed cursor")
+	}
+}

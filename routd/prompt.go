@@ -36,6 +36,7 @@ func (l *Loop) buildAgentPrompt(folder, topic string, trigger []core.Message) (s
 	if len(observed) > 0 {
 		mark = core.TS(observed[len(observed)-1].Timestamp)
 	}
+	observed = withoutTrigger(observed, trigger)
 
 	rules := ""
 	if len(observed) > 0 {
@@ -48,6 +49,22 @@ func (l *Loop) buildAgentPrompt(folder, topic string, trigger []core.Message) (s
 		rules +
 		envelope +
 		router.FormatMessages(trigger, observed), mark
+}
+
+// withoutTrigger drops the turn's own messages from its observed window, so a
+// message is rendered once, as the request (BUGS L521).
+func withoutTrigger(observed, trigger []core.Message) []core.Message {
+	ids := make(map[string]bool, len(trigger))
+	for _, m := range trigger {
+		ids[m.ID] = true
+	}
+	out := observed[:0:0]
+	for _, m := range observed {
+		if !ids[m.ID] {
+			out = append(out, m)
+		}
+	}
+	return out
 }
 
 // paneHints emits <surface>slack-pane</surface> and an optional
