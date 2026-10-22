@@ -116,17 +116,6 @@ func (s *Store) SetLastReply(jid, topic, replyID, folder string) error {
 	return nil
 }
 
-// CountReplyStates answers how many (jid, topic) pairs hold reply state.
-func (s *Store) CountReplyStates(ctx context.Context) (int, error) {
-	items, err := s.Obj().Query(ctx, objstore.Query{
-		Entity: ChatReplyState, Partition: OwnerRoutd,
-	})
-	if err != nil {
-		return 0, fmt.Errorf("read the reply states: %w", err)
-	}
-	return len(items), nil
-}
-
 // BumpEngagement moves the window on (jid, topic) to `until`, claimed by folder.
 // A zero `until` ENDS the window, and ending takes the attribute AWAY: absent
 // is the only null this model has, and a present cleared deadline would read

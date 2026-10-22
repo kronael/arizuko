@@ -266,15 +266,6 @@ func (s *Store) TopicsPerFolder() (map[string]int, error) {
 	return out, nil
 }
 
-// CountTopics answers how many topics hold a session.
-func (s *Store) CountTopics(ctx context.Context) (int, error) {
-	items, err := s.Obj().Query(ctx, objstore.Query{Entity: Sessions, Partition: OwnerRoutd})
-	if err != nil {
-		return 0, fmt.Errorf("read the sessions: %w", err)
-	}
-	return len(items), nil
-}
-
 // upsertSession merges attrs into a topic's row, creating it when the topic
 // has none. Which shape lands is decided by the create's REFUSAL rather than
 // by a read: the item can appear between a read and a write.

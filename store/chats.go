@@ -273,16 +273,6 @@ func (s *Store) SetStickyTopic(jid, topic string) error {
 	return s.setChatPin(jid, AttrChatStickyTopic, topic)
 }
 
-// GetStickyTopic answers the #topic pin alone, which is what a message read
-// stamps an untopiced row with.
-func (s *Store) GetStickyTopic(jid string) string {
-	_, topic, err := s.StickyPins(jid)
-	if err != nil {
-		return ""
-	}
-	return topic
-}
-
 // setChatPin writes one navigation pin; an empty value CLEARS it.
 func (s *Store) setChatPin(jid, attr, value string) error {
 	key, err := chatKey(jid)

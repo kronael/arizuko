@@ -137,7 +137,7 @@ Primary methods (by domain):
 - Messages: `PutMessage`, `NewMessagesForChat`, `MessagesSince`, `EnrichMessage`, `MarkMessagesErrored`, `DeleteErroredMessages`, `LatestSource`
 - Groups: `PutGroup`, `DeleteGroup`, `AllGroups`, `GroupByFolder`, `SetGroupModel`
 - Sessions: `GetSession`, `SetSession`, `EnsureTopicLineage`, `ForkTopic`, `TopicLineage` — the run history is runed's, over its own `/v1`
-- Sticky: `StickyPins` (both at once), `SetStickyGroup`, `SetStickyTopic`, `GetStickyTopic`
+- Sticky: `StickyPins` (both at once), `SetStickyGroup`, `SetStickyTopic`
 - People: `CreateUserProfile`, `Username`, `SetUsername`, `ProfileNames`, `UserCap`, `SetUserCap` — one item per sub in `user_profiles`. Account linking lives in authd (`auth_users` + `oauth_identities`), not here.
 - ACL: `AddACLRow`, `RemoveACLRow`, `ListACL`, `ListACLByScope`, `ACLRowsFor`, `ACLWildcardRows` (scope listing is `auth.UserScopes` — a projection of these, not a second query)
 - Membership: `AddMembership`, `RemoveMembership`, `Members`, `Ancestors` — roles + JID→sub claims (`acl_membership` table)

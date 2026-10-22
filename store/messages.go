@@ -873,16 +873,6 @@ func (s *Store) SetMessageContent(m core.Message, content string) error {
 	return nil
 }
 
-// JIDRoutedToFolder reports whether a chat's default route target is folder or a
-// descendant of it.
-func (s *Store) JIDRoutedToFolder(jid, folder string) bool {
-	target := s.DefaultFolderForJID(jid)
-	if target == "" {
-		return false
-	}
-	return groupfolder.Contains(folder, target)
-}
-
 // JIDRoutableToFolder reports whether folder (or a descendant) is the target of
 // any route matching jid when the verb predicate is ignored. It recognises a
 // sub-folder that handles jid only under a verb-scoped route, so a mention-only

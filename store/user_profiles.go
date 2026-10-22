@@ -223,14 +223,3 @@ func (s *Store) SetUserCap(userSub string, cents int) error {
 	}
 	return nil
 }
-
-// CountUserProfiles answers how many people the instance knows.
-func (s *Store) CountUserProfiles(ctx context.Context) (int, error) {
-	items, err := s.Obj().Query(ctx, objstore.Query{
-		Entity: UserProfiles, Partition: OwnerRoutd,
-	})
-	if err != nil {
-		return 0, fmt.Errorf("read the user profiles: %w", err)
-	}
-	return len(items), nil
-}

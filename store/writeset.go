@@ -47,9 +47,6 @@ func (w *WriteSet) AddGuarded(refused error, write objstore.Write) error {
 	return nil
 }
 
-// Writes answers what the set holds, for a caller that sends the batch itself.
-func (w *WriteSet) Writes() []objstore.Write { return w.writes }
-
 // Len is how many writes the set holds. Several actions legitimately buffer
 // none: a PATCH naming no field, a dedup that found the task it was to create.
 func (w *WriteSet) Len() int { return len(w.writes) }

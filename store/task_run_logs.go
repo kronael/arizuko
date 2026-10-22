@@ -207,17 +207,6 @@ func runFloor(at time.Time) string {
 	return RunStamp(core.TS(at), strings.Repeat("0", runSuffixHex))
 }
 
-// CountTaskRunLogs answers how many runs are recorded.
-func (s *Store) CountTaskRunLogs(ctx context.Context) (int, error) {
-	items, err := s.Obj().Query(ctx, objstore.Query{
-		Entity: TaskRunLogs, Partition: OwnerRoutd,
-	})
-	if err != nil {
-		return 0, fmt.Errorf("read the task run logs: %w", err)
-	}
-	return len(items), nil
-}
-
 // runLogsFrom renders a read's items: ONE renderer for all four reads.
 func runLogsFrom(items []objstore.Item) []TaskRunLog {
 	out := make([]TaskRunLog, 0, len(items))

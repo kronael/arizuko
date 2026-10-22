@@ -88,17 +88,6 @@ func (s *Store) RecordProactiveFire(ctx context.Context, jid string, at time.Tim
 	return nil
 }
 
-// CountProactiveChats answers how many chats carry a cooldown at all.
-func (s *Store) CountProactiveChats(ctx context.Context) (int, error) {
-	items, err := s.Obj().Query(ctx, objstore.Query{
-		Entity: ChatProactive, Partition: OwnerRoutd,
-	})
-	if err != nil {
-		return 0, fmt.Errorf("read the proactive cooldowns: %w", err)
-	}
-	return len(items), nil
-}
-
 // ProactiveCooldowns answers the chats that have spoken unprompted, most recent
 // first, up to limit. The order runs here because the sort key is the jid.
 func (s *Store) ProactiveCooldowns(limit int) ([]ChatCooldown, error) {
