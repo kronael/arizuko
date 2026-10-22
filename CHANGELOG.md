@@ -13,6 +13,25 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.70.7] — 2026-10-22
+
+> arizuko v0.70.7 — run cap reaches routd
+>
+> routd now gets the same turn limit as runed, so it stops redispatching turns that runed refuses.
+>
+> • Run cap — compose delivers MAX_CONCURRENT_CONTAINERS to routd, so queued turns stop redispatching in a loop.
+> • Deleted folders — deleting a folder stops its running turn after the purge.
+> • Bare folder chats — a chat addressed by a folder path no longer starts onboarding.
+> • Four adapters retired — the Reddit, LinkedIn, Twitter/X and Bluesky adapters are removed.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Operator note
+
+- Run `arizuko generate <instance>` and recreate routd so `env/routd.env` carries `MAX_CONCURRENT_CONTAINERS`.
+- An instance that still runs `reditd`, `linkd`, `twitd` or `bskyd` keeps its installed fragment; remove it by hand.
+- `GatedFns` in `ipc` is now `RoutdFns`; Go callers rename it.
+
 ## [v0.70.6] — 2026-10-21
 
 > arizuko v0.70.6 — explicit answers, one task thread

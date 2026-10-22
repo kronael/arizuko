@@ -30,6 +30,16 @@
 
       <p>What shipped, dated, terse. Reverse chronological. The chat broadcast for each release lives at the top of every block; the bullets below expand it for operators.</p>
 
+      <h2>arizuko v0.70.7 <span class="dim">&mdash; 22 October 2026</span></h2>
+      <p>routd now gets the same turn limit as runed, so it stops redispatching turns that runed refuses.</p>
+      <ul>
+        <li><strong>Run cap</strong> &mdash; compose delivers <code>MAX_CONCURRENT_CONTAINERS</code> to routd, so queued turns stop redispatching in a loop.</li>
+        <li><strong>Deleted folders</strong> &mdash; deleting a folder stops its running turn after the purge.</li>
+        <li><strong>Bare folder chats</strong> &mdash; a chat addressed by a folder path no longer starts onboarding.</li>
+        <li><strong>Four adapters retired</strong> &mdash; the Reddit, LinkedIn, Twitter/X and Bluesky adapters are removed.</li>
+      </ul>
+      <p class="note">Full notes: <a href="https://github.com/kronael/arizuko/blob/main/CHANGELOG.md#v0707--2026-10-22">CHANGELOG &sect; v0.70.7</a></p>
+
       <h2>arizuko v0.70.6 <span class="dim">&mdash; 21 October 2026</span></h2>
       <p>Agents deliver answers explicitly, keep task updates together, and start GitHub work only for requests or watched pull requests.</p>
       <ul>
