@@ -38,7 +38,8 @@ type EntityMaker interface {
 	CreateEntity(ctx context.Context, entity string) error
 }
 
-// EnsureEntities prepares a database to hold runed's state; the ONLY applier.
+// EnsureEntities prepares a database to hold runed's state. Production uses
+// store.PrepareOwner (runed/db.go); tests and the importer call this.
 // Asking twice is a no-op.
 func EnsureEntities(ctx context.Context, m EntityMaker) error {
 	for _, entity := range Entities {
