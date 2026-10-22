@@ -32,6 +32,7 @@ func newRWDashServer(t *testing.T) (*httptest.Server, *testutils.Inst, string) {
 	}
 	d := &dash{routd: inst.Store.Obj(), onbod: inst.Store.Obj(), groupsDir: groupsDir,
 		routdURL: stubRoutd(t, inst.Store.Obj())}
+	withRuned(d, stubRuned(t, http.StatusOK, nil))
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 	srv := httptest.NewServer(mux)

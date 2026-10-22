@@ -6,7 +6,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"net/http"
 	"time"
 
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
@@ -41,31 +40,13 @@ func runedClient(dataDir string) (*runedv1.Client, error) {
 	return runedv1.NewClient(base, env["RUNED_TOKEN"], 30*time.Second), nil
 }
 
-func probeRuned(ctx context.Context, client *runedv1.Client) error {
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, client.BaseURL+"/health", nil)
-	if err != nil {
-		return err
-	}
-	resp, err := client.HTTP.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close() //nolint:errcheck
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("GET /health answered %d", resp.StatusCode)
-	}
-	return nil
-}
-
 // runGroupRm purges folder's subtree and then stops each removed folder's run at
 // runed. Without force it probes runed first and removes nothing when runed is
 // unreachable. With force the client is not used and no run is stopped.
 func runGroupRm(ctx context.Context, s *store.Store, client *runedv1.Client, folder string, force bool, out io.Writer) error {
 	stop := func(context.Context, string) error { return nil }
 	if !force {
-		if err := probeRuned(ctx, client); err != nil {
+		if err := client.Health(ctx); err != nil {
 			return fmt.Errorf("cannot reach runed at %s, so a live run could outlive the group; "+
 				"bring the instance up and set RUNED_URL (and RUNED_TOKEN if runed verifies bearers), "+
 				"or stop the instance and pass -f/--force: %w", client.BaseURL, err)

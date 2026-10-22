@@ -31,6 +31,7 @@ import (
 	"github.com/kronael/arizuko/obs"
 	"github.com/kronael/arizuko/resreg"
 	_ "github.com/kronael/arizuko/resreg/resources"
+	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 	"github.com/kronael/arizuko/store"
 	"github.com/kronael/arizuko/theme"
 )
@@ -414,6 +415,15 @@ func (d *dash) routdStore() *store.Store {
 		return nil
 	}
 	return store.NewOver(d.routd)
+}
+
+// runedClient is runed's /v1 face under dashd's service token; nil svc (local
+// dev) sends no bearer.
+func (d *dash) runedClient() *runedv1.Client {
+	if d.svc == nil {
+		return runedv1.NewClient(d.runedURL, "", 30*time.Second)
+	}
+	return runedv1.NewClientWithSource(d.runedURL, d.svc, 30*time.Second)
 }
 
 // onbodStore is onbod's tables the same way. onbod OWNS invites in the split

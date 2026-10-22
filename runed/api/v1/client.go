@@ -126,6 +126,26 @@ func (c *Client) StopFolder(ctx context.Context, folder string) (StopRunResponse
 		StopRunRequest{Folder: folder}, false, "stop response")
 }
 
+// Health GETs /health within 5 seconds and returns nil only on a 200. The
+// route is public, so the call sends no bearer.
+func (c *Client) Health(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+"/health", nil)
+	if err != nil {
+		return err
+	}
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close() //nolint:errcheck
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("GET /health answered %d", resp.StatusCode)
+	}
+	return nil
+}
+
 // Hold posts to POST /v1/holds — claim folder's run slot for a
 // folder-exclusive external job — and returns as soon as the slot is claimed
 // (NOT at a turn boundary). Release the returned RunID with ReleaseHold.
