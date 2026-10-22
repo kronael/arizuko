@@ -238,10 +238,6 @@ reads those words now.
 - `L505` — which keyed read replaces the whole-chat scan for the task summary
   row? It needs a store method that returns an error.
 
-**Coverage gaps found by the FEATURES.md pass (2026-10-21).** Each names the
-rows and the test to write; none needs a decision except where it says so.
-
-
 **Found by the anteval-leak investigation (2026-10-21).**
 
 - `L72` — sign off the shape in spec `6/50`: anteval makes a disposable
