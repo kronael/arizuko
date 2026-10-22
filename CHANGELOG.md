@@ -13,6 +13,26 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.70.8] — 2026-10-22
+
+> arizuko v0.70.8 — cleaner context, safer deletes
+>
+> An agent no longer sees its own message repeated as context, and deleting a folder now stops its running turn.
+>
+> • Context — the observed window leaves out the message the turn is already answering.
+> • Delete — `arizuko group rm` and the dashd delete page stop the folder's running turn first.
+> • Memory — each turn log shows peak guest memory; guests give freed pages back to the host.
+> • Store — the PostgreSQL buffer pool is capped at 32 MB.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Operator note
+
+- `arizuko group <instance> rm` refuses when runed is unreachable; `-f` removes the rows without stopping runs.
+- The dashd delete page answers 503 when runed is down and removes nothing.
+- Recreate `extenddb_db` (restart the instance) so `shared_buffers=32MB` applies.
+- About 1,000 lines of unused code are gone, among them `character.json` and the `scripts/` sync scripts.
+
 ## [v0.70.7] — 2026-10-22
 
 > arizuko v0.70.7 — run cap reaches routd

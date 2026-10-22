@@ -30,6 +30,16 @@
 
       <p>What shipped, dated, terse. Reverse chronological. The chat broadcast for each release lives at the top of every block; the bullets below expand it for operators.</p>
 
+      <h2>arizuko v0.70.8 <span class="dim">&mdash; 22 October 2026</span></h2>
+      <p>An agent no longer sees its own message repeated as context, and deleting a folder now stops its running turn.</p>
+      <ul>
+        <li><strong>Context</strong> &mdash; the observed window leaves out the message the turn is already answering.</li>
+        <li><strong>Delete</strong> &mdash; <code>arizuko group rm</code> and the dashd delete page stop the folder's running turn first.</li>
+        <li><strong>Memory</strong> &mdash; each turn log shows peak guest memory; guests give freed pages back to the host.</li>
+        <li><strong>Store</strong> &mdash; the PostgreSQL buffer pool is capped at 32 MB.</li>
+      </ul>
+      <p class="note">Full notes: <a href="https://github.com/kronael/arizuko/blob/main/CHANGELOG.md#v0708--2026-10-22">CHANGELOG &sect; v0.70.8</a></p>
+
       <h2>arizuko v0.70.7 <span class="dim">&mdash; 22 October 2026</span></h2>
       <p>routd now gets the same turn limit as runed, so it stops redispatching turns that runed refuses.</p>
       <ul>
@@ -448,7 +458,7 @@
 
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/changelog/index.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-21">2026-10-21</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-22">2026-10-22</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>
