@@ -71,7 +71,6 @@ func TestRESTReadFolderBound(t *testing.T) {
 // webRouteReq is the REST create/delete request body after the 5/16 REST-face
 // fold: the shared handler reads the flat MCP arg names (path/access/redirect_to)
 // plus the REST-only target `folder` (bound to the caller's subtree by the Gate).
-// This replaces the old apiv1.WebRoute (`path_prefix`) request shape.
 type webRouteReq struct {
 	Folder     string `json:"folder"`
 	Path       string `json:"path"`

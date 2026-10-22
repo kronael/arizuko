@@ -613,8 +613,7 @@ func TestEngagement_WindowNamesItsFolder(t *testing.T) {
 	}
 }
 
-// engagedNow reports whether (jid, topic) has a live window, which is what the
-// three-argument IsEngaged this replaces asked with its own clock.
+// engagedNow reports whether (jid, topic) has a live window.
 func engagedNow(s *Store, jid, topic string) bool {
 	_, live := s.Engagement(jid, topic)
 	return live
