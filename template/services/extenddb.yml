@@ -59,6 +59,10 @@ services:
     container_name: ${APP}_extenddb_db_${FLAVOR}
     image: postgres:17-alpine
     user: '1000:1000'
+    # A 32 MB buffer pool, not the default 128 MB: the store is a few hundred
+    # MB (289 MB krons, 410 MB sloth, 2026-10-22) and the kernel page cache
+    # serves the rest, on a host whose memory the turn guests need.
+    command: ['postgres', '-c', 'shared_buffers=32MB']
     environment:
       # The instance owns the role, so the role IS the instance: arizuko_krons
       # administers arizuko_krons's databases and nobody else's.
