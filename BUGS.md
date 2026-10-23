@@ -289,7 +289,6 @@ reads those words now.
 - `L538` — routd reads the guest capabilities through the action lattice, so
   every onboarded world's agent gets a read-only share: exact match, and
   delete `share_mount(readonly)`?
-- `L539` — dashd's grant form offers 31 action names that no evaluator reads.
 - `L540` — dashd's grant form and `POST /v1/acl` write rows without
   `auth.Delegate`: run it there, or let a folder admin grant any row inside
   its subtree?
@@ -1283,23 +1282,6 @@ sloth was not read.
 - **Test:** none yet. Every store test needs docker, which this host's user
   cannot reach without sudo; spec `6/51` step 2 names the test.
 - **Status:** open — needs sign-off (an auth change).
-
-## L539 — dashd's grant form offers 31 action names that no evaluator reads (2026-10-23, open)
-
-READ at `491204eb`: the "Add grant" dropdown (`dashd/grants_admin.go:19-31`
-`commonActions`) holds `admin` and 31 bare names — `send`, `reply`,
-`register_group`, `get_grants`, `inject_message` and others. The handler writes
-the chosen name as the row's action (`:226`). Every tool gate asks for
-`mcp:<name>` (`ipc/ipc.go:1102`, `:1215`; `routd/acl_resource.go:146`), so a
-row with action `send` matches no call, and the operator gets no error. The
-list has none of `egress`, `web:publish`, `gh:write` or `shell:env:<KEY>`, so
-the web surface cannot write the guest capabilities at all.
-
-- **Severity:** medium — the web grant form writes rows that do nothing.
-- **Fix:** offer the `mcp:` names and the guest capabilities, or a text field
-  checked by the CLI's `grantableAction` (`cmd/arizuko/main.go:594`) moved
-  next to `aclPut` so every door refuses an action nothing reads.
-- **Status:** open.
 
 ## L540 — dashd's grant form and `POST /v1/acl` write rows without `auth.Delegate` (2026-10-23, open — needs sign-off)
 
