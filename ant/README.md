@@ -32,6 +32,20 @@ same `check_turn` decision. Pi is refused until it has delivery tools.
 Model calls, tool execution, retries and
 session state are all the harness's, never ant's.
 
+A claude run is one session, and the session ends when Claude Code says so,
+not at the first `result`. The prompt stream stays open until Claude Code
+reports `session_state_changed: idle` after a result. It reports `idle` only
+when no background Agent runs and no notification waits, so a
+`task-notification` that arrives after the main turn is handled with working
+tools. A background shell does not hold the session. ant asks for the state
+events with `CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS`; a Claude Code that
+sends none ends the session at its first result. ant holds each `result`
+frame and delivers the last one, so `submit_turn` runs once per run, at the
+end of the session. While the session waits on a task, ant moves the steer
+spool into the prompt stream as `<user-steering>`, because no tool hook runs
+then. A Stop that lists background tasks skips `check_turn`; the reply-owed
+check runs on the Stop that lists none.
+
 Harness independence lives at the **process boundary**: the agent tool
 surface + `submit_turn` on the unix socket routd serves is a wire
 protocol, so a different harness replaces ant as its own process without
@@ -60,8 +74,9 @@ same skillguard table, a different hook point. Extension recipe in
   handed tools straight to the harness and the agent writes that file
   itself, so it was a self-grant (BUGS J1, F76).
 
-Nothing is deferred and there is no tool search: one server, `alwaysLoad`,
-so a turn's tool list is everything the turn may call.
+No arizuko tool is deferred: one server, `alwaysLoad`, so a turn's tool
+list holds every arizuko and connector tool the turn may call. Claude Code
+defers its own `TaskStop`; the agent loads it with `ToolSearch`.
 
 ## The resident file
 
@@ -133,7 +148,13 @@ runed hands the guest a query timeout 30 seconds under that ceiling,
 floored at 60 seconds, as `ARIZUKO_QUERY_TIMEOUT_MS`
 (`runed/render.go` `queryTimeoutMs`), so the harness aborts and reports
 before runed kills the guest. ant computes the deadline once, at start, and
-every harness run in the guest aborts at it. The log line reads:
+every harness run in the guest aborts at it, the reply-owed nudge round
+and the next IPC turn included. About 60 seconds before the deadline ant
+puts a `[deadline]` note on the steer spool. The agent reads it as
+`<user-steering>`, mid-turn through the steering hook and while it waits on
+a task through the prompt stream. The note tells the agent to `reply` now and
+to stop tasks it does not need with `TaskStop`. A run that starts inside
+the last minute gets no note. The log line reads:
 
 ```
 Query timeout: process deadline reached, aborting
@@ -154,8 +175,11 @@ Mitigations for skill authors and agents, with no platform change:
 - **Run fewer parallel subagents.** Every Task subagent shares the parent
   turn's wall budget; 8 parallel critics is 8 times the chance that one
   stalls the whole turn.
-- **Background long jobs.** Pass `run_in_background: true` to the Task tool
-  for long work; the parent turn returns and the agent polls later.
+- **Background long jobs.** Pass `run_in_background: true` to the Agent tool
+  for long work. The session stays open until the Agent reports and the
+  model answers, or until the deadline. `TaskStop` plus a `reply` ends it
+  early. A background shell does not hold the session: run it inside an
+  Agent.
 - **Stop agentic loops early.** Count the iterations and stop well before
   the cap. A loop that ran 28 of 30 iterations and saved its output is
   better than one that hit the deadline in iteration 30 and dropped
