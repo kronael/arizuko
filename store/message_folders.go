@@ -78,16 +78,6 @@ func folderFeedWrite(msgKey objstore.Key, m core.Message) (objstore.Write, bool,
 	}, true, nil
 }
 
-// countFolderMessage moves one folder's count and commits the writes that
-// EARNED the move in the same batch, so a counter cannot run ahead of its rows.
-func (s *Store) countFolderMessage(ctx context.Context, folder string,
-	writes []objstore.Write) error {
-	// A refusal is the message's own create-if-absent: the row is not
-	// appended and the folder must not count it twice.
-	_, err := s.tryCountFolderMessageBy(ctx, folder, 1, writes)
-	return err
-}
-
 // errNoCounter is what a folder with no counter yet answers, so the seed runs
 // once rather than on every message.
 var errNoCounter = errors.New("the folder has no message counter")
