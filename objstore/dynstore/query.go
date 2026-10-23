@@ -112,7 +112,6 @@ func (s *Store) Query(ctx context.Context, q objstore.Query) ([]objstore.Item, e
 		TableName:              s.table(q.Entity),
 		KeyConditionExpression: aws.String(keyCond(b, q)),
 		ScanIndexForward:       aws.Bool(!q.Descending),
-		ConsistentRead:         aws.Bool(true),
 	}
 	filter, err := filterExpr(b, q.Where)
 	if err != nil {

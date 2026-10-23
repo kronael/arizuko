@@ -28,7 +28,6 @@ package store
 
 import (
 	"context"
-	"crypto/rand"
 	"fmt"
 	"sort"
 	"strings"
@@ -231,8 +230,8 @@ func defaultVerb(v string) string {
 
 // PutMessage appends one message and the index entries it belongs in, in ONE
 // batch. routd is the only writer. A DUPLICATE ID IS A NO-OP: the first row is
-// authoritative. The chat's append marker guards the identity lookup and the
-// whole batch, including the indexes and folder count.
+// authoritative. The condition is on the message item, and a refusal takes the
+// indexes with it, so a re-delivered message cannot double-count a folder.
 func (s *Store) PutMessage(m core.Message) error {
 	_, err := s.AppendMessage(m)
 	return err
@@ -256,83 +255,55 @@ func (s *Store) putMessage(ctx context.Context, m core.Message, status string,
 		return m, fmt.Errorf("message %s in %s carries no instant, and the instant is half its "+
 			"position", m.ID, m.ChatJID)
 	}
+	// THE READ IS FOR THE STICKY PIN, and nothing else.
+	chat, _, err := s.chatItemVia(ctx, m.ChatJID)
+	if err != nil {
+		return m, err
+	}
+	if m.Topic == "" {
+		m.Topic = chat.Attrs[AttrChatStickyTopic]
+	}
 	chatKey, err := chatKey(m.ChatJID)
 	if err != nil {
 		return m, err
 	}
-	const appendMarker, appendRounds = "message_append", 16
-	for range appendRounds {
-		chat, exists, err := s.chatItemVia(ctx, m.ChatJID)
-		if err != nil {
-			return m, err
-		}
-		held, ok, err := s.messageAt(ctx, m.ChatJID, m.ID)
-		if err != nil {
-			return m, err
-		}
-		if ok {
-			return messageFrom(held), nil
-		}
-		next := m
-		if next.Topic == "" {
-			next.Topic = chat.Attrs[AttrChatStickyTopic]
-		}
-		next.Timestamp, err = s.appendInstant(ctx, next)
-		if err != nil {
-			return m, err
-		}
-		key, err := messageKeyOf(next)
-		if err != nil {
-			return m, err
-		}
-		chatFlags := map[string]string{appendMarker: rand.Text()}
-		if isRealInbound(next) {
-			chatFlags[attrChatHasInbound] = flagSet
-		}
-		guard := objstore.Write{
-			Op: objstore.Put, Entity: Chats, Key: chatKey, Attrs: chatFlags,
-			Cond: objstore.Cond{Item: objstore.ItemAbsent},
-		}
-		if exists {
-			guard.Op = objstore.Update
-			cmp := objstore.Cmp{Attr: appendMarker, Op: objstore.Absent}
-			if was := chat.Attrs[appendMarker]; was != "" {
-				cmp.Op, cmp.Value = objstore.Eq, was
-			}
-			guard.Cond = objstore.Cond{Where: []objstore.Cmp{cmp}}
-		}
-		writes := []objstore.Write{guard, {
-			Op: objstore.Put, Entity: Messages, Key: key, Attrs: messageAttrs(next),
-			Cond: objstore.Cond{Item: objstore.ItemAbsent},
-		}}
-		writes = append(writes, activityWrite(key, next))
-		if w, ok := deliveryWrite(key, next, status, 0); ok {
-			writes = append(writes, w)
-		}
-		folderWrite, counted, err := folderFeedWrite(key, next)
-		if err != nil {
-			return m, err
-		}
-		writes = append(writes, also...)
-		var committed bool
-		if counted {
-			committed, err = s.tryCountFolderMessageBy(ctx, next.RoutedTo, 1, append(writes, folderWrite))
-		} else {
-			committed, err = s.TryWriteEntities(ctx, nil, writes...)
-		}
-		if err != nil || committed {
-			return next, err
-		}
-		current, present, err := s.chatItemVia(ctx, m.ChatJID)
-		if err != nil {
-			return m, err
-		}
-		if present == exists && current.Attrs[appendMarker] == chat.Attrs[appendMarker] {
-			return next, nil
-		}
+	m.Timestamp, err = s.appendInstant(ctx, m)
+	if err != nil {
+		return m, err
 	}
-	return m, fmt.Errorf("append %s in %s: %d concurrent appends refused the batch",
-		m.ID, m.ChatJID, appendRounds)
+	key, err := messageKeyOf(m)
+	if err != nil {
+		return m, err
+	}
+	// ONE Merge opens the chat and flags it: `chats` is the partition list the
+	// poll loop and the archive walk, and a real inbound makes the chat
+	// proactive-eligible. A Merge, because a create-if-absent REFUSES on the
+	// chat's second message and would take the whole batch with it.
+	chatFlags := map[string]string{}
+	if isRealInbound(m) {
+		chatFlags[attrChatHasInbound] = flagSet
+	}
+	writes := []objstore.Write{{
+		Op: objstore.Merge, Entity: Chats, Key: chatKey, Attrs: chatFlags,
+	}, {
+		Op: objstore.Put, Entity: Messages, Key: key, Attrs: messageAttrs(m),
+		Cond: objstore.Cond{Item: objstore.ItemAbsent},
+	}}
+	writes = append(writes, activityWrite(key, m))
+	if w, ok := deliveryWrite(key, m, status, 0); ok {
+		writes = append(writes, w)
+	}
+	folderWrite, counted, err := folderFeedWrite(key, m)
+	if err != nil {
+		return m, err
+	}
+	writes = append(writes, also...)
+	if !counted {
+		// No routed_to: no folder feed entry and no counter to move.
+		_, err := s.TryWriteEntities(ctx, nil, writes...)
+		return m, err
+	}
+	return m, s.countFolderMessage(ctx, m.RoutedTo, append(writes, folderWrite))
 }
 
 // appendInstant answers the instant a live append takes: the writer's own, or
@@ -345,7 +316,7 @@ func (s *Store) putMessage(ctx context.Context, m core.Message, status string,
 // the same second as the batch tail with a lesser id lost eleven of twelve
 // documents (BUGS L103). One floor answers both, the chat's newest position
 // rather than its cursor, because the cursor has not moved when a steer
-// re-injects. The chat's append marker guards the read until the batch commits.
+// re-injects. The cost is one key-only read; the window left is microseconds.
 // A clamped row is still the caller's row: only the instant moves, by a
 // nanosecond from a value the platform had already rounded to a second.
 func (s *Store) appendInstant(ctx context.Context, m core.Message) (time.Time, error) {
@@ -355,6 +326,20 @@ func (s *Store) appendInstant(ctx context.Context, m core.Message) (time.Time, e
 		return time.Time{}, err
 	}
 	if floor == "" || own > floor {
+		return m.Timestamp, nil
+	}
+	// A RE-DELIVERY IS NOT A LATE ARRIVAL: the same id at the same instant is
+	// the same position, and the Put's ItemAbsent condition makes the second
+	// one a no-op. Moving it to a free position would append the message
+	// twice.
+	held, err := s.Obj().Query(ctx, objstore.Query{
+		Entity: Messages, Partition: m.ChatJID, Project: []string{},
+		Key: objstore.KeyPredicate{Op: objstore.ExactKey, Value: own},
+	})
+	if err != nil {
+		return time.Time{}, fmt.Errorf("read %s in %s: %w", own, m.ChatJID, err)
+	}
+	if len(held) > 0 {
 		return m.Timestamp, nil
 	}
 	at, _, ok := MsgCoord(floor)
