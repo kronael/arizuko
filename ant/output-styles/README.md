@@ -25,12 +25,14 @@ never read.
 | web      | (no split — single `web.md`)              |
 | email    | (no split — single `email.md`)            |
 | whatsapp | (no split — single `whatsapp.md`)         |
-| github   | none — stock markdown is already correct  |
+| github   | (no split — single `github.md`)           |
 
-`gitd` posts the agent's text verbatim into a field GitHub renders as real
-markdown, so a style file would add a surface to maintain and change
-nothing. `runed/output_style_test.go` pins that decision; shipping a file
-flips a bool there.
+GitHub renders the agent's markdown as is, but the stock size and shape of a
+reply are wrong there. Every comment stays on the pull request and notifies everyone who
+watches it, and a review finding belongs on its code line. `github.md` sets
+the TL;DR lead, a cap for each kind of text, and the rule to do the work
+before the reply. `runed/output_style_test.go` checks that the style name of
+each channel has a shipped file.
 
 ## Selection algorithm
 
@@ -105,7 +107,7 @@ teaches the agent a syntax the user sees raw.
 ## Files
 
 `discord-channel.md`, `discord-dm.md`, `discord.md`,
-`email.md`, `slack-channel.md`, `slack-dm.md`,
+`email.md`, `github.md`, `slack-channel.md`, `slack-dm.md`,
 `slack-pane.md`, `slack-thread.md`, `slack.md`, `telegram-dm.md`,
 `telegram-group.md`, `telegram.md`, `web.md`,
 `whatsapp.md`.

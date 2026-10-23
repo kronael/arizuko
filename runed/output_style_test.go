@@ -100,27 +100,18 @@ func TestParseSlackJID(t *testing.T) {
 // nothing logs it (BUGS L27). The channel is the JID scheme
 // (routd/dispatch.go::jidScheme), never the daemon name, so a file named after
 // the daemon — whapd.md rather than whatsapp.md — would ship and never be read.
-//
-// shipsFile false is a DECISION, not a gap: that platform renders the agent's
-// stock markdown correctly, so a style file would add a surface to maintain and
-// change nothing. Shipping one flips the bool.
 func TestPickOutputStyle_ShippedStyleExists(t *testing.T) {
-	cases := []struct {
-		name, channel, jid string
-		shipsFile          bool
-	}{
-		{"whatsapp", "whatsapp", "whatsapp:1@s.whatsapp.net", true},
-		{"slack dm", "slack", "slack:T1/dm/D1", true},
-		{"slack channel", "slack", "slack:T1/channel/C1", true},
-		{"telegram dm", "telegram", "telegram:user/42", true},
-		{"telegram group", "telegram", "telegram:group/42", true},
-		{"discord dm", "discord", "discord:dm/D1", true},
-		{"discord channel", "discord", "discord:G1/C1", true},
-		{"email", "email", "email:someone@example.com", true},
-		{"web", "web", "web:solo/inbox", true},
-		// gitd posts the agent's text verbatim into a field GitHub renders as
-		// real markdown, so stock formatting already lands correctly.
-		{"github", "github", "github:o/r/issue/1", false},
+	cases := []struct{ name, channel, jid string }{
+		{"whatsapp", "whatsapp", "whatsapp:1@s.whatsapp.net"},
+		{"slack dm", "slack", "slack:T1/dm/D1"},
+		{"slack channel", "slack", "slack:T1/channel/C1"},
+		{"telegram dm", "telegram", "telegram:user/42"},
+		{"telegram group", "telegram", "telegram:group/42"},
+		{"discord dm", "discord", "discord:dm/D1"},
+		{"discord channel", "discord", "discord:G1/C1"},
+		{"email", "email", "email:someone@example.com"},
+		{"web", "web", "web:solo/inbox"},
+		{"github", "github", "github:o/r/pr/1"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -128,14 +119,9 @@ func TestPickOutputStyle_ShippedStyleExists(t *testing.T) {
 			if style == "" {
 				t.Fatalf("picker named no style for %q", c.jid)
 			}
-			_, err := os.Stat(filepath.Join("..", "ant", "output-styles", style+".md"))
-			switch {
-			case c.shipsFile && err != nil:
+			if _, err := os.Stat(filepath.Join("..", "ant", "output-styles", style+".md")); err != nil {
 				t.Fatalf("picker chose %q but ant/output-styles/%s.md does not ship: %v",
 					style, style, err)
-			case !c.shipsFile && err == nil:
-				t.Fatalf("ant/output-styles/%s.md now ships; set shipsFile true for %q",
-					style, c.channel)
 			}
 		})
 	}

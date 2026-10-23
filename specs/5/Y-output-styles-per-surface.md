@@ -37,14 +37,15 @@ rewrites `**bold**` and nothing else, while bskyd, linkd and twitd post
 the text verbatim to platforms with no markdown renderer and a hard
 length cap they enforce by REJECTING the post.
 
-**A platform earns a file only when its send path makes stock formatting
-wrong.** Reddit and GitHub ship none: `reditd` and `gitd` post the
-agent's text verbatim into a field their platform renders as real
-markdown, so a file would add a surface to maintain and change nothing.
-The picker still names `reddit`/`github`, Claude Code resolves nothing,
-and the reply falls back to stock — which is the correct output there.
-`container/output_style_test.go` pins both halves: every named style
-either ships a file or is recorded as a deliberate stock fallback.
+**A platform earns a file when stock output is wrong there**, in its
+markup or in its size and shape. GitHub renders stock markdown, but every
+comment stays on the pull request and notifies everyone who watches it,
+and a review finding belongs on its code line. Stock replies there had a
+median length of 843 characters, and 48 of 59 were longer than 400
+(sloth on `vumilan/morha`, measured 2026-10-23). So `github.md` sets the
+TL;DR lead and a cap for each kind of text.
+`runed/output_style_test.go` checks that the style name of each channel
+has a shipped file.
 Operators override per folder via `~/.claude/output-styles/` — Claude
 Code's own settings precedence, no arizuko mechanism.
 
