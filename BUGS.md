@@ -319,6 +319,12 @@ reads those words now.
 - `L552` — a comment on a PR the bot opened starts no turn without a mention
   (owner: he should see most on his own PRs; amends 6/27).
 
+**Found while wiring the jynx bot on sloth (2026-10-23).**
+
+- `L553` — two Telegram bots on one instance give one person's DMs the same
+  chat JID, so both conversations merge and route together: put the account
+  in the DM JID (JID shape and the base bot's existing rows need sign-off).
+
 **Found while folding the lowercase `bugs.md` into this file (2026-10-20).**
 
 - `L480` — slakd sends a whole reply as one `chat.postMessage`; `chanlib.Chunk`
@@ -1403,6 +1409,31 @@ far more often than chat.
   silently dropped.
 - **Fix:** `L75(b)` — a batch that holds a mention resolves by the mention.
 - **Status:** open — needs sign-off (dispatch control flow, with `L75(b)`).
+
+## L553 — two Telegram bots on one instance merge one person's DMs into one chat (2026-10-23, open — needs sign-off)
+
+MEASURED on sloth: `@sloth_fiu_bot` (`CHANNEL_NAME=telegram`) and `@qb_jynx_bot`
+("Atlas - Quant", `CHANNEL_NAME=jynx`) both store the owner's DMs as
+`telegram:user/1112184352` — 1431 rows with `source=telegram`, 6 with
+`source=jynx`. A Telegram private chat id is the user id whatever the bot, and
+`chatJIDFromID` (`teled/bot.go:770`) builds the JID from it alone. So the one
+route `room=user/1112184352 → atlas` (seq 30) takes both bots' DMs, and the
+jynx DM "this one." (2026-10-23 22:29) reached `atlas`, which answered as atlas.
+Thread reads, cursors and sessions key on the chat JID, so the two
+conversations are also one history. No route key can split them: `msgField`
+(`router/router.go:242`) reads `platform`, `room`, `chat_jid`, `sender` and
+`verb`, never `source`.
+
+Discord and Slack give each bot its own DM channel id, so this is Telegram only.
+
+- **Fix:** a labelled teled account puts its `CHANNEL_NAME` in the DM chat JID
+  and registers that narrower `jid_prefixes` (the alternative
+  `specs/5/R-multi-account.md` already names); the sender JID stays
+  `telegram:user/<id>`, and the base account's JIDs stay as they are. Amend
+  5/R first. A `source=` route key is the rejected alternative: it splits
+  routing and leaves the histories merged.
+- **Status:** open — needs sign-off on the JID shape. The route sending
+  `@sloth_fiu_bot` DMs to `atlas` is an operator row and is the owner's call.
 
 ## L552 — a comment on a PR the bot opened starts no turn unless it mentions the bot (2026-10-23, open)
 
