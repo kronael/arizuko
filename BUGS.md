@@ -323,7 +323,7 @@ reads those words now.
 
 - `L553` — two Telegram bots on one instance give one person's DMs the same
   chat JID, so both conversations merge and route together: put the bot's
-  Telegram id in the DM JID (id vs username and the base rows need sign-off).
+  Telegram id in the DM JID (the base account's migration needs sign-off).
 
 **Found while folding the lowercase `bugs.md` into this file (2026-10-20).**
 
@@ -1430,12 +1430,14 @@ Discord and Slack give each bot its own DM channel id, so this is Telegram only.
   `getMe` at start, never a local label (owner, 2026-10-23: "something global
   ... the bot's name from telegram"): `telegram:<bot_id>/user/<id>`, and the
   account registers that narrower `jid_prefixes` (the alternative
-  `specs/5/R-multi-account.md` already names). The bot user id, because
-  BotFather can rename a username. The sender JID stays `telegram:user/<id>`.
+  `specs/5/R-multi-account.md` already names). DECIDED (owner, 2026-10-23):
+  the numeric bot user id, as the user id already is Telegram's number ("user
+  ids are also not invented"); a username can be renamed in BotFather. The
+  sender JID stays `telegram:user/<id>`.
   Amend 5/R first. A `source=` route key is the rejected alternative: it splits
   routing and leaves the histories merged.
-- **Status:** open — needs sign-off: bot id or username, and whether the base
-  account's existing DM rows, routes and sessions migrate to the new shape.
+- **Status:** open — needs sign-off: whether the base account's existing DM
+  rows, routes and sessions migrate to the new shape.
   The route sending `@sloth_fiu_bot` DMs to `atlas` is an operator row and is
   the owner's call.
 
