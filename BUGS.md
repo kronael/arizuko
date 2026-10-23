@@ -270,6 +270,8 @@ reads those words now.
 
 **Found by the dead-code sweep (2026-10-22).**
 
+- `L536` — delete the stored numeric route id (−371 lines, astra): the id
+  becomes the encoded coordinate. Changes the route API and the tie order.
 - `L535` — after a turn ends, a background subagent's result restarts the
   model and every tool call is refused, so the reply is lost (117 krons, 38
   sloth sessions).
@@ -1171,6 +1173,32 @@ the closed prompt stream, `claude.ts:443-458`).
   Measure the refusal source first, so the fix removes it rather than working
   around it.
 - **Status:** open — direction set by the owner.
+
+## L536 — PROPOSED: delete the stored numeric route id; the id is the encoded coordinate (2026-10-23, open — needs sign-off)
+
+A route rule's key is its coordinate `(seq, target, match)` (`store/routes.go`);
+the numeric `id` is a separate attribute drawn from a counter. A table merge
+copied ids and left duplicates (`L364`, re-minted on sloth 2026-10-23), and the
+code defends with `mintRouteIDs` (reads the whole table) and an ambiguity
+refusal in `routeByID`.
+
+Astra (gpt-6-astra, 2026-10-23, prompt and answer in `tmp/astra-routeid.txt`)
+proposes: no stored id; `id = base64url(key.Sort)`, decoded for an exact-key
+read, so two rules can never share one. Checked: the counter `routes.id` is the
+only `nextNumber` user (`store/entities.go:144,200`, `store/routes.go:233`).
+Estimate, not compiled: +114 / −485 production lines across 21 files (counter,
+mint, resreg stamping, `argInt64`, the ambiguity path).
+
+Costs:
+- The route API's `id` becomes a string on MCP, REST, CLI and dashd; a rename or
+  a coordinate edit changes it. Exported YAML with numeric ids needs the field
+  dropped.
+- **Tie order changes.** `routeOrder` sorts `(seq, id)` (`store/routes.go:174`,
+  pinned by `TestRouteTableReadsEqualSeqInIdOrder`). Without ids, rules at one
+  seq sort by coordinate. krons has 20 rules at seq 0 and sloth 24, so the
+  overlapping ones must get distinct seqs before rollout.
+
+- **Status:** open — needs sign-off (API contract and routing order).
 
 ## L526 — thirteen variables routd reads are not in `daemonKeys["routd"]`, so a value in `.env` never reaches it (2026-10-21, open)
 
