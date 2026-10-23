@@ -1154,11 +1154,17 @@ turn's end is not measured yet (an abort of the query after `submit_turn`, or
 the closed prompt stream, `claude.ts:443-458`).
 
 - **Severity:** high — finished work never reaches the chat.
-- **Fix (owner, 2026-10-23: "the turns can't end when subs run"):** ant keeps
-  the turn open while any background task it started is still running, and
-  submits only after every task has reported and the model has answered; the
-  run timeout still bounds the whole turn. Measure the refusal source first, so
-  the fix removes it rather than working around it.
+- **Fix (owner, 2026-10-23):** three rules.
+  1. The main agent's Stop is not the end of the session: the guest, the MCP
+     connection to the chat and the SDK query stay up while any background
+     task it started still runs.
+  2. The session ends when every task has reported and the model has
+     processed the results and answered, or at the run timeout.
+  3. Before the timeout, the session steers the agent to post its output now,
+     through the existing progress-nudge hook (`<user-steering>`), so the work
+     reaches the chat instead of being cut off.
+  Measure the refusal source first, so the fix removes it rather than working
+  around it.
 - **Status:** open — direction set by the owner.
 
 ## L526 — thirteen variables routd reads are not in `daemonKeys["routd"]`, so a value in `.env` never reaches it (2026-10-21, open)
