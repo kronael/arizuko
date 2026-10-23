@@ -311,8 +311,6 @@ reads those words now.
 
 **Found by the sloth GitHub eval (2026-10-23).**
 
-- `L548` — a redelivered message that routd moved to a later timestamp is
-  stored again: 137 duplicate groups, 283 extra rows (storage fix).
 - `L549` — an inline comment reaches the agent without line, hunk or thread,
   and `reply` without `replyToId` answers the batch's last comment: carry the
   location on each message and require the reply target (changes 6/27)?
@@ -1347,22 +1345,6 @@ agent to act, so it contradicts these files.
   refuses merge and approve where a folder lacks it. The three skills sync from
   kronael/tools, so the change goes there or into agent-specific copies.
 - **Status:** open — needs sign-off.
-
-## L548 — a redelivered message that routd moved to a later timestamp is stored again (2026-10-23, open)
-
-MEASURED on sloth: 137 `(chat JID, message ID)` groups hold 283 extra rows in
-`routd.messages` (134 repository CI groups, 2 on PR #305, 1 on #175); inline
-comment `gh-rc4335962453` is stored three times and was rendered twice into one
-#305 prompt. READ at `74781587`: `appendInstant` moves a late message to a free
-later position (`store/messages.go:270`), but its duplicate check looks only at
-the message's original `(timestamp, id)` position (`store/messages.go:335-343`).
-A redelivery of a moved message finds nothing there and takes another new
-position.
-
-- **Severity:** medium — duplicate prompt lines and duplicate observed rows.
-- **Fix:** guard the stable `(chat JID, message ID)` identity, not the
-  timestamped position, in the same batch as the insert.
-- **Status:** open.
 
 ## L549 — an inline review comment reaches the agent without its location, and a reply without a target answers the wrong comment (2026-10-23, open — needs sign-off)
 
