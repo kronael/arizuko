@@ -1103,7 +1103,13 @@ general human-attention mechanism, so the same code should serve both.
   engagement window and disengage; gitd keeps only the mapping of explicit asks
   (mention, review request, assignment) to `mention`. Amend `6/27` first. Net
   code goes down.
-- **Status:** open — needs sign-off on the 6/27 amendment.
+- **Blocker (Sol, 2026-10-23, read at `0c004ed4`):** the github branch in
+  `engaged()` (`routd/loop.go:701`, `cf04b1c1`) also keeps CI out: engagement is
+  checked before the observe rule (`routd/loop.go:671`), and unassigned CI rows
+  reach PR topics (`gitd/ci.go:94`). Deleting the branch lets CI start turns.
+  A general rule "only a human message or mention engages" also changes chat,
+  where every verb (a reaction, an edit) can ride engagement today.
+- **Status:** open — needs sign-off: may only a human `message`/`mention` ride engagement on every channel?
 
 ## L535 — a background subagent's result arrives after the turn ends, and every tool call is refused (2026-10-23, open)
 
