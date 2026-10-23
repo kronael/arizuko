@@ -7,7 +7,8 @@ an instance whose eval folder does not exist yet.
 
 **Every deploy runs gates 1-4, in order. Gate 5 runs `anteval` against a
 throwaway instance only, never against krons or another live instance
-(`specs/6/50`, draft); until that ships, gate 5 is not run.** Gates 1-3 are free and catch everything mechanical; 4 is a
+(`specs/6/50`), and only when the owner starts it by hand; until that ships,
+gate 5 is not run.** Gates 1-3 are free and catch everything mechanical; 4 is a
 minute; 5 is the only one that proves a live agent still works, and it is
 the only one that costs money (~$5).
 

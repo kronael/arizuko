@@ -1,5 +1,5 @@
 ---
-status: draft
+status: planned
 depends:
   [
     ../5/9-agent-capability-eval,
@@ -10,6 +10,9 @@ depends:
 ---
 
 # specs/6/50 — anteval runs against an instance it creates
+
+anteval runs only when the owner starts it by hand; no deploy gate, timer or
+hook starts it.
 
 `anteval run` creates a disposable arizuko instance from the release image,
 runs its cases against that instance, and removes the instance when the run
