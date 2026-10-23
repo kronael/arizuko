@@ -17,6 +17,29 @@ test('reply owed skips recursive Stop and unbound turns', async () => {
   expect(calls).toBe(0);
 });
 
+/** A Stop while background tasks run is a pause, not the end: allowed, no check. An empty list or an absent field (codex) checks. */
+test('reply owed allows a Stop while background tasks run', async () => {
+  let calls = 0;
+  const check = async () => { calls++; return { nudge: 'deliver' }; };
+  const policy = replyOwed('t1', check);
+  const tasks = [{ id: 'a1', type: 'subagent', status: 'running', description: 'review' }];
+  expect(await policy({ ...event, background_tasks: tasks })).toEqual(ALLOW);
+  expect(calls).toBe(0);
+  expect(await policy({ ...event, background_tasks: [] })).toEqual({ kind: 'deny', reason: 'deliver' });
+  expect(await policy(event)).toEqual({ kind: 'deny', reason: 'deliver' });
+  expect(calls).toBe(2);
+});
+
+/** The Stop hook input's background_tasks reaches the policy through claudeHooks: tasks running -> no block, none -> block. */
+test('claudeHooks hands background_tasks from the Stop input to reply-owed', async () => {
+  const row = { id: 'reply-owed', event: 'Stop' as const, returns: ['deny' as const], run: replyOwed('t1', async () => ({ nudge: 'deliver' })) };
+  const hook = claudeHooks([row]).Stop[0].hooks[0];
+  const stop = { hook_event_name: 'Stop', session_id: 's', cwd: '/tmp', transcript_path: '/tmp/fixture', stop_hook_active: false };
+  const ctx = { signal: new AbortController().signal };
+  expect(await hook({ ...stop, background_tasks: [{ id: 'a1' }] } as never, undefined, ctx)).toEqual({});
+  expect(await hook({ ...stop, background_tasks: [] } as never, undefined, ctx)).toEqual({ decision: 'block', reason: 'deliver' });
+});
+
 /** Only routd's nonempty nudge blocks Stop; a socket failure follows the policy fail-open rule. */
 test('reply owed uses the shared decision and fails open', async () => {
   const seen: string[] = [];

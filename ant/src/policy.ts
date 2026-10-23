@@ -24,6 +24,8 @@ export interface ToolEvent {
   cwd?: string;
   tool_response?: unknown;
   stop_hook_active?: boolean;
+  // claude's Stop input lists the tasks still running; codex and pi never send it.
+  background_tasks?: unknown[];
 }
 
 export type PolicyEvent = 'PreToolUse' | 'PostToolUse' | 'Stop';
