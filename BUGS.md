@@ -273,6 +273,8 @@ reads those words now.
 
 **Found by the dead-code sweep (2026-10-22).**
 
+- `L534` — GitHub PRs skip the engagement mechanism that chat threads use;
+  the owner wants one attention mechanism for both (amend spec 6/27).
 - `L528` — runed serves `steered` but nothing writes it, so every spawn
   reports `steered=false`: write it, or stop serving it?
 - `L529` — `set_group_open` writes an `open` flag that no production code
@@ -1109,6 +1111,27 @@ unreachable on every instance.
 - **Fix:** deliver the key to authd, or drop the method. authd then holds a
   bot credential, so it is the owner's call.
 - **Status:** open — needs sign-off.
+
+## L534 — GitHub PRs skip the engagement mechanism chat threads use (2026-10-23, open — needs sign-off)
+
+MEASURED at HEAD: routd treats `github:` JIDs as a special case in two places.
+`engaged()` returns false for every `github:` JID (`routd/loop.go`, added in
+`cf04b1c1`), and the reply-promotion path in `routd/server.go` has its own
+`github` branch (`canPromoteReply`, and the `!github` guard on the topic rule).
+Spec `6/27-git-channel.md` records the decision: "GitHub engagement never
+overrides an observe route or supplies a missing route" (line 141), and
+"explicit mentions and direct bot replies remain the engagement boundary"
+(line 545). So a PR thread where sloth answered does not stay engaged: each
+follow-up needs a new mention.
+
+The owner (2026-10-23): a PR should work like a chat thread; engagement is a
+general human-attention mechanism, so the same code should serve both.
+
+- **Fix:** delete the `github:` branches in routd so PR topics use the shared
+  engagement window and disengage; gitd keeps only the mapping of explicit asks
+  (mention, review request, assignment) to `mention`. Amend `6/27` first. Net
+  code goes down.
+- **Status:** open — needs sign-off on the 6/27 amendment.
 
 ## L526 — thirteen variables routd reads are not in `daemonKeys["routd"]`, so a value in `.env` never reaches it (2026-10-21, open)
 
