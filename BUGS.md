@@ -301,6 +301,14 @@ reads those words now.
 - `L544` — the ant image holds SDK 0.3.278 from a cached layer while the
   Dockerfile says latest: pin the lockfiles, or bust the cache?
 
+**Found while setting sloth's GitHub style (2026-10-23).**
+
+- `L545` — three shipped skills (`review`, `gh-comment`, `pr-draft`) forbid
+  push, merge and submitted reviews, so sloth promises work instead of doing
+  it: drop those rules for an agent acting under its own login?
+- `L546` — every turn leaves a permanent `✓ <status>` comment on a GitHub PR:
+  drop progress comments on GitHub (spec 6/46)?
+
 **Found while folding the lowercase `bugs.md` into this file (2026-10-20).**
 
 - `L480` — slakd sends a whole reply as one `chat.postMessage`; `chanlib.Chunk`
@@ -1308,6 +1316,38 @@ it holds WITH GRANT OPTION. Exposure: no onboarded world on krons (listing of
 - **Default if nothing is decided:** both doors stay as they are; spec `6/51`
   step 6 (caps take effect) waits for the answer.
 - **Status:** open — needs sign-off (an auth change).
+
+## L545 — three shipped skills forbid sloth to act on GitHub (2026-10-23, open — needs sign-off)
+
+MEASURED on sloth (`vumilan/morha`, 2026-10-16..23): 11 of 59 replies promise
+or offer work instead of doing it (PR 306 "I will push the rewrite" — no sloth
+commit; PR 305 "I land them in one push once you confirm" — none; PR 304 "On
+it"; PR 276 'Say "merge #276" and I merge'). sloth has the capability
+(`gh_write=true`, `GH_TOKEN`, the gh credential helper). The shipped skills
+forbid it: `ant/skills/review/SKILL.md:28` (and `give.md:188`, `take.md:54`)
+"NEVER `gh pr create`, `gh pr merge`, `gh pr review --approve`, or `git push`";
+`ant/skills/gh-comment/SKILL.md` requires sign-off via `AskUserQuestion` (banned
+in `ant/CLAUDE.md`, seen by nobody) and leaves reviews pending (visible only to
+`sloth-goth`); `ant/skills/pr-draft/SKILL.md` carries an old format and "NEVER
+run gh pr create". The new `ant/output-styles/github.md` (`9d52ffa9`) tells the
+agent to act, so it contradicts these files.
+
+- **Fix:** for an agent acting under its own login, drop the push/merge ban,
+  the sign-off step and the pending-review rule; the `gh:write` grant already
+  refuses merge and approve where a folder lacks it. The three skills sync from
+  kronael/tools, so the change goes there or into agent-specific copies.
+- **Status:** open — needs sign-off.
+
+## L546 — every turn leaves a permanent progress comment on a GitHub PR (2026-10-23, open — needs sign-off)
+
+MEASURED on sloth: 43 `✓ <status>` comments on `vumilan/morha` PRs in one week,
+one per turn (e.g. "✓ posting PR #310 review"); two over 100 characters carried
+findings. The 👀 reaction already shows the turn is running. ant asks for a
+`<status>` every 90 s and routd posts progress on any channel that can edit
+(`specs/6/46-turn-progress.md`), so a style file cannot stop it.
+
+- **Fix:** no progress comment on GitHub; keep the reaction. Changes 6/46.
+- **Status:** open — needs sign-off.
 
 ## L543 — nothing writes the `_close` sentinel, so `turn.signal` and `closedDuringQuery` never fire (2026-10-23, open — needs sign-off)
 
