@@ -54,6 +54,7 @@ type payload struct {
 		Title       string    `json:"title"`
 		Body        string    `json:"body"`
 		HTMLURL     string    `json:"html_url"`
+		User        *account  `json:"user"`
 		Assignees   []account `json:"assignees"`
 		PullRequest *struct {
 			URL string `json:"url"`
@@ -66,6 +67,7 @@ type payload struct {
 		HTMLURL   string    `json:"html_url"`
 		Merged    bool      `json:"merged"`
 		UpdatedAt string    `json:"updated_at"`
+		User      *account  `json:"user"`
 		Assignees []account `json:"assignees"`
 		Head      struct {
 			Ref string `json:"ref"`
@@ -249,6 +251,7 @@ func mapEvent(kind, name, event, delivery string, body []byte, now time.Time, bo
 	}
 	jid := p.repoJID()
 	login := p.Sender.Login
+	var conversationAuthor *account
 	msg = chanlib.InboundMsg{
 		ID:         "gh-d" + delivery,
 		Sender:     "github:" + login,
@@ -324,6 +327,9 @@ func mapEvent(kind, name, event, delivery string, body []byte, now time.Time, bo
 		if p.Issue.PullRequest != nil {
 			jid.Kind = "pr"
 		}
+		if p.Action == "created" || p.Action == "edited" {
+			conversationAuthor = p.Issue.User
+		}
 		if p.Action == "created" {
 			msg.ID = issueIDPrefix + strconv.FormatInt(p.Comment.ID, 10)
 			msg.Timestamp = parseTime(p.Comment.CreatedAt, now).Unix()
@@ -344,6 +350,9 @@ func mapEvent(kind, name, event, delivery string, body []byte, now time.Time, bo
 			return msg, "", errors.New("review comment event without pull_request or comment")
 		}
 		jid.Kind, jid.Number = "pr", p.PullRequest.Number
+		if p.Action == "created" || p.Action == "edited" {
+			conversationAuthor = p.PullRequest.User
+		}
 		if p.Comment.InReplyToID != 0 {
 			msg.ReplyTo = reviewIDPrefix + strconv.FormatInt(p.Comment.InReplyToID, 10)
 		}
@@ -374,6 +383,9 @@ func mapEvent(kind, name, event, delivery string, body []byte, now time.Time, bo
 		head := fmt.Sprintf("%s review (%s) on PR #%d", login, p.Review.State, p.PullRequest.Number)
 		if (p.Action == "submitted" || p.Action == "edited") && strings.TrimSpace(p.Review.Body) != "" {
 			msg.Verb = speech(botLogin, p.Review.Body)
+			if p.Action == "submitted" {
+				conversationAuthor = p.PullRequest.User
+			}
 		}
 		msg.Content = withBody(head, p.Review.Body)
 	default:
@@ -397,6 +409,9 @@ func mapEvent(kind, name, event, delivery string, body []byte, now time.Time, bo
 		}
 	} else if msg.Verb == "mention" {
 		msg.Verb = "message"
+	}
+	if !self && p.Sender.Type == "User" && conversationAuthor.hasLogin(botLogin) {
+		msg.Verb = "mention"
 	}
 	msg.ChatJID = jid.String()
 	msg.Topic = jid.Topic()

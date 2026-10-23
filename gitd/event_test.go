@@ -425,6 +425,97 @@ func TestMapEvent_VerbIsWhatTheEventIs(t *testing.T) {
 	}
 }
 
+func TestMapEvent_BotAuthoredConversation(t *testing.T) {
+	events := []struct {
+		name, event, payload, jid string
+	}{
+		{"PR comment", "issue_comment", `"action":"created","issue":{"number":9,"user":%s,"pull_request":{}},"comment":{"id":1,"body":"please fix"}`, "github:kronael/arizuko/pr/9"},
+		{"issue comment", "issue_comment", `"action":"created","issue":{"number":9,"user":%s},"comment":{"id":1,"body":"please fix"}`, "github:kronael/arizuko/issue/9"},
+		{"inline comment", "pull_request_review_comment", `"action":"created","pull_request":{"number":9,"user":%s},"comment":{"id":2,"body":"please fix"}`, "github:kronael/arizuko/pr/9"},
+		{"submitted review", "pull_request_review", `"action":"submitted","pull_request":{"number":9,"user":%s},"review":{"id":3,"state":"commented","body":"please fix"}`, "github:kronael/arizuko/pr/9"},
+	}
+	cases := []struct {
+		name, author, login, sender, senderType, verb, drop string
+	}{
+		{"bot author", `{"login":"arizuko-bot"}`, botLogin, "rhias", "User", "mention", ""},
+		{"bot author case", `{"login":"ARIZUKO-BOT"}`, botLogin, "rhias", "User", "mention", ""},
+		{"human author", `{"login":"alice"}`, botLogin, "rhias", "User", "message", ""},
+		{"longer author login", `{"login":"arizuko-bot-helper"}`, botLogin, "rhias", "User", "message", ""},
+		{"missing author", `null`, botLogin, "rhias", "User", "message", ""},
+		{"empty login and author", `{}`, "", "rhias", "User", "message", ""},
+		{"unresolved login", `{"login":"arizuko-bot"}`, "", "rhias", "User", "message", ""},
+		{"own comment", `{"login":"arizuko-bot"}`, botLogin, "ARIZUKO-BOT", "User", "", "self"},
+		{"other bot sender", `{"login":"arizuko-bot"}`, botLogin, "review-bot", "Bot", "", "bot"},
+	}
+	for _, event := range events {
+		for _, c := range cases {
+			t.Run(event.name+"/"+c.name, func(t *testing.T) {
+				raw := body(fmt.Sprintf(event.payload, c.author))
+				raw = []byte(strings.Replace(string(raw), `"login":"rhias","type":"User"`, fmt.Sprintf(`"login":%q,"type":%q`, c.sender, c.senderType), 1))
+				msg, drop, err := mapEvent(store.GitHubSourceApp, "x", event.event, "d", raw, fixedNow, c.login)
+				if err != nil || drop != c.drop {
+					t.Fatalf("err=%v drop=%q, want drop=%q", err, drop, c.drop)
+				}
+				if msg.Verb != c.verb {
+					t.Errorf("verb=%q, want %q", msg.Verb, c.verb)
+				}
+				if drop == "" && msg.ChatJID != event.jid {
+					t.Errorf("ChatJID=%q, want %q", msg.ChatJID, event.jid)
+				}
+			})
+		}
+	}
+}
+
+func TestMapEvent_BotAuthoredConversationActions(t *testing.T) {
+	pr := `"pull_request":{"number":9,"user":{"login":"arizuko-bot"}}`
+	issue := `"issue":{"number":9,"user":{"login":"arizuko-bot"}}`
+	comment := `"comment":{"id":1,"body":"please fix"}`
+	cases := []struct {
+		name, event, payload, verb string
+	}{
+		{"edited PR comment", "issue_comment", `"action":"edited",` + strings.TrimSuffix(issue, "}") + `,"pull_request":{}},` + comment, "mention"},
+		{"edited issue comment", "issue_comment", `"action":"edited",` + issue + `,` + comment, "mention"},
+		{"edited inline comment", "pull_request_review_comment", `"action":"edited",` + pr + `,` + comment, "mention"},
+		{"deleted PR comment", "issue_comment", `"action":"deleted",` + strings.TrimSuffix(issue, "}") + `,"pull_request":{}},` + comment, "issue_comment"},
+		{"deleted issue comment", "issue_comment", `"action":"deleted",` + issue + `,` + comment, "issue_comment"},
+		{"deleted inline comment", "pull_request_review_comment", `"action":"deleted",` + pr + `,` + comment, "pull_request_review_comment"},
+		{"approval with body", "pull_request_review", `"action":"submitted",` + pr + `,"review":{"state":"approved","body":"please fix"}`, "mention"},
+		{"changes requested with body", "pull_request_review", `"action":"submitted",` + pr + `,"review":{"state":"changes_requested","body":"please fix"}`, "mention"},
+		{"empty review", "pull_request_review", `"action":"submitted",` + pr + `,"review":{"state":"commented","body":""}`, "pull_request_review"},
+		{"empty approval", "pull_request_review", `"action":"submitted",` + pr + `,"review":{"state":"approved","body":""}`, "pull_request_review"},
+		{"blank changes requested", "pull_request_review", `"action":"submitted",` + pr + `,"review":{"state":"changes_requested","body":"  "}`, "pull_request_review"},
+		{"edited review", "pull_request_review", `"action":"edited",` + pr + `,"review":{"state":"commented","body":"please fix"}`, "message"},
+		{"dismissed review", "pull_request_review", `"action":"dismissed",` + pr + `,"review":{"state":"approved","body":"please fix"}`, "pull_request_review"},
+		{"PR state", "pull_request", `"action":"synchronize",` + pr, "pull_request"},
+		{"issue state", "issues", `"action":"closed",` + issue, "issues"},
+		{"review thread state", "pull_request_review_thread", `"action":"resolved",` + pr, "pull_request_review_thread"},
+		{"check run", "check_run", `"action":"completed",` + pr + `,"check_run":{"status":"completed","conclusion":"failure"}`, "check_run"},
+		{"check suite", "check_suite", `"action":"completed",` + pr + `,"check_suite":{"status":"completed","conclusion":"failure"}`, "check_suite"},
+		{"workflow run", "workflow_run", `"action":"completed",` + pr + `,"workflow_run":{"status":"completed","conclusion":"failure"}`, "workflow_run"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			msg, drop, err := mapEvent(store.GitHubSourceApp, "x", c.event, "d", body(c.payload), fixedNow, botLogin)
+			if err != nil || drop != "" || msg.Verb != c.verb {
+				t.Errorf("verb=%q drop=%q err=%v, want verb=%q", msg.Verb, drop, err, c.verb)
+			}
+		})
+	}
+	for _, state := range []string{"approved", "changes_requested"} {
+		for _, sender := range []struct{ login, kind string }{{"ARIZUKO-BOT", "User"}, {"review-bot", "Bot"}} {
+			t.Run(state+"/"+sender.login, func(t *testing.T) {
+				raw := body(`"action":"submitted",` + pr + `,"review":{"state":"` + state + `","body":"please fix"}`)
+				raw = []byte(strings.Replace(string(raw), `"login":"rhias","type":"User"`, fmt.Sprintf(`"login":%q,"type":%q`, sender.login, sender.kind), 1))
+				msg, drop, err := mapEvent(store.GitHubSourceApp, "x", "pull_request_review", "d", raw, fixedNow, botLogin)
+				if err != nil || drop != "" || msg.Verb != "pull_request_review" {
+					t.Errorf("verb=%q drop=%q err=%v, want pull_request_review", msg.Verb, drop, err)
+				}
+			})
+		}
+	}
+}
+
 // Without a login (ingress-only gitd) nothing is a mention, and an empty login
 // does not match an empty reviewer.
 func TestMapEvent_NoLoginNoMention(t *testing.T) {

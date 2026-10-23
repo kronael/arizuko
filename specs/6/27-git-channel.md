@@ -133,9 +133,11 @@ Two repositories' PR 12 routed to one group therefore share a conversation.
 
 `mapEvent` renders explicit PR asks as `mention`: a bot @-mention, a review
 request or assignment to its login. routd promotes an inline reply to a stored bot comment.
+Human comments, inline review comments and submitted reviews with a body on a
+PR or issue authored by the bot also render `mention`.
 PR assignment is the watch declaration. Assignment does not promote plain comments.
 PR state changes and approval/change-request/dismissal review states on an assigned
-PR also render `mention`. Issue-only activity, foreign requests and bystander comments
+PR also render `mention`. Other issue activity, foreign requests and bystander comments
 remain observations. Team review requests do not match an individual login.
 `store.GitHubSourceRoutes` seeds PR mention triggers and observe fallbacks.
 GitHub engagement never overrides an observe route or supplies a missing route.
@@ -541,8 +543,9 @@ The workspace proposal additionally requires these observable results:
   removed access to a public repository. Out-of-order edits and deletes converge without
   resurrecting comments; hydration preserves exactly one authorized trigger. Sibling
   groups without a matching grant cannot inspect or mutate the binding, checkout or
-  history through REST/MCP. Lifecycle-only deliveries and ordinary comments start no
-  model turn; explicit mentions and direct bot replies remain the engagement boundary.
+  history through REST/MCP. Lifecycle-only deliveries and bystander comments start no
+  model turn; explicit mentions, direct bot replies and human conversation on
+  bot-authored PRs or issues form the engagement boundary.
 
 These require fault-injection and concurrency tests at the owner boundaries, plus a
 credentialed disposable-repository exercise of real thread replies and lifecycle events.
