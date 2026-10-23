@@ -277,8 +277,6 @@ reads those words now.
   the owner wants one attention mechanism for both (amend spec 6/27).
 - `L529` — `set_group_open` writes an `open` flag that no production code
   reads; measure whether the ambient join is unwired.
-- `L530` — the emergency revoke `RevokeAllNow` has no door: wire a CLI or
-  delete it?
 - `L531` — the F36 refresh-claim guard is tested on a twin production never
   calls.
 - `L532` — no code writes the `task.delete` audit row that `audit/PLAN.md`
@@ -1052,16 +1050,6 @@ Not measured whether the ambient join reads it by another path.
 - **Severity:** unknown until measured.
 - **Fix:** measure first.
 - **Status:** open.
-
-## L530 — the emergency revoke `RevokeAllNow` has no door (2026-10-22, open)
-
-FOUND by the dead-code sweep at `90403e2d`: `authd.(*Authd).RevokeAllNow`
-and `authstore.RetireActiveKeys` have test callers only; no CLI, route or tool
-reaches them. An operator who needs to revoke every token now has no command.
-
-- **Severity:** medium — an incident lever that does not exist.
-- **Fix:** an `arizuko` command over an authd endpoint, or delete both.
-- **Status:** open — needs sign-off.
 
 ## L531 — the F36 refresh-claim guard is tested on a twin production never calls (2026-10-22, open)
 
