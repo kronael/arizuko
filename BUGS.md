@@ -302,6 +302,18 @@ reads those words now.
   `auth.Delegate`: run it there, or let a folder admin grant any row inside
   its subtree?
 
+**Found while measuring `L535` (2026-10-23).**
+
+- `L541` — the query timeout is armed again for each harness run, so a later
+  run aborts after runed's hard kill: one process deadline, one new field on
+  the harness seam.
+- `L542` — the `steering` row drains the main agent's steering into a subagent
+  (4 krons transcripts): leave a call that carries `agent_id` alone.
+- `L543` — nothing writes the `_close` sentinel: delete the close path, or give
+  it a writer?
+- `L544` — the ant image holds SDK 0.3.278 from a cached layer while the
+  Dockerfile says latest: pin the lockfiles, or bust the cache?
+
 **Found while folding the lowercase `bugs.md` into this file (2026-10-20).**
 
 - `L480` — slakd sends a whole reply as one `chat.postMessage`; `chanlib.Chunk`
@@ -1162,13 +1174,67 @@ PR shows only the 12:15 status "waiting on deep engine review".
 
 The refusal text appears in 117 session files on krons (rhias/niki, rhias/nemo,
 rhias/content among them) and 38 on sloth: the owner's "unfinished replies" in
-rhias are the same pattern. ant runs the SDK with `permissionMode:
-'bypassPermissions'` (`ant/src/claude.ts:489`); what refuses the calls after the
-turn's end is not measured yet (an abort of the query after `submit_turn`, or
-the closed prompt stream, `claude.ts:443-458`).
+rhias are the same pattern. Only a file with an `is_error` tool result that
+STARTS with that text holds a refusal; the rest quote it. Counting those gives
+the table.
+
+| Instance | Main session, after a notification turn | Main session, queued notification ran ahead of the prompt | Subagent transcripts | CLI versions              |
+| -------- | --------------------------------------- | --------------------------------------------------------- | -------------------- | ------------------------- |
+| krons    | 25                                      | 5                                                         | 62                   | 2.1.220, 2.1.237, 2.1.278 |
+| sloth    | 12                                      | 0                                                         | 25                   | 2.1.237, 2.1.278          |
+
+The 5 krons "prompt" cases (`happy/4254eef2`, `rhias/nemo/a7a0489b`,
+`rhias/nemo/24658113`, `rhias/niki/71cfd99e`, `rhias/content/0e41352a`) each
+have a `task-notification` queued just ahead of the turn's prompt: the
+notification turn's `result` closed the stream and the real prompt ran with
+stdin closed. A subagent refusal is a subagent still working when the parent's
+`result` closed stdin.
+
+MEASURED cause, from the deployed image (SDK 0.3.278, CLI 2.1.278; the CLI is
+`/app/node_modules/@anthropic-ai/claude-agent-sdk-linux-x64/claude`, sha256
+`5c4735937844e84f8a93306e841a5b0e12252909b07870f789b190468da147ab`; offsets
+are bytes in that file). Evidence: the sloth transcript above and its subagent
+transcript `…/6ff07819-…/subagents/agent-aa4438f203f48dc33.jsonl`. The main
+Stop is at 12:17:21.898; the subagent's last good call is 12:17:19.799 and its
+next, 12:17:28.551, is refused.
+
+1. `ant/src/claude.ts:513` — `if (m.type === 'result') stream.end();` ends the
+   prompt stream at the FIRST `result`.
+2. SDK `sdk.mjs:131` `Query.streamInput`: when the prompt iterable ends and
+   `hasBidirectionalNeeds()` holds (ant registers hooks, `claude.ts:501-504`),
+   it awaits `waitForFirstResult()`, already satisfied, then
+   `transport.endInput()`, which is `processStdin.end()` (`sdk.mjs:127`). The
+   CLI's stdin closes seconds after the first result.
+3. On stdin EOF the CLI's `structuredIO.read()` sets `inputClosed=true`;
+   `sendRequest` then throws `new Oa("Stream closed")` (213185350). `Oa`
+   extends `Ge`, whose name is `AbortError` (191970285).
+4. Every tool call runs the PreToolUse hooks. ant's `tool-log-pre` row has no
+   matcher (`ant/src/policy.ts:78`), so every tool carries an SDK-callback
+   hook, sent to ant as a `hook_callback` control request.
+   `createHookCallback` rethrows an AbortError (213188154).
+5. The PreToolUse runner catches it, logs "PreToolUse hook cancelled (control
+   stream closed)" and yields `{type:"stop"}` (200065385).
+6. The tool executor's `case "stop"` sets the tool result to
+   `stopReason ?? e$e(signal)` (200097691). `e$e` returns `g_` (199946979),
+   the text "The user doesn't want to take this action right now. STOP …"
+   (193308260).
+
+Not the cause: `permissionMode: 'bypassPermissions'` (`claude.ts:489`) — no
+permission request is made; the abort controller (`claude.ts:445`) — never
+aborted; `turn.signal` — fed only by the `_close` sentinel, which nothing
+writes (`L543`).
+
+The CLI reports `session_state_changed: idle` at turn end only when no
+background agent or workflow runs and no notification is queued, once
+`CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS` is set. SDK 0.3.303 waits for it
+(`waitForRunEnd`) before it closes stdin; 0.3.278 waits for the first result.
+A bump of the SDK alone does not fix this: ant would still end its stream at
+the first result, and `submit_turn` (and with it the reply-owed check) would
+still run at that result. The rules below also need the process deadline
+(`L541`) and a steering row that leaves subagents alone (`L542`).
 
 - **Severity:** high — finished work never reaches the chat.
-- **Fix (owner, 2026-10-23):** three rules.
+- **Fix (owner, 2026-10-23):** five rules.
   1. The main agent's Stop is not the end of the session: the guest, the MCP
      connection to the chat and the SDK query stay up while any background
      task it started still runs.
@@ -1182,9 +1248,10 @@ the closed prompt stream, `claude.ts:443-458`).
   5. The reply-owed check (`ant/src/policy.ts:65`, the `Stop` event) runs once,
      just before the session really ends, not on each Stop while tasks still
      run.
-  Measure the refusal source first, so the fix removes it rather than working
-  around it.
-- **Status:** open — direction set by the owner.
+- **Status:** open — direction set by the owner; the cause is measured above.
+  Fixed in steps: the harness ends the session at `idle` and submits once
+  (rules 1, 2), then the Stop check (5), the process deadline (`L541`), the
+  steering row (`L542`), the deadline note (3) and the manual (4).
 
 ## L536 — PROPOSED: delete the stored numeric route id; the id is the encoded coordinate (2026-10-23, open — needs sign-off)
 
@@ -1311,6 +1378,95 @@ it holds WITH GRANT OPTION. Exposure: no onboarded world on krons (listing of
 - **Default if nothing is decided:** both doors stay as they are; spec `6/51`
   step 6 (caps take effect) waits for the answer.
 - **Status:** open — needs sign-off (an auth change).
+
+## L541 — the query timeout is armed again for each harness run, so a later run aborts after runed's hard kill (2026-10-23, open — needs sign-off)
+
+READ at `e6f9e9c7`. `QUERY_TIMEOUT_MS` (`ant/src/backend.ts:99`) is the guest's
+share of the run ceiling: `ARIZUKO_QUERY_TIMEOUT_MS` is the ceiling minus 30 s,
+floored at 60 s (`runed/render.go:164-173`), 15 min by default in ant. A timer
+for the whole value is armed at the start of EACH harness run
+(`ant/src/claude.ts:449`, `ant/src/backend.ts:195`). One guest starts more than
+one run: `runTurn`'s nudge round (`ant/src/index.ts:411-419`) and `main`'s IPC
+loop (`:486-530`) each begin a new run. A run that starts after N seconds
+aborts N seconds past the point runed killed the guest at, so the graceful
+`timed_out` summary never lands.
+
+Once a session waits on background tasks (`L535`) the nudge round starts late
+in the budget, so this stops being rare.
+
+- **Severity:** medium — a late second run is killed hard and the user gets no
+  summary.
+- **Fix:** the chassis computes one process deadline from ant's start
+  (`Date.now() + QUERY_TIMEOUT_MS`, inside runed's 30 s margin) and hands it to
+  every run as `Turn.deadline`; both harnesses arm their timer for what remains.
+  `Turn` is the harness seam (`ant/src/backend.ts`), so this widens it by one
+  field. No test yet — the fix commit carries it: `runClaude` with a fake
+  stream that never ends and a deadline 100 ms away yields `timeoutFrame`
+  within 300 ms (today it waits 15 min).
+- **Status:** open — needs sign-off (one field on the harness seam).
+
+## L542 — the `steering` row drains the main agent's steering into a subagent (2026-10-23, open)
+
+MEASURED on krons 2026-10-23: 4 subagent transcripts (under
+`groups/<folder>/.claude/projects/-home-node/<session>/subagents/`) hold a
+`<user-steering>` block that was written for the main agent. The row
+(`ant/src/policy.ts:85`, `steering()` at `:94`) drains the steer spool on every
+PostToolUse, and Claude Code fires the hook for a subagent's tool calls too
+(the hook input carries `agent_id`). The subagent's call wins the race while
+the main agent waits on it, and the main agent never sees the line. Once a
+session waits on background tasks (`L535`) this takes the progress nudge and
+the deadline note.
+
+- **Severity:** medium — steering written for the main agent reaches a subagent
+  that cannot act on it.
+- **Fix:** `ToolEvent` gains `agent_id?: string` (claude hook field; codex and
+  pi never send it) and the `steering` row allows a call that carries one,
+  leaving the spool alone. Test: a spool holding `x` and a PostToolUse with
+  `agent_id` → allow, spool unchanged; the same without `agent_id` → inject
+  with `x`.
+- **Status:** open.
+
+## L543 — nothing writes the `_close` sentinel, so `turn.signal` and `closedDuringQuery` never fire (2026-10-23, open — needs sign-off)
+
+READ at `e6f9e9c7`. ant reads `IPC_INPUT_CLOSE_SENTINEL` (`_close` in the IPC
+input dir, `ant/src/index.ts:39`, read by `shouldClose` at `:192`) and ends the
+turn when it appears: the controller abort feeds `turn.signal`, which ends the
+prompt stream (`ant/src/claude.ts:457`), and `closedDuringQuery` stops `main`'s
+loop (`ant/src/index.ts:299-308`, `:514`). No Go code and no ant code creates
+the file. A search of the tree (`.go`, `.ts`, `.sh`, `.yml`, `.md`, outside
+`node_modules` and worktrees) for `_close` finds the reader, `ant/README.md:166`
+and `ant/skills/self/migrations/030-chat-bound-sessions.md:11`, which say a
+sentinel "is written" — and no writer. The close path is dead, so the platform
+has no way to wind a running guest down gracefully; a stop is runed's kill.
+
+- **Severity:** low — dead code with a live-looking contract.
+- **Options:** (a) delete the sentinel, `turn.signal` and `closedDuringQuery`;
+  (b) write it from runed on `/stop`, so ant can end a turn and post what it
+  has.
+- **Default if nothing is decided:** the sentinel stays and nothing writes it.
+- **Status:** open — needs sign-off (delete it, or give it a writer).
+
+## L544 — the ant image carries SDK 0.3.278 from a cached layer while the Dockerfile says it takes the latest (2026-10-23, open — needs sign-off)
+
+MEASURED 2026-10-23: `arizuko-ant:latest` and `arizuko-ant:v0.70.7` both carry
+`@anthropic-ai/claude-agent-sdk` 0.3.278 (CLI 2.1.278). `ant/Dockerfile:185-189`
+says the SDK "auto-updates to latest on every image build" and runs
+`npm install @anthropic-ai/claude-agent-sdk@latest`; that line is a cached
+layer, so the image keeps the version of the build that first cached it.
+`ant/bun.lock` and `ant/package-lock.json` pin 0.3.278, and a local
+`ant/node_modules` holds 0.3.303. Three sources name three behaviours: the
+comment, the locks and the image. The session lifecycle differs between them
+(`L535`: 0.3.303 waits for `idle` before it closes stdin, 0.3.278 does not).
+
+- **Severity:** medium — what runs in the guest is neither what the Dockerfile
+  says nor what the tests ran against.
+- **Options:** (a) pin the SDK in the lockfiles and delete the `@latest` line
+  and its comment, so the image holds what the tests ran against; (b) keep
+  `@latest` and bust its cache (a build arg that changes per release) so the
+  claim holds.
+- **Default if nothing is decided:** the image keeps whatever its cached layer
+  holds.
+- **Status:** open — needs sign-off (which version policy). No test — config.
 
 ## L526 — thirteen variables routd reads are not in `daemonKeys["routd"]`, so a value in `.env` never reaches it (2026-10-21, open)
 

@@ -188,6 +188,20 @@ The hook holds no predicate of its own: it does not count delivery tool calls
 it saw, because that would be a second declaration of **delivered** and would
 drift from `TurnHasBotReply` the first time a verb is added. It asks.
 
+A Stop is not always the end of the session. Claude Code fires `Stop` when the
+model stops, and its input lists `background_tasks` still in flight
+(`ant/node_modules/@anthropic-ai/claude-agent-sdk/sdk.d.ts` `StopHookInput`):
+the session is paused, not done. The row allows such a Stop without asking
+routd, so the check does not run on each Stop while tasks run. The claude
+harness ends the session at Claude Code's `idle` state, which the CLI reports
+only when no background agent runs and no notification is queued, and yields
+its result there. The `submit_turn` reader therefore also runs once, at that
+end, and the nudge round it may start is the same one as before. A Stop with no
+`background_tasks`, and a harness whose Stop input has none (codex), asks as
+before. The chassis's `[deadline]` note, posted one minute before the process
+deadline (`BUGS.md` `L535`), may start a round: unlike `NUDGE_TEXT`, it tells
+the agent that a reply is due now, so a turn it reaches is not stale.
+
 ## Format, checked where it can fail
 
 "The intended format" is checkable only where text is an argument. The door
