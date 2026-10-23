@@ -290,6 +290,18 @@ reads those words now.
 - `L533` — Telegram login is never mounted: authd does not receive
   `TELEGRAM_BOT_TOKEN`. Giving authd the bot token is a credential decision.
 
+**Found by the per-group machine spec (2026-10-23).**
+
+- `L537` — PROPOSED: each group sizes its own guest with `cap:<name>=<value>`
+  rows (spec `6/51`); six questions in the spec, the port change first.
+- `L538` — routd reads the guest capabilities through the action lattice, so
+  every onboarded world's agent gets a read-only share: exact match, and
+  delete `share_mount(readonly)`?
+- `L539` — dashd's grant form offers 31 action names that no evaluator reads.
+- `L540` — dashd's grant form and `POST /v1/acl` write rows without
+  `auth.Delegate`: run it there, or let a folder admin grant any row inside
+  its subtree?
+
 **Found while folding the lowercase `bugs.md` into this file (2026-10-20).**
 
 - `L480` — slakd sends a whole reply as one `chat.postMessage`; `chanlib.Chunk`
@@ -1199,6 +1211,106 @@ Costs:
   overlapping ones must get distinct seqs before rollout.
 
 - **Status:** open — needs sign-off (API contract and routing order).
+
+## L537 — PROPOSED: each group sizes its own guest with `cap:` grant rows (spec `6/51`) (2026-10-23, open — needs sign-off)
+
+The owner (2026-10-23): each group is its own machine, with an instance
+default and limits the operator sets. Today every guest on an instance has one
+size from env (`RUNED_GUEST_MEM` 2G and `RUNED_GUEST_SMP` 2,
+`runed/qemuhost.go:129-130`). The one per-group knob, `container_config.Timeout`,
+has no effect on krons or sloth: neither sets `RUNED_RUN_TIMEOUT`,
+`CONTAINER_TIMEOUT` or `IDLE_TIMEOUT` (read 2026-10-23), so `turnTTL`
+(`runed/manager.go:381-401`) floors every ceiling at 60m30s and then returns
+the 20m run ceiling. The host check counts one instance (`L513`).
+
+`specs/6/51-group-machine-caps.md` proposes `acl` rows `cap:<name>=<value>`
+named after the QEMU or `guest-init` setting they change (`m`, `smp`,
+`timeout`, `upper`, `shm`), resolved by routd in the one read that also
+resolves `egress`, `web:publish` and `gh:write`; a new `runed.Turn.Machine`
+field (the port change); and a per-turn `MemAvailable` check in place of
+`memoryFits`, which closes `L513`. It deletes the three dead deadline inputs.
+
+- **Severity:** medium — one guest size for every group, and a host check that
+  two instances pass together while the host swaps.
+- **Options:** (a) the spec's `acl` rows; (b) fields on `container_config` —
+  the spec's §"Why not the other shapes" says why not.
+- **Default if nothing is decided:** spec step 1 only — delete
+  `CONTAINER_TIMEOUT`, `IDLE_TIMEOUT` and `GroupConfig.Timeout`, which changes
+  no turn on either instance.
+- **Status:** open — needs sign-off on the six questions in the spec.
+
+## L538 — routd reads the guest capabilities through the action lattice, so `admin` or `mcp:*` makes a folder's share read-only (2026-10-23, open — needs sign-off)
+
+READ at `491204eb`: `routd/dispatch.go:762-765` resolves
+`mcp:share_mount(readonly=true)`, `egress`, `web:publish` and `gh:write` with
+`auth.Authorize`. That evaluator applies the action lattice
+(`auth/authorize.go:391`: `admin` and `mcp:*` cover every `mcp:<tool>`, `*`
+covers every action), and a row with empty `params` matches any arguments
+(`:443`). So:
+
+- a folder holding `admin` or `mcp:*` on itself resolves the read-only share
+  TRUE, and its `/var/lib/share` is mounted read-only (`runed/mounts.go:77`):
+  more authority gives less. onbod grants every world it creates `mcp:*` on
+  its own subtree (`onbod/main.go:908-911`), so every onboarded world's agent
+  runs this way. `admin` is also the default action of `arizuko group grant`
+  (`store/acl.go:184` `GrantDefaults`);
+- a folder holding `*` resolves `egress`, `web:publish` and `gh:write` true.
+
+`specs/5/33-paths-roles.md` §"Where the axis deliberately does NOT reach" says
+these container capabilities "already refuse the action lattice"; the code
+does not. Exposure: the krons `grants` listing of 2026-10-20 has no folder
+holding `admin`, `mcp:*` or `*`, no onboarded world and no `share_mount` row.
+sloth was not read.
+
+- **Severity:** medium — every onboarded world's agent loses its writable
+  share; latent on krons.
+- **Fix:** read the four by exact match, `namespacedAllows`
+  (`auth/authorize.go:619`), as `ShellEnvKeys` and `CheckHold` do, and delete
+  `share_mount(readonly)`, which no row on krons uses — spec `6/51` step 2.
+- **Test:** none yet. Every store test needs docker, which this host's user
+  cannot reach without sudo; spec `6/51` step 2 names the test.
+- **Status:** open — needs sign-off (an auth change).
+
+## L539 — dashd's grant form offers 31 action names that no evaluator reads (2026-10-23, open)
+
+READ at `491204eb`: the "Add grant" dropdown (`dashd/grants_admin.go:19-31`
+`commonActions`) holds `admin` and 31 bare names — `send`, `reply`,
+`register_group`, `get_grants`, `inject_message` and others. The handler writes
+the chosen name as the row's action (`:226`). Every tool gate asks for
+`mcp:<name>` (`ipc/ipc.go:1102`, `:1215`; `routd/acl_resource.go:146`), so a
+row with action `send` matches no call, and the operator gets no error. The
+list has none of `egress`, `web:publish`, `gh:write` or `shell:env:<KEY>`, so
+the web surface cannot write the guest capabilities at all.
+
+- **Severity:** medium — the web grant form writes rows that do nothing.
+- **Fix:** offer the `mcp:` names and the guest capabilities, or a text field
+  checked by the CLI's `grantableAction` (`cmd/arizuko/main.go:594`) moved
+  next to `aclPut` so every door refuses an action nothing reads.
+- **Status:** open.
+
+## L540 — dashd's grant form and `POST /v1/acl` write rows without `auth.Delegate` (2026-10-23, open — needs sign-off)
+
+READ at `491204eb`: `add_acl` runs `auth.Delegate` for a writer that is not
+root (`routd/acl_resource.go:149-160`), so an agent grants only rows it holds
+WITH GRANT OPTION. dashd's add (`dashd/grants_admin.go:179-252`) checks only
+that the writer holds `admin` on the folder (`dashd/authz.go:189-195`) and that
+the scope lies inside it. The REST gate (`routd/acl_resource.go:55-66`)
+checks only the `acl:write` scope and that the row's scope lies in the
+caller's folder. Neither asks whether the writer holds the row. onbod gives
+every person it onboards `admin` on their world (`onbod/main.go:895`), so that
+person can grant their world `egress`, `shell:env:*` or `*` from the web.
+`specs/5/33-paths-roles.md` decision 3 says a principal grants onward only rows
+it holds WITH GRANT OPTION. Exposure: no onboarded world on krons (listing of
+2026-10-20).
+
+- **Severity:** medium — authority widens past what the writer holds wherever
+  onboarding creates worlds.
+- **Options:** (a) both doors run `auth.Delegate` for a writer that is not
+  root, as `add_acl` does; (b) `5/33` states that a folder `admin` may grant
+  any row inside its subtree, and both doors stay.
+- **Default if nothing is decided:** both doors stay as they are; spec `6/51`
+  step 6 (caps take effect) waits for the answer.
+- **Status:** open — needs sign-off (an auth change).
 
 ## L526 — thirteen variables routd reads are not in `daemonKeys["routd"]`, so a value in `.env` never reaches it (2026-10-21, open)
 

@@ -1,5 +1,11 @@
 ---
-status: shipped
+status: defected
+# defects: OPEN BUGS entries contradict this spec —
+# L538: § "Where the axis deliberately does NOT reach" says the container
+# capabilities refuse the action lattice; routd reads them through it
+# L540: decision 3 says grants flow only by subset-of-held; dashd and REST
+# write acl rows without auth.Delegate
+defects: [L538, L540]
 depends:
   [
     5/32-acl-unified,
