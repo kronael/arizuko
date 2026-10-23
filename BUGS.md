@@ -323,7 +323,7 @@ reads those words now.
 
 - `L553` — two Telegram bots on one instance give one person's DMs the same
   chat JID, so both conversations merge and route together: put the bot's
-  Telegram id in the DM JID (the base account's migration needs sign-off).
+  Telegram id in the DM JID, every account, rows migrated (signed off).
 
 **Found while folding the lowercase `bugs.md` into this file (2026-10-20).**
 
@@ -1410,7 +1410,7 @@ far more often than chat.
 - **Fix:** `L75(b)` — a batch that holds a mention resolves by the mention.
 - **Status:** open — needs sign-off (dispatch control flow, with `L75(b)`).
 
-## L553 — two Telegram bots on one instance merge one person's DMs into one chat (2026-10-23, open — needs sign-off)
+## L553 — two Telegram bots on one instance merge one person's DMs into one chat (2026-10-23, open)
 
 MEASURED on sloth: `@sloth_fiu_bot` (`CHANNEL_NAME=telegram`) and `@qb_jynx_bot`
 ("Atlas - Quant", `CHANNEL_NAME=jynx`) both store the owner's DMs as
@@ -1436,8 +1436,10 @@ Discord and Slack give each bot its own DM channel id, so this is Telegram only.
   sender JID stays `telegram:user/<id>`.
   Amend 5/R first. A `source=` route key is the rejected alternative: it splits
   routing and leaves the histories merged.
-- **Status:** open — needs sign-off: whether the base account's existing DM
-  rows, routes and sessions migrate to the new shape.
+- **Migration:** DECIDED (owner, 2026-10-23): every account uses the new
+  shape, the base account included, and its existing DM rows, routes and
+  sessions move to it.
+- **Status:** open — signed off; fix in progress.
   The route sending `@sloth_fiu_bot` DMs to `atlas` is an operator row and is
   the owner's call.
 
