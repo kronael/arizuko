@@ -26,6 +26,8 @@ export interface ToolEvent {
   stop_hook_active?: boolean;
   // claude's Stop input lists the tasks still running; codex and pi never send it.
   background_tasks?: unknown[];
+  // claude fires its hooks for a subagent's tool calls too and names the subagent here.
+  agent_id?: string;
 }
 
 export type PolicyEvent = 'PreToolUse' | 'PostToolUse' | 'Stop';
@@ -84,7 +86,7 @@ export function bindings(ctx: PolicyContext): Binding[] {
     // it rechecks the filesystem after every tool, mtime-gated.
     { id: 'skill-rescan', event: 'PostToolUse', returns: [], run: async (ev) => rescan(ev) },
     { id: 'tool-log-post', event: 'PostToolUse', returns: [], run: async (ev) => toolLogPost(ev) },
-    { id: 'steering', event: 'PostToolUse', returns: ['inject'], run: async () => steering() },
+    { id: 'steering', event: 'PostToolUse', returns: ['inject'], run: async (ev) => steering(ev) },
     // TodoWrite is a claude tool name; codex plans with update_plan and pi has no
     // equivalent, so the matcher never fires there.
     { id: 'todo-status', event: 'PostToolUse', matcher: 'TodoWrite', returns: [], run: (ev) => todo(ev) },
@@ -93,7 +95,8 @@ export function bindings(ctx: PolicyContext): Binding[] {
 
 // The queue is a file (spool.ts) because a closure cannot cross into codex's
 // hook subprocess.
-function steering(): Verdict {
+function steering(ev: ToolEvent): Verdict {
+  if (ev.agent_id) return ALLOW;
   const messages = drainLines(STEER_SPOOL);
   if (messages.length === 0) return ALLOW;
   return { kind: 'inject', context: `<user-steering>\n${messages.join('\n')}\n</user-steering>` };

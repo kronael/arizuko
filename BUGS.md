@@ -304,8 +304,6 @@ reads those words now.
 
 **Found while measuring `L535` (2026-10-23).**
 
-- `L542` — the `steering` row drains the main agent's steering into a subagent
-  (4 krons transcripts): leave a call that carries `agent_id` alone.
 - `L543` — nothing writes the `_close` sentinel: delete the close path, or give
   it a writer?
 - `L544` — the ant image holds SDK 0.3.278 from a cached layer while the
@@ -1227,8 +1225,7 @@ background agent or workflow runs and no notification is queued, once
 (`waitForRunEnd`) before it closes stdin; 0.3.278 waits for the first result.
 A bump of the SDK alone does not fix this: ant would still end its stream at
 the first result, and `submit_turn` (and with it the reply-owed check) would
-still run at that result. The rules below also need one process deadline
-and a steering row that leaves subagents alone (`L542`).
+still run at that result. The rules below also need a steering row that leaves subagents alone.
 
 - **Severity:** high — finished work never reaches the chat.
 - **Fix (owner, 2026-10-23):** five rules.
@@ -1248,7 +1245,7 @@ and a steering row that leaves subagents alone (`L542`).
 - **Status:** open — direction set by the owner; the cause is measured above.
   Fixed in steps: the harness ends the session at `idle` and submits once
   (rules 1, 2), then the Stop check (5), the process deadline (done), the
-  steering row (`L542`), the deadline note (3) and the manual (4).
+  steering row (done), the deadline note (3) and the manual (4).
 
 ## L536 — PROPOSED: delete the stored numeric route id; the id is the encoded coordinate (2026-10-23, open — needs sign-off)
 
@@ -1375,27 +1372,6 @@ it holds WITH GRANT OPTION. Exposure: no onboarded world on krons (listing of
 - **Default if nothing is decided:** both doors stay as they are; spec `6/51`
   step 6 (caps take effect) waits for the answer.
 - **Status:** open — needs sign-off (an auth change).
-
-## L542 — the `steering` row drains the main agent's steering into a subagent (2026-10-23, open)
-
-MEASURED on krons 2026-10-23: 4 subagent transcripts (under
-`groups/<folder>/.claude/projects/-home-node/<session>/subagents/`) hold a
-`<user-steering>` block that was written for the main agent. The row
-(`ant/src/policy.ts:85`, `steering()` at `:94`) drains the steer spool on every
-PostToolUse, and Claude Code fires the hook for a subagent's tool calls too
-(the hook input carries `agent_id`). The subagent's call wins the race while
-the main agent waits on it, and the main agent never sees the line. Once a
-session waits on background tasks (`L535`) this takes the progress nudge and
-the deadline note.
-
-- **Severity:** medium — steering written for the main agent reaches a subagent
-  that cannot act on it.
-- **Fix:** `ToolEvent` gains `agent_id?: string` (claude hook field; codex and
-  pi never send it) and the `steering` row allows a call that carries one,
-  leaving the spool alone. Test: a spool holding `x` and a PostToolUse with
-  `agent_id` → allow, spool unchanged; the same without `agent_id` → inject
-  with `x`.
-- **Status:** open.
 
 ## L543 — nothing writes the `_close` sentinel, so `turn.signal` and `closedDuringQuery` never fire (2026-10-23, open — needs sign-off)
 

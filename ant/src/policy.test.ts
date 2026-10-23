@@ -217,6 +217,13 @@ describe('the steering queue survives a process boundary', () => {
     expect(drainLines(STEER_SPOOL)).toEqual(['line one\nline two']);
   });
 
+  test('a subagent tool call leaves the queue for the main agent', async () => {
+    appendLines(STEER_SPOOL, ['x']);
+    expect(await runRows(rows(), 'PostToolUse', { ...post, agent_id: 'a1' })).toEqual({ kind: 'allow' });
+    const main = await runRows(rows(), 'PostToolUse', post);
+    expect(main.kind === 'inject' && main.context).toContain('x');
+  });
+
   test('an empty queue is not an error', async () => {
     expect((await runRows(rows(), 'PostToolUse', post)).kind).toBe('allow');
   });
