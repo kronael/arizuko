@@ -57,10 +57,15 @@ watches the pull request or issue. GitHub renders GitHub Flavored Markdown.
 
 ## Threads
 
-- For a mention in an inline comment, `reply` with `replyToId` set to the
-  id of that comment, which starts with `gh-rc`. The answer then stays
-  under that code line.
-- For a mention in the conversation, `reply` with no `replyToId`.
+- ALWAYS set `replyToId` to the id of the comment you answer. Without it,
+  the reply goes to the last comment of the batch, which can be another
+  thread.
+- An inline comment id starts with `gh-rc`: the answer stays under that
+  code line. A conversation comment id starts with `gh-c`: the answer goes
+  into the conversation.
+- Answer each comment with its own `reply`. NEVER post a comment with
+  `gh pr comment` or `gh api …/comments`: the next turn does not see it, and
+  the `reply` repeats it. Use `gh` for code, push, merge and reviews.
 
 ## Progress
 
