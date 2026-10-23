@@ -452,9 +452,9 @@ is exactly the case step 6 exists for.
   exactly the dependency this spec removes.
 - **An operator REST mint face** — no operator mints a pairing for a chat they
   are not in; the agent is the minter.
-- **A per-platform link (Telegram Login Widget, Discord OAuth)** — the
-  widget would mint `sub=telegram:<id>`, a sub that reads
-  like the channel principal without being it. One generic mechanism instead.
+- **A per-platform OAuth link** — a provider login proves control of a
+  provider account, not control of a channel principal. Pairing binds the
+  channel principal through one generic mechanism.
 - **A short numeric code alongside the URL** — the URL is the code; a second
   redemption path for one binding is a second mechanism.
 - **`used_count`** — a pairing binds one identity pair, so a second use has

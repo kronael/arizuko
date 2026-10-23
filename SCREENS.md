@@ -1050,11 +1050,10 @@ p.dim: Your account and the providers you can add to it.
   [oauth-btn: Link Google]    (hidden for the signed-in sub's own provider)
   [oauth-btn: Link GitHub]
   [oauth-btn: Link Discord]
-  [oauth-btn: Link Telegram]
   p.empty: All known providers already linked.  (if none to add)
 ```
 
-Providers: Google, GitHub, Discord, Telegram. Each button omitted when
+Providers: Google, GitHub, Discord. Each button omitted when
 that provider's prefix already appears in the canonical or linked sub list.
 
 #### Actions

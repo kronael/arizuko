@@ -119,7 +119,7 @@ Two of the six carry an invariant a column could not:
 - `GRANTS_URL` — routd grants endpoint (`http://routd:8080`); unset → empty-scope sessions
 - `LISTEN_ADDR` — HTTP listen address (`:8080`)
 - `ARIZUKO_INSTANCE` — instance name (observability + audit context)
-- OAuth provider: `AUTH_BASE_URL`, `GITHUB_*`, `GOOGLE_*`, `DISCORD_*`, `TELEGRAM_*`
+- OAuth provider: `AUTH_BASE_URL`, `GITHUB_*`, `GOOGLE_*`, `DISCORD_*`
 - `DEX_ISSUER` + `DEX_CLIENT_ID` (+ `DEX_CLIENT_SECRET`) — mount `/auth/dex`:
   Dex authenticates, authd maps the ID token's `federated_claims` to
   `<connector_id>:<user_id>` and mints the session as for a native provider
@@ -138,10 +138,25 @@ Two of the six carry an invariant a column could not:
   a key. Validity is time-based: a key verifies while it is active or until
   `retired_at + maxAccessTTL`. There is no revoked flag and no revocation
   list, because verifiers stay offline. A normal revoke waits out the access
-  TTL; a refresh revoke deletes the family. An operator revokes every token
-  by deleting the `signing_key_slot` item and restarting authd, which mints a
-  new key at start; a key retired less than `maxAccessTTL` ago still verifies
-  until its window closes.
+  TTL; a refresh revoke marks the family as revoked.
+
+  To invalidate existing access tokens, delete the `authd.signing_key_slot`
+  item and restart authd. authd creates a new signing key. Recently retired
+  keys still verify tokens until `retired_at + maxAccessTTL`, up to one hour.
+  Offline verifiers can accept existing access tokens with cached keys until
+  the tokens expire.
+  Key rotation does not revoke refresh tokens.
+
+  To sign everyone out, stop authd before you change its store. Connect to
+  `DYNAMODB_URL` with the authd credentials in `env/authd.env` and the
+  certificate in `STORE_CA`. See [the store setup in INSTALL.md](../INSTALL.md#the-per-daemon-store-keys).
+  Use DynamoDB `DeleteTable` to delete `authd.refresh_families` and
+  `authd.refresh_tokens`. Wait for both deletions to finish. Use DynamoDB
+  `TransactWriteItems` to delete the `authd.signing_key_slot` item at
+  `part="authd", sort="active"`. Restart authd to create empty refresh tables
+  and a new signing key. Existing access tokens can still work until their
+  expiry.
+
 - **`POST /v1/tokens` has two modes.** Issuer-mint needs `tokens:mint` and a
   different target sub; the granted scope is bounded by the TARGET's grants,
   because a login or invite flow mints for an account whose grants the
@@ -251,7 +266,7 @@ operator revoke) and are served read-only at `GET /v1/audit`, which
 uncovered and both need a real remote:
 
 - `main` and `handleHealth` — boot and the liveness probe. `make test-e2e`'s.
-- `googleCallback`, `githubCallback`, `discordCallback`, `telegram`, `logout` —
+- `googleCallback`, `githubCallback`, `discordCallback`, `logout` —
   the provider redirect halves, which need the provider to answer. What they
   converge on IS covered: `issueSession` 83.7%, `dispatch` 64.3%,
   `authorizeURL` 71.4%. Untested is the per-provider parameter unpacking in

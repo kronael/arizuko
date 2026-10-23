@@ -52,20 +52,22 @@ login and PR comment are one identity.
 `add` seeds mention routes and `<folder>#observe` fallbacks. The bot's login
 comes from `GITHUB_TOKEN`. Assign the bot to each PR it should watch.
 
-| Event                                                                       | Default result |
-| --------------------------------------------------------------------------- | -------------- |
-| PR body, comment or review explicitly mentions `@<login>`                   | Turn           |
-| Inline PR comment directly replies to a stored bot comment                  | Turn           |
-| PR assignment or individual review request targets the bot                  | Turn           |
-| Watched PR changes state, head, labels or review status                     | Turn           |
-| Completed check, suite or workflow names a PR currently assigned to the bot | Turn           |
-| Plain comment or discussion, including on a watched PR                      | Observe        |
-| Assignment or review request targets someone else                           | Observe        |
-| Issue-only, repository-only, queued or in-progress event                    | Observe        |
+| Event                                                                             | Default result |
+| --------------------------------------------------------------------------------- | -------------- |
+| PR body, comment or review explicitly mentions `@<login>`                         | Turn           |
+| Inline PR comment directly replies to a stored bot comment                        | Turn           |
+| Human comment, inline comment or review with a body on a bot-authored PR or issue | `mention`      |
+| PR assignment or individual review request targets the bot                        | Turn           |
+| Watched PR changes state, head, labels or review status                           | Turn           |
+| Completed check, suite or workflow names a PR currently assigned to the bot       | Turn           |
+| Other plain comment or discussion, including on a watched PR                      | Observe        |
+| Assignment or review request targets someone else                                 | Observe        |
+| Other issue-only, repository-only, queued or in-progress event                    | Observe        |
 
 Review requests are one-time asks. The PR's assignees declare the watch.
-GitHub engagement and bot-started threads do not promote incidental comments
-or fill a missing route. Repo rows sit at seq 10/100, org at 20/200, app at
+Human conversation on a PR or issue that the bot authored maps to `mention`.
+GitHub engagement does not override an observe route or fill a missing route.
+Repo rows sit at seq 10/100, org at 20/200, app at
 30/300, so a narrower registration wins. Operators can edit the route rows.
 For an existing source, remove any `verb=message` trigger rows and issue
 mention trigger rows. Keep its PR mention route and observation fallbacks.
