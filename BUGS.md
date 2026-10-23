@@ -270,6 +270,9 @@ reads those words now.
 
 **Found by the dead-code sweep (2026-10-22).**
 
+- `L535` — after a turn ends, a background subagent's result restarts the
+  model and every tool call is refused, so the reply is lost (117 krons, 38
+  sloth sessions).
 - `L534` — GitHub PRs skip the engagement mechanism that chat threads use;
   the owner wants one attention mechanism for both (amend spec 6/27).
 - `L528` — runed serves `steered` but nothing writes it, so every spawn
@@ -1129,6 +1132,32 @@ general human-attention mechanism, so the same code should serve both.
   (mention, review request, assignment) to `mention`. Amend `6/27` first. Net
   code goes down.
 - **Status:** open — needs sign-off on the 6/27 amendment.
+
+## L535 — a background subagent's result arrives after the turn ends, and every tool call is refused (2026-10-23, open)
+
+MEASURED on sloth 2026-10-23, `groups/sloth/morha/.claude/projects/-home-node/6ff07819-e3c0-431f-b4bd-1acc44b9b9aa.jsonl`
+(PR #304): the agent started an `Agent` subagent in the background (line 122),
+wrote "I'll wait for the engine review to complete before posting findings"
+and ended its turn (line 139, Stop hook at 140). At 12:17:49 the subagent's
+`<task-notification>` was queued and the model ran again in the same process
+(lines 141-143). Every tool call after that — a Bash read (line 147) and the
+`reply` with the partial review (line 152) — returned "The user doesn't want to
+take this action right now. STOP what you are doing and wait for the user to
+tell you how to proceed." The agent then wrote "nothing posted" (line 159). The
+PR shows only the 12:15 status "waiting on deep engine review".
+
+The refusal text appears in 117 session files on krons (rhias/niki, rhias/nemo,
+rhias/content among them) and 38 on sloth: the owner's "unfinished replies" in
+rhias are the same pattern. ant runs the SDK with `permissionMode:
+'bypassPermissions'` (`ant/src/claude.ts:489`); what refuses the calls after the
+turn's end is not measured yet (an abort of the query after `submit_turn`, or
+the closed prompt stream, `claude.ts:443-458`).
+
+- **Severity:** high — finished work never reaches the chat.
+- **Fix:** measure the refusal source first. Then either the turn stays open
+  until its background tasks report, or the agent is told that a background
+  task does not outlive its turn.
+- **Status:** open.
 
 ## L526 — thirteen variables routd reads are not in `daemonKeys["routd"]`, so a value in `.env` never reaches it (2026-10-21, open)
 
