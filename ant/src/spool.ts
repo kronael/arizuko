@@ -19,6 +19,13 @@ import path from 'path';
 export const STEER_SPOOL = '/tmp/arizuko-steer';
 export const POLICY_LOG_SPOOL = '/tmp/arizuko-policy';
 
+// NUDGE_TEXT is the chassis-generated progress prompt. It goes straight onto the
+// steer spool — routed through the IPC dir it was filtered out on the way to the
+// spool, so every nudge was consumed and dropped. A read that starts a turn drops
+// a stale nudge by exact text: it steers a RUNNING turn, never starts one.
+export const NUDGE_TEXT =
+  'Report progress to the user now. Use <status>short summary of what you are doing</status>.';
+
 // encodeLines is THE batch format: one JSON string per line, so a message
 // containing a newline survives the round trip.
 function encodeLines(lines: string[]): string {
@@ -87,6 +94,12 @@ export function drainLines(dir: string): string[] {
     }
   }
   return out;
+}
+
+// drainSteering empties the steer spool for a read that starts a turn, dropping
+// stale progress nudges.
+export function drainSteering(): string[] {
+  return drainLines(STEER_SPOOL).filter((l) => l !== NUDGE_TEXT);
 }
 
 // spoolStderr redirects console.error for the life of this process. Called only

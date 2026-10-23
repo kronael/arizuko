@@ -9,7 +9,7 @@ import { fileURLToPath } from 'url';
 import { submitTurn, submitStatus, type TurnAck } from './mcp.js';
 import { injectMcpEnv } from './mcp-servers.js';
 import { Harness, HarnessProfile, Turn, selectHarness } from './backend.js';
-import { STEER_SPOOL, appendLines, drainLines } from './spool.js';
+import { NUDGE_TEXT, STEER_SPOOL, appendLines, drainSteering } from './spool.js';
 
 interface ContainerInput {
   prompt: string;
@@ -141,13 +141,6 @@ function log(message: string): void {
   console.error(`[ant] ${message}`);
 }
 
-// NUDGE_TEXT is the chassis-generated progress prompt. It goes straight onto the
-// steer spool — routed through the IPC dir it was filtered out on the way to the
-// spool, so every nudge was consumed and dropped. Between turns a stale nudge is
-// dropped by exact text: it steers a RUNNING turn, never starts one.
-export const NUDGE_TEXT =
-  'Report progress to the user now. Use <status>short summary of what you are doing</status>.';
-
 function nudgeProgress(): void {
   appendLines(STEER_SPOOL, [NUDGE_TEXT]);
   log('Nudged agent for progress report');
@@ -228,12 +221,6 @@ function drainIpcInput(): string[] {
     log(`IPC drain error: ${err instanceof Error ? err.message : String(err)}`);
     return [];
   }
-}
-
-// drainSteering empties the steer spool for a BETWEEN-turns read, dropping stale
-// progress nudges.
-function drainSteering(): string[] {
-  return drainLines(STEER_SPOOL).filter(l => l !== NUDGE_TEXT);
 }
 
 // checkIpcMessage assembles the next inner-loop prompt from both queues — the

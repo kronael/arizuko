@@ -93,13 +93,19 @@ export function bindings(ctx: PolicyContext): Binding[] {
   ];
 }
 
+// renderSteering is THE <user-steering> wrapper: the steering row injects it
+// mid-turn, and a waiting claude session pushes it as a prompt.
+export function renderSteering(messages: string[]): string {
+  return `<user-steering>\n${messages.join('\n')}\n</user-steering>`;
+}
+
 // The queue is a file (spool.ts) because a closure cannot cross into codex's
 // hook subprocess.
 function steering(ev: ToolEvent): Verdict {
   if (ev.agent_id) return ALLOW;
   const messages = drainLines(STEER_SPOOL);
   if (messages.length === 0) return ALLOW;
-  return { kind: 'inject', context: `<user-steering>\n${messages.join('\n')}\n</user-steering>` };
+  return { kind: 'inject', context: renderSteering(messages) };
 }
 
 // matches applies a row's matcher against the CANONICAL tool name. pi

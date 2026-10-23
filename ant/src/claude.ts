@@ -13,7 +13,8 @@ import {
   Options,
   PreCompactHookInput,
 } from '@anthropic-ai/claude-agent-sdk';
-import { Binding, PolicyEvent, ToolEvent, bindings, runRow } from './policy.js';
+import { Binding, PolicyEvent, ToolEvent, bindings, renderSteering, runRow } from './policy.js';
+import { drainSteering } from './spool.js';
 import type { ModelUsage } from './mcp.js';
 import { timeoutFrame } from './backend.js';
 import type { Frame, Harness, Turn } from './backend.js';
@@ -82,6 +83,7 @@ export function isRateLimitRejected(raw: Record<string, unknown>): boolean {
 }
 
 const MAX_QUEUE = 100;
+const STEER_POLL_MS = 500;
 // Standard-context Opus is the platform default — subscription-covered, never
 // the 1M-context beta, which needs usage credits the subscription excludes.
 // Leaving model undefined lets the SDK pick a 1M-context model → "Usage credits
@@ -118,6 +120,11 @@ class MessageStream {
       session_id: '',
     });
     this.waiting?.();
+  }
+
+  // A push after end() is lost: the iterator has returned.
+  get ended(): boolean {
+    return this.done;
   }
 
   end(): void {
@@ -450,6 +457,12 @@ export class SessionEnd {
     return this.reporting;
   }
 
+  // waiting: a result is in, Claude Code is not idle, so a background task
+  // still runs and only a prompt can reach the model.
+  get waiting(): boolean {
+    return this.reporting && this.resulted && !this.idle;
+  }
+
   prompted(): void {
     this.resulted = false;
     this.idle = false;
@@ -502,6 +515,16 @@ export async function* runClaude(turn: Turn, run: QueryFn = query): AsyncGenerat
   const reducer = new ClaudeTurn();
   const end = new SessionEnd();
   let held: Frame | undefined;
+  // PostToolUse does not fire while no turn runs, so while the session waits on
+  // a task this poll is the only reader that can reach the model. It stops
+  // reading once the stream ends; unclaimed lines stay for the next read.
+  const steerPoll = setInterval(() => {
+    if (!end.waiting || stream.ended) return;
+    const lines = drainSteering();
+    if (lines.length === 0) return;
+    stream.push(renderSteering(lines));
+    end.prompted();
+  }, STEER_POLL_MS);
   try {
     for await (const message of run({
       prompt: stream,
@@ -581,6 +604,7 @@ export async function* runClaude(turn: Turn, run: QueryFn = query): AsyncGenerat
     }
   } finally {
     clearTimeout(timer);
+    clearInterval(steerPoll);
     turn.signal?.removeEventListener('abort', onAbort);
     stream.end();
   }

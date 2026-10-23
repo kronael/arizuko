@@ -20,6 +20,7 @@ import {
   transcriptPath,
   unpackContinuity,
 } from './claude.js';
+import { NUDGE_TEXT, STEER_SPOOL, appendLines, drainLines } from './spool.js';
 
 const UUID = 'b6c2b287-0000-4000-8000-000000000000';
 const MSG_UUID = 'a1a1a1a1-0000-4000-8000-000000000000';
@@ -432,6 +433,57 @@ test('runClaude: error_max_turns becomes the held timed-out frame', async () => 
   ]);
   const frames = await collect(runClaude(turn, query));
   expect(frames).toEqual([{ kind: 'result', ok: true, timedOut: true }]);
+});
+
+// waitingQuery plays the prompt stream against a session that has sent its
+// first result and is not idle. It queues `lines` on the steer spool, either
+// while the turn still runs (a longer pause than the poll interval follows) or
+// once the session waits, and reports every prompt the stream carries.
+function waitingQuery(queueAt: 'running' | 'waiting', lines: string[]) {
+  const prompts: string[] = [];
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  const query = async function* ({ prompt }: { prompt: AsyncIterable<{ message: { content: string } }> }) {
+    const it = prompt[Symbol.asyncIterator]();
+    prompts.push((await it.next()).value!.message.content);
+    yield state('running');
+    if (queueAt === 'running') {
+      appendLines(STEER_SPOOL, lines);
+      await sleep(800);
+    }
+    yield result('waiting for the review');
+    if (queueAt === 'waiting') {
+      appendLines(STEER_SPOOL, lines);
+      const next = await Promise.race([it.next(), sleep(2000).then(() => ({ done: true as const, value: undefined }))]);
+      if (!next.done) prompts.push(next.value.message.content);
+    }
+    yield result('posted the review');
+    yield state('idle');
+  };
+  return { query, prompts };
+}
+
+/**
+ * A session waiting on a background task has no turn running, so no tool hook
+ * fires: spool lines reach the model as a second prompt through the stream,
+ * wrapped as <user-steering>, with the stale progress nudge dropped.
+ */
+test('runClaude: a waiting session takes the steer spool as a second prompt', async () => {
+  drainLines(STEER_SPOOL);
+  const { query, prompts } = waitingQuery('waiting', ['hello', NUDGE_TEXT]);
+  await collect(runClaude(turn, query as never));
+  expect(prompts).toEqual(['review the PR', '<user-steering>\nhello\n</user-steering>']);
+});
+
+/**
+ * Before the first result a turn is running and the steering hook owns the
+ * spool: the poll leaves the lines where they are.
+ */
+test('runClaude: a running turn leaves the steer spool to the hook', async () => {
+  drainLines(STEER_SPOOL);
+  const { query, prompts } = waitingQuery('running', ['early']);
+  await collect(runClaude(turn, query as never));
+  expect(prompts).toEqual(['review the PR']);
+  expect(drainLines(STEER_SPOOL)).toEqual(['early']);
 });
 
 /**

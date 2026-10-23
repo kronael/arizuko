@@ -2,10 +2,10 @@
 // harness only has to put its assistant text on the frame.
 
 import { describe, test, expect } from 'bun:test';
-import { NUDGE_TEXT, buildSystemPrompt, checkIpcMessage, runTurn, statusBlocks } from './index.js';
+import { buildSystemPrompt, checkIpcMessage, runTurn, statusBlocks } from './index.js';
 import type { Frame, Harness } from './backend.js';
 import type { SubmitStatusPayload } from './mcp.js';
-import { STEER_SPOOL, appendLines, drainLines } from './spool.js';
+import { NUDGE_TEXT, STEER_SPOOL, appendLines, drainLines } from './spool.js';
 
 test('statusBlocks: extracts each trimmed block in order', () => {
   expect(statusBlocks('a <status>reading files…</status> b <status> two </status>'))
