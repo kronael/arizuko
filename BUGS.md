@@ -316,8 +316,6 @@ reads those words now.
   location on each message and require the reply target (changes 6/27)?
 - `L551` — an inline review comment that mentions the bot starts no turn;
   #311's three inline mentions were dropped; cause is `L75(b)` (sign-off).
-- `L552` — a comment on a PR the bot opened starts no turn without a mention
-  (owner: he should see most on his own PRs; amends 6/27).
 
 **Found while folding the lowercase `bugs.md` into this file (2026-10-20).**
 
@@ -1403,21 +1401,6 @@ far more often than chat.
   silently dropped.
 - **Fix:** `L75(b)` — a batch that holds a mention resolves by the mention.
 - **Status:** open — needs sign-off (dispatch control flow, with `L75(b)`).
-
-## L552 — a comment on a PR the bot opened starts no turn unless it mentions the bot (2026-10-23, open)
-
-MEASURED: on the six PRs `sloth-goth` opened in `vumilan/morha`, a human
-comment without `@sloth-goth` maps to `verb=message` (`gitd/event.go` `speech`),
-and since the legacy `verb=message` routes were removed (2026-10-23) only the
-`#observe` rule matches it. Only `review_requested`, `assigned` and an assignee
-on a state action map to `mention` (`gitd/event.go:311-316`, `:399-403`).
-
-The owner (2026-10-23): "he should see most on PRs he opened."
-
-- **Fix:** gitd maps a human comment, inline comment or review on a PR or issue
-  whose author is the bot to `mention`. Amend `specs/6/27-git-channel.md`
-  (engagement boundary) first.
-- **Status:** open.
 
 ## L546 — every turn leaves a permanent progress comment on a GitHub PR (2026-10-23, open — needs sign-off)
 
