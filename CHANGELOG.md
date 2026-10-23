@@ -13,6 +13,25 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.70.9] — 2026-10-23
+
+> arizuko v0.70.9 — turns wait for background agents
+>
+> A turn now stays open while its background agents work, so their results no longer arrive after the session closed.
+>
+> • Sessions — a claude session ends when its work is done and Claude Code is idle; one `submit_turn` posts the result.
+> • Background agents — a Stop no longer ends the turn while background tasks run.
+> • Deadline — one process deadline covers every run, and the agent gets a `[deadline]` note 60 seconds before it.
+> • Steering — steering lines reach a waiting session and no longer go to subagents.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Operator note
+
+- The agent manual states the session lifecycle and the early end (`TaskStop`, then `reply`); migration 222 delivers it to live agents.
+- A Claude Code that sends no session-state event ends the session at its first result and logs an ERROR.
+- Spec 6/51 (group machine caps) is a draft; no code ships with it.
+
 ## [v0.70.8] — 2026-10-22
 
 > arizuko v0.70.8 — cleaner context, safer deletes
@@ -1902,12 +1921,12 @@ fix ships with a test that fails when the fix is removed.
   group is born a **`role:member`** (messaging verbs: reply/send/…); reads and
   memory (`set_work`) are always-on; everything else — register*group, routes,
   `network*\_`, schedule\__, invite, mint, acl, egress, `web:publish`,
-`share_mount(readonly)`— is **explicit delegation** from a lineage ancestor or
-the operator's`/root`grant. **Migration`0023`demotes existing sub-folders to
-the floor** (they no longer get management by depth); the operator re-delegates
-what each needs. Container capabilities (share RO / open egress / web publish)
-travel to runed as typed booleans, not a grant language.`ARIZUKO_TIER`dropped
-(decision 10). Spec:`specs/5/33`.
+  `share_mount(readonly)`— is **explicit delegation** from a lineage ancestor or
+  the operator's`/root`grant. **Migration`0023`demotes existing sub-folders to
+  the floor** (they no longer get management by depth); the operator re-delegates
+  what each needs. Container capabilities (share RO / open egress / web publish)
+  travel to runed as typed booleans, not a grant language.`ARIZUKO_TIER`dropped
+  (decision 10). Spec:`specs/5/33`.
 
 ### Removed
 
@@ -5283,7 +5302,7 @@ fixes (crackbox DNS alias, davd healthcheck, migration 079).
   deployment); re-add when multi-instance lands.
 - Discord legacy rows without a stored guild*id migrate to
   `discord:*/<channel>`placeholder. New inbound from discd carries
-the real`discord:<guild>/<channel>`.
+  the real`discord:<guild>/<channel>`.
 - Store migration `0042-typed-jids.sql` rewrites every JID-shaped
   value (messages, chats, user_jids, grants, onboarding, routes.match)
   to the new shape. Idempotent. Adapter inbound paths emit canonical

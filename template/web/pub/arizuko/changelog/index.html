@@ -30,6 +30,16 @@
 
       <p>What shipped, dated, terse. Reverse chronological. The chat broadcast for each release lives at the top of every block; the bullets below expand it for operators.</p>
 
+      <h2>arizuko v0.70.9 <span class="dim">&mdash; 23 October 2026</span></h2>
+      <p>A turn now stays open while its background agents work, so their results no longer arrive after the session closed.</p>
+      <ul>
+        <li><strong>Sessions</strong> &mdash; a claude session ends when its work is done and Claude Code is idle; one <code>submit_turn</code> posts the result.</li>
+        <li><strong>Background agents</strong> &mdash; a Stop no longer ends the turn while background tasks run.</li>
+        <li><strong>Deadline</strong> &mdash; one process deadline covers every run, and the agent gets a <code>[deadline]</code> note 60 seconds before it.</li>
+        <li><strong>Steering</strong> &mdash; steering lines reach a waiting session and no longer go to subagents.</li>
+      </ul>
+      <p class="note">Full notes: <a href="https://github.com/kronael/arizuko/blob/main/CHANGELOG.md#v0709--2026-10-23">CHANGELOG &sect; v0.70.9</a></p>
+
       <h2>arizuko v0.70.8 <span class="dim">&mdash; 22 October 2026</span></h2>
       <p>An agent no longer sees its own message repeated as context, and deleting a folder now stops its running turn.</p>
       <ul>
