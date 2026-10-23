@@ -282,7 +282,6 @@ reads those words now.
 - `L532` — no code writes the `task.delete` audit row that `audit/PLAN.md`
   lists.
 
-
 **Found by the per-group machine spec (2026-10-23).**
 
 - `L537` — PROPOSED: each group sizes its own guest with `cap:<name>=<value>`
