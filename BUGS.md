@@ -1425,6 +1425,11 @@ conversations are also one history. No route key can split them: `msgField`
 `verb`, never `source`.
 
 Discord and Slack give each bot its own DM channel id, so this is Telegram only.
+A shared room is a different case: two bots in one Telegram group, Discord
+channel or Slack channel share one JID on every platform, because it is one
+room. There the bot is the account axis, `messages.source`, not the JID
+(owner, 2026-10-23). jynx is in no group today, so that case gets its own entry
+when it is needed.
 
 - **Fix:** the DM chat JID carries the bot's own Telegram identity, read from
   `getMe` at start, never a local label (owner, 2026-10-23: "something global
