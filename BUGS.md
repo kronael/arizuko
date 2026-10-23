@@ -314,8 +314,6 @@ reads those words now.
 - `L549` — an inline comment reaches the agent without line, hunk or thread,
   and `reply` without `replyToId` answers the batch's last comment: carry the
   location on each message and require the reply target (changes 6/27)?
-- `L550` — the agent posts with `gh` directly, so the comment is missing
-  from the conversation record and the channel reply repeats it.
 
 **Found while folding the lowercase `bugs.md` into this file (2026-10-20).**
 
@@ -1372,20 +1370,9 @@ overlapped. The defects are inside that one conversation:
   and URL, thread root, review id, path, line range, side, hunk); `reply` on a
   GitHub chat requires `replyToId`; observed window scoped to the PR (`L442`).
   Amend `specs/6/27-git-channel.md` first.
+- **Interim:** `443f0057` tells the agent to ALWAYS set `replyToId` (the
+  GitHub output style); the contract change stays open.
 - **Status:** open — needs sign-off (6/27 contract change).
-
-## L550 — the agent posts PR comments with `gh` directly, outside the conversation record (2026-10-23, open)
-
-MEASURED on sloth: 15 sloth comments on GitHub have no bot row in
-`routd.messages` (7 direct `gh`/API posts, 8 router failure notices). Two
-direct posts were then repeated by the channel reply: #286 (`6241865065` then
-`6241866018`, 6 s apart) and #305 (`6372541756` then `6372577744`). A comment
-the record lacks is invisible to the next turn's prompt.
-
-- **Fix:** the GitHub output style says to answer on the PR through `reply`,
-  never `gh pr comment` / `gh api …/comments`; `gh` stays for code, push,
-  merge and review submission (`L545`).
-- **Status:** open.
 
 ## L546 — every turn leaves a permanent progress comment on a GitHub PR (2026-10-23, open — needs sign-off)
 
