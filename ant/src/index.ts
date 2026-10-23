@@ -146,6 +146,19 @@ function nudgeProgress(): void {
   log('Nudged agent for progress report');
 }
 
+// DEADLINE_TEXT warns the agent that the process deadline is close. Unlike
+// NUDGE_TEXT it is not dropped between turns: it may start a round, so a
+// session that had stopped gets one last chance to post.
+const DEADLINE_NOTE_LEAD_MS = 60_000;
+export const DEADLINE_TEXT =
+  '[deadline] About one minute is left in this run. Post your output to the user now with reply. ' +
+  'Stop background tasks you no longer need with TaskStop; anything not posted before the deadline is lost.';
+
+function noteDeadline(): void {
+  appendLines(STEER_SPOOL, [DEADLINE_TEXT]);
+  log('Warned agent of the process deadline');
+}
+
 // STATUS_RE matches one <status>...</status> block. The agent emits these for
 // interim progress; we forward each mid-turn so the user sees progress.
 const STATUS_RE = /<status>([\s\S]*?)<\/status>/g;
@@ -314,6 +327,8 @@ async function runAttempt(
   // The nudge asks the agent for a <status> report. Wall-clock, so a long
   // tool-heavy stretch still nudges even when no frame arrives.
   const nudgeTimer = setInterval(nudgeProgress, PROGRESS_INTERVAL_MS);
+  const untilNote = deadline - DEADLINE_NOTE_LEAD_MS - Date.now();
+  const noteTimer = untilNote > 0 ? setTimeout(noteDeadline, untilNote) : undefined;
 
   const out: TurnResult = { closedDuringQuery: false, retryFresh: false };
   let frameCount = 0;
@@ -371,6 +386,7 @@ async function runAttempt(
     ipcPolling = false;
     wakeup = null;
     clearInterval(nudgeTimer);
+    clearTimeout(noteTimer);
   }
 
   // The seam's first requirement is exactly one terminal frame per turn, never

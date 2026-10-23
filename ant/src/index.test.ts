@@ -2,7 +2,7 @@
 // harness only has to put its assistant text on the frame.
 
 import { describe, test, expect } from 'bun:test';
-import { buildSystemPrompt, checkIpcMessage, runTurn, statusBlocks } from './index.js';
+import { DEADLINE_TEXT, buildSystemPrompt, checkIpcMessage, runTurn, statusBlocks } from './index.js';
 import type { Frame, Harness } from './backend.js';
 import type { SubmitStatusPayload } from './mcp.js';
 import { NUDGE_TEXT, STEER_SPOOL, appendLines, drainLines } from './spool.js';
@@ -319,6 +319,44 @@ test('runTurn hands one deadline to the first run and the nudge round', async ()
   let delivered = 0;
   await runTurn(harness, 'p', undefined, INPUT, {}, 't1', async () => ({ nudge: ++delivered === 1 ? 'deliver' : '' }), statusSpy().send, 12345);
   expect(deadlines).toEqual([12345, 12345]);
+});
+
+// lasting is a harness whose one run takes `ms` before its result.
+function lasting(ms: number): Harness {
+  return {
+    ...scripted([]),
+    run: async function* () {
+      await new Promise((r) => setTimeout(r, ms));
+      yield { kind: 'result', ok: true, text: 'done' };
+    },
+  };
+}
+
+/**
+ * A run still going one minute before the process deadline puts the [deadline]
+ * note on the steer spool, where the steering hook or the waiting poll reads it.
+ */
+test('runTurn: one minute before the deadline the steer spool gets the [deadline] note', async () => {
+  drainLines(STEER_SPOOL);
+  await runTurn(lasting(300), 'p', undefined, INPUT, {}, 't1', spy().deliver, statusSpy().send, Date.now() + 60_100);
+  const lines = drainLines(STEER_SPOOL);
+  expect(lines).toHaveLength(1);
+  expect(lines[0]).toStartWith('[deadline] About one minute is left in this run.');
+  expect(lines[0]).toContain('TaskStop');
+});
+
+/** A run that starts inside the last minute gets no note: the minute has passed. */
+test('runTurn: a run that starts less than a minute before the deadline queues no note', async () => {
+  drainLines(STEER_SPOOL);
+  await runTurn(lasting(300), 'p', undefined, INPUT, {}, 't1', spy().deliver, statusSpy().send, Date.now() + 59_000);
+  expect(drainLines(STEER_SPOOL)).toEqual([]);
+});
+
+/** Unlike a progress nudge, a note left in the spool starts the next round. */
+test('checkIpcMessage: a stranded [deadline] note becomes the next prompt', () => {
+  drainLines(STEER_SPOOL);
+  appendLines(STEER_SPOOL, [DEADLINE_TEXT]);
+  expect(checkIpcMessage()).toBe(DEADLINE_TEXT);
 });
 
 /** A submission nudge continues the same turn and latest token, before the next IPC turn. */
