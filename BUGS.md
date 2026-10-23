@@ -1163,6 +1163,11 @@ the closed prompt stream, `claude.ts:443-458`).
   3. About 1 minute before the timeout, the session steers the agent to post its output now,
      through the existing progress-nudge hook (`<user-steering>`), so the work
      reaches the chat instead of being cut off.
+  4. The agent may end the session itself before its tasks finish (stop them
+     and post what it has); otherwise the session waits for them.
+  5. The reply-owed check (`ant/src/policy.ts:65`, the `Stop` event) runs once,
+     just before the session really ends, not on each Stop while tasks still
+     run.
   Measure the refusal source first, so the fix removes it rather than working
   around it.
 - **Status:** open — direction set by the owner.
