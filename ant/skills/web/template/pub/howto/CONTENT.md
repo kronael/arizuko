@@ -337,7 +337,7 @@ convert this video to mp3 and send it back
 
 **TLDR:** `/dash/` is the operator dashboard (auth-gated). `/pub/` is public static content. Adapters report `stale` when a channel goes silent.
 
-Log in via OAuth (GitHub, Google, Discord) or Telegram login at `/auth/login`. The dashboard lives at `/dash/` — six views served by `dashd`. `/pub/` is a separate namespace for public static files (docs, web apps), not the dashboard.
+Log in via OAuth (GitHub, Google, Discord) at `/auth/login`. The dashboard lives at `/dash/` — six views served by `dashd`. `/pub/` is a separate namespace for public static files (docs, web apps), not the dashboard.
 
 | Path             | What it shows                                              |
 | ---------------- | ---------------------------------------------------------- |

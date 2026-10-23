@@ -1,26 +1,19 @@
 package main
 
 import (
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/core"
 )
-
-const telegramToken = "123456:bot-token"
 
 type providerStub struct {
 	mu    sync.Mutex
@@ -82,109 +75,6 @@ func loginMux(t *testing.T, cfg *core.Config) (*http.ServeMux, *Authd, func(stri
 
 func loginCfg() *core.Config {
 	return &core.Config{AuthSecret: "csrf-key", AuthBaseURL: "https://auth.example"}
-}
-
-func signedWidget(token string, authDate time.Time, fields map[string]string) url.Values {
-	form := url.Values{"auth_date": {strconv.FormatInt(authDate.Unix(), 10)}}
-	for k, v := range fields {
-		form.Set(k, v)
-	}
-	keys := make([]string, 0, len(form))
-	for k := range form {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	parts := make([]string, 0, len(keys))
-	for _, k := range keys {
-		parts = append(parts, k+"="+form.Get(k))
-	}
-	secret := sha256.Sum256([]byte(token))
-	mac := hmac.New(sha256.New, secret[:])
-	mac.Write([]byte(strings.Join(parts, "\n")))
-	form.Set("hash", hex.EncodeToString(mac.Sum(nil)))
-	return form
-}
-
-func postWidget(mux http.Handler, form url.Values) *httptest.ResponseRecorder {
-	req := httptest.NewRequest("POST", "/auth/telegram", strings.NewReader(form.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("Accept", "application/json")
-	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, req)
-	return rec
-}
-
-// A correctly signed widget posted to /auth/telegram -> 200 with an ES256
-// token whose sub is user:telegram:<id>, and the canonical user exists.
-func TestTelegramLoginSignedWidgetSignsIn(t *testing.T) {
-	cfg := loginCfg()
-	cfg.TelegramToken = telegramToken
-	mux, a, exists := loginMux(t, cfg)
-
-	form := signedWidget(telegramToken, time.Now(),
-		map[string]string{"id": "777", "first_name": "Ada", "last_name": "Lovelace"})
-	rec := postWidget(mux, form)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("signed widget status %d: %s", rec.Code, rec.Body.String())
-	}
-	sub, err := auth.VerifyToken(jsonField(t, rec.Body.Bytes(), "token"), a.LocalKeySet())
-	if err != nil {
-		t.Fatalf("minted token must verify: %v", err)
-	}
-	if sub.Sub != "user:telegram:777" {
-		t.Fatalf("sub = %q want user:telegram:777", sub.Sub)
-	}
-	if !exists("telegram:777") {
-		t.Fatal("user telegram:777 not created")
-	}
-}
-
-// A widget the handler must refuse -> 403, no token, no user created: a hash
-// signed with another bot token, a field changed after signing, an auth_date
-// older than five minutes, and a missing hash.
-func TestTelegramLoginRefusesForgedTamperedAndStaleWidgets(t *testing.T) {
-	cfg := loginCfg()
-	cfg.TelegramToken = telegramToken
-	mux, _, exists := loginMux(t, cfg)
-
-	tampered := signedWidget(telegramToken, time.Now(), map[string]string{"id": "1", "first_name": "Eve"})
-	tampered.Set("id", "2")
-
-	cases := map[string]url.Values{
-		"signed with another bot token": signedWidget("999:other-token", time.Now(), map[string]string{"id": "1", "first_name": "Eve"}),
-		"field changed after signing":   tampered,
-		"stale auth_date":               signedWidget(telegramToken, time.Now().Add(-time.Hour), map[string]string{"id": "1", "first_name": "Eve"}),
-		"no hash":                       {"id": {"1"}, "first_name": {"Eve"}, "auth_date": {strconv.FormatInt(time.Now().Unix(), 10)}},
-	}
-	for name, form := range cases {
-		rec := postWidget(mux, form)
-		if rec.Code != http.StatusForbidden {
-			t.Errorf("%s: status %d want 403: %s", name, rec.Code, rec.Body.String())
-		}
-		if strings.Contains(rec.Body.String(), "token") {
-			t.Errorf("%s: body carries a token: %s", name, rec.Body.String())
-		}
-	}
-	for _, id := range []string{"telegram:1", "telegram:2"} {
-		if exists(id) {
-			t.Errorf("refused widget created user %s", id)
-		}
-	}
-}
-
-// TELEGRAM_TOKEN unset -> the route is not mounted: POST /auth/telegram is 404,
-// so a widget cannot sign in against an instance that never enabled it.
-func TestTelegramLoginRouteAbsentWithoutToken(t *testing.T) {
-	mux, _, exists := loginMux(t, loginCfg())
-	form := signedWidget("", time.Now(), map[string]string{"id": "5", "first_name": "Zed"})
-	rec := postWidget(mux, form)
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("status %d want 404 with no TELEGRAM_TOKEN", rec.Code)
-	}
-	if exists("telegram:5") {
-		t.Fatal("user created through an unmounted route")
-	}
 }
 
 func callback(mux http.Handler, provider string, cfg *core.Config) *httptest.ResponseRecorder {

@@ -93,7 +93,6 @@ The verbs each adapter supports are in [EXTENDING.md § Verb support matrix](EXT
 | Service token       | authd exchanges a daemon secret for a `service:<daemon>` token with the scopes of that daemon.       | `authd/authd_test.go::TestServiceTokenEndpoint`                               |
 | Scope resolution    | A token with a narrow folder claim carries the full resolved grant set.                              | `tests/split_federation_test.go::TestSplitFederation_StampResolvesFullGrants` |
 | OAuth login         | authd handles the Google callback, creates the user, and issues an ES256 token and a refresh token.  | `authd/oauth_test.go::TestOAuthDispatchMintsES256AndCreatesUser`              |
-| Telegram login      | `POST /auth/telegram` signs a user in when `TELEGRAM_BOT_TOKEN` is set.                              | `authd/oauth_login_test.go::TestTelegramLoginSignedWidgetSignsIn`             |
 | Google allowlist    | The Google callback admits only a verified address that matches `GoogleAllowedEmails`.               | `authd/oauth_login_test.go::TestGoogleCallbackAppliesAllowedEmails`           |
 | GitHub allowlist    | The GitHub callback admits only a member of `GitHubAllowedOrg`.                                      | `authd/oauth_login_test.go::TestGitHubCallbackAppliesAllowedOrg`              |
 | Refresh token reuse | authd rotates the refresh token on each use, and a second use of a spent token revokes the family.   | `authd/authd_test.go::TestRefreshReuseRevokesFamily`                          |

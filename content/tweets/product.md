@@ -76,8 +76,8 @@ what the parent grants. Principle of least privilege, structural.
 
 Problem: you ship the agent, then remember auth. Bolt it on, miss
 an endpoint, get burned. In arizuko, every route except /pub/
-requires auth from day one. JWT, Google/GitHub/Discord OAuth,
-Telegram login — built in. Public is opt-in. Zero config.
+requires auth from day one. JWT, Google/GitHub/Discord OAuth —
+built in. Public is opt-in. Zero config.
 
 ---
 

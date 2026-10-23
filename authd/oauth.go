@@ -67,9 +67,6 @@ func (s *server) registerOAuth(mux *http.ServeMux, cfg *core.Config) {
 		mux.HandleFunc("GET /auth/discord", o.redirect("discord"))
 		mux.HandleFunc("GET /auth/discord/callback", o.discordCallback)
 	}
-	if cfg.TelegramToken != "" {
-		mux.HandleFunc("POST /auth/telegram", o.telegram)
-	}
 	if dexConfigured(cfg) {
 		mux.HandleFunc("GET /auth/dex", o.redirect("dex"))
 		mux.HandleFunc("GET /auth/dex/callback", o.dexCallback)
@@ -270,22 +267,6 @@ func (o *oauth) discordCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	o.dispatch(w, r, "discord", sub, name, intent)
-}
-
-func (o *oauth) telegram(w http.ResponseWriter, r *http.Request) {
-	if err := r.ParseForm(); err != nil {
-		http.Error(w, "bad request", http.StatusBadRequest)
-		return
-	}
-	if !auth.VerifyTelegramWidget(r.Form, o.cfg.TelegramToken) {
-		http.Error(w, "invalid telegram auth", http.StatusForbidden)
-		return
-	}
-	name := r.FormValue("first_name")
-	if ln := r.FormValue("last_name"); ln != "" {
-		name += " " + ln
-	}
-	o.dispatch(w, r, "telegram", r.FormValue("id"), name, auth.StateIntent{})
 }
 
 // dispatch resolves the provider identity to a canonical authd user (creating

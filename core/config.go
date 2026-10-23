@@ -47,8 +47,7 @@ func AppSrcDir() string {
 }
 
 type Config struct {
-	Name          string
-	TelegramToken string
+	Name string
 	// ModelGatewayURL points every harness at an LLM gateway that holds the
 	// real model credential, meters and logs; ModelGatewayKey is the virtual
 	// credential the container presents to it. One declaration, translated
@@ -220,7 +219,6 @@ func LoadConfig() (*Config, error) {
 
 	c := &Config{
 		Name:                name,
-		TelegramToken:       EnvOr("TELEGRAM_BOT_TOKEN", ""),
 		AgentBackend:        EnvOr("ARIZUKO_BACKEND", ""),
 		ModelGatewayURL:     EnvOr("MODEL_GATEWAY_URL", ""),
 		ModelGatewayKey:     EnvOr("MODEL_GATEWAY_KEY", ""),

@@ -64,7 +64,7 @@
     <h2>One signing key in one daemon means one secret to protect</h2>
     <p>If every daemon signed its own tokens, every daemon would hold a signing key, and a leak in one place would be a leak everywhere. With the key in one daemon, there is exactly one secret to protect and one place to rotate it. authd is that daemon.</p>
 
-    <p>authd runs the login flow. A user signs in with GitHub, Google, Discord or the Telegram widget. authd exchanges that login for a short-lived ES256 access token and a refresh token. A snapshot of the grants of the subject limits the scope of the access token. authd fetches that snapshot from routd when it creates the token, because routd owns the ACL. Refresh tokens rotate with reuse detection: if someone presents a used token again, authd revokes the whole family.</p>
+    <p>authd runs the login flow. A user signs in with GitHub, Google or Discord. authd exchanges that login for a short-lived ES256 access token and a refresh token. A snapshot of the grants of the subject limits the scope of the access token. authd fetches that snapshot from routd when it creates the token, because routd owns the ACL. Refresh tokens rotate with reuse detection: if someone presents a used token again, authd revokes the whole family.</p>
 
     <p>authd also gives the daemons their identity. At boot, authd creates <code>service:authd</code> for itself. It exchanges the service key of each daemon for a <code>service:&lt;name&gt;</code> token. So routd, runed, webd and proxyd all carry an identity that authd can verify. One key is active at a time: a rotation retires the old key and installs the new key in one guarded batch. authd still serves recently retired keys until their window closes.</p>
 
@@ -153,7 +153,7 @@ export AUTH_BASE_URL=https://example.com
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/components/authd.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-21">2026-10-21</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-23">2026-10-23</time>
       </div>
     </main>
 

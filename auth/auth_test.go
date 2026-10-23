@@ -13,8 +13,6 @@ import (
 	"time"
 )
 
-func sha256sum(b []byte) [32]byte { return sha256.Sum256(b) }
-
 func hmacSHA256(key, msg []byte) string {
 	h := hmac.New(sha256.New, key)
 	h.Write(msg)
@@ -45,39 +43,6 @@ func TestOAuthStateCookie(t *testing.T) {
 	r.AddCookie(&http.Cookie{Name: "oauth_state", Value: state})
 	if _, ok := VerifyState(testSecret, r); !ok {
 		t.Fatal("valid state should verify")
-	}
-}
-
-func TestTelegramWidgetVerify(t *testing.T) {
-	botToken := "123456:ABC-DEF"
-	authDate := fmt.Sprintf("%d", time.Now().Unix())
-	form := url.Values{
-		"id":         {"12345"},
-		"first_name": {"Test"},
-		"auth_date":  {authDate},
-	}
-	check := "auth_date=" + authDate + "\nfirst_name=Test\nid=12345"
-	secret := sha256sum([]byte(botToken))
-	h := hmacSHA256(secret[:], []byte(check))
-	form.Set("hash", h)
-
-	if !VerifyTelegramWidget(form, botToken) {
-		t.Fatal("valid telegram widget should verify")
-	}
-	staleForm := url.Values{
-		"id":         {"12345"},
-		"first_name": {"Test"},
-		"auth_date":  {"1234567890"},
-	}
-	staleCheck := "auth_date=1234567890\nfirst_name=Test\nid=12345"
-	staleH := hmacSHA256(secret[:], []byte(staleCheck))
-	staleForm.Set("hash", staleH)
-	if VerifyTelegramWidget(staleForm, botToken) {
-		t.Fatal("stale auth_date should fail")
-	}
-	form.Set("hash", "invalid")
-	if VerifyTelegramWidget(form, botToken) {
-		t.Fatal("invalid hash should fail")
 	}
 }
 

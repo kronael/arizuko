@@ -195,7 +195,7 @@ hand-rolled JWT code.
   drift.
 - OAuth wrappers (authd drives `/auth/*`, this lib has no mount layer):
   `ExchangeGitHub`/`FetchGitHubUser`, `ExchangeGoogle`/`FetchGoogleUser`,
-  `ExchangeDiscord`/`FetchDiscordUser`, `VerifyTelegramWidget`,
+  `ExchangeDiscord`/`FetchDiscordUser`,
   `SignState`/`VerifyState`/`StateIntent`, `WritePKCE`/`ConsumePKCE`,
   `WriteStateCookie`, `SafeReturn`, `JSSafe`, `MatchEmailAllowlist`,
   `CheckGitHubOrgMember`, `AuthBaseURL`.
@@ -226,7 +226,6 @@ if !auth.HasScope(sub.Scope, "tasks", "write") { return 403 }
 - `GITHUB_CLIENT_ID/SECRET`, `GITHUB_ALLOWED_ORG`
 - `GOOGLE_CLIENT_ID/SECRET`, `GOOGLE_ALLOWED_EMAILS`
 - `DISCORD_CLIENT_ID/SECRET`
-- `TELEGRAM_BOT_TOKEN` (widget verification)
 
 ## Files
 

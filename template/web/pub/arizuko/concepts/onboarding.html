@@ -128,7 +128,7 @@ arizuko invite &lt;instance&gt; revoke &lt;ref&gt;</code></pre>
       <dd>The person can create a top-level world.</dd>
     </dl>
     <p><code>**</code> is not a folder, so <code>onbod</code> refuses it. <code>onbod</code> keeps only the sha256 of the token. <code>--max-uses</code> defaults to 1. <code>--expires</code> takes a Go duration such as <code>72h</code>, and without it the token never expires.</p>
-    <p>The recipient opens the link and picks an OAuth provider: GitHub, Google, Discord or the Telegram widget, as the instance configures. <code>authd</code> then signs the person in under the returned <strong>sub</strong>. <a href="../concepts/auth.html">auth</a> explains what a sub is and how linking works.</p>
+    <p>The recipient opens the link and picks an OAuth provider: GitHub, Google or Discord, as the instance configures. <code>authd</code> then signs the person in under the returned <strong>sub</strong>. <a href="../concepts/auth.html">auth</a> explains what a sub is and how linking works.</p>
 
     <h2>The greeting is a pairing link</h2>
     <p>When <code>ONBOARDING_ENABLED=true</code>, a chat that messages the instance and matches no route gets a reply. The reply is one link, valid for ten minutes, that proves the person who opens it can read that chat. An agent creates the same link with <code>issue_pairing_link</code>, so onboarding has no login of its own. The greeting is fixed text plus the link, never an agent turn. A chat that belongs to no folder has no spend cap to limit a turn. The link signs the person in, shows exactly which chat account it attaches to their name, and asks for confirmation. Nothing is written until the person confirms.</p>

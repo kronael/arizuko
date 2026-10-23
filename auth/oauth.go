@@ -14,7 +14,6 @@ import (
 	"net/http"
 	"net/url"
 	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -226,38 +225,6 @@ func verifyState(secret []byte, r *http.Request) (stateIntent, bool) {
 	return empty, true
 }
 
-func verifyTelegramWidget(form url.Values, botToken string) bool {
-	hash := form.Get("hash")
-	if hash == "" {
-		return false
-	}
-	authDate, err := strconv.ParseInt(form.Get("auth_date"), 10, 64)
-	if err != nil || authDate <= 0 {
-		return false
-	}
-	age := time.Since(time.Unix(authDate, 0))
-	if age > 5*time.Minute || age < -30*time.Second {
-		return false
-	}
-	var keys []string
-	for k := range form {
-		if k != "hash" {
-			keys = append(keys, k)
-		}
-	}
-	sort.Strings(keys)
-	var parts []string
-	for _, k := range keys {
-		parts = append(parts, k+"="+form.Get(k))
-	}
-	check := strings.Join(parts, "\n")
-	secret := sha256.Sum256([]byte(botToken))
-	mac := hmac.New(sha256.New, secret[:])
-	mac.Write([]byte(check))
-	expected := hex.EncodeToString(mac.Sum(nil))
-	return hmac.Equal([]byte(hash), []byte(expected))
-}
-
 func authBaseURL(cfg *core.Config) string {
 	return strings.TrimRight(cfg.AuthBaseURL, "/")
 }
@@ -386,10 +353,6 @@ func FetchDiscordUser(ctx context.Context, token string) (string, string, error)
 		name = u.Username
 	}
 	return u.ID, name, nil
-}
-
-func VerifyTelegramWidget(form url.Values, botToken string) bool {
-	return verifyTelegramWidget(form, botToken)
 }
 
 func MatchEmailAllowlist(email, allowlist string) bool { return matchEmailAllowlist(email, allowlist) }

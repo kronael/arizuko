@@ -13,7 +13,7 @@ import (
 func TestLoadConfigDefaults(t *testing.T) {
 	// Clear env to test defaults
 	for _, k := range []string{
-		"ASSISTANT_NAME", "TELEGRAM_BOT_TOKEN",
+		"ASSISTANT_NAME",
 		"MAX_CONCURRENT_CONTAINERS", "TZ",
 	} {
 		os.Unsetenv(k)
@@ -41,12 +41,10 @@ func TestLoadConfigDefaults(t *testing.T) {
 
 func TestLoadConfigFromEnv(t *testing.T) {
 	os.Setenv("ASSISTANT_NAME", "TestBot")
-	os.Setenv("TELEGRAM_BOT_TOKEN", "abc123")
 	os.Setenv("MAX_CONCURRENT_CONTAINERS", "10")
 	os.Setenv("ARIZUKO_DEV", "true")
 	defer func() {
 		os.Unsetenv("ASSISTANT_NAME")
-		os.Unsetenv("TELEGRAM_BOT_TOKEN")
 		os.Unsetenv("MAX_CONCURRENT_CONTAINERS")
 		os.Unsetenv("ARIZUKO_DEV")
 	}()
@@ -58,9 +56,6 @@ func TestLoadConfigFromEnv(t *testing.T) {
 
 	if cfg.Name != "TestBot" {
 		t.Fatalf("expected TestBot, got %q", cfg.Name)
-	}
-	if cfg.TelegramToken != "abc123" {
-		t.Fatalf("expected abc123, got %q", cfg.TelegramToken)
 	}
 	if cfg.MaxContainers != 10 {
 		t.Fatalf("expected 10, got %d", cfg.MaxContainers)

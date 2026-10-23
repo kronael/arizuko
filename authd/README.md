@@ -7,7 +7,7 @@ ES256 token authority: the sole platform-token signer + JWKS publisher.
 Separate daemon that owns the signing keypair and mints every platform
 token. Backends never sign — they fetch authd's public JWKS and verify
 locally via `auth.VerifyToken` (the `auth/` library). authd also acts as
-the OAuth provider (GitHub/Google/Discord/Telegram widget), exchanging a
+the OAuth provider (GitHub/Google/Discord), exchanging a
 successful login for an ES256 access + refresh token.
 
 One signer and offline verifiers is the whole design. Verification is a
@@ -174,8 +174,7 @@ Two of the six carry an invariant a column could not:
   either.
 - **Hardening.** Cookies carry `Secure` when `AUTH_BASE_URL` is HTTPS. The
   refresh cookie is `HttpOnly`, `Path=/`, `SameSite=Lax`. Every provider
-  redirect carries a signed CSRF state and PKCE. The Telegram widget refuses
-  an `auth_date` older than 5 minutes. Google takes an optional
+  redirect carries a signed CSRF state and PKCE. Google takes an optional
   `GOOGLE_ALLOWED_EMAILS`, GitHub an optional `GITHUB_ALLOWED_ORG`. All
   providers converge on one `issueSession` path (`oauth.go`).
 

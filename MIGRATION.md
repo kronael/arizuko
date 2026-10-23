@@ -152,7 +152,6 @@ JWT claims identical: `{sub, name, exp, iat}`, HS256.
 users must reset.
 
 **OAuth**: GitHub, Discord, Google in both (callback `/auth/<provider>/callback`).
-Telegram widget (`POST /auth/telegram`) only in arizuko.
 
 **`AUTH_BASE_URL` required** — kanipi derived from `WEB_HOST`.
 
