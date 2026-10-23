@@ -216,3 +216,55 @@ func TestObservedSince_DropsScheduledTaskPrompts(t *testing.T) {
 		t.Fatalf("observed window = %v, want only live-1", got)
 	}
 }
+
+// BUGS L527: the folder's own replies join the observed window, and they count
+// against the same message and character caps as every other row: with a 4000
+// char cap, a 3000 char reply and a 3000 char observed row leave only the newer
+// one, and the reply of another folder never appears.
+func TestObservedSince_OwnReplyCountsAgainstTheWindow(t *testing.T) {
+	s, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	ctx := context.Background()
+	now := time.Now().UTC()
+	big := strings.Repeat("x", 3000)
+	reply := func(id, folder, content string, at time.Time) {
+		m := core.Message{ID: id, ChatJID: "telegram:1", Sender: folder, Content: content,
+			Timestamp: at, RoutedTo: folder, BotMsg: true, FromMe: true, Topic: "232"}
+		if err := s.PutMessage(m); err != nil {
+			t.Fatal(err)
+		}
+	}
+	reply("out-1", "rhias/nemo", big, now)
+	reply("out-other", "rhias/other", "another folder's reply", now.Add(time.Second))
+	got, err := s.ObservedSince(ctx, "rhias/nemo", "", 10, 4000, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].ID != "out-1" || !got[0].BotMsg {
+		t.Fatalf("own reply window = %+v, want only the bot row out-1", got)
+	}
+
+	observe(t, s, "rhias/nemo", core.Message{
+		ID: "obs-1", ChatJID: "telegram:1", Sender: "bob", Content: big,
+		Timestamp: now.Add(2 * time.Second), Verb: "message",
+	})
+	got, err = s.ObservedSince(ctx, "rhias/nemo", "", 10, 4000, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].ID != "obs-1" {
+		t.Fatalf("char cap with a reply = %+v, want only the newer obs-1", got)
+	}
+
+	got, err = s.ObservedSince(ctx, "rhias/nemo", "", 1, 100000, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].ID != "obs-1" {
+		t.Fatalf("message cap with a reply = %+v, want only the newest row obs-1", got)
+	}
+}

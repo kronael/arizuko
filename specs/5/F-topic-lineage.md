@@ -73,6 +73,10 @@ advances it after rendering.
 live bug: topic A consumed the folder's observed window and topic B in
 the same folder never saw those messages at all.
 
+The folder's own replies, from every topic, stand in each topic's
+window as `<observed bot="true">` rows, so a topic does not answer
+again what a sibling topic answered (BUGS L527).
+
 At-least-once on crash recovery — the advance is not transactional with
 the run. The agent's standing "observed messages are context, not
 requests" rule absorbs the duplicates.

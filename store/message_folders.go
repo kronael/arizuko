@@ -274,7 +274,9 @@ func (s *Store) tryCountFolderMessageBy(ctx context.Context, folder string,
 const observedFetchFactor = 3
 
 // ObservedSince answers the trailing window of observed messages for a folder
-// whose position is strictly after cursor, oldest first.
+// whose position is strictly after cursor, oldest first. The folder's own
+// replies (every topic's) are part of it, so a turn sees what a sibling topic
+// already answered (BUGS L527).
 //
 // THE CURSOR IS A BARE INSTANT and stays one: the read takes the NEWEST
 // window, so a cut can only fall at the old end and the newest rendered
@@ -290,29 +292,34 @@ func (s *Store) ObservedSince(ctx context.Context, folder, cursor string, maxMsg
 	if cursor != "" {
 		key = objstore.KeyPredicate{Op: objstore.GeKey, Value: cursor + string(KeySep[0]+1)}
 	}
-	// The observer's own folder contributes the rows sent to `folder#observe`;
-	// a watched source contributes its PRIMARY deliveries (the observe_group
-	// ambient join), which is why the two halves ask for opposite values of
-	// the same flag.
-	reads := []struct {
+	// The observer's own folder contributes the rows sent to `folder#observe`
+	// and, whatever their flag, its own replies, so a topic's turn sees what a
+	// sibling topic already answered; a watched source contributes its PRIMARY
+	// deliveries (the observe_group ambient join), which is why the two
+	// observed halves ask for opposite values of the same flag.
+	type read struct {
 		partition string
-		observed  objstore.Op
-	}{{partition: folder, observed: objstore.Present}}
+		where     []objstore.Cmp
+	}
+	reads := []read{
+		{folder, []objstore.Cmp{
+			{Attr: attrFeedObserved, Op: objstore.Present},
+			{Attr: attrFeedBot, Op: objstore.Absent},
+		}},
+		{folder, []objstore.Cmp{{Attr: attrFeedBot, Op: objstore.Present}}},
+	}
 	for _, w := range watched {
-		reads = append(reads, struct {
-			partition string
-			observed  objstore.Op
-		}{partition: w, observed: objstore.Absent})
+		reads = append(reads, read{w, []objstore.Cmp{
+			{Attr: attrFeedObserved, Op: objstore.Absent},
+			{Attr: attrFeedBot, Op: objstore.Absent},
+		}})
 	}
 	var found []objstore.Item
 	for _, r := range reads {
 		items, err := s.Obj().Query(ctx, objstore.Query{
 			Entity: MessageFolders, Partition: r.partition,
-			Key: key,
-			Where: []objstore.Cmp{
-				{Attr: attrFeedObserved, Op: r.observed},
-				{Attr: attrFeedBot, Op: objstore.Absent},
-			},
+			Key:        key,
+			Where:      r.where,
 			Descending: true, Limit: maxMsgs * observedFetchFactor,
 		})
 		if err != nil {

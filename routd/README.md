@@ -117,7 +117,7 @@ Three processes build what the agent reads, and each builds the part only it hol
 
 `<user id name memory="~/users/<id>.md"/>` is a pointer and holds no content. It names the sender and the file, and the agent decides whether to read the file. The file lives in the group folder, so what the agent knows about a person is per folder. The `acl_membership` rows bind the identities of one person across channels, which is a separate concern.
 
-No injected row is a bot row. The trigger drops bot rows (`dispatch.go`), and the observed read excludes them. Where history is returned on purpose, through `inspect_messages`, `get_thread` and `fetch_history`, a bot row carries `bot="true"`. The attribute reads `is_bot_message`, never `is_from_me`, because the from-me rows of an imported archive belong to the linked account, that is, to the operator.
+The trigger drops bot rows (`dispatch.go`). The observed window keeps the folder's own replies, from every topic, rendered `bot="true"`, so a topic sees what a sibling topic already answered; it excludes the bot rows of a watched source. Where history is returned on purpose, through `inspect_messages`, `get_thread` and `fetch_history`, a bot row carries `bot="true"`. The attribute reads `is_bot_message`, never `is_from_me`, because the from-me rows of an imported archive belong to the linked account, that is, to the operator.
 
 `<surface>slack-pane</surface>` is the only `<surface>` tag that routd emits, and it belongs to the Slack pane. The output style sets the length and format rules per surface: `ant/output-styles/README.md`.
 

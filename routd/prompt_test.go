@@ -565,3 +565,49 @@ func TestBuildAgentPrompt_TriggerNotRepeatedAsObserved(t *testing.T) {
 		t.Error("watermark lost: the filtered row must still advance the observed cursor")
 	}
 }
+
+// BUGS L527: on krons a topic-232 turn answered message 238, then the topic-""
+// turn built after it saw 238 as an unseen observed row and answered it again,
+// because the observed window dropped the folder's own replies. The reply a
+// sibling topic sent must reach the next turn as an observed bot row, rendered
+// bot="true" so the agent reads it as its own answer, under the rule that says
+// observed rows are context.
+func TestBuildAgentPrompt_SiblingTopicReplyIsObservedBotRow(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	_ = db.PutGroup(core.Group{Folder: "nemo"})
+	loop := NewLoop(db, runnerFn(nil), LoopConfig{
+		ObserveWindowMessages: 10, ObserveWindowChars: 4000,
+	})
+	loop.StopQueue()
+
+	now := time.Now().UTC()
+	ask := core.Message{ID: "238", ChatJID: "tg:1", Sender: "kron", Content: "jak je to daleko",
+		Timestamp: now, RoutedTo: "nemo", Topic: "232", Verb: "message"}
+	reply := core.Message{ID: "out-238", ChatJID: "tg:1", Sender: "nemo",
+		Content: "the answer: 40 km to go", Timestamp: now.Add(time.Minute),
+		RoutedTo: "nemo", Topic: "232", BotMsg: true, FromMe: true}
+	for _, m := range []core.Message{ask, reply} {
+		if err := db.PutMessage(m); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.MarkMessagesObserved("nemo", []core.Message{ask}); err != nil {
+		t.Fatal(err)
+	}
+
+	trigger := []core.Message{{ID: "239", ChatJID: "tg:1", Sender: "kron",
+		Content: "and the weather?", Timestamp: now.Add(2 * time.Minute), Verb: "message"}}
+	got, mark := loop.buildAgentPrompt("nemo", "", trigger)
+
+	if !strings.Contains(got, `<observed id="out-238" sender="nemo"`) ||
+		!strings.Contains(got, `bot="true">the answer: 40 km to go</observed>`) {
+		t.Errorf("the sibling topic's reply is not an observed bot row:\n%s", got)
+	}
+	if mark != core.TS(reply.Timestamp) {
+		t.Errorf("watermark = %q, want the reply's instant %q", mark, core.TS(reply.Timestamp))
+	}
+}

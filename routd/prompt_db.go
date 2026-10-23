@@ -75,9 +75,10 @@ func (d *DB) WatchedSources(folder string) []string {
 
 // ObservedSince returns the trailing window of observed messages for folder
 // strictly after cursor (empty: the cap decides), capped by maxMsgs/maxChars
-// with the oldest dropped first. Two shapes merged: the folder's own observed
-// rows and the primary-delivery rows of the folders it watches, both from the
-// folder feed. Isolated scheduled runs are excluded from BOTH (BUGS L54);
+// with the oldest dropped first. Three shapes merged: the folder's own observed
+// rows, its own bot replies, and the primary-delivery rows of the folders it
+// watches, all from the folder feed. Isolated scheduled runs are excluded from
+// ALL (BUGS L54);
 // store owns that filter.
 func (d *DB) ObservedSince(folder, cursor string, maxMsgs, maxChars int) []core.Message {
 	msgs, err := d.store().ObservedSince(context.Background(), folder, cursor,
