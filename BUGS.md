@@ -314,6 +314,10 @@ reads those words now.
 - `L549` — an inline comment reaches the agent without line, hunk or thread,
   and `reply` without `replyToId` answers the batch's last comment: carry the
   location on each message and require the reply target (changes 6/27)?
+- `L551` — an inline review comment that mentions the bot starts no turn;
+  #311's three inline mentions were dropped (cause not measured).
+- `L552` — a comment on a PR the bot opened starts no turn without a mention
+  (owner: he should see most on his own PRs; amends 6/27).
 
 **Found while folding the lowercase `bugs.md` into this file (2026-10-20).**
 
@@ -1373,6 +1377,40 @@ overlapped. The defects are inside that one conversation:
 - **Interim:** `443f0057` tells the agent to ALWAYS set `replyToId` (the
   GitHub output style); the contract change stays open.
 - **Status:** open — needs sign-off (6/27 contract change).
+
+## L551 — an inline review comment that mentions the bot starts no turn (2026-10-23, open)
+
+MEASURED on sloth (export `~/.claude/jobs/802d25d6/tmp/sloth-gh/`, 14 days):
+27 human mentions on PR chats; every one of the 13 that triggered no turn of
+its own is an inline comment (`gh-rc…`). Ten were answered only because a
+later conversation comment on the same PR started a turn (#293 #301 #305
+#278). PR #311 had no other comment, so its three inline mentions
+(`gh-rc4362729239` 18:03:07, `gh-rc4362737580` and `gh-rc4362749869`
+18:07:03, 2026-10-23) got no dispatch at all, and the chat's `agent_cursor`
+moved past them to a CI event (`…20:19:49…gh-d17add4c0…-pr311`). Conversation
+mentions work on a PR the bot never wrote on: #230 `gh-c6372905482` started a
+turn. Each inline mention row carries `verb=mention` and `routed_to=sloth/morha`;
+each arrives in the same second as its `pull_request_review` row (`gh-r…`).
+The cause is NOT measured yet.
+
+- **Severity:** high — an inline "@sloth-goth explain this" on a new PR is
+  silently dropped.
+- **Status:** open.
+
+## L552 — a comment on a PR the bot opened starts no turn unless it mentions the bot (2026-10-23, open)
+
+MEASURED: on the six PRs `sloth-goth` opened in `vumilan/morha`, a human
+comment without `@sloth-goth` maps to `verb=message` (`gitd/event.go` `speech`),
+and since the legacy `verb=message` routes were removed (2026-10-23) only the
+`#observe` rule matches it. Only `review_requested`, `assigned` and an assignee
+on a state action map to `mention` (`gitd/event.go:311-316`, `:399-403`).
+
+The owner (2026-10-23): "he should see most on PRs he opened."
+
+- **Fix:** gitd maps a human comment, inline comment or review on a PR or issue
+  whose author is the bot to `mention`. Amend `specs/6/27-git-channel.md`
+  (engagement boundary) first.
+- **Status:** open.
 
 ## L546 — every turn leaves a permanent progress comment on a GitHub PR (2026-10-23, open — needs sign-off)
 
