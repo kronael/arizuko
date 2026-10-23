@@ -351,45 +351,6 @@ func TestRotationMovesTheSlotAndRetiresTheOutgoingKey(t *testing.T) {
 	}
 }
 
-// Emergency revoke empties the slot and backdates the retirement, and the
-// rotation that follows it installs a signer into the empty slot.
-func TestRetireActiveKeysEmptiesTheSlot(t *testing.T) {
-	st := newStore(t)
-	k, _ := auth.NewSigningKey("1000000000-aaaaaaaa")
-	if err := st.RotateActiveKey(k, time.Now()); err != nil {
-		t.Fatal(err)
-	}
-	if err := st.RetireActiveKeys(time.Now().Add(-2 * time.Hour)); err != nil {
-		t.Fatal(err)
-	}
-	keys, err := st.SigningKeysWithMaterial()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(keys) != 1 || keys[0].Active {
-		t.Fatalf("after an emergency revoke the keys are %+v; none may be active", keys)
-	}
-	// Retiring again is a no-op rather than a failure: there is nothing left to
-	// retire, which is the answer the set-wide UPDATE gave by touching no row.
-	if err := st.RetireActiveKeys(time.Now()); err != nil {
-		t.Fatalf("retiring an empty slot must not fail: %v", err)
-	}
-	next, _ := auth.NewSigningKey("2000000000-bbbbbbbb")
-	if err := st.RotateActiveKey(next, time.Now()); err != nil {
-		t.Fatalf("a rotation into an empty slot must succeed: %v", err)
-	}
-	keys, _ = st.SigningKeysWithMaterial()
-	signers := 0
-	for _, k := range keys {
-		if k.Active {
-			signers++
-		}
-	}
-	if signers != 1 {
-		t.Fatalf("%d keys are active, want exactly 1", signers)
-	}
-}
-
 // A login resolves to the account that linked it, with every sub that account
 // holds — and an identity another account already owns is refused rather than
 // merged (spec 5/1 § Account linking).

@@ -183,27 +183,6 @@ func TestHTTPRetiredKeyFallsOutOfWindow(t *testing.T) {
 	}
 }
 
-// Emergency revoke (network path): RevokeAllNow drops the old kid from /v1/keys
-// immediately, so a cold verifier rejects every token signed by the retired
-// key — the single lever that invalidates everything at once. specs/5/1
-// "EMERGENCY revoke ... rotate the signing key".
-func TestHTTPRevokeAllNowStopsOldTokens(t *testing.T) {
-	db := testDB(t)
-	a := newTestAuthd(t, db)
-	_, ts := newServer(t, a)
-
-	oldTok, _ := a.MintForSubject("user:1", "user", nil, []string{"a:read"}, "")
-	if err := fetchVerify(t, ts.URL, oldTok); err != nil {
-		t.Fatalf("control: token must verify before revoke: %v", err)
-	}
-	if err := a.RevokeAllNow(); err != nil {
-		t.Fatal(err)
-	}
-	if err := fetchVerify(t, ts.URL, oldTok); err == nil {
-		t.Fatal("RevokeAllNow must immediately stop the old token on a cold verifier")
-	}
-}
-
 // Refresh (HTTP end-to-end): a successful /v1/refresh returns a rotated refresh
 // token AND a fresh, verifiable access token; replaying the SPENT refresh
 // token over HTTP triggers family revocation, and the live successor is killed

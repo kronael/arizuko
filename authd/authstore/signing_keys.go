@@ -86,9 +86,8 @@ func (s *Store) RotateActiveKey(k *auth.SigningKey, at time.Time) error {
 		Cond: objstore.Cond{Item: objstore.ItemAbsent},
 	}}
 	if old == "" {
-		// No key holds the slot: a first boot, or the window an emergency
-		// revoke opens before the rotation that follows it. ItemAbsent elects
-		// one winner there.
+		// No key holds the slot: a first boot, or a slot an operator deleted.
+		// ItemAbsent elects one winner there.
 		writes = append(writes, objstore.Write{
 			Op: objstore.Put, Entity: SigningKeySlot, Key: key(activeSlot),
 			Attrs: map[string]string{"kid": k.Kid},
@@ -117,32 +116,6 @@ func (s *Store) RotateActiveKey(k *auth.SigningKey, at time.Time) error {
 		return ErrRotationLost
 	}
 	return nil
-}
-
-// RetireActiveKeys marks the key holding the slot retired as of `at` and
-// empties the slot, for emergency revoke (at backdated); normal rotation
-// retires in-batch via RotateActiveKey. An empty slot is not a failure, nor is
-// a refused batch: another caller emptied the slot, and the key is retired
-// either way.
-func (s *Store) RetireActiveKeys(at time.Time) error {
-	kid, err := s.activeKid()
-	if err != nil || kid == "" {
-		return err
-	}
-	_, err = s.s.GuardedBatch(ctx(), nil, []objstore.Write{
-		{
-			Op: objstore.Delete, Entity: SigningKeySlot, Key: key(activeSlot),
-			Cond: objstore.Cond{Where: []objstore.Cmp{
-				{Attr: "kid", Op: objstore.Eq, Value: kid},
-			}},
-		},
-		{
-			Op: objstore.Update, Entity: SigningKeys, Key: key(kid),
-			Attrs: map[string]string{"retired_at": at.UTC().Format(time.RFC3339)},
-			Cond:  objstore.Cond{Item: objstore.ItemPresent},
-		},
-	})
-	return err
 }
 
 // SigningKeyMetadata reads the non-secret attributes of every signing key and

@@ -113,9 +113,9 @@ both tables 2026-08-04 (`fcd845cb`) — binding a channel identity to a person i
 [`5/31`](31-identity-pairing.md) pairing now.
 
 `signing_keys` validity is **time-based, no `revoked` flag**: a key serves while
-`active` OR `now < retired_at + maxAccessTTL`. Emergency revoke backdates
-`retired_at` so the serving window is already closed and the kid drops from the
-JWK Set at once, then ages out by normal GC.
+`active` OR `now < retired_at + maxAccessTTL`. Emergency revoke empties the slot,
+so no key is active and the old key has no `retired_at`: the kid serves nothing
+and drops from the JWK Set at once, then ages out by normal GC.
 
 <!-- UNVERIFIED: private-key encryption-at-rest (AUTHD_KEY_ENCRYPTION_KEY,
      "plain:"/"gcm:v1:" tagged envelope) is specced but NOT built — no such env
@@ -365,21 +365,21 @@ other daemons, which lack the key.
   `retired_at`; both public halves stay in `/v1/keys` until
   `retired_at + maxAccessTTL`, so old-`kid` tokens verify until they would have
   expired anyway. GC drops the row after.
-- **Emergency revoke** — retire with `retired_at` already in the past
-  (`authd/server.go:108`), so the serve check is false immediately and the kid
-  drops now. Every token it signed fails within one JWKS cache TTL. The single
-  lever that invalidates everything at once.
+- **Emergency revoke** — an operator deletes the `signing_key_slot` item and
+  restarts authd. `newAuthd` mints a key into the empty slot; the old key has no
+  `retired_at`, so the serve check is false and the kid drops now. Every token
+  it signed fails within one JWKS cache TTL. A key retired less than
+  `maxAccessTTL` ago keeps verifying until its own window closes.
+  `TestEmptySlotRestartRevokesTokens` (`authd/authd_test.go`) covers it.
 
-**`RevokeAllNow` has no caller, deliberately.** It is a Go-level lever with no
-wire face, and giving it one is not a missing endpoint — it is the same change
+**No command or endpoint revokes everything, deliberately.** Giving the lever a
+wire face is not a missing endpoint — it is the same change
 as `POST /v1/keys/rotate`, which this spec defers on purpose. One HTTP call that
 logs out an entire fleet is an operation you want deliberate and out-of-band,
 and rotation is manual-only today (see the UNVERIFIED note below on scheduled
 rotation). `GET /v1/signing_keys` is the read that makes the lever _legible_ —
 an operator can now see which kid is signing and when a retired one stops
 verifying — which is the half that did not need a new authority to build.
-`authd/authd_test.go` and `authd/scenario_test.go` keep the lever itself
-covered.
 
 `/dash/authd/` **names the deferral rather than hiding it**: it explains that
 signing everyone out means retiring the key, and that there is no button for it

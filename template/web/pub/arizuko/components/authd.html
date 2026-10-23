@@ -132,7 +132,7 @@ export AUTH_BASE_URL=https://example.com
 
     <p>That page is <code>/dash/authd/</code>, described in <a href="dashd.html">components/dashd</a>. It shows both tables and puts a sign-out button on each live login.</p>
 
-    <p>No HTTP endpoint, CLI command or button signs everyone out at once. That would mean retiring the active signing key. The code has a <code>RevokeAllNow</code> function for this, and no production code calls it.</p>
+    <p>No HTTP endpoint, CLI command or button signs everyone out at once. An operator revokes every token by deleting the <code>signing_key_slot</code> item and restarting authd. authd then mints a new signing key at start.</p>
 
     <h2>authd does not authorize</h2>
     <p>authd creates and verifies tokens, runs the OAuth flow and rotates keys. It never decides whether a caller can touch a particular folder. routd makes that decision, every time.</p>

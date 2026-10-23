@@ -288,7 +288,7 @@ with two `attribute_not_exists` terms, and the loser gets
 presented token and insert its successor together, or neither. Two rows, one
 account, one region, well inside `TransactWriteItems`' hundred. It ports.
 
-**Three do not port as written, and each names a modelling gap rather than an
+**Two do not port as written, and each names a modelling gap rather than an
 engine limit.**
 
 1. **`SessionsByFamily` runs two correlated subqueries** — `COUNT(*)` and
@@ -305,9 +305,6 @@ engine limit.**
    guarded write, reuse detection is one read, and the returned count stops
    being the answer to "did this work" — which it never should have been,
    because re-revoking a dead family legitimately affects zero rows.
-3. **`RetireActiveKeys` updates every active signing key.** Same set-wide
-   shape, but the set is bounded and tiny — one active key fleet-wide, measured
-   — so it is `Query` plus a guarded batch, and it needs no new model.
 
 **What that buys.** One daemon, chosen for being small, produced one
 denormalisation, one genuinely missing entity, and zero changes to the two

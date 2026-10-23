@@ -12,6 +12,7 @@ import (
 
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/authd/authstore"
+	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/objstore/dynstore"
 	"github.com/kronael/arizuko/objstore/dynstore/dyntest"
 )
@@ -109,21 +110,29 @@ func TestRetiredKeyDropsAfterWindow(t *testing.T) {
 	}
 }
 
-func TestRevokeAllNowClosesWindow(t *testing.T) {
+// An operator revokes every token by deleting the signing-key slot item and
+// restarting authd: the empty slot makes newAuthd mint a signer, and the old
+// key, retired by no one, serves nothing.
+func TestEmptySlotRestartRevokesTokens(t *testing.T) {
 	db := testDB(t)
 	a := newTestAuthd(t, db)
 	oldTok, _ := a.MintForSubject("user:1", "user", nil, []string{"a:read"}, "")
-	if err := a.RevokeAllNow(); err != nil {
+	oldKey, _ := a.activeKey()
+	if _, err := db.GuardedBatch(context.Background(), nil, []objstore.Write{{
+		Op: objstore.Delete, Entity: authstore.SigningKeySlot,
+		Key: objstore.Key{Partition: authstore.Partition, Sort: "active"},
+	}}); err != nil {
 		t.Fatal(err)
 	}
-	// Emergency revoke backdates the old key past the window: only the fresh
-	// active key serves, and the old token no longer verifies.
-	if len(a.PublicKeys()) != 1 {
-		t.Fatalf("expected 1 serving key after revoke, got %d", len(a.PublicKeys()))
+	b := newTestAuthd(t, db)
+	if k, _ := b.activeKey(); k == nil || k.Kid == oldKey.Kid {
+		t.Fatalf("restart with an empty slot kept signer %v, want a new key", k)
 	}
-	ks := auth.NewKeySet(a.PublicKeys())
-	if _, err := auth.VerifyToken(oldTok, ks); err == nil {
-		t.Fatal("token signed by revoked key must not verify")
+	if len(b.PublicKeys()) != 1 {
+		t.Fatalf("expected 1 serving key after restart, got %d", len(b.PublicKeys()))
+	}
+	if _, err := auth.VerifyToken(oldTok, auth.NewKeySet(b.PublicKeys())); err == nil {
+		t.Fatal("token signed by the removed signer must not verify")
 	}
 }
 

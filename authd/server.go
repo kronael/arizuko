@@ -80,9 +80,9 @@ func (a *Authd) reload() error {
 }
 
 // Rotate generates a new active key, retiring the old one as of now (it keeps
-// verifying within its TTL window); emergency revoke is RevokeAllNow. Retire
-// and install run in ONE guarded batch, so two concurrent Rotate() calls elect
-// one winner; the loser gets authstore.ErrRotationLost.
+// verifying within its TTL window). Retire and install run in ONE guarded
+// batch, so two concurrent Rotate() calls elect one winner; the loser gets
+// authstore.ErrRotationLost.
 func (a *Authd) Rotate() error {
 	k, err := auth.NewSigningKey(genKid(time.Now()))
 	if err != nil {
@@ -101,16 +101,6 @@ func genKid(created time.Time) string {
 	b := make([]byte, 4)
 	_, _ = rand.Read(b)
 	return fmt.Sprintf("%d-%s", created.Unix(), hex.EncodeToString(b))
-}
-
-// RevokeAllNow backdates the active key's retired_at past the serving window,
-// closing verification of all currently-issued tokens immediately, then mints a
-// fresh active key. This is the emergency-revoke path.
-func (a *Authd) RevokeAllNow() error {
-	if err := a.st.RetireActiveKeys(time.Now().Add(-a.maxAccessTTL - time.Second)); err != nil {
-		return err
-	}
-	return a.Rotate()
 }
 
 // PublicKeys returns the public halves of all serving keys, keyed by kid — the

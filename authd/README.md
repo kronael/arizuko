@@ -23,7 +23,7 @@ revoke a key.
   `Downscope` (subset of parent), issuer-mint for a different sub
 - Rotate keys. Exactly one active key is enforced by the `signing_key_slot`
   entity holding ONE item, so two signers are unrepresentable rather than
-  merely refused. `RevokeAllNow` is the emergency revoke
+  merely refused
 - Issue + rotate refresh tokens with reuse detection (replayed token
   revokes the whole family); re-snapshot grants on refresh
 - Self-mint `service:authd` at boot and exchange daemon service keys for
@@ -138,8 +138,10 @@ Two of the six carry an invariant a column could not:
   a key. Validity is time-based: a key verifies while it is active or until
   `retired_at + maxAccessTTL`. There is no revoked flag and no revocation
   list, because verifiers stay offline. A normal revoke waits out the access
-  TTL; a refresh revoke deletes the family; `RevokeAllNow` backdates the
-  active key's retirement past the window, which signs everyone out at once.
+  TTL; a refresh revoke deletes the family. An operator revokes every token
+  by deleting the `signing_key_slot` item and restarting authd, which mints a
+  new key at start; a key retired less than `maxAccessTTL` ago still verifies
+  until its window closes.
 - **`POST /v1/tokens` has two modes.** Issuer-mint needs `tokens:mint` and a
   different target sub; the granted scope is bounded by the TARGET's grants,
   because a login or invite flow mints for an account whose grants the
