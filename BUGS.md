@@ -309,6 +309,18 @@ reads those words now.
 - `L546` — every turn leaves a permanent `✓ <status>` comment on a GitHub PR:
   drop progress comments on GitHub (spec 6/46)?
 
+**Found by the sloth GitHub eval (2026-10-23).**
+
+- `L547` — the soft-deadline SIGUSR1 reaches bash, not node, and kills the
+  guest with exit 138 after a reply landed (small fix: `exec node`).
+- `L548` — a redelivered message that routd moved to a later timestamp is
+  stored again: 137 duplicate groups, 283 extra rows (storage fix).
+- `L549` — an inline comment reaches the agent without line, hunk or thread,
+  and `reply` without `replyToId` answers the batch's last comment: carry the
+  location on each message and require the reply target (changes 6/27)?
+- `L550` — the agent posts with `gh` directly, so the comment is missing
+  from the conversation record and the channel reply repeats it.
+
 **Found while folding the lowercase `bugs.md` into this file (2026-10-20).**
 
 - `L480` — slakd sends a whole reply as one `chat.postMessage`; `chanlib.Chunk`
@@ -1337,6 +1349,82 @@ agent to act, so it contradicts these files.
   refuses merge and approve where a folder lacks it. The three skills sync from
   kronael/tools, so the change goes there or into agent-specific copies.
 - **Status:** open — needs sign-off.
+
+## L547 — the soft-deadline signal reaches bash, not node, and kills the guest after its reply (2026-10-23, open)
+
+MEASURED on sloth (Sol eval, `~/.claude/jobs/802d25d6/tmp/sloth-gh/report.md`):
+three GitHub guests (#306 2026-10-21, #305 and #301 2026-10-23) got the
+`[deadline]` warning, then exited 138 after the agent's result was stored as a
+success. On #305 sloth posted "Merged" at 19:03:32 and routd posted "Failed:
+agent error" at 19:03:55. READ at `74781587`: runed's soft deadline steers
+(`runed/qemu.go:584-589`), guest-init sends SIGUSR1 to the PID it started
+(`kernel/guest-init/main.go:764-769`), which is `/app/entrypoint.sh`; the
+script runs `node /tmp/dist/index.js < /tmp/input.json` without `exec`
+(`ant/entrypoint.sh:11`), so bash takes the signal and dies, and the handler in
+`ant/src/index.ts:97` never runs. Guest-init maps the signal to 138
+(`kernel/guest-init/main.go:932-933`).
+
+- **Severity:** high — every turn that reaches the deadline warning ends in a
+  false failure notice on the chat.
+- **Fix:** `exec node …` in `ant/entrypoint.sh`.
+- **Status:** open.
+
+## L548 — a redelivered message that routd moved to a later timestamp is stored again (2026-10-23, open)
+
+MEASURED on sloth: 137 `(chat JID, message ID)` groups hold 283 extra rows in
+`routd.messages` (134 repository CI groups, 2 on PR #305, 1 on #175); inline
+comment `gh-rc4335962453` is stored three times and was rendered twice into one
+#305 prompt. READ at `74781587`: `appendInstant` moves a late message to a free
+later position (`store/messages.go:270`), but its duplicate check looks only at
+the message's original `(timestamp, id)` position (`store/messages.go:335-343`).
+A redelivery of a moved message finds nothing there and takes another new
+position.
+
+- **Severity:** medium — duplicate prompt lines and duplicate observed rows.
+- **Fix:** guard the stable `(chat JID, message ID)` identity, not the
+  timestamped position, in the same batch as the insert.
+- **Status:** open.
+
+## L549 — an inline review comment reaches the agent without its location, and a reply without a target answers the wrong comment (2026-10-23, open — needs sign-off)
+
+MEASURED on sloth: inline comments, conversation comments and review bodies of
+one PR already share one topic `pr/N` and one session (`chanlib/github_jid.go`,
+`store/sessions.go`), and the 95 `sloth/morha` guests in 14 days never
+overlapped. The defects are inside that one conversation:
+
+- gitd renders an inline comment as `on <path>:` plus the body
+  (`gitd/event.go:354`) — no line, side, diff hunk, review id or thread root. An
+  empty `suggestion` block reads as nothing at all.
+- `reply` without `replyToId` uses the topic's `last_reply`, seeded with the
+  batch's last message (`ipc/ipc.go:1330-1335`, `routd/dispatch.go:361`). On
+  #305 sloth answered the log-directory comment `gh-rc4336034573` and the reply
+  `4336430639` landed in the `.dockerignore` thread (`in_reply_to_id` =
+  `4335962453`).
+- Six older inline answers landed as PR conversation comments because the
+  stored ids carry the `gh-c` prefix (#277 #278 #281 #286 #293); the current
+  `gh-rc` prefix (`gitd/bot.go:249-258`) routes them inline.
+- gitd has no history capability, so `fetch_history` falls back to the cache
+  (5 times), and the observed window is the folder's (`L442`): 588 of 682
+  observed entries in 75 GitHub prompts were CI events.
+
+- **Fix:** gitd renders one location header on each message (kind, object id
+  and URL, thread root, review id, path, line range, side, hunk); `reply` on a
+  GitHub chat requires `replyToId`; observed window scoped to the PR (`L442`).
+  Amend `specs/6/27-git-channel.md` first.
+- **Status:** open — needs sign-off (6/27 contract change).
+
+## L550 — the agent posts PR comments with `gh` directly, outside the conversation record (2026-10-23, open)
+
+MEASURED on sloth: 15 sloth comments on GitHub have no bot row in
+`routd.messages` (7 direct `gh`/API posts, 8 router failure notices). Two
+direct posts were then repeated by the channel reply: #286 (`6241865065` then
+`6241866018`, 6 s apart) and #305 (`6372541756` then `6372577744`). A comment
+the record lacks is invisible to the next turn's prompt.
+
+- **Fix:** the GitHub output style says to answer on the PR through `reply`,
+  never `gh pr comment` / `gh api …/comments`; `gh` stays for code, push,
+  merge and review submission (`L545`).
+- **Status:** open.
 
 ## L546 — every turn leaves a permanent progress comment on a GitHub PR (2026-10-23, open — needs sign-off)
 
