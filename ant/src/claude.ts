@@ -10,6 +10,7 @@ import {
   query,
   EffortLevel,
   HookCallback,
+  Options,
   PreCompactHookInput,
 } from '@anthropic-ai/claude-agent-sdk';
 import { Binding, PolicyEvent, ToolEvent, bindings, runRow } from './policy.js';
@@ -433,9 +434,50 @@ export class ClaudeTurn {
   }
 }
 
-// runClaude is one turn: unpack the continuity token, drive query(), reduce
-// the SDK stream to frames.
-async function* runClaude(turn: Turn): AsyncGenerator<Frame> {
+// SessionEnd decides when the prompt stream may close. The session is over when
+// Claude Code has sent a result AND reported `idle`, in either order: it reports
+// idle only once no background task runs and no notification waits, so a
+// task-notification that arrives after the first result is still handled with
+// working tools. prompted() marks a new prompt in flight and clears both facts.
+// A CLI that sent no state event before a result is not reporting, so that
+// result ends the session.
+export class SessionEnd {
+  private resulted = false;
+  private idle = false;
+  private reporting = false;
+
+  get sawState(): boolean {
+    return this.reporting;
+  }
+
+  prompted(): void {
+    this.resulted = false;
+    this.idle = false;
+  }
+
+  push(message: unknown): boolean {
+    const m = message as { type?: string; subtype?: string; state?: string };
+    if (m.type === 'system' && m.subtype === 'session_state_changed') {
+      this.reporting = true;
+      this.idle = m.state === 'idle';
+    } else if (m.type === 'result') {
+      this.resulted = true;
+      if (!this.reporting) return true;
+    }
+    return this.reporting && this.resulted && this.idle;
+  }
+}
+
+type QueryFn = (params: {
+  prompt: AsyncIterable<SDKUserMessage>;
+  options: Options;
+}) => AsyncIterable<unknown>;
+
+// runClaude is one run: unpack the continuity token, drive the query, reduce
+// the SDK stream to frames. The prompt stream stays open until SessionEnd says
+// the session is over, and result frames are held so the chassis sees exactly
+// one, the last: submit_turn runs once, at the real end.
+export async function* runClaude(turn: Turn, run: QueryFn = query): AsyncGenerator<Frame> {
   const { sessionId, resumeAt } = unpackContinuity(turn.continuity);
   // A lineage placeholder or a pruned transcript starts fresh silently.
   const session = resolveResumeSession(sessionId, (id) => fs.existsSync(transcriptPath(id)));
@@ -458,8 +500,10 @@ async function* runClaude(turn: Turn): AsyncGenerator<Frame> {
   turn.signal?.addEventListener('abort', onAbort, { once: true });
 
   const reducer = new ClaudeTurn();
+  const end = new SessionEnd();
+  let held: Frame | undefined;
   try {
-    for await (const message of query({
+    for await (const message of run({
       prompt: stream,
       options: {
         abortController,
@@ -485,7 +529,7 @@ async function* runClaude(turn: Turn): AsyncGenerator<Frame> {
         // arizuko gates side effects at routd's MCP socket and the egress proxy.
         // sandbox off for the same reason — the container IS the sandbox.
         sandbox: { enabled: false },
-        env: claudeEnv(turn.env),
+        env: { ...claudeEnv(turn.env), CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS: '1' },
         permissionMode: 'bypassPermissions',
         allowDangerouslySkipPermissions: true,
         settingSources: ['project', 'user'],
@@ -509,27 +553,38 @@ async function* runClaude(turn: Turn): AsyncGenerator<Frame> {
         const tn = message as { task_id: string; status: string; summary: string };
         log(`Task notification: task=${tn.task_id} status=${tn.status} summary=${tn.summary}`);
       }
-      // A result terminates the turn: close the prompt stream so the SDK concludes.
-      if (m.type === 'result') stream.end();
-      if (m.type === 'result' && m.subtype === 'error_max_turns') {
-        yield timeoutFrame();
-        continue;
+      const maxTurns = m.type === 'result' && m.subtype === 'error_max_turns';
+      for (const frame of maxTurns ? [timeoutFrame()] : reducer.push(message)) {
+        if (frame.kind === 'result') held = frame;
+        else yield frame;
       }
-      yield* reducer.push(message);
+      if (end.push(message)) {
+        if (!end.sawState) {
+          log('ERROR: Claude Code sent no session_state_changed before its first result; ending the session at that result');
+        }
+        stream.end();
+      }
     }
   } catch (err) {
     // The query-timeout abort surfaces here as a thrown AbortError. Without this
     // catch it propagated out of the runtime → container exit 1 → the user got NO
     // reply. A manual interrupt (no timedOut flag) re-throws; runed's hard kill
-    // bounds it.
-    if (!timedOut) throw err;
-    log('Query timeout: submitting timed-out outcome');
-    yield timeoutFrame();
+    // bounds it. A throw after a result delivers that result, as the chassis
+    // does for any harness.
+    if (timedOut) {
+      log('Query timeout: submitting timed-out outcome');
+      held = timeoutFrame();
+    } else if (held) {
+      log(`Query threw after a result (delivering the result): ${err instanceof Error ? err.message : String(err)}`);
+    } else {
+      throw err;
+    }
   } finally {
     clearTimeout(timer);
     turn.signal?.removeEventListener('abort', onAbort);
     stream.end();
   }
+  if (held) yield held;
 }
 
 // claudeHarness is the default occupant (spec 6/16 § "The four layers").

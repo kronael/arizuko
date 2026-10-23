@@ -3,9 +3,13 @@
 // SDK's query(), which needs real credentials, so this tests ClaudeTurn directly.
 
 import { test, expect } from 'bun:test';
+import fs from 'fs';
 import path from 'path';
+import type { Frame, Turn } from './backend.js';
 import {
   ClaudeTurn,
+  SessionEnd,
+  runClaude,
   claudeEnv,
   claudeResultStatus,
   createPreCompactHook,
@@ -302,5 +306,161 @@ test('createPreCompactHook: an unreadable transcript still returns the /diary in
   expect(out.systemMessage).toContain('Invoke /diary before continuing.');
   for (const keep of ['PERSONA.md', 'CLAUDE.md', 'diary/ entries', 'facts/', 'users/']) {
     expect(out.systemMessage).toContain(`- ${keep}`);
+  }
+});
+
+// --- session end: Claude Code's idle, not the first result (BUGS L535) ----
+
+const turn: Turn = { prompt: 'review the PR', cwd: '/tmp', turnID: 't1', env: {} };
+
+const state = (s: string) => ({ type: 'system', subtype: 'session_state_changed', state: s });
+const result = (text: string) => ({ type: 'result', subtype: 'success', is_error: false, result: text });
+const assistant = (n: number) => ({
+  type: 'assistant',
+  uuid: `a1a1a1a1-0000-4000-8000-00000000000${n}`,
+  message: { content: [{ type: 'text', text: `step ${n}` }] },
+});
+
+async function collect(frames: AsyncIterable<Frame>): Promise<Frame[]> {
+  const out: Frame[] = [];
+  for await (const f of frames) out.push(f);
+  return out;
+}
+
+// fakeQuery replays an SDK message list. After the consumer handles each
+// message it records whether the prompt iterable is still open, which is the
+// stdin the real SDK closes when the prompt stream ends.
+function fakeQuery(messages: unknown[]) {
+  const probe: { env?: Record<string, string | undefined>; open: boolean[] } = { open: [] };
+  const query = async function* ({ prompt, options }: { prompt: AsyncIterable<unknown>; options: { env?: Record<string, string | undefined> } }) {
+    probe.env = options.env;
+    let promptEnded = false;
+    void (async () => {
+      for await (const _ of prompt);
+      promptEnded = true;
+    })();
+    for (const message of messages) {
+      yield message;
+      await new Promise((r) => setTimeout(r, 5));
+      probe.open.push(!promptEnded);
+    }
+  };
+  return { query, probe };
+}
+
+/**
+ * A background Agent's notification arrives after the first result: the
+ * prompt stream stays open through the notification and the second result, and
+ * closes only at idle; the chassis gets ONE result frame, the second one, and
+ * the SDK env asks Claude Code for the state events.
+ */
+test('runClaude: the session stays open for a task-notification after the first result and ends at idle', async () => {
+  const { query, probe } = fakeQuery([
+    { type: 'system', subtype: 'init', session_id: UUID },
+    state('running'),
+    assistant(1),
+    result('waiting for the review'),
+    { type: 'system', subtype: 'task_notification', task_id: 't1', status: 'completed', summary: 'review done' },
+    assistant(2),
+    result('posted the review'),
+    state('idle'),
+  ]);
+  const frames = await collect(runClaude(turn, query));
+  const results = frames.filter((f) => f.kind === 'result');
+  expect(results).toHaveLength(1);
+  expect(results[0]).toMatchObject({ kind: 'result', ok: true, text: 'posted the review' });
+  expect(frames.at(-1)).toBe(results[0]);
+  expect(probe.open).toEqual([true, true, true, true, true, true, true, false]);
+  expect(probe.env?.CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS).toBe('1');
+});
+
+/**
+ * A CLI that sends no state event ends the session at its first result, so the
+ * turn never waits for an idle that cannot come.
+ */
+test('runClaude: no state event before the result ends the session at that result', async () => {
+  const { query, probe } = fakeQuery([
+    { type: 'system', subtype: 'init', session_id: UUID },
+    assistant(1),
+    result('done'),
+  ]);
+  const frames = await collect(runClaude(turn, query));
+  expect(frames.filter((f) => f.kind === 'result')).toHaveLength(1);
+  expect(probe.open).toEqual([true, true, false]);
+});
+
+/**
+ * An error result while a task runs is held, not lost: with no later result
+ * the chassis still receives it at the end of the session.
+ */
+test('runClaude: an error result is held and delivered at the end', async () => {
+  const { query } = fakeQuery([
+    state('running'),
+    { type: 'result', subtype: 'success', is_error: true, result: 'API Error: 529 overloaded' },
+    state('idle'),
+  ]);
+  const frames = await collect(runClaude(turn, query));
+  expect(frames).toHaveLength(1);
+  expect(frames[0]).toMatchObject({ kind: 'result', ok: false, text: 'API Error: 529 overloaded' });
+});
+
+/**
+ * error_max_turns is the timed-out summary: it is held like any result and
+ * delivered as timeoutFrame once the session ends.
+ */
+test('runClaude: error_max_turns becomes the held timed-out frame', async () => {
+  const { query } = fakeQuery([
+    state('running'),
+    { type: 'result', subtype: 'error_max_turns', is_error: true, errors: [] },
+    state('idle'),
+  ]);
+  const frames = await collect(runClaude(turn, query));
+  expect(frames).toEqual([{ kind: 'result', ok: true, timedOut: true }]);
+});
+
+/**
+ * Result then idle, and idle then result, both end the session; a prompt
+ * pushed between the two facts clears them, so the next pair ends it; a CLI
+ * with no state event ends at the result.
+ */
+test('SessionEnd: result and idle end it in either order, a new prompt resets the pair', () => {
+  const a = new SessionEnd();
+  expect([a.push(state('running')), a.push(result('x')), a.push(state('idle'))]).toEqual([false, false, true]);
+
+  const b = new SessionEnd();
+  expect([b.push(state('running')), b.push(state('idle')), b.push(result('x'))]).toEqual([false, false, true]);
+
+  const c = new SessionEnd();
+  c.push(state('running'));
+  c.push(state('idle'));
+  c.prompted();
+  expect(c.push(result('x'))).toBe(false);
+  expect(c.push(state('idle'))).toBe(true);
+
+  const d = new SessionEnd();
+  expect(d.sawState).toBe(false);
+  expect(d.push(result('x'))).toBe(true);
+  expect(d.push(assistant(1))).toBe(false);
+});
+
+/**
+ * ant depends on two strings in the CLI it bundles: the env key that turns the
+ * state events on, and the event's own subtype. Each bundled CLI binary must
+ * hold both, so a release that drops either fails here and not in production.
+ */
+test('the bundled Claude Code CLI knows the session-state env key and event', () => {
+  const scope = path.join(import.meta.dir, '..', 'node_modules', '@anthropic-ai');
+  const binaries = fs
+    .readdirSync(scope)
+    .filter((d) => d.startsWith('claude-agent-sdk-'))
+    .map((d) => path.join(scope, d, 'claude'))
+    .filter((p) => fs.existsSync(p));
+  expect(binaries.length).toBeGreaterThan(0);
+  for (const bin of binaries) {
+    for (const needle of ['CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS', 'session_state_changed']) {
+      const n = Number(new TextDecoder().decode(Bun.spawnSync(['grep', '-c', '-a', '-F', needle, bin]).stdout).trim());
+      const label = `${path.basename(path.dirname(bin))} ${needle}`;
+      expect(`${label} ${n > 0}`).toBe(`${label} true`);
+    }
   }
 });
