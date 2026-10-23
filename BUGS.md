@@ -169,9 +169,6 @@ revoked — see its entry.)
   not why: the harness's callback sink is a docker-network address a guest cannot
   reach. Three fixes are costed in the entry and choosing between them is yours —
   a name the proxy can dial, one tap rule, or the callback over MCP.
-- `L364` — `route rm <id>` on sloth deletes the WRONG row: six ids are duplicated
-  by the marinade merge. It already destroyed a live rule once. Re-minting sloth's
-  route ids is yours; do not address a sloth rule by id until then.
 - `L363` — sloth advertises five atlas Telegram routes and can serve one. The
   bot the others talk to is served by nothing, and its only token is in the
   staged marinade tree. Three options in the entry; one is a deploy.
@@ -2889,85 +2886,6 @@ that skips the sender reports a healthy chat.
      Telegram side is finished: two of them already name chats neither bot can
      see, so they are dead regardless of the decision above.
 
-## L364 — sloth's six duplicated route ids need re-minting; the CODE half is fixed (2026-09-25, open — operator action on live data)
-
-**This destroyed a live route while I was using it.** `arizuko route sloth rm 37`
-printed `removed route 37`, left route 37 in place, and deleted
-`main/main ← room=group/5069669817 verb=mention` instead — a live Telegram group's
-trigger rule. Its `#observe` twin survived, so that group would have observed
-every message and answered none. Restored as route 50 with the identical match,
-target and seq; a before/after diff of all 38 rows confirms the table now differs
-from its prior state by exactly the one row that was meant to go.
-
-`store/routes.go` `routeByID` reads the whole partition and returns on the FIRST
-`r.ID == id`:
-
-```go
-for _, it := range items {
-    r, err := routeFrom(it)
-    ...
-    if r.ID == id {
-        return it, r, true, nil
-    }
-}
-```
-
-`DeleteRouteInto` then deletes `it.Key`. Items arrive in sort-key order, which is
-`<seq>\x1f<target>\x1f<match>`, so the row destroyed is whichever shares the id
-and sorts EARLIEST — a low-`seq` rule beats the one the operator named. The CLI
-reports success naming the requested id, so nothing tells the operator which row
-actually went.
-
-**The duplicate ids come from the marinade consolidation.** Measured 2026-09-25:
-
-| duplicated id | the two rows sharing it |
-| --- | --- |
-| 33 | `libtest ← room=libtest` · `main/trading ← room=group/5125571890 verb=mention` |
-| 34 | `main/trading#observe ← room=group/5125571890` · `atlas/support ← discord:*/* verb=mention` |
-| 35 | `main/trading#observe ← hook:main/trading/deepdex` · `atlas/support#observe ← discord:*/*` |
-| 38 | `main/main#observe ← room=group/5069669817` · `atlas/content ← room=group/5012430759 verb=mention` |
-| 39 | `main/content ← room=group/5282578105 verb=mention` · `atlas/content#observe ← room=group/5012430759` |
-
-Every pair is one `main/*` row against one `atlas/*` row — sloth's own table
-against marinade's, each minted from its own `CounterRouteID`, merged into one
-partition around 2026-09-18 (`L335`). Id 37 was a sixth pair and is now unique
-only because the delete above destroyed its `main/main` half. **krons has zero
-duplicates**, so this is the merge and not a defect in minting.
-
-It is the same class as `L335`'s closing paragraph — "the platform ids also now
-overlap … the same id will be minted twice in one partition" — which was recorded
-for `messages` and not chased into `routes`. `ReplaceFolderRoutesInto`'s own
-comment says why an id matters: it is "the handle `delete_route(id)` addresses",
-and a live agent reads it from `list_routes`.
-
-- **Severity:** high (silent destruction of an arbitrary routing rule on any
-  `route rm` against sloth; the agent's `delete_route` tool takes the same id)
-- **Scope:** `store/routes.go`, sloth's `routd.routes`
-- **Affected:** `routeByID`, `DeleteRouteInto`, `RouteByID`, `GetRoute`,
-  `arizuko route rm`, the `delete_route` MCP tool
-- **Source:** measured 2026-09-25 by deleting route 37 on sloth and diffing all
-  38 rows before and after
-- **Status:** open
-- **Fix — two halves, and only the first is code:**
-  1. **`routeByID` must REFUSE an ambiguous id** rather than return the first
-     match: scan every item, and if two carry the id, return an error naming both
-     coordinates. A wrong deletion becomes a loud refusal. Needs a test that
-     seeds two rows with one id and asserts the delete fails and BOTH rows
-     survive.
-  2. **Re-mint sloth's ids so they are unique** — live data, the owner's. Until
-     then, address a rule on sloth by its `(seq, target, match)` coordinate and
-     never by id.
-
-**The code half is FIXED and this entry is now the operator half only, re-verified
-2026-10-08.** `store.ErrRouteIDAmbiguous` (`store/routes.go:45`) and the scan at
-`:273-289` refuse an id two rows carry and name both coordinates; `f1220013` made
-`routd.DB.GetRoute` delegate to `store.RouteByID` instead of re-implementing a
-first-match loop a package up, and `eb4c9d5a` stopped the mint handing out an id a rule
-already holds. `routd/routes_rest_test.go:278` seeds two rows with one id and passes.
-
-So `route rm <id>` no longer deletes an arbitrary row — it refuses with a 409. What is
-left is live data: six ids on sloth that the marinade merge duplicated. Until they are
-re-minted, address a sloth rule by `(seq, target, match)` and never by id.
 ## L359 — 11 G of interrupted git repacks sit in the data tree and nothing prunes them (2026-09-24, open)
 
 The root filesystem is at 99%, 242 G used of 256 G, 3.9 G free.
