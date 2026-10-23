@@ -212,7 +212,7 @@ func (s *Server) handleRunStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, 200, runedv1.RunStatus{
 		RunID: sp.RunID, Folder: sp.Folder, Topic: sp.Topic, State: sp.State,
-		Outcome: sp.Outcome, SessionID: sp.SessionID, Steered: sp.Steered,
+		Outcome: sp.Outcome, SessionID: sp.SessionID,
 		CreatedAt: sp.CreatedAt, StartedAt: sp.StartedAt, EndedAt: sp.EndedAt,
 	})
 }

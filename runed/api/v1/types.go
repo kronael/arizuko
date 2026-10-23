@@ -115,7 +115,6 @@ type RunStatus struct {
 	State     string `json:"state"`
 	Outcome   string `json:"outcome"`
 	SessionID string `json:"session_id"`
-	Steered   bool   `json:"steered"`
 	CreatedAt string `json:"created_at"`
 	StartedAt string `json:"started_at"`
 	EndedAt   string `json:"ended_at"`

@@ -45,7 +45,6 @@ type SpawnRow struct {
 	State         string
 	Outcome       string
 	ExitCode      int
-	Steered       bool
 	CreatedAt     string
 	StartedAt     string
 	EndedAt       string
@@ -234,9 +233,6 @@ func importWrites(snap Snapshot) ([]objstore.Write, Counts, error) {
 		set(attrs, attrEndedAt, ended)
 		if r.ExitCode != 0 {
 			attrs[attrExitCode] = strconv.Itoa(r.ExitCode)
-		}
-		if r.Steered {
-			attrs[attrSteered] = "1"
 		}
 		writes = append(writes, objstore.Write{
 			Op: objstore.Put, Entity: Spawns, Key: spawnKey(r.RunID), Attrs: attrs,

@@ -29,11 +29,11 @@ The file of each entity states its own coordinate and what that choice costs.
 - `session_log` takes the folder and a time key, because every read asks for the n newest rows of one folder and nothing sweeps the table.
 - `circuit_breaker` takes the folder as the whole coordinate.
 
-| Entity            | Coordinate                                                          | Attributes                                                                                                                                   |
-| ----------------- | ------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `spawns`          | one constant partition, then the run id                             | folder, topic, container name, `session_log_id`, `session_id`, kind, state, outcome, exit code, steered, created, started and ended instants |
-| `session_log`     | the folder, then the start instant at `core.TS` width plus a suffix | `session_id`, ended instant, result, error, message count                                                                                    |
-| `circuit_breaker` | the folder, as both halves                                          | consecutive failures, the last failure; it survives a restart                                                                                |
+| Entity            | Coordinate                                                          | Attributes                                                                                                                          |
+| ----------------- | ------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `spawns`          | one constant partition, then the run id                             | folder, topic, container name, `session_log_id`, `session_id`, kind, state, outcome, exit code, created, started and ended instants |
+| `session_log`     | the folder, then the start instant at `core.TS` width plus a suffix | `session_id`, ended instant, result, error, message count                                                                           |
+| `circuit_breaker` | the folder, as both halves                                          | consecutive failures, the last failure; it survives a restart                                                                       |
 
 ## Endpoints
 

@@ -39,7 +39,6 @@ const (
 	attrState        = "state"
 	attrOutcome      = "outcome"
 	attrExitCode     = "exit_code"
-	attrSteered      = "steered"
 	attrCreatedAt    = "created_at"
 	attrStartedAt    = "started_at"
 	attrEndedAt      = "ended_at"
@@ -66,7 +65,6 @@ type Spawn struct {
 	State         string
 	Outcome       string
 	ExitCode      int
-	Steered       bool
 	CreatedAt     string
 	StartedAt     string
 	EndedAt       string
@@ -210,18 +208,6 @@ func (s *Store) KillSpawn(ctx context.Context, runID string) error {
 	}})
 	if err != nil {
 		return fmt.Errorf("kill run %s: %w", runID, err)
-	}
-	return nil
-}
-
-// MarkSteered records that a steer-into-running write happened on a spawn.
-func (s *Store) MarkSteered(ctx context.Context, runID string) error {
-	_, err := s.s.GuardedBatch(ctx, nil, []objstore.Write{{
-		Op: objstore.Update, Entity: Spawns, Key: spawnKey(runID),
-		Attrs: map[string]string{attrSteered: "1"},
-	}})
-	if err != nil {
-		return fmt.Errorf("mark run %s steered: %w", runID, err)
 	}
 	return nil
 }
@@ -395,7 +381,6 @@ func spawnFrom(it objstore.Item) Spawn {
 		State:         a[attrState],
 		Outcome:       a[attrOutcome],
 		ExitCode:      exit,
-		Steered:       a[attrSteered] == "1",
 		CreatedAt:     a[attrCreatedAt],
 		StartedAt:     a[attrStartedAt],
 		EndedAt:       a[attrEndedAt],

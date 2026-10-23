@@ -302,7 +302,7 @@ landed.
 - **container spawn / exit** — the planned `container.spawn` +
   `container.exit` pair is dropped for the same reason as `messages`:
   the `spawns` row IS the record. It carries kind, state, outcome,
-  exit_code, steered and all three timestamps, one row per turn,
+  exit_code and all three timestamps, one row per turn,
   rendered by dashd — strictly more than an audit pair would, at the
   same volume. What `spawns` cannot answer is who ASKED, which is why
   `run.hold` / `run.kill` (the operator-intent calls) are audited and
