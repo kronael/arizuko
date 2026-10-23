@@ -281,8 +281,7 @@ reads those words now.
   calls.
 - `L532` — no code writes the `task.delete` audit row that `audit/PLAN.md`
   lists.
-- `L533` — Telegram login is never mounted: authd does not receive
-  `TELEGRAM_BOT_TOKEN`. Giving authd the bot token is a credential decision.
+
 
 **Found by the per-group machine spec (2026-10-23).**
 
@@ -1070,20 +1069,6 @@ FOUND by the dead-code sweep at `90403e2d`: `audit/PLAN.md:252` lists
 - **Severity:** low — a deleted task leaves no audit trail.
 - **Fix:** write the row in the task delete path.
 - **Status:** open.
-
-## L533 — Telegram login is never mounted in production (2026-10-22, open)
-
-MEASURED 2026-10-22: authd mounts `/auth/telegram` only when
-`cfg.TelegramToken` is set (`authd/oauth.go:70`), read from `TELEGRAM_BOT_TOKEN`
-(`core/config.go:223`). `compose/compose.go` delivers that key to teled only
-(`:221`), not to authd; `docker exec arizuko_authd_krons printenv
-TELEGRAM_BOT_TOKEN` prints nothing. The handler is tested (`L508`) and
-unreachable on every instance.
-
-- **Severity:** medium — a documented login method does not exist.
-- **Fix:** deliver the key to authd, or drop the method. authd then holds a
-  bot credential, so it is the owner's call.
-- **Status:** open — needs sign-off.
 
 ## L534 — GitHub PRs skip the engagement mechanism chat threads use (2026-10-23, open — needs sign-off)
 
