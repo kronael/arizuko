@@ -328,19 +328,19 @@ func (s *Store) appendInstant(ctx context.Context, m core.Message) (time.Time, e
 	if floor == "" || own > floor {
 		return m.Timestamp, nil
 	}
-	// A RE-DELIVERY IS NOT A LATE ARRIVAL: the same id at the same instant is
-	// the same position, and the Put's ItemAbsent condition makes the second
-	// one a no-op. Moving it to a free position would append the message
-	// twice.
+	// A redelivery keeps its stored position so the Put's ItemAbsent condition
+	// refuses the whole batch, including its indexes.
 	held, err := s.Obj().Query(ctx, objstore.Query{
 		Entity: Messages, Partition: m.ChatJID, Project: []string{},
-		Key: objstore.KeyPredicate{Op: objstore.ExactKey, Value: own},
+		Key: objstore.KeyPredicate{Op: objstore.GeKey, Value: msgStampAt(m.Timestamp)},
 	})
 	if err != nil {
 		return time.Time{}, fmt.Errorf("read %s in %s: %w", own, m.ChatJID, err)
 	}
-	if len(held) > 0 {
-		return m.Timestamp, nil
+	for _, it := range held {
+		if at, id, ok := MsgCoord(it.Key.Sort); ok && id == m.ID {
+			return time.Parse(time.RFC3339Nano, at)
+		}
 	}
 	at, _, ok := MsgCoord(floor)
 	if !ok {

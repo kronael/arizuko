@@ -1,11 +1,64 @@
 package store
 
 import (
+	"context"
 	"testing"
 	"time"
 
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/objstore"
 )
+
+func TestAppendMessageLateRedelivery(t *testing.T) {
+	// A redelivered late message keeps one row at its first stored instant.
+	s := openMem(t)
+	base := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
+	anchor := base.Add(time.Minute)
+	if err := s.PutMessage(core.Message{
+		ID: "anchor", ChatJID: "web:late", Timestamp: anchor,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	original := core.Message{
+		ID: "late", ChatJID: "web:late", Timestamp: base,
+	}
+	first, err := s.AppendMessage(original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := anchor.Add(time.Nanosecond); !first.Timestamp.Equal(want) {
+		t.Fatalf("first stored instant = %s, want %s", first.Timestamp, want)
+	}
+	if err := s.PutMessage(core.Message{
+		ID: "later", ChatJID: original.ChatJID,
+		Timestamp: anchor.Add(time.Second),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.AppendMessage(original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Timestamp.Equal(first.Timestamp) {
+		t.Errorf("redelivery instant = %s, want %s", got.Timestamp, first.Timestamp)
+	}
+	rows, err := s.Obj().Query(context.Background(), objstore.Query{
+		Entity: Messages, Partition: original.ChatJID, Project: []string{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	count := 0
+	for _, row := range rows {
+		if _, id, ok := MsgCoord(row.Key.Sort); ok && id == original.ID {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("rows for %s in %s = %d, want 1",
+			original.ID, original.ChatJID, count)
+	}
+}
 
 // BotRepliesSince returns only the agent's outbound rows after a cutoff — the
 // inverse of MessagesSince. Used by `arizuko send` operator-direct mode to show
