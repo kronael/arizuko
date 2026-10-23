@@ -306,6 +306,9 @@ func (s *Store) putMessage(ctx context.Context, m core.Message, status string,
 	return m, s.countFolderMessage(ctx, m.RoutedTo, append(writes, folderWrite))
 }
 
+// Cover adapter retries within the newest 256 rows; older copies are missed and stored again.
+const lateRedeliveryLimit = 256
+
 // appendInstant answers the instant a live append takes: the writer's own, or
 // one nanosecond past the chat's newest row when the writer's own would put
 // the new row at or below it.
@@ -331,8 +334,9 @@ func (s *Store) appendInstant(ctx context.Context, m core.Message) (time.Time, e
 	// A redelivery keeps its stored position so the Put's ItemAbsent condition
 	// refuses the whole batch, including its indexes.
 	held, err := s.Obj().Query(ctx, objstore.Query{
-		Entity: Messages, Partition: m.ChatJID, Project: []string{},
-		Key: objstore.KeyPredicate{Op: objstore.GeKey, Value: msgStampAt(m.Timestamp)},
+		Entity: Messages, Partition: m.ChatJID, Project: []string{attrMsgVerb},
+		Key:        objstore.KeyPredicate{Op: objstore.GeKey, Value: msgStampAt(m.Timestamp)},
+		Descending: true, Limit: lateRedeliveryLimit,
 	})
 	if err != nil {
 		return time.Time{}, fmt.Errorf("read %s in %s: %w", own, m.ChatJID, err)

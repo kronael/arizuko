@@ -2,12 +2,74 @@ package store
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/objstore"
 )
+
+type redeliveryReadCounter struct {
+	objstore.Store
+	rows    []objstore.Item
+	queries int
+}
+
+func (s *redeliveryReadCounter) Query(ctx context.Context, q objstore.Query) ([]objstore.Item, error) {
+	rows, err := s.Store.Query(ctx, q)
+	if q.Entity == Messages && q.Key.Op == objstore.GeKey {
+		s.rows = append(s.rows, rows...)
+		s.queries++
+	}
+	return rows, err
+}
+
+func TestAppendMessageLateRedeliveryBounded(t *testing.T) {
+	// A moved copy at the newest position is found within 256 body-free rows.
+	s := openMem(t)
+	base := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
+	const jid = "web:late-bounded"
+	for i := range 300 {
+		if err := s.PutMessage(core.Message{
+			ID: fmt.Sprint(i), ChatJID: jid, Content: "message body",
+			Timestamp: base.Add(time.Duration(i+1) * time.Second),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	original := core.Message{ID: "late", ChatJID: jid, Timestamp: base}
+	first, err := s.AppendMessage(original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reads := &redeliveryReadCounter{Store: s.Obj()}
+	counted := NewOver(reads)
+	got, err := counted.AppendMessage(original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Timestamp.Equal(first.Timestamp) {
+		t.Errorf("redelivery instant = %s, want %s", got.Timestamp, first.Timestamp)
+	}
+	if reads.queries != 1 || len(reads.rows) != 256 {
+		t.Errorf("redelivery read %d rows in %d queries, want 256 in 1",
+			len(reads.rows), reads.queries)
+	}
+	for _, row := range reads.rows {
+		if len(row.Attrs) != 1 || row.Attrs[attrMsgVerb] == "" {
+			t.Fatalf("redelivery loaded attributes %v, want only verb", row.Attrs)
+		}
+	}
+	if _, err := counted.AppendMessage(core.Message{
+		ID: "on-time", ChatJID: jid, Timestamp: first.Timestamp.Add(time.Second),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if reads.queries != 1 {
+		t.Errorf("on-time append added %d redelivery queries, want 0", reads.queries-1)
+	}
+}
 
 func TestAppendMessageLateRedelivery(t *testing.T) {
 	// A redelivered late message keeps one row at its first stored instant.
