@@ -311,8 +311,6 @@ reads those words now.
 
 **Found by the sloth GitHub eval (2026-10-23).**
 
-- `L547` — the soft-deadline SIGUSR1 reaches bash, not node, and kills the
-  guest with exit 138 after a reply landed (small fix: `exec node`).
 - `L548` — a redelivered message that routd moved to a later timestamp is
   stored again: 137 duplicate groups, 283 extra rows (storage fix).
 - `L549` — an inline comment reaches the agent without line, hunk or thread,
@@ -1349,25 +1347,6 @@ agent to act, so it contradicts these files.
   refuses merge and approve where a folder lacks it. The three skills sync from
   kronael/tools, so the change goes there or into agent-specific copies.
 - **Status:** open — needs sign-off.
-
-## L547 — the soft-deadline signal reaches bash, not node, and kills the guest after its reply (2026-10-23, open)
-
-MEASURED on sloth (Sol eval, `~/.claude/jobs/802d25d6/tmp/sloth-gh/report.md`):
-three GitHub guests (#306 2026-10-21, #305 and #301 2026-10-23) got the
-`[deadline]` warning, then exited 138 after the agent's result was stored as a
-success. On #305 sloth posted "Merged" at 19:03:32 and routd posted "Failed:
-agent error" at 19:03:55. READ at `74781587`: runed's soft deadline steers
-(`runed/qemu.go:584-589`), guest-init sends SIGUSR1 to the PID it started
-(`kernel/guest-init/main.go:764-769`), which is `/app/entrypoint.sh`; the
-script runs `node /tmp/dist/index.js < /tmp/input.json` without `exec`
-(`ant/entrypoint.sh:11`), so bash takes the signal and dies, and the handler in
-`ant/src/index.ts:97` never runs. Guest-init maps the signal to 138
-(`kernel/guest-init/main.go:932-933`).
-
-- **Severity:** high — every turn that reaches the deadline warning ends in a
-  false failure notice on the chat.
-- **Fix:** `exec node …` in `ant/entrypoint.sh`.
-- **Status:** open.
 
 ## L548 — a redelivered message that routd moved to a later timestamp is stored again (2026-10-23, open)
 
