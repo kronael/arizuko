@@ -315,7 +315,7 @@ reads those words now.
   and `reply` without `replyToId` answers the batch's last comment: carry the
   location on each message and require the reply target (changes 6/27)?
 - `L551` — an inline review comment that mentions the bot starts no turn;
-  #311's three inline mentions were dropped (cause not measured).
+  #311's three inline mentions were dropped; cause is `L75(b)` (sign-off).
 - `L552` — a comment on a PR the bot opened starts no turn without a mention
   (owner: he should see most on his own PRs; amends 6/27).
 
@@ -1391,11 +1391,18 @@ moved past them to a CI event (`…20:19:49…gh-d17add4c0…-pr311`). Conversat
 mentions work on a PR the bot never wrote on: #230 `gh-c6372905482` started a
 turn. Each inline mention row carries `verb=mention` and `routed_to=sloth/morha`;
 each arrives in the same second as its `pull_request_review` row (`gh-r…`).
-The cause is NOT measured yet.
+CAUSE (Sol, read at `80bf87c0`): `L75(b)`. The poll (`routd/loop.go:559`) and
+dispatch (`routd/dispatch.go:39`) resolve a batch by its NEWEST row; when an
+observe-only row (a review row, a CI event) is newest, `routeMiss`
+(`routd/loop.go:584`) marks the whole batch observed, the pending mentions with
+it, and the cursor moves past them. The live rows carry `verb=mention` and
+`is_observed=1`. A PR chat gets CI rows every few minutes, so GitHub hits this
+far more often than chat.
 
 - **Severity:** high — an inline "@sloth-goth explain this" on a new PR is
   silently dropped.
-- **Status:** open.
+- **Fix:** `L75(b)` — a batch that holds a mention resolves by the mention.
+- **Status:** open — needs sign-off (dispatch control flow, with `L75(b)`).
 
 ## L552 — a comment on a PR the bot opened starts no turn unless it mentions the bot (2026-10-23, open)
 
