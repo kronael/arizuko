@@ -324,6 +324,8 @@ reads those words now.
 - `L553` — two Telegram bots on one instance give one person's DMs the same
   chat JID, so both conversations merge and route together: put the bot's
   Telegram id in the DM JID, every account, rows migrated (signed off).
+- `L554` — onboarding and pairing key on the chat JID, not the sender, so a
+  paired DM user is linked only where chat equals sender; blocks L553 (sign-off).
 
 **Found while folding the lowercase `bugs.md` into this file (2026-10-20).**
 
@@ -1409,6 +1411,23 @@ far more often than chat.
   silently dropped.
 - **Fix:** `L75(b)` — a batch that holds a mention resolves by the mention.
 - **Status:** open — needs sign-off (dispatch control flow, with `L75(b)`).
+
+## L554 — onboarding and pairing link the chat JID to the person, not the sender (2026-10-23, open — needs sign-off)
+
+READ at `5e40f40b`. On a route miss routd calls `InsertOnboarding(chatJID)`
+(`routd/loop.go:602`), and onbod mints the pairing link for that row's JID
+(`onbod/main.go:419`), so the membership edge's child is the CHAT. Authorization
+resolves the SENDER (`routd/server.go:436-438`, `routd/sibling_db.go:250`).
+This works only where the chat JID equals the sender JID — a Telegram DM today.
+After L553 (`telegram:<bot_id>/user/<id>` chat, `telegram:user/<id>` sender) a
+newly paired Telegram DM user stays anonymous. Discord DMs already differ
+(`discord:dm/<channel>` chat vs `discord:user/<id>` sender, `discd/bot.go:216`,
+`:284`), so they probably have the same fault now (INFERRED, not tested).
+
+- **Fix:** the onboarding row and the pairing carry the sender read from the
+  inbound row, and the membership edge's child is the sender. Changes the
+  pairing contract (`specs/5/31-identity-pairing.md`), so it is a proposal.
+- **Status:** open — needs sign-off; L553 step 6 (deploy) waits on it.
 
 ## L553 — two Telegram bots on one instance merge one person's DMs into one chat (2026-10-23, open)
 
