@@ -262,8 +262,6 @@ reads those words now.
 
 **Found by the rhias evaluation (2026-10-21).**
 
-- `L527` — may a turn see the bot's own recent replies in its observed
-  window, so a sibling topic does not answer a question again?
 - `L526` — thirteen more variables routd reads are not in `daemonKeys["routd"]`.
   An operator names which of them to deliver, because delivering one can switch
   a feature on.
@@ -1002,7 +1000,7 @@ the 20:08:33 reply (id 249, `replyToId` 239) gave BOTH listings. Its Žebrák
 line came from coordinates read out of the idnes page (lines 39-41,
 `49.7040801004, 14.2493341068`); OSRM gave 50 min from Smíchov (line 45). The
 Soběhrdy line repeated an answer the topic-232 turn had sent at 19:53:41
-(session `abe5ddc8-eac4-47da-86ac-32da83cad464.jsonl`). The repeat is `L527`.
+(session `abe5ddc8-eac4-47da-86ac-32da83cad464.jsonl`). The repeat was fixed in `63a72d04`.
 `L521` (doubled message) was not a factor.
 
 ## 📋 RECORD L524 — a message the running turn answered gets its own turn: by design, the turn READ the row, routd never delivered it (2026-10-22, closed)
@@ -1045,26 +1043,6 @@ chat held one bot row at the 2026-10-22 re-measure. Re-open only with a duplicat
 A change here would make a reply (or a `fetch_history` read) consume the rows it
 names. That is a change to the consume contract (`L104`, `L347`) and needs
 sign-off; nothing is proposed.
-
-## L527 — a topic turn re-answers a question a sibling topic already answered (2026-10-22, open — needs sign-off)
-
-MEASURED on krons 2026-10-21, rhias/nemo: Kron asked "jak je to daleko"
-(id 238, thread 232). The topic-232 turn answered it at 19:53:41. The topic-""
-turn built at 19:54:13 got 232 and 238 as unseen `<observed>` rows and answered
-238 again at 20:08:33. Two causes:
-
-- The observed cursor is per (folder, topic) (`routd/prompt.go`
-  `buildAgentPrompt`), so each topic sees the folder's rows as new.
-- The observed window drops the bot's own rows (`store/message_folders.go:314`,
-  `{attrFeedBot, Absent}`), so the second turn cannot see the first answer.
-
-The model also broke the prompt's `<rule>` against replying to observed rows.
-
-- **Severity:** low — a duplicate answer, not a wrong one.
-- **Fix:** show the folder's recent bot replies in the observed window, or
-  share the observed cursor across a folder's topics. Either changes the
-  observed-window contract, so it is a proposal.
-- **Status:** open — needs sign-off.
 
 ## L528 — runed serves a `steered` flag nothing writes (2026-10-22, open)
 
