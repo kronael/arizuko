@@ -1160,7 +1160,7 @@ the closed prompt stream, `claude.ts:443-458`).
      task it started still runs.
   2. The session ends when every task has reported and the model has
      processed the results and answered, or at the run timeout.
-  3. Before the timeout, the session steers the agent to post its output now,
+  3. About 1 minute before the timeout, the session steers the agent to post its output now,
      through the existing progress-nudge hook (`<user-steering>`), so the work
      reaches the chat instead of being cut off.
   Measure the refusal source first, so the fix removes it rather than working
