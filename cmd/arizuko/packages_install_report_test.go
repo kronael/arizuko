@@ -21,7 +21,7 @@ func TestPackageInstallSummaryNamesEachGrant(t *testing.T) {
 	// installGrantPkg's package hands @ops two different authorities on two
 	// different scopes. A count cannot distinguish them; the point of the line is
 	// that `admin on eng/tts` is visible without querying the DB.
-	for _, want := range []string{"@ops reply on eng/*", "@ops admin on eng/tts"} {
+	for _, want := range []string{"@ops mcp:reply on eng/*", "@ops admin on eng/tts"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("install summary does not name the grant %q; got:\n%s", want, out)
 		}

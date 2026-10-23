@@ -179,7 +179,7 @@ func TestGroupDelete_PurgesOrphanAclAndRoutes(t *testing.T) {
 	if err := s.AddACLRow(core.ACLRow{Principal: "bob@x", Action: "admin", Scope: X, Effect: "allow"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.AddACLRow(core.ACLRow{Principal: "bob@x", Action: "send", Scope: X + "/**", Effect: "allow"}); err != nil {
+	if err := s.AddACLRow(core.ACLRow{Principal: "bob@x", Action: "mcp:send", Scope: X + "/**", Effect: "allow"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.AddRoute(core.Route{Seq: 5, Match: "room=99", Target: X + "/sub"}); err != nil {
@@ -295,7 +295,7 @@ func TestDash_GrantsView(t *testing.T) {
 	folder := "world"
 	// Seed a grant row for this folder.
 	if err := s.AddACLRow(core.ACLRow{
-		Principal: "bob@x", Action: "send", Scope: folder, Effect: "allow",
+		Principal: "bob@x", Action: "mcp:send", Scope: folder, Effect: "allow",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -325,7 +325,7 @@ func TestDash_GrantAdd(t *testing.T) {
 
 	form := url.Values{
 		"principal": {"carol@x"},
-		"action":    {"reply"},
+		"action":    {"mcp:reply"},
 		"effect":    {"allow"},
 		"params":    {""},
 		"scope":     {folder},
@@ -349,7 +349,7 @@ func TestDash_GrantAdd(t *testing.T) {
 	}
 	found := false
 	for _, r := range rows {
-		if r.Principal == "carol@x" && r.Action == "reply" {
+		if r.Principal == "carol@x" && r.Action == "mcp:reply" {
 			found = true
 		}
 	}
@@ -369,14 +369,14 @@ func TestDash_GrantRevoke(t *testing.T) {
 	}
 	folder := "world"
 	if err := s.AddACLRow(core.ACLRow{
-		Principal: "dave@x", Action: "send", Scope: folder, Effect: "allow",
+		Principal: "dave@x", Action: "mcp:send", Scope: folder, Effect: "allow",
 	}); err != nil {
 		t.Fatal(err)
 	}
 
 	form := url.Values{
 		"principal": {"dave@x"},
-		"action":    {"send"},
+		"action":    {"mcp:send"},
 		"effect":    {"allow"},
 		"params":    {""},
 		"predicate": {""},
@@ -399,7 +399,7 @@ func TestDash_GrantRevoke(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, r := range rows {
-		if r.Principal == "dave@x" && r.Action == "send" {
+		if r.Principal == "dave@x" && r.Action == "mcp:send" {
 			t.Errorf("grant still present after revoke")
 		}
 	}
@@ -408,7 +408,7 @@ func TestDash_GrantRevoke(t *testing.T) {
 // TestDash_GrantAdd_DenyNonAdmin: non-admin cannot add grants.
 func TestDash_GrantAdd_DenyNonAdmin(t *testing.T) {
 	srv, _, _ := newRWDashServer(t)
-	form := url.Values{"principal": {"x"}, "action": {"send"}}
+	form := url.Values{"principal": {"x"}, "action": {"mcp:send"}}
 	req, _ := http.NewRequest("POST", srv.URL+"/dash/groups/world/grants",
 		strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")

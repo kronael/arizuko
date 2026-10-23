@@ -11,23 +11,10 @@ import (
 
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
+	"github.com/kronael/arizuko/ipc"
 	"github.com/kronael/arizuko/routd"
 	"github.com/kronael/arizuko/store"
 )
-
-// commonActions is the dropdown list for the "Add grant" form.
-var commonActions = []string{
-	"admin",
-	"send", "send_file", "reply",
-	"post", "like", "dislike", "delete", "edit", "forward", "quote", "repost",
-	"register_group", "escalate_group", "delegate_group",
-	"get_routes", "set_routes", "add_route", "delete_route",
-	"list_tasks", "schedule_task", "pause_task", "resume_task", "cancel_task",
-	"reset_session", "fork_topic", "inject_message",
-	"list_acl", "get_grants", "set_grants",
-	"invite_create",
-	"set_group_open",
-}
 
 // GET /dash/groups/{folder}/grants — read-only view + add/revoke forms.
 func (d *dash) handleGroupGrants(w http.ResponseWriter, r *http.Request) {
@@ -154,19 +141,24 @@ func (d *dash) handleGroupGrants(w http.ResponseWriter, r *http.Request) {
 	}
 	scopeSelect.WriteString(`</select>`)
 
-	var actionSelect strings.Builder
-	actionSelect.WriteString(`<select name="action">`)
-	for _, a := range commonActions {
-		fmt.Fprintf(&actionSelect, `<option value="%s">%s</option>`, esc(a), esc(a))
+	var actionInput strings.Builder
+	actionInput.WriteString(`<input type="text" name="action" required list="actions" value="admin" ` +
+		`placeholder="mcp:send or shell:env:KEY">` +
+		`<datalist id="actions">`)
+	for _, action := range store.ACLActionChoices() {
+		fmt.Fprintf(&actionInput, `<option value="%s">`, esc(action))
 	}
-	actionSelect.WriteString(`</select>`)
+	for _, tool := range ipc.ListTools(folder, func(string) bool { return true }) {
+		fmt.Fprintf(&actionInput, `<option value="mcp:%s">`, esc(tool.Name))
+	}
+	actionInput.WriteString(`</datalist>`)
 
 	_, _ = fmt.Fprintf(w, `<h2>Add grant</h2><form method="post" action="/dash/groups/%s/grants">`, folderPath(folder))
 	_, _ = fmt.Fprint(w, principalOpts.String())
 	_, _ = fmt.Fprint(w, htmlFormRow("principal",
 		`<input type="text" name="principal" required list="principals" autocomplete="off" `+
 			`size="40" placeholder="google:123 or local:admin">`))
-	_, _ = fmt.Fprint(w, htmlFormRow("action", actionSelect.String()))
+	_, _ = fmt.Fprint(w, htmlFormRow("action", actionInput.String()))
 	_, _ = fmt.Fprint(w, htmlFormRow("effect", `<select name="effect"><option value="allow">allow</option><option value="deny">deny</option></select>`))
 	_, _ = fmt.Fprint(w, htmlFormRow("params", `<input type="text" name="params" size="40" placeholder="jid=telegram:* (blank = any)">`))
 	_, _ = fmt.Fprint(w, htmlFormRow("scope", scopeSelect.String()))
@@ -201,6 +193,10 @@ func (d *dash) handleGroupGrantAdd(w http.ResponseWriter, r *http.Request) {
 	scope := strings.TrimSpace(r.FormValue("scope"))
 	if principal == "" || action == "" {
 		http.Error(w, "principal and action required", http.StatusBadRequest)
+		return
+	}
+	if err := store.ValidateACLAction(action); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	// Empty = omitted field → default allow. Any other value the action does not

@@ -52,7 +52,7 @@ func TestACLLists_FailClosedOnStoreError(t *testing.T) {
 	s := openMem(t)
 	rows := []core.ACLRow{
 		{Principal: "google:alice", Action: "admin", Scope: "atlas", Effect: "allow"},
-		{Principal: "*", Action: "send", Scope: "atlas/**", Effect: "allow"},
+		{Principal: "*", Action: "mcp:send", Scope: "atlas/**", Effect: "allow"},
 	}
 	for _, r := range rows {
 		if err := s.AddACLRow(r); err != nil {

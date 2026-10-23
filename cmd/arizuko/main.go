@@ -19,7 +19,6 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
-	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/compose"
 	"github.com/kronael/arizuko/container"
 	"github.com/kronael/arizuko/core"
@@ -580,30 +579,6 @@ func mustOpenOwner(owner, dataDir string) (*store.Store, error) {
 	return store.OpenOwner(owner)
 }
 
-// grantableActions is the vocabulary an operator can delegate. `admin` stays the
-// default so existing muscle memory is unchanged, but it covers only `interact` and
-// `mcp:*` (auth.actionCovers) — it does NOT reach `egress` or `web:publish`. Migration
-// 0023 removed the depth-derived tiers and told operators to re-delegate those two
-// explicitly; until now no CLI could express them, so the documented recovery path
-// did not exist. A typo must not silently write an inert row, hence the allowlist.
-var grantableActions = map[string]bool{
-	"*": true, "admin": true, "interact": true,
-	"egress": true, "web:publish": true, "gh:write": true, "mcp:*": true,
-}
-
-func grantableAction(action string) bool {
-	if grantableActions[action] {
-		return true
-	}
-	// mcp:<tool>, shell:env:<KEY>, ext:<provider>:<area>:<verb>,
-	// hold:mcp:<tool> and <resource>.<verb> are open-ended by design.
-	return strings.HasPrefix(action, "mcp:") ||
-		strings.HasPrefix(action, auth.ShellEnvPrefix) ||
-		strings.HasPrefix(action, auth.ExtScopePrefix) ||
-		strings.HasPrefix(action, auth.HoldPrefix) ||
-		strings.Contains(action, ".")
-}
-
 // grantUsage is the one usage string both verbs print, because they take the
 // same row and a divergence would document a flag only one of them has.
 const grantUsage = "arizuko group <instance> <grant|ungrant> <sub> <pattern> [action] " +
@@ -646,10 +621,8 @@ func checkGrantRow(row core.ACLRow) error {
 	if row.Principal == "" || row.Scope == "" {
 		return errEmptyGrant
 	}
-	if !grantableAction(row.Action) {
-		return fmt.Errorf("unknown action %q — one of *, admin, interact, egress, web:publish, "+
-			"gh:write, mcp:*, mcp:<tool>, shell:env:<KEY>, ext:<provider>:<area>:<verb>, "+
-			"hold:mcp:<tool>, <resource>.<verb>", row.Action)
+	if err := store.ValidateACLAction(row.Action); err != nil {
+		return err
 	}
 	if !store.EffectAllowed(row.Effect) {
 		return fmt.Errorf("unknown effect %q — %q or %q; every other spelling reads as a "+

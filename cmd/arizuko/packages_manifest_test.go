@@ -129,7 +129,7 @@ func TestFailedInstallLeavesNoPartialRows(t *testing.T) {
 	// refusal must take row one with it.
 	src := writePkg(t, base, "partpkg",
 		"acl:\n"+
-			"  - principal: '@first'\n    action: reply\n    scope: eng/*\n    effect: allow\n"+
+			"  - principal: '@first'\n    action: mcp:reply\n    scope: eng/*\n    effect: allow\n"+
 			"  - principal: 'folder:eng'\n    action: mcp:send\n    scope: eng\n    effect: allow\n"+
 			"    predicate: onbehalf=google:42\n")
 
@@ -169,7 +169,7 @@ func TestFailedInstallUnwindsWrittenFiles(t *testing.T) {
 	t.Setenv("ARIZUKO_DATA_DIR", base)
 	dataDir := seedPkgInstance(t, base, "uw")
 	src := writePkg(t, base, "latepkg",
-		"acl:\n  - principal: '@late'\n    action: reply\n    scope: eng/*\n    effect: allow\n"+
+		"acl:\n  - principal: '@late'\n    action: mcp:reply\n    scope: eng/*\n    effect: allow\n"+
 			"web_routes:\n  - path_prefix: /late/\n    access: public\n    folder: nosuchgroup\n")
 
 	if code := runPkgExpectingDeath(t, []string{"uw", "install", src, "--folder", "eng/**"}); code == 0 {
@@ -248,14 +248,14 @@ func TestRemoveReversesOnlyRecordedRows(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := st0.AddACLRow(core.ACLRow{
-		Principal: "@preexisting", Action: "reply", Scope: "eng/*", Effect: "allow"}); err != nil {
+		Principal: "@preexisting", Action: "mcp:reply", Scope: "eng/*", Effect: "allow"}); err != nil {
 		t.Fatal(err)
 	}
 	rdb0.Close()
 
 	src := writePkg(t, base, "rvpkg",
 		"proxyd_routes:\n  - path: /rv/\n    backend: http://rvpkg:8080\n    auth: public\n"+
-			"acl:\n  - principal: '@rv'\n    action: reply\n    scope: eng/*\n    effect: allow\n")
+			"acl:\n  - principal: '@rv'\n    action: mcp:reply\n    scope: eng/*\n    effect: allow\n")
 	cmdPackages([]string{"rv", "install", src, "--folder", "eng/**"})
 	cmdPackages([]string{"rv", "remove", "rvpkg"})
 
@@ -324,7 +324,7 @@ func TestPackageInstallPreservesGrantOption(t *testing.T) {
 	rdb0.Close()
 
 	src := writePkg(t, base, "gopkg",
-		"acl:\n  - principal: '@other'\n    action: reply\n    scope: ops\n    effect: allow\n")
+		"acl:\n  - principal: '@other'\n    action: mcp:reply\n    scope: ops\n    effect: allow\n")
 	cmdPackages([]string{"go2", "install", src, "--folder", "ops"})
 
 	rdb, err := routd.Open()

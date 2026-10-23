@@ -60,7 +60,7 @@ func TestGrantAdd_TargetsRoutdDB(t *testing.T) {
 	mux := newMux(d)
 
 	form := url.Values{
-		"principal": {"bob@x"}, "action": {"send"}, "effect": {"allow"}, "scope": {"team"},
+		"principal": {"bob@x"}, "action": {"mcp:send"}, "effect": {"allow"}, "scope": {"team"},
 	}.Encode()
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, adminReq("POST", "/dash/groups/team/grants", form, "alice@x"))
@@ -68,7 +68,7 @@ func TestGrantAdd_TargetsRoutdDB(t *testing.T) {
 		t.Fatalf("POST grants = %d body=%q", w.Code, w.Body.String())
 	}
 
-	if n := countGrants(t, routd, "bob@x", "send"); n != 1 {
+	if n := countGrants(t, routd, "bob@x", "mcp:send"); n != 1 {
 		t.Errorf("routd.db acl rows = %d, want 1", n)
 	}
 }
@@ -78,7 +78,7 @@ func TestGrantAdd_TargetsRoutdDB(t *testing.T) {
 func TestGrantList_ReadsRoutdV1(t *testing.T) {
 	d, routd := splitAdminDash(t, "alice@x")
 	seedGrant(t, routd, core.ACLRow{
-		Principal: "carol@x", Action: "reply", Scope: "team", Effect: "allow",
+		Principal: "carol@x", Action: "mcp:reply", Scope: "team", Effect: "allow",
 	})
 	mux := newMux(d)
 	w := httptest.NewRecorder()

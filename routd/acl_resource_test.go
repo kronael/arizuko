@@ -108,10 +108,10 @@ func TestACLMCP_AddListRemove(t *testing.T) {
 		_ = db.PutGroup(core.Group{Folder: f})
 	}
 	grantMCPTools(t, db, "root", "add_acl", "remove_acl", "list_acl")
-	// 5/33-paths-roles: folder:root was DELEGATED "read" over its subtree WITH the grant option,
+	// 5/33-paths-roles: folder:root was DELEGATED "mcp:fetch_history" over its subtree WITH the grant option,
 	// so it may re-delegate a subset (auth.Delegate). Without this the add is refused.
 	if err := addACLRow(db, core.ACLRow{
-		Principal: "folder:root", Action: "read", Scope: "root/**", Effect: "allow",
+		Principal: "folder:root", Action: "mcp:fetch_history", Scope: "root/**", Effect: "allow",
 		GrantedBy: "test", GrantOption: true,
 	}); err != nil {
 		t.Fatal(err)
@@ -119,7 +119,7 @@ func TestACLMCP_AddListRemove(t *testing.T) {
 	sock := serveACLMCP(t, db, "root", "folder:root")
 
 	if _, e := callToolOverSock(t, sock, "add_acl", map[string]any{
-		"principal": "google:bob", "scope": "root/team", "action": "read",
+		"principal": "google:bob", "scope": "root/team", "action": "mcp:fetch_history",
 	}); e != "" {
 		t.Fatalf("add_acl: %s", e)
 	}
@@ -134,7 +134,7 @@ func TestACLMCP_AddListRemove(t *testing.T) {
 		t.Fatalf("list_acl returned unexpected shape: %v", res)
 	}
 	if _, e := callToolOverSock(t, sock, "remove_acl", map[string]any{
-		"principal": "google:bob", "scope": "root/team", "action": "read",
+		"principal": "google:bob", "scope": "root/team", "action": "mcp:fetch_history",
 	}); e != "" {
 		t.Fatalf("remove_acl: %s", e)
 	}
@@ -191,11 +191,11 @@ func TestACLMCP_ContainmentDenied(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	// 5/33-paths-roles: folder:world/a was delegated "read" over world/** WITH the grant option —
-	// so it may re-delegate read within world/**, and the auth.Delegate scope-check
+	// 5/33-paths-roles: folder:world/a was delegated "mcp:fetch_history" over world/** WITH the grant option —
+	// so it may re-delegate mcp:fetch_history within world/**, and the auth.Delegate scope-check
 	// itself refuses a cross-subtree scope (other/x), reinforcing the denial below.
 	if err := addACLRow(db, core.ACLRow{
-		Principal: "folder:world/a", Action: "read", Scope: "world/**", Effect: "allow",
+		Principal: "folder:world/a", Action: "mcp:fetch_history", Scope: "world/**", Effect: "allow",
 		GrantedBy: "test", GrantOption: true,
 	}); err != nil {
 		t.Fatal(err)
@@ -204,13 +204,13 @@ func TestACLMCP_ContainmentDenied(t *testing.T) {
 
 	// Inside the delegated subtree: allowed.
 	if _, e := callToolOverSock(t, sock, "add_acl", map[string]any{
-		"principal": "google:x", "scope": "world/b", "action": "read",
+		"principal": "google:x", "scope": "world/b", "action": "mcp:fetch_history",
 	}); e != "" {
 		t.Fatalf("add_acl within the delegated subtree should be allowed: %s", e)
 	}
 	// Outside it: denied, nothing written.
 	if _, e := callToolOverSock(t, sock, "add_acl", map[string]any{
-		"principal": "google:x", "scope": "other/x", "action": "read",
+		"principal": "google:x", "scope": "other/x", "action": "mcp:fetch_history",
 	}); e == "" {
 		t.Fatal("add_acl outside the delegated subtree must be denied")
 	}
@@ -276,22 +276,22 @@ func TestACLMCP_NonRootCannotWriteADenyRow(t *testing.T) {
 	}
 	// Held WITH the grant option, so the allow half below is genuinely delegable.
 	if err := addACLRow(db, core.ACLRow{
-		Principal: "folder:world/a", Action: "read", Scope: "world/**", Effect: "allow",
+		Principal: "folder:world/a", Action: "mcp:fetch_history", Scope: "world/**", Effect: "allow",
 		GrantedBy: "test", GrantOption: true,
 	}); err != nil {
 		t.Fatal(err)
 	}
 	sock := serveACLMCP(t, db, "world/a", "folder:world/a")
 
-	// The same call, allow: permitted — the caller holds read with the option.
+	// The same call, allow: permitted — the caller holds mcp:fetch_history with the option.
 	if _, e := callToolOverSock(t, sock, "add_acl", map[string]any{
-		"principal": "google:x", "scope": "world/b", "action": "read", "effect": "allow",
+		"principal": "google:x", "scope": "world/b", "action": "mcp:fetch_history", "effect": "allow",
 	}); e != "" {
 		t.Fatalf("the delegable allow row was refused: %s", e)
 	}
 	// Deny: refused, and nothing written.
 	if _, e := callToolOverSock(t, sock, "add_acl", map[string]any{
-		"principal": "google:x", "scope": "world/b", "action": "read", "effect": "deny",
+		"principal": "google:x", "scope": "world/b", "action": "mcp:fetch_history", "effect": "deny",
 	}); e == "" {
 		t.Fatal("a non-root caller wrote a deny row; auth.Delegate bans one")
 	}

@@ -69,7 +69,7 @@ func installGrantPkg(t *testing.T, osUser string) *store.Store {
 	}
 	if err := os.WriteFile(filepath.Join(src, "grantpkg.yaml"), []byte(
 		"acl:\n"+
-			"  - principal: '@ops'\n    action: reply\n    scope: eng/*\n    effect: allow\n"+
+			"  - principal: '@ops'\n    action: mcp:reply\n    scope: eng/*\n    effect: allow\n"+
 			"  - principal: '@ops'\n    action: admin\n    scope: eng/tts\n    effect: allow\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -89,7 +89,7 @@ func TestPackageGrantsAuditedInOneApplyRow(t *testing.T) {
 	if rows[0][0] != "cli:alice" || rows[0][1] != "cli" {
 		t.Errorf("actor/surface = (%q, %q), want (cli:alice, cli)", rows[0][0], rows[0][1])
 	}
-	for _, want := range []string{"@ops|reply|eng/*", "@ops|admin|eng/tts"} {
+	for _, want := range []string{"@ops|mcp:reply|eng/*", "@ops|admin|eng/tts"} {
 		if !strings.Contains(rows[0][2], want) {
 			t.Errorf("params_summary does not name %s: %q", want, rows[0][2])
 		}

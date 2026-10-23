@@ -7,12 +7,12 @@ import (
 )
 
 // A narrow action named at scope "**" must stay a narrow row. grantACLTx used
-// to branch on scope alone, so add_acl(action="read", scope="**") discarded the
+// to branch on scope alone, so add_acl(action="mcp:fetch_history", scope="**") discarded the
 // action and wrote full role:operator membership instead — and a caller holding
 // only (admin, **, grant_option=1) could pass auth.Delegate for an admin grant
 // and then mint a strictly stronger right than it held.
 func TestGrantACLTx_NarrowActionAtTreeScopeIsNotOperator(t *testing.T) {
-	for _, action := range []string{"read", "admin", "mcp:reply", "egress"} {
+	for _, action := range []string{"mcp:fetch_history", "admin", "mcp:reply", "egress"} {
 		db, err := OpenMem()
 		if err != nil {
 			t.Fatal(err)
@@ -69,10 +69,10 @@ func TestRevokeACLTx_NarrowRevokeLeavesOperatorMembership(t *testing.T) {
 	if err := grantACL(db, core.ACLRow{Principal: "user:c", Scope: "**", GrantedBy: "test"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := grantACL(db, core.ACLRow{Principal: "user:c", Scope: "**", Action: "read", GrantedBy: "test"}); err != nil {
+	if err := grantACL(db, core.ACLRow{Principal: "user:c", Scope: "**", Action: "mcp:fetch_history", GrantedBy: "test"}); err != nil {
 		t.Fatal(err)
 	}
-	removed, err := revokeACL(db, core.ACLRow{Principal: "user:c", Scope: "**", Action: "read"})
+	removed, err := revokeACL(db, core.ACLRow{Principal: "user:c", Scope: "**", Action: "mcp:fetch_history"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,13 +96,13 @@ func TestRevokeACLTx_ReportsZeroWhenNothingMatched(t *testing.T) {
 	}
 	t.Cleanup(func() { db.Close() })
 	if err := addACLRow(db, core.ACLRow{
-		Principal: "user:n", Action: "read", Scope: "acme", Effect: "allow",
+		Principal: "user:n", Action: "mcp:fetch_history", Scope: "acme", Effect: "allow",
 		Params: "jid=telegram:*", GrantedBy: "test",
 	}); err != nil {
 		t.Fatal(err)
 	}
 
-	removed, err := revokeACL(db, core.ACLRow{Principal: "user:n", Scope: "acme", Action: "read", Effect: "allow"})
+	removed, err := revokeACL(db, core.ACLRow{Principal: "user:n", Scope: "acme", Action: "mcp:fetch_history", Effect: "allow"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,7 +127,7 @@ func TestRevokeACLTx_ExactParamsRemovesTheNarrowedRow(t *testing.T) {
 	t.Cleanup(func() { db.Close() })
 	for _, params := range []string{"jid=telegram:*", ""} {
 		if err := addACLRow(db, core.ACLRow{
-			Principal: "user:n", Action: "read", Scope: "acme", Effect: "allow",
+			Principal: "user:n", Action: "mcp:fetch_history", Scope: "acme", Effect: "allow",
 			Params: params, GrantedBy: "test",
 		}); err != nil {
 			t.Fatal(err)
@@ -135,7 +135,7 @@ func TestRevokeACLTx_ExactParamsRemovesTheNarrowedRow(t *testing.T) {
 	}
 
 	removed, err := revokeACL(db, core.ACLRow{
-		Principal: "user:n", Scope: "acme", Action: "read", Effect: "allow",
+		Principal: "user:n", Scope: "acme", Action: "mcp:fetch_history", Effect: "allow",
 		Params: "jid=telegram:*",
 	})
 	if err != nil {

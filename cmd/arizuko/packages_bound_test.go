@@ -108,7 +108,7 @@ func TestInstallAcceptsGrantInsideTheBound(t *testing.T) {
 	base := t.TempDir()
 	t.Setenv("ARIZUKO_DATA_DIR", base)
 	src := writePkg(t, base, "gipkg",
-		"acl:\n  - principal: '@ops'\n    action: reply\n    scope: eng/*\n    effect: allow\n")
+		"acl:\n  - principal: '@ops'\n    action: mcp:reply\n    scope: eng/*\n    effect: allow\n")
 	cmdPackages([]string{"gi", "install", src, "--folder", "eng/**"})
 
 	rdb, err := routd.Open()

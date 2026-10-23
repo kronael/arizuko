@@ -497,7 +497,7 @@ func TestPackagesInstallGrants(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(src, "grantpkg.yaml"),
-		[]byte("acl:\n  - principal: '@ops'\n    action: reply\n    scope: eng/*\n    effect: allow\n"), 0o644); err != nil {
+		[]byte("acl:\n  - principal: '@ops'\n    action: mcp:reply\n    scope: eng/*\n    effect: allow\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -513,7 +513,7 @@ func TestPackagesInstallGrants(t *testing.T) {
 	}
 	found := false
 	for _, r := range rows {
-		if r.Action == "reply" && r.Scope == "eng/*" {
+		if r.Action == "mcp:reply" && r.Scope == "eng/*" {
 			found = true
 		}
 	}
@@ -538,7 +538,7 @@ func TestPackagesInstallGrants(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, r := range rows2 {
-		if r.Action == "reply" && r.Scope == "eng/*" {
+		if r.Action == "mcp:reply" && r.Scope == "eng/*" {
 			t.Fatal("grant not removed from acl")
 		}
 	}

@@ -14,7 +14,7 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
-// aclDelegator stands up a folder that may delegate `read` over its own subtree
+// aclDelegator stands up a folder that may delegate `mcp:fetch_history` over its own subtree
 // — the precondition add_acl needs before the effect is even looked at.
 func aclDelegator(t *testing.T) (*DB, string) {
 	t.Helper()
@@ -28,7 +28,7 @@ func aclDelegator(t *testing.T) (*DB, string) {
 	}
 	grantMCPTools(t, db, "root", "add_acl")
 	if err := addACLRow(db, core.ACLRow{
-		Principal: "folder:root", Action: "read", Scope: "root/**", Effect: "allow",
+		Principal: "folder:root", Action: "mcp:fetch_history", Scope: "root/**", Effect: "allow",
 		GrantedBy: "test", GrantOption: true,
 	}); err != nil {
 		t.Fatal(err)
@@ -44,7 +44,7 @@ func TestACLMCP_JunkEffectIsRefused(t *testing.T) {
 
 	_, e := callToolOverSock(t, sock, "add_acl", map[string]any{
 		"principal": "google:bob", "scope": "root/team",
-		"action": "read", "effect": "denny",
+		"action": "mcp:fetch_history", "effect": "denny",
 	})
 	if e == "" {
 		t.Fatal("add_acl accepted an effect no evaluator understands")
@@ -55,7 +55,7 @@ func TestACLMCP_JunkEffectIsRefused(t *testing.T) {
 	// The escalation the refusal prevents: a row nobody validated grants the
 	// action, because every effect that is not exactly `deny` is an allow.
 	if auth.Authorize(store.NewOver(db.Obj()), auth.Caller{Principal: "google:bob"},
-		"read", "root/team", nil) {
+		"mcp:fetch_history", "root/team", nil) {
 		t.Fatal("the junk effect became a grant")
 	}
 }
@@ -67,7 +67,7 @@ func TestACLMCP_DenyAndAllowStillWrite(t *testing.T) {
 
 	if _, e := callToolOverSock(t, sock, "add_acl", map[string]any{
 		"principal": "google:bob", "scope": "root/team",
-		"action": "read", "effect": "allow",
+		"action": "mcp:fetch_history", "effect": "allow",
 	}); e != "" {
 		t.Fatalf("add_acl allow: %s", e)
 	}
@@ -86,7 +86,7 @@ func TestStoreACLWriter_RefusesJunkEffect(t *testing.T) {
 	t.Cleanup(func() { db.Close() })
 	s := store.NewOver(db.Obj())
 	if err := s.PutACLRow(core.ACLRow{
-		Principal: "google:bob", Action: "read", Scope: "root", Effect: "denny",
+		Principal: "google:bob", Action: "mcp:fetch_history", Scope: "root", Effect: "denny",
 	}); err == nil {
 		t.Fatal("the store writer accepted an effect no evaluator understands")
 	}

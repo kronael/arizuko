@@ -25,12 +25,12 @@ func TestWriteSet_RefusesASecondGuardedWrite(t *testing.T) {
 	ws := &WriteSet{}
 	first := errors.New("the first condition")
 	if err := s.RemoveACLRowInto(ws, core.ACLRow{
-		Principal: "user:a", Action: "read", Scope: "acme",
+		Principal: "user:a", Action: "mcp:fetch_history", Scope: "acme",
 	}, first); err != nil {
 		t.Fatalf("the first guarded write: %v", err)
 	}
 	err := s.RemoveACLRowInto(ws, core.ACLRow{
-		Principal: "user:b", Action: "read", Scope: "acme",
+		Principal: "user:b", Action: "mcp:fetch_history", Scope: "acme",
 	}, errors.New("the second condition"))
 	if err == nil {
 		t.Fatal("a second guarded write was accepted; one batch reports one bit")
@@ -53,12 +53,12 @@ func TestWriteSet_RefusedBatchAnswersTheCallerAndWritesNothing(t *testing.T) {
 	ws := &WriteSet{}
 	// A companion that cannot refuse, beside a revoke of a grant nobody holds.
 	if err := s.PutACLRowInto(ws, core.ACLRow{
-		Principal: "user:companion", Action: "read", Scope: "acme", GrantedBy: "test",
+		Principal: "user:companion", Action: "mcp:fetch_history", Scope: "acme", GrantedBy: "test",
 	}); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.RemoveACLRowInto(ws, core.ACLRow{
-		Principal: "user:absent", Action: "read", Scope: "acme",
+		Principal: "user:absent", Action: "mcp:fetch_history", Scope: "acme",
 	}, notFound); err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +86,7 @@ func TestWriteSet_ApplySendsTheCompanionOfAnEmptySet(t *testing.T) {
 		t.Fatalf("a fresh set holds %d writes", ws.Len())
 	}
 	key, err := aclKey(aclDefaults(core.ACLRow{
-		Principal: "user:alone", Action: "read", Scope: "acme", Effect: "allow",
+		Principal: "user:alone", Action: "mcp:fetch_history", Scope: "acme", Effect: "allow",
 	}))
 	if err != nil {
 		t.Fatal(err)

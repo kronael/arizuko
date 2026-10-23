@@ -218,8 +218,8 @@ func TestExport_DeterministicAcrossRuns(t *testing.T) {
 			{Seq: 1, Match: "a", Target: "ops"},
 		},
 		"acl": []resources.ACLRow{
-			{Principal: "user:bob", Action: "read", Scope: "atlas/", Effect: "allow"},
-			{Principal: "user:alice", Action: "read", Scope: "atlas/", Effect: "allow"},
+			{Principal: "user:bob", Action: "mcp:fetch_history", Scope: "atlas/", Effect: "allow"},
+			{Principal: "user:alice", Action: "mcp:fetch_history", Scope: "atlas/", Effect: "allow"},
 		},
 	}, nil)
 	if err != nil {
@@ -243,7 +243,7 @@ func TestGetRoundTrip_NoOp(t *testing.T) {
 	c0 := routdChecksum(t, st)
 	if _, err := resreg.Apply(context.Background(), resreg.On(st.Obj()), resreg.SubsystemRoutd, c0, false, map[string]any{
 		"acl": []resources.ACLRow{
-			{Principal: "user:alice", Action: "read", Scope: "atlas/", Effect: "allow"},
+			{Principal: "user:alice", Action: "mcp:fetch_history", Scope: "atlas/", Effect: "allow"},
 			{Principal: "user:bob", Action: "tasks:*", Scope: "ops/", Effect: "allow"},
 		},
 	}, nil); err != nil {
