@@ -132,10 +132,11 @@ timeout plus a grace period floors it (`runed/manager.go:408` `turnTTL`).
 runed hands the guest a query timeout 30 seconds under that ceiling,
 floored at 60 seconds, as `ARIZUKO_QUERY_TIMEOUT_MS`
 (`runed/render.go` `queryTimeoutMs`), so the harness aborts and reports
-before runed kills the guest. With the default ceiling the log line reads:
+before runed kills the guest. ant computes the deadline once, at start, and
+every harness run in the guest aborts at it. The log line reads:
 
 ```
-Query timeout (1170000ms) reached, aborting
+Query timeout: process deadline reached, aborting
 ```
 
 The user loses the in-flight reply, and inbound messages that arrived

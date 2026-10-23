@@ -42,6 +42,11 @@ const MAX_STDIN_BYTES = 1024 * 1024;
 
 const PROGRESS_INTERVAL_MS = 90_000;
 
+// runed hands the guest ARIZUKO_QUERY_TIMEOUT_MS under its own run ceiling. The
+// guest's clock starts with this process, so one deadline covers every harness
+// run in it, the nudge round and the next IPC turn included.
+const PROCESS_DEADLINE = Date.now() + (Number(process.env.ARIZUKO_QUERY_TIMEOUT_MS) || 15 * 60_000);
+
 // buildSystemPrompt renders the text layers the chassis owns (system MD, the
 // resident manual, persona, output style). undefined means "no rendered text"
 // — each harness supplies its own default.
@@ -280,6 +285,7 @@ async function runAttempt(
   turnID: string,
   deliver: (turnID: string, output: ContainerOutput) => Promise<TurnAck | void> = deliverTurn,
   sendStatus: typeof submitStatus = submitStatus,
+  deadline = PROCESS_DEADLINE,
 ): Promise<TurnResult> {
   const controller = new AbortController();
   const turn: Turn = {
@@ -293,6 +299,7 @@ async function runAttempt(
     tools: injectMcpEnv(env),
     env,
     signal: controller.signal,
+    deadline,
   };
 
   let ipcPolling = true;
@@ -406,10 +413,11 @@ export async function runTurn(
   turnID: string,
   deliver: (turnID: string, output: ContainerOutput) => Promise<TurnAck | void> = deliverTurn,
   sendStatus: typeof submitStatus = submitStatus,
+  deadline = PROCESS_DEADLINE,
 ) {
   let sessionId: string | undefined;
   while (true) {
-    const result = await runAttempt(harness, prompt, continuity, containerInput, env, turnID, deliver, sendStatus);
+    const result = await runAttempt(harness, prompt, continuity, containerInput, env, turnID, deliver, sendStatus, deadline);
     continuity = result.token ?? continuity;
     sessionId = result.sessionId ?? sessionId;
     if (!result.nudge || result.failed || result.closedDuringQuery || result.retryFresh) {

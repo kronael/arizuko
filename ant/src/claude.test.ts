@@ -311,7 +311,7 @@ test('createPreCompactHook: an unreadable transcript still returns the /diary in
 
 // --- session end: Claude Code's idle, not the first result (BUGS L535) ----
 
-const turn: Turn = { prompt: 'review the PR', cwd: '/tmp', turnID: 't1', env: {} };
+const turn: Turn = { prompt: 'review the PR', cwd: '/tmp', turnID: 't1', env: {}, deadline: Date.now() + 60_000 };
 
 const state = (s: string) => ({ type: 'system', subtype: 'session_state_changed', state: s });
 const result = (text: string) => ({ type: 'result', subtype: 'success', is_error: false, result: text });
@@ -372,6 +372,22 @@ test('runClaude: the session stays open for a task-notification after the first 
   expect(frames.at(-1)).toBe(results[0]);
   expect(probe.open).toEqual([true, true, true, true, true, true, true, false]);
   expect(probe.env?.CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS).toBe('1');
+});
+
+/**
+ * A session that never reaches idle (a task that never ends) is aborted at the
+ * turn's deadline and the chassis gets the timed-out frame: the timer comes
+ * from the deadline, not from a per-run constant.
+ */
+test('runClaude: a session still open at the deadline ends with the timed-out frame', async () => {
+  const query = async function* ({ options }: { options: { abortController?: AbortController } }) {
+    yield state('running');
+    await new Promise((_, reject) => options.abortController?.signal.addEventListener('abort', () => reject(new Error('aborted'))));
+  };
+  const t0 = Date.now();
+  const frames = await collect(runClaude({ ...turn, deadline: t0 + 100 }, query as never));
+  expect(frames).toEqual([{ kind: 'result', ok: true, timedOut: true }]);
+  expect(Date.now() - t0).toBeLessThan(2000);
 });
 
 /**

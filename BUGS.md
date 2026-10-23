@@ -304,9 +304,6 @@ reads those words now.
 
 **Found while measuring `L535` (2026-10-23).**
 
-- `L541` — the query timeout is armed again for each harness run, so a later
-  run aborts after runed's hard kill: one process deadline, one new field on
-  the harness seam.
 - `L542` — the `steering` row drains the main agent's steering into a subagent
   (4 krons transcripts): leave a call that carries `agent_id` alone.
 - `L543` — nothing writes the `_close` sentinel: delete the close path, or give
@@ -1230,8 +1227,8 @@ background agent or workflow runs and no notification is queued, once
 (`waitForRunEnd`) before it closes stdin; 0.3.278 waits for the first result.
 A bump of the SDK alone does not fix this: ant would still end its stream at
 the first result, and `submit_turn` (and with it the reply-owed check) would
-still run at that result. The rules below also need the process deadline
-(`L541`) and a steering row that leaves subagents alone (`L542`).
+still run at that result. The rules below also need one process deadline
+and a steering row that leaves subagents alone (`L542`).
 
 - **Severity:** high — finished work never reaches the chat.
 - **Fix (owner, 2026-10-23):** five rules.
@@ -1250,7 +1247,7 @@ still run at that result. The rules below also need the process deadline
      run.
 - **Status:** open — direction set by the owner; the cause is measured above.
   Fixed in steps: the harness ends the session at `idle` and submits once
-  (rules 1, 2), then the Stop check (5), the process deadline (`L541`), the
+  (rules 1, 2), then the Stop check (5), the process deadline (done), the
   steering row (`L542`), the deadline note (3) and the manual (4).
 
 ## L536 — PROPOSED: delete the stored numeric route id; the id is the encoded coordinate (2026-10-23, open — needs sign-off)
@@ -1378,32 +1375,6 @@ it holds WITH GRANT OPTION. Exposure: no onboarded world on krons (listing of
 - **Default if nothing is decided:** both doors stay as they are; spec `6/51`
   step 6 (caps take effect) waits for the answer.
 - **Status:** open — needs sign-off (an auth change).
-
-## L541 — the query timeout is armed again for each harness run, so a later run aborts after runed's hard kill (2026-10-23, open — needs sign-off)
-
-READ at `e6f9e9c7`. `QUERY_TIMEOUT_MS` (`ant/src/backend.ts:99`) is the guest's
-share of the run ceiling: `ARIZUKO_QUERY_TIMEOUT_MS` is the ceiling minus 30 s,
-floored at 60 s (`runed/render.go:164-173`), 15 min by default in ant. A timer
-for the whole value is armed at the start of EACH harness run
-(`ant/src/claude.ts:449`, `ant/src/backend.ts:195`). One guest starts more than
-one run: `runTurn`'s nudge round (`ant/src/index.ts:411-419`) and `main`'s IPC
-loop (`:486-530`) each begin a new run. A run that starts after N seconds
-aborts N seconds past the point runed killed the guest at, so the graceful
-`timed_out` summary never lands.
-
-Once a session waits on background tasks (`L535`) the nudge round starts late
-in the budget, so this stops being rare.
-
-- **Severity:** medium — a late second run is killed hard and the user gets no
-  summary.
-- **Fix:** the chassis computes one process deadline from ant's start
-  (`Date.now() + QUERY_TIMEOUT_MS`, inside runed's 30 s margin) and hands it to
-  every run as `Turn.deadline`; both harnesses arm their timer for what remains.
-  `Turn` is the harness seam (`ant/src/backend.ts`), so this widens it by one
-  field. No test yet — the fix commit carries it: `runClaude` with a fake
-  stream that never ends and a deadline 100 ms away yields `timeoutFrame`
-  within 300 ms (today it waits 15 min).
-- **Status:** open — needs sign-off (one field on the harness seam).
 
 ## L542 — the `steering` row drains the main agent's steering into a subagent (2026-10-23, open)
 

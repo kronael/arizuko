@@ -202,6 +202,7 @@ async function* runCodex(turn: Turn): AsyncGenerator<Frame> {
       env: turn.env,
       stdin: codexPrompt(turn, renderSkillsIndex(scan.clean)),
       signal: turn.signal,
+      deadline: turn.deadline,
     },
     new CodexTurn(),
     log,

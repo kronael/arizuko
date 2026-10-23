@@ -89,7 +89,7 @@ async function collect(gen: AsyncGenerator<Frame>): Promise<Frame[]> {
 // frame, the exact silence the seam forbids.
 test('driveCli: a spawn failure yields one error result naming the command', async () => {
   const frames = await collect(driveCli(
-    'arizuko-no-such-cli', [], { cwd: '/tmp', env: {} }, tailReducer(), () => {},
+    'arizuko-no-such-cli', [], { cwd: '/tmp', env: {}, deadline: Date.now() + 60_000 }, tailReducer(), () => {},
   ));
   expect(frames).toHaveLength(1);
   const f = frames[0];
@@ -103,11 +103,23 @@ test('driveCli: a spawn failure yields one error result naming the command', asy
 test('driveCli: a child that never reads a large stdin still finishes the turn', async () => {
   const frames = await collect(driveCli(
     'sh', ['-c', 'exit 3'],
-    { cwd: '/tmp', env: { PATH: '/usr/bin:/bin' }, stdin: 'x'.repeat(1 << 20) },
+    { cwd: '/tmp', env: { PATH: '/usr/bin:/bin' }, stdin: 'x'.repeat(1 << 20), deadline: Date.now() + 60_000 },
     tailReducer(), () => {},
   ));
   expect(frames).toHaveLength(1);
   const f = frames[0];
   if (f.kind !== 'result') throw new Error('expected result frame');
   expect(f.ok).toBe(false);
+});
+
+/** A child that outlives the process deadline is killed and the turn ends with the timed-out frame, at the deadline and not at a per-run timeout. */
+test('driveCli: a child still running at the deadline yields the timed-out frame', async () => {
+  const t0 = Date.now();
+  const frames = await collect(driveCli(
+    'sleep', ['5'],
+    { cwd: '/tmp', env: { PATH: '/usr/bin:/bin' }, deadline: t0 + 100 },
+    tailReducer(), () => {},
+  ));
+  expect(frames).toEqual([{ kind: 'result', ok: true, timedOut: true }]);
+  expect(Date.now() - t0).toBeLessThan(2000);
 });

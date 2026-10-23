@@ -33,6 +33,10 @@ export interface Turn {
   env: Record<string, string>;
   // signal is the platform winding the turn down. The chassis keeps consuming frames.
   signal?: AbortSignal;
+  // deadline is when the process must have reported, in epoch ms. One value for
+  // every run in the guest: the chassis computes it once, each harness aborts
+  // gracefully at it (timeoutFrame), never at its own start + the full timeout.
+  deadline: number;
 }
 
 // Frame is one normalized harness output. Nothing downstream parses a harness
@@ -93,10 +97,6 @@ export interface Harness {
   profile: HarnessProfile;
   run(turn: Turn): AsyncIterable<Frame>;
 }
-
-// QUERY_TIMEOUT_MS bounds one harness run; each harness ends the turn
-// gracefully at the deadline (timeoutFrame), never a silent code-1 exit.
-export const QUERY_TIMEOUT_MS = Number(process.env.ARIZUKO_QUERY_TIMEOUT_MS) || 15 * 60_000;
 
 // timeoutFrame is the one reply a timed-out turn still delivers.
 export function timeoutFrame(): ResultFrame {
@@ -159,7 +159,7 @@ export interface CliReducer {
 export async function* driveCli(
   command: string,
   args: string[],
-  opts: { cwd: string; env: Record<string, string>; stdin?: string; signal?: AbortSignal },
+  opts: { cwd: string; env: Record<string, string>; stdin?: string; signal?: AbortSignal; deadline: number },
   reducer: CliReducer,
   log: (msg: string) => void,
 ): AsyncGenerator<Frame> {
@@ -193,10 +193,10 @@ export async function* driveCli(
 
   let timedOut = false;
   const timer = setTimeout(() => {
-    log(`query timeout (${QUERY_TIMEOUT_MS}ms) reached, killing ${command}`);
+    log(`process deadline reached, killing ${command}`);
     timedOut = true;
     child.kill('SIGTERM');
-  }, QUERY_TIMEOUT_MS);
+  }, Math.max(0, opts.deadline - Date.now()));
   const onAbort = () => child.kill('SIGTERM');
   opts.signal?.addEventListener('abort', onAbort, { once: true });
 

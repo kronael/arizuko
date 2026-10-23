@@ -197,7 +197,7 @@ async function* runPi(turn: Turn): AsyncGenerator<Frame> {
     yield* driveCli(
       'pi',
       piArgs(turn, promptFile, scan.clean.map((s) => s.dir)),
-      { cwd: turn.cwd, env: turn.env, signal: turn.signal },
+      { cwd: turn.cwd, env: turn.env, signal: turn.signal, deadline: turn.deadline },
       new PiTurn(),
       log,
     );

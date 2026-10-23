@@ -306,6 +306,21 @@ test('runTurn: a failure with no text leaves failedReason unset', async () => {
   expect(r.failedReason).toBeUndefined();
 });
 
+/** The nudge round is a second harness run: it gets the SAME deadline as the first, not a fresh timeout. */
+test('runTurn hands one deadline to the first run and the nudge round', async () => {
+  const deadlines: number[] = [];
+  const harness: Harness = {
+    ...scripted([]),
+    run: async function* (turn) {
+      deadlines.push(turn.deadline);
+      yield { kind: 'result', ok: true, text: 'done' };
+    },
+  };
+  let delivered = 0;
+  await runTurn(harness, 'p', undefined, INPUT, {}, 't1', async () => ({ nudge: ++delivered === 1 ? 'deliver' : '' }), statusSpy().send, 12345);
+  expect(deadlines).toEqual([12345, 12345]);
+});
+
 /** A submission nudge continues the same turn and latest token, before the next IPC turn. */
 test('runTurn resumes a delivery nudge on the same turn and transcript', async () => {
   const turns: Array<{ id: string; prompt: string; continuity: string | undefined }> = [];

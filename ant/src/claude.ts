@@ -15,7 +15,7 @@ import {
 } from '@anthropic-ai/claude-agent-sdk';
 import { Binding, PolicyEvent, ToolEvent, bindings, runRow } from './policy.js';
 import type { ModelUsage } from './mcp.js';
-import { QUERY_TIMEOUT_MS, timeoutFrame } from './backend.js';
+import { timeoutFrame } from './backend.js';
 import type { Frame, Harness, Turn } from './backend.js';
 import { modelGateway } from './gateway.js';
 import { AGENTS } from './agents.js';
@@ -485,15 +485,15 @@ export async function* runClaude(turn: Turn, run: QueryFn = query): AsyncGenerat
   const stream = new MessageStream();
   stream.push(turn.prompt);
   const abortController = new AbortController();
-  // Set only when the abort came from the query-timeout deadline, so the aborted
+  // Set only when the abort came from the process deadline, so the aborted
   // for-await delivers a graceful summary instead of a code-1 silent exit.
   let timedOut = false;
   const timer = setTimeout(() => {
-    log(`Query timeout (${QUERY_TIMEOUT_MS}ms) reached, aborting`);
+    log('Query timeout: process deadline reached, aborting');
     timedOut = true;
     abortController.abort();
     stream.end();
-  }, QUERY_TIMEOUT_MS);
+  }, Math.max(0, turn.deadline - Date.now()));
   // The platform winding down (close sentinel) ends the prompt stream so the SDK
   // concludes gracefully.
   const onAbort = () => stream.end();
