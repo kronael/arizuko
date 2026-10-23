@@ -1154,10 +1154,12 @@ turn's end is not measured yet (an abort of the query after `submit_turn`, or
 the closed prompt stream, `claude.ts:443-458`).
 
 - **Severity:** high — finished work never reaches the chat.
-- **Fix:** measure the refusal source first. Then either the turn stays open
-  until its background tasks report, or the agent is told that a background
-  task does not outlive its turn.
-- **Status:** open.
+- **Fix (owner, 2026-10-23: "the turns can't end when subs run"):** ant keeps
+  the turn open while any background task it started is still running, and
+  submits only after every task has reported and the model has answered; the
+  run timeout still bounds the whole turn. Measure the refusal source first, so
+  the fix removes it rather than working around it.
+- **Status:** open — direction set by the owner.
 
 ## L526 — thirteen variables routd reads are not in `daemonKeys["routd"]`, so a value in `.env` never reaches it (2026-10-21, open)
 
