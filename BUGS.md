@@ -275,8 +275,6 @@ reads those words now.
   sloth sessions).
 - `L534` — GitHub PRs skip the engagement mechanism that chat threads use;
   the owner wants one attention mechanism for both (amend spec 6/27).
-- `L528` — runed serves `steered` but nothing writes it, so every spawn
-  reports `steered=false`: write it, or stop serving it?
 - `L529` — `set_group_open` writes an `open` flag that no production code
   reads; measure whether the ambient join is unwired.
 - `L530` — the emergency revoke `RevokeAllNow` has no door: wire a CLI or
@@ -1043,18 +1041,6 @@ chat held one bot row at the 2026-10-22 re-measure. Re-open only with a duplicat
 A change here would make a reply (or a `fetch_history` read) consume the rows it
 names. That is a change to the consume contract (`L104`, `L347`) and needs
 sign-off; nothing is proposed.
-
-## L528 — runed serves a `steered` flag nothing writes (2026-10-22, open)
-
-FOUND by the dead-code sweep at `90403e2d`: `runstore.(*Store).MarkSteered`
-(`runed/runstore/spawns.go:218`) has no caller (`gopls references` empty).
-`spawns.go:398` reads the attribute and `runed/server.go:215` serves it as
-`Steered`; only the test seeder `import.go:239` writes it. Every served spawn
-reports `steered=false`.
-
-- **Severity:** low — a wrong field, no known reader acts on it.
-- **Fix:** write it where a turn is steered, or drop the field from the API.
-- **Status:** open — needs sign-off (API field).
 
 ## L529 — the `open` flag `set_group_open` writes has no production reader (2026-10-22, open)
 
