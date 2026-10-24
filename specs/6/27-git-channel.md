@@ -28,8 +28,8 @@ it does not approve the proposed lifecycle or claim a deployment.
 ## Channel messages and repository tools
 
 A comment is a message in the conversation. A merge, label, or review changes repository
-state. `gitd/bot.go` implements `send_text`, `send_file`, `edit` and the typing indicator below;
-`gitd/main.go:capsFor` advertises all four when `GITHUB_TOKEN` is set. The token's user posts the comment and the returned identity
+state. `gitd/bot.go` implements `send_text`, `send_file` and the typing indicator below;
+`gitd/main.go:capsFor` advertises those three, and no `edit`, when `GITHUB_TOKEN` is set. The token's user posts the comment and the returned identity
 is `gh-c<id>`, or `gh-rc<id>` for an inline review comment, matching inbound comment IDs.
 Without that token, gitd is ingress-only.
 Other channel verbs return Unsupported.
@@ -39,17 +39,9 @@ Other channel verbs return Unsupported.
 > merge, label, a new thread, the document body — is the connector's, under
 > its own grant and hold.
 
-`Edit` replaces the text of one of gitd's own comments, which is how routd keeps one
-progress comment per turn (`specs/6/46-turn-progress.md` §"What this changes in 6/27 and 6/45").
-The id prefix picks the endpoint, as it does for the reaction: `gh-c<id>` is
-`PATCH /repos/{owner}/{repo}/issues/comments/{id}`, `gh-rc<id>` is
-`PATCH /repos/{owner}/{repo}/pulls/comments/{id}`, each with the body `{"body"}` and
-answered `200` (docs.github.com/en/rest/issues/comments,
-docs.github.com/en/rest/pulls/comments). Any other id (a bare number, a review `gh-r<id>`,
-an empty id) is `ErrInvalidRequest` before any call. The id grammar cannot say who wrote a
-comment, and a token with write access may edit anyone's, so gitd reads the comment first
-and refuses unless its `user.login` is the login `GET /user` returned at start. The refusal is
-`ErrPermanent`, and no `PATCH` is sent. A transport error stays unclassified, as for `send_text`.
+gitd advertises no `edit`, so routd posts no progress comment on GitHub
+(`specs/6/46-turn-progress.md` §"The sink's declaration"). The `👀` mark below is the
+whole progress display, and the agent has no `edit` tool there.
 
 `SendFile` posts a text file as a fenced block in a comment under the same rules as
 `send_text`, because GitHub has no API that attaches a file to a comment. A binary file is
@@ -133,6 +125,8 @@ Two repositories' PR 12 routed to one group therefore share a conversation.
 
 `mapEvent` renders explicit PR asks as `mention`: a bot @-mention, a review
 request or assignment to its login. routd promotes an inline reply to a stored bot comment.
+gitd sets `ReplyTo` only on a `created` review comment, so an edit, deletion or dismissal
+notification of a reply is never promoted to a mention.
 Human comments, inline review comments and submitted reviews with a body on a
 PR or issue authored by the bot also render `mention`.
 PR assignment is the watch declaration. Assignment does not promote plain comments.
@@ -140,7 +134,15 @@ PR state changes and approval/change-request/dismissal review states on an assig
 PR also render `mention`. Other issue activity, foreign requests and bystander comments
 remain observations. Team review requests do not match an individual login.
 `store.GitHubSourceRoutes` seeds PR mention triggers and observe fallbacks.
-GitHub engagement never overrides an observe route or supplies a missing route.
+Engagement follows the rule of `ROUTING.md` §"A target fragment sets the mode": a person's
+`message` or `mention` keeps a conversation engaged, and only those two verbs ride
+engagement, on GitHub as on every channel. A human comment on an engaged PR or issue
+chat starts a turn without a new mention. A `check_run`, `workflow_run`, review-state or
+other automation row rides no engagement and lands on the seeded `#observe` fallback.
+An operator extends engagement to such rows with one route above the fallback, for
+example `chat_jid=github:o/r/pr/* verb=check_run` to `sloth/morha#engaged`: that row
+dispatches while the chat and topic are engaged and is observed otherwise. gitd carries
+no flag for this; the route table decides.
 Bot comments drop; typed PR state and CI events from automation remain eligible.
 
 Completed `check_run`, `check_suite` and `workflow_run` deliveries use their
@@ -170,6 +172,51 @@ and posts to `pulls/<n>/comments/<root>/replies`. Every other reply uses the iss
 endpoint. A missing or foreign thread is reported, never redirected to the conversation tab.
 `SendRequest.ThreadID` carries the turn's topic, which is a session key and not an address,
 so gitd does not read it.
+
+## Location header
+
+Every GitHub message that gitd maps opens with one header line, so the agent reads
+where a message sits without a second API call. One renderer in `gitd/event.go` builds
+it once per mapped message, after the message id is final, and the CI fan-out in
+`gitd/ci.go` uses the same renderer. Owner ruling 2026-10-24, BUGS `L549`; the code
+is not built.
+
+````text
+[github kind=pull_request_review_comment id=gh-rc5678901234 thread=gh-rc5678901200 review=gh-r6789012345 path=gitd/verify.go lines=10-12 side=RIGHT url=https://github.com/kronael/arizuko/pull/12#discussion_r5678901234]
+```diff
+<the last 20 lines of diff_hunk>
+```
+
+<body>
+````
+
+| Key      | Value                                                                                                                        |
+| -------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `kind`   | GitHub's event name for the object, with no gitd vocabulary                                                                  |
+| `id`     | the message id of this row (`gh-c<id>`, `gh-rc<id>`, `gh-r<id>`); it is the value `replyToId` takes                          |
+| `thread` | review comments only: `gh-rc<in_reply_to_id>`, or the comment's own id for a root                                            |
+| `review` | review comments and reviews: the `gh-r<id>` of the review                                                                    |
+| `state`  | reviews only: GitHub's review state                                                                                          |
+| `path`   | review comments only: the file path                                                                                          |
+| `lines`  | review comments only: `<start_line>-<line>`, or `<line>` for one line; `original_*` with `outdated=true` when `line` is null |
+| `side`   | review comments only: `LEFT` or `RIGHT`                                                                                      |
+| `url`    | `html_url` of the object                                                                                                     |
+
+An event without a key leaves it out. The fenced hunk follows for a review comment,
+including a comment whose body is an empty `suggestion` block. The CI fan-out header
+carries the per-PR row id of the delivery.
+
+`reply` on a `github:<owner>/<repo>/pr/<n>` or `github:<owner>/<repo>/issue/<n>` chat
+requires `replyToId`: the `id` of the message the agent answers. The `reply` handler in
+`ipc/ipc.go` refuses a call without it, sends nothing and writes no outbound row. The
+error text is:
+
+> reply on a GitHub chat needs replyToId: the id of the message you answer (gh-rc<id>
+> answers in that code thread, gh-c<id> in the conversation)
+
+No other channel needs the argument; they keep the fallback to the topic's last reply.
+Only the `reply` handler holds that fallback, and routd's own notices send without a
+reply target, so the rule cannot live in gitd.
 
 ## Repository workspace proposal — unapproved
 
@@ -545,7 +592,9 @@ The workspace proposal additionally requires these observable results:
   groups without a matching grant cannot inspect or mutate the binding, checkout or
   history through REST/MCP. Lifecycle-only deliveries and bystander comments start no
   model turn; explicit mentions, direct bot replies and human conversation on
-  bot-authored PRs or issues form the engagement boundary.
+  bot-authored PRs or issues form the engagement boundary. A human comment on an
+  engaged chat starts a turn; a CI or review-state row starts none unless a route
+  carries `#engaged`.
 
 These require fault-injection and concurrency tests at the owner boundaries, plus a
 credentialed disposable-repository exercise of real thread replies and lifecycle events.
