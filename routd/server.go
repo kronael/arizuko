@@ -422,7 +422,10 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 	// (local dev) falls back to any registered owner.
 	if s.reg != nil && isChannelJID(m.ChatJID) {
 		if sub != "" {
-			entry := s.reg.ByPrincipal(sub)
+			entry := s.reg.Get(m.Source)
+			if entry == nil || entry.Principal != sub {
+				entry = s.reg.ByPrincipal(sub)
+			}
 			if entry != nil && !entry.Owns(m.ChatJID) {
 				writeErr(w, 400, "jid_prefix_mismatch", "adapter doesn't own "+m.ChatJID)
 				return

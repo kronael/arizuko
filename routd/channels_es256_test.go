@@ -213,6 +213,57 @@ func TestIngressJIDOwnershipES256(t *testing.T) {
 	}
 }
 
+// Accounts sharing a principal use their source's prefixes; a foreign or
+// missing source uses the caller's principal entry.
+func TestIngressJIDOwnershipBySourceES256(t *testing.T) {
+	tok, ks := mintFor(t, "service:teled", "service")
+	srv, reg := newChannelRoutd(t)
+	srv.verify = es256Verifier{ks}
+	for _, c := range []struct {
+		name      string
+		prefix    string
+		principal string
+	}{
+		{"jynx", "telegram:222/", "service:teled"},
+		{"telegram", "telegram:111/", "service:teled"},
+		{"foreign", "telegram:222/", "service:other"},
+	} {
+		_, err := reg.RegisterWithOrigin(c.name, "http://10.0.0.11:8080",
+			[]string{c.prefix}, nil, "", c.principal)
+		if err != nil {
+			t.Fatalf("register %s: %v", c.name, err)
+		}
+	}
+	h := srv.Handler()
+	for _, c := range []struct {
+		name   string
+		source string
+		jid    string
+		want   int
+	}{
+		{"source owns jid", "jynx", "telegram:222/user/5", http.StatusOK},
+		{"source rejects jid", "telegram", "telegram:222/user/5", http.StatusBadRequest},
+		{"foreign source falls back", "foreign", "telegram:111/user/5", http.StatusOK},
+		{"foreign source cannot confer ownership", "foreign", "telegram:222/user/5", http.StatusBadRequest},
+		{"unknown source falls back", "unknown", "telegram:111/user/5", http.StatusOK},
+		{"empty source falls back", "", "telegram:111/user/5", http.StatusOK},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			rec := doJSONWithBearer(t, h, "POST", "/v1/messages", tok, "",
+				apiv1.Message{Source: c.source, ChatJID: c.jid,
+					Sender: "telegram:user/5", Content: "hi", Verb: "message"})
+			if rec.Code != c.want {
+				t.Fatalf("status=%d want %d (%s)",
+					rec.Code, c.want, rec.Body.String())
+			}
+			if c.want == http.StatusBadRequest &&
+				!strings.Contains(rec.Body.String(), `"error":"jid_prefix_mismatch"`) {
+				t.Fatalf("want jid_prefix_mismatch: %s", rec.Body.String())
+			}
+		})
+	}
+}
+
 func doJSONWithBearer(t *testing.T, h http.Handler, method, path, bearer, idemKey string, body any) *httptest.ResponseRecorder {
 	t.Helper()
 	raw, _ := json.Marshal(body)
