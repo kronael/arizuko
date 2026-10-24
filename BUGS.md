@@ -1427,8 +1427,8 @@ newly paired Telegram DM user stays anonymous. Discord DMs already differ
 - **Fix:** the onboarding row and the pairing carry the sender read from the
   inbound row, and the membership edge's child is the sender. Changes the
   pairing contract (`specs/5/31-identity-pairing.md`), so it is a proposal.
-- **Status:** open — signed off (owner, 2026-10-24); L553 step 6 (deploy)
-  waits on it.
+- **Status:** open — fixed in the L553 worktree (47f34d24..a430aea9, reviewed
+  twice); closes when that line is released.
 
 ## L553 — two Telegram bots on one instance merge one person's DMs into one chat (2026-10-23, open)
 
@@ -1464,7 +1464,9 @@ when it is needed.
 - **Migration:** DECIDED (owner, 2026-10-23): every account uses the new
   shape, the base account included, and its existing DM rows, routes and
   sessions move to it.
-- **Status:** open — signed off; fix in progress.
+- **Status:** open — steps 1-5 done in worktree `bugs-bot-dm-route`
+  (a218bdc3..663df20c); step 6 (deploy + `rekey-dms` on sloth, then krons) is
+  the operator's.
   The route sending `@sloth_fiu_bot` DMs to `atlas` is an operator row and is
   the owner's call.
 
