@@ -556,10 +556,12 @@ func (l *Loop) pollOnce() {
 		if len(chatMsgs) == 0 {
 			continue
 		}
-		r := l.resolve(chatJID, chatMsgs[len(chatMsgs)-1])
-		if !r.ok {
-			l.routeMiss(chatJID, chatMsgs, r)
-			continue
+		// An all-bot batch is the agent's own output: the worker owns that advance.
+		if newestUserIdx(chatMsgs) >= 0 {
+			if b := l.resolveBatch(chatJID, chatMsgs); !b.ok {
+				l.routeMiss(chatJID, chatMsgs, b.resolution)
+				continue
+			}
 		}
 		// Steering happens in processGroupMessages, the one path this backstop
 		// and adapter ingest converge to, so a command cannot race past it.
@@ -574,16 +576,8 @@ func (l *Loop) pollOnce() {
 func (l *Loop) routeMiss(chatJID string, msgs []core.Message, r resolution) {
 	last := msgs[len(msgs)-1]
 	if r.Observe != "" {
-		// Observe rule: silent ingest, no turn. Enriched so later turns see
-		// downloaded media, not raw URLs.
-		for i := range msgs {
-			if l.media.Enabled {
-				l.enrichAttachments(context.Background(), &msgs[i], r.Observe)
-			}
-		}
-		if err := l.db.MarkMessagesObserved(r.Observe, msgs); err != nil {
-			slog.Warn("route miss: mark observed", "jid", chatJID, "err", err)
-		}
+		// Observe rule: silent ingest, no turn.
+		l.observeRows(chatJID, r.Observe, msgs)
 	} else {
 		// A route-missed /chatid still answers: it is how a NEW user self-reports
 		// their JID for `arizuko group add`; the routed twin is in handleCommand.
@@ -610,6 +604,20 @@ func (l *Loop) routeMiss(chatJID string, msgs []core.Message, r resolution) {
 		}
 	}
 	l.advance(chatJID, last)
+}
+
+// observeRows stores rows as ambient context of folder, the one writer for the
+// observe rule and for the rows a dispatch consumes without a turn of their
+// own. Enriched so later turns see downloaded media, not raw URLs.
+func (l *Loop) observeRows(chatJID, folder string, rows []core.Message) {
+	for i := range rows {
+		if l.media.Enabled {
+			l.enrichAttachments(context.Background(), &rows[i], folder)
+		}
+	}
+	if err := l.db.MarkMessagesObserved(folder, rows); err != nil {
+		slog.Warn("mark observed", "jid", chatJID, "folder", folder, "err", err)
+	}
 }
 
 // onboardingFailedNotice is sent to an unrouted chat when the admission-queue
@@ -639,29 +647,84 @@ func (l *Loop) resolveGroup(chatJID string, last core.Message) (string, bool) {
 // the turn is addressed. A timed or system sender is never addressed: a task
 // is not a person (the same predicate turnCallerSub reads).
 func (l *Loop) resolve(chatJID string, last core.Message) resolution {
-	r := l.resolveFolder(chatJID, last)
-	if isSystemTrigger(last.Sender) {
-		r.Addressed = false
-	}
-	return r
+	return l.resolveRows(chatJID, []core.Message{last})[0]
 }
 
-func (l *Loop) resolveFolder(chatJID string, last core.Message) resolution {
+// batchResolution is the one decision on a batch of rows. The embedded
+// resolution is the newest user row's that dispatches on its own, or the newest
+// user row's when none does. dispatches[i] says msgs[i] dispatches on its own.
+type batchResolution struct {
+	resolution
+	dispatches []bool
+}
+
+// resolveBatch decides a batch for both processing paths: the poll backstop and
+// the worker. The route table is read once. A bot row never resolves a batch,
+// so msgs must hold a user row (newestUserIdx >= 0).
+func (l *Loop) resolveBatch(chatJID string, msgs []core.Message) batchResolution {
+	var users []core.Message
+	var at []int
+	for i, m := range msgs {
+		if !m.BotMsg {
+			users = append(users, m)
+			at = append(at, i)
+		}
+	}
+	rows := l.resolveRows(chatJID, users)
+	b := batchResolution{
+		resolution: rows[len(rows)-1],
+		dispatches: make([]bool, len(msgs)),
+	}
+	picked := false
+	for k := len(rows) - 1; k >= 0; k-- {
+		if !rows[k].ok {
+			continue
+		}
+		b.dispatches[at[k]] = true
+		if !picked {
+			b.resolution, picked = rows[k], true
+		}
+	}
+	return b
+}
+
+// resolveRows resolves each row on its own, reading the route table once.
+func (l *Loop) resolveRows(chatJID string, rows []core.Message) []resolution {
+	out := make([]resolution, len(rows))
 	// 1. Direct address: a web:/hook: JID or a bare registered folder.
-	if direct := l.directFolder(chatJID); direct != "" && l.db.GroupExists(direct) {
-		// Only a person typing in a web chat is a question; a hook is an event
-		// and a bare folder is a system turn.
-		return resolution{Folder: direct, ok: true, Addressed: core.JidPlatform(chatJID) == "web"}
+	direct := l.directFolder(chatJID)
+	isDirect := direct != "" && l.db.GroupExists(direct)
+	var routes []core.Route
+	routesOK := false
+	if !isDirect {
+		var err error
+		routes, err = l.db.Routes()
+		if err != nil {
+			// A read failure looks identical to a clean miss. The fail-forward
+			// stays (a retry risks a poison-message loop) but the drop is LOUD.
+			slog.Error("resolve: route table read failed; message dropped as route-miss",
+				"jid", chatJID, "err", err)
+		}
+		routesOK = err == nil
 	}
+	for i, m := range rows {
+		if isDirect {
+			// Only a person typing in a web chat is a question; a hook is an event
+			// and a bare folder is a system turn.
+			out[i] = resolution{Folder: direct, ok: true, Addressed: core.JidPlatform(chatJID) == "web"}
+		} else {
+			out[i] = l.resolveFolder(chatJID, m, routes, routesOK)
+		}
+		if isSystemTrigger(m.Sender) {
+			out[i].Addressed = false
+		}
+	}
+	return out
+}
+
+func (l *Loop) resolveFolder(chatJID string, last core.Message, routes []core.Route, routesOK bool) resolution {
 	// 2. Route table.
-	routes, err := l.db.Routes()
-	if err != nil {
-		// A read failure looks identical to a clean miss. The fail-forward
-		// stays (a retry risks a poison-message loop) but the drop is LOUD.
-		slog.Error("resolve: route table read failed; message dropped as route-miss",
-			"jid", chatJID, "err", err)
-	}
-	if err == nil {
+	if routesOK {
 		rt := router.ResolveRouteTarget(last, routes)
 		if rt.Folder != "" {
 			engTopic := l.effectiveTopic(chatJID, last.Topic)

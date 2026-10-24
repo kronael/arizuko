@@ -33,11 +33,14 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 		return false, nil
 	}
 	last := msgs[len(msgs)-1]
-	// The route and the busy key take the NEWEST user row; the steer offer takes
-	// the oldest slash command. Sharing one row made a `/root` followed by an
-	// @mention miss a mention-only route and drop the batch (BUGS L56, L336).
-	routeIdx := newestUserIdx(msgs)
-	if routeIdx < 0 {
+	// Three questions, three rows. The busy key is the newest user row; the steer
+	// offer takes the oldest slash command; the folder comes from the newest row
+	// that dispatches on its own (resolveBatch). Sharing one row made a `/root`
+	// followed by an @mention miss a mention-only route and drop the batch
+	// (BUGS L56, L336), and a newer review row that matched only #observe took a
+	// pending mention with it (BUGS L551).
+	busyIdx := newestUserIdx(msgs)
+	if busyIdx < 0 {
 		// An all-bot batch is normally an agent's own output. When another folder
 		// wrote it, it is a delegation that woke nothing (BUGS L2), so say so. The
 		// chat's folder is READ from the mint record, never parsed from the JID —
@@ -50,17 +53,17 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 		l.advance(chatJID, last)
 		return false, nil
 	}
-	routeMsg := msgs[routeIdx]
 	// The busy key is the newest USER row: a person's next message clears the
 	// backoff, the running turn's own bot rows do not (BUGS L298, L55).
-	if l.busyDeferred(chatJID, routeMsg.ID) {
+	if l.busyDeferred(chatJID, msgs[busyIdx].ID) {
 		return false, nil
 	}
-	r := l.resolve(chatJID, routeMsg)
-	if !r.ok {
-		l.routeMiss(chatJID, msgs, r)
+	b := l.resolveBatch(chatJID, msgs)
+	if !b.ok {
+		l.routeMiss(chatJID, msgs, b.resolution)
 		return false, nil
 	}
+	r := b.resolution
 	folder := r.Folder
 	// Steering consumes the latest message BEFORE it reaches a turn, on the one
 	// path every trigger converges to; in the pollOnce backstop alone it raced
@@ -79,12 +82,21 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 		steerConsumed = true
 		msgs, last = msgs[:steerIdx], steerMsg
 	}
-	// Bot rows stay out of the trigger but in the rendered context.
-	var trigger []core.Message
-	for _, m := range msgs {
-		if !m.BotMsg {
+	// Bot rows stay out of the trigger but in the rendered context. A user row
+	// that does not dispatch on its own is observed under the batch folder before
+	// the prompt is built, so this turn renders it as context.
+	var trigger, ambient []core.Message
+	for i, m := range msgs {
+		switch {
+		case m.BotMsg:
+		case b.dispatches[i]:
 			trigger = append(trigger, m)
+		default:
+			ambient = append(ambient, m)
 		}
+	}
+	if len(ambient) > 0 {
+		l.observeRows(chatJID, folder, ambient)
 	}
 	if len(trigger) == 0 {
 		l.advance(chatJID, last)
