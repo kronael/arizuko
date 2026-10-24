@@ -28,9 +28,8 @@ Three things follow from that:
 
 ## What this changes for you
 
-`issue_pairing_link(jid=…, sender=…)` names a chat routed within your folder
-and an explicit sender with an inbound message in that chat. The link expires
-in ten minutes.
+`issue_pairing_link` is unchanged — same arguments, same rule that the JID must
+already route to your folder, same ten-minute window.
 
 The thing to watch for: a chat can be **linked but not routed**. Pairing binds
 an identity; it does not decide where a chat's messages go. A user who has just

@@ -4,13 +4,12 @@ A person messaging you from a chat is anonymous. `telegram:user/123` holds
 nothing and can be granted nothing, because grants attach to accounts. Pairing
 is how that identity becomes a person.
 
-- **`issue_pairing_link(jid=…, sender=…)`** — mints a one-time URL. Name the chat
-  and the person's sender identity from an inbound message in that chat. Send it to that person
+- **`issue_pairing_link(jid=…)`** — mints a one-time URL. Send it to that person
   in the chat. They sign in, see a page naming their chat identity, and confirm.
   From their next message they resolve to their account and carry whatever
   authority it already holds. Returns `{url, jid}`; the URL is shown once,
   expires in 10 minutes, works once. The JID must route to your folder.
-- **`unpair(jid=…, sender=…, parent=…)`** — undo it for that sender in that chat. It only
+- **`unpair(child=…, parent=…)`** — undo it. Either end may call it. It only
   touches links made by pairing, never role membership.
 
 **Pairing GRANTS NOTHING.** It makes a chat identity resolve to a human; the
