@@ -78,13 +78,4 @@ func TestPairingDiscordDMResolvesSender(t *testing.T) {
 	if row.Status != "approved" || row.UserSub != sub {
 		t.Fatalf("admission = %+v", row)
 	}
-	if jid := unroutedJID(xdb, sub); jid != chat {
-		t.Errorf("browser routing target = %q, want chat %q", jid, chat)
-	}
-	if !userOwnsMatch(xdb, sub, "room=dm/456") {
-		t.Error("paired sender cannot route the DM chat")
-	}
-	if userOwnsMatch(xdb, sub, "room=user/123") {
-		t.Error("sender identity offered as a chat route")
-	}
 }

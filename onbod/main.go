@@ -93,10 +93,6 @@ func main() {
 	}
 	defer xdb.Close() //nolint:errcheck // the process is ending
 	slog.Info("onbod cross-reads routd's tables", "store", dynstore.URL())
-	if err := backfillOnboardingSenders(xdb, obdb); err != nil {
-		slog.Error("fill onboarding senders", "err", err)
-		os.Exit(1)
-	}
 
 	audit.Init(obdb.Obj(), os.Getenv("ARIZUKO_INSTANCE"))
 	audit.Emit(context.Background(), audit.Event{
@@ -398,30 +394,13 @@ func warnStrandedRows(db *store.Store) {
 	}
 }
 
-func backfillOnboardingSenders(xdb, obdb *store.Store) error {
-	rows, err := obdb.ListOnboarding("")
-	if err != nil {
-		return err
-	}
-	for _, row := range rows {
-		if row.Sender != "" {
-			continue
-		}
-		last, found, err := xdb.LastInboundMessage(context.Background(), row.JID)
-		if err != nil {
-			return err
-		}
-		if !found || last.Sender == "" {
-			slog.Warn("onboarding sender unresolved", "jid", row.JID)
-			continue
-		}
-		if err := obdb.BackfillOnboardingSender(row.JID, last.Sender); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
+// promptUnprompted greets every unrouted chat that has no live link, with a
+// PAIRING link (spec 5/31-identity-pairing) rather than an onboarding token of its own. onbod mints
+// no second credential and writes no second acl_membership edge.
+//
+// The mint's owner_folder is the constant "" → NULL. InsertOnboarding only ever
+// fires from the route-MISS branch, so "this JID routes nowhere" is proved by the
+// row's existence and is not re-derived here.
 func promptUnprompted(xdb, obdb *store.Store, cfg config) {
 	warnStrandedRows(obdb)
 	pending, err := obdb.UnpromptedOnboarding()
@@ -501,6 +480,9 @@ func observePairings(xdb, obdb *store.Store, cfg config) {
 			continue
 		}
 		jid := row.JID
+		// The PAIRING edge and not any edge above the jid: a role membership is
+		// not a consent, and reading one as the parent would admit the chat to
+		// whoever the role names.
 		edges, err := xdb.ParentEdges(row.Sender)
 		if err != nil {
 			slog.Error("observePairings read pairing edge", "jid", jid, "err", err)
@@ -646,7 +628,7 @@ func handleDashboard(w http.ResponseWriter, r *http.Request, db, obdb *store.Sto
 	// page sent them here, an invite redemption did, or they reloaded. That is
 	// also why the fold needed no hook — membershipJIDs applies no added_by
 	// filter, so the edge RedeemPairing wrote is found like any other.
-	if jid := unroutedJID(db, userSub); jid != "" {
+	if jid := unroutedJID(db, obdb, userSub); jid != "" {
 		switch folders := adminFolders(db, userSub); len(folders) {
 		case 0:
 			renderNoWorld(w, jid)
@@ -668,7 +650,7 @@ func handleDashboard(w http.ResponseWriter, r *http.Request, db, obdb *store.Sto
 		}
 	}
 
-	renderDashboard(w, db, userSub, username)
+	renderDashboard(w, db, obdb, userSub, username)
 }
 
 // csrfCookieName double-submit token: set on GET /onboard, required on POST.
@@ -706,7 +688,7 @@ func handleOnboardPost(w http.ResponseWriter, r *http.Request, db, obdb *store.S
 		handleDeleteRoute(w, r, db, userSub, folders)
 	case "add_route":
 		folders := userFolders(db, userSub)
-		handleAddRoute(w, r, db, userSub, folders)
+		handleAddRoute(w, r, db, obdb, userSub, folders)
 	default:
 		http.Error(w, "unknown action", http.StatusBadRequest)
 	}
@@ -878,15 +860,18 @@ func handleCreateWorld(w http.ResponseWriter, r *http.Request, db, obdb *store.S
 	http.Redirect(w, r, "/onboard", http.StatusSeeOther)
 }
 
-func membershipJIDs(db *store.Store, userSub string) []string {
+func membershipJIDs(db, obdb *store.Store, userSub string) []string {
+	rows, err := obdb.ListOnboarding("")
+	if err != nil {
+		slog.Error("read paired sender chats", "err", err)
+		return nil
+	}
+	senders := db.Members(userSub)
 	var chats []string
-	for _, sender := range db.Members(userSub) {
-		jids, err := db.ChatJIDsForSender(context.Background(), sender)
-		if err != nil {
-			slog.Error("read paired sender chats", "sender", sender, "err", err)
-			return nil
+	for _, row := range rows {
+		if row.Sender != "" && slices.Contains(senders, row.Sender) {
+			chats = append(chats, row.JID)
 		}
-		chats = append(chats, jids...)
 	}
 	slices.Sort(chats)
 	return slices.Compact(chats)
@@ -1072,7 +1057,7 @@ func foldASCII(r rune) rune {
 // unroutedJID returns the sub's first paired JID that no route names, or "".
 // That state IS the silence spec 5/18 opens with: the chat is proven and
 // linked, its messages land in routd.db, and nothing surfaces them.
-func unroutedJID(db *store.Store, sub string) string {
+func unroutedJID(db, obdb *store.Store, sub string) string {
 	routes, err := db.RouteTable()
 	if err != nil {
 		// A table nobody could read is not a table with no rules in it: offering
@@ -1080,7 +1065,7 @@ func unroutedJID(db *store.Store, sub string) string {
 		slog.Error("unroutedJID route lookup", "sub", sub, "err", err)
 		return ""
 	}
-	for _, jid := range membershipJIDs(db, sub) {
+	for _, jid := range membershipJIDs(db, obdb, sub) {
 		if len(jidRoutes(routes, jid)) == 0 {
 			return jid
 		}
@@ -1325,7 +1310,7 @@ func renderNoWorld(w http.ResponseWriter, jid string) {
 		html.EscapeString(jid))))
 }
 
-func renderDashboard(w http.ResponseWriter, db *store.Store, userSub, username string) {
+func renderDashboard(w http.ResponseWriter, db, obdb *store.Store, userSub, username string) {
 	esc := html.EscapeString
 
 	var jidsHTML string
@@ -1368,7 +1353,7 @@ func renderDashboard(w http.ResponseWriter, db *store.Store, userSub, username s
 		// One row per (jid, rule) pair, ordered by jid then target — the join's
 		// order, rebuilt here because the rule that names a jid is found by the
 		// same predicate unroutedJID asks and not by a key.
-		for _, jid := range membershipJIDs(db, userSub) {
+		for _, jid := range membershipJIDs(db, obdb, userSub) {
 			matched := jidRoutes(routes, jid)
 			targets := make([]string, 0, len(matched))
 			for _, r := range matched {
@@ -1538,7 +1523,7 @@ var matchRe = regexp.MustCompile(`\A[A-Za-z0-9_.:=@/-]+\z`)
 
 // userOwnsMatch reports whether match references a room the user has claimed via acl_membership.
 // Only "room=<id>" is supported; more expressive patterns require operator grants.
-func userOwnsMatch(db *store.Store, sub, match string) bool {
+func userOwnsMatch(db, obdb *store.Store, sub, match string) bool {
 	const prefix = "room="
 	if !strings.HasPrefix(match, prefix) {
 		return false
@@ -1547,7 +1532,7 @@ func userOwnsMatch(db *store.Store, sub, match string) bool {
 	if room == "" {
 		return false
 	}
-	for _, jid := range membershipJIDs(db, sub) {
+	for _, jid := range membershipJIDs(db, obdb, sub) {
 		if i := strings.Index(jid, ":"); i > 0 && jid[i+1:] == room {
 			return true
 		}
@@ -1602,7 +1587,7 @@ func deleteRoute(ctx context.Context, st *store.Store, id int64) error {
 }
 
 func handleAddRoute(w http.ResponseWriter, r *http.Request,
-	db *store.Store, sub string, folders []string) {
+	db, obdb *store.Store, sub string, folders []string) {
 	match := strings.TrimSpace(r.FormValue("match"))
 	target := strings.TrimSpace(r.FormValue("target"))
 	if match == "" || target == "" {
@@ -1621,7 +1606,7 @@ func handleAddRoute(w http.ResponseWriter, r *http.Request,
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
-	if !isOperator(folders) && !userOwnsMatch(db, sub, match) {
+	if !isOperator(folders) && !userOwnsMatch(db, obdb, sub, match) {
 		http.Error(w, "forbidden: match does not reference a linked account",
 			http.StatusForbidden)
 		return

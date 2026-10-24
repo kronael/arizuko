@@ -99,7 +99,7 @@ var RouteTokensMCPArgs = map[resreg.Action][]resreg.MCPArg{
 	},
 	resreg.Action("issue_pair"): {
 		{Name: "jid", Type: "string", Required: true,
-			Description: "Inbound sender identity to pair (e.g. discord:user/123). A chat carrying that sender's inbound message must route within your folder."},
+			Description: "Channel identity to pair (e.g. telegram:user/123). It must route to your folder — you can only mint a pairing for a chat you handle."},
 	},
 	resreg.Action("revoke"): {
 		{Name: "jid", Type: "string", Required: true,

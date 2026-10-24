@@ -2,43 +2,9 @@ package store
 
 import (
 	"maps"
-	"reflect"
 	"testing"
 	"time"
-
-	"github.com/kronael/arizuko/core"
 )
-
-func TestChatJIDsForSenderUsesInboundHistory(t *testing.T) {
-	s := openMem(t)
-	const sender = "discord:user/123"
-	base := time.Now()
-	for i, row := range []core.Message{
-		{ID: "first", ChatJID: "discord:dm/1", Sender: sender},
-		{ID: "other", ChatJID: "discord:dm/1", Sender: "discord:user/other"},
-		{ID: "second", ChatJID: "discord:dm/2", Sender: sender},
-		{ID: "bot", ChatJID: "discord:dm/2", Sender: "bot", BotMsg: true},
-		{ID: "outbound", ChatJID: "discord:dm/3", Sender: sender, FromMe: true},
-		{ID: "bot-only", ChatJID: "discord:dm/4", Sender: sender, BotMsg: true},
-		{ID: "foreign", ChatJID: "discord:dm/5", Sender: "discord:user/other"},
-	} {
-		row.Timestamp = base.Add(time.Duration(i) * time.Second)
-		if err := s.PutMessage(row); err != nil {
-			t.Fatal(err)
-		}
-	}
-	got, err := s.ChatJIDsForSender(t.Context(), sender)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if want := []string{"discord:dm/1", "discord:dm/2"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("sender chats = %v, want %v", got, want)
-	}
-	got, err = s.ChatJIDsForSender(t.Context(), "discord:dm/1")
-	if err != nil || len(got) != 0 {
-		t.Fatalf("chat identity fallback = %v, %v", got, err)
-	}
-}
 
 func TestOnboardingSenderPersistsAndArchives(t *testing.T) {
 	s := openEntities(t)
@@ -77,7 +43,7 @@ func TestOnboardingSenderPersistsAndArchives(t *testing.T) {
 	}
 }
 
-func TestBackfillOnboardingSenderPreservesVerdicts(t *testing.T) {
+func TestInsertOnboardingSenderPreservesVerdicts(t *testing.T) {
 	for _, status := range []string{statusAwaitingMessage, statusQueued, statusApproved, statusRefused} {
 		t.Run(status, func(t *testing.T) {
 			s := openEntities(t)
@@ -94,10 +60,10 @@ func TestBackfillOnboardingSenderPreservesVerdicts(t *testing.T) {
 			if status == statusAwaitingMessage {
 				delete(want, attrOnbPromptedAt)
 			}
-			if err := s.BackfillOnboardingSender(row.JID, "discord:user/123"); err != nil {
+			if err := s.InsertOnboarding(row.JID, "discord:user/123"); err != nil {
 				t.Fatal(err)
 			}
-			if err := s.BackfillOnboardingSender(row.JID, "discord:user/other"); err != nil {
+			if err := s.InsertOnboarding(row.JID, "discord:user/other"); err != nil {
 				t.Fatal(err)
 			}
 			if got := admissionItem(t, s, row.JID).Attrs; !maps.Equal(got, want) {

@@ -113,7 +113,6 @@ func TestOnboardingFlow(t *testing.T) {
 
 	jid := "telegram:42"
 	seedAdmission(t, inst.Ob, store.ArchiveOnboardingRow{JID: jid, Status: "awaiting_message"})
-	seedInbound(t, inst.X, jid, jid)
 
 	// Trigger the poll step: promptUnprompted mints the pairing token, issues a
 	// POST to gatedURL and stamps prompted_at on the row.

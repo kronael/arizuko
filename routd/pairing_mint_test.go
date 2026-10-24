@@ -251,7 +251,7 @@ func seedPairingInbound(t *testing.T, db *DB, chat, sender string) {
 	}
 }
 
-func TestPairingMintDiscordSenderAcrossChats(t *testing.T) {
+func TestPairingMintDiscordChatBindsNewestInboundSender(t *testing.T) {
 	db, sock := pairingFixture(t, "hq", "room=dm/200")
 	if err := db.PutGroup(core.Group{Folder: "rival"}); err != nil {
 		t.Fatal(err)
@@ -259,18 +259,32 @@ func TestPairingMintDiscordSenderAcrossChats(t *testing.T) {
 	if _, err := db.AddRoute(core.Route{Match: "room=dm/100", Target: "rival"}); err != nil {
 		t.Fatal(err)
 	}
-	const sender = "discord:user/123"
+	const sender = "discord:user/newest"
 	seedPairingInbound(t, db, "discord:dm/100", sender)
-	seedPairingInbound(t, db, "discord:dm/200", sender)
+	seedPairingInbound(t, db, "discord:dm/200", "discord:user/earlier")
 	if err := db.PutMessage(core.Message{
-		ID: "later", ChatJID: "discord:dm/200", Sender: "discord:user/other",
-		Timestamp: time.Now(),
+		ID: "later", ChatJID: "discord:dm/200", Sender: sender,
+		Timestamp: time.Now().Add(time.Second),
 	}); err != nil {
 		t.Fatal(err)
 	}
-	url, got := issuePairing(t, sock, sender)
-	if got != sender {
-		t.Fatalf("paired identity = %q", got)
+	for i, row := range []core.Message{
+		{ID: "bot", ChatJID: "discord:dm/200", Sender: "bot", BotMsg: true},
+		{ID: "outbound", ChatJID: "discord:dm/200", Sender: "operator", FromMe: true},
+	} {
+		row.Timestamp = time.Now().Add(time.Duration(i+2) * time.Second)
+		if err := db.PutMessage(row); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, jid := range []string{"discord:dm/100", sender} {
+		if _, e := callToolText(t, sock, "issue_pairing_link", map[string]any{"jid": jid}); e == "" {
+			t.Errorf("pairing accepted chat outside containment: %s", jid)
+		}
+	}
+	url, got := issuePairing(t, sock, "discord:dm/200")
+	if got != "discord:dm/200" {
+		t.Fatalf("response chat = %q", got)
 	}
 	if _, err := db.store().RedeemPairing(strings.TrimPrefix(url, "https://x.test/pair/"), "github:alice"); err != nil {
 		t.Fatal(err)
@@ -281,7 +295,12 @@ func TestPairingMintDiscordSenderAcrossChats(t *testing.T) {
 	grantMCPTools(t, db, "hq", "unpair")
 	unpairSock := serveMembershipMCP(t, db, "hq", "folder:hq")
 	if _, e := callToolText(t, unpairSock, "unpair", map[string]any{
-		"child": sender, "parent": "github:alice",
+		"child": "discord:dm/100", "parent": "github:alice",
+	}); e == "" {
+		t.Fatal("unpair accepted chat outside containment")
+	}
+	if _, e := callToolText(t, unpairSock, "unpair", map[string]any{
+		"child": "discord:dm/200", "parent": "github:alice",
 	}); e != "" {
 		t.Fatalf("unpair sender: %s", e)
 	}
@@ -292,7 +311,6 @@ func TestPairingMintDiscordSenderAcrossChats(t *testing.T) {
 
 func TestPairingMintRequiresInboundSender(t *testing.T) {
 	db, sock := pairingFixture(t, "hq", "room=dm/200")
-	seedPairingInbound(t, db, "discord:dm/200", "discord:user/123")
 	if _, err := db.AddRoute(core.Route{Match: "room=user/999", Target: "hq"}); err != nil {
 		t.Fatal(err)
 	}

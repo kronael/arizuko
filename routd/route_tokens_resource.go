@@ -113,8 +113,10 @@ func (s *Server) routeTokensHandler(ctx context.Context, x resreg.Execution) (an
 		return map[string]any{"token": raw, "jid": jid, "url": url}, nil
 
 	case routeTokensActionIssuePair:
+		// owner_folder is the folder the JID ROUTES to — the same value the
+		// Gate authorized the caller against, so the two cannot disagree.
 		jid := strings.TrimSpace(argString(x.Args, "jid"))
-		target, err := pairingTargetFolder(s.db, jid, folder)
+		target, err := pairingTargetFolder(s.db, jid)
 		if err != nil {
 			return nil, err
 		}
@@ -123,7 +125,11 @@ func (s *Server) routeTokensHandler(ctx context.Context, x resreg.Execution) (an
 			return nil, resreg.Errorf(http.StatusInternalServerError,
 				"cannot mint a pairing link: WEB_HOST is unset, so there is no URL to hand out")
 		}
-		raw, err := s.db.store().IssuePairingLinkInto(x.Writes, jid, target)
+		sender, err := pairingSender(ctx, s.db, jid)
+		if err != nil {
+			return nil, err
+		}
+		raw, err := s.db.store().IssuePairingLinkInto(x.Writes, sender, target)
 		if err != nil {
 			return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
 		}
@@ -165,9 +171,10 @@ func (s *Server) routeTokensPostBuild(folder, callerSub string, authorize author
 				target = t
 			}
 		case routeTokensActionIssuePair:
+			// A pairing names an EXISTING chat, so its target is where that chat
+			// routes — the containment outbound `send` applies (ipc.authorizeJID).
 			var err error
-			if target, err = pairingTargetFolder(s.db,
-				strings.TrimSpace(argString(x.Args, "jid")), folder); err != nil {
+			if target, err = pairingTargetFolder(s.db, strings.TrimSpace(argString(x.Args, "jid"))); err != nil {
 				return err
 			}
 		}
@@ -179,26 +186,39 @@ func (s *Server) routeTokensPostBuild(folder, callerSub string, authorize author
 	return mountAgentResource(res, callerSub, folder, visible)
 }
 
-func pairingTargetFolder(db *DB, sender, callerFolder string) (string, error) {
-	if sender == "" {
+// pairingTargetFolder resolves the folder a pairing's JID routes to — BOTH
+// what the Gate authorizes against and the token's owner_folder, so a caller
+// can only mint a pairing for a chat it handles. Resolved twice per call
+// because resreg's Gate cannot hand a value to the handler; same read, same
+// table. An ingress surface is not an identity: web:/hook: name a public
+// endpoint and anon: an IP hash whose next holder would inherit the account
+// (spec 5/31-identity-pairing § Not in scope).
+func pairingTargetFolder(db *DB, jid string) (string, error) {
+	if jid == "" {
 		return "", resreg.Errorf(http.StatusBadRequest, "jid required")
 	}
-	if store.RouteTokenJIDKind(sender) != "" || strings.HasPrefix(sender, "anon:") {
+	if store.RouteTokenJIDKind(jid) != "" || strings.HasPrefix(jid, "anon:") {
 		return "", resreg.Errorf(http.StatusBadRequest,
-			"%s is an ingress surface, not a channel identity — pair the person's platform identity", sender)
+			"%s is an ingress surface, not a channel identity — pair the person's platform identity", jid)
 	}
-	chats, err := db.store().ChatJIDsForSender(context.Background(), sender)
+	target := db.DefaultFolderForJID(jid)
+	if target == "" {
+		return "", resreg.Errorf(http.StatusForbidden,
+			"forbidden: chat %s has no route in this instance", jid)
+	}
+	return target, nil
+}
+
+func pairingSender(ctx context.Context, db *DB, jid string) (string, error) {
+	last, found, err := db.store().LastInboundMessage(ctx, jid)
 	if err != nil {
 		return "", resreg.Errorf(http.StatusInternalServerError, "%v", err)
 	}
-	for _, jid := range chats {
-		target := db.DefaultFolderForJID(jid)
-		if target != "" && groupfolder.Contains(callerFolder, target) {
-			return target, nil
-		}
+	if !found || last.Sender == "" {
+		return "", resreg.Errorf(http.StatusBadRequest,
+			"chat %s has no inbound sender", jid)
 	}
-	return "", resreg.Errorf(http.StatusForbidden,
-		"%s: not permitted; no route from the sender's chats within %s", sender, callerFolder)
+	return last.Sender, nil
 }
 
 // routeTokenJID builds the (jid, url-prefix) for a mint: segRe-validate the

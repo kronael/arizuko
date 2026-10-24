@@ -217,8 +217,8 @@ Tokens and access:
 
 - `POST /v1/route_tokens/{chat,hook}` mints a chat token or a hook token. The optional `context` holds the processing instructions for that link.
 - `GET /v1/route_tokens` lists tokens and `DELETE /v1/route_tokens/{jid}` revokes one. Token delivery has no REST face: webd and proxyd read the tables of routd directly and resolve the URL token in their own process.
-- The MCP tool `issue_pairing_link(jid)` mints a `kind='pair'` token for an inbound sender. A chat carrying that sender's inbound message must route within the caller's folder. It has no REST twin.
-- `DELETE /v1/acl_membership` unpairs. The caller sub must be the `parent`. The agent twin is the `unpair` tool, with the same sender-to-chat containment as the pairing mint.
+- The MCP tool `issue_pairing_link(jid)` takes a chat JID that routes to the folder of the caller. Its `kind='pair'` token binds the sender of that chat's newest inbound message. It has no REST twin.
+- `DELETE /v1/acl_membership` unpairs. The caller sub must be the `parent`. The agent twin is the `unpair` tool, whose chat argument has the same route containment as the mint; it removes the newest inbound sender's edge.
 - `POST /v1/acl` and `DELETE /v1/acl` grant and revoke [`acl:write`].
 - `POST /v1/secrets` and `DELETE /v1/secrets/{key}` write and delete secrets [`secrets:write`].
 - `GET /v1/users/{sub}/scopes` returns the scope snapshot at login [`grants:read`].

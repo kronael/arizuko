@@ -22,6 +22,7 @@ import (
 
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/resreg/resources"
+	"github.com/kronael/arizuko/store"
 )
 
 // TestPickerRouteCarriesAttribution — path 1, the step-6 picker. Replays the
@@ -98,7 +99,7 @@ func TestInviteRedemptionRouteCarriesAttribution(t *testing.T) {
 	}
 	seedFolder(t, db, "alice")
 	seedMembership(t, db, "telegram:77", "github:bob", "")
-	seedInbound(t, db, "telegram:77", "telegram:77")
+	seedAdmission(t, db, store.ArchiveOnboardingRow{JID: "telegram:77", Status: "approved"})
 
 	token := createInvite(t, db, "alice", "telegram:1", 1)
 	req := httptest.NewRequest("GET", "/invite/"+token, nil)
@@ -138,7 +139,7 @@ func TestCreateWorldRouteCarriesAttribution(t *testing.T) {
 		t.Fatalf("seed user_profiles: %v", err)
 	}
 	seedMembership(t, db, "telegram:10", "github:new", "")
-	seedInbound(t, db, "telegram:10", "telegram:10")
+	seedAdmission(t, db, store.ArchiveOnboardingRow{JID: "telegram:10", Status: "approved"})
 	seedRedemption(t, db, "github:new", "/")
 
 	if w := postOnboardSplit(db, db, "github:new", url.Values{
@@ -183,8 +184,8 @@ func TestInviteRedemptionRoutesOnlyTheJIDItConcerns(t *testing.T) {
 	seedRoute(t, db, 5, "room=99", "alpha")
 	seedMembership(t, db, "telegram:99", "github:bob", "")
 	seedMembership(t, db, "telegram:77", "github:bob", "")
-	seedInbound(t, db, "telegram:99", "telegram:99")
-	seedInbound(t, db, "telegram:77", "telegram:77")
+	seedAdmission(t, db, store.ArchiveOnboardingRow{JID: "telegram:99", Status: "approved"})
+	seedAdmission(t, db, store.ArchiveOnboardingRow{JID: "telegram:77", Status: "approved"})
 
 	token := createInvite(t, db, "alice", "telegram:1", 1)
 	req := httptest.NewRequest("GET", "/invite/"+token, nil)

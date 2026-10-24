@@ -7,8 +7,7 @@ import (
 )
 
 // OnboardingRow mirrors the onboarding entity (store/onboarding.go): sort key
-// JID, every other db:-tagged field one attribute, and the whole row.
-// Absent attributes render as empty fields. It carries no credential
+// JID, every other db:-tagged field one attribute, and the whole row. It carries no credential
 // column; the live setup link is a route_tokens row (BUGS F40).
 type OnboardingRow struct {
 	JID        string `db:"jid"         yaml:"jid"                   json:"jid"`
