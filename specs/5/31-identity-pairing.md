@@ -34,6 +34,25 @@ Pairing grants nothing — it makes the channel identity resolve to the human, w
 holds whatever they already held. A pairing token that could also grant would be
 an invite, and that mechanism exists (`5/5`).
 
+The channel identity is the **sender**, read from an inbound message, never the
+chat's delivery JID. An onboarding row keeps the chat as `jid` and carries that
+message's `sender`. Its pairing token binds the sender, and redemption writes
+`acl_membership(child=<sender>, parent=<canonical sub>)`. The greeting and
+admission notices still go to the chat; admission observes the sender's edge.
+
+`issue_pairing_link(jid)` names the sender. Its route containment check resolves
+chats with inbound messages from that sender and selects a chat within the
+caller's folder. Agent unpair uses the same check. Browser routing and route
+ownership map the paired sender to those chats; an identity JID is not itself
+evidence of a chat.
+
+At startup, onbod fills an onboarding row's absent `sender` from the chat's
+stored inbound message and writes only its own onboarding entity. It re-arms
+the greeting for awaiting rows. Missing inbound history
+leaves the row waiting for a new message; neither a greeting nor admission may
+substitute the chat JID for the sender. This is an attribute update, with no
+SQL schema migration. Existing membership edges require operator repair.
+
 ## Design
 
 Pairing is a **kind of route token**, not a table of its own.
@@ -54,18 +73,18 @@ arise.
 
 ## Shipped surface
 
-| step                                                                                | where                                                                                                   |
-| ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| one minter, both callers                                                            | `store.IssuePairingLink` (`store/pairing.go`), taking a `rowExecer`                                     |
-| mint `issue_pairing_link(jid)`, agent MCP only                                      | `routd/route_tokens_resource.go` `issue_pair`, declared `MCPOnly` at `resreg/resources/route_tokens.go` |
-| mint from onbod's greeting, `owner_folder` NULL                                     | `promptUnprompted` (`onbod/main.go`); `routd/migrations/0032` relaxed the column                        |
-| admission observes the edge on the poll tick                                        | `observePairings` -> `admitJID` (`onbod/main.go`)                                                       |
-| agent gate: the JID must route to the caller's folder, which becomes `owner_folder` | `routd/route_tokens_resource.go` `pairingTargetFolder`                                                  |
-| `GET /pair/{token}` — side-effect-free confirm page                                 | `webd/pair.go`, mounted `webd/server.go`                                                                |
-| `POST /pair/{token}` — redeem in one routd transaction                              | `webd/pair.go` -> `store.RedeemPairing`                                                                 |
-| anonymous visitor bounced through OAuth and back                                    | `compose/compose.go` (`/pair/` is `Auth: "user"`) -> `authd/oauth.go` `consumeReturn`                   |
-| success page carries the user on to `/onboard`, which routes the JID                | `webd/pair.go` `pairContinueURL`                                                                        |
-| unpair                                                                              | `routd/membership_resource.go`, `resreg/resources/membership.go`                                        |
+| step                                                                                       | where                                                                                                   |
+| ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
+| one minter, both callers                                                                   | `store.IssuePairingLink` (`store/pairing.go`), taking a `rowExecer`                                     |
+| mint `issue_pairing_link(jid)`, agent MCP only                                             | `routd/route_tokens_resource.go` `issue_pair`, declared `MCPOnly` at `resreg/resources/route_tokens.go` |
+| mint from onbod's greeting, `owner_folder` NULL                                            | `promptUnprompted` (`onbod/main.go`); `routd/migrations/0032` relaxed the column                        |
+| admission observes the edge on the poll tick                                               | `observePairings` -> `admitJID` (`onbod/main.go`)                                                       |
+| agent gate: a chat with the sender's inbound message must route within the caller's folder | `routd/route_tokens_resource.go` `pairingTargetFolder`                                                  |
+| `GET /pair/{token}` — side-effect-free confirm page                                        | `webd/pair.go`, mounted `webd/server.go`                                                                |
+| `POST /pair/{token}` — redeem in one routd transaction                                     | `webd/pair.go` -> `store.RedeemPairing`                                                                 |
+| anonymous visitor bounced through OAuth and back                                           | `compose/compose.go` (`/pair/` is `Auth: "user"`) -> `authd/oauth.go` `consumeReturn`                   |
+| success page carries the user on to `/onboard`, which routes the JID                       | `webd/pair.go` `pairContinueURL`                                                                        |
+| unpair                                                                                     | `routd/membership_resource.go`, `resreg/resources/membership.go`                                        |
 
 `webd` serves the browser half because it already opens `routd.db`, so
 redemption is local. onbod is not in the redemption path at all — it mints and
@@ -126,7 +145,7 @@ declared no `Endpoints` and no `MCPNames`, so an edge was removable only through
 
 Either endpoint of the edge may call it, and each face proves it IS that
 endpoint through its own injected containment: the agent (MCP `unpair`) is
-authorized against the folder the child JID routes to — the same rule the mint
+authorized against a folder containing a routed chat from the child sender — the same rule the mint
 applies; the REST caller's JWT sub must BE the parent. Both directions are
 de-escalation, and there is no inverse verb, because adding an edge requires
 consent at the browser step. Operators already reach the row through manifests
@@ -172,8 +191,8 @@ away.
 inside routd — once from the Gate closure (`:222`), once from the handler
 (`:164`) — because resreg's Gate authorizes but cannot hand its result to the
 handler; both calls serve the _same_ caller (the agent, over the MCP socket)
-enforcing the _same_ rule (the JID must already route to the caller's
-folder). onbod's greeting is not a third call site in that pair — it is a
+enforcing the _same_ rule (a chat carrying the sender must already route within
+the caller's folder). onbod's greeting is not a third call site in that pair — it is a
 **different process**. It cannot reach `s.routeTokensHandler`, the Gate
 closure, or any per-request `resreg.Execution`, whatever shape the injection
 takes. A `Resource`-level plugin point (a field, a second `Gate`) built to
@@ -429,7 +448,7 @@ Options 2 and 3 stay rejected. The route through the picker is the ONLY route:
 the fold added no second path to it, and `observePairings` deliberately writes
 no `routes` row — the world choice is a form a human fills in, and a tick has no
 browser. An agent-minted pairing still lands on a routed chat
-(`pairingTargetFolder` refuses a JID that routes nowhere), where `/onboard`
+(`pairingTargetFolder` requires a routed chat from the sender), where `/onboard`
 simply shows the user their worlds; a greeting-minted one lands unrouted, which
 is exactly the case step 6 exists for.
 
