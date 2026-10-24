@@ -33,15 +33,19 @@ origin pin instead
 ([`34-channel-protocol.md`](34-channel-protocol.md)).
 
 **Return-adapter selection is by `messages.source`, not by JID.** When
-two instances share a JID prefix (`telegram:`), prefix lookup alone is
+two instances share a JID prefix (`telegram:group/`), prefix lookup alone is
 ambiguous — `chanreg.ForJID` returns whichever it finds first. The
 inbound stamps `messages.source` with the receiving instance's
 `CHANNEL_NAME`, and outbound resolves through that
-(`34-channel-protocol.md` § Outbound and adapter resolution). Registering
-narrower, per-account `jid_prefixes` is the alternative when an adapter's
-platform gives it an account segment to key on
-(`template/web/pub/arizuko/reference/jid.html`); today's adapters register the
-broad platform prefix and rely on `source`.
+(`34-channel-protocol.md` §"Outbound and adapter resolution").
 
-Nothing tells the agent which account it is on. If that becomes needed,
-it belongs in the prompt envelope, not in the JID.
+Each Telegram account registers `telegram:<bot_id>/` and `telegram:group/`.
+The numeric `bot_id` comes from `getMe`. A private chat id is the same user
+id for every bot. The DM chat JID is `telegram:<bot_id>/user/<user_id>` for
+every account, including the base account. The sender stays
+`telegram:user/<user_id>`. Migrate existing DM rows to this shape.
+Groups keep `telegram:group/<id>` because a shared room is one room.
+Shared rooms use `source` to select the account.
+
+The Telegram DM chat JID tells the agent which bot account it is on.
+Other account details belong in the prompt envelope.

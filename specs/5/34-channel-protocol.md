@@ -147,6 +147,10 @@ outbound`.
 
 ## `chat_jid` and `sender` are different shapes
 
+If the registration named by the inbound's `source` has the caller's
+principal, routd uses that entry at ingress. Otherwise, routd selects the
+entry by the caller's principal.
+
 A chat JID names a CONVERSATION and must fall under a registered
 `jid_prefixes` entry. A sender names a PERSON (`telegram:user/12345`)
 and need not. Both are checked at ingress, by **different** rules
@@ -156,7 +160,7 @@ and need not. Both are checked at ingress, by **different** rules
   inject conversations it does not serve.
 - **`sender`** → `Entry.OwnsScheme`, scheme match only, coarser **on
   purpose**. An adapter is free to register a narrow _chat_ prefix
-  (`telegram:mybot/`) while its senders are `telegram:user/<id>`, so
+  (`telegram:<bot_id>/`) while its senders are `telegram:user/<id>`, so
   reusing `Owns` here would reject every legitimate sender. Scheme
   ownership is still enough to stop one adapter asserting another
   platform's identities, or an OAuth-shaped sub no adapter owns.
