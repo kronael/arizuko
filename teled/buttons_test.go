@@ -21,7 +21,7 @@ func TestBotSend_DrawsOptionsAsAnInlineKeyboard(t *testing.T) {
 	defer b.typing.Stop()
 
 	if _, err := b.Send(chanlib.SendRequest{
-		ChatJID: "telegram:123",
+		ChatJID: "telegram:1/user/123",
 		Content: "held for approval",
 		Options: []chanlib.Option{
 			{Label: "✅ Approve", Data: "/approve ab12"},
@@ -52,7 +52,7 @@ func TestBotSend_ButtonsRideTheLastChunk(t *testing.T) {
 	defer b.typing.Stop()
 
 	if _, err := b.Send(chanlib.SendRequest{
-		ChatJID: "telegram:123",
+		ChatJID: "telegram:1/user/123",
 		Content: strings.Repeat("a", 5000),
 		Options: []chanlib.Option{{Label: "Approve", Data: "/approve ab12"}},
 	}); err != nil {
@@ -81,7 +81,7 @@ func TestBotSend_OptionsShareOneRow(t *testing.T) {
 	defer b.typing.Stop()
 
 	if _, err := b.Send(chanlib.SendRequest{
-		ChatJID: "telegram:123", Content: "held",
+		ChatJID: "telegram:1/user/123", Content: "held",
 		Options: []chanlib.Option{
 			{Label: "Approve", Data: "/approve ab12"},
 			{Label: "Reject", Data: "/reject ab12"},
@@ -117,7 +117,7 @@ func TestBotSend_NoOptionsNoKeyboard(t *testing.T) {
 	b := newTestBot(t, m, config{Name: "telegram"})
 	defer b.typing.Stop()
 
-	if _, err := b.Send(chanlib.SendRequest{ChatJID: "telegram:123", Content: "hello"}); err != nil {
+	if _, err := b.Send(chanlib.SendRequest{ChatJID: "telegram:1/user/123", Content: "hello"}); err != nil {
 		t.Fatal(err)
 	}
 	m.mu.Lock()

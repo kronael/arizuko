@@ -27,18 +27,25 @@ func tgGet(ctx context.Context, url string) (*http.Response, error) {
 
 type server struct {
 	cfg           config
+	prefixes      []string
 	bot           chanlib.BotHandler
 	chanStore     *chanstore.Store
 	isConnected   func() bool
 	lastInboundAt func() int64
 }
 
-func newServer(cfg config, b chanlib.BotHandler, chanStore *chanstore.Store, isConnected func() bool, lastInboundAt func() int64) *server {
-	return &server{cfg: cfg, bot: b, chanStore: chanStore, isConnected: isConnected, lastInboundAt: lastInboundAt}
+func newServer(
+	cfg config, prefixes []string, b chanlib.BotHandler,
+	chanStore *chanstore.Store, isConnected func() bool, lastInboundAt func() int64,
+) *server {
+	return &server{
+		cfg: cfg, prefixes: prefixes, bot: b, chanStore: chanStore,
+		isConnected: isConnected, lastInboundAt: lastInboundAt,
+	}
 }
 
 func (s *server) handler() http.Handler {
-	mux := chanlib.NewAdapterMux(s.cfg.Name, []string{"telegram:"}, s.bot, s.isConnected, s.lastInboundAt, s.chanStore)
+	mux := chanlib.NewAdapterMux(s.cfg.Name, s.prefixes, s.bot, s.isConnected, s.lastInboundAt, s.chanStore)
 	mux.HandleFunc("GET /files/", chanlib.Auth(s.handleFile))
 	return mux
 }

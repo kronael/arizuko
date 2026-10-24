@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
 
 	"github.com/kronael/arizuko/chanlib"
 )
@@ -33,19 +35,22 @@ var caps = map[string]bool{
 
 func main() {
 	cfg := loadConfig()
+	b, err := newBot(cfg)
+	if err != nil {
+		slog.Error("telegram auth failed", "err", err)
+		os.Exit(1)
+	}
+	prefixes := []string{
+		fmt.Sprintf("telegram:%d/", b.api.Self.ID), "telegram:group/",
+	}
 	chanlib.Run(chanlib.RunOpts{
 		Name:       cfg.Name,
 		RouterURL:  cfg.RouterURL,
 		ListenAddr: cfg.ListenAddr,
 		ListenURL:  cfg.ListenURL,
-		Prefixes:   []string{"telegram:"},
+		Prefixes:   prefixes,
 		Caps:       caps,
 		Start: func(ctx context.Context, rc *chanlib.RouterClient) (http.Handler, func(), error) {
-			b, err := newBot(cfg)
-			if err != nil {
-				slog.Error("telegram auth failed", "err", err)
-				return nil, nil, err
-			}
 			// Unreadable offset state is fatal: polling from 0 would re-deliver
 			// Telegram's whole retained queue. chanlib.Run logs and exits.
 			offset, err := b.loadOffset()
@@ -64,7 +69,7 @@ func main() {
 				return nil, nil, err
 			}
 			go b.poll(pollCtx, rc, offset)
-			return newServer(cfg, b, as.Chan, b.isConnected, b.LastInboundAt).handler(),
+			return newServer(cfg, prefixes, b, as.Chan, b.isConnected, b.LastInboundAt).handler(),
 				func() { b.stop(); _ = as.Close() }, nil
 		},
 	})

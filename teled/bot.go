@@ -50,7 +50,7 @@ func newBot(cfg config) (*bot, error) {
 	if err != nil {
 		return nil, fmt.Errorf("telegram auth: %w", err)
 	}
-	slog.Info("telegram connected", "username", api.Self.UserName)
+	slog.Info("telegram connected", "id", api.Self.ID, "username", api.Self.UserName)
 	b := &bot{api: api, cfg: cfg, done: make(chan struct{})}
 	b.connected.Store(true)
 	b.lastInboundAt.Store(time.Now().Unix())
@@ -252,7 +252,7 @@ func (b *bot) handleReaction(r *messageReactionUpdated, rc *chanlib.RouterClient
 		if e.Type != "emoji" || old[e.Emoji] {
 			continue
 		}
-		jid := chatJIDFromID(r.Chat.ID)
+		jid := chatJIDFromID(r.Chat.ID, b.api.Self.ID)
 		im := chanlib.InboundMsg{
 			ID:         jid + "/" + strconv.Itoa(r.MessageID) + ":r:" + e.Emoji,
 			ChatJID:    jid,
@@ -286,7 +286,7 @@ func (b *bot) handlePress(q *tgbotapi.CallbackQuery, rc *chanlib.RouterClient) b
 		return true // nothing to route; do not stall the offset on it
 	}
 	msg := q.Message
-	jid := chatJIDFromID(msg.Chat.ID)
+	jid := chatJIDFromID(msg.Chat.ID, b.api.Self.ID)
 	promptID := jid + "/" + strconv.Itoa(msg.MessageID)
 	im := chanlib.InboundMsg{
 		ID:         promptID + ":cb:" + q.ID,
@@ -328,7 +328,7 @@ func (b *bot) handle(msg *tgbotapi.Message, rc *chanlib.RouterClient) bool {
 	if msg.From != nil && msg.From.ID == b.api.Self.ID {
 		return true
 	}
-	jid := chatJIDFromID(msg.Chat.ID)
+	jid := chatJIDFromID(msg.Chat.ID, b.api.Self.ID)
 
 	res := extractMedia(msg, b.cfg.ListenURL)
 	content := res.content
@@ -415,7 +415,7 @@ func buttons(options []chanlib.Option) any {
 }
 
 func (b *bot) Send(req chanlib.SendRequest) (string, error) {
-	id, err := parseChatID(req.ChatJID)
+	id, err := parseChatID(req.ChatJID, b.api.Self.ID)
 	if err != nil {
 		return "", err
 	}
@@ -504,7 +504,7 @@ func classifySendErr(err error, firstID string) error {
 }
 
 func (b *bot) SendFile(jid, path, name, caption, replyTo, threadID, _ string) (string, error) {
-	id, err := parseChatID(jid)
+	id, err := parseChatID(jid, b.api.Self.ID)
 	if err != nil {
 		return "", err
 	}
@@ -579,7 +579,7 @@ func threadMsgID(threadID string) int {
 }
 
 func (b *bot) SendVoice(jid, audioPath, caption, threadID, _ string) (string, error) {
-	id, err := parseChatID(jid)
+	id, err := parseChatID(jid, b.api.Self.ID)
 	if err != nil {
 		return "", err
 	}
@@ -602,7 +602,7 @@ func (b *bot) Forward(req chanlib.ForwardRequest) (string, error) {
 		return "", chanlib.Unsupported("forward", "telegram",
 			"telegram forward needs source_msg_id formatted as \"<sourceChatJid>|<messageId>\".")
 	}
-	fromID, err := parseChatID(parts[0])
+	fromID, err := parseChatID(parts[0], b.api.Self.ID)
 	if err != nil {
 		return "", fmt.Errorf("telegram forward: source chat: %w", err)
 	}
@@ -610,7 +610,7 @@ func (b *bot) Forward(req chanlib.ForwardRequest) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("telegram forward: message id: %w", err)
 	}
-	toID, err := parseChatID(req.TargetJID)
+	toID, err := parseChatID(req.TargetJID, b.api.Self.ID)
 	if err != nil {
 		return "", fmt.Errorf("telegram forward: target chat: %w", err)
 	}
@@ -646,7 +646,7 @@ func (b *bot) Like(req chanlib.LikeRequest) error {
 }
 
 func (b *bot) setReaction(chatJID, targetID, emoji, tool string) error {
-	chatID, err := parseChatID(chatJID)
+	chatID, err := parseChatID(chatJID, b.api.Self.ID)
 	if err != nil {
 		return fmt.Errorf("telegram %s: %w", tool, err)
 	}
@@ -666,7 +666,7 @@ func (b *bot) setReaction(chatJID, targetID, emoji, tool string) error {
 }
 
 func (b *bot) Delete(req chanlib.DeleteRequest) error {
-	chatID, err := parseChatID(req.ChatJID)
+	chatID, err := parseChatID(req.ChatJID, b.api.Self.ID)
 	if err != nil {
 		return fmt.Errorf("telegram delete: %w", err)
 	}
@@ -693,7 +693,7 @@ func (b *bot) Post(req chanlib.PostRequest) (string, error) {
 }
 
 func (b *bot) Edit(req chanlib.EditRequest) error {
-	id, err := parseChatID(req.ChatJID)
+	id, err := parseChatID(req.ChatJID, b.api.Self.ID)
 	if err != nil {
 		return err
 	}
@@ -709,7 +709,7 @@ func (b *bot) Edit(req chanlib.EditRequest) error {
 }
 
 func (b *bot) Pin(req chanlib.PinRequest) error {
-	chatID, err := parseChatID(req.ChatJID)
+	chatID, err := parseChatID(req.ChatJID, b.api.Self.ID)
 	if err != nil {
 		return fmt.Errorf("telegram pin: %w", err)
 	}
@@ -728,7 +728,7 @@ func (b *bot) Pin(req chanlib.PinRequest) error {
 }
 
 func (b *bot) Unpin(req chanlib.UnpinRequest) error {
-	chatID, err := parseChatID(req.ChatJID)
+	chatID, err := parseChatID(req.ChatJID, b.api.Self.ID)
 	if err != nil {
 		return fmt.Errorf("telegram unpin: %w", err)
 	}
@@ -756,7 +756,7 @@ func (b *bot) Unpin(req chanlib.UnpinRequest) error {
 // cache-only fallback) — the honest source of past Telegram messages.
 
 func (b *bot) sendTyping(jid string) bool {
-	id, err := parseChatID(jid)
+	id, err := parseChatID(jid, b.api.Self.ID)
 	if err != nil {
 		return false
 	}
@@ -767,28 +767,33 @@ func (b *bot) sendTyping(jid string) bool {
 	return true
 }
 
-// chatJIDFromID: positive → user DM, negative → group (sign dropped; kind carries it).
-func chatJIDFromID(id int64) string {
+func chatJIDFromID(id, botID int64) string {
 	if id < 0 {
 		return "telegram:group/" + strconv.FormatInt(-id, 10)
 	}
-	return "telegram:user/" + strconv.FormatInt(id, 10)
+	return fmt.Sprintf("telegram:%d/user/%d", botID, id)
 }
 
-// parseChatID: group/<id> re-signs to negative; user/<id> stays positive; legacy telegram:<signed> passthrough.
-func parseChatID(jid string) (int64, error) {
-	rest := strings.TrimPrefix(jid, "telegram:")
-	if kind, id, ok := strings.Cut(rest, "/"); ok {
-		n, err := strconv.ParseInt(id, 10, 64)
-		if err != nil {
-			return 0, err
+func parseChatID(jid string, botID int64) (int64, error) {
+	id, group := strings.CutPrefix(jid, "telegram:group/")
+	if !group {
+		var ok bool
+		id, ok = strings.CutPrefix(jid, fmt.Sprintf("telegram:%d/user/", botID))
+		if !ok {
+			return 0, fmt.Errorf("invalid telegram chat JID: %q", jid)
 		}
-		if kind == "group" && n > 0 {
-			n = -n
-		}
-		return n, nil
 	}
-	return strconv.ParseInt(rest, 10, 64)
+	n, err := strconv.ParseInt(id, 10, 64)
+	if err != nil {
+		return 0, err
+	}
+	if n <= 0 {
+		return 0, fmt.Errorf("invalid telegram chat ID: %q", id)
+	}
+	if group {
+		return -n, nil
+	}
+	return n, nil
 }
 
 func userName(u *tgbotapi.User) string {

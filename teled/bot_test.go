@@ -10,23 +10,76 @@ import (
 	tgbotapi "github.com/matterbridge/telegram-bot-api/v6"
 
 	"github.com/kronael/arizuko/chanlib"
+	"github.com/kronael/arizuko/tests/testutils"
 )
+
+func TestL553PrivateChatPerBot(t *testing.T) {
+	router := testutils.NewRouterStub()
+	defer router.Close()
+	rc := chanlib.NewRouterClient(router.Srv.URL)
+	msg := &tgbotapi.Message{
+		MessageID: 7,
+		Chat:      &tgbotapi.Chat{ID: 5, Type: "private"},
+		From:      &tgbotapi.User{ID: 5},
+		Text:      "hello",
+	}
+	for _, account := range []struct {
+		id   int64
+		name string
+	}{{111, "telegram"}, {222, "jynx"}} {
+		b := &bot{
+			api: &tgbotapi.BotAPI{Self: tgbotapi.User{ID: account.id}},
+			cfg: config{Name: account.name},
+		}
+		if !b.handle(msg, rc) {
+			t.Fatalf("bot %d did not deliver", account.id)
+		}
+	}
+	router.Mu.Lock()
+	defer router.Mu.Unlock()
+	if len(router.Msgs) != 2 {
+		t.Fatalf("messages = %d, want 2", len(router.Msgs))
+	}
+	for i, want := range []string{"telegram:111/user/5", "telegram:222/user/5"} {
+		got := router.Msgs[i]
+		if got.ChatJID != want {
+			t.Errorf("ChatJID = %q, want %q", got.ChatJID, want)
+		}
+		if got.ID != want+"/7" {
+			t.Errorf("ID = %q, want %q", got.ID, want+"/7")
+		}
+		if got.Sender != "telegram:user/5" {
+			t.Errorf("Sender = %q, want telegram:user/5", got.Sender)
+		}
+	}
+}
 
 func TestParseChatID(t *testing.T) {
 	tests := []struct {
-		jid  string
-		want int64
+		jid     string
+		want    int64
+		wantErr bool
 	}{
-		// Legacy.
-		{"telegram:123456", 123456},
-		{"telegram:-1001234567890", -1001234567890},
-		// Typed (post-migration). group/<id> re-signs to negative.
-		{"telegram:user/123456", 123456},
-		{"telegram:group/1001234567890", -1001234567890},
+		{"telegram:111/user/123456", 123456, false},
+		{"telegram:group/1001234567890", -1001234567890, false},
+		{"telegram:222/user/123456", 0, true},
+		{"telegram:user/123456", 0, true},
+		{"telegram:123456", 0, true},
+		{"telegram:-1001234567890", 0, true},
+		{"111/user/123456", 0, true},
+		{"discord:111/user/123456", 0, true},
+		{"telegram:111/user/", 0, true},
+		{"telegram:111/user/abc", 0, true},
+		{"telegram:111/user/0", 0, true},
+		{"telegram:111/user/-5", 0, true},
+		{"telegram:111/user/5/7", 0, true},
+		{"telegram:group/-5", 0, true},
+		{"telegram:group/0", 0, true},
+		{"telegram:group/", 0, true},
 	}
 	for _, tt := range tests {
-		got, err := parseChatID(tt.jid)
-		if err != nil {
+		got, err := parseChatID(tt.jid, 111)
+		if (err != nil) != tt.wantErr {
 			t.Errorf("parseChatID(%q) error: %v", tt.jid, err)
 		}
 		if got != tt.want {
@@ -37,14 +90,16 @@ func TestParseChatID(t *testing.T) {
 
 func TestChatJIDFromID(t *testing.T) {
 	cases := []struct {
-		id   int64
-		want string
+		id, botID int64
+		want      string
 	}{
-		{123456, "telegram:user/123456"},
-		{-1001234, "telegram:group/1001234"},
+		{123456, 111, "telegram:111/user/123456"},
+		{123456, 222, "telegram:222/user/123456"},
+		{-1001234, 111, "telegram:group/1001234"},
+		{-1001234, 222, "telegram:group/1001234"},
 	}
 	for _, tt := range cases {
-		if got := chatJIDFromID(tt.id); got != tt.want {
+		if got := chatJIDFromID(tt.id, tt.botID); got != tt.want {
 			t.Errorf("chatJIDFromID(%d) = %q, want %q", tt.id, got, tt.want)
 		}
 	}

@@ -174,7 +174,7 @@ func TestBotSend_Simple(t *testing.T) {
 	b := newTestBot(t, m, config{Name: "telegram"})
 	defer b.typing.Stop()
 
-	id, err := b.Send(chanlib.SendRequest{ChatJID: "telegram:123", Content: "hello"})
+	id, err := b.Send(chanlib.SendRequest{ChatJID: "telegram:1/user/123", Content: "hello"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -201,7 +201,7 @@ func TestBotSend_HTMLFallbackOnBadEntity(t *testing.T) {
 	defer b.typing.Stop()
 
 	id, err := b.Send(chanlib.SendRequest{
-		ChatJID: "telegram:123", Content: "**bold**",
+		ChatJID: "telegram:1/user/123", Content: "**bold**",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -260,11 +260,11 @@ func TestBotSendFile_DispatchesByExtension(t *testing.T) {
 			defer os.Remove(tmp.Name())
 
 			if tc.isVoice {
-				if _, err := b.SendVoice("telegram:123", tmp.Name(), "", "", ""); err != nil {
+				if _, err := b.SendVoice("telegram:1/user/123", tmp.Name(), "", "", ""); err != nil {
 					t.Fatalf("SendVoice: %v", err)
 				}
 			} else {
-				if _, err := b.SendFile("telegram:123", tmp.Name(), filepath.Base(tmp.Name()), "", "", "", ""); err != nil {
+				if _, err := b.SendFile("telegram:1/user/123", tmp.Name(), filepath.Base(tmp.Name()), "", "", "", ""); err != nil {
 					t.Fatalf("SendFile: %v", err)
 				}
 			}
@@ -293,7 +293,7 @@ func TestBotSend_MultiChunkHTMLFallbackNoDup(t *testing.T) {
 	defer b.typing.Stop()
 
 	content := strings.Repeat("a", 4096) + "MARK tail"
-	if _, err := b.Send(chanlib.SendRequest{ChatJID: "telegram:123", Content: content}); err != nil {
+	if _, err := b.Send(chanlib.SendRequest{ChatJID: "telegram:1/user/123", Content: content}); err != nil {
 		t.Fatal(err)
 	}
 	m.mu.Lock()
@@ -317,7 +317,7 @@ func TestBotSend_HTMLFallbackPreservesReplyTo(t *testing.T) {
 	defer b.typing.Stop()
 
 	if _, err := b.Send(chanlib.SendRequest{
-		ChatJID: "telegram:123", Content: "**bold**", ReplyTo: "77",
+		ChatJID: "telegram:1/user/123", Content: "**bold**", ReplyTo: "77",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -348,7 +348,7 @@ func TestBotSendFile_ThreadsReplyTo(t *testing.T) {
 	tmp.Close()
 	defer os.Remove(tmp.Name())
 
-	if _, err := b.SendFile("telegram:123", tmp.Name(), filepath.Base(tmp.Name()), "cap", "55", "", ""); err != nil {
+	if _, err := b.SendFile("telegram:1/user/123", tmp.Name(), filepath.Base(tmp.Name()), "cap", "55", "", ""); err != nil {
 		t.Fatalf("SendFile: %v", err)
 	}
 	m.mu.Lock()
@@ -363,17 +363,17 @@ func TestBotExistingForumTopicCarriesTextFileAndVoice(t *testing.T) {
 	defer m.close()
 	b := newTestBot(t, m, config{Name: "telegram"})
 	defer b.typing.Stop()
-	if _, err := b.Send(chanlib.SendRequest{ChatJID: "telegram:123", Content: "the task", ThreadID: "42"}); err != nil {
+	if _, err := b.Send(chanlib.SendRequest{ChatJID: "telegram:1/user/123", Content: "the task", ThreadID: "42"}); err != nil {
 		t.Fatal(err)
 	}
 	path := filepath.Join(t.TempDir(), "result.txt")
 	if err := os.WriteFile(path, []byte("result"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := b.SendFile("telegram:123", path, "result.txt", "result", "", "42", ""); err != nil {
+	if _, err := b.SendFile("telegram:1/user/123", path, "result.txt", "result", "", "42", ""); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := b.SendVoice("telegram:123", path, "result", "42", ""); err != nil {
+	if _, err := b.SendVoice("telegram:1/user/123", path, "result", "42", ""); err != nil {
 		t.Fatal(err)
 	}
 	m.mu.Lock()
@@ -401,9 +401,9 @@ func TestBotTyping_SendsChatAction(t *testing.T) {
 	b := newTestBot(t, m, config{Name: "telegram"})
 	defer b.typing.Stop()
 
-	b.Typing("telegram:123", true)
+	b.Typing("telegram:1/user/123", true)
 	time.Sleep(200 * time.Millisecond)
-	b.Typing("telegram:123", false)
+	b.Typing("telegram:1/user/123", false)
 
 	if atomic.LoadInt32(&m.actionHits) < 1 {
 		t.Errorf("expected chat action; hits = %d", m.actionHits)
@@ -574,7 +574,7 @@ func TestBotHandle_ReplyMetadata(t *testing.T) {
 	mr.Mu.Lock()
 	defer mr.Mu.Unlock()
 	got := mr.Msgs[0]
-	if got.ReplyTo != "telegram:user/1/9" {
+	if got.ReplyTo != "telegram:1/user/1/9" {
 		t.Errorf("ReplyTo = %q", got.ReplyTo)
 	}
 	if got.ReplyToText != "original text" {

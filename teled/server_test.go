@@ -6,6 +6,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"testing"
 	"time"
 
@@ -37,11 +38,11 @@ func (b *stubBot) Typing(_ string, on bool) { b.typings = append(b.typings, on) 
 
 func stubHandler(secret string) (http.Handler, *stubBot) {
 	sb := &stubBot{}
-	return newServer(config{Name: "telegram"}, sb, nil, func() bool { return true }, func() int64 { return time.Now().Unix() }).handler(), sb
+	return newServer(config{Name: "telegram"}, []string{"telegram:1/", "telegram:group/"}, sb, nil, func() bool { return true }, func() int64 { return time.Now().Unix() }).handler(), sb
 }
 
 func testHandler(secret string) (http.Handler, *server) {
-	s := newServer(config{Name: "telegram"}, &stubBot{}, nil, func() bool { return true }, func() int64 { return time.Now().Unix() })
+	s := newServer(config{Name: "telegram"}, []string{"telegram:1/", "telegram:group/"}, &stubBot{}, nil, func() bool { return true }, func() int64 { return time.Now().Unix() })
 	return s.handler(), s
 }
 
@@ -120,15 +121,22 @@ func TestServerHealth(t *testing.T) {
 	if w.Code != 200 {
 		t.Fatalf("status = %d", w.Code)
 	}
-	var resp map[string]any
+	var resp struct {
+		Status   string   `json:"status"`
+		Name     string   `json:"name"`
+		Prefixes []string `json:"jid_prefixes"`
+	}
 	json.NewDecoder(w.Body).Decode(&resp)
-	if resp["status"] != "ok" || resp["name"] != "telegram" {
+	if resp.Status != "ok" || resp.Name != "telegram" {
 		t.Errorf("health = %v", resp)
+	}
+	if !slices.Equal(resp.Prefixes, []string{"telegram:1/", "telegram:group/"}) {
+		t.Errorf("jid_prefixes = %v", resp.Prefixes)
 	}
 }
 
 func TestServerHealthDisconnected(t *testing.T) {
-	s := newServer(config{Name: "telegram"}, &stubBot{}, nil, func() bool { return false }, func() int64 { return time.Now().Unix() })
+	s := newServer(config{Name: "telegram"}, []string{"telegram:1/", "telegram:group/"}, &stubBot{}, nil, func() bool { return false }, func() int64 { return time.Now().Unix() })
 	req := httptest.NewRequest("GET", "/health", nil)
 	w := httptest.NewRecorder()
 	s.handler().ServeHTTP(w, req)

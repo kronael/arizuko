@@ -179,7 +179,7 @@ func TestPin_HappyPath(t *testing.T) {
 	b := newTeledBotForPlatform(t, fp)
 	defer b.typing.Stop()
 
-	if err := b.Pin(chanlib.PinRequest{ChatJID: "telegram:555", TargetID: "42"}); err != nil {
+	if err := b.Pin(chanlib.PinRequest{ChatJID: "telegram:1/user/555", TargetID: "42"}); err != nil {
 		t.Fatalf("Pin: %v", err)
 	}
 
@@ -210,7 +210,7 @@ func TestUnpin_HappyPath(t *testing.T) {
 	b := newTeledBotForPlatform(t, fp)
 	defer b.typing.Stop()
 
-	if err := b.Unpin(chanlib.UnpinRequest{ChatJID: "telegram:555", TargetID: "42"}); err != nil {
+	if err := b.Unpin(chanlib.UnpinRequest{ChatJID: "telegram:1/user/555", TargetID: "42"}); err != nil {
 		t.Fatalf("Unpin: %v", err)
 	}
 
@@ -234,7 +234,7 @@ func TestUnpinAll_HappyPath(t *testing.T) {
 	b := newTeledBotForPlatform(t, fp)
 	defer b.typing.Stop()
 
-	if err := b.Unpin(chanlib.UnpinRequest{ChatJID: "telegram:555", All: true}); err != nil {
+	if err := b.Unpin(chanlib.UnpinRequest{ChatJID: "telegram:1/user/555", All: true}); err != nil {
 		t.Fatalf("UnpinAll: %v", err)
 	}
 
@@ -258,7 +258,7 @@ func TestBotPost_TextOnlyRoutesThroughSend(t *testing.T) {
 	b := newTestBot(t, m, config{Name: "telegram"})
 	defer b.typing.Stop()
 
-	id, err := b.Post(chanlib.PostRequest{ChatJID: "telegram:123", Content: "broadcast"})
+	id, err := b.Post(chanlib.PostRequest{ChatJID: "telegram:1/user/123", Content: "broadcast"})
 	if err != nil {
 		t.Fatalf("Post: %v", err)
 	}
@@ -278,7 +278,7 @@ func TestBotPost_TextOnlyRoutesThroughSend(t *testing.T) {
 func TestBotPost_WithMediaReturnsUnsupported(t *testing.T) {
 	b := &bot{}
 	_, err := b.Post(chanlib.PostRequest{
-		ChatJID:    "telegram:123",
+		ChatJID:    "telegram:1/user/123",
 		Content:    "caption",
 		MediaPaths: []string{"/tmp/img.jpg"},
 	})
@@ -315,8 +315,8 @@ func TestBotForward_HappyPath(t *testing.T) {
 
 	// SourceMsgID: "<sourceChatJid>|<msgId>"
 	id, err := b.Forward(chanlib.ForwardRequest{
-		SourceMsgID: "telegram:100|42",
-		TargetJID:   "telegram:555",
+		SourceMsgID: "telegram:1/user/100|42",
+		TargetJID:   "telegram:1/user/555",
 	})
 	if err != nil {
 		t.Fatalf("Forward: %v", err)
@@ -333,14 +333,14 @@ func TestBotForward_HappyPath(t *testing.T) {
 // platform. A missing pipe is the agent's mistake → Unsupported with a hint;
 // a malformed id is a hard error. Both must never reach the Telegram API.
 func TestBotForward_MalformedSource(t *testing.T) {
-	b := &bot{}
+	b := &bot{api: &tgbotapi.BotAPI{Self: tgbotapi.User{ID: 1}}}
 
-	_, err := b.Forward(chanlib.ForwardRequest{SourceMsgID: "telegram:100", TargetJID: "telegram:555"})
+	_, err := b.Forward(chanlib.ForwardRequest{SourceMsgID: "telegram:1/user/100", TargetJID: "telegram:1/user/555"})
 	if !errors.Is(err, chanlib.ErrUnsupported) {
 		t.Errorf("no-pipe source = %v, want Unsupported", err)
 	}
 
-	_, err = b.Forward(chanlib.ForwardRequest{SourceMsgID: "telegram:100|notanum", TargetJID: "telegram:555"})
+	_, err = b.Forward(chanlib.ForwardRequest{SourceMsgID: "telegram:1/user/100|notanum", TargetJID: "telegram:1/user/555"})
 	if err == nil || errors.Is(err, chanlib.ErrUnsupported) {
 		t.Errorf("bad msg id = %v, want a plain error", err)
 	}

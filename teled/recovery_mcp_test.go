@@ -41,10 +41,11 @@ func TestNativeTelegramMissingTargetReachesMCPAndAllowsRecovery(t *testing.T) {
 			})
 			bot := newTeledBotForPlatform(t, platform)
 			defer bot.typing.Stop()
-			adapter := httptest.NewServer(newServer(config{Name: "telegram"}, bot, nil, func() bool { return true }, func() int64 { return 0 }).handler())
+			prefixes := []string{"telegram:1/", "telegram:group/"}
+			adapter := httptest.NewServer(newServer(config{Name: "telegram"}, prefixes, bot, nil, func() bool { return true }, func() int64 { return 0 }).handler())
 			defer adapter.Close()
 			reg := chanreg.New()
-			if _, err := reg.Register("telegram", adapter.URL, []string{"telegram:"}, map[string]bool{"send_text": true}); err != nil {
+			if _, err := reg.Register("telegram", adapter.URL, prefixes, map[string]bool{"send_text": true}); err != nil {
 				t.Fatal(err)
 			}
 			deliver := routd.NewChannelDeliverer(reg, nil, nil)
@@ -62,7 +63,7 @@ func TestNativeTelegramMissingTargetReachesMCPAndAllowsRecovery(t *testing.T) {
 			fns := ipc.StoreFns{
 				CurrentTurnID: func(string) string { return "turn" },
 				PutOutbound: func(row core.Message, status string) error {
-					if row.ChatJID != "telegram:555" || row.TurnID != "turn" {
+					if row.ChatJID != "telegram:1/user/555" || row.TurnID != "turn" {
 						t.Error("MCP changed delivery context", row)
 					}
 					statuses <- status
@@ -75,7 +76,7 @@ func TestNativeTelegramMissingTargetReachesMCPAndAllowsRecovery(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer stop()
-			args := map[string]any{"chatJid": "telegram:555", "text": "answer", "replyToId": "999"}
+			args := map[string]any{"chatJid": "telegram:1/user/555", "text": "answer", "replyToId": "999"}
 			message := telegramRecoveryCall(t, socket, "reply", args)
 			if !strings.Contains(message, "message to be replied not found") || !strings.Contains(message, "not delivered, and no retry follows") {
 				t.Fatal("MCP lost permanent Telegram reason", message)

@@ -50,7 +50,7 @@ func TestBotHandler_Send(t *testing.T) {
 	b := newTeledBotForPlatform(t, fp)
 	defer b.typing.Stop()
 
-	id, err := b.Send(chanlib.SendRequest{ChatJID: "telegram:555", Content: "hello from test"})
+	id, err := b.Send(chanlib.SendRequest{ChatJID: "telegram:1/user/555", Content: "hello from test"})
 	if err != nil {
 		t.Fatalf("Send: %v", err)
 	}
@@ -116,7 +116,7 @@ func TestBotHandler_Like_Teled(t *testing.T) {
 	b := newTeledBotForPlatform(t, fp)
 	defer b.typing.Stop()
 
-	if err := b.Like(chanlib.LikeRequest{ChatJID: "telegram:555", TargetID: "42"}); err != nil {
+	if err := b.Like(chanlib.LikeRequest{ChatJID: "telegram:1/user/555", TargetID: "42"}); err != nil {
 		t.Fatalf("Like: %v", err)
 	}
 	if len(seen) != 1 {
@@ -172,7 +172,7 @@ func TestBotHandler_Edit_Teled(t *testing.T) {
 	defer b.typing.Stop()
 
 	if err := b.Edit(chanlib.EditRequest{
-		ChatJID: "telegram:555", TargetID: "42", Content: "updated",
+		ChatJID: "telegram:1/user/555", TargetID: "42", Content: "updated",
 	}); err != nil {
 		t.Fatalf("Edit: %v", err)
 	}
@@ -201,7 +201,7 @@ func TestBotHandler_Delete_Teled(t *testing.T) {
 	defer b.typing.Stop()
 
 	if err := b.Delete(chanlib.DeleteRequest{
-		ChatJID: "telegram:555", TargetID: "42",
+		ChatJID: "telegram:1/user/555", TargetID: "42",
 	}); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
@@ -215,7 +215,7 @@ func TestBotHandler_Delete_Teled(t *testing.T) {
 func TestBotHandler_Forward_BadFormat_Teled(t *testing.T) {
 	b := &bot{}
 	_, err := b.Forward(chanlib.ForwardRequest{
-		SourceMsgID: "no-pipe-here", TargetJID: "telegram:555",
+		SourceMsgID: "no-pipe-here", TargetJID: "telegram:1/user/555",
 	})
 	if !teledHasHint(err) {
 		t.Errorf("forward without pipe should return UnsupportedError hint, got %v", err)
