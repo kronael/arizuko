@@ -325,14 +325,12 @@ reads those words now.
   chat JID, so both conversations merge and route together: put the bot's
   Telegram id in the DM JID, every account, rows migrated (signed off).
 - `L554` — onboarding and pairing key on the chat JID, not the sender, so a
-  paired DM user is linked only where chat equals sender; blocks L553 (sign-off).
+  paired DM user is linked only where chat equals sender; blocks L553 (signed off).
 
 **Found by the jynx product dogfood on sloth (2026-10-24).**
 
-- `L555` — `products apply` from a git source copies the clone's `.git/` into
-  the group home.
 - `L556` — `group rm` deletes only rows and leaves the group folder and its web
-  dirs: should it delete them, or say it keeps them (sign-off)?
+  dirs; it must delete them too (signed off).
 
 **Found while folding the lowercase `bugs.md` into this file (2026-10-20).**
 
@@ -1419,7 +1417,7 @@ far more often than chat.
 - **Fix:** `L75(b)` — a batch that holds a mention resolves by the mention.
 - **Status:** open — needs sign-off (dispatch control flow, with `L75(b)`).
 
-## L556 — `group rm` leaves the group folder and its web dirs on disk (2026-10-24, open — needs sign-off)
+## L556 — `group rm` leaves the group folder and its web dirs on disk (2026-10-24, open)
 
 MEASURED on sloth: after `arizuko group sloth rm sloth/jynx-test` the rows were
 gone (group, route 75, package record, five default tasks), and three
@@ -1429,26 +1427,12 @@ directories stayed: `groups/sloth/jynx-test`, `web/pub/sloth/jynx-test` and
 says it "removes the group", and does not say the files stay. A later
 `group add` of the same folder then seeds over the old files.
 
-- **Fix:** either `group rm` deletes the three directories, or the README and
-  the command's output say they stay and name them. Deleting agent files is
-  the owner's decision.
-- **Status:** open — needs sign-off.
+- **Fix:** DECIDED (owner, 2026-10-24): `group rm` also deletes the group
+  folder and its `web/pub` and `web/priv` directories, for the folder and every
+  group under it, and its output names what it deleted.
+- **Status:** open — signed off.
 
-## L555 — `products apply` from a git source copies the clone's `.git/` into the group home (2026-10-24, open)
-
-MEASURED on sloth: applying `git+file:///home/onvos/app/jynx` to
-`sloth/jynx-test` wrote 27 files under `groups/sloth/jynx-test/.git/`, with the
-clone's `origin` remote in `.git/config`. `productFiles`
-(`container/blend.go:172`) walks the whole source directory, and a `.git/` path
-matches no named payload, so the catch-all row copies it verbatim. The group
-home then is a git work tree of the product, which the agent sees.
-
-- **Fix:** `productFiles` skips the source root's `.git`. A test applies a
-  product directory that holds a `.git/` and asserts nothing under `.git/`
-  lands in the group.
-- **Status:** open.
-
-## L554 — onboarding and pairing link the chat JID to the person, not the sender (2026-10-23, open — needs sign-off)
+## L554 — onboarding and pairing link the chat JID to the person, not the sender (2026-10-23, open)
 
 READ at `5e40f40b`. On a route miss routd calls `InsertOnboarding(chatJID)`
 (`routd/loop.go:602`), and onbod mints the pairing link for that row's JID
@@ -1463,7 +1447,8 @@ newly paired Telegram DM user stays anonymous. Discord DMs already differ
 - **Fix:** the onboarding row and the pairing carry the sender read from the
   inbound row, and the membership edge's child is the sender. Changes the
   pairing contract (`specs/5/31-identity-pairing.md`), so it is a proposal.
-- **Status:** open — needs sign-off; L553 step 6 (deploy) waits on it.
+- **Status:** open — signed off (owner, 2026-10-24); L553 step 6 (deploy)
+  waits on it.
 
 ## L553 — two Telegram bots on one instance merge one person's DMs into one chat (2026-10-23, open)
 
