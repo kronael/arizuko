@@ -14,6 +14,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -174,6 +175,9 @@ func productFiles(dir string) ([]string, error) {
 	err := filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
+		}
+		if d.IsDir() && p == filepath.Join(dir, ".git") {
+			return fs.SkipDir
 		}
 		if d.IsDir() || d.Type()&os.ModeSymlink != 0 {
 			return nil

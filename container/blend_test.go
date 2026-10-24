@@ -44,6 +44,34 @@ func blendInto(t *testing.T, groupDir string, mix []Product, prior map[string]ma
 	return out
 }
 
+func TestProductSeedSkipsRootGit(t *testing.T) {
+	for _, mode := range []string{"blend", "seed"} {
+		t.Run(mode, func(t *testing.T) {
+			root := t.TempDir()
+			product := mkProduct(t, root, "product", map[string]string{
+				".git/config":        "clone metadata",
+				"PRODUCT.md":         "name = \"product\"\n",
+				"assets/.git/config": "product asset",
+			})
+			group := filepath.Join(root, "group")
+			if mode == "blend" {
+				blendInto(t, group, []Product{product}, nil)
+			} else if err := SeedProduct(group, product.Dir); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := os.Lstat(filepath.Join(group, ".git")); !os.IsNotExist(err) {
+				t.Errorf("group .git must be absent, got %v", err)
+			}
+			if got := read(t, group, "PRODUCT.md"); got != "name = \"product\"\n" {
+				t.Errorf("PRODUCT.md = %q", got)
+			}
+			if got := read(t, group, "assets/.git/config"); got != "product asset" {
+				t.Errorf("nested .git asset = %q", got)
+			}
+		})
+	}
+}
+
 // TestBlendCatchAllCopiesUnnamedPayload locks spec 5/28-packages's last table row: a
 // payload no rule names is copied whole, FIRST provider wins. Without it a
 // table-strict blend drops PRODUCT.md (10/10 of the corpus) and BRANDING.md.
