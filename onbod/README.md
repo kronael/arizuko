@@ -24,7 +24,7 @@ inbound message, no route claims the chat
          │ a Discord guild only on @mention
          ▼ POST onbod /v1/onboarding
 ┌──────────────────┐
-│ onboarding row   │   one per JID, instance-wide
+│ onboarding row   │   one per chat JID, carries inbound sender
 │ awaiting_message │
 └────────┬─────────┘
          │ promptUnprompted: mint route_tokens kind=pair,
@@ -37,7 +37,7 @@ chat: greeting + https://<host>/pair/<token>
 │ webd /pair/<t>   ├──► back to the same URL
 │                  │   GET   confirm page, writes nothing
 │                  │   POST  CSRF, RedeemPairing, one batch:
-│                  │         acl_membership(child=jid, parent=sub,
+│                  │         acl_membership(child=sender, parent=sub,
 │                  │         added_by=pairing) + token delete
 └────────┬─────────┘
          │ success page links /onboard

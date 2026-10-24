@@ -48,6 +48,15 @@ func seedMembership(t *testing.T, db *store.Store, child, parent, addedBy string
 	}
 }
 
+func seedInbound(t *testing.T, db *store.Store, chat, sender string) {
+	t.Helper()
+	if err := db.PutMessage(core.Message{
+		ID: "inbound", ChatJID: chat, Sender: sender, Timestamp: time.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // seedRoute writes one routing rule with NO attribution, which is the state a
 // rule written before the act was recorded is in.
 func seedRoute(t *testing.T, db *store.Store, seq int, match, target string) {

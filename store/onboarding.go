@@ -37,10 +37,11 @@ const onbodTSWidth = 20
 // entities format a time.
 func onbodTS(at time.Time) string { return at.UTC().Format(time.RFC3339) }
 
-// The attributes an admission item carries. `jid` IS the sort key. The five
+// The attributes an admission item carries. `jid` IS the sort key. The
 // optional ones are ABSENT when they have no value.
 const (
 	attrOnbStatus     = "status"
+	attrOnbSender     = "sender"
 	attrOnbUserSub    = "user_sub"
 	attrOnbGate       = "gate"
 	attrOnbCreated    = "created"
@@ -92,17 +93,13 @@ func gateKey(gate string) (objstore.Key, error) {
 	return objstore.Key{Partition: OwnerOnbod, Sort: gate}, nil
 }
 
-// InsertOnboarding records that jid is unrouted and awaiting setup. It fires
-// from routd's route-MISS branch, once per inbound message no route claimed,
-// which makes it the re-greet trigger too (spec 5/31-identity-pairing): an unset `prompted_at`
-// was a permanent lockout, because the jid coordinate blocks a fresh item.
-// Clearing it here arms the next tick, bounded two ways: the caller MISSED,
-// and the last greeting is older than PairingTTL.
-//
-// Two writes: a Put would erase the admission verdict on an existing row, so
-// the create-if-absent goes first and its REFUSAL selects the conditional
-// reset, whose own refusal is normal (the row is not due a re-greet).
-func (s *Store) InsertOnboarding(jid string) error {
+// InsertOnboarding requires an inbound sender and preserves existing senders
+// and admission verdicts. A route miss can re-arm an awaiting greeting after
+// PairingTTL, or when the row's sender first becomes known.
+func (s *Store) InsertOnboarding(jid, sender string) error {
+	if sender == "" {
+		return errors.New("onboarding row carries no sender")
+	}
 	key, err := onboardingKey(jid)
 	if err != nil {
 		return err
@@ -113,6 +110,7 @@ func (s *Store) InsertOnboarding(jid string) error {
 		Op: objstore.Put, Entity: Onboarding, Key: key,
 		Attrs: map[string]string{
 			attrOnbStatus:  statusAwaitingMessage,
+			attrOnbSender:  sender,
 			attrOnbCreated: onbodTS(now),
 		},
 		Cond: objstore.Cond{Item: objstore.ItemAbsent},
@@ -122,6 +120,9 @@ func (s *Store) InsertOnboarding(jid string) error {
 	}
 	if created {
 		return nil
+	}
+	if err := s.BackfillOnboardingSender(jid, sender); err != nil {
+		return err
 	}
 	// `prompted_at <` already excludes a row that was never greeted: a
 	// comparison against an absent attribute is not TRUE on either engine. A
@@ -135,6 +136,41 @@ func (s *Store) InsertOnboarding(jid string) error {
 		}},
 	}); err != nil {
 		return fmt.Errorf("re-arm the greeting for %s: %w", jid, err)
+	}
+	return nil
+}
+
+// BackfillOnboardingSender preserves resolved senders and admission verdicts.
+// Awaiting rows receive a fresh greeting when their sender becomes known.
+func (s *Store) BackfillOnboardingSender(jid, sender string) error {
+	if sender == "" {
+		return errors.New("onboarding row carries no sender")
+	}
+	key, err := onboardingKey(jid)
+	if err != nil {
+		return err
+	}
+	w := objstore.Write{
+		Op: objstore.Update, Entity: Onboarding, Key: key,
+		Attrs:  map[string]string{attrOnbSender: sender},
+		Remove: []string{attrOnbPromptedAt},
+		Cond: objstore.Cond{Where: []objstore.Cmp{
+			{Attr: attrOnbSender, Op: objstore.Absent},
+			{Attr: attrOnbStatus, Op: objstore.Eq, Value: statusAwaitingMessage},
+		}},
+	}
+	filled, err := s.TryWriteEntities(context.Background(), nil, w)
+	if err != nil {
+		return fmt.Errorf("fill onboarding sender for %s: %w", jid, err)
+	}
+	if filled {
+		return nil
+	}
+	w.Remove = nil
+	w.Cond.Where = []objstore.Cmp{{Attr: attrOnbSender, Op: objstore.Absent}}
+	// A refusal means the sender is recorded or the row was removed.
+	if _, err := s.TryWriteEntities(context.Background(), nil, w); err != nil {
+		return fmt.Errorf("fill onboarding sender for %s: %w", jid, err)
 	}
 	return nil
 }
@@ -392,6 +428,7 @@ func (s *Store) EnableGate(gate string, enabled bool) error {
 // OnboardingRow is one row from the onboarding admission table.
 type OnboardingRow struct {
 	JID        string `json:"jid"`
+	Sender     string `json:"sender,omitempty"`
 	Status     string `json:"status"`
 	UserSub    string `json:"user_sub,omitempty"`
 	Gate       string `json:"gate,omitempty"`
@@ -406,6 +443,7 @@ type OnboardingRow struct {
 func onboardingFrom(it objstore.Item) OnboardingRow {
 	return OnboardingRow{
 		JID:        it.Key.Sort,
+		Sender:     it.Attrs[attrOnbSender],
 		Status:     it.Attrs[attrOnbStatus],
 		UserSub:    it.Attrs[attrOnbUserSub],
 		Gate:       it.Attrs[attrOnbGate],
@@ -426,6 +464,7 @@ func onboardingPut(r OnboardingRow) (objstore.Write, error) {
 		return objstore.Write{}, err
 	}
 	attrs := map[string]string{}
+	setAttr(attrs, attrOnbSender, r.Sender)
 	setAttr(attrs, attrOnbStatus, r.Status)
 	setAttr(attrs, attrOnbCreated, r.Created)
 	setAttr(attrs, attrOnbUserSub, r.UserSub)
@@ -489,29 +528,18 @@ func (s *Store) ListOnboarding(statusFilter string) ([]OnboardingRow, error) {
 	return out, nil
 }
 
-// UnpromptedJIDs names every chat that is waiting and has never been greeted:
-// the poll tick's work list.
-func (s *Store) UnpromptedJIDs() ([]string, error) {
-	rows, err := s.readOnboarding(context.Background(),
+// UnpromptedOnboarding returns awaiting rows with no greeting claim.
+func (s *Store) UnpromptedOnboarding() ([]OnboardingRow, error) {
+	return s.readOnboarding(context.Background(),
 		objstore.Cmp{Attr: attrOnbStatus, Op: objstore.Eq, Value: statusAwaitingMessage},
 		objstore.Cmp{Attr: attrOnbPromptedAt, Op: objstore.Absent})
-	if err != nil {
-		return nil, err
-	}
-	return onboardingJIDs(rows), nil
 }
 
-// UnadmittedJIDs names every chat that is waiting and carries no admission
-// verdict: the pairing observer's work list. `user_sub` absent is the dedup:
-// a row is admitted once, and an agent-minted pairing is invisible here.
-func (s *Store) UnadmittedJIDs() ([]string, error) {
-	rows, err := s.readOnboarding(context.Background(),
+// UnadmittedOnboarding returns awaiting rows with no admission verdict.
+func (s *Store) UnadmittedOnboarding() ([]OnboardingRow, error) {
+	return s.readOnboarding(context.Background(),
 		objstore.Cmp{Attr: attrOnbStatus, Op: objstore.Eq, Value: statusAwaitingMessage},
 		objstore.Cmp{Attr: attrOnbUserSub, Op: objstore.Absent})
-	if err != nil {
-		return nil, err
-	}
-	return onboardingJIDs(rows), nil
 }
 
 // QueuedJIDs names the chats queued behind one gate, oldest first, at most
@@ -617,7 +645,7 @@ func (s *Store) QueueOnboarding(jid, userSub, gate string) error {
 }
 
 // RefuseOnboarding records that no gate matched. Terminal: user_sub is stamped
-// so the row stops matching UnadmittedJIDs and the refusal is sent exactly once.
+// so the row stops matching UnadmittedOnboarding and the refusal is sent exactly once.
 func (s *Store) RefuseOnboarding(jid, userSub string) error {
 	return s.setOnboarding(jid, "refuse", map[string]string{
 		attrOnbStatus:  statusRefused,
@@ -765,6 +793,7 @@ func (s *Store) RepromptOnboarding(jid string) error {
 // restore.
 type ArchiveOnboardingRow struct {
 	JID        string `yaml:"jid"`
+	Sender     string `yaml:"sender,omitempty"`
 	Status     string `yaml:"status"`
 	UserSub    string `yaml:"user_sub,omitempty"`
 	Gate       string `yaml:"gate,omitempty"`

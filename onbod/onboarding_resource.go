@@ -73,10 +73,11 @@ func (a *admin) onboardingHandler(_ context.Context, x resreg.Execution) (any, e
 
 	case resreg.ActionCreate:
 		jid := argString(x.Args, "jid")
-		if jid == "" {
-			return nil, resreg.Errorf(http.StatusBadRequest, "jid required")
+		sender := argString(x.Args, "sender")
+		if jid == "" || sender == "" {
+			return nil, resreg.Errorf(http.StatusBadRequest, "jid and sender required")
 		}
-		if err := s.InsertOnboarding(jid); err != nil {
+		if err := s.InsertOnboarding(jid, sender); err != nil {
 			return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
 		}
 		return map[string]bool{"ok": true}, nil

@@ -93,6 +93,10 @@ func main() {
 	}
 	defer xdb.Close() //nolint:errcheck // the process is ending
 	slog.Info("onbod cross-reads routd's tables", "store", dynstore.URL())
+	if err := backfillOnboardingSenders(xdb, obdb); err != nil {
+		slog.Error("fill onboarding senders", "err", err)
+		os.Exit(1)
+	}
 
 	audit.Init(obdb.Obj(), os.Getenv("ARIZUKO_INSTANCE"))
 	audit.Emit(context.Background(), audit.Event{
@@ -394,29 +398,50 @@ func warnStrandedRows(db *store.Store) {
 	}
 }
 
-// promptUnprompted greets every unrouted chat that has no live link, with a
-// PAIRING link (spec 5/31-identity-pairing) rather than an onboarding token of its own. onbod mints
-// no second credential and writes no second acl_membership edge.
-//
-// The mint's owner_folder is the constant "" → NULL. InsertOnboarding only ever
-// fires from the route-MISS branch, so "this JID routes nowhere" is proved by the
-// row's existence and is not re-derived here.
+func backfillOnboardingSenders(xdb, obdb *store.Store) error {
+	rows, err := obdb.ListOnboarding("")
+	if err != nil {
+		return err
+	}
+	for _, row := range rows {
+		if row.Sender != "" {
+			continue
+		}
+		last, found, err := xdb.LastInboundMessage(context.Background(), row.JID)
+		if err != nil {
+			return err
+		}
+		if !found || last.Sender == "" {
+			slog.Warn("onboarding sender unresolved", "jid", row.JID)
+			continue
+		}
+		if err := obdb.BackfillOnboardingSender(row.JID, last.Sender); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func promptUnprompted(xdb, obdb *store.Store, cfg config) {
 	warnStrandedRows(obdb)
-	pending, err := obdb.UnpromptedJIDs()
+	pending, err := obdb.UnpromptedOnboarding()
 	if err != nil {
 		slog.Error("promptUnprompted query", "err", err)
 		return
 	}
 
 	base := strings.TrimRight(cfg.authBaseURL, "/")
-	for _, jid := range pending {
+	for _, row := range pending {
+		if row.Sender == "" {
+			continue
+		}
+		jid := row.JID
 		// Mint BEFORE the claim. The two writes are in different databases with
 		// no shared transaction, and this order is the one that cannot strand a
 		// user: a mint failure leaves the row unclaimed for the next tick, while
 		// a lost claim race leaves a token nobody was ever told, which expires in
 		// PairingTTL. Claiming first would stamp prompted_at with no link sent.
-		token, err := xdb.IssuePairingLink(context.Background(), jid, "")
+		token, err := xdb.IssuePairingLink(context.Background(), row.Sender, "")
 		if err != nil {
 			slog.Error("promptUnprompted mint pairing link", "jid", jid, "err", err)
 			continue
@@ -465,17 +490,18 @@ func promptUnprompted(xdb, obdb *store.Store, cfg config) {
 // The dedup is onboarding's jid primary key plus the `user_sub IS NULL` guard, so
 // a row is admitted once and an agent-minted pairing is invisible here.
 func observePairings(xdb, obdb *store.Store, cfg config) {
-	awaiting, err := obdb.UnadmittedJIDs()
+	awaiting, err := obdb.UnadmittedOnboarding()
 	if err != nil {
 		slog.Error("observePairings query", "err", err)
 		return
 	}
 
-	for _, jid := range awaiting {
-		// The PAIRING edge and not any edge above the jid: a role membership is
-		// not a consent, and reading one as the parent would admit the chat to
-		// whoever the role names.
-		edges, err := xdb.ParentEdges(jid)
+	for _, row := range awaiting {
+		if row.Sender == "" {
+			continue
+		}
+		jid := row.JID
+		edges, err := xdb.ParentEdges(row.Sender)
 		if err != nil {
 			slog.Error("observePairings read pairing edge", "jid", jid, "err", err)
 			continue
@@ -852,11 +878,18 @@ func handleCreateWorld(w http.ResponseWriter, r *http.Request, db, obdb *store.S
 	http.Redirect(w, r, "/onboard", http.StatusSeeOther)
 }
 
-// membershipJIDs lists the platform JIDs bound to userSub (acl_membership), in
-// jid order — the parent is the second field of the edge coordinate, so the read
-// takes the graph and filters, and the order it answers in is the child's.
 func membershipJIDs(db *store.Store, userSub string) []string {
-	return db.Members(userSub)
+	var chats []string
+	for _, sender := range db.Members(userSub) {
+		jids, err := db.ChatJIDsForSender(context.Background(), sender)
+		if err != nil {
+			slog.Error("read paired sender chats", "sender", sender, "err", err)
+			return nil
+		}
+		chats = append(chats, jids...)
+	}
+	slices.Sort(chats)
+	return slices.Compact(chats)
 }
 
 // writeWorld writes the group + member edge + admin grant in ONE guarded batch,
@@ -1335,7 +1368,7 @@ func renderDashboard(w http.ResponseWriter, db *store.Store, userSub, username s
 		// One row per (jid, rule) pair, ordered by jid then target — the join's
 		// order, rebuilt here because the rule that names a jid is found by the
 		// same predicate unroutedJID asks and not by a key.
-		for _, jid := range db.Members(userSub) {
+		for _, jid := range membershipJIDs(db, userSub) {
 			matched := jidRoutes(routes, jid)
 			targets := make([]string, 0, len(matched))
 			for _, r := range matched {
@@ -1514,7 +1547,7 @@ func userOwnsMatch(db *store.Store, sub, match string) bool {
 	if room == "" {
 		return false
 	}
-	for _, jid := range db.Members(sub) {
+	for _, jid := range membershipJIDs(db, sub) {
 		if i := strings.Index(jid, ":"); i > 0 && jid[i+1:] == room {
 			return true
 		}

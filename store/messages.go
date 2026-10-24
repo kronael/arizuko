@@ -1123,6 +1123,30 @@ func (s *Store) LastInboundMessage(ctx context.Context, jid string) (core.Messag
 	return s.lastMessageWhere(ctx, jid, "inbound", inboundWhere())
 }
 
+func (s *Store) ChatJIDsForSender(ctx context.Context, sender string) ([]string, error) {
+	if sender == "" {
+		return nil, nil
+	}
+	jids, err := s.ChatJIDs(ctx)
+	if err != nil {
+		return nil, err
+	}
+	where := append(inboundWhere(), objstore.Cmp{
+		Attr: attrMsgSender, Op: objstore.Eq, Value: sender,
+	})
+	var chats []string
+	for _, jid := range jids {
+		_, found, err := s.lastMessageWhere(ctx, jid, "sender's inbound", where)
+		if err != nil {
+			return nil, err
+		}
+		if found {
+			chats = append(chats, jid)
+		}
+	}
+	return chats, nil
+}
+
 // LastHumanMessage answers a chat's newest row a PERSON wrote: inbound, and
 // from none of the senders arizuko writes on its own behalf. Narrower than
 // LastInboundMessage on purpose: the held set asks which message the loop

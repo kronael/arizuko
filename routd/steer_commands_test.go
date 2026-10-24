@@ -442,7 +442,7 @@ func (f *fakeOnbod) RevokeInviteByRef(ref string) error {
 	f.revoked = append(f.revoked, ref)
 	return nil
 }
-func (f *fakeOnbod) InsertOnboarding(jid string) error {
+func (f *fakeOnbod) InsertOnboarding(jid, sender string) error {
 	if f.insertErr != nil {
 		return f.insertErr
 	}

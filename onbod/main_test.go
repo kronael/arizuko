@@ -93,6 +93,9 @@ const fixtureTS = "2026-01-01T00:00:00Z"
 // admissions compares it.
 func seedAdmission(t *testing.T, db *store.Store, r store.ArchiveOnboardingRow) {
 	t.Helper()
+	if r.Sender == "" {
+		r.Sender = r.JID
+	}
 	if r.Created == "" {
 		r.Created = fixtureTS
 	}
@@ -387,6 +390,7 @@ func twoWorldUser(t *testing.T) *store.Store {
 	seedGrant(t, db, "github:alice", "admin", "acme")
 	seedGrant(t, db, "github:alice", "admin", "beta")
 	seedMembership(t, db, "telegram:42", "github:alice", "")
+	seedInbound(t, db, "telegram:42", "telegram:42")
 	return db
 }
 
@@ -497,6 +501,7 @@ func TestNoAdminWorldIsAnExplicitDeadEnd(t *testing.T) {
 	// nothing: her grant names a folder that is not a group.
 	seedGrant(t, db, "github:alice", "admin", "ghost")
 	seedMembership(t, db, "telegram:42", "github:alice", "")
+	seedInbound(t, db, "telegram:42", "telegram:42")
 
 	w := getOnboard(db, "github:alice")
 	body := w.Body.String()
@@ -760,6 +765,8 @@ func TestCreateWorldRoutesNoJIDs(t *testing.T) {
 	}
 	seedMembership(t, db, "telegram:10", "github:new", "")
 	seedMembership(t, db, "discord:20", "github:new", "")
+	seedInbound(t, db, "telegram:10", "telegram:10")
+	seedInbound(t, db, "discord:20", "discord:20")
 
 	seedRedemption(t, db, "github:new", "/")
 
@@ -1146,6 +1153,7 @@ func TestInviteConsume(t *testing.T) {
 	}
 	seedFolder(t, db, "alice")
 	seedMembership(t, db, "telegram:99", "github:bob", "")
+	seedInbound(t, db, "telegram:99", "telegram:99")
 
 	token := createInvite(t, db, "alice", "telegram:1", 1)
 
@@ -1331,6 +1339,7 @@ func TestAddRoute(t *testing.T) {
 	seedGrant(t, db, "alice", "admin", "myroom")
 	// Alice must own a JID whose room matches the add_route match pattern.
 	seedMembership(t, db, "telegram:999", "alice", "")
+	seedInbound(t, db, "telegram:999", "telegram:999")
 
 	w := postOnboard(db, cfg, "alice", url.Values{
 		"action": {"add_route"},
@@ -1867,6 +1876,7 @@ func TestAddRouteNonOperatorForbiddenOnUnownedMatch(t *testing.T) {
 func TestUserOwnsMatchRejectsNonRoomPrefix(t *testing.T) {
 	db := testDB(t)
 	seedMembership(t, db, "telegram:42", "alice", "")
+	seedInbound(t, db, "telegram:42", "telegram:42")
 	if userOwnsMatch(db, "alice", "peer=42") {
 		t.Error("non-room prefix must not match")
 	}

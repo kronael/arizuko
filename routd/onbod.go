@@ -20,7 +20,7 @@ type OnbodClient interface {
 	CreateInviteFull(targetGlob, issuedBySub string, maxUses int, expiresAt *time.Time) (Invite, error)
 	ListInvites(issuedBy string) ([]Invite, error)
 	RevokeInviteByRef(ref string) error
-	InsertOnboarding(jid string) error
+	InsertOnboarding(jid, sender string) error
 	ListGates() ([]GateRow, error)
 	PutGate(gate string, limitPerDay int) error
 	DeleteGate(gate string) error
@@ -153,8 +153,9 @@ func (o *httpOnbod) RevokeInviteByRef(ref string) error {
 
 // InsertOnboarding records a chat-initiated onboarding row for an unrouted
 // JID; idempotent onbod-side.
-func (o *httpOnbod) InsertOnboarding(jid string) error {
-	return o.do(http.MethodPost, "/v1/onboarding", map[string]any{"jid": jid}, nil)
+func (o *httpOnbod) InsertOnboarding(jid, sender string) error {
+	return o.do(http.MethodPost, "/v1/onboarding",
+		map[string]any{"jid": jid, "sender": sender}, nil)
 }
 
 func (o *httpOnbod) ListGates() ([]GateRow, error) {

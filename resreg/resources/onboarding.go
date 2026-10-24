@@ -7,12 +7,12 @@ import (
 )
 
 // OnboardingRow mirrors the onboarding entity (store/onboarding.go): sort key
-// JID, every other db:-tagged field one attribute, and the whole row. Five of
-// the eight fields are optional and need no null handling: an item carries
-// none of them until a verdict lands (BUGS F42). It carries no credential
+// JID, every other db:-tagged field one attribute, and the whole row.
+// Absent attributes render as empty fields. It carries no credential
 // column; the live setup link is a route_tokens row (BUGS F40).
 type OnboardingRow struct {
 	JID        string `db:"jid"         yaml:"jid"                   json:"jid"`
+	Sender     string `db:"sender"      yaml:"sender,omitempty"      json:"sender,omitempty"`
 	Status     string `db:"status"      yaml:"status"                json:"status"`
 	UserSub    string `db:"user_sub"    yaml:"user_sub,omitempty"    json:"user_sub,omitempty"`
 	Gate       string `db:"gate"        yaml:"gate,omitempty"        json:"gate,omitempty"`
@@ -37,7 +37,7 @@ var OnboardingEndpoints = []resreg.Endpoint{
 // reachable over MCP too (5/17).
 var OnboardingMCPDoc = map[resreg.Action]string{
 	resreg.ActionList:         "List pending and admitted onboarding rows — who is waiting to be let in, which gate queued them, and when each was greeted, queued and admitted. Filter with status= (awaiting_message, token_used, queued, approved). Never returns the setup link itself.",
-	resreg.ActionCreate:       "Record an unrouted chat jid as awaiting onboarding, so the next poll tick sends it a setup link. Idempotent — re-recording a known jid changes nothing.",
+	resreg.ActionCreate:       "Record an unrouted chat jid and its inbound sender as awaiting onboarding. Existing senders and admission verdicts stay fixed; expired awaiting greetings may re-arm.",
 	resreg.Action("approve"):  "Admit a queued jid immediately, bypassing its gate's daily limit. Use when someone should not wait out the queue.",
 	resreg.Action("reprompt"): "Reset a jid to awaiting_message so the next poll tick greets it again with a fresh setup link, bypassing the re-greet cooldown. Use when the link expired or never arrived.",
 	resreg.ActionDelete:       "Deny a jid and drop its onboarding row entirely. The jid can start over by messaging again.",
@@ -50,6 +50,7 @@ var OnboardingMCPArgs = map[resreg.Action][]resreg.MCPArg{
 	},
 	resreg.ActionCreate: {
 		{Name: "jid", Type: "string", Description: "Chat jid to record as awaiting onboarding, e.g. telegram:user/12345.", Required: true},
+		{Name: "sender", Type: "string", Description: "Sender identity from the chat's inbound message.", Required: true},
 	},
 	resreg.Action("approve"): {
 		{Name: "jid", Type: "string", Description: "Chat jid to admit immediately.", Required: true},

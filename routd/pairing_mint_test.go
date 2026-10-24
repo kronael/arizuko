@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/objstore"
@@ -32,6 +33,9 @@ func pairingFixture(t *testing.T, folder, match string) (*DB, string) {
 		if _, err := db.AddRoute(core.Route{Match: match, Target: folder}); err != nil {
 			t.Fatal(err)
 		}
+	}
+	if match == "room=user/42" {
+		seedPairingInbound(t, db, "telegram:user/42", "telegram:user/42")
 	}
 	grantMCPTools(t, db, folder, "issue_pairing_link")
 	return db, serveRouteTokensMCP(t, db, folder, "folder:"+folder, "https://x.test")
@@ -99,6 +103,7 @@ func TestPairingMint_ForeignJIDRefused(t *testing.T) {
 	if _, err := db.AddRoute(core.Route{Match: "room=user/99", Target: "rival"}); err != nil {
 		t.Fatal(err)
 	}
+	seedPairingInbound(t, db, "telegram:user/99", "telegram:user/99")
 
 	_, e := callToolText(t, sock, "issue_pairing_link", map[string]any{"jid": "telegram:user/99"})
 	if e == "" {
@@ -191,6 +196,7 @@ func TestIssuedURLsCarrySchemeForBareWebHost(t *testing.T) {
 		t.Fatal(err)
 	}
 	grantMCPTools(t, db, "hq", "issue_pairing_link", "issue_chat_link", "issue_webhook")
+	seedPairingInbound(t, db, "telegram:user/42", "telegram:user/42")
 	sock := serveRouteTokensMCP(t, db, "hq", "folder:hq", "krons.fiu.wtf") // bare, as deployed
 
 	pairURL, _ := issuePairing(t, sock, "telegram:user/42")
@@ -233,4 +239,81 @@ func tokenItems(t *testing.T, db *DB) []objstore.Item {
 		t.Fatalf("read route tokens: %v", err)
 	}
 	return items
+}
+
+func seedPairingInbound(t *testing.T, db *DB, chat, sender string) {
+	t.Helper()
+	if err := db.PutMessage(core.Message{
+		ID: "inbound", ChatJID: chat, Sender: sender,
+		Timestamp: time.Now(), Verb: "message",
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestPairingMintDiscordSenderAcrossChats(t *testing.T) {
+	db, sock := pairingFixture(t, "hq", "room=dm/200")
+	if err := db.PutGroup(core.Group{Folder: "rival"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.AddRoute(core.Route{Match: "room=dm/100", Target: "rival"}); err != nil {
+		t.Fatal(err)
+	}
+	const sender = "discord:user/123"
+	seedPairingInbound(t, db, "discord:dm/100", sender)
+	seedPairingInbound(t, db, "discord:dm/200", sender)
+	if err := db.PutMessage(core.Message{
+		ID: "later", ChatJID: "discord:dm/200", Sender: "discord:user/other",
+		Timestamp: time.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	url, got := issuePairing(t, sock, sender)
+	if got != sender {
+		t.Fatalf("paired identity = %q", got)
+	}
+	if _, err := db.store().RedeemPairing(strings.TrimPrefix(url, "https://x.test/pair/"), "github:alice"); err != nil {
+		t.Fatal(err)
+	}
+	if !hasEdge(db, sender, "github:alice") || hasEdge(db, "discord:dm/200", "github:alice") {
+		t.Fatal("pairing did not bind the sender alone")
+	}
+	grantMCPTools(t, db, "hq", "unpair")
+	unpairSock := serveMembershipMCP(t, db, "hq", "folder:hq")
+	if _, e := callToolText(t, unpairSock, "unpair", map[string]any{
+		"child": sender, "parent": "github:alice",
+	}); e != "" {
+		t.Fatalf("unpair sender: %s", e)
+	}
+	if hasEdge(db, sender, "github:alice") {
+		t.Fatal("sender edge survives unpair")
+	}
+}
+
+func TestPairingMintRequiresInboundSender(t *testing.T) {
+	db, sock := pairingFixture(t, "hq", "room=dm/200")
+	seedPairingInbound(t, db, "discord:dm/200", "discord:user/123")
+	if _, err := db.AddRoute(core.Route{Match: "room=user/999", Target: "hq"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, sender := range []string{"discord:dm/200", "discord:user/999"} {
+		if _, e := callToolText(t, sock, "issue_pairing_link", map[string]any{"jid": sender}); e == "" {
+			t.Errorf("pairing accepted unattested sender %s", sender)
+		}
+		if err := db.store().PutMembership(sender, "github:alice", store.PairingAddedBy); err != nil {
+			t.Fatal(err)
+		}
+	}
+	grantMCPTools(t, db, "hq", "unpair")
+	unpairSock := serveMembershipMCP(t, db, "hq", "folder:hq")
+	for _, sender := range []string{"discord:dm/200", "discord:user/999"} {
+		if _, e := callToolText(t, unpairSock, "unpair", map[string]any{
+			"child": sender, "parent": "github:alice",
+		}); e == "" {
+			t.Errorf("unpair accepted unattested sender %s", sender)
+		}
+		if !hasEdge(db, sender, "github:alice") {
+			t.Errorf("refused unpair removed %s", sender)
+		}
+	}
 }

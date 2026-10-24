@@ -113,10 +113,8 @@ func (s *Server) routeTokensHandler(ctx context.Context, x resreg.Execution) (an
 		return map[string]any{"token": raw, "jid": jid, "url": url}, nil
 
 	case routeTokensActionIssuePair:
-		// owner_folder is the folder the JID ROUTES to — the same value the
-		// Gate authorized the caller against, so the two cannot disagree.
 		jid := strings.TrimSpace(argString(x.Args, "jid"))
-		target, err := pairingTargetFolder(s.db, jid)
+		target, err := pairingTargetFolder(s.db, jid, folder)
 		if err != nil {
 			return nil, err
 		}
@@ -167,10 +165,9 @@ func (s *Server) routeTokensPostBuild(folder, callerSub string, authorize author
 				target = t
 			}
 		case routeTokensActionIssuePair:
-			// A pairing names an EXISTING chat, so its target is where that chat
-			// routes — the containment outbound `send` applies (ipc.authorizeJID).
 			var err error
-			if target, err = pairingTargetFolder(s.db, strings.TrimSpace(argString(x.Args, "jid"))); err != nil {
+			if target, err = pairingTargetFolder(s.db,
+				strings.TrimSpace(argString(x.Args, "jid")), folder); err != nil {
 				return err
 			}
 		}
@@ -182,27 +179,26 @@ func (s *Server) routeTokensPostBuild(folder, callerSub string, authorize author
 	return mountAgentResource(res, callerSub, folder, visible)
 }
 
-// pairingTargetFolder resolves the folder a pairing's JID routes to — BOTH
-// what the Gate authorizes against and the token's owner_folder, so a caller
-// can only mint a pairing for a chat it handles. Resolved twice per call
-// because resreg's Gate cannot hand a value to the handler; same read, same
-// table. An ingress surface is not an identity: web:/hook: name a public
-// endpoint and anon: an IP hash whose next holder would inherit the account
-// (spec 5/31-identity-pairing § Not in scope).
-func pairingTargetFolder(db *DB, jid string) (string, error) {
-	if jid == "" {
+func pairingTargetFolder(db *DB, sender, callerFolder string) (string, error) {
+	if sender == "" {
 		return "", resreg.Errorf(http.StatusBadRequest, "jid required")
 	}
-	if store.RouteTokenJIDKind(jid) != "" || strings.HasPrefix(jid, "anon:") {
+	if store.RouteTokenJIDKind(sender) != "" || strings.HasPrefix(sender, "anon:") {
 		return "", resreg.Errorf(http.StatusBadRequest,
-			"%s is an ingress surface, not a channel identity — pair the person's platform identity", jid)
+			"%s is an ingress surface, not a channel identity — pair the person's platform identity", sender)
 	}
-	target := db.DefaultFolderForJID(jid)
-	if target == "" {
-		return "", resreg.Errorf(http.StatusForbidden,
-			"forbidden: chat %s has no route in this instance", jid)
+	chats, err := db.store().ChatJIDsForSender(context.Background(), sender)
+	if err != nil {
+		return "", resreg.Errorf(http.StatusInternalServerError, "%v", err)
 	}
-	return target, nil
+	for _, jid := range chats {
+		target := db.DefaultFolderForJID(jid)
+		if target != "" && groupfolder.Contains(callerFolder, target) {
+			return target, nil
+		}
+	}
+	return "", resreg.Errorf(http.StatusForbidden,
+		"%s: not permitted; no route from the sender's chats within %s", sender, callerFolder)
 }
 
 // routeTokenJID builds the (jid, url-prefix) for a mint: segRe-validate the

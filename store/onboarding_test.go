@@ -68,7 +68,7 @@ func setPrompted(t *testing.T, s *Store, jid string, ago time.Duration) string {
 func TestInsertOnboarding_CreatesAnUnpromptedRow(t *testing.T) {
 	s := openEntities(t)
 
-	if err := s.InsertOnboarding("telegram:1"); err != nil {
+	if err := s.InsertOnboarding("telegram:1", "telegram:1"); err != nil {
 		t.Fatal(err)
 	}
 	it := admissionItem(t, s, "telegram:1")
@@ -87,12 +87,12 @@ func TestInsertOnboarding_CreatesAnUnpromptedRow(t *testing.T) {
 func TestInsertOnboarding_ReGreetsAfterPairingTTL(t *testing.T) {
 	s := openEntities(t)
 
-	if err := s.InsertOnboarding("telegram:1"); err != nil {
+	if err := s.InsertOnboarding("telegram:1", "telegram:1"); err != nil {
 		t.Fatal(err)
 	}
 	setPrompted(t, s, "telegram:1", PairingTTL+time.Minute)
 
-	if err := s.InsertOnboarding("telegram:1"); err != nil {
+	if err := s.InsertOnboarding("telegram:1", "telegram:1"); err != nil {
 		t.Fatal(err)
 	}
 	if got, ok := admissionItem(t, s, "telegram:1").Attrs[attrOnbPromptedAt]; ok {
@@ -106,12 +106,12 @@ func TestInsertOnboarding_ReGreetsAfterPairingTTL(t *testing.T) {
 func TestInsertOnboarding_DoesNotReGreetWithinPairingTTL(t *testing.T) {
 	s := openEntities(t)
 
-	if err := s.InsertOnboarding("telegram:1"); err != nil {
+	if err := s.InsertOnboarding("telegram:1", "telegram:1"); err != nil {
 		t.Fatal(err)
 	}
 	stamped := setPrompted(t, s, "telegram:1", PairingTTL/2)
 
-	if err := s.InsertOnboarding("telegram:1"); err != nil {
+	if err := s.InsertOnboarding("telegram:1", "telegram:1"); err != nil {
 		t.Fatal(err)
 	}
 	got, ok := admissionItem(t, s, "telegram:1").Attrs[attrOnbPromptedAt]
@@ -128,7 +128,7 @@ func TestInsertOnboarding_NeverReArmsAnAdmittedRow(t *testing.T) {
 
 	for _, status := range []string{statusQueued, statusApproved, statusRefused} {
 		jid := "telegram:" + status
-		if err := s.InsertOnboarding(jid); err != nil {
+		if err := s.InsertOnboarding(jid, jid); err != nil {
 			t.Fatal(err)
 		}
 		stamped := setPrompted(t, s, jid, PairingTTL+time.Hour)
@@ -137,7 +137,7 @@ func TestInsertOnboarding_NeverReArmsAnAdmittedRow(t *testing.T) {
 			attrOnbUserSub: "github:alice",
 		})
 
-		if err := s.InsertOnboarding(jid); err != nil {
+		if err := s.InsertOnboarding(jid, jid); err != nil {
 			t.Fatal(err)
 		}
 		it := admissionItem(t, s, jid)
@@ -157,13 +157,13 @@ func TestInsertOnboarding_NeverReArmsAnAdmittedRow(t *testing.T) {
 func TestInsertOnboarding_ReGreetKeepsCreated(t *testing.T) {
 	s := openEntities(t)
 
-	if err := s.InsertOnboarding("telegram:1"); err != nil {
+	if err := s.InsertOnboarding("telegram:1", "telegram:1"); err != nil {
 		t.Fatal(err)
 	}
 	created := admissionItem(t, s, "telegram:1").Attrs[attrOnbCreated]
 	setPrompted(t, s, "telegram:1", PairingTTL+time.Minute)
 
-	if err := s.InsertOnboarding("telegram:1"); err != nil {
+	if err := s.InsertOnboarding("telegram:1", "telegram:1"); err != nil {
 		t.Fatal(err)
 	}
 	if after := admissionItem(t, s, "telegram:1").Attrs[attrOnbCreated]; after != created {
@@ -178,7 +178,7 @@ func TestInsertOnboarding_ReGreetKeepsCreated(t *testing.T) {
 func TestRepromptOnboarding_ClearsEveryVerdictAttribute(t *testing.T) {
 	s := openEntities(t)
 
-	if err := s.InsertOnboarding("telegram:1"); err != nil {
+	if err := s.InsertOnboarding("telegram:1", "telegram:1"); err != nil {
 		t.Fatal(err)
 	}
 	setAdmission(t, s, "telegram:1", map[string]string{
@@ -217,7 +217,7 @@ func TestRepromptOnboarding_ClearsEveryVerdictAttribute(t *testing.T) {
 func TestOrderedInstantsRefuseAnotherWidth(t *testing.T) {
 	s := openEntities(t)
 
-	if err := s.InsertOnboarding("telegram:1"); err != nil {
+	if err := s.InsertOnboarding("telegram:1", "telegram:1"); err != nil {
 		t.Fatal(err)
 	}
 	for _, attr := range []string{
@@ -255,7 +255,7 @@ func TestListOnboardingOrdersByCreatedDescending(t *testing.T) {
 	s := openEntities(t)
 
 	for _, jid := range []string{"telegram:a", "telegram:b", "telegram:c"} {
-		if err := s.InsertOnboarding(jid); err != nil {
+		if err := s.InsertOnboarding(jid, jid); err != nil {
 			t.Fatal(err)
 		}
 	}

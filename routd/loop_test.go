@@ -2,6 +2,9 @@ package routd
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -134,6 +137,41 @@ func TestRouteMissInsertsOnboarding(t *testing.T) {
 			t.Fatal("telegram allowed but not onboarded")
 		}
 	})
+}
+
+func TestRouteMissCarriesSenderOverHTTP(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	var got struct {
+		JID    string `json:"jid"`
+		Sender string `json:"sender"`
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/v1/onboarding" {
+			t.Errorf("onboarding request = %s %s", r.Method, r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Error(err)
+			w.WriteHeader(http.StatusBadRequest)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	loop := &Loop{db: db, onboardingEnabled: true,
+		onbod: NewOnbodClient(srv.URL, func(context.Context) (string, error) {
+			return "service", nil
+		})}
+	const chat = "discord:dm/456"
+	msgs := []core.Message{
+		{ID: "first", ChatJID: chat, Sender: "discord:user/earlier", Timestamp: time.Now()},
+		{ID: "last", ChatJID: chat, Sender: "discord:user/123", Timestamp: time.Now()},
+	}
+	loop.routeMiss(chat, msgs, resolution{})
+	if got.JID != chat || got.Sender != "discord:user/123" {
+		t.Fatalf("onboarding payload = %+v", got)
+	}
 }
 
 // TestQueuePathRouteMissInsertsOnboarding drives the route miss through

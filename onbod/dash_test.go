@@ -25,7 +25,7 @@ func newDashAdmin(t *testing.T) *admin {
 // the queue page with the freshly inserted onboarding row in the table.
 func TestDashOperatorRendersQueue(t *testing.T) {
 	a := newDashAdmin(t)
-	if err := a.st.InsertOnboarding("telegram:user/42"); err != nil {
+	if err := a.st.InsertOnboarding("telegram:user/42", "telegram:user/42"); err != nil {
 		t.Fatalf("seed onboarding: %v", err)
 	}
 
@@ -68,7 +68,7 @@ func TestDashNonOperatorForbidden(t *testing.T) {
 // same store writer the /v1 handler uses, then redirects to the queue.
 func TestDashApproveFlipsRow(t *testing.T) {
 	a := newDashAdmin(t)
-	if err := a.st.InsertOnboarding("telegram:user/7"); err != nil {
+	if err := a.st.InsertOnboarding("telegram:user/7", "telegram:user/7"); err != nil {
 		t.Fatalf("seed onboarding: %v", err)
 	}
 
@@ -115,7 +115,7 @@ func TestDashWritesRefuseCrossOrigin(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			a := newDashAdmin(t)
-			if err := a.st.InsertOnboarding("telegram:user/9"); err != nil {
+			if err := a.st.InsertOnboarding("telegram:user/9", "telegram:user/9"); err != nil {
 				t.Fatalf("seed onboarding: %v", err)
 			}
 			r := httptest.NewRequest("POST", "/dash/onbod/"+tc.target+"/telegram:user/9", nil)

@@ -55,6 +55,7 @@ func unpairFixture(t *testing.T) *DB {
 		t.Fatal(err)
 	}
 	st := store.NewOver(db.Obj())
+	seedPairingInbound(t, db, "telegram:user/42", "telegram:user/42")
 	if err := st.PutMembership("telegram:user/42", "google:alice", store.PairingAddedBy); err != nil {
 		t.Fatal(err)
 	}

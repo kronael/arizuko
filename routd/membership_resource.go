@@ -3,7 +3,7 @@ package routd
 // Unpair (spec 5/31-identity-pairing): acl_membership gains exactly ONE action — delete —
 // scoped to added_by='pairing' so it cannot reach role membership. Either
 // endpoint of the edge may call it, each face proving it IS that endpoint:
-// the AGENT is authorized against the folder the child JID routes to, the
+// the AGENT is authorized against a routed chat carrying the child's inbound, the
 // REST caller's JWT sub must BE the parent, with no operator override. Both
 // directions are de-escalation; adding an edge needs the account owner's
 // consent at the browser step.
@@ -23,7 +23,7 @@ import (
 )
 
 // membershipResource is the single renderer for both unpair faces. contain
-// receives the resolved target — the child's routing folder for the agent,
+// receives the resolved target — a sender's chat folder for the agent,
 // the row's parent for REST.
 func (s *Server) membershipResource(contain containFn) resreg.Resource {
 	r := resreg.Mount(resources.ACLMembershipName)
@@ -48,7 +48,7 @@ func (s *Server) membershipHandler(ctx context.Context, x resreg.Execution, cont
 		// Agent face: the caller proves it handles the chat, not that it owns
 		// the account — the same read the mint gate does.
 		var err error
-		if target, err = pairingTargetFolder(s.db, child); err != nil {
+		if target, err = pairingTargetFolder(s.db, child, x.Caller.Folder); err != nil {
 			return nil, err
 		}
 	}
@@ -68,7 +68,7 @@ func (s *Server) membershipHandler(ctx context.Context, x resreg.Execution, cont
 }
 
 // membershipPostBuild mounts `unpair` on the agent socket; contain authorizes
-// the caller against the folder the child JID routes to.
+// the caller against a sender's chat folder.
 func (s *Server) membershipPostBuild(folder, callerSub string, authorize authorizeFn, visible func(string) bool) func(*mcpserver.MCPServer) {
 	contain := func(_ resreg.Caller, a resreg.Action, target string) error {
 		name := resources.ACLMembershipMCPNames[a]

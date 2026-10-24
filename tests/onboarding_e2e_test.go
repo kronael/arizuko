@@ -41,13 +41,14 @@ func TestOnboardingEndToEnd(t *testing.T) {
 	onbodMux := http.NewServeMux()
 	onbodMux.HandleFunc("POST /v1/onboarding", func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
-			JID string `json:"jid"`
+			JID    string `json:"jid"`
+			Sender string `json:"sender"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.JID == "" {
 			http.Error(w, "bad request", http.StatusBadRequest)
 			return
 		}
-		if err := onbodStore.InsertOnboarding(body.JID); err != nil {
+		if err := onbodStore.InsertOnboarding(body.JID, body.Sender); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -78,7 +79,7 @@ func TestOnboardingEndToEnd(t *testing.T) {
 		}
 		for _, r := range rows {
 			if r.JID == jid {
-				return true
+				return r.Sender == in.Sender
 			}
 		}
 		return false

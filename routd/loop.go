@@ -599,7 +599,7 @@ func (l *Loop) routeMiss(chatJID string, msgs []core.Message, r resolution) {
 				!strings.HasPrefix(chatJID, "discord:dm/")
 			if onboardingAllowed(chatJID, l.onboardingPlatforms) &&
 				(!discordGuild || last.Verb == "mention") {
-				if err := l.onbod.InsertOnboarding(chatJID); err != nil {
+				if err := l.onbod.InsertOnboarding(chatJID, last.Sender); err != nil {
 					// Without the row the new user gets silence forever: tell the chat.
 					slog.Error("insert onboarding failed", "jid", chatJID, "err", err)
 					if l.deliver != nil {
