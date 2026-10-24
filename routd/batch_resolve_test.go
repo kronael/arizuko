@@ -260,3 +260,49 @@ func TestBatchResolve_ARowAtTheObservedWatermarkReachesTheTurn(t *testing.T) {
 		t.Fatalf("the review row at the watermark is not in the <observed> block:\n%s", rr.runs[0].batch)
 	}
 }
+
+// A finished turn opens engagement, and engagement changes which rows dispatch.
+// Alice's mention runs and opens the window, Bob's mention is refused Busy, and
+// the batch re-feeds: Alice's plain message now dispatches and joins her group.
+// A turn id taken from the grown group missed the done check and ran Alice's
+// mention a second time.
+func TestBatchResolve_ABusyReFeedDoesNotRerunAFinishedTurn(t *testing.T) {
+	var batches []string
+	var db *DB
+	refused := false
+	db, loop := githubBatchLoop(t, runnerFn(func(_ context.Context, req runedv1.RunRequest) (runedv1.RunOutcome, error) {
+		if req.TriggerSender == "github:user/bob" && !refused {
+			refused = true
+			return runedv1.RunOutcome{Busy: true}, nil
+		}
+		batches = append(batches, req.MessageBatch)
+		if err := db.SetEngagement(prJID, "pr/311", "eng", time.Hour); err != nil {
+			t.Error(err)
+		}
+		return runedv1.RunOutcome{RunID: "r", Outcome: runedv1.OutcomeOK}, nil
+	}))
+	now := time.Now().UTC()
+	putPRRow(t, db, "gh-rc1", "github:user/alice", "mention", "inline mention", now)
+	putPRRow(t, db, "gh-c2", "github:user/alice", "message", "and one more thing", now.Add(time.Millisecond))
+	putPRRow(t, db, "gh-rc3", "github:user/bob", "mention", "bob asks", now.Add(2*time.Millisecond))
+
+	if _, err := loop.processGroupMessages(prJID); err != nil {
+		t.Fatalf("first pass: %v", err)
+	}
+	loop.busyWait.Delete(prJID)
+	if _, err := loop.processGroupMessages(prJID); err != nil {
+		t.Fatalf("re-feed: %v", err)
+	}
+	ran := 0
+	for _, b := range batches {
+		if strings.Contains(b, `<message id="gh-rc1"`) {
+			ran++
+		}
+	}
+	if ran != 1 {
+		t.Fatalf("Alice's mention ran %d times, want 1: %q", ran, batches)
+	}
+	if last := batches[len(batches)-1]; !strings.Contains(last, `<message id="gh-rc3"`) {
+		t.Fatalf("Bob's mention did not run on the re-feed: %q", batches)
+	}
+}

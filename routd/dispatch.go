@@ -132,9 +132,9 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 	}
 
 	hadAny := false
-	// Applied only if this dispatch reaches the advance below (BUGS L58).
+	// Applied only with the cursor advance past the turns that set them (BUGS L58).
 	var marks []observedAdvance
-	for _, batch := range groups {
+	for gi, batch := range groups {
 		bl := batch[len(batch)-1]
 		topic := turnTopic(bl)
 		// A person is owed an answer by the turn that holds their row, however many
@@ -142,9 +142,12 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 		owed := slices.ContainsFunc(batch, func(m core.Message) bool { return addressed[m.ID] })
 		had, steered, busy, mark, derr := l.runTurn(folder, topic, chatJID, bl.ID, owed, batch, ambient)
 		if derr != nil {
-			// Transport failure: do NOT advance — re-fed next poll (at-least-once;
-			// turn_results dedups). A steered batch has no re-feed left: its cursor
-			// already passed the command.
+			// Transport failure: this turn is not consumed and re-feeds next poll
+			// (at-least-once; turn_results dedups). A steered batch has no re-feed
+			// left: its cursor already passed the command.
+			if !steerConsumed && gi > 0 {
+				l.advanceFinished(chatJID, folder, msgs, batch[0], marks)
+			}
 			if steerConsumed {
 				slog.Error("the rows a steer left behind did not reach runed; they are not re-fed",
 					"jid", chatJID, "rows", len(batch), "ids", lostIDs(batch),
@@ -153,8 +156,11 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 			return hadAny, derr
 		}
 		if busy {
-			// Not consumed: do NOT advance and do NOT return an err (it would trip
-			// the queue breaker); the batch re-feeds after the busy backoff.
+			// Not consumed: do NOT return an err (it would trip the queue breaker);
+			// this turn re-feeds after the busy backoff.
+			if !steerConsumed && gi > 0 {
+				l.advanceFinished(chatJID, folder, msgs, batch[0], marks)
+			}
 			l.noteBusy(chatJID, steerMsg.ID)
 			if steerConsumed {
 				slog.Error("runed refused the rows a steer left behind; they are not re-fed",
@@ -174,15 +180,34 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 	}
 	l.advance(chatJID, last)
 	hadAny = hadAny || steerConsumed
-	// The observed watermark rides the SAME success path as the message cursor:
-	// a re-fed turn must still see the context the failed attempt saw (BUGS L58).
+	l.advanceObserved(folder, marks)
+	return hadAny, nil
+}
+
+// advanceFinished moves the cursor to the row just before first, the first row
+// of the turn that was not consumed, when the turns before it finished. A
+// re-feed must not decide finished rows again: a finished turn can open
+// engagement, a row that was context then dispatches, the group grows, its
+// turn id changes, and the done check misses.
+func (l *Loop) advanceFinished(chatJID, folder string, msgs []core.Message, first core.Message, marks []observedAdvance) {
+	p := slices.IndexFunc(msgs, func(m core.Message) bool { return m.ID == first.ID })
+	if p <= 0 {
+		return
+	}
+	l.advance(chatJID, msgs[p-1])
+	l.advanceObserved(folder, marks)
+}
+
+// advanceObserved moves the finished turns' observed watermarks. They ride the
+// SAME success path as the message cursor: a re-fed turn must still see the
+// context the failed attempt saw (BUGS L58).
+func (l *Loop) advanceObserved(folder string, marks []observedAdvance) {
 	for _, m := range marks {
 		if err := l.db.AdvanceObservedCursor(folder, m.topic, m.ts); err != nil {
 			slog.Error("observed cursor advance failed — the topic re-sees this window next turn",
 				"folder", folder, "topic", m.topic, "ts", m.ts, "err", err)
 		}
 	}
-	return hadAny, nil
 }
 
 // lostIDs and lostSenders identify rows that will not be re-fed: the ids and

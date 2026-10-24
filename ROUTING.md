@@ -447,6 +447,12 @@ questions keep three rows: the oldest slash command (or else the newest user
 row) steers, the newest user row keys the busy backoff, and the row that
 dispatches resolves the folder.
 
+A batch can run as more than one turn, one per sender and topic. When runed
+refuses a turn with Busy, or the dispatch fails, after earlier turns of the
+batch finished, the cursor moves to the row before the refused turn. The
+re-feed then starts at that turn, so a finished turn never runs again, even
+when the engagement it opened makes more rows dispatch.
+
 A row that arrives while a turn runs waits above the cursor. When the turn ends,
 the queue drains it. A person's message rides the window that the reply renewed
 and starts the next turn. Any other row becomes observed context of the next
