@@ -245,6 +245,16 @@ func telegramACLMatcher(raw string) (string, error) {
 	for i, part := range parts {
 		field, value, ok := strings.Cut(part, "=")
 		operand := strings.TrimSpace(value)
+		if !strings.Contains(part, telegramOldDM) {
+			continue
+		}
+		switch strings.TrimSpace(field) {
+		case "sender", "trigger_sender", "principal", "sub", "child", "parent":
+			continue
+		case "chat_jid", "jid":
+		default:
+			return "", fmt.Errorf("unknown ACL matcher reference %q", part)
+		}
 		if ok && strings.HasPrefix(operand, telegramOldDM) {
 			next := "telegram:*/user/" + strings.TrimPrefix(operand, telegramOldDM)
 			parts[i] = field + "=" + strings.Replace(value, operand, next, 1)
@@ -369,15 +379,6 @@ func telegramRekeyRow(row renameRow, chats map[string]telegramChat) ([]objstore.
 					after.Attrs[field] = chat.Latest
 					continue
 				}
-			}
-		case "params", "predicate":
-			if row.Entity == store.ACL {
-				next, err := telegramACLMatcher(value)
-				if err != nil {
-					return nil, err
-				}
-				after.Attrs[field] = next
-				continue
 			}
 		}
 		if strings.Contains(value, telegramOldDM) && !renameHistoricalField(field) {
