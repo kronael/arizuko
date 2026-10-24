@@ -29,6 +29,7 @@ The `#<mode>` fragment on `target` selects ingestion mode:
 | ----------------- | ------- | ------------------------------------------------------------ |
 | `atlas/general`   | trigger | stores under the folder **and fires a turn** (you reply)     |
 | `atlas/general#observe` | observe | stores under the folder, **no turn** — you see it as `<observed>` context only |
+| `atlas/general#engaged` | engaged | fires a turn **only while the chat and topic are engaged**, any verb; else stored as `<observed>`; never addressed |
 
 **A bare folder target fires a turn on EVERY matching message.** If you
 want a channel where you only reply when @-mentioned, you do NOT use a
@@ -62,7 +63,7 @@ single `#observe` rule and drop the mention row.
 `list_routes` / `inspect_routing` annotate every row so you don't have to
 parse fragments yourself:
 
-- `mode`: `trigger` | `observe`
+- `mode`: `trigger` | `observe` | `engaged`
 - `fires_turn`: true/false
 - `triggers_on`: `every message` | `verb=mention` | …
 - `explain`: one line, e.g. *"fires a turn on EVERY message → atlas/general"*
@@ -91,7 +92,9 @@ These resolve **before** the route table, in order — keep them in mind
 when a message doesn't land where the table predicts:
 
 1. **Engagement** — an active reply/`engage` window pins the chat to the
-   engaged folder and fires a turn, bypassing routes (even `#observe`).
+   engaged folder and fires a turn, bypassing routes (even `#observe`), but
+   only for a person's `message` or `mention`. A reaction, an edit or a CI
+   event follows its route.
 2. **Reply chain** — a reply to your message routes back to the folder
    that produced it (`routed_to`).
 3. **Sticky** — `@folder` / `#topic` lock a chat; `@` / `#` clear them.
