@@ -13,6 +13,8 @@ import (
 	"github.com/kronael/arizuko/chanlib"
 )
 
+const ciURL = "https://github.com/kronael/arizuko/runs/1"
+
 func ciBody(t *testing.T, event, action, status string, numbers []int) []byte {
 	t.Helper()
 	prs := make([]map[string]int, 0, len(numbers))
@@ -22,7 +24,7 @@ func ciBody(t *testing.T, event, action, status string, numbers []int) []byte {
 	raw, err := json.Marshal(map[string]any{
 		"action": action, "sender": map[string]string{"login": "actions-bot", "type": "Bot"},
 		"repository": map[string]any{"full_name": "kronael/arizuko", "name": "arizuko", "owner": map[string]string{"login": "kronael"}},
-		event:        map[string]any{"status": status, "conclusion": "failure", "name": "test", "pull_requests": prs},
+		event:        map[string]any{"status": status, "conclusion": "failure", "name": "test", "html_url": ciURL, "pull_requests": prs},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -155,6 +157,10 @@ func TestCIWebhookUsesCurrentAssignmentAndBoundedFanout(t *testing.T) {
 				wantPR = 7
 			}
 			for _, message := range messages {
+				wantContent := fmt.Sprintf("[github kind=%s id=%s url=%s]\n\n%s %s: test (failure)", scenario.event, message.ID, ciURL, scenario.event, scenario.action)
+				if message.Content != wantContent {
+					t.Fatalf("CI content\n got %q\nwant %q", message.Content, wantContent)
+				}
 				if message.Verb == "mention" {
 					mentions++
 					if message.ChatJID != fmt.Sprintf("github:kronael/arizuko/pr/%d", wantPR) || message.ID != fmt.Sprintf("gh-dci-delivery-pr%d", wantPR) {

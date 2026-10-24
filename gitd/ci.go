@@ -37,6 +37,11 @@ func (p *payload) ciRun(event string) (*ciRun, bool) {
 	return nil, false
 }
 
+func (p *payload) ciParts(event string, run *ciRun) (location, string) {
+	return location{kind: event, url: run.HTMLURL},
+		fmt.Sprintf("%s %s: %s (%s)", event, p.Action, run.Name, run.Conclusion)
+}
+
 func (s *server) ciMessages(ctx context.Context, event string, body []byte, base chanlib.InboundMsg) ([]chanlib.InboundMsg, error) {
 	messages := []chanlib.InboundMsg{base}
 	var p payload
@@ -94,6 +99,8 @@ func (s *server) ciMessages(ctx context.Context, event string, body []byte, base
 		j.Kind, j.Number = "pr", number
 		msg := base
 		msg.ID += "-pr" + strconv.Itoa(number)
+		loc, body := p.ciParts(event, run)
+		msg.Content = loc.render(msg.ID, body)
 		msg.ChatJID, msg.ChatName, msg.Topic = j.String(), strings.TrimPrefix(j.String(), "github:"), j.Topic()
 		if hasAssignee(s.bot.Login(), *pr.Assignees) {
 			msg.Verb = "mention"

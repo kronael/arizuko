@@ -48,9 +48,9 @@ func TestMapEvent_Fixtures(t *testing.T) {
 			"github:kronael", "", "kronael pushed 2 commit(s) to refs/heads/main\n- b7c8d9e fix(routd): drop the stale topic cursor\n- 0f1e2d3 docs(changelog): v0.63.1",
 			time.Date(2026, 9, 5, 9, 14, 44, 0, time.UTC).Unix()},
 		{"issues_opened", "issues", "github:kronael/arizuko/issue/3", "message", "issue/3", "gh-dd-issues_opened",
-			"github:kronael", "", "opened issue #3: gitd: GitHub events as messages\nhttps://github.com/kronael/arizuko/issues/3\n\nA repo's events", fixedNow.Unix()},
+			"github:kronael", "", "opened issue #3: gitd: GitHub events as messages\n\nA repo's events", fixedNow.Unix()},
 		{"pull_request_opened", "pull_request", "github:kronael/arizuko/pr/12", "message", "pr/12", "gh-dd-pull_request_opened",
-			"github:rhias", "", "opened PR #12: feat(gitd): GitHub as an ingress channel (gitd → main)\nhttps://github.com/kronael/arizuko/pull/12\n\nWebhooks land",
+			"github:rhias", "", "opened PR #12: feat(gitd): GitHub as an ingress channel (gitd → main)\n\nWebhooks land",
 			time.Date(2026, 9, 5, 10, 0, 0, 0, time.UTC).Unix()},
 		{"pull_request_merged", "pull_request", "github:kronael/arizuko/pr/12", "pull_request", "pr/12", "gh-dd-pull_request_merged",
 			"github:kronael", "", "kronael merged PR #12: feat(gitd): GitHub as an ingress channel",
@@ -62,7 +62,7 @@ func TestMapEvent_Fixtures(t *testing.T) {
 			"github:rhias", "", "Reproduced on 6.1; the proxy PID file is stale.",
 			time.Date(2026, 9, 5, 10, 6, 0, 0, time.UTC).Unix()},
 		{"pull_request_review_comment_created", "pull_request_review_comment", "github:kronael/arizuko/pr/12", "message", "pr/12", "gh-rc5678901234",
-			"github:kronael", "gh-rc5678901200", "on gitd/verify.go:\n\nConstant-time compare — good. Also reject an empty secret.",
+			"github:kronael", "gh-rc5678901200", "Constant-time compare — good. Also reject an empty secret.",
 			time.Date(2026, 9, 5, 10, 7, 15, 0, time.UTC).Unix()},
 	}
 	for _, c := range cases {
@@ -73,8 +73,8 @@ func TestMapEvent_Fixtures(t *testing.T) {
 				c.file, msg.ChatJID, msg.Verb, msg.Topic, msg.ID, msg.Sender, msg.ReplyTo, msg.Timestamp,
 				c.jid, c.verb, c.topic, c.id, c.sender, c.replyTo, c.ts)
 		}
-		if !strings.HasPrefix(msg.Content, c.contentHas) {
-			t.Errorf("%s: content = %q, want prefix %q", c.file, msg.Content, c.contentHas)
+		if !strings.Contains(msg.Content, c.contentHas) {
+			t.Errorf("%s: content = %q, want it to hold %q", c.file, msg.Content, c.contentHas)
 		}
 		if !msg.IsGroup || msg.SenderName != strings.TrimPrefix(c.sender, "github:") {
 			t.Errorf("%s: is_group=%v sender_name=%q", c.file, msg.IsGroup, msg.SenderName)
@@ -245,7 +245,7 @@ func TestMapEvent_UnknownEventLandsOnRepo(t *testing.T) {
 	body := []byte(`{"action":"created","sender":{"login":"kronael","type":"User"},"installation":{"id":1},
 		"repository":{"name":"arizuko","full_name":"kronael/arizuko","owner":{"login":"kronael"}}}`)
 	msg, _, err := mapEvent(store.GitHubSourceApp, "x", "release", "d1", body, fixedNow, "")
-	if err != nil || msg.ChatJID != "github:kronael/arizuko" || msg.Verb != "release" || msg.Content != "kronael release created" || msg.ID != "gh-dd1" {
+	if err != nil || msg.ChatJID != "github:kronael/arizuko" || msg.Verb != "release" || msg.Content != "[github kind=release id=gh-dd1]\n\nkronael release created" || msg.ID != "gh-dd1" {
 		t.Fatalf("release: %+v err=%v", msg, err)
 	}
 	orgOnly := []byte(`{"action":"member_added","sender":{"login":"kronael","type":"User"},"installation":{"id":1},"organization":{"login":"kronael-org"}}`)
@@ -579,5 +579,70 @@ func TestMapEvent_ReviewCommentReplyToOnlyWhenCreated(t *testing.T) {
 		if msg.ReplyTo != c.replyTo {
 			t.Errorf("%s: reply_to=%q want %q", c.action, msg.ReplyTo, c.replyTo)
 		}
+	}
+}
+
+const (
+	repoURL = "https://github.com/kronael/arizuko"
+	hunk    = "```diff\n@@ -1,4 +1,12 @@\n+func verifySignature(secret, header string, body []byte) error {\n" +
+		"+\tmac := hmac.New(sha256.New, []byte(secret))\n+\tmac.Write(body)\n+\treturn compare(mac.Sum(nil), header)\n```"
+)
+
+// Every mapped message opens with the location header of spec 6/27, and the
+// id in it is the id of the row.
+func TestMapEvent_LocationHeader(t *testing.T) {
+	for _, c := range []struct{ file, event, want string }{
+		{"issue_comment_created", "issue_comment",
+			"[github kind=issue_comment id=gh-c4567890123 url=" + repoURL + "/pull/12#issuecomment-4567890123]\n\n" +
+				"@arizuko can you review the signature check in verify.go?"},
+		{"pull_request_review_submitted", "pull_request_review",
+			"[github kind=pull_request_review id=gh-r6789012345 review=gh-r6789012345 state=changes_requested url=" +
+				repoURL + "/pull/12#pullrequestreview-6789012345]\n\nkronael review (changes_requested) on PR #12\n\nTwo comments inline; the empty-secret case needs a test."},
+		{"pull_request_review_comment_created", "pull_request_review_comment",
+			"[github kind=pull_request_review_comment id=gh-rc5678901234 thread=gh-rc5678901200 review=gh-r6789012345 " +
+				"path=gitd/verify.go lines=10-12 side=RIGHT url=" + repoURL + "/pull/12#discussion_r5678901234]\n" + hunk +
+				"\n\nConstant-time compare — good. Also reject an empty secret."},
+		{"pull_request_review_comment_suggestion", "pull_request_review_comment",
+			"[github kind=pull_request_review_comment id=gh-rc5678901300 thread=gh-rc5678901300 review=gh-r6789012345 " +
+				"path=gitd/verify.go lines=11 side=RIGHT url=" + repoURL + "/pull/12#discussion_r5678901300]\n" + hunk +
+				"\n\n```suggestion\n```"},
+		{"pull_request_review_comment_outdated", "pull_request_review_comment",
+			"[github kind=pull_request_review_comment id=gh-rc5678901400 thread=gh-rc5678901200 review=gh-r6789012345 " +
+				"path=gitd/verify.go lines=10-12 outdated=true side=RIGHT url=" + repoURL + "/pull/12#discussion_r5678901234]\n" + hunk +
+				"\n\nConstant-time compare — good. Also reject an empty secret."},
+		{"issues_opened", "issues",
+			"[github kind=issues id=gh-dd-issues_opened url=" + repoURL + "/issues/3]\n\n" +
+				"opened issue #3: gitd: GitHub events as messages\n\nA repo's events should reach the agent as ordinary messages."},
+	} {
+		msg := mapFixture(t, store.GitHubSourceApp, "arizuko-krons", c.event, c.file)
+		if msg.Content != c.want {
+			t.Errorf("%s: content\n got %q\nwant %q", c.file, msg.Content, c.want)
+		}
+		if first, _, _ := strings.Cut(msg.Content, "]"); !strings.Contains(first, " id="+msg.ID+" ") && !strings.HasSuffix(first, " id="+msg.ID) {
+			t.Errorf("%s: header id differs from row id %q: %q", c.file, msg.ID, first)
+		}
+	}
+}
+
+// The hunk is cut to its last 20 lines, and a fence never ends early on a
+// backtick run inside the hunk.
+func TestMapEvent_LocationHeaderHunk(t *testing.T) {
+	var lines []string
+	for i := range 30 {
+		lines = append(lines, fmt.Sprintf("+line %d", i))
+	}
+	lines = append(lines, "+```go")
+	raw := fixture(t, "pull_request_review_comment_suggestion")
+	body := strings.Replace(string(raw), `"diff_hunk": "@@ -1,4 +1,12 @@\n+func verifySignature(secret, header string, body []byte) error {\n+\tmac := hmac.New(sha256.New, []byte(secret))\n+\tmac.Write(body)\n+\treturn compare(mac.Sum(nil), header)"`,
+		`"diff_hunk": "`+strings.Join(lines, `\n`)+`"`, 1)
+	msg, _, err := mapEvent(store.GitHubSourceApp, "arizuko-krons", "pull_request_review_comment", "d", []byte(body), fixedNow, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, block, _ := strings.Cut(msg.Content, "\n")
+	block, _, _ = strings.Cut(block, "\n\n")
+	got := strings.Split(block, "\n")
+	if got[0] != "````diff" || got[len(got)-1] != "````" || len(got) != 22 || got[1] != "+line 11" || got[20] != "+```go" {
+		t.Errorf("hunk block = %q", block)
 	}
 }
