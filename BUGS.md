@@ -329,6 +329,9 @@ reads those words now.
 
 **Found by the jynx product dogfood on sloth (2026-10-24).**
 
+- `L558` — `packages install` takes every root `*.yml`/`*.yaml` as an asset,
+  not only `<name>.yml`/`<name>.yaml`, so a repo's tool config installs as a
+  compose fragment or fails the install.
 - `L556` — `group rm` deletes only rows and leaves the group folder and its web
   dirs; it must delete them too (signed off).
 
@@ -1416,6 +1419,21 @@ far more often than chat.
   silently dropped.
 - **Fix:** `L75(b)` — a batch that holds a mention resolves by the mention.
 - **Status:** open — needs sign-off (dispatch control flow, with `L75(b)`).
+
+## L558 — `packages install` takes every root YAML file as a package asset (2026-10-24, open)
+
+READ at `6a02372b`. `readFragmentAssets` (`cmd/arizuko/packages.go:297`) takes
+every root file ending in `.yml` or `.yaml`. `specs/5/28-packages.md`
+§"Package = source + manifest + asset kinds" names only `<name>.yml` (compose
+fragment) and `<name>.yaml` (config manifest). kronael/tools has
+`sgconfig.yml` and `.pre-commit-config.yaml` at its root, so installing it
+would install the first as a compose fragment and, probably (INFERRED by a
+review, not run), fail the whole install on the second's unknown keys.
+
+- **Fix:** take only `<name>.yml` and `<name>.yaml`, where `<name>` is the
+  package name. A test installs a source with another root YAML file and
+  asserts it is not an asset.
+- **Status:** open.
 
 ## L556 — `group rm` leaves the group folder and its web dirs on disk (2026-10-24, open)
 
