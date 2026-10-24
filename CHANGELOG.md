@@ -13,6 +13,31 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.70.10] — 2026-10-24
+
+> arizuko v0.70.10 — GitHub replies do the work first
+>
+> On GitHub the agent now acts before it replies, answers in the right thread and hears comments on its own PRs.
+>
+> • GitHub style — replies lead with a short TL;DR, put detail in a collapsed block and name their comment.
+> • Bot-authored PRs — a human comment on a PR or issue the bot opened counts as a mention.
+> • Duplicates — a redelivered late message no longer stores a second copy.
+> • Turn end — a successful turn no longer reports a failure when its deadline signal arrives.
+> • Grants — every grant write refuses an action name that no gate reads.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Operator note
+
+- Migration 223 delivers the `github` output style to live agents.
+- To revoke every token, delete the `signing_key_slot` item and restart authd; key rotation does not revoke refresh tokens.
+- Telegram login is gone; authd no longer mounts `POST /auth/telegram`.
+
+### Changed
+
+- A turn's observed window shows the folder's own bot replies, so the agent does not answer a message twice.
+- The dedup check for late redelivery reads only the newest 256 rows of a chat.
+
 ## [v0.70.9] — 2026-10-23
 
 > arizuko v0.70.9 — turns wait for background agents

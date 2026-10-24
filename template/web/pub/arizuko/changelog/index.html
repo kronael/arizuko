@@ -30,6 +30,17 @@
 
       <p>What shipped, dated, terse. Reverse chronological. The chat broadcast for each release lives at the top of every block; the bullets below expand it for operators.</p>
 
+      <h2>arizuko v0.70.10 <span class="dim">&mdash; 24 October 2026</span></h2>
+      <p>On GitHub the agent now acts before it replies, answers in the right thread and hears comments on its own PRs.</p>
+      <ul>
+        <li><strong>GitHub style</strong> &mdash; replies lead with a short TL;DR, put detail in a collapsed block and name their comment.</li>
+        <li><strong>Bot-authored PRs</strong> &mdash; a human comment on a PR or issue the bot opened counts as a mention.</li>
+        <li><strong>Duplicates</strong> &mdash; a redelivered late message no longer stores a second copy.</li>
+        <li><strong>Turn end</strong> &mdash; a successful turn no longer reports a failure when its deadline signal arrives.</li>
+        <li><strong>Grants</strong> &mdash; every grant write refuses an action name that no gate reads.</li>
+      </ul>
+      <p class="note">Full notes: <a href="https://github.com/kronael/arizuko/blob/main/CHANGELOG.md#v07010--2026-10-24">CHANGELOG &sect; v0.70.10</a></p>
+
       <h2>arizuko v0.70.9 <span class="dim">&mdash; 23 October 2026</span></h2>
       <p>A turn now stays open while its background agents work, so their results no longer arrive after the session closed.</p>
       <ul>
@@ -468,7 +479,7 @@
 
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/changelog/index.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-22">2026-10-22</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-23">2026-10-23</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>
