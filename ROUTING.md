@@ -11,15 +11,17 @@ with `routd`. The part of a JID after the first `:` belongs to the platform.
 Routing predicates treat it as an opaque string and match it with `path.Match`
 globs over `/`.
 
-| Adapter | Prefix      | Chat JID                                                             |
-| ------- | ----------- | -------------------------------------------------------------------- |
-| discd   | `discord:`  | `discord:<guild_id>/<channel_id>`, `discord:dm/<channel_id>`         |
-| slakd   | `slack:`    | `slack:<workspace>/<kind>/<id>` with kind `channel`, `dm` or `group` |
-| teled   | `telegram:` | `telegram:user/<id>`, `telegram:group/<id>`                          |
-| whapd   | `whatsapp:` | `whatsapp:1234567@s.whatsapp.net`                                    |
-| emaid   | `email:`    | `email:thread/<id>`                                                  |
-| webd    | `web:`      | `web:<folder>`, for example `web:atlas`; see the next section        |
+| Adapter | Prefixes                                | Chat JID                                                             |
+| ------- | --------------------------------------- | -------------------------------------------------------------------- |
+| discd   | `discord:`                              | `discord:<guild_id>/<channel_id>`, `discord:dm/<channel_id>`         |
+| slakd   | `slack:`                                | `slack:<workspace>/<kind>/<id>` with kind `channel`, `dm` or `group` |
+| teled   | `telegram:<bot_id>/`, `telegram:group/` | `telegram:<bot_id>/user/<user_id>`, `telegram:group/<id>`            |
+| whapd   | `whatsapp:`                             | `whatsapp:1234567@s.whatsapp.net`                                    |
+| emaid   | `email:`                                | `email:thread/<id>`                                                  |
+| webd    | `web:`                                  | `web:<folder>`, for example `web:atlas`; see the next section        |
 
+A Telegram DM JID includes the numeric bot id from `getMe`. The sender stays
+`telegram:user/<user_id>` across bot accounts.
 A Telegram group has a negative chat id. The JID drops the minus sign, so group
 `-100123` becomes `telegram:group/100123`. A Discord guild channel always has
 both parts, `<guild_id>/<channel_id>`. The sender of an email is

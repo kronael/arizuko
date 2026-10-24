@@ -49,8 +49,12 @@ no per-chat history surface; the gateway falls back to its local cache.
 
 - Authenticate with `TELEGRAM_BOT_TOKEN`, long-poll `getUpdates` with
   `allowed_updates=["message","message_reaction"]`.
-- Post inbound messages and added emoji reactions to the router with
-  `telegram:<chat_id>` JIDs.
+- Read the numeric bot id from `getMe` before registering
+  `telegram:<bot_id>/` and `telegram:group/` with routd.
+- Post inbound messages and added emoji reactions with DM JIDs
+  `telegram:<bot_id>/user/<user_id>` and group JIDs `telegram:group/<id>`.
+  Group JIDs omit the minus sign. Senders and pairing identities use
+  `telegram:user/<user_id>` across bot accounts.
 - Persist poll offset under `$DATA_DIR/teled-offset-<name>` (atomic write).
 - Proxy Telegram file downloads through `/files/<fileID>`.
 

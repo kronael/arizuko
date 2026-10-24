@@ -66,12 +66,13 @@
     <h2>The platform comes before the colon</h2>
     <p>Each platform names things in its own way. Telegram chat IDs are signed integers, and a negative number means a group. teled writes the kind into the JID and drops the minus sign. WhatsApp adds a server name, <code>@g.us</code> for groups and <code>@s.whatsapp.net</code> for DMs.</p>
     <p>arizuko writes one shape over all of them. The platform goes before the colon. Everything after the colon belongs to the platform:</p>
-    <pre><code>telegram:user/123              # telegram DM with user 123
+    <pre><code>telegram:111/user/123          # telegram DM with user 123 through bot 111
 telegram:group/1001234567      # telegram group, supergroup, or channel
 discord:dm/456                 # discord DM channel
 whatsapp:789@g.us              # whatsapp group
 web:&lt;folder&gt;[/&lt;suffix&gt;]        # browser chat at folder; URL token resolves to this JID
 hook:&lt;folder&gt;/&lt;source&gt;[/...]   # webhook ingest: folder is the destination, source is the agent-chosen label</code></pre>
+    <p>A Telegram DM includes the numeric bot id from <code>getMe</code>. Each bot has a separate chat with the same user. The sender and pairing identity stay <code>telegram:user/&lt;user_id&gt;</code> across bot accounts.</p>
 
     <h2>Routes match a JID with globs</h2>
     <p>Routes match with the Go function <code>path.Match</code>. <code>*</code> matches any run of characters but stops at <code>/</code>, so each segment between slashes stays separate. <code>?</code> matches one character, and <code>[0-9]</code> matches one digit. The same syntax works on every field:</p>

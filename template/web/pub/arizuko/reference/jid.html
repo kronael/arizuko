@@ -41,7 +41,7 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">reference</a> &rsaquo; JID format</p>
 <h1>jid</h1>
 
-    <p class="lede">Every chat and every sender is a JID of the form <code>&lt;platform&gt;:&lt;rest&gt;</code>. The first segment of <code>&lt;rest&gt;</code> is a kind discriminator. JIDs are plain strings; routing matches them with <code>path.Match</code> glob semantics across all routing keys.</p>
+    <p class="lede">Every chat and every sender is a JID of the form <code>&lt;platform&gt;:&lt;rest&gt;</code>. Each adapter defines the path segments in <code>&lt;rest&gt;</code>. JIDs are plain strings; routing matches them with <code>path.Match</code> glob semantics across all routing keys.</p>
 
     <h2>A JID is a platform and a rest</h2>
 
@@ -49,8 +49,7 @@
 
     <pre><code>jid      := platform &quot;:&quot; rest
 platform := lowercase adapter name (everything before the first &quot;:&quot;)
-rest     := opaque platform-owned path (everything after the first &quot;:&quot;)
-kind     := first segment of rest before &quot;/&quot;</code></pre>
+rest     := opaque platform-owned path (everything after the first &quot;:&quot;)</code></pre>
 
     <p>The platform/rest split is the only structure core enforces. Two helpers in <a href="https://github.com/kronael/arizuko/blob/main/core/types.go#L288"><code>core/types.go</code></a> perform it:</p>
     <ul>
@@ -68,7 +67,8 @@ kind     := first segment of rest before &quot;/&quot;</code></pre>
 
     <table>
       <tr><th>platform</th><th>kind</th><th>shape</th><th>example</th></tr>
-      <tr><td rowspan="2"><code>telegram</code></td><td><code>user</code></td><td><code>telegram:user/&lt;chat_id&gt;</code></td><td><code>telegram:user/12345</code></td></tr>
+      <tr><td rowspan="3"><code>telegram</code></td><td>DM</td><td><code>telegram:&lt;bot_id&gt;/user/&lt;user_id&gt;</code></td><td><code>telegram:111/user/12345</code></td></tr>
+      <tr><td>sender</td><td><code>telegram:user/&lt;user_id&gt;</code></td><td><code>telegram:user/12345</code></td></tr>
       <tr><td><code>group</code></td><td><code>telegram:group/&lt;chat_id&gt;</code></td><td><code>telegram:group/67890</code></td></tr>
       <tr><td rowspan="3"><code>discord</code></td><td><code>&lt;guild_id&gt;</code></td><td><code>discord:&lt;guild_id&gt;/&lt;channel_id&gt;</code></td><td><code>discord:5678/9012</code></td></tr>
       <tr><td><code>dm</code></td><td><code>discord:dm/&lt;channel_id&gt;</code></td><td><code>discord:dm/54321</code></td></tr>
@@ -155,12 +155,12 @@ match='verb=' is the negation: only verb-less (default 'message') rows</code></p
     <pre><code>send(jid=telegram:group/*)     # rule: only telegram groups (grants matcher: * spans /)
 match='chat_jid=telegram:group/*'  # route: only telegram groups (path.Match: * doesn't cross /)</code></pre>
 
-    <p>For top-level platform globs both forms agree (<code>telegram:*/*</code> in routes vs <code>telegram:*</code> in grants); both mean "anything telegram." For grant params there is only one trailing segment to match against, so the wider <code>*</code> is harmless.</p>
+    <p>Use <code>platform=telegram</code> to route all Telegram chats. The route glob <code>telegram:*/*</code> matches groups but cannot match DMs with three path segments. Use <code>chat_jid=telegram:*/user/*</code> for all Telegram DMs. A grant parameter <code>jid=telegram:*</code> matches both shapes.</p>
 
     <h2>Six rules keep JIDs simple</h2>
 
     <ul>
-      <li><strong>Kind in the path.</strong> The first segment after the colon discriminates resource kind on the wire. The role (chat vs sender) is which message field holds the string &mdash; <code>ChatJID</code> or <code>Sender</code> &mdash; not a distinct Go type.</li>
+      <li><strong>Adapter-defined path.</strong> Each adapter defines the path segments. A Telegram DM starts with the bot id, then <code>user</code> and the user id. The message field identifies the role: <code>ChatJID</code> for a chat, <code>Sender</code> for a person.</li>
       <li><strong>Adapter owns its schema.</strong> Core only splits <code>&lt;platform&gt;:&lt;rest&gt;</code> via <code>JidPlatform</code>/<code>JidRoom</code>. Each adapter constructs and parses <code>&lt;rest&gt;</code> per its own declared shape.</li>
       <li><strong>URI-clean.</strong> Adapters percent-encode reserved chars in <code>&lt;rest&gt;</code> so the platform/rest split holds.</li>
       <li><strong>One URL = one resource.</strong> No sign-bit hacks, no in-band server suffixes for code (WhatsApp keeps <code>@server</code> because its existing shape already encodes kind).</li>

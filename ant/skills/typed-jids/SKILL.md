@@ -1,7 +1,7 @@
 ---
 name: typed-jids
 description: >
-  Typed JID format reference — `<platform>:<kind>/<id>` — and route
+  Typed JID format reference — `<platform>:<rest>` — and route
   predicates (`room=`, `chat_jid=`). USE for "what's a JID", "add a
   routing rule", "fix this chat_jid", route predicates, `chatJid`
   parameter, legacy bare-id rewrites (`telegram:1234`). NOT for chat
@@ -11,9 +11,8 @@ user-invocable: true
 
 # Typed JIDs
 
-Wire form: `<platform>:<rest>` (RFC 3986 opaque-path URI). The first
-segment of `<rest>` is the **kind discriminator**; per-kind structure
-is the adapter's contract.
+Wire form: `<platform>:<rest>` (RFC 3986 opaque-path URI). Each adapter
+defines the segments of `<rest>`.
 
 `core.JidPlatform(jid)` returns `<platform>`; `core.JidRoom(jid)`
 returns `<rest>`. Glob match uses `path.Match` semantics — `*` does
@@ -23,7 +22,7 @@ not cross `/`.
 
 | Platform   | Shape                                                      |
 | ---------- | ---------------------------------------------------------- |
-| telegram   | `telegram:user/<id>`, `telegram:group/<id>`                |
+| telegram   | DM `telegram:<bot_id>/user/<user_id>`, group `telegram:group/<id>`, sender `telegram:user/<user_id>` |
 | discord    | `discord:<guild>/<channel>`, `discord:dm/<channel>`, `discord:user/<id>` |
 | whatsapp   | `whatsapp:<id>@<server>` (unchanged — no kind segment)     |
 | email      | `email:thread/<id>`, `email:address/<addr>`                |
@@ -45,31 +44,19 @@ Other keys: `platform=<scheme>`, `sender=<jid>`, `verb=<send|reply|…>`.
 ```text
 chat_jid=telegram:group/*    # all telegram groups
 chat_jid=discord:dm/*        # all discord DMs (any guild)
-chat_jid=*:user/*            # any DM-style chat across platforms
-room=user/<id>               # one user, platform implied by context
+chat_jid=telegram:*/user/*   # all Telegram DMs
+room=<bot_id>/user/<user_id> # one Telegram DM, platform implied by context
 ```
 
-## Migration: legacy → typed
+## Telegram DM addresses
 
-Legacy routes used bare ids; the store migration `0038-typed-jids.sql`
-rewrites the common prefix-only forms automatically:
+The numeric bot id comes from `getMe`. Each bot has a separate DM chat
+with the same user. Senders and pairing identities use
+`telegram:user/<user_id>` across bot accounts.
 
-```text
-# Before                          # After
-chat_jid=telegram:*       →       chat_jid=telegram:*/*
-chat_jid=discord:*        →       chat_jid=discord:*/*
-```
+ALWAYS use the chat JID from the inbound message for replies and chat tools.
+Use `platform=telegram` to match all Telegram chats. The route glob
+`telegram:*/*` matches groups but cannot match DMs with three path segments.
 
-Operator-edited globs that referenced legacy specifics (the telegram
-sign-bit DM/group split) need manual review — the migration only catches the prefix-only case.
-
-## Why the format changed
-
-One URL = one resource. Legacy collided different kinds on the same
-prefix: `telegram:1234` was either a DM or a group disambiguated by
-sign bit;
-`discord:<channel>` lost guild context. Typed JIDs encode the
-discriminator structurally so glob rules don't need platform-specific
-guesswork.
-
-Code: `core/jid.go`. Migration: `ant/skills/self/migrations/088-typed-jids.md`.
+The operator runs `arizuko telegram <instance> rekey-dms` to migrate stored
+DM chats. See `cmd/arizuko/README.md` for the offline procedure.

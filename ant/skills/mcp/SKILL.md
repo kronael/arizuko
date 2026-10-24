@@ -31,7 +31,7 @@ mcpc connect "$HOME/arizuko.mcp.json:arizuko" @s
 trap 'mcpc @s close' EXIT
 
 mcpc @s tools-list
-mcpc @s tools-call send chatJid:="telegram:user/<id>" text:="hello"
+mcpc @s tools-call send chatJid:="telegram:<bot_id>/user/<user_id>" text:="hello"
 ```
 
 Same pattern from any language: spawn `mcpc connect`, run `tools-call`,

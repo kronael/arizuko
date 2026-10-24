@@ -57,7 +57,7 @@
     <h2>teled connects Telegram to arizuko</h2>
     <p>teled connects Telegram to arizuko, so the agent can read and reply in Telegram chats and groups.</p>
 
-    <p>teled is the Telegram channel adapter. It long-polls the Telegram Bot API for updates, posts inbound messages and reactions to routd, and sends outbound calls to the Bot API. The JID prefix is <code>telegram:</code>. A DM has the JID <code>telegram:user/&lt;id&gt;</code>, and a group has <code>telegram:group/&lt;id&gt;</code>, where teled removes the minus sign of the Telegram group id.</p>
+    <p>teled is the Telegram channel adapter. It long-polls the Telegram Bot API for updates, posts inbound messages and reactions to routd, and sends outbound calls to the Bot API. teled reads its numeric bot id from <code>getMe</code> before registration. It registers <code>telegram:&lt;bot_id&gt;/</code> and <code>telegram:group/</code>. A DM has the JID <code>telegram:&lt;bot_id&gt;/user/&lt;user_id&gt;</code>. The sender and pairing identity stay <code>telegram:user/&lt;user_id&gt;</code>. A group has <code>telegram:group/&lt;id&gt;</code>. teled removes the minus sign of the Telegram group id.</p>
 
     <h2>Telegram is the main personal channel</h2>
     <p>Telegram is the main personal channel of arizuko deployments. It is free, has a stable bot API, and supports voice notes and file uploads up to 50&nbsp;MB without partner approval. teled gives arizuko the long-poll loop, the file proxy and the reaction translation, which routd does not do itself.</p>

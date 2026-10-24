@@ -42,7 +42,7 @@ response. Catch it and re-deliver as text via `send` / `reply`.
 ## Call shape
 
 ```
-send_voice chatJid:="telegram:user/<id>" text:="..." [voice:="<name>"]
+send_voice chatJid:="telegram:<bot_id>/user/<user_id>" text:="..." [voice:="<name>"]
 ```
 
 Returns `{"ok": true, "id": "<platform-id>"}`. The outbound is recorded

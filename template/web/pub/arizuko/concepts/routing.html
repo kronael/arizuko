@@ -67,7 +67,7 @@
     <p>Every message from Telegram, Discord, Slack, email or the web widget goes into the same <code>messages</code> table of <code>routd</code>. <code>routd</code> then asks one question: which folder runs this message? The answer comes from the <code>routes</code> table, with one row per rule, in order:</p>
     <pre><code>seq    match                                  target
 ---    -----                                  ------
--10    chat_jid=telegram:user/12345           atlas/legal
+-10    chat_jid=telegram:111/user/12345       atlas/legal
 0      platform=telegram                      atlas/content
 0      platform=discord room=dm/*             atlas/dm
 0      platform=slack verb=mention            atlas/mentions

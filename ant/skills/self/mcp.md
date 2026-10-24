@@ -149,7 +149,7 @@ Use the read-only `inspect_*` family instead of shelling out to
 `sqlite3`/`journalctl`: always-on, no grant needed, scoped to your own
 folder unless you are elevated `/root`.
 
-See `/typed-jids` for chatJid format. Bare ids like `telegram:1234` are stale — use typed forms (`telegram:user/<id>`, `discord:dm/<channel>`).
+See `/typed-jids` for the chatJid format. Use `telegram:<bot_id>/user/<user_id>` for a Telegram DM and `discord:dm/<channel>` for a Discord DM.
 
 ## mcpc (calling MCP tools from scripts)
 
@@ -166,8 +166,8 @@ mcpc connect "$HOME/arizuko.mcp.json:arizuko" @s
 trap 'mcpc @s close' EXIT
 
 mcpc @s tools-list
-mcpc @s tools-call send chatJid:="telegram:user/<id>" text:="hello"
-mcpc @s tools-call send_voice chatJid:="telegram:user/<id>" \
+mcpc @s tools-call send chatJid:="telegram:<bot_id>/user/<user_id>" text:="hello"
+mcpc @s tools-call send_voice chatJid:="telegram:<bot_id>/user/<user_id>" \
      text:="status update — all green"
 mcpc @s tools-call send_file chatJid:="discord:dm/<channel>" \
      filepath:=/home/node/tmp/foo.pdf filename:="foo.pdf" caption:="here you go"

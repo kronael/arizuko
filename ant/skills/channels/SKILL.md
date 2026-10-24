@@ -42,4 +42,4 @@ tell the user the channel is broken.
 
 Channel scope is encoded in the JID — see `/typed-jids` for the format.
 Routes can target one platform (`chat_jid=discord:*/*`), one kind
-(`chat_jid=telegram:group/*`), or one chat (`chat_jid=telegram:user/<id>`).
+(`chat_jid=telegram:group/*`), or one chat (`chat_jid=telegram:<bot_id>/user/<user_id>`).
