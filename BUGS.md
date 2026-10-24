@@ -1109,7 +1109,7 @@ general human-attention mechanism, so the same code should serve both.
   reach PR topics (`gitd/ci.go:94`). Deleting the branch lets CI start turns.
   A general rule "only a human message or mention engages" also changes chat,
   where every verb (a reaction, an edit) can ride engagement today.
-- **Status:** open — needs sign-off: may only a human `message`/`mention` ride engagement on every channel?
+- **Status:** open — signed off 2026-10-24. Owner: by default only a human `message` or `mention` rides engagement, on every channel; the route table controls it, so an operator can extend engagement to other verbs (CI) with a route row.
 
 ## L535 — a background subagent's result arrives after the turn ends, and every tool call is refused (2026-10-23, open)
 
@@ -1332,7 +1332,7 @@ agent to act, so it contradicts these files.
   the sign-off step and the pending-review rule; the `gh:write` grant already
   refuses merge and approve where a folder lacks it. The three skills sync from
   kronael/tools, so the change goes there or into agent-specific copies.
-- **Status:** open — needs sign-off.
+- **Status:** open — signed off 2026-10-24. Owner: remove or rephrase the three skills; prefer the newest kronael/tools versions, or drop the ant copies and use the tools skills.
 
 ## L549 — an inline review comment reaches the agent without its location, and a reply without a target answers the wrong comment (2026-10-23, open — needs sign-off)
 
@@ -1362,7 +1362,7 @@ overlapped. The defects are inside that one conversation:
   Amend `specs/6/27-git-channel.md` first.
 - **Interim:** `443f0057` tells the agent to ALWAYS set `replyToId` (the
   GitHub output style); the contract change stays open.
-- **Status:** open — needs sign-off (6/27 contract change).
+- **Status:** open — signed off 2026-10-24. Owner: gitd delivers full events (location header); ship the fix above.
 
 ## L551 — an inline review comment that mentions the bot starts no turn (2026-10-23, open)
 
@@ -1388,7 +1388,7 @@ far more often than chat.
 - **Severity:** high — an inline "@sloth-goth explain this" on a new PR is
   silently dropped.
 - **Fix:** `L75(b)` — a batch that holds a mention resolves by the mention.
-- **Status:** open — needs sign-off (dispatch control flow, with `L75(b)`).
+- **Status:** open — signed off 2026-10-24, ships with `L75(b)`. Owner: the mention triggers the turn; the other rows of the batch reach it as observed context, and rows that arrive while it runs reach it as steering or observations.
 
 ## L546 — every turn leaves a permanent progress comment on a GitHub PR (2026-10-23, open — needs sign-off)
 
@@ -1399,7 +1399,7 @@ findings. The 👀 reaction already shows the turn is running. ant asks for a
 (`specs/6/46-turn-progress.md`), so a style file cannot stop it.
 
 - **Fix:** no progress comment on GitHub; keep the reaction. Changes 6/46.
-- **Status:** open — needs sign-off.
+- **Status:** open — signed off 2026-10-24. Owner: no progress comment on GitHub; in chats, delete the progress message too (when the turn ends).
 
 ## L543 — nothing writes the `_close` sentinel, so `turn.signal` and `closedDuringQuery` never fire (2026-10-23, open — needs sign-off)
 
@@ -6017,6 +6017,8 @@ route, and the comment above it explains why the route and the busy key share th
 pending mention when newer chatter arrives in the same batch. The fix has to make a
 pending mention outrank a newer non-mention row for ROUTE selection without breaking
 either of those two, so it is a dispatch-lifecycle change and stays a proposal.
+
+**Signed off 2026-10-24 (with `L551`):** a batch that holds a pending mention resolves by the mention. The other rows reach the turn as observed context.
 
 The heading is re-scoped so the entry stops reading as two open halves. An entry that
 overstates its own remaining work is as misleading as one that understates it.
