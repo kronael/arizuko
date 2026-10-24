@@ -47,5 +47,5 @@ every account, including the base account. The sender stays
 Groups keep `telegram:group/<id>` because a shared room is one room.
 Shared rooms use `source` to select the account.
 
-The Telegram DM chat JID tells the agent which bot account it is on.
-Other account details belong in the prompt envelope.
+Nothing else tells the agent which account it is on. If that becomes
+needed, it belongs in the prompt envelope, not in the JID.
