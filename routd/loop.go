@@ -731,7 +731,7 @@ func (l *Loop) resolveFolder(chatJID string, last core.Message, routes []core.Ro
 			// A trigger rule addresses the folder whether or not the chat is also
 			// engaged; an observe rule on an engaged chat is engagement alone.
 			addressed := rt.Mode != "observe"
-			if folder, ok := l.engaged(chatJID, engTopic); ok {
+			if folder, ok := l.engaged(chatJID, engTopic, last.Verb); ok {
 				return resolution{Folder: folder, ok: true, Addressed: addressed}
 			}
 			if rt.Mode == "observe" {
@@ -742,7 +742,7 @@ func (l *Loop) resolveFolder(chatJID string, last core.Message, routes []core.Ro
 	}
 	// 3. Engagement fallback on a route miss (topic-root normalized).
 	engTopic := l.effectiveTopic(chatJID, last.Topic)
-	if folder, ok := l.engaged(chatJID, engTopic); ok {
+	if folder, ok := l.engaged(chatJID, engTopic, last.Verb); ok {
 		return resolution{Folder: folder, ok: true}
 	}
 	return resolution{}
@@ -757,11 +757,12 @@ func (l *Loop) effectiveTopic(chatJID, msgTopic string) string {
 	return msgTopic
 }
 
-// engaged returns the live engagement folder for (chatJID, topic). An empty
+// engaged returns the live engagement folder for (chatJID, topic) when a row
+// with verb rides engagement: only a person's message or mention does. An empty
 // engaged folder (a stale ingress claim) is NOT a route: false, so resolve
 // falls through instead of dispatching to "".
-func (l *Loop) engaged(chatJID, topic string) (string, bool) {
-	if strings.HasPrefix(chatJID, "github:") {
+func (l *Loop) engaged(chatJID, topic, verb string) (string, bool) {
+	if verb != "" && verb != "message" && verb != "mention" {
 		return "", false
 	}
 	folder, ok := l.db.Engaged(chatJID, topic)
