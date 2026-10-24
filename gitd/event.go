@@ -353,10 +353,10 @@ func mapEvent(kind, name, event, delivery string, body []byte, now time.Time, bo
 		if p.Action == "created" || p.Action == "edited" {
 			conversationAuthor = p.PullRequest.User
 		}
-		if p.Comment.InReplyToID != 0 {
-			msg.ReplyTo = reviewIDPrefix + strconv.FormatInt(p.Comment.InReplyToID, 10)
-		}
 		if p.Action == "created" {
+			if p.Comment.InReplyToID != 0 {
+				msg.ReplyTo = reviewIDPrefix + strconv.FormatInt(p.Comment.InReplyToID, 10)
+			}
 			msg.ID = reviewIDPrefix + strconv.FormatInt(p.Comment.ID, 10)
 			msg.Timestamp = parseTime(p.Comment.CreatedAt, now).Unix()
 			msg.Verb = speech(botLogin, p.Comment.Body)

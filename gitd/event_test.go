@@ -560,3 +560,24 @@ func TestMapEvent_MentionTriggersAmbientObserves(t *testing.T) {
 		}
 	}
 }
+
+// An edit or deletion notification of a reply carries no ReplyTo: routd
+// promotes a reply to a bot comment into a mention, and the spec says an edit
+// or a deletion starts no turn.
+func TestMapEvent_ReviewCommentReplyToOnlyWhenCreated(t *testing.T) {
+	created := fixture(t, "pull_request_review_comment_created")
+	for _, c := range []struct{ action, replyTo string }{
+		{"created", "gh-rc5678901200"},
+		{"edited", ""},
+		{"deleted", ""},
+	} {
+		body := []byte(strings.Replace(string(created), `"action": "created"`, `"action": "`+c.action+`"`, 1))
+		msg, drop, err := mapEvent(store.GitHubSourceApp, "arizuko-krons", "pull_request_review_comment", "d-"+c.action, body, fixedNow, "")
+		if err != nil || drop != "" {
+			t.Fatalf("%s: err=%v drop=%q", c.action, err, drop)
+		}
+		if msg.ReplyTo != c.replyTo {
+			t.Errorf("%s: reply_to=%q want %q", c.action, msg.ReplyTo, c.replyTo)
+		}
+	}
+}
