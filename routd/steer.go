@@ -51,7 +51,7 @@ func (l *Loop) handleStickyCommand(chatJID string, msg core.Message) bool {
 	if msg.BotMsg || strings.HasPrefix(msg.Sender, "timed-") {
 		return false
 	}
-	content := strings.TrimSpace(msg.Content)
+	_, content := typedText(msg.Content)
 	if !isStickyCommand(content) {
 		return false
 	}
@@ -85,13 +85,30 @@ func (l *Loop) handleStickyCommand(chatJID string, msg core.Message) bool {
 // Slash-command output text is fixed — operators rely on the exact responses.
 // /invite and /gate federate to onbod over HTTP; a nil client reports the gap.
 
-func cmdText(raw string) string {
+// typedText splits a message into the envelope an adapter put in front of it
+// and the text the person typed: the one reading every steer handler takes. The
+// envelope is a leading [..] header (gitd's location header) and the fenced
+// diff hunk that can follow it.
+func typedText(raw string) (envelope, typed string) {
 	t := strings.TrimSpace(raw)
-	if strings.HasPrefix(t, "[") {
-		if i := strings.Index(t, "]"); i >= 0 {
-			t = strings.TrimSpace(t[i+1:])
+	if !strings.HasPrefix(t, "[") {
+		return "", t
+	}
+	i := strings.Index(t, "]")
+	if i < 0 {
+		return "", t
+	}
+	typed = strings.TrimSpace(t[i+1:])
+	if strings.HasPrefix(typed, "```") {
+		if j := strings.Index(typed, "\n```"); j >= 0 {
+			typed = strings.TrimSpace(typed[j+len("\n```"):])
 		}
 	}
+	return strings.TrimSpace(strings.TrimSuffix(t, typed)), typed
+}
+
+func cmdText(raw string) string {
+	_, t := typedText(raw)
 	if strings.HasPrefix(t, "@") {
 		if i := strings.IndexByte(t, ' '); i >= 0 {
 			t = strings.TrimSpace(t[i+1:])
@@ -475,14 +492,20 @@ func (l *Loop) handlePrefixLayer(chatJID string, msg core.Message, folder string
 	if msg.BotMsg || strings.HasPrefix(msg.Sender, "timed-") {
 		return false
 	}
-	hasAt := rePrefixAt.MatchString(msg.Content)
-	hasHash := rePrefixHash.MatchString(msg.Content)
+	envelope, typed := typedText(msg.Content)
+	hasAt := rePrefixAt.MatchString(typed)
+	hasHash := rePrefixHash.MatchString(typed)
 	if !hasAt && !hasHash {
 		return false
 	}
-	name, stripped, ok := parsePrefix(msg.Content)
+	name, stripped, ok := parsePrefix(typed)
 	if !ok || name == "" {
 		return false
+	}
+	// The envelope stays with the message, so the turn that takes it still
+	// reads where it sits and which id a reply names.
+	if envelope != "" {
+		stripped = envelope + "\n\n" + stripped
 	}
 	if hasAt {
 		if strings.Contains(name, "/") {

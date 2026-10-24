@@ -206,6 +206,11 @@ An event without a key leaves it out. The fenced hunk follows for a review comme
 including a comment whose body is an empty `suggestion` block. The CI fan-out header
 carries the per-PR row id of the delivery.
 
+routd reads a command past the header and the hunk: slash commands, sticky
+`#topic`/`@group` navigation and `@child` delegation all match the text the person
+typed (`typedText` in `routd/steer.go`). A delegated or re-filed message keeps the
+header, so the turn that takes it can name the comment it answers.
+
 `reply` on a `github:<owner>/<repo>/pr/<n>` or `github:<owner>/<repo>/issue/<n>` chat
 requires `replyToId`: the `id` of the message the agent answers. The `reply` handler in
 `ipc/ipc.go` refuses a call without it, sends nothing and writes no outbound row. The
