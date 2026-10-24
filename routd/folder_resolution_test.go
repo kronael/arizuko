@@ -31,7 +31,10 @@ func (s *folderMessageReads) Query(ctx context.Context,
 	return items, err
 }
 
-func TestFolderForJidReadsOnlyNewestMessage(t *testing.T) {
+// Queue admission reads the pending batch once, bounded by pollBatch, and
+// decides it as the worker does: the bot row "newest" never resolves a batch, so
+// slack:T/C keys on "old", the folder its user rows dispatch to.
+func TestFolderForJidReadsThePendingBatchOnce(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
 		t.Fatal(err)
@@ -69,7 +72,7 @@ func TestFolderForJidReadsOnlyNewestMessage(t *testing.T) {
 		want string
 		rows int
 	}{
-		{"slack:T/C", "new", 1},
+		{"slack:T/C", "old", 3},
 		{"web:direct", "direct", 1},
 		{"unknown:chat", "unknown:chat", 1},
 		{"slack:empty", "slack:empty", 0},
@@ -85,8 +88,8 @@ func TestFolderForJidReadsOnlyNewestMessage(t *testing.T) {
 					len(reads.queries), reads.rows, tt.rows)
 			}
 			q := reads.queries[0]
-			if q.Partition != tt.jid || !q.Descending || q.Limit != 1 {
-				t.Fatalf("unbounded newest-message read: %+v", q)
+			if q.Partition != tt.jid || q.Limit != pollBatch {
+				t.Fatalf("read is not the worker's bounded batch read: %+v", q)
 			}
 		})
 	}

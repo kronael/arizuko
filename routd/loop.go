@@ -517,18 +517,20 @@ func (l *Loop) checkMigrationVersion() {
 	}
 }
 
-// folderForJid resolves a chat JID to the folder that owns it, so the queue's
-// folder-exclusivity (one live run per folder) holds across JIDs.
+// folderForJid resolves a chat JID to the folder its pending batch dispatches
+// to, so the queue's folder-exclusivity (one live run per folder) holds across
+// JIDs. It reads the batch the worker reads and decides it with the worker's
+// resolveBatch: a key from any other row lets two chats run in one folder.
 func (l *Loop) folderForJid(chatJID string) string {
-	msg, ok, _ := l.db.store().LastMessage(context.Background(), chatJID)
-	if !ok {
+	msgs, err := l.db.NewMessagesForChat(chatJID, l.db.GetAgentCursor(chatJID), pollBatch)
+	if err != nil || newestUserIdx(msgs) < 0 {
 		return chatJID
 	}
-	g, ok := l.resolveGroup(chatJID, msg)
-	if !ok {
+	b := l.resolveBatch(chatJID, msgs)
+	if !b.ok {
 		return chatJID
 	}
-	return g
+	return b.Folder
 }
 
 // pollBatch bounds how many of one chat's messages a single poll takes. The

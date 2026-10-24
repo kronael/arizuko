@@ -219,3 +219,19 @@ func TestBatchResolve_NoRowDispatchesStaysARouteMiss(t *testing.T) {
 		t.Fatalf("cursor=%q want %q", got, want)
 	}
 }
+
+// The queue keeps one live run per folder by the key folderForJid returns, so
+// the key must be the folder the worker dispatches to. A chat whose newest row
+// matches only #observe still dispatches its mention to eng; keyed on the
+// chat JID instead, two such chats ran in eng at once and the second worker
+// replaced the live turn's MCP socket.
+func TestBatchResolve_TheQueueKeyIsTheFolderTheWorkerDispatchesTo(t *testing.T) {
+	db, loop := githubBatchLoop(t, &recRunner{})
+	now := time.Now().UTC()
+	putPRRow(t, db, "gh-rc1", "github:user/alice", "mention", "inline mention", now)
+	putPRRow(t, db, "gh-r1", "github:user/alice", "pull_request_review", "review submitted", now.Add(time.Millisecond))
+
+	if got := loop.folderForJid(prJID); got != "eng" {
+		t.Fatalf("folderForJid=%q want eng, the folder the worker dispatches the mention to", got)
+	}
+}

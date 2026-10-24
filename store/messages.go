@@ -1090,7 +1090,7 @@ type ChatSummary struct {
 
 // lastMessageWhere answers a chat's newest row matching `where`, and whether
 // there is one; `what` names the row for the error a fault carries. ONE read
-// for the three questions below, so the "no row is not a fault" contract
+// for the two questions below, so the "no row is not a fault" contract
 // cannot drift.
 func (s *Store) lastMessageWhere(ctx context.Context, jid, what string,
 	where []objstore.Cmp) (core.Message, bool, error) {
@@ -1114,11 +1114,6 @@ func inboundWhere() []objstore.Cmp {
 		{Attr: attrMsgFromMe, Op: objstore.Absent},
 		{Attr: attrMsgBot, Op: objstore.Absent},
 	}
-}
-
-// LastMessage returns a chat's newest row, including future timestamps.
-func (s *Store) LastMessage(ctx context.Context, jid string) (core.Message, bool, error) {
-	return s.lastMessageWhere(ctx, jid, "message", nil)
 }
 
 // LastInboundMessage answers a chat's newest inbound human row: the message the
