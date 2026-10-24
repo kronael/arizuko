@@ -652,13 +652,12 @@ func (l *Loop) resolve(chatJID string, last core.Message) resolution {
 
 // batchResolution is the one decision on a batch of rows. The embedded
 // resolution is the newest user row's that dispatches on its own, or the newest
-// user row's when none does, except Addressed: it holds when any row that
-// dispatches is addressed, because a person is owed an answer however many
-// unaddressed rows (CI under #engaged) follow. dispatches[i] says msgs[i]
-// dispatches on its own.
+// user row's when none does. rows[i] is msgs[i]'s own resolution (zero for a
+// bot row): whether it dispatches and whether it is addressed are facts about
+// the row, so each turn takes them from its own rows.
 type batchResolution struct {
 	resolution
-	dispatches []bool
+	rows []resolution
 }
 
 // resolveBatch decides a batch for both processing paths: the poll backstop and
@@ -676,19 +675,13 @@ func (l *Loop) resolveBatch(chatJID string, msgs []core.Message) batchResolution
 	rows := l.resolveRows(chatJID, users)
 	b := batchResolution{
 		resolution: rows[len(rows)-1],
-		dispatches: make([]bool, len(msgs)),
+		rows:       make([]resolution, len(msgs)),
 	}
 	picked := false
 	for k := len(rows) - 1; k >= 0; k-- {
-		if !rows[k].ok {
-			continue
-		}
-		b.dispatches[at[k]] = true
-		if !picked {
+		b.rows[at[k]] = rows[k]
+		if rows[k].ok && !picked {
 			b.resolution, picked = rows[k], true
-		}
-		if rows[k].Addressed {
-			b.Addressed = true
 		}
 	}
 	return b

@@ -86,11 +86,13 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 	// that does not dispatch on its own is observed under the batch folder before
 	// the prompt is built, so this turn renders it as context.
 	var trigger, ambient []core.Message
+	addressed := map[string]bool{}
 	for i, m := range msgs {
 		switch {
 		case m.BotMsg:
-		case b.dispatches[i]:
+		case b.rows[i].ok:
 			trigger = append(trigger, m)
+			addressed[m.ID] = b.rows[i].Addressed
 		default:
 			ambient = append(ambient, m)
 		}
@@ -135,7 +137,10 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 	for _, batch := range groups {
 		bl := batch[len(batch)-1]
 		topic := turnTopic(bl)
-		had, steered, busy, mark, derr := l.runTurn(folder, topic, chatJID, bl.ID, r.Addressed, batch)
+		// A person is owed an answer by the turn that holds their row, however many
+		// unaddressed rows (CI under #engaged) run beside it in their own turns.
+		owed := slices.ContainsFunc(batch, func(m core.Message) bool { return addressed[m.ID] })
+		had, steered, busy, mark, derr := l.runTurn(folder, topic, chatJID, bl.ID, owed, batch)
 		if derr != nil {
 			// Transport failure: do NOT advance — re-fed next poll (at-least-once;
 			// turn_results dedups). A steered batch has no re-feed left: its cursor

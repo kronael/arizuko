@@ -61,9 +61,8 @@ func TestEngagedRoute_ARootWindowCoversThePRTopic(t *testing.T) {
 }
 
 // A mention and a newer CI row in one batch: the CI row dispatches through its
-// #engaged rule, and the batch stays addressed because the person is owed an
-// answer (the CI row alone is never addressed).
-func TestEngagedRoute_AMixedBatchStaysAddressedAndBothRowsDispatch(t *testing.T) {
+// #engaged rule, and only the mention is addressed (the CI row is never).
+func TestEngagedRoute_AMixedBatchAddressesOnlyTheMentionAndBothRowsDispatch(t *testing.T) {
 	db, loop := newEngagementLoop(t, engagedCIRoutes(t))
 	jid := "github:kronael/arizuko/pr/8"
 	if err := db.SetEngagement(jid, "pr/8", "eng", time.Hour); err != nil {
@@ -74,11 +73,11 @@ func TestEngagedRoute_AMixedBatchStaysAddressedAndBothRowsDispatch(t *testing.T)
 		{ID: "gh-rc1", ChatJID: jid, Topic: "pr/8", Sender: "github:user/alice", Verb: "mention", Timestamp: now},
 		{ID: "gh-ci1", ChatJID: jid, Topic: "pr/8", Sender: "github:user/ci", Verb: "check_run", Timestamp: now.Add(time.Millisecond)},
 	})
-	if !b.ok || b.Folder != "eng" || !b.Addressed {
-		t.Fatalf("batch: %+v want folder=eng addressed", b.resolution)
+	if !b.ok || b.Folder != "eng" {
+		t.Fatalf("batch: %+v want folder=eng", b.resolution)
 	}
-	if !b.dispatches[0] || !b.dispatches[1] {
-		t.Fatalf("dispatches=%v want both rows", b.dispatches)
+	if !b.rows[0].ok || !b.rows[1].ok || !b.rows[0].Addressed || b.rows[1].Addressed {
+		t.Fatalf("rows=%+v want both dispatching, only the mention addressed", b.rows)
 	}
 }
 
@@ -94,8 +93,8 @@ func TestEngagedRoute_AMixedBatchWithoutEngagementObservesTheCIRow(t *testing.T)
 	if !b.ok || b.Folder != "eng" || !b.Addressed {
 		t.Fatalf("batch: %+v want folder=eng addressed", b.resolution)
 	}
-	if !b.dispatches[0] || b.dispatches[1] {
-		t.Fatalf("dispatches=%v want only the mention", b.dispatches)
+	if !b.rows[0].ok || b.rows[1].ok {
+		t.Fatalf("rows=%+v want only the mention", b.rows)
 	}
 }
 
@@ -138,5 +137,42 @@ func TestEngagedRoute_TheWorkerFiresOnlyWhileEngaged(t *testing.T) {
 				t.Fatalf("CI row routed_to=%q with engaged=%v", got, c.engaged)
 			}
 		})
+	}
+}
+
+// Addressed is a fact about each turn, not the batch: on an engaged PR a
+// mention and another sender's CI row run as two turns, and only the mention's
+// turn is owed an answer.
+func TestEngagedRoute_TheCITurnOfAMixedBatchIsNotAddressed(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	if err := db.PutGroup(core.Group{Folder: "eng"}); err != nil {
+		t.Fatal(err)
+	}
+	doSetRoutes(t, db, engagedCIRoutes(t))
+	rr := &recRunner{}
+	loop := NewLoop(db, rr, LoopConfig{ObserveWindowMessages: 20, ObserveWindowChars: 1000})
+	t.Cleanup(loop.StopQueue)
+	if err := db.SetEngagement(prJID, "pr/311", "eng", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	putPRRow(t, db, "gh-rc1", "github:user/alice", "mention", "inline mention", now)
+	putPRRow(t, db, "gh-ci1", "github:user/ci", "check_run", "tests failed", now.Add(time.Millisecond))
+
+	if _, err := loop.processGroupMessages(prJID); err != nil {
+		t.Fatalf("process: %v", err)
+	}
+	if len(rr.runs) != 2 {
+		t.Fatalf("turns=%d want 2 (one per sender): %+v", len(rr.runs), rr.runs)
+	}
+	for id, want := range map[string]bool{"gh-rc1": true, "gh-ci1": false} {
+		tc, ok := db.GetTurnContext(id)
+		if !ok || tc.Addressed != want {
+			t.Errorf("turn %s: bound=%v addressed=%v, want addressed=%v", id, ok, tc.Addressed, want)
+		}
 	}
 }

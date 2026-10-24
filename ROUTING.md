@@ -432,8 +432,10 @@ consume the message before any turn starts.
 
 **A batch resolves by its newest row that dispatches on its own.** `routd`
 reads the route table once per batch and scans the user rows from the newest.
-The first row whose own resolution dispatches picks the folder, the topic pin
-and the addressed flag for the batch. A row dispatches on its own when a
+The first row whose own resolution dispatches picks the folder and the topic
+pin for the batch. The addressed flag is per turn: a turn is addressed when one
+of its own rows is addressed, so a CI row under `#engaged` that runs beside a
+mention in its own turn is not owed an answer. A row dispatches on its own when a
 trigger rule matches it, or when it is a `message` or `mention` on an engaged
 chat, or when an `#engaged` rule matches it on an engaged chat. When no row dispatches, the newest user row decides: a route miss or an
 `#observe` match. Bot rows never resolve a batch. A mention in a batch therefore
