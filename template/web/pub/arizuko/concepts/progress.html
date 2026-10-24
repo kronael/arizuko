@@ -83,7 +83,7 @@
       <dt>&#9744;</dt>
       <dd>Not started.</dd>
     </dl>
-    <p>The &#9203; at the start of the first line changes to &#10003; when the turn finishes, or to &#10007; when it fails. The task summary keeps its robot mark.</p>
+    <p>When the turn ends, a channel that can delete messages removes the checklist: Telegram, Discord, WhatsApp and Slack do so. If the channel refuses the delete, the &#9203; changes to &#10003;, or to &#10007; when the turn fails. A channel that can edit but not delete, such as the web chat, always takes the mark. The task summary keeps its robot mark.</p>
 
     <h2>A hook posts the plan, not the model</h2>
     <p>The agent declares its overall task in the first <code>&lt;status&gt;</code> block, before it plans with the <code>TodoWrite</code> tool. A hook of the harness renders each change of the list into the same editable checklist. The first task of the list never replaces the declared summary. Later status blocks update the progress of work that has no task list.</p>
@@ -96,6 +96,7 @@
     <p>The channel also shows that the agent is busy. Telegram, Discord and WhatsApp use their own typing indicator. Slack and GitHub have no such indicator, so they put an eyes reaction, &#128064;, on the message that started the turn. The indicator stays on until the turn ends, not until the first reply. So an agent that answers and then continues to work still looks busy. If the adapter restarts during the turn, the reaction stays: the adapter records it and removes it when the turn ends.</p>
 
     <h2>Channels that cannot edit show only the answer</h2>
+    <p>GitHub cannot edit the comments of the agent here, so a pull request gets no progress comment. The eyes reaction on the comment that started the turn is the whole display.</p>
     <p>An editable channel without compatible thread support keeps one progress message and the normal place for the answer. That channel has no separate summary opener.</p>
     <p>Email cannot edit a sent message. On these channels, arizuko drops the status updates, and you get only the answer. A stream of separate &ldquo;still working&rdquo; posts is what the checklist exists to avoid, so these channels get no fallback. Google Drive comments behave the same way, because the Drive adapter does not edit its replies.</p>
     <p>An edit failure appears as an error. <code>routd</code> never posts a replacement message to hide it.</p>

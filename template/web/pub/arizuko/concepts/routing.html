@@ -106,21 +106,23 @@
     <p><code>routd</code> picks the folder with three checks, in this order:</p>
     <ol>
       <li>Direct address. A web chat or a hook token names its folder, and a JID with no <code>:</code> is a folder name. The route table never sees these messages.</li>
-      <li>The route table. The first matching row by <code>seq</code> wins. If the chat and topic pair is engaged, the engaged folder wins over the folder of the rule. An <code>#observe</code> rule then starts a turn anyway.</li>
-      <li>Engagement. Engagement can catch a message that no rule matched. A thread without its own engagement window uses the window of its root message, unless someone disengaged that thread.</li>
+      <li>The route table. The first matching row by <code>seq</code> wins. If the chat and topic pair is engaged, the engaged folder wins over the folder of the rule for a <code>message</code> or <code>mention</code> from a person. An <code>#observe</code> rule then starts a turn anyway. Every other verb follows its rule.</li>
+      <li>Engagement. Engagement can catch a <code>message</code> or <code>mention</code> that no rule matched. A thread without its own engagement window uses the window of its root message, unless someone disengaged that thread.</li>
     </ol>
+    <p>One chat can hold several unread rows at once. <code>routd</code> reads the route table once for the batch and picks the newest row that starts a turn on its own. A mention therefore starts a turn even when a newer row of the batch matches only <code>#observe</code>. The turn sees the other rows as observed context.</p>
     <p>After <code>routd</code> has a folder, a second pass runs inside it. The pass checks the pinned <code>@</code> and <code>#</code>, the slash commands, an inline <code>@child</code> or <code>#topic</code> prefix, and then a delegation target. The delegation target is the folder of a replied-to bot message, the pinned group or the route table, in that order. A delegation goes only to a child that the current folder can route to. Any step in the pass can consume the message before a turn starts. <a href="turn.html">A turn, end to end</a> shows the whole path from the adapter to the reply.</p>
 
     <h2>A route change applies to the next message</h2>
     <p>The agent edits the table with the MCP tools <code>add_route</code>, <code>delete_route</code>, <code>list_routes</code> and <code>set_routes</code>. The operator dashboard <code>dashd</code> shows the same table in a browser. A caller with an operator REST token can call <code>/v1/routes</code> directly. One handler serves all of these, so the agent and a REST caller see the same rows. A change applies to the next inbound message, with no restart.</p>
 
     <h2 id="modes">A target tail sets the mode or the topic</h2>
-    <p>A <code>target</code> can end with <code>#...</code>. That tail tells <code>routd</code> what to do <em>after</em> the message arrives in the folder. Two tails are reserved: <code>#observe</code> and <code>#announce</code>. Every other tail is a <a href="../concepts/topics.html">topic name</a> for the routed message.</p>
+    <p>A <code>target</code> can end with <code>#...</code>. That tail tells <code>routd</code> what to do <em>after</em> the message arrives in the folder. Three tails are reserved: <code>#observe</code>, <code>#engaged</code> and <code>#announce</code>. Every other tail is a <a href="../concepts/topics.html">topic name</a> for the routed message.</p>
     <table>
       <thead><tr><th>target</th><th>effect</th></tr></thead>
       <tbody>
         <tr><td><code>folder</code></td><td>Stores the message under <code>folder</code> and starts a turn on the main topic. This is the default.</td></tr>
-        <tr><td><code>folder#observe</code></td><td>Stores the message under <code>folder</code> and starts no turn. A later turn sees the message in the history, with the full ACL of the folder. Engagement overrides every route target: if the chat and topic pair is engaged, <code>routd</code> ignores this mode and starts a turn. See <a href="../concepts/engagement.html">engagement</a>.</td></tr>
+        <tr><td><code>folder#observe</code></td><td>Stores the message under <code>folder</code> and starts no turn. A later turn sees the message in the history, with the full ACL of the folder. If the chat and topic pair is engaged, <code>routd</code> ignores this mode for a <code>message</code> or <code>mention</code> from a person and starts a turn. Other verbs stay observed. See <a href="../concepts/engagement.html">engagement</a>.</td></tr>
+        <tr><td><code>folder#engaged</code></td><td>Starts a turn while the chat and topic pair is engaged, for any verb, and stores the message under <code>folder</code> as observed otherwise. It never addresses the agent. Use it to let CI results continue an open conversation.</td></tr>
         <tr><td><code>folder#announce</code></td><td>Starts a turn as usual, because the tail does not change inbound handling. It also marks the channel as the release-note target of the group. On a version change, the migrate skill posts the changelog line only to <code>#announce</code> channels, one per server: a Slack workspace, a Discord guild or a Telegram chat. With no <code>#announce</code> route, the group announces nowhere. Remove the tail to stop the posts.</td></tr>
       </tbody>
     </table>

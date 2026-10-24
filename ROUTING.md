@@ -323,8 +323,9 @@ No default catch-all rule exists, and `arizuko create` seeds none:
 
 The same table answers who may make the agent fire. A `sender=` rule above an
 observe rule for the same room fires for that sender, and everyone else matches
-only the observe row. A person's message on an engaged chat and topic fires in the engaged folder. A firing
-never consults the ACL, so a second permission check in the loop has no place.
+only the observe row. A person's message on an engaged chat and topic fires in
+the engaged folder. A firing never consults the ACL, so a second permission
+check in the loop has no place.
 
 A held chat looks like a broken chat from the outside, because nobody answers
 either. `GET /v1/routing/answering` tells them apart. It lists every chat whose
@@ -352,8 +353,9 @@ seq  match                                           target
 
 The rule at seq 20 fires a turn on every `@bot` message in any guild. The
 catch-all at seq 30 stores all other messages under `main` in observe mode,
-and fires no turn. The rule at seq 5 opts one guild out of the mention gate,
-and every message there is a trigger. The rule at seq 10 makes every direct
+and fires no turn. While the agent holds an engagement window on a channel, a
+person's plain message there also fires a turn. The rule at seq 5 opts one
+guild out of the mention gate, and every message there is a trigger. The rule at seq 10 makes every direct
 message a trigger. Without it, a direct message has no `mention` verb and
 falls into the observe rule.
 
@@ -374,8 +376,10 @@ seq  match                                             target
 A message in a Slack channel or private group without `@atlas` matches seq 100.
 `routd` stores it as observed context, no turn fires, and atlas stays silent.
 An `@atlas` mention becomes `verb=mention` in the verb promotion. It matches
-seq 40 first and fires a turn. A direct message matches seq 10, a plain
-trigger, so the agent always replies in direct messages.
+seq 40 first and fires a turn. While atlas holds an engagement window on a
+channel, a person's plain message there also fires a turn. A direct message
+matches seq 10, a plain trigger, so the agent always replies in direct
+messages.
 
 To make the agent reply to every channel message, change the targets at seq 100
 from `atlas#observe` to `atlas`.

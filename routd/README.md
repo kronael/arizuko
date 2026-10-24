@@ -25,7 +25,7 @@ routd injects the agent's authorization gate into the socket: `db.AuthorizeTurn(
 - A compatible channel gets an immutable `🤖` summary opener. One editable `⏳` progress message follows inside its thread.
 - An existing thread wins.
 - A channel without new-thread support gets one editable progress card.
-- A channel without `edit` gets no progress message.
+- A channel without `edit` gets no progress message. gitd advertises no `edit`, so GitHub shows the `👀` mark and no progress comment.
 - Persisted message rows keep the edits and the opener identity across a restart.
 - `placement.go` sends progress, text, files, voice, terminal notices and retries to the same destination.
 - An unresolved opener refuses an unplaced child. routd does not queue it.
@@ -34,7 +34,7 @@ routd injects the agent's authorization gate into the socket: `db.AuthorizeTurn(
 
 Both progress verbs confer a reply obligation. Final delivery and last-answer tracking skip them, because a progress row must never count as the agent's reply.
 
-`Typing(on)` fires at dispatch. `Typing(off)` fires when the turn ends in `finishTurn`, the one writer of `done`. `finishTurn` changes only the leading `⏳` of the progress message to `✓` or `✗`. A run that returns without ending its turn clears `Typing` and leaves the message at `⏳`.
+`Typing(on)` fires at dispatch. `Typing(off)` fires when the turn ends in `finishTurn`, the one writer of `done`. On a channel that advertises `delete`, `finishTurn` deletes the progress message, rewrites the row to its terminal form and does nothing at a second end. A refused delete falls back to the edit. On a channel with `edit` and no `delete`, `finishTurn` changes only the leading `⏳` of the progress message to `✓` or `✗`. The task summary row stays. A run that returns without ending its turn clears `Typing` and leaves the message at `⏳`.
 
 ## The turn in routd
 
@@ -43,7 +43,7 @@ Both progress verbs confer a reply obligation. Final delivery and last-answer tr
 - **One cursor.** routd is the only appender of `messages`, so one cursor, `chats.agent_cursor`, means "what the agent has seen". A second writer would need a second cursor.
 - **One process.** routd runs as one process per instance. Two routd processes on one store are not supported. The in-memory `GroupQueue` allows one turn per folder, and `agent_cursor` recovers a crash.
 - **Ingress.** `POST /v1/messages` honours `X-Idempotency-Key` only when the body has no `id`. routd then mints `id=<adapter>-<key>`, so a re-sent event lands on the same row. A body with both returns `400 ambiguous_idempotency` (`server.go`). routd does not claim engagement at ingress, because the folder is unknown until resolution, and a claim with an empty folder would misroute.
-- **Resolution.** `ROUTING.md` section "routd resolves a chat in two stages" gives the order. If routd cannot read the route table, it logs an ERROR and treats the read as a miss, because a retry risks a poison-message loop.
+- **Resolution.** `ROUTING.md` section "routd resolves a chat in two stages" gives the order. A batch resolves by its newest user row that dispatches on its own, so a mention starts a turn even when a newer row of the batch matches only `#observe`. The other user rows the turn consumes are stored observed under the batch folder before the prompt is built. Only a `message` or `mention` rides engagement, and a route target `#engaged` extends it to other verbs. If routd cannot read the route table, it logs an ERROR and treats the read as a miss, because a retry risks a poison-message loop.
 - **The run contract.** `POST /v1/runs` is synchronous. routd waits `RUNED_RUN_TIMEOUT` plus two minutes, so that routd outlasts the kill deadline in runed. With equal deadlines, routd could time out first and feed the same turn to a second guest.
 
   | runed answers                                      | routd does                                                                              |
@@ -272,7 +272,7 @@ Core variables:
 Behaviour:
 
 - `ASSISTANT_NAME` is the instance identity. The default is `arizuko`.
-- `ENGAGEMENT_TTL` is the engagement window of the reply state. The default is 30m, and `0` disables automatic engagement. GitHub uses explicit routes, as [the trigger policy of gitd](../gitd/README.md#observe-vs-trigger) describes.
+- `ENGAGEMENT_TTL` is the engagement window of the reply state. The default is 30m, and `0` disables automatic engagement. Engagement is the same on every channel, GitHub included: only a person's `message` or `mention` rides it, and [the trigger policy of gitd](../gitd/README.md#observe-vs-trigger) shows how a route extends it to CI.
 - `SESSION_IDLE_EXPIRY` is the session reset threshold. The default is 2d.
 - `ARIZUKO_DEFAULT_MODEL` is the fallback model of a group that has none. The default is empty, and the run request then names no model.
 - `ARIZUKO_DEFAULT_EFFORT` is the fallback effort. The default is empty.

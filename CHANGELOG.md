@@ -13,6 +13,32 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+### Operator note
+
+- Migration 224 states the GitHub rules and removes the `review`, `gh-comment` and `pr-draft` skills.
+- A route target `#engaged` extends engagement to other verbs, such as CI; the default routes have none.
+
+### Added
+
+- Route target `#engaged` fires a turn only while the chat is engaged, for any verb.
+- Every GitHub message opens with a location header: id, thread, review, file, lines, side, diff.
+
+### Changed
+
+- Only a person's message or mention keeps a conversation engaged, on every channel.
+- `reply` on a GitHub chat needs `replyToId`.
+- GitHub gets no progress comment; gitd no longer advertises `edit`.
+- A chat deletes the progress message when the turn ends, where the channel can delete.
+
+### Fixed
+
+- A mention in a batch starts a turn even when a newer row matches only `#observe`.
+- An edit or deletion of a reply to the bot no longer counts as a mention.
+
+### Removed
+
+- The skills `review`, `gh-comment` and `pr-draft` leave the agent image.
+
 ## [v0.70.10] — 2026-10-24
 
 > arizuko v0.70.10 — GitHub replies do the work first

@@ -134,14 +134,14 @@
     <p class="returns"><strong>Returns:</strong> JSON <code>{"ok": true, "id": "&lt;platformId&gt;"}</code>; on adapter "unsupported", returns error text with platform hint.</p>
 
     <h3 id="reply"><code>reply</code></h3>
-    <p>Use <code>reply</code> for answers to the user. Omit <code>replyToId</code> to use the current conversation, or supply an earlier message to quote. A declared task summary keeps replies inside its thread where supported. Existing threads take precedence.</p>
+    <p>Use <code>reply</code> for answers to the user. Omit <code>replyToId</code> to use the current conversation, or supply an earlier message to quote. On a GitHub chat <code>replyToId</code> is required: the call fails and sends nothing without it. A declared task summary keeps replies inside its thread where supported. Existing threads take precedence.</p>
     <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1312"><code>ipc/ipc.go:1312</code></a> &middot; Grant action: <code>reply(jid=...)</code> &middot; In <code>role:member</code>, granted to every folder at create.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
         <tr><td class="name">chatJid</td><td class="type">string</td><td class="req req-y">yes</td><td>Target chat JID.</td></tr>
         <tr><td class="name">text</td><td class="type">string</td><td class="req req-y">yes</td><td>Reply body.</td></tr>
-        <tr><td class="name">replyToId</td><td class="type">string</td><td class="req req-n">no</td><td>Platform message id to thread to; defaults to <code>db.GetLastReplyID(jid, "")</code>.</td></tr>
+        <tr><td class="name">replyToId</td><td class="type">string</td><td class="req req-n">no</td><td>Platform message id to thread to; defaults to <code>db.GetLastReplyID(jid, "")</code>. Required on a GitHub chat: the <code>id</code> from the location header of the message you answer.</td></tr>
       </tbody>
     </table>
     <p class="returns"><strong>Returns:</strong> JSON <code>{"ok": true, "id": "&lt;platformId&gt;"}</code>; <code>routd</code> records the outbound row in <code>messages</code> with that id. Pass the id to <code>edit</code> to change the message in place.</p>
@@ -535,7 +535,7 @@
     <p class="returns"><strong>Returns:</strong> text <code>"ok"</code>.</p>
 
     <h3 id="engage"><code>engage</code></h3>
-    <p>Mark <code>(jid, topic)</code> engaged for the <code>ENGAGEMENT_TTL</code> window so subsequent inbounds fire even when the route table would not route them here. Use before a scheduled or autonomous turn, or to recover after a failed reply. The caller may engage a conversation nobody holds, one it already holds, or one whose chat routes to its folder; the active turn&rsquo;s own chat counts as routed. Claiming another folder&rsquo;s live window is refused.</p>
+    <p>Mark <code>(jid, topic)</code> engaged for the <code>ENGAGEMENT_TTL</code> window so subsequent messages from people fire even when the route table would not route them here. Use before a scheduled or autonomous turn, or to recover after a failed reply. The caller may engage a conversation nobody holds, one it already holds, or one whose chat routes to its folder; the active turn&rsquo;s own chat counts as routed. Claiming another folder&rsquo;s live window is refused.</p>
     <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1762"><code>ipc/ipc.go:1762</code></a> &middot; Grant action: <code>engage</code>.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
@@ -547,7 +547,7 @@
     <p class="returns"><strong>Returns:</strong> JSON <code>{"ok": true}</code>.</p>
 
     <h3 id="disengage"><code>disengage</code></h3>
-    <p>Clear engagement for <code>(jid, topic)</code>. Subsequent inbounds need a fresh mention to re-fire. Use when the bot is done helping or when a corrective fork is closing. The caller must hold the live window, or the chat must route to its folder.</p>
+    <p>Clear engagement for <code>(jid, topic)</code>. Subsequent messages need a fresh mention to re-fire. Use when the bot is done helping or when a corrective fork is closing. The caller must hold the live window, or the chat must route to its folder.</p>
     <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1789"><code>ipc/ipc.go:1789</code></a> &middot; Grant action: <code>disengage</code>. Included in <code>role:member</code>.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
