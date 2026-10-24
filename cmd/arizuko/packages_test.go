@@ -124,6 +124,85 @@ func TestPackagesInstallRemove(t *testing.T) {
 	}
 }
 
+func TestPackagesInstallIgnoresUnrelatedYAML(t *testing.T) {
+	base := t.TempDir()
+	t.Setenv("ARIZUKO_DATA_DIR", base)
+	dataDir := seedPkgInstance(t, base, "named")
+	src := writePkg(t, base, "namedpkg", "{}\n")
+	for name, body := range map[string]string{
+		"sgconfig.yml":            "ruleDirs: [rules]\n",
+		".pre-commit-config.yaml": "repos: []\n",
+	} {
+		if err := os.WriteFile(filepath.Join(src, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	cmdPackages([]string{"named", "install", src})
+
+	entries, err := os.ReadDir(filepath.Join(dataDir, "services"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var files []string
+	for _, entry := range entries {
+		files = append(files, entry.Name())
+	}
+	if strings.Join(files, ",") != "namedpkg.yaml,namedpkg.yml" {
+		t.Fatalf("installed files = %v", files)
+	}
+	rec := mustRec(t, dataDir, "namedpkg")
+	if strings.Join(rec.Manifest[manifestFiles], ",") != "namedpkg.yaml,namedpkg.yml" ||
+		len(rec.AssetHashes) != 2 || rec.AssetHashes["file:namedpkg.yml"] == "" ||
+		rec.AssetHashes["file:namedpkg.yaml"] == "" {
+		t.Fatalf("record contents: %+v", rec)
+	}
+}
+
+func TestPackagesLegacyUnrelatedYAML(t *testing.T) {
+	for _, action := range []string{"upgrade", "sync", "remove"} {
+		t.Run(action, func(t *testing.T) {
+			base := t.TempDir()
+			t.Setenv("ARIZUKO_DATA_DIR", base)
+			dataDir := seedPkgInstance(t, base, "legacy")
+			src := writePkg(t, base, "legacypkg", "")
+			cmdPackages([]string{"legacy", "install", src})
+			rec := mustRec(t, dataDir, "legacypkg")
+			body := []byte("ruleDirs: [rules]\n")
+			for _, dir := range []string{src, filepath.Join(dataDir, "services")} {
+				if err := os.WriteFile(filepath.Join(dir, "sgconfig.yml"), body, 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			rec.Manifest[manifestFiles] = append(rec.Manifest[manifestFiles], "sgconfig.yml")
+			rec.AssetHashes["file:sgconfig.yml"] = sha256hex(body)
+			rdb := mustOpenRoutd()
+			defer rdb.Close()
+			if err := rdb.PutInstalledPackage(rec); err != nil {
+				t.Fatal(err)
+			}
+
+			cmdPackages([]string{"legacy", action, "legacypkg"})
+
+			if _, err := os.Stat(filepath.Join(dataDir, "services", "sgconfig.yml")); !os.IsNotExist(err) {
+				t.Fatalf("%s kept unrelated installed YAML: %v", action, err)
+			}
+			rec, ok, err := rdb.InstalledPackage(routd.InstanceWide, "legacypkg")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if action == "remove" {
+				if ok {
+					t.Fatal("remove kept the installed record")
+				}
+			} else if !ok || len(rec.AssetHashes) != 1 ||
+				strings.Join(rec.Manifest[manifestFiles], ",") != "legacypkg.yml" {
+				t.Fatalf("%s kept unrelated YAML in the record: %+v", action, rec)
+			}
+		})
+	}
+}
+
 // TestDirtyAssets is P3's safety core (spec 5/28-packages): a recorded asset whose
 // on-disk content still matches its install hash is clean; an operator edit
 // makes it dirty, so upgrade will refuse to overwrite it.

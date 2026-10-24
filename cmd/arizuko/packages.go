@@ -294,7 +294,7 @@ func checkSourcedFiles(svcDir, name, srcDir string, files []string, owned map[st
 // format: `<name>.yml` is docker's compose fragment, included verbatim, and
 // `<name>.yaml` is arizuko's 5/8 manifest fragment — the rows install applies
 // and generate reads.
-func readFragmentAssets(dir string) (files []string, hashes map[string]string) {
+func readFragmentAssets(dir, name string) (files []string, hashes map[string]string) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		die("Failed: read source %s: %v", dir, err)
@@ -302,7 +302,7 @@ func readFragmentAssets(dir string) (files []string, hashes map[string]string) {
 	hashes = map[string]string{}
 	for _, e := range entries {
 		n := e.Name()
-		if e.IsDir() || (!strings.HasSuffix(n, ".yml") && !strings.HasSuffix(n, ".yaml")) {
+		if e.IsDir() || (n != name+".yml" && n != name+".yaml") {
 			continue
 		}
 		b, err := os.ReadFile(filepath.Join(dir, n))
@@ -941,7 +941,7 @@ func reapplyPackage(svcDir string, rdb *routd.DB, rec routd.InstalledPackage) re
 	}
 	dir, revision, cleanup := fetchSource(rec.Source)
 	defer cleanup()
-	newFiles, newHashes := readFragmentAssets(dir)
+	newFiles, newHashes := readFragmentAssets(dir, rec.Name)
 	if len(newFiles) == 0 {
 		die("Failed: no compose fragment in source %s", rec.Source)
 	}
@@ -1063,7 +1063,7 @@ func cmdPackages(args []string) {
 		if !isGitURL(origin) {
 			origin = dir
 		}
-		files, hashes := readFragmentAssets(dir)
+		files, hashes := readFragmentAssets(dir, name)
 		if len(files) == 0 {
 			die("Failed: no compose fragment (*.yml) in source %s", origin)
 		}
