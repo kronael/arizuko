@@ -65,3 +65,46 @@ func TestSteer_ASlashCommandAfterAnInlineHunkIsACommand(t *testing.T) {
 		t.Fatalf("/ping after the header and the hunk is not a command: %q", cmdText(m.Content))
 	}
 }
+
+// Only gitd's header is an envelope. A leading [tag] on any other channel is
+// text the person typed, so the steer handlers must not read past it.
+func TestSteer_ABracketTagOutsideGitHubIsTypedText(t *testing.T) {
+	for _, tc := range []struct {
+		name, content string
+	}{
+		{"delegation", "[fyi] @child do X"},
+		{"topic pin", "[1] #ops"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db, loop, rr := recLoop(t)
+			loop.deliver = &recDeliverer{}
+			for _, f := range []string{"eng", "eng/child"} {
+				if err := db.PutGroup(core.Group{Folder: f}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := db.PutMessage(core.Message{ID: "m1", ChatJID: "web:eng", Sender: "u",
+				Content: tc.content, Timestamp: time.Now().UTC()}); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := loop.processGroupMessages("web:eng"); err != nil {
+				t.Fatalf("process: %v", err)
+			}
+			if _, topic := db.StickyState("web:eng"); topic != "" {
+				t.Fatalf("sticky topic=%q want none", topic)
+			}
+			if msgs, _ := db.MessagesSince("eng/child", ""); len(msgs) != 0 {
+				t.Fatalf("delegation rows on the child=%d want 0", len(msgs))
+			}
+			if len(rr.runs) != 1 || !strings.Contains(rr.runs[0].batch, tc.content) {
+				t.Fatalf("the text did not reach the agent: %+v", rr.runs)
+			}
+		})
+	}
+}
+
+func TestSteer_ASlashCommandReadsPastAnyLeadingTag(t *testing.T) {
+	if got := cmdText("[fyi] /ping"); got != "/ping" {
+		t.Fatalf("cmdText=%q want /ping", got)
+	}
+}

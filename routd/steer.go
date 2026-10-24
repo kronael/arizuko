@@ -85,13 +85,13 @@ func (l *Loop) handleStickyCommand(chatJID string, msg core.Message) bool {
 // Slash-command output text is fixed — operators rely on the exact responses.
 // /invite and /gate federate to onbod over HTTP; a nil client reports the gap.
 
-// typedText splits a message into the envelope an adapter put in front of it
-// and the text the person typed: the one reading every steer handler takes. The
-// envelope is a leading [..] header (gitd's location header) and the fenced
-// diff hunk that can follow it.
+// typedText splits a message into the envelope gitd put in front of it and the
+// text the person typed: the one reading the sticky and prefix handlers take.
+// The envelope is the "[github " location header and the fenced diff hunk that
+// can follow it. Any other leading [..] is typed text.
 func typedText(raw string) (envelope, typed string) {
 	t := strings.TrimSpace(raw)
-	if !strings.HasPrefix(t, "[") {
+	if !strings.HasPrefix(t, "[github ") {
 		return "", t
 	}
 	i := strings.Index(t, "]")
@@ -107,8 +107,16 @@ func typedText(raw string) (envelope, typed string) {
 	return strings.TrimSpace(strings.TrimSuffix(t, typed)), typed
 }
 
+// cmdText is the text a slash command reads: typedText, and for a message with
+// no gitd envelope a leading [..] tag is dropped too, so "[tag] /new" is a
+// command on every channel.
 func cmdText(raw string) string {
-	_, t := typedText(raw)
+	envelope, t := typedText(raw)
+	if envelope == "" && strings.HasPrefix(t, "[") {
+		if i := strings.Index(t, "]"); i >= 0 {
+			t = strings.TrimSpace(t[i+1:])
+		}
+	}
 	if strings.HasPrefix(t, "@") {
 		if i := strings.IndexByte(t, ' '); i >= 0 {
 			t = strings.TrimSpace(t[i+1:])
