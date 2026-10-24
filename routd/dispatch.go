@@ -108,7 +108,7 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 	// Both topic overrides are properties of the CHAT, resolved once: the key
 	// function below runs per row and pollBatch is 200.
 	web := strings.HasPrefix(chatJID, "web:")
-	pin := l.effectiveTopic(chatJID, "")
+	_, pin := l.db.StickyState(chatJID)
 	if !web && r.Topic != "" {
 		pin = r.Topic
 	}

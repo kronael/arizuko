@@ -708,13 +708,14 @@ func (l *Loop) resolveRows(chatJID string, rows []core.Message) []resolution {
 		}
 		routesOK = err == nil
 	}
+	reads := &chatReads{db: l.db, chatJID: chatJID}
 	for i, m := range rows {
 		if isDirect {
 			// Only a person typing in a web chat is a question; a hook is an event
 			// and a bare folder is a system turn.
 			out[i] = resolution{Folder: direct, ok: true, Addressed: core.JidPlatform(chatJID) == "web"}
 		} else {
-			out[i] = l.resolveFolder(chatJID, m, routes, routesOK)
+			out[i] = l.resolveFolder(reads, m, routes, routesOK)
 		}
 		if isSystemTrigger(m.Sender) {
 			out[i].Addressed = false
@@ -723,17 +724,17 @@ func (l *Loop) resolveRows(chatJID string, rows []core.Message) []resolution {
 	return out
 }
 
-func (l *Loop) resolveFolder(chatJID string, last core.Message, routes []core.Route, routesOK bool) resolution {
+func (l *Loop) resolveFolder(reads *chatReads, last core.Message, routes []core.Route, routesOK bool) resolution {
 	// 2. Route table.
 	if routesOK {
 		rt := router.ResolveRouteTarget(last, routes)
 		if rt.Folder != "" {
-			engTopic := l.effectiveTopic(chatJID, last.Topic)
+			engTopic := reads.effectiveTopic(last.Topic)
 			// #engaged extends engagement to the rows the rule matches, whatever
 			// their verb: it fires in the engaged folder while the chat and topic
 			// are engaged and is observed under the target otherwise. Never addressed.
 			if rt.Mode == "engaged" {
-				if folder, ok := l.engagedFolder(chatJID, engTopic); ok {
+				if folder, ok := reads.engagedFolder(engTopic); ok {
 					return resolution{Folder: folder, ok: true}
 				}
 				return resolution{Observe: rt.Folder}
@@ -741,7 +742,7 @@ func (l *Loop) resolveFolder(chatJID string, last core.Message, routes []core.Ro
 			// A trigger rule addresses the folder whether or not the chat is also
 			// engaged; an observe rule on an engaged chat is engagement alone.
 			addressed := rt.Mode != "observe"
-			if folder, ok := l.engaged(chatJID, engTopic, last.Verb); ok {
+			if folder, ok := reads.engaged(engTopic, last.Verb); ok {
 				return resolution{Folder: folder, ok: true, Addressed: addressed}
 			}
 			if rt.Mode == "observe" {
@@ -751,18 +752,33 @@ func (l *Loop) resolveFolder(chatJID string, last core.Message, routes []core.Ro
 		}
 	}
 	// 3. Engagement fallback on a route miss (topic-root normalized).
-	engTopic := l.effectiveTopic(chatJID, last.Topic)
-	if folder, ok := l.engaged(chatJID, engTopic, last.Verb); ok {
+	engTopic := reads.effectiveTopic(last.Topic)
+	if folder, ok := reads.engaged(engTopic, last.Verb); ok {
 		return resolution{Folder: folder, ok: true}
 	}
 	return resolution{}
 }
 
+// chatReads holds the engagement facts of one chat that a resolveRows call has
+// read: a batch of 200 rows on one topic asks the store once, not 200 times.
+// It lives for one call; nothing here is shared across calls.
+type chatReads struct {
+	db      *DB
+	chatJID string
+	pin     *string
+	// folders maps a topic to its live engagement folder, "" when none is live.
+	folders map[string]string
+}
+
 // effectiveTopic resolves the topic a turn dispatches under: a set sticky
 // #topic overrides the message's own topic.
-func (l *Loop) effectiveTopic(chatJID, msgTopic string) string {
-	if _, sticky := l.db.StickyState(chatJID); sticky != "" {
-		return sticky
+func (r *chatReads) effectiveTopic(msgTopic string) string {
+	if r.pin == nil {
+		_, sticky := r.db.StickyState(r.chatJID)
+		r.pin = &sticky
+	}
+	if *r.pin != "" {
+		return *r.pin
 	}
 	return msgTopic
 }
@@ -771,32 +787,44 @@ func (l *Loop) effectiveTopic(chatJID, msgTopic string) string {
 // with verb rides engagement: only a person's message or mention does. An empty
 // engaged folder (a stale ingress claim) is NOT a route: false, so resolve
 // falls through instead of dispatching to "".
-func (l *Loop) engaged(chatJID, topic, verb string) (string, bool) {
+func (r *chatReads) engaged(topic, verb string) (string, bool) {
 	if verb != "" && verb != "message" && verb != "mention" {
 		return "", false
 	}
-	return l.engagedFolder(chatJID, topic)
+	return r.engagedFolder(topic)
 }
 
 // engagedFolder is the live engagement folder for (chatJID, topic), whatever
 // the verb of the row asking. The topic falls back to the root window unless
 // the thread was disengaged.
-func (l *Loop) engagedFolder(chatJID, topic string) (string, bool) {
-	folder, ok := l.db.Engaged(chatJID, topic)
+func (r *chatReads) engagedFolder(topic string) (string, bool) {
+	if folder, read := r.folders[topic]; read {
+		return folder, folder != ""
+	}
+	folder, ok := r.db.Engaged(r.chatJID, topic)
 	if !ok && topic != "" {
-		stopped, err := l.db.store().ThreadDisengaged(chatJID, topic)
+		stopped, err := r.db.store().ThreadDisengaged(r.chatJID, topic)
 		if err != nil {
-			slog.Error("read thread engagement", "jid", chatJID, "topic", topic, "err", err)
+			slog.Error("read thread engagement", "jid", r.chatJID, "topic", topic, "err", err)
+			r.remember(topic, "")
 			return "", false
 		}
 		if !stopped {
-			folder, ok = l.db.Engaged(chatJID, "")
+			folder, ok = r.engagedFolder("")
 		}
 	}
-	if !ok || folder == "" {
-		return "", false
+	if !ok {
+		folder = ""
 	}
-	return folder, true
+	r.remember(topic, folder)
+	return folder, folder != ""
+}
+
+func (r *chatReads) remember(topic, folder string) {
+	if r.folders == nil {
+		r.folders = map[string]string{}
+	}
+	r.folders[topic] = folder
 }
 
 // directFolder returns the folder a JID directly addresses, or "". For a

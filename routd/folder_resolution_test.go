@@ -98,3 +98,46 @@ func TestFolderForJidReadsThePendingBatchOnce(t *testing.T) {
 		t.Fatalf("folder after read failure = %q, want chat JID", got)
 	}
 }
+
+type storeQueries struct {
+	objstore.Store
+	n int
+}
+
+func (s *storeQueries) Query(ctx context.Context, q objstore.Query) ([]objstore.Item, error) {
+	s.n++
+	return s.Store.Query(ctx, q)
+}
+
+// Resolving a batch asks the store for the chat's engagement and sticky pins
+// once per distinct fact: 60 rows on one topic cost what 2 rows cost.
+func TestBatchResolve_ReadsEachChatFactOnce(t *testing.T) {
+	db, loop := newEngagementLoop(t, engagedCIRoutes(t))
+	jid := "github:kronael/arizuko/pr/9"
+	if err := db.SetEngagement(jid, "", "held", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	reads := &storeQueries{Store: db.obj}
+	db.obj = reads
+	batch := func(n int) []core.Message {
+		msgs := make([]core.Message, n)
+		for i := range msgs {
+			verb := "message"
+			if i%2 == 1 {
+				verb = "check_run"
+			}
+			msgs[i] = core.Message{ChatJID: jid, Topic: "pr/9", Verb: verb, Sender: "u"}
+		}
+		return msgs
+	}
+	loop.resolveBatch(jid, batch(2))
+	two := reads.n
+	reads.n = 0
+	b := loop.resolveBatch(jid, batch(60))
+	if reads.n != two {
+		t.Fatalf("60 rows read the store %d times, 2 rows %d: reads grow with the batch", reads.n, two)
+	}
+	if !b.ok || b.Folder != "held" {
+		t.Fatalf("batch resolution changed: %+v", b.resolution)
+	}
+}
