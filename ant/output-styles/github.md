@@ -57,20 +57,15 @@ watches the pull request or issue. GitHub renders GitHub Flavored Markdown.
 
 ## Threads
 
-- ALWAYS set `replyToId` to the id of the comment you answer. Without it,
-  the reply goes to the last comment of the batch, which can be another
-  thread.
+- Each message opens with a line `[github kind=… id=… …]`. It names the
+  kind of event, the `id` of the message, and where it happened: `thread`,
+  `review`, `path`, `lines`, `side`, `url`. An inline comment adds the
+  diff lines it points at.
+- ALWAYS set `replyToId` to the `id` of the comment you answer. `reply`
+  on a GitHub chat without `replyToId` fails and sends nothing.
 - An inline comment id starts with `gh-rc`: the answer stays under that
   code line. A conversation comment id starts with `gh-c`: the answer goes
   into the conversation.
 - Answer each comment with its own `reply`. NEVER post a comment with
   `gh pr comment` or `gh api …/comments`: the next turn does not see it, and
   the `reply` repeats it. Use `gh` for code, push, merge and reviews.
-
-## Progress
-
-- The `<status>` lines and the `TodoWrite` list of a turn go into one
-  comment. That comment stays on the pull request as `✓ <text>` after the
-  turn ends.
-- A status names the task, never a step or a finding: `reviewing #310`,
-  not `posting PR #310 review`.

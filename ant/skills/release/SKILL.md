@@ -102,7 +102,6 @@ user-invocable: true
 ## Rules
 
 - ALWAYS `git tag vX.Y.Z` on the release commit
-- NEVER push (`git push`)
 - NEVER compress the `>` blockquote past the rules above — it's broadcast verbatim
 - NEVER drop security fixes, breaking changes, schema migrations, env renames during distill
 - Default to patch bump unless user says otherwise

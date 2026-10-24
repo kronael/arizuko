@@ -111,7 +111,7 @@ Escape hatches (per replayed patch):
 - `git rebase --abort` / `cherry-pick --abort` / `git merge --abort` to bail
   entirely to the pre-op state. NEVER leave a half-finished rebase.
 
-If pre-commit reformats (merge only), retry once. NEVER `--amend` / `--no-verify` / `push`.
+If pre-commit reformats (merge only), retry once. NEVER `--amend` / `--no-verify`.
 
 ## Priority rule (when user says "prioritize HEAD / feature branch")
 

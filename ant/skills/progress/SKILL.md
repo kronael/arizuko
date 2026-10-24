@@ -29,6 +29,8 @@ NEVER force a task list onto a one-line answer; ALWAYS answer directly.
   ALWAYS close a reported status with `reply`.
 - An existing thread keeps the summary, progress and answer in that thread.
   A channel without new-thread support keeps one editable progress message.
-  A channel without `edit` receives no progress message.
+  A channel without `edit` receives no progress message, GitHub included.
+  When the turn ends, a channel that can delete removes its progress
+  message; the other channels keep it as `✓ <text>`.
 - If the opener is pending or unreadable, delivery refuses an unplaced answer.
   ALWAYS retry after the reported failure clears; NEVER send around the thread.
