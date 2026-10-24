@@ -327,6 +327,13 @@ reads those words now.
 - `L554` — onboarding and pairing key on the chat JID, not the sender, so a
   paired DM user is linked only where chat equals sender; blocks L553 (sign-off).
 
+**Found by the jynx product dogfood on sloth (2026-10-24).**
+
+- `L555` — `products apply` from a git source copies the clone's `.git/` into
+  the group home.
+- `L556` — `group rm` deletes only rows and leaves the group folder and its web
+  dirs: should it delete them, or say it keeps them (sign-off)?
+
 **Found while folding the lowercase `bugs.md` into this file (2026-10-20).**
 
 - `L480` — slakd sends a whole reply as one `chat.postMessage`; `chanlib.Chunk`
@@ -1411,6 +1418,35 @@ far more often than chat.
   silently dropped.
 - **Fix:** `L75(b)` — a batch that holds a mention resolves by the mention.
 - **Status:** open — needs sign-off (dispatch control flow, with `L75(b)`).
+
+## L556 — `group rm` leaves the group folder and its web dirs on disk (2026-10-24, open — needs sign-off)
+
+MEASURED on sloth: after `arizuko group sloth rm sloth/jynx-test` the rows were
+gone (group, route 75, package record, five default tasks), and three
+directories stayed: `groups/sloth/jynx-test`, `web/pub/sloth/jynx-test` and
+`web/priv/sloth/jynx-test`. `runGroupRm` (`cmd/arizuko/group_rm.go:46`) calls
+`DeleteGroupStopping` and nothing on the filesystem. `cmd/arizuko/README.md:31`
+says it "removes the group", and does not say the files stay. A later
+`group add` of the same folder then seeds over the old files.
+
+- **Fix:** either `group rm` deletes the three directories, or the README and
+  the command's output say they stay and name them. Deleting agent files is
+  the owner's decision.
+- **Status:** open — needs sign-off.
+
+## L555 — `products apply` from a git source copies the clone's `.git/` into the group home (2026-10-24, open)
+
+MEASURED on sloth: applying `git+file:///home/onvos/app/jynx` to
+`sloth/jynx-test` wrote 27 files under `groups/sloth/jynx-test/.git/`, with the
+clone's `origin` remote in `.git/config`. `productFiles`
+(`container/blend.go:172`) walks the whole source directory, and a `.git/` path
+matches no named payload, so the catch-all row copies it verbatim. The group
+home then is a git work tree of the product, which the agent sees.
+
+- **Fix:** `productFiles` skips the source root's `.git`. A test applies a
+  product directory that holds a `.git/` and asserts nothing under `.git/`
+  lands in the group.
+- **Status:** open.
 
 ## L554 — onboarding and pairing link the chat JID to the person, not the sender (2026-10-23, open — needs sign-off)
 
