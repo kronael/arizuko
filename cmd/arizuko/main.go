@@ -487,13 +487,17 @@ func cmdGroup(args []string) {
 		if err != nil {
 			die("usage: %s", groupRmUsage)
 		}
+		cfg, err := core.LoadConfigFrom(dataDir)
+		if err != nil {
+			die("Failed: load config: %v", err)
+		}
 		var client *runedv1.Client
 		if !force {
 			if client, err = runedClient(dataDir); err != nil {
 				die("Failed: %v", err)
 			}
 		}
-		if err := runGroupRm(context.Background(), s, client, folder, force, os.Stdout); err != nil {
+		if err := runGroupRm(context.Background(), s, cfg, client, folder, force, os.Stdout); err != nil {
 			die("Failed: %v", err)
 		}
 

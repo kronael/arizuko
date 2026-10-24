@@ -6,8 +6,13 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
+	"slices"
 	"time"
 
+	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/groupfolder"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 	"github.com/kronael/arizuko/store"
 )
@@ -17,8 +22,8 @@ const groupRmUsage = "arizuko group <instance> rm [-f|--force] <folder>"
 func parseGroupRm(args []string) (folder string, force bool, err error) {
 	fs := flag.NewFlagSet("group rm", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
-	fs.BoolVar(&force, "force", false, "remove the rows without stopping runs at runed")
-	fs.BoolVar(&force, "f", false, "remove the rows without stopping runs at runed")
+	fs.BoolVar(&force, "force", false, "remove rows and files without stopping runs at runed")
+	fs.BoolVar(&force, "f", false, "remove rows and files without stopping runs at runed")
 	if err := flexParse(fs, args); err != nil {
 		return "", false, err
 	}
@@ -40,10 +45,65 @@ func runedClient(dataDir string) (*runedv1.Client, error) {
 	return runedv1.NewClient(base, env["RUNED_TOKEN"], 30*time.Second), nil
 }
 
-// runGroupRm purges folder's subtree and then stops each removed folder's run at
-// runed. Without force it probes runed first and removes nothing when runed is
-// unreachable. With force the client is not used and no run is stopped.
-func runGroupRm(ctx context.Context, s *store.Store, client *runedv1.Client, folder string, force bool, out io.Writer) error {
+func runGroupRm(
+	ctx context.Context, s *store.Store, cfg *core.Config,
+	client *runedv1.Client, folder string, force bool, out io.Writer,
+) error {
+	folders := []string{folder}
+	for _, group := range s.AllGroups() {
+		if group.Folder != folder && groupfolder.Contains(folder, group.Folder) {
+			folders = append(folders, group.Folder)
+		}
+	}
+	slices.SortFunc(folders, func(a, b string) int { return len(b) - len(a) })
+	for _, folder := range folders {
+		if !groupfolder.IsValidFolder(folder) || filepath.Clean(folder) != folder || folder == "." {
+			return fmt.Errorf("invalid group folder %q", folder)
+		}
+	}
+	instance, err := os.OpenRoot(cfg.ProjectRoot)
+	if err != nil {
+		return err
+	}
+	// Closing read-only directory handles cannot change the removal result.
+	defer instance.Close() //nolint:errcheck
+	type removalPath struct {
+		root   *os.Root
+		folder string
+		path   string
+	}
+	var paths []removalPath
+	for _, base := range []string{
+		cfg.GroupsDir,
+		filepath.Join(cfg.WebDir, "pub"),
+		filepath.Join(cfg.WebDir, "priv"),
+	} {
+		relative, err := filepath.Rel(cfg.ProjectRoot, base)
+		if err != nil {
+			return err
+		}
+		root, err := instance.OpenRoot(relative)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("validate %s: %w", base, err)
+		}
+		// Closing read-only directory handles cannot change the removal result.
+		defer root.Close() //nolint:errcheck
+		resolver := groupfolder.Resolver{GroupsDir: base}
+		for _, folder := range folders {
+			path, err := resolver.GroupPath(folder)
+			if err != nil {
+				return err
+			}
+			_, err = root.Stat(folder)
+			if err != nil && !errors.Is(err, os.ErrNotExist) {
+				return fmt.Errorf("validate %s: %w", path, err)
+			}
+			paths = append(paths, removalPath{root, folder, path})
+		}
+	}
 	stop := func(context.Context, string) error { return nil }
 	if !force {
 		if err := client.Health(ctx); err != nil {
@@ -71,6 +131,17 @@ func runGroupRm(ctx context.Context, s *store.Store, client *runedv1.Client, fol
 	}
 	if err != nil {
 		return fmt.Errorf("rows removed, but: %w", err)
+	}
+	for _, path := range paths {
+		if _, err := path.root.Lstat(path.folder); errors.Is(err, os.ErrNotExist) {
+			continue
+		} else if err != nil {
+			return fmt.Errorf("inspect %s: %w", path.path, err)
+		}
+		if err := path.root.RemoveAll(path.folder); err != nil {
+			return fmt.Errorf("remove %s: %w", path.path, err)
+		}
+		_, _ = fmt.Fprintf(out, "removed %s\n", path.path)
 	}
 	return nil
 }

@@ -327,11 +327,6 @@ reads those words now.
 - `L554` — onboarding and pairing key on the chat JID, not the sender, so a
   paired DM user is linked only where chat equals sender; blocks L553 (signed off).
 
-**Found by the jynx product dogfood on sloth (2026-10-24).**
-
-- `L556` — `group rm` deletes only rows and leaves the group folder and its web
-  dirs; it must delete them too (signed off).
-
 **Found while folding the lowercase `bugs.md` into this file (2026-10-20).**
 
 - `L480` — slakd sends a whole reply as one `chat.postMessage`; `chanlib.Chunk`
@@ -1416,21 +1411,6 @@ far more often than chat.
   silently dropped.
 - **Fix:** `L75(b)` — a batch that holds a mention resolves by the mention.
 - **Status:** open — needs sign-off (dispatch control flow, with `L75(b)`).
-
-## L556 — `group rm` leaves the group folder and its web dirs on disk (2026-10-24, open)
-
-MEASURED on sloth: after `arizuko group sloth rm sloth/jynx-test` the rows were
-gone (group, route 75, package record, five default tasks), and three
-directories stayed: `groups/sloth/jynx-test`, `web/pub/sloth/jynx-test` and
-`web/priv/sloth/jynx-test`. `runGroupRm` (`cmd/arizuko/group_rm.go:46`) calls
-`DeleteGroupStopping` and nothing on the filesystem. `cmd/arizuko/README.md:31`
-says it "removes the group", and does not say the files stay. A later
-`group add` of the same folder then seeds over the old files.
-
-- **Fix:** DECIDED (owner, 2026-10-24): `group rm` also deletes the group
-  folder and its `web/pub` and `web/priv` directories, for the folder and every
-  group under it, and its output names what it deleted.
-- **Status:** open — signed off.
 
 ## L554 — onboarding and pairing link the chat JID to the person, not the sender (2026-10-23, open)
 
