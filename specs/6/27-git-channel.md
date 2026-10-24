@@ -178,8 +178,8 @@ so gitd does not read it.
 Every GitHub message that gitd maps opens with one header line, so the agent reads
 where a message sits without a second API call. One renderer in `gitd/event.go` builds
 it once per mapped message, after the message id is final, and the CI fan-out in
-`gitd/ci.go` uses the same renderer. Owner ruling 2026-10-24, BUGS `L549`; the code
-is not built.
+`gitd/ci.go` uses the same renderer. Built in `76040b8a`; the `reply` rule below in
+`279cc523`.
 
 ````text
 [github kind=pull_request_review_comment id=gh-rc5678901234 thread=gh-rc5678901200 review=gh-r6789012345 path=gitd/verify.go lines=10-12 side=RIGHT url=https://github.com/kronael/arizuko/pull/12#discussion_r5678901234]

@@ -19,9 +19,9 @@ and answers in its thread. Other editable channels keep one progress message;
 channels without `edit` render no progress message. When the turn ends, a channel
 that can delete removes its progress message.
 
-`status: partial`: the renderer, the terminal mark, the `edit` sink webd
-and the shared `👀` mark are built (§"Build state"). Not built: gitd without `edit`,
-deletion of the progress message at `End`, the `Typing` port
+`status: partial`: the renderer, the terminal mark, the `edit` sink webd,
+the shared `👀` mark, gitd without `edit` and the deletion of the progress
+message at `End` are built (§"Build state"). Not built: the `Typing` port
 change (D3, declined), Drive `edit` (blocked on the Drive API, §"Unverified") and
 the measurement on krons (§"Acceptance").
 
@@ -35,12 +35,12 @@ final-result status reader below. Only ant extracts `<status>` blocks;
 | ---- | --------------------------------------------------------------------------- | --------------------------------------------------------------------------- | ----------------------------------------------------- |
 | 1    | routd renders `Begin` and `Update`; no `edit`, no message; equal text no-op | built, `d6572106`                                                           | `routd/progress.go` `beginProgress`, `updateProgress` |
 | 2    | `finishTurn` is the one writer of `done`; `End` marks `✓`/`✗`               | built, `dd670329`                                                           | `routd/progress.go` `finishTurn`, `endProgress`       |
-| 3    | gitd advertises no `edit`; GitHub renders the `👀` mark and no comment      | not built; BUGS `L546`                                                      | `gitd/main.go` `capsFor`                              |
+| 3    | gitd advertises no `edit`; GitHub renders the `👀` mark and no comment      | built, `0c175988`                                                           | `gitd/main.go` `capsFor`                              |
 | 4    | webd `edit` as a replace frame; `typing` out of its map                     | built, `eddce204`; open: `L439`, `L440` in `BUGS.md`                        | `webd/channel.go`                                     |
 | 5    | the `👀` mark once in chanlib; slakd and gitd on it                         | built, `68fc2895`                                                           | `chanlib/mark.go`                                     |
 | 6    | `Typing(req TypingRequest)` carrying the trigger id (D3)                    | not built; declined                                                         | —                                                     |
 | 7    | googd `edit` on its own reply                                               | not built; the probe has not run, the Drive API is off in the key's project | §"Unverified"                                         |
-| 8    | `End` deletes the progress message on a channel that advertises `delete`    | not built; BUGS `L546`                                                      | `routd/progress.go` `endProgress`                     |
+| 8    | `End` deletes the progress message on a channel that advertises `delete`    | built, `c0e361ac`                                                           | `routd/progress.go` `endProgress`                     |
 | —    | the acceptance list measured on krons                                       | not measured                                                                | §"Acceptance"                                         |
 
 ## Problem
