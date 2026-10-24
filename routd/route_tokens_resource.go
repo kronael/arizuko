@@ -125,7 +125,8 @@ func (s *Server) routeTokensHandler(ctx context.Context, x resreg.Execution) (an
 			return nil, resreg.Errorf(http.StatusInternalServerError,
 				"cannot mint a pairing link: WEB_HOST is unset, so there is no URL to hand out")
 		}
-		sender, err := pairingSender(ctx, s.db, jid)
+		sender, err := pairingSender(ctx, s.db, jid,
+			strings.TrimSpace(argString(x.Args, "sender")))
 		if err != nil {
 			return nil, err
 		}
@@ -209,16 +210,20 @@ func pairingTargetFolder(db *DB, jid string) (string, error) {
 	return target, nil
 }
 
-func pairingSender(ctx context.Context, db *DB, jid string) (string, error) {
-	last, found, err := db.store().LastInboundMessage(ctx, jid)
+func pairingSender(ctx context.Context, db *DB, jid, sender string) (string, error) {
+	if sender == "" {
+		return "", resreg.Errorf(http.StatusBadRequest,
+			"chat %s: sender %q required", jid, sender)
+	}
+	found, err := db.store().HasInboundSender(ctx, jid, sender)
 	if err != nil {
 		return "", resreg.Errorf(http.StatusInternalServerError, "%v", err)
 	}
-	if !found || last.Sender == "" {
+	if !found {
 		return "", resreg.Errorf(http.StatusBadRequest,
-			"chat %s has no inbound sender", jid)
+			"chat %s has no inbound message from sender %q", jid, sender)
 	}
-	return last.Sender, nil
+	return sender, nil
 }
 
 // routeTokenJID builds the (jid, url-prefix) for a mint: segRe-validate the

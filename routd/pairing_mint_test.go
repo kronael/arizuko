@@ -42,9 +42,9 @@ func pairingFixture(t *testing.T, folder, match string) (*DB, string) {
 }
 
 // issuePairing drives the tool and returns the parsed {url, jid}.
-func issuePairing(t *testing.T, sock, jid string) (url, gotJID string) {
+func issuePairing(t *testing.T, sock, jid, sender string) (url, gotJID string) {
 	t.Helper()
-	text, e := callToolText(t, sock, "issue_pairing_link", map[string]any{"jid": jid})
+	text, e := callToolText(t, sock, "issue_pairing_link", map[string]any{"jid": jid, "sender": sender})
 	if e != "" {
 		t.Fatalf("issue_pairing_link(%s) errored: %s", jid, e)
 	}
@@ -63,7 +63,7 @@ func issuePairing(t *testing.T, sock, jid string) (url, gotJID string) {
 func TestPairingMint_RoutedJID(t *testing.T) {
 	db, sock := pairingFixture(t, "hq", "room=user/42")
 
-	url, jid := issuePairing(t, sock, "telegram:user/42")
+	url, jid := issuePairing(t, sock, "telegram:user/42", "telegram:user/42")
 	if jid != "telegram:user/42" {
 		t.Fatalf("jid = %q", jid)
 	}
@@ -105,7 +105,9 @@ func TestPairingMint_ForeignJIDRefused(t *testing.T) {
 	}
 	seedPairingInbound(t, db, "telegram:user/99", "telegram:user/99")
 
-	_, e := callToolText(t, sock, "issue_pairing_link", map[string]any{"jid": "telegram:user/99"})
+	_, e := callToolText(t, sock, "issue_pairing_link", map[string]any{
+		"jid": "telegram:user/99", "sender": "telegram:user/99",
+	})
 	if e == "" {
 		t.Fatal("minting for another folder's chat was allowed")
 	}
@@ -121,7 +123,9 @@ func TestPairingMint_ForeignJIDRefused(t *testing.T) {
 func TestPairingMint_UnroutedJIDRefused(t *testing.T) {
 	_, sock := pairingFixture(t, "hq", "room=user/42")
 
-	_, e := callToolText(t, sock, "issue_pairing_link", map[string]any{"jid": "telegram:user/777"})
+	_, e := callToolText(t, sock, "issue_pairing_link", map[string]any{
+		"jid": "telegram:user/777", "sender": "telegram:user/777",
+	})
 	if e == "" {
 		t.Fatal("minting for an unrouted JID was allowed")
 	}
@@ -136,7 +140,7 @@ func TestPairingMint_IngressSurfacesRefused(t *testing.T) {
 	db, sock := pairingFixture(t, "hq", "room=hq")
 
 	for _, jid := range []string{"web:hq", "hook:hq/github", "anon:deadbeef"} {
-		if _, e := callToolText(t, sock, "issue_pairing_link", map[string]any{"jid": jid}); e == "" {
+		if _, e := callToolText(t, sock, "issue_pairing_link", map[string]any{"jid": jid, "sender": jid}); e == "" {
 			t.Errorf("issue_pairing_link(%q) was allowed", jid)
 		}
 	}
@@ -199,7 +203,7 @@ func TestIssuedURLsCarrySchemeForBareWebHost(t *testing.T) {
 	seedPairingInbound(t, db, "telegram:user/42", "telegram:user/42")
 	sock := serveRouteTokensMCP(t, db, "hq", "folder:hq", "krons.fiu.wtf") // bare, as deployed
 
-	pairURL, _ := issuePairing(t, sock, "telegram:user/42")
+	pairURL, _ := issuePairing(t, sock, "telegram:user/42", "telegram:user/42")
 	if !strings.HasPrefix(pairURL, "https://krons.fiu.wtf/pair/") {
 		t.Fatalf("pairing url = %q, want an https:// prefix — a scheme-less link is not clickable", pairURL)
 	}
@@ -219,7 +223,7 @@ func TestIssuedURLsCarrySchemeForBareWebHost(t *testing.T) {
 // normaliser is idempotent, so an operator may configure either shape.
 func TestIssuedURLsNotDoubleSchemed(t *testing.T) {
 	db, sock := pairingFixture(t, "hq", "room=user/42") // fixture webHost = https://x.test
-	url, _ := issuePairing(t, sock, "telegram:user/42")
+	url, _ := issuePairing(t, sock, "telegram:user/42", "telegram:user/42")
 	if !strings.HasPrefix(url, "https://x.test/pair/") || strings.Count(url, "://") != 1 {
 		t.Fatalf("url = %q, want exactly one scheme", url)
 	}
@@ -251,7 +255,7 @@ func seedPairingInbound(t *testing.T, db *DB, chat, sender string) {
 	}
 }
 
-func TestPairingMintDiscordChatBindsNewestInboundSender(t *testing.T) {
+func TestPairingMintDiscordChatBindsExplicitSender(t *testing.T) {
 	db, sock := pairingFixture(t, "hq", "room=dm/200")
 	if err := db.PutGroup(core.Group{Folder: "rival"}); err != nil {
 		t.Fatal(err)
@@ -278,11 +282,11 @@ func TestPairingMintDiscordChatBindsNewestInboundSender(t *testing.T) {
 		}
 	}
 	for _, jid := range []string{"discord:dm/100", sender} {
-		if _, e := callToolText(t, sock, "issue_pairing_link", map[string]any{"jid": jid}); e == "" {
+		if _, e := callToolText(t, sock, "issue_pairing_link", map[string]any{"jid": jid, "sender": sender}); e == "" {
 			t.Errorf("pairing accepted chat outside containment: %s", jid)
 		}
 	}
-	url, got := issuePairing(t, sock, "discord:dm/200")
+	url, got := issuePairing(t, sock, "discord:dm/200", sender)
 	if got != "discord:dm/200" {
 		t.Fatalf("response chat = %q", got)
 	}
@@ -295,12 +299,12 @@ func TestPairingMintDiscordChatBindsNewestInboundSender(t *testing.T) {
 	grantMCPTools(t, db, "hq", "unpair")
 	unpairSock := serveMembershipMCP(t, db, "hq", "folder:hq")
 	if _, e := callToolText(t, unpairSock, "unpair", map[string]any{
-		"child": "discord:dm/100", "parent": "github:alice",
+		"jid": "discord:dm/100", "sender": sender, "parent": "github:alice",
 	}); e == "" {
 		t.Fatal("unpair accepted chat outside containment")
 	}
 	if _, e := callToolText(t, unpairSock, "unpair", map[string]any{
-		"child": "discord:dm/200", "parent": "github:alice",
+		"jid": "discord:dm/200", "sender": sender, "parent": "github:alice",
 	}); e != "" {
 		t.Fatalf("unpair sender: %s", e)
 	}
@@ -315,7 +319,7 @@ func TestPairingMintRequiresInboundSender(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, sender := range []string{"discord:dm/200", "discord:user/999"} {
-		if _, e := callToolText(t, sock, "issue_pairing_link", map[string]any{"jid": sender}); e == "" {
+		if _, e := callToolText(t, sock, "issue_pairing_link", map[string]any{"jid": sender, "sender": sender}); e == "" {
 			t.Errorf("pairing accepted unattested sender %s", sender)
 		}
 		if err := db.store().PutMembership(sender, "github:alice", store.PairingAddedBy); err != nil {
@@ -326,7 +330,7 @@ func TestPairingMintRequiresInboundSender(t *testing.T) {
 	unpairSock := serveMembershipMCP(t, db, "hq", "folder:hq")
 	for _, sender := range []string{"discord:dm/200", "discord:user/999"} {
 		if _, e := callToolText(t, unpairSock, "unpair", map[string]any{
-			"child": sender, "parent": "github:alice",
+			"jid": sender, "sender": sender, "parent": "github:alice",
 		}); e == "" {
 			t.Errorf("unpair accepted unattested sender %s", sender)
 		}

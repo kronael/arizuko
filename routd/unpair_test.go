@@ -77,7 +77,7 @@ func TestUnpairMCP_ChannelSide(t *testing.T) {
 	sock := serveMembershipMCP(t, db, "hq", "folder:hq")
 
 	text, e := callToolText(t, sock, "unpair",
-		map[string]any{"child": "telegram:user/42", "parent": "google:alice"})
+		map[string]any{"jid": "telegram:user/42", "sender": "telegram:user/42", "parent": "google:alice"})
 	if e != "" {
 		t.Fatalf("unpair errored: %s", e)
 	}
@@ -102,7 +102,7 @@ func TestUnpairMCP_CannotReachRoleMembership(t *testing.T) {
 	sock := serveMembershipMCP(t, db, "hq", "folder:hq")
 
 	_, e := callToolText(t, sock, "unpair",
-		map[string]any{"child": "telegram:user/42", "parent": "role:member"})
+		map[string]any{"jid": "telegram:user/42", "sender": "telegram:user/42", "parent": "role:member"})
 	if e == "" {
 		t.Fatal("unpair deleted a role membership")
 	}
@@ -124,7 +124,7 @@ func TestUnpairMCP_ForeignChatRefused(t *testing.T) {
 	sock := serveMembershipMCP(t, db, "rival", "folder:rival")
 
 	_, e := callToolText(t, sock, "unpair",
-		map[string]any{"child": "telegram:user/42", "parent": "google:alice"})
+		map[string]any{"jid": "telegram:user/42", "sender": "telegram:user/42", "parent": "google:alice"})
 	if e == "" {
 		t.Fatal("a folder unpaired another folder's chat")
 	}
@@ -188,7 +188,7 @@ func TestUnpair_LeavesManifestEdgesAlone(t *testing.T) {
 	sock := serveMembershipMCP(t, db, "hq", "folder:hq")
 
 	if _, e := callToolText(t, sock, "unpair",
-		map[string]any{"child": "telegram:user/42", "parent": "google:applied"}); e == "" {
+		map[string]any{"jid": "telegram:user/42", "sender": "telegram:user/42", "parent": "google:applied"}); e == "" {
 		t.Fatal("unpair deleted a manifest-applied edge")
 	}
 	if !edgeExists(t, db, "telegram:user/42", "google:applied") {

@@ -47,8 +47,10 @@ var ACLMembershipMCPDoc = map[resreg.Action]string{
 
 var ACLMembershipMCPArgs = map[resreg.Action][]resreg.MCPArg{
 	resreg.ActionDelete: {
-		{Name: "child", Type: "string", Required: true,
-			Description: "The channel identity to unlink (e.g. telegram:user/123). It must route to your folder."},
+		{Name: "jid", Type: "string", Required: true,
+			Description: "Chat JID. The chat must route within your folder."},
+		{Name: "sender", Type: "string", Required: true,
+			Description: "Identity to unlink. This sender must have an inbound message in the named chat."},
 		{Name: "parent", Type: "string", Required: true,
 			Description: "The account it currently acts as (e.g. google:alice)."},
 	},

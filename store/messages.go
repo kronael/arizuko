@@ -1123,6 +1123,14 @@ func (s *Store) LastInboundMessage(ctx context.Context, jid string) (core.Messag
 	return s.lastMessageWhere(ctx, jid, "inbound", inboundWhere())
 }
 
+func (s *Store) HasInboundSender(ctx context.Context, jid, sender string) (bool, error) {
+	where := append(inboundWhere(), objstore.Cmp{
+		Attr: attrMsgSender, Op: objstore.Eq, Value: sender,
+	})
+	_, found, err := s.lastMessageWhere(ctx, jid, "inbound sender", where)
+	return found, err
+}
+
 // LastHumanMessage answers a chat's newest row a PERSON wrote: inbound, and
 // from none of the senders arizuko writes on its own behalf. Narrower than
 // LastInboundMessage on purpose: the held set asks which message the loop

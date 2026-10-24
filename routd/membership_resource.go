@@ -40,7 +40,7 @@ func (s *Server) membershipHandler(ctx context.Context, x resreg.Execution, cont
 	}
 	child := strings.TrimSpace(argString(x.Args, "child"))
 	parent := strings.TrimSpace(argString(x.Args, "parent"))
-	if child == "" || parent == "" {
+	if parent == "" || (x.Surface == audit.SurfaceREST && child == "") {
 		return nil, resreg.Errorf(http.StatusBadRequest, "child and parent required")
 	}
 	target := parent
@@ -48,7 +48,8 @@ func (s *Server) membershipHandler(ctx context.Context, x resreg.Execution, cont
 		// Agent face: the caller proves it handles the chat, not that it owns
 		// the account — the same read the mint gate does.
 		var err error
-		if target, err = pairingTargetFolder(s.db, child); err != nil {
+		if target, err = pairingTargetFolder(s.db,
+			strings.TrimSpace(argString(x.Args, "jid"))); err != nil {
 			return nil, err
 		}
 	}
@@ -57,7 +58,9 @@ func (s *Server) membershipHandler(ctx context.Context, x resreg.Execution, cont
 	}
 	if x.Surface != audit.SurfaceREST {
 		var err error
-		child, err = pairingSender(ctx, s.db, child)
+		child, err = pairingSender(ctx, s.db,
+			strings.TrimSpace(argString(x.Args, "jid")),
+			strings.TrimSpace(argString(x.Args, "sender")))
 		if err != nil {
 			return nil, err
 		}
