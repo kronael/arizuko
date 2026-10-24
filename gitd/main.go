@@ -12,14 +12,15 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
-// capsFor advertises send_text, send_file, typing and edit only when a token
-// can post a comment, react to it and edit it; every other verb is Unsupported: repo state
+// capsFor advertises send_text, send_file and typing only when a token can post
+// a comment and react to it; every other verb is Unsupported: repo state
 // changes go through the GitHub MCP connector
 // (specs/6/27-git-channel.md § Channel messages and repository tools). chanreg
-// sends /typing to an adapter only when it advertises typing. edit is what lets
-// routd keep one progress comment per turn (specs/6/46-turn-progress.md).
+// sends /typing to an adapter only when it advertises typing. gitd advertises
+// no edit, so routd posts no progress comment on GitHub
+// (specs/6/46-turn-progress.md).
 func capsFor(token string) map[string]bool {
-	return map[string]bool{"send_text": token != "", "send_file": token != "", "typing": token != "", "edit": token != ""}
+	return map[string]bool{"send_text": token != "", "send_file": token != "", "typing": token != ""}
 }
 
 func main() {
