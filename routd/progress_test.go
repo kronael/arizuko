@@ -605,3 +605,108 @@ func TestFinishTurn_IsTheOnlyDoneWriter(t *testing.T) {
 		t.Fatalf("a turn is marked done at %v, want finishTurn in progress.go alone", sites)
 	}
 }
+
+type deleteEvent struct{ jid, platformID string }
+
+// deletingDeliverer is a channel that advertises edit and delete.
+type deletingDeliverer struct {
+	*recDeliverer
+	deletes   []deleteEvent
+	deleteErr error
+	noDelete  bool
+}
+
+func (d *deletingDeliverer) HasCapability(jid, capability string) bool {
+	if capability == "delete" {
+		return !d.noDelete
+	}
+	return d.recDeliverer.HasCapability(jid, capability)
+}
+
+func (d *deletingDeliverer) Delete(jid, platformID string) error {
+	d.deletes = append(d.deletes, deleteEvent{jid, platformID})
+	return d.deleteErr
+}
+
+func newDeletingProgress(t *testing.T, noDelete bool) (*DB, *deletingDeliverer) {
+	t.Helper()
+	dl := &deletingDeliverer{recDeliverer: &recDeliverer{}, noDelete: noDelete}
+	db, srv := newProgressTurn(t, dl.recDeliverer, "")
+	srv.deliver = dl
+	if err := srv.mcpSubmitStatus("t1", "working"); err != nil {
+		t.Fatal(err)
+	}
+	if rows := statusRows(t, db, progressJID); len(rows) != 1 || rows[0].PlatformID == "" {
+		t.Fatalf("setup: want one delivered status row, got %+v", rows)
+	}
+	return db, dl
+}
+
+func TestProgress_EndDeletesWhereChannelCanDelete(t *testing.T) {
+	db, dl := newDeletingProgress(t, false)
+	platformID := statusRows(t, db, progressJID)[0].PlatformID
+
+	finishTurn(db, dl, "t1", endDone)
+	if len(dl.deletes) != 1 || dl.deletes[0] != (deleteEvent{progressJID, platformID}) {
+		t.Fatalf("deletes=%+v, want one on %s %s", dl.deletes, progressJID, platformID)
+	}
+	if len(dl.edits) != 0 {
+		t.Fatalf("a delete channel also edited: %+v", dl.edits)
+	}
+	if rows := statusRows(t, db, progressJID); rows[0].Content != "✓ working" {
+		t.Fatalf("row after the delete = %q, want %q", rows[0].Content, "✓ working")
+	}
+	if tc, _ := db.GetTurnContext("t1"); tc.State != store.TurnDone {
+		t.Fatalf("turn state = %q, want done", tc.State)
+	}
+
+	finishTurn(db, dl, "t1", endFailed)
+	if len(dl.deletes) != 1 || len(dl.edits) != 0 {
+		t.Fatalf("a second End acted: deletes=%+v edits=%+v", dl.deletes, dl.edits)
+	}
+}
+
+func TestProgress_RefusedDeleteFallsBackToTerminalEdit(t *testing.T) {
+	db, dl := newDeletingProgress(t, false)
+	dl.deleteErr = chanlib.ErrUnsupported
+
+	finishTurn(db, dl, "t1", endFailed)
+	if len(dl.deletes) != 1 {
+		t.Fatalf("deletes=%+v, want one attempt", dl.deletes)
+	}
+	if len(dl.edits) != 1 || dl.edits[0].content != "✗ working" {
+		t.Fatalf("edits=%+v, want one edit reading %q", dl.edits, "✗ working")
+	}
+	if rows := statusRows(t, db, progressJID); rows[0].Content != "✗ working" {
+		t.Fatalf("row = %q, want %q", rows[0].Content, "✗ working")
+	}
+}
+
+func TestProgress_EndOnEditOnlyChannelNeverDeletes(t *testing.T) {
+	db, dl := newDeletingProgress(t, true)
+
+	finishTurn(db, dl, "t1", endDone)
+	if len(dl.deletes) != 0 {
+		t.Fatalf("an edit-only channel was asked to delete: %+v", dl.deletes)
+	}
+	if len(dl.edits) != 1 || dl.edits[0].content != "✓ working" {
+		t.Fatalf("edits=%+v, want one edit reading %q", dl.edits, "✓ working")
+	}
+}
+
+func TestProgress_EndDeleteLeavesSummaryRowAlone(t *testing.T) {
+	db, dl := newDeletingProgress(t, false)
+	row := core.Message{
+		ID: summaryID("t1"), ChatJID: progressJID, Verb: store.VerbStatusSummary,
+		Content: "🤖 summary", PlatformID: "pid-summary", BotMsg: true, FromMe: true,
+		Timestamp: time.Now().UTC(), TurnID: "t1",
+	}
+	if err := db.PutOutbound(row, "sent"); err != nil {
+		t.Fatal(err)
+	}
+
+	finishTurn(db, dl, "t1", endDone)
+	if len(dl.deletes) != 1 || dl.deletes[0].platformID == "pid-summary" {
+		t.Fatalf("deletes=%+v, want only the progress message", dl.deletes)
+	}
+}
