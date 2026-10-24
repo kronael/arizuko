@@ -78,7 +78,7 @@
          │ a Discord guild only on @mention
          ▼ POST onbod /v1/onboarding
 ┌──────────────────┐
-│ onboarding row   │   one per JID, instance-wide
+│ onboarding row   │   one per chat JID, carries inbound sender
 │ awaiting_message │
 └────────┬─────────┘
          │ promptUnprompted: mint route_tokens kind=pair,
@@ -91,7 +91,7 @@ chat: greeting + https://&lt;host&gt;/pair/&lt;token&gt;
 │ webd /pair/&lt;t&gt;   ├──► back to the same URL
 │                  │   GET   confirm page, writes nothing
 │                  │   POST  CSRF, RedeemPairing, one batch:
-│                  │         acl_membership(child=jid, parent=sub,
+│                  │         acl_membership(child=sender, parent=sub,
 │                  │         added_by=pairing) + token delete
 └────────┬─────────┘
          │ success page links /onboard
@@ -194,7 +194,7 @@ arizuko invite &lt;instance&gt; revoke &lt;ref&gt;</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/concepts/onboarding.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-21">2026-10-21</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-23">2026-10-23</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>
