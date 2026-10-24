@@ -652,7 +652,10 @@ func (l *Loop) resolve(chatJID string, last core.Message) resolution {
 
 // batchResolution is the one decision on a batch of rows. The embedded
 // resolution is the newest user row's that dispatches on its own, or the newest
-// user row's when none does. dispatches[i] says msgs[i] dispatches on its own.
+// user row's when none does, except Addressed: it holds when any row that
+// dispatches is addressed, because a person is owed an answer however many
+// unaddressed rows (CI under #engaged) follow. dispatches[i] says msgs[i]
+// dispatches on its own.
 type batchResolution struct {
 	resolution
 	dispatches []bool
@@ -683,6 +686,9 @@ func (l *Loop) resolveBatch(chatJID string, msgs []core.Message) batchResolution
 		b.dispatches[at[k]] = true
 		if !picked {
 			b.resolution, picked = rows[k], true
+		}
+		if rows[k].Addressed {
+			b.Addressed = true
 		}
 	}
 	return b
@@ -728,6 +734,15 @@ func (l *Loop) resolveFolder(chatJID string, last core.Message, routes []core.Ro
 		rt := router.ResolveRouteTarget(last, routes)
 		if rt.Folder != "" {
 			engTopic := l.effectiveTopic(chatJID, last.Topic)
+			// #engaged extends engagement to the rows the rule matches, whatever
+			// their verb: it fires in the engaged folder while the chat and topic
+			// are engaged and is observed under the target otherwise. Never addressed.
+			if rt.Mode == "engaged" {
+				if folder, ok := l.engagedFolder(chatJID, engTopic); ok {
+					return resolution{Folder: folder, ok: true}
+				}
+				return resolution{Observe: rt.Folder}
+			}
 			// A trigger rule addresses the folder whether or not the chat is also
 			// engaged; an observe rule on an engaged chat is engagement alone.
 			addressed := rt.Mode != "observe"
@@ -765,6 +780,13 @@ func (l *Loop) engaged(chatJID, topic, verb string) (string, bool) {
 	if verb != "" && verb != "message" && verb != "mention" {
 		return "", false
 	}
+	return l.engagedFolder(chatJID, topic)
+}
+
+// engagedFolder is the live engagement folder for (chatJID, topic), whatever
+// the verb of the row asking. The topic falls back to the root window unless
+// the thread was disengaged.
+func (l *Loop) engagedFolder(chatJID, topic string) (string, bool) {
 	folder, ok := l.db.Engaged(chatJID, topic)
 	if !ok && topic != "" {
 		stopped, err := l.db.store().ThreadDisengaged(chatJID, topic)

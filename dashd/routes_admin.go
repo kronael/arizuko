@@ -90,7 +90,7 @@ func (d *dash) handleRoutes(w http.ResponseWriter, r *http.Request) {
 			`<p><button type="submit">add</button></p>`+
 			`</form>`+
 			`<p class="dim">Match syntax: <code>room=&lt;jid-room&gt;</code> exact, or <code>verb=mention</code> filter.`+
-			` Target <code>folder</code> trigger, <code>folder#observe</code> silent ingest, <code>folder#&lt;topic&gt;</code> topic pin.</p>`))
+			` Target <code>folder</code> trigger, <code>folder#observe</code> silent ingest, <code>folder#engaged</code> trigger only while the chat is engaged (else silent ingest), <code>folder#&lt;topic&gt;</code> topic pin.</p>`))
 
 	pageClose(w, r)
 }

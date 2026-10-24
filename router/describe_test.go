@@ -1,6 +1,7 @@
 package router
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/kronael/arizuko/core"
@@ -35,6 +36,22 @@ func TestDescribe_ModeAndTrigger(t *testing.T) {
 	bare := find(views, 3)
 	if bare.Mode != "trigger" || !bare.FiresTurn || bare.TriggersOn != "every message" {
 		t.Fatalf("bare trigger row should fire on every message: %+v", bare)
+	}
+}
+
+// TestDescribe_Engaged covers the #engaged fragment: the row fires a turn only
+// through engagement, so an agent reading the table must not take it for a
+// trigger that always fires.
+func TestDescribe_Engaged(t *testing.T) {
+	views := Describe([]core.Route{
+		{ID: 1, Seq: 0, Match: "chat_jid=github:o/r/pr/* verb=check_run", Target: "sloth/morha#engaged"},
+	})
+	v := find(views, 1)
+	if v.Mode != "engaged" || v.FiresTurn || v.TriggersOn != "verb=check_run" {
+		t.Fatalf("#engaged row: %+v", v)
+	}
+	if !strings.Contains(v.Explain, "engaged") || !strings.Contains(v.Explain, "sloth/morha") {
+		t.Fatalf("explain does not name the mode and the folder: %q", v.Explain)
 	}
 }
 

@@ -221,7 +221,7 @@ matches, whatever their verb. An operator who wants CI to continue an open
 conversation writes the row above the `#observe` fallback:
 
 ```
-arizuko route krons add 'chat_jid=github:o/r/pr/* verb=check_run' sloth/morha#engaged --seq -5
+arizuko route krons add 'chat_jid=github:o/r/pr/* verb=check_run' sloth/morha#engaged --seq 50
 ```
 
 The row fires a turn while the chat and topic are engaged and stores the CI row

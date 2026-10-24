@@ -16,7 +16,7 @@ func registerInspect(srv *server.MCPServer, db StoreFns, id auth.Identity, folde
 
 	if db.ListRoutes != nil && db.DefaultFolderForJID != nil {
 		srv.AddTool(mcp.NewTool("inspect_routing",
-			mcp.WithDescription("Return routes visible to this group plus the errored-chat aggregate; pass jid to also resolve that JID to its folder. Each route row is annotated: mode (trigger/observe), fires_turn, triggers_on (e.g. every message / verb=mention), a plain explain, and shadowed_by (id of an earlier rule that intercepts it — first-match-wins). Use when a message isn't reaching the expected group, or to triage delivery failures. Not for per-chat message rows (inspect_messages)."),
+			mcp.WithDescription("Return routes visible to this group plus the errored-chat aggregate; pass jid to also resolve that JID to its folder. Each route row is annotated: mode (trigger/observe/engaged), fires_turn, triggers_on (e.g. every message / verb=mention), a plain explain, and shadowed_by (id of an earlier rule that intercepts it — first-match-wins). Use when a message isn't reaching the expected group, or to triage delivery failures. Not for per-chat message rows (inspect_messages)."),
 			mcp.WithString("jid"),
 			mcp.WithNumber("limit"),
 		), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
