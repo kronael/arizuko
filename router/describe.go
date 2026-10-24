@@ -37,7 +37,7 @@ func Describe(routes []core.Route) []RouteView {
 		case "engaged":
 			v.Mode = "engaged"
 			v.TriggersOn = triggersOn(matchVerb(r.Match))
-			v.Explain = "fires a turn only while the chat and topic are engaged, else observed silently → " + rt.Folder
+			v.Explain = "fires a turn in the engaged folder while the chat and topic are engaged; " + rt.Folder + " takes the row only as observed context"
 		default:
 			v.Mode = "trigger"
 			v.FiresTurn = true

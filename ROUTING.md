@@ -224,8 +224,9 @@ conversation writes the row above the `#observe` fallback:
 arizuko route krons add 'chat_jid=github:o/r/pr/* verb=check_run' sloth/morha#engaged --seq 50
 ```
 
-The row fires a turn while the chat and topic are engaged and stores the CI row
-observed otherwise. It is never addressed. A reply in the turn it starts renews
+The row fires a turn while the chat and topic are engaged, in the folder that
+holds the engagement. The target folder takes the row only as observed, when the
+chat and topic are not engaged. It is never addressed. A reply in the turn it starts renews
 the window, so CI that keeps arriving while the agent keeps replying holds the
 conversation engaged. The default routes carry no `#engaged` row.
 

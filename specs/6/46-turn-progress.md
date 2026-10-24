@@ -262,8 +262,9 @@ Decided: **B** on a channel with `edit` and **C** on gitd and googd, which
 leave `edit` out of their capability maps. B is strictly quieter than A on
 every channel. C is the answer for a channel where any extra post is unwanted;
 the owner ruled on 2026-10-24 that GitHub gets no progress comment. Its cost
-is that the agent's own `edit` tool is also absent there, which
-`specs/6/27-git-channel.md` and `specs/6/45-gdrive-comments-channel.md` accept.
+is that the agent's own `edit` tool, which ipc registers on every turn, returns
+unsupported there (`chanlib.NoSocial`). `specs/6/27-git-channel.md` and
+`specs/6/45-gdrive-comments-channel.md` accept this.
 
 What this does not build: a per-folder switch (`progress_messages`, the shape
 of `thread_replies`). The capability map decides per channel; a folder that

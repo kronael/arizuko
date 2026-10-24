@@ -41,7 +41,8 @@ Other channel verbs return Unsupported.
 
 gitd advertises no `edit`, so routd posts no progress comment on GitHub
 (`specs/6/46-turn-progress.md` §"The sink's declaration"). The `👀` mark below is the
-whole progress display, and the agent has no `edit` tool there.
+whole progress display. The `edit` tool is still registered on every turn; on GitHub
+it returns unsupported (`chanlib.NoSocial`).
 
 `SendFile` posts a text file as a fenced block in a comment under the same rules as
 `send_text`, because GitHub has no API that attaches a file to a comment. A binary file is
@@ -220,8 +221,9 @@ error text is:
 > answers in that code thread, gh-c<id> in the conversation)
 
 No other channel needs the argument; they keep the fallback to the topic's last reply.
-Only the `reply` handler holds that fallback, and routd's own notices send without a
-reply target, so the rule cannot live in gitd.
+Only the `reply` handler applies that fallback to a send. `escalate_group` reads the same
+last reply id but embeds it in the escalation origin and sends nothing. routd's own notices
+send without a reply target, so the rule cannot live in gitd.
 
 ## Repository workspace proposal — unapproved
 
