@@ -374,6 +374,18 @@ func renameApplyBatch(ctx context.Context, rows []renameRow, drivers map[string]
 	var scope objstore.Scope
 	bump := false
 	for _, row := range rows {
+		old, next, err := renameBatchState(ctx, []renameRow{row}, drivers)
+		if err != nil {
+			return err
+		}
+		if (!rollback && !old) || (rollback && !next) {
+			item := row.Before
+			if rollback || item.Key == (objstore.Key{}) {
+				item = row.After
+			}
+			return fmt.Errorf("%s.%s/%q/%q: row changed since journal image; no write",
+				row.Owner, row.Entity, item.Key.Partition, item.Key.Sort)
+		}
 		before, after := row.Before, row.After
 		if rollback {
 			before, after = after, before

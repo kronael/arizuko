@@ -222,8 +222,8 @@ func TestGroupRenameResumeRollback(t *testing.T) {
 			if err = renameExecute(context.Background(), journal, plan, drivers, true, false); err != nil {
 				t.Fatal(err)
 			}
-			if used := counter.Queries - preflightQueries; used > 85 {
-				t.Fatalf("resume/execution made %d reads; only uncertain batch and final partitions need reads", used)
+			if used := counter.Queries - preflightQueries; used > 2*len(plan.Rows)+4*40+2 {
+				t.Fatalf("resume/execution made %d reads; expected per-row checks, uncertain batch and final partitions", used)
 			}
 			items, err := drivers["routd"].Query(context.Background(), objstore.Query{Entity: store.Groups, Partition: "routd"})
 			if err != nil {
