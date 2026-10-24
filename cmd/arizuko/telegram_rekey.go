@@ -75,9 +75,6 @@ func telegramRekeyPreflight(ctx context.Context, instance, dataDir string,
 				if entity == audit.Entity || entity == store.SecretUseLog {
 					continue
 				}
-				slices.SortFunc(items, func(a, b objstore.Item) int {
-					return strings.Compare(a.Key.Sort, b.Key.Sort)
-				})
 				for _, item := range items {
 					if entity == store.ScopeEntity {
 						if _, held := item.Attrs["holder"]; held {
@@ -154,6 +151,21 @@ func telegramRekeyPreflight(ctx context.Context, instance, dataDir string,
 func telegramChats(rows []renameRow, accounts map[string]string) (map[string]telegramChat, error) {
 	chats := map[string]telegramChat{}
 	for _, row := range rows {
+		if row.Owner != "routd" {
+			continue
+		}
+		jid := ""
+		switch row.Entity {
+		case store.Chats:
+			jid = row.Before.Key.Sort
+		case store.Messages:
+			jid = row.Before.Key.Partition
+		}
+		if jid != "" && !strings.HasPrefix(jid, telegramOldDM) {
+			chats[jid] = telegramChat{JIDs: []string{jid}}
+		}
+	}
+	for _, row := range rows {
 		jid := row.Before.Key.Partition
 		if row.Owner != "routd" || row.Entity != store.Messages || !strings.HasPrefix(jid, telegramOldDM) {
 			continue
@@ -185,6 +197,9 @@ func telegramChats(rows []renameRow, accounts map[string]string) (map[string]tel
 		chats[jid] = chat
 	}
 	for jid, chat := range chats {
+		if !strings.HasPrefix(jid, telegramOldDM) {
+			continue
+		}
 		source := chat.Latest
 		if source == "" {
 			source = "telegram"
@@ -198,6 +213,13 @@ func telegramChats(rows []renameRow, accounts map[string]string) (map[string]tel
 
 func telegramRouteMatch(raw string) string {
 	terms := strings.Fields(raw)
+	for _, term := range terms {
+		field, _, _ := strings.Cut(term, "=")
+		if field == "platform" && !router.RouteMatches(core.Route{Match: term},
+			core.Message{ChatJID: "telegram:"}) {
+			return raw
+		}
+	}
 	changed := false
 	for i, term := range terms {
 		field, value, _ := strings.Cut(term, "=")
@@ -217,18 +239,19 @@ func telegramRouteMatch(raw string) string {
 	return strings.Join(terms, " ")
 }
 
-func telegramRouteVerdicts(before, after string, chats map[string]telegramChat) error {
-	jidTerms := func(raw string) core.Route {
-		terms := []string{}
-		for term := range strings.FieldsSeq(raw) {
-			field, _, _ := strings.Cut(term, "=")
-			if field == "chat_jid" || field == "platform" || field == "room" {
-				terms = append(terms, term)
-			}
+func telegramRouteCoordinates(raw string) core.Route {
+	terms := []string{}
+	for term := range strings.FieldsSeq(raw) {
+		field, _, _ := strings.Cut(term, "=")
+		if field == "chat_jid" || field == "platform" || field == "room" {
+			terms = append(terms, term)
 		}
-		return core.Route{Match: strings.Join(terms, " ")}
 	}
-	oldRoute, newRoute := jidTerms(before), jidTerms(after)
+	return core.Route{Match: strings.Join(terms, " ")}
+}
+
+func telegramRouteVerdicts(before, after string, chats map[string]telegramChat) error {
+	oldRoute, newRoute := telegramRouteCoordinates(before), telegramRouteCoordinates(after)
 	for _, jid := range slices.Sorted(maps.Keys(chats)) {
 		old := router.RouteMatches(oldRoute, core.Message{ChatJID: jid})
 		for _, next := range chats[jid].JIDs {
@@ -298,7 +321,7 @@ func telegramRekeyRow(row renameRow, chats map[string]telegramChat) ([]objstore.
 	switch row.Entity {
 	case store.Messages:
 		keyKnown = true
-		if chat, ok := chats[before.Key.Partition]; ok {
+		if chat, ok := chats[before.Key.Partition]; ok && chat.Messages != nil {
 			after.Key.Partition = chat.Messages[before.Key.Sort]
 		}
 	case store.MessageFolders, store.MessageActivity, store.MessageDelivery:
@@ -318,12 +341,20 @@ func telegramRekeyRow(row renameRow, chats map[string]telegramChat) ([]objstore.
 			return nil, fmt.Errorf("route key must contain seq, target and match")
 		}
 		next := telegramRouteMatch(parts[2])
+		for jid := range chats {
+			if core.JidPlatform(jid) != "telegram" &&
+				router.RouteMatches(telegramRouteCoordinates(parts[2]), core.Message{ChatJID: jid}) {
+				next = parts[2]
+				break
+			}
+		}
 		if err := telegramRouteVerdicts(parts[2], next, chats); err != nil {
 			return nil, err
 		}
 		for _, term := range strings.Fields(parts[2]) {
 			field, _, _ := strings.Cut(term, "=")
-			if strings.Contains(term, telegramOldDM) && field != "chat_jid" && field != "sender" {
+			if strings.Contains(term, telegramOldDM) && field != "chat_jid" &&
+				field != "sender" && field != "trigger_sender" {
 				return nil, fmt.Errorf("unknown route operand %q", term)
 			}
 		}
