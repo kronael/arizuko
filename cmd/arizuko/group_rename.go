@@ -45,6 +45,7 @@ type renamePlan struct {
 	Mapping           renameMap
 	Rows              []renameRow
 	Files             []renameFile
+	Accounts          map[string]string `json:",omitempty"`
 }
 
 type renameList []string
@@ -328,6 +329,9 @@ func renamePreflight(ctx context.Context, instance, dataDir string, mapping rena
 }
 
 func renameRowState(ctx context.Context, driver objstore.Store, entity string, item objstore.Item) (bool, bool, error) {
+	if item.Key == (objstore.Key{}) {
+		return false, true, nil
+	}
 	items, err := driver.Query(ctx, objstore.Query{Entity: entity, Partition: item.Key.Partition, Key: objstore.KeyPredicate{Op: objstore.ExactKey, Value: item.Key.Sort}})
 	if err != nil {
 		return false, false, err
@@ -378,7 +382,14 @@ func renameApplyBatch(ctx context.Context, rows []renameRow, drivers map[string]
 		for _, field := range slices.Sorted(maps.Keys(before.Attrs)) {
 			cond.Where = append(cond.Where, objstore.Cmp{Attr: field, Op: objstore.Eq, Value: before.Attrs[field]})
 		}
-		if before.Key != after.Key {
+		if before.Key == (objstore.Key{}) {
+			writes = append(writes, objstore.Write{Op: objstore.Put,
+				Entity: row.Entity, Key: after.Key, Attrs: after.Attrs,
+				Cond: objstore.Cond{Item: objstore.ItemAbsent}})
+		} else if after.Key == (objstore.Key{}) {
+			writes = append(writes, objstore.Write{Op: objstore.Delete,
+				Entity: row.Entity, Key: before.Key, Cond: cond})
+		} else if before.Key != after.Key {
 			writes = append(writes, objstore.Write{Op: objstore.Delete, Entity: row.Entity, Key: before.Key, Cond: cond},
 				objstore.Write{Op: objstore.Put, Entity: row.Entity, Key: after.Key, Attrs: after.Attrs, Cond: objstore.Cond{Item: objstore.ItemAbsent}})
 		} else {
@@ -706,14 +717,16 @@ func renameVerifyRows(ctx context.Context, rows []renameRow, drivers map[string]
 		if rollback {
 			image, removed = removed, image
 		}
-		items, err := read(row.Owner, row.Entity, image.Key.Partition)
-		if err != nil {
-			return err
+		if image.Key != (objstore.Key{}) {
+			items, err := read(row.Owner, row.Entity, image.Key.Partition)
+			if err != nil {
+				return err
+			}
+			if !reflect.DeepEqual(items[image.Key], image) {
+				return fmt.Errorf("final verification changed in %s.%s", row.Owner, row.Entity)
+			}
 		}
-		if !reflect.DeepEqual(items[image.Key], image) {
-			return fmt.Errorf("final verification changed in %s.%s", row.Owner, row.Entity)
-		}
-		if image.Key != removed.Key {
+		if removed.Key != (objstore.Key{}) && image.Key != removed.Key {
 			old, err := read(row.Owner, row.Entity, removed.Key.Partition)
 			if err != nil {
 				return err

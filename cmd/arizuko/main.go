@@ -42,7 +42,7 @@ type productManifest struct {
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Println("usage: arizuko <run|create|group|gate|invite|chat|talk|status|pair|generate|packages|token|apply|plan|get|export> ...")
+		fmt.Println("usage: arizuko <run|create|group|gate|invite|chat|talk|status|pair|generate|packages|token|telegram|apply|plan|get|export> ...")
 		fmt.Println("  group    <instance> list | add | rm [-f] <folder> | grant | ungrant | grants | thread-replies <folder> <on|off|default>")
 		fmt.Println("  gate     <instance> list | add | rm | enable | disable")
 		fmt.Println("  invite   <instance> create <target_glob> [--max-uses|-n N] [--expires|-e DURATION]")
@@ -51,6 +51,7 @@ func main() {
 		fmt.Println("  network  <instance> allow <folder> <target> | deny <folder> <target> | list [<folder>]")
 		fmt.Println("  images   <instance> [--prune|-p]  — list rootfs/kernel trees and mark the in-use ones; --prune removes the rest")
 		fmt.Println("  route    <instance> list | add <match> <target> [--seq|-s N] | rm <id>")
+		fmt.Println("  telegram <instance> rekey-dms --account CHANNEL_NAME=bot_id ...")
 		fmt.Println("  packages <instance> list | add <name> | remove <name>")
 		fmt.Println("  packages <instance> install <git-url-or-dir> | upgrade <name> | sync")
 		fmt.Println("  products <instance> list | apply <folder>  — the bundled catalog, or blend the group's ~/products.toml mix")
@@ -83,6 +84,7 @@ func main() {
 		"create":       cmdCreate,
 		"github":       cmdGithub,
 		"gdrive":       cmdGdrive,
+		"telegram":     cmdTelegram,
 		"group":        cmdGroup,
 		"gate":         cmdGate,
 		"invite":       cmdInvite,

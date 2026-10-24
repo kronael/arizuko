@@ -104,6 +104,7 @@ Talking to an agent:
 - `github.go` manages the webhook sources of gitd.
 - `gdrive.go` manages the file bindings of googd.
 - `group_rename.go`, `group_rename_files.go` and `group_rename_rows.go` implement the offline `group rename`.
+- `telegram.go` and `telegram_rekey.go` implement the offline `telegram rekey-dms`.
 - `grant_canonical.go` holds the identity reader that the CLI uses where routd would federate to authd.
 
 ## Coverage
@@ -140,3 +141,21 @@ The inventory is a private `0600` JSON document, taken from the complete table c
 The preflight checks table coverage, counts, destination collisions, active records, mounts, sockets and unsupported references. A more specific mapping uses original coordinates. These items keep their bytes: platform JIDs, including `local:` feeds, opaque IDs, ciphertext, cursor positions, historical prose and audit evidence. Directories merge only without leaf collisions, and unrelated destination files remain intact. Workspace files move with their directory. The CLI updates symlink targets, operational web URLs, absolute workspace paths and declared agent settings. It refuses unclassified folder settings. Unqualified route `room` operands keep the platform room names, and only explicit `platform=web` or `platform=hook` room operands move. Hook JIDs and explicit hook rooms keep their source labels. Coordinate operands in ACL Params and Predicate require exact values. Globs fail the preflight, including on ACL rows that do not change. When a token JID changes, the preflight compares its parsed folder with its recorded target. If the target is set and differs, the preflight rejects the ambiguous alias.
 
 Execution creates a private `0700` journal outside the instance directory. `plan.json` holds the complete before and after item images and the changed file bytes. `progress.jl` records the durable batch boundaries. Work across owners is not one transaction. If execution stops, keep the instance fenced and repeat the exact command with `--resume` or `--rollback`. Keep the inventory and the original mapping unchanged. Rollback refuses drift. Verify routing, permissions, feeds, secrets, sessions and files before you restart. A signed JWT claim needs a fresh login if the claim carries an old folder.
+
+### Offline Telegram DM rekey
+
+`telegram <instance> rekey-dms` splits `telegram:user/<user_id>` message partitions by account into `telegram:<bot_id>/user/<user_id>`. Repeat `--account CHANNEL_NAME=bot_id` for each account. A bot reply follows the newest preceding inbound message. A bot reply before any inbound message uses the `telegram` account.
+
+```bash
+arizuko telegram sloth rekey-dms --account telegram=111 --account jynx=222 \
+  --inventory /private/rekey-inventory.json \
+  --endpoint https://127.0.0.1:18444 --dry-run
+arizuko telegram sloth rekey-dms --account telegram=111 --account jynx=222 \
+  --inventory /private/rekey-inventory.json \
+  --endpoint https://127.0.0.1:18444 --stopped --yes \
+  --journal /private/sloth-rekey
+```
+
+Use the inventory, backup, stopped-writer and journal procedure of `group rename` above. Include the `teled` owner and every chanstore table. The accounts share that owner's tables. Execution and recovery require the same inventory and account mappings. Add `--resume` or `--rollback` to the execution command for recovery.
+
+The rekey preserves message IDs, sort keys, sender identities and cursor bytes. It updates the three message indexes, copies chat state and onboarding to each destination, and assigns scheduled tasks to the newest inbound account. Onboarding copies retain their sender. Routes and ACL matchers gain the bot wildcard. The preflight refuses a route whose verdict changes, unmapped inbound sources, pending actions or live turns that name an old DM, nonempty `inbound_pending` or `ack_marks`, destination collisions and unknown old-JID references. Each row refusal names its coordinate. Pairing JIDs, membership edges, completed turns, run records and audit evidence keep their bytes. A reply to a pre-migration inbound message loses its parent; bot parents still resolve through `platform_id`.
