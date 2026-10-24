@@ -235,3 +235,28 @@ func TestBatchResolve_TheQueueKeyIsTheFolderTheWorkerDispatchesTo(t *testing.T) 
 		t.Fatalf("folderForJid=%q want eng, the folder the worker dispatches the mention to", got)
 	}
 }
+
+// The observed watermark is a bare instant and gitd stamps whole seconds, so a
+// review row in the same second as the watermark sits at it, not after it.
+// The row this dispatch consumes as context must still reach the turn: the
+// cursor passes it, so no later turn renders it.
+func TestBatchResolve_ARowAtTheObservedWatermarkReachesTheTurn(t *testing.T) {
+	rr := &recRunner{}
+	db, loop := githubBatchLoop(t, rr)
+	at := time.Now().UTC().Truncate(time.Second)
+	if err := db.AdvanceObservedCursor("eng", "pr/311", core.TS(at)); err != nil {
+		t.Fatal(err)
+	}
+	putPRRow(t, db, "gh-r1", "github:user/alice", "pull_request_review", "review submitted", at)
+	putPRRow(t, db, "gh-rc1", "github:user/alice", "mention", "inline mention", at.Add(time.Second))
+
+	if _, err := loop.processGroupMessages(prJID); err != nil {
+		t.Fatalf("process: %v", err)
+	}
+	if len(rr.runs) != 1 {
+		t.Fatalf("turns=%d want 1: %+v", len(rr.runs), rr.runs)
+	}
+	if !strings.Contains(rr.runs[0].batch, `<observed id="gh-r1"`) {
+		t.Fatalf("the review row at the watermark is not in the <observed> block:\n%s", rr.runs[0].batch)
+	}
+}

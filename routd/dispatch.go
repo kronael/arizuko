@@ -140,7 +140,7 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 		// A person is owed an answer by the turn that holds their row, however many
 		// unaddressed rows (CI under #engaged) run beside it in their own turns.
 		owed := slices.ContainsFunc(batch, func(m core.Message) bool { return addressed[m.ID] })
-		had, steered, busy, mark, derr := l.runTurn(folder, topic, chatJID, bl.ID, owed, batch)
+		had, steered, busy, mark, derr := l.runTurn(folder, topic, chatJID, bl.ID, owed, batch, ambient)
 		if derr != nil {
 			// Transport failure: do NOT advance — re-fed next poll (at-least-once;
 			// turn_results dedups). A steered batch has no re-feed left: its cursor
@@ -286,7 +286,7 @@ func (l *Loop) noteBusy(chatJID, lastMsgID string) {
 // runTurn dispatches ONE turn for a bot-stripped trigger batch and records its
 // outcome. It never advances the agent_cursor; busy=true means the batch was
 // not consumed and the caller must re-feed it, not advance.
-func (l *Loop) runTurn(folder, topic, chatJID, turnID string, addressed bool, trigger []core.Message) (hadOutput, steered, busy bool, observedMark string, rerr error) {
+func (l *Loop) runTurn(folder, topic, chatJID, turnID string, addressed bool, trigger, ambient []core.Message) (hadOutput, steered, busy bool, observedMark string, rerr error) {
 	last := trigger[len(trigger)-1]
 	// Elevation is one-shot and consumed here, so a re-fed batch never
 	// re-elevates; the whole batch is scanned so batching with a sibling cannot
@@ -348,7 +348,7 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, addressed bool, tr
 			l.enrichAttachments(ctx, &trigger[i], folder)
 		}
 	}
-	rendered, observedMark := l.buildAgentPrompt(folder, topic, trigger)
+	rendered, observedMark := l.buildAgentPrompt(folder, topic, trigger, ambient)
 	// Dropped once consumed, so a re-fed turn does not re-attach a stale reason.
 	if v, ok := l.pendingReason.LoadAndDelete(turnID); ok {
 		pr := v.(proactiveResult)
