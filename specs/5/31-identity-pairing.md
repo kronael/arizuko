@@ -41,10 +41,13 @@ binds the sender, and redemption writes
 sender's edge. `InsertOnboarding` fills an absent sender on the next route miss;
 a row without a sender waits for that message.
 
-`issue_pairing_link(jid)` takes the chat JID and checks that chat's route against
-the caller's folder. Its token binds the sender of that chat's newest inbound
-message. Agent unpair keeps the chat argument and route check, then removes that
-sender's pairing edge. Each reads only the named chat.
+`issue_pairing_link(jid, sender)` takes the chat JID and an explicit sender.
+It checks that chat's route against the caller's folder. One bounded read of
+that chat must find an inbound message from the sender; bot and outbound rows
+do not count. The token binds only that sender. Agent
+`unpair(jid, sender, parent)` uses the same route and participation checks, then
+removes that sender's pairing edge. A missing sender or no matching message
+returns 400 naming the chat and sender. Neither operation scans other chats.
 
 Browser routing maps paired senders to the `(jid, sender)` associations recorded
 in onboarding rows. A message in another chat confers no route ownership.
@@ -72,7 +75,7 @@ arise.
 | step                                                                                | where                                                                                                   |
 | ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
 | one minter, both callers                                                            | `store.IssuePairingLink` (`store/pairing.go`), taking a `rowExecer`                                     |
-| mint `issue_pairing_link(jid)`, agent MCP only                                      | `routd/route_tokens_resource.go` `issue_pair`, declared `MCPOnly` at `resreg/resources/route_tokens.go` |
+| mint `issue_pairing_link(jid, sender)`, agent MCP only                              | `routd/route_tokens_resource.go` `issue_pair`, declared `MCPOnly` at `resreg/resources/route_tokens.go` |
 | mint from onbod's greeting, `owner_folder` NULL                                     | `promptUnprompted` (`onbod/main.go`); `routd/migrations/0032` relaxed the column                        |
 | admission observes the edge on the poll tick                                        | `observePairings` -> `admitJID` (`onbod/main.go`)                                                       |
 | agent gate: the JID must route to the caller's folder, which becomes `owner_folder` | `routd/route_tokens_resource.go` `pairingTargetFolder`                                                  |
@@ -141,8 +144,9 @@ declared no `Endpoints` and no `MCPNames`, so an edge was removable only through
 
 Either endpoint of the edge may call it, and each face proves it IS that
 endpoint through its own injected containment: the agent (MCP `unpair`) is
-authorized against the folder the child JID routes to — the same rule the mint
-applies; the REST caller's JWT sub must BE the parent. Both directions are
+authorized against the folder the chat JID routes to and names a sender with an
+inbound message in that chat — the same rule the mint applies; the REST caller's
+JWT sub must BE the parent. Both directions are
 de-escalation, and there is no inverse verb, because adding an edge requires
 consent at the browser step. Operators already reach the row through manifests
 and need no third path.
