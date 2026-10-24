@@ -28,6 +28,9 @@ marker every entry carries. Ten entries said open in the heading and carried no
 **A contract or design decision.** Each names the question in its own Status
 line; none can be answered from the code.
 
+- `L555` — may routd steer rows into a running turn? Adds a verb to the
+  runed boundary.
+- `L556` — measure a two-sender batch under a `{sender}` route.
 - `L473` — how does a newer seeded acl floor reach an existing instance
   without re-adding rows an operator removed?
 - `L472` — must a scheduled turn state its own success or failure, and may
@@ -1363,6 +1366,37 @@ overlapped. The defects are inside that one conversation:
 - **Interim:** `443f0057` tells the agent to ALWAYS set `replyToId` (the
   GitHub output style); the contract change stays open.
 - **Status:** open — signed off 2026-10-24. Owner: gitd delivers full events (location header); ship the fix above.
+
+## L555 — a message that arrives during a turn never reaches that turn (2026-10-24, open — needs sign-off)
+
+MEASURED in code at `5f9e1d8b`: the steer channel into a live guest exists end
+to end — `runed/vmctl.go:251` `ctlSession.steer`, `kernel/guest-init/main.go:728`,
+ant drains `/run/ipc/input` mid-turn (`ant/src/index.ts:210`, `claude.ts:521`).
+runed stores each run's callback (`runed/manager.go:438` `SetSteer`), but only
+the deadline warning calls it (`runed/qemu.go:589`). routd never sends a batch
+to a running turn: runed refuses a second run for a busy folder
+(`runed/manager.go:132`) and the rows wait above the cursor for the next turn.
+Nothing sets `RunOutcome.Steered`, so `routd/dispatch.go:454` and `endSteered`
+never run. The owner expects rows that arrive while a turn runs to reach it
+(2026-10-24).
+
+- **Fix (proposal):** when a batch dispatches to a folder with a live run,
+  routd hands the batch to runed, which calls the run's steer callback; on ack
+  the rows are consumed, on refusal they wait as today. This adds a verb to the
+  runed boundary (`runed.Runtime` is `Run` + `Kill`, CLAUDE.md port rule), so it
+  needs an approved plan first.
+- **Status:** open — needs sign-off (runed port change).
+
+## L556 — a batch runs every sender in one folder, even under a `{sender}` route (2026-10-24, open — unmeasured)
+
+READ in code at `5f9e1d8b`, not measured live: `routd/dispatch.go:64` resolves
+one folder per batch and `:115`/`:126` split the turns by sender inside that
+folder. With a `{sender}` route target in a group chat, one person's rows may
+run in another person's folder. If true, it is a cross-folder leak.
+
+- **Fix:** measure first with a two-sender batch under a `{sender}` route; then
+  resolve the folder per sender run.
+- **Status:** open — premise not measured.
 
 ## L551 — an inline review comment that mentions the bot starts no turn (2026-10-23, open)
 
