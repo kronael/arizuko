@@ -13,6 +13,20 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.70.11] — 2026-10-24
+
+> arizuko v0.70.11 — GitHub mentions always get a turn
+>
+> On GitHub every mention starts a turn, each comment shows where it sits, and the agent acts instead of promising.
+>
+> • Mentions — a mention in a batch starts a turn even when newer CI or review rows follow it.
+> • Location — each GitHub message names its thread, file, lines and diff; replies name their comment.
+> • Engagement — only a person's message or mention keeps a chat engaged; `#engaged` routes extend it.
+> • Progress — no progress comment on GitHub; chats delete the progress message when the turn ends.
+> • Skills — the agent drops the skills that forbade it to push, merge or open a PR.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
 ### Operator note
 
 - Migration 224 states the GitHub rules and removes the `review`, `gh-comment` and `pr-draft` skills.
