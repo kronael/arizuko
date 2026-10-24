@@ -28,9 +28,9 @@ marker every entry carries. Ten entries said open in the heading and carried no
 **A contract or design decision.** Each names the question in its own Status
 line; none can be answered from the code.
 
-- `L555` — may routd steer rows into a running turn? Adds a verb to the
+- `L570` — may routd steer rows into a running turn? Adds a verb to the
   runed boundary.
-- `L556` — measure a two-sender batch under a `{sender}` route.
+- `L571` — measure a two-sender batch under a `{sender}` route.
 - `L473` — how does a newer seeded acl floor reach an existing instance
   without re-adding rows an operator removed?
 - `L472` — must a scheduled turn state its own success or failure, and may
@@ -1268,7 +1268,7 @@ it holds WITH GRANT OPTION. Exposure: no onboarded world on krons (listing of
   step 6 (caps take effect) waits for the answer.
 - **Status:** open — needs sign-off (an auth change).
 
-## L555 — a message that arrives during a turn never reaches that turn (2026-10-24, open — needs sign-off)
+## L570 — a message that arrives during a turn never reaches that turn (2026-10-24, open — needs sign-off)
 
 MEASURED in code at `5f9e1d8b`: the steer channel into a live guest exists end
 to end — `runed/vmctl.go:251` `ctlSession.steer`, `kernel/guest-init/main.go:728`,
@@ -1288,7 +1288,7 @@ never run. The owner expects rows that arrive while a turn runs to reach it
   needs an approved plan first.
 - **Status:** open — needs sign-off (runed port change).
 
-## L556 — a batch runs every sender in one folder, even under a `{sender}` route (2026-10-24, open — unmeasured)
+## L571 — a batch runs every sender in one folder, even under a `{sender}` route (2026-10-24, open — unmeasured)
 
 READ in code at `5f9e1d8b`, not measured live: `routd/dispatch.go:64` resolves
 one folder per batch and `:115`/`:126` split the turns by sender inside that
