@@ -13,14 +13,16 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
-> arizuko v0.70.10 — separate Telegram DM chats by bot
+## [v0.70.12] — 2026-10-25
+
+> arizuko v0.70.12 — separate Telegram DM chats by bot
 >
 > Each Telegram bot has a separate DM chat with each user, so messages and routes stay separate across bot accounts.
 >
 > • Telegram DMs — chat JIDs use `telegram:<bot_id>/user/<user_id>`; senders keep `telegram:user/<user_id>`.
-> • DM migration — `arizuko telegram <instance> rekey-dms` splits stored chats by account with a dry run and rollback.
 > • Pairing — pairing and unpairing bind the explicit sender from an inbound message in the chat.
 > • Product files — product seeding excludes the source repository's `.git` directory.
+> • Group delete — `arizuko group rm` also deletes the group directory and its web directories.
 > • Group rename — execution and rollback check stored row images before each write.
 > • Package files — package install and update select `<name>.yml` and `<name>.yaml` by package name.
 >
@@ -28,10 +30,9 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ### Operator note
 
-- Stop all writers and back up the store before running `rekey-dms`. Follow the offline procedure in [cmd/arizuko/README.md](cmd/arizuko/README.md#offline-telegram-dm-rekey).
-- Map every Telegram account with `--account CHANNEL_NAME=bot_id`. Run `--dry-run` before execution with `--stopped --yes`.
-- The rekey preserves sender and pairing identities. Route changes that assign each bot's DMs to a different folder remain an operator action.
-- Agent migrations 224 and 225 describe explicit pairing senders and Telegram DM chat JIDs.
+- krons and sloth have their stored Telegram DM chats moved to the new JIDs. The one-time migration tool does not ship.
+- Route changes that assign each bot's DMs to a different folder remain an operator action.
+- Agent migrations 225 and 226 describe explicit pairing senders and Telegram DM chat JIDs.
 
 ## [v0.70.11] — 2026-10-24
 
