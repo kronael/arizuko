@@ -265,8 +265,6 @@ func TestTelegramRekeyRefusals(t *testing.T) {
 	}{
 		{"source", "routd", store.Messages, objstore.Key{Partition: "telegram:user/5", Sort: stamp},
 			map[string]string{"source": "missing"}, "source"},
-		{"no-source", "routd", store.Messages, objstore.Key{Partition: "telegram:user/5", Sort: stamp},
-			map[string]string{"sender": "telegram:user/5"}, "source"},
 		{"pending", "routd", store.PendingActions, key,
 			map[string]string{"args": `{"chat_jid":"telegram:user/5"}`}, "pending action"},
 		{"live-turn", "routd", store.TurnContexts, key,

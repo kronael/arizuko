@@ -175,7 +175,8 @@ func telegramChats(rows []renameRow, accounts map[string]string) (map[string]tel
 			chat.Messages = map[string]string{}
 		}
 		source := row.Before.Attrs["source"]
-		if row.Before.Attrs["is_bot_message"] == "1" {
+		inbound := source != "" && row.Before.Attrs["is_bot_message"] != "1"
+		if !inbound {
 			source = chat.Latest
 			if source == "" {
 				source = "telegram"
@@ -186,7 +187,7 @@ func telegramChats(rows []renameRow, accounts map[string]string) (map[string]tel
 			return nil, fmt.Errorf("%s.%s/%q/%q: source %q has no --account mapping",
 				row.Owner, row.Entity, jid, row.Before.Key.Sort, source)
 		}
-		if row.Before.Attrs["is_bot_message"] != "1" {
+		if inbound {
 			chat.Latest = source
 		}
 		next := "telegram:" + bot + "/user/" + strings.TrimPrefix(jid, telegramOldDM)
