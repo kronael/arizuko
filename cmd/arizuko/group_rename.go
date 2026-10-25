@@ -45,7 +45,6 @@ type renamePlan struct {
 	Mapping           renameMap
 	Rows              []renameRow
 	Files             []renameFile
-	Accounts          map[string]string `json:",omitempty"`
 }
 
 type renameList []string

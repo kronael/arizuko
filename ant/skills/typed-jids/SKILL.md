@@ -57,6 +57,3 @@ with the same user. Senders and pairing identities use
 ALWAYS use the chat JID from the inbound message for replies and chat tools.
 Use `platform=telegram` to match all Telegram chats. The route glob
 `telegram:*/*` matches groups but cannot match DMs with three path segments.
-
-The operator runs `arizuko telegram <instance> rekey-dms` to migrate stored
-DM chats. See `cmd/arizuko/README.md` for the offline procedure.
