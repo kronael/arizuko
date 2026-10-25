@@ -298,13 +298,10 @@ reads those words now.
 - `L544` — the ant image holds SDK 0.3.278 from a cached layer while the
   Dockerfile says latest: pin the lockfiles, or bust the cache?
 
-**Found while wiring the jynx bot on sloth (2026-10-23).**
+**Found while migrating the Telegram DMs (2026-10-25).**
 
-- `L553` — two Telegram bots on one instance give one person's DMs the same
-  chat JID, so both conversations merge and route together: put the bot's
-  Telegram id in the DM JID, every account, rows migrated (signed off).
-- `L554` — onboarding and pairing key on the chat JID, not the sender, so a
-  paired DM user is linked only where chat equals sender; blocks L553 (signed off).
+- `L572` — an agent sent to `user/137865889`, a JID with no platform, and
+  routd stored the rows as a chat: refuse a JID without a platform?
 
 **Found while folding the lowercase `bugs.md` into this file (2026-10-20).**
 
@@ -398,6 +395,21 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
 - **`L15` — the 2026-08-11 dead-code sweep's rejected hits.** `deadcode ./...` gave 149
   hits, 56 under `-test`; nine survived verification and were filed separately. Kept so
   the next sweep does not re-report the same ~135.
+
+## L572 — routd stores an agent send to a JID with no platform as a chat (2026-10-25, open)
+
+MEASURED on sloth: `routd.messages` partition `user/137865889` holds two rows,
+2026-10-23 18:19 and 2026-10-24 20:00, sender and `routed_to` `atlas/martin`,
+verb `message`, content "migrated v221 → v222." and "migrated v222 → v223.".
+The intended target is the DM `telegram:user/137865889`. No adapter owns
+`user/`, so the report reached nobody, and `routd.chats` gained a chat
+`user/137865889` that a `room=user/137865889` route matches.
+
+- **Severity:** low — two lost migration reports; the chat row misleads
+  route checks (the rekey preflight had to skip it).
+- **Fix:** not decided. Find the door that accepted the JID first: the send
+  path should refuse a JID whose platform no adapter owns.
+- **Status:** open — premise of the door not measured.
 
 ## L483 — the DynamoDB driver sends no `ConsistentRead` on `Query`, and `6/37` and `6/42` say it does (2026-10-20, open)
 
@@ -1306,65 +1318,6 @@ run in another person's folder. If true, it is a cross-folder leak.
 - **Fix:** measure first with a two-sender batch under a `{sender}` route; then
   resolve the folder per sender run.
 - **Status:** open — premise not measured.
-
-## L554 — onboarding and pairing link the chat JID to the person, not the sender (2026-10-23, open)
-
-READ at `5e40f40b`. On a route miss routd calls `InsertOnboarding(chatJID)`
-(`routd/loop.go:602`), and onbod mints the pairing link for that row's JID
-(`onbod/main.go:419`), so the membership edge's child is the CHAT. Authorization
-resolves the SENDER (`routd/server.go:436-438`, `routd/sibling_db.go:250`).
-This works only where the chat JID equals the sender JID — a Telegram DM today.
-After L553 (`telegram:<bot_id>/user/<id>` chat, `telegram:user/<id>` sender) a
-newly paired Telegram DM user stays anonymous. Discord DMs already differ
-(`discord:dm/<channel>` chat vs `discord:user/<id>` sender, `discd/bot.go:216`,
-`:284`), so they probably have the same fault now (INFERRED, not tested).
-
-- **Fix:** the onboarding row and the pairing carry the sender read from the
-  inbound row, and the membership edge's child is the sender. Changes the
-  pairing contract (`specs/5/31-identity-pairing.md`), so it is a proposal.
-- **Status:** open — fixed in the L553 worktree (47f34d24..a430aea9, reviewed
-  twice); closes when that line is released.
-
-## L553 — two Telegram bots on one instance merge one person's DMs into one chat (2026-10-23, open)
-
-MEASURED on sloth: `@sloth_fiu_bot` (`CHANNEL_NAME=telegram`) and `@qb_jynx_bot`
-("Atlas - Quant", `CHANNEL_NAME=jynx`) both store the owner's DMs as
-`telegram:user/1112184352` — 1431 rows with `source=telegram`, 6 with
-`source=jynx`. A Telegram private chat id is the user id whatever the bot, and
-`chatJIDFromID` (`teled/bot.go:770`) builds the JID from it alone. So the one
-route `room=user/1112184352 → atlas` (seq 30) takes both bots' DMs, and the
-jynx DM "this one." (2026-10-23 22:29) reached `atlas`, which answered as atlas.
-Thread reads, cursors and sessions key on the chat JID, so the two
-conversations are also one history. No route key can split them: `msgField`
-(`router/router.go:242`) reads `platform`, `room`, `chat_jid`, `sender` and
-`verb`, never `source`.
-
-Discord and Slack give each bot its own DM channel id, so this is Telegram only.
-A shared room is a different case: two bots in one Telegram group, Discord
-channel or Slack channel share one JID on every platform, because it is one
-room. There the bot is the account axis, `messages.source`, not the JID
-(owner, 2026-10-23). jynx is in no group today, so that case gets its own entry
-when it is needed.
-
-- **Fix:** the DM chat JID carries the bot's own Telegram identity, read from
-  `getMe` at start, never a local label (owner, 2026-10-23: "something global
-  ... the bot's name from telegram"): `telegram:<bot_id>/user/<id>`, and the
-  account registers that narrower `jid_prefixes` (the alternative
-  `specs/5/R-multi-account.md` already names). DECIDED (owner, 2026-10-23):
-  the numeric bot user id, as the user id already is Telegram's number ("user
-  ids are also not invented"); a username can be renamed in BotFather. The
-  sender JID stays `telegram:user/<id>`.
-  Amend 5/R first. A `source=` route key is the rejected alternative: it splits
-  routing and leaves the histories merged.
-- **Migration:** DECIDED (owner, 2026-10-23): every account uses the new
-  shape, the base account included, and its existing DM rows, routes and
-  sessions move to it.
-- **Status:** open — steps 1-5 done in worktree `bugs-bot-dm-route`
-  (a218bdc3..663df20c); step 6 (deploy + `rekey-dms` on sloth, then krons) is
-  the operator's.
-  The route sending `@sloth_fiu_bot` DMs to `atlas` is an operator row and is
-  the owner's call.
-
 
 ## L543 — nothing writes the `_close` sentinel, so `turn.signal` and `closedDuringQuery` never fire (2026-10-23, open — needs sign-off)
 
