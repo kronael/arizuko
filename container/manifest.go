@@ -9,6 +9,8 @@ import (
 
 const ManifestFile = "arizuko.toml"
 
+const PackageNamePattern = `^[A-Za-z0-9_][A-Za-z0-9_.-]{0,62}$`
+
 type ProductSource struct {
 	Source string `toml:"source"`
 }

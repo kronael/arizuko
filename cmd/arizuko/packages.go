@@ -18,6 +18,7 @@ import (
 
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/compose"
+	"github.com/kronael/arizuko/container"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/resreg/resources"
@@ -38,7 +39,7 @@ const (
 // generator validates for discovered fragment filenames. It forbids `.`/`/`
 // leads and every path separator, so a name can never traverse outside
 // services/ when joined into a path (`remove ../docker-compose` is rejected).
-var pkgNameRE = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_.-]{0,62}$`)
+var pkgNameRE = regexp.MustCompile(container.PackageNamePattern)
 
 // baseDaemons are the always-present compose services a fragment may depend on
 // without shipping them as a package. A depends_on outside this set that is not
