@@ -1,0 +1,72 @@
+{
+  "action": "created",
+  "comment": {
+    "id": 5678901400,
+    "pull_request_review_id": 6789012345,
+    "diff_hunk": "@@ -1,4 +1,12 @@\n+func verifySignature(secret, header string, body []byte) error {\n+\tmac := hmac.New(sha256.New, []byte(secret))\n+\tmac.Write(body)\n+\treturn compare(mac.Sum(nil), header)",
+    "path": "gitd/verify.go",
+    "position": 4,
+    "original_position": 4,
+    "line": null,
+    "start_line": null,
+    "original_line": 12,
+    "original_start_line": 10,
+    "side": "RIGHT",
+    "start_side": "RIGHT",
+    "commit_id": "c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00",
+    "in_reply_to_id": 5678901200,
+    "body": "Constant-time compare — good. Also reject an empty secret.",
+    "html_url": "https://github.com/kronael/arizuko/pull/12#discussion_r5678901234",
+    "user": {
+      "login": "kronael",
+      "id": 1234567,
+      "type": "User"
+    },
+    "created_at": "2026-09-05T10:07:15Z",
+    "updated_at": "2026-09-05T10:07:15Z"
+  },
+  "pull_request": {
+    "id": 2345678901,
+    "number": 12,
+    "state": "open",
+    "merged": false,
+    "title": "feat(gitd): GitHub as an ingress channel",
+    "html_url": "https://github.com/kronael/arizuko/pull/12",
+    "user": {
+      "login": "rhias",
+      "id": 7654321,
+      "type": "User"
+    },
+    "head": {
+      "ref": "gitd",
+      "sha": "c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00"
+    },
+    "base": {
+      "ref": "main",
+      "sha": "0f1e2d3c4b5a69788796a5b4c3d2e1f098765432"
+    },
+    "updated_at": "2026-09-05T10:07:15Z"
+  },
+  "repository": {
+    "id": 901234567,
+    "name": "arizuko",
+    "full_name": "kronael/arizuko",
+    "private": false,
+    "owner": {
+      "login": "kronael",
+      "id": 1234567,
+      "type": "User"
+    },
+    "html_url": "https://github.com/kronael/arizuko",
+    "default_branch": "main"
+  },
+  "sender": {
+    "login": "kronael",
+    "id": 1234567,
+    "type": "User"
+  },
+  "installation": {
+    "id": 77001122,
+    "node_id": "MDIzOkludGVncmF0aW9uSW5zdGFsbGF0aW9uNzcwMDExMjI="
+  }
+}

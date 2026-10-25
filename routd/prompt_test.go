@@ -37,7 +37,7 @@ func TestBuildAgentPrompt_PaneHints(t *testing.T) {
 	}}
 
 	// No pane row → no hints.
-	if got, _ := loop.buildAgentPrompt("main", "", trigger); strings.Contains(got, "slack-pane") {
+	if got, _ := loop.buildAgentPrompt("main", "", trigger, nil); strings.Contains(got, "slack-pane") {
 		t.Errorf("non-pane jid emitted pane surface; prompt:\n%s", got)
 	}
 
@@ -46,7 +46,7 @@ func TestBuildAgentPrompt_PaneHints(t *testing.T) {
 	if err := db.UpsertPane("T1", "U99", "1700.1", "D0XY"); err != nil {
 		t.Fatal(err)
 	}
-	got, _ := loop.buildAgentPrompt("main", "", trigger)
+	got, _ := loop.buildAgentPrompt("main", "", trigger, nil)
 	if !strings.Contains(got, "<surface>slack-pane</surface>") {
 		t.Errorf("missing pane surface; prompt:\n%s", got)
 	}
@@ -58,14 +58,14 @@ func TestBuildAgentPrompt_PaneHints(t *testing.T) {
 	if err := db.SetPaneContext("D0XY", "slack:T1/channel/C42"); err != nil {
 		t.Fatal(err)
 	}
-	got, _ = loop.buildAgentPrompt("main", "", trigger)
+	got, _ = loop.buildAgentPrompt("main", "", trigger, nil)
 	if !strings.Contains(got, `<pane-context jid="slack:T1/channel/C42" />`) {
 		t.Errorf("missing pane-context; prompt:\n%s", got)
 	}
 
 	// Non-slack jid → no hints even if pane exists.
 	trigger[0].ChatJID = "telegram:99"
-	if got, _ := loop.buildAgentPrompt("main", "", trigger); strings.Contains(got, "slack-pane") {
+	if got, _ := loop.buildAgentPrompt("main", "", trigger, nil); strings.Contains(got, "slack-pane") {
 		t.Errorf("non-slack jid leaked pane hint; prompt:\n%s", got)
 	}
 }
@@ -102,7 +102,7 @@ func TestBuildAgentPrompt_LinkContext(t *testing.T) {
 	if trigger[0].LinkContext != "bug reports; triage, don't chat" {
 		t.Fatalf("persisted link_context = %q", trigger[0].LinkContext)
 	}
-	got, _ := loop.buildAgentPrompt("main", "tt", trigger)
+	got, _ := loop.buildAgentPrompt("main", "tt", trigger, nil)
 	want := "<link-context>\nbug reports; triage, don't chat\n</link-context>\n"
 	if !strings.Contains(got, want) {
 		t.Errorf("missing link-context tag; prompt:\n%s", got)
@@ -113,7 +113,7 @@ func TestBuildAgentPrompt_LinkContext(t *testing.T) {
 		ID: "lc2", ChatJID: "web:main", Sender: "anon:2", Content: "hi",
 		Timestamp: time.Now(), Verb: "message",
 	}}
-	if got, _ := loop.buildAgentPrompt("main", "tt", plain); strings.Contains(got, "<link-context>") {
+	if got, _ := loop.buildAgentPrompt("main", "tt", plain, nil); strings.Contains(got, "<link-context>") {
 		t.Errorf("tokenless trigger emitted link-context; prompt:\n%s", got)
 	}
 
@@ -122,7 +122,7 @@ func TestBuildAgentPrompt_LinkContext(t *testing.T) {
 		ID: "lc3", ChatJID: "web:main", Sender: "anon:3", Content: "again",
 		Timestamp: time.Now(), Verb: "message", LinkContext: "stripe events; summarize daily",
 	})
-	got, _ = loop.buildAgentPrompt("main", "tt", mixed)
+	got, _ = loop.buildAgentPrompt("main", "tt", mixed, nil)
 	if !strings.Contains(got, "<link-context>\nstripe events; summarize daily\n</link-context>\n") {
 		t.Errorf("newest context should win; prompt:\n%s", got)
 	}
@@ -366,7 +366,7 @@ func TestBuildAgentPrompt_DoesNotConsumeTheObservedWindow(t *testing.T) {
 		Timestamp: now.Add(time.Second), Verb: "message",
 	}}
 
-	first, mark := loop.buildAgentPrompt("main", "", trigger)
+	first, mark := loop.buildAgentPrompt("main", "", trigger, nil)
 	if !strings.Contains(first, "ambient chatter") {
 		t.Fatalf("observed message absent from the first render:\n%s", first)
 	}
@@ -375,7 +375,7 @@ func TestBuildAgentPrompt_DoesNotConsumeTheObservedWindow(t *testing.T) {
 	}
 
 	// The re-fed turn. Nothing was committed, so it must see the same window.
-	second, mark2 := loop.buildAgentPrompt("main", "", trigger)
+	second, mark2 := loop.buildAgentPrompt("main", "", trigger, nil)
 	if !strings.Contains(second, "ambient chatter") {
 		t.Errorf("re-fed turn lost the observed window — the render consumed it:\n%s", second)
 	}
@@ -388,7 +388,7 @@ func TestBuildAgentPrompt_DoesNotConsumeTheObservedWindow(t *testing.T) {
 	if err := db.AdvanceObservedCursor("main", "", mark); err != nil {
 		t.Fatal(err)
 	}
-	third, mark3 := loop.buildAgentPrompt("main", "", trigger)
+	third, mark3 := loop.buildAgentPrompt("main", "", trigger, nil)
 	if strings.Contains(third, "ambient chatter") {
 		t.Errorf("observed message re-shown after an explicit advance:\n%s", third)
 	}
@@ -554,7 +554,7 @@ func TestBuildAgentPrompt_TriggerNotRepeatedAsObserved(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, mark := loop.buildAgentPrompt("main", "", []core.Message{msg})
+	got, mark := loop.buildAgentPrompt("main", "", []core.Message{msg}, nil)
 	if n := strings.Count(got, "the zebrak listing"); n != 1 {
 		t.Errorf("trigger text appears %d times, want 1:\n%s", n, got)
 	}
@@ -601,7 +601,7 @@ func TestBuildAgentPrompt_SiblingTopicReplyIsObservedBotRow(t *testing.T) {
 
 	trigger := []core.Message{{ID: "239", ChatJID: "tg:1", Sender: "kron",
 		Content: "and the weather?", Timestamp: now.Add(2 * time.Minute), Verb: "message"}}
-	got, mark := loop.buildAgentPrompt("nemo", "", trigger)
+	got, mark := loop.buildAgentPrompt("nemo", "", trigger, nil)
 
 	if !strings.Contains(got, `<observed id="out-238" sender="nemo"`) ||
 		!strings.Contains(got, `bot="true">the answer: 40 km to go</observed>`) {

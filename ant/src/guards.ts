@@ -71,8 +71,8 @@ function ghSegments(command: string): string[][] {
 // agent spends it with `curl` as easily as with `gh`, and the approval this gate
 // names is also reachable through `gh api …/reviews --input -`, where the event
 // lives in stdin and no command string shows it. That spelling stays allowed
-// because ant/skills/gh-comment posts review COMMENTS through it, and breaking a
-// shipped skill to raise the cost of one bypass is the wrong trade.
+// because an agent posts review COMMENTS through it, and breaking that to raise
+// the cost of one bypass is the wrong trade.
 //
 // The lock is the token's own scope: a PAT minted without `pull_requests: write`
 // cannot approve however it is called. The reason text says so, so an agent that

@@ -162,7 +162,7 @@ sudo systemctl restart arizuko_&lt;instance&gt;</code></pre>
 10   platform=discord room=123456789/* verb=mention  main
 20   platform=discord room=123456789/*               main#observe</code></pre>
     <p>Route 10 starts the agent on mentions and on replies to the bot. Route 20 stores every other message of the server under <code>main</code>, so the agent has the full context at its next turn. DMs do not match these routes. Add a separate route for them.</p>
-    <p>After the agent replies in a thread, that channel and thread is <a href="../concepts/engagement.html">engaged</a> for 30 minutes by default. During that time, each message in the thread starts a turn without a mention, although route 20 says <code>#observe</code>. This is by design: an agent that stops in the middle of a conversation is worse than the extra turns. <code>ENGAGEMENT_TTL</code> on <code>routd</code> sets the time.</p>
+    <p>After the agent replies in a thread, that channel and thread is <a href="../concepts/engagement.html">engaged</a> for 30 minutes by default. During that time, each message from a person in the thread starts a turn without a mention, although route 20 says <code>#observe</code>. This is by design: an agent that stops in the middle of a conversation is worse than the extra turns. <code>ENGAGEMENT_TTL</code> on <code>routd</code> sets the time.</p>
     <p><a href="../concepts/routing.html#modes">Routing modes</a> lists all target fragments.</p>
 
     <h2>A thread is a separate conversation</h2>

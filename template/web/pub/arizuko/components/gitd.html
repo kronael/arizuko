@@ -91,21 +91,26 @@ github:&lt;owner&gt;/&lt;repo&gt;/issue/&lt;n&gt;   one issue,         topic=iss
     <p>The owner and the repository are in the JID, so one App secret for fifty repositories gives fifty JIDs. The ordinary <a href="../reference/cli.html">route table</a> maps them. The sender is <code>github:&lt;login&gt;</code>, the same principal that <a href="authd.html">authd</a> creates for a GitHub sign-in. So the dashboard login of a person and the comment of that person on a pull request are one identity.</p>
 
     <h2>Requests to the bot start a turn and the rest is observed</h2>
-    <p>A new source gets seeded route rows. These events start a turn: a pull request mention, a direct reply to a bot comment, and an assignment or review request that names the bot. To watch the state changes and the completed CI of a pull request, assign the bot to it. Plain comments land as <code>&lt;folder&gt;#observe</code>, also on a watched pull request and in a thread that the bot started. Issue-only events, requests for other people and repository events land there too. Engagement does not promote any of them.</p>
+    <p>A new source gets seeded route rows. A pull request mention or a direct reply to a bot comment starts a turn. An assignment or review request for the bot also starts a turn. Human comments, inline comments and submitted reviews with a body on a bot-authored pull request or issue map to <code>mention</code>. To watch the state changes and the completed CI of a pull request, assign the bot to it. Other plain comments land as <code>&lt;folder&gt;#observe</code>, also on a watched pull request. Other issue activity, requests for other people and repository events land there too. After the bot replies on a pull request or issue, a human comment there starts a turn without a new mention, as on every channel. Only a <code>message</code> or <code>mention</code> rides that engagement. A CI or review-state row stays observed. To let CI continue an open conversation, add a route above the fallback, for example <code>chat_jid=github:o/r/pr/* verb=check_run</code> to <code>sloth/morha#engaged</code>.</p>
 
     <p>For CI, subscribe to <code>check_run</code>, <code>check_suite</code> and <code>workflow_run</code>. A completed event reads the current assignees of the pull request, so the token needs the Pull requests read permission. An event with no associated pull request, a queued event and an in-progress event do no lookup. One delivery allows ten distinct pull requests and ten seconds for the lookups. If a lookup fails, gitd answers 503 before it forwards any row. The redeliver button of GitHub then retries the same delivery safely.</p>
 
     <p>Repository rows use seq 10 and 100, organization rows 20 and 200, and App rows 30 and 300, so a narrower registration wins. To change the split, edit the rows on <code>/dash/routd/</code> or with <code>arizuko route</code>.</p>
 
+    <h2>Every message opens with a location header</h2>
+    <p>gitd puts one header line before the text of each message. For an inline review comment it names the event, the message id, the thread, the review, the file, the lines and the side, and it adds the last lines of the diff hunk in a code block:</p>
+    <pre><code>[github kind=pull_request_review_comment id=gh-rc5678901234 thread=gh-rc5678901200 review=gh-r6789012345 path=gitd/verify.go lines=10-12 side=RIGHT url=https://github.com/kronael/arizuko/pull/12#discussion_r5678901234]</code></pre>
+    <p>Every other event carries the keys it has, such as <code>kind</code>, <code>id</code>, <code>url</code> and the review <code>state</code>. The agent reads the place of a comment from the header and needs no extra API call.</p>
+
     <h2>gitd posts replies as comments</h2>
-    <p><code>send_text</code>, <code>send_file</code> and <code>edit</code> need <code>GITHUB_TOKEN</code>. A reply goes to the pull request or issue that the JID names. A reply to an inline review comment stays in that review thread. gitd drops the own comments of the token and the comments of other bots, so the agent cannot answer itself. Typed pull request state events and CI events from automation stay eligible. Without a token, gitd only receives.</p>
+    <p><code>send_text</code>, <code>send_file</code> and <code>typing</code> need <code>GITHUB_TOKEN</code>. A reply goes to the pull request or issue that the JID names. The agent must pass <code>replyToId</code>, the <code>id</code> from the header of the message it answers. A <code>gh-rc</code> id keeps the reply in that review thread, and a <code>gh-c</code> id answers in the conversation. gitd does not edit comments, so a pull request gets no progress comment. The eyes reaction on the comment that started the turn is the only sign of work. gitd drops the own comments of the token and the comments of other bots, so the agent cannot answer itself. Typed pull request state events and CI events from automation stay eligible. Without a token, gitd only receives.</p>
 
     <h2>Five environment variables configure gitd</h2>
     <table>
       <tr><th>var</th><th>default</th><th>note</th></tr>
       <tr><td><code>ROUTER_URL</code></td><td>required</td><td></td></tr>
       <tr><td><code>SECRETS_KEY</code></td><td>unset</td><td>the keyring that seals <code>github_sources</code>. gitd needs it to unseal the secrets</td></tr>
-      <tr><td><code>GITHUB_TOKEN</code></td><td>unset</td><td>enables <code>send_text</code>, <code>send_file</code> and <code>edit</code></td></tr>
+      <tr><td><code>GITHUB_TOKEN</code></td><td>unset</td><td>enables <code>send_text</code>, <code>send_file</code> and <code>typing</code></td></tr>
       <tr><td><code>GITHUB_API_URL</code></td><td><code>https://api.github.com</code></td><td></td></tr>
       <tr><td><code>LISTEN_ADDR</code></td><td><code>:8080</code></td><td></td></tr>
     </table>
@@ -146,7 +151,7 @@ export LISTEN_ADDR=:8080
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/components/gitd.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-21">2026-10-21</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-24">2026-10-24</time>
       </div>
   </main>
 

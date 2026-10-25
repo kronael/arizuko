@@ -113,6 +113,31 @@ func EffectAllowed(effect string) bool {
 	return effect == EffectAllow || effect == EffectDeny
 }
 
+func ACLActionChoices() []string {
+	return []string{
+		"admin", "*", "interact", "egress", "web:publish", "gh:write",
+		"mcp:*", ShellEnvPrefix + "*", HoldPrefix + "*",
+	}
+}
+
+func ValidateACLAction(action string) error {
+	if slices.Contains(ACLActionChoices(), action) ||
+		strings.HasPrefix(action, "mcp:") ||
+		strings.HasPrefix(action, ShellEnvPrefix) ||
+		strings.HasPrefix(action, "ext:") ||
+		strings.HasPrefix(action, HoldPrefix) || strings.Contains(action, ".") {
+		return nil
+	}
+	resource, verb, ok := strings.Cut(action, ":")
+	if ok && resource != "" && verb != "" {
+		return nil
+	}
+	return fmt.Errorf("unknown action %q — one of %s, mcp:<tool>, "+
+		"shell:env:<KEY>, ext:<provider>:<area>:<verb>, hold:mcp:<tool>, "+
+		"<resource>:<verb>, <resource>.<verb>",
+		action, strings.Join(ACLActionChoices(), ", "))
+}
+
 // aclPut renders the create-if-absent write both acl writers issue: a re-grant
 // must not restamp who granted a row or clear a grant option it holds.
 //
@@ -137,6 +162,9 @@ func aclPut(r core.ACLRow) (objstore.Write, error) {
 	}
 	key, err := aclKey(r)
 	if err != nil {
+		return objstore.Write{}, err
+	}
+	if err := ValidateACLAction(r.Action); err != nil {
 		return objstore.Write{}, err
 	}
 	// Every attribute is Init, and the op is a Merge rather than a guarded Put

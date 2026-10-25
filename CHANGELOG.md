@@ -33,6 +33,71 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 - The rekey preserves sender and pairing identities. Route changes that assign each bot's DMs to a different folder remain an operator action.
 - Agent migrations 224 and 225 describe explicit pairing senders and Telegram DM chat JIDs.
 
+## [v0.70.11] — 2026-10-24
+
+> arizuko v0.70.11 — GitHub mentions always get a turn
+>
+> On GitHub every mention starts a turn, each comment shows where it sits, and the agent acts instead of promising.
+>
+> • Mentions — a mention in a batch starts a turn even when newer CI or review rows follow it.
+> • Location — each GitHub message names its thread, file, lines and diff; replies name their comment.
+> • Engagement — only a person's message or mention keeps a chat engaged; `#engaged` routes extend it.
+> • Progress — no progress comment on GitHub; chats delete the progress message when the turn ends.
+> • Skills — the agent drops the skills that forbade it to push, merge or open a PR.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Operator note
+
+- Migration 224 states the GitHub rules and removes the `review`, `gh-comment` and `pr-draft` skills.
+- A route target `#engaged` extends engagement to other verbs, such as CI; the default routes have none.
+
+### Added
+
+- Route target `#engaged` fires a turn only while the chat is engaged, for any verb.
+- Every GitHub message opens with a location header: id, thread, review, file, lines, side, diff.
+
+### Changed
+
+- Only a person's message or mention keeps a conversation engaged, on every channel.
+- `reply` on a GitHub chat needs `replyToId`.
+- GitHub gets no progress comment; gitd no longer advertises `edit`.
+- A chat deletes the progress message when the turn ends, where the channel can delete.
+
+### Fixed
+
+- A mention in a batch starts a turn even when a newer row matches only `#observe`.
+- An edit or deletion of a reply to the bot no longer counts as a mention.
+
+### Removed
+
+- The skills `review`, `gh-comment` and `pr-draft` leave the agent image.
+
+## [v0.70.10] — 2026-10-24
+
+> arizuko v0.70.10 — GitHub replies do the work first
+>
+> On GitHub the agent now acts before it replies, answers in the right thread and hears comments on its own PRs.
+>
+> • GitHub style — replies lead with a short TL;DR, put detail in a collapsed block and name their comment.
+> • Bot-authored PRs — a human comment on a PR or issue the bot opened counts as a mention.
+> • Duplicates — a redelivered late message no longer stores a second copy.
+> • Turn end — a successful turn no longer reports a failure when its deadline signal arrives.
+> • Grants — every grant write refuses an action name that no gate reads.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Operator note
+
+- Migration 223 delivers the `github` output style to live agents.
+- To revoke every token, delete the `signing_key_slot` item and restart authd; key rotation does not revoke refresh tokens.
+- Telegram login is gone; authd no longer mounts `POST /auth/telegram`.
+
+### Changed
+
+- A turn's observed window shows the folder's own bot replies, so the agent does not answer a message twice.
+- The dedup check for late redelivery reads only the newest 256 rows of a chat.
+
 ## [v0.70.9] — 2026-10-23
 
 > arizuko v0.70.9 — turns wait for background agents

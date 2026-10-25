@@ -144,6 +144,22 @@ func rewriteStatusRow(db *DB, dl Deliverer, turnID, jid string, row core.Message
 	return db.SetMessageContent(row, content)
 }
 
+// endStatusRow removes the progress message where the channel advertises
+// delete and rewrites the row to its terminal form without a platform edit. A
+// refused delete, a channel without delete and a row with no platform id all
+// take the terminal edit.
+func endStatusRow(db *DB, dl Deliverer, turnID, jid string, row core.Message, terminal string) error {
+	if row.PlatformID == "" || !dl.HasCapability(jid, "delete") {
+		return rewriteStatusRow(db, dl, turnID, jid, row, terminal)
+	}
+	if err := dl.Delete(jid, row.PlatformID); err != nil {
+		slog.Warn("progress delete refused; ending it with the terminal edit",
+			"turn_id", turnID, "jid", jid, "err", err)
+		return rewriteStatusRow(db, dl, turnID, jid, row, terminal)
+	}
+	return db.SetMessageContent(row, terminal)
+}
+
 // finishTurn is the only code that marks a turn done. It ends the turn's
 // progress first and flips the state last: a routd that dies between the two
 // replays the turn, and the replay repeats the edit, which is idempotent.
@@ -168,9 +184,10 @@ func finishTurnLocked(db *DB, dl Deliverer, turnID string, end turnEnd) {
 }
 
 // endProgress clears presence on every chat the turn's run owns and turns the
-// turn's progress message, where one exists, from ⏳ into its terminal form.
-// A message already terminal is left alone, so a second end of one turn (the
-// result recorded, then the run returning) edits once.
+// turn's progress message, where one exists, from ⏳ into its terminal form:
+// deleted on a channel that advertises delete, else edited. A message already
+// terminal is left alone, so a second end of one turn (the result recorded,
+// then the run returning) acts once.
 func endProgress(db *DB, dl Deliverer, turnID string, end turnEnd) {
 	tc, ok := db.GetTurnContext(turnID)
 	if !ok {
@@ -188,7 +205,7 @@ func endProgress(db *DB, dl Deliverer, turnID string, end turnEnd) {
 		if !pending {
 			continue
 		}
-		if err := rewriteStatusRow(db, dl, turnID, jid, row, end.mark()+body); err != nil {
+		if err := endStatusRow(db, dl, turnID, jid, row, end.mark()+body); err != nil {
 			slog.Error("turn ended but its progress message still reads in-progress",
 				"folder", tc.Folder, "turn_id", turnID, "jid", jid, "err", err)
 		}

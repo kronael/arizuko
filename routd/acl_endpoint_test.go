@@ -136,7 +136,7 @@ func TestACLRESTContainmentDenied(t *testing.T) {
 
 	// Own subtree: allowed, row written.
 	if rec := doJSON(t, h, "POST", "/v1/acl", "", aclReq{
-		Principal: "google:x", Scope: "world/a/team", Action: "read"}); rec.Code != 200 {
+		Principal: "google:x", Scope: "world/a/team", Action: "mcp:fetch_history"}); rec.Code != 200 {
 		t.Fatalf("own-subtree POST = %d want 200 body=%s", rec.Code, rec.Body.String())
 	}
 	if aclRowCount(t, db, "world/a/team") != 1 {
@@ -145,7 +145,7 @@ func TestACLRESTContainmentDenied(t *testing.T) {
 	}
 	// Sibling world: DENIED (403), nothing written — proves the hole is closed.
 	if rec := doJSON(t, h, "POST", "/v1/acl", "", aclReq{
-		Principal: "google:x", Scope: "world/b", Action: "read"}); rec.Code != 403 {
+		Principal: "google:x", Scope: "world/b", Action: "mcp:fetch_history"}); rec.Code != 403 {
 		t.Fatalf("sibling-world POST = %d want 403 body=%s", rec.Code, rec.Body.String())
 	}
 	if aclRowCount(t, db, "world/b") != 0 {
@@ -153,7 +153,7 @@ func TestACLRESTContainmentDenied(t *testing.T) {
 	}
 	// Cross-world: DENIED (403), nothing written.
 	if rec := doJSON(t, h, "POST", "/v1/acl", "", aclReq{
-		Principal: "google:x", Scope: "other/x", Action: "read"}); rec.Code != 403 {
+		Principal: "google:x", Scope: "other/x", Action: "mcp:fetch_history"}); rec.Code != 403 {
 		t.Fatalf("cross-world POST = %d want 403 body=%s", rec.Code, rec.Body.String())
 	}
 	if aclRowCount(t, db, "other/x") != 0 {

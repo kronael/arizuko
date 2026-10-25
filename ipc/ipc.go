@@ -1309,7 +1309,7 @@ func buildMCPServer(routd RoutdFns, db StoreFns, folder string, isRoot bool, cal
 			return toolJSON(map[string]any{"ok": true, "id": platformID})
 		})
 
-	registerRaw("reply", "Deliver the answer in the current conversation. Existing threads take precedence. Where supported, replies follow the declared task summary's thread. Omit `replyToId` to use the current conversation, or supply an earlier message to quote. A quote outside the destination thread may be omitted. An explicit different chat keeps its own destination. Returns the posted message's `id`. Use `<status>` and `TodoWrite` for live progress.",
+	registerRaw("reply", "Deliver the answer in the current conversation. Existing threads take precedence. Where supported, replies follow the declared task summary's thread. Omit `replyToId` to use the current conversation, or supply an earlier message to quote. A quote outside the destination thread may be omitted. On a GitHub chat `replyToId` is required. An explicit different chat keeps its own destination. Returns the posted message's `id`. Use `<status>` and `TodoWrite` for live progress.",
 		[]mcp.ToolOption{
 			mcp.WithString("chatJid", mcp.Required()),
 			mcp.WithString("text", mcp.Required()),
@@ -1328,6 +1328,9 @@ func buildMCPServer(routd RoutdFns, db StoreFns, folder string, isRoot bool, cal
 				return toolErr(err.Error())
 			}
 			replyToID := req.GetString("replyToId", "")
+			if g, ok := chanlib.ParseGitHubJID(jid); ok && g.Kind != "" && replyToID == "" {
+				return toolErr("reply on a GitHub chat needs replyToId: the id of the message you answer (gh-rc<id> answers in that code thread, gh-c<id> in the conversation)")
+			}
 			if replyToID == "" && db.GetLastReplyID != nil {
 				// Resolve under the active turn's topic — the same key the
 				// gateway seeds via SetLastReply. "" would miss the seed for

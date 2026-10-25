@@ -17,6 +17,23 @@ type account struct {
 	Login string `json:"login"`
 }
 
+type comment struct {
+	ID                int64  `json:"id"`
+	Body              string `json:"body"`
+	HTMLURL           string `json:"html_url"`
+	Path              string `json:"path"`
+	InReplyToID       int64  `json:"in_reply_to_id"`
+	CreatedAt         string `json:"created_at"`
+	UpdatedAt         string `json:"updated_at"`
+	ReviewID          int64  `json:"pull_request_review_id"`
+	DiffHunk          string `json:"diff_hunk"`
+	Side              string `json:"side"`
+	Line              *int   `json:"line"`
+	StartLine         *int   `json:"start_line"`
+	OriginalLine      *int   `json:"original_line"`
+	OriginalStartLine *int   `json:"original_start_line"`
+}
+
 // payload is the subset of every GitHub webhook body gitd reads. One struct
 // for all events: the fields absent from an event decode to their zero value.
 type payload struct {
@@ -54,6 +71,7 @@ type payload struct {
 		Title       string    `json:"title"`
 		Body        string    `json:"body"`
 		HTMLURL     string    `json:"html_url"`
+		User        *account  `json:"user"`
 		Assignees   []account `json:"assignees"`
 		PullRequest *struct {
 			URL string `json:"url"`
@@ -66,6 +84,7 @@ type payload struct {
 		HTMLURL   string    `json:"html_url"`
 		Merged    bool      `json:"merged"`
 		UpdatedAt string    `json:"updated_at"`
+		User      *account  `json:"user"`
 		Assignees []account `json:"assignees"`
 		Head      struct {
 			Ref string `json:"ref"`
@@ -75,16 +94,8 @@ type payload struct {
 			Ref string `json:"ref"`
 		} `json:"base"`
 	} `json:"pull_request"`
-	Comment *struct {
-		ID          int64  `json:"id"`
-		Body        string `json:"body"`
-		HTMLURL     string `json:"html_url"`
-		Path        string `json:"path"`
-		InReplyToID int64  `json:"in_reply_to_id"`
-		CreatedAt   string `json:"created_at"`
-		UpdatedAt   string `json:"updated_at"`
-	} `json:"comment"`
-	Review *struct {
+	Comment *comment `json:"comment"`
+	Review  *struct {
 		ID          int64  `json:"id"`
 		Body        string `json:"body"`
 		State       string `json:"state"`
@@ -205,6 +216,68 @@ func withBody(head, body string) string {
 	return head + "\n\n" + body
 }
 
+type location struct {
+	kind, thread, review, state, path, lines, side, url, hunk string
+	outdated                                                  bool
+}
+
+const hunkLines = 20
+
+func (l *location) reviewComment(c *comment) {
+	root := c.InReplyToID
+	if root == 0 {
+		root = c.ID
+	}
+	l.thread = reviewIDPrefix + strconv.FormatInt(root, 10)
+	if c.ReviewID != 0 {
+		l.review = "gh-r" + strconv.FormatInt(c.ReviewID, 10)
+	}
+	l.path, l.side, l.url, l.hunk = c.Path, c.Side, c.HTMLURL, c.DiffHunk
+	first, last := c.StartLine, c.Line
+	if c.Line == nil && c.OriginalLine != nil {
+		first, last, l.outdated = c.OriginalStartLine, c.OriginalLine, true
+	}
+	switch {
+	case last == nil:
+	case first == nil || *first == *last:
+		l.lines = strconv.Itoa(*last)
+	default:
+		l.lines = fmt.Sprintf("%d-%d", *first, *last)
+	}
+}
+
+func (l location) render(id, body string) string {
+	var b strings.Builder
+	b.WriteString("[github kind=" + l.kind + " id=" + id)
+	for _, key := range []struct{ name, value string }{
+		{"thread", l.thread}, {"review", l.review}, {"state", l.state},
+		{"path", l.path}, {"lines", l.lines},
+	} {
+		if key.value != "" {
+			b.WriteString(" " + key.name + "=" + key.value)
+		}
+	}
+	if l.outdated {
+		b.WriteString(" outdated=true")
+	}
+	for _, key := range []struct{ name, value string }{{"side", l.side}, {"url", l.url}} {
+		if key.value != "" {
+			b.WriteString(" " + key.name + "=" + key.value)
+		}
+	}
+	b.WriteString("]")
+	if hunk := strings.TrimRight(l.hunk, "\n"); hunk != "" {
+		lines := strings.Split(hunk, "\n")
+		lines = lines[max(0, len(lines)-hunkLines):]
+		fence := "```"
+		for strings.Contains(hunk, fence) {
+			fence += "`"
+		}
+		b.WriteString("\n" + fence + "diff\n" + strings.Join(lines, "\n") + "\n" + fence)
+	}
+	return withBody(b.String(), body)
+}
+
 func parseTime(s string, fallback time.Time) time.Time {
 	if t, err := time.Parse(time.RFC3339, s); err == nil {
 		return t
@@ -249,6 +322,8 @@ func mapEvent(kind, name, event, delivery string, body []byte, now time.Time, bo
 	}
 	jid := p.repoJID()
 	login := p.Sender.Login
+	loc := location{kind: event}
+	var conversationAuthor *account
 	msg = chanlib.InboundMsg{
 		ID:         "gh-d" + delivery,
 		Sender:     "github:" + login,
@@ -285,10 +360,11 @@ func mapEvent(kind, name, event, delivery string, body []byte, now time.Time, bo
 			return msg, "", errors.New("issues event without issue")
 		}
 		jid.Kind, jid.Number = "issue", p.Issue.Number
+		loc.url = p.Issue.HTMLURL
 		head := fmt.Sprintf("%s issue #%d: %s", p.Action, p.Issue.Number, p.Issue.Title)
 		if p.Action == "opened" || p.Action == "reopened" {
 			msg.Verb = speech(botLogin, p.Issue.Body)
-			msg.Content = withBody(head+"\n"+p.Issue.HTMLURL, p.Issue.Body)
+			msg.Content = withBody(head, p.Issue.Body)
 		} else {
 			if p.Action == "assigned" && p.Assignee.hasLogin(botLogin) {
 				msg.Verb = "mention"
@@ -302,11 +378,12 @@ func mapEvent(kind, name, event, delivery string, body []byte, now time.Time, bo
 		pr := p.PullRequest
 		jid.Kind, jid.Number = "pr", pr.Number
 		msg.Timestamp = parseTime(pr.UpdatedAt, now).Unix()
+		loc.url = pr.HTMLURL
 		head := fmt.Sprintf("%s PR #%d: %s (%s → %s)", p.Action, pr.Number, pr.Title, pr.Head.Ref, pr.Base.Ref)
 		switch {
 		case p.Action == "opened" || p.Action == "reopened" || p.Action == "ready_for_review" || p.Action == "edited":
 			msg.Verb = speech(botLogin, pr.Body)
-			msg.Content = withBody(head+"\n"+pr.HTMLURL, pr.Body)
+			msg.Content = withBody(head, pr.Body)
 		case p.Action == "closed" && pr.Merged:
 			msg.Content = fmt.Sprintf("%s merged PR #%d: %s", login, pr.Number, pr.Title)
 		default:
@@ -320,9 +397,13 @@ func mapEvent(kind, name, event, delivery string, body []byte, now time.Time, bo
 		if p.Issue == nil || p.Comment == nil {
 			return msg, "", errors.New("issue_comment event without issue or comment")
 		}
+		loc.url = p.Comment.HTMLURL
 		jid.Kind, jid.Number = "issue", p.Issue.Number
 		if p.Issue.PullRequest != nil {
 			jid.Kind = "pr"
+		}
+		if p.Action == "created" || p.Action == "edited" {
+			conversationAuthor = p.Issue.User
 		}
 		if p.Action == "created" {
 			msg.ID = issueIDPrefix + strconv.FormatInt(p.Comment.ID, 10)
@@ -344,14 +425,18 @@ func mapEvent(kind, name, event, delivery string, body []byte, now time.Time, bo
 			return msg, "", errors.New("review comment event without pull_request or comment")
 		}
 		jid.Kind, jid.Number = "pr", p.PullRequest.Number
-		if p.Comment.InReplyToID != 0 {
-			msg.ReplyTo = reviewIDPrefix + strconv.FormatInt(p.Comment.InReplyToID, 10)
+		loc.reviewComment(p.Comment)
+		if p.Action == "created" || p.Action == "edited" {
+			conversationAuthor = p.PullRequest.User
 		}
 		if p.Action == "created" {
+			if p.Comment.InReplyToID != 0 {
+				msg.ReplyTo = reviewIDPrefix + strconv.FormatInt(p.Comment.InReplyToID, 10)
+			}
 			msg.ID = reviewIDPrefix + strconv.FormatInt(p.Comment.ID, 10)
 			msg.Timestamp = parseTime(p.Comment.CreatedAt, now).Unix()
 			msg.Verb = speech(botLogin, p.Comment.Body)
-			msg.Content = withBody("on "+p.Comment.Path+":", p.Comment.Body)
+			msg.Content = p.Comment.Body
 		} else {
 			msg.Content = fmt.Sprintf("%s %s a review comment on %s", login, p.Action, p.Comment.Path)
 			if p.Action == "edited" {
@@ -367,6 +452,10 @@ func mapEvent(kind, name, event, delivery string, body []byte, now time.Time, bo
 			return msg, "", errors.New("review event without pull_request or review")
 		}
 		jid.Kind, jid.Number = "pr", p.PullRequest.Number
+		loc.url, loc.state = p.Review.HTMLURL, p.Review.State
+		if p.Review.ID != 0 {
+			loc.review = "gh-r" + strconv.FormatInt(p.Review.ID, 10)
+		}
 		if p.Action == "submitted" {
 			msg.ID = "gh-r" + strconv.FormatInt(p.Review.ID, 10)
 			msg.Timestamp = parseTime(p.Review.SubmittedAt, now).Unix()
@@ -374,6 +463,9 @@ func mapEvent(kind, name, event, delivery string, body []byte, now time.Time, bo
 		head := fmt.Sprintf("%s review (%s) on PR #%d", login, p.Review.State, p.PullRequest.Number)
 		if (p.Action == "submitted" || p.Action == "edited") && strings.TrimSpace(p.Review.Body) != "" {
 			msg.Verb = speech(botLogin, p.Review.Body)
+			if p.Action == "submitted" {
+				conversationAuthor = p.PullRequest.User
+			}
 		}
 		msg.Content = withBody(head, p.Review.Body)
 	default:
@@ -384,7 +476,7 @@ func mapEvent(kind, name, event, delivery string, body []byte, now time.Time, bo
 		msg.Content = head
 	}
 	if isCI {
-		msg.Content = fmt.Sprintf("%s %s: %s (%s)\n%s", event, p.Action, run.Name, run.Conclusion, run.HTMLURL)
+		loc, msg.Content = p.ciParts(event, run)
 	}
 	if p.PullRequest != nil && jid.Kind == "" {
 		jid.Kind, jid.Number = "pr", p.PullRequest.Number
@@ -398,8 +490,12 @@ func mapEvent(kind, name, event, delivery string, body []byte, now time.Time, bo
 	} else if msg.Verb == "mention" {
 		msg.Verb = "message"
 	}
+	if !self && p.Sender.Type == "User" && conversationAuthor.hasLogin(botLogin) {
+		msg.Verb = "mention"
+	}
 	msg.ChatJID = jid.String()
 	msg.Topic = jid.Topic()
 	msg.ChatName = strings.TrimPrefix(msg.ChatJID, "github:")
+	msg.Content = loc.render(msg.ID, msg.Content)
 	return msg, "", nil
 }

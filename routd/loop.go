@@ -517,18 +517,20 @@ func (l *Loop) checkMigrationVersion() {
 	}
 }
 
-// folderForJid resolves a chat JID to the folder that owns it, so the queue's
-// folder-exclusivity (one live run per folder) holds across JIDs.
+// folderForJid resolves a chat JID to the folder its pending batch dispatches
+// to, so the queue's folder-exclusivity (one live run per folder) holds across
+// JIDs. It reads the batch the worker reads and decides it with the worker's
+// resolveBatch: a key from any other row lets two chats run in one folder.
 func (l *Loop) folderForJid(chatJID string) string {
-	msg, ok, _ := l.db.store().LastMessage(context.Background(), chatJID)
-	if !ok {
+	msgs, err := l.db.NewMessagesForChat(chatJID, l.db.GetAgentCursor(chatJID), pollBatch)
+	if err != nil || newestUserIdx(msgs) < 0 {
 		return chatJID
 	}
-	g, ok := l.resolveGroup(chatJID, msg)
-	if !ok {
+	b := l.resolveBatch(chatJID, msgs)
+	if !b.ok {
 		return chatJID
 	}
-	return g
+	return b.Folder
 }
 
 // pollBatch bounds how many of one chat's messages a single poll takes. The
@@ -556,10 +558,12 @@ func (l *Loop) pollOnce() {
 		if len(chatMsgs) == 0 {
 			continue
 		}
-		r := l.resolve(chatJID, chatMsgs[len(chatMsgs)-1])
-		if !r.ok {
-			l.routeMiss(chatJID, chatMsgs, r)
-			continue
+		// An all-bot batch is the agent's own output: the worker owns that advance.
+		if newestUserIdx(chatMsgs) >= 0 {
+			if b := l.resolveBatch(chatJID, chatMsgs); !b.ok {
+				l.routeMiss(chatJID, chatMsgs, b.resolution)
+				continue
+			}
 		}
 		// Steering happens in processGroupMessages, the one path this backstop
 		// and adapter ingest converge to, so a command cannot race past it.
@@ -574,16 +578,8 @@ func (l *Loop) pollOnce() {
 func (l *Loop) routeMiss(chatJID string, msgs []core.Message, r resolution) {
 	last := msgs[len(msgs)-1]
 	if r.Observe != "" {
-		// Observe rule: silent ingest, no turn. Enriched so later turns see
-		// downloaded media, not raw URLs.
-		for i := range msgs {
-			if l.media.Enabled {
-				l.enrichAttachments(context.Background(), &msgs[i], r.Observe)
-			}
-		}
-		if err := l.db.MarkMessagesObserved(r.Observe, msgs); err != nil {
-			slog.Warn("route miss: mark observed", "jid", chatJID, "err", err)
-		}
+		// Observe rule: silent ingest, no turn.
+		l.observeRows(chatJID, r.Observe, msgs)
 	} else {
 		// A route-missed /chatid still answers: it is how a NEW user self-reports
 		// their JID for `arizuko group add`; the routed twin is in handleCommand.
@@ -610,6 +606,20 @@ func (l *Loop) routeMiss(chatJID string, msgs []core.Message, r resolution) {
 		}
 	}
 	l.advance(chatJID, last)
+}
+
+// observeRows stores rows as ambient context of folder, the one writer for the
+// observe rule and for the rows a dispatch consumes without a turn of their
+// own. Enriched so later turns see downloaded media, not raw URLs.
+func (l *Loop) observeRows(chatJID, folder string, rows []core.Message) {
+	for i := range rows {
+		if l.media.Enabled {
+			l.enrichAttachments(context.Background(), &rows[i], folder)
+		}
+	}
+	if err := l.db.MarkMessagesObserved(folder, rows); err != nil {
+		slog.Warn("mark observed", "jid", chatJID, "folder", folder, "err", err)
+	}
 }
 
 // onboardingFailedNotice is sent to an unrouted chat when the admission-queue
@@ -639,36 +649,100 @@ func (l *Loop) resolveGroup(chatJID string, last core.Message) (string, bool) {
 // the turn is addressed. A timed or system sender is never addressed: a task
 // is not a person (the same predicate turnCallerSub reads).
 func (l *Loop) resolve(chatJID string, last core.Message) resolution {
-	r := l.resolveFolder(chatJID, last)
-	if isSystemTrigger(last.Sender) {
-		r.Addressed = false
-	}
-	return r
+	return l.resolveRows(chatJID, []core.Message{last})[0]
 }
 
-func (l *Loop) resolveFolder(chatJID string, last core.Message) resolution {
+// batchResolution is the one decision on a batch of rows. The embedded
+// resolution is the newest user row's that dispatches on its own, or the newest
+// user row's when none does. rows[i] is msgs[i]'s own resolution (zero for a
+// bot row): whether it dispatches and whether it is addressed are facts about
+// the row, so each turn takes them from its own rows.
+type batchResolution struct {
+	resolution
+	rows []resolution
+}
+
+// resolveBatch decides a batch for both processing paths: the poll backstop and
+// the worker. The route table is read once. A bot row never resolves a batch,
+// so msgs must hold a user row (newestUserIdx >= 0).
+func (l *Loop) resolveBatch(chatJID string, msgs []core.Message) batchResolution {
+	var users []core.Message
+	var at []int
+	for i, m := range msgs {
+		if !m.BotMsg {
+			users = append(users, m)
+			at = append(at, i)
+		}
+	}
+	rows := l.resolveRows(chatJID, users)
+	b := batchResolution{
+		resolution: rows[len(rows)-1],
+		rows:       make([]resolution, len(msgs)),
+	}
+	picked := false
+	for k := len(rows) - 1; k >= 0; k-- {
+		b.rows[at[k]] = rows[k]
+		if rows[k].ok && !picked {
+			b.resolution, picked = rows[k], true
+		}
+	}
+	return b
+}
+
+// resolveRows resolves each row on its own, reading the route table once.
+func (l *Loop) resolveRows(chatJID string, rows []core.Message) []resolution {
+	out := make([]resolution, len(rows))
 	// 1. Direct address: a web:/hook: JID or a bare registered folder.
-	if direct := l.directFolder(chatJID); direct != "" && l.db.GroupExists(direct) {
-		// Only a person typing in a web chat is a question; a hook is an event
-		// and a bare folder is a system turn.
-		return resolution{Folder: direct, ok: true, Addressed: core.JidPlatform(chatJID) == "web"}
+	direct := l.directFolder(chatJID)
+	isDirect := direct != "" && l.db.GroupExists(direct)
+	var routes []core.Route
+	routesOK := false
+	if !isDirect {
+		var err error
+		routes, err = l.db.Routes()
+		if err != nil {
+			// A read failure looks identical to a clean miss. The fail-forward
+			// stays (a retry risks a poison-message loop) but the drop is LOUD.
+			slog.Error("resolve: route table read failed; message dropped as route-miss",
+				"jid", chatJID, "err", err)
+		}
+		routesOK = err == nil
 	}
+	reads := &chatReads{db: l.db, chatJID: chatJID}
+	for i, m := range rows {
+		if isDirect {
+			// Only a person typing in a web chat is a question; a hook is an event
+			// and a bare folder is a system turn.
+			out[i] = resolution{Folder: direct, ok: true, Addressed: core.JidPlatform(chatJID) == "web"}
+		} else {
+			out[i] = l.resolveFolder(reads, m, routes, routesOK)
+		}
+		if isSystemTrigger(m.Sender) {
+			out[i].Addressed = false
+		}
+	}
+	return out
+}
+
+func (l *Loop) resolveFolder(reads *chatReads, last core.Message, routes []core.Route, routesOK bool) resolution {
 	// 2. Route table.
-	routes, err := l.db.Routes()
-	if err != nil {
-		// A read failure looks identical to a clean miss. The fail-forward
-		// stays (a retry risks a poison-message loop) but the drop is LOUD.
-		slog.Error("resolve: route table read failed; message dropped as route-miss",
-			"jid", chatJID, "err", err)
-	}
-	if err == nil {
+	if routesOK {
 		rt := router.ResolveRouteTarget(last, routes)
 		if rt.Folder != "" {
-			engTopic := l.effectiveTopic(chatJID, last.Topic)
+			engTopic := reads.effectiveTopic(last.Topic)
+			// #engaged extends engagement to the rows the rule matches, whatever
+			// their verb: it fires in the engaged folder while the chat and topic
+			// are engaged and is observed under the target otherwise. Never addressed.
+			if rt.Mode == "engaged" {
+				if folder, ok := reads.engagedFolder(engTopic); ok {
+					return resolution{Folder: folder, ok: true}
+				}
+				return resolution{Observe: rt.Folder}
+			}
 			// A trigger rule addresses the folder whether or not the chat is also
 			// engaged; an observe rule on an engaged chat is engagement alone.
 			addressed := rt.Mode != "observe"
-			if folder, ok := l.engaged(chatJID, engTopic); ok {
+			if folder, ok := reads.engaged(engTopic, last.Verb); ok {
 				return resolution{Folder: folder, ok: true, Addressed: addressed}
 			}
 			if rt.Mode == "observe" {
@@ -678,44 +752,79 @@ func (l *Loop) resolveFolder(chatJID string, last core.Message) resolution {
 		}
 	}
 	// 3. Engagement fallback on a route miss (topic-root normalized).
-	engTopic := l.effectiveTopic(chatJID, last.Topic)
-	if folder, ok := l.engaged(chatJID, engTopic); ok {
+	engTopic := reads.effectiveTopic(last.Topic)
+	if folder, ok := reads.engaged(engTopic, last.Verb); ok {
 		return resolution{Folder: folder, ok: true}
 	}
 	return resolution{}
 }
 
+// chatReads holds the engagement facts of one chat that a resolveRows call has
+// read: a batch of 200 rows on one topic asks the store once, not 200 times.
+// It lives for one call; nothing here is shared across calls.
+type chatReads struct {
+	db      *DB
+	chatJID string
+	pin     *string
+	// folders maps a topic to its live engagement folder, "" when none is live.
+	folders map[string]string
+}
+
 // effectiveTopic resolves the topic a turn dispatches under: a set sticky
 // #topic overrides the message's own topic.
-func (l *Loop) effectiveTopic(chatJID, msgTopic string) string {
-	if _, sticky := l.db.StickyState(chatJID); sticky != "" {
-		return sticky
+func (r *chatReads) effectiveTopic(msgTopic string) string {
+	if r.pin == nil {
+		_, sticky := r.db.StickyState(r.chatJID)
+		r.pin = &sticky
+	}
+	if *r.pin != "" {
+		return *r.pin
 	}
 	return msgTopic
 }
 
-// engaged returns the live engagement folder for (chatJID, topic). An empty
+// engaged returns the live engagement folder for (chatJID, topic) when a row
+// with verb rides engagement: only a person's message or mention does. An empty
 // engaged folder (a stale ingress claim) is NOT a route: false, so resolve
 // falls through instead of dispatching to "".
-func (l *Loop) engaged(chatJID, topic string) (string, bool) {
-	if strings.HasPrefix(chatJID, "github:") {
+func (r *chatReads) engaged(topic, verb string) (string, bool) {
+	if verb != "" && verb != "message" && verb != "mention" {
 		return "", false
 	}
-	folder, ok := l.db.Engaged(chatJID, topic)
+	return r.engagedFolder(topic)
+}
+
+// engagedFolder is the live engagement folder for (chatJID, topic), whatever
+// the verb of the row asking. The topic falls back to the root window unless
+// the thread was disengaged.
+func (r *chatReads) engagedFolder(topic string) (string, bool) {
+	if folder, read := r.folders[topic]; read {
+		return folder, folder != ""
+	}
+	folder, ok := r.db.Engaged(r.chatJID, topic)
 	if !ok && topic != "" {
-		stopped, err := l.db.store().ThreadDisengaged(chatJID, topic)
+		stopped, err := r.db.store().ThreadDisengaged(r.chatJID, topic)
 		if err != nil {
-			slog.Error("read thread engagement", "jid", chatJID, "topic", topic, "err", err)
+			slog.Error("read thread engagement", "jid", r.chatJID, "topic", topic, "err", err)
+			r.remember(topic, "")
 			return "", false
 		}
 		if !stopped {
-			folder, ok = l.db.Engaged(chatJID, "")
+			folder, ok = r.engagedFolder("")
 		}
 	}
-	if !ok || folder == "" {
-		return "", false
+	if !ok {
+		folder = ""
 	}
-	return folder, true
+	r.remember(topic, folder)
+	return folder, folder != ""
+}
+
+func (r *chatReads) remember(topic, folder string) {
+	if r.folders == nil {
+		r.folders = map[string]string{}
+	}
+	r.folders[topic] = folder
 }
 
 // directFolder returns the folder a JID directly addresses, or "". For a

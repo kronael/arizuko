@@ -52,20 +52,28 @@ login and PR comment are one identity.
 `add` seeds mention routes and `<folder>#observe` fallbacks. The bot's login
 comes from `GITHUB_TOKEN`. Assign the bot to each PR it should watch.
 
-| Event                                                                       | Default result |
-| --------------------------------------------------------------------------- | -------------- |
-| PR body, comment or review explicitly mentions `@<login>`                   | Turn           |
-| Inline PR comment directly replies to a stored bot comment                  | Turn           |
-| PR assignment or individual review request targets the bot                  | Turn           |
-| Watched PR changes state, head, labels or review status                     | Turn           |
-| Completed check, suite or workflow names a PR currently assigned to the bot | Turn           |
-| Plain comment or discussion, including on a watched PR                      | Observe        |
-| Assignment or review request targets someone else                           | Observe        |
-| Issue-only, repository-only, queued or in-progress event                    | Observe        |
+| Event                                                                             | Default result |
+| --------------------------------------------------------------------------------- | -------------- |
+| PR body, comment or review explicitly mentions `@<login>`                         | Turn           |
+| Inline PR comment directly replies to a stored bot comment                        | Turn           |
+| Human comment, inline comment or review with a body on a bot-authored PR or issue | `mention`      |
+| PR assignment or individual review request targets the bot                        | Turn           |
+| Watched PR changes state, head, labels or review status                           | Turn           |
+| Completed check, suite or workflow names a PR currently assigned to the bot       | Turn           |
+| Other plain comment or discussion, including on a watched PR                      | Observe        |
+| Assignment or review request targets someone else                                 | Observe        |
+| Other issue-only, repository-only, queued or in-progress event                    | Observe        |
 
 Review requests are one-time asks. The PR's assignees declare the watch.
-GitHub engagement and bot-started threads do not promote incidental comments
-or fill a missing route. Repo rows sit at seq 10/100, org at 20/200, app at
+Human conversation on a PR or issue that the bot authored maps to `mention`.
+A person's `message` or `mention` keeps a PR or issue engaged after a reply, as
+on every channel: a human comment on an engaged PR starts a turn without a new
+mention. A `check_run`, `workflow_run` or review-state row never rides
+engagement and lands on the `#observe` fallback. To let CI continue an open
+conversation, add one route above the fallback, for example
+`chat_jid=github:o/r/pr/* verb=check_run` to `sloth/morha#engaged`
+([`ROUTING.md`](../ROUTING.md)). gitd carries no flag for this.
+Repo rows sit at seq 10/100, org at 20/200, app at
 30/300, so a narrower registration wins. Operators can edit the route rows.
 For an existing source, remove any `verb=message` trigger rows and issue
 mention trigger rows. Keep its PR mention route and observation fallbacks.
@@ -83,7 +91,25 @@ Fork checks with empty PR associations remain observations.
 
 Created comments keep their replyable object IDs. Edits, deletions and review
 dismissals use delivery IDs, so their notifications survive ingestion.
-Those notifications do not rewrite or remove the original stored text.
+Those notifications do not rewrite or remove the original stored text. gitd
+sets `ReplyTo` only on a created review comment, so an edit or deletion of a
+reply never becomes a mention.
+
+## Location header
+
+Every message gitd maps opens with one header line, so the agent reads where a
+message sits without an API call. One renderer in `event.go` builds it, and the CI
+fan-out in `ci.go` uses it too:
+
+```
+[github kind=pull_request_review_comment id=gh-rc5678901234 thread=gh-rc5678901200 review=gh-r6789012345 path=gitd/verify.go lines=10-12 side=RIGHT url=https://github.com/kronael/arizuko/pull/12#discussion_r5678901234]
+```
+
+`kind` is GitHub's event name. `id` is the message id, which is the value `reply`
+takes as `replyToId`. A review comment also carries `thread`, `review`, `path`,
+`lines` (`outdated=true` when GitHub reports no current line) and `side`, and the last 20
+lines of its diff hunk follow in a fenced `diff` block. A review carries `review`
+and `state`. An event leaves out a key it does not have.
 
 ## Typing
 
@@ -99,17 +125,17 @@ backstop.
 
 ## Reply
 
-`send_text`, `send_file` and `edit` are the verbs, advertised only when
-`GITHUB_TOKEN` is set. `send_text` posts the agent's reply as a comment on the PR or issue the JID
-names and returns the id the same comment carries inbound. `edit` replaces the
-text of a comment gitd wrote, so a turn's progress is one comment changed in
-place: `gh-c<id>` through `issues/comments`,
-`gh-rc<id>` through `pulls/comments`. It reads the comment first and refuses one
-another login wrote, and refuses any other id shape.
+`send_text` and `send_file` are the verbs, with `typing`, advertised only when
+`GITHUB_TOKEN` is set. gitd advertises no `edit`, so routd posts no progress
+comment on GitHub and the `👀` mark is the whole progress display.
+`send_text` posts the agent's reply as a comment on the PR or issue the JID
+names and returns the id the same comment carries inbound.
 `send_file` posts a text file as a fenced block in a comment (GitHub has no API that
 attaches a file to one); a binary or over-cap file is refused before any request, naming
 the `github` connector, which can commit it to a branch.
 
+The `reply` tool on a GitHub chat requires `replyToId`, the `id` of the message
+the agent answers; `ipc/ipc.go` refuses a call without it and sends nothing.
 `ReplyTo` decides which comment stream. A `gh-rc<id>` names an inline review
 comment, so the reply goes under that code line: gitd resolves the comment that
 opened the thread (GitHub accepts only that one) and posts to
@@ -141,7 +167,7 @@ channel after three probes and take ingress with it.
 | ------------------------- | ------------------------ | -------------------------------------------------------------------------------------- |
 | `ROUTER_URL`              | required                 |                                                                                        |
 | `SECRETS_KEY`             | required                 | the keyring routd seals `github_sources` with                                          |
-| `GITHUB_TOKEN`            | unset                    | enables `send_text`, `send_file`, `edit`                                               |
+| `GITHUB_TOKEN`            | unset                    | enables `send_text`, `send_file`, `typing`                                             |
 | `GITHUB_API_URL`          | `https://api.github.com` |                                                                                        |
 | `LISTEN_ADDR`             | `:8080`                  |                                                                                        |
 | `CHANNEL_NAME`            | `github`                 | the channel name gitd registers under                                                  |
@@ -165,7 +191,8 @@ delivery per source.
 (fixtures in `testdata/`: push, issues, pull_request opened/merged,
 issue_comment on a PR and on an issue of a second repo, review comment reply,
 ping, bot; two repos on one secret; observe-vs-trigger through
-`router.ResolveRouteTarget`), `server_test.go` (end to end against a fake
+`router.ResolveRouteTarget`; the location header of every fixture), `server_test.go` (end to end against a fake
 routd: signature, unknown source, containment, bot/self drops, retention when
 routd is down, 503 when the retention write fails too, no retention on a
-permanent refusal), `bot_test.go` (comment POST against a fake GitHub API).
+permanent refusal), `bot_test.go` (comment POST against a fake GitHub API), `caps_test.go` (the
+advertised verbs match the implemented ones).

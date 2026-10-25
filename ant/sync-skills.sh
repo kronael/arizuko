@@ -12,15 +12,19 @@
 # Three groups, measured 2026-08-28 against tools da28b93:
 #
 #   VENDORED (below) — byte-identical to upstream, so arizuko has made no local
-#   change and a delete-sync is safe. 17 skills.
+#   change and a delete-sync is safe. 15 skills.
 #
 #   TUNED — arizuko rewrote the frontmatter, the body, or both. NEVER sync:
 #     agent-browser bugs cli commit create data diary dispatch distill go
-#     improve learn ops oracle pr-draft readme recall-memories refine release
+#     improve learn ops oracle readme recall-memories refine release
 #     resolve service ship specs sql trader tweet visual wisdom
 #   The common shape is a `description:` rewritten into arizuko's multi-line
 #   "/x — launch @x agent … USE for … NOT for …" form, plus arizuko-only body
 #   sections (distill's context-reducer comparison, specs' ship discipline).
+#
+#   NOT SHIPPED: the upstream review, PR-comment and PR-draft skills. Their
+#   text is owner-host text (push, merge and PR bans, a sign-off prompt, owner
+#   hooks). The agent's GitHub conduct is output-styles/github.md alone.
 #
 #   UPSTREAM-AHEAD — upstream added real content AND arizuko tuned the same
 #   file, so these are a per-skill MERGE, never a sync: py rs software ts.
@@ -44,8 +48,8 @@ SRC="$TOOLS/skills"
 DST="$HERE/skills"
 
 VENDORED=(
-  browse create-eval diagrams explore fable fin gh-comment haiku humanize
-  merge opus review scavenge sh sonnet tsx writing
+  browse create-eval diagrams explore fable fin haiku humanize
+  merge opus scavenge sh sonnet tsx writing
 )
 
 [ -d "$SRC" ] || { echo "no tools skills at $SRC (set TOOLS=)" >&2; exit 1; }

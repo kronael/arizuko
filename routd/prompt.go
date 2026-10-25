@@ -23,7 +23,7 @@ import (
 // render time read the ambient context once and lost it (BUGS L58). The
 // caller advances it on the same success path as the message cursor —
 // at-least-once, benign because the <rule> tells the agent not to act on it.
-func (l *Loop) buildAgentPrompt(folder, topic string, trigger []core.Message) (string, string) {
+func (l *Loop) buildAgentPrompt(folder, topic string, trigger, ambient []core.Message) (string, string) {
 	sysMsgs := l.db.FlushSysMsgs(folder)
 	maxN, maxC := l.observeWindow(folder)
 
@@ -36,7 +36,7 @@ func (l *Loop) buildAgentPrompt(folder, topic string, trigger []core.Message) (s
 	if len(observed) > 0 {
 		mark = core.TS(observed[len(observed)-1].Timestamp)
 	}
-	observed = withoutTrigger(observed, trigger)
+	observed = append(atOrBeforeCursor(ambient, cursor), withoutTrigger(observed, trigger)...)
 
 	rules := ""
 	if len(observed) > 0 {
@@ -49,6 +49,20 @@ func (l *Loop) buildAgentPrompt(folder, topic string, trigger []core.Message) (s
 		rules +
 		envelope +
 		router.FormatMessages(trigger, observed), mark
+}
+
+// atOrBeforeCursor picks the rows this dispatch consumes as context that the
+// observed window cannot return: the window reads strictly after the bare
+// instant cursor, and a source that stamps whole seconds lands a row at it.
+// They are older than every row of the window, so they render first.
+func atOrBeforeCursor(ambient []core.Message, cursor string) []core.Message {
+	var out []core.Message
+	for _, m := range ambient {
+		if cursor != "" && m.Content != "" && core.TS(m.Timestamp) <= cursor {
+			out = append(out, m)
+		}
+	}
+	return out
 }
 
 // withoutTrigger drops the turn's own messages from its observed window, so a

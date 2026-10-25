@@ -67,9 +67,8 @@
     <p>You can log in with any provider. Each provider returns a string that the auth code calls a <strong>sub</strong>, short for &ldquo;subject&rdquo;: the id of this user at this provider. A sub always starts with its provider:</p>
     <pre><code>github:48291744
 google:114019583462810573829
-discord:837412095138652180
-telegram:user/5511234</code></pre>
-    <p>One person usually has several subs. The first sub you log in with becomes the <strong>canonical sub</strong> of your account, and it never changes. Every grant row keys on it, so a canonical sub that changed would remove all your rights without a warning. To add another provider, click &ldquo;Link&hellip;&rdquo; at <code>/dash/profile/</code> and complete the OAuth flow of that provider. <code>authd</code> records the new login as one more identity of the same account. After that, a login with <em>any</em> linked provider gives a token with the canonical sub. Each provider runs OAuth2 with a signed CSRF state and PKCE. Telegram uses its Login Widget, verified with HMAC. <a href="../reference/env.html">reference / env</a> lists the optional allow-lists for each provider.</p>
+discord:837412095138652180</code></pre>
+    <p>One person usually has several subs. The first sub you log in with becomes the <strong>canonical sub</strong> of your account, and it never changes. Every grant row keys on it, so a canonical sub that changed would remove all your rights without a warning. To add another provider, click &ldquo;Link&hellip;&rdquo; at <code>/dash/profile/</code> and complete the OAuth flow of that provider. <code>authd</code> records the new login as one more identity of the same account. After that, a login with <em>any</em> linked provider gives a token with the canonical sub. Each provider runs OAuth2 with a signed CSRF state and PKCE. <a href="../reference/env.html">reference / env</a> lists the optional allow-lists for each provider.</p>
 
     <h2>The browser holds two tokens</h2>
     <p>After login, the browser holds two things:</p>

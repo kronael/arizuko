@@ -69,7 +69,7 @@
       <dt>Idle to engaged</dt>
       <dd>A mention, a reply to a bot message or an explicit <code>engage()</code> call. The bot replies, and the timer starts.</dd>
       <dt>Engaged to engaged</dt>
-      <dd>Every inbound message that arrives before the deadline starts a turn, with no new mention.</dd>
+      <dd>Every message from a person that arrives before the deadline starts a turn, with no new mention. A reaction, an edit or a CI event does not.</dd>
       <dt>Engaged to idle</dt>
       <dd>The window expires, or the agent calls <code>disengage()</code> when it has finished.</dd>
       <dt>Idle to idle</dt>
@@ -79,7 +79,11 @@
 
     <p><code>ENGAGEMENT_TTL=0</code> stops the automatic opening and renewal of windows. Explicit mentions and direct replies to the bot still work. An open window keeps its deadline until it expires or the bot calls <code>disengage</code>.</p>
 
-    <div class="callout"><strong>Engagement overrides the whole route table.</strong> When a chat and topic pair is engaged, <code>routd</code> delivers to the engaged folder and starts a turn whatever the route table says. This includes <code>#observe</code> targets, trigger routes to another folder, and no matching route at all. The table applies again when the window expires or someone calls <code>disengage()</code>.</div>
+    <div class="callout"><strong>A person's message overrides the route table.</strong> When a chat and topic pair is engaged, <code>routd</code> delivers a <code>message</code> or <code>mention</code> to the engaged folder and starts a turn whatever the route table says. This includes <code>#observe</code> targets, trigger routes to another folder, and no matching route at all. It holds on every channel, GitHub included. Every other row follows its route: a reaction, an edit, a join or a GitHub <code>check_run</code> is stored as observed on an <code>#observe</code> route. The table applies to all rows again when the window expires or someone calls <code>disengage()</code>.</div>
+    <h2>A route can extend the window to CI</h2>
+    <p>A route with the target fragment <code>#engaged</code> fires a turn while the pair is engaged and stores the row as observed otherwise. It matches any verb and never addresses the agent. This row lets CI results continue an open pull request conversation:</p>
+    <pre><code>arizuko route krons add 'chat_jid=github:o/r/pr/* verb=check_run' sloth/morha#engaged --seq 50</code></pre>
+    <p>Write the row above the <code>#observe</code> fallback. A reply in the turn that the row starts renews the window, so CI that keeps arriving while the agent keeps replying holds the conversation open. The default routes carry no <code>#engaged</code> row.</p>
 
     <h2>A reply in a Slack channel opens a thread</h2>
     <p>The reply of the bot to a mention in a channel opens a Slack thread on the message of the user. The engagement window then attaches to that thread. Later replies in the thread engage the bot automatically and stay in the thread, so the main channel stays clear.</p>
@@ -141,7 +145,7 @@ curl -X POST -H "Authorization: Bearer $TOKEN" \
     <div class="callout"><strong>The three endpoints are not in <code>openapi.json</code>.</strong> They are written by hand and do not come from the resource registry like <a href="../reference/openapi.html">the cold-tier tables</a>. Engagement is live conversation state, not operator configuration. It shares its rows with the agent tools <code>engage</code> and <code>disengage</code>, and a registry entry would add a second path to the same rows. <code>/dash/engagement/</code> reads and writes through the same three endpoints, not the table.</div>
 
     <h2>Three pages show how engagement connects</h2>
-    <p><a href="https://github.com/kronael/arizuko/blob/main/ROUTING.md">[ROUTING.md]</a> shows where engagement sits in route resolution and how a mention is promoted. <a href="../concepts/topics.html">topics</a> explains the fork that the correction pattern uses. <a href="../concepts/routing.html#modes">routing modes</a> lists the modes that engagement overrides.</p>
+    <p><a href="https://github.com/kronael/arizuko/blob/main/ROUTING.md">[ROUTING.md]</a> shows where engagement sits in route resolution and how a mention is promoted. <a href="../concepts/topics.html">topics</a> explains the fork that the correction pattern uses. <a href="../concepts/routing.html#modes">routing modes</a> lists the route modes, <code>#engaged</code> among them.</p>
 
       <nav class="docs-pager" aria-label="Pager">
         <a rel="prev" href="routing.html">&larr; Routing</a>

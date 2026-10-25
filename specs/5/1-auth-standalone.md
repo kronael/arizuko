@@ -39,10 +39,9 @@ Three libraries, one shared JOSE implementation:
 | `github.com/coreos/go-oidc/v3`  | OIDC relying-party verify of Google's `id_token`; `RemoteKeySet` for JWKs fetch/cache in verifiers. |
 | `github.com/go-jose/go-jose/v4` | ES256 sign in `authd`; marshal the public JWK Set. Rides transitively under go-oidc.                |
 
-Only Google is a true OIDC provider (returns an `id_token`); GitHub, Discord,
-and Telegram resolve identity via userinfo endpoints / widget HMAC
-(`authd/oauth.go`, primitives in `auth/oauth.go`). Email-allowlist and GitHub-org
-gates carry forward.
+Google returns an OIDC `id_token`. GitHub and Discord resolve identity through
+userinfo endpoints (`authd/oauth.go`, primitives in `auth/oauth.go`).
+Google email allowlists and GitHub organization checks limit access.
 
 `auth/` never imports go-jose directly. For arizuko-issued tokens it runs a
 plain JWT verify (parse, select key by `kid`, check signature + `iss`/`exp`/
@@ -61,12 +60,12 @@ per-token revocation. Three cases cover everything:
 
 - **Normal revoke** — wait for natural expiry (~15 min access TTL bounds the
   blast radius).
-- **Revoke a refresh token** (logout, sign-out-everywhere) — delete/revoke its
-  row. The access token it would have refreshed still works to its own `exp`; no
-  new ones issue.
-- **Emergency revoke** (key compromise) — rotate the signing key with zero
-  overlap. Every token signed by the retired `kid` fails once verifiers refresh
-  the JWK Set.
+- **Revoke a refresh token** — revoke its family in `authd.refresh_families`.
+  The access token still works until its own `exp`. The family cannot issue
+  new access tokens.
+- **Emergency access revoke** — delete the signing-key slot and restart authd.
+  Recently retired keys keep their serving window. Refresh tokens survive key
+  rotation; signing everyone out also requires deletion of the refresh state.
 
 ## Sessions — short access JWT + rotating refresh token (LOCKED)
 
@@ -367,10 +366,18 @@ other daemons, which lack the key.
   expired anyway. GC drops the row after.
 - **Emergency revoke** — an operator deletes the `signing_key_slot` item and
   restarts authd. `newAuthd` mints a key into the empty slot; the old key has no
-  `retired_at`, so the serve check is false and the kid drops now. Every token
-  it signed fails within one JWKS cache TTL. A key retired less than
+  `retired_at`, so authd excludes that key from its public keys. Offline
+  verifiers can accept existing access tokens with cached keys until the
+  tokens expire. A key retired less than
   `maxAccessTTL` ago keeps verifying until its own window closes.
-  `TestEmptySlotRestartRevokesTokens` (`authd/authd_test.go`) covers it.
+  `TestEmptySlotRestartRevokesTokens` (`authd/authd_test.go:116`) checks the
+  new signer and rejection of one access token against the new public keys.
+  Refresh tokens are opaque secrets in `authd.refresh_tokens`, with lineage
+  in `authd.refresh_families`. Key rotation does not change either entity
+  (`authd/server.go:268`, `authd/authstore/refresh_tokens.go:73`).
+  Signing everyone out requires deletion of both entities while authd is
+  stopped, plus the signing-key slot reset. authd creates empty entities at
+  startup (`authd/storage.go:23`).
 
 **No command or endpoint revokes everything, deliberately.** Giving the lever a
 wire face is not a missing endpoint — it is the same change

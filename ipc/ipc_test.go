@@ -753,6 +753,73 @@ func TestServeMCP_Reply_ThreadsViaActiveTopic(t *testing.T) {
 	}
 }
 
+func TestServeMCP_Reply_GitHubNeedsReplyToID(t *testing.T) {
+	const wantErr = "reply on a GitHub chat needs replyToId: the id of the message you answer (gh-rc<id> answers in that code thread, gh-c<id> in the conversation)"
+	cases := []struct {
+		name     string
+		jid      string
+		replyTo  string
+		wantSent bool
+		wantRID  string
+	}{
+		{"github pr without replyToId", "github:o/r/pr/1", "", false, ""},
+		{"github issue without replyToId", "github:o/r/issue/2", "", false, ""},
+		{"github pr with replyToId", "github:o/r/pr/1", "gh-rc42", true, "gh-rc42"},
+		{"telegram without replyToId falls back", "telegram:7", "", true, "last-reply"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			sock := t.TempDir() + "/gated.sock"
+			var sent bool
+			var sentReplyTo string
+			var puts int
+			db := StoreFns{
+				GetLastReplyID:      func(jid, topic string) string { return "last-reply" },
+				SetLastReply:        func(jid, topic, replyID, folder string) error { return nil },
+				PutMessage:          func(m core.Message) error { puts++; return nil },
+				DefaultFolderForJID: func(jid string) string { return "world" },
+			}
+			routd := RoutdFns{
+				SendReply: func(jid, text, rid, msgID string) (string, string, error) {
+					sent = true
+					sentReplyTo = rid
+					return "new-id", "", nil
+				},
+			}
+			stop, err := ServeMCP(sock, routd, db, "world", true, 0, "")
+			if err != nil {
+				t.Fatalf("ServeMCP: %v", err)
+			}
+			defer stop()
+
+			args := map[string]any{"chatJid": tc.jid, "text": "answer"}
+			if tc.replyTo != "" {
+				args["replyToId"] = tc.replyTo
+			}
+			payload, errText := callTool(t, sock, "reply", args)
+			if tc.wantSent {
+				if errText != "" {
+					t.Fatalf("reply refused: %s", errText)
+				}
+				if payload["id"] != "new-id" {
+					t.Fatalf("reply payload = %v, want id new-id", payload)
+				}
+			} else if errText != wantErr {
+				t.Fatalf("error = %q, want %q", errText, wantErr)
+			}
+			if sent != tc.wantSent {
+				t.Fatalf("SendReply called = %v, want %v", sent, tc.wantSent)
+			}
+			if sentReplyTo != tc.wantRID {
+				t.Fatalf("SendReply replyTo = %q, want %q", sentReplyTo, tc.wantRID)
+			}
+			if !tc.wantSent && puts != 0 {
+				t.Fatalf("refused reply wrote %d outbound rows", puts)
+			}
+		})
+	}
+}
+
 // Bug 2 — a `send_file` with no explicit replyToId from inside a thread must
 // thread the upload to the ACTIVE turn topic, not leak to the channel root.
 func TestServeMCP_SendFile_ThreadsViaActiveTopic(t *testing.T) {

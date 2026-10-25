@@ -49,11 +49,11 @@ func TestACLMCP_AddWritesGrantOption(t *testing.T) {
 				_ = db.PutGroup(core.Group{Folder: f})
 			}
 			grantMCPTools(t, db, "root", "add_acl")
-			grantWithOption(t, db, "folder:root", "read", "root/**", "")
+			grantWithOption(t, db, "folder:root", "mcp:fetch_history", "root/**", "")
 			sock := serveACLMCP(t, db, "root", "folder:root")
 
 			args := map[string]any{
-				"principal": "google:bob", "scope": "root/team", "action": "read",
+				"principal": "google:bob", "scope": "root/team", "action": "mcp:fetch_history",
 			}
 			for k, v := range c.args {
 				args[k] = v
@@ -62,7 +62,7 @@ func TestACLMCP_AddWritesGrantOption(t *testing.T) {
 				t.Fatalf("add_acl: %s", e)
 			}
 
-			got, ok := aclRowGrantOption(t, db, "root/team", "read")
+			got, ok := aclRowGrantOption(t, db, "root/team", "mcp:fetch_history")
 			if !ok {
 				t.Fatal("add_acl wrote no row")
 			}
@@ -87,13 +87,13 @@ func TestACLMCP_GrantedOptionLetsGranteeRegrant(t *testing.T) {
 	}
 	grantMCPTools(t, db, "root", "add_acl")
 	grantMCPTools(t, db, "root/team", "add_acl")
-	grantWithOption(t, db, "folder:root", "read", "root/**", "")
+	grantWithOption(t, db, "folder:root", "mcp:fetch_history", "root/**", "")
 
-	// Hop 1: root delegates `read` to root/team WITH the option.
+	// Hop 1: root delegates `mcp:fetch_history` to root/team WITH the option.
 	sock := serveACLMCP(t, db, "root", "folder:root")
 	if _, e := callToolOverSock(t, sock, "add_acl", map[string]any{
 		"principal": "folder:root/team", "scope": "root/team/**",
-		"action": "read", "grant_option": true,
+		"action": "mcp:fetch_history", "grant_option": true,
 	}); e != "" {
 		t.Fatalf("hop 1 add_acl: %s", e)
 	}
@@ -103,12 +103,12 @@ func TestACLMCP_GrantedOptionLetsGranteeRegrant(t *testing.T) {
 	// column actually landed.
 	sub := serveACLMCP(t, db, "root/team", "folder:root/team")
 	if _, e := callToolOverSock(t, sub, "add_acl", map[string]any{
-		"principal": "google:carol", "scope": "root/team/sub", "action": "read",
+		"principal": "google:carol", "scope": "root/team/sub", "action": "mcp:fetch_history",
 	}); e != "" {
 		t.Fatalf("hop 2 add_acl (grantee could not re-grant): %s", e)
 	}
 
-	if _, ok := aclRowGrantOption(t, db, "root/team/sub", "read"); !ok {
+	if _, ok := aclRowGrantOption(t, db, "root/team/sub", "mcp:fetch_history"); !ok {
 		t.Fatal("hop 2 wrote no row")
 	}
 }
@@ -127,9 +127,9 @@ func TestACLMCP_NoOptionCannotDelegate(t *testing.T) {
 		_ = db.PutGroup(core.Group{Folder: f})
 	}
 	grantMCPTools(t, db, "root", "add_acl")
-	// `read` held with NO grant option.
+	// `mcp:fetch_history` held with NO grant option.
 	if err := addACLRow(db, core.ACLRow{
-		Principal: "folder:root", Action: "read", Scope: "root/**", Effect: "allow",
+		Principal: "folder:root", Action: "mcp:fetch_history", Scope: "root/**", Effect: "allow",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -137,11 +137,11 @@ func TestACLMCP_NoOptionCannotDelegate(t *testing.T) {
 
 	if _, e := callToolOverSock(t, sock, "add_acl", map[string]any{
 		"principal": "google:bob", "scope": "root/team",
-		"action": "read", "grant_option": true,
+		"action": "mcp:fetch_history", "grant_option": true,
 	}); e == "" {
 		t.Fatal("a holder without the grant option minted one")
 	}
-	if _, ok := aclRowGrantOption(t, db, "root/team", "read"); ok {
+	if _, ok := aclRowGrantOption(t, db, "root/team", "mcp:fetch_history"); ok {
 		t.Fatal("the refused delegation still wrote a row")
 	}
 }

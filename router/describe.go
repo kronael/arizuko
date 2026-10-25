@@ -12,8 +12,8 @@ import (
 // fragment is silent, and a verb=mention predicate gates on mentions.
 type RouteView struct {
 	core.Route
-	Mode       string `json:"mode"`                  // "trigger" | "observe"
-	FiresTurn  bool   `json:"fires_turn"`            // observe rows never fire a turn
+	Mode       string `json:"mode"`                  // "trigger" | "observe" | "engaged"
+	FiresTurn  bool   `json:"fires_turn"`            // the row fires a turn by itself; observe and engaged rows do not
 	TriggersOn string `json:"triggers_on,omitempty"` // "every message" | "verb=mention" | ...
 	Announce   bool   `json:"announce,omitempty"`    // #announce: release-note target channel
 	Explain    string `json:"explain"`               // one-line plain description
@@ -30,21 +30,25 @@ func Describe(routes []core.Route) []RouteView {
 	for i, r := range routes {
 		rt := core.ParseRouteTarget(r.Target)
 		v := RouteView{Route: r}
-		if rt.Mode == "observe" {
+		switch rt.Mode {
+		case "observe":
 			v.Mode = "observe"
 			v.Explain = "observes silently (no turn); visible as <observed> context → " + rt.Folder
-		} else {
+		case "engaged":
+			v.Mode = "engaged"
+			v.TriggersOn = triggersOn(matchVerb(r.Match))
+			v.Explain = "fires a turn in the engaged folder while the chat and topic are engaged; " + rt.Folder + " takes the row only as observed context"
+		default:
 			v.Mode = "trigger"
 			v.FiresTurn = true
-			switch verb := matchVerb(r.Match); verb {
+			verb := matchVerb(r.Match)
+			v.TriggersOn = triggersOn(verb)
+			switch verb {
 			case "":
-				v.TriggersOn = "every message"
 				v.Explain = "fires a turn on EVERY message → " + rt.Folder
 			case "mention":
-				v.TriggersOn = "verb=mention"
 				v.Explain = "fires a turn on @mention → " + rt.Folder
 			default:
-				v.TriggersOn = "verb=" + verb
 				v.Explain = "fires a turn on verb=" + verb + " → " + rt.Folder
 			}
 		}
@@ -65,6 +69,13 @@ func Describe(routes []core.Route) []RouteView {
 		out[i] = v
 	}
 	return out
+}
+
+func triggersOn(verb string) string {
+	if verb == "" {
+		return "every message"
+	}
+	return "verb=" + verb
 }
 
 func matchVerb(match string) string {

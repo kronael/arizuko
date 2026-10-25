@@ -30,8 +30,10 @@ skills  = ["diary", "recall-memories", "users", "issues", "oracle", "web"]
 #    Set application/json and select the events the agent should receive.
 #    The secret is sealed in routd's store. Registration seeds github: routes:
 #    PR mentions, direct replies and requests trigger turns. Assign the token's
-#    user to each PR to watch its state and completed CI. Plain comments and
-#    issue-only events go to dev#observe. Select check_run, check_suite and
+#    user to each PR to watch its state and completed CI. Human comments,
+#    inline comments and submitted reviews with a body on bot-authored PRs
+#    or issues map to mention. Other plain comments and issue-only events
+#    go to dev#observe. Select check_run, check_suite and
 #    workflow_run events for CI; the token needs Pull requests read access.
 #    Within one repository, each PR or issue uses its own topic, pr/<n> or issue/<n>.
 #    For an installed GitHub App, use add app <slug> dev and paste the URL

@@ -55,7 +55,7 @@
       <p class="lede">authd signs every platform token, the backends verify each token offline, and routd decides what the token allows.</p>
 
     <h2>authd is the only daemon that signs tokens</h2>
-    <p>authd is the ID office. It checks who you are through GitHub, Google, Discord or Telegram and returns a signed token that proves it. Every other daemon trusts that token.</p>
+    <p>authd checks who you are through GitHub, Google or Discord. It returns a signed token that proves your identity. Every other daemon trusts that token.</p>
 
     <p>authd is the auth plane: the only signer of platform tokens and the only JWKS publisher. It holds the active ES256 signing key, on the P-256 curve, in memory. It creates every access and refresh token and acts as the OAuth provider. Backends never sign. They fetch the public JWKS of authd and verify tokens locally with the <code>auth/</code> library. authd owns the <code>authd.*</code> tables in the store.</p>
 
@@ -70,7 +70,7 @@
 
     <h2>Backends verify offline with the public keys</h2>
     <div class="callout">
-      <pre><code>browser login (GitHub / Google / Discord / Telegram)
+      <pre><code>browser login (GitHub / Google / Discord)
         │  GET /auth/*
         ▼
       authd   snapshot grants  ◄── routd (GRANTS_URL, the ACL owner)
@@ -132,7 +132,9 @@ export AUTH_BASE_URL=https://example.com
 
     <p>That page is <code>/dash/authd/</code>, described in <a href="dashd.html">components/dashd</a>. It shows both tables and puts a sign-out button on each live login.</p>
 
-    <p>No HTTP endpoint, CLI command or button signs everyone out at once. An operator revokes every token by deleting the <code>signing_key_slot</code> item and restarting authd. authd then mints a new signing key at start.</p>
+    <p>To invalidate existing access tokens, delete the <code>authd.signing_key_slot</code> item and restart authd. authd creates a new signing key. Recently retired keys still verify tokens until <code>retired_at + maxAccessTTL</code>, up to one hour. Offline verifiers can accept existing access tokens with cached keys until the tokens expire. Key rotation does not revoke refresh tokens.</p>
+
+    <p>To sign everyone out, stop authd before you change its store. Connect to <code>DYNAMODB_URL</code> with the authd credentials in <code>env/authd.env</code> and the certificate in <code>STORE_CA</code>. See <a href="https://github.com/kronael/arizuko/blob/main/INSTALL.md#the-per-daemon-store-keys">[the store setup in INSTALL.md]</a>. Use DynamoDB <code>DeleteTable</code> to delete <code>authd.refresh_families</code> and <code>authd.refresh_tokens</code>. Wait for both deletions to finish. Use DynamoDB <code>TransactWriteItems</code> to delete the <code>authd.signing_key_slot</code> item at <code>part="authd", sort="active"</code>. Restart authd to create empty refresh tables and a new signing key. Existing access tokens can still work until their expiry.</p>
 
     <h2>authd does not authorize</h2>
     <p>authd creates and verifies tokens, runs the OAuth flow and rotates keys. It never decides whether a caller can touch a particular folder. routd makes that decision, every time.</p>

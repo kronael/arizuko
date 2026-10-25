@@ -48,9 +48,9 @@ func TestMapEvent_Fixtures(t *testing.T) {
 			"github:kronael", "", "kronael pushed 2 commit(s) to refs/heads/main\n- b7c8d9e fix(routd): drop the stale topic cursor\n- 0f1e2d3 docs(changelog): v0.63.1",
 			time.Date(2026, 9, 5, 9, 14, 44, 0, time.UTC).Unix()},
 		{"issues_opened", "issues", "github:kronael/arizuko/issue/3", "message", "issue/3", "gh-dd-issues_opened",
-			"github:kronael", "", "opened issue #3: gitd: GitHub events as messages\nhttps://github.com/kronael/arizuko/issues/3\n\nA repo's events", fixedNow.Unix()},
+			"github:kronael", "", "opened issue #3: gitd: GitHub events as messages\n\nA repo's events", fixedNow.Unix()},
 		{"pull_request_opened", "pull_request", "github:kronael/arizuko/pr/12", "message", "pr/12", "gh-dd-pull_request_opened",
-			"github:rhias", "", "opened PR #12: feat(gitd): GitHub as an ingress channel (gitd → main)\nhttps://github.com/kronael/arizuko/pull/12\n\nWebhooks land",
+			"github:rhias", "", "opened PR #12: feat(gitd): GitHub as an ingress channel (gitd → main)\n\nWebhooks land",
 			time.Date(2026, 9, 5, 10, 0, 0, 0, time.UTC).Unix()},
 		{"pull_request_merged", "pull_request", "github:kronael/arizuko/pr/12", "pull_request", "pr/12", "gh-dd-pull_request_merged",
 			"github:kronael", "", "kronael merged PR #12: feat(gitd): GitHub as an ingress channel",
@@ -62,7 +62,7 @@ func TestMapEvent_Fixtures(t *testing.T) {
 			"github:rhias", "", "Reproduced on 6.1; the proxy PID file is stale.",
 			time.Date(2026, 9, 5, 10, 6, 0, 0, time.UTC).Unix()},
 		{"pull_request_review_comment_created", "pull_request_review_comment", "github:kronael/arizuko/pr/12", "message", "pr/12", "gh-rc5678901234",
-			"github:kronael", "gh-rc5678901200", "on gitd/verify.go:\n\nConstant-time compare — good. Also reject an empty secret.",
+			"github:kronael", "gh-rc5678901200", "Constant-time compare — good. Also reject an empty secret.",
 			time.Date(2026, 9, 5, 10, 7, 15, 0, time.UTC).Unix()},
 	}
 	for _, c := range cases {
@@ -73,8 +73,8 @@ func TestMapEvent_Fixtures(t *testing.T) {
 				c.file, msg.ChatJID, msg.Verb, msg.Topic, msg.ID, msg.Sender, msg.ReplyTo, msg.Timestamp,
 				c.jid, c.verb, c.topic, c.id, c.sender, c.replyTo, c.ts)
 		}
-		if !strings.HasPrefix(msg.Content, c.contentHas) {
-			t.Errorf("%s: content = %q, want prefix %q", c.file, msg.Content, c.contentHas)
+		if !strings.Contains(msg.Content, c.contentHas) {
+			t.Errorf("%s: content = %q, want it to hold %q", c.file, msg.Content, c.contentHas)
 		}
 		if !msg.IsGroup || msg.SenderName != strings.TrimPrefix(c.sender, "github:") {
 			t.Errorf("%s: is_group=%v sender_name=%q", c.file, msg.IsGroup, msg.SenderName)
@@ -245,7 +245,7 @@ func TestMapEvent_UnknownEventLandsOnRepo(t *testing.T) {
 	body := []byte(`{"action":"created","sender":{"login":"kronael","type":"User"},"installation":{"id":1},
 		"repository":{"name":"arizuko","full_name":"kronael/arizuko","owner":{"login":"kronael"}}}`)
 	msg, _, err := mapEvent(store.GitHubSourceApp, "x", "release", "d1", body, fixedNow, "")
-	if err != nil || msg.ChatJID != "github:kronael/arizuko" || msg.Verb != "release" || msg.Content != "kronael release created" || msg.ID != "gh-dd1" {
+	if err != nil || msg.ChatJID != "github:kronael/arizuko" || msg.Verb != "release" || msg.Content != "[github kind=release id=gh-dd1]\n\nkronael release created" || msg.ID != "gh-dd1" {
 		t.Fatalf("release: %+v err=%v", msg, err)
 	}
 	orgOnly := []byte(`{"action":"member_added","sender":{"login":"kronael","type":"User"},"installation":{"id":1},"organization":{"login":"kronael-org"}}`)
@@ -425,6 +425,97 @@ func TestMapEvent_VerbIsWhatTheEventIs(t *testing.T) {
 	}
 }
 
+func TestMapEvent_BotAuthoredConversation(t *testing.T) {
+	events := []struct {
+		name, event, payload, jid string
+	}{
+		{"PR comment", "issue_comment", `"action":"created","issue":{"number":9,"user":%s,"pull_request":{}},"comment":{"id":1,"body":"please fix"}`, "github:kronael/arizuko/pr/9"},
+		{"issue comment", "issue_comment", `"action":"created","issue":{"number":9,"user":%s},"comment":{"id":1,"body":"please fix"}`, "github:kronael/arizuko/issue/9"},
+		{"inline comment", "pull_request_review_comment", `"action":"created","pull_request":{"number":9,"user":%s},"comment":{"id":2,"body":"please fix"}`, "github:kronael/arizuko/pr/9"},
+		{"submitted review", "pull_request_review", `"action":"submitted","pull_request":{"number":9,"user":%s},"review":{"id":3,"state":"commented","body":"please fix"}`, "github:kronael/arizuko/pr/9"},
+	}
+	cases := []struct {
+		name, author, login, sender, senderType, verb, drop string
+	}{
+		{"bot author", `{"login":"arizuko-bot"}`, botLogin, "rhias", "User", "mention", ""},
+		{"bot author case", `{"login":"ARIZUKO-BOT"}`, botLogin, "rhias", "User", "mention", ""},
+		{"human author", `{"login":"alice"}`, botLogin, "rhias", "User", "message", ""},
+		{"longer author login", `{"login":"arizuko-bot-helper"}`, botLogin, "rhias", "User", "message", ""},
+		{"missing author", `null`, botLogin, "rhias", "User", "message", ""},
+		{"empty login and author", `{}`, "", "rhias", "User", "message", ""},
+		{"unresolved login", `{"login":"arizuko-bot"}`, "", "rhias", "User", "message", ""},
+		{"own comment", `{"login":"arizuko-bot"}`, botLogin, "ARIZUKO-BOT", "User", "", "self"},
+		{"other bot sender", `{"login":"arizuko-bot"}`, botLogin, "review-bot", "Bot", "", "bot"},
+	}
+	for _, event := range events {
+		for _, c := range cases {
+			t.Run(event.name+"/"+c.name, func(t *testing.T) {
+				raw := body(fmt.Sprintf(event.payload, c.author))
+				raw = []byte(strings.Replace(string(raw), `"login":"rhias","type":"User"`, fmt.Sprintf(`"login":%q,"type":%q`, c.sender, c.senderType), 1))
+				msg, drop, err := mapEvent(store.GitHubSourceApp, "x", event.event, "d", raw, fixedNow, c.login)
+				if err != nil || drop != c.drop {
+					t.Fatalf("err=%v drop=%q, want drop=%q", err, drop, c.drop)
+				}
+				if msg.Verb != c.verb {
+					t.Errorf("verb=%q, want %q", msg.Verb, c.verb)
+				}
+				if drop == "" && msg.ChatJID != event.jid {
+					t.Errorf("ChatJID=%q, want %q", msg.ChatJID, event.jid)
+				}
+			})
+		}
+	}
+}
+
+func TestMapEvent_BotAuthoredConversationActions(t *testing.T) {
+	pr := `"pull_request":{"number":9,"user":{"login":"arizuko-bot"}}`
+	issue := `"issue":{"number":9,"user":{"login":"arizuko-bot"}}`
+	comment := `"comment":{"id":1,"body":"please fix"}`
+	cases := []struct {
+		name, event, payload, verb string
+	}{
+		{"edited PR comment", "issue_comment", `"action":"edited",` + strings.TrimSuffix(issue, "}") + `,"pull_request":{}},` + comment, "mention"},
+		{"edited issue comment", "issue_comment", `"action":"edited",` + issue + `,` + comment, "mention"},
+		{"edited inline comment", "pull_request_review_comment", `"action":"edited",` + pr + `,` + comment, "mention"},
+		{"deleted PR comment", "issue_comment", `"action":"deleted",` + strings.TrimSuffix(issue, "}") + `,"pull_request":{}},` + comment, "issue_comment"},
+		{"deleted issue comment", "issue_comment", `"action":"deleted",` + issue + `,` + comment, "issue_comment"},
+		{"deleted inline comment", "pull_request_review_comment", `"action":"deleted",` + pr + `,` + comment, "pull_request_review_comment"},
+		{"approval with body", "pull_request_review", `"action":"submitted",` + pr + `,"review":{"state":"approved","body":"please fix"}`, "mention"},
+		{"changes requested with body", "pull_request_review", `"action":"submitted",` + pr + `,"review":{"state":"changes_requested","body":"please fix"}`, "mention"},
+		{"empty review", "pull_request_review", `"action":"submitted",` + pr + `,"review":{"state":"commented","body":""}`, "pull_request_review"},
+		{"empty approval", "pull_request_review", `"action":"submitted",` + pr + `,"review":{"state":"approved","body":""}`, "pull_request_review"},
+		{"blank changes requested", "pull_request_review", `"action":"submitted",` + pr + `,"review":{"state":"changes_requested","body":"  "}`, "pull_request_review"},
+		{"edited review", "pull_request_review", `"action":"edited",` + pr + `,"review":{"state":"commented","body":"please fix"}`, "message"},
+		{"dismissed review", "pull_request_review", `"action":"dismissed",` + pr + `,"review":{"state":"approved","body":"please fix"}`, "pull_request_review"},
+		{"PR state", "pull_request", `"action":"synchronize",` + pr, "pull_request"},
+		{"issue state", "issues", `"action":"closed",` + issue, "issues"},
+		{"review thread state", "pull_request_review_thread", `"action":"resolved",` + pr, "pull_request_review_thread"},
+		{"check run", "check_run", `"action":"completed",` + pr + `,"check_run":{"status":"completed","conclusion":"failure"}`, "check_run"},
+		{"check suite", "check_suite", `"action":"completed",` + pr + `,"check_suite":{"status":"completed","conclusion":"failure"}`, "check_suite"},
+		{"workflow run", "workflow_run", `"action":"completed",` + pr + `,"workflow_run":{"status":"completed","conclusion":"failure"}`, "workflow_run"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			msg, drop, err := mapEvent(store.GitHubSourceApp, "x", c.event, "d", body(c.payload), fixedNow, botLogin)
+			if err != nil || drop != "" || msg.Verb != c.verb {
+				t.Errorf("verb=%q drop=%q err=%v, want verb=%q", msg.Verb, drop, err, c.verb)
+			}
+		})
+	}
+	for _, state := range []string{"approved", "changes_requested"} {
+		for _, sender := range []struct{ login, kind string }{{"ARIZUKO-BOT", "User"}, {"review-bot", "Bot"}} {
+			t.Run(state+"/"+sender.login, func(t *testing.T) {
+				raw := body(`"action":"submitted",` + pr + `,"review":{"state":"` + state + `","body":"please fix"}`)
+				raw = []byte(strings.Replace(string(raw), `"login":"rhias","type":"User"`, fmt.Sprintf(`"login":%q,"type":%q`, sender.login, sender.kind), 1))
+				msg, drop, err := mapEvent(store.GitHubSourceApp, "x", "pull_request_review", "d", raw, fixedNow, botLogin)
+				if err != nil || drop != "" || msg.Verb != "pull_request_review" {
+					t.Errorf("verb=%q drop=%q err=%v, want pull_request_review", msg.Verb, drop, err)
+				}
+			})
+		}
+	}
+}
+
 // Without a login (ingress-only gitd) nothing is a mention, and an empty login
 // does not match an empty reviewer.
 func TestMapEvent_NoLoginNoMention(t *testing.T) {
@@ -467,5 +558,91 @@ func TestMapEvent_MentionTriggersAmbientObserves(t *testing.T) {
 		if got := resolve(routes, msg); got.Folder != "eng" || got.Mode != want {
 			t.Errorf("%s resolved to %+v, want eng mode %q", action, got, want)
 		}
+	}
+}
+
+// An edit or deletion notification of a reply carries no ReplyTo: routd
+// promotes a reply to a bot comment into a mention, and the spec says an edit
+// or a deletion starts no turn.
+func TestMapEvent_ReviewCommentReplyToOnlyWhenCreated(t *testing.T) {
+	created := fixture(t, "pull_request_review_comment_created")
+	for _, c := range []struct{ action, replyTo string }{
+		{"created", "gh-rc5678901200"},
+		{"edited", ""},
+		{"deleted", ""},
+	} {
+		body := []byte(strings.Replace(string(created), `"action": "created"`, `"action": "`+c.action+`"`, 1))
+		msg, drop, err := mapEvent(store.GitHubSourceApp, "arizuko-krons", "pull_request_review_comment", "d-"+c.action, body, fixedNow, "")
+		if err != nil || drop != "" {
+			t.Fatalf("%s: err=%v drop=%q", c.action, err, drop)
+		}
+		if msg.ReplyTo != c.replyTo {
+			t.Errorf("%s: reply_to=%q want %q", c.action, msg.ReplyTo, c.replyTo)
+		}
+	}
+}
+
+const (
+	repoURL = "https://github.com/kronael/arizuko"
+	hunk    = "```diff\n@@ -1,4 +1,12 @@\n+func verifySignature(secret, header string, body []byte) error {\n" +
+		"+\tmac := hmac.New(sha256.New, []byte(secret))\n+\tmac.Write(body)\n+\treturn compare(mac.Sum(nil), header)\n```"
+)
+
+// Every mapped message opens with the location header of spec 6/27, and the
+// id in it is the id of the row.
+func TestMapEvent_LocationHeader(t *testing.T) {
+	for _, c := range []struct{ file, event, want string }{
+		{"issue_comment_created", "issue_comment",
+			"[github kind=issue_comment id=gh-c4567890123 url=" + repoURL + "/pull/12#issuecomment-4567890123]\n\n" +
+				"@arizuko can you review the signature check in verify.go?"},
+		{"pull_request_review_submitted", "pull_request_review",
+			"[github kind=pull_request_review id=gh-r6789012345 review=gh-r6789012345 state=changes_requested url=" +
+				repoURL + "/pull/12#pullrequestreview-6789012345]\n\nkronael review (changes_requested) on PR #12\n\nTwo comments inline; the empty-secret case needs a test."},
+		{"pull_request_review_comment_created", "pull_request_review_comment",
+			"[github kind=pull_request_review_comment id=gh-rc5678901234 thread=gh-rc5678901200 review=gh-r6789012345 " +
+				"path=gitd/verify.go lines=10-12 side=RIGHT url=" + repoURL + "/pull/12#discussion_r5678901234]\n" + hunk +
+				"\n\nConstant-time compare — good. Also reject an empty secret."},
+		{"pull_request_review_comment_suggestion", "pull_request_review_comment",
+			"[github kind=pull_request_review_comment id=gh-rc5678901300 thread=gh-rc5678901300 review=gh-r6789012345 " +
+				"path=gitd/verify.go lines=11 side=RIGHT url=" + repoURL + "/pull/12#discussion_r5678901300]\n" + hunk +
+				"\n\n```suggestion\n```"},
+		{"pull_request_review_comment_outdated", "pull_request_review_comment",
+			"[github kind=pull_request_review_comment id=gh-rc5678901400 thread=gh-rc5678901200 review=gh-r6789012345 " +
+				"path=gitd/verify.go lines=10-12 outdated=true side=RIGHT url=" + repoURL + "/pull/12#discussion_r5678901234]\n" + hunk +
+				"\n\nConstant-time compare — good. Also reject an empty secret."},
+		{"issues_opened", "issues",
+			"[github kind=issues id=gh-dd-issues_opened url=" + repoURL + "/issues/3]\n\n" +
+				"opened issue #3: gitd: GitHub events as messages\n\nA repo's events should reach the agent as ordinary messages."},
+	} {
+		msg := mapFixture(t, store.GitHubSourceApp, "arizuko-krons", c.event, c.file)
+		if msg.Content != c.want {
+			t.Errorf("%s: content\n got %q\nwant %q", c.file, msg.Content, c.want)
+		}
+		if first, _, _ := strings.Cut(msg.Content, "]"); !strings.Contains(first, " id="+msg.ID+" ") && !strings.HasSuffix(first, " id="+msg.ID) {
+			t.Errorf("%s: header id differs from row id %q: %q", c.file, msg.ID, first)
+		}
+	}
+}
+
+// The hunk is cut to its last 20 lines, and a fence never ends early on a
+// backtick run inside the hunk.
+func TestMapEvent_LocationHeaderHunk(t *testing.T) {
+	var lines []string
+	for i := range 30 {
+		lines = append(lines, fmt.Sprintf("+line %d", i))
+	}
+	lines = append(lines, "+```go")
+	raw := fixture(t, "pull_request_review_comment_suggestion")
+	body := strings.Replace(string(raw), `"diff_hunk": "@@ -1,4 +1,12 @@\n+func verifySignature(secret, header string, body []byte) error {\n+\tmac := hmac.New(sha256.New, []byte(secret))\n+\tmac.Write(body)\n+\treturn compare(mac.Sum(nil), header)"`,
+		`"diff_hunk": "`+strings.Join(lines, `\n`)+`"`, 1)
+	msg, _, err := mapEvent(store.GitHubSourceApp, "arizuko-krons", "pull_request_review_comment", "d", []byte(body), fixedNow, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, block, _ := strings.Cut(msg.Content, "\n")
+	block, _, _ = strings.Cut(block, "\n\n")
+	got := strings.Split(block, "\n")
+	if got[0] != "````diff" || got[len(got)-1] != "````" || len(got) != 22 || got[1] != "+line 11" || got[20] != "+```go" {
+		t.Errorf("hunk block = %q", block)
 	}
 }

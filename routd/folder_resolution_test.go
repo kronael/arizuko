@@ -31,7 +31,10 @@ func (s *folderMessageReads) Query(ctx context.Context,
 	return items, err
 }
 
-func TestFolderForJidReadsOnlyNewestMessage(t *testing.T) {
+// Queue admission reads the pending batch once, bounded by pollBatch, and
+// decides it as the worker does: the bot row "newest" never resolves a batch, so
+// slack:T/C keys on "old", the folder its user rows dispatch to.
+func TestFolderForJidReadsThePendingBatchOnce(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
 		t.Fatal(err)
@@ -69,7 +72,7 @@ func TestFolderForJidReadsOnlyNewestMessage(t *testing.T) {
 		want string
 		rows int
 	}{
-		{"slack:T/C", "new", 1},
+		{"slack:T/C", "old", 3},
 		{"web:direct", "direct", 1},
 		{"unknown:chat", "unknown:chat", 1},
 		{"slack:empty", "slack:empty", 0},
@@ -85,13 +88,56 @@ func TestFolderForJidReadsOnlyNewestMessage(t *testing.T) {
 					len(reads.queries), reads.rows, tt.rows)
 			}
 			q := reads.queries[0]
-			if q.Partition != tt.jid || !q.Descending || q.Limit != 1 {
-				t.Fatalf("unbounded newest-message read: %+v", q)
+			if q.Partition != tt.jid || q.Limit != pollBatch {
+				t.Fatalf("read is not the worker's bounded batch read: %+v", q)
 			}
 		})
 	}
 	reads.err = errors.New("message read failed")
 	if got := loop.folderForJid("slack:T/C"); got != "slack:T/C" {
 		t.Fatalf("folder after read failure = %q, want chat JID", got)
+	}
+}
+
+type storeQueries struct {
+	objstore.Store
+	n int
+}
+
+func (s *storeQueries) Query(ctx context.Context, q objstore.Query) ([]objstore.Item, error) {
+	s.n++
+	return s.Store.Query(ctx, q)
+}
+
+// Resolving a batch asks the store for the chat's engagement and sticky pins
+// once per distinct fact: 60 rows on one topic cost what 2 rows cost.
+func TestBatchResolve_ReadsEachChatFactOnce(t *testing.T) {
+	db, loop := newEngagementLoop(t, engagedCIRoutes(t))
+	jid := "github:kronael/arizuko/pr/9"
+	if err := db.SetEngagement(jid, "", "held", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	reads := &storeQueries{Store: db.obj}
+	db.obj = reads
+	batch := func(n int) []core.Message {
+		msgs := make([]core.Message, n)
+		for i := range msgs {
+			verb := "message"
+			if i%2 == 1 {
+				verb = "check_run"
+			}
+			msgs[i] = core.Message{ChatJID: jid, Topic: "pr/9", Verb: verb, Sender: "u"}
+		}
+		return msgs
+	}
+	loop.resolveBatch(jid, batch(2))
+	two := reads.n
+	reads.n = 0
+	b := loop.resolveBatch(jid, batch(60))
+	if reads.n != two {
+		t.Fatalf("60 rows read the store %d times, 2 rows %d: reads grow with the batch", reads.n, two)
+	}
+	if !b.ok || b.Folder != "held" {
+		t.Fatalf("batch resolution changed: %+v", b.resolution)
 	}
 }

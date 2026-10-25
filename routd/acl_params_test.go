@@ -53,16 +53,16 @@ func TestACLMCP_AddWritesParams(t *testing.T) {
 		_ = db.PutGroup(core.Group{Folder: f})
 	}
 	grantMCPTools(t, db, "root", "add_acl", "remove_acl")
-	grantWithOption(t, db, "folder:root", "read", "root/**", "")
+	grantWithOption(t, db, "folder:root", "mcp:fetch_history", "root/**", "")
 	sock := serveACLMCP(t, db, "root", "folder:root")
 
 	if _, e := callToolOverSock(t, sock, "add_acl", map[string]any{
 		"principal": "google:bob", "scope": "root/team",
-		"action": "read", "params": "repo=mine/*",
+		"action": "mcp:fetch_history", "params": "repo=mine/*",
 	}); e != "" {
 		t.Fatalf("add_acl: %s", e)
 	}
-	got, ok := aclRowParams(t, db, "root/team", "read")
+	got, ok := aclRowParams(t, db, "root/team", "mcp:fetch_history")
 	if !ok {
 		t.Fatal("add_acl wrote no row")
 	}
@@ -74,11 +74,11 @@ func TestACLMCP_AddWritesParams(t *testing.T) {
 	// drops it. A writer that cannot un-write its own row is BUGS L79 again.
 	if _, e := callToolOverSock(t, sock, "remove_acl", map[string]any{
 		"principal": "google:bob", "scope": "root/team",
-		"action": "read", "params": "repo=mine/*",
+		"action": "mcp:fetch_history", "params": "repo=mine/*",
 	}); e != "" {
 		t.Fatalf("remove_acl: %s", e)
 	}
-	if _, ok := aclRowParams(t, db, "root/team", "read"); ok {
+	if _, ok := aclRowParams(t, db, "root/team", "mcp:fetch_history"); ok {
 		t.Fatal("remove_acl naming the exact narrowing did not drop the row")
 	}
 }
@@ -105,23 +105,23 @@ func TestACLMCP_DelegateJudgesTheShapedRow(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Held WITH the grant option, but NARROWED: only calls naming mine/*.
-	grantWithOption(t, db, "folder:world/a", "read", "world/**", "repo=mine/*")
+	grantWithOption(t, db, "folder:world/a", "mcp:fetch_history", "world/**", "repo=mine/*")
 	sock := serveACLMCP(t, db, "world/a", "folder:world/a")
 
 	// The identical narrowing is a subset of what is held: permitted.
 	if _, e := callToolOverSock(t, sock, "add_acl", map[string]any{
 		"principal": "google:x", "scope": "world/b",
-		"action": "read", "params": "repo=mine/*",
+		"action": "mcp:fetch_history", "params": "repo=mine/*",
 	}); e != "" {
 		t.Fatalf("the delegable narrowed row was refused: %s", e)
 	}
 	// The UNNARROWED row is strictly wider than what is held: refused.
 	if _, e := callToolOverSock(t, sock, "add_acl", map[string]any{
-		"principal": "google:y", "scope": "world/b", "action": "read",
+		"principal": "google:y", "scope": "world/b", "action": "mcp:fetch_history",
 	}); e == "" {
-		t.Fatal("a caller holding only read(repo=mine/*) wrote the unnarrowed read")
+		t.Fatal("a caller holding only mcp:fetch_history(repo=mine/*) wrote the unnarrowed grant")
 	}
-	if p, ok := aclRowParams(t, db, "world/b", "read"); !ok || p != "repo=mine/*" {
+	if p, ok := aclRowParams(t, db, "world/b", "mcp:fetch_history"); !ok || p != "repo=mine/*" {
 		t.Fatalf("world/b holds params %q (present=%v); the refused call must have written nothing", p, ok)
 	}
 }
@@ -167,18 +167,18 @@ func TestACLMCP_AddRefusesUnreadableParams(t *testing.T) {
 		_ = db.PutGroup(core.Group{Folder: f})
 	}
 	grantMCPTools(t, db, "root", "add_acl")
-	grantWithOption(t, db, "folder:root", "read", "root/**", "")
+	grantWithOption(t, db, "folder:root", "mcp:fetch_history", "root/**", "")
 	sock := serveACLMCP(t, db, "root", "folder:root")
 
 	for _, params := range []string{"repo = mine", "repo=a,repo=b", "=mine", "repo=a,,"} {
 		if _, e := callToolOverSock(t, sock, "add_acl", map[string]any{
 			"principal": "google:bob", "scope": "root/team",
-			"action": "read", "params": params,
+			"action": "mcp:fetch_history", "params": params,
 		}); e == "" {
 			t.Errorf("add_acl accepted params %q, which the evaluator reads differently", params)
 		}
 	}
-	if _, ok := aclRowParams(t, db, "root/team", "read"); ok {
+	if _, ok := aclRowParams(t, db, "root/team", "mcp:fetch_history"); ok {
 		t.Fatal("a refused add_acl still wrote a row")
 	}
 }

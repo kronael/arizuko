@@ -56,6 +56,31 @@ func TestGrantRejectsUnknownAction(t *testing.T) {
 	}
 }
 
+func TestGrantToolActionNamespace(t *testing.T) {
+	s := newMem(t)
+	var out bytes.Buffer
+	row := core.ACLRow{Principal: "folder:demo", Scope: "demo", Action: "send"}
+	if err := runGrant(s, row, &out); err == nil || !strings.Contains(err.Error(), "unknown action") {
+		t.Fatalf("bare send must be refused: %v", err)
+	}
+	if err := runUngrant(s, row, &out); err == nil || !strings.Contains(err.Error(), "unknown action") {
+		t.Fatalf("bare send revocation must be refused: %v", err)
+	}
+	if rows, err := s.ListACL(row.Principal); err != nil || len(rows) != 0 {
+		t.Fatalf("refused action persisted: %+v, %v", rows, err)
+	}
+	row.Action = "mcp:send"
+	if err := runGrant(s, row, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !auth.Authorize(s, auth.Caller{Principal: row.Principal}, row.Action, row.Scope, nil) {
+		t.Error("mcp:send grant did not authorize send")
+	}
+	if err := runUngrant(s, row, &out); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // TestGrantActionReachesShellEnv is the same gap one tier down. A shell
 // credential is delivered by a `shell:env:<KEY>` acl row, so an action the CLI
 // refuses to type is a capability the operator cannot hand out at all — the

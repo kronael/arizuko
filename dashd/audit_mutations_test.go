@@ -57,7 +57,7 @@ func TestGrantAdd_Audited(t *testing.T) {
 	d, _ := splitAdminDash(t, "alice@x")
 	mux := newMux(d)
 	form := url.Values{
-		"principal": {"bob@x"}, "action": {"send"}, "effect": {"allow"}, "scope": {"team"},
+		"principal": {"bob@x"}, "action": {"mcp:send"}, "effect": {"allow"}, "scope": {"team"},
 	}.Encode()
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, adminReq("POST", "/dash/groups/team/grants", form, "alice@x"))
@@ -72,16 +72,16 @@ func TestGrantAdd_Audited(t *testing.T) {
 func TestGrantRevoke_Audited(t *testing.T) {
 	d, routd := splitAdminDash(t, "alice@x")
 	seedGrant(t, routd, core.ACLRow{
-		Principal: "bob@x", Action: "send", Scope: "team", Effect: "allow",
+		Principal: "bob@x", Action: "mcp:send", Scope: "team", Effect: "allow",
 	})
 	mux := newMux(d)
-	form := url.Values{"principal": {"bob@x"}, "action": {"send"}, "effect": {"allow"}}.Encode()
+	form := url.Values{"principal": {"bob@x"}, "action": {"mcp:send"}, "effect": {"allow"}}.Encode()
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, adminReq("POST", "/dash/groups/team/grants/revoke", form, "alice@x"))
 	if w.Code != http.StatusSeeOther {
 		t.Fatalf("POST grants/revoke = %d body=%q", w.Code, w.Body.String())
 	}
-	if n := countGrants(t, routd, "bob@x", "send"); n != 0 {
+	if n := countGrants(t, routd, "bob@x", "mcp:send"); n != 0 {
 		t.Fatalf("grant not revoked (%d rows)", n)
 	}
 	if got := auditActor(t, d, "acl.remove"); got != "alice@x" {

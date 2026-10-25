@@ -22,7 +22,7 @@ test.describe('grants', () => {
   }) => {
     const principal = `pwgrant-${Date.now()}@example`;
     const add = await context.request.post('/dash/groups/inbox/grants', {
-      form: { principal, action: 'send', effect: 'allow', scope: 'inbox' },
+      form: { principal, action: 'mcp:send', effect: 'allow', scope: 'inbox' },
       maxRedirects: 0,
     });
     expect(add.status()).toBe(303);
@@ -33,7 +33,7 @@ test.describe('grants', () => {
     const revoke = await context.request.post(
       '/dash/groups/inbox/grants/revoke',
       {
-        form: { principal, action: 'send', effect: 'allow' },
+        form: { principal, action: 'mcp:send', effect: 'allow' },
         maxRedirects: 0,
       },
     );

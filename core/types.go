@@ -131,14 +131,16 @@ type TopicLineage struct {
 	ObservedCursor string
 }
 
-// RouteTarget parses `folder`, `folder#observe`, `folder#announce` or `folder#<topic>`
-// on routes.target. observe sets Mode (observe-only, no agent turn); announce is a
-// no-op for inbound that flags the channel as a release-announcement target for the
-// migrate skill. Any other fragment is a topic name pinned for the routed message.
+// RouteTarget parses `folder`, `folder#observe`, `folder#engaged`, `folder#announce` or
+// `folder#<topic>` on routes.target. observe sets Mode (observe-only, no agent turn);
+// engaged sets Mode (a turn only while the chat and topic are engaged, observed
+// otherwise); announce is a no-op for inbound that flags the channel as a
+// release-announcement target for the migrate skill. Any other fragment is a topic
+// name pinned for the routed message.
 type RouteTarget struct {
 	Folder   string
 	Topic    string // when non-empty, route pins this topic on the message
-	Mode     string // "" trigger, "observe" silent ingest
+	Mode     string // "" trigger, "observe" silent ingest, "engaged" trigger only while engaged
 	Announce bool   // #announce: release-note target; inbound-neutral (trigger)
 }
 
@@ -151,6 +153,8 @@ func ParseRouteTarget(s string) RouteTarget {
 	rt := RouteTarget{Folder: before}
 	switch frag {
 	case "observe":
+		rt.Mode = frag
+	case "engaged":
 		rt.Mode = frag
 	case "announce":
 		rt.Announce = true

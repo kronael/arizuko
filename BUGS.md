@@ -28,6 +28,9 @@ marker every entry carries. Ten entries said open in the heading and carried no
 **A contract or design decision.** Each names the question in its own Status
 line; none can be answered from the code.
 
+- `L570` — may routd steer rows into a running turn? Adds a verb to the
+  runed boundary.
+- `L571` — measure a two-sender batch under a `{sender}` route.
 - `L473` — how does a newer seeded acl floor reach an existing instance
   without re-adding rows an operator removed?
 - `L472` — must a scheduled turn state its own success or failure, and may
@@ -191,9 +194,6 @@ reads those words now.
 - `L151` — an adapter with a dead credential restart-loops and nothing pushes the fact
   anywhere a person sees.
 - `L2` — a delegated child is never dispatched; a measured cause and an unsigned fix.
-- `L75` — half (a), the dead retry, SHIPPED. What is left is (b): a re-fed batch resolves
-  by its newest row, so a pending mention is demoted by ordinary chatter, and the fix has
-  to outrank it without breaking `L56` and `L336`.
 - `L13`, `L31`, `L41`, `L134` — a write-only `secret_use_log` with no read surface;
   four of six product payload kinds seed-once so a product never updates; compose
   fragments frozen once they differ by a byte; a `shell:env:` grant that cannot be
@@ -273,8 +273,6 @@ reads those words now.
 - `L535` — after a turn ends, a background subagent's result restarts the
   model and every tool call is refused, so the reply is lost (117 krons, 38
   sloth sessions).
-- `L534` — GitHub PRs skip the engagement mechanism that chat threads use;
-  the owner wants one attention mechanism for both (amend spec 6/27).
 - `L529` — `set_group_open` writes an `open` flag that no production code
   reads; measure whether the ambient join is unwired.
 - `L531` — the F36 refresh-claim guard is tested on a twin production never
@@ -289,7 +287,6 @@ reads those words now.
 - `L538` — routd reads the guest capabilities through the action lattice, so
   every onboarded world's agent gets a read-only share: exact match, and
   delete `share_mount(readonly)`?
-- `L539` — dashd's grant form offers 31 action names that no evaluator reads.
 - `L540` — dashd's grant form and `POST /v1/acl` write rows without
   `auth.Delegate`: run it there, or let a folder admin grant any row inside
   its subtree?
@@ -300,24 +297,6 @@ reads those words now.
   it a writer?
 - `L544` — the ant image holds SDK 0.3.278 from a cached layer while the
   Dockerfile says latest: pin the lockfiles, or bust the cache?
-
-**Found while setting sloth's GitHub style (2026-10-23).**
-
-- `L545` — three shipped skills (`review`, `gh-comment`, `pr-draft`) forbid
-  push, merge and submitted reviews, so sloth promises work instead of doing
-  it: drop those rules for an agent acting under its own login?
-- `L546` — every turn leaves a permanent `✓ <status>` comment on a GitHub PR:
-  drop progress comments on GitHub (spec 6/46)?
-
-**Found by the sloth GitHub eval (2026-10-23).**
-
-- `L549` — an inline comment reaches the agent without line, hunk or thread,
-  and `reply` without `replyToId` answers the batch's last comment: carry the
-  location on each message and require the reply target (changes 6/27)?
-- `L551` — an inline review comment that mentions the bot starts no turn;
-  #311's three inline mentions were dropped; cause is `L75(b)` (sign-off).
-- `L552` — a comment on a PR the bot opened starts no turn without a mention
-  (owner: he should see most on his own PRs; amends 6/27).
 
 **Found while wiring the jynx bot on sloth (2026-10-23).**
 
@@ -1095,27 +1074,6 @@ FOUND by the dead-code sweep at `90403e2d`: `audit/PLAN.md:252` lists
 - **Fix:** write the row in the task delete path.
 - **Status:** open.
 
-## L534 — GitHub PRs skip the engagement mechanism chat threads use (2026-10-23, open — needs sign-off)
-
-MEASURED at HEAD: routd treats `github:` JIDs as a special case in two places.
-`engaged()` returns false for every `github:` JID (`routd/loop.go`, added in
-`cf04b1c1`), and the reply-promotion path in `routd/server.go` has its own
-`github` branch (`canPromoteReply`, and the `!github` guard on the topic rule).
-Spec `6/27-git-channel.md` records the decision: "GitHub engagement never
-overrides an observe route or supplies a missing route" (line 141), and
-"explicit mentions and direct bot replies remain the engagement boundary"
-(line 545). So a PR thread where sloth answered does not stay engaged: each
-follow-up needs a new mention.
-
-The owner (2026-10-23): a PR should work like a chat thread; engagement is a
-general human-attention mechanism, so the same code should serve both.
-
-- **Fix:** delete the `github:` branches in routd so PR topics use the shared
-  engagement window and disengage; gitd keeps only the mapping of explicit asks
-  (mention, review request, assignment) to `mention`. Amend `6/27` first. Net
-  code goes down.
-- **Status:** open — needs sign-off on the 6/27 amendment.
-
 ## L535 — a background subagent's result arrives after the turn ends, and every tool call is refused (2026-10-23, open)
 
 MEASURED on sloth 2026-10-23, `groups/sloth/morha/.claude/projects/-home-node/6ff07819-e3c0-431f-b4bd-1acc44b9b9aa.jsonl`
@@ -1294,23 +1252,6 @@ sloth was not read.
   cannot reach without sudo; spec `6/51` step 2 names the test.
 - **Status:** open — needs sign-off (an auth change).
 
-## L539 — dashd's grant form offers 31 action names that no evaluator reads (2026-10-23, open)
-
-READ at `491204eb`: the "Add grant" dropdown (`dashd/grants_admin.go:19-31`
-`commonActions`) holds `admin` and 31 bare names — `send`, `reply`,
-`register_group`, `get_grants`, `inject_message` and others. The handler writes
-the chosen name as the row's action (`:226`). Every tool gate asks for
-`mcp:<name>` (`ipc/ipc.go:1102`, `:1215`; `routd/acl_resource.go:146`), so a
-row with action `send` matches no call, and the operator gets no error. The
-list has none of `egress`, `web:publish`, `gh:write` or `shell:env:<KEY>`, so
-the web surface cannot write the guest capabilities at all.
-
-- **Severity:** medium — the web grant form writes rows that do nothing.
-- **Fix:** offer the `mcp:` names and the guest capabilities, or a text field
-  checked by the CLI's `grantableAction` (`cmd/arizuko/main.go:594`) moved
-  next to `aclPut` so every door refuses an action nothing reads.
-- **Status:** open.
-
 ## L540 — dashd's grant form and `POST /v1/acl` write rows without `auth.Delegate` (2026-10-23, open — needs sign-off)
 
 READ at `491204eb`: `add_acl` runs `auth.Delegate` for a writer that is not
@@ -1335,82 +1276,36 @@ it holds WITH GRANT OPTION. Exposure: no onboarded world on krons (listing of
   step 6 (caps take effect) waits for the answer.
 - **Status:** open — needs sign-off (an auth change).
 
-## L545 — three shipped skills forbid sloth to act on GitHub (2026-10-23, open — needs sign-off)
+## L570 — a message that arrives during a turn never reaches that turn (2026-10-24, open — needs sign-off)
 
-MEASURED on sloth (`vumilan/morha`, 2026-10-16..23): 11 of 59 replies promise
-or offer work instead of doing it (PR 306 "I will push the rewrite" — no sloth
-commit; PR 305 "I land them in one push once you confirm" — none; PR 304 "On
-it"; PR 276 'Say "merge #276" and I merge'). sloth has the capability
-(`gh_write=true`, `GH_TOKEN`, the gh credential helper). The shipped skills
-forbid it: `ant/skills/review/SKILL.md:28` (and `give.md:188`, `take.md:54`)
-"NEVER `gh pr create`, `gh pr merge`, `gh pr review --approve`, or `git push`";
-`ant/skills/gh-comment/SKILL.md` requires sign-off via `AskUserQuestion` (banned
-in `ant/CLAUDE.md`, seen by nobody) and leaves reviews pending (visible only to
-`sloth-goth`); `ant/skills/pr-draft/SKILL.md` carries an old format and "NEVER
-run gh pr create". The new `ant/output-styles/github.md` (`9d52ffa9`) tells the
-agent to act, so it contradicts these files.
+MEASURED in code at `5f9e1d8b`: the steer channel into a live guest exists end
+to end — `runed/vmctl.go:251` `ctlSession.steer`, `kernel/guest-init/main.go:728`,
+ant drains `/run/ipc/input` mid-turn (`ant/src/index.ts:210`, `claude.ts:521`).
+runed stores each run's callback (`runed/manager.go:438` `SetSteer`), but only
+the deadline warning calls it (`runed/qemu.go:589`). routd never sends a batch
+to a running turn: runed refuses a second run for a busy folder
+(`runed/manager.go:132`) and the rows wait above the cursor for the next turn.
+Nothing sets `RunOutcome.Steered`, so `routd/dispatch.go:454` and `endSteered`
+never run. The owner expects rows that arrive while a turn runs to reach it
+(2026-10-24).
 
-- **Fix:** for an agent acting under its own login, drop the push/merge ban,
-  the sign-off step and the pending-review rule; the `gh:write` grant already
-  refuses merge and approve where a folder lacks it. The three skills sync from
-  kronael/tools, so the change goes there or into agent-specific copies.
-- **Status:** open — needs sign-off.
+- **Fix (proposal):** when a batch dispatches to a folder with a live run,
+  routd hands the batch to runed, which calls the run's steer callback; on ack
+  the rows are consumed, on refusal they wait as today. This adds a verb to the
+  runed boundary (`runed.Runtime` is `Run` + `Kill`, CLAUDE.md port rule), so it
+  needs an approved plan first.
+- **Status:** open — needs sign-off (runed port change).
 
-## L549 — an inline review comment reaches the agent without its location, and a reply without a target answers the wrong comment (2026-10-23, open — needs sign-off)
+## L571 — a batch runs every sender in one folder, even under a `{sender}` route (2026-10-24, open — unmeasured)
 
-MEASURED on sloth: inline comments, conversation comments and review bodies of
-one PR already share one topic `pr/N` and one session (`chanlib/github_jid.go`,
-`store/sessions.go`), and the 95 `sloth/morha` guests in 14 days never
-overlapped. The defects are inside that one conversation:
+READ in code at `5f9e1d8b`, not measured live: `routd/dispatch.go:64` resolves
+one folder per batch and `:115`/`:126` split the turns by sender inside that
+folder. With a `{sender}` route target in a group chat, one person's rows may
+run in another person's folder. If true, it is a cross-folder leak.
 
-- gitd renders an inline comment as `on <path>:` plus the body
-  (`gitd/event.go:354`) — no line, side, diff hunk, review id or thread root. An
-  empty `suggestion` block reads as nothing at all.
-- `reply` without `replyToId` uses the topic's `last_reply`, seeded with the
-  batch's last message (`ipc/ipc.go:1330-1335`, `routd/dispatch.go:361`). On
-  #305 sloth answered the log-directory comment `gh-rc4336034573` and the reply
-  `4336430639` landed in the `.dockerignore` thread (`in_reply_to_id` =
-  `4335962453`).
-- Six older inline answers landed as PR conversation comments because the
-  stored ids carry the `gh-c` prefix (#277 #278 #281 #286 #293); the current
-  `gh-rc` prefix (`gitd/bot.go:249-258`) routes them inline.
-- gitd has no history capability, so `fetch_history` falls back to the cache
-  (5 times), and the observed window is the folder's (`L442`): 588 of 682
-  observed entries in 75 GitHub prompts were CI events.
-
-- **Fix:** gitd renders one location header on each message (kind, object id
-  and URL, thread root, review id, path, line range, side, hunk); `reply` on a
-  GitHub chat requires `replyToId`; observed window scoped to the PR (`L442`).
-  Amend `specs/6/27-git-channel.md` first.
-- **Interim:** `443f0057` tells the agent to ALWAYS set `replyToId` (the
-  GitHub output style); the contract change stays open.
-- **Status:** open — needs sign-off (6/27 contract change).
-
-## L551 — an inline review comment that mentions the bot starts no turn (2026-10-23, open)
-
-MEASURED on sloth (export `~/.claude/jobs/802d25d6/tmp/sloth-gh/`, 14 days):
-27 human mentions on PR chats; every one of the 13 that triggered no turn of
-its own is an inline comment (`gh-rc…`). Ten were answered only because a
-later conversation comment on the same PR started a turn (#293 #301 #305
-#278). PR #311 had no other comment, so its three inline mentions
-(`gh-rc4362729239` 18:03:07, `gh-rc4362737580` and `gh-rc4362749869`
-18:07:03, 2026-10-23) got no dispatch at all, and the chat's `agent_cursor`
-moved past them to a CI event (`…20:19:49…gh-d17add4c0…-pr311`). Conversation
-mentions work on a PR the bot never wrote on: #230 `gh-c6372905482` started a
-turn. Each inline mention row carries `verb=mention` and `routed_to=sloth/morha`;
-each arrives in the same second as its `pull_request_review` row (`gh-r…`).
-CAUSE (Sol, read at `80bf87c0`): `L75(b)`. The poll (`routd/loop.go:559`) and
-dispatch (`routd/dispatch.go:39`) resolve a batch by its NEWEST row; when an
-observe-only row (a review row, a CI event) is newest, `routeMiss`
-(`routd/loop.go:584`) marks the whole batch observed, the pending mentions with
-it, and the cursor moves past them. The live rows carry `verb=mention` and
-`is_observed=1`. A PR chat gets CI rows every few minutes, so GitHub hits this
-far more often than chat.
-
-- **Severity:** high — an inline "@sloth-goth explain this" on a new PR is
-  silently dropped.
-- **Fix:** `L75(b)` — a batch that holds a mention resolves by the mention.
-- **Status:** open — needs sign-off (dispatch control flow, with `L75(b)`).
+- **Fix:** measure first with a two-sender batch under a `{sender}` route; then
+  resolve the folder per sender run.
+- **Status:** open — premise not measured.
 
 ## L554 — onboarding and pairing link the chat JID to the person, not the sender (2026-10-23, open)
 
@@ -1470,31 +1365,6 @@ when it is needed.
   The route sending `@sloth_fiu_bot` DMs to `atlas` is an operator row and is
   the owner's call.
 
-## L552 — a comment on a PR the bot opened starts no turn unless it mentions the bot (2026-10-23, open)
-
-MEASURED: on the six PRs `sloth-goth` opened in `vumilan/morha`, a human
-comment without `@sloth-goth` maps to `verb=message` (`gitd/event.go` `speech`),
-and since the legacy `verb=message` routes were removed (2026-10-23) only the
-`#observe` rule matches it. Only `review_requested`, `assigned` and an assignee
-on a state action map to `mention` (`gitd/event.go:311-316`, `:399-403`).
-
-The owner (2026-10-23): "he should see most on PRs he opened."
-
-- **Fix:** gitd maps a human comment, inline comment or review on a PR or issue
-  whose author is the bot to `mention`. Amend `specs/6/27-git-channel.md`
-  (engagement boundary) first.
-- **Status:** open.
-
-## L546 — every turn leaves a permanent progress comment on a GitHub PR (2026-10-23, open — needs sign-off)
-
-MEASURED on sloth: 43 `✓ <status>` comments on `vumilan/morha` PRs in one week,
-one per turn (e.g. "✓ posting PR #310 review"); two over 100 characters carried
-findings. The 👀 reaction already shows the turn is running. ant asks for a
-`<status>` every 90 s and routd posts progress on any channel that can edit
-(`specs/6/46-turn-progress.md`), so a style file cannot stop it.
-
-- **Fix:** no progress comment on GitHub; keep the reaction. Changes 6/46.
-- **Status:** open — needs sign-off.
 
 ## L543 — nothing writes the `_close` sentinel, so `turn.signal` and `closedDuringQuery` never fire (2026-10-23, open — needs sign-off)
 
@@ -1923,6 +1793,9 @@ resumed that session. So `--resume` handed the agent an unrelated
 conversation while the relevant one stayed out of the window. Same class as
 `topic_fork_context_loss`, and distinct from it: there the session id was
 unusable, here the session is usable and wrong.
+
+`L549` measured the same fault on GitHub: 588 of 682 observed entries in 75 sloth
+prompts were CI events. Scoping the window to the pull request stays here.
 
 **What needs you:** narrowing the window to the trigger's chat changes what
 every agent on every channel sees, so it is a redesign and not a fix. The
@@ -5970,151 +5843,6 @@ inline. `5/B` and `5/F` are the specs to amend.
   the siblings' BOT rows as well as their triggering user rows — and if it does,
   is `observe_window_*` still the right budget once the window stops meaning
   "what nobody answered" and starts meaning "the channel"?
-
-## L75 — a re-fed batch resolves by its newest row, so a pending mention is demoted by ordinary chatter (2026-08-21, open — the dead-retry half shipped; this half changes dispatch control flow)
-
-Two faults with one root: a dispatch failure path advances the cursor past the
-work it did not do.
-
-**(a) The retry is a dead promise.** `routd/dispatch.go:449-460` logs
-"scheduling retry 1/3", then returns `(false, false, false, "", nil)`. That shape
-is indistinguishable from "batch handled", so the caller falls through to
-`l.advance(chatJID, last)` at `:144`. The `time.AfterFunc` fires 10s later,
-calls `ResetTurnForRetry` + `Enqueue`, and the re-poll reads `NewMessages` from
-the **already-advanced** cursor — nothing to dispatch. The turn strands `running`
-until `SweepExpiredRunning` (`db.go:964`) flips it to `expired`.
-
-Measured: every retry the fleet logged in 7 days died this way.
-
-```
-marinade 2026-08-21 02:01:00 WARN "turn failed without reply, scheduling retry" retry=1 max=3  (x2)
-turn_context: sched-atlas/general-mem-0@… → expired
-              sched-atlas/search-mem-0@…  → expired
-(no further log line for either turn_id, ever)
-```
-
-The `busy` branch two hundred lines earlier gets this right and says why: "do NOT
-advance the cursor … the batch is re-fed … turn_context stays 'running' so the
-re-dispatch is live" (`:126-135`).
-
-**(b) A pending mention is demoted mid-failure.** During the 2026-08-22 disk-full
-outage a user @-mentioned sloth three times over 1.5h. Each created a turn, each
-spawn failed, the cursor correctly did not advance — and then ordinary chatter
-arrived. `dispatch.go:51` resolves a re-fed batch by `newestUserMsg` alone, so
-the newest non-mention row selected the `#observe` fallthrough route and the
-WHOLE batch, mentions included, was stored `is_observed=1` and the cursor moved
-past it. The three turns were swept to `expired`. No reply, no error notice; the
-next bot contact was 21h later.
-
-```
-1540738584259207179 main/trading 2026-08-22T15:04:58 expired  "@sloth what do you think?"
-1540739822694440980 main/trading 2026-08-22T15:09:53 expired  "@sloth ?"
-1540759670833160263 main/trading 2026-08-22T16:28:45 expired  "@sloth Hi"
-```
-
-This is not outage-specific: any chat with the shipped mention-route +
-observe-fallthrough pair loses pending mentions whenever a dispatch failure
-overlaps ordinary chatter.
-
-**Proposal (needs sign-off — both change dispatch control flow):**
-
-- (a) the retry branch returns the `busy` shape (no advance, re-feed) and drops
-  the `AfterFunc` + `ResetTurnForRetry` entirely: the poll re-feed already IS the
-  retry, exactly as the transport-failure path works. One return value, but it is
-  the dispatch lifecycle, so it is recorded here first.
-- (b) route resolution must not demote a message that already owns a live
-  `turn_context`. Either resolve per-message and split the batch by resolved
-  route (it already splits by sender), or exclude rows with a live turn from the
-  newest-message resolve.
-- Independently of both: `SweepExpiredRunning` expiring a turn with no bot reply
-  must mark its trigger errored and deliver `runFailureNotice`. Today the turn
-  dies with no user-visible trace at all, which is the fail-loud rule broken on a
-  user-facing path.
-
-- **RE-MEASURED 2026-09-20 at `9d2f1009`: CONFIRMED LIVE, and the entry
-  understates it.** The retry is not merely a dead promise — the cursor moves
-  past the batch first, so there is nothing left for it to retry.
-
-  `runTurn` returns `(hadOutput, steered, busy, observedMark, rerr)`
-  (`routd/dispatch.go:257`). Its retry path returns
-  `false, false, false, "", nil` (`:526`) — no output, not steered, **not
-  busy**, no mark, **no error**. The caller reads exactly those five at
-  `:132-167`: `derr` nil, `busy` false, `steered` false, `mark` empty — so it
-  falls through to `l.advance(chatJID, last)` at `:168`.
-
-  Ten seconds later `ResetTurnForRetry` runs. It sets `state=running` and clears
-  `run_returned` (`store/turn_context.go:293-296`) and **does not rewind
-  `agent_cursor`**. So `l.Enqueue` wakes `processGroupMessages`,
-  `NewMessagesForChat` returns zero rows past the advanced cursor, and it
-  returns `(false, nil)` at `:33`. The retry is a no-op by construction.
-
-- **The signal it needs already exists, which is what makes this contained.**
-  `busy=true` is precisely "do not advance the cursor, re-feed" — `runTurn`'s
-  own doc comment says so at `:254-256`, and the caller honours it at `:144-158`.
-  The retry path wants the same treatment and does not ask for it.
-
-  It is NOT a drop-in, and that is the one design question: `busy` also calls
-  `l.noteBusy` and starts the per-chat backoff, so reusing it would stack a
-  second backoff on top of the `time.AfterFunc(retryBackoff, ...)` already
-  scheduled. Either the retry drops its own timer and rides the busy backoff, or
-  `runTurn` grows a fifth verdict that means "held, re-feed, no backoff". One
-  return value either way.
-
-- **(a) FIXED 2026-09-20, `c1bd9473`.** The retry branch returns
-  `false, false, true, "", nil`, so the caller takes the hold-and-re-feed path
-  it already honours, the cursor stays behind the batch, and the next poll
-  re-dispatches the same turn id. The stacked-backoff question answers itself:
-  the retry dropped its own timer, so there is nothing left to stack. Three
-  attempts now cost 4s + 8s of busy backoff, which a fresh inbound row clears
-  at once, against the 10s x 3 the timer promised and never delivered.
-
-  `time.AfterFunc`, `retryBackoff`, `DB.ResetTurnForRetry` and
-  `Store.ResetTurnForRetry` are deleted with it. The reset was the re-bind
-  written twice: `OpenTurnContext` seeds `bound` with `state=running` and
-  removes `run_returned` on every re-dispatch, under a `state != done`
-  condition that `pending_retry` satisfies. Net 11 lines out of the shipped
-  code.
-
-  Crash recovery closes as a consequence, so it needed no second fix:
-  `recoverPending` only `Enqueue`s the chat, and an un-advanced cursor is
-  exactly what makes that enough.
-
-  PROVEN BY MUTATION. `TestTurnRetry_SchedulesRetryOnError`
-  (`routd/fixes_test.go`) now asserts the cursor is still empty after the failed
-  attempt, then clears the busy wait and polls again for a second attempt.
-  Restoring the `false` busy value fails it on the cursor
-  (`cursor advanced to "2026-09-20T21:18:44.877074502Z\x1fr1"`); with that
-  assert removed it fails on `attempts = 1, want 2`. Both halves red, both green
-  restored, `go test ./routd/ ./store/ -count=1 -short` clean. Spec `5/12` now
-  records the busy re-feed as the retry's backoff.
-
-- **(b) and the sweep-notice item are untouched and still need the decision.**
-  (b) is route resolution, not the dispatch lifecycle: choosing between a
-  per-message resolve and excluding live-turn rows from the newest-message
-  resolve changes which route a MIXED batch takes, on every chat. The
-  `SweepExpiredRunning` item is a third concern again — a terminal state that
-  owes the user a notice.
-
-**RE-MEASURED 2026-10-08: half (a) is SHIPPED, both parts of it, and this entry never
-said so.**
-
-The proposal for (a) was "the retry branch returns the `busy` shape (no advance,
-re-feed) and drops the `AfterFunc` + `ResetTurnForRetry` entirely". Both landed:
-`routd/dispatch.go:489-491` returns `false, false, true` and its comment names this
-entry — *"The re-feed IS the retry: busy=true holds the cursor on this batch. Advancing
-first woke a poll with nothing left to retry (BUGS L75a)"* — and a grep for `AfterFunc`
-and `ResetTurnForRetry` across non-test `routd/` returns nothing, so the parallel retry
-path is gone rather than merely unused.
-
-**(b) is STILL TRUE.** `routd/dispatch.go:39` still takes `newestUserIdx(msgs)` for the
-route, and the comment above it explains why the route and the busy key share that row
-(`L56`, `L336`) — which is correct for those faults and is exactly what demotes a
-pending mention when newer chatter arrives in the same batch. The fix has to make a
-pending mention outrank a newer non-mention row for ROUTE selection without breaking
-either of those two, so it is a dispatch-lifecycle change and stays a proposal.
-
-The heading is re-scoped so the entry stops reading as two open halves. An entry that
-overstates its own remaining work is as misleading as one that understates it.
 
 ## L72 — anteval leaks a group per case and every release pays an LLM turn for each (2026-08-23, open — needs sign-off on spec `6/50`)
 

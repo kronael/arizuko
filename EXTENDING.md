@@ -146,7 +146,7 @@ the table from the `caps` of each adapter in `<adapter>/main.go`, or from the
 | `like`       | ✓     | ✓     | ✓     |       | ✓     |      |       |
 | `dislike`    |       | ✓     |       |       |       |      |       |
 | `delete`     | ✓     | ✓     | ✓     |       | ✓     |      |       |
-| `edit`       | ✓     | ✓     | ✓     |       | ✓     | ✓¹   |       |
+| `edit`       | ✓     | ✓     | ✓     |       | ✓     |      |       |
 | `forward`    |       |       | ✓     |       | ✓     |      |       |
 | `quote`      | ✓     |       |       |       |       |      |       |
 | `repost`     |       |       |       |       |       |      |       |
@@ -155,8 +155,8 @@ the table from the `caps` of each adapter in `<adapter>/main.go`, or from the
 | `unpin_all`  | ³     | ✓     | ✓     |       |       |      |       |
 
 ¹ gitd advertises its verbs only when `GITHUB_TOKEN` is set. It posts a comment
-on the PR or issue that the JID names, and it edits a comment that it wrote.
-Changes to the state of the repository, such as merge, label or review, are
+on the PR or issue that the JID names. It advertises no `edit`, so GitHub shows
+the `👀` mark and no progress comment. Changes to the state of the repository, such as merge, label or review, are
 tools of the GitHub connector.
 ² googd advertises `send` only while Google accepts its service-account key,
 and its `Send` still answers 400. The reply path is not built, see `googd/README.md`.
@@ -408,7 +408,9 @@ the map except `typing`.
   id is `chanlib.ErrInvalidRequest`, and an adapter never edits the message of
   another party. The optional `thread_id` gives edit context where the
   platform needs it. Progress edits change one `⏳` message. At the end of the
-  turn the message becomes `✓` or `✗`.
+  turn the message becomes `✓` or `✗`, unless the channel also advertises
+  `delete`: then `routd` deletes the message and edits it only when the delete
+  is refused.
 - `thread_id` places text, files and voice in an existing thread.
 - `thread_root` creates or reuses a thread rooted at a message before it sends
   text, files or voice. A refused thread destination returns an error. The

@@ -15,6 +15,7 @@ func TestParseRouteTarget(t *testing.T) {
 		{"main#observe", "main", "", "observe", false},
 		{"corp/eng#announce", "corp/eng", "", "", true},
 		{"main#announce", "main", "", "", true},
+		{"sloth/morha#engaged", "sloth/morha", "", "engaged", false},
 		{"", "", "", "", false},
 		{"a#", "a", "", "", false},
 		{"a#b#c", "a", "b#c", "", false},

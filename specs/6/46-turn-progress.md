@@ -16,10 +16,12 @@ routd declares that a turn is running, what it is doing, and that it ended.
 Every channel declares its presence, edit and thread capabilities. A compatible
 channel keeps an immutable `🤖` task opener with one editable progress message
 and answers in its thread. Other editable channels keep one progress message;
-channels without `edit` render no progress message.
+channels without `edit` render no progress message. When the turn ends, a channel
+that can delete removes its progress message.
 
-`status: partial`: the renderer, the terminal mark, the `edit` sinks gitd and webd
-and the shared `👀` mark are built (§"Build state"). Not built: the `Typing` port
+`status: partial`: the renderer, the terminal mark, the `edit` sink webd,
+the shared `👀` mark, gitd without `edit` and the deletion of the progress
+message at `End` are built (§"Build state"). Not built: the `Typing` port
 change (D3, declined), Drive `edit` (blocked on the Drive API, §"Unverified") and
 the measurement on krons (§"Acceptance").
 
@@ -33,11 +35,12 @@ final-result status reader below. Only ant extracts `<status>` blocks;
 | ---- | --------------------------------------------------------------------------- | --------------------------------------------------------------------------- | ----------------------------------------------------- |
 | 1    | routd renders `Begin` and `Update`; no `edit`, no message; equal text no-op | built, `d6572106`                                                           | `routd/progress.go` `beginProgress`, `updateProgress` |
 | 2    | `finishTurn` is the one writer of `done`; `End` marks `✓`/`✗`               | built, `dd670329`                                                           | `routd/progress.go` `finishTurn`, `endProgress`       |
-| 3    | gitd `edit` on its own comments                                             | built, `3bc31d83`                                                           | `gitd/bot.go` `Edit`                                  |
+| 3    | gitd advertises no `edit`; GitHub renders the `👀` mark and no comment      | built, `0c175988`                                                           | `gitd/main.go` `capsFor`                              |
 | 4    | webd `edit` as a replace frame; `typing` out of its map                     | built, `eddce204`; open: `L439`, `L440` in `BUGS.md`                        | `webd/channel.go`                                     |
 | 5    | the `👀` mark once in chanlib; slakd and gitd on it                         | built, `68fc2895`                                                           | `chanlib/mark.go`                                     |
 | 6    | `Typing(req TypingRequest)` carrying the trigger id (D3)                    | not built; declined                                                         | —                                                     |
 | 7    | googd `edit` on its own reply                                               | not built; the probe has not run, the Drive API is off in the key's project | §"Unverified"                                         |
+| 8    | `End` deletes the progress message on a channel that advertises `delete`    | built, `c0e361ac`                                                           | `routd/progress.go` `endProgress`                     |
 | —    | the acceptance list measured on krons                                       | not measured                                                                | §"Acceptance"                                         |
 
 ## Problem
@@ -141,10 +144,16 @@ with it is the sink's declaration (§"The sink's declaration").
 - Each later `Update` edits it. Equal text is a no-op.
 - The row's content is rewritten on every edit, so the row is the message as
   the user sees it.
-- `End` edits it once more into its terminal form: the leading `⏳ ` becomes
-  `✓ ` on `done` and `✗ ` on `failed`; the body is untouched. No message says
-  in progress after its turn ended. The failure notice stays its own message,
-  because a notice must notify and an edit does not.
+- `End` on a channel that advertises `delete` deletes the message
+  (`Deliverer.Delete`) and rewrites the row to its terminal form without a
+  platform edit, so a second `End` does nothing. A refused delete falls back
+  to the terminal edit. A row with no platform id takes the edit path.
+- `End` on a channel with `edit` and no `delete` edits the message once more
+  into its terminal form: the leading `⏳ ` becomes `✓ ` on `done` and `✗ ` on
+  `failed`; the body is untouched. No message says in progress after its turn
+  ended. The failure notice stays its own message, because a notice must
+  notify and an edit does not. The task summary (`verb=status_summary`) is
+  never deleted or marked: it anchors the thread.
 - A real edit failure (not `ErrUnsupported`) surfaces to the caller, as
   `specs/5/24-live-tasklist-status.md §"Design"` already requires; nothing is
   re-posted.
@@ -168,6 +177,7 @@ probes a platform error to find out.
 | ------------- | ------------------------------------------------------------------------------------------------ |
 | `typing`      | the sink renders presence: a native indicator, or an acknowledgement mark on the trigger message |
 | `edit`        | a progress message may live here; the sink edits its own posts                                   |
+| `delete`      | `End` removes the progress message instead of editing it                                         |
 | `thread_id`   | the sink places sends in an existing thread                                                      |
 | `thread_root` | the sink creates or reuses a thread from a message before sending content                        |
 | neither       | the sink renders nothing for progress; routd sends it nothing for progress                       |
@@ -177,20 +187,20 @@ probes a platform error to find out.
 and is never used as a mark: bskyd, linkd and reditd advertise `like` and
 render no presence. A sink with a native indicator does not add a mark.
 
-| Sink   | Native presence | Mark | `edit`                                             | Begin renders   | Update renders                              | End renders               |
-| ------ | --------------- | ---- | -------------------------------------------------- | --------------- | ------------------------------------------- | ------------------------- |
-| teled  | yes             | —    | yes                                                | typing          | one `⏳` message, edited                    | typing off, `✓`/`✗` edit  |
-| discd  | yes             | —    | yes                                                | typing          | same                                        | same                      |
-| whapd  | yes             | —    | yes                                                | typing          | same                                        | same                      |
-| slakd  | no              | `👀` | yes                                                | `👀` on trigger | same                                        | `👀` removed, edit        |
-| gitd   | no              | `👀` | yes, its own comments                              | `👀` on trigger | one `⏳` comment, edited                    | `👀` removed, edit        |
-| googd  | no              | none | no; yes if `replies.update` edits content (step 7) | nothing         | dropped; one `⏳` reply, edited with `edit` | nothing; edit with `edit` |
-| reditd | no              | none | yes                                                | nothing         | one `⏳` comment, edited                    | edit                      |
-| webd   | no              | none | yes (replace frame)                                | nothing         | one status frame, replaced                  | replaced                  |
-| bskyd  | no              | none | no                                                 | nothing         | dropped                                     | nothing                   |
-| linkd  | no              | none | no                                                 | nothing         | dropped                                     | nothing                   |
-| twitd  | no              | none | no                                                 | nothing         | dropped                                     | nothing                   |
-| emaid  | no              | none | no                                                 | nothing         | dropped                                     | nothing                   |
+| Sink   | Native presence | Mark | `edit`                                             | Begin renders   | Update renders                              | End renders                   |
+| ------ | --------------- | ---- | -------------------------------------------------- | --------------- | ------------------------------------------- | ----------------------------- |
+| teled  | yes             | —    | yes, and `delete`                                  | typing          | one `⏳` message, edited                    | typing off, message deleted   |
+| discd  | yes             | —    | yes, and `delete`                                  | typing          | same                                        | same                          |
+| whapd  | yes             | —    | yes, and `delete`                                  | typing          | same                                        | same                          |
+| slakd  | no              | `👀` | yes, and `delete`                                  | `👀` on trigger | same                                        | `👀` removed, message deleted |
+| gitd   | no              | `👀` | no                                                 | `👀` on trigger | dropped                                     | `👀` removed                  |
+| googd  | no              | none | no; yes if `replies.update` edits content (step 7) | nothing         | dropped; one `⏳` reply, edited with `edit` | nothing; edit with `edit`     |
+| reditd | no              | none | yes                                                | nothing         | one `⏳` comment, edited                    | edit                          |
+| webd   | no              | none | yes (replace frame)                                | nothing         | one status frame, replaced                  | replaced                      |
+| bskyd  | no              | none | no                                                 | nothing         | dropped                                     | nothing                       |
+| linkd  | no              | none | no                                                 | nothing         | dropped                                     | nothing                       |
+| twitd  | no              | none | no                                                 | nothing         | dropped                                     | nothing                       |
+| emaid  | no              | none | no                                                 | nothing         | dropped                                     | nothing                       |
 
 `typing` is not in webd's map: webd renders no presence, and a declared
 capability with a no-op behind it is the drift `CapImplReport` exists to catch,
@@ -242,30 +252,33 @@ batch's `last.ID`; that guess is what D3 would remove.
 Three shapes, costed. `N` is the number of distinct statuses a turn reports;
 measured 1–2 per GitHub turn on 2026-10-16.
 
-| Shape                                                        | Posts per turn beyond the reply | Residue after the turn        | Code                                                                       |
-| ------------------------------------------------------------ | ------------------------------- | ----------------------------- | -------------------------------------------------------------------------- |
-| A — before the renderer: every status a fresh post           | `N`, plus duplicates            | `N` comments, each still `⏳` | none                                                                       |
-| B — one message, edited, terminal edit at end                | 1 when the turn reports, else 0 | one `✓ <last status>` comment | renderer (~200 lines, deletes the five sites); `edit` on gitd, googd, webd |
-| C — artefact channels render the mark only; statuses dropped | 0                               | none                          | B's renderer; gitd and googd do not advertise `edit`                       |
+| Shape                                                        | Posts per turn beyond the reply | Residue after the turn        | Code                                                          |
+| ------------------------------------------------------------ | ------------------------------- | ----------------------------- | ------------------------------------------------------------- |
+| A — before the renderer: every status a fresh post           | `N`, plus duplicates            | `N` comments, each still `⏳` | none                                                          |
+| B — one message, edited, terminal edit at end                | 1 when the turn reports, else 0 | one `✓ <last status>` comment | renderer (~200 lines, deletes the five sites); `edit` on webd |
+| C — artefact channels render the mark only; statuses dropped | 0                               | none                          | B's renderer; gitd and googd do not advertise `edit`          |
 
-Built: **B**, with C available per channel by leaving `edit` out of
-its capability map. B is strictly quieter than A on every channel and is the
-owner's stated shape ("progress as edits on messages"). C is the right answer
-for a channel where any extra post is unwanted; its cost is that the agent's
-own `edit` tool is also absent there, which `specs/6/27-git-channel.md` and
-`specs/6/45-gdrive-comments-channel.md` already accept.
+Decided: **B** on a channel with `edit` and **C** on gitd and googd, which
+leave `edit` out of their capability maps. B is strictly quieter than A on
+every channel. C is the answer for a channel where any extra post is unwanted;
+the owner ruled on 2026-10-24 that GitHub gets no progress comment. Its cost
+is that the agent's own `edit` tool, which ipc registers on every turn, returns
+unsupported there (`chanlib.NoSocial`). `specs/6/27-git-channel.md` and
+`specs/6/45-gdrive-comments-channel.md` accept this.
 
 What this does not build: a per-folder switch (`progress_messages`, the shape
 of `thread_replies`). The capability map decides per channel; a folder that
 wants a different answer per channel is a case that has not occurred.
 
-### D2 — terminal form: edit or delete
+### D2 — terminal form: delete where the channel can, else edit
 
-Built: edit (`⏳` → `✓`/`✗`), not delete. Five of twelve sinks lack
-`delete`, so deletion cannot be the uniform rule; the edit uses the one verb
-the message already depends on; and the edited line is a true record of what
-the agent reported, where a deletion erases it. Delete stays available as a
-later per-channel choice; it is not designed here.
+Decided 2026-10-24 (BUGS `L546`): a progress message is scaffolding, so `End`
+deletes it on a channel that advertises `delete` (teled, discd, whapd, slakd).
+Five of twelve sinks lack `delete`, so deletion cannot be the uniform rule:
+a channel with `edit` and no `delete` (webd) keeps the terminal edit
+(`⏳` → `✓`/`✗`), and a refused delete falls back to it, so no message reads
+`⏳` after its turn. The cost of deletion is that the line recording what the
+agent reported is gone from the chat; the row in the store keeps it.
 
 ### D3 — `Typing` carries the trigger message id
 
@@ -302,21 +315,14 @@ one line, and it is the same line (`6/27` carries it; `6/45` takes it with step 
 > merge, label, a new thread, the document body — is the connector's, under
 > its own grant and hold.
 
-Under that line a progress message, its edits and the `👀` mark are channel
+Under that line a progress message, its edits and deletion, and the `👀` mark are channel
 plumbing with the authority the reply already has; `comments.update` on a
 human's comment and `action=resolve` are not. Concretely:
 
-- `6/27`: `capsFor` advertises `send_text`, `typing` and `edit` with the
-  token. `Edit` PATCHes the comment the id names — `gh-c<id>` through
-  `/repos/{o}/{r}/issues/comments/{id}`, `gh-rc<id>` through
-  `/repos/{o}/{r}/pulls/comments/{id}` (both `200`, body `{"body"}`;
-  docs.github.com/en/rest/issues/comments, docs.github.com/en/rest/pulls/comments)
-  — and edits only a comment gitd wrote. The id grammar cannot carry that:
-  a human comment arrives as `gh-c<id>` too, and a token with write access
-  may edit anyone's comment. So `Edit` reads the comment first and compares
-  `user.login` with the login `/user` returned, at the cost of one GET per
-  edit. §"Typing indicator" there is the rendering (`👀` through the shared
-  helper, the two reaction endpoints) and points here for the mechanism.
+- `6/27`: `capsFor` advertises `send_text`, `send_file` and `typing` with the
+  token, and no `edit`, so GitHub shows the `👀` mark and no progress comment.
+  §"Typing indicator" there is the rendering (`👀` through the shared helper,
+  the two reaction endpoints) and points here for the mechanism.
 - `6/45`, with step 7 (not built): `capsFor` advertises `send_text` and, when the probe below passes,
   `edit`; `Edit` is `replies.update` on a reply whose id googd minted
   (`gd-r<fileId>.<commentId>.<replyId>`), `{"content"}` only, and the
@@ -336,7 +342,7 @@ plumbing in the adapter store, not a managed entity.
 
 The routd items are pinned by `routd/progress_test.go`, the mark items by
 `chanlib/mark_test.go`, `gitd/typing_test.go` and `slakd/integration_test.go`, the
-edit items by `gitd/bot_test.go` and `webd/edit_test.go`. None has been measured
+edit items by `webd/edit_test.go`, and the gitd capability map by `gitd/caps_test.go`. None has been measured
 on krons; that run is what holds this spec at `partial`. The googd clause waits
 on step 7.
 
@@ -352,11 +358,16 @@ on step 7.
   existing topics, unsupported new threads and explicit foreign destinations.
 - `routd/summary_read_failure_test.go` proves summary faults block sends,
   declarations, progress and completion checks until reads recover.
-- A failed turn's message ends `✗`; the failure notice is a separate message.
+- A failed turn's message ends `✗` on a channel with `edit` and no `delete`; the
+  failure notice is a separate message.
+- On a channel with `edit` and `delete`, `End` deletes the message and a second
+  `End` deletes nothing; a refused delete ends with the terminal edit.
+- A GitHub turn that reports a status posts no progress comment; the `👀` stands
+  while the turn runs and is removed at `End`.
 - gitd and slakd set and remove the `👀` through the shared helper; a
   persisted mark older than `DefaultTypingMaxTTL` at boot is removed; no
   `eyes.json` is written.
-- `CapImplReport` is clean for gitd (`send_text`, `typing`, `edit`), googd
+- `CapImplReport` is clean for gitd (`send_text`, `send_file`, `typing`), googd
   (`send_text`, `edit` when credentialed and the probe passed) and webd
   (`send_text`, `edit`).
 - Every existing `routd/typing_test.go` and `routd/fixes_test.go` case passes

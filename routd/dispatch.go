@@ -33,11 +33,14 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 		return false, nil
 	}
 	last := msgs[len(msgs)-1]
-	// The route and the busy key take the NEWEST user row; the steer offer takes
-	// the oldest slash command. Sharing one row made a `/root` followed by an
-	// @mention miss a mention-only route and drop the batch (BUGS L56, L336).
-	routeIdx := newestUserIdx(msgs)
-	if routeIdx < 0 {
+	// Three questions, three rows. The busy key is the newest user row; the steer
+	// offer takes the oldest slash command; the folder comes from the newest row
+	// that dispatches on its own (resolveBatch). Sharing one row made a `/root`
+	// followed by an @mention miss a mention-only route and drop the batch
+	// (BUGS L56, L336), and a newer review row that matched only #observe took a
+	// pending mention with it (BUGS L551).
+	busyIdx := newestUserIdx(msgs)
+	if busyIdx < 0 {
 		// An all-bot batch is normally an agent's own output. When another folder
 		// wrote it, it is a delegation that woke nothing (BUGS L2), so say so. The
 		// chat's folder is READ from the mint record, never parsed from the JID —
@@ -50,17 +53,17 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 		l.advance(chatJID, last)
 		return false, nil
 	}
-	routeMsg := msgs[routeIdx]
 	// The busy key is the newest USER row: a person's next message clears the
 	// backoff, the running turn's own bot rows do not (BUGS L298, L55).
-	if l.busyDeferred(chatJID, routeMsg.ID) {
+	if l.busyDeferred(chatJID, msgs[busyIdx].ID) {
 		return false, nil
 	}
-	r := l.resolve(chatJID, routeMsg)
-	if !r.ok {
-		l.routeMiss(chatJID, msgs, r)
+	b := l.resolveBatch(chatJID, msgs)
+	if !b.ok {
+		l.routeMiss(chatJID, msgs, b.resolution)
 		return false, nil
 	}
+	r := b.resolution
 	folder := r.Folder
 	// Steering consumes the latest message BEFORE it reaches a turn, on the one
 	// path every trigger converges to; in the pollOnce backstop alone it raced
@@ -79,12 +82,23 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 		steerConsumed = true
 		msgs, last = msgs[:steerIdx], steerMsg
 	}
-	// Bot rows stay out of the trigger but in the rendered context.
-	var trigger []core.Message
-	for _, m := range msgs {
-		if !m.BotMsg {
+	// Bot rows stay out of the trigger but in the rendered context. A user row
+	// that does not dispatch on its own is observed under the batch folder before
+	// the prompt is built, so this turn renders it as context.
+	var trigger, ambient []core.Message
+	addressed := map[string]bool{}
+	for i, m := range msgs {
+		switch {
+		case m.BotMsg:
+		case b.rows[i].ok:
 			trigger = append(trigger, m)
+			addressed[m.ID] = b.rows[i].Addressed
+		default:
+			ambient = append(ambient, m)
 		}
+	}
+	if len(ambient) > 0 {
+		l.observeRows(chatJID, folder, ambient)
 	}
 	if len(trigger) == 0 {
 		l.advance(chatJID, last)
@@ -94,7 +108,7 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 	// Both topic overrides are properties of the CHAT, resolved once: the key
 	// function below runs per row and pollBatch is 200.
 	web := strings.HasPrefix(chatJID, "web:")
-	pin := l.effectiveTopic(chatJID, "")
+	_, pin := l.db.StickyState(chatJID)
 	if !web && r.Topic != "" {
 		pin = r.Topic
 	}
@@ -118,16 +132,22 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 	}
 
 	hadAny := false
-	// Applied only if this dispatch reaches the advance below (BUGS L58).
+	// Applied only with the cursor advance past the turns that set them (BUGS L58).
 	var marks []observedAdvance
-	for _, batch := range groups {
+	for gi, batch := range groups {
 		bl := batch[len(batch)-1]
 		topic := turnTopic(bl)
-		had, steered, busy, mark, derr := l.runTurn(folder, topic, chatJID, bl.ID, r.Addressed, batch)
+		// A person is owed an answer by the turn that holds their row, however many
+		// unaddressed rows (CI under #engaged) run beside it in their own turns.
+		owed := slices.ContainsFunc(batch, func(m core.Message) bool { return addressed[m.ID] })
+		had, steered, busy, mark, derr := l.runTurn(folder, topic, chatJID, bl.ID, owed, batch, ambient)
 		if derr != nil {
-			// Transport failure: do NOT advance — re-fed next poll (at-least-once;
-			// turn_results dedups). A steered batch has no re-feed left: its cursor
-			// already passed the command.
+			// Transport failure: this turn is not consumed and re-feeds next poll
+			// (at-least-once; turn_results dedups). A steered batch has no re-feed
+			// left: its cursor already passed the command.
+			if !steerConsumed && gi > 0 {
+				l.advanceFinished(chatJID, folder, msgs, batch[0], marks)
+			}
 			if steerConsumed {
 				slog.Error("the rows a steer left behind did not reach runed; they are not re-fed",
 					"jid", chatJID, "rows", len(batch), "ids", lostIDs(batch),
@@ -136,8 +156,11 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 			return hadAny, derr
 		}
 		if busy {
-			// Not consumed: do NOT advance and do NOT return an err (it would trip
-			// the queue breaker); the batch re-feeds after the busy backoff.
+			// Not consumed: do NOT return an err (it would trip the queue breaker);
+			// this turn re-feeds after the busy backoff.
+			if !steerConsumed && gi > 0 {
+				l.advanceFinished(chatJID, folder, msgs, batch[0], marks)
+			}
 			l.noteBusy(chatJID, steerMsg.ID)
 			if steerConsumed {
 				slog.Error("runed refused the rows a steer left behind; they are not re-fed",
@@ -157,15 +180,34 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 	}
 	l.advance(chatJID, last)
 	hadAny = hadAny || steerConsumed
-	// The observed watermark rides the SAME success path as the message cursor:
-	// a re-fed turn must still see the context the failed attempt saw (BUGS L58).
+	l.advanceObserved(folder, marks)
+	return hadAny, nil
+}
+
+// advanceFinished moves the cursor to the row just before first, the first row
+// of the turn that was not consumed, when the turns before it finished. A
+// re-feed must not decide finished rows again: a finished turn can open
+// engagement, a row that was context then dispatches, the group grows, its
+// turn id changes, and the done check misses.
+func (l *Loop) advanceFinished(chatJID, folder string, msgs []core.Message, first core.Message, marks []observedAdvance) {
+	p := slices.IndexFunc(msgs, func(m core.Message) bool { return m.ID == first.ID })
+	if p <= 0 {
+		return
+	}
+	l.advance(chatJID, msgs[p-1])
+	l.advanceObserved(folder, marks)
+}
+
+// advanceObserved moves the finished turns' observed watermarks. They ride the
+// SAME success path as the message cursor: a re-fed turn must still see the
+// context the failed attempt saw (BUGS L58).
+func (l *Loop) advanceObserved(folder string, marks []observedAdvance) {
 	for _, m := range marks {
 		if err := l.db.AdvanceObservedCursor(folder, m.topic, m.ts); err != nil {
 			slog.Error("observed cursor advance failed — the topic re-sees this window next turn",
 				"folder", folder, "topic", m.topic, "ts", m.ts, "err", err)
 		}
 	}
-	return hadAny, nil
 }
 
 // lostIDs and lostSenders identify rows that will not be re-fed: the ids and
@@ -269,7 +311,7 @@ func (l *Loop) noteBusy(chatJID, lastMsgID string) {
 // runTurn dispatches ONE turn for a bot-stripped trigger batch and records its
 // outcome. It never advances the agent_cursor; busy=true means the batch was
 // not consumed and the caller must re-feed it, not advance.
-func (l *Loop) runTurn(folder, topic, chatJID, turnID string, addressed bool, trigger []core.Message) (hadOutput, steered, busy bool, observedMark string, rerr error) {
+func (l *Loop) runTurn(folder, topic, chatJID, turnID string, addressed bool, trigger, ambient []core.Message) (hadOutput, steered, busy bool, observedMark string, rerr error) {
 	last := trigger[len(trigger)-1]
 	// Elevation is one-shot and consumed here, so a re-fed batch never
 	// re-elevates; the whole batch is scanned so batching with a sibling cannot
@@ -331,7 +373,7 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, addressed bool, tr
 			l.enrichAttachments(ctx, &trigger[i], folder)
 		}
 	}
-	rendered, observedMark := l.buildAgentPrompt(folder, topic, trigger)
+	rendered, observedMark := l.buildAgentPrompt(folder, topic, trigger, ambient)
 	// Dropped once consumed, so a re-fed turn does not re-attach a stale reason.
 	if v, ok := l.pendingReason.LoadAndDelete(turnID); ok {
 		pr := v.(proactiveResult)

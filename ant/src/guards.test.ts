@@ -141,7 +141,7 @@ describe('a Bash-written skill is caught after the fact (J8)', () => {
 // ghWriteGate is defence in depth over a GitHub shell credential (spec 5/13
 // §Shell credentials). The tests below pin the two halves that matter: it
 // refuses the named writes on any harness, and it does NOT refuse the read and
-// comment spellings the gh-comment skill is built out of.
+// comment spellings an agent posts a review with.
 
 function bashEv(command: string): ToolEvent {
   return {
@@ -194,7 +194,7 @@ describe('ghWriteGate', () => {
   });
 
   // `--approve` is what makes a review an approval; a review that only comments
-  // is the gh-comment skill's whole job.
+  // is a normal agent action.
   test('refuses only the approving review', () => {
     expect(ghWriteGate(bashEv('gh pr review 12 --comment -b x')).kind).toBe('allow');
     expect(ghWriteGate(bashEv('gh pr review 12 --approve')).kind).toBe('deny');
