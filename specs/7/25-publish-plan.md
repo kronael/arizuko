@@ -52,9 +52,10 @@ has no requirement to load arbitrary code into its own process.
 
 ## Skill discovery
 
-Installed packages expose skills through the package contract. Group-local
-skills retain their existing precedence over supplied skills. Conflicting
-package ownership must produce an explicit error.
+Installed packages expose skills through the package contract. Distinct
+group-local skills remain writable. A packaged skill name must not collide with
+core, another package or a group-local skill. No packaged-name override is
+allowed; [the core contract](47-source-pins.md) defines the shared check.
 
 Discovery reads this installed set. Each harness receives its supported view
 from the shared skill renderer. Import adapters do not maintain separate

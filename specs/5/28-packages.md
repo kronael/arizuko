@@ -9,13 +9,18 @@ resolved to an immutable revision) that ships a **manifest** plus any subset of
 **asset kinds**. Install / upgrade / remove one mixed-asset package on an
 existing instance. No registry, no OCI.
 
-## Today's state
+## Core and immutable skills extend the shipped lifecycle
 
-Skills live in `ant/skills/` and are copied into every container at spawn via
-`container/runner.go:seedSkills()`; local skill edits are preserved by the
-shipped `/migrate` 3-way merge (`.merge-base`, `ant/skills/self/migration.md`).
-Compose adapter fragments ship as `services/<name>.yml` (`5/27`, shipped). There
-is no standard way to distribute skills + fragments + routes + grants as one unit.
+The shipped manager owns package resources and group composition. The proposed
+[core contract](../7/47-source-pins.md) governs mandatory core, immutable skills,
+serialized activation, checked ownership receipts and retirement of agent
+migrations. Those extensions remain unimplemented in this checkout.
+
+The shared manifest foundation uses `container/manifest.go:16`. Source metadata
+and group selections use one `arizuko.toml` schema. Each group owns its file.
+The core cut retains the installed-package table and REST/MCP/dashboard
+surfaces. Native layers, provisioning and table retirement remain separate,
+accepted unfinished work in that contract.
 
 ## The packaging cluster — who owns what
 
@@ -46,12 +51,12 @@ One manifest, and it is the **shipped `arizuko.toml`** (`5/21`) — NOT a second
 `package.yaml`. A package declares any SUBSET of asset kinds (no
 `skill|agent|sidecar` type enum — presence of an asset is the behaviour):
 
-| Asset kind       | What it is                                                       | Owner handler                                                      |
-| ---------------- | ---------------------------------------------------------------- | ------------------------------------------------------------------ |
-| skills           | `skills/<name>/` → `<datadir>/skills/`, layered into every group | `container.SeedPackageSkills` (+ `/migrate` 3-way merge for stock) |
-| compose fragment | `<name>.yml`, docker's format, included verbatim                 | `5/27` (a file)                                                    |
-| config manifest  | `<name>.yaml`, a `5/8` manifest document                         | `resreg.Apply` via `arizuko apply`'s own path                      |
-| image extension  | `Dockerfile.ant` (`FROM arizuko-ant` + system deps)              | operator builds explicitly, never automatic                        |
+| Asset kind       | What it is                                                               | Owner handler                                                                |
+| ---------------- | ------------------------------------------------------------------------ | ---------------------------------------------------------------------------- |
+| skills           | Current copies from `skills/<name>/`; proposed immutable per-name mounts | Shared lifecycle and renderer in [the core contract](../7/47-source-pins.md) |
+| compose fragment | `<name>.yml`, docker's format, included verbatim                         | `5/27` (a file)                                                              |
+| config manifest  | `<name>.yaml`, a `5/8` manifest document                                 | `resreg.Apply` via `arizuko apply`'s own path                                |
+| image extension  | `Dockerfile.ant` (`FROM arizuko-ant` + system deps)                      | operator builds explicitly, never automatic                                  |
 
 **Rows are one asset kind, not one per table.** A package used to declare
 grants in `<name>-grants.json` and routes in `<name>-routes.json`, each with
@@ -115,10 +120,8 @@ provisioned nothing.
 The `env` section is a declaration, not a script. Nothing in it runs. A
 package cannot mint a capability for itself this way — the keys it names are
 values, and the grants it may hold are still bounded by `--folder` at install
-(§Lifecycle). An install script, if one is ever added, runs with the
-OPERATOR's authority and never the package's, and it may only do what nothing
-declarative can express; anything declarable stays declarative, so the apply
-engine's pre-image rollback keeps covering it.
+(§Lifecycle). No install script enters the core cut. Declarative changes stay
+under the existing owner handlers and their validation.
 
 **Trust follows what's touched.** Skills, compose fragments and manifest rows
 above are agent/operator space, updatable via the lock. An image
@@ -160,20 +163,12 @@ package's rows enter — before the first byte is written:
   the only hands-off one: only an operator's `/v1/proxyd_routes` row has no
   upstream to be re-derived from.
 
-**A package skill is delivered by `generate`, and it OVERWRITES.** The seeder
-ran only at group creation, so a package's skill reached a group only if the
-package was installed before that group existed, and the copy skipped files that
-were already there, so no later revision could update one — while every package
-verb printed "run `arizuko generate` to apply" (`L47`, signed off 2026-08-17).
-`generate` now layers `<datadir>/skills/<n>/` into EVERY existing group, and the
-package layer overwrites where the stock layer beneath it does not. The two trees
-differ in who owns them: a stock skill is `ours` — the operator edits it and
-`/migrate` 3-way merges the next release against `.merge-base` — while
-`<datadir>/skills/` is written only by install and deleted only by remove, has no
-merge-base entry, and the package owns the directory NAME. Two things the
-overwrite does not take: a group's `.disabled` marker (dashd's per-group toggle,
-the same escape hatch stock skills have) and a name a shipped skill already
-holds.
+**Proposed skill delivery uses immutable artifacts.** Core and optional packages
+share the ordinary install/update path. The core contract defines clean-copy
+adoption, per-name read-only mounts, preserved disable choices and collision
+refusal. A packaged name cannot override core, another package or a custom
+skill. No copied-skill updater or agent merge lifecycle remains in that cut.
+Current copies require the same ownership checks before adoption.
 
 A **group seed is NOT a package-install asset** — a package installs
 instance-wide, but seeding a group is inherently create-a-specific-group.
@@ -214,10 +209,9 @@ grants an install applied, every public route path it opened) whatever its own
 folder says. Narrowing the read to a tenant's own subtree is composition's
 decision, not the re-key's.
 
-This is NOT per-row provenance (that was demolished — see below). It is the lock
-that makes upgrade, remove, and dirty-detection specifiable at all. **Without it,
-none of the three can be honest** — both codex passes (2026-07-28/29) converged
-on this.
+The record identifies owned assets for upgrade, remove, and dirty-detection.
+The proposed core contract makes filesystem references authoritative for active
+skill membership. Status checks matching receipts for ownership and provenance.
 
 ## Lifecycle
 
@@ -275,36 +269,18 @@ compose / restart side effects can't be transactionally rolled back (`5/8`).
   dependency. **Group seed / persona / facts are NOT removed** — they became local
   state at seed time (a seeded agent folder is not a disposable package asset).
 
-## Local edits are protected, not overwritten
+## Local edits require an explicit owner decision
 
-> **Correction (codex, 2026-07-29).** An earlier draft had upgrade blind-overwrite
-> local edits, "safe because they were filed upstream." Data-loss regression: the
-> upstream channel does not exist (`issues` only appends to a local `~/issues.md`;
-> there is no `gh-issue` ant-skill or issues MCP), and local skill edits are
-> preserved today by the `/migrate` 3-way merge (tested, `container_test.go:702`).
+Upgrade refuses a dirty asset when its bytes differ from the recorded install
+hash. Clean assets can take the selected source. The operator resolves changed
+files before the lifecycle removes or replaces them.
 
-Rule: **upgrade refuses a dirty asset.** An asset is _dirty_ when its current
-content hash ≠ the recorded install hash. On upgrade:
-
-- clean asset → replace with the new revision;
-- **dirty asset → stop, emit the diff** against the recorded revision; the
-  operator resolves (keep-mine / take-theirs / file-the-diff to the source).
-
-**Skills keep the shipped 3-way merge** — it already does this safely; packages
-do NOT retire it. When a real upstream channel + automatic dirty-capture exist,
-"file the diff" becomes one command; until then it is manual. Local is the R&D
-edge, upstream the durable form (`6/`'s loop) — but nothing is overwritten unseen.
-
-**Direction, not yet built (2026-07-14).** Today `/migrate` performs the
-whole 3-way walk agent-side (`ant/skills/self/migration.md`, triggered by
-`checkMigrationVersion`, `routd/loop.go:434`). The intended shape moves the
-mechanical part into the harness — deterministic Go at seed/spawn time,
-where `seedSkills` already walks `.merge-base` — so `new-upstream` copies,
-`only-ours` keeps, and only `both-changed` becomes a conflict marker for the
-agent. `/migrate` shrinks to conflict resolution only; judgment stays with
-the agent, mechanics leave it. Constraint: the merge lib stays isolated from
-packaging — it does not grow into a second package manager, and
-`migrations/NNN-*.md` files stay agent-executed instructions by design.
+The proposed core contract additionally checks the complete copied file set
+against known shipped bytes or recorded ownership. Unknown provenance, extra
+files and edited resident manuals refuse. The ordinary install/update operation
+adopts only proven-clean copies. `/migrate`, three-way skill merges and numbered
+agent instructions retire entirely. No conflict-resolution agent job replaces
+them. Deterministic daemon schema preparation and owner data migrations remain.
 
 ## Resolves `5/27` C2
 
@@ -528,29 +504,15 @@ GitHub-topic discovery; the sidecar per-group `MCP.json` (dropped, `5/13`).
 it and name the route that works. The runner is not built, and the payload no
 longer applies-and-does-nothing while it isn't.
 
-The mechanism the old table row named does not exist anywhere:
+The installed record's ownership and hash maps are not a product instruction
+counter. Packages carry no install script or agent migration runner. Both
+`container/blend.go` and `CheckProductAssets` refuse this payload before writes.
+A product can supply ordinary operating instructions through its runbook region
+or a skill; package update does not execute those instructions.
 
-- the installed-package record has no mark — `Manifest` maps an asset kind to
-  the identities it owns and `AssetHashes` to their content, neither of which is
-  a per-product "highest migration applied";
-- there is no runner. Platform migrations are agent-executed instructions fired
-  by `MIGRATION_VERSION` (`routd.checkMigrationVersion` → `/migrate`), a single
-  instance-wide counter with no per-product dimension. Giving products their own
-  would be a second migration system beside it — the shape this spec forbids for
-  the merge lib for the same reason.
-
-Seeding the files anyway was the `mcpServers` no-op in another payload
-(`J15`): the mix applied cleanly, the record listed the files as owned, and the
-instructions never ran. `container/blend.go` `migrationsRefusal` now stops the
-apply, and `CheckProductAssets` applies the identical rule to the verbatim
-single-product seed, so neither seeder accepts what the other rejects. A product
-that needs setup instructions puts them in its `CLAUDE.md` region or a skill —
-both of which the agent actually reads.
-
-Reopening needs a mark field on the record AND a decision about who runs a
-product's migrations (the agent, as today, or the harness). No product in
-`ant/examples/` ships `migrations/` — asserted, not assumed, by
-`container/product_seed_test.go` — so the refusal costs the corpus nothing.
+The proposed core contract retires the platform agent migration runner too.
+Daemon-owned deterministic schema preparation and data migrations remain
+independent of package skill delivery.
 
 ### Seeding a product's `tasks.toml` — decided: refused, not built (2026-08-15)
 
@@ -658,6 +620,6 @@ sign-off-shaped decision rather than an implementation detail.
 - `cmd/arizuko/packages.go` `installPackage` — the single install path; every
   refusal lands before the first write
 - `resreg/resources/proxyd_routes.go`, `routd/acl_resource.go` — the owner handlers
-- `ant/skills/self/migration.md` — the 3-way merge packages reuse for skills
-- `routd/loop.go:434` `checkMigrationVersion()` — the update trigger
+- `ant/skills/self/migration.md` — agent skill merge instructions to retire
+- `routd/loop.go:484` — agent migration trigger to retire under the core contract
 - `container/manifest.go` `ProductManifest` — the shared `arizuko.toml` schema

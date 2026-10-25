@@ -104,9 +104,10 @@ A component boundary does not require a deployment boundary.
 
 ## Single-world specs
 
-| Spec                                                               | Status  | Summary                                                             |
-| ------------------------------------------------------------------ | ------- | ------------------------------------------------------------------- |
-| [7/23-agent-habitat.md](7/23-agent-habitat.md)                     | draft   | Shared message, routing, permission, and turn model                 |
-| [7/25-publish-plan.md](7/25-publish-plan.md)                       | partial | Packages, package import adapters, and skill discovery; defect L200 |
-| [7/26-single-world-deployment.md](7/26-single-world-deployment.md) | draft   | One core process with Dynamo-compatible storage                     |
-| [7/27-minimum-arizuko.md](7/27-minimum-arizuko.md)                 | draft   | Writable files, messaging, and skills                               |
+| Spec                                                               | Status  | Summary                                                                                                                                                  |
+| ------------------------------------------------------------------ | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [7/23-agent-habitat.md](7/23-agent-habitat.md)                     | draft   | Shared message, routing, permission, and turn model                                                                                                      |
+| [7/25-publish-plan.md](7/25-publish-plan.md)                       | partial | Packages, package import adapters, and skill discovery; defect L200                                                                                      |
+| [7/26-single-world-deployment.md](7/26-single-world-deployment.md) | draft   | One core process with Dynamo-compatible storage                                                                                                          |
+| [7/27-minimum-arizuko.md](7/27-minimum-arizuko.md)                 | draft   | Writable files, messaging, and skills                                                                                                                    |
+| [7/47-source-pins.md](7/47-source-pins.md)                         | partial | Mandatory core, immutable skills, one active filesystem graph and checked receipts; native layers, provisioning and record retirement remain unfinished. |
