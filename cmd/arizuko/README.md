@@ -37,7 +37,7 @@ Groups and access:
 
 Secrets and tokens:
 
-- `arizuko secret <instance> set <folder> KEY --value|-v V | list <folder> | delete <folder> KEY | seal-legacy [--dry-run]` manages folder-scoped secrets. `seal-legacy` encrypts every row that is still unsealed, in place. Rehearse it with `--dry-run`, because it rewrites the attribute that every credential lives in.
+- `arizuko secret <instance> set <folder> KEY --value|-v V | list <folder> | delete <folder> KEY | seal-legacy [--dry-run]` manages folder-scoped secrets. `list` prints key names and creation times, never values. Shell access also needs an explicit grant, see [Secret injection](../../SECURITY.md#secret-injection). `seal-legacy` encrypts every row that is still unsealed, in place. Rehearse it with `--dry-run`, because it rewrites the attribute that every credential lives in.
 - `arizuko user-secret <instance> set <user_sub> KEY --value|-v V | list <user_sub> | delete <user_sub> KEY` manages user-scoped secrets.
 - `arizuko token <instance> issue chat <folder> [<suffix>] [--context|-c TEXT]` and `issue webhook <folder> <label> [<suffix>] [--context|-c TEXT]` mint capability URLs. `token <instance> list <folder>` lists `route_tokens`. `token <instance> revoke <jid> [<owner_folder>]` revokes one.
 - `arizuko token <instance> issue bearer <folder> --scope|-s s1,s2 [--ttl|-t 1h] [--sub SUB]` mints an ES256 access JWT for a folder, signed with the active key of authd. The command reads the key from the `signing_keys` of authd and is for operators only. Example: `--scope messages:write,messages:read` serves the inject and inspect steps of anteval.

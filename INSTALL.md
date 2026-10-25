@@ -493,6 +493,9 @@ The model keys that arizuko accepts are `ANTHROPIC_API_KEY`,
 Code. `ARIZUKO_BACKEND=codex` or `pi` selects another harness, and the CLI of
 that harness must be in the agent image.
 
+Keep capability tokens in encrypted group secrets. For shell access, follow
+the paired secret and grant recipe in [Secret injection](SECURITY.md#secret-injection).
+
 These settings are optional:
 
 ```bash
