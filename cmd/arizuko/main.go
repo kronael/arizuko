@@ -18,7 +18,6 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/BurntSushi/toml"
 	"github.com/kronael/arizuko/compose"
 	"github.com/kronael/arizuko/container"
 	"github.com/kronael/arizuko/core"
@@ -26,18 +25,6 @@ import (
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 	"github.com/kronael/arizuko/store"
 )
-
-type productManifest struct {
-	Name    string   `toml:"name"`
-	Brand   string   `toml:"brand"`
-	Tagline string   `toml:"tagline"`
-	Skills  []string `toml:"skills"`
-	Env     []struct {
-		Key      string `toml:"key"`
-		Required bool   `toml:"required"`
-		Hint     string `toml:"hint"`
-	} `toml:"env"`
-}
 
 func main() {
 	if len(os.Args) < 2 {
@@ -52,7 +39,7 @@ func main() {
 		fmt.Println("  route    <instance> list | add <match> <target> [--seq|-s N] | rm <id>")
 		fmt.Println("  packages <instance> list | add <name> | remove <name>")
 		fmt.Println("  packages <instance> install <git-url-or-dir> | upgrade <name> | sync")
-		fmt.Println("  products <instance> list | apply <folder>  — the bundled catalog, or blend the group's ~/products.toml mix")
+		fmt.Println("  products <instance> list | apply <folder>  — the bundled catalog, or blend the group's ~/arizuko.toml mix")
 		fmt.Println("  generate <instance>  — writes docker-compose.yml; also relinks any installed fragment that's still an identical catalog copy")
 		fmt.Println("  token    <instance> issue chat <folder> [<suffix>]")
 		fmt.Println("  token    <instance> issue webhook <folder> <label> [<suffix>]")
@@ -264,10 +251,10 @@ func cmdCreate(args []string) {
 	}
 
 	var productDir string
-	var manifest *productManifest
+	var manifest *container.ProductManifest
 	if product != "" {
 		productDir = filepath.Join(cfg.HostAppDir, "ant", "examples", product)
-		manifestPath := filepath.Join(productDir, "PRODUCT.md")
+		manifestPath := filepath.Join(productDir, container.ManifestFile)
 		if _, err := os.Stat(manifestPath); err != nil {
 			entries, _ := os.ReadDir(filepath.Join(cfg.HostAppDir, "ant", "examples"))
 			var known []string
@@ -278,11 +265,13 @@ func cmdCreate(args []string) {
 			}
 			die("Failed: unknown product %q — known: %s", product, strings.Join(known, ", "))
 		}
-		var m productManifest
-		if _, err := toml.DecodeFile(manifestPath, &m); err != nil {
-			die("Failed: parse PRODUCT.md: %v", err)
+		m, err := container.ReadProductManifest(productDir)
+		if err != nil {
+			die("Failed: parse %s: %v", container.ManifestFile, err)
 		}
 		manifest = &m
+		declareProduct(filepath.Join(cfg.GroupsDir, store.DefaultFolder), productDir,
+			filepath.ToSlash(filepath.Join("ant", "examples", product)))
 	}
 
 	// services/ holds installed compose fragments. surrogate/ holds the
@@ -439,9 +428,11 @@ func cmdGroup(args []string) {
 		productDir := ""
 		if *productFlag != "" {
 			productDir = filepath.Join(cfg.HostAppDir, "ant", "examples", *productFlag)
-			if _, err := os.Stat(filepath.Join(productDir, "PRODUCT.md")); err != nil {
-				die("Failed: unknown product %q (looked for %s/PRODUCT.md)", *productFlag, productDir)
+			if _, err := os.Stat(filepath.Join(productDir, container.ManifestFile)); err != nil {
+				die("Failed: unknown product %q (looked for %s/%s)", *productFlag, productDir, container.ManifestFile)
 			}
+			declareProduct(filepath.Join(cfg.GroupsDir, folder), productDir,
+				filepath.ToSlash(filepath.Join("ant", "examples", *productFlag)))
 		}
 		if err := container.SetupGroup(cfg, folder, productDir); err != nil {
 			die("Failed: setup group dir: %v", err)

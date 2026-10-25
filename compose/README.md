@@ -140,11 +140,16 @@ operator line after it.
                                  ▼
                           docker compose up
 
-products apply <folder>: the group-scoped half. groups/<folder>/products.toml
+products apply <folder>: the group-scoped half. groups/<folder>/arizuko.toml
 is blended into that group, one installed_packages row per (folder, product).
 ```
 
 <!-- /twin -->
+
+The group owns `arizuko.toml`, including root metadata and ordered `[[product]]`
+selections. Package source manifests are excluded from seed payloads and asset
+ownership. Fresh `--product` seeds declare one source without installed records;
+run `products apply` once before record-driven `packages sync` can update them.
 
 Sources: `cmd/arizuko/packages.go:136` `installPackage`,
 `cmd/arizuko/main.go:157` `generateCompose`, `cmd/arizuko/products.go:89`

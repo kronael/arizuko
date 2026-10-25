@@ -73,7 +73,7 @@
                                  ▼
                           docker compose up
 
-products apply &lt;folder&gt;: the group-scoped half. groups/&lt;folder&gt;/products.toml
+products apply &lt;folder&gt;: the group-scoped half. groups/&lt;folder&gt;/arizuko.toml
 is blended into that group, one installed_packages row per (folder, product).</code></pre>
 
       <p>Every check runs before step 4. A row apply that fails in step 5 removes the files again, so a refused package leaves no fragment and no row. The rows of step 5 apply at once. Only the compose fragment waits for <code>generate</code>.</p>
@@ -160,11 +160,13 @@ arizuko packages &lt;instance&gt; list</code></pre>
       <h2 id="blending-several-products-into-one-group">Blending several products into one group</h2>
       <p>A package installs against the whole instance. A
       <a href="../products/">product</a> seeds one group — and a group is not
-      limited to one. Write <code>groups/&lt;folder&gt;/products.toml</code> (the
-      agent sees it as <code>~/products.toml</code>), listing the products in the
+      limited to one. Write <code>groups/&lt;folder&gt;/arizuko.toml</code> (the
+      agent sees it as <code>~/arizuko.toml</code>), listing the products in the
       order they should blend, then apply it:</p>
 
-      <pre><code>[[product]]
+      <pre><code>name = "support-team"
+
+[[product]]
 source = "ant/examples/support"     # relative → joined to HOST_APP_DIR
 
 [[product]]
@@ -178,6 +180,7 @@ source = "github.com/org/our-brand" # git → cloned and pinned to a revision</c
       <table>
         <thead><tr><th>File</th><th>Rule</th><th>Yours to edit after?</th></tr></thead>
         <tbody>
+          <tr><td>source root <code>arizuko.toml</code></td><td>metadata only; excluded from payload and installed ownership</td><td>the group owns its own file</td></tr>
           <tr><td><code>skills/</code></td><td>union by name; the last product wins a whole skill</td><td>yes — an edit is detected and skipped, never overwritten</td></tr>
           <tr><td><code>PERSONA.md</code> / <code>SOUL.md</code></td><td>the first product wins; later ones are warned about</td><td>yes — written once, never re-written</td></tr>
           <tr><td><code>CLAUDE.md</code></td><td>one marked region per product, in mix order</td><td>yes — anything outside the markers is untouched</td></tr>
@@ -191,9 +194,13 @@ source = "github.com/org/our-brand" # git → cloned and pinned to a revision</c
         </tbody>
       </table>
 
-      <p>That last row is the important one: a file no rule names is copied, not
-      dropped. Without it a mix would quietly lose every product's
-      <code>PRODUCT.md</code>.</p>
+      <p>The group owns its <code>arizuko.toml</code>. Root metadata and ordered selections
+      stay byte-identical through apply and sync. A selected source with its own nonempty
+      selections refuses; list those sources explicitly in the group file.</p>
+      <p>A metadata-only manifest is a no-op without installed records. Missing or empty
+      selections with records refuse before writes. If a group has <code>products.toml</code>,
+      move or merge its entries into <code>arizuko.toml</code>, then remove
+      <code>products.toml</code>. Both legacy-only and mixed declarations refuse.</p>
 
       <p>The <code>CLAUDE.md</code> regions are
       <code>&lt;!-- arizuko:package:&lt;name&gt; BEGIN --&gt;</code> and its
@@ -216,11 +223,14 @@ source = "github.com/org/our-brand" # git → cloned and pinned to a revision</c
       <p>Each product in the mix gets its own installed-package record, so
       re-applying is safe: an unchanged mix writes nothing and reports
       <code>unchanged</code>. <code>arizuko packages &lt;instance&gt; sync</code>
-      re-applies every group's mix alongside the instance's packages.</p>
+      re-applies groups discovered through installed records alongside the instance's packages.</p>
 
       <p><code>arizuko create --product</code> and
       <code>arizuko group &lt;instance&gt; add &lt;jid&gt; &lt;folder&gt; --product</code>
-      copy one product verbatim. Use them when one template is all you need.</p>
+      seed one product's payload and write a single-source group declaration. They create
+      no installed record. Matching existing declarations keep their bytes; conflicts
+      refuse before payload writes. Run the first <code>products apply</code> explicitly
+      before <code>packages sync</code> can update the group.</p>
 
       <p>Installed packages and blended products are both listed in the operator
       dashboard at <code>/dash/packages/</code>; the <code>folder</code> column

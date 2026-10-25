@@ -5,7 +5,7 @@ status: active
 # specs/17 — products
 
 Products built on arizuko: what a product _is_ lives in
-[5/21-products](../5/21-products.md) (PRODUCT.md format, `--product`
+[5/21-products](../5/21-products.md) (arizuko.toml format, `--product`
 install flow, authoring guide, shipped catalog). This phase holds the
 product-adjacent designs that are not yet platform core.
 
@@ -24,7 +24,7 @@ control API; the API ships before the products that depend on it.
 | [→ 6/27-git-channel](../6/27-git-channel.md)     | moved       | `gitd` is a channel adapter — platform, not a product; moved 2026-08-25 to the active platform phase, beside its sibling `6/26`. |
 | [→ 5/19-hitl-firewall](../5/19-hitl-firewall.md) | moved       | Pulled into platform core; one `pending_actions` resreg resource + injected `CheckHold`, no dispatcher.                          |
 | [→ 5/28-packages](../5/28-packages.md)           | moved       | Pulled into platform core, then dissolved 2026-08-04: composition folded into `5/28`, state transport pointed at `5/8`.          |
-| [→ 5/21-products](../5/21-products.md)           | moved       | Producer-side product spec (PRODUCT.md format, catalog, authoring).                                                              |
+| [→ 5/21-products](../5/21-products.md)           | moved       | Producer-side product spec (arizuko.toml format, catalog, authoring).                                                            |
 
 ## Product catalog
 
@@ -33,7 +33,7 @@ list` enumerates it ([5/21-products](../5/21-products.md)). It is **not**
 restated here. Per-product truth lives in three places, none of which is a
 spec file:
 
-- `ant/examples/<name>/PRODUCT.md` — skills, `[[env]]`, operator setup.
+- `ant/examples/<name>/arizuko.toml` — skills, `[[env]]`, operator setup.
 - `ant/examples/<name>/{PERSONA,SOUL,BRANDING}.md` — voice and register.
 - `template/web/pub/arizuko/products/<name>/` — the public pitch.
 

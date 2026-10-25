@@ -288,11 +288,14 @@ manifest changed since `add`, both verbs report the drift and name the fix:
 
 ## Blending several products into one group
 
-A group can use more than one product. Write `groups/<folder>/products.toml`
+A group can use more than one product. Write `groups/<folder>/arizuko.toml`
 with one block for each product, in the order of the blend. The agent sees the
-file as `~/products.toml`. Then apply it:
+file as `~/arizuko.toml`. Optional root metadata describes the group; its
+configured folder remains its runtime identity. Then apply it:
 
 ```toml
+name = "support-team"
+
 [[product]]
 source = "ant/examples/support"     # relative path, joined to HOST_APP_DIR
 
@@ -303,6 +306,20 @@ source = "github.com/org/our-brand" # git: shallow clone, pinned to HEAD
 ```bash
 arizuko products krons apply main
 ```
+
+The group owns this file. Both seeders exclude a source's root `arizuko.toml`
+from payload and installed ownership. They refuse a selected source with its
+own nonempty product selections; list those sources in the group file instead.
+A metadata-only manifest is a no-op without installed records. Missing or empty
+selections with installed records refuse before writes.
+
+`create/group add --product` writes a single-source group declaration and seeds
+payloads, without installed records. Matching existing declarations keep their
+bytes; conflicting declarations refuse before payload changes. Run the first
+`products apply` explicitly. `packages sync` discovers groups through installed
+records only. If the group has `products.toml`, move or merge its entries into
+`arizuko.toml`, then remove `products.toml`. Apply refuses either legacy-only
+or mixed declarations.
 
 A blend works for each kind of payload and never merges content, because two
 products share no merge base. Each kind follows one rule:

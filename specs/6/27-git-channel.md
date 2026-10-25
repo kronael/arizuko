@@ -248,14 +248,14 @@ The client accepts explicitly configured broker-held PAT or App installation cre
 Credential choice does not change source verification, group ownership or lifecycle rules.
 Signed webhook ingress itself remains independent of that API credential.
 
-Both product references use the existing product source and `PRODUCT.md` format from
+Both product references use the existing product source and `arizuko.toml` format from
 [`28-packages.md`](../5/28-packages.md). A prototype is an explicitly selected product
 directory in that format. The binding pins its revision or local content snapshot.
 Changing that pin affects new children; an existing child keeps its recorded product
 until an explicit product apply.
 `container.SetupGroup` and `container.SeedProduct` own single-product materialization;
 `installed_packages` records the source, revision and managed assets. An ordered mix
-remains declared through `products.toml` and applied through `container.ComposeGroup`;
+remains declared through the group's `arizuko.toml` and applied through `container.ComposeGroup`;
 the binding itself names one seed product. There is no second prototype schema,
 parent-directory search, or live copy of a parent's workspace.
 Persona, skills and settings are materialized in the child itself. Secrets, sessions,

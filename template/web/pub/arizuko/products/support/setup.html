@@ -64,7 +64,7 @@ source = "ant/examples/support"</code></pre>
       <h2>.env holds the channel token</h2>
       <pre><code>TELEGRAM_BOT_TOKEN=REPLACE_ME
 OPENAI_API_KEY=REPLACE_ME   # optional: the oracle skill</code></pre>
-      <p>The <code>[[env]]</code> block in <code>PRODUCT.md</code> is a checklist, not a gate. <code>arizuko create --product</code> prints it, and <code>group add</code> does not. A missing value does not stop the apply. It stops the channel later, and that is harder to find. Set the values now.</p>
+      <p>The <code>[[env]]</code> block in <code>arizuko.toml</code> is a checklist, not a gate. <code>arizuko create --product</code> prints it, and <code>group add</code> does not. A missing value does not stop the apply. It stops the channel later, and that is harder to find. Set the values now.</p>
 
       <h2>One file for each topic fills the knowledge base</h2>
       <p><code>facts/kb.md</code> ships as a seed. Replace it, then add one file for each topic, for example <code>facts/api.md</code>, <code>facts/billing.md</code> and <code>facts/limits.md</code>. Longer reference documents go under <code>refs/</code>. The agent reads both before it answers and cites the path, so users see the file names. Name the files as you want to see them quoted.</p>

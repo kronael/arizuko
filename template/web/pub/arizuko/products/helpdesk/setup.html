@@ -63,8 +63,8 @@ arizuko route &lt;instance&gt; list</code></pre>
       <p>The command copies the product tree into <code>groups/acme/support/</code> once. After that, the files belong to the group. Edit the persona and add facts, and nothing writes over them. <code>group add</code> also writes the route, so every message in that Slack channel reaches the <code>acme/support</code> agent.</p>
       <p>To add a second channel, add a second group. To add a webhook or a public chat link, make a route token, as <a href="../../howto/webhooks.html">webhooks</a> and <a href="../../howto/chat-link.html">chat link</a> show. All of these inputs reach the same folder and the same agent.</p>
 
-      <h2>products.toml adds the product to an existing group</h2>
-      <p>A group can run several products. Write the mix into <code>products.toml</code> in the group and apply it:</p>
+      <h2>arizuko.toml selects the products of an existing group</h2>
+      <p>A group can run several products. Write the mix into its own <code>arizuko.toml</code> and apply it:</p>
       <pre><code>[[product]]
 source = "ant/examples/helpdesk"</code></pre>
       <pre><code>arizuko products &lt;instance&gt; apply acme/support</code></pre>

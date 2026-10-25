@@ -19,14 +19,14 @@ is no standard way to distribute skills + fragments + routes + grants as one uni
 
 ## The packaging cluster — who owns what
 
-| Concern                                                                           | Spec                  |
-| --------------------------------------------------------------------------------- | --------------------- |
-| **Package manager** — install / upgrade / remove one unit's lifecycle             | **this spec (5/28)**  |
-| Producer side — what a product/package _contains_ (`PRODUCT.md`, persona, skills) | `5/21`                |
-| Composition — one group blends an ordered LIST of products (per-kind precedence)  | **this spec (below)** |
-| State transport — moving a live agent's rows/files (`export`/`apply`)             | `5/8`                 |
-| Compose fragment — one asset _kind_ (a file)                                      | `5/27`                |
-| Prototype — a product instantiated at spawn (`5/5` Tier-3)                        | `5/5`                 |
+| Concern                                                                             | Spec                  |
+| ----------------------------------------------------------------------------------- | --------------------- |
+| **Package manager** — install / upgrade / remove one unit's lifecycle               | **this spec (5/28)**  |
+| Producer side — what a product/package _contains_ (`arizuko.toml`, persona, skills) | `5/21`                |
+| Composition — one group blends an ordered LIST of products (per-kind precedence)    | **this spec (below)** |
+| State transport — moving a live agent's rows/files (`export`/`apply`)               | `5/8`                 |
+| Compose fragment — one asset _kind_ (a file)                                        | `5/27`                |
+| Prototype — a product instantiated at spawn (`5/5` Tier-3)                          | `5/5`                 |
 
 **Rejected alternative — OCI artifacts** (spec deleted 2026-08-02). A
 package as a signed, registry-hosted `ghcr.io` artifact pulled via
@@ -42,7 +42,7 @@ files) is `5/8`'s; the two meet only at restore (below).
 
 ## Package = source + manifest + asset kinds
 
-One manifest, and it is the **shipped `PRODUCT.md`** (`5/21`) — NOT a second
+One manifest, and it is the **shipped `arizuko.toml`** (`5/21`) — NOT a second
 `package.yaml`. A package declares any SUBSET of asset kinds (no
 `skill|agent|sidecar` type enum — presence of an asset is the behaviour):
 
@@ -144,7 +144,7 @@ package's rows enter — before the first byte is written:
   only `add` supplies a trusted catalog name to `compose.ReservedRouteClaim`
   for the daemon's own `/dash/<name>/` console subtree.
 - **Grants are bounded by `--folder`.** `arizuko packages <instance> install
-  <source> [--folder <scope>]...` names the ground the package may grant within.
+<source> [--folder <scope>]...` names the ground the package may grant within.
   `**` and `*` are refused whatever the operator named — operator-ness is
   emergent from exactly such a row — and every other scope must be a subset of
   the bound, decided by `auth.MatchGroups`, the one folder-containment matcher
@@ -315,23 +315,26 @@ its table is non-empty). The record names what to remove; no ownership guessing.
 
 ## Composition — blending an ordered product list
 
-A group is not limited to one product: `~/products.toml` is the ordered
+A group owns `~/arizuko.toml`: optional root metadata describes the group,
+and ordered `[[product]]` entries select packages. Folder identity comes
+from configuration and the DB, not the manifest's `name`. The ordered
 mix (`source =` per entry, resolved the same way packages are — local dir
 or a shallow git clone pinned to its resolved revision). Two providers
 share no merge base, so **blend is per PAYLOAD KIND, never a content
 merge**:
 
-| Payload                             | Blend                                                                    | On upstream update |
-| ----------------------------------- | ------------------------------------------------------------------------ | ------------------ |
-| `skills/<n>/`                       | → `.claude/skills/<n>/`; union by name, LAST product wins wholesale      | managed: `sync`    |
-| `PERSONA.md` / `SOUL.md`            | FIRST provider wins; later warned                                        | seed-once          |
-| `CLAUDE.md`                         | marked sections, in mix order                                            | seed-once          |
-| `facts/`                            | union; filename collision = refuse                                       | seed-once          |
-| `settings.json`                     | key union; key collision = refuse. An `mcpServers` key REFUSES the apply | managed: `sync`    |
-| `Dockerfile.ant`                    | at most one in the mix                                                   | operator rebuilds  |
-| `migrations/NNN-*.md`               | **refused** — nothing runs a product's migrations (below)                | n/a                |
-| `tasks.toml`                        | **refused** — nothing reads a product's tasks.toml (below)               | n/a                |
-| **anything else** (`PRODUCT.md`, …) | **verbatim copy; FIRST provider wins**                                   | seed-once          |
+| Payload                              | Blend                                                                    | On upstream update |
+| ------------------------------------ | ------------------------------------------------------------------------ | ------------------ |
+| root `arizuko.toml`                  | source metadata; excluded from payload and installed ownership           | group-owned        |
+| `skills/<n>/`                        | → `.claude/skills/<n>/`; union by name, LAST product wins wholesale      | managed: `sync`    |
+| `PERSONA.md` / `SOUL.md`             | FIRST provider wins; later warned                                        | seed-once          |
+| `CLAUDE.md`                          | marked sections, in mix order                                            | seed-once          |
+| `facts/`                             | union; filename collision = refuse                                       | seed-once          |
+| `settings.json`                      | key union; key collision = refuse. An `mcpServers` key REFUSES the apply | managed: `sync`    |
+| `Dockerfile.ant`                     | at most one in the mix                                                   | operator rebuilds  |
+| `migrations/NNN-*.md`                | **refused** — nothing runs a product's migrations (below)                | n/a                |
+| `tasks.toml`                         | **refused** — nothing reads a product's tasks.toml (below)               | n/a                |
+| **anything else** (`BRANDING.md`, …) | **verbatim copy; FIRST provider wins**                                   | seed-once          |
 
 **The table is not a whitelist — the last row is what makes that true.** A
 payload the table does not name is copied whole, first-provider-wins, exactly as
@@ -377,12 +380,32 @@ blend warns about**, because the read-time rename silently keeps the
 ### Applying a mix
 
 `arizuko products <instance> apply <folder>` reads that group's
-`products.toml`, resolves each `source` (a relative path joins `HOST_APP_DIR`,
+`arizuko.toml`, resolves each `source` (a relative path joins `HOST_APP_DIR`,
 so `ant/examples/trip` names the bundled corpus), takes each product's identity
-from its `PRODUCT.md` `name`, blends, and writes ONE installed-package record
+from its `arizuko.toml` `name`, blends, and writes ONE installed-package record
 per product under `(folder, name)`. It is the only writer of a non-empty
 `folder`. It is idempotent: an unchanged mix re-writes no byte and reports
 `unchanged`.
+
+The group manifest stays byte-identical, including metadata, comments, and
+extension fields. Source root manifests are never copied, hashed, claimed,
+or deleted; even prior `file:arizuko.toml` hashes cannot authorize deletion.
+A selected source with its own nonempty product selections refuses before
+payload writes. Select those sources explicitly in the group manifest.
+
+A metadata-only manifest or empty selection is a no-op when the group has no
+installed records. Missing declarations refuse. Missing or empty selections
+with existing group records refuse rather than imply package removal.
+Malformed TOML and entries without `source` refuse before writes.
+If a group has `products.toml`, move or merge its entries into `arizuko.toml`
+and remove `products.toml`; both old-only and mixed declarations refuse.
+
+Fresh `create/group add --product` writes only a single-source group
+declaration, without package metadata or installed records. An existing
+matching single-source file remains byte-identical. Any other existing
+manifest refuses the seed request before payload changes. Run `products apply`
+explicitly to create records; `packages sync` discovers groups only through
+installed records and uses the same missing/empty-selection refusal.
 
 An apply also DROPS what a product's last record owned and no product now
 ships. "No longer shipped" is a property of the whole mix: the check is the
@@ -617,7 +640,7 @@ sign-off-shaped decision rather than an implementation detail.
   gates, both bound to the instance-wide `**` target
 - `dashd/packages_page.go` — the operator's `/dash/packages/` read; `folder`
   column distinguishes an instance package from a group's product
-- `cmd/arizuko/products.go` — the `products.toml` reader + `arizuko products
+- `cmd/arizuko/products.go` — the group `arizuko.toml` reader + `arizuko products
 <instance> apply <folder>`; the ONLY writer of a non-empty record folder
 - `container/blend.go` — the blend table as code (`classify` is the table's
   left column; `BlendProducts` is the rest); `CheckProductAssets` +
@@ -637,4 +660,4 @@ sign-off-shaped decision rather than an implementation detail.
 - `resreg/resources/proxyd_routes.go`, `routd/acl_resource.go` — the owner handlers
 - `ant/skills/self/migration.md` — the 3-way merge packages reuse for skills
 - `routd/loop.go:434` `checkMigrationVersion()` — the update trigger
-- `cmd/arizuko/main.go:28` `productManifest` — the shared `PRODUCT.md` parse
+- `container/manifest.go` `ProductManifest` — the shared `arizuko.toml` schema

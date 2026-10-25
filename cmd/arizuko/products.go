@@ -1,6 +1,6 @@
 package main
 
-// products.go is spec 5/28-packages's composition reader: a group's `products.toml` is
+// products.go is spec 5/28-packages's composition reader: a group's `arizuko.toml` is
 // the ORDERED MIX of products blended into it. It is the group-scoped half of
 // the same lifecycle `packages install` runs instance-wide — same lock
 // (installed_packages, keyed `(folder, name)`), same source resolution, same
@@ -22,34 +22,49 @@ import (
 	"github.com/kronael/arizuko/routd"
 )
 
-// productMix is `~/products.toml`: one `[[product]]` block per entry, in the
-// order they blend. `source` is resolved exactly like a package source — a git
-// URL is shallow-cloned and pinned to its HEAD, anything else is a local path.
-type productMix struct {
-	Product []struct {
-		Source string `toml:"source"`
-	} `toml:"product"`
-}
-
-// productsFile is the mix declaration inside the group home (`~/products.toml`
-// as the agent sees it).
-const productsFile = "products.toml"
-
-// readProductMix parses a group's products.toml. Absent file → ok=false, which
+// readProductMix parses a group's arizuko.toml. Absent file → ok=false, which
 // is not an error: most groups have no mix.
-func readProductMix(groupDir string) (productMix, bool) {
-	path := filepath.Join(groupDir, productsFile)
-	var mix productMix
+func readProductMix(groupDir string) (container.ProductManifest, bool) {
+	path := filepath.Join(groupDir, container.ManifestFile)
+	legacy := filepath.Join(groupDir, "products.toml")
+	if _, err := os.Lstat(legacy); err == nil {
+		die("Failed: move or merge entries from %s into %s, then remove %s", legacy, path, legacy)
+	} else if !os.IsNotExist(err) {
+		die("Failed: check %s: %v", legacy, err)
+	}
+	var mix container.ProductManifest
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		return mix, false
 	}
 	if _, err := toml.DecodeFile(path, &mix); err != nil {
-		die("Failed: parse %s: %v", path, err)
-	}
-	if len(mix.Product) == 0 {
-		die("Failed: %s declares no [[product]] entries", path)
+		die("Failed: parse %s: %v — edit the group manifest and run products apply", path, err)
 	}
 	return mix, true
+}
+
+func declareProduct(groupDir, productDir, source string) {
+	if err := container.CheckProductAssets(source, productDir); err != nil {
+		die("Failed: validate product: %v", err)
+	}
+	manifest, exists := readProductMix(groupDir)
+	path := filepath.Join(groupDir, container.ManifestFile)
+	if exists {
+		if len(manifest.Product) == 1 && manifest.Product[0].Source == source {
+			return
+		}
+		die("Failed: %s conflicts with --product; edit the group manifest and run products apply", path)
+	}
+	manifest.Product = []container.ProductSource{{Source: source}}
+	var encoded strings.Builder
+	if err := toml.NewEncoder(&encoded).Encode(manifest); err != nil {
+		die("Failed: encode %s: %v", path, err)
+	}
+	if err := os.MkdirAll(groupDir, 0o755); err != nil {
+		die("Failed: mkdir %s: %v", groupDir, err)
+	}
+	if err := os.WriteFile(path, []byte(encoded.String()), 0o644); err != nil {
+		die("Failed: write %s: %v", path, err)
+	}
 }
 
 // resolveProductSource turns one `source =` into a local dir + revision. A
@@ -66,17 +81,17 @@ func resolveProductSource(cfg *core.Config, src string) (dir, revision string, c
 	return fetchSource(src)
 }
 
-// productName reads the mix entry's identity from its PRODUCT.md — the one
+// productName reads the mix entry's identity from its arizuko.toml — the one
 // manifest a product ships (spec 5/28-packages). No fallback to the directory name: the
 // name is the record key and the CLAUDE.md region id, so guessing it would key
 // the lock on where a clone happened to land.
 func productName(dir, src string) string {
-	var m productManifest
-	if _, err := toml.DecodeFile(filepath.Join(dir, "PRODUCT.md"), &m); err != nil {
-		die("Failed: read PRODUCT.md for %s: %v", src, err)
+	m, err := container.ReadProductManifest(dir)
+	if err != nil {
+		die("Failed: read %s for %s: %v", container.ManifestFile, src, err)
 	}
 	if m.Name == "" {
-		die("Failed: PRODUCT.md for %s has no `name` — it is the record key", src)
+		die("Failed: %s for %s has no `name` — it is the record key", container.ManifestFile, src)
 	}
 	mustPkgName(m.Name)
 	return m.Name
@@ -96,9 +111,23 @@ func applyProductMix(dataDir string, rdb *routd.DB, folder string) {
 	}
 	groupDir := filepath.Join(cfg.GroupsDir, folder)
 	mix, ok := readProductMix(groupDir)
-	if !ok {
-		die("Failed: %s has no %s — write the mix first (one [[product]] block per entry)",
-			groupDir, productsFile)
+	if len(mix.Product) == 0 {
+		records, err := rdb.InstalledPackages()
+		if err != nil {
+			die("Failed: list installed products: %v", err)
+		}
+		for _, record := range records {
+			if record.Folder == folder {
+				die("Failed: %s has installed products; declare their selections explicitly in %s before apply or sync",
+					folder, filepath.Join(groupDir, container.ManifestFile))
+			}
+		}
+		if !ok {
+			die("Failed: %s has no %s — write the mix first (one [[product]] block per entry)",
+				groupDir, container.ManifestFile)
+		}
+		fmt.Printf("no products selected for %s\n", folder)
+		return
 	}
 
 	prior := map[string]map[string]string{}
@@ -107,7 +136,7 @@ func applyProductMix(dataDir string, rdb *routd.DB, folder string) {
 	revisions := make([]string, 0, len(mix.Product))
 	for _, entry := range mix.Product {
 		if entry.Source == "" {
-			die("Failed: %s/%s has a [[product]] with no source", groupDir, productsFile)
+			die("Failed: %s/%s has a [[product]] with no source", groupDir, container.ManifestFile)
 		}
 		dir, revision, cleanup := resolveProductSource(cfg, entry.Source)
 		defer cleanup()
@@ -156,7 +185,7 @@ func applyProductMix(dataDir string, rdb *routd.DB, folder string) {
 }
 
 // listProducts enumerates the bundled catalog under `<HOST_APP_DIR>/ant/examples`.
-// A directory without a readable PRODUCT.md is reported rather than skipped: the
+// A directory without a readable arizuko.toml is reported rather than skipped: the
 // manifest is what makes a directory a product, so a silent omission would read
 // as "not shipped" when the truth is "malformed".
 func listProducts(dataDir string, w io.Writer) error {
@@ -176,17 +205,17 @@ func listProducts(dataDir string, w io.Writer) error {
 		if !e.IsDir() {
 			continue
 		}
-		var m productManifest
+		m, manifestErr := container.ReadProductManifest(filepath.Join(root, e.Name()))
 		line := ""
-		if _, err := toml.DecodeFile(filepath.Join(root, e.Name(), "PRODUCT.md"), &m); err != nil {
-			line = fmt.Sprintf("%-14s (no readable PRODUCT.md)\n", e.Name())
+		if manifestErr != nil {
+			line = fmt.Sprintf("%-14s (no readable %s: %v)\n", e.Name(), container.ManifestFile, manifestErr)
 		} else if m.Name != e.Name() {
 			// The directory is what `create --product` accepts, so the directory
 			// IS the identity. A manifest declaring a different name advertises
 			// a product no command takes, and product-mix state keys the third
 			// spelling (BUGS J12). Refuse instead of printing the unusable one.
-			return fmt.Errorf("product %s: PRODUCT.md declares name %q — the directory name is the identity `create --product` takes",
-				e.Name(), m.Name)
+			return fmt.Errorf("product %s: %s declares name %q — the directory name is the identity `create --product` takes",
+				e.Name(), container.ManifestFile, m.Name)
 		} else {
 			line = fmt.Sprintf("%-14s %-10s %s\n", e.Name(), m.Brand, m.Tagline)
 		}
@@ -202,7 +231,7 @@ func listProducts(dataDir string, w io.Writer) error {
 
 var errNoHostAppDir = errors.New("HOST_APP_DIR is unset in .env — it names the bundled catalog")
 
-// cmdProducts lists the bundled catalog or applies a group's `products.toml` mix.
+// cmdProducts lists the bundled catalog or applies a group's `arizuko.toml` mix.
 func cmdProducts(args []string) {
 	usage := "arizuko products <instance> list | apply <folder>"
 	need(args, 2, usage)

@@ -45,15 +45,21 @@ products — where the operator works. Two consequences:
 ## What a product is
 
 Products live in `ant/examples/<name>/`; each folder is a prototype for the
-group workspace seeded into a new instance. `PRODUCT.md` (TOML: name,
+group workspace seeded into a new instance. `arizuko.toml` (TOML: name,
 skills list, `[[env]]` hints) is required — those three are what
-`productManifest` (`cmd/arizuko/main.go:29`) parses. Every shipped
-`PRODUCT.md` also declares `brand` and `tagline`, which
+`container.ProductManifest` (`container/manifest.go`) parses. Every shipped
+`arizuko.toml` also declares `brand` and `tagline`, which
 `arizuko products <inst> list` prints (they were dead data until BUGS `F65`
 was closed). Optional and
 copied verbatim into the group dir: `PERSONA.md` (the agent's identity),
 `CLAUDE.md` (the per-group runbook read every session), `facts/` (seed
 knowledge). Most products ship both Markdown files.
+
+The same schema holds a group's root metadata and ordered `[[product]]`
+selections. Each group owns its `arizuko.toml`. Neither seeder copies the
+source root manifest into the group or records it as an installed asset.
+Selected source manifests with nonempty `[[product]]` entries are refused;
+select those sources explicitly in the group's own file.
 
 `tasks.toml` was listed here as "seed scheduled tasks" and that was false —
 nothing ever read the file (BUGS `L35`, found 2026-08-15 while building the
@@ -65,7 +71,7 @@ product that wants one says so in its `CLAUDE.md` region and the agent creates
 it. Decision and cost in `5/28` §"Seeding a product's `tasks.toml`".
 
 **Two kinds of skill, don't conflate them.** The `skills` LIST in
-`PRODUCT.md` is a whitelist SELECTING stock skills from the image —
+`arizuko.toml` is a whitelist SELECTING stock skills from the image —
 informational today (`SetupGroup` seeds all of them), slated to become real
 gating. A product MAY ALSO bundle its OWN `skills/` directory: the managed
 payload `5/28` install/upgrade governs via dirty-detection and the 3-way
@@ -77,12 +83,15 @@ They do **not** validate the env file — they are a checklist, not a gate.
 ## Installing and authoring
 
 `arizuko create <inst> --product <name>` parses
-`ant/examples/<name>/PRODUCT.md`, creates the instance data dir and the
-`main` group row with `product=<name>`, then calls
+`ant/examples/<name>/arizuko.toml`, creates the instance data dir and the
+group-owned `main/arizuko.toml` selecting `ant/examples/<name>`, then calls
 `container.SetupGroup(cfg, "main", productDir)` to copy the product files,
 seed `.claude/`, and chown to UID 1000. It finishes by printing the
 `[[env]]` hints. Implementation: `cmd/arizuko/main.go` (`cmdCreate`,
-`productManifest`).
+`container.ProductManifest`). A matching existing single-source declaration
+keeps all its bytes. A conflicting declaration refuses before seeding.
+The group's first explicit `products apply` creates installed records;
+`packages sync` discovers groups through those records only.
 
 Authoring a new product is **filesystem-only — no code changes**:
 `cmdCreate` discovers products by scanning `ant/examples/` at runtime. Add
@@ -101,14 +110,14 @@ action layer over a retrieval backend, and it ships as framing plus a setup
 recipe until connector skills land.
 
 `arizuko products <inst> list` enumerates the catalog — `name`, `brand`,
-`tagline` per `PRODUCT.md` — and names a directory whose manifest won't
+`tagline` per `arizuko.toml` — and names a directory whose manifest won't
 parse instead of omitting it, so a broken manifest cannot read as "not
 shipped" (`cmd/arizuko/products.go`, `listProducts`).
 
 ## Open
 
 - Skill whitelisting is not enforced; all global skills are seeded. The
-  `skills` list in `PRODUCT.md` stays informational until it is.
+  `skills` list in `arizuko.toml` stays informational until it is.
 - Third-party products (per-instance product dirs) — deferred.
 - `--product` accepting a URL or git repo — deferred; `5/28`'s source
   resolvers are the intended path.

@@ -50,7 +50,7 @@ func TestProductSeedSkipsRootGit(t *testing.T) {
 			root := t.TempDir()
 			product := mkProduct(t, root, "product", map[string]string{
 				".git/config":        "clone metadata",
-				"PRODUCT.md":         "name = \"product\"\n",
+				"arizuko.toml":       "name = \"product\"\n",
 				"assets/.git/config": "product asset",
 			})
 			group := filepath.Join(root, "group")
@@ -62,8 +62,8 @@ func TestProductSeedSkipsRootGit(t *testing.T) {
 			if _, err := os.Lstat(filepath.Join(group, ".git")); !os.IsNotExist(err) {
 				t.Errorf("group .git must be absent, got %v", err)
 			}
-			if got := read(t, group, "PRODUCT.md"); got != "name = \"product\"\n" {
-				t.Errorf("PRODUCT.md = %q", got)
+			if _, err := os.Stat(filepath.Join(group, "arizuko.toml")); !os.IsNotExist(err) {
+				t.Errorf("source manifest reached the group: %v", err)
 			}
 			if got := read(t, group, "assets/.git/config"); got != "product asset" {
 				t.Errorf("nested .git asset = %q", got)
@@ -74,20 +74,20 @@ func TestProductSeedSkipsRootGit(t *testing.T) {
 
 // TestBlendCatchAllCopiesUnnamedPayload locks spec 5/28-packages's last table row: a
 // payload no rule names is copied whole, FIRST provider wins. Without it a
-// table-strict blend drops PRODUCT.md (10/10 of the corpus) and BRANDING.md.
+// table-strict blend drops BRANDING.md.
 func TestBlendCatchAllCopiesUnnamedPayload(t *testing.T) {
 	root := t.TempDir()
 	a := mkProduct(t, root, "a", map[string]string{
-		"PRODUCT.md": "name = \"a\"\n", "BRANDING.md": "brand A",
+		"arizuko.toml": "name = \"a\"\n", "BRANDING.md": "brand A",
 	})
 	b := mkProduct(t, root, "b", map[string]string{
-		"PRODUCT.md": "name = \"b\"\n", "README.md": "b readme",
+		"arizuko.toml": "name = \"b\"\n", "README.md": "b readme",
 	})
 	group := filepath.Join(root, "group")
 	out := blendInto(t, group, []Product{a, b}, nil)
 
-	if got := read(t, group, "PRODUCT.md"); got != "name = \"a\"\n" {
-		t.Errorf("PRODUCT.md = %q, want the FIRST provider's bytes", got)
+	if _, err := os.Stat(filepath.Join(group, "arizuko.toml")); !os.IsNotExist(err) {
+		t.Errorf("source manifest reached the group: %v", err)
 	}
 	if got := read(t, group, "BRANDING.md"); got != "brand A" {
 		t.Errorf("BRANDING.md = %q", got)
@@ -95,11 +95,11 @@ func TestBlendCatchAllCopiesUnnamedPayload(t *testing.T) {
 	if got := read(t, group, "README.md"); got != "b readme" {
 		t.Errorf("README.md = %q — a payload only the later product ships must still land", got)
 	}
-	if got := out[0].Manifest["group_seed"]; len(got) != 2 {
-		t.Errorf("a owns %v, want PRODUCT.md + BRANDING.md", got)
+	if got := out[0].Manifest["group_seed"]; len(got) != 1 || got[0] != "BRANDING.md" {
+		t.Errorf("a owns %v, want only BRANDING.md", got)
 	}
 	if got := out[1].Manifest["group_seed"]; len(got) != 1 || got[0] != "README.md" {
-		t.Errorf("b owns %v, want only README.md (a won PRODUCT.md)", got)
+		t.Errorf("b owns %v, want only README.md", got)
 	}
 }
 
@@ -278,7 +278,7 @@ func TestBlendClaudeMalformedLeavesFileAlone(t *testing.T) {
 // so a mix never lands half-composed.
 func TestBlendUnionCollisionRefuses(t *testing.T) {
 	root := t.TempDir()
-	a := mkProduct(t, root, "a", map[string]string{"facts/x.md": "a", "PRODUCT.md": "a"})
+	a := mkProduct(t, root, "a", map[string]string{"facts/x.md": "a", "arizuko.toml": "name = \"a\"\n"})
 	b := mkProduct(t, root, "b", map[string]string{"facts/x.md": "b"})
 	group := filepath.Join(root, "group")
 	err := func() error { _, e := BlendProducts(group, []Product{a, b}, nil); return e }()
@@ -288,7 +288,7 @@ func TestBlendUnionCollisionRefuses(t *testing.T) {
 	if !strings.Contains(err.Error(), "facts/x.md") {
 		t.Errorf("error %q does not name the colliding path", err)
 	}
-	if _, sErr := os.Stat(filepath.Join(group, "PRODUCT.md")); !os.IsNotExist(sErr) {
+	if _, sErr := os.Stat(filepath.Join(group, "arizuko.toml")); !os.IsNotExist(sErr) {
 		t.Error("a refused mix still wrote files")
 	}
 }
@@ -317,7 +317,7 @@ func TestBlendUnionKindsMerge(t *testing.T) {
 func TestBlendRefusesProductMigrations(t *testing.T) {
 	root := t.TempDir()
 	a := mkProduct(t, root, "a", map[string]string{
-		"migrations/001-x.md": "do the thing", "PRODUCT.md": "a",
+		"migrations/001-x.md": "do the thing", "arizuko.toml": "name = \"a\"\n",
 	})
 	group := filepath.Join(root, "group")
 
@@ -330,7 +330,7 @@ func TestBlendRefusesProductMigrations(t *testing.T) {
 			t.Errorf("error must name %q so the author knows the working path; got %v", want, err)
 		}
 	}
-	if _, sErr := os.Stat(filepath.Join(group, "PRODUCT.md")); !os.IsNotExist(sErr) {
+	if _, sErr := os.Stat(filepath.Join(group, "arizuko.toml")); !os.IsNotExist(sErr) {
 		t.Error("a refused mix still wrote files")
 	}
 }
@@ -343,7 +343,7 @@ func TestBlendRefusesProductMigrations(t *testing.T) {
 func TestBlendRefusesProductTasks(t *testing.T) {
 	root := t.TempDir()
 	a := mkProduct(t, root, "a", map[string]string{
-		"tasks.toml": "[[task]]\ncron = \"0 9 * * *\"\n", "PRODUCT.md": "a",
+		"tasks.toml": "[[task]]\ncron = \"0 9 * * *\"\n", "arizuko.toml": "name = \"a\"\n",
 	})
 	group := filepath.Join(root, "group")
 
@@ -356,7 +356,7 @@ func TestBlendRefusesProductTasks(t *testing.T) {
 			t.Errorf("error must name %q so the author knows the working path; got %v", want, err)
 		}
 	}
-	if _, sErr := os.Stat(filepath.Join(group, "PRODUCT.md")); !os.IsNotExist(sErr) {
+	if _, sErr := os.Stat(filepath.Join(group, "arizuko.toml")); !os.IsNotExist(sErr) {
 		t.Error("a refused mix still wrote files")
 	}
 }
@@ -471,7 +471,7 @@ func TestBlendSettingsUnionsOtherKeys(t *testing.T) {
 func TestBlendIsIdempotent(t *testing.T) {
 	root := t.TempDir()
 	a := mkProduct(t, root, "a", map[string]string{
-		"PRODUCT.md": "name = \"a\"\n", "PERSONA.md": "p", "CLAUDE.md": "c",
+		"arizuko.toml": "name = \"a\"\n", "PERSONA.md": "p", "CLAUDE.md": "c",
 		"facts/f.md": "f", "skills/s/SKILL.md": "sk",
 	})
 	group := filepath.Join(root, "group")
@@ -640,7 +640,7 @@ func TestBlendHandoffKeepsTheAsset(t *testing.T) {
 	const body = "---\nname: shared\n---\nBody.\n"
 	root := t.TempDir()
 	a := mkProduct(t, root, "a", map[string]string{
-		"PRODUCT.md": "name = \"a\"\n", "skills/shared/SKILL.md": body,
+		"arizuko.toml": "name = \"a\"\n", "skills/shared/SKILL.md": body,
 	})
 	group := filepath.Join(root, "group")
 	first := blendInto(t, group, []Product{a}, nil)
@@ -649,7 +649,7 @@ func TestBlendHandoffKeepsTheAsset(t *testing.T) {
 		t.Fatal(err)
 	}
 	b := mkProduct(t, root, "b", map[string]string{
-		"PRODUCT.md": "name = \"b\"\n", "skills/shared/SKILL.md": body,
+		"arizuko.toml": "name = \"b\"\n", "skills/shared/SKILL.md": body,
 	})
 	out := blendInto(t, group, []Product{a, b},
 		map[string]map[string]string{"a": first[0].AssetHashes})
@@ -669,7 +669,7 @@ func TestBlendHandoffKeepsTheAsset(t *testing.T) {
 }
 
 // TestClassifyCoversTheBlendTable pins each table row to the rule it selects, so
-// a future edit that quietly reroutes a payload (dropping PRODUCT.md into a
+// a future edit that quietly reroutes a payload (dropping an ordinary asset into a
 // named rule, say) fails here rather than in a live group.
 func TestClassifyCoversTheBlendTable(t *testing.T) {
 	want := map[string]payload{
@@ -682,7 +682,7 @@ func TestClassifyCoversTheBlendTable(t *testing.T) {
 		"migrations/001-x.md":   payMigrations,
 		".claude/settings.json": paySettings,
 		"Dockerfile.ant":        payDockerfile,
-		"PRODUCT.md":            payVerbatim,
+		"assets/arizuko.toml":   payVerbatim,
 		"BRANDING.md":           payVerbatim,
 		"settings.json":         payVerbatim,
 		"skills":                payVerbatim,

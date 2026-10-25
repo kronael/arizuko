@@ -47,22 +47,22 @@ func mixInstance(t *testing.T, files map[string]map[string]string, order []strin
 		}
 		mix += "[[product]]\nsource = \"" + filepath.Join(base, "src", name) + "\"\n\n"
 	}
-	if err := os.WriteFile(filepath.Join(groupDir, "products.toml"), []byte(mix), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(groupDir, "arizuko.toml"), []byte(mix), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	return dataDir, base
 }
 
 // TestProductsApplyWritesGroupScopedRecord is spec 5/28-packages's one unbuilt item: a
-// reader for products.toml AND the only writer of a non-empty
+// reader for arizuko.toml AND the only writer of a non-empty
 // installed_packages.folder. A record under InstanceWide would mean composition
 // still shares the instance's key and `packages remove` could reach a group's
 // products.
 func TestProductsApplyWritesGroupScopedRecord(t *testing.T) {
 	t.Cleanup(func() { dropInstance(t) })
 	dataDir, _ := mixInstance(t, map[string]map[string]string{
-		"one": {"PRODUCT.md": "name = \"one\"\n", "PERSONA.md": "p1"},
-		"two": {"PRODUCT.md": "name = \"two\"\n", "facts/t.md": "f2"},
+		"one": {"arizuko.toml": "name = \"one\"\n", "PERSONA.md": "p1"},
+		"two": {"arizuko.toml": "name = \"two\"\n", "facts/t.md": "f2"},
 	}, []string{"one", "two"})
 
 	cmdProducts([]string{"t", "apply", "main"})
@@ -108,7 +108,7 @@ func TestProductsApplyWritesGroupScopedRecord(t *testing.T) {
 func TestProductsApplyIsIdempotent(t *testing.T) {
 	t.Cleanup(func() { dropInstance(t) })
 	dataDir, _ := mixInstance(t, map[string]map[string]string{
-		"one": {"PRODUCT.md": "name = \"one\"\n", "CLAUDE.md": "runbook", "skills/s/SKILL.md": "v1"},
+		"one": {"arizuko.toml": "name = \"one\"\n", "CLAUDE.md": "runbook", "skills/s/SKILL.md": "v1"},
 	}, []string{"one"})
 
 	cmdProducts([]string{"t", "apply", "main"})
@@ -165,7 +165,7 @@ func TestProductsApplyIsIdempotent(t *testing.T) {
 func TestPackagesSyncCoversGroupMix(t *testing.T) {
 	t.Cleanup(func() { dropInstance(t) })
 	dataDir, base := mixInstance(t, map[string]map[string]string{
-		"one": {"PRODUCT.md": "name = \"one\"\n", "skills/s/SKILL.md": "v1"},
+		"one": {"arizuko.toml": "name = \"one\"\n", "skills/s/SKILL.md": "v1"},
 	}, []string{"one"})
 
 	cmdProducts([]string{"t", "apply", "main"})
@@ -191,7 +191,7 @@ func TestPackagesSyncCoversGroupMix(t *testing.T) {
 func TestReadProductMixKeepsOrder(t *testing.T) {
 	dir := t.TempDir()
 	body := "[[product]]\nsource = \"z\"\n\n[[product]]\nsource = \"a\"\n\n[[product]]\nsource = \"m\"\n"
-	if err := os.WriteFile(filepath.Join(dir, "products.toml"), []byte(body), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "arizuko.toml"), []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	mix, ok := readProductMix(dir)
@@ -208,7 +208,7 @@ func TestReadProductMixKeepsOrder(t *testing.T) {
 		}
 	}
 	if _, ok := readProductMix(t.TempDir()); ok {
-		t.Error("a group with no products.toml reported a mix")
+		t.Error("a group with no arizuko.toml reported a mix")
 	}
 }
 
@@ -267,7 +267,7 @@ func treeHashes(t *testing.T, root string) map[string]string {
 }
 
 // TestProductsListReadsBrandAndTagline is 5/21's catalog verb. `brand` and
-// `tagline` are declared by every shipped PRODUCT.md, so parsing only `name`
+// `tagline` are declared by every shipped arizuko.toml, so parsing only `name`
 // dropped them silently (BUGS F65) — this asserts all three reach the output.
 func TestProductsListReadsBrandAndTagline(t *testing.T) {
 	dataDir, base := mixInstance(t, nil, nil)
@@ -277,7 +277,7 @@ func TestProductsListReadsBrandAndTagline(t *testing.T) {
 		t.Fatal(err)
 	}
 	manifest := "name = \"trip\"\nbrand = \"wanderd\"\ntagline = \"Trip planner.\"\n"
-	if err := os.WriteFile(filepath.Join(dir, "PRODUCT.md"), []byte(manifest), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "arizuko.toml"), []byte(manifest), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -293,7 +293,7 @@ func TestProductsListReadsBrandAndTagline(t *testing.T) {
 }
 
 // TestProductsListReportsMalformedManifest — a directory without a readable
-// PRODUCT.md is named in the output, not skipped. Silence would read as "this
+// arizuko.toml is named in the output, not skipped. Silence would read as "this
 // product does not ship" when the truth is "its manifest is broken".
 func TestProductsListReportsMalformedManifest(t *testing.T) {
 	dataDir, base := mixInstance(t, nil, nil)
@@ -312,7 +312,7 @@ func TestProductsListReportsMalformedManifest(t *testing.T) {
 }
 
 // TestProductsListRefusesADivergentManifestName — the catalog printed
-// PRODUCT.md's `name` while `create --product` takes the DIRECTORY, so a
+// arizuko.toml's `name` while `create --product` takes the DIRECTORY, so a
 // manifest declaring `growth` inside `marketing/` advertised a product no
 // command accepts and keyed mix state under a third spelling (BUGS J12). The
 // directory is the identity; a manifest that disagrees is a packaging error.
@@ -324,7 +324,7 @@ func TestProductsListRefusesADivergentManifestName(t *testing.T) {
 		t.Fatal(err)
 	}
 	manifest := "name = \"growth\"\nbrand = \"Acme\"\ntagline = \"Ships copy.\"\n"
-	if err := os.WriteFile(filepath.Join(dir, "PRODUCT.md"), []byte(manifest), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "arizuko.toml"), []byte(manifest), 0o644); err != nil {
 		t.Fatal(err)
 	}
 

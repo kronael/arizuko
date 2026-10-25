@@ -974,12 +974,13 @@ implicit-from-nesting rule as `acl` and `scheduled_tasks`.
 
 **If it's a row, YAML. If it's a paragraph, Markdown.** YAML carries
 table-shaped cold-tier rows (operator intent). Markdown carries prose
-(`PERSONA.md`, `MEMORY.md`, `.diary/`, `skills/<name>/SKILL.md`,
-`PRODUCT.md`) — agent context living in the group directory, never manifest
+(`PERSONA.md`, `MEMORY.md`, `.diary/`, `skills/<name>/SKILL.md`)
+— agent context living in the group directory, never manifest
 rows, never referenced from YAML, never content-hashed in the DB. The
 archive's message history is neither — an unbounded immutable event log —
 which is exactly why it gets its own JSONL lane instead of being forced into
-one side of this rule.
+one side of this rule. `arizuko.toml` carries root metadata and ordered
+`[[product]]` selections. Each group owns its file; source manifests are not payloads.
 
 ## Status is not in the manifest
 

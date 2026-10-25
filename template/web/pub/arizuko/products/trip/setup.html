@@ -59,7 +59,7 @@
       <pre><code>arizuko create travel --product trip
 arizuko packages travel add teled
 $EDITOR /srv/data/arizuko_travel/.env</code></pre>
-      <p><code>--product trip</code> copies <code>ant/examples/trip/</code> into the <code>main</code> group: the <code>PERSONA.md</code> of May, <code>PRODUCT.md</code>, a first <code>facts/preferences.md</code> and the <code>eval/</code> tests. <code>arizuko create</code> also writes <code>.env</code> with a new <code>AUTH_SECRET</code> and <code>SECRETS_KEY</code>. <code>packages add teled</code> installs the Telegram adapter. Add the other values:</p>
+      <p><code>--product trip</code> copies the payloads of <code>ant/examples/trip/</code> into the <code>main</code> group: the <code>PERSONA.md</code> of May, a first <code>facts/preferences.md</code> and the <code>eval/</code> tests. It writes the group's own <code>arizuko.toml</code> selecting that source. <code>arizuko create</code> also writes <code>.env</code> with a new <code>AUTH_SECRET</code> and <code>SECRETS_KEY</code>. <code>packages add teled</code> installs the Telegram adapter. Add the other values:</p>
       <pre><code>ASSISTANT_NAME=may
 WEB_HOST=travel.example.com
 ANTHROPIC_API_KEY=sk-ant-REPLACE_ME

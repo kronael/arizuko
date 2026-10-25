@@ -55,7 +55,7 @@
       <h2>The reference product has one file of each payload kind</h2>
       <p><code>ant/examples/helpdesk</code> is the reference product. It ships one file of each payload kind that has a consumer:</p>
       <pre><code>helpdesk/
-  PRODUCT.md              the manifest: name, brand, tagline, env hints
+  arizuko.toml            the manifest: name, brand, tagline, env hints
   PERSONA.md              who the agent is
   CLAUDE.md               operating rules, put in a marked region
   BRANDING.md             an unnamed file: copied whole
@@ -64,8 +64,8 @@
   .claude/settings.json   agent settings, merged key by key
   eval/helpdesk.toml      the tests of the product</code></pre>
 
-      <h2>PRODUCT.md is a TOML file</h2>
-      <p><code>PRODUCT.md</code> has the extension <code>.md</code>, but arizuko reads the whole file as TOML. It is not Markdown and not YAML front matter. The operator notes after the keys are TOML comments, so each line starts with <code>#</code>.</p>
+      <h2>arizuko.toml declares the product</h2>
+      <p><code>arizuko.toml</code> declares the product's name, brand, tagline, skills and env hints. arizuko reads the whole file as TOML. The operator notes after the keys are TOML comments, so each line starts with <code>#</code>.</p>
       <pre><code>name    = "helpdesk"
 brand   = "Helpdesk"
 tagline = "Triage inbound support, answer what it can, escalate what it cannot."
@@ -81,9 +81,11 @@ required = false
 hint     = "Folder that billing/account escalations are routed to"</code></pre>
       <div class="callout"><strong>The skills list installs nothing.</strong> The <code>skills/</code> directory ships a skill. The <code>skills</code> key only tells a person which skills the product expects. Also, <code>[[env]]</code> is a hint before the apply. A missing variable gives a warning and does not stop the apply.</div>
 
-      <h2>products.toml in the group home lists the products of a group</h2>
-      <p>A group can have more than one product. The list is the file <code>products.toml</code> in the home of the group. The agent sees it as <code>~/products.toml</code>. Write one block for each product, in the blend order:</p>
-      <pre><code>[[product]]
+      <h2>The group owns arizuko.toml and selects its products there</h2>
+      <p>The group file uses the same schema as a package manifest. Optional root metadata describes the group; its configured folder remains its identity. Write one block for each selected product, in blend order:</p>
+      <pre><code>name = "support-team"
+
+[[product]]
 source = "ant/examples/helpdesk"     # a relative path is joined to HOST_APP_DIR
 
 [[product]]
@@ -91,15 +93,18 @@ source = "github.com/org/our-brand"  # a git source is cloned and pinned to its 
       <pre><code>arizuko products &lt;instance&gt; apply &lt;folder&gt;</code></pre>
       <p>The helpdesk product on an empty group gives this result:</p>
       <pre><code>main/
-  PRODUCT.md                      copied whole
+  arizuko.toml                    yours, not changed
   PERSONA.md                      copied whole
   BRANDING.md                     copied whole
   facts/sla.md                    copied whole
   eval/helpdesk.toml              copied whole
   CLAUDE.md                       put in a marked region
   .claude/settings.json           merged
-  .claude/skills/triage/SKILL.md  moved under .claude/
-  products.toml                   yours, not changed</code></pre>
+  .claude/skills/triage/SKILL.md  moved under .claude/</code></pre>
+
+      <p>Source root manifests are excluded from payload and installed ownership. A selected source with its own product selections refuses; list those sources in the group file. A metadata-only group file is a no-op without installed records. Missing or empty selections with records refuse.</p>
+      <p><code>create/group add --product</code> seeds payloads and writes a single-source group declaration without an installed record. A matching existing declaration keeps its bytes; a conflicting declaration refuses before payload changes. Run the first <code>products apply</code> explicitly. <code>packages sync</code> discovers groups through installed records only.</p>
+      <p>If a group has <code>products.toml</code>, move or merge its entries into <code>arizuko.toml</code>, then remove <code>products.toml</code>. Apply refuses both legacy-only and mixed declarations.</p>
 
       <h2>Two payloads change on the way, the others are copied</h2>
       <p>Most files arrive with the same bytes at the same path. Two do not:</p>

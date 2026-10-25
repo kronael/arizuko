@@ -13,6 +13,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -24,7 +25,7 @@ import (
 	"github.com/kronael/arizuko/chanlib"
 )
 
-// Product is one entry of a group's ordered mix. Name is PRODUCT.md's `name` —
+// Product is one entry of a group's ordered mix. Name is arizuko.toml's `name` —
 // the installed-package record key and the CLAUDE.md region id; Dir is the
 // resolved local tree (a local path or a fetched clone).
 type Product struct {
@@ -147,7 +148,8 @@ func CheckProductAssets(product, dir string) error {
 	return nil
 }
 
-// SeedProduct copies ONE product tree into groupDir — the single-product seed
+// SeedProduct copies product payloads into groupDir, excluding the source manifest.
+// It is the single-product seed
 // behind `arizuko create --product` and `group add --product`. It is
 // productDest over a symlink-skipping walk: same bytes, but each file lands
 // where its payload kind is read rather than where the author happened to put it.
@@ -171,6 +173,9 @@ func SeedProduct(groupDir, dir string) error {
 // productFiles lists a product's regular files by slash-separated relative path.
 // Symlinks are skipped: copying their targets would leak arbitrary host files.
 func productFiles(dir string) ([]string, error) {
+	if _, err := ReadProductManifest(dir); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return nil, err
+	}
 	var rels []string
 	err := filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -186,7 +191,9 @@ func productFiles(dir string) ([]string, error) {
 		if rerr != nil {
 			return rerr
 		}
-		rels = append(rels, filepath.ToSlash(rel))
+		if rel != ManifestFile {
+			rels = append(rels, filepath.ToSlash(rel))
+		}
 		return nil
 	})
 	sort.Strings(rels)
@@ -659,7 +666,7 @@ func dropStale(groupDir string, recorded, shipped map[string]string) (bool, []st
 	var stale []string
 	for k := range recorded {
 		rel, isFile := strings.CutPrefix(k, "file:")
-		if !isFile {
+		if !isFile || rel == ManifestFile {
 			continue
 		}
 		if _, still := shipped[k]; !still {
