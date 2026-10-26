@@ -75,16 +75,18 @@ type adoptionUnit struct {
 	proofs []adoptionProof
 }
 
-// PlanPackageAdoption requires the package lock. Conflicts refuse the entire
-// plan; Copies never authorize applying a subset. Historical bytes are trusted
-// source-reader input, not a caller-provided filesystem or diagnostic export.
-func PlanPackageAdoption(cfg *core.Config, folder string,
+func readPackageAdoptionUnits(cfg *core.Config, folder string,
 	selected PackageAdoptionSelection, receipts []store.InstalledPackage,
-	history []PackageAdoptionHistory) (PackageAdoptionPlan, error) {
-	var plan PackageAdoptionPlan
+	history []PackageAdoptionHistory) (map[string]adoptionUnit, error) {
+	if folder == "" {
+		return nil, fmt.Errorf("adoption requires an exact group folder")
+	}
+	if _, err := packageTarget(folder); err != nil {
+		return nil, err
+	}
 	inventory, err := readPackageInventory(cfg.ProjectRoot, selected)
 	if err != nil {
-		return plan, err
+		return nil, err
 	}
 	units := map[string]adoptionUnit{}
 	add := func(unitPath, owner string, proof adoptionProof) error {
@@ -110,11 +112,11 @@ func PlanPackageAdoption(cfg *core.Config, folder string,
 			providers[snapshot.Name] = bound
 			dir, err := ResolvePackage(cfg.ProjectRoot, snapshot)
 			if err != nil {
-				return plan, err
+				return nil, err
 			}
 			names, err := ReadPackageSkills(dir)
 			if err != nil {
-				return plan, err
+				return nil, err
 			}
 			var paths []string
 			for _, name := range names {
@@ -123,7 +125,7 @@ func PlanPackageAdoption(cfg *core.Config, folder string,
 			if snapshot.Name == CorePackageName {
 				targets, err := packageFileTargets(inventory)
 				if err != nil {
-					return plan, err
+					return nil, err
 				}
 				for _, target := range targets {
 					paths = append(paths, strings.TrimPrefix(target, ".claude/"))
@@ -131,7 +133,7 @@ func PlanPackageAdoption(cfg *core.Config, folder string,
 			}
 			root, err := openPackageRoot(dir)
 			if err != nil {
-				return plan, err
+				return nil, err
 			}
 			for _, rel := range paths {
 				unit, err := readPackageAdoptionUnit(root, rel)
@@ -143,11 +145,11 @@ func PlanPackageAdoption(cfg *core.Config, folder string,
 						id: "snapshot:" + snapshot.Name + ":" + snapshot.Digest})
 				}
 				if err != nil {
-					return plan, errors.Join(err, root.Close())
+					return nil, errors.Join(err, root.Close())
 				}
 			}
 			if err := root.Close(); err != nil {
-				return plan, err
+				return nil, err
 			}
 		}
 	}
@@ -155,25 +157,25 @@ func PlanPackageAdoption(cfg *core.Config, folder string,
 	for _, receipt := range receipts {
 		if receipt.Folder != "" && receipt.Folder != folder ||
 			!packageNameRE.MatchString(receipt.Name) || receipt.Source == "" || receipt.Revision == "" {
-			return plan, fmt.Errorf("invalid adoption receipt binding for %q", receipt.Name)
+			return nil, fmt.Errorf("invalid adoption receipt binding for %q", receipt.Name)
 		}
 		if bound, found := providers[receipt.Name]; found && bound != receipt.Folder {
-			return plan, fmt.Errorf("receipt folder differs from selection for %s", receipt.Name)
+			return nil, fmt.Errorf("receipt folder differs from selection for %s", receipt.Name)
 		}
 		if _, found := owned[receipt.Name]; found {
-			return plan, fmt.Errorf("duplicate adoption receipt %s", receipt.Name)
+			return nil, fmt.Errorf("duplicate adoption receipt %s", receipt.Name)
 		}
 		if receipt.Name == CorePackageName && (receipt.Folder != "" || receipt.Source != corePackageSource) {
-			return plan, fmt.Errorf("invalid required core receipt binding")
+			return nil, fmt.Errorf("invalid required core receipt binding")
 		}
 		owned[receipt.Name] = receipt
 		proofs, err := readAdoptionReceipt(receipt)
 		if err != nil {
-			return plan, err
+			return nil, err
 		}
 		for unitPath, proof := range proofs {
 			if err := add(unitPath, receipt.Name, proof); err != nil {
-				return plan, err
+				return nil, err
 			}
 		}
 	}
@@ -182,26 +184,40 @@ func PlanPackageAdoption(cfg *core.Config, folder string,
 		core := previous.Package == CorePackageName && previous.Folder == "" && previous.Source == corePackageSource
 		if !isAdoptionCommit(previous.Commit) || !core && (!found || previous.Folder != receipt.Folder ||
 			previous.Source != receipt.Source || previous.Commit != receipt.Revision) {
-			return plan, fmt.Errorf("unbound adoption history for %q", previous.Package)
+			return nil, fmt.Errorf("unbound adoption history for %q", previous.Package)
 		}
 		seen := map[string]bool{}
 		for _, unit := range previous.Units {
 			if err := checkAdoptionUnit(unit, previous.Package); err != nil {
-				return plan, err
+				return nil, err
 			}
 			if seen[unit.Path] {
-				return plan, fmt.Errorf("duplicate historical unit %s", unit.Path)
+				return nil, fmt.Errorf("duplicate historical unit %s", unit.Path)
 			}
 			seen[unit.Path] = true
 			if !core && !slices.Contains(receipt.Manifest["skill"], strings.TrimPrefix(unit.Path, "skills/")) {
-				return plan, fmt.Errorf("history unit %s is not receipt-owned", unit.Path)
+				return nil, fmt.Errorf("history unit %s is not receipt-owned", unit.Path)
 			}
 			proof := adoptionProof{unit: unit, id: fmt.Sprintf("git:%q:%q:%q:%s",
 				previous.Folder, previous.Package, previous.Source, previous.Commit)}
 			if err := add(unit.Path, previous.Package, proof); err != nil {
-				return plan, err
+				return nil, err
 			}
 		}
+	}
+	return units, nil
+}
+
+// PlanPackageAdoption requires the package lock. Conflicts refuse the entire
+// plan; Copies never authorize applying a subset. Historical bytes are trusted
+// source-reader input, not a caller-provided filesystem or diagnostic export.
+func PlanPackageAdoption(cfg *core.Config, folder string,
+	selected PackageAdoptionSelection, receipts []store.InstalledPackage,
+	history []PackageAdoptionHistory) (PackageAdoptionPlan, error) {
+	var plan PackageAdoptionPlan
+	units, err := readPackageAdoptionUnits(cfg, folder, selected, receipts, history)
+	if err != nil {
+		return plan, err
 	}
 	root, home, err := openPackageHome(cfg.GroupsDir, folder)
 	if err != nil {
@@ -215,28 +231,17 @@ func PlanPackageAdoption(cfg *core.Config, folder string,
 	}
 	// Closing a directory handle has no pending writes.
 	defer data.Close() //nolint:errcheck
-	for unitPath, unit := range units {
-		targets := []string{packageFileTarget(unitPath)}
-		if name, skill := strings.CutPrefix(unitPath, "skills/"); skill {
-			skillTargets := packageSkillTargets(name)
-			targets = skillTargets[:]
+	for _, target := range packageAdoptionTargets(folder, units) {
+		anchored, rel := root, path.Join(home, strings.TrimPrefix(target.relative, folder+"/"))
+		if target.root == "skills" {
+			anchored, rel = data, path.Join("skills", target.relative)
 		}
-		for i, target := range targets {
-			copy, conflict, err := compareAdoptionUnit(root, path.Join(home, target), unit, i == 0)
-			if err != nil {
-				return plan, err
-			}
-			plan.Copies = append(plan.Copies, copy...)
-			plan.Conflicts = append(plan.Conflicts, conflict...)
+		copy, conflict, err := compareAdoptionUnit(anchored, rel, target.unit, target.mount)
+		if err != nil {
+			return plan, err
 		}
-		if strings.HasPrefix(unitPath, "skills/") {
-			copy, conflict, err := compareAdoptionUnit(data, targets[1], unit, false)
-			if err != nil {
-				return plan, err
-			}
-			plan.Copies = append(plan.Copies, copy...)
-			plan.Conflicts = append(plan.Conflicts, conflict...)
-		}
+		plan.Copies = append(plan.Copies, copy...)
+		plan.Conflicts = append(plan.Conflicts, conflict...)
 	}
 	slices.SortFunc(plan.Copies, func(a, b PackageAdoptionCopy) int { return strings.Compare(a.Path, b.Path) })
 	slices.SortFunc(plan.Conflicts, func(a, b PackageAdoptionConflict) int { return strings.Compare(a.Path, b.Path) })
@@ -420,11 +425,7 @@ func compareAdoptionUnit(root *os.Root, rel string, unit adoptionUnit, mount boo
 		return nil, []PackageAdoptionConflict{{Path: display, Reason: "unexpected resident kind"}}, nil
 	}
 	for _, entry := range resident.Entries {
-		allowed, required := fs.FileMode(0o644), fs.FileMode(0o400)
-		if entry.Mode.IsDir() {
-			allowed, required = fs.ModeDir|0o755, fs.ModeDir|0o500
-		}
-		if entry.Mode & ^allowed != 0 || entry.Mode&required != required {
+		if !isAdoptionMode(entry.Mode) {
 			return nil, []PackageAdoptionConflict{{Path: filepath.Join(display, entry.Path),
 				Reason: "unexpected resident mode"}}, nil
 		}
@@ -439,28 +440,31 @@ func compareAdoptionUnit(root *os.Root, rel string, unit adoptionUnit, mount boo
 		return nil, nil, nil
 	}
 	for _, proof := range unit.proofs {
-		if proof.hashes != nil && !mount || len(copy.Entries) != len(proof.unit.Entries) {
-			continue
-		}
-		expected := map[string]PackageAdoptionEntry{}
-		for _, entry := range proof.unit.Entries {
-			expected[entry.Path] = entry
-		}
-		matches := true
-		for _, entry := range copy.Entries {
-			want, found := expected[entry.Path]
-			if !found || entry.Mode.IsDir() != want.Mode.IsDir() ||
-				!entry.Mode.IsDir() && (proof.hashes == nil && !bytes.Equal(entry.Data, want.Data) ||
-					proof.hashes != nil && hashBytes(entry.Data) != proof.hashes[entry.Path]) {
-				matches = false
-				break
-			}
-		}
-		if matches {
+		if matchesAdoptionProof(copy.Entries, proof, mount) {
 			copy.Proof = proof.id
 			return []PackageAdoptionCopy{copy}, nil, nil
 		}
 	}
 	return nil, []PackageAdoptionConflict{{Path: display,
 		Reason: "resident unit has no complete matching ownership proof"}}, nil
+}
+
+func matchesAdoptionProof(entries []PackageAdoptionEntry, proof adoptionProof, mount bool) bool {
+	if proof.hashes != nil && !mount || len(entries) != len(proof.unit.Entries) {
+		return false
+	}
+	expected := map[string]PackageAdoptionEntry{}
+	for _, entry := range proof.unit.Entries {
+		expected[entry.Path] = entry
+	}
+	for _, entry := range entries {
+		want, found := expected[entry.Path]
+		if !found || entry.Mode.IsDir() != want.Mode.IsDir() ||
+			!entry.Mode.IsDir() && (proof.hashes == nil && !bytes.Equal(entry.Data, want.Data) ||
+				proof.hashes != nil && hashBytes(entry.Data) != proof.hashes[entry.Path]) {
+			return false
+		}
+		delete(expected, entry.Path)
+	}
+	return len(expected) == 0
 }
