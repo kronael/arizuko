@@ -13,6 +13,17 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.70.13] — 2026-10-26
+
+> arizuko v0.70.13 — egress refusals name their cause
+>
+> The egress proxy now tells an agent why a request failed, so the agent no longer asks for a grant that it already has.
+>
+> • Egress — an allowed host that the proxy cannot resolve or reach answers `502 upstream unreachable: <error>`, not `403 denied`.
+> • Egress — a 403 body names the reason: `host not allowed`, `blocked address` or `peer`.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
 ## [v0.70.12] — 2026-10-25
 
 > arizuko v0.70.12 — separate Telegram DM chats by bot
