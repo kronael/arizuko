@@ -140,10 +140,6 @@ ones no measurement can settle.
   fills `ThreadID` from the topic. Both are wrong; repairing either changes
   what teled, discd and slakd receive.
 
-**Source fix within the approved package work.**
-
-- `L577` — a failed skill quarantine stops scanning later writable skills.
-
 **Small fixes awaiting a go.** Each is bounded, and its entry names the fix.
 
 
@@ -400,28 +396,6 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
 - **`L15` — the 2026-08-11 dead-code sweep's rejected hits.** `deadcode ./...` gave 149
   hits, 56 under `-test`; nine survived verification and were filed separately. Kept so
   the next sweep does not re-report the same ~135.
-
-## L577 — one failed skill quarantine skips later writable files (2026-10-26, open)
-
-MEASURED at `5ca88ae39182fb9bfde4a2c931f8372586dc2cce`:
-`ant/src/guards.ts:182` renames inside one outer catch around every file and
-root. A rename failure ends the whole scan. Read-only package mounts can cause
-that failure before the scanner reaches writable custom skills.
-
-A controlled fixture contains `a-blocked` followed by `z-custom`, each with
-valid skill frontmatter and a blocked shell instruction. An empty directory at
-`a-blocked/SKILL.md.quarantined` makes its rename fail with `EISDIR`.
-`bashSkillRescan(fixtureHome)` returns `allow`; both skill files remain
-discoverable and `z-custom/SKILL.md.quarantined` is absent. Parent repeated
-the explicit-fixture probe. No real home or model was used.
-
-- **Severity:** medium — one quarantine error skips independent writable files.
-- **Fix:** isolate a failed quarantine to its file and report it; preserve the
-  existing guard verdict and scan later files. No managed-file exemption.
-- **Test:** `ant/src/guards.test.ts` — `a failed quarantine does not skip later
-  writable skills` fails before the production fix: the later source still
-  exists after the first rename reports `EISDIR`.
-- **Status:** open — measured; fix within the approved package work.
 
 ## L572 — routd stores an agent send to a JID with no platform as a chat (2026-10-25, open)
 
