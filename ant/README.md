@@ -89,6 +89,10 @@ guest's home (`src/claude.ts:512`); codex and pi receive the same file rendered 
 their system prompt. The repo-root `CLAUDE.md` is the maintainers' file and
 never reaches a guest.
 
+Codex receives `project_doc_fallback_filenames=["CLAUDE.md"]` for fresh and
+resumed turns. Codex checks the group's `/home/node/CLAUDE.md` after
+`AGENTS.override.md` and `AGENTS.md` in that directory. User config stays disabled.
+
 Every line of the resident file is read on every turn whether the turn
 needs it or not, and the cost of growth is attention spread over more text.
 So a section stays resident only when one of four tests holds:

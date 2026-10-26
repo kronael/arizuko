@@ -3,8 +3,10 @@
 // the event shapes are fixtures, not guesses.
 
 import { test, expect } from 'bun:test';
-import { CodexTurn, codexArgs, codexPrompt, tomlValue } from './codex.js';
-import { statusBlocks } from './index.js';
+import {
+  CodexTurn, codexArgs, codexHarness, codexPrompt, tomlValue,
+} from './codex.js';
+import { buildSystemPrompt, statusBlocks } from './index.js';
 import type { Frame } from './backend.js';
 
 // Recorded verbatim: codex exec --json "Reply with exactly: pong"
@@ -128,6 +130,26 @@ test('codexArgs: renders turn.tools into -c overrides so tools cross the MCP soc
   // Prompt arrives on stdin, never argv.
   expect(args.at(-1)).toBe('-');
 });
+
+/** Fresh and resumed turns discover the group runbook and render one manual. */
+test.each([undefined, '01a02008-eeb1-7221-b72e-53a67645fb0c'])(
+  'codex instructions retain one automatic route with continuity %s',
+  (continuity) => {
+    const args = codexArgs({ cwd: '/home/node', env: {}, continuity });
+    const fallback = args.filter((arg) =>
+      arg.startsWith('project_doc_fallback_filenames='));
+    expect(fallback).toEqual([
+      'project_doc_fallback_filenames=["CLAUDE.md"]',
+    ]);
+    expect(args[args.indexOf(fallback[0]) - 1]).toBe('-c');
+    expect(args).toContain('--ignore-user-config');
+    const systemPrompt = buildSystemPrompt({
+      prompt: 'QUESTION', groupFolder: 'trading', chatJid: 'chat',
+    }, codexHarness.profile, () => 'RESIDENT-MANUAL');
+    expect(codexPrompt({ prompt: 'QUESTION', systemPrompt }, ''))
+      .toBe('RESIDENT-MANUAL\n\nQUESTION');
+  },
+);
 
 // Measured 2026-08-21: without this flag the hooks in $CODEX_HOME/hooks.json
 // do not run and codex prints no warning at all, so the turn looks healthy with

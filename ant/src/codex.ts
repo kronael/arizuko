@@ -52,6 +52,7 @@ export function codexArgs(turn: Pick<Turn, 'cwd' | 'model' | 'continuity' | 'too
     // NOTHING — no warning, no error (measured 2026-08-21).
     '--dangerously-bypass-hook-trust',
     '--json',
+    '-c', `project_doc_fallback_filenames=${tomlValue(['CLAUDE.md'])}`,
   );
   if (turn.model) args.push('-m', turn.model);
   for (const [name, s] of Object.entries(turn.tools ?? {})) {
@@ -301,8 +302,7 @@ export const codexHarness: Harness = {
     tools: 'mcp',
     guard: 'load-time',
     steering: 'between-turn',
-    // rendered: codex looks for AGENTS.md, never ~/.claude/CLAUDE.md, so the
-    // manual reaches it only through the system text codexPrompt prepends.
+    // The resident manual lives below the working root and must be rendered.
     manual: 'rendered',
     status: 'streaming',
   },
