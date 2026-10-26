@@ -25,6 +25,10 @@ marker every entry carries. Ten entries said open in the heading and carried no
 `- **Status:** open` line, so a Status-only count answered 22 for a queue of
 31 — this section shipped with those ten missing.
 
+**Package history reader.**
+
+- `L585` — optional history treats a sealed package artifact as a Git checkout.
+
 **A contract or design decision.** Each names the question in its own Status
 line; none can be answered from the code.
 
@@ -9006,3 +9010,16 @@ Three shapes, one decision:
   **Fix:** measure instruction/tool exposure and completion behavior, then improve
   the existing declaration so an unambiguous completed task calls the stop tool.
   Do not add a second lifecycle policy or unconditional platform stop hook.
+
+## L585 — optional history reads Git from a sealed artifact (2026-10-26, open)
+
+The unpublished `readOptionalPackageAdoptionHistory` runs Git in `packageCandidate.dir`.
+`preparePackageCandidate` assigns that field to `container.ResolvePackage`, an
+immutable source artifact that excludes `.git`. The ordinary prepared candidate
+therefore cannot provide its receipt revision through this reader.
+
+- **Severity:** medium — blocks optional historical adoption integration.
+- **Source:** `cmd/arizuko/package_adoption_history.go::readOptionalPackageAdoptionHistory`; `cmd/arizuko/package_lifecycle.go::preparePackageCandidate`.
+- **Measured:** parent reads both producer and consumer: candidate.dir is the sealed artifact, while the reader passes it to Git. Add a regression with a real prepared candidate and its separate ordinary source checkout.
+- **Fix:** pass that source checkout explicitly to the reader; preserve the candidate name/source binding and immutable artifact meaning.
+- **Status:** open — bounded correction requested during Step9c; no new format or candidate field.
