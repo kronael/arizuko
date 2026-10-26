@@ -13,7 +13,7 @@ uname -s -m   # expect: Linux x86_64
 
 # 2. Go 1.21 or newer
 go version    # missing or older than 1.21 is a blocker
-              # go.mod pins `toolchain go1.27rc2`. With GOTOOLCHAIN=auto, the
+              # go.mod pins `toolchain go1.27.3`. With GOTOOLCHAIN=auto, the
               # default, Go fetches that toolchain on the first build.
               # GOTOOLCHAIN=local or an offline host must install it by hand.
 
@@ -53,25 +53,24 @@ no old tree.
 
 Install a stable Go release, 1.21 or newer, from <https://go.dev/dl/>.
 
-`go.mod` has the directive `go 1.27` and pins `toolchain go1.27rc2`, a release
-candidate. The directive does not accept an `rc` version. With
+`go.mod` has the directive `go 1.27` and pins `toolchain go1.27.3`. With
 `GOTOOLCHAIN=auto`, Go fetches the pinned toolchain on the first `go build`.
 
 Two more pins move with that toolchain:
 
 - **The Docker base image.** Each Dockerfile that builds the root module names
-  `golang:1.27rc2-alpine`. The files are `Dockerfile`, `anteval/Dockerfile`,
-  `egress/Dockerfile` and `ttsd/Dockerfile`. Nothing derives
+  `golang:1.27.3-alpine`. The files are `Dockerfile`, `anteval/Dockerfile`,
+  `egress/Dockerfile`, `mcpfw/Dockerfile` and `ttsd/Dockerfile`. Nothing derives
   the name from `go.mod`, so change them in the same commit as `go.mod`.
   `kernel/guest-init` is its own module on `go 1.25` and keeps its own base.
-- **`golang.org/x/net`.** `go.mod` requires v0.57.0, and the version must not
+- **`golang.org/x/net`.** `go.mod` requires v0.60.0, and the version must not
   go down.
 
 Go does not fetch the toolchain in two cases: the host sets `GOTOOLCHAIN=local`,
 or the host cannot reach `go.dev`. Install the toolchain by hand:
 
 ```bash
-go install golang.org/dl/go1.27rc2@latest && go1.27rc2 download
+go install golang.org/dl/go1.27.3@latest && go1.27.3 download
 ```
 
 ### Docker Compose v2 is missing
