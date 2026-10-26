@@ -38,6 +38,8 @@ RUN apt-get update && apt-get install -y \
     libcups2 \
     libdrm2 \
     libxshmfence1 \
+    xvfb \
+    xauth \
     curl \
     wget \
     git \
