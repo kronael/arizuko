@@ -13,6 +13,16 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.70.14] — 2026-10-26
+
+> arizuko v0.70.14 — curl in the guest uses the egress proxy
+>
+> An agent's `curl http://…` now goes through the egress proxy instead of failing on DNS.
+>
+> • Egress — the guest also gets lower-case `http_proxy`, `https_proxy` and `no_proxy`, which curl reads for `http://` URLs.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
 ## [v0.70.13] — 2026-10-26
 
 > arizuko v0.70.13 — egress refusals name their cause
