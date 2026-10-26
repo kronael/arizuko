@@ -27,8 +27,6 @@ marker every entry carries. Ten entries said open in the heading and carried no
 
 **Package adoption — implementation in progress.**
 
-- `L578` — partial activation rejects a newly completed package that needed no copied-file adoption.
-- `L579` — a completed-source check lets a changed receipt reach adoption preparation.
 
 **A contract or design decision.** Each names the question in its own Status
 line; none can be answered from the code.
@@ -401,46 +399,6 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
 - **`L15` — the 2026-08-11 dead-code sweep's rejected hits.** `deadcode ./...` gave 149
   hits, 56 under `-test`; nine survived verification and were filed separately. Kept so
   the next sweep does not re-report the same ~135.
-
-## L578 — partial adoption activation cannot resume an uncopied package (2026-10-26, open)
-
-MEASURED in the uncommitted Step9b.2 diff against
-`ba09d7b7559fea1fc6fe36e65d7860a2aa5ca530`:
-select new `alpha` with no old receipt or resident copies while adopting copied
-`core`. Alpha's final receipt succeeds, then core's fails. Retry rejects alpha
-as an unknown receipt preimage and leaves core pending after payload deletion.
-`container/package_adoption_pending.go:246` only recognizes captured receipts or adoption bindings;
-the proposed complete selection also contains the uncopied package.
-
-- **Severity:** medium — blocks the package-system release; this code is not deployed.
-- **Test:** `container/package_adoption_apply_test.go::TestPackageAdoptionApplyPartialActivationWithUncopiedPackage`
-  fails with `adoption receipt preimage changed: :alpha`.
-- **Additional measurement:** after the binding refinement, activation ordered
-  `[core, alpha]` also strands ordinary preparation if the first final receipt
-  fails or core completes before alpha fails. `recovering` requires alpha's
-  absent receipt to be pending or completed, although zero-copy candidates have
-  no prepared row. Parent ran
-  `TestPackageAdoptionApplyUncopiedReceiptLateFailure/{before-first-receipt,after-core-receipt}`;
-  both fail with `package selection changed after adoption preview`.
-- **Fix:** validate completed receipts for the entire proposed selection during retry,
-  preserving source binding and the single activation writer.
-- **Status:** open — reproduced by parent; the same-operation recovery fix remains under verification.
-
-## L579 — adoption preparation accepts a changed receipt preimage (2026-10-26, open)
-
-MEASURED in the same Step9b.2 working diff: change the persisted core receipt's
-`file:PERSONA.md` hash after preview. At `container/package_adoption_pending.go:157`, its source, revision and snapshot still
-match, so `completed` bypasses the receipt comparison. Preparation returns
-success and persists pending proof over the changed receipt. Apply then rejects
-that receipt against the original batch. No payload deletion is needed to
-produce the inconsistent preparation.
-
-- **Severity:** medium — blocks the package-system release; this code is not deployed.
-- **Test:** `container/package_adoption_apply_test.go::TestPackageAdoptionApplyChangedReceiptBeforePreparation`
-  fails with `changed receipt reached preparation: pending=true`.
-- **Fix:** distinguish a proven completed replay from a changed preimage before
-  the first preparatory write.
-- **Status:** open — reproduced by parent; fix queued behind the requested Jynx worker.
 
 ## L572 — routd stores an agent send to a JID with no platform as a chat (2026-10-25, open)
 
