@@ -34,19 +34,27 @@ type PackageInventory struct {
 // ReadPackageInventory requires the package lock. Only active system and exact
 // folder selections supply files; every returned directory is an immutable path.
 func ReadPackageInventory(dataDir, folder string) (PackageInventory, error) {
-	var inventory PackageInventory
 	if folder == "" {
-		return inventory, fmt.Errorf("package inventory requires an exact folder")
+		return PackageInventory{}, fmt.Errorf("package inventory requires an exact folder")
 	}
+	system, err := ReadPackageSelection(dataDir, "")
+	if err != nil {
+		return PackageInventory{}, err
+	}
+	group, err := ReadPackageSelection(dataDir, folder)
+	if err != nil {
+		return PackageInventory{}, err
+	}
+	return readPackageInventory(dataDir, PackageAdoptionSelection{System: system, Group: group})
+}
+
+func readPackageInventory(dataDir string, selected PackageAdoptionSelection) (PackageInventory, error) {
+	var inventory PackageInventory
 	names := map[string]bool{}
-	for _, target := range []string{"", folder} {
-		selected, err := ReadPackageSelection(dataDir, target)
-		if err != nil {
-			return inventory, err
-		}
-		for _, snapshot := range selected {
-			if target != "" && snapshot.Name == CorePackageName {
-				return inventory, fmt.Errorf("group %s selects required system package core", folder)
+	for i, snapshots := range [][]PackageSnapshot{selected.System, selected.Group} {
+		for _, snapshot := range snapshots {
+			if i == 1 && snapshot.Name == CorePackageName {
+				return inventory, fmt.Errorf("group selects required system package core")
 			}
 			key := "package:" + snapshot.Name
 			if names[key] {
@@ -220,7 +228,7 @@ func checkMountTarget(root *os.Root, rel string, directory bool) error {
 }
 
 func packageFileTargets(inventory PackageInventory) ([]string, error) {
-	targets := []string{".claude/CLAUDE.md"}
+	targets := []string{packageFileTarget("CLAUDE.md")}
 	entries, err := os.ReadDir(filepath.Join(inventory.Core, "output-styles"))
 	if err != nil {
 		return nil, err
@@ -229,9 +237,17 @@ func packageFileTargets(inventory PackageInventory) ([]string, error) {
 		if !entry.Type().IsRegular() {
 			return nil, fmt.Errorf("core output style is not a regular file: %s", entry.Name())
 		}
-		targets = append(targets, path.Join(".claude/output-styles", entry.Name()))
+		targets = append(targets, packageFileTarget(path.Join("output-styles", entry.Name())))
 	}
 	return targets, nil
+}
+
+func packageFileTarget(source string) string {
+	return path.Join(".claude", source)
+}
+
+func packageSkillTargets(name string) [2]string {
+	return [2]string{path.Join(".claude/skills", name), path.Join("skills", name)}
 }
 
 // CheckPackageMountTargets is read-only and requires the package lock. Managed
@@ -245,7 +261,8 @@ func CheckPackageMountTargets(cfg *core.Config, folder string, inventory Package
 	defer root.Close() //nolint:errcheck
 	disabled := map[string]bool{}
 	for _, skill := range inventory.Skills {
-		rel := path.Join(home, ".claude/skills", skill.Name)
+		targets := packageSkillTargets(skill.Name)
+		rel := path.Join(home, targets[0])
 		if err := checkMountTarget(root, rel, true); err != nil {
 			return nil, fmt.Errorf("%w; run ordinary packages install/upgrade to adopt proven copies", err)
 		}
@@ -255,7 +272,7 @@ func CheckPackageMountTargets(cfg *core.Config, folder string, inventory Package
 		} else if !errors.Is(err, fs.ErrNotExist) {
 			return nil, err
 		}
-		if err := checkLegacySkill(root, path.Join(home, "skills", skill.Name)); err != nil {
+		if err := checkLegacySkill(root, path.Join(home, targets[1])); err != nil {
 			return nil, err
 		}
 	}
@@ -266,7 +283,8 @@ func CheckPackageMountTargets(cfg *core.Config, folder string, inventory Package
 	// Closing a directory handle has no pending writes.
 	defer data.Close() //nolint:errcheck
 	for _, skill := range inventory.Skills {
-		if err := checkLegacySkill(data, path.Join("skills", skill.Name)); err != nil {
+		targets := packageSkillTargets(skill.Name)
+		if err := checkLegacySkill(data, targets[1]); err != nil {
 			return nil, err
 		}
 	}
