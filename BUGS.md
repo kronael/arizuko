@@ -142,7 +142,6 @@ ones no measurement can settle.
 
 **Small fixes awaiting a go.** Each is bounded, and its entry names the fix.
 
-- `L575` — deployed Go/toolchain and dependencies carry reported vulnerabilities; security patch queued.
 
 - `L469` — CUZK Chromium runs as a host process rather than inside Rhias's
   QEMU sandbox; host browser stopped and disabled pending guest replacement.
@@ -222,7 +221,7 @@ reads those words now.
 - `L484`, `L485`, `L494`, `L496` — small fixes, each bounded in its
   entry: the TS adapter's stale `/health` code, the RFC 3339 one-shot dashd
   refuses, onbod's route writes on any allow row, extra mounts with no blocklist.
-- `L488` — `mcpfw/Dockerfile` cannot build (measured); one line.
+- `L488` — the standalone mcpfw image has no container build gate.
 - `L487`, `L489`, `L491`, `L498`, `L500`, `L501`, `L502` — doc and
   comment drift against the code, each naming the sentence to change.
 
@@ -398,26 +397,6 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
   hits, 56 under `-test`; nine survived verification and were filed separately. Kept so
   the next sweep does not re-report the same ~135.
 
-## L575 — release toolchain and dependencies retain reported vulnerabilities (2026-10-25, open — fix authorized)
-
-`go.mod` and the daemon/egress builders select Go1.27rc2. The required
-`govulncheck` run reports 19 reachable advisories in that toolchain and existing
-x/net, OpenTelemetry and gRPC dependencies. Deployed routd build information
-also identifies Go1.27rc2. The newly added TOML parser has no reported finding.
-
-- **Severity:** high — certificate trust, HTTP transport, resource exhaustion
-  and exporter URL disclosure advisories remain in release inputs.
-- **Scope:** existing Go toolchain and affected dependencies.
-- **Measured:** `core-step6-vuln.log` exits3 with 19 advisories, including
-  GO-2026-6809, GO-2026-6505 and GO-2026-6348. Deployed build evidence is
-  `core-existing-production-buildinfo.log`. No custom test — dependency config;
-  upstream advisory checks supply the regression gate.
-- **Fix:** update Go to1.27.3, x/net to0.60.0, affected OTel modules to
-  matching1.45.0/0.21.0 releases and gRPC to1.83.1, plus required transitive
-  versions. Update actual builders and installation documentation together.
-- **Status:** measured release blocker; bounded security repair queued after
-  package acceptance. Re-run vulnerability and affected build/test gates.
-
 ## L572 — routd stores an agent send to a JID with no platform as a chat (2026-10-25, open)
 
 MEASURED on sloth: `routd.messages` partition `user/137865889` holds two rows,
@@ -521,31 +500,17 @@ The CHANGELOG line is history and stays. No test — docs.
 
 - **Status:** open (record only).
 
-## L488 — `mcpfw/Dockerfile` pins `golang:1.25-alpine` and the module needs go 1.27, so the image cannot build (2026-10-20, open)
+## L488 — the standalone mcpfw image has no container build gate (2026-10-20, open)
 
-FOUND 2026-10-20 by the docs fold; MEASURED at `62d7233a`. The build context
-is the repository root and uses the root module: the Dockerfile copies
-`go.mod go.sum` and builds `./mcpfw/cmd/mcpfw`, and `mcpfw/` has no `go.mod` of
-its own. `go.mod` says `go 1.27` and `toolchain go1.27rc2`. Every other
-root-module image uses `golang:1.27rc2-alpine` (`Dockerfile:4`,
-`anteval/Dockerfile:3`, `egress/Dockerfile:1`,
-`ttsd/Dockerfile:1`). Command and result:
+`mcpfw/Dockerfile` builds the root module's `./mcpfw/cmd/mcpfw` command.
+Neither `Makefile` nor `.github` builds this standalone image. Compiling the
+command alone does not verify its Docker context, module download or runtime image.
 
-```
-$ sudo docker build --no-cache -f mcpfw/Dockerfile -t mcpfw-probe-g3 .
-Step 4/9 : RUN go mod download
-go: go.mod requires go >= 1.27 (running go 1.25.14; GOTOOLCHAIN=local)
-The command '/bin/sh -c go mod download' returned a non-zero code: 1
-```
-
-`template/web/pub/arizuko/concepts/ant.html:159` lists `mcpfw` as one of three
-components shipped for use alone; the image for it does not build. Nothing in `Makefile` or
-`.github` builds it, which is why nothing failed.
-
-**Fix:** `FROM golang:1.27rc2-alpine`. Add the image to the build gate so the
-next toolchain bump cannot skip it. No test — ops.
-
-- **Status:** open (record only).
+- **Measured:** container-build gate census, 2026-10-26; no test — ops.
+- **Fix:** add the standalone image to the existing build gate and resolve any
+  failures that an actual container build measures.
+- **Status:** toolchain pin fixed in `51c934515362efb8d16cd8276a67cb4d62d3667e`;
+  container build coverage remains open. The current image build is unverified.
 
 ## L489 — the comment above `channelAuth` says a channel name is pinned to an `(originIP, principal)` pair, and the IP is never compared (2026-10-20, open)
 
