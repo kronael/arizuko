@@ -418,8 +418,9 @@ the explicit-fixture probe. No real home or model was used.
 - **Severity:** medium — one quarantine error skips independent writable files.
 - **Fix:** isolate a failed quarantine to its file and report it; preserve the
   existing guard verdict and scan later files. No managed-file exemption.
-- **Test:** the controlled two-skill fixture reproduces the failure. Add a
-  permanent regression in `ant/src/guards.test.ts` before the production fix.
+- **Test:** `ant/src/guards.test.ts` — `a failed quarantine does not skip later
+  writable skills` fails before the production fix: the later source still
+  exists after the first rename reports `EISDIR`.
 - **Status:** open — measured; fix within the approved package work.
 
 ## L572 — routd stores an agent send to a JID with no platform as a chat (2026-10-25, open)

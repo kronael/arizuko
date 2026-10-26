@@ -179,12 +179,16 @@ export function bashSkillRescan(home: string): (ev: ToolEvent) => Verdict {
           if (blocking.length === 0) continue;
 
           const aside = `${file}.quarantined`;
-          fs.renameSync(file, aside);
-          console.error(
-            `skillguard: quarantined ${file} -> ${aside} — written outside the ` +
-              `write gate and it scans dangerous: ` +
-              blocking.map((f) => `${f.severity} ${f.patternId}`).join(', '),
-          );
+          try {
+            fs.renameSync(file, aside);
+            console.error(
+              `skillguard: quarantined ${file} -> ${aside} — written outside the ` +
+                `write gate and it scans dangerous: ` +
+                blocking.map((f) => `${f.severity} ${f.patternId}`).join(', '),
+            );
+          } catch (err) {
+            console.error(`skillguard: quarantine failed for ${file}: ${err}`);
+          }
         }
       }
     } catch (err) {
