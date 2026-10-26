@@ -940,3 +940,21 @@ func TestFailureReasonIsTheLastLineFront(t *testing.T) {
 		t.Errorf("a cut through a rune came back %q, want it cut before the rune", got)
 	}
 }
+
+// curl reads only lower-case http_proxy for an http:// URL: a guest
+// with the upper-case names alone sends an agent's `curl http://host` direct,
+// where it has no DNS.
+func TestProxyEnvSetsLowerCaseNames(t *testing.T) {
+	env := map[string]string{}
+	proxyEnv(env, "http://10.0.0.1:3128")
+
+	for _, name := range []string{"HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY"} {
+		lower := strings.ToLower(name)
+		if env[name] == "" {
+			t.Errorf("proxyEnv left %s empty", name)
+		}
+		if env[lower] != env[name] {
+			t.Errorf("%s = %q, want %q (the value of %s)", lower, env[lower], env[name], name)
+		}
+	}
+}

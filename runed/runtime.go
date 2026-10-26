@@ -56,7 +56,7 @@ type Turn struct {
 	// Mounts is the mount table's right-hand side; Container is the guest path.
 	Mounts []core.Mount
 	// Env is the agent's process environment. A substrate adds the proxy
-	// variables (HTTP_PROXY and its three companions) because their value is
+	// variables (HTTP_PROXY and its five companions) because their value is
 	// its own address.
 	Env map[string]string
 	// Stdin is the agent payload: ant/src/index.ts ContainerInput.

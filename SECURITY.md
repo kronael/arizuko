@@ -627,7 +627,8 @@ binary is absent.
 <!-- /twin -->
 
 - The guest receives `HTTP_PROXY` and `HTTPS_PROXY` set to its own proxy,
-  `NO_PROXY=localhost,127.0.0.1`, and
+  `NO_PROXY=localhost,127.0.0.1` (all three also in lower case, which curl
+  reads for `http://` URLs), and
   `NODE_OPTIONS=--require=/app/proxy-shim.js`. The shim makes the built-in
   fetch of Node use the proxy, see `proxyEnv` in `runed/vmnet.go`. curl, wget,
   pip, go and npm use the proxy without help.

@@ -265,11 +265,17 @@ func (q *qemuRuntime) startEgress(rec *vmRecord, allowlist []string) (*exec.Cmd,
 // substrate's own bound.
 const egressReady = 15 * time.Second
 
-// proxyEnv is the four variables the guest needs to use its proxy. A substrate
-// adds them because their value is its own address (spec 6/41 §"The seam").
+// proxyEnv is the variables the guest needs to use its proxy: the proxy
+// address and bypass list in upper and lower case, because curl reads only
+// lower-case http_proxy for an http:// URL, and the Node shim. A substrate adds
+// them because their value is its own address (spec 6/41 §"The seam").
 func proxyEnv(env map[string]string, proxyURL string) {
+	const noProxy = "localhost,127.0.0.1"
 	env["HTTP_PROXY"] = proxyURL
+	env["http_proxy"] = proxyURL
 	env["HTTPS_PROXY"] = proxyURL
-	env["NO_PROXY"] = "localhost,127.0.0.1"
+	env["https_proxy"] = proxyURL
+	env["NO_PROXY"] = noProxy
+	env["no_proxy"] = noProxy
 	env["NODE_OPTIONS"] = "--require=/app/proxy-shim.js"
 }

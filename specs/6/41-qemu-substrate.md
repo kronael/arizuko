@@ -133,7 +133,7 @@ Docker steer, the `logs/` dir of the turn log, the name of the Docker egress
 network. `Mounts`, `Env`, `Stdin` and `Egress` reach Docker as `-v`, `-e`,
 the stdin pipe and the proxy container, and QEMU as the staging tree, the
 `{env, stdin}` frame on `ctl` and the proxy on the tap; a substrate adds the
-proxy variables (`HTTP_PROXY` and its three companions) because their value
+proxy variables (`HTTP_PROXY` and its five companions) because their value
 is its own address. `RegisterSteer`'s closure is what each substrate makes of
 it (§"Steer and stop").
 

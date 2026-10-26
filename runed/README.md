@@ -317,7 +317,7 @@ Every host path is the path that runed itself sees. `virtiofsd` is a child of ru
 
 **Operator extras pass `mountsec`.** `ValidateAdditionalMounts` (`mountsec/mountsec.go`) refuses every extra when `MOUNT_ALLOWED_ROOTS` is empty. It refuses a relative path and a path outside an allowed root, and it puts the guest path under `/mnt/`. An extra is read-only. A read-write extra needs an elevated turn and a root that allows RW, and the roots that `MOUNT_ALLOWED_ROOTS` names never do. `ValidateFilePath` is the other half. It guards a path that an MCP tool receives against a symlink escape and a blocklist: `.ssh`, `.gnupg`, `.aws`, `.env`, `credentials`, private keys and similar names.
 
-The substrate adds `HTTP_PROXY` and its three companion variables to the environment, because their value is the address of the substrate itself.
+The substrate adds `HTTP_PROXY` and its five companion variables to the environment, because their value is the address of the substrate itself.
 
 ## Files
 
