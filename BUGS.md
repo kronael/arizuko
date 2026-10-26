@@ -142,7 +142,6 @@ ones no measurement can settle.
 
 **Small fixes awaiting a go.** Each is bounded, and its entry names the fix.
 
-- `L576` — Codex automatic instruction delivery omits the group runbook; fix authorized.
 - `L575` — deployed Go/toolchain and dependencies carry reported vulnerabilities; security patch queued.
 
 - `L469` — CUZK Chromium runs as a host process rather than inside Rhias's
@@ -398,33 +397,6 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
 - **`L15` — the 2026-08-11 dead-code sweep's rejected hits.** `deadcode ./...` gave 149
   hits, 56 under `-test`; nine survived verification and were filed separately. Kept so
   the next sweep does not re-report the same ~135.
-
-## L576 — Codex automatic instruction delivery omits the group runbook (2026-10-26, open — fix authorized)
-
-`ant/src/index.ts:73` renders only the resident manual for Codex.
-`ant/src/codex.ts:38` suppresses user config and supplies no project-document
-fallback for the group `CLAUDE.md`. Sloth/trading has no root or Codex-home
-AGENTS file to bridge it. The official Codex instruction contract discovers
-AGENTS names plus configured fallback names; it ignores names outside that list.
-The group runbook therefore has no configured automatic delivery path.
-Voluntary model file reads are not automatic instruction delivery.
-
-- **Severity:** medium — group advisory rules and preserved local customizations
-  can be omitted from a Codex turn's automatic instruction context.
-- **Scope:** Codex harness instruction configuration; no runtime port change.
-- **Measured:** `core-rendered-group-manual-red.log` executes the real prompt
-  builder and argv factory against isolated file reads: only BASE-MANUAL renders,
-  only the resident manual/settings paths are read, user config is ignored and
-  no explicit fallback is set. Sloth/trading root/Codex-home AGENTS files are absent.
-  No model CLI ran. No permanent test yet — config; the fix must add a regression
-  for an automatic route through rendered text or the vendor discovery setting.
-- **Source:** official instruction-discovery documentation,
-  https://learn.chatgpt.com/docs/agent-configuration/agents-md .
-- **Fix:** give the existing group runbook one automatic delivery path in Codex,
-  preserving one resident-manual delivery and user-config isolation. Prefer the
-  vendor's explicit fallback setting over another copied instructions file.
-- **Status:** confirmed adapter configuration gap; queued behind sole L574 worker.
-  Actual guest model behavior remains unproved; source contract is measured.
 
 ## L575 — release toolchain and dependencies retain reported vulnerabilities (2026-10-25, open — fix authorized)
 
