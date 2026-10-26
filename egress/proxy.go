@@ -10,6 +10,7 @@ package egress
 import (
 	"context"
 	"crypto/subtle"
+	"errors"
 	"io"
 	"log/slog"
 	"net"
@@ -164,7 +165,7 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	src, _, _ := net.SplitHostPort(r.RemoteAddr)
 	if !p.peerAllowed(src) {
 		slog.Warn("deny peer", "src", src, "client", p.client)
-		http.Error(w, "denied", http.StatusForbidden)
+		http.Error(w, "denied: peer", http.StatusForbidden)
 		return
 	}
 
@@ -205,7 +206,7 @@ func (p *Proxy) handleConnect(w http.ResponseWriter, r *http.Request, src string
 	}
 	if !p.hostAllowed(host) {
 		slog.Info("deny connect", "src", src, "host", host)
-		http.Error(w, "denied", http.StatusForbidden)
+		http.Error(w, "denied: host not allowed", http.StatusForbidden)
 		return
 	}
 
@@ -214,8 +215,7 @@ func (p *Proxy) handleConnect(w http.ResponseWriter, r *http.Request, src string
 	// not be the answer reached (spec 6/25 decision 1).
 	upstream, err := p.dialAllowed(r.Context(), "tcp", hostPort(r.Host))
 	if err != nil {
-		slog.Info("deny address", "src", src, "host", host, "err", err)
-		http.Error(w, "denied", http.StatusForbidden)
+		writeDialError(w, src, host, err)
 		return
 	}
 	defer func() { _ = upstream.Close() }()
@@ -249,7 +249,7 @@ func (p *Proxy) handleHTTP(w http.ResponseWriter, r *http.Request, src string) {
 
 	if !p.hostAllowed(host) {
 		slog.Info("deny http", "src", src, "host", host)
-		http.Error(w, "denied", http.StatusForbidden)
+		http.Error(w, "denied: host not allowed", http.StatusForbidden)
 		return
 	}
 
@@ -272,8 +272,7 @@ func (p *Proxy) handleHTTP(w http.ResponseWriter, r *http.Request, src string) {
 	}
 	resp, err := p.httpClient().Do(out)
 	if err != nil {
-		slog.Info("deny or fail http", "src", src, "host", host, "err", err)
-		http.Error(w, err.Error(), http.StatusBadGateway)
+		writeDialError(w, src, host, err)
 		return
 	}
 	defer func() { _ = resp.Body.Close() }()
@@ -288,6 +287,20 @@ func (p *Proxy) handleHTTP(w http.ResponseWriter, r *http.Request, src string) {
 	w.WriteHeader(resp.StatusCode)
 	_, _ = io.Copy(w, resp.Body)
 	slog.Info("allow http", "src", src, "host", host, "status", resp.StatusCode)
+}
+
+// writeDialError answers a request whose name passed but whose dial did not.
+// A blocked address is this proxy refusing, so it stays a 403; a name that
+// did not resolve or an upstream that did not answer is past the policy and
+// is a 502, so the client can tell "not allowed" from "allowed, unreachable".
+func writeDialError(w http.ResponseWriter, src, host string, err error) {
+	if errors.Is(err, errBlockedAddress) {
+		slog.Info("deny address", "src", src, "host", host, "err", err)
+		http.Error(w, "denied: "+err.Error(), http.StatusForbidden)
+		return
+	}
+	slog.Info("fail upstream", "src", src, "host", host, "err", err)
+	http.Error(w, "upstream unreachable: "+err.Error(), http.StatusBadGateway)
 }
 
 func isHopByHop(h string) bool {

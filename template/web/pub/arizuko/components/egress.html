@@ -104,7 +104,7 @@
       <dt>Inputs</dt>
       <dd>The resolved allowlist of the folder. <code>store.ResolveAllowlist</code> reads the <code>network_rules</code> of the folder and its ancestors and removes duplicates.</dd>
       <dt>Outputs</dt>
-      <dd>One proxy process per turn, and a <code>403</code> for every host not on the list.</dd>
+      <dd>One proxy process per turn, a <code>403</code> for every host not on the list, and a <code>502</code> for an allowed host that does not resolve or does not answer.</dd>
     </dl>
 
     <h3>The proxy matches host names only</h3>

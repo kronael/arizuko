@@ -189,6 +189,61 @@ func TestConnectRefusesAForeignPeer(t *testing.T) {
 	}
 }
 
+// An allowlisted host that does not answer is not a refusal. The agent behind
+// this proxy reads the status: a 403 says "ask for a grant", so a dead upstream
+// answered with 403 sends it asking for a grant it already holds.
+func TestConnectAnswers502WhenAnAllowlistedHostDoesNotAnswer(t *testing.T) {
+	closed := echoServer(t)
+	_, port, _ := net.SplitHostPort(closed.Addr().String())
+	_ = closed.Close()
+	proxy := serve(t, mustNew(t, []string{"localhost"}, nil, ""))
+
+	_, resp := connectVia(t, proxy, "localhost:"+port)
+	if resp.StatusCode != http.StatusBadGateway {
+		t.Fatalf("CONNECT to an allowlisted host that refuses the dial = %s, want 502", resp.Status)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	if !strings.HasPrefix(string(body), "upstream unreachable: ") {
+		t.Errorf("body = %q, want the dial error behind an 'upstream unreachable' prefix", body)
+	}
+}
+
+func TestConnectAnswers502WhenAnAllowlistedNameDoesNotResolve(t *testing.T) {
+	p := mustNew(t, []string{"nowhere.example"}, nil, "")
+	p.lookup = func(context.Context, string) ([]net.IP, error) {
+		return nil, &net.DNSError{Err: "no such host", Name: "nowhere.example", IsNotFound: true}
+	}
+	proxy := serve(t, p)
+
+	_, resp := connectVia(t, proxy, "nowhere.example:443")
+	if resp.StatusCode != http.StatusBadGateway {
+		t.Fatalf("CONNECT to an allowlisted name that does not resolve = %s, want 502", resp.Status)
+	}
+}
+
+// The plain-HTTP forward classifies the same way: a blocked address is the
+// proxy refusing, not the upstream failing.
+func TestHTTPRefusesABlockedAddressWith403(t *testing.T) {
+	p := mustNew(t, []string{"rebound.example"}, nil, "")
+	p.lookup = func(context.Context, string) ([]net.IP, error) {
+		return []net.IP{net.ParseIP("169.254.169.254")}, nil
+	}
+	proxy := serve(t, p)
+
+	resp, err := through(proxy).Get("http://rebound.example/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("GET through a name resolving to instance metadata = %s, want 403", resp.Status)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(body), "blocked address") {
+		t.Errorf("body = %q, want the blocked-address reason", body)
+	}
+}
+
 // A client that omits the port means 443. hostPort covers the normalisation in
 // isolation; this proves the tunnel actually reaches the default port.
 func TestConnectWithNoPortDialsFourFourThree(t *testing.T) {

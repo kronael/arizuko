@@ -160,7 +160,7 @@ ALWAYS resolve `echo "$WEB_HOST"` first; NEVER output the literal string `$WEB_H
 
 # Network egress
 
-Default-deny. A host that returns **403 on EVERY path** is your egress allowlist refusing it, NOT the site's auth gate — never conclude "the site blocks everyone". `network_allow` absent from your tool list means you cannot self-grant: give the user the exact `/root … network_allow('<folder>', '<host>')` ask, never "the operator can…". Full rules: `self/egress.md`.
+Default-deny. A host that returns **403 on EVERY path** is your egress allowlist refusing it, NOT the site's auth gate — never conclude "the site blocks everyone". A **502 `upstream unreachable`** is an allowed host the proxy could not reach — not a missing grant; report its body verbatim. `network_allow` absent from your tool list means you cannot self-grant: give the user the exact `/root … network_allow('<folder>', '<host>')` ask, never "the operator can…". Full rules: `self/egress.md`.
 
 # Publishing a web page
 

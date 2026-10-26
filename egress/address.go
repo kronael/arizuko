@@ -2,9 +2,12 @@ package egress
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 )
+
+var errBlockedAddress = errors.New("blocked address")
 
 // address.go is the address half of the enforcement point. match.Host answers
 // "is this NAME allowed"; this answers "is the ADDRESS behind that name a place
@@ -71,7 +74,7 @@ func (p *Proxy) resolveDest(ctx context.Context, host string) (net.IP, error) {
 	// before a socket.
 	if ip := net.ParseIP(host); ip != nil {
 		if p.blockedIP(ip) || (p.denyPrivate && privateIP(ip)) {
-			return nil, fmt.Errorf("destination %s is a blocked address", host)
+			return nil, fmt.Errorf("destination %s: %w", host, errBlockedAddress)
 		}
 		return ip, nil
 	}
@@ -84,7 +87,7 @@ func (p *Proxy) resolveDest(ctx context.Context, host string) (net.IP, error) {
 	}
 	for _, ip := range ips {
 		if p.blockedIP(ip) || (p.denyPrivate && privateIP(ip)) {
-			return nil, fmt.Errorf("%s resolves to blocked address %s", host, ip)
+			return nil, fmt.Errorf("%s resolves to %s: %w", host, ip, errBlockedAddress)
 		}
 	}
 	return ips[0], nil

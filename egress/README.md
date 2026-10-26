@@ -63,6 +63,18 @@ elevated turn's egress grant) still means allow-all — runed translates it to
 `--allow-all` when it starts the spawn's proxy, so the magic string never
 reaches a list.
 
+## A refusal names its cause
+
+The status tells a refused name from an unreachable one, so the client
+behind the proxy does not ask for a grant it already holds.
+
+| Answer                                | Cause                                                                                             |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `403 denied: host not allowed`        | the name is off the allowlist or on the deny list                                                 |
+| `403 denied: <host>: blocked address` | the name passed; it resolves to a class no sandbox reaches                                        |
+| `403 denied: peer`                    | the request did not come from `--client`                                                          |
+| `502 upstream unreachable: <error>`   | the name and the address passed; the name did not resolve or the dial failed. Not a rule problem. |
+
 ## `--client`, and why it is not a registry
 
 The proxy serves exactly one sandbox. `--client` is the address of that

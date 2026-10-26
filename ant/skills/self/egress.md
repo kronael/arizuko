@@ -19,6 +19,13 @@ or "it's auth-gated" — one host 403ing on every path while other hosts
 work IS your egress allowlist. (A real auth gate gives mixed codes: 200
 on public paths, 302/401 on gated.)
 
+A **502 `upstream unreachable: …`** from the proxy is NOT a grant
+problem. The host passed your allowlist and the proxy could not reach it:
+`resolve <host>: no such host`, `dial tcp …: connection refused`, a dial
+timeout. Report the body verbatim; asking for `network_allow` changes
+nothing. Cost: an agent reported a missing grant for a host that was
+granted and down (2026-10-25).
+
 A grant scoped to a PARENT folder does not reach you — a path carries
 zero authorization (spec `5/33`), so `main` covers `main` and never
 `main/sub`. Cost: every subgroup on one instance silently lost egress and
