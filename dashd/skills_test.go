@@ -5,11 +5,13 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/kronael/arizuko/container"
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/store"
 )
 
 func skillsDash(t *testing.T) (*dash, *core.Config) {
@@ -266,5 +268,93 @@ func TestGroupSettingsActiveSkills(t *testing.T) {
 	group, err := d.getGroup(t.Context(), "mygroup")
 	if err != nil || !group.Open {
 		t.Fatalf("settings wrote before preflight: %+v, %v", group, err)
+	}
+}
+
+func TestGroupSettingsPendingAdoption(t *testing.T) {
+	for _, pending := range []string{"system", "exact", "instance", "malformed", "other"} {
+		for _, operation := range []string{"disable", "enable"} {
+			t.Run(pending+"/"+operation, func(t *testing.T) {
+				d, cfg := skillsDash(t)
+				d.routd = routdDB(t)
+				d.routdURL = stubRoutd(t, d.routd)
+				seedFolder(t, d.routd, "mygroup")
+				seedAdmin(t, d.routd, "alice@x", "mygroup")
+				lock, err := container.LockPackages(cfg.ProjectRoot)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := d.setSkillDisabled("mygroup", "base", true); err != nil {
+					t.Fatal(err)
+				}
+				marker := filepath.Join(cfg.GroupsDir, "mygroup/.claude/skills/base/.disabled")
+				if operation == "enable" {
+					if err := os.WriteFile(marker, []byte("operator marker"), 0o444); err != nil {
+						t.Fatal(err)
+					}
+				} else if err := os.Remove(marker); err != nil {
+					t.Fatal(err)
+				}
+				if err := lock.Close(); err != nil {
+					t.Fatal(err)
+				}
+				row := store.InstalledPackage{Folder: "mygroup", Name: "waiting", Source: "origin", Revision: "revision",
+					AssetHashes: map[string]string{"pending:adopt:source": strings.Repeat("a", 64),
+						"pending:adopt:package_source":                          strings.Repeat("b", 64),
+						"pending:adopt:tree:groups/mygroup/.claude/skills/base": strings.Repeat("c", 64),
+						container.PendingSettingPrefix + "KEEP":                 strings.Repeat("d", 64)}}
+				switch pending {
+				case "system":
+					row.Folder, row.Name = "", "core"
+				case "instance":
+					row.Folder = "other"
+					row.AssetHashes["pending:adopt:tree:skills/base"] = strings.Repeat("e", 64)
+				case "malformed":
+					row.Folder, row.AssetHashes = "other", map[string]string{"pending:adopt:unknown": "invalid"}
+				case "other":
+					row.Folder = "other"
+				}
+				if row.Folder == "other" && pending != "other" {
+					row.Name = "private-package"
+				}
+				if err := d.routdStore().PutInstalledPackage(row); err != nil {
+					t.Fatal(err)
+				}
+				before, err := d.getGroup(t.Context(), "mygroup")
+				if err != nil {
+					t.Fatal(err)
+				}
+				form := "open=1&model=changed&observe_window_messages=9"
+				if operation == "enable" {
+					form += "&skill_enabled=base"
+				}
+				response := httptest.NewRecorder()
+				newMux(d).ServeHTTP(response, adminReq("POST", "/dash/groups/mygroup/settings", form, "alice@x"))
+				if pending == "other" {
+					if response.Code != http.StatusSeeOther {
+						t.Fatalf("unrelated adoption blocked settings: %d, %s", response.Code, response.Body.String())
+					}
+					return
+				}
+				if response.Code != http.StatusInternalServerError || !strings.Contains(response.Body.String(), "pending package adoption") {
+					t.Errorf("settings bypassed adoption: %d, %s", response.Code, response.Body.String())
+				}
+				if row.Folder == "other" && strings.Contains(response.Body.String(), row.Name) {
+					t.Error("refusal disclosed another group's package identity")
+				}
+				after, err := d.getGroup(t.Context(), "mygroup")
+				if err != nil || !reflect.DeepEqual(before, after) {
+					t.Errorf("pending adoption allowed group settings to change: %+v, %v", after, err)
+				}
+				data, err := os.ReadFile(marker)
+				if operation == "enable" && (err != nil || string(data) != "operator marker") || operation == "disable" && !os.IsNotExist(err) {
+					t.Errorf("pending adoption changed its marker: %s, %v", data, err)
+				}
+				got, found, err := d.routdStore().InstalledPackage(row.Folder, row.Name)
+				if err != nil || !found || !reflect.DeepEqual(got.AssetHashes, row.AssetHashes) {
+					t.Errorf("settings changed adoption/settings receipts: %+v, %v", got, err)
+				}
+			})
+		}
 	}
 }

@@ -78,6 +78,9 @@ func applyProductMix(dataDir string, rdb *routd.DB, folder string) {
 
 func applyProductMixLocked(dataDir string, rdb *routd.DB, folder string,
 	replacement []byte, prepared *packageCandidate) {
+	if err := container.CheckPendingPackageAdoption(packageStore(rdb), nil); err != nil {
+		die("Failed: %v", err)
+	}
 	if folder == "." || !groupfolder.IsValidFolder(folder) {
 		die("Failed: invalid folder %q", folder)
 	}

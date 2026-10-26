@@ -462,29 +462,42 @@ func SetPackageSkillDisabled(cfg *core.Config, folder, skill string, disable boo
 // A nil database selects filesystem state before the instance store exists.
 // Completion repairs only core's receipt; unrelated incomplete packages refuse.
 func EnsureCorePackage(cfg *core.Config, database *store.Store) error {
+	if err := CheckPendingPackageAdoption(database, nil); err != nil {
+		return err
+	}
+	snapshots, receipts, err := PrepareCorePackages(cfg, database)
+	if err != nil {
+		return err
+	}
+	return ActivatePackages(cfg.ProjectRoot, "", database, snapshots, receipts)
+}
+
+// PrepareCorePackages requires the package lock and borrows database. It prepares
+// immutable artifacts without changing selections or installed receipts.
+func PrepareCorePackages(cfg *core.Config, database *store.Store) ([]PackageSnapshot, []store.InstalledPackage, error) {
 	dataDir := cfg.ProjectRoot
 	if err := PreparePackagePaths(dataDir); err != nil {
-		return err
+		return nil, nil, err
 	}
 	selected, err := ReadPackageSelection(dataDir, "")
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 	var receipt store.InstalledPackage
 	if database != nil {
 		var found bool
 		receipt, found, err = database.InstalledPackage("", CorePackageName)
 		if err != nil {
-			return err
+			return nil, nil, err
 		}
 		if found && receipt.Source != corePackageSource {
-			return fmt.Errorf("required core receipt claims source %q; restore the release source %q before upgrading core",
+			return nil, nil, fmt.Errorf("required core receipt claims source %q; restore the release source %q before upgrading core",
 				receipt.Source, corePackageSource)
 		}
 	}
 	snapshot, err := prepareCorePackage(cfg)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 	snapshots := []PackageSnapshot{snapshot}
 	receipt.Source, receipt.Revision = corePackageSource, snapshot.Digest
@@ -496,25 +509,25 @@ func EnsureCorePackage(cfg *core.Config, database *store.Store) error {
 		if database != nil {
 			receipt, found, err := database.InstalledPackage("", other.Name)
 			if err != nil {
-				return err
+				return nil, nil, err
 			}
 			if !found || receipt.Source == "" || receipt.Revision == "" || receipt.InstalledAt == "" ||
 				!slices.Equal(receipt.Manifest[PackageSourceArtifact], []string{other.Digest}) ||
 				receipt.AssetHashes[PackageSourceArtifact] != other.Digest ||
 				HasPendingSettings(receipt.AssetHashes) {
-				return fmt.Errorf("incomplete package operation: active %s has no matching source receipt; "+
+				return nil, nil, fmt.Errorf("incomplete package operation: active %s has no matching source receipt; "+
 					"retry its install before upgrading core", other.Name)
 			}
 			dir, err := ResolvePackage(dataDir, other)
 			if err != nil {
-				return err
+				return nil, nil, err
 			}
 			names, err := ReadPackageSkills(dir)
 			if err != nil {
-				return err
+				return nil, nil, err
 			}
 			if !slices.Equal(receipt.Manifest["skill"], names) {
-				return fmt.Errorf("incomplete package operation: active %s has no matching skill receipt; "+
+				return nil, nil, fmt.Errorf("incomplete package operation: active %s has no matching skill receipt; "+
 					"retry its install before upgrading core", other.Name)
 			}
 			receipts = append(receipts, receipt)
@@ -522,9 +535,9 @@ func EnsureCorePackage(cfg *core.Config, database *store.Store) error {
 		snapshots = append(snapshots, other)
 	}
 	if err := checkPackageSelection(cfg, "", database, snapshots, snapshot); err != nil {
-		return err
+		return nil, nil, err
 	}
-	return ActivatePackages(dataDir, "", database, snapshots, receipts)
+	return snapshots, receipts, nil
 }
 
 func prepareCorePackage(cfg *core.Config) (PackageSnapshot, error) {

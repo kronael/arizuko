@@ -367,6 +367,11 @@ func renameFixture(t *testing.T) (renameInventory, map[string]objstore.Store) {
 	return inventory, drivers
 }
 
+func renamePackageDrivers(t *testing.T) map[string]objstore.Store {
+	t.Helper()
+	return map[string]objstore.Store{"routd": dyntest.Store(t, store.InstalledPackages)}
+}
+
 func renameSeed(t *testing.T, inventory *renameInventory, drivers map[string]objstore.Store, owner, entity string, key objstore.Key, attrs map[string]string) {
 	t.Helper()
 	ok, err := drivers[owner].GuardedBatch(context.Background(), nil, []objstore.Write{{Op: objstore.Put, Entity: entity, Key: key, Attrs: attrs}})
@@ -421,8 +426,8 @@ func TestGroupRenameResumeRollback(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if counter.Queries > 4 {
-				t.Fatalf("preflight made %d queries for two partitions and a marker", counter.Queries)
+			if counter.Queries > 6 {
+				t.Fatalf("preflight made %d queries for two partitions, a marker and adoption guards", counter.Queries)
 			}
 			preflightQueries := counter.Queries
 			journal := filepath.Join(t.TempDir(), "journal")
@@ -435,7 +440,7 @@ func TestGroupRenameResumeRollback(t *testing.T) {
 			if err = renameExecute(context.Background(), journal, plan, drivers, true, false); err != nil {
 				t.Fatal(err)
 			}
-			if used := counter.Queries - preflightQueries; used > 2*len(plan.Rows)+4*40+2 {
+			if used := counter.Queries - preflightQueries; used > 2*len(plan.Rows)+4*40+6 {
 				t.Fatalf("resume/execution made %d reads; expected per-row checks, uncertain batch and final partitions", used)
 			}
 			items, err := drivers["routd"].Query(context.Background(), objstore.Query{Entity: store.Groups, Partition: "routd"})
@@ -523,7 +528,7 @@ func TestGroupRenameFilesMergeAndRollback(t *testing.T) {
 	}
 	plan := renamePlan{Files: operations}
 	journal := filepath.Join(t.TempDir(), "journal")
-	if err = renameExecute(context.Background(), journal, plan, nil, false, false); err != nil {
+	if err = renameExecute(context.Background(), journal, plan, renamePackageDrivers(t), false, false); err != nil {
 		t.Fatal(err)
 	}
 	for _, path := range []string{"groups/sloth/discord/.hidden", "groups/sloth/trading/state", "groups/sloth/unregistered/data"} {
@@ -541,7 +546,7 @@ func TestGroupRenameFilesMergeAndRollback(t *testing.T) {
 	if err != nil || !strings.Contains(string(data), "/pub/sloth/discord/page.html") {
 		t.Fatalf("web references: %q %v", data, err)
 	}
-	if err = renameExecute(context.Background(), journal, plan, nil, false, true); err != nil {
+	if err = renameExecute(context.Background(), journal, plan, renamePackageDrivers(t), false, true); err != nil {
 		t.Fatal(err)
 	}
 	for path, want := range files {
@@ -632,14 +637,14 @@ func TestGroupRenameTornJournalAndPartialStaging(t *testing.T) {
 	if err = os.WriteFile(path+".arizuko-rename", []byte("part"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err = renameExecute(context.Background(), journal, plan, nil, true, false); err != nil {
+	if err = renameExecute(context.Background(), journal, plan, renamePackageDrivers(t), true, false); err != nil {
 		t.Fatal(err)
 	}
 	got, err := os.ReadFile(path)
 	if err != nil || string(got) != "after" {
 		t.Fatalf("%q %v", got, err)
 	}
-	if err = renameExecute(context.Background(), journal, plan, nil, false, true); err != nil {
+	if err = renameExecute(context.Background(), journal, plan, renamePackageDrivers(t), false, true); err != nil {
 		t.Fatal(err)
 	}
 	got, err = os.ReadFile(path)
@@ -692,7 +697,7 @@ func TestGroupRenameDirectoryMetadata(t *testing.T) {
 	}
 	journal := filepath.Join(t.TempDir(), "journal")
 	plan := renamePlan{Files: operations}
-	if err = renameExecute(context.Background(), journal, plan, nil, false, false); err != nil {
+	if err = renameExecute(context.Background(), journal, plan, renamePackageDrivers(t), false, false); err != nil {
 		t.Fatal(err)
 	}
 	next := filepath.Join(root, "groups/sloth")
@@ -700,7 +705,7 @@ func TestGroupRenameDirectoryMetadata(t *testing.T) {
 	if err != nil || string(attrs["user.rename"]) != "preserve" {
 		t.Fatal("destination lost xattrs")
 	}
-	if err = renameExecute(context.Background(), journal, plan, nil, false, true); err != nil {
+	if err = renameExecute(context.Background(), journal, plan, renamePackageDrivers(t), false, true); err != nil {
 		t.Fatal(err)
 	}
 	after, err := os.Stat(path)
@@ -842,7 +847,7 @@ func TestAstraInterruptedFileRollback(t *testing.T) {
 	if !reached {
 		t.Fatal("fixture missed edit")
 	}
-	if err = renameExecute(context.Background(), journal, plan, nil, false, true); err != nil {
+	if err = renameExecute(context.Background(), journal, plan, renamePackageDrivers(t), false, true); err != nil {
 		t.Fatalf("rollback after interrupted staging: %v", err)
 	}
 }
@@ -860,7 +865,7 @@ func TestAstraPublicMarkdown(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = renameExecute(context.Background(), filepath.Join(t.TempDir(), "journal"), renamePlan{Files: ops}, nil, false, false); err != nil {
+	if err = renameExecute(context.Background(), filepath.Join(t.TempDir(), "journal"), renamePlan{Files: ops}, renamePackageDrivers(t), false, false); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(filepath.Join(root, "web/pub/sloth/trading/theses/README.md"))
@@ -992,7 +997,7 @@ func TestAstraSymlinkMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = renameExecute(context.Background(), filepath.Join(t.TempDir(), "journal"), renamePlan{Files: ops}, nil, false, false); err != nil {
+	if err = renameExecute(context.Background(), filepath.Join(t.TempDir(), "journal"), renamePlan{Files: ops}, renamePackageDrivers(t), false, false); err != nil {
 		t.Fatal(err)
 	}
 	after, err := os.Lstat(source)
@@ -1011,7 +1016,7 @@ func TestGroupRenameRejectsJournalSymlinkInsideData(t *testing.T) {
 		t.Fatal(err)
 	}
 	journal := filepath.Join(alias, "journal")
-	if err := renameExecute(context.Background(), journal, renamePlan{DataDir: root}, nil, false, false); err == nil {
+	if err := renameExecute(context.Background(), journal, renamePlan{DataDir: root}, renamePackageDrivers(t), false, false); err == nil {
 		t.Fatal("journal inside data directory through a symlink was accepted")
 	}
 }
@@ -1135,8 +1140,8 @@ func TestGroupRenameACLScopeDecisions(t *testing.T) {
 			if counter.Calls != 0 {
 				t.Errorf("preflight made %d writes", counter.Calls)
 			}
-			if counter.Queries != 3 {
-				t.Errorf("ACL/group/marker inventory needs three reads, got %d", counter.Queries)
+			if counter.Queries != 5 {
+				t.Errorf("ACL/group/marker inventory and adoption guards need five reads, got %d", counter.Queries)
 			}
 			drivers["routd"] = source
 			ok, err := source.GuardedBatch(ctx, nil, []objstore.Write{{Op: objstore.Delete, Entity: store.ACL, Key: key}})
@@ -1166,7 +1171,7 @@ func TestAstraInterruptedRecoveryRollback(t *testing.T) {
 			plan := renamePlan{DataDir: root, Files: ops}
 			journal := filepath.Join(t.TempDir(), "journal")
 			if reverse {
-				if err = renameExecute(context.Background(), journal, plan, nil, false, false); err != nil {
+				if err = renameExecute(context.Background(), journal, plan, renamePackageDrivers(t), false, false); err != nil {
 					t.Fatal(err)
 				}
 			} else {
@@ -1238,7 +1243,7 @@ func TestAstraInterruptedRecoveryRollback(t *testing.T) {
 			if err = unix.Setrlimit(unix.RLIMIT_FSIZE, &limit); err != nil {
 				t.Fatal(err)
 			}
-			interrupted := renameExecute(context.Background(), journal, plan, nil, !reverse, reverse)
+			interrupted := renameExecute(context.Background(), journal, plan, renamePackageDrivers(t), !reverse, reverse)
 			if err = unix.Setrlimit(unix.RLIMIT_FSIZE, &oldLimit); err != nil {
 				t.Fatal(err)
 			}
@@ -1249,7 +1254,7 @@ func TestAstraInterruptedRecoveryRollback(t *testing.T) {
 			if _, err = os.Lstat(ops[editStep].Source + ".arizuko-rename"); !os.IsNotExist(err) {
 				t.Errorf("recovered done record left staging: %v", err)
 			}
-			if err = renameExecute(context.Background(), journal, plan, nil, reverse, !reverse); err != nil {
+			if err = renameExecute(context.Background(), journal, plan, renamePackageDrivers(t), reverse, !reverse); err != nil {
 				t.Fatalf("change direction after second crash: %v", err)
 			}
 		})
@@ -1431,8 +1436,8 @@ func TestGroupRenameTokenRecordedOwnership(t *testing.T) {
 			if counter.Calls != 0 {
 				t.Fatalf("preflight wrote %d batches", counter.Calls)
 			}
-			if counter.Queries > 3 {
-				t.Fatalf("preflight exceeded token/group/marker reads: %d", counter.Queries)
+			if counter.Queries > 5 {
+				t.Fatalf("preflight exceeded token/group/marker and adoption guard reads: %d", counter.Queries)
 			}
 			if fixture.refuse {
 				if err == nil || !strings.Contains(err.Error(), "route token") {

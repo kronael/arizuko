@@ -67,16 +67,8 @@ func activatePackages(dataDir, target string, database *store.Store,
 		if !matched {
 			return fmt.Errorf("activation target lacks an adoption witness")
 		}
-	} else if database != nil {
-		rows, err := database.InstalledPackages()
-		if err != nil {
-			return err
-		}
-		for _, row := range rows {
-			if HasPendingAdoption(row.AssetHashes) {
-				return fmt.Errorf("pending package adoption requires its operation witness")
-			}
-		}
+	} else if err := CheckPendingPackageAdoption(database, nil); err != nil {
+		return err
 	}
 	if database == nil {
 		return SelectPackages(dataDir, target, snapshots)

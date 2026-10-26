@@ -328,6 +328,10 @@ func (d *dash) handleGroupSettingsSave(w http.ResponseWriter, r *http.Request) {
 	}
 	// Selection and markers stay fixed through settings persistence.
 	defer lock.Close() //nolint:errcheck
+	if err := container.CheckPendingPackageAdoption(d.routdStore(), []string{folder}); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 	inventory, err := d.stockSkills(folder)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -438,7 +442,7 @@ func (d *dash) handleGroupDelete(w http.ResponseWriter, r *http.Request) {
 			folders = append(folders, registered)
 		}
 	}
-	if err := container.WithdrawGroupPackages(dataDir, folders); err != nil {
+	if err := container.WithdrawGroupPackages(dataDir, d.routdStore(), folders); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
