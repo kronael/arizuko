@@ -1,6 +1,8 @@
 package runed
 
 import (
+	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -36,10 +38,22 @@ const (
 func buildMounts(
 	cfg *core.Config, folders *groupfolder.Resolver,
 	req runedv1.RunRequest, gc core.GroupConfig, groupDir string,
-) []core.Mount {
+) ([]core.Mount, error) {
 	folder := string(req.Folder)
 	elevated := req.Elevated
 	var m []core.Mount
+	lock, err := container.LockPackages(cfg.ProjectRoot)
+	if err != nil {
+		return nil, err
+	}
+	inventory, err := container.ReadPackageInventory(cfg.ProjectRoot, folder)
+	if err != nil {
+		return nil, errors.Join(err, lock.Close())
+	}
+	disabled, empty, err := container.PreparePackageMountTargets(cfg, folder, inventory)
+	if err := errors.Join(err, lock.Close()); err != nil {
+		return nil, err
+	}
 
 	// EVERY Host path here is the path RUNED sees, never a translated host path.
 	// The substrate resolves these itself: virtiofsd is runed's own child, in
@@ -56,13 +70,29 @@ func buildMounts(
 	media := filepath.Join(groupDir, "media")
 	mkMountSource(media)
 
-	// The staged copy of the release's `ant/`, not HOST_APP_DIR: see
-	// container.MaterializeAppSrc.
 	m = append(m, core.Mount{
-		Host:      filepath.Join(cfg.ProjectRoot, container.AppSrcDir),
-		Container: "/opt/arizuko",
+		Host:      inventory.Core,
+		Container: "/opt/arizuko/ant",
 		RO:        true,
 	})
+	for _, skill := range inventory.Skills {
+		source := skill.Dir
+		if disabled[skill.Name] {
+			source = empty
+		}
+		m = append(m, core.Mount{Host: source,
+			Container: core.ContainerHome + "/.claude/skills/" + skill.Name, RO: true})
+	}
+	m = append(m, core.Mount{Host: filepath.Join(inventory.Core, "CLAUDE.md"),
+		Container: core.ContainerHome + "/.claude/CLAUDE.md", RO: true})
+	styles, err := os.ReadDir(filepath.Join(inventory.Core, "output-styles"))
+	if err != nil {
+		return nil, fmt.Errorf("read core output styles: %w", err)
+	}
+	for _, style := range styles {
+		m = append(m, core.Mount{Host: filepath.Join(inventory.Core, "output-styles", style.Name()),
+			Container: core.ContainerHome + "/.claude/output-styles/" + style.Name(), RO: true})
+	}
 
 	// Every guest gets the world's shared dir at /var/lib/share (writable):
 	// a per-world scratch/handoff space all its groups see. Elevated turns
@@ -203,7 +233,7 @@ func buildMounts(
 		})
 	}
 
-	return m
+	return m, nil
 }
 
 // worldOf returns the folder's world (top segment). An elevated (operator

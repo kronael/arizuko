@@ -22,6 +22,7 @@ func goldenCfg(t *testing.T, root string) *core.Config {
 	t.Helper()
 	appSrc := filepath.Join(root, "app-src-image")
 	write(t, filepath.Join(appSrc, "ant", "skills", "self", "MIGRATION_VERSION"), "9\n")
+	write(t, filepath.Join(appSrc, "ant", "skills", "self", "SKILL.md"), "self\n")
 	write(t, filepath.Join(appSrc, "ant", "output-styles", "slack.md"), "style\n")
 	write(t, filepath.Join(appSrc, "ant", "skills", "migrate", "SKILL.md"), "migrate\n")
 	write(t, filepath.Join(root, "codexhost", "auth.json"), "{}\n")
@@ -30,7 +31,7 @@ func goldenCfg(t *testing.T, root string) *core.Config {
 	if err := os.MkdirAll(filepath.Join(root, "extra"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	return &core.Config{
+	cfg := &core.Config{
 		Name:              "krons",
 		AgentBackend:      "claude",
 		Timeout:           60 * time.Minute,
@@ -47,6 +48,8 @@ func goldenCfg(t *testing.T, root string) *core.Config {
 		HostCodexDir:      filepath.Join(root, "codexhost"),
 		MountAllowedRoots: []string{filepath.Join(root, "extra")},
 	}
+	initializeRenderCore(t, cfg)
+	return cfg
 }
 
 func write(t *testing.T, p, body string) {
@@ -96,9 +99,8 @@ func TestRenderTurnGolden(t *testing.T) {
 	write(t, filepath.Join(groupDir, "PERSONA.md"), "You are Ada.\n")
 	write(t, filepath.Join(groupDir, "SYSTEM.md"), "House rules.\n")
 	write(t, filepath.Join(groupDir, "work.md"), "the work in flight\n")
-	write(t, filepath.Join(groupDir, ".claude", "skills", "self", "MIGRATION_VERSION"), "7\n")
 
-	turn := renderTurn(cfg, folders, runedv1.RunRequest{
+	turn, err := renderTurn(cfg, folders, runedv1.RunRequest{
 		Folder: "atlas/support", Topic: "t-42", ChatJID: "slack:T1/channel/C9",
 		Channel: "slack", SessionID: "11111111-2222-3333-4444-555555555555",
 		MessageBatch: "hello world", TriggerSender: "u1", CallerSub: "user:caller",
@@ -111,6 +113,9 @@ func TestRenderTurnGolden(t *testing.T) {
 		EgressAllowlist: []string{"github.com"},
 		Secrets:         map[string]string{"ANTHROPIC_API_KEY": "sk-user"},
 	}, "arizuko-krons-atlas-support-1700000000000", 20*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	if turn.Handle != "arizuko-krons-atlas-support-1700000000000" {
 		t.Errorf("Handle=%q", turn.Handle)
@@ -127,7 +132,13 @@ func TestRenderTurnGolden(t *testing.T) {
 	// krons (BUGS `L368`). A `/srv/data/` prefix in this list is that bug.
 	wantMounts := []string{
 		root + "/groups/atlas/support -> /home/node",
-		root + "/app-src -> /opt/arizuko ro",
+		selectedCore(t, cfg) + " -> /opt/arizuko/ant ro",
+		selectedCore(t, cfg) + "/skills/base -> /home/node/.claude/skills/base ro",
+		selectedCore(t, cfg) + "/skills/migrate -> /home/node/.claude/skills/migrate ro",
+		selectedCore(t, cfg) + "/skills/self -> /home/node/.claude/skills/self ro",
+		selectedCore(t, cfg) + "/CLAUDE.md -> /home/node/.claude/CLAUDE.md ro",
+		selectedCore(t, cfg) + "/output-styles/brief.md -> /home/node/.claude/output-styles/brief.md ro",
+		selectedCore(t, cfg) + "/output-styles/slack.md -> /home/node/.claude/output-styles/slack.md ro",
 		root + "/groups/atlas/share -> /var/lib/share ro",
 		root + "/ipc/atlas/support -> /run/ipc",
 		root + "/groups/atlas/support/.codex -> /home/node/.codex",
@@ -166,7 +177,7 @@ func TestRenderTurnGolden(t *testing.T) {
 		}
 	}
 
-	wantStdin := `{"prompt":"[pending migration] Skills version 7 \u003c 9. Run /migrate (main group) to sync all groups.\nTopic session: t-42\n\u003cknowledge layer=\"work\"\u003e\nthe work in flight\n\u003c/knowledge\u003e\n\u003cuser id=\"u1\" /\u003e\n[solve] Invoke /solve now — classify, recall, match skills, then respond.\n\nhello world","sessionId":"11111111-2222-3333-4444-555555555555","chatJid":"slack:T1/channel/C9","groupFolder":"atlas/support","topic":"t-42","assistantName":"krons","secrets":{"ANTHROPIC_API_KEY":"sk-user"},"channelName":"slack","messageId":"turn-7","sender":"u1","persona":"You are Ada.","systemMd":"House rules."}`
+	wantStdin := `{"prompt":"[pending migration] Skills version 0 \u003c 9. Run /migrate (main group) to sync all groups.\nTopic session: t-42\n\u003cknowledge layer=\"work\"\u003e\nthe work in flight\n\u003c/knowledge\u003e\n\u003cuser id=\"u1\" /\u003e\n[solve] Invoke /solve now — classify, recall, match skills, then respond.\n\nhello world","sessionId":"11111111-2222-3333-4444-555555555555","chatJid":"slack:T1/channel/C9","groupFolder":"atlas/support","topic":"t-42","assistantName":"krons","secrets":{"ANTHROPIC_API_KEY":"sk-user"},"channelName":"slack","messageId":"turn-7","sender":"u1","persona":"You are Ada.","systemMd":"House rules."}`
 	if string(turn.Stdin) != wantStdin {
 		t.Errorf("stdin frame\n got: %s\nwant: %s", turn.Stdin, wantStdin)
 	}
@@ -228,16 +239,25 @@ func TestRenderTurnGoldenElevated(t *testing.T) {
 	cfg.ModelGatewayURL = "http://litellm:4000"
 	folders := resolverFor(cfg)
 
-	turn := renderTurn(cfg, folders, runedv1.RunRequest{
+	turn, err := renderTurn(cfg, folders, runedv1.RunRequest{
 		Folder: "main", ChatJID: "telegram:user/42", Channel: "telegram",
 		MessageBatch: "do the thing", TurnID: "turn-9", Elevated: true,
 		Secrets:         map[string]string{"ANTHROPIC_API_KEY": "sk-user", "GH_TOKEN": "ghp"},
 		ModelGatewayKey: "sk-virtual-turn",
 	}, "arizuko-krons-main-1700000000000", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	wantMounts := []string{
 		root + "/groups/main -> /home/node",
-		root + "/app-src -> /opt/arizuko ro",
+		selectedCore(t, cfg) + " -> /opt/arizuko/ant ro",
+		selectedCore(t, cfg) + "/skills/base -> /home/node/.claude/skills/base ro",
+		selectedCore(t, cfg) + "/skills/migrate -> /home/node/.claude/skills/migrate ro",
+		selectedCore(t, cfg) + "/skills/self -> /home/node/.claude/skills/self ro",
+		selectedCore(t, cfg) + "/CLAUDE.md -> /home/node/.claude/CLAUDE.md ro",
+		selectedCore(t, cfg) + "/output-styles/brief.md -> /home/node/.claude/output-styles/brief.md ro",
+		selectedCore(t, cfg) + "/output-styles/slack.md -> /home/node/.claude/output-styles/slack.md ro",
 		root + "/groups/share -> /var/lib/share",
 		root + "/ipc/main -> /run/ipc",
 		root + "/groups/main/.codex -> /home/node/.codex",
@@ -283,11 +303,14 @@ func TestPayloadCarriesOnlyTheAgentsKeys(t *testing.T) {
 	noHostSecrets(t)
 	root := t.TempDir()
 	cfg := goldenCfg(t, root)
-	turn := renderTurn(cfg, resolverFor(cfg), runedv1.RunRequest{
+	turn, err := renderTurn(cfg, resolverFor(cfg), runedv1.RunRequest{
 		Folder: "solo/inbox", ChatJID: "web:solo/inbox", Channel: "web",
 		SessionID: "s1", MessageBatch: "hi", TriggerSender: "user:u1",
 		TurnID: "m-1", Topic: "t", Secrets: map[string]string{"GH_TOKEN": "x"},
 	}, "h", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	var frame map[string]any
 	if err := json.Unmarshal(turn.Stdin, &frame); err != nil {

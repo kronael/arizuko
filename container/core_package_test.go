@@ -60,6 +60,253 @@ func corePackageDatabase(t *testing.T) *store.Store {
 	return database
 }
 
+func TestPackageInventoryCanonicalSelections(t *testing.T) {
+	for _, conflict := range []string{"package", "skill", "group-core", "missing-core", "missing-root", "dangling-group", "corrupt-artifact"} {
+		t.Run(conflict, func(t *testing.T) {
+			cfg := corePackageFixture(t)
+			if err := EnsureCorePackage(cfg, nil); err != nil {
+				t.Fatal(err)
+			}
+			system, err := ReadPackageSelection(cfg.ProjectRoot, "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			switch conflict {
+			case "package":
+				snapshot := prepareSnapshot(t, cfg.ProjectRoot, snapshotSource(t, "extra", "skill"))
+				if err := SelectPackages(cfg.ProjectRoot, "", append(system, snapshot)); err != nil {
+					t.Fatal(err)
+				}
+				if err := SelectPackages(cfg.ProjectRoot, "g", []PackageSnapshot{snapshot}); err != nil {
+					t.Fatal(err)
+				}
+			case "skill":
+				writeSnapshotFile(t, cfg.GroupsDir, "g/.claude/skills/base/.disabled", "disabled")
+				source := snapshotSource(t, "extra", "skill")
+				writeSnapshotFile(t, source, "skills/base/SKILL.md", "conflicting")
+				if err := SelectPackages(cfg.ProjectRoot, "g", []PackageSnapshot{prepareSnapshot(t, cfg.ProjectRoot, source)}); err != nil {
+					t.Fatal(err)
+				}
+			case "group-core":
+				if err := SelectPackages(cfg.ProjectRoot, "g", system); err != nil {
+					t.Fatal(err)
+				}
+			case "missing-core":
+				if err := SelectPackages(cfg.ProjectRoot, "", nil); err != nil {
+					t.Fatal(err)
+				}
+			case "missing-root":
+				snapshot := prepareSnapshot(t, cfg.ProjectRoot, snapshotSource(t, "core", "skill"))
+				if err := SelectPackages(cfg.ProjectRoot, "", []PackageSnapshot{snapshot}); err != nil {
+					t.Fatal(err)
+				}
+			case "dangling-group":
+				if err := SelectPackages(cfg.ProjectRoot, "g", nil); err != nil {
+					t.Fatal(err)
+				}
+				entries, err := os.ReadDir(filepath.Join(cfg.ProjectRoot, "package-active"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				for _, entry := range entries {
+					if entry.Name() == "system" {
+						continue
+					}
+					active := filepath.Join(cfg.ProjectRoot, "package-active", entry.Name())
+					if err := os.Remove(active); err != nil {
+						t.Fatal(err)
+					}
+					if err := os.Symlink("../package-selections/"+entry.Name()+"/"+strings.Repeat("0", 64), active); err != nil {
+						t.Fatal(err)
+					}
+				}
+			case "corrupt-artifact":
+				dir, err := ResolvePackage(cfg.ProjectRoot, system[0])
+				if err != nil {
+					t.Fatal(err)
+				}
+				file := filepath.Join(dir, "CLAUDE.md")
+				if err := os.Chmod(file, 0o644); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(file, []byte("corrupt"), 0o444); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, err := ReadPackageInventory(cfg.ProjectRoot, "g"); err == nil {
+				t.Fatalf("%s accepted", conflict)
+			}
+		})
+	}
+}
+
+func TestPackageMountTargetsRefuseWritableState(t *testing.T) {
+	for _, target := range []string{
+		"skill", "disabled-payload", "top-level", "instance", "manual", "style",
+		"skill-file", "manual-dir", "home-link", "ancestor-link", "target-link", "marker-link",
+		"mask-link", "mask-writable", "mask-nonempty", "legacy-empty", "manual-link", "style-link", "marker-dir",
+	} {
+		t.Run(target, func(t *testing.T) {
+			cfg := corePackageFixture(t)
+			if err := EnsureCorePackage(cfg, nil); err != nil {
+				t.Fatal(err)
+			}
+			inventory, err := ReadPackageInventory(cfg.ProjectRoot, "g")
+			if err != nil {
+				t.Fatal(err)
+			}
+			home := filepath.Join(cfg.GroupsDir, "g")
+			var file string
+			switch target {
+			case "skill", "disabled-payload":
+				file = filepath.Join(home, ".claude/skills/base/SKILL.md")
+			case "top-level":
+				file = filepath.Join(home, "skills/base/SKILL.md")
+			case "instance":
+				file = filepath.Join(cfg.ProjectRoot, "skills/base/SKILL.md")
+			case "manual":
+				file = filepath.Join(home, ".claude/CLAUDE.md")
+			case "style":
+				file = filepath.Join(home, ".claude/output-styles/brief.md")
+			case "skill-file":
+				file = filepath.Join(home, ".claude/skills/base")
+			}
+			if file != "" {
+				writeSnapshotFile(t, filepath.Dir(file), filepath.Base(file), "preserve user bytes")
+			}
+			if target == "disabled-payload" {
+				writeSnapshotFile(t, home, ".claude/skills/base/.disabled", "choice")
+			}
+			if target == "manual-dir" {
+				if err := os.MkdirAll(filepath.Join(home, ".claude/CLAUDE.md"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if target == "legacy-empty" || target == "marker-dir" {
+				dir := filepath.Join(home, "skills/base")
+				if target == "marker-dir" {
+					dir = filepath.Join(home, ".claude/skills/base/.disabled")
+				}
+				if err := os.MkdirAll(dir, 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			links := map[string]string{
+				"home-link": home, "ancestor-link": filepath.Join(home, ".claude"),
+				"target-link": filepath.Join(home, ".claude/skills/base"),
+				"marker-link": filepath.Join(home, ".claude/skills/base/.disabled"),
+				"mask-link":   filepath.Join(cfg.ProjectRoot, "packages/.mount-empty"),
+				"manual-link": filepath.Join(home, ".claude/CLAUDE.md"),
+				"style-link":  filepath.Join(home, ".claude/output-styles/brief.md"),
+			}
+			if link := links[target]; link != "" {
+				if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(t.TempDir(), link); err != nil {
+					t.Fatal(err)
+				}
+			}
+			mask := filepath.Join(cfg.ProjectRoot, "packages/.mount-empty")
+			if target == "mask-writable" || target == "mask-nonempty" {
+				if err := os.Mkdir(mask, 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if target == "mask-nonempty" {
+					writeSnapshotFile(t, mask, "SKILL.md", "not empty")
+					if err := os.Chmod(mask, 0o555); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			_, _, refusal := PreparePackageMountTargets(cfg, "g", inventory)
+			if refusal == nil {
+				t.Fatalf("%s accepted", target)
+			}
+			if file != "" {
+				exact := file
+				if target == "top-level" || target == "instance" {
+					exact = filepath.Dir(file)
+				}
+				if !strings.Contains(refusal.Error(), exact) || !strings.Contains(refusal.Error(), "packages install/upgrade") {
+					t.Fatalf("refusal lacks exact path/action: %v", refusal)
+				}
+				body, err := os.ReadFile(file)
+				if err != nil || string(body) != "preserve user bytes" {
+					t.Fatalf("user bytes changed at %s: %q, %v", file, body, err)
+				}
+			}
+			if target == "manual" || target == "style" || strings.HasPrefix(target, "mask-") {
+				if _, err := os.Lstat(filepath.Join(home, ".claude/skills/base")); !os.IsNotExist(err) {
+					t.Fatalf("refusal created target before complete preflight: %v", err)
+				}
+			}
+		})
+	}
+}
+
+func TestPackageMountTargetsCopiedSetupRefuses(t *testing.T) {
+	cfg := &core.Config{ProjectRoot: t.TempDir()}
+	cfg.GroupsDir = filepath.Join(cfg.ProjectRoot, "groups")
+	seedCoreRelease(t, cfg)
+	if err := SetupGroup(cfg, nil, "g", ""); err != nil {
+		t.Fatal(err)
+	}
+	lockSnapshotPackages(t, cfg.ProjectRoot)
+	inventory, err := ReadPackageInventory(cfg.ProjectRoot, "g")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeSnapshotFile(t, cfg.GroupsDir, "g/.claude/skills/base/.disabled", "disabled copy")
+	if _, _, err := PreparePackageMountTargets(cfg, "g", inventory); err == nil ||
+		!strings.Contains(err.Error(), "packages install/upgrade") {
+		t.Fatalf("copied SetupGroup home accepted: %v", err)
+	}
+	file := filepath.Join(cfg.GroupsDir, "g/.claude/skills/base/SKILL.md")
+	if body, err := os.ReadFile(file); err != nil || string(body) != "release skill" {
+		t.Fatalf("setup copy changed: %q, %v", body, err)
+	}
+}
+
+func TestPackageMountTargetsAnchorExactHome(t *testing.T) {
+	cfg := corePackageFixture(t)
+	home := filepath.Join(cfg.GroupsDir, "g")
+	other := filepath.Join(cfg.GroupsDir, "other")
+	if err := os.MkdirAll(home, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeSnapshotFile(t, other, "secret", "other group")
+	root, rel, err := openPackageHome(cfg.GroupsDir, "g")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	if rel != "." {
+		t.Fatalf("home is not anchored: %q", rel)
+	}
+	if err := os.Rename(home, home+"-moved"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(other, home); err != nil {
+		t.Fatal(err)
+	}
+	if err := root.WriteFile("owned", []byte("original home"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(other, "owned")); !os.IsNotExist(err) {
+		t.Fatalf("anchored write reached other group: %v", err)
+	}
+	if err := root.Symlink("../other", "escape"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := root.ReadFile("escape/secret"); err == nil {
+		t.Fatal("anchored home read another group's file")
+	}
+	if _, _, err := openPackageHome(cfg.GroupsDir, "g"); err == nil {
+		t.Fatal("replacement home symlink accepted")
+	}
+}
+
 func TestSetupGroupCoreSelectionConflict(t *testing.T) {
 	cfg := &core.Config{ProjectRoot: t.TempDir()}
 	cfg.GroupsDir = filepath.Join(cfg.ProjectRoot, "groups")

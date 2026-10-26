@@ -168,11 +168,14 @@ Read surfaces (`/dash/status/`, `/dash/tasks/`, `/dash/activity/`, `/dash/groups
 - `AUTHD_URL` — authd's base URL, used twice: the JWKS endpoint (unset → identity verification disabled, local dev) and the backend for the `/dash/authd/` control plane (default `http://authd:8080` via `backendURL`)
 - `AUTHD_SERVICE_KEY` — ES256 private key for service:dashd bearer (whapd re-pair proxy); optional
 - `AUTHD_SERVICE_NAME` — service name (default `dashd`)
-- `HOST_APP_DIR` — app source path for enumerating stock skills in groups settings
 - `WHAPD_URL` — whapd base URL for re-pair proxy (default `http://whapd:8080`)
 - `PROXYD_URL` — proxyd base URL (default `http://proxyd:8080`). The hub asks its `/v1/proxyd_routes` which daemon pages are actually routed; on failure it degrades to the core routes compiled in, so an operator is never linked at a path that 404s
 - `RUNED_URL`, `ONBOD_URL` — two of the audit sources (default `http://runed:8080`, `http://onbod:8080`). `RUNED_URL` is also where the group delete page stops each removed folder's run (`POST /v1/runs/stop`, dashd's `runs:kill`). It probes `GET /health` first: runed unreachable answers 503 with nothing removed, and `arizuko group <instance> rm -f <folder>` is the escape. A stop that fails after the purge answers 200 with a warning, because the rows are gone.
 - `ROUTER_URL` — routd base URL (default `http://routd:8080`); the `/v1` reads in the figure above go here. Compose emits none of these; all resolve through `backendURL`, which names the compose service on the fixed in-container `:8080`. Set one only to override.
+
+Group settings enumerate active system and exact-folder package skills through
+the shared inventory. Marker reads and writes hold the package lock. Unsafe
+paths and writable managed payloads report visible errors before settings writes.
 
 ## Health signal
 

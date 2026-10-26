@@ -5,11 +5,14 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/kronael/arizuko/container"
 	"github.com/kronael/arizuko/core"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 )
@@ -44,10 +47,14 @@ func (*turnRecorder) Kill(string) error { return nil }
 // style, wrong egress, missing grants), and the expectations below are literals
 // so a renderer that changes its answer cannot agree with them.
 func TestHTTPRunThreadsFullTurn(t *testing.T) {
+	noHostSecrets(t)
 	rec := &turnRecorder{res: RunResult{Outcome: runedv1.OutcomeOK}}
 	// service:routd drives runs (folder=""), so any target folder is allowed.
 	_, srv := serverWith(t, rec, fakeVerifier{scope: []string{"runs:run"}})
 	h := srv.Handler()
+	cfg := srv.mgr.cfg
+	_, system := selectRenderPackage(t, cfg, "", "system-extra", "system-skill", "system skill")
+	_, group := selectRenderPackage(t, cfg, "acme/eng", "group-extra", "group-skill", "group skill")
 
 	got := doRun(t, h, runedv1.RunRequest{
 		Folder: "acme/eng", Topic: "incident", ChatJID: "telegram:42",
@@ -73,6 +80,26 @@ func TestHTTPRunThreadsFullTurn(t *testing.T) {
 	if turn.Handle == "" {
 		t.Fatal("Handle empty — the substrate has nothing to start, steer or kill by")
 	}
+	coreDir := selectedCore(t, cfg)
+	for guest, source := range map[string]string{
+		"/opt/arizuko/ant":                          coreDir,
+		"/home/node/.claude/CLAUDE.md":              filepath.Join(coreDir, "CLAUDE.md"),
+		"/home/node/.claude/skills/base":            filepath.Join(coreDir, "skills/base"),
+		"/home/node/.claude/skills/system-skill":    filepath.Join(system, "skills/system-skill"),
+		"/home/node/.claude/skills/group-skill":     filepath.Join(group, "skills/group-skill"),
+		"/home/node/.claude/output-styles/brief.md": filepath.Join(coreDir, "output-styles/brief.md"),
+	} {
+		mount := mountAt(t, *turn, guest)
+		if !mount.RO || mount.Host != source {
+			t.Fatalf("immutable full Turn mount %s = %+v, want %s ro", guest, mount, source)
+		}
+	}
+	captured, err := json.Marshal(map[string]any{"handle": turn.Handle, "folder": turn.Folder,
+		"mounts": turn.Mounts, "env": turn.Env, "stdin": json.RawMessage(turn.Stdin), "egress": turn.Egress})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("captured Turn: %s", captured)
 
 	// The stdin frame: the fields ant reads, plus the topic annotation the
 	// renderer prefixes onto the prompt.
@@ -128,6 +155,76 @@ func TestHTTPRunThreadsFullTurn(t *testing.T) {
 	// renderWiring configures; container_config carried no Timeout.
 	if ttl := time.Duration(rec.ttl.Load()); ttl <= 55*time.Second || ttl > 60*time.Second {
 		t.Errorf("ctx deadline left %s, want just under 60s", ttl)
+	}
+}
+
+func TestHTTPRunThreadsFullTurnRefusesUnsafePackages(t *testing.T) {
+	for _, failure := range []string{"missing-core", "corrupt-selection", "collision", "duplicate"} {
+		t.Run(failure, func(t *testing.T) {
+			recorder := &turnRecorder{res: RunResult{Outcome: runedv1.OutcomeOK}}
+			db, server := serverWith(t, recorder, fakeVerifier{scope: []string{"runs:run"}})
+			cfg := server.mgr.cfg
+			if failure == "duplicate" {
+				selectRenderPackage(t, cfg, "g", "conflict", "base", "conflicting skill")
+				write(t, filepath.Join(cfg.GroupsDir, "g/.claude/skills/base/.disabled"), "disabled")
+			}
+			lock, err := container.LockPackages(cfg.ProjectRoot)
+			if err != nil {
+				t.Fatal(err)
+			}
+			switch failure {
+			case "missing-core":
+				err = container.SelectPackages(cfg.ProjectRoot, "", nil)
+			case "corrupt-selection":
+				active := filepath.Join(cfg.ProjectRoot, "package-active/system")
+				if err := os.Remove(active); err != nil {
+					t.Fatal(err)
+				}
+				err = os.Symlink("../package-selections/system/"+strings.Repeat("0", 64), active)
+			case "collision":
+				write(t, filepath.Join(cfg.GroupsDir, "g/.claude/skills/base/SKILL.md"), "user skill")
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := lock.Close(); err != nil {
+				t.Fatal(err)
+			}
+			for range 2 {
+				response := doRun(t, server.Handler(), runedv1.RunRequest{Folder: "g", MessageBatch: "refuse"})
+				var outcome runedv1.RunOutcome
+				if err := json.Unmarshal(response.Body.Bytes(), &outcome); err != nil {
+					t.Fatal(err)
+				}
+				if response.Code != http.StatusOK || outcome.Outcome != runedv1.OutcomeError ||
+					outcome.Error == "" || outcome.Busy || !outcome.Terminal {
+					t.Fatalf("refusal = %d, %+v", response.Code, outcome)
+				}
+				if recorder.last.Load() != nil {
+					t.Fatal("runtime called after renderer refusal")
+				}
+				spawn, err := db.SpawnByRunID(t.Context(), outcome.RunID)
+				if err != nil || spawn.State != "error" {
+					t.Fatalf("refusal did not complete spawn: %+v, %v", spawn, err)
+				}
+				live, err := db.LiveSpawnInFolder(t.Context(), "g")
+				if err != nil || live != nil {
+					t.Fatalf("refusal retained slot: %+v, %v", live, err)
+				}
+			}
+			sessions, err := db.RecentSessions(t.Context(), "g", 10)
+			if err != nil || len(sessions) != 2 {
+				t.Fatalf("refusal session history: %+v, %v", sessions, err)
+			}
+			for _, session := range sessions {
+				if session.Result != runedv1.OutcomeError || session.EndedAt == "" || session.Error == "" {
+					t.Fatalf("refusal did not close session: %+v", session)
+				}
+			}
+			if _, err := os.Lstat(filepath.Join(cfg.GroupsDir, "g/.claude/settings.json")); !os.IsNotExist(err) {
+				t.Fatalf("refusal wrote settings: %v", err)
+			}
+		})
 	}
 }
 

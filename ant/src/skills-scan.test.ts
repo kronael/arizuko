@@ -53,6 +53,22 @@ test('scanSkills: a dir without SKILL.md is not a skill (.disabled stock skills)
   expect(scanSkills(root)).toEqual({ clean: [], excluded: [] });
 });
 
+/** A sealed empty managed directory stays undiscovered while a custom sibling loads. */
+test('scanSkills: an empty managed mask preserves custom skill discovery', () => {
+  const root = tmpSkillsDir();
+  const masked = path.join(root, 'managed');
+  fs.mkdirSync(masked, { mode: 0o555 });
+  writeSkill(root, 'custom', '---\nname: custom\ndescription: custom skill\n---\nUse this skill.\n');
+
+  const scan = scanSkills(root);
+  expect(scan.excluded).toEqual([]);
+  expect(scan.clean.map((skill) => skill.name)).toEqual(['custom']);
+  expect(fs.readdirSync(masked)).toEqual([]);
+  expect(fs.statSync(masked).mode & 0o222).toBe(0);
+  fs.writeFileSync(path.join(root, 'custom', 'note.md'), 'custom writes remain available');
+  expect(fs.readFileSync(path.join(root, 'custom', 'note.md'), 'utf8')).toBe('custom writes remain available');
+});
+
 test('scanSkills: a missing skills dir means no skills, not an error', () => {
   expect(scanSkills('/nonexistent/skills')).toEqual({ clean: [], excluded: [] });
 });

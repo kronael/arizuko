@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/kronael/arizuko/container"
@@ -30,7 +31,34 @@ func fhsConfig(t *testing.T) (*core.Config, *groupfolder.Resolver) {
 	os.MkdirAll(cfg.GroupsDir, 0o755)
 	os.MkdirAll(cfg.IpcDir, 0o755)
 	os.MkdirAll(filepath.Join(cfg.WebDir, "pub"), 0o755)
+	initializeRenderCore(t, cfg)
 	return cfg, &groupfolder.Resolver{GroupsDir: cfg.GroupsDir, IpcDir: cfg.IpcDir}
+}
+
+func testMounts(t *testing.T, cfg *core.Config, folders *groupfolder.Resolver,
+	req runedv1.RunRequest, gc core.GroupConfig, groupDir string) []core.Mount {
+	t.Helper()
+	mounts, err := buildMounts(cfg, folders, req, gc, groupDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return mounts
+}
+
+func selectedCore(t *testing.T, cfg *core.Config) string {
+	t.Helper()
+	lock, err := container.LockPackages(cfg.ProjectRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inventory, err := container.ReadPackageInventory(cfg.ProjectRoot, "fixture")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := lock.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return inventory.Core
 }
 
 // captureWarnings redirects the default slog to a buffer for the test's
@@ -54,6 +82,167 @@ func findMount(mounts []core.Mount, guest string) *core.Mount {
 	return nil
 }
 
+func TestBuildMountsImmutableCore(t *testing.T) {
+	cfg, folders := renderWiring(t)
+	req := runedv1.RunRequest{Folder: "solo/inbox"}
+	home := filepath.Join(cfg.GroupsDir, string(req.Folder))
+	mounts := testMounts(t, cfg, folders, req, core.GroupConfig{}, home)
+	for _, guest := range []string{
+		"/opt/arizuko/ant", "/home/node/.claude/CLAUDE.md",
+		"/home/node/.claude/skills/base",
+		"/home/node/.claude/output-styles/brief.md",
+	} {
+		mount := findMount(mounts, guest)
+		if mount == nil || !mount.RO || !strings.HasPrefix(mount.Host, filepath.Join(cfg.ProjectRoot, "packages", "core")+"/") {
+			t.Fatalf("immutable mount %s: %+v", guest, mount)
+		}
+	}
+	for _, target := range []string{".claude/skills/base", ".claude/CLAUDE.md", ".claude/output-styles/brief.md"} {
+		info, err := os.Lstat(filepath.Join(home, target))
+		if err != nil {
+			t.Fatal(err)
+		}
+		uid := os.Geteuid()
+		if uid == 0 {
+			uid = 1000
+		}
+		if int(info.Sys().(*syscall.Stat_t).Uid) != uid {
+			t.Fatalf("target %s uid=%d, want %d", target, info.Sys().(*syscall.Stat_t).Uid, uid)
+		}
+	}
+}
+
+func TestBuildMountsStableArtifactsAndDisabledSkills(t *testing.T) {
+	cfg, folders := renderWiring(t)
+	req := runedv1.RunRequest{Folder: "solo/inbox"}
+	home := filepath.Join(cfg.GroupsDir, string(req.Folder))
+	_, optional := selectRenderPackage(t, cfg, "solo/inbox", "extra", "optional", "old optional")
+	write(t, filepath.Join(home, ".claude/skills/custom/SKILL.md"), "custom skill")
+	write(t, filepath.Join(home, ".claude/output-styles/custom.md"), "custom style")
+	write(t, filepath.Join(home, "CLAUDE.md"), "group runbook")
+	first, err := renderTurn(cfg, folders, req, "first", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(filepath.Join(home, ".claude/CLAUDE.md"), 0o444); err != nil {
+		t.Fatal(err)
+	}
+	oldCore := mountAt(t, first, "/opt/arizuko/ant").Host
+	oldFiles := map[string]string{
+		filepath.Join(oldCore, "CLAUDE.md"):                 "resident manual\n",
+		filepath.Join(oldCore, "output-styles/brief.md"):    "brief style\n",
+		filepath.Join(oldCore, "skills/base/SKILL.md"):      "---\nname: base\ndescription: Base\n---\nBase\n",
+		filepath.Join(optional, "skills/optional/SKILL.md"): "old optional",
+	}
+	write(t, filepath.Join(cfg.ProjectRoot, "app-src/ant/CLAUDE.md"), "mutable cache")
+	write(t, filepath.Join(home, "arizuko.toml"), "name = \"unrelated\"\n[[product]]\nsource = \"unselected\"\n")
+	write(t, filepath.Join(cfg.AppSrcDir, "ant/CLAUDE.md"), "new manual")
+	write(t, filepath.Join(cfg.AppSrcDir, "ant/skills/base/SKILL.md"), "new core skill")
+	write(t, filepath.Join(cfg.AppSrcDir, "ant/output-styles/brief.md"), "new style")
+	unchanged, err := renderTurn(cfg, folders, req, "unchanged", 0)
+	if err != nil || mountAt(t, unchanged, "/opt/arizuko/ant").Host != oldCore {
+		t.Fatalf("source edit changed active core: %+v, %v", unchanged.Mounts, err)
+	}
+	lock, err := container.LockPackages(cfg.ProjectRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, skill := range []string{"base", "optional"} {
+		if err := container.SetPackageSkillDisabled(cfg, "solo/inbox", skill, true); err != nil {
+			t.Fatal(err)
+		}
+	}
+	marker := filepath.Join(home, ".claude/skills/optional/.disabled")
+	write(t, marker, "keep the choice")
+	if err := container.EnsureCorePackage(cfg, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := lock.Close(); err != nil {
+		t.Fatal(err)
+	}
+	_, currentOptional := selectRenderPackage(t, cfg, "solo/inbox", "extra", "optional", "new optional")
+	masked, err := renderTurn(cfg, folders, req, "masked", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if body, err := os.ReadFile(marker); err != nil || string(body) != "keep the choice" {
+		t.Fatalf("upgrade changed marker bytes: %q, %v", body, err)
+	}
+	for _, skill := range []string{"base", "optional"} {
+		mount := mountAt(t, masked, "/home/node/.claude/skills/"+skill)
+		if !mount.RO || mount.Host != filepath.Join(cfg.ProjectRoot, "packages/.mount-empty") {
+			t.Fatalf("disabled mount = %+v", mount)
+		}
+		if entries, err := os.ReadDir(mount.Host); err != nil || len(entries) != 0 {
+			t.Fatalf("disabled payload discoverable: %v, %v", entries, err)
+		}
+	}
+	currentCore := mountAt(t, masked, "/opt/arizuko/ant").Host
+	if currentCore == oldCore || currentOptional == optional {
+		t.Fatal("upgrade retained old active paths")
+	}
+	lock, err = container.LockPackages(cfg.ProjectRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, skill := range []string{"base", "optional"} {
+		if err := container.SetPackageSkillDisabled(cfg, "solo/inbox", skill, false); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := lock.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reenabled, err := renderTurn(cfg, folders, req, "reenabled", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mountAt(t, reenabled, "/home/node/.claude/skills/optional").Host != filepath.Join(currentOptional, "skills/optional") ||
+		mountAt(t, reenabled, "/home/node/.claude/skills/base").Host != filepath.Join(currentCore, "skills/base") {
+		t.Fatal("re-enable did not select current artifacts")
+	}
+	lock, err = container.LockPackages(cfg.ProjectRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := container.SelectPackages(cfg.ProjectRoot, "solo/inbox", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := lock.Close(); err != nil {
+		t.Fatal(err)
+	}
+	removed, err := renderTurn(cfg, folders, req, "removed", 0)
+	if err != nil || findMount(removed.Mounts, "/home/node/.claude/skills/optional") != nil {
+		t.Fatalf("removal retained managed mount: %+v, %v", removed.Mounts, err)
+	}
+	for file, want := range oldFiles {
+		if body, err := os.ReadFile(file); err != nil || string(body) != want {
+			t.Fatalf("old artifact changed %s: %q, %v", file, body, err)
+		}
+	}
+	for file, want := range map[string]string{
+		".claude/skills/custom/SKILL.md":  "custom skill",
+		".claude/output-styles/custom.md": "custom style", "CLAUDE.md": "group runbook",
+	} {
+		if body, err := os.ReadFile(filepath.Join(home, file)); err != nil || string(body) != want {
+			t.Fatalf("custom file changed %s: %q, %v", file, body, err)
+		}
+		write(t, filepath.Join(home, file), want+" writable")
+	}
+	for _, target := range []string{".claude/CLAUDE.md", ".claude/output-styles/brief.md"} {
+		info, err := os.Lstat(filepath.Join(home, target))
+		if err != nil || !info.Mode().IsRegular() || info.Size() != 0 {
+			t.Fatalf("target not empty regular file %s: %v, %v", target, info, err)
+		}
+	}
+	for _, target := range []string{".claude/skills/base", ".claude/skills/optional"} {
+		entries, err := os.ReadDir(filepath.Join(home, target))
+		if err != nil || len(entries) != 0 {
+			t.Fatalf("turn copied skill bytes to %s: %v, %v", target, entries, err)
+		}
+	}
+}
+
 // indexOfMount returns the position of the first mount with the matching
 // container path, or -1.
 func indexOfMount(mounts []core.Mount, guest string) int {
@@ -74,14 +263,14 @@ func TestBuildMounts_FHSPaths(t *testing.T) {
 	req := runedv1.RunRequest{Folder: "atlas/support", WebPublish: true}
 	groupDir := filepath.Join(cfg.GroupsDir, string(req.Folder))
 	os.MkdirAll(groupDir, 0o755)
-	mounts := buildMounts(cfg, folders, req, core.GroupConfig{}, groupDir)
+	mounts := testMounts(t, cfg, folders, req, core.GroupConfig{}, groupDir)
 
 	cases := []struct {
 		container string
 		wantRO    bool
 		wantHost  string
 	}{
-		{"/opt/arizuko", true, filepath.Join(cfg.ProjectRoot, container.AppSrcDir)},
+		{"/opt/arizuko/ant", true, selectedCore(t, cfg)},
 		{"/run/ipc", false, ""},                                        // host varies
 		{webRoot, true, filepath.Join(cfg.WebDir, "pub")},              // RO whole pub tree
 		{filepath.Join(core.ContainerHome, "public_html"), false, ""},  // ~/public_html bind
@@ -118,12 +307,13 @@ func TestBuildMounts_NoLegacyWorkspace(t *testing.T) {
 	os.MkdirAll(cfg.IpcDir, 0o755)
 	os.MkdirAll(filepath.Join(cfg.WebDir, "pub"), 0o755)
 	folders := &groupfolder.Resolver{GroupsDir: cfg.GroupsDir, IpcDir: cfg.IpcDir}
+	initializeRenderCore(t, cfg)
 
 	for _, folder := range []string{"root", "atlas", "atlas/support"} {
 		req := runedv1.RunRequest{Folder: types.Folder(folder), Elevated: folder == "root"}
 		groupDir := filepath.Join(cfg.GroupsDir, folder)
 		os.MkdirAll(groupDir, 0o755)
-		mounts := buildMounts(cfg, folders, req, core.GroupConfig{}, groupDir)
+		mounts := testMounts(t, cfg, folders, req, core.GroupConfig{}, groupDir)
 		for _, m := range mounts {
 			if strings.HasPrefix(m.Container, "/workspace/") {
 				t.Errorf("folder %q: legacy /workspace/ mount %q", folder, m.Container)
@@ -145,15 +335,15 @@ func TestBuildMounts_AgentSrcIsStagedNotHostCheckout(t *testing.T) {
 	groupDir := filepath.Join(cfg.GroupsDir, string(req.Folder))
 	os.MkdirAll(groupDir, 0o755)
 
-	m := findMount(buildMounts(cfg, folders, req, core.GroupConfig{}, groupDir), "/opt/arizuko")
+	m := findMount(testMounts(t, cfg, folders, req, core.GroupConfig{}, groupDir), "/opt/arizuko/ant")
 	if m == nil {
-		t.Fatal("no /opt/arizuko mount; an agent without it cannot migrate")
+		t.Fatal("no immutable core source mount")
 	}
 	if m.Host == cfg.HostAppDir {
 		t.Error("agent mounts HOST_APP_DIR — an uncommitted edit reaches every live group")
 	}
-	if want := filepath.Join(cfg.ProjectRoot, container.AppSrcDir); m.Host != want {
-		t.Errorf("agent source = %q, want the staged copy %q", m.Host, want)
+	if want := selectedCore(t, cfg); m.Host != want {
+		t.Errorf("agent source = %q, want selected artifact %q", m.Host, want)
 	}
 	if !m.RO {
 		t.Error("the staged release must be read-only; an agent may not rewrite it")
@@ -174,7 +364,7 @@ func TestBuildMounts_ArizukoDevAcceptsTrueSpelling(t *testing.T) {
 	groupDir := filepath.Join(cfg.GroupsDir, string(req.Folder))
 	os.MkdirAll(groupDir, 0o755)
 
-	if m := findMount(buildMounts(cfg, folders, req, core.GroupConfig{}, groupDir), "/app/src"); m == nil {
+	if m := findMount(testMounts(t, cfg, folders, req, core.GroupConfig{}, groupDir), "/app/src"); m == nil {
 		t.Error("ARIZUKO_DEV=true did not mount ant/src; runner accepted only the literal \"1\"")
 	}
 }
@@ -196,11 +386,12 @@ func TestBuildMounts_WWWBeforeHomeSlot(t *testing.T) {
 	os.MkdirAll(cfg.IpcDir, 0o755)
 	os.MkdirAll(filepath.Join(cfg.WebDir, "pub"), 0o755)
 	folders := &groupfolder.Resolver{GroupsDir: cfg.GroupsDir, IpcDir: cfg.IpcDir}
+	initializeRenderCore(t, cfg)
 
 	req := runedv1.RunRequest{Folder: "atlas", WebPublish: true}
 	groupDir := filepath.Join(cfg.GroupsDir, string(req.Folder))
 	os.MkdirAll(groupDir, 0o755)
-	mounts := buildMounts(cfg, folders, req, core.GroupConfig{}, groupDir)
+	mounts := testMounts(t, cfg, folders, req, core.GroupConfig{}, groupDir)
 
 	wwwIdx := indexOfMount(mounts, webRoot)
 	pubIdx := indexOfMount(mounts, filepath.Join(core.ContainerHome, "public_html"))
@@ -229,11 +420,12 @@ func TestBuildMounts_HomeSlotsCreatesPerGroupDirs(t *testing.T) {
 	os.MkdirAll(cfg.GroupsDir, 0o755)
 	os.MkdirAll(cfg.IpcDir, 0o755)
 	folders := &groupfolder.Resolver{GroupsDir: cfg.GroupsDir, IpcDir: cfg.IpcDir}
+	initializeRenderCore(t, cfg)
 
 	req := runedv1.RunRequest{Folder: "newgroup", WebPublish: true}
 	groupDir := filepath.Join(cfg.GroupsDir, string(req.Folder))
 	os.MkdirAll(groupDir, 0o755)
-	buildMounts(cfg, folders, req, core.GroupConfig{}, groupDir)
+	testMounts(t, cfg, folders, req, core.GroupConfig{}, groupDir)
 
 	if _, err := os.Stat(filepath.Join(cfg.WebDir, "pub", "newgroup")); err != nil {
 		t.Errorf("expected web/pub/newgroup created: %v", err)
@@ -257,11 +449,12 @@ func TestBuildMounts_RootGroupsMount(t *testing.T) {
 	os.MkdirAll(cfg.IpcDir, 0o755)
 	os.MkdirAll(filepath.Join(cfg.WebDir, "pub"), 0o755)
 	folders := &groupfolder.Resolver{GroupsDir: cfg.GroupsDir, IpcDir: cfg.IpcDir}
+	initializeRenderCore(t, cfg)
 
 	req := runedv1.RunRequest{Folder: "root", Elevated: true}
 	groupDir := filepath.Join(cfg.GroupsDir, string(req.Folder))
 	os.MkdirAll(groupDir, 0o755)
-	mounts := buildMounts(cfg, folders, req, core.GroupConfig{}, groupDir)
+	mounts := testMounts(t, cfg, folders, req, core.GroupConfig{}, groupDir)
 
 	if m := findMount(mounts, "/var/lib/groups"); m == nil {
 		t.Errorf("tier 0 should get /var/lib/groups mount")
@@ -287,7 +480,7 @@ func TestBuildMountsOwnsTheGroupCodexDirBeforeDockerSeesIt(t *testing.T) {
 		t.Fatalf(".codex exists before the build; this test checks nothing (err=%v)", err)
 	}
 
-	mounts := buildMounts(cfg, folders, req, core.GroupConfig{}, groupDir)
+	mounts := testMounts(t, cfg, folders, req, core.GroupConfig{}, groupDir)
 
 	fi, err := os.Stat(codex)
 	if err != nil || !fi.IsDir() {
@@ -322,7 +515,7 @@ func TestBuildMounts_DocsSubtreeWithoutWebPublish(t *testing.T) {
 	req := runedv1.RunRequest{Folder: "nogrant"} // holds no web:publish
 	groupDir := filepath.Join(cfg.GroupsDir, string(req.Folder))
 	os.MkdirAll(groupDir, 0o755)
-	mounts := buildMounts(cfg, folders, req, core.GroupConfig{}, groupDir)
+	mounts := testMounts(t, cfg, folders, req, core.GroupConfig{}, groupDir)
 
 	// The grant half first, so a widening still reports when the docs half is
 	// also broken.
@@ -350,7 +543,7 @@ func TestBuildMounts_DocsSubtreeWithoutWebPublish(t *testing.T) {
 	// With the grant the whole tree comes back, and the subtree does not mount
 	// a second time underneath it.
 	req.WebPublish = true
-	mounts = buildMounts(cfg, folders, req, core.GroupConfig{}, groupDir)
+	mounts = testMounts(t, cfg, folders, req, core.GroupConfig{}, groupDir)
 	if indexOfMount(mounts, webRoot) < 0 {
 		t.Errorf("web:publish lost the %s whole-tree mount", webRoot)
 	}
@@ -432,7 +625,7 @@ func TestBuildMountsSaysWhenCodexCredsAreUnreachable(t *testing.T) {
 	}
 
 	logged := captureWarnings(t)
-	mounts := buildMounts(cfg, folders, req, core.GroupConfig{}, groupDir)
+	mounts := testMounts(t, cfg, folders, req, core.GroupConfig{}, groupDir)
 
 	out := logged()
 	for _, n := range container.CodexROMounts {
@@ -463,7 +656,7 @@ func TestBuildMountsCodexLayerOrderAndConditionality(t *testing.T) {
 	}
 
 	// No host credentials: the group dir mounts, the overmounts do not.
-	mounts := buildMounts(cfg, folders, req, core.GroupConfig{}, groupDir)
+	mounts := testMounts(t, cfg, folders, req, core.GroupConfig{}, groupDir)
 	if m := findMount(mounts, "/home/node/.codex"); m == nil || m.RO {
 		t.Fatalf("group .codex mount missing or read-only (%+v) — rollouts would die with the guest", m)
 	}
@@ -475,7 +668,7 @@ func TestBuildMountsCodexLayerOrderAndConditionality(t *testing.T) {
 
 	// With host credentials: both overmount RO, after the group dir.
 	cfg.HostCodexDir = "/host/codex"
-	mounts = buildMounts(cfg, folders, req, core.GroupConfig{}, groupDir)
+	mounts = testMounts(t, cfg, folders, req, core.GroupConfig{}, groupDir)
 	dir := indexOfMount(mounts, "/home/node/.codex")
 	for _, n := range container.CodexROMounts {
 		i := indexOfMount(mounts, "/home/node/.codex/"+n)

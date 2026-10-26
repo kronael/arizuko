@@ -369,7 +369,12 @@ func (m *Manager) execute(
 				Error: "model gateway configured but this run carries no virtual key; routd mints one per turn (spec 6/23)",
 			}
 		}
-		turn = renderTurn(m.cfg, m.folders, req, handle, ttl)
+		var err error
+		turn, err = renderTurn(m.cfg, m.folders, req, handle, ttl)
+		if err != nil {
+			return RunResult{Outcome: runedv1.OutcomeError, Terminal: true,
+				Error: fmt.Sprintf("render turn: %v", err)}
+		}
 	}
 	// RegisterSteer wires the steer callback once the guest + IPC are up; a
 	// guestless executor never calls it. It is the Manager's hook, not a

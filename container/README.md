@@ -5,9 +5,9 @@ Group setup, skill seeding, and the egress proxy engine.
 ## Purpose
 
 Owns the files a turn reads and the rules its egress proxy runs under.
-`SetupGroup` creates a group folder and seeds its skills; `SeedOutputStyles`,
-`SeedMigrateSkill` and `SeedCodexMountTargets` refresh what the platform owns
-before each spawn; `EgressRules` and `WaitHealthy` are what a substrate calls
+`SetupGroup` creates a group folder and seeds its skills. Package inventory and
+target checks support immutable mounts; `SeedCodexMountTargets` prepares credential
+targets before each spawn. `EgressRules` and `WaitHealthy` are what a substrate calls
 to start and confirm one spawn's proxy.
 
 The turn envelope itself — the mount table, the guest environment, the stdin
@@ -39,13 +39,17 @@ proxy process.
   cursor (`ROUTING.md` § Topic Routing)
 - `SeedCodexMountTargets(codexDir)` — pre-create the files codex overmounts
 - `SeedOutputStyles(cfg, claudeDir)`, `SeedMigrateSkill(cfg, claudeDir)` —
-  the platform-owned files refreshed on every spawn
+  copy output styles and the migrate skill into a writable home
 - `PackageSkillsDir(cfg) string`, `SeedPackageSkills(cfg, folder) (int, error)`
   — layer the instance's package skills into one group
 - `EnsureCorePackage(cfg, database) error` — select the configured release's
   required system core under the caller's package lock. A borrowed store completes
   its receipt; nil selects filesystem state before the store exists. Matching
   optional receipts retain their fields. Group files retain their bytes.
+- `ReadPackageInventory(dataDir, folder)` reads active system and exact-folder
+  selections under the caller's lock. `CheckPackageMountTargets` rejects writable
+  managed payloads; `PreparePackageMountTargets` creates empty targets after full
+  preflight. `SetPackageSkillDisabled` preserves existing marker bytes.
 - `WriteGatewayCaps(groupDir, cfg)` — the per-turn `.gateway-caps` file
 - `MaterializeAppSrc(cfg) string` — stage the release's `ant/` on the data dir
 - `RunUID() (int, bool)` — the uid the agent runs as inside the guest, and

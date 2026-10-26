@@ -9,21 +9,15 @@ import (
 	"strings"
 
 	"github.com/kronael/arizuko/chanlib"
-	"github.com/kronael/arizuko/container"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 )
 
-// seedSettings renders the group's .claude/settings.json for this turn and
-// refreshes the platform-owned files beside it. The guest reads the file off
-// its home mount, so this runs before the guest starts.
 func seedSettings(
 	claudeDir string, cfg *core.Config,
 	req runedv1.RunRequest, queryTimeout int64,
 ) {
-	container.SeedOutputStyles(cfg, claudeDir)
-	container.SeedMigrateSkill(cfg, claudeDir)
 	folder := string(req.Folder)
 	elevated := req.Elevated
 	fp := filepath.Join(claudeDir, "settings.json")

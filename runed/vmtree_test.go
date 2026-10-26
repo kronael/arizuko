@@ -12,12 +12,13 @@ import (
 	"github.com/kronael/arizuko/core"
 )
 
-// turnMounts is the shape buildMounts produces: nine families, one of which is
-// the agent's ipc dir and two of which are single files.
 func turnMounts() []core.Mount {
 	return []core.Mount{
 		{Host: "/srv/g/solo/inbox", Container: "/home/node"},
-		{Host: "/srv/app-src", Container: "/opt/arizuko", RO: true},
+		{Host: "/srv/packages/core/digest", Container: "/opt/arizuko/ant", RO: true},
+		{Host: "/srv/packages/core/digest/skills/base", Container: "/home/node/.claude/skills/base", RO: true},
+		{Host: "/srv/packages/core/digest/CLAUDE.md", Container: "/home/node/.claude/CLAUDE.md", RO: true},
+		{Host: "/srv/packages/core/digest/output-styles/brief.md", Container: "/home/node/.claude/output-styles/brief.md", RO: true},
 		{Host: "/srv/g/solo/share", Container: "/var/lib/share"},
 		{Host: "/srv/ipc/solo/inbox", Container: ipcMount},
 		{Host: "/srv/g/solo/inbox/.codex", Container: "/home/node/.codex"},
@@ -38,9 +39,12 @@ func TestTreePlanMirrorsGuestPathsAndKeepsIpcOutOfTheShare(t *testing.T) {
 	plan := treePlan(turnMounts())
 	want := []treeEntry{
 		{Host: "/srv/g/solo/inbox", Path: "/home/node", RO: false},
+		{Host: "/srv/packages/core/digest/CLAUDE.md", Path: "/home/node/.claude/CLAUDE.md", RO: true},
+		{Host: "/srv/packages/core/digest/output-styles/brief.md", Path: "/home/node/.claude/output-styles/brief.md", RO: true},
+		{Host: "/srv/packages/core/digest/skills/base", Path: "/home/node/.claude/skills/base", RO: true},
 		{Host: "/srv/g/solo/inbox/.codex", Path: "/home/node/.codex", RO: false},
 		{Host: "/root/.codex/auth.json", Path: "/home/node/.codex/auth.json", RO: true},
-		{Host: "/srv/app-src", Path: "/opt/arizuko", RO: true},
+		{Host: "/srv/packages/core/digest", Path: "/opt/arizuko/ant", RO: true},
 		{Host: "/srv/g/solo/share", Path: "/var/lib/share", RO: false},
 		{Host: "/srv/web/pub", Path: "/var/lib/www", RO: true},
 	}

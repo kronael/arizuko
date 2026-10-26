@@ -3,7 +3,6 @@ package runed
 import (
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"slices"
@@ -42,26 +41,23 @@ type payload struct {
 // the stdin frame and the egress allowlist — so a substrate delivers bytes and
 // names and reads no grant, persona or session id (spec 6/41 §"The renderer").
 // ttl is the run ceiling the caller armed ctx with; 0 means no ceiling.
-//
-// It also lands the per-spawn files the mounts point at: the group dir, the
-// gateway caps, .claude/settings.json and the refreshed platform skills.
 func renderTurn(
 	cfg *core.Config, folders *groupfolder.Resolver,
 	req runedv1.RunRequest, handle string, ttl time.Duration,
-) Turn {
+) (Turn, error) {
 	folder := string(req.Folder)
 	gc := groupConfig(req.ContainerConfig)
-	groupDir, _ := folders.GroupPath(folder)
-	if err := os.MkdirAll(groupDir, 0o755); err != nil {
-		// The home mount, the caps file and settings.json all land under this dir,
-		// so the spawn below stages nothing the agent can read.
-		slog.Error("group home not created; the turn stages an empty home",
-			"folder", folder, "path", groupDir, "err", err)
+	groupDir, err := folders.GroupPath(folder)
+	if err != nil {
+		return Turn{}, err
 	}
-	container.WriteGatewayCaps(groupDir, cfg)
 
 	queryTimeout := queryTimeoutMs(ttl)
-	mounts := buildMounts(cfg, folders, req, gc, groupDir)
+	mounts, err := buildMounts(cfg, folders, req, gc, groupDir)
+	if err != nil {
+		return Turn{}, err
+	}
+	container.WriteGatewayCaps(groupDir, cfg)
 	seedSettings(filepath.Join(groupDir, ".claude"), cfg, req, queryTimeout)
 
 	p := preparePayload(cfg, req, groupDir)
@@ -87,7 +83,7 @@ func renderTurn(
 		Env:    turnEnv(cfg, req, queryTimeout),
 		Stdin:  stdin,
 		Egress: egressAllowlist(req),
-	}
+	}, nil
 }
 
 // turnEnv is the agent's process environment.

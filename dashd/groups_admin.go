@@ -152,69 +152,18 @@ func (d *dash) handleGroupCreate(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/dash/groups/", http.StatusSeeOther)
 }
 
-// stockSkills returns the sorted list of skill names from ant/skills/ in appDir.
-// Returns nil when appDir is empty or the directory can't be read.
-func (d *dash) stockSkills() []string {
-	if d.appDir == "" {
-		return nil
-	}
-	dir := filepath.Join(d.appDir, "ant", "skills")
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return nil
-	}
-	var names []string
-	for _, e := range entries {
-		if e.IsDir() && skillNameRe.MatchString(e.Name()) {
-			names = append(names, e.Name())
-		}
-	}
-	return names
+func (d *dash) stockSkills(folder string) (container.PackageInventory, error) {
+	return container.ReadPackageInventory(filepath.Dir(d.groupsDir), folder)
 }
 
-// skillsDisabled returns the set of skill names that have a .disabled marker
-// under a group's .claude/skills/ dir.
-func (d *dash) skillsDisabled(folder string) map[string]bool {
-	base := filepath.Join(d.groupsDir, filepath.Clean(folder), ".claude", "skills")
-	entries, err := os.ReadDir(base)
-	if err != nil {
-		return nil
-	}
-	out := make(map[string]bool)
-	for _, e := range entries {
-		if !e.IsDir() {
-			continue
-		}
-		marker := filepath.Join(base, e.Name(), ".disabled")
-		if _, err := os.Stat(marker); err == nil {
-			out[e.Name()] = true
-		}
-	}
-	return out
+func (d *dash) skillsDisabled(folder string, inventory container.PackageInventory) (map[string]bool, error) {
+	cfg := &core.Config{ProjectRoot: filepath.Dir(d.groupsDir), GroupsDir: d.groupsDir}
+	return container.CheckPackageMountTargets(cfg, folder, inventory)
 }
 
-// setSkillDisabled creates or removes the .disabled marker for one skill.
 func (d *dash) setSkillDisabled(folder, skill string, disable bool) error {
-	if !skillNameRe.MatchString(skill) {
-		return fmt.Errorf("invalid skill name: %s", skill)
-	}
-	dir := filepath.Join(d.groupsDir, filepath.Clean(folder), ".claude", "skills", skill)
-	marker := filepath.Join(dir, ".disabled")
-	if disable {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return err
-		}
-		f, err := os.OpenFile(marker, os.O_CREATE|os.O_TRUNC, 0o644)
-		if err != nil {
-			return err
-		}
-		return f.Close()
-	}
-	err := os.Remove(marker)
-	if os.IsNotExist(err) {
-		return nil
-	}
-	return err
+	cfg := &core.Config{ProjectRoot: filepath.Dir(d.groupsDir), GroupsDir: d.groupsDir}
+	return container.SetPackageSkillDisabled(cfg, folder, skill, disable)
 }
 
 // GET /dash/groups/{folder}/settings — show current state. POST persists.
@@ -265,8 +214,35 @@ func (d *dash) handleGroupSettings(w http.ResponseWriter, r *http.Request) {
 	if open {
 		openChecked = " checked"
 	}
-	skills := d.stockSkills()
-	disabled := d.skillsDisabled(folder)
+	if d.groupsDir == "" {
+		_, _ = fmt.Fprint(w, htmlBanner("err", "group directory is not configured"))
+		pageClose(w, r)
+		return
+	}
+	lock, err := container.LockPackages(filepath.Dir(d.groupsDir))
+	if err != nil {
+		_, _ = fmt.Fprint(w, htmlBanner("err", esc(err.Error())))
+		pageClose(w, r)
+		return
+	}
+	// The picker holds the same selection while reading markers.
+	defer lock.Close() //nolint:errcheck
+	inventory, err := d.stockSkills(folder)
+	if err != nil {
+		_, _ = fmt.Fprint(w, htmlBanner("err", esc(err.Error())))
+		pageClose(w, r)
+		return
+	}
+	disabled, err := d.skillsDisabled(folder, inventory)
+	if err != nil {
+		_, _ = fmt.Fprint(w, htmlBanner("err", esc(err.Error())))
+		pageClose(w, r)
+		return
+	}
+	var skills []string
+	for _, skill := range inventory.Skills {
+		skills = append(skills, skill.Name)
+	}
 
 	type modelOption struct{ ID, Label string }
 	modelOptions := []modelOption{
@@ -341,6 +317,26 @@ func (d *dash) handleGroupSettingsSave(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad form", http.StatusBadRequest)
 		return
 	}
+	if d.groupsDir == "" {
+		http.Error(w, "group directory is not configured", http.StatusInternalServerError)
+		return
+	}
+	lock, err := container.LockPackages(filepath.Dir(d.groupsDir))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	// Selection and markers stay fixed through settings persistence.
+	defer lock.Close() //nolint:errcheck
+	inventory, err := d.stockSkills(folder)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if _, err := d.skillsDisabled(folder, inventory); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 	open := r.FormValue("open") == "1"
 	// Blank or 0 = clear to default. SetGroupObserveWindow clears on <0, so map
 	// an empty/zero submission to -1 instead of persisting 0 as a real override.
@@ -370,10 +366,11 @@ func (d *dash) handleGroupSettingsSave(w http.ResponseWriter, r *http.Request) {
 			enabledSet[v] = true
 		}
 	}
-	for _, name := range d.stockSkills() {
-		disable := !enabledSet[name]
-		if err := d.setSkillDisabled(folder, name, disable); err != nil {
-			slog.Warn("group settings save: skill", "folder", folder, "skill", name, "err", err)
+	for _, skill := range inventory.Skills {
+		disable := !enabledSet[skill.Name]
+		if err := d.setSkillDisabled(folder, skill.Name, disable); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
 		}
 	}
 

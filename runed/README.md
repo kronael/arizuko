@@ -175,6 +175,11 @@ The renderer also writes the per-turn files that the mounts point at:
 - the gateway caps file
 - the context layers that `preparePayload` puts before the prompt: the pending-migration note, the episodes, the newest 14 diary entries, `work.md`, the `<user>` pointer, `PERSONA.md` and `SYSTEM.md`
 
+Before any home write, the renderer resolves active system and exact-folder
+packages under the package lock. Missing core, invalid references and writable
+managed payloads return a terminal error before `Runtime.Run`. Existing copied
+homes require the planned ordinary install/upgrade adoption step.
+
 ### Admission is claim or reject
 
 `Manager.Run` (`manager.go`) answers in one of two ways and keeps no queue. A second queue inside runed would drift from the queue of routd, which already holds the batch.
@@ -302,7 +307,10 @@ Every host path is the path that runed itself sees. `virtiofsd` is a child of ru
 | `/home/node`                                 | `<data>/groups/<folder>/`                                             | RW                                               | every turn                                          |
 | `~/.codex`                                   | `<data>/groups/<folder>/.codex/`                                      | RW                                               | every turn: codex reads its rollouts here to resume |
 | `~/.codex/auth.json`, `~/.codex/config.toml` | `HOST_CODEX_DIR/<file>`                                               | RO                                               | `HOST_CODEX_DIR` set                                |
-| `/opt/arizuko`                               | `<data>/app-src/`, the release's staged `ant/`                        | RO                                               | every turn                                          |
+| `/opt/arizuko/ant`                           | selected immutable core artifact                                      | RO                                               | every turn                                          |
+| `~/.claude/skills/<name>`                    | selected immutable skill, or sealed empty mask when disabled          | RO                                               | every managed skill                                 |
+| `~/.claude/CLAUDE.md`                        | selected core manual                                                  | RO                                               | every turn                                          |
+| `~/.claude/output-styles/<file>`             | individual selected core style file                                   | RO                                               | every core style                                    |
 | `/var/lib/share`                             | `<data>/groups/<world>/share/`; `groups/share/` for an elevated turn  | RW, RO with a `share_mount(readonly=true)` grant | every turn                                          |
 | `/run/ipc`                                   | none: a guest tmpfs                                                   | RW                                               | every turn                                          |
 | `/var/lib/www/arizuko`                       | `<data>/web/pub/arizuko/`                                             | RO                                               | no `web:publish` grant                              |
@@ -312,6 +320,11 @@ Every host path is the path that runed itself sees. `virtiofsd` is a child of ru
 | `/var/lib/groups`                            | `<data>/groups/`                                                      | RW                                               | elevated `/root` turn                               |
 | `/mnt/<name>`                                | an operator extra in the group's `container_config`                   | RO                                               | the path lies under `MOUNT_ALLOWED_ROOTS`           |
 | `/app/src`                                   | `HOST_APP_DIR/ant/src`                                                | RW                                               | `ARIZUKO_DEV` set                                   |
+
+Managed home targets contain only empty mount structure and regular `.disabled`
+markers. The renderer preserves marker bytes. Distinct custom skills, styles and
+the root group runbook stay writable. Resolved artifact paths survive package
+updates and removal. The renderer never copies managed payload into the home.
 
 **The web view is narrow for a reason.** The tree `/var/lib/www` holds the published content of every group. A group may gate part of its own content with an `auth` or `deny` `web_routes` row. proxyd applies that row at the edge, and a bind mount cannot apply it, so the whole tree stays a grant for publishers. `pub/arizuko` is the platform doc site and not content of a group. Every folder ships a skill that reads it, so every folder sees that one subtree. The two slots are views into the canonical web tree: a write appears at the home path and at the URL path at once. Without a grant the guest has no writable web surface.
 
