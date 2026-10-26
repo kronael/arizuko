@@ -25,6 +25,10 @@ marker every entry carries. Ten entries said open in the heading and carried no
 `- **Status:** open` line, so a Status-only count answered 22 for a queue of
 31 — this section shipped with those ten missing.
 
+**Package refusal privacy.**
+
+- `L584` — pending-operation errors disclose a different group’s package identity.
+
 **Core test fixtures.**
 
 - `L582` — create-env fixtures omit the required core source and sealed-cache cleanup.
@@ -9039,3 +9043,18 @@ no pending-adoption guard runs on this GET.
 - **Test:** `dashd/admin_integration_test.go::TestDash_NestedFolderRouting` fails with `settings page not rendered for nested folder`.
 - **Fix:** initialize the required core selection with the existing fixture, keeping settings and delete routing assertions intact.
 - **Status:** open — fixture-only follow-up queued after the current guard step.
+
+
+## L584 — pending-adoption refusal exposes a foreign package identity (2026-10-26, open)
+
+MEASURED in Step9b.3 candidate `36d518c313ddadce840f1c08afb72f477d29e74d`:
+`CheckPendingPackageAdoption` includes the receipt's folder and package name in
+its error. The settings handler returns that error after authorizing only the
+requested folder. A pending instance-skill or malformed receipt in another
+folder therefore reveals that other package to the caller.
+
+- **Severity:** medium — blocks release for cross-folder metadata disclosure.
+- **Source:** `container/packages.go::CheckPendingPackageAdoption`; `dashd/groups_admin.go::handleGroupSettingsSave`.
+- **Test:** parent extends `dashd/skills_test.go::TestGroupSettingsPendingAdoption/{instance,malformed}/{disable,enable}`; all four fail with `refusal disclosed another group's package identity`.
+- **Fix:** return a generic canonical refusal without the receipt's folder or name; keep existing scopes and write ordering.
+- **Status:** open — reproduced before the bounded error-text correction.
