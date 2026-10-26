@@ -33,41 +33,6 @@ func fhsConfig(t *testing.T) (*core.Config, *groupfolder.Resolver) {
 	return cfg, &groupfolder.Resolver{GroupsDir: cfg.GroupsDir, IpcDir: cfg.IpcDir}
 }
 
-// MaterializeAppSrc is what puts bytes at that staged path. A bind mount reads
-// the host filesystem, so a copy that silently no-ops leaves every agent with an
-// empty /opt/arizuko and no way to migrate.
-func TestMaterializeAppSrc_StagesTheImageCopy(t *testing.T) {
-	cfg, _ := fhsConfig(t)
-	src := filepath.Join(cfg.ProjectRoot, "opt-arizuko")
-	if err := os.MkdirAll(filepath.Join(src, "ant", "skills", "self"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	version := filepath.Join(src, "ant", "skills", "self", "MIGRATION_VERSION")
-	if err := os.WriteFile(version, []byte("199\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	cfg.AppSrcDir = src
-
-	dst := MaterializeAppSrc(cfg)
-	got, err := os.ReadFile(filepath.Join(dst, "ant", "skills", "self", "MIGRATION_VERSION"))
-	if err != nil {
-		t.Fatalf("staged copy unreadable: %v", err)
-	}
-	if string(got) != "199\n" {
-		t.Errorf("staged MIGRATION_VERSION = %q, want the source's", got)
-	}
-
-	// Overwrite, not merge: the image is the only writer here.
-	if err := os.WriteFile(version, []byte("200\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	MaterializeAppSrc(cfg)
-	got, _ = os.ReadFile(filepath.Join(dst, "ant", "skills", "self", "MIGRATION_VERSION"))
-	if string(got) != "200\n" {
-		t.Errorf("restage left %q; a stale copy freezes every group's skills", got)
-	}
-}
-
 // TestSetupGroup_CreatesPerGroupWebSlots verifies SetupGroup pre-creates
 // the host-side web/pub/<folder>/ and web/priv/<folder>/ dirs that
 // runner.go bind-mounts into the agent home. Spec 5/V-web-vhosts.

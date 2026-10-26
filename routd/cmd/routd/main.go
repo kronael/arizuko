@@ -195,9 +195,6 @@ func main() {
 		Deliver:   deliver,
 		Proactive: routd.LoadProactiveConfig(os.Getenv),
 		GroupsDir: filepath.Join(dataDir, "groups"),
-		// Auto-migrate source root (ant/skills/self/MIGRATION_VERSION lives
-		// under it); APP_SRC_DIR falls back to HOST_APP_DIR (core.LoadConfig).
-		AppSrcDir: core.AppSrcDir(),
 		// Prompt envelope (buildAgentPrompt).
 		InstanceName:          core.EnvOr("ASSISTANT_NAME", core.DefaultAssistantName),
 		ObserveWindowMessages: core.EnvInt("OBSERVE_WINDOW_MESSAGES", 10),

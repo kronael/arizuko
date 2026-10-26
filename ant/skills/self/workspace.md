@@ -5,7 +5,7 @@ Platform mounts use FHS canonical locations (v0.45.11+). Your home
 
 | Path                  | Contents                                                       | Access                                      |
 | --------------------- | -------------------------------------------------------------- | ------------------------------------------- |
-| `/opt/arizuko`        | arizuko source (canonical skills, changelog, migrations)       | read-only, all groups                       |
+| `/opt/arizuko/ant`    | selected core package                                         | read-only, all groups                       |
 | `~/` (`/home/node`)   | home + cwd — group files, .claude/, diary, media               | read-write                                  |
 | `~/public_html/`      | public web slot, projects to `<data>/web/pub/<folder>/`        | read-write, needs `web:publish`             |
 | `~/private_html/`     | OAuth web slot, projects to `<data>/web/priv/<folder>/`        | read-write, needs `web:publish`             |
@@ -42,8 +42,6 @@ spawn has no `/var/lib/groups` mount.
 
 ```bash
 ls /opt/arizuko/
-cat /opt/arizuko/CHANGELOG.md
-git -C /opt/arizuko log --oneline -10
 ls /var/lib/groups/                # all groups visible (elevated only)
 ls /var/lib/www/                   # whole public tree, read-only
 ```

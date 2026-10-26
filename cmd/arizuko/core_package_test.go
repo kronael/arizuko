@@ -119,7 +119,7 @@ func TestCorePackageArchiveFailure(t *testing.T) {
 	}
 }
 
-// Create selects core without a store; generate completes its receipt without legacy skills.
+// Create selects core without a store; explicit upgrade completes its receipt.
 func TestCorePackageCreateBeforeStore(t *testing.T) {
 	for _, product := range []string{"", "sample"} {
 		t.Run("product="+product, func(t *testing.T) {
@@ -157,7 +157,9 @@ func TestCorePackageCreateBeforeStore(t *testing.T) {
 			}
 			t.Setenv("DYNAMODB_URL", endpoint)
 			t.Cleanup(func() { dropInstance(t) })
-			syncPackageSkills(dataDir)
+			if out, err := runManifestCLI(t, []string{"packages", "fresh", "upgrade", "core"}); err != nil {
+				t.Fatalf("core upgrade: %v, %s", err, out)
+			}
 			db, err := routd.Open()
 			if err != nil {
 				t.Fatal(err)
@@ -203,21 +205,6 @@ func TestCorePackageGroupAdd(t *testing.T) {
 	if err != nil || serr != nil || !found || len(selected) != 1 ||
 		receipt.Source != "ant" || receipt.Revision != selected[0].Digest {
 		t.Fatalf("group receipt missing: %+v %+v %v %v", selected, receipt, err, serr)
-	}
-}
-
-func TestCorePackageGenerateWithoutLegacySkills(t *testing.T) {
-	dataDir := generateInstance(t, "WEB_PORT=8095\n")
-	if _, err := os.Stat(filepath.Join(dataDir, "skills")); !os.IsNotExist(err) {
-		t.Fatalf("fixture has a legacy skills tree: %v", err)
-	}
-	generateCompose(dataDir)
-	db := instanceStore(t)
-	selected, err := container.ReadPackageSelection(dataDir, "")
-	receipt, found, rerr := db.InstalledPackage("", "core")
-	if err != nil || rerr != nil || !found || len(selected) != 1 ||
-		receipt.Source != "ant" || receipt.Revision != selected[0].Digest {
-		t.Fatalf("generate omitted core: %+v %+v %v %v", selected, receipt, err, rerr)
 	}
 }
 

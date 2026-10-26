@@ -1,10 +1,13 @@
 ---
-status: shipped
+status: reference
 depends: []
 relates-to: [5/G-engagement]
 ---
 
 # Per-surface output styles
+
+Current channel formatting lives in the ordinary core skill
+`ant/skills/self/messages.md`. The design below is reference material.
 
 ## Problem
 

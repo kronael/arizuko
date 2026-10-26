@@ -48,7 +48,7 @@ const PROGRESS_INTERVAL_MS = 90_000;
 const PROCESS_DEADLINE = Date.now() + (Number(process.env.ARIZUKO_QUERY_TIMEOUT_MS) || 15 * 60_000);
 
 // buildSystemPrompt renders the text layers the chassis owns (system MD, the
-// resident manual, persona, output style). undefined means "no rendered text"
+// resident manual, persona). undefined means "no rendered text"
 // — each harness supplies its own default.
 export function buildSystemPrompt(
   ci: ContainerInput,
@@ -65,7 +65,6 @@ export function buildSystemPrompt(
     ci.systemMd,
     profile.manual === 'rendered' ? manual() : null,
     ci.persona,
-    readOutputStyle(),
   ].filter(Boolean);
   return parts.length > 0 ? parts.join('\n\n') : undefined;
 }
@@ -76,18 +75,6 @@ export function buildSystemPrompt(
 function readHomeManual(): string | null {
   try {
     return fs.readFileSync(`${HOME}/.claude/CLAUDE.md`, 'utf-8').trim() || null;
-  } catch {
-    return null;
-  }
-}
-
-function readOutputStyle(): string | null {
-  try {
-    const s = JSON.parse(fs.readFileSync(`${HOME}/.claude/settings.json`, 'utf-8'));
-    const name = s.outputStyle;
-    if (!name || name === 'default') return null;
-    const raw = fs.readFileSync(`${HOME}/.claude/output-styles/${name}.md`, 'utf-8');
-    return raw.replace(/^---\n[\s\S]*?\n---\n*/, '').trim() || null;
   } catch {
     return null;
   }

@@ -173,12 +173,12 @@ The renderer also writes the per-turn files that the mounts point at:
 
 - `.claude/settings.json` with the `arizuko` MCP server (`socat STDIO UNIX-CONNECT:/run/ipc/gated.sock`, in `settings.go`)
 - the gateway caps file
-- the context layers that `preparePayload` puts before the prompt: the pending-migration note, the episodes, the newest 14 diary entries, `work.md`, the `<user>` pointer, `PERSONA.md` and `SYSTEM.md`
+- the context layers that `preparePayload` puts before the prompt: the episodes, the newest 14 diary entries, `work.md`, the `<user>` pointer, `PERSONA.md` and `SYSTEM.md`
 
 Before any home write, the renderer resolves active system and exact-folder
 packages under the package lock. Missing core, invalid references and writable
 managed payloads return a terminal error before `Runtime.Run`. Existing copied
-homes require the planned ordinary install/upgrade adoption step.
+homes require the operator to remove conflicting managed copies.
 
 ### Admission is claim or reject
 
@@ -310,7 +310,6 @@ Every host path is the path that runed itself sees. `virtiofsd` is a child of ru
 | `/opt/arizuko/ant`                           | selected immutable core artifact                                      | RO                                               | every turn                                          |
 | `~/.claude/skills/<name>`                    | selected immutable skill, or sealed empty mask when disabled          | RO                                               | every managed skill                                 |
 | `~/.claude/CLAUDE.md`                        | selected core manual                                                  | RO                                               | every turn                                          |
-| `~/.claude/output-styles/<file>`             | individual selected core style file                                   | RO                                               | every core style                                    |
 | `/var/lib/share`                             | `<data>/groups/<world>/share/`; `groups/share/` for an elevated turn  | RW, RO with a `share_mount(readonly=true)` grant | every turn                                          |
 | `/run/ipc`                                   | none: a guest tmpfs                                                   | RW                                               | every turn                                          |
 | `/var/lib/www/arizuko`                       | `<data>/web/pub/arizuko/`                                             | RO                                               | no `web:publish` grant                              |
@@ -339,7 +338,7 @@ The substrate adds `HTTP_PROXY` and its five companion variables to the environm
 - `audit.go` renders the run-slot audit rows: what runed records, and why it does not record turns.
 - `manager.go` is the Manager: run lifecycle, concurrency, queue and circuit breaker.
 - `runtime.go` is the port: the `Runtime` interface (`Run`, `Kill`) and the `Turn` that it carries.
-- `render.go` is the one renderer: a wire request in, one `Turn` out. It works with `mounts.go` for the mount table, `settings.go` for `settings.json` and the output style, and `secrets.go` for the credential that a guest receives.
+- `render.go` is the one renderer: a wire request in, one `Turn` out. It works with `mounts.go` for the mount table, `settings.go` for `settings.json`, and `secrets.go` for the credential that a guest receives.
 - `runtimes.go` holds `FakeRuntime`, the test seam.
 - `qemu.go` is the KVM substrate, the only one. `NewQemuRuntime` builds it, checks its preconditions and reaps the guests of a previous runed. The file also holds the argument list, the turn and the reap.
 - `qemuhost.go` states what the host can run. It checks every precondition once at start, including the uid clamp and the guest memory against the concurrency cap.

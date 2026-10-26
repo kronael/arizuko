@@ -67,9 +67,6 @@ func TestSeedSettingsElevated(t *testing.T) {
 			t.Errorf("%s must be dropped (5/33-paths-roles decision 10 — no rank, no delegate depth)", dropped)
 		}
 	}
-	if s["outputStyle"] != "telegram" {
-		t.Errorf("outputStyle=%#v want telegram", s["outputStyle"])
-	}
 	servers, ok := s["mcpServers"].(map[string]any)
 	if !ok {
 		t.Fatalf("mcpServers is not a map: %v", s["mcpServers"])

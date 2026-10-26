@@ -142,9 +142,9 @@ func TestPackageInventoryCanonicalSelections(t *testing.T) {
 
 func TestPackageMountTargetsRefuseWritableState(t *testing.T) {
 	for _, target := range []string{
-		"skill", "disabled-payload", "top-level", "instance", "manual", "style",
+		"skill", "disabled-payload", "top-level", "instance", "manual",
 		"skill-file", "manual-dir", "home-link", "ancestor-link", "target-link", "marker-link",
-		"mask-link", "mask-writable", "mask-nonempty", "legacy-empty", "manual-link", "style-link", "marker-dir",
+		"mask-link", "mask-writable", "mask-nonempty", "legacy-empty", "manual-link", "marker-dir",
 	} {
 		t.Run(target, func(t *testing.T) {
 			cfg := corePackageFixture(t)
@@ -166,8 +166,6 @@ func TestPackageMountTargetsRefuseWritableState(t *testing.T) {
 				file = filepath.Join(cfg.ProjectRoot, "skills/base/SKILL.md")
 			case "manual":
 				file = filepath.Join(home, ".claude/CLAUDE.md")
-			case "style":
-				file = filepath.Join(home, ".claude/output-styles/brief.md")
 			case "skill-file":
 				file = filepath.Join(home, ".claude/skills/base")
 			}
@@ -197,7 +195,6 @@ func TestPackageMountTargetsRefuseWritableState(t *testing.T) {
 				"marker-link": filepath.Join(home, ".claude/skills/base/.disabled"),
 				"mask-link":   filepath.Join(cfg.ProjectRoot, "packages/.mount-empty"),
 				"manual-link": filepath.Join(home, ".claude/CLAUDE.md"),
-				"style-link":  filepath.Join(home, ".claude/output-styles/brief.md"),
 			}
 			if link := links[target]; link != "" {
 				if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
@@ -228,15 +225,15 @@ func TestPackageMountTargetsRefuseWritableState(t *testing.T) {
 				if target == "top-level" || target == "instance" {
 					exact = filepath.Dir(file)
 				}
-				if !strings.Contains(refusal.Error(), exact) || !strings.Contains(refusal.Error(), "packages install/upgrade") {
-					t.Fatalf("refusal lacks exact path/action: %v", refusal)
+				if !strings.Contains(refusal.Error(), exact) {
+					t.Fatalf("refusal lacks exact path: %v", refusal)
 				}
 				body, err := os.ReadFile(file)
 				if err != nil || string(body) != "preserve user bytes" {
 					t.Fatalf("user bytes changed at %s: %q, %v", file, body, err)
 				}
 			}
-			if target == "manual" || target == "style" || strings.HasPrefix(target, "mask-") {
+			if target == "manual" || strings.HasPrefix(target, "mask-") {
 				if _, err := os.Lstat(filepath.Join(home, ".claude/skills/base")); !os.IsNotExist(err) {
 					t.Fatalf("refusal created target before complete preflight: %v", err)
 				}
@@ -258,8 +255,9 @@ func TestPackageMountTargetsCopiedSetupRefuses(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeSnapshotFile(t, cfg.GroupsDir, "g/.claude/skills/base/.disabled", "disabled copy")
+	writeSnapshotFile(t, cfg.GroupsDir, "g/.claude/skills/base/SKILL.md", "release skill")
 	if _, _, err := PreparePackageMountTargets(cfg, "g", inventory); err == nil ||
-		!strings.Contains(err.Error(), "packages install/upgrade") {
+		!strings.Contains(err.Error(), "writable skill payload") {
 		t.Fatalf("copied SetupGroup home accepted: %v", err)
 	}
 	file := filepath.Join(cfg.GroupsDir, "g/.claude/skills/base/SKILL.md")
@@ -369,11 +367,11 @@ func TestCorePackageProjection(t *testing.T) {
 	for _, entry := range entries {
 		names = append(names, entry.Name())
 	}
-	if !reflect.DeepEqual(names, []string{"CLAUDE.md", "arizuko.toml", "output-styles", "skills"}) {
+	if !reflect.DeepEqual(names, []string{"CLAUDE.md", "arizuko.toml", "skills"}) {
 		t.Fatalf("extra artifact roots: %v", names)
 	}
 	previous := first
-	for _, name := range []string{"CLAUDE.md", "skills/base/SKILL.md", "output-styles/brief.md"} {
+	for _, name := range []string{"CLAUDE.md", "skills/base/SKILL.md"} {
 		writeSnapshotFile(t, source, name, "included edit")
 		changed, err := prepareCorePackage(cfg)
 		if err != nil || changed.Digest == previous.Digest {
@@ -426,7 +424,7 @@ func TestCorePackageProjection(t *testing.T) {
 // Invalid required roots, identity and included entries leave the prior active reference intact.
 func TestCorePackageInvalidSource(t *testing.T) {
 	for _, invalid := range []string{
-		ManifestFile, "CLAUDE.md", "skills", "output-styles", "wrong-name",
+		ManifestFile, "CLAUDE.md", "skills", "wrong-name",
 		"malformed", "included-symlink", "root-symlink", "invalid-skill", "wrong-type",
 	} {
 		t.Run(invalid, func(t *testing.T) {

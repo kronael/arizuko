@@ -19,7 +19,7 @@ const CorePackageName = "core"
 
 const corePackageSource = "ant"
 
-var corePackageRoots = []string{ManifestFile, "CLAUDE.md", "skills", "output-styles"}
+var corePackageRoots = []string{ManifestFile, "CLAUDE.md", "skills"}
 
 type PackageSkill struct {
 	Name string
@@ -34,27 +34,19 @@ type PackageInventory struct {
 // ReadPackageInventory requires the package lock. Only active system and exact
 // folder selections supply files; every returned directory is an immutable path.
 func ReadPackageInventory(dataDir, folder string) (PackageInventory, error) {
-	if folder == "" {
-		return PackageInventory{}, fmt.Errorf("package inventory requires an exact folder")
-	}
-	system, err := ReadPackageSelection(dataDir, "")
-	if err != nil {
-		return PackageInventory{}, err
-	}
-	group, err := ReadPackageSelection(dataDir, folder)
-	if err != nil {
-		return PackageInventory{}, err
-	}
-	return readPackageInventory(dataDir, PackageAdoptionSelection{System: system, Group: group})
-}
-
-func readPackageInventory(dataDir string, selected PackageAdoptionSelection) (PackageInventory, error) {
 	var inventory PackageInventory
+	if folder == "" {
+		return inventory, fmt.Errorf("package inventory requires an exact folder")
+	}
 	names := map[string]bool{}
-	for i, snapshots := range [][]PackageSnapshot{selected.System, selected.Group} {
-		for _, snapshot := range snapshots {
-			if i == 1 && snapshot.Name == CorePackageName {
-				return inventory, fmt.Errorf("group selects required system package core")
+	for _, target := range []string{"", folder} {
+		selected, err := ReadPackageSelection(dataDir, target)
+		if err != nil {
+			return inventory, err
+		}
+		for _, snapshot := range selected {
+			if target != "" && snapshot.Name == CorePackageName {
+				return inventory, fmt.Errorf("group %s selects required system package core", folder)
 			}
 			key := "package:" + snapshot.Name
 			if names[key] {
@@ -228,26 +220,7 @@ func checkMountTarget(root *os.Root, rel string, directory bool) error {
 }
 
 func packageFileTargets(inventory PackageInventory) ([]string, error) {
-	targets := []string{packageFileTarget("CLAUDE.md")}
-	entries, err := os.ReadDir(filepath.Join(inventory.Core, "output-styles"))
-	if err != nil {
-		return nil, err
-	}
-	for _, entry := range entries {
-		if !entry.Type().IsRegular() {
-			return nil, fmt.Errorf("core output style is not a regular file: %s", entry.Name())
-		}
-		targets = append(targets, packageFileTarget(path.Join("output-styles", entry.Name())))
-	}
-	return targets, nil
-}
-
-func packageFileTarget(source string) string {
-	return path.Join(".claude", source)
-}
-
-func packageSkillTargets(name string) [2]string {
-	return [2]string{path.Join(".claude/skills", name), path.Join("skills", name)}
+	return []string{".claude/CLAUDE.md"}, nil
 }
 
 // CheckPackageMountTargets is read-only and requires the package lock. Managed
@@ -261,10 +234,9 @@ func CheckPackageMountTargets(cfg *core.Config, folder string, inventory Package
 	defer root.Close() //nolint:errcheck
 	disabled := map[string]bool{}
 	for _, skill := range inventory.Skills {
-		targets := packageSkillTargets(skill.Name)
-		rel := path.Join(home, targets[0])
+		rel := path.Join(home, ".claude/skills", skill.Name)
 		if err := checkMountTarget(root, rel, true); err != nil {
-			return nil, fmt.Errorf("%w; run ordinary packages install/upgrade to adopt proven copies", err)
+			return nil, err
 		}
 		marker := path.Join(rel, ".disabled")
 		if _, err := root.Lstat(marker); err == nil {
@@ -272,7 +244,7 @@ func CheckPackageMountTargets(cfg *core.Config, folder string, inventory Package
 		} else if !errors.Is(err, fs.ErrNotExist) {
 			return nil, err
 		}
-		if err := checkLegacySkill(root, path.Join(home, targets[1])); err != nil {
+		if err := checkLegacySkill(root, path.Join(home, "skills", skill.Name)); err != nil {
 			return nil, err
 		}
 	}
@@ -283,8 +255,7 @@ func CheckPackageMountTargets(cfg *core.Config, folder string, inventory Package
 	// Closing a directory handle has no pending writes.
 	defer data.Close() //nolint:errcheck
 	for _, skill := range inventory.Skills {
-		targets := packageSkillTargets(skill.Name)
-		if err := checkLegacySkill(data, targets[1]); err != nil {
+		if err := checkLegacySkill(data, path.Join("skills", skill.Name)); err != nil {
 			return nil, err
 		}
 	}
@@ -294,7 +265,7 @@ func CheckPackageMountTargets(cfg *core.Config, folder string, inventory Package
 	}
 	for _, target := range targets {
 		if err := checkMountTarget(root, path.Join(home, target), false); err != nil {
-			return nil, fmt.Errorf("%w; run ordinary packages install/upgrade to adopt proven copies", err)
+			return nil, err
 		}
 	}
 	return disabled, nil
@@ -307,7 +278,7 @@ func checkLegacySkill(root *os.Root, rel string) error {
 		return fmt.Errorf("unsafe skill path %s: %w", filepath.Join(root.Name(), rel), err)
 	}
 	if _, err := root.Lstat(rel); err == nil {
-		return fmt.Errorf("writable skill collision at %s; run ordinary packages install/upgrade to adopt proven copies",
+		return fmt.Errorf("writable skill collision at %s",
 			filepath.Join(root.Name(), rel))
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		return err
@@ -462,42 +433,29 @@ func SetPackageSkillDisabled(cfg *core.Config, folder, skill string, disable boo
 // A nil database selects filesystem state before the instance store exists.
 // Completion repairs only core's receipt; unrelated incomplete packages refuse.
 func EnsureCorePackage(cfg *core.Config, database *store.Store) error {
-	if err := CheckPendingPackageAdoption(database, nil); err != nil {
-		return err
-	}
-	snapshots, receipts, err := PrepareCorePackages(cfg, database)
-	if err != nil {
-		return err
-	}
-	return ActivatePackages(cfg.ProjectRoot, "", database, snapshots, receipts)
-}
-
-// PrepareCorePackages requires the package lock and borrows database. It prepares
-// immutable artifacts without changing selections or installed receipts.
-func PrepareCorePackages(cfg *core.Config, database *store.Store) ([]PackageSnapshot, []store.InstalledPackage, error) {
 	dataDir := cfg.ProjectRoot
 	if err := PreparePackagePaths(dataDir); err != nil {
-		return nil, nil, err
+		return err
 	}
 	selected, err := ReadPackageSelection(dataDir, "")
 	if err != nil {
-		return nil, nil, err
+		return err
 	}
 	var receipt store.InstalledPackage
 	if database != nil {
 		var found bool
 		receipt, found, err = database.InstalledPackage("", CorePackageName)
 		if err != nil {
-			return nil, nil, err
+			return err
 		}
 		if found && receipt.Source != corePackageSource {
-			return nil, nil, fmt.Errorf("required core receipt claims source %q; restore the release source %q before upgrading core",
+			return fmt.Errorf("required core receipt claims source %q; restore the release source %q before upgrading core",
 				receipt.Source, corePackageSource)
 		}
 	}
 	snapshot, err := prepareCorePackage(cfg)
 	if err != nil {
-		return nil, nil, err
+		return err
 	}
 	snapshots := []PackageSnapshot{snapshot}
 	receipt.Source, receipt.Revision = corePackageSource, snapshot.Digest
@@ -509,25 +467,25 @@ func PrepareCorePackages(cfg *core.Config, database *store.Store) ([]PackageSnap
 		if database != nil {
 			receipt, found, err := database.InstalledPackage("", other.Name)
 			if err != nil {
-				return nil, nil, err
+				return err
 			}
 			if !found || receipt.Source == "" || receipt.Revision == "" || receipt.InstalledAt == "" ||
 				!slices.Equal(receipt.Manifest[PackageSourceArtifact], []string{other.Digest}) ||
 				receipt.AssetHashes[PackageSourceArtifact] != other.Digest ||
 				HasPendingSettings(receipt.AssetHashes) {
-				return nil, nil, fmt.Errorf("incomplete package operation: active %s has no matching source receipt; "+
+				return fmt.Errorf("incomplete package operation: active %s has no matching source receipt; "+
 					"retry its install before upgrading core", other.Name)
 			}
 			dir, err := ResolvePackage(dataDir, other)
 			if err != nil {
-				return nil, nil, err
+				return err
 			}
 			names, err := ReadPackageSkills(dir)
 			if err != nil {
-				return nil, nil, err
+				return err
 			}
 			if !slices.Equal(receipt.Manifest["skill"], names) {
-				return nil, nil, fmt.Errorf("incomplete package operation: active %s has no matching skill receipt; "+
+				return fmt.Errorf("incomplete package operation: active %s has no matching skill receipt; "+
 					"retry its install before upgrading core", other.Name)
 			}
 			receipts = append(receipts, receipt)
@@ -535,9 +493,9 @@ func PrepareCorePackages(cfg *core.Config, database *store.Store) ([]PackageSnap
 		snapshots = append(snapshots, other)
 	}
 	if err := checkPackageSelection(cfg, "", database, snapshots, snapshot); err != nil {
-		return nil, nil, err
+		return err
 	}
-	return snapshots, receipts, nil
+	return ActivatePackages(dataDir, "", database, snapshots, receipts)
 }
 
 func prepareCorePackage(cfg *core.Config) (PackageSnapshot, error) {

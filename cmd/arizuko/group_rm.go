@@ -127,7 +127,7 @@ func runGroupRm(
 			return err
 		}
 	}
-	if err := container.WithdrawGroupPackages(cfg.ProjectRoot, s, folders); err != nil {
+	if err := container.WithdrawGroupPackages(cfg.ProjectRoot, folders); err != nil {
 		return err
 	}
 	removed, swept, err := s.DeleteGroupStopping(ctx, folder, stop)

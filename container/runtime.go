@@ -4,8 +4,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-
-	"github.com/kronael/arizuko/core"
 )
 
 // CodexROMounts are the shared-credential files the mount renderer overmounts
@@ -47,31 +45,4 @@ func SeedCodexMountTargets(codexDir string) {
 		}
 		_ = f.Close()
 	}
-}
-
-// AppSrcDir is where MaterializeAppSrc stages the agent-visible copy of `ant/`,
-// relative to the data dir.
-const AppSrcDir = "app-src"
-
-// MaterializeAppSrc copies runed's own `ant/` — the copy baked into the image at
-// /opt/arizuko — onto the data dir, so agent containers can bind-mount it.
-//
-// A bind mount reads the HOST filesystem, so runed cannot hand a spawned sibling
-// a path that exists only inside runed's image; it has to land the bytes on
-// shared disk first. Before this, buildMounts mounted cfg.HostAppDir straight
-// through, which meant routd and runed read the release while the AGENT — the
-// only path that rewrites a live group's skills — read the developer's working
-// tree. Both were called /opt/arizuko and held different files (BUGS M1).
-//
-// Overwrite every start: the image is the truth and nothing else may write here.
-func MaterializeAppSrc(cfg *core.Config) string {
-	dst := filepath.Join(cfg.ProjectRoot, AppSrcDir)
-	src := cfg.EffectiveAppSrcDir()
-	if _, err := os.Stat(src); err != nil {
-		slog.Warn("app source missing; agents keep the previous copy", "src", src, "err", err)
-		return dst
-	}
-	cpDirOverwrite(src, dst)
-	warnChown(dst)
-	return dst
 }

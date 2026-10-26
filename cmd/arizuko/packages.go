@@ -977,16 +977,6 @@ func cmdPackages(args []string) {
 	lock := lockPackageOperation(dataDir)
 	// Closing the lock releases this operation's exclusive ownership.
 	defer lock.Close() //nolint:errcheck
-	if args[1] != "list" {
-		rdb := mustOpenRoutd()
-		err := container.CheckPendingPackageAdoption(packageStore(rdb), nil)
-		if closeErr := rdb.Close(); err == nil {
-			err = closeErr
-		}
-		if err != nil {
-			die("Failed: %v", err)
-		}
-	}
 	tmplDir := packageTemplates(dataDir)
 	svcDir := filepath.Join(dataDir, "services")
 

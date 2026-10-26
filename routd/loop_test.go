@@ -14,6 +14,12 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
+type nopRunner struct{}
+
+func (nopRunner) Run(context.Context, runedv1.RunRequest) (runedv1.RunOutcome, error) {
+	return runedv1.RunOutcome{}, nil
+}
+
 // TestAtomicAppendRouteTurn checks the spec 5/E-routd invariant: append inbound →
 // resolve route → start turn is one ordered view; the agent_cursor advances
 // only after the turn closes, the turn_context is bound at dispatch, and a

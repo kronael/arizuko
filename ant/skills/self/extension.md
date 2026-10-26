@@ -5,8 +5,13 @@ Persists across sessions (activates next session):
 | What         | How                                       |
 | ------------ | ----------------------------------------- |
 | Skills       | Create `~/.claude/skills/<name>/SKILL.md` |
-| Instructions | Edit `~/.claude/CLAUDE.md`                |
+| Instructions | Edit `~/CLAUDE.md`                       |
 | Memory       | Write to `~/.claude/projects/*/memory/`   |
+
+Core and selected packages supply read-only skills at `~/.claude/skills/`.
+The core manual mounts at `~/.claude/CLAUDE.md`.
+ALWAYS keep group instructions in `~/CLAUDE.md` and custom skills under a distinct name.
+ALWAYS use the dashboard toggle or `~/.claude/skills/<name>/.disabled` to disable a packaged skill.
 
 ## MCP servers are platform-set — you cannot add one
 

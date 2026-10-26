@@ -5,8 +5,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"reflect"
-	"strings"
 	"testing"
 
 	"github.com/kronael/arizuko/container"
@@ -293,72 +291,5 @@ func TestRegisterGroupRollbackPackages(t *testing.T) {
 		if db.GroupExists(folder) != (folder == "keeper") {
 			t.Fatalf("unexpected group state for %s", folder)
 		}
-	}
-}
-
-func TestRegisterGroupRollbackPendingAdoption(t *testing.T) {
-	for _, pending := range []string{"core", "group", "malformed", "instance"} {
-		t.Run(pending, func(t *testing.T) {
-			db := memDB(t)
-			root := t.TempDir()
-			srv := &Server{db: db, groupsDir: filepath.Join(root, "groups")}
-			registrationCoreSource(t, srv.groupsDir)
-			cfg := &core.Config{ProjectRoot: root, GroupsDir: srv.groupsDir, AppSrcDir: os.Getenv("APP_SRC_DIR")}
-			lock, err := container.LockPackages(root)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := container.EnsureCorePackage(cfg, nil); err != nil {
-				t.Fatal(err)
-			}
-			selected, err := container.ReadPackageSelection(root, "")
-			if err != nil {
-				t.Fatal(err)
-			}
-			for _, folder := range []string{"new", "new/child", "keeper"} {
-				if err := db.PutGroup(core.Group{Folder: folder}); err != nil {
-					t.Fatal(err)
-				}
-				if err := container.SelectPackages(root, folder, selected); err != nil {
-					t.Fatal(err)
-				}
-			}
-			if err := lock.Close(); err != nil {
-				t.Fatal(err)
-			}
-			row := store.InstalledPackage{Folder: "new/child", Name: "waiting", Source: "origin", Revision: "revision",
-				AssetHashes: map[string]string{"pending:adopt:source": strings.Repeat("a", 64),
-					"pending:adopt:package_source":                             strings.Repeat("b", 64),
-					"pending:adopt:tree:groups/new/child/.claude/skills/probe": strings.Repeat("c", 64),
-					container.PendingSettingPrefix + "KEEP":                    strings.Repeat("d", 64)}}
-			switch pending {
-			case "core":
-				row.Folder, row.Name = "", "core"
-			case "malformed":
-				row.Folder, row.AssetHashes = "keeper", map[string]string{"pending:adopt:unknown": "invalid"}
-			case "instance":
-				row.Folder = "keeper"
-				row.AssetHashes["pending:adopt:tree:skills/probe"] = strings.Repeat("e", 64)
-			}
-			if err := db.PutInstalledPackage(row); err != nil {
-				t.Fatal(err)
-			}
-			if err := srv.rollbackGroup("new"); err == nil || !strings.Contains(err.Error(), "pending package adoption") {
-				t.Fatalf("rollback bypassed adoption: %v", err)
-			}
-			for _, folder := range []string{"new", "new/child", "keeper"} {
-				if !db.GroupExists(folder) {
-					t.Fatalf("refusal purged %s", folder)
-				}
-				got, err := container.ReadPackageSelection(root, folder)
-				if err != nil || !reflect.DeepEqual(got, selected) {
-					t.Fatalf("refusal withdrew %s: %+v, %v", folder, got, err)
-				}
-			}
-			got, found, err := db.InstalledPackage(row.Folder, row.Name)
-			if err != nil || !found || !reflect.DeepEqual(got.AssetHashes, row.AssetHashes) {
-				t.Fatalf("refusal changed adoption/settings: %+v, %v", got, err)
-			}
-		})
 	}
 }

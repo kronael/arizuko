@@ -7,7 +7,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -133,63 +132,6 @@ func TestGroupDeletePackages(t *testing.T) {
 		if err != nil || len(selected) != want {
 			t.Fatalf("selection %s = %v %v", folder, selected, err)
 		}
-	}
-}
-
-func TestGroupDeletePendingAdoption(t *testing.T) {
-	for _, pending := range []string{"core", "group", "malformed", "instance"} {
-		t.Run(pending, func(t *testing.T) {
-			d, driver := splitAdminDash(t, "alice@x")
-			seedFolder(t, driver, "team/child")
-			seedFolder(t, driver, "keeper")
-			root := filepath.Dir(d.groupsDir)
-			row := store.InstalledPackage{Folder: "team/child", Name: "waiting", Source: "origin", Revision: "revision",
-				AssetHashes: map[string]string{"pending:adopt:source": strings.Repeat("a", 64),
-					"pending:adopt:package_source":                              strings.Repeat("b", 64),
-					"pending:adopt:tree:groups/team/child/.claude/skills/probe": strings.Repeat("c", 64),
-					container.PendingSettingPrefix + "KEEP":                     strings.Repeat("d", 64)}}
-			switch pending {
-			case "core":
-				row.Folder, row.Name = "", "core"
-			case "malformed":
-				row.Folder, row.AssetHashes = "keeper", map[string]string{"pending:adopt:unknown": "invalid"}
-			case "instance":
-				row.Folder = "keeper"
-				row.AssetHashes["pending:adopt:tree:skills/probe"] = strings.Repeat("e", 64)
-			}
-			if err := d.routdStore().PutInstalledPackage(row); err != nil {
-				t.Fatal(err)
-			}
-			for _, folder := range []string{"team", "team/child", "keeper"} {
-				path := filepath.Join(root, "groups", folder, "content")
-				if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-					t.Fatal(err)
-				}
-				if err := os.WriteFile(path, []byte(folder), 0o600); err != nil {
-					t.Fatal(err)
-				}
-			}
-			runed := stubRuned(t, http.StatusOK, nil)
-			withRuned(d, runed)
-			if w := deleteTeam(t, d); w.Code != http.StatusInternalServerError || !strings.Contains(w.Body.String(), "pending package adoption") {
-				t.Fatalf("delete bypassed adoption: %d %s", w.Code, w.Body.String())
-			}
-			if len(runed.stopped) != 0 {
-				t.Fatalf("refusal stopped runs: %v", runed.stopped)
-			}
-			for _, folder := range []string{"team", "team/child", "keeper"} {
-				if !hasFolder(t, driver, folder) {
-					t.Fatalf("refusal purged %s", folder)
-				}
-				if data, err := os.ReadFile(filepath.Join(root, "groups", folder, "content")); err != nil || string(data) != folder {
-					t.Fatalf("refusal removed files: %s %v", data, err)
-				}
-			}
-			got, found, err := d.routdStore().InstalledPackage(row.Folder, row.Name)
-			if err != nil || !found || !reflect.DeepEqual(got.AssetHashes, row.AssetHashes) {
-				t.Fatalf("refusal changed adoption/settings: %+v, %v", got, err)
-			}
-		})
 	}
 }
 

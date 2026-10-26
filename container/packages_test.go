@@ -108,7 +108,7 @@ func TestPackageGroupWithdrawal(t *testing.T) {
 			} else if err := os.WriteFile(obstruction, nil, 0o644); err != nil {
 				t.Fatal(err)
 			}
-			if err := WithdrawGroupPackages(root, nil, []string{"team", "team/child"}); err == nil {
+			if err := WithdrawGroupPackages(root, []string{"team", "team/child"}); err == nil {
 				t.Fatal("failure was hidden")
 			}
 			want := 0
@@ -126,7 +126,7 @@ func TestPackageGroupWithdrawal(t *testing.T) {
 			if got := selectedSnapshots(t, root, "team"); len(got) != want {
 				t.Fatalf("unexpected partial state: %v", got)
 			}
-			if err := WithdrawGroupPackages(root, nil, []string{"team", "team/child"}); err != nil {
+			if err := WithdrawGroupPackages(root, []string{"team", "team/child"}); err != nil {
 				t.Fatal(err)
 			}
 			for _, folder := range []string{"team", "team/child"} {

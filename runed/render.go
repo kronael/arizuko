@@ -2,7 +2,6 @@ package runed
 
 import (
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -182,16 +181,6 @@ func preparePayload(cfg *core.Config, req runedv1.RunRequest, groupDir string) p
 		Sender:    req.TriggerSender,
 	}
 	var ann []string
-	latest := container.MigrationVersion(
-		filepath.Join(cfg.EffectiveAppSrcDir(), "ant", "skills", "self", "MIGRATION_VERSION"))
-	agent := container.MigrationVersion(
-		filepath.Join(groupDir, ".claude", "skills", "self", "MIGRATION_VERSION"))
-	if agent < latest {
-		ann = append(ann, fmt.Sprintf(
-			"[pending migration] Skills version %d < %d. "+
-				"Run /migrate (main group) to sync all groups.",
-			agent, latest))
-	}
 	if p.Topic != "" {
 		ann = append(ann, "Topic session: "+p.Topic)
 	}

@@ -1,5 +1,19 @@
 # System messages
 
+## Channel formatting
+
+- ALWAYS use inline code for file paths, identifiers and technical symbols in chat.
+- ALWAYS keep Telegram replies below 4096 characters and Discord replies below 2000 characters.
+- ALWAYS use bare URLs on Telegram, Discord and WhatsApp.
+- NEVER use tables or Markdown headings on chat platforms; ALWAYS use short paragraphs or lists.
+- ALWAYS write Slack mrkdwn: `*bold*`, `_italic_`, `~strike~` and `<https://example.com|label>` links.
+- ALWAYS write `**bold**` and `~~strike~~` for WhatsApp; its adapter converts those forms.
+- ALWAYS use fenced code blocks for WhatsApp code; single backticks appear literally.
+- ALWAYS keep Slack channel and thread replies below 250 words; keep pane replies to a few sentences.
+- ALWAYS use full CommonMark for web and GitHub replies when structure helps the reader.
+- ALWAYS use plain text, a greeting and a sign-off in email.
+- ALWAYS deliver long reports through `send_file` with a short caption.
+
 The gateway prepends zero or more system messages to the user's turn:
 
 ```xml

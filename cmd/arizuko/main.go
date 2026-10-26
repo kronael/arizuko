@@ -159,9 +159,6 @@ func generateCompose(dataDir string) string {
 	// file so a `docker compose up` never starts proxyd against a table this
 	// run failed to reconcile.
 	syncProxydRoutes(dataDir, routes)
-	// The other half a package installs that no group creation will ever reach
-	// again: its skills, into the groups that already exist (BUGS L47).
-	syncPackageSkills(dataDir)
 	outPath := filepath.Join(dataDir, "docker-compose.yml")
 	// Atomic write: tempfile in the same dir + rename. Prevents a partial
 	// YAML on mid-write crash (which would break `docker compose up`).
@@ -432,15 +429,8 @@ func cmdGroup(args []string) {
 			if _, err := os.Stat(filepath.Join(productDir, container.ManifestFile)); err != nil {
 				die("Failed: unknown product %q (looked for %s/%s)", *productFlag, productDir, container.ManifestFile)
 			}
-			lock := lockPackageOperation(dataDir)
-			if err := container.CheckPendingPackageAdoption(s, nil); err != nil {
-				die("Failed: %v", err)
-			}
 			declareProduct(filepath.Join(cfg.GroupsDir, folder), productDir,
 				filepath.ToSlash(filepath.Join("ant", "examples", *productFlag)))
-			if err := lock.Close(); err != nil {
-				die("Failed: unlock packages: %v", err)
-			}
 		}
 		if err := container.SetupGroup(cfg, s, folder, productDir); err != nil {
 			die("Failed: setup group dir: %v", err)

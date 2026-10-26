@@ -80,10 +80,8 @@ defers its own `TaskStop`; the agent loads it with `ToolSearch`.
 
 ## The resident file
 
-`ant/CLAUDE.md` is the one file loaded into every turn. Group creation
-writes it to `~/.claude/CLAUDE.md` when that file is missing, keeps a merge
-base beside it, and `/migrate` 3-way merges later releases into it
-(`seedSkills`, `container/runner.go:336`). Claude Code reads it as user
+`ant/CLAUDE.md` is the one file loaded into every turn. The selected core
+package supplies it read-only at `~/.claude/CLAUDE.md`. Claude Code reads it as user
 memory through `settingSources: ['project', 'user']` with the cwd at the
 guest's home (`src/claude.ts:512`); codex and pi receive the same file rendered into
 their system prompt. The repo-root `CLAUDE.md` is the maintainers' file and
@@ -102,7 +100,7 @@ So a section stays resident only when one of four tests holds:
 3. it is a pointer whose trigger is not a phrase a user says;
 4. a workflow skill reads it from there.
 
-Anything else is a skill body, a tool description, an output style or the
+Anything else is a skill body, a tool description or the
 doc that owns it. A commit that adds a section names the test it passes.
 The sections that stay are the ones that fail with no error and no user
 phrase to load a skill: the envelope tags, the delivery contract (only the
@@ -121,8 +119,7 @@ when one of the carve-out strings leaves the file.
 
 `buildSystemPrompt` (`src/index.ts:49`) joins the text layers in this
 order: `SYSTEM.md`, the resident file for a harness that cannot read it
-natively (codex, pi), `PERSONA.md`, then the output style that
-`~/.claude/settings.json` names. runed reads `SYSTEM.md` and `PERSONA.md`
+natively (codex, pi), then `PERSONA.md`. runed reads `SYSTEM.md` and `PERSONA.md`
 off the group folder and ships them on the turn frame (`runed/render.go`).
 When any layer exists, the joined text is the whole system prompt and the
 harness's own preset is not used: for claude, a string `systemPrompt`
@@ -216,9 +213,9 @@ The guest mounts the group folder at `/home/node/`:
   PERSONA.md          operator-owned identity overlay
   CLAUDE.md           operator-owned runbook overlay
   .claude/
-    CLAUDE.md         agent-managed, merged on /migrate
-    settings.json     outputStyle (mcpServers is written but read by nothing)
-    skills/           stock skills (seeded, 3-way merged on /migrate)
+    CLAUDE.md         read-only core manual
+    settings.json     runtime environment and permissions
+    skills/           read-only packaged skills and writable custom skills
   diary/              session log
   facts/              researched knowledge
   users/              per-user memory
@@ -268,7 +265,6 @@ ant/
   CLAUDE.md              the resident file (§ The resident file)
   PERSONA.md             Default persona
   skills/                Stock skills
-  output-styles/         Per-surface response-length rules
   examples/              the product catalog `arizuko create --product` reads
   Dockerfile             Builds arizuko-ant:latest (TS)
 ```

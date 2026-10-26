@@ -9,18 +9,13 @@ resolved to an immutable revision) that ships a **manifest** plus any subset of
 **asset kinds**. Install / upgrade / remove one mixed-asset package on an
 existing instance. No registry, no OCI.
 
-## Core and immutable skills extend the shipped lifecycle
+## Core and packaged skills
 
-The shipped manager owns package resources and group composition. The proposed
-[core contract](../7/47-source-pins.md) governs mandatory core, immutable skills,
-serialized activation, checked ownership receipts and retirement of agent
-migrations. Those extensions remain unimplemented in this checkout.
-
-The shared manifest foundation uses `container/manifest.go:16`. Source metadata
-and group selections use one `arizuko.toml` schema. Each group owns its file.
-The core cut retains the installed-package table and REST/MCP/dashboard
-surfaces. Native layers, provisioning and table retirement remain separate,
-accepted unfinished work in that contract.
+The required core package supplies its manual and skills through read-only
+mounts. Formatting guidance belongs in the ordinary core skill
+`ant/skills/self/messages.md`. Package and group declarations use one
+`arizuko.toml` schema; each group owns its file. The installed-package table
+and REST/MCP/dashboard surfaces remain part of the manager.
 
 ## The packaging cluster — who owns what
 

@@ -149,7 +149,7 @@ Every suite, its needs and the timeout facts: [tests/README.md](tests/README.md)
 - **ROUTING.md** — route table, topic/sticky/reply rules. `/chat/<token>/`
   and `/hook/<token>` surfaces; spec `specs/5/W-webhook-routes.md`.
 - **EXTENDING.md** — channels, actions, routing, mounts, skills, tasks,
-  diary, autocalls, output styles, host mounts, swapping the harness. Keep
+  diary, autocalls, host mounts, swapping the harness. Keep
   it current as extension points evolve.
 - **GRANTS.md** — pointer to `specs/5/33-paths-roles.md` (the model) +
   `specs/5/32-acl-unified.md` (the row + evaluator) + the operator concepts page.
@@ -166,7 +166,6 @@ Every suite, its needs and the timeout facts: [tests/README.md](tests/README.md)
   map, and the ONLY deploy-to-krons procedure. Loads when you touch that
   tree.
 - **`specs/CLAUDE.md`** — definition of done for a spec; loads under `specs/`.
-- **`ant/skills/self/migrations/CLAUDE.md`** — the agent migration system.
 - **`.claude/skills/eval/checks.md`** — `/eval <instance>`: the 23 health
   checks and the error census. `.claude/skills/eval/gates.md` holds the five
   post-deploy gates and the `anteval` setup.
@@ -304,7 +303,7 @@ agent` fail without it).
   owner starts it by hand; until that ships, gate 5 is not run. Gates 1-4 (build, ship, schema, census) pass on a
   fleet whose agents answer nothing — BUGS `L149` shipped green through all of
   them. Procedure: `.claude/skills/eval/gates.md`.
-- **A release is an image.** `ant/` — skills, `CLAUDE.md`, output-styles —
+- **A release is an image.** `ant/` — skills and `CLAUDE.md` —
   is baked to `/opt/arizuko` by the Dockerfile. `APP_SRC_DEV=1` binds
   `HOST_APP_DIR` read-only for the dev loop; NEVER set it on an instance —
   it puts an uncommitted working tree in front of every live agent, so an
@@ -313,11 +312,8 @@ agent` fail without it).
 
 ## Shipping changes
 
-Every release — docs-only included — adds
-`ant/skills/self/migrations/<NNN>-v<X.Y.Z>-summary.md` and bumps
-`MIGRATION_VERSION` (steps in `ant/skills/self/migrations/CLAUDE.md`).
-That bump is the single trigger for skill sync AND the chat broadcast;
-forgetting it is silent. The `CHANGELOG.md` entry follows "## Announcing".
+The release image supplies the required core package. The `CHANGELOG.md`
+entry follows "## Announcing".
 
 ## Tagging a new version
 
@@ -345,7 +341,3 @@ for the record. Shape:
 >
 > Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
 ```
-
-The `migrate` skill broadcasts only the version header line + the first `>`
-sentence + changelog URL — not the full blockquote. The bullets and voice
-guide are for the CHANGELOG, not the broadcast.

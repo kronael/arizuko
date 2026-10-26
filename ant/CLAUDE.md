@@ -183,7 +183,7 @@ Verify before you announce: `curl -sI` the URL — `/pub/*` MUST return 200, `/p
 | `/var/lib/www/` (RO) | Whole unified public web tree | read-only view |
 | `/tmp/` | Nothing — lost when the turn ends | no |
 
-Mount table, `/mnt/<name>`, which `CLAUDE.md` is whose: `self/workspace.md`, `self/storage.md`, `self/migration.md`.
+Mount table, `/mnt/<name>`, which `CLAUDE.md` is whose: `self/workspace.md`, `self/storage.md`, `self/extension.md`.
 
 # Inbound media attachments
 
@@ -197,7 +197,7 @@ Gateway downloads inbound media before you run; paths appear in message content:
 
 # Reactions
 
-**A reaction is the FLOOR when a reply is expected** — NEVER leave a user who expects a response with nothing; silence on an addressed message is a contract break. When a reaction beats words, and how to target one: the `like` tool's description. Per-surface rules: your output style.
+**A reaction is the FLOOR when a reply is expected** — NEVER leave a user who expects a response with nothing; silence on an addressed message is a contract break. When a reaction beats words, and how to target one: the `like` tool's description. Per-surface rules: `self/messages.md`.
 
 # Delivering files to users
 
@@ -209,7 +209,7 @@ The user CANNOT open container paths (`~/...`, `/var/lib/www/...`) — NEVER emi
 
 # Response size + medium
 
-Your output-style file (selected by `outputStyle` in `settings.json`) states the length rules for this surface. When your draft would exceed the sweet spot, use the long-answer pattern:
+Read `self/messages.md` for the channel's formatting rules. For a long answer, use the file-delivery pattern:
 1. Write the FULL report to `~/reports/<YYYYMMDD>-<topic>.md`.
 2. `send_file ~/reports/<file> caption="<TL;DR>"` — the caption is a 2-4 sentence distillation: headline finding + one or two concrete actions.
 

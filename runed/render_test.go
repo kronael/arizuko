@@ -21,10 +21,7 @@ import (
 func goldenCfg(t *testing.T, root string) *core.Config {
 	t.Helper()
 	appSrc := filepath.Join(root, "app-src-image")
-	write(t, filepath.Join(appSrc, "ant", "skills", "self", "MIGRATION_VERSION"), "9\n")
 	write(t, filepath.Join(appSrc, "ant", "skills", "self", "SKILL.md"), "self\n")
-	write(t, filepath.Join(appSrc, "ant", "output-styles", "slack.md"), "style\n")
-	write(t, filepath.Join(appSrc, "ant", "skills", "migrate", "SKILL.md"), "migrate\n")
 	write(t, filepath.Join(root, "codexhost", "auth.json"), "{}\n")
 	write(t, filepath.Join(root, "codexhost", "config.toml"), "x=1\n")
 	write(t, filepath.Join(root, "web", "pub", "arizuko", "index.html"), "docs\n")
@@ -134,11 +131,8 @@ func TestRenderTurnGolden(t *testing.T) {
 		root + "/groups/atlas/support -> /home/node",
 		selectedCore(t, cfg) + " -> /opt/arizuko/ant ro",
 		selectedCore(t, cfg) + "/skills/base -> /home/node/.claude/skills/base ro",
-		selectedCore(t, cfg) + "/skills/migrate -> /home/node/.claude/skills/migrate ro",
 		selectedCore(t, cfg) + "/skills/self -> /home/node/.claude/skills/self ro",
 		selectedCore(t, cfg) + "/CLAUDE.md -> /home/node/.claude/CLAUDE.md ro",
-		selectedCore(t, cfg) + "/output-styles/brief.md -> /home/node/.claude/output-styles/brief.md ro",
-		selectedCore(t, cfg) + "/output-styles/slack.md -> /home/node/.claude/output-styles/slack.md ro",
 		root + "/groups/atlas/share -> /var/lib/share ro",
 		root + "/ipc/atlas/support -> /run/ipc",
 		root + "/groups/atlas/support/.codex -> /home/node/.codex",
@@ -177,7 +171,7 @@ func TestRenderTurnGolden(t *testing.T) {
 		}
 	}
 
-	wantStdin := `{"prompt":"[pending migration] Skills version 0 \u003c 9. Run /migrate (main group) to sync all groups.\nTopic session: t-42\n\u003cknowledge layer=\"work\"\u003e\nthe work in flight\n\u003c/knowledge\u003e\n\u003cuser id=\"u1\" /\u003e\n[solve] Invoke /solve now — classify, recall, match skills, then respond.\n\nhello world","sessionId":"11111111-2222-3333-4444-555555555555","chatJid":"slack:T1/channel/C9","groupFolder":"atlas/support","topic":"t-42","assistantName":"krons","secrets":{"ANTHROPIC_API_KEY":"sk-user"},"channelName":"slack","messageId":"turn-7","sender":"u1","persona":"You are Ada.","systemMd":"House rules."}`
+	wantStdin := `{"prompt":"Topic session: t-42\n\u003cknowledge layer=\"work\"\u003e\nthe work in flight\n\u003c/knowledge\u003e\n\u003cuser id=\"u1\" /\u003e\n[solve] Invoke /solve now — classify, recall, match skills, then respond.\n\nhello world","sessionId":"11111111-2222-3333-4444-555555555555","chatJid":"slack:T1/channel/C9","groupFolder":"atlas/support","topic":"t-42","assistantName":"krons","secrets":{"ANTHROPIC_API_KEY":"sk-user"},"channelName":"slack","messageId":"turn-7","sender":"u1","persona":"You are Ada.","systemMd":"House rules."}`
 	if string(turn.Stdin) != wantStdin {
 		t.Errorf("stdin frame\n got: %s\nwant: %s", turn.Stdin, wantStdin)
 	}
@@ -210,7 +204,6 @@ func TestRenderTurnGolden(t *testing.T) {
       "command": "socat"
     }
   },
-  "outputStyle": "slack-thread",
   "permissions": {
     "defaultMode": "bypassPermissions"
   },
@@ -253,11 +246,8 @@ func TestRenderTurnGoldenElevated(t *testing.T) {
 		root + "/groups/main -> /home/node",
 		selectedCore(t, cfg) + " -> /opt/arizuko/ant ro",
 		selectedCore(t, cfg) + "/skills/base -> /home/node/.claude/skills/base ro",
-		selectedCore(t, cfg) + "/skills/migrate -> /home/node/.claude/skills/migrate ro",
 		selectedCore(t, cfg) + "/skills/self -> /home/node/.claude/skills/self ro",
 		selectedCore(t, cfg) + "/CLAUDE.md -> /home/node/.claude/CLAUDE.md ro",
-		selectedCore(t, cfg) + "/output-styles/brief.md -> /home/node/.claude/output-styles/brief.md ro",
-		selectedCore(t, cfg) + "/output-styles/slack.md -> /home/node/.claude/output-styles/slack.md ro",
 		root + "/groups/share -> /var/lib/share",
 		root + "/ipc/main -> /run/ipc",
 		root + "/groups/main/.codex -> /home/node/.codex",
@@ -287,7 +277,7 @@ func TestRenderTurnGoldenElevated(t *testing.T) {
 		}
 	}
 
-	wantStdin := `{"prompt":"[pending migration] Skills version 0 \u003c 9. Run /migrate (main group) to sync all groups.\n[solve] Invoke /solve now — classify, recall, match skills, then respond.\n\ndo the thing","chatJid":"telegram:user/42","groupFolder":"main","assistantName":"krons","secrets":{"GH_TOKEN":"ghp"},"channelName":"telegram","messageId":"turn-9"}`
+	wantStdin := `{"prompt":"[solve] Invoke /solve now — classify, recall, match skills, then respond.\n\ndo the thing","chatJid":"telegram:user/42","groupFolder":"main","assistantName":"krons","secrets":{"GH_TOKEN":"ghp"},"channelName":"telegram","messageId":"turn-9"}`
 	if string(turn.Stdin) != wantStdin {
 		t.Errorf("stdin frame\n got: %s\nwant: %s", turn.Stdin, wantStdin)
 	}
@@ -345,7 +335,6 @@ func TestPreparePayloadPrependsTheContextLayers(t *testing.T) {
 	}, groupDir)
 
 	for _, want := range []string{
-		"[pending migration] Skills version 0 < 9.",
 		"Topic session: inc-1",
 		`<knowledge layer="work">`,
 		"fixing bug",
@@ -369,7 +358,6 @@ func TestPreparePayloadWithoutLayers(t *testing.T) {
 	root := t.TempDir()
 	cfg := goldenCfg(t, root)
 	groupDir := filepath.Join(cfg.GroupsDir, "atlas")
-	write(t, filepath.Join(groupDir, ".claude", "skills", "self", "MIGRATION_VERSION"), "9\n")
 
 	p := preparePayload(cfg, runedv1.RunRequest{Folder: "atlas", MessageBatch: "hi"}, groupDir)
 	want := "[solve] Invoke /solve now — classify, recall, match skills, then respond.\n\nhi"

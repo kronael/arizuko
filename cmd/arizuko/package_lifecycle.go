@@ -248,9 +248,6 @@ func prepareSettingsReceipts(target string, rdb *routd.DB,
 }
 
 func installManagedPackage(dataDir string, rdb *routd.DB, candidate packageCandidate, bound []string) error {
-	if err := container.CheckPendingPackageAdoption(packageStore(rdb), nil); err != nil {
-		return err
-	}
 	selected, err := container.ReadPackageSelection(dataDir, "")
 	if err != nil {
 		return err
@@ -338,9 +335,6 @@ func installManagedPackage(dataDir string, rdb *routd.DB, candidate packageCandi
 }
 
 func removeManagedPackage(dataDir, target, name string, rdb *routd.DB) error {
-	if err := container.CheckPendingPackageAdoption(packageStore(rdb), nil); err != nil {
-		return err
-	}
 	if name == container.CorePackageName {
 		return fmt.Errorf("core is required system-wide and cannot be removed; use packages upgrade core")
 	}

@@ -46,17 +46,12 @@ COPY --from=build /slakd /usr/local/bin/slakd
 COPY --from=build /gitd /usr/local/bin/gitd
 COPY --from=build /emaid /usr/local/bin/emaid
 # /opt/arizuko is the DEFAULT source runed and routd read `ant/` from: skills,
-# CLAUDE.md and the per-surface output-styles all ship in the image, so a
+# CLAUDE.md ship in the image, so a
 # release is a build and not whatever sits in a checkout on the host.
 COPY --from=build /src/ant/skills /opt/arizuko/ant/skills
 COPY --from=build /src/ant/CLAUDE.md /opt/arizuko/ant/CLAUDE.md
 COPY --from=build /src/ant/arizuko.toml /opt/arizuko/ant/arizuko.toml
-COPY --from=build /src/ant/output-styles /opt/arizuko/ant/output-styles
 COPY --from=build /src/template/services /opt/arizuko/template/services
-# The migrate skill's announce step reads the release notes from
-# /opt/arizuko/CHANGELOG.md inside the agent container. It is here because
-# the agent's /opt/arizuko is a copy of THIS path (MaterializeAppSrc), and
-# omitting it made every announce a no-op (BUGS L89).
 COPY --from=build /src/CHANGELOG.md /opt/arizuko/CHANGELOG.md
 WORKDIR /srv/app/home
 # Each daemon exposes /health on :8080 internally. HEALTHCHECK probes it;

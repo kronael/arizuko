@@ -16,7 +16,6 @@ import (
 
 	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/auth"
-	"github.com/kronael/arizuko/container"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/obs"
@@ -162,7 +161,6 @@ func main() {
 
 	// Stage the release's ant/ where agent containers can bind-mount it. Must
 	// precede the first spawn — an agent with no /opt/arizuko cannot migrate.
-	container.MaterializeAppSrc(cfg)
 
 	srv := runed.NewServer(mgr, db, verify)
 	srv.SetDashKeySet(dashKeys)

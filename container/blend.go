@@ -150,9 +150,6 @@ func classify(rel string) payload {
 // an authoring error: it reports success and then does nothing (BUGS J15). ONE map,
 // so the two seeders cannot drift and adding a refusal is a row.
 //
-// migrations/ — the one runner is MIGRATION_VERSION → /migrate, a single
-// instance-wide counter with no per-product dimension.
-//
 // tasks.toml — a scheduled task is a scheduled_tasks ROW, created through the
 // resource's own handler. No parser, no schema type, no seeder ever existed; 5/21
 // claimed otherwise for the whole life of the payload (BUGS L35).

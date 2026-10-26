@@ -2,7 +2,6 @@ package runed
 
 import (
 	"errors"
-	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -85,14 +84,6 @@ func buildMounts(
 	}
 	m = append(m, core.Mount{Host: filepath.Join(inventory.Core, "CLAUDE.md"),
 		Container: core.ContainerHome + "/.claude/CLAUDE.md", RO: true})
-	styles, err := os.ReadDir(filepath.Join(inventory.Core, "output-styles"))
-	if err != nil {
-		return nil, fmt.Errorf("read core output styles: %w", err)
-	}
-	for _, style := range styles {
-		m = append(m, core.Mount{Host: filepath.Join(inventory.Core, "output-styles", style.Name()),
-			Container: core.ContainerHome + "/.claude/output-styles/" + style.Name(), RO: true})
-	}
 
 	// Every guest gets the world's shared dir at /var/lib/share (writable):
 	// a per-world scratch/handoff space all its groups see. Elevated turns

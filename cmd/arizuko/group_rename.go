@@ -210,9 +210,6 @@ func renameOpenOwners(instance, dataDir, endpoint string, inventory renameInvent
 
 func renamePreflight(ctx context.Context, instance, dataDir string, mapping renameMap, inventory renameInventory, drivers map[string]objstore.Store) (renamePlan, error) {
 	plan := renamePlan{Instance: instance, DataDir: dataDir, Mapping: mapping, Inventory: inventory}
-	if err := renameCheckPendingAdoption(mapping, drivers); err != nil {
-		return plan, err
-	}
 	sourceGroups := 0
 	groupFolders := []string{}
 	aclScopes := [][2]string{}
@@ -512,9 +509,6 @@ func renameSteps(plan renamePlan) []renameStep {
 }
 
 func renameExecute(ctx context.Context, journal string, plan renamePlan, drivers map[string]objstore.Store, resume, rollback bool) error {
-	if err := renameCheckPendingAdoption(plan.Mapping, drivers); err != nil {
-		return err
-	}
 	if plan.DataDir != "" {
 		absolute, err := filepath.Abs(journal)
 		if err != nil {
@@ -743,27 +737,6 @@ func renameExecute(ctx context.Context, journal string, plan renamePlan, drivers
 		}
 	}
 	return nil
-}
-
-func renameCheckPendingAdoption(mapping renameMap, drivers map[string]objstore.Store) error {
-	if drivers["routd"] == nil {
-		return fmt.Errorf("missing driver for routd")
-	}
-	database := store.NewOver(drivers["routd"])
-	rows, err := database.InstalledPackages()
-	if err != nil {
-		return err
-	}
-	folders := []string{}
-	for _, row := range rows {
-		for _, entry := range mapping {
-			if renameContains(entry.Source, row.Folder) || renameContains(entry.Destination, row.Folder) {
-				folders = append(folders, row.Folder)
-				break
-			}
-		}
-	}
-	return container.CheckPendingPackageAdoption(database, folders)
 }
 
 func renameStepState(ctx context.Context, step renameStep, drivers map[string]objstore.Store) (bool, bool, error) {

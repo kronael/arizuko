@@ -6,9 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 
-	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
@@ -68,13 +66,6 @@ func seedSettings(
 	if queryTimeout > 0 {
 		env["ARIZUKO_QUERY_TIMEOUT_MS"] = strconv.FormatInt(queryTimeout, 10)
 	}
-	if req.Channel != "" {
-		// nil pane lookup: no caller resolves an open Slack assistant pane, so
-		// the slack-pane row of 5/Y is reachable only through this argument.
-		if name := pickOutputStyle(req.Channel, req.ChatJID, req.Topic, nil); name != "" {
-			settings["outputStyle"] = name
-		}
-	}
 	settings["env"] = env
 
 	// Claude Code's permission + sandbox layer is asserted by the platform, not the
@@ -105,7 +96,7 @@ func seedSettings(
 	data, _ := json.MarshalIndent(settings, "", "  ")
 	tmp := fp + ".tmp"
 	if err := os.WriteFile(tmp, append(data, '\n'), 0o644); err != nil {
-		// settings.json carries the mcpServers socket + outputStyle; without it
+		// settings.json carries the mcpServers socket; without it
 		// the agent spawns with no reply/send tools and silently returns 0
 		// messages ("typing but no reply"). A permission-denied here means the
 		// group home isn't owned by the run uid — a misconfigured (hand-mkdir'd,
@@ -118,81 +109,4 @@ func seedSettings(
 		slog.Warn("failed to rename settings", "from", tmp, "to", fp, "err", err)
 	}
 	slog.Debug("settings seeded", "path", fp)
-}
-
-// pickOutputStyle resolves the agent's outputStyle setting for one turn: derives
-// <platform>-<surface> from the JID/topic/pane signal, falling back to <platform>
-// (spec 5/Y-output-styles-per-surface). The agent image ships every per-surface file, and per-group operator
-// overrides at the same path take precedence automatically. No host-side existence
-// check — name selection and file loading are separate concerns.
-func pickOutputStyle(
-	channel, chatJID, topic string,
-	paneLookup func(channelID string) bool,
-) string {
-	if channel == "" {
-		return ""
-	}
-	if surface := deriveSurface(channel, chatJID, topic, paneLookup); surface != "" {
-		return channel + "-" + surface
-	}
-	return channel
-}
-
-// deriveSurface maps (channel, chatJID, topic, pane) to a surface
-// suffix. Returns "" when the platform has no per-surface split.
-// Mirrors the table in specs/5/Y-output-styles-per-surface.md.
-func deriveSurface(
-	channel, chatJID, topic string,
-	paneLookup func(channelID string) bool,
-) string {
-	switch channel {
-	case "slack":
-		p, ok := chanlib.ParseSlackJID(chatJID)
-		if !ok {
-			return ""
-		}
-		switch p.Kind {
-		case "dm":
-			return "dm"
-		case "group":
-			return "channel"
-		case "channel":
-			if paneLookup != nil && paneLookup(p.ID) {
-				return "pane"
-			}
-			if topic != "" {
-				return "thread"
-			}
-			return "channel"
-		}
-	case "telegram":
-		rest := strings.TrimPrefix(chatJID, "telegram:")
-		if rest == chatJID {
-			return ""
-		}
-		kind, _, ok := strings.Cut(rest, "/")
-		if !ok {
-			return ""
-		}
-		switch kind {
-		case "user":
-			return "dm"
-		case "group":
-			return "group"
-		}
-	case "discord":
-		rest := strings.TrimPrefix(chatJID, "discord:")
-		if rest == chatJID {
-			return ""
-		}
-		kind, _, ok := strings.Cut(rest, "/")
-		if !ok {
-			return ""
-		}
-		if kind == "dm" {
-			return "dm"
-		}
-		return "channel"
-	}
-	return ""
 }

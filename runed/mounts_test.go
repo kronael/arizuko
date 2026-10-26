@@ -90,14 +90,13 @@ func TestBuildMountsImmutableCore(t *testing.T) {
 	for _, guest := range []string{
 		"/opt/arizuko/ant", "/home/node/.claude/CLAUDE.md",
 		"/home/node/.claude/skills/base",
-		"/home/node/.claude/output-styles/brief.md",
 	} {
 		mount := findMount(mounts, guest)
 		if mount == nil || !mount.RO || !strings.HasPrefix(mount.Host, filepath.Join(cfg.ProjectRoot, "packages", "core")+"/") {
 			t.Fatalf("immutable mount %s: %+v", guest, mount)
 		}
 	}
-	for _, target := range []string{".claude/skills/base", ".claude/CLAUDE.md", ".claude/output-styles/brief.md"} {
+	for _, target := range []string{".claude/skills/base", ".claude/CLAUDE.md"} {
 		info, err := os.Lstat(filepath.Join(home, target))
 		if err != nil {
 			t.Fatal(err)
@@ -130,7 +129,6 @@ func TestBuildMountsStableArtifactsAndDisabledSkills(t *testing.T) {
 	oldCore := mountAt(t, first, "/opt/arizuko/ant").Host
 	oldFiles := map[string]string{
 		filepath.Join(oldCore, "CLAUDE.md"):                 "resident manual\n",
-		filepath.Join(oldCore, "output-styles/brief.md"):    "brief style\n",
 		filepath.Join(oldCore, "skills/base/SKILL.md"):      "---\nname: base\ndescription: Base\n---\nBase\n",
 		filepath.Join(optional, "skills/optional/SKILL.md"): "old optional",
 	}
@@ -229,7 +227,7 @@ func TestBuildMountsStableArtifactsAndDisabledSkills(t *testing.T) {
 		}
 		write(t, filepath.Join(home, file), want+" writable")
 	}
-	for _, target := range []string{".claude/CLAUDE.md", ".claude/output-styles/brief.md"} {
+	for _, target := range []string{".claude/CLAUDE.md"} {
 		info, err := os.Lstat(filepath.Join(home, target))
 		if err != nil || !info.Mode().IsRegular() || info.Size() != 0 {
 			t.Fatalf("target not empty regular file %s: %v, %v", target, info, err)

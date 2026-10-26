@@ -65,10 +65,7 @@ Ship is complete only when ALL hold. Miss one and the surfaces drift.
 6. **Dashboard** — if operators manage it, the `dashd` surface exists
    (view AND control via `/v1`), not just the API. An operator-managed
    resource with no dashboard row is not done.
-7. **Migration + broadcast** — migration file under
-   `ant/skills/self/migrations/` + `MIGRATION_VERSION` bump + agent image
-   rebuild. This is the single trigger for skill updates AND the chat
-   broadcast (root `CLAUDE.md ## Shipping changes`).
+7. **Core package** — rebuild the agent image when packaged skills change.
 8. **13yo test** — a smart novice can find and understand it, in both the
    web docs and the dashboard. Jargon a 13yo can't read is a doc bug.
 
@@ -110,7 +107,7 @@ nobody re-read is a claim nobody checked.
 ## Ship order
 
 spec-first → code + tests → repo docs → tier placement → web docs →
-dashboard → migration/version bump → verify (green + `/pub` 200).
+dashboard → image build → verify (green + `/pub` 200).
 
 If a step reveals the design is wrong, fix the spec first, then the code —
 never leave code that adds an unspecced structure.

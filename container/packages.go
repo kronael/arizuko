@@ -16,7 +16,6 @@ import (
 	"strings"
 
 	"github.com/kronael/arizuko/groupfolder"
-	"github.com/kronael/arizuko/store"
 	"golang.org/x/sys/unix"
 )
 
@@ -328,10 +327,7 @@ func ReadPackageSelection(dataDir, target string) ([]PackageSnapshot, error) {
 // WithdrawGroupPackages validates every exact configured target before any
 // withdrawal. The caller holds the instance package lock through group purge.
 // Immutable selections and artifacts remain available to already resolved turns.
-func WithdrawGroupPackages(dataDir string, database *store.Store, folders []string) error {
-	if err := CheckPendingPackageAdoption(database, folders); err != nil {
-		return err
-	}
+func WithdrawGroupPackages(dataDir string, folders []string) error {
 	selected := make([][]PackageSnapshot, len(folders))
 	for i, folder := range folders {
 		if folder == "" {
@@ -349,60 +345,6 @@ func WithdrawGroupPackages(dataDir string, database *store.Store, folders []stri
 		}
 		if err := SelectPackages(dataDir, folder, nil); err != nil {
 			return fmt.Errorf("withdraw packages for %s: %w; group purge did not start; retry deletion", folder, err)
-		}
-	}
-	return nil
-}
-
-// CheckPendingPackageAdoption requires the package lock and borrows database.
-// Nil folders checks every receipt; exact folders also check system receipts.
-// Instance skill adoption and malformed ledgers block every mutation.
-func CheckPendingPackageAdoption(database *store.Store, folders []string) error {
-	if database == nil {
-		return nil
-	}
-	rows, err := database.InstalledPackages()
-	if err != nil {
-		return err
-	}
-	for _, row := range rows {
-		if !HasPendingAdoption(row.AssetHashes) {
-			continue
-		}
-		refusal := errors.New("pending package adoption; complete the install or upgrade before changing packages or groups")
-		if _, err := packageTarget(row.Folder); err != nil {
-			return refusal
-		}
-		if !packageNameRE.MatchString(row.Name) || !isPackageDigest(row.AssetHashes[adoptionPrefix+"package_source"]) ||
-			!isPackageDigest(row.AssetHashes[adoptionPrefix+"source"]) {
-			return refusal
-		}
-		instance, trees := false, 0
-		for key, hash := range row.AssetHashes {
-			rest, pending := strings.CutPrefix(key, adoptionPrefix)
-			if !pending {
-				continue
-			}
-			if !isPackageDigest(hash) {
-				return refusal
-			}
-			if rest == "source" || rest == "package_source" {
-				continue
-			}
-			kind, rel, found := strings.Cut(rest, ":")
-			root, relative, rooted := strings.Cut(rel, "/")
-			if !found || !rooted || !isAdoptionPath(relative) ||
-				(root != "groups" && root != "skills") ||
-				(kind != "tree" && kind != "file" && kind != "dir" && kind != "marker") {
-				return refusal
-			}
-			instance = instance || root == "skills"
-			if kind == "tree" {
-				trees++
-			}
-		}
-		if trees == 0 || instance || folders == nil || row.Folder == "" || slices.Contains(folders, row.Folder) {
-			return refusal
 		}
 	}
 	return nil
@@ -497,7 +439,7 @@ func inspectPackage(dir string, roots []string) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("required core entry %s: %w", name, err)
 		}
-		if (name == "skills" || name == "output-styles") && !info.IsDir() {
+		if name == "skills" && !info.IsDir() {
 			return "", fmt.Errorf("required core entry %s is not a directory", name)
 		}
 		if (name == ManifestFile || name == "CLAUDE.md") && !info.Mode().IsRegular() {

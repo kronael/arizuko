@@ -1,6 +1,6 @@
 # container
 
-Group setup, skill seeding, and the egress proxy engine.
+Group setup, package assets, and the egress proxy engine.
 
 ## Purpose
 
@@ -38,10 +38,6 @@ proxy process.
   is a WARN and answers false, and routd then clears the child's observed
   cursor (`ROUTING.md` § Topic Routing)
 - `SeedCodexMountTargets(codexDir)` — pre-create the files codex overmounts
-- `SeedOutputStyles(cfg, claudeDir)`, `SeedMigrateSkill(cfg, claudeDir)` —
-  copy output styles and the migrate skill into a writable home
-- `PackageSkillsDir(cfg) string`, `SeedPackageSkills(cfg, folder) (int, error)`
-  — layer the instance's package skills into one group
 - `EnsureCorePackage(cfg, database) error` — select the configured release's
   required system core under the caller's package lock. A borrowed store completes
   its receipt; nil selects filesystem state before the store exists. Matching
@@ -72,12 +68,12 @@ substrate. `runed/README.md` §"The turn envelope" holds both tables.
 
 ## Files
 
-- `runner.go` — group setup and skill seeding: `SetupGroup`/`ComposeGroup` over one `setupGroup` skeleton, the platform-owned refreshes, the copy helpers
+- `runner.go` — group setup: `SetupGroup`/`ComposeGroup` over one `setupGroup` skeleton, home initialization and copy helpers
 - `blend.go` — the composition of a product mix: the blend table as code. `classify` is its left column; seed-once vs managed is per payload KIND, and a collision refuses before any byte is written
 - `package_lifecycle.go` — package activation and receipt persistence through a borrowed store
 - `core_package.go` — required core initialization and canonical package collision checks;
-  `ant/arizuko.toml`, `CLAUDE.md`, `skills/` and `output-styles/` define core's fixed payload
-- `runtime.go` — codex mount-target seeding, staging the release `ant/` onto the data dir
+  `ant/arizuko.toml`, `CLAUDE.md` and `skills/` define core's fixed payload
+- `runtime.go` — codex mount-target seeding
 - `episodes.go` — recent-episode XML for prompt context
 - `egress.go` — the allowlist-to-rules translation and the proxy health wait every substrate calls; starts nothing itself
 

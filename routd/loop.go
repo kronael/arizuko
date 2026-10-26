@@ -3,7 +3,6 @@ package routd
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -13,7 +12,6 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/chanlib"
-	"github.com/kronael/arizuko/container"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/obs"
@@ -61,9 +59,6 @@ type Loop struct {
 	observeMessages int
 	observeChars    int
 	groupsDir       string
-
-	// Empty disables the auto-migrate check.
-	appSrcDir string
 
 	// zero-value cfg (Enabled=false) → the scan is never driven.
 	proactive     ProactiveConfig
@@ -133,10 +128,6 @@ type LoopConfig struct {
 	// GroupsDir is where per-group CLAUDE.md lives (the proactive-mode source).
 	Proactive ProactiveConfig
 	GroupsDir string
-
-	// AppSrcDir holds ant/skills/self/MIGRATION_VERSION (APP_SRC_DIR, else
-	// HOST_APP_DIR); empty disables the auto-migrate check.
-	AppSrcDir string
 
 	// CostCapsEnabled toggles the pre-spawn budget gate (COST_CAPS_ENABLED).
 	// Default-on at the cmd layer.
@@ -214,7 +205,6 @@ func NewLoop(db *DB, runner Runner, cfg LoopConfig) *Loop {
 		observeMessages: cfg.ObserveWindowMessages,
 		observeChars:    cfg.ObserveWindowChars,
 		groupsDir:       cfg.GroupsDir,
-		appSrcDir:       cfg.AppSrcDir,
 		costCapsEnabled: cfg.CostCapsEnabled,
 		gateway:         newGatewayIfConfigured(cfg.GatewayURL, cfg.GatewayKey),
 		media:           cfg.Media,
@@ -302,7 +292,6 @@ func (l *Loop) Run(ctx context.Context) {
 	} else if n > 0 {
 		slog.Info("re-armed scheduled tasks stranded in 'firing'", "count", n)
 	}
-	l.checkMigrationVersion()
 	if l.proactive.Enabled {
 		l.nextScanAt = time.Now().Add(l.proactive.ScanInterval)
 	}
@@ -474,46 +463,6 @@ func (l *Loop) recoverPending() {
 	}
 	for _, tc := range tcs {
 		l.Enqueue(tc.ChatJID)
-	}
-}
-
-// checkMigrationVersion enqueues /migrate for EVERY group whose on-disk skill
-// version is behind the upstream MIGRATION_VERSION — the single trigger for
-// skill updates and release broadcasts. /migrate is per-group, so no root
-// fan-out.
-func (l *Loop) checkMigrationVersion() {
-	if l.appSrcDir == "" {
-		return
-	}
-	latest := container.MigrationVersion(
-		filepath.Join(l.appSrcDir, "ant", "skills", "self", "MIGRATION_VERSION"))
-	if latest == 0 {
-		return
-	}
-	for folder := range l.db.AllGroups() {
-		agent := container.MigrationVersion(
-			filepath.Join(l.groupsDir, folder, ".claude", "skills", "self", "MIGRATION_VERSION"))
-		if agent >= latest {
-			continue
-		}
-		slog.Info("auto-migrate: version behind, triggering /migrate",
-			"group", folder, "agent", agent, "latest", latest)
-		// Clear the session first: a group stuck on a stale migrate skill
-		// recalls "/migrate blocked" from session memory instead of reading the
-		// refreshed skill (the marinade/atlas 11-day freeze).
-		_ = l.db.DeleteSession(folder, "")
-		prompt := fmt.Sprintf("/migrate\n\nSystem update: skills v%d → v%d.", agent, latest)
-		if err := l.db.PutMessage(core.Message{
-			ID:        core.MsgID("auto-migrate-" + folder),
-			ChatJID:   folder,
-			Sender:    store.SystemSender,
-			Content:   prompt,
-			Timestamp: time.Now(),
-		}); err != nil {
-			slog.Warn("auto-migrate: put message", "group", folder, "err", err)
-			continue
-		}
-		l.Enqueue(folder)
 	}
 }
 

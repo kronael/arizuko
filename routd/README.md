@@ -80,15 +80,14 @@ routd  buildAgentPrompt, routd/prompt.go:26 ───► RunRequest.MessageBatch
          │ POST /v1/runs
          ▼
 runed  preparePayload, runed/render.go:177 ────► the guest's stdin prompt
-       [pending migration]  Topic session:  <episodes>
+       Topic session:  <episodes>
        <knowledge layer="diary">  <knowledge layer="work">  <user>
        [solve], then routd's string unchanged
          │
          │ vsock, guest-init, stdin
          ▼
 ant    buildSystemPrompt, ant/src/index.ts:49 ─► the system prompt
-       SYSTEM.md, ant/CLAUDE.md for codex and pi, PERSONA.md,
-       the output style
+       SYSTEM.md, ant/CLAUDE.md for codex and pi, PERSONA.md
 ```
 
 <!-- /twin -->
@@ -107,7 +106,6 @@ Three processes build what the agent reads, and each builds the part only it hol
 | `<link-context>`                                      | `routd/prompt.go` `linkContextBlock`                              | when a route token carried the context of its issuer; the newest wins                                                                                                                                                                       |
 | `<messages>`, `<message>`, `<observed>`, `<reply-to>` | `router/router.go` `FormatMessages`                               | every turn: the trigger and the observed rows, ordered by time                                                                                                                                                                              |
 | `<attachment>`                                        | `routd/enrich.go` `enrichAttachments`                             | inside a message body, written at ingest                                                                                                                                                                                                    |
-| `[pending migration]`                                 | `runed/render.go` `preparePayload`                                | when the skills version of the group is behind the version of the image                                                                                                                                                                     |
 | `Topic session:`                                      | `runed/render.go` `preparePayload`                                | on a named topic                                                                                                                                                                                                                            |
 | `<episodes>`                                          | `container/episodes.go` `ReadRecentEpisodes`                      | when `~/episodes/` holds files with `type:` and `summary:`; the newest 3 per type                                                                                                                                                           |
 | `<knowledge layer="diary">`                           | `diary/diary.go` `Read`, called from `preparePayload`             | when `~/diary/` holds `.md` files; the newest 14 by name                                                                                                                                                                                    |
@@ -119,7 +117,7 @@ Three processes build what the agent reads, and each builds the part only it hol
 
 The trigger drops bot rows (`dispatch.go`). The observed window keeps the folder's own replies, from every topic, rendered `bot="true"`, so a topic sees what a sibling topic already answered; it excludes the bot rows of a watched source. Where history is returned on purpose, through `inspect_messages`, `get_thread` and `fetch_history`, a bot row carries `bot="true"`. The attribute reads `is_bot_message`, never `is_from_me`, because the from-me rows of an imported archive belong to the linked account, that is, to the operator.
 
-`<surface>slack-pane</surface>` is the only `<surface>` tag that routd emits, and it belongs to the Slack pane. The output style sets the length and format rules per surface: `ant/output-styles/README.md`.
+`<surface>slack-pane</surface>` is the only `<surface>` tag that routd emits, and it belongs to the Slack pane. The core skill `ant/skills/self/messages.md` carries channel formatting rules.
 
 To add a block, emit it from the builder that holds its input, keep it XML-shaped and per-turn, and add its row to the table. An autocall is the cheapest block: `EXTENDING.md` section "Adding an autocall".
 

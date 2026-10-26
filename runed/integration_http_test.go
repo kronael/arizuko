@@ -82,12 +82,11 @@ func TestHTTPRunThreadsFullTurn(t *testing.T) {
 	}
 	coreDir := selectedCore(t, cfg)
 	for guest, source := range map[string]string{
-		"/opt/arizuko/ant":                          coreDir,
-		"/home/node/.claude/CLAUDE.md":              filepath.Join(coreDir, "CLAUDE.md"),
-		"/home/node/.claude/skills/base":            filepath.Join(coreDir, "skills/base"),
-		"/home/node/.claude/skills/system-skill":    filepath.Join(system, "skills/system-skill"),
-		"/home/node/.claude/skills/group-skill":     filepath.Join(group, "skills/group-skill"),
-		"/home/node/.claude/output-styles/brief.md": filepath.Join(coreDir, "output-styles/brief.md"),
+		"/opt/arizuko/ant":                       coreDir,
+		"/home/node/.claude/CLAUDE.md":           filepath.Join(coreDir, "CLAUDE.md"),
+		"/home/node/.claude/skills/base":         filepath.Join(coreDir, "skills/base"),
+		"/home/node/.claude/skills/system-skill": filepath.Join(system, "skills/system-skill"),
+		"/home/node/.claude/skills/group-skill":  filepath.Join(group, "skills/group-skill"),
 	} {
 		mount := mountAt(t, *turn, guest)
 		if !mount.RO || mount.Host != source {

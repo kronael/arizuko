@@ -273,7 +273,7 @@ func (s *Server) rollbackGroup(folder string) error {
 			folders = append(folders, registered)
 		}
 	}
-	if err := container.WithdrawGroupPackages(dataDir, s.db.store(), folders); err != nil {
+	if err := container.WithdrawGroupPackages(dataDir, folders); err != nil {
 		return err
 	}
 	_, _, err = s.db.DeleteGroup(folder)

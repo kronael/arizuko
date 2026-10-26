@@ -121,46 +121,6 @@ func TestGroupRmPackages(t *testing.T) {
 	assertGroupPackages(t, cfg.ProjectRoot, "", []container.PackageSnapshot{snapshot})
 }
 
-func TestGroupRmPendingAdoption(t *testing.T) {
-	for _, pending := range []string{"core", "group", "malformed", "instance"} {
-		t.Run(pending, func(t *testing.T) {
-			s := routdStore(t)
-			seedGroups(t, s, "eval", "eval/child", "keeper")
-			cfg := groupRmConfig(t)
-			paths := seedGroupRmPaths(t, cfg, []string{"eval", "eval/child", "keeper"})
-			snapshot := seedGroupPackages(t, cfg.ProjectRoot, []string{"eval", "eval/child", "keeper"})
-			row := pendingAdoptionReceipt("eval/child")
-			switch pending {
-			case "core":
-				row.Folder, row.Name = "", "core"
-			case "malformed":
-				row.Folder, row.AssetHashes = "keeper", map[string]string{"pending:adopt:unknown": "invalid"}
-			case "instance":
-				row.Folder = "keeper"
-				row.AssetHashes["pending:adopt:tree:skills/probe"] = strings.Repeat("e", 64)
-			}
-			if err := s.PutInstalledPackage(row); err != nil {
-				t.Fatal(err)
-			}
-			var out bytes.Buffer
-			if err := runGroupRm(context.Background(), s, cfg, nil, "eval", true, &out); err == nil || !strings.Contains(err.Error(), "pending package adoption") {
-				t.Fatalf("group removal bypassed adoption: %v", err)
-			}
-			for _, folder := range []string{"eval", "eval/child", "keeper"} {
-				if !hasGroup(s, folder) {
-					t.Fatalf("refusal purged %s", folder)
-				}
-				assertGroupPackages(t, cfg.ProjectRoot, folder, []container.PackageSnapshot{snapshot})
-			}
-			for _, path := range paths {
-				if data, err := os.ReadFile(filepath.Join(path, "content")); err != nil || string(data) != filepath.Base(path) && string(data) != "eval/child" {
-					t.Fatalf("refusal changed group files: %s, %v", data, err)
-				}
-			}
-		})
-	}
-}
-
 // A failed subtree withdrawal keeps configured identities available for a safe retry.
 func TestGroupRmPackagesRetry(t *testing.T) {
 	for _, failure := range []string{"preflight", "partial"} {

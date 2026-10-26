@@ -2,7 +2,7 @@
 name: self
 description: >
   Deep introspection of this agent — identity (who/where/grants),
-  workspace layout, MCP tool catalog, skill seeding, migration version,
+  workspace layout, MCP tool catalog, packaged skills, channel formatting,
   chat links and webhooks. Directory of focused per-topic files; this
   SKILL.md is the index. USE for "who are you", "what version", "what's
   my chat URL", "how does routing work", "why am I replying / observing",
@@ -41,9 +41,9 @@ directly) — don't load the whole `self/` directory into context. The
 | Platform mount table, `~/` vs `/var/lib/...`   | `workspace.md`      |
 | What MCP tools, mcpc usage                     | `mcp.md`            |
 | `<autocalls>` block fields                     | `autocalls.md`      |
-| `<system>` messages, origins, events           | `messages.md`       |
+| `<system>` messages, attachments, channel formatting | `messages.md` |
 | Topics: active, drift, observed, reset         | `topics.md`         |
-| Migration version, skill seeding, `/migrate`   | `migration.md`      |
+| Packaged skills and custom skills             | `extension.md`      |
 | Chat routing: why I reply, observe vs trigger, seq, mention-only | `chat-routing.md` |
 | Web URL structure, route tokens, `/pub` vs `/priv` | `web-routing.md` |
 | Chat links + webhooks (issue/use/revoke)       | `chat-link.md`      |
@@ -53,7 +53,7 @@ directly) — don't load the whole `self/` directory into context. The
 | Adding skills, MCP servers, settings           | `extension.md`      |
 
 All paths under `/opt/arizuko/ant/skills/self/` (read-only canonical)
-or `~/.claude/skills/self/` (your local copy).
+or `~/.claude/skills/self/` (the mounted package).
 
 ## See also
 

@@ -32,28 +32,6 @@ func SanitizeFolder(folder string) string {
 	return strings.Trim(s, "-")
 }
 
-// SeedOutputStyles refreshes the per-surface output-style files on EVERY spawn.
-// cpDirOverwrite, not cpDirFresh: these are platform-managed content, and
-// cpDirFresh skipped existing files, so a style tweak only ever reached freshly
-// created groups and silently regressed everywhere else. A group's own CUSTOM
-// style file is left untouched (cpDirImpl only copies src entries).
-func SeedOutputStyles(cfg *core.Config, claudeDir string) {
-	src := filepath.Join(cfg.EffectiveAppSrcDir(), "ant", "output-styles")
-	dst := filepath.Join(claudeDir, "output-styles")
-	cpDirOverwrite(src, dst)
-}
-
-// SeedMigrateSkill force-refreshes the platform's self-update bootstrap skill on
-// every spawn. migrate is the ONLY thing that syncs skills, so a stale copy can
-// never update itself and deadlocks every future migration. Cost 11 days of
-// frozen skills on the live split. Unlike stock skills it is platform-owned —
-// always overwritten, like output-styles. MIGRATION_VERSION lives under self/.
-func SeedMigrateSkill(cfg *core.Config, claudeDir string) {
-	src := filepath.Join(cfg.EffectiveAppSrcDir(), "ant", "skills", "migrate")
-	dst := filepath.Join(claudeDir, "skills", "migrate")
-	cpDirOverwrite(src, dst)
-}
-
 // SetupGroup borrows database; nil selects core before a store exists.
 // It acquires the instance package lock; callers must not already hold it.
 func SetupGroup(cfg *core.Config, database *store.Store, folder, seedDir string) error {
@@ -222,148 +200,7 @@ func chownR(root string, uid, gid int) error {
 	return firstErr
 }
 
-// PackageSkillsDir is the instance-wide tree `arizuko packages install` writes a
-// package's `skills/<name>/` into, and `remove` deletes from. Nothing else
-// writes it, which is what makes the tree upstream-managed rather than the
-// operator's (spec 5/28-packages skills asset kind).
-func PackageSkillsDir(cfg *core.Config) string {
-	return filepath.Join(filepath.Dir(cfg.GroupsDir), "skills")
-}
-
-// SeedPackageSkills layers the instance's package skills into one group's
-// `~/.claude/skills/` and returns how many it wrote. Two callers: group setup,
-// and `arizuko generate` — which is what reaches a group that already existed
-// when the package was installed (BUGS L47).
-//
-// OVERWRITE, unlike the stock skills seedSkills lays down first, and the two
-// trees are why. A stock skill is `ours`: the operator may edit it, `/migrate`
-// 3-way merges the next release against `.merge-base`, and cpDirFresh must not
-// clobber the edit. A package skill has no `.merge-base` entry and no operator
-// authoring path — the package owns the directory NAME and `remove` deletes the
-// whole dir — so it is upstream-managed (spec 5/28-packages, `managed: sync`) and a fix in the
-// package has to reach the group. Before this it could not: seedSkills ran only
-// at group creation, and cpDirFresh skipped every file that already existed, so
-// a package's skill froze at whatever content existed when each group was made.
-//
-// Two things the overwrite must NOT take with it, both already operator-owned:
-// a `.disabled` marker (the same escape hatch stock skills have, surfaced by
-// dashd's per-group skill toggle), and a name a stock skill already holds — the
-// package layer sits on top of the `ours` tree, so overwriting there would let a
-// package edit a shipped skill.
-func SeedPackageSkills(cfg *core.Config, folder string) (int, error) {
-	r := &groupfolder.Resolver{GroupsDir: cfg.GroupsDir, IpcDir: cfg.IpcDir}
-	groupDir, err := r.GroupPath(folder)
-	if err != nil {
-		return 0, fmt.Errorf("invalid group folder: %w", err)
-	}
-	src := PackageSkillsDir(cfg)
-	pkgs, err := os.ReadDir(src)
-	if os.IsNotExist(err) {
-		return 0, nil // no package ships a skill on this instance
-	}
-	if err != nil {
-		return 0, fmt.Errorf("read package skills %s: %w", src, err)
-	}
-	stock := map[string]bool{}
-	if entries, serr := os.ReadDir(filepath.Join(cfg.EffectiveAppSrcDir(), "ant", "skills")); serr == nil {
-		for _, e := range entries {
-			stock[e.Name()] = true
-		}
-	}
-	dst := filepath.Join(groupDir, ".claude", "skills")
-	var n int
-	for _, e := range pkgs {
-		if !e.IsDir() || !skillNameRe.MatchString(e.Name()) {
-			continue
-		}
-		if stock[e.Name()] {
-			slog.Warn("package skill shadows a shipped skill; not seeded",
-				"skill", e.Name(), "folder", folder)
-			continue
-		}
-		d := filepath.Join(dst, e.Name())
-		if _, err := os.Stat(filepath.Join(d, ".disabled")); err == nil {
-			continue
-		}
-		cpDirOverwrite(filepath.Join(src, e.Name()), d)
-		// generate usually runs as root while the agent runs as uid 1000; a
-		// skill file it cannot read is a skill it does not have.
-		warnChown(d)
-		n++
-	}
-	return n, nil
-}
-
 func seedSkills(cfg *core.Config, claudeDir, folder string) {
-	src := filepath.Join(cfg.EffectiveAppSrcDir(), "ant", "skills")
-	dst := filepath.Join(claudeDir, "skills")
-	base := filepath.Join(claudeDir, ".merge-base", "skills")
-
-	entries, err := os.ReadDir(src)
-	if err != nil {
-		return
-	}
-
-	for _, e := range entries {
-		if !e.IsDir() {
-			continue
-		}
-		if !skillNameRe.MatchString(e.Name()) {
-			slog.Warn("skipping skill with invalid name",
-				"name", e.Name())
-			continue
-		}
-		d := filepath.Join(dst, e.Name())
-		if _, err := os.Stat(filepath.Join(d, ".disabled")); err == nil {
-			// Disabled by operator: don't seed; remove SKILL.md so
-			// Claude Code stops indexing it, and drop the stale
-			// merge-base so re-enable starts from a fresh sync.
-			if err := os.Remove(filepath.Join(d, "SKILL.md")); err != nil && !os.IsNotExist(err) {
-				slog.Warn("disabled skill keeps its SKILL.md; the agent still indexes it",
-					"skill", e.Name(), "folder", folder, "err", err)
-			}
-			if err := os.RemoveAll(filepath.Join(base, e.Name())); err != nil {
-				slog.Warn("stale merge-base kept; a re-enable 3-way merges against it",
-					"skill", e.Name(), "folder", folder, "err", err)
-			}
-			continue
-		}
-		s := filepath.Join(src, e.Name())
-		// ours: preserve operator edits — only write missing files.
-		cpDirFresh(s, d)
-		// merge-base: full mirror of upstream — wipe then copy.
-		baseDir := filepath.Join(base, e.Name())
-		if err := os.RemoveAll(baseDir); err != nil {
-			slog.Warn("merge-base not wiped; it keeps files this release dropped",
-				"skill", e.Name(), "folder", folder, "err", err)
-		}
-		cpDirOverwrite(s, baseDir)
-	}
-
-	if _, err := SeedPackageSkills(cfg, folder); err != nil {
-		slog.Warn("seed package skills", "folder", folder, "err", err)
-	}
-
-	mdSrc := filepath.Join(cfg.EffectiveAppSrcDir(), "ant", "CLAUDE.md")
-	mdDst := filepath.Join(claudeDir, "CLAUDE.md")
-	mdBase := filepath.Join(claudeDir, ".merge-base", "CLAUDE.md")
-	if data, err := os.ReadFile(mdSrc); err == nil {
-		// ours: only write if missing — preserve operator edits.
-		if _, err := os.Stat(mdDst); os.IsNotExist(err) {
-			if err := os.WriteFile(mdDst, data, 0o644); err != nil {
-				slog.Error("CLAUDE.md not written; the agent starts without it",
-					"path", mdDst, "folder", folder, "err", err)
-			}
-		}
-		// merge-base: always refresh to mirror upstream.
-		if err := os.MkdirAll(filepath.Dir(mdBase), 0o755); err != nil {
-			slog.Warn("merge-base dir", "path", filepath.Dir(mdBase), "folder", folder, "err", err)
-		} else if err := os.WriteFile(mdBase, data, 0o644); err != nil {
-			slog.Warn("merge-base CLAUDE.md not refreshed; /migrate merges against the older one",
-				"path", mdBase, "folder", folder, "err", err)
-		}
-	}
-
 	jsonDst := filepath.Join(claudeDir, ".claude.json")
 	if _, err := os.Stat(jsonDst); os.IsNotExist(err) {
 		userID := fmt.Sprintf("%x", sha256.Sum256([]byte("arizuko:"+folder)))
@@ -395,22 +232,6 @@ func WriteGatewayCaps(groupDir string, cfg *core.Config) {
 		slog.Error("gateway caps not written; the agent reads the previous turn's capabilities",
 			"path", p, "err", err)
 	}
-}
-
-func MigrationVersion(path string) int {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return 0
-	}
-	var v int
-	if _, err := fmt.Sscanf(strings.TrimSpace(string(data)), "%d", &v); err != nil {
-		// 0, the same answer an absent file gives. Which way that fails depends on
-		// WHICH file: a garbled upstream MIGRATION_VERSION makes checkMigrationVersion
-		// return early and no group migrates at all, so the value has to be named.
-		slog.Warn("migration version file is not a number", "path", path, "err", err)
-		return 0
-	}
-	return v
 }
 
 // CopySession duplicates a Claude Code session jsonl from src uuid
