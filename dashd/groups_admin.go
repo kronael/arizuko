@@ -112,7 +112,7 @@ func (d *dash) handleGroupCreate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "config load failed", http.StatusInternalServerError)
 		return
 	}
-	if err := container.SetupGroup(cfg, folder, ""); err != nil {
+	if err := container.SetupGroup(cfg, d.routdStore(), folder, ""); err != nil {
 		slog.Error("group create: setup", "folder", folder, "err", err)
 		http.Error(w, "setup failed", http.StatusInternalServerError)
 		return

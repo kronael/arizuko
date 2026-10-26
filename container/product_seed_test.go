@@ -191,7 +191,8 @@ func TestProductSeedIsVerbatim(t *testing.T) {
 			if err := os.MkdirAll(cfg.IpcDir, 0o755); err != nil {
 				t.Fatal(err)
 			}
-			if err := SetupGroup(cfg, "seeded", seedDir); err != nil {
+			seedCoreRelease(t, cfg)
+			if err := SetupGroup(cfg, nil, "seeded", seedDir); err != nil {
 				t.Fatalf("SetupGroup: %v", err)
 			}
 
@@ -333,7 +334,8 @@ func TestBothSeedersPlaceAlike(t *testing.T) {
 
 	tmp := t.TempDir()
 	cfg := &core.Config{GroupsDir: filepath.Join(tmp, "groups"), IpcDir: filepath.Join(tmp, "ipc")}
-	if err := SetupGroup(cfg, "verbatim", prod); err != nil {
+	seedCoreRelease(t, cfg)
+	if err := SetupGroup(cfg, nil, "verbatim", prod); err != nil {
 		t.Fatalf("SetupGroup: %v", err)
 	}
 	seeded := walkFiles(t, filepath.Join(cfg.GroupsDir, "verbatim"))

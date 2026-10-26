@@ -1,6 +1,7 @@
 package routd
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -9,6 +10,7 @@ import (
 	"github.com/kronael/arizuko/container"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
+	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -94,6 +96,7 @@ func TestRegisterGroupAddsRoute(t *testing.T) {
 	}
 	t.Cleanup(func() { db.Close() })
 	groupsDir := t.TempDir()
+	registrationCoreSource(t, groupsDir)
 	srv := NewServer(db, nil, nil, nil, 0, "")
 	srv.SetDirs(groupsDir, "")
 	if err := os.MkdirAll(filepath.Join(groupsDir, "ops"), 0o755); err != nil {
@@ -106,6 +109,12 @@ func TestRegisterGroupAddsRoute(t *testing.T) {
 
 	if !db.GroupExists("ops") {
 		t.Fatal("group not persisted")
+	}
+	selected, err := container.ReadPackageSelection(os.Getenv("DATA_DIR"), "")
+	receipt, coreFound, rerr := db.InstalledPackage("", "core")
+	if err != nil || rerr != nil || len(selected) != 1 || !coreFound ||
+		receipt.Source != "ant" || receipt.Revision != selected[0].Digest {
+		t.Fatalf("core missing before registration success: %+v %+v %v %v", selected, receipt, err, rerr)
 	}
 	routes, _ := db.Routes()
 	var found bool
@@ -120,6 +129,49 @@ func TestRegisterGroupAddsRoute(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(groupsDir, "ops", ".git")); err != nil {
 		t.Fatalf("group dir not git-inited: %v", err)
 	}
+}
+
+func TestRegisterGroupCoreFailure(t *testing.T) {
+	for _, failure := range []string{"source", "receipt"} {
+		t.Run(failure, func(t *testing.T) {
+			db := memDB(t)
+			server := &Server{db: db, groupsDir: filepath.Join(t.TempDir(), "groups")}
+			registrationCoreSource(t, server.groupsDir)
+			if failure == "source" {
+				t.Setenv("APP_SRC_DIR", t.TempDir())
+			} else {
+				db.obj = coreReceiptFailure{db.obj}
+			}
+			err := server.registerGroup("telegram:777", core.Group{Folder: "broken"})
+			if err == nil || db.GroupExists("broken") {
+				t.Fatalf("core failure published a group: %v", err)
+			}
+			routes, err := db.Routes()
+			if err != nil || len(routes) != 0 {
+				t.Fatalf("failed registration published routes: %v %v", routes, err)
+			}
+			if failure == "receipt" {
+				selected, err := container.ReadPackageSelection(os.Getenv("DATA_DIR"), "")
+				if err != nil || len(selected) != 1 {
+					t.Fatalf("receipt failure did not reach activation: %+v %v", selected, err)
+				}
+			}
+		})
+	}
+}
+
+type coreReceiptFailure struct {
+	objstore.Store
+}
+
+func (database coreReceiptFailure) GuardedBatch(ctx context.Context,
+	checks []objstore.Check, writes []objstore.Write) (bool, error) {
+	for _, write := range writes {
+		if write.Entity == store.InstalledPackages {
+			return false, errors.New("receipt write refused")
+		}
+	}
+	return database.Store.GuardedBatch(ctx, checks, writes)
 }
 
 // TestServeTurnMCPSocketLifecycle: ServeTurnMCP binds the group MCP socket in a
@@ -155,6 +207,7 @@ func TestServeTurnMCPSocketLifecycle(t *testing.T) {
 func TestRegisterGroup_RollsBackOnlyWhatItCreated(t *testing.T) {
 	d := memDB(t)
 	srv := &Server{db: d, groupsDir: t.TempDir()}
+	registrationCoreSource(t, srv.groupsDir)
 
 	// A folder that is already there, with a child of its own.
 	if err := d.PutGroup(core.Group{Folder: "acme"}); err != nil {
@@ -184,6 +237,7 @@ func TestRegisterGroupRollbackPackages(t *testing.T) {
 	db := memDB(t)
 	root := t.TempDir()
 	srv := &Server{db: db, groupsDir: filepath.Join(root, "groups")}
+	registrationCoreSource(t, srv.groupsDir)
 	source := t.TempDir()
 	if err := os.WriteFile(filepath.Join(source, "arizuko.toml"), []byte("name = \"probe\"\n"), 0o644); err != nil {
 		t.Fatal(err)

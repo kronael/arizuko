@@ -170,7 +170,7 @@ routd is the `routd` owner. Each table below is an objstore entity. routd create
 - Counters: `counters` holds one server-minted number, `routes.id`.
 - People: `user_profiles` holds the username that names the folder of a person, and the per-day spend cap of that person. authd owns identity. The model gateway owns spend.
 - Network: `network_rules`.
-- Packages: `installed_packages`, keyed by folder and name, where `''` means instance-wide. The CLI writes it directly. Both faces only read it, and both require the scope `**` for the read (`installedPackagesScope` in `packages_resource.go`). The folder column does not narrow the read, because one record names identities in several folders. A token bound to its own subtree gets 403.
+- Packages: `installed_packages`, keyed by folder and name, where `''` means instance-wide. The CLI writes optional receipts; startup and group creation complete the required core receipt. Both faces only read it, and both require the scope `**` for the read (`installedPackagesScope` in `packages_resource.go`). The folder column does not narrow the read, because one record names identities in several folders. A token bound to its own subtree gets 403.
 - Audit: `audit_log`, created through `audit.EnsureEntities`.
 
 routd reads no table of another owner. Data of other daemons arrives over HTTP: identity from authd and `session_log` from runed.

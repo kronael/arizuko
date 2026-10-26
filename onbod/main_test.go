@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html"
 	"log/slog"
@@ -11,6 +12,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -19,6 +21,7 @@ import (
 
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/chanlib"
+	"github.com/kronael/arizuko/container"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/objstore/dynstore/dyntest"
@@ -66,6 +69,33 @@ func migratedDB(t *testing.T) (xdb, obdb *store.Store) {
 // declaration of its own would build a shape production does not have.
 func testDB(t *testing.T) *store.Store {
 	t.Helper()
+	dataDir := t.TempDir()
+	t.Setenv("DATA_DIR", dataDir)
+	release := t.TempDir()
+	for name, body := range map[string]string{
+		"arizuko.toml": "name = \"core\"\n", "CLAUDE.md": "core manual",
+		"skills/base/SKILL.md": "core skill", "output-styles/brief.md": "core style",
+	} {
+		path := filepath.Join(release, "ant", name)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("APP_SRC_DIR", release)
+	t.Cleanup(func() {
+		for _, name := range []string{"packages", "package-selections"} {
+			root := filepath.Join(dataDir, name)
+			_ = filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+				if err != nil || !entry.IsDir() {
+					return err
+				}
+				return os.Chmod(path, 0o755)
+			})
+		}
+	})
 	rdb, err := routd.OpenMem()
 	if err != nil {
 		t.Fatalf("routd.OpenMem: %v", err)
@@ -536,6 +566,12 @@ func TestCreateWorldValidUsername(t *testing.T) {
 	}
 
 	folder := folderName(t, db, "alice")
+	selected, err := container.ReadPackageSelection(os.Getenv("DATA_DIR"), "")
+	receipt, found, rerr := db.InstalledPackage("", "core")
+	if err != nil || rerr != nil || len(selected) != 1 || !found ||
+		receipt.Source != "ant" || receipt.Revision != selected[0].Digest {
+		t.Fatalf("core missing before onboarding success: %+v %+v %v %v", selected, receipt, err, rerr)
+	}
 	if folder != "alice" {
 		t.Errorf("group not created")
 	}
@@ -551,6 +587,53 @@ func TestCreateWorldValidUsername(t *testing.T) {
 	}
 	if un != "alice" {
 		t.Errorf("username not updated, got %q", un)
+	}
+}
+
+type coreReceiptFailure struct {
+	objstore.Store
+}
+
+func (database coreReceiptFailure) GuardedBatch(ctx context.Context,
+	checks []objstore.Check, writes []objstore.Write) (bool, error) {
+	for _, write := range writes {
+		if write.Entity == store.InstalledPackages {
+			return false, errors.New("receipt write refused")
+		}
+	}
+	return database.Store.GuardedBatch(ctx, checks, writes)
+}
+
+func TestCreateWorldCoreFailure(t *testing.T) {
+	for _, failure := range []string{"source", "receipt"} {
+		t.Run(failure, func(t *testing.T) {
+			db := testDB(t)
+			if err := db.CreateUserProfile("github:new", "github:new", "New"); err != nil {
+				t.Fatal(err)
+			}
+			seedRedemption(t, db, "github:new", "/")
+			owner := db
+			if failure == "source" {
+				t.Setenv("APP_SRC_DIR", t.TempDir())
+			} else {
+				owner = store.NewOver(coreReceiptFailure{db.Obj()})
+			}
+			w := postOnboardSplit(owner, db, "github:new", url.Values{
+				"action": {"create_world"}, "username": {"broken"}, "csrf": {"c"},
+			})
+			if _, exists := db.GroupByFolder("broken"); exists || w.Code != http.StatusInternalServerError {
+				t.Fatalf("core failure published a world: %d %s", w.Code, w.Body.String())
+			}
+			if countRoutes(t, db) != 0 {
+				t.Fatal("failed world creation published a route")
+			}
+			if failure == "receipt" {
+				selected, err := container.ReadPackageSelection(os.Getenv("DATA_DIR"), "")
+				if err != nil || len(selected) != 1 {
+					t.Fatalf("receipt failure did not reach activation: %+v %v", selected, err)
+				}
+			}
+		})
 	}
 }
 

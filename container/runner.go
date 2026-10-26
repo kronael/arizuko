@@ -15,6 +15,7 @@ import (
 
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
+	"github.com/kronael/arizuko/store"
 )
 
 var (
@@ -53,11 +54,10 @@ func SeedMigrateSkill(cfg *core.Config, claudeDir string) {
 	cpDirOverwrite(src, dst)
 }
 
-// SetupGroup creates the group dir (plus logs/ and the web slots) and, when
-// seedDir is non-empty, copies it in as the starting file set. cmd/arizuko
-// passes a product template dir; dashd and onbod pass "" (empty group).
-func SetupGroup(cfg *core.Config, folder, seedDir string) error {
-	return setupGroup(cfg, folder, func(groupDir string) error {
+// SetupGroup borrows database; nil selects core before a store exists.
+// It acquires the instance package lock; callers must not already hold it.
+func SetupGroup(cfg *core.Config, database *store.Store, folder, seedDir string) error {
+	return setupGroup(cfg, database, folder, func(groupDir string) error {
 		if seedDir == "" {
 			return nil
 		}
@@ -74,16 +74,14 @@ func SetupGroup(cfg *core.Config, folder, seedDir string) error {
 	})
 }
 
-// ComposeGroup is SetupGroup for an ordered product MIX (spec 5/28-packages
-// composition): the group dir is prepared identically, then blended per payload
-// kind instead of seeded from one verbatim tree. prior carries each product's
-// last recorded AssetHashes so a locally edited managed asset is left alone.
+// ComposeGroup borrows database and acquires the package lock like SetupGroup.
+// prior protects locally edited product assets.
 func ComposeGroup(
-	cfg *core.Config, folder string,
+	cfg *core.Config, database *store.Store, folder string,
 	mix []Product, prior map[string]map[string]string,
 ) ([]Blended, error) {
 	var out []Blended
-	err := setupGroup(cfg, folder, func(groupDir string) error {
+	err := setupGroup(cfg, database, folder, func(groupDir string) error {
 		var berr error
 		out, berr = BlendProducts(groupDir, mix, prior)
 		return berr
@@ -91,15 +89,28 @@ func ComposeGroup(
 	return out, err
 }
 
-// setupGroup owns the group-dir skeleton both entry points share: the dirs, the
-// per-group web slots, and the .claude/ seed. Only the middle step — how the
-// starting file set arrives — differs between a single verbatim product and a
-// blended mix, so it is the one thing the caller supplies.
-func setupGroup(cfg *core.Config, folder string, seed func(groupDir string) error) error {
+func setupGroup(cfg *core.Config, database *store.Store, folder string,
+	seed func(groupDir string) error) error {
 	r := &groupfolder.Resolver{GroupsDir: cfg.GroupsDir, IpcDir: cfg.IpcDir}
 	groupDir, err := r.GroupPath(folder)
 	if err != nil {
 		return fmt.Errorf("invalid group folder: %w", err)
+	}
+	lock, err := LockPackages(cfg.ProjectRoot)
+	if err != nil {
+		return err
+	}
+	// The lock covers initialization and the new group's filesystem setup.
+	defer lock.Close() //nolint:errcheck
+	selected, err := ReadPackageSelection(cfg.ProjectRoot, folder)
+	if err != nil {
+		return err
+	}
+	if err := CheckPackageSelection(cfg, folder, database, selected); err != nil {
+		return err
+	}
+	if err := EnsureCorePackage(cfg, database); err != nil {
+		return err
 	}
 	if err := os.MkdirAll(groupDir, 0o755); err != nil {
 		return fmt.Errorf("mkdir group: %w", err)

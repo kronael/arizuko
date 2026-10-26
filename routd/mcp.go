@@ -220,6 +220,14 @@ func toInviteInfo(inv Invite) ipc.InviteInfo {
 // the group row back on a failed insert so a route-less orphan is never left),
 // then git-inits the group dir. The jid supplies the route's room literal.
 func (s *Server) registerGroup(jid string, g core.Group) error {
+	cfg, err := core.LoadConfig()
+	if err != nil {
+		return err
+	}
+	cfg.GroupsDir, cfg.WebDir = s.groupsDir, s.webDir
+	if err := container.SetupGroup(cfg, s.db.store(), g.Folder, ""); err != nil {
+		return err
+	}
 	// Whether the folder was ALREADY there decides what a rollback may undo:
 	// PutGroup upserts, and the purge is a subtree delete that takes the
 	// folder's children with it (BUGS L245).

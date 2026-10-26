@@ -21,6 +21,34 @@ import (
 
 var packageNameRE = regexp.MustCompile(PackageNamePattern)
 
+const packageLock = ".packages.lock"
+
+// PackagePaths are shared writable paths below the instance data directory.
+// The final path is a regular lock file whose inode must remain stable.
+func PackagePaths() []string {
+	return []string{"packages", "package-selections", "package-active", packageLock}
+}
+
+// PreparePackagePaths requires the package lock. It prepares mutable parents
+// before compose binds them into daemons; immutable artifacts remain sealed.
+func PreparePackagePaths(dataDir string) error {
+	root, err := openPackageRoot(dataDir)
+	if err != nil {
+		return err
+	}
+	// Closing a directory handle has no pending writes.
+	defer root.Close() //nolint:errcheck
+	for _, dir := range PackagePaths() {
+		if dir == packageLock {
+			continue
+		}
+		if err := packageDirs(root, dir); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 type PackageSnapshot struct {
 	Name   string
 	Digest string
@@ -36,7 +64,7 @@ func LockPackages(dataDir string) (*os.File, error) {
 	}
 	// Closing a directory handle has no pending writes.
 	defer root.Close() //nolint:errcheck
-	file, err := root.OpenFile(".packages.lock",
+	file, err := root.OpenFile(packageLock,
 		os.O_CREATE|os.O_RDONLY|unix.O_NOFOLLOW|unix.O_NONBLOCK, 0o644)
 	if err != nil {
 		return nil, err
@@ -611,13 +639,25 @@ func openPackageRoot(dataDir string) (*os.Root, error) {
 
 func packageDirs(root *os.Root, rel string) error {
 	err := checkPackageDirs(root, rel)
-	if !errors.Is(err, fs.ErrNotExist) {
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
-	if err := root.MkdirAll(rel, 0o755); err != nil {
-		return err
+	if err != nil {
+		if err := root.MkdirAll(rel, 0o755); err != nil {
+			return err
+		}
+		if err := checkPackageDirs(root, rel); err != nil {
+			return err
+		}
 	}
-	return checkPackageDirs(root, rel)
+	if os.Geteuid() == 0 {
+		for current := rel; current != "."; current = path.Dir(current) {
+			if err := root.Chown(current, containerUID, containerUID); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func checkPackageDirs(root *os.Root, rel string) error {

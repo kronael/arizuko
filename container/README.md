@@ -17,9 +17,10 @@ proxy process.
 
 ## Public API
 
-- `SetupGroup(cfg, folder, seedDir) error` — create a group dir, optionally
-  copying `seedDir` (a product template) in as its starting files
-- `ComposeGroup(cfg, folder, mix, prior) ([]Blended, error)` — the same group
+- `SetupGroup(cfg, database, folder, seedDir) error` — initialize required core
+  and create a group dir, optionally copying `seedDir` as its starting files.
+  The store is borrowed; only pre-store instance creation passes nil.
+- `ComposeGroup(cfg, database, folder, mix, prior) ([]Blended, error)` — the same group
   dir, seeded from an ordered product MIX instead of one tree
 - `BlendProducts(groupDir, mix, prior) ([]Blended, error)` — the blend itself,
   per payload kind; `Product` names a mix entry, `Blended` reports what one

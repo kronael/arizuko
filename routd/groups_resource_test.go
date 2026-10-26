@@ -28,11 +28,43 @@ import (
 	"github.com/kronael/arizuko/ipc"
 )
 
+func registrationCoreSource(t *testing.T, groupsDir string) {
+	t.Helper()
+	dataDir := filepath.Dir(groupsDir)
+	t.Setenv("DATA_DIR", dataDir)
+	release := t.TempDir()
+	t.Setenv("APP_SRC_DIR", release)
+	for name, body := range map[string]string{
+		"arizuko.toml": "name = \"core\"\n", "CLAUDE.md": "core manual",
+		"skills/base/SKILL.md": "core skill", "output-styles/brief.md": "core style",
+	} {
+		path := filepath.Join(release, "ant", name)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Cleanup(func() {
+		for _, name := range []string{"packages", "package-selections"} {
+			root := filepath.Join(dataDir, name)
+			_ = filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+				if err != nil || !entry.IsDir() {
+					return err
+				}
+				return os.Chmod(path, 0o755)
+			})
+		}
+	})
+}
+
 // serveGroupsMCP stands up the agent socket for folder + the groups resreg seam,
 // sets groupsDir so register_group can git-init the group dir, and returns the
 // socket path. Authz reads the folder's acl rows (grant via grantMCPTools).
 func serveGroupsMCP(t *testing.T, db *DB, folder, callerSub, groupsDir string) string {
 	t.Helper()
+	registrationCoreSource(t, groupsDir)
 	srv := NewServer(db, nil, nil, nil, 0, "")
 	srv.SetDirs(groupsDir, "")
 	ipcDir := t.TempDir()
@@ -58,6 +90,7 @@ func serveGroupsMCP(t *testing.T, db *DB, folder, callerSub, groupsDir string) s
 // hands the postBuild for an elevated turn.
 func serveGroupsMCPElevated(t *testing.T, db *DB, folder, groupsDir string) string {
 	t.Helper()
+	registrationCoreSource(t, groupsDir)
 	srv := NewServer(db, nil, nil, nil, 0, "")
 	srv.SetDirs(groupsDir, "")
 	ipcDir := t.TempDir()
@@ -324,7 +357,9 @@ func TestGroupsMCP_AuditRowLands(t *testing.T) {
 	auditDir := t.TempDir()
 	grantMCPTools(t, db, "world/team", "register_group")
 	srv := NewServer(db, nil, nil, nil, 0, "")
-	srv.SetDirs(t.TempDir(), "")
+	groupsDir := t.TempDir()
+	registrationCoreSource(t, groupsDir)
+	srv.SetDirs(groupsDir, "")
 	srv.SetAudit(audit.New(audit.Config{Enabled: true, DataDir: auditDir, Instance: "test"}))
 
 	ipcDir := t.TempDir()

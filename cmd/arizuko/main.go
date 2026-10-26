@@ -337,8 +337,8 @@ func cmdCreate(args []string) {
 		die("Failed: make the store dir at %s: %v", storeDir, err)
 	}
 	chownStore(storeDir)
-	if err := container.SetupGroup(cfg, store.DefaultFolder, productDir); err != nil {
-		slog.Warn("failed to setup group dir", "folder", store.DefaultFolder, "err", err)
+	if err := container.SetupGroup(cfg, nil, store.DefaultFolder, productDir); err != nil {
+		die("Failed: setup group dir: %v", err)
 	}
 	fmt.Printf("created instance %s at %s\n", name, dataDir)
 	if manifest != nil {
@@ -435,7 +435,7 @@ func cmdGroup(args []string) {
 			declareProduct(filepath.Join(cfg.GroupsDir, folder), productDir,
 				filepath.ToSlash(filepath.Join("ant", "examples", *productFlag)))
 		}
-		if err := container.SetupGroup(cfg, folder, productDir); err != nil {
+		if err := container.SetupGroup(cfg, s, folder, productDir); err != nil {
 			die("Failed: setup group dir: %v", err)
 		}
 		if err := s.SeedDefaultTasks(folder, folder); err != nil {

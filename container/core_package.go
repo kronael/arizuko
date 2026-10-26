@@ -18,6 +18,9 @@ const corePackageSource = "ant"
 // Completion repairs only core's receipt; unrelated incomplete packages refuse.
 func EnsureCorePackage(cfg *core.Config, database *store.Store) error {
 	dataDir := cfg.ProjectRoot
+	if err := PreparePackagePaths(dataDir); err != nil {
+		return err
+	}
 	selected, err := ReadPackageSelection(dataDir, "")
 	if err != nil {
 		return err

@@ -1,15 +1,225 @@
 package main
 
 import (
+	"bytes"
+	"context"
+	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"net/http/httputil"
+	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/kronael/arizuko/container"
+	"github.com/kronael/arizuko/objstore"
+	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/routd"
+	"github.com/kronael/arizuko/store"
 )
+
+type coreReceiptFailure struct {
+	objstore.Store
+}
+
+func (database coreReceiptFailure) GuardedBatch(ctx context.Context,
+	checks []objstore.Check, writes []objstore.Write) (bool, error) {
+	for _, write := range writes {
+		if write.Entity == store.InstalledPackages {
+			return false, errors.New("receipt write refused")
+		}
+	}
+	return database.Store.GuardedBatch(ctx, checks, writes)
+}
+
+func TestCorePackageGroupReceiptFailure(t *testing.T) {
+	dataDir, _ := mixInstance(t, nil, nil)
+	endpoint, err := url.Parse(os.Getenv("DYNAMODB_URL"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	proxy := httputil.NewSingleHostReverseProxy(endpoint)
+	var refuse atomic.Bool
+	refuse.Store(true)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if refuse.Load() && strings.HasSuffix(r.Header.Get("X-Amz-Target"), ".TransactWriteItems") &&
+			bytes.Contains(body, []byte("installed_packages")) {
+			w.Header().Set("Content-Type", "application/x-amz-json-1.0")
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"__type":"AccessDeniedException","message":"receipt write refused"}`))
+			return
+		}
+		r.Body = io.NopCloser(bytes.NewReader(body))
+		proxy.ServeHTTP(w, r)
+	}))
+	defer server.Close()
+	t.Setenv("DYNAMODB_URL", server.URL)
+	args := []string{"group", "t", "add", "telegram:777", "new"}
+	out, err := runManifestCLI(t, args)
+	if err == nil || !strings.Contains(out, "active but its receipt failed") {
+		t.Fatalf("receipt failure hidden: %v %s", err, out)
+	}
+	active := filepath.Join(dataDir, "package-active/system")
+	before, err := os.Lstat(active)
+	if err != nil {
+		t.Fatal(err)
+	}
+	db := instanceStore(t)
+	if _, exists := db.GroupByFolder("new"); exists {
+		t.Fatal("receipt failure published group")
+	}
+	refuse.Store(false)
+	if out, err := runManifestCLI(t, args); err != nil {
+		t.Fatalf("receipt repair failed: %v %s", err, out)
+	}
+	after, err := os.Lstat(active)
+	if err != nil || !os.SameFile(before, after) {
+		t.Fatalf("repair replaced the active reference: %v", err)
+	}
+	if _, found, err := db.InstalledPackage("", "core"); err != nil || !found {
+		t.Fatalf("repair omitted core receipt: %v", err)
+	}
+}
+
+func TestCorePackageArchiveFailure(t *testing.T) {
+	for _, failure := range []string{"source", "receipt"} {
+		t.Run(failure, func(t *testing.T) {
+			archive := coreArchive(t, true)
+			dataDir, stores := openInstance(t)
+			database := stores[resreg.SubsystemRoutd]
+			if failure == "source" {
+				t.Setenv("APP_SRC_DIR", t.TempDir())
+			} else {
+				stores[resreg.SubsystemRoutd] = store.NewOver(coreReceiptFailure{database.Obj()})
+			}
+			_, err := applyArchive(t.Context(), stores, dataDir, bytes.NewReader(archive), true, nil)
+			if err == nil {
+				t.Fatal("core failure hidden")
+			}
+			if _, exists := database.GroupByFolder("restored"); exists {
+				t.Fatal("core failure published restored group")
+			}
+			if failure == "receipt" {
+				selected, err := container.ReadPackageSelection(dataDir, "")
+				if err != nil || len(selected) != 1 {
+					t.Fatalf("receipt failure did not reach activation: %+v %v", selected, err)
+				}
+			}
+		})
+	}
+}
+
+// Create selects core without a store; generate completes its receipt without legacy skills.
+func TestCorePackageCreateBeforeStore(t *testing.T) {
+	for _, product := range []string{"", "sample"} {
+		t.Run("product="+product, func(t *testing.T) {
+			base := t.TempDir()
+			dataDir := filepath.Join(base, "arizuko_fresh")
+			unsealPackageFixtures(t, dataDir)
+			release := filepath.Join(base, "release")
+			seedCoreSource(t, release)
+			t.Setenv("HOST_APP_DIR", release)
+			t.Setenv("ARIZUKO_DATA_DIR", base)
+			t.Setenv("DATA_DIR", dataDir)
+			args := []string{"create", "fresh"}
+			if product != "" {
+				sample := filepath.Join(release, "ant/examples/sample")
+				mustWrite(t, filepath.Join(sample, "arizuko.toml"), "name = \"sample\"\n")
+				mustWrite(t, filepath.Join(sample, "PERSONA.md"), "product persona")
+				args = append(args, "--product", product)
+			}
+			endpoint := os.Getenv("DYNAMODB_URL")
+			var requests atomic.Int64
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				requests.Add(1)
+				http.Error(w, "store does not exist", http.StatusServiceUnavailable)
+			}))
+			defer server.Close()
+			t.Setenv("DYNAMODB_URL", server.URL)
+			if out, err := runManifestCLI(t, args); err != nil {
+				t.Fatalf("create failed: %v, %s", err, out)
+			}
+			if requests.Load() != 0 {
+				t.Fatalf("create made %d pre-store requests", requests.Load())
+			}
+			if got := selectedSkill(t, dataDir, "", "core", "base"); got != "release skill" {
+				t.Fatal(got)
+			}
+			t.Setenv("DYNAMODB_URL", endpoint)
+			t.Cleanup(func() { dropInstance(t) })
+			syncPackageSkills(dataDir)
+			db, err := routd.Open()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer db.Close()
+			receipt, found, err := db.InstalledPackage("", "core")
+			selected, serr := container.ReadPackageSelection(dataDir, "")
+			if err != nil || serr != nil || !found || len(selected) != 1 ||
+				receipt.Source != "ant" || receipt.Revision != selected[0].Digest {
+				t.Fatalf("completion missing: %+v %+v %v %v", selected, receipt, err, serr)
+			}
+		})
+	}
+}
+
+func TestCorePackageCreateAndGroupFailure(t *testing.T) {
+	dataDir, base := mixInstance(t, nil, nil)
+	t.Setenv("APP_SRC_DIR", filepath.Join(base, "absent-release"))
+	for _, args := range [][]string{{"create", "t"}, {"group", "t", "add", "telegram:777", "new"}} {
+		out, err := runManifestCLI(t, args)
+		if err == nil || !strings.Contains(out, "required core source") ||
+			strings.Contains(out, "created instance") {
+			t.Fatalf("failure hidden: %v, %s", err, out)
+		}
+	}
+	db := instanceStore(t)
+	if _, exists := db.GroupByFolder("new"); exists {
+		t.Fatal("failed group setup published a row")
+	}
+	if _, err := os.Stat(filepath.Join(dataDir, "groups/new")); !os.IsNotExist(err) {
+		t.Fatalf("failed setup created a group skeleton: %v", err)
+	}
+}
+
+func TestCorePackageGroupAdd(t *testing.T) {
+	dataDir, _ := mixInstance(t, nil, nil)
+	if out, err := runManifestCLI(t, []string{"group", "t", "add", "telegram:777", "new"}); err != nil {
+		t.Fatalf("group add failed: %v, %s", err, out)
+	}
+	db := instanceStore(t)
+	receipt, found, err := db.InstalledPackage("", "core")
+	selected, serr := container.ReadPackageSelection(dataDir, "")
+	if err != nil || serr != nil || !found || len(selected) != 1 ||
+		receipt.Source != "ant" || receipt.Revision != selected[0].Digest {
+		t.Fatalf("group receipt missing: %+v %+v %v %v", selected, receipt, err, serr)
+	}
+}
+
+func TestCorePackageGenerateWithoutLegacySkills(t *testing.T) {
+	dataDir := generateInstance(t, "WEB_PORT=8095\n")
+	if _, err := os.Stat(filepath.Join(dataDir, "skills")); !os.IsNotExist(err) {
+		t.Fatalf("fixture has a legacy skills tree: %v", err)
+	}
+	generateCompose(dataDir)
+	db := instanceStore(t)
+	selected, err := container.ReadPackageSelection(dataDir, "")
+	receipt, found, rerr := db.InstalledPackage("", "core")
+	if err != nil || rerr != nil || !found || len(selected) != 1 ||
+		receipt.Source != "ant" || receipt.Revision != selected[0].Digest {
+		t.Fatalf("generate omitted core: %+v %+v %v %v", selected, receipt, err, rerr)
+	}
+}
 
 func seedCoreSource(t *testing.T, root string) string {
 	t.Helper()

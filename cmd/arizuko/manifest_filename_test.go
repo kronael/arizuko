@@ -344,8 +344,16 @@ func TestManifestFreshSeedLifecycle(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer db.Close()
-			if records, err := db.InstalledPackages(); err != nil || len(records) != 0 {
-				t.Fatalf("fresh seed created installed records: %+v, %v", records, err)
+			wantRecords := 0
+			if action == "group" {
+				wantRecords = 1
+			}
+			records, err := db.InstalledPackages()
+			if err != nil || len(records) != wantRecords {
+				t.Fatalf("fresh seed receipts: %+v, %v", records, err)
+			}
+			if action == "group" && (records[0].Name != "core" || records[0].Folder != "") {
+				t.Fatalf("fresh group recorded optional products: %+v", records)
 			}
 			mustWrite(t, filepath.Join(source, "skills", "shared", "SKILL.md"), "v2")
 			if out, err := runManifestCLI(t, []string{"packages", instance, "sync"}); err != nil {
@@ -428,6 +436,7 @@ func TestManifestFilename(t *testing.T) {
 					switch action {
 					case "create":
 						args = []string{"create", "fresh", "--product", "sample"}
+						unsealPackageFixtures(t, filepath.Join(base, "arizuko_fresh"))
 						t.Setenv("DATA_DIR", filepath.Join(base, "arizuko_fresh"))
 						groupDir = filepath.Join(base, "arizuko_fresh", "groups", "main")
 					case "group":

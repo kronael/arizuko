@@ -7,6 +7,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"net/http"
 	"os"
@@ -20,6 +21,7 @@ import (
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/auth/surrogate"
 	"github.com/kronael/arizuko/chanreg"
+	"github.com/kronael/arizuko/container"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/obs"
@@ -27,6 +29,7 @@ import (
 	_ "github.com/kronael/arizuko/resreg/resources" // side-effect: register cold-tier resources
 	"github.com/kronael/arizuko/routd"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
+	"github.com/kronael/arizuko/store"
 )
 
 func main() {
@@ -52,6 +55,19 @@ func main() {
 		os.Exit(1)
 	}
 	defer func() { _ = db.Close() }()
+	cfg, err := core.LoadConfigFrom(dataDir)
+	if err != nil {
+		slog.Error("load core configuration", "err", err)
+		os.Exit(1)
+	}
+	lock, err := container.LockPackages(dataDir)
+	if err == nil {
+		err = errors.Join(container.EnsureCorePackage(cfg, store.NewOver(db.Obj())), lock.Close())
+	}
+	if err != nil {
+		slog.Error("initialize required core package", "err", err)
+		os.Exit(1)
+	}
 	// The ranked message index is this process's: it is memory, built from the
 	// store, and only the process that answers `find_messages` needs it.
 	db.StartSearch()

@@ -15,6 +15,7 @@ package main
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -46,7 +47,11 @@ func openInstance(t *testing.T) (string, map[string]*store.Store) {
 		t.Fatalf("seed the routd floor: %v", err)
 	}
 	st := store.NewOver(h)
-	return t.TempDir(), map[string]*store.Store{
+	dataDir := t.TempDir()
+	unsealPackageFixtures(t, dataDir)
+	t.Setenv("DATA_DIR", dataDir)
+	seedCoreSource(t, filepath.Join(t.TempDir(), "release"))
+	return dataDir, map[string]*store.Store{
 		resreg.SubsystemRoutd: st,
 		resreg.SubsystemOnbod: st,
 	}

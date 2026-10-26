@@ -16,6 +16,17 @@ func corePackageFixture(t *testing.T) *core.Config {
 	t.Helper()
 	dataDir := t.TempDir()
 	lockSnapshotPackages(t, dataDir)
+	cfg := &core.Config{ProjectRoot: dataDir,
+		GroupsDir: filepath.Join(dataDir, "groups")}
+	seedCoreRelease(t, cfg)
+	return cfg
+}
+
+func seedCoreRelease(t *testing.T, cfg *core.Config) {
+	t.Helper()
+	if cfg.ProjectRoot == "" {
+		cfg.ProjectRoot = filepath.Dir(cfg.GroupsDir)
+	}
 	release := t.TempDir()
 	for name, body := range map[string]string{
 		ManifestFile:             "name = \"core\"\n",
@@ -25,8 +36,18 @@ func corePackageFixture(t *testing.T) *core.Config {
 	} {
 		writeSnapshotFile(t, release, filepath.Join("ant", name), body)
 	}
-	return &core.Config{ProjectRoot: dataDir, AppSrcDir: release,
-		GroupsDir: filepath.Join(dataDir, "groups")}
+	cfg.AppSrcDir = release
+	t.Cleanup(func() {
+		for _, name := range []string{"packages", "package-selections"} {
+			root := filepath.Join(cfg.ProjectRoot, name)
+			_ = filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+				if err != nil || !entry.IsDir() {
+					return err
+				}
+				return os.Chmod(path, 0o755)
+			})
+		}
+	})
 }
 
 func corePackageDatabase(t *testing.T) *store.Store {
@@ -37,6 +58,32 @@ func corePackageDatabase(t *testing.T) *store.Store {
 	}
 	t.Cleanup(func() { _ = database.Close() })
 	return database
+}
+
+func TestSetupGroupCoreSelectionConflict(t *testing.T) {
+	cfg := &core.Config{ProjectRoot: t.TempDir()}
+	cfg.GroupsDir = filepath.Join(cfg.ProjectRoot, "groups")
+	seedCoreRelease(t, cfg)
+	database := corePackageDatabase(t)
+	lock, err := LockPackages(cfg.ProjectRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := snapshotSource(t, "optional", "optional skill")
+	writeSnapshotFile(t, source, "skills/base/SKILL.md", "conflicting skill")
+	snapshot := prepareSnapshot(t, cfg.ProjectRoot, source)
+	if err := SelectPackages(cfg.ProjectRoot, "new", []PackageSnapshot{snapshot}); err != nil {
+		t.Fatal(err)
+	}
+	if err := lock.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetupGroup(cfg, database, "new", ""); err == nil {
+		t.Fatal("unregistered group's core skill collision was accepted")
+	}
+	if _, err := os.Stat(filepath.Join(cfg.GroupsDir, "new")); !os.IsNotExist(err) {
+		t.Fatalf("conflicting group got a skeleton: %v", err)
+	}
 }
 
 // Excluded developer files produce the baked payload.

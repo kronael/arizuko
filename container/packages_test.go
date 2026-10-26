@@ -550,6 +550,20 @@ func TestPackageMutationLockReadOnly(t *testing.T) {
 	}
 }
 
+// Locking an empty instance for inspection creates no package graph.
+func TestPackageMutationLockEmptyRead(t *testing.T) {
+	dataDir := t.TempDir()
+	lock := lockSnapshotPackages(t, dataDir)
+	if err := lock.Close(); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"packages", "package-selections", "package-active"} {
+		if _, err := os.Lstat(filepath.Join(dataDir, name)); !os.IsNotExist(err) {
+			t.Fatalf("locking for inspection created %s: %v", name, err)
+		}
+	}
+}
+
 // Malformed references and changed artifact bytes refuse rather than confer membership.
 func TestPackageSelectionRejectsCorruptGraph(t *testing.T) {
 	for _, corruption := range []string{"absolute active", "foreign target", "selection symlink", "incomplete selection", "changed artifact", "artifact symlink"} {

@@ -27,11 +27,16 @@ func syncPackageSkills(dataDir string) {
 	if err != nil {
 		die("Failed: load config: %v", err)
 	}
-	if !dirExists(container.PackageSkillsDir(cfg)) {
-		return // no package on this instance ships a skill
-	}
 	rdb := mustOpenRoutd()
 	defer func() { _ = rdb.Close() }()
+	lock := lockPackageOperation(dataDir)
+	defer func() { _ = lock.Close() }()
+	if err := container.EnsureCorePackage(cfg, packageStore(rdb)); err != nil {
+		die("Failed: initialize required core package: %v", err)
+	}
+	if !dirExists(container.PackageSkillsDir(cfg)) {
+		return
+	}
 
 	groups := store.NewOver(rdb.Obj()).AllGroups()
 	folders := make([]string, 0, len(groups))
