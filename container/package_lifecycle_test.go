@@ -83,12 +83,17 @@ func TestPackageActivationPreservesMatchingReceipt(t *testing.T) {
 type packageReceiptFailure struct {
 	objstore.Store
 	failure error
+	allow   int
 }
 
 func (database *packageReceiptFailure) GuardedBatch(ctx context.Context,
 	checks []objstore.Check, writes []objstore.Write) (bool, error) {
 	for _, write := range writes {
 		if write.Entity == store.InstalledPackages && database.failure != nil {
+			if database.allow > 0 {
+				database.allow--
+				continue
+			}
 			return false, database.failure
 		}
 	}
@@ -213,5 +218,27 @@ func TestPackageActivationBeforeStore(t *testing.T) {
 	}
 	if got := selectedSnapshots(t, dataDir, ""); !reflect.DeepEqual(got, []PackageSnapshot{snapshot}) {
 		t.Fatalf("failed activation changed selection: %+v", got)
+	}
+}
+
+func TestPackageActivationPendingAdoptionRefuses(t *testing.T) {
+	dataDir := t.TempDir()
+	lockSnapshotPackages(t, dataDir)
+	snapshot := prepareSnapshot(t, dataDir, snapshotSource(t, "tools", "v1"))
+	database := corePackageDatabase(t)
+	receipt := store.InstalledPackage{Name: "other", Source: "origin", Revision: "revision",
+		Manifest:    map[string][]string{},
+		AssetHashes: map[string]string{"pending:adopt:unknown": "malformed", PendingSettingsArtifact: "settings"}}
+	if err := database.PutInstalledPackage(receipt); err != nil {
+		t.Fatal(err)
+	}
+	before := adoptionDisk(t, dataDir)
+	if err := ActivatePackages(dataDir, "", database, []PackageSnapshot{snapshot},
+		[]store.InstalledPackage{{Source: "origin", Revision: "revision"}}); err == nil {
+		t.Fatal("activation without a witness accepted pending adoption")
+	}
+	got, _, err := database.InstalledPackage("", "other")
+	if err != nil || !reflect.DeepEqual(got, receipt) || !reflect.DeepEqual(before, adoptionDisk(t, dataDir)) {
+		t.Fatalf("refused activation changed selection or pending receipt: %+v, %v", got, err)
 	}
 }

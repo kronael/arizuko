@@ -6,13 +6,16 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/store"
 )
 
 type adoptionBinding struct {
@@ -37,6 +40,534 @@ type adoptionTree struct {
 	target  adoptionTarget
 	entries []adoptionEntry
 	marker  *adoptionEntry
+}
+
+type adoptionScope struct {
+	folder   string
+	active   PackageAdoptionSelection
+	selected PackageAdoptionSelection
+	receipts []store.InstalledPackage
+	history  []PackageAdoptionHistory
+	plan     PackageAdoptionPlan
+}
+
+type adoptionBatch struct {
+	cfg      core.Config
+	scopes   []adoptionScope
+	bindings []adoptionBinding
+}
+
+type adoptionPhase uint8
+
+const (
+	adoptionPrepare adoptionPhase = iota
+	adoptionApply
+	adoptionActivate
+)
+
+type adoptionReceipt struct {
+	binding  adoptionBinding
+	previous store.InstalledPackage
+	hashes   map[string]string
+	trees    []adoptionTree
+}
+
+func cloneAdoptionReceipt(receipt store.InstalledPackage) store.InstalledPackage {
+	receipt.Manifest = maps.Clone(receipt.Manifest)
+	if receipt.Manifest == nil {
+		receipt.Manifest = map[string][]string{}
+	}
+	for key, values := range receipt.Manifest {
+		receipt.Manifest[key] = slices.Clone(values)
+	}
+	receipt.AssetHashes = maps.Clone(receipt.AssetHashes)
+	if receipt.AssetHashes == nil {
+		receipt.AssetHashes = map[string]string{}
+	}
+	return receipt
+}
+
+func adoptionCoordinate(folder, name string) string { return folder + ":" + name }
+
+func isSameAdoptionSelection(a, b []PackageSnapshot) bool {
+	left, right := slices.Clone(a), slices.Clone(b)
+	for _, selected := range [][]PackageSnapshot{left, right} {
+		slices.SortFunc(selected, func(a, b PackageSnapshot) int {
+			if a.Name != b.Name {
+				return strings.Compare(a.Name, b.Name)
+			}
+			return strings.Compare(a.Digest, b.Digest)
+		})
+	}
+	return slices.Equal(left, right)
+}
+
+func readAdoptionBatch(cfg *core.Config, database *store.Store, batch adoptionBatch,
+	phase adoptionPhase) ([]adoptionReceipt, error) {
+	if database == nil || cfg == nil || cfg.ProjectRoot == "" || cfg.GroupsDir == "" ||
+		cfg.ProjectRoot != batch.cfg.ProjectRoot || cfg.GroupsDir != batch.cfg.GroupsDir ||
+		cfg.EffectiveAppSrcDir() != batch.cfg.EffectiveAppSrcDir() || len(batch.bindings) == 0 {
+		return nil, fmt.Errorf("adoption requires a store and unchanged configured roots")
+	}
+	folders, err := database.GroupFolders(0)
+	if err != nil {
+		return nil, err
+	}
+	registered := map[string]bool{}
+	for _, folder := range folders {
+		registered[folder] = true
+	}
+	bindings := map[string]adoptionBinding{}
+	system := false
+	for _, binding := range batch.bindings {
+		if err := checkAdoptionBinding(binding); err != nil {
+			return nil, err
+		}
+		key := adoptionCoordinate(binding.folder, binding.snapshot.Name)
+		if _, duplicate := bindings[key]; duplicate || binding.folder != "" && !registered[binding.folder] {
+			return nil, fmt.Errorf("duplicate or unregistered adoption binding")
+		}
+		bindings[key] = binding
+		system = system || binding.folder == ""
+	}
+	rows, err := database.InstalledPackages()
+	if err != nil {
+		return nil, err
+	}
+	persisted := map[string]store.InstalledPackage{}
+	for _, row := range rows {
+		persisted[adoptionCoordinate(row.Folder, row.Name)] = cloneAdoptionReceipt(row)
+		if HasPendingAdoption(row.AssetHashes) {
+			if _, bound := bindings[adoptionCoordinate(row.Folder, row.Name)]; !bound {
+				return nil, fmt.Errorf("pending adoption is outside the operation witness")
+			}
+		}
+	}
+	completed := map[string]bool{}
+	inventory := map[string][]string{}
+	for key, binding := range bindings {
+		row := persisted[key]
+		dir, err := ResolvePackage(cfg.ProjectRoot, binding.snapshot)
+		if err != nil {
+			return nil, err
+		}
+		names, err := ReadPackageSkills(dir)
+		if err != nil {
+			return nil, err
+		}
+		inventory[key] = names
+		completed[key] = !HasPendingAdoption(row.AssetHashes) && row.Source == binding.source &&
+			row.Revision == binding.revision && row.InstalledAt != "" &&
+			slices.Equal(row.Manifest[PackageSourceArtifact], []string{binding.snapshot.Digest}) &&
+			row.AssetHashes[PackageSourceArtifact] == binding.snapshot.Digest &&
+			slices.Equal(row.Manifest["skill"], names)
+	}
+	replaying := false
+	originals := map[string]store.InstalledPackage{}
+	targets := map[string][]adoptionTarget{}
+	plans := map[string]PackageAdoptionPlan{}
+	freshErrors := map[string]error{}
+	changedReceipts := map[string]bool{}
+	seen := map[string]bool{}
+	var proposedSystem []PackageSnapshot
+	for i, scope := range batch.scopes {
+		if scope.folder == "" || !registered[scope.folder] || seen[scope.folder] || len(scope.plan.Conflicts) != 0 {
+			return nil, fmt.Errorf("invalid adoption scope")
+		}
+		seen[scope.folder] = true
+		if i == 0 {
+			proposedSystem = scope.selected.System
+		} else if !isSameAdoptionSelection(proposedSystem, scope.selected.System) {
+			return nil, fmt.Errorf("conflicting proposed system selections")
+		}
+		related := system
+		group := false
+		for _, binding := range batch.bindings {
+			if binding.folder == scope.folder {
+				related = true
+				group = true
+			}
+			if binding.folder != "" && binding.folder != scope.folder {
+				continue
+			}
+			selected := scope.selected.System
+			if binding.folder != "" {
+				selected = scope.selected.Group
+			}
+			if !slices.Contains(selected, binding.snapshot) {
+				return nil, fmt.Errorf("adoption candidate differs from proposed selection")
+			}
+		}
+		if !related {
+			return nil, fmt.Errorf("unrelated adoption scope")
+		}
+		for i, selected := range [][]PackageSnapshot{scope.selected.System, scope.selected.Group} {
+			if i == 0 && !system || i == 1 && !group {
+				continue
+			}
+			folder := ""
+			if i == 1 {
+				folder = scope.folder
+			}
+			for _, snapshot := range selected {
+				binding, found := bindings[adoptionCoordinate(folder, snapshot.Name)]
+				if !found || binding.snapshot != snapshot {
+					return nil, fmt.Errorf("activation candidate lacks its complete adoption binding")
+				}
+			}
+		}
+		for j, target := range []string{"", scope.folder} {
+			active, proposed := scope.active.System, scope.selected.System
+			if j == 1 {
+				active, proposed = scope.active.Group, scope.selected.Group
+			}
+			current, err := ReadPackageSelection(cfg.ProjectRoot, target)
+			if err != nil {
+				return nil, err
+			}
+			if !isSameAdoptionSelection(current, active) {
+				if !isSameAdoptionSelection(current, proposed) {
+					return nil, fmt.Errorf("package selection changed after adoption preview")
+				}
+				replaying = true
+			}
+		}
+		expected := map[string]store.InstalledPackage{}
+		for _, row := range scope.receipts {
+			key := adoptionCoordinate(row.Folder, row.Name)
+			if row.Folder != "" && row.Folder != scope.folder {
+				return nil, fmt.Errorf("receipt is outside adoption scope")
+			}
+			if _, duplicate := expected[key]; duplicate {
+				return nil, fmt.Errorf("duplicate adoption receipt preimage")
+			}
+			row = cloneAdoptionReceipt(row)
+			if previous, found := originals[key]; found && !reflect.DeepEqual(previous, row) {
+				return nil, fmt.Errorf("conflicting receipt preimages")
+			}
+			expected[key], originals[key] = row, row
+		}
+		for key, row := range persisted {
+			if row.Folder != "" && row.Folder != scope.folder {
+				continue
+			}
+			old, found := expected[key]
+			binding, bound := bindings[key]
+			plain := cloneAdoptionReceipt(row)
+			maps.DeleteFunc(plain.AssetHashes, func(key, _ string) bool { return strings.HasPrefix(key, adoptionPrefix) })
+			if bound && !found {
+				old = cloneAdoptionReceipt(store.InstalledPackage{Folder: binding.folder, Name: binding.snapshot.Name,
+					Source: binding.source, Revision: binding.revision})
+			}
+			if !found && !bound || !reflect.DeepEqual(plain, old) && !completed[key] {
+				return nil, fmt.Errorf("adoption receipt preimage changed: %s", key)
+			}
+			if !reflect.DeepEqual(plain, old) {
+				changedReceipts[key] = true
+			}
+		}
+		for key := range expected {
+			if _, found := persisted[key]; !found {
+				return nil, fmt.Errorf("adoption receipt preimage disappeared")
+			}
+		}
+		units, err := readPackageAdoptionUnits(cfg, scope.folder, scope.selected, scope.receipts, scope.history)
+		if err != nil {
+			return nil, err
+		}
+		derived := packageAdoptionTargets(scope.folder, units)
+		captured := map[string]PackageAdoptionCopy{}
+		for _, copy := range scope.plan.Copies {
+			if _, duplicate := captured[copy.Path]; duplicate {
+				return nil, fmt.Errorf("duplicate adoption preview copy")
+			}
+			captured[copy.Path] = copy
+		}
+		for _, target := range derived {
+			folder := ""
+			for _, snapshot := range scope.selected.Group {
+				if snapshot.Name == target.unit.owner {
+					folder = scope.folder
+				}
+			}
+			key := adoptionCoordinate(folder, target.unit.owner)
+			display, err := adoptionDisplay(cfg, target)
+			if err != nil {
+				return nil, err
+			}
+			copy, copied := captured[display]
+			delete(captured, display)
+			_, bound := bindings[key]
+			if copied && !bound {
+				return nil, fmt.Errorf("copied unit lacks an adoption binding")
+			}
+			row := persisted[key]
+			recorded := HasPendingAdoption(row.AssetHashes) &&
+				row.AssetHashes[adoptionEntryKey(target, "tree", ".")] != ""
+			if !recorded && (phase == adoptionPrepare || !copied || !completed[key]) {
+				root, rel, err := openAdoptionTarget(cfg, target)
+				if err != nil {
+					return nil, err
+				}
+				fresh, conflicts, err := compareAdoptionUnit(root, rel, target.unit, target.mount)
+				if err := errors.Join(err, root.Close()); err != nil {
+					return nil, err
+				}
+				if len(conflicts) != 0 || copied != (len(fresh) == 1) || copied && !reflect.DeepEqual(copy, fresh[0]) {
+					changed := fmt.Errorf("adoption preview changed at %s", display)
+					if copied && completed[key] && phase == adoptionPrepare {
+						freshErrors[key] = changed
+					} else {
+						return nil, changed
+					}
+				}
+			}
+			if !bound {
+				continue
+			}
+			duplicate := false
+			for _, previous := range targets[key] {
+				if previous.root == target.root && previous.relative == target.relative {
+					if target.root != "skills" || previous.unit.owner != target.unit.owner || previous.unit.path != target.unit.path {
+						return nil, fmt.Errorf("conflicting adoption targets")
+					}
+					duplicate = true
+				}
+			}
+			if !duplicate {
+				targets[key] = append(targets[key], target)
+			}
+			if copied {
+				plan := plans[key]
+				duplicate = false
+				for _, previous := range plan.Copies {
+					if previous.Path == copy.Path {
+						if !reflect.DeepEqual(previous, copy) {
+							return nil, fmt.Errorf("conflicting shared adoption copy")
+						}
+						duplicate = true
+					}
+				}
+				if !duplicate {
+					plan.Copies = append(plan.Copies, copy)
+					plans[key] = plan
+				}
+			}
+		}
+		if len(captured) != 0 {
+			return nil, fmt.Errorf("adoption preview contains an unmatched copy")
+		}
+	}
+	if len(seen) == 0 || system && len(seen) != len(registered) {
+		return nil, fmt.Errorf("adoption scopes differ from the group registry")
+	}
+	for _, binding := range batch.bindings {
+		if binding.folder != "" && !seen[binding.folder] {
+			return nil, fmt.Errorf("adoption binding lacks its exact scope")
+		}
+	}
+	var result []adoptionReceipt
+	claimed := map[string]bool{}
+	for _, binding := range batch.bindings {
+		key := adoptionCoordinate(binding.folder, binding.snapshot.Name)
+		row, exists := persisted[key]
+		hashes := row.AssetHashes
+		pending := HasPendingAdoption(hashes)
+		if !pending {
+			if (phase != adoptionPrepare || replaying) && len(plans[key].Copies) != 0 && !completed[key] {
+				return nil, fmt.Errorf("adoption receipt has no pending proof or matching completion")
+			}
+			hashes, err = encodePackageAdoption(cfg, binding, targets[key], plans[key])
+			if err != nil {
+				return nil, err
+			}
+		}
+		trees, err := readPackageAdoptionLedger(binding, hashes, targets[key])
+		if err != nil {
+			return nil, err
+		}
+		if phase != adoptionPrepare && !exists && len(trees) != 0 {
+			return nil, fmt.Errorf("adoption receipt was not prepared")
+		}
+		if changedReceipts[key] {
+			old, found := originals[key]
+			if !found {
+				old = store.InstalledPackage{Source: binding.source, Revision: binding.revision}
+			}
+			expected := packageActivationReceipt(binding.folder, binding.snapshot, old, inventory[key])
+			expected.Source, expected.Revision = binding.source, binding.revision
+			expected = completeAdoptionReceipt(expected, old, trees)
+			expected.InstalledAt = row.InstalledAt
+			if !reflect.DeepEqual(expected, row) {
+				return nil, fmt.Errorf("adoption receipt preimage changed: %s", key)
+			}
+		}
+		for _, tree := range trees {
+			name := tree.target.root + "/" + tree.target.relative
+			if claimed[name] {
+				return nil, fmt.Errorf("multiple receipts claim an adoption target")
+			}
+			claimed[name] = true
+		}
+		if err := checkPackageAdoptionTrees(cfg, trees); err != nil {
+			return nil, err
+		}
+		if phase == adoptionActivate || !pending &&
+			(phase != adoptionPrepare || replaying || freshErrors[key] != nil || changedReceipts[key]) {
+			if err := checkAdoptionTerminal(cfg, trees); err != nil {
+				return nil, err
+			}
+			if !pending {
+				hashes = nil
+			}
+		}
+		if !exists {
+			row = cloneAdoptionReceipt(store.InstalledPackage{Folder: binding.folder, Name: binding.snapshot.Name,
+				Source: binding.source, Revision: binding.revision})
+		}
+		result = append(result, adoptionReceipt{binding: binding, previous: row, hashes: hashes, trees: trees})
+	}
+	return result, nil
+}
+
+func prepareAdoptionReceipts(cfg *core.Config, database *store.Store, batch adoptionBatch) error {
+	rows, err := readAdoptionBatch(cfg, database, batch, adoptionPrepare)
+	if err != nil {
+		return err
+	}
+	for _, row := range rows {
+		if !HasPendingAdoption(row.hashes) || HasPendingAdoption(row.previous.AssetHashes) {
+			continue
+		}
+		receipt := cloneAdoptionReceipt(row.previous)
+		maps.Copy(receipt.AssetHashes, row.hashes)
+		if err := database.PutInstalledPackage(receipt); err != nil {
+			return fmt.Errorf("prepare adoption receipt %s: %w", receipt.Name, err)
+		}
+	}
+	return nil
+}
+
+func openAdoptionTarget(cfg *core.Config, target adoptionTarget) (*os.Root, string, error) {
+	if target.root == "groups" {
+		root, rel, err := openPackageHome(cfg.GroupsDir, target.folder)
+		return root, path.Join(rel, strings.TrimPrefix(target.relative, target.folder+"/")), err
+	}
+	root, err := openPackageRoot(cfg.ProjectRoot)
+	return root, path.Join("skills", target.relative), err
+}
+
+func unlinkAdoptionEntry(cfg *core.Config, tree adoptionTree, entry adoptionEntry) error {
+	if !entry.mode.IsRegular() || path.Base(entry.path) == ".disabled" || !slices.Contains(tree.entries, entry) {
+		return fmt.Errorf("adoption unlink requires a recorded regular file")
+	}
+	root, rel, err := openAdoptionTarget(cfg, tree.target)
+	if err != nil {
+		return err
+	}
+	// Directory handles carry no pending writes.
+	defer root.Close() //nolint:errcheck
+	rel = path.Join(rel, entry.path)
+	if err := checkPackageDirs(root, path.Dir(rel)); err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	resident, err := readPackageAdoptionUnit(root, rel)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if len(resident.Entries) != 1 || resident.Entries[0].Mode != entry.mode {
+		return fmt.Errorf("adoption file kind or mode changed before unlink")
+	}
+	fingerprint, err := adoptionFingerprint(entry.mode, hashBytes(resident.Entries[0].Data))
+	if err != nil || fingerprint != entry.fingerprint {
+		return fmt.Errorf("adoption file bytes changed before unlink")
+	}
+	return root.Remove(rel)
+}
+
+func applyPackageAdoption(cfg *core.Config, database *store.Store, batch adoptionBatch) error {
+	rows, err := readAdoptionBatch(cfg, database, batch, adoptionApply)
+	if err != nil {
+		return err
+	}
+	for _, row := range rows {
+		for _, tree := range row.trees {
+			for _, entry := range tree.entries {
+				if entry.mode.IsRegular() {
+					if err := unlinkAdoptionEntry(cfg, tree, entry); err != nil {
+						return err
+					}
+				}
+			}
+			entries := slices.Clone(tree.entries)
+			slices.SortFunc(entries, func(a, b adoptionEntry) int { return strings.Compare(b.path, a.path) })
+			root, rel, err := openAdoptionTarget(cfg, tree.target)
+			if err != nil {
+				return err
+			}
+			for _, entry := range entries {
+				if !entry.mode.IsDir() || entry.path == "." && (tree.target.mount || tree.marker != nil) {
+					continue
+				}
+				name := path.Join(rel, entry.path)
+				if err = checkPackageDirs(root, path.Dir(name)); err != nil {
+					if errors.Is(err, fs.ErrNotExist) {
+						err = nil
+						continue
+					}
+					break
+				}
+				info, statErr := root.Lstat(name)
+				if errors.Is(statErr, fs.ErrNotExist) {
+					continue
+				}
+				if statErr != nil || info.Mode() != entry.mode {
+					err = fmt.Errorf("adoption directory changed before removal: %s", name)
+					break
+				}
+				if err = root.Remove(name); err != nil {
+					break
+				}
+			}
+			if err := errors.Join(err, root.Close()); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func checkAdoptionTerminal(cfg *core.Config, trees []adoptionTree) error {
+	for _, tree := range trees {
+		root, rel, err := openAdoptionTarget(cfg, tree.target)
+		if err != nil {
+			return err
+		}
+		for _, entry := range tree.entries {
+			if entry.path == "." && entry.mode.IsDir() && (tree.target.mount || tree.marker != nil) {
+				continue
+			}
+			_, err = root.Lstat(path.Join(rel, entry.path))
+			if errors.Is(err, fs.ErrNotExist) {
+				err = nil
+				continue
+			}
+			if err == nil {
+				err = fmt.Errorf("adoption payload remains before activation")
+			}
+			break
+		}
+		if err := errors.Join(err, root.Close()); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func packageAdoptionTargets(folder string, units map[string]adoptionUnit) []adoptionTarget {
