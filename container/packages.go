@@ -245,6 +245,9 @@ func SelectPackages(dataDir, target string, snapshots []PackageSnapshot) error {
 	if err != nil {
 		return err
 	}
+	if current, err := root.Readlink(active); err == nil && current == reference {
+		return nil
+	}
 	pending := path.Join("package-active", ".select-"+rand.Text())
 	if err := root.Symlink(reference, pending); err != nil {
 		return err

@@ -1,19 +1,13 @@
 package main
 
-// products.go is spec 5/28-packages's composition reader: a group's `arizuko.toml` is
-// the ORDERED MIX of products blended into it. It is the group-scoped half of
-// the same lifecycle `packages install` runs instance-wide — same lock
-// (installed_packages, keyed `(folder, name)`), same source resolution, same
-// dirty-refusal — so `folder` is the only thing that differs between them.
-
 import (
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
-	"time"
 
 	"github.com/BurntSushi/toml"
 	"github.com/kronael/arizuko/container"
@@ -22,8 +16,6 @@ import (
 	"github.com/kronael/arizuko/routd"
 )
 
-// readProductMix parses a group's arizuko.toml. Absent file → ok=false, which
-// is not an error: most groups have no mix.
 func readProductMix(groupDir string) (container.ProductManifest, bool) {
 	path := filepath.Join(groupDir, container.ManifestFile)
 	legacy := filepath.Join(groupDir, "products.toml")
@@ -67,10 +59,6 @@ func declareProduct(groupDir, productDir, source string) {
 	}
 }
 
-// resolveProductSource turns one `source =` into a local dir + revision. A
-// relative local path is joined to HostAppDir so `ant/examples/trip` names the
-// bundled corpus; identity is configured (HOST_APP_DIR), never derived from
-// where this process happens to run.
 func resolveProductSource(cfg *core.Config, src string) (dir, revision string, cleanup func()) {
 	if !isGitURL(src) && !filepath.IsAbs(src) {
 		if cfg.HostAppDir == "" {
@@ -81,28 +69,16 @@ func resolveProductSource(cfg *core.Config, src string) (dir, revision string, c
 	return fetchSource(src)
 }
 
-// productName reads the mix entry's identity from its arizuko.toml — the one
-// manifest a product ships (spec 5/28-packages). No fallback to the directory name: the
-// name is the record key and the CLAUDE.md region id, so guessing it would key
-// the lock on where a clone happened to land.
-func productName(dir, src string) string {
-	m, err := container.ReadProductManifest(dir)
-	if err != nil {
-		die("Failed: read %s for %s: %v", container.ManifestFile, src, err)
-	}
-	if m.Name == "" {
-		die("Failed: %s for %s has no `name` — it is the record key", container.ManifestFile, src)
-	}
-	mustPkgName(m.Name)
-	return m.Name
+func applyProductMix(dataDir string, rdb *routd.DB, folder string) {
+	lock := lockPackageOperation(dataDir)
+	// Closing the lock releases this operation's exclusive ownership.
+	defer lock.Close() //nolint:errcheck
+	applyProductMixLocked(dataDir, rdb, folder, nil, nil)
 }
 
-// applyProductMix blends one group's declared mix and records each product under
-// `(folder, name)`. This is the ONLY writer of a non-empty installed_packages
-// folder; `arizuko packages install` writes InstanceWide because compose
-// fragments, proxyd routes and host files belong to no group.
-func applyProductMix(dataDir string, rdb *routd.DB, folder string) {
-	if !groupfolder.IsValidFolder(folder) {
+func applyProductMixLocked(dataDir string, rdb *routd.DB, folder string,
+	replacement []byte, prepared *packageCandidate) {
+	if folder == "." || !groupfolder.IsValidFolder(folder) {
 		die("Failed: invalid folder %q", folder)
 	}
 	cfg, err := core.LoadConfigFrom(dataDir)
@@ -110,78 +86,173 @@ func applyProductMix(dataDir string, rdb *routd.DB, folder string) {
 		die("Failed: load config: %v", err)
 	}
 	groupDir := filepath.Join(cfg.GroupsDir, folder)
-	mix, ok := readProductMix(groupDir)
-	if len(mix.Product) == 0 {
-		records, err := rdb.InstalledPackages()
-		if err != nil {
-			die("Failed: list installed products: %v", err)
+	mix, exists := readProductMix(groupDir)
+	if replacement != nil {
+		mix = container.ProductManifest{}
+		if _, err := toml.Decode(string(replacement), &mix); err != nil {
+			die("Failed: parse replacement selection: %v", err)
 		}
+		exists = true
+	}
+	records, err := rdb.InstalledPackages()
+	if err != nil {
+		die("Failed: list installed products: %v", err)
+	}
+	if len(mix.Product) == 0 {
 		for _, record := range records {
-			if record.Folder == folder {
+			if record.Folder == folder && len(record.Manifest[manifestArtifact]) == 0 &&
+				!container.HasPendingSettings(record.AssetHashes) {
 				die("Failed: %s has installed products; declare their selections explicitly in %s before apply or sync",
 					folder, filepath.Join(groupDir, container.ManifestFile))
 			}
 		}
-		if !ok {
-			die("Failed: %s has no %s — write the mix first (one [[product]] block per entry)",
-				groupDir, container.ManifestFile)
-		}
-		fmt.Printf("no products selected for %s\n", folder)
-		return
 	}
-
+	if !exists {
+		die("Failed: %s has no %s — write the mix first", groupDir, container.ManifestFile)
+	}
+	var candidates []packageCandidate
+	var products []container.Product
 	prior := map[string]map[string]string{}
-	products := make([]container.Product, 0, len(mix.Product))
-	sources := make([]string, 0, len(mix.Product))
-	revisions := make([]string, 0, len(mix.Product))
+	for _, record := range records {
+		if record.Folder == folder {
+			prior[record.Name] = record.AssetHashes
+		}
+	}
+	var existing []packageCandidate
+	if prepared != nil {
+		selected, err := container.ReadPackageSelection(dataDir, folder)
+		if err != nil {
+			die("Failed: read active packages: %v", err)
+		}
+		for _, snapshot := range selected {
+			if snapshot.Name == prepared.snapshot.Name {
+				continue
+			}
+			record, found, err := rdb.InstalledPackage(folder, snapshot.Name)
+			if err != nil || !found || record.AssetHashes[manifestArtifact] != snapshot.Digest ||
+				container.HasPendingSettings(record.AssetHashes) {
+				die("Failed: incomplete package operation: repair the receipt for %s first", snapshot.Name)
+			}
+			dir, err := container.ResolvePackage(dataDir, snapshot)
+			if err != nil {
+				die("Failed: resolve %s: %v", snapshot.Name, err)
+			}
+			existing = append(existing, packageCandidate{snapshot, dir, record.Source, record.Revision})
+		}
+	}
 	for _, entry := range mix.Product {
 		if entry.Source == "" {
 			die("Failed: %s/%s has a [[product]] with no source", groupDir, container.ManifestFile)
 		}
-		dir, revision, cleanup := resolveProductSource(cfg, entry.Source)
-		defer cleanup()
-		name := productName(dir, entry.Source)
-		rec, found, rerr := rdb.InstalledPackage(folder, name)
-		if rerr != nil {
-			die("Failed: read record for %s: %v", name, rerr)
+		var candidate packageCandidate
+		if prepared != nil && entry.Source == prepared.source {
+			candidate = *prepared
+		} else if index := slices.IndexFunc(existing, func(candidate packageCandidate) bool {
+			return candidate.source == entry.Source
+		}); index >= 0 {
+			candidate = existing[index]
+		} else {
+			dir, revision, cleanup := resolveProductSource(cfg, entry.Source)
+			defer cleanup()
+			candidate, err = preparePackageCandidate(dataDir, dir, entry.Source, revision)
+			if err != nil {
+				die("Failed: %v", err)
+			}
 		}
-		if found {
-			prior[name] = rec.AssetHashes
+		record, _, err := rdb.InstalledPackage(folder, candidate.snapshot.Name)
+		if err != nil {
+			die("Failed: read receipt: %v", err)
 		}
-		products = append(products, container.Product{Name: name, Dir: dir})
-		sources = append(sources, entry.Source)
-		revisions = append(revisions, revision)
+		prior[candidate.snapshot.Name] = record.AssetHashes
+		candidates = append(candidates, candidate)
+		products = append(products, container.Product{Name: candidate.snapshot.Name,
+			Dir: candidate.dir, Snapshot: &candidate.snapshot})
 	}
-
-	blended, err := container.ComposeGroup(cfg, folder, products, prior)
+	if err := checkPackageCandidates(dataDir, folder, rdb, candidates); err != nil {
+		die("Failed: preflight packages: %v", err)
+	}
+	if err := checkPendingSettings(dataDir, folder, records, candidates); err != nil {
+		die("Failed: %v", err)
+	}
+	blend, err := container.PrepareProductBlend(groupDir, products, prior)
 	if err != nil {
 		die("Failed: blend %s: %v", folder, err)
 	}
-	for i, b := range blended {
-		for _, w := range b.Warnings {
-			fmt.Fprintf(os.Stderr, "warning: %s\n", w)
-		}
-		if len(b.Dirty) > 0 {
-			fmt.Printf("%-14s SKIPPED managed asset(s) edited locally: %s\n", b.Name, strings.Join(b.Dirty, ", "))
-		}
-		if err := rdb.PutInstalledPackage(routd.InstalledPackage{
-			Folder:      folder,
-			Name:        b.Name,
-			Source:      sources[i],
-			Revision:    revisions[i],
-			Manifest:    b.Manifest,
-			AssetHashes: b.AssetHashes,
-			InstalledAt: time.Now().UTC().Format(time.RFC3339),
-		}); err != nil {
-			die("Failed: record %s in %s: %v", b.Name, folder, err)
-		}
-		state := "unchanged"
-		if b.Changed {
-			state = "applied"
-		}
-		fmt.Printf("%-14s %s (%s@%s)\n", b.Name, state, sources[i], revisions[i])
+	if err := prepareSettingsReceipts(folder, rdb, candidates, blend.Blended); err != nil {
+		die("Failed: %v", err)
 	}
-	fmt.Printf("composed %s from %d product(s)\n", folder, len(blended))
+	blended, err := blend.Apply()
+	if err != nil {
+		die("Failed: blend %s: %v", folder, err)
+	}
+	if replacement != nil {
+		if err := writeFileAtomic(filepath.Join(groupDir, container.ManifestFile), replacement); err != nil {
+			die("Failed: write group selection: %v", err)
+		}
+	}
+	receipts := make([]routd.InstalledPackage, len(blended))
+	for i, blended := range blended {
+		receipts[i] = routd.InstalledPackage{Manifest: blended.Manifest, AssetHashes: blended.AssetHashes}
+		for _, warning := range blended.Warnings {
+			fmt.Fprintf(os.Stderr, "warning: %s\n", warning)
+		}
+	}
+	if err := activatePackageCandidates(dataDir, folder, rdb, candidates, receipts); err != nil {
+		die("Failed: %v", err)
+	}
+	for _, record := range records {
+		if record.Folder != folder || (len(record.Manifest[manifestArtifact]) == 0 &&
+			!container.HasPendingSettings(record.AssetHashes)) {
+			continue
+		}
+		if !slices.ContainsFunc(candidates, func(candidate packageCandidate) bool {
+			return candidate.snapshot.Name == record.Name
+		}) {
+			if _, err := rdb.DeleteInstalledPackage(folder, record.Name); err != nil {
+				die("Failed: incomplete package operation: %s is inactive; receipt cleanup failed: %v", record.Name, err)
+			}
+		}
+	}
+	if len(candidates) == 0 {
+		fmt.Printf("no products selected for %s\n", folder)
+	} else {
+		fmt.Printf("composed %s from %d product(s)\n", folder, len(candidates))
+	}
+}
+
+func installGroupPackage(dataDir, folder string, candidate packageCandidate, rdb *routd.DB) {
+	cfg, err := core.LoadConfigFrom(dataDir)
+	if err != nil {
+		die("Failed: load config: %v", err)
+	}
+	groupDir := filepath.Join(cfg.GroupsDir, folder)
+	mix, _ := readProductMix(groupDir)
+	name, source := candidate.snapshot.Name, candidate.source
+	index := len(mix.Product)
+	for i, entry := range mix.Product {
+		if entry.Source == source {
+			index = i
+			break
+		}
+		record, ok, err := rdb.InstalledPackage(folder, name)
+		if err != nil {
+			die("Failed: read receipt: %v", err)
+		}
+		if ok && entry.Source == record.Source {
+			index = i
+			break
+		}
+	}
+	path := filepath.Join(groupDir, container.ManifestFile)
+	data, err := os.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		die("Failed: read %s: %v", path, err)
+	}
+	updated, err := editProductSelection(data, index, source)
+	if err != nil {
+		die("Failed: edit %s: %v", path, err)
+	}
+	applyProductMixLocked(dataDir, rdb, folder, updated, &candidate)
 }
 
 // listProducts enumerates the bundled catalog under `<HOST_APP_DIR>/ant/examples`.

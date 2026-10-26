@@ -19,6 +19,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
@@ -29,8 +30,9 @@ import (
 // the installed-package record key and the CLAUDE.md region id; Dir is the
 // resolved local tree (a local path or a fetched clone).
 type Product struct {
-	Name string
-	Dir  string
+	Name     string
+	Dir      string
+	Snapshot *PackageSnapshot
 }
 
 // Blended reports one product's contribution: the identities its
@@ -51,6 +53,41 @@ type Blended struct {
 // path; a root-level settings.json is an unnamed payload and falls to the
 // verbatim catch-all like any other file.
 const settingsRel = ".claude/settings.json"
+
+// Pending settings are prospective value hashes, bound to an immutable package
+// digest and the SHA-256 of its configured source. They are not applied assets.
+const (
+	PendingSettingPrefix    = "pending:setting:"
+	PendingSettingsArtifact = "pending:settings:package_source"
+	PendingSettingsSource   = "pending:settings:source"
+)
+
+// HasPendingSettings also reports incomplete binding metadata as pending.
+func HasPendingSettings(hashes map[string]string) bool {
+	for key := range hashes {
+		if key == PendingSettingsArtifact || key == PendingSettingsSource ||
+			strings.HasPrefix(key, PendingSettingPrefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// ProductBlend holds one preflight and its rendered payloads until receipt preparation completes.
+type ProductBlend struct {
+	Blended  []Blended
+	groupDir string
+	mix      []Product
+	prior    map[string]map[string]string
+	plan     *plan
+	settings *renderedSettings
+	claude   []byte
+}
+
+type renderedSettings struct {
+	data     []byte
+	previous string
+}
 
 // skillsRel is where a product's bundled skills land: the group's own skill dir,
 // which seedSkills layers stock skills into afterwards (cpDirFresh only writes
@@ -239,7 +276,9 @@ func buildPlan(mix []Product) (*plan, error) {
 			kind := classify(rel)
 			switch kind {
 			case paySkill:
-				p.skill[strings.Split(rel, "/")[1]] = i
+				if prod.Snapshot == nil {
+					p.skill[strings.Split(rel, "/")[1]] = i
+				}
 			case payPersona:
 				if p.persona == -1 {
 					p.persona, p.personaRel = i, rel
@@ -292,6 +331,16 @@ func buildPlan(mix []Product) (*plan, error) {
 // the AssetHashes its last apply recorded; a managed asset whose bytes moved
 // since then is reported dirty and left alone (no blind overwrite).
 func BlendProducts(groupDir string, mix []Product, prior map[string]map[string]string) ([]Blended, error) {
+	blend, err := PrepareProductBlend(groupDir, mix, prior)
+	if err != nil {
+		return nil, err
+	}
+	return blend.Apply()
+}
+
+// PrepareProductBlend renders without writing. Prospective settings use PendingSettingPrefix until Apply succeeds.
+func PrepareProductBlend(groupDir string, mix []Product,
+	prior map[string]map[string]string) (*ProductBlend, error) {
 	p, err := buildPlan(mix)
 	if err != nil {
 		return nil, err
@@ -303,18 +352,55 @@ func BlendProducts(groupDir string, mix []Product, prior map[string]map[string]s
 	if len(p.warnings) > 0 {
 		out[0].Warnings = append(out[0].Warnings, p.warnings...)
 	}
+	settings, err := renderBlendSettings(groupDir, mix, p, prior, out, true)
+	if err != nil {
+		return nil, err
+	}
+	claude, err := renderBlendClaude(groupDir, mix, p, out)
+	if err != nil {
+		return nil, err
+	}
+	return &ProductBlend{out, groupDir, mix, prior, p, settings, claude}, nil
+}
+
+// Apply confirms prospective settings only after their payload write succeeds.
+func (blend *ProductBlend) Apply() ([]Blended, error) {
+	groupDir, mix, prior := blend.groupDir, blend.mix, blend.prior
+	p, out := blend.plan, blend.Blended
 
 	if err := blendSkills(groupDir, mix, p, prior, out); err != nil {
 		return nil, err
 	}
-	if err := blendSeedOnce(groupDir, mix, p, out); err != nil {
+	if err := blendSeedOnce(groupDir, mix, p, prior, out); err != nil {
 		return nil, err
 	}
-	if err := blendClaude(groupDir, mix, p, out); err != nil {
-		return nil, err
+	if blend.claude != nil {
+		if _, err := writeIfDifferent(groupDir, "CLAUDE.md", blend.claude); err != nil {
+			return nil, err
+		}
 	}
-	if err := blendSettings(groupDir, mix, p, out); err != nil {
-		return nil, err
+	if blend.settings != nil {
+		wrote, err := writeBlendSettings(groupDir, blend.settings)
+		if err != nil {
+			return nil, err
+		}
+		if wrote {
+			for _, i := range p.settings {
+				out[i].Changed = true
+			}
+		}
+	}
+	for i := range out {
+		for key, hash := range out[i].AssetHashes {
+			if name, pending := strings.CutPrefix(key, PendingSettingPrefix); pending {
+				out[i].AssetHashes["setting:"+name] = hash
+				delete(out[i].AssetHashes, key)
+				if !slices.Contains(out[i].Manifest["setting"], name) {
+					out[i].Manifest["setting"] = append(out[i].Manifest["setting"], name)
+				}
+			}
+		}
+		sort.Strings(out[i].Manifest["setting"])
 	}
 	// Drop what a product owned last time and no longer ships. "No longer
 	// shipped" is a property of the WHOLE mix, not of one product: handing an
@@ -399,11 +485,7 @@ func blendSkills(groupDir string, mix []Product, p *plan, prior map[string]map[s
 	return nil
 }
 
-// blendSeedOnce writes the payloads that become the group's own state at seed
-// time — persona, facts/tasks, the image extension, and every
-// unnamed payload the catch-all row copies verbatim. Each is written only when
-// nothing is there yet; none is ever re-written.
-func blendSeedOnce(groupDir string, mix []Product, p *plan, out []Blended) error {
+func blendSeedOnce(groupDir string, mix []Product, p *plan, prior map[string]map[string]string, out []Blended) error {
 	type item struct {
 		owner int
 		src   string // product-relative
@@ -440,7 +522,14 @@ func blendSeedOnce(groupDir string, mix []Product, p *plan, out []Blended) error
 		}
 		o := &out[it.owner]
 		o.Changed = o.Changed || wrote
-		o.AssetHashes["file:"+it.dst] = hashBytes(b)
+		hash := prior[mix[it.owner].Name]["file:"+it.dst]
+		if wrote {
+			hash = hashBytes(b)
+		}
+		if hash == "" {
+			continue
+		}
+		o.AssetHashes["file:"+it.dst] = hash
 		o.Manifest[it.kind] = append(o.Manifest[it.kind], it.dst)
 	}
 	for i := range out {
@@ -449,23 +538,18 @@ func blendSeedOnce(groupDir string, mix []Product, p *plan, out []Blended) error
 	return nil
 }
 
-// blendClaude concatenates each provider's CLAUDE.md as its own marked region,
-// in mix order. A region's identity is its product name, so adding a product
-// later cannot disturb an existing one; existing regions are seed-once and left
-// byte-for-byte. A malformed marker refuses to rewrite the file (BUGS C6's rule,
-// inherited from writeManagedEnv).
-func blendClaude(groupDir string, mix []Product, p *plan, out []Blended) error {
+func renderBlendClaude(groupDir string, mix []Product, p *plan, out []Blended) ([]byte, error) {
 	if len(p.claude) == 0 {
-		return nil
+		return nil, nil
 	}
 	path := filepath.Join(groupDir, "CLAUDE.md")
 	prev, err := os.ReadFile(path)
 	if err != nil && !os.IsNotExist(err) {
-		return err
+		return nil, err
 	}
 	present, err := claudeRegions(string(prev))
 	if err != nil {
-		return fmt.Errorf("%s: %w", path, err)
+		return nil, fmt.Errorf("%s: %w", path, err)
 	}
 	body := strings.TrimRight(string(prev), "\n")
 	added := false
@@ -473,14 +557,15 @@ func blendClaude(groupDir string, mix []Product, p *plan, out []Blended) error {
 		name := mix[i].Name
 		b, rerr := os.ReadFile(filepath.Join(mix[i].Dir, "CLAUDE.md"))
 		if rerr != nil {
-			return rerr
+			return nil, rerr
 		}
 		region := regionBegin(name) + "\n" + strings.TrimRight(string(b), "\n") + "\n" + regionEnd(name)
-		out[i].AssetHashes["region:CLAUDE.md"] = hashBytes([]byte(region))
 		out[i].Manifest["claude_region"] = []string{name}
-		if present[name] {
+		if body, found := present[name]; found {
+			out[i].AssetHashes["region:CLAUDE.md"] = hashBytes([]byte(body))
 			continue
 		}
+		out[i].AssetHashes["region:CLAUDE.md"] = hashBytes([]byte(region))
 		if body != "" {
 			body += "\n\n"
 		}
@@ -489,12 +574,9 @@ func blendClaude(groupDir string, mix []Product, p *plan, out []Blended) error {
 		out[i].Changed = true
 	}
 	if !added {
-		return nil
+		return nil, nil
 	}
-	if err := os.MkdirAll(groupDir, 0o755); err != nil {
-		return err
-	}
-	return os.WriteFile(path, []byte(body+"\n"), 0o644)
+	return []byte(body + "\n"), nil
 }
 
 func regionBegin(name string) string { return "<!-- arizuko:package:" + name + " BEGIN -->" }
@@ -506,10 +588,12 @@ var regionRE = regexp.MustCompile(`^<!--\s*arizuko:package:(\S+)\s+(BEGIN|END)\s
 // malformation — a BEGIN with no END, a duplicate, an END before its BEGIN, a
 // mismatched pair, or nesting — is corruption: refuse to rewrite rather than
 // best-effort truncate (the fix BUGS C6 paid for in writeManagedEnv).
-func claudeRegions(s string) (map[string]bool, error) {
-	present := map[string]bool{}
+func claudeRegions(s string) (map[string]string, error) {
+	present := map[string]string{}
 	open := ""
-	for _, line := range strings.Split(s, "\n") {
+	start := 0
+	lines := strings.Split(s, "\n")
+	for i, line := range lines {
 		m := regionRE.FindStringSubmatch(strings.TrimSpace(line))
 		if m == nil {
 			continue
@@ -519,10 +603,11 @@ func claudeRegions(s string) (map[string]bool, error) {
 			if open != "" {
 				return nil, fmt.Errorf("region %q begins inside region %q — resolve manually", name, open)
 			}
-			if present[name] {
+			if _, found := present[name]; found {
 				return nil, fmt.Errorf("duplicate region %q — resolve manually", name)
 			}
 			open = name
+			start = i
 			continue
 		}
 		if open == "" {
@@ -531,7 +616,7 @@ func claudeRegions(s string) (map[string]bool, error) {
 		if open != name {
 			return nil, fmt.Errorf("region %q ends inside region %q — resolve manually", name, open)
 		}
-		present[name] = true
+		present[name] = strings.Join(lines[start:i+1], "\n")
 		open = ""
 	}
 	if open != "" {
@@ -540,27 +625,18 @@ func claudeRegions(s string) (map[string]bool, error) {
 	return present, nil
 }
 
-// blendSettings applies "map union; name collision = refuse" to
-// .claude/settings.json. Every top-level key is unioned the same way, because
-// the alternative — one provider silently winning a key the other set — is the
-// loss this row exists to prevent. `mcpServers` is the one refused key: it
-// reaches no consumer, so a product declaring it is an error, not an asset.
-// Keys already in the group's own settings.json are the agent's and are left
-// alone: seedSettings rewrites that file every spawn.
-func blendSettings(groupDir string, mix []Product, p *plan, out []Blended) error {
-	if len(p.settings) == 0 {
-		return nil
-	}
+func renderBlendSettings(groupDir string, mix []Product, p *plan,
+	prior map[string]map[string]string, out []Blended, insert bool) (*renderedSettings, error) {
 	merged := map[string]any{}
-	owner := map[string]string{}
+	owner := map[string]int{}
 	for _, i := range p.settings {
 		b, err := os.ReadFile(filepath.Join(mix[i].Dir, filepath.FromSlash(settingsRel)))
 		if err != nil {
-			return err
+			return nil, err
 		}
 		var s map[string]any
 		if err := json.Unmarshal(b, &s); err != nil {
-			return fmt.Errorf("%s %s: %w", mix[i].Name, settingsRel, err)
+			return nil, fmt.Errorf("%s %s: %w", mix[i].Name, settingsRel, err)
 		}
 		var names []string
 		for k := range s {
@@ -568,51 +644,138 @@ func blendSettings(groupDir string, mix []Product, p *plan, out []Blended) error
 		}
 		sort.Strings(names)
 		for _, k := range names {
-			// A settings.json mcpServers key reaches nothing. arizuko is the
-			// only server on the agent's map (`strictMcpConfig`, BUGS J1/J14),
-			// and Claude Code has no top-level mcpServers setting either, so
-			// this asset kind applied cleanly and then did nothing. Refuse it
-			// and name the path that works, rather than accept a no-op on an
-			// operator-facing path (BUGS J15).
 			if k == "mcpServers" {
-				return fmt.Errorf("%s %s: mcpServers reaches nothing — a product's MCP server must register as an arizuko connector in connectors.toml (spec 5/13); remove the key", mix[i].Name, settingsRel)
+				return nil, fmt.Errorf("%s %s: mcpServers reaches nothing — a product's MCP server must register as an arizuko connector in connectors.toml (spec 5/13); remove the key", mix[i].Name, settingsRel)
 			}
 			if prev, dup := owner[k]; dup {
-				return fmt.Errorf("settings.json %q: both %s and %s set it — a key collision refuses the mix", k, prev, mix[i].Name)
+				return nil, fmt.Errorf("settings.json %q: both %s and %s set it — a key collision refuses the mix", k, mix[prev].Name, mix[i].Name)
 			}
-			owner[k] = mix[i].Name
+			owner[k] = i
 			merged[k] = s[k]
-			out[i].Manifest["setting"] = append(out[i].Manifest["setting"], k)
 		}
+	}
+	recorded := map[string]string{}
+	pending := map[string]string{}
+	for _, hashes := range prior {
+		for key, hash := range hashes {
+			if name, setting := strings.CutPrefix(key, "setting:"); setting {
+				recorded[name] = hash
+			}
+			if name, setting := strings.CutPrefix(key, PendingSettingPrefix); setting {
+				pending[name] = hash
+			}
+		}
+	}
+	if len(merged) == 0 && len(recorded) == 0 && len(pending) == 0 {
+		return nil, nil
 	}
 	path := filepath.Join(groupDir, filepath.FromSlash(settingsRel))
 	cur := map[string]any{}
+	previous := ""
 	if b, err := os.ReadFile(path); err == nil {
+		previous = hashBytes(b)
 		if err := json.Unmarshal(b, &cur); err != nil {
-			return fmt.Errorf("%s: %w", path, err)
+			return nil, fmt.Errorf("%s: %w", path, err)
 		}
 	} else if !os.IsNotExist(err) {
-		return err
+		return nil, err
+	}
+	changed := false
+	for k, hash := range pending {
+		value, exists := cur[k]
+		b, err := json.Marshal(value)
+		if err != nil {
+			return nil, err
+		}
+		if exists && hashBytes(b) == hash {
+			if i, retained := owner[k]; retained {
+				out[i].AssetHashes[PendingSettingPrefix+k] = hash
+			} else {
+				delete(cur, k)
+				changed = true
+			}
+		}
+	}
+	for k, hash := range recorded {
+		if _, retained := merged[k]; retained {
+			continue
+		}
+		value, exists := cur[k]
+		b, err := json.Marshal(value)
+		if err != nil {
+			return nil, err
+		}
+		if exists && hashBytes(b) == hash {
+			delete(cur, k)
+			changed = true
+		}
 	}
 	for k, v := range merged {
-		if _, taken := cur[k]; !taken {
+		hash := recorded[k]
+		if _, taken := cur[k]; !taken && insert {
 			cur[k] = v
+			b, err := json.Marshal(v)
+			if err != nil {
+				return nil, err
+			}
+			out[owner[k]].AssetHashes[PendingSettingPrefix+k] = hashBytes(b)
+			changed = true
 		}
+		if hash != "" {
+			i := owner[k]
+			out[i].Manifest["setting"] = append(out[i].Manifest["setting"], k)
+			out[i].AssetHashes["setting:"+k] = hash
+		}
+	}
+	for i := range out {
+		sort.Strings(out[i].Manifest["setting"])
+	}
+	if !changed {
+		return nil, nil
 	}
 	b, err := json.MarshalIndent(cur, "", "  ")
 	if err != nil {
-		return err
+		return nil, err
 	}
-	wrote, err := writeIfDifferent(groupDir, settingsRel, append(b, '\n'))
+	return &renderedSettings{append(b, '\n'), previous}, nil
+}
+
+func writeBlendSettings(groupDir string, settings *renderedSettings) (bool, error) {
+	b, err := os.ReadFile(filepath.Join(groupDir, filepath.FromSlash(settingsRel)))
+	if err != nil && !os.IsNotExist(err) {
+		return false, err
+	}
+	current := ""
+	if err == nil {
+		current = hashBytes(b)
+	}
+	if current != settings.previous {
+		return false, fmt.Errorf("incomplete package operation: %s changed after preparation; retry", settingsRel)
+	}
+	return writeIfDifferent(groupDir, settingsRel, settings.data)
+}
+
+// BlendProductSettings reconciles settings without changing group seeds or runbook regions.
+func BlendProductSettings(groupDir string, mix []Product,
+	prior map[string]map[string]string) ([]Blended, error) {
+	p, err := buildPlan(mix)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	if wrote {
-		for _, i := range p.settings {
-			out[i].Changed = true
+	out := make([]Blended, len(mix))
+	for i := range mix {
+		out[i] = Blended{Name: mix[i].Name, Manifest: map[string][]string{}, AssetHashes: map[string]string{}}
+	}
+	settings, err := renderBlendSettings(groupDir, mix, p, prior, out, false)
+	if err != nil {
+		return nil, err
+	}
+	if settings != nil {
+		if _, err := writeBlendSettings(groupDir, settings); err != nil {
+			return nil, err
 		}
 	}
-	return nil
+	return out, nil
 }
 
 // isDirty reports whether the file at groupDir/rel was edited after the apply

@@ -18,6 +18,7 @@ func mixInstance(t *testing.T, files map[string]map[string]string, order []strin
 	base = t.TempDir()
 	t.Setenv("ARIZUKO_DATA_DIR", base)
 	dataDir = filepath.Join(base, "arizuko_t")
+	unsealPackageFixtures(t, dataDir)
 	t.Setenv("DATA_DIR", dataDir)
 	groupDir := filepath.Join(dataDir, "groups", "main")
 	for _, d := range []string{filepath.Join(dataDir, "store"), groupDir, filepath.Join(dataDir, "ipc")} {
@@ -170,9 +171,8 @@ func TestPackagesSyncCoversGroupMix(t *testing.T) {
 
 	cmdProducts([]string{"t", "apply", "main"})
 
-	skill := filepath.Join(dataDir, "groups", "main", ".claude", "skills", "s", "SKILL.md")
-	if b, _ := os.ReadFile(skill); string(b) != "v1" {
-		t.Fatalf("skill not seeded: %q", b)
+	if got := selectedSkill(t, dataDir, "main", "one", "s"); got != "v1" {
+		t.Fatalf("skill not selected: %q", got)
 	}
 	if err := os.WriteFile(filepath.Join(base, "src", "one", "skills", "s", "SKILL.md"), []byte("v2"), 0o644); err != nil {
 		t.Fatal(err)
@@ -180,8 +180,8 @@ func TestPackagesSyncCoversGroupMix(t *testing.T) {
 
 	cmdPackages([]string{"t", "sync"})
 
-	if b, _ := os.ReadFile(skill); string(b) != "v2" {
-		t.Errorf("skill = %q — sync must re-apply the group mix's managed payload", b)
+	if got := selectedSkill(t, dataDir, "main", "one", "s"); got != "v2" {
+		t.Errorf("skill = %q — sync must select the group mix's managed payload", got)
 	}
 }
 

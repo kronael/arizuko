@@ -465,6 +465,136 @@ func TestBlendSettingsUnionsOtherKeys(t *testing.T) {
 	}
 }
 
+// Settings ownership survives repeat applies; withdrawal keeps operator values and remaining contributions.
+func TestBlendSettingsOwnership(t *testing.T) {
+	for _, scenario := range []string{"inserted", "matching", "different", "edited", "source-matching-edit"} {
+		t.Run(scenario, func(t *testing.T) {
+			root := t.TempDir()
+			a := mkProduct(t, root, "a", map[string]string{
+				".claude/settings.json": `{"outputStyle":"telegram"}`,
+			})
+			b := mkProduct(t, root, "b", map[string]string{
+				".claude/settings.json": `{"cleanupPeriodDays":1}`,
+			})
+			group := filepath.Join(root, "group")
+			settings := `{"language":"en"}`
+			switch scenario {
+			case "matching":
+				settings = `{"language":"en","outputStyle":"telegram"}`
+			case "different":
+				settings = `{"language":"en","outputStyle":"operator"}`
+			}
+			if _, err := writeIfDifferent(group, settingsRel, []byte(settings)); err != nil {
+				t.Fatal(err)
+			}
+			out := blendInto(t, group, []Product{a, b}, nil)
+			prior := map[string]map[string]string{"a": out[0].AssetHashes, "b": out[1].AssetHashes}
+			if scenario == "edited" || scenario == "source-matching-edit" {
+				settings = `{"language":"en","outputStyle":"operator","cleanupPeriodDays":1}`
+				if _, err := writeIfDifferent(group, settingsRel, []byte(settings)); err != nil {
+					t.Fatal(err)
+				}
+				if scenario == "source-matching-edit" {
+					if err := os.WriteFile(filepath.Join(a.Dir, settingsRel), []byte(`{"outputStyle":"operator"}`), 0o644); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			for range 2 {
+				out = blendInto(t, group, []Product{a, b}, prior)
+				prior = map[string]map[string]string{"a": out[0].AssetHashes, "b": out[1].AssetHashes}
+			}
+			owned := scenario == "inserted" || scenario == "edited" || scenario == "source-matching-edit"
+			if got := out[0].AssetHashes["setting:outputStyle"]; (got != "") != owned {
+				t.Fatalf("setting ownership = %q, want owned=%v", got, owned)
+			}
+			if owned && out[0].AssetHashes["setting:outputStyle"] != hashBytes([]byte(`"telegram"`)) {
+				t.Fatal("repeat apply replaced the written setting hash")
+			}
+			blendInto(t, group, []Product{b}, prior)
+			var actual map[string]any
+			if err := json.Unmarshal([]byte(read(t, group, settingsRel)), &actual); err != nil {
+				t.Fatal(err)
+			}
+			if actual["language"] != "en" || actual["cleanupPeriodDays"] != float64(1) {
+				t.Fatalf("operator or remaining setting changed: %v", actual)
+			}
+			want := "operator"
+			if scenario == "matching" {
+				want = "telegram"
+			}
+			if scenario == "inserted" {
+				if _, found := actual["outputStyle"]; found {
+					t.Fatalf("withdrawn setting remains: %v", actual)
+				}
+			} else if actual["outputStyle"] != want {
+				t.Fatalf("operator setting = %v, want %s", actual["outputStyle"], want)
+			}
+		})
+	}
+}
+
+// An operator edit after preparation refuses the settings write and remains byte-identical.
+func TestBlendSettingsPreparationPreservesInterveningEdit(t *testing.T) {
+	root := t.TempDir()
+	product := mkProduct(t, root, "one", map[string]string{
+		".claude/settings.json": `{"env":{"PACKAGE_MODE":"fixture"}}`,
+	})
+	group := filepath.Join(root, "group")
+	if _, err := writeIfDifferent(group, settingsRel, []byte(`{"language":"en"}`)); err != nil {
+		t.Fatal(err)
+	}
+	blend, err := PrepareProductBlend(group, []Product{product}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(blend.Blended[0].Manifest["setting"]) != 0 ||
+		blend.Blended[0].AssetHashes["setting:env"] != "" ||
+		blend.Blended[0].AssetHashes[PendingSettingPrefix+"env"] == "" {
+		t.Fatalf("preparation claims prospective settings: %+v", blend.Blended)
+	}
+	const edited = `{"language":"fr","env":{"OWNER":"operator"}}`
+	if _, err := writeIfDifferent(group, settingsRel, []byte(edited)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := blend.Apply(); err == nil || !strings.Contains(err.Error(), "changed after preparation") {
+		t.Fatalf("intervening edit accepted: %v", err)
+	}
+	if got := read(t, group, settingsRel); got != edited {
+		t.Fatalf("intervening edit overwritten: %s", got)
+	}
+}
+
+// A remaining provider retains a transferred setting until its own selection is withdrawn.
+func TestBlendSettingsTransfersOwnership(t *testing.T) {
+	root := t.TempDir()
+	a := mkProduct(t, root, "a", map[string]string{
+		".claude/settings.json": `{"outputStyle":"telegram"}`,
+	})
+	b := mkProduct(t, root, "b", map[string]string{
+		".claude/settings.json": `{"cleanupPeriodDays":1}`,
+	})
+	group := filepath.Join(root, "group")
+	out := blendInto(t, group, []Product{a, b}, nil)
+	prior := map[string]map[string]string{"a": out[0].AssetHashes, "b": out[1].AssetHashes}
+	if err := os.WriteFile(filepath.Join(b.Dir, settingsRel),
+		[]byte(`{"outputStyle":"telegram","cleanupPeriodDays":1}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out = blendInto(t, group, []Product{b}, prior)
+	var settings map[string]any
+	if err := json.Unmarshal([]byte(read(t, group, settingsRel)), &settings); err != nil {
+		t.Fatal(err)
+	}
+	if settings["outputStyle"] != "telegram" || out[0].AssetHashes["setting:outputStyle"] == "" {
+		t.Fatalf("remaining provider lost the setting: %v, %+v", settings, out)
+	}
+	blendInto(t, group, nil, map[string]map[string]string{"b": out[0].AssetHashes})
+	if got := read(t, group, settingsRel); got != "{}\n" {
+		t.Fatalf("transferred settings survived withdrawal: %s", got)
+	}
+}
+
 // TestBlendIsIdempotent proves re-applying an unchanged mix writes nothing.
 // Content hashes, not timestamps: a second-granular RFC3339 comparison passes
 // even when every byte is rewritten.
@@ -517,6 +647,76 @@ func TestBlendSeedOnceKeepsLocalEdits(t *testing.T) {
 	}
 	if got := read(t, group, "facts/f.md"); got != "f1" {
 		t.Errorf("facts/f.md = %q — seed-once, so the upstream change must not land", got)
+	}
+}
+
+// Existing matching operator files stay unowned and survive source omission.
+func TestBlendSeedOncePreservesMatchingOperatorFiles(t *testing.T) {
+	for _, rel := range []string{
+		"PERSONA.md", "facts/f.md", "Dockerfile.ant", "BRANDING.md",
+	} {
+		t.Run(rel, func(t *testing.T) {
+			root := t.TempDir()
+			product := mkProduct(t, root, "product", map[string]string{rel: "v1"})
+			group := mkProduct(t, root, "group", map[string]string{rel: "v1"})
+			first := blendInto(t, group.Dir, []Product{product}, nil)
+			if len(first[0].AssetHashes) != 0 || len(first[0].Manifest) != 0 {
+				t.Fatalf("operator file claimed: %+v", first[0])
+			}
+			if err := os.Remove(filepath.Join(product.Dir, rel)); err != nil {
+				t.Fatal(err)
+			}
+			blendInto(t, group.Dir, []Product{product}, map[string]map[string]string{
+				"product": first[0].AssetHashes,
+			})
+			if got := read(t, group.Dir, rel); got != "v1" {
+				t.Errorf("operator file = %q, want v1", got)
+			}
+		})
+	}
+}
+
+// Owned seeds retain their original hashes; source omission drops only unchanged files.
+func TestBlendSeedOnceRetainsOwnership(t *testing.T) {
+	const originalHash = "3bfc269594ef649228e9a74bab00f042efc91d5acc6fbee31a382e80d42388fe"
+	for _, local := range []string{"v1", "v2", "operator edit"} {
+		t.Run(local, func(t *testing.T) {
+			root := t.TempDir()
+			product := mkProduct(t, root, "product", map[string]string{"PERSONA.md": "v1"})
+			group := filepath.Join(root, "group")
+			out := blendInto(t, group, []Product{product}, nil)
+			if got := out[0].AssetHashes["file:PERSONA.md"]; got != originalHash {
+				t.Fatalf("fresh seed hash = %q, want %s", got, originalHash)
+			}
+			if err := os.WriteFile(filepath.Join(group, "PERSONA.md"), []byte(local), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			mkProduct(t, root, "product", map[string]string{"PERSONA.md": "v2"})
+			for range 2 {
+				out = blendInto(t, group, []Product{product}, map[string]map[string]string{
+					"product": out[0].AssetHashes,
+				})
+				if got := out[0].AssetHashes["file:PERSONA.md"]; got != originalHash {
+					t.Fatalf("retained seed hash = %q, want %s", got, originalHash)
+				}
+				if got := read(t, group, "PERSONA.md"); got != local {
+					t.Fatalf("seed = %q, want %q", got, local)
+				}
+			}
+			if err := os.Remove(filepath.Join(product.Dir, "PERSONA.md")); err != nil {
+				t.Fatal(err)
+			}
+			blendInto(t, group, []Product{product}, map[string]map[string]string{
+				"product": out[0].AssetHashes,
+			})
+			if local == "v1" {
+				if _, err := os.Stat(filepath.Join(group, "PERSONA.md")); !os.IsNotExist(err) {
+					t.Fatalf("unchanged stale seed remains: %v", err)
+				}
+			} else if got := read(t, group, "PERSONA.md"); got != local {
+				t.Fatalf("edited stale seed = %q, want %q", got, local)
+			}
+		})
 	}
 }
 

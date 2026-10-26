@@ -104,7 +104,7 @@ func runManifestCLI(t *testing.T, args []string) (string, error) {
 func TestManifestApplyAndSyncPreserveOwnership(t *testing.T) {
 	dataDir, base := mixInstance(t, map[string]map[string]string{
 		"one": {"arizuko.toml": "name = \"one\"\n", "PERSONA.md": "first",
-			"skills/shared/SKILL.md": "first skill"},
+			"skills/first/SKILL.md": "first skill"},
 		"two": {"arizuko.toml": "name = \"two\"\n", "PERSONA.md": "second",
 			"skills/shared/SKILL.md": "second skill"},
 	}, []string{"one", "two"})
@@ -144,8 +144,8 @@ func TestManifestApplyAndSyncPreserveOwnership(t *testing.T) {
 		if got := readGroupFile(t, dataDir, "main", "PERSONA.md"); got != "first" {
 			t.Errorf("persona precedence = %q", got)
 		}
-		if got := readGroupFile(t, dataDir, "main", ".claude/skills/shared/SKILL.md"); got != wantSkill {
-			t.Errorf("skill precedence/update = %q, want %q", got, wantSkill)
+		if got := selectedSkill(t, dataDir, "main", "two", "shared"); got != wantSkill {
+			t.Errorf("skill update = %q, want %q", got, wantSkill)
 		}
 		for _, name := range []string{"one", "two"} {
 			rec, ok, err := db.InstalledPackage("main", name)
@@ -327,6 +327,7 @@ func TestManifestFreshSeedLifecycle(t *testing.T) {
 			if action == "create" {
 				instance, folder = "fresh", "main"
 				dataDir = filepath.Join(base, "arizuko_fresh")
+				unsealPackageFixtures(t, dataDir)
 				t.Setenv("DATA_DIR", dataDir)
 				args = []string{"create", instance, "--product", "sample"}
 			}
@@ -353,6 +354,16 @@ func TestManifestFreshSeedLifecycle(t *testing.T) {
 			if got := readGroupFile(t, dataDir, folder, ".claude/skills/shared/SKILL.md"); got != "v1" {
 				t.Errorf("sync discovered an unrecorded group: %q", got)
 			}
+			if out, err := runManifestCLI(t, []string{"products", instance, "apply", folder}); err == nil || !strings.Contains(out, "conflicts") {
+				t.Fatalf("copied skill accepted without adoption: %v, %s", err, out)
+			}
+			copyDir := filepath.Join(dataDir, "groups", folder, ".claude", "skills", "shared")
+			if err := os.Remove(filepath.Join(copyDir, "SKILL.md")); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Remove(copyDir); err != nil {
+				t.Fatal(err)
+			}
 			if out, err := runManifestCLI(t, []string{"products", instance, "apply", folder}); err != nil {
 				t.Fatalf("initial explicit apply: %v, %s", err, out)
 			}
@@ -360,7 +371,7 @@ func TestManifestFreshSeedLifecycle(t *testing.T) {
 			if out, err := runManifestCLI(t, []string{"packages", instance, "sync"}); err != nil {
 				t.Fatalf("record-driven sync: %v, %s", err, out)
 			}
-			if got := readGroupFile(t, dataDir, folder, ".claude/skills/shared/SKILL.md"); got != "v3" {
+			if got := selectedSkill(t, dataDir, folder, "sample", "shared"); got != "v3" {
 				t.Errorf("sync did not update recorded group: %q", got)
 			}
 			if got, err := os.ReadFile(path); err != nil || string(got) != string(body) {

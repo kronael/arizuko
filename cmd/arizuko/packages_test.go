@@ -300,10 +300,12 @@ func TestPackagesUpgradePreservesNonFileManifest(t *testing.T) {
 	base := t.TempDir()
 	t.Setenv("ARIZUKO_DATA_DIR", base)
 	dataDir := filepath.Join(base, "arizuko_mf")
+	unsealPackageFixtures(t, dataDir)
 	if err := os.MkdirAll(filepath.Join(dataDir, "store"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	src := filepath.Join(base, "mf")
+	mustWrite(t, filepath.Join(src, "arizuko.toml"), "name = \"mf\"\n")
 	if err := os.MkdirAll(filepath.Join(src, "skills", "mfskill"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -623,14 +625,13 @@ func TestPackagesInstallGrants(t *testing.T) {
 	}
 }
 
-// TestPackagesInstallSkills: the skills asset kind (spec 5/28-packages) — install copies
-// a package's skills/<name>/ into <datadir>/skills/<name>/ (seedSkills layers it
-// into every group), records the names; remove deletes them.
+// Installing package skills records immutable artifacts; removal withdraws their selection.
 func TestPackagesInstallSkills(t *testing.T) {
 	t.Cleanup(func() { dropInstance(t) })
 	base := t.TempDir()
 	t.Setenv("ARIZUKO_DATA_DIR", base)
 	dataDir := filepath.Join(base, "arizuko_sk")
+	unsealPackageFixtures(t, dataDir)
 	if err := os.MkdirAll(filepath.Join(dataDir, "store"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -645,11 +646,12 @@ func TestPackagesInstallSkills(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(src, "skills", "mytool", "SKILL.md"), []byte("# mytool"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	mustWrite(t, filepath.Join(src, "arizuko.toml"), "name = \"skillpkg\"\n")
 
 	cmdPackages([]string{"sk", "install", src})
 
-	if _, err := os.Stat(filepath.Join(dataDir, "skills", "mytool", "SKILL.md")); err != nil {
-		t.Fatalf("skill not installed: %v", err)
+	if got := selectedSkill(t, dataDir, "", "skillpkg", "mytool"); got != "# mytool" {
+		t.Fatalf("skill not selected: %q", got)
 	}
 	rdb, err := routd.Open()
 	if err != nil {
