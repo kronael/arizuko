@@ -8,15 +8,15 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/kronael/arizuko/container"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/routd"
+	"github.com/kronael/arizuko/store"
 )
 
-const manifestArtifact = "package_source"
+const manifestArtifact = container.PackageSourceArtifact
 
 type packageCandidate struct {
 	snapshot container.PackageSnapshot
@@ -49,18 +49,7 @@ func preparePackageCandidate(dataDir, dir, source, revision string) (packageCand
 }
 
 func packageSkills(dir string) ([]string, error) {
-	entries, err := os.ReadDir(filepath.Join(dir, "skills"))
-	if os.IsNotExist(err) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	var names []string
-	for _, entry := range entries {
-		names = append(names, entry.Name())
-	}
-	return names, nil
+	return container.ReadPackageSkills(dir)
 }
 
 func checkPackageCandidates(dataDir, target string, rdb *routd.DB, candidates []packageCandidate) error {
@@ -187,35 +176,12 @@ func checkSystemPackageCollisions(dataDir string, cfg *core.Config, rdb *routd.D
 func activatePackageCandidates(dataDir, target string, rdb *routd.DB,
 	candidates []packageCandidate, receipts []routd.InstalledPackage) error {
 	selected := make([]container.PackageSnapshot, len(candidates))
+	adapted := slices.Clone(receipts)
 	for i, candidate := range candidates {
 		selected[i] = candidate.snapshot
+		adapted[i].Source, adapted[i].Revision = candidate.source, candidate.revision
 	}
-	if err := container.SelectPackages(dataDir, target, selected); err != nil {
-		return err
-	}
-	for i, candidate := range candidates {
-		receipt := receipts[i]
-		if receipt.Manifest == nil {
-			receipt.Manifest = map[string][]string{}
-		}
-		if receipt.AssetHashes == nil {
-			receipt.AssetHashes = map[string]string{}
-		}
-		receipt.Folder, receipt.Name = target, candidate.snapshot.Name
-		receipt.Source, receipt.Revision = candidate.source, candidate.revision
-		receipt.Manifest[manifestArtifact] = []string{candidate.snapshot.Digest}
-		receipt.AssetHashes[manifestArtifact] = candidate.snapshot.Digest
-		names, err := packageSkills(candidate.dir)
-		if err != nil {
-			return fmt.Errorf("incomplete package operation: selection is active; read skills: %w", err)
-		}
-		receipt.Manifest[manifestSkills] = names
-		receipt.InstalledAt = time.Now().UTC().Format(time.RFC3339)
-		if err := rdb.PutInstalledPackage(receipt); err != nil {
-			return fmt.Errorf("incomplete package operation: %s is active but its receipt failed; retry the same operation: %w", receipt.Name, err)
-		}
-	}
-	return nil
+	return container.ActivatePackages(dataDir, target, store.NewOver(rdb.Obj()), selected, adapted)
 }
 
 func existingPackageCandidates(dataDir, target string, rdb *routd.DB) ([]packageCandidate, []routd.InstalledPackage, error) {

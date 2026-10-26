@@ -65,6 +65,7 @@ substrate. `runed/README.md` §"The turn envelope" holds both tables.
 
 - `runner.go` — group setup and skill seeding: `SetupGroup`/`ComposeGroup` over one `setupGroup` skeleton, the platform-owned refreshes, the copy helpers
 - `blend.go` — the composition of a product mix: the blend table as code. `classify` is its left column; seed-once vs managed is per payload KIND, and a collision refuses before any byte is written
+- `package_lifecycle.go` — package activation and receipt persistence through a borrowed store
 - `runtime.go` — codex mount-target seeding, staging the release `ant/` onto the data dir
 - `episodes.go` — recent-episode XML for prompt context
 - `egress.go` — the allowlist-to-rules translation and the proxy health wait every substrate calls; starts nothing itself

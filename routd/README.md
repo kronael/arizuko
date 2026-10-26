@@ -342,7 +342,7 @@ The audit source of truth is the `audit_log` entity in the tables of routd. Ever
 - `proactive.go` runs the proactive interjection, and `steer.go` dispatches slash commands.
 - `routes_http.go`, `tokens_http.go`, `web_routes_http.go`, `tasks_http.go` and `reads_http.go` serve REST.
 - `*_resource.go` define one resreg resource each: `acl`, `audit`, `dead_letters`, `gdrive_files`, `github_sources`, `groups`, `membership`, `network_rules`, `packages`, `route_tokens`, `routes`, `scheduled_tasks`, `secrets` and `web_routes`. One handler serves each. Agent MCP and operator REST use the same handler with a different injected Gate.
-- `packages_store.go` implements `installed_packages` CRUD. It is the record that `packages install|upgrade|remove` of the CLI reads and writes.
+- `packages_store.go` delegates `installed_packages` CRUD to `store/packages.go`, which owns the receipt encoding.
 - `db.go` holds the writes of the owner, such as `PutMessage`, turn claims and routing, and the boot that dials the endpoint.
 - `search.go` and `msgsearch/` implement ranked message search: the index, its boot walk and the four writes that feed it.
 - `reads.go` holds the reads of the owner for messages. The reads of chats, sessions and reply state go through `store`.
