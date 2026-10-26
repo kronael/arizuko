@@ -266,6 +266,9 @@ func TestPackagesUpgradeClean(t *testing.T) {
 // the source dir so a test can move it to a new revision.
 func seedPkg(t *testing.T, base, dataDir, inst, name, body string) string {
 	t.Helper()
+	t.Setenv("DATA_DIR", dataDir)
+	seedCoreSource(t, filepath.Join(base, "release"))
+	unsealPackageFixtures(t, dataDir)
 	src := filepath.Join(base, name)
 	if err := os.MkdirAll(src, 0o755); err != nil {
 		t.Fatal(err)
@@ -300,6 +303,8 @@ func TestPackagesUpgradePreservesNonFileManifest(t *testing.T) {
 	base := t.TempDir()
 	t.Setenv("ARIZUKO_DATA_DIR", base)
 	dataDir := filepath.Join(base, "arizuko_mf")
+	t.Setenv("DATA_DIR", dataDir)
+	seedCoreSource(t, filepath.Join(base, "release"))
 	unsealPackageFixtures(t, dataDir)
 	if err := os.MkdirAll(filepath.Join(dataDir, "store"), 0o755); err != nil {
 		t.Fatal(err)
@@ -631,6 +636,8 @@ func TestPackagesInstallSkills(t *testing.T) {
 	base := t.TempDir()
 	t.Setenv("ARIZUKO_DATA_DIR", base)
 	dataDir := filepath.Join(base, "arizuko_sk")
+	t.Setenv("DATA_DIR", dataDir)
+	seedCoreSource(t, filepath.Join(base, "release"))
 	unsealPackageFixtures(t, dataDir)
 	if err := os.MkdirAll(filepath.Join(dataDir, "store"), 0o755); err != nil {
 		t.Fatal(err)

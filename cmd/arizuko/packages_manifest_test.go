@@ -56,6 +56,9 @@ func runPkgExpectingDeath(t *testing.T, args []string) int {
 func seedPkgInstance(t *testing.T, base, name string) string {
 	t.Helper()
 	dataDir := filepath.Join(base, "arizuko_"+name)
+	t.Setenv("DATA_DIR", dataDir)
+	unsealPackageFixtures(t, dataDir)
+	seedCoreSource(t, filepath.Join(base, "release"))
 	if err := os.MkdirAll(filepath.Join(dataDir, "store"), 0o755); err != nil {
 		t.Fatal(err)
 	}

@@ -14,6 +14,9 @@ func seedSyncInstance(t *testing.T, name string, catalog, installed map[string]s
 	base := t.TempDir()
 	t.Setenv("ARIZUKO_DATA_DIR", base)
 	dataDir := filepath.Join(base, "arizuko_"+name)
+	t.Setenv("DATA_DIR", dataDir)
+	seedCoreSource(t, filepath.Join(base, "app"))
+	unsealPackageFixtures(t, dataDir)
 	tmplDir := filepath.Join(base, "app", "template", "services")
 	svcDir := filepath.Join(dataDir, "services")
 	for dir, files := range map[string]map[string]string{tmplDir: catalog, svcDir: installed} {

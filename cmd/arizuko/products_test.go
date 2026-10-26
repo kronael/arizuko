@@ -16,6 +16,7 @@ func mixInstance(t *testing.T, files map[string]map[string]string, order []strin
 	t.Helper()
 	t.Cleanup(func() { dropInstance(t) })
 	base = t.TempDir()
+	seedCoreSource(t, filepath.Join(base, "release"))
 	t.Setenv("ARIZUKO_DATA_DIR", base)
 	dataDir = filepath.Join(base, "arizuko_t")
 	unsealPackageFixtures(t, dataDir)

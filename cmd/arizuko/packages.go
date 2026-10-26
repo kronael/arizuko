@@ -132,6 +132,9 @@ const catalogOrigin = "catalog"
 // bundled comes only from add after reading the release catalog.
 func installPackage(dataDir, inst, name, srcDir string, files []string, hashes map[string]string,
 	bound []string, origin, revision, hostDir, bundled string) {
+	if name == container.CorePackageName {
+		die("Failed: core is required from the configured release; use packages upgrade core")
+	}
 	frags := parsePkgManifests(name, srcDir, files, bound, bundled)
 	svcDir := filepath.Join(dataDir, "services")
 	if origin != catalogOrigin {
@@ -1094,6 +1097,20 @@ func cmdPackages(args []string) {
 		mustPkgName(name)
 		rdb := mustOpenRoutd()
 		defer func() { _ = rdb.Close() }()
+		if name == container.CorePackageName {
+			if target != "" {
+				die("Failed: core is required system-wide; use packages upgrade core without --group")
+			}
+			cfg, err := core.LoadConfigFrom(dataDir)
+			if err != nil {
+				die("Failed: load config: %v", err)
+			}
+			if err := container.EnsureCorePackage(cfg, packageStore(rdb)); err != nil {
+				die("Failed: upgrade core: %v", err)
+			}
+			fmt.Println("upgraded core from the configured release")
+			return
+		}
 		rec, ok, err := rdb.InstalledPackage(target, name)
 		if err != nil {
 			die("Failed: read record: %v", err)
@@ -1145,17 +1162,21 @@ func cmdPackages(args []string) {
 		// hand-edited fragment cannot block the rest of the instance from syncing.
 		rdb := mustOpenRoutd()
 		defer func() { _ = rdb.Close() }()
-		recs, err := rdb.InstalledPackages()
-		if err != nil {
-			die("Failed: list installed packages: %v", err)
-		}
 		if target != "" {
 			applyProductMixLocked(dataDir, rdb, target, nil, nil)
 			return
 		}
-		if len(recs) == 0 {
-			fmt.Println("no installed packages — nothing to sync")
-			return
+		cfg, err := core.LoadConfigFrom(dataDir)
+		if err != nil {
+			die("Failed: load config: %v", err)
+		}
+		if err := container.EnsureCorePackage(cfg, packageStore(rdb)); err != nil {
+			die("Failed: sync core: %v", err)
+		}
+		fmt.Println("synced core from the configured release")
+		recs, err := rdb.InstalledPackages()
+		if err != nil {
+			die("Failed: list installed packages: %v", err)
 		}
 		// A group-scoped record is a product in that group's ordered mix (spec
 		// 5/28-packages composition), not a compose fragment — reapplyPackage would find
@@ -1177,7 +1198,7 @@ func cmdPackages(args []string) {
 
 		var instanceWide, updated, skipped int
 		for _, rec := range recs {
-			if rec.Folder != routd.InstanceWide {
+			if rec.Folder != routd.InstanceWide || rec.Name == container.CorePackageName {
 				continue
 			}
 			instanceWide++
@@ -1204,6 +1225,9 @@ func cmdPackages(args []string) {
 		need(args, 3, usage)
 		name := args[2]
 		mustPkgName(name)
+		if name == container.CorePackageName {
+			die("Failed: core is required system-wide and cannot be removed; use packages upgrade core")
+		}
 		rdb := mustOpenRoutd()
 		defer func() { _ = rdb.Close() }()
 		managed, exists, err := rdb.InstalledPackage(target, name)

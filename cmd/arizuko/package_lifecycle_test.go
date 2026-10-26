@@ -108,7 +108,7 @@ func TestPackageLifecycleSkillsOnly(t *testing.T) {
 			cmdPackages([]string{"t", "remove", "tools"})
 			cmdPackages([]string{"t", "sync"})
 			selected, err := container.ReadPackageSelection(dataDir, "")
-			if err != nil || len(selected) != 0 {
+			if err != nil || len(selected) != 1 || selected[0].Name != "core" {
 				t.Fatalf("removed package resurrected: %+v, %v", selected, err)
 			}
 		})

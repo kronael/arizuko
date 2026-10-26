@@ -41,6 +41,10 @@ proxy process.
   the platform-owned files refreshed on every spawn
 - `PackageSkillsDir(cfg) string`, `SeedPackageSkills(cfg, folder) (int, error)`
   — layer the instance's package skills into one group
+- `EnsureCorePackage(cfg, database) error` — select the configured release's
+  required system core under the caller's package lock. A borrowed store completes
+  its receipt; nil selects filesystem state before the store exists. Matching
+  optional receipts retain their fields. Group files retain their bytes.
 - `WriteGatewayCaps(groupDir, cfg)` — the per-turn `.gateway-caps` file
 - `MaterializeAppSrc(cfg) string` — stage the release's `ant/` on the data dir
 - `RunUID() (int, bool)` — the uid the agent runs as inside the guest, and
@@ -66,6 +70,8 @@ substrate. `runed/README.md` §"The turn envelope" holds both tables.
 - `runner.go` — group setup and skill seeding: `SetupGroup`/`ComposeGroup` over one `setupGroup` skeleton, the platform-owned refreshes, the copy helpers
 - `blend.go` — the composition of a product mix: the blend table as code. `classify` is its left column; seed-once vs managed is per payload KIND, and a collision refuses before any byte is written
 - `package_lifecycle.go` — package activation and receipt persistence through a borrowed store
+- `core_package.go` — required core initialization and canonical package collision checks;
+  `ant/arizuko.toml`, `CLAUDE.md`, `skills/` and `output-styles/` define core's fixed payload
 - `runtime.go` — codex mount-target seeding, staging the release `ant/` onto the data dir
 - `episodes.go` — recent-episode XML for prompt context
 - `egress.go` — the allowlist-to-rules translation and the proxy health wait every substrate calls; starts nothing itself

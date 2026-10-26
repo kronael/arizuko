@@ -41,6 +41,9 @@ func preparePackageCandidate(dataDir, dir, source, revision string) (packageCand
 	if err != nil {
 		return packageCandidate{}, fmt.Errorf("prepare %s: %w", source, err)
 	}
+	if snapshot.Name == container.CorePackageName {
+		return packageCandidate{}, fmt.Errorf("core is required system-wide from the configured release; use packages upgrade core")
+	}
 	artifact, err := container.ResolvePackage(dataDir, snapshot)
 	if revision == "local" {
 		revision = snapshot.Digest
@@ -57,19 +60,14 @@ func checkPackageCandidates(dataDir, target string, rdb *routd.DB, candidates []
 		return fmt.Errorf("invalid package group %q", target)
 	}
 	seen := map[string]string{}
-	for _, candidate := range candidates {
-		if _, duplicate := seen["package:"+candidate.snapshot.Name]; duplicate {
-			return fmt.Errorf("duplicate package %q", candidate.snapshot.Name)
-		}
-		seen["package:"+candidate.snapshot.Name] = candidate.source
+	selected := make([]container.PackageSnapshot, len(candidates))
+	for i, candidate := range candidates {
+		selected[i] = candidate.snapshot
 		names, err := packageSkills(candidate.dir)
 		if err != nil {
 			return err
 		}
 		for _, name := range names {
-			if owner, duplicate := seen["skill:"+name]; duplicate {
-				return fmt.Errorf("skill %q is supplied by both %s and %s", name, owner, candidate.source)
-			}
 			seen["skill:"+name] = candidate.source
 		}
 		if target != "" {
@@ -86,6 +84,9 @@ func checkPackageCandidates(dataDir, target string, rdb *routd.DB, candidates []
 	if err != nil {
 		return err
 	}
+	if err := container.CheckPackageSelection(cfg, target, packageStore(rdb), selected); err != nil {
+		return err
+	}
 	if target == "" {
 		for key := range seen {
 			name, skill := strings.CutPrefix(key, "skill:")
@@ -99,26 +100,7 @@ func checkPackageCandidates(dataDir, target string, rdb *routd.DB, candidates []
 				return err
 			}
 		}
-		return checkSystemPackageCollisions(dataDir, cfg, rdb, seen)
-	}
-	other, err := container.ReadPackageSelection(dataDir, "")
-	if err != nil {
-		return err
-	}
-	for _, snapshot := range other {
-		dir, err := container.ResolvePackage(dataDir, snapshot)
-		if err != nil {
-			return err
-		}
-		names, err := packageSkills(dir)
-		if err != nil {
-			return err
-		}
-		for _, name := range names {
-			if _, duplicate := seen["skill:"+name]; duplicate {
-				return fmt.Errorf("skill %q also belongs to system package %s", name, snapshot.Name)
-			}
-		}
+		return checkSystemPackageCollisions(cfg, rdb, seen)
 	}
 	return checkCustomPackageCollisions(cfg, target, seen)
 }
@@ -141,31 +123,12 @@ func checkCustomPackageCollisions(cfg *core.Config, folder string, seen map[stri
 	return nil
 }
 
-func checkSystemPackageCollisions(dataDir string, cfg *core.Config, rdb *routd.DB, seen map[string]string) error {
+func checkSystemPackageCollisions(cfg *core.Config, rdb *routd.DB, seen map[string]string) error {
 	folders, err := packageStore(rdb).GroupFolders(0)
 	if err != nil {
 		return err
 	}
 	for _, folder := range folders {
-		selected, err := container.ReadPackageSelection(dataDir, folder)
-		if err != nil {
-			return err
-		}
-		for _, snapshot := range selected {
-			dir, err := container.ResolvePackage(dataDir, snapshot)
-			if err != nil {
-				return err
-			}
-			names, err := packageSkills(dir)
-			if err != nil {
-				return err
-			}
-			for _, name := range names {
-				if _, duplicate := seen["skill:"+name]; duplicate {
-					return fmt.Errorf("skill %q also belongs to group %s package %s", name, folder, snapshot.Name)
-				}
-			}
-		}
 		if err := checkCustomPackageCollisions(cfg, folder, seen); err != nil {
 			return err
 		}
@@ -372,6 +335,9 @@ func installManagedPackage(dataDir string, rdb *routd.DB, candidate packageCandi
 }
 
 func removeManagedPackage(dataDir, target, name string, rdb *routd.DB) error {
+	if name == container.CorePackageName {
+		return fmt.Errorf("core is required system-wide and cannot be removed; use packages upgrade core")
+	}
 	candidates, receipts, err := readPackageCandidates(dataDir, target, name, rdb)
 	if err != nil {
 		return err

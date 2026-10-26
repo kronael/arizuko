@@ -17,6 +17,69 @@ import (
 
 func TestMain(m *testing.M) { dyntest.Main(m) }
 
+// Re-selecting an unchanged package preserves its complete existing receipt.
+func TestPackageActivationPreservesMatchingReceipt(t *testing.T) {
+	t.Run("skills", func(t *testing.T) {
+		dataDir := t.TempDir()
+		lockSnapshotPackages(t, dataDir)
+		snapshot := prepareSnapshot(t, dataDir, snapshotSource(t, "tools", "v1"))
+		database, err := store.OpenMem()
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = database.Close() })
+		receipt := store.InstalledPackage{
+			Name: "tools", Source: "optional-source", Revision: "optional-revision",
+			InstalledAt: "2020-01-01T00:00:00Z",
+			Manifest: map[string][]string{
+				"skill": {"triage"}, "package_source": {snapshot.Digest},
+				"file": {"tools.yml"},
+			},
+			AssetHashes: map[string]string{
+				"package_source": snapshot.Digest, "file:tools.yml": "owned-hash",
+			},
+		}
+		if err := database.PutInstalledPackage(receipt); err != nil {
+			t.Fatal(err)
+		}
+		if err := ActivatePackages(dataDir, "", database, []PackageSnapshot{snapshot},
+			[]store.InstalledPackage{receipt}); err != nil {
+			t.Fatal(err)
+		}
+		got, found, err := database.InstalledPackage("", "tools")
+		if err != nil || !found || !reflect.DeepEqual(got, receipt) {
+			t.Fatalf("matching optional receipt changed: %+v, %v, %v", got, found, err)
+		}
+	})
+	t.Run("empty-inventory", func(t *testing.T) {
+		dataDir := t.TempDir()
+		lockSnapshotPackages(t, dataDir)
+		source := t.TempDir()
+		writeSnapshotFile(t, source, ManifestFile, "name = \"empty\"\n")
+		snapshot := prepareSnapshot(t, dataDir, source)
+		database := corePackageDatabase(t)
+		receipt := store.InstalledPackage{
+			Name: "empty", Source: "optional-source", Revision: "optional-revision",
+			InstalledAt: "2020-01-01T00:00:00Z",
+			Manifest: map[string][]string{
+				"skill": {}, "package_source": {snapshot.Digest},
+			},
+			AssetHashes: map[string]string{"package_source": snapshot.Digest},
+		}
+		if err := database.PutInstalledPackage(receipt); err != nil {
+			t.Fatal(err)
+		}
+		if err := ActivatePackages(dataDir, "", database, []PackageSnapshot{snapshot},
+			[]store.InstalledPackage{receipt}); err != nil {
+			t.Fatal(err)
+		}
+		got, found, err := database.InstalledPackage("", "empty")
+		if err != nil || !found || !reflect.DeepEqual(got, receipt) {
+			t.Fatalf("matching empty inventory receipt changed: %+v, %v, %v", got, found, err)
+		}
+	})
+}
+
 type packageReceiptFailure struct {
 	objstore.Store
 	failure error

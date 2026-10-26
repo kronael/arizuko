@@ -58,11 +58,15 @@ func LockPackages(dataDir string) (*os.File, error) {
 // Failed preparation never changes an active selection. The caller holds the
 // instance package lock; sourceDir is a trusted, explicitly resolved source.
 func PreparePackage(dataDir, sourceDir string) (PackageSnapshot, error) {
+	return preparePackage(dataDir, sourceDir, nil)
+}
+
+func preparePackage(dataDir, sourceDir string, roots []string) (PackageSnapshot, error) {
 	var snapshot PackageSnapshot
 	if err := checkPackagePath(sourceDir); err != nil {
 		return snapshot, err
 	}
-	name, err := inspectPackage(sourceDir)
+	name, err := inspectPackage(sourceDir, roots)
 	if err != nil {
 		return snapshot, err
 	}
@@ -72,7 +76,7 @@ func PreparePackage(dataDir, sourceDir string) (PackageSnapshot, error) {
 	}
 	// Closing a directory handle has no pending writes.
 	defer source.Close() //nolint:errcheck
-	digest, err := digestPackage(source, ".")
+	digest, err := digestPackage(source, ".", roots)
 	if err != nil {
 		return snapshot, err
 	}
@@ -101,7 +105,7 @@ func PreparePackage(dataDir, sourceDir string) (PackageSnapshot, error) {
 		if err != nil || rel == "." {
 			return err
 		}
-		if entry.Name() == ".git" {
+		if isExcludedPackageEntry(rel, roots) {
 			if entry.IsDir() {
 				return fs.SkipDir
 			}
@@ -134,14 +138,14 @@ func PreparePackage(dataDir, sourceDir string) (PackageSnapshot, error) {
 	if err != nil {
 		return snapshot, err
 	}
-	snapshot.Name, err = inspectPackage(filepath.Join(root.Name(), stage))
+	snapshot.Name, err = inspectPackage(filepath.Join(root.Name(), stage), roots)
 	if err != nil {
 		return snapshot, err
 	}
 	if snapshot.Name != name {
 		return snapshot, fmt.Errorf("source package name changed during preparation")
 	}
-	snapshot.Digest, err = digestPackage(root, stage)
+	snapshot.Digest, err = digestPackage(root, stage, nil)
 	if err != nil {
 		return snapshot, err
 	}
@@ -378,14 +382,14 @@ func resolvePackage(root *os.Root, snapshot PackageSnapshot) (string, error) {
 		return "", err
 	}
 	dir := filepath.Join(root.Name(), rel)
-	name, err := inspectPackage(dir)
+	name, err := inspectPackage(dir, nil)
 	if err != nil {
 		return "", err
 	}
 	if name != snapshot.Name {
 		return "", fmt.Errorf("artifact name %q does not match %q", name, snapshot.Name)
 	}
-	digest, err := digestPackage(root, rel)
+	digest, err := digestPackage(root, rel, nil)
 	if err != nil {
 		return "", err
 	}
@@ -395,18 +399,30 @@ func resolvePackage(root *os.Root, snapshot PackageSnapshot) (string, error) {
 	return dir, nil
 }
 
-func inspectPackage(dir string) (string, error) {
+func inspectPackage(dir string, roots []string) (string, error) {
 	root, err := os.OpenRoot(dir)
 	if err != nil {
 		return "", err
 	}
 	// Closing a directory handle has no pending writes.
 	defer root.Close() //nolint:errcheck
+	for _, name := range roots {
+		info, err := root.Lstat(name)
+		if err != nil {
+			return "", fmt.Errorf("required core entry %s: %w", name, err)
+		}
+		if (name == "skills" || name == "output-styles") && !info.IsDir() {
+			return "", fmt.Errorf("required core entry %s is not a directory", name)
+		}
+		if (name == ManifestFile || name == "CLAUDE.md") && !info.Mode().IsRegular() {
+			return "", fmt.Errorf("required core entry %s is not a regular file", name)
+		}
+	}
 	err = fs.WalkDir(root.FS(), ".", func(rel string, entry fs.DirEntry, err error) error {
 		if err != nil || rel == "." {
 			return err
 		}
-		if entry.Name() == ".git" {
+		if isExcludedPackageEntry(rel, roots) {
 			if entry.IsDir() {
 				return fs.SkipDir
 			}
@@ -443,7 +459,18 @@ func inspectPackage(dir string) (string, error) {
 	if !packageNameRE.MatchString(manifest.Name) {
 		return "", fmt.Errorf("invalid package name %q in %s", manifest.Name, ManifestFile)
 	}
+	if roots != nil && manifest.Name != CorePackageName {
+		return "", fmt.Errorf("required core source declares %q, expected %q", manifest.Name, CorePackageName)
+	}
 	return manifest.Name, nil
+}
+
+func isExcludedPackageEntry(rel string, roots []string) bool {
+	if path.Base(rel) == ".git" {
+		return true
+	}
+	first, _, _ := strings.Cut(rel, "/")
+	return rel != "." && roots != nil && !slices.Contains(roots, first)
 }
 
 func checkPackageEntry(rel string, entry fs.DirEntry) error {
@@ -456,7 +483,7 @@ func checkPackageEntry(rel string, entry fs.DirEntry) error {
 	return nil
 }
 
-func digestPackage(root *os.Root, rel string) (string, error) {
+func digestPackage(root *os.Root, rel string, roots []string) (string, error) {
 	dir, err := root.OpenRoot(rel)
 	if err != nil {
 		return "", err
@@ -468,7 +495,7 @@ func digestPackage(root *os.Root, rel string) (string, error) {
 		if err != nil {
 			return err
 		}
-		if entry.Name() == ".git" {
+		if isExcludedPackageEntry(name, roots) {
 			if entry.IsDir() {
 				return fs.SkipDir
 			}

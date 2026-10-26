@@ -2,8 +2,11 @@ package container
 
 import (
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"reflect"
+	"slices"
 	"time"
 
 	"github.com/kronael/arizuko/store"
@@ -49,11 +52,11 @@ func ActivatePackages(dataDir, target string, database *store.Store,
 		}
 		inventory[i] = names
 	}
-	if err := SelectPackages(dataDir, target, snapshots); err != nil {
-		return err
-	}
+	updates := make([]store.InstalledPackage, 0, len(snapshots))
 	for i, snapshot := range snapshots {
 		receipt := receipts[i]
+		receipt.Manifest = maps.Clone(receipt.Manifest)
+		receipt.AssetHashes = maps.Clone(receipt.AssetHashes)
 		if receipt.Manifest == nil {
 			receipt.Manifest = map[string][]string{}
 		}
@@ -63,8 +66,24 @@ func ActivatePackages(dataDir, target string, database *store.Store,
 		receipt.Folder, receipt.Name = target, snapshot.Name
 		receipt.Manifest[PackageSourceArtifact] = []string{snapshot.Digest}
 		receipt.AssetHashes[PackageSourceArtifact] = snapshot.Digest
-		receipt.Manifest["skill"] = inventory[i]
+		if skills, found := receipt.Manifest["skill"]; !found || !slices.Equal(skills, inventory[i]) {
+			receipt.Manifest["skill"] = inventory[i]
+		}
+		previous, found, err := database.InstalledPackage(target, snapshot.Name)
+		if err != nil {
+			return err
+		}
+		receipt.InstalledAt = previous.InstalledAt
+		if found && previous.InstalledAt != "" && reflect.DeepEqual(previous, receipt) {
+			continue
+		}
 		receipt.InstalledAt = time.Now().UTC().Format(time.RFC3339)
+		updates = append(updates, receipt)
+	}
+	if err := SelectPackages(dataDir, target, snapshots); err != nil {
+		return err
+	}
+	for _, receipt := range updates {
 		if err := database.PutInstalledPackage(receipt); err != nil {
 			return fmt.Errorf("incomplete package operation: %s is active but its receipt failed; retry the same operation: %w",
 				receipt.Name, err)

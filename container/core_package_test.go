@@ -1,0 +1,373 @@
+package container
+
+import (
+	"errors"
+	"os"
+	"path/filepath"
+	"reflect"
+	"strings"
+	"testing"
+
+	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/store"
+)
+
+func corePackageFixture(t *testing.T) *core.Config {
+	t.Helper()
+	dataDir := t.TempDir()
+	lockSnapshotPackages(t, dataDir)
+	release := t.TempDir()
+	for name, body := range map[string]string{
+		ManifestFile:             "name = \"core\"\n",
+		"CLAUDE.md":              "release manual",
+		"skills/base/SKILL.md":   "release skill",
+		"output-styles/brief.md": "release style",
+	} {
+		writeSnapshotFile(t, release, filepath.Join("ant", name), body)
+	}
+	return &core.Config{ProjectRoot: dataDir, AppSrcDir: release,
+		GroupsDir: filepath.Join(dataDir, "groups")}
+}
+
+func corePackageDatabase(t *testing.T) *store.Store {
+	t.Helper()
+	database, err := store.OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+	return database
+}
+
+// Excluded developer files produce the baked payload.
+// Included changes create new immutable paths.
+func TestCorePackageProjection(t *testing.T) {
+	cfg := corePackageFixture(t)
+	first, err := prepareCorePackage(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	old, err := ResolvePackage(cfg.ProjectRoot, first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := filepath.Join(cfg.AppSrcDir, "ant")
+	writeSnapshotFile(t, source, "src/index.ts", "developer runner")
+	writeSnapshotFile(t, source, "package.json", "dependencies")
+	if err := os.Symlink("/missing-dependency-tree", filepath.Join(source, "node_modules")); err != nil {
+		t.Fatal(err)
+	}
+	developer, err := prepareCorePackage(cfg)
+	if err != nil || developer != first {
+		t.Fatalf("developer projection differs: %+v != %+v, %v", developer, first, err)
+	}
+	writeSnapshotFile(t, source, "src/index.ts", "changed runner")
+	writeSnapshotFile(t, source, "package.json", "changed dependencies")
+	unchanged, err := prepareCorePackage(cfg)
+	if err != nil || unchanged != first {
+		t.Fatalf("excluded edit changed digest: %+v, %v", unchanged, err)
+	}
+	entries, err := os.ReadDir(old)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, entry := range entries {
+		names = append(names, entry.Name())
+	}
+	if !reflect.DeepEqual(names, []string{"CLAUDE.md", "arizuko.toml", "output-styles", "skills"}) {
+		t.Fatalf("extra artifact roots: %v", names)
+	}
+	previous := first
+	for _, name := range []string{"CLAUDE.md", "skills/base/SKILL.md", "output-styles/brief.md"} {
+		writeSnapshotFile(t, source, name, "included edit")
+		changed, err := prepareCorePackage(cfg)
+		if err != nil || changed.Digest == previous.Digest {
+			t.Fatalf("included edit %s kept digest: %+v, %v", name, changed, err)
+		}
+		previous = changed
+	}
+	if err := EnsureCorePackage(cfg, nil); err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := ResolvePackage(cfg.ProjectRoot, first)
+	if err != nil || resolved != old {
+		t.Fatalf("old immutable path lost: %s, %v", resolved, err)
+	}
+	data, err := os.ReadFile(filepath.Join(old, "skills/base/SKILL.md"))
+	if err != nil || string(data) != "release skill" {
+		t.Fatalf("old bytes changed: %q, %v", data, err)
+	}
+	ordinarySource := snapshotSource(t, "ordinary", "ordinary skill")
+	writeSnapshotFile(t, ordinarySource, "runner/index.ts", "ordinary payload")
+	ordinary := prepareSnapshot(t, cfg.ProjectRoot, ordinarySource)
+	dir, err := ResolvePackage(cfg.ProjectRoot, ordinary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if data, err := os.ReadFile(filepath.Join(dir, "runner/index.ts")); err != nil || string(data) != "ordinary payload" {
+		t.Fatalf("ordinary source was projected: %q, %v", data, err)
+	}
+	if err := os.Chmod(old, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeSnapshotFile(t, old, "runner.ts", "unexpected artifact byte")
+	if _, err := ResolvePackage(cfg.ProjectRoot, first); err == nil {
+		t.Fatal("artifact validation ignored an extra root")
+	}
+	if err := os.Remove(filepath.Join(old, "runner.ts")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(old, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("missing", filepath.Join(ordinarySource, "node_modules")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := PreparePackage(cfg.ProjectRoot, ordinarySource); err == nil {
+		t.Fatal("ordinary package ignored a symlink")
+	}
+}
+
+// Invalid required roots, identity and included entries leave the prior active reference intact.
+func TestCorePackageInvalidSource(t *testing.T) {
+	for _, invalid := range []string{
+		ManifestFile, "CLAUDE.md", "skills", "output-styles", "wrong-name",
+		"malformed", "included-symlink", "root-symlink", "invalid-skill", "wrong-type",
+	} {
+		t.Run(invalid, func(t *testing.T) {
+			cfg := corePackageFixture(t)
+			if err := EnsureCorePackage(cfg, nil); err != nil {
+				t.Fatal(err)
+			}
+			active := filepath.Join(cfg.ProjectRoot, "package-active/system")
+			before, err := os.Lstat(active)
+			if err != nil {
+				t.Fatal(err)
+			}
+			selected := selectedSnapshots(t, cfg.ProjectRoot, "")
+			source := filepath.Join(cfg.AppSrcDir, "ant")
+			switch invalid {
+			case "wrong-name":
+				writeSnapshotFile(t, source, ManifestFile, "name = \"foreign\"\n")
+			case "malformed":
+				writeSnapshotFile(t, source, ManifestFile, "name = [\n")
+			case "included-symlink":
+				if err := os.Symlink("missing", filepath.Join(source, "skills/base/extra")); err != nil {
+					t.Fatal(err)
+				}
+			case "invalid-skill":
+				writeSnapshotFile(t, source, "skills/Bad Name/SKILL.md", "invalid")
+			case "root-symlink", "wrong-type":
+				if err := os.Rename(filepath.Join(source, "skills"), filepath.Join(source, "original-skills")); err != nil {
+					t.Fatal(err)
+				}
+				if invalid == "root-symlink" {
+					if err := os.Symlink("original-skills", filepath.Join(source, "skills")); err != nil {
+						t.Fatal(err)
+					}
+				} else {
+					writeSnapshotFile(t, source, "skills", "not a directory")
+				}
+			default:
+				if err := os.Rename(filepath.Join(source, invalid), filepath.Join(source, invalid+"-absent")); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := EnsureCorePackage(cfg, nil); err == nil || !strings.Contains(err.Error(), "required core source") {
+				t.Fatalf("invalid source hidden: %v", err)
+			}
+			after, err := os.Lstat(active)
+			unchanged := reflect.DeepEqual(selectedSnapshots(t, cfg.ProjectRoot, ""), selected)
+			if err != nil || !os.SameFile(before, after) || !unchanged {
+				t.Fatalf("invalid source changed active selection: %v", err)
+			}
+		})
+	}
+}
+
+// Pre-store selection, failed completion and retry preserve optional receipts and every registered group's bytes.
+func TestCorePackageCompletionAndPreservation(t *testing.T) {
+	cfg := corePackageFixture(t)
+	database := corePackageDatabase(t)
+	optionalSource := snapshotSource(t, "optional", "optional skill")
+	optional := prepareSnapshot(t, cfg.ProjectRoot, optionalSource)
+	if err := SelectPackages(cfg.ProjectRoot, "", []PackageSnapshot{optional}); err != nil {
+		t.Fatal(err)
+	}
+	receipt := store.InstalledPackage{
+		Name: "optional", Source: optionalSource, Revision: "optional-revision",
+		InstalledAt: "2020-01-01T00:00:00Z",
+		Manifest: map[string][]string{
+			"skill": {"triage"}, "package_source": {optional.Digest},
+		},
+		AssetHashes: map[string]string{"package_source": optional.Digest},
+	}
+	if err := database.PutInstalledPackage(receipt); err != nil {
+		t.Fatal(err)
+	}
+	files := map[string]string{
+		"copied/.claude/skills/base/SKILL.md":   "copied stock",
+		"copied/.claude/skills/base/.disabled":  "disabled",
+		"copied/CLAUDE.md":                      "edited manual",
+		"copied/.claude/skills/custom/SKILL.md": "custom skill",
+		"declared/arizuko.toml":                 "# mine\nname = \"mine\"\n",
+	}
+	for name, body := range files {
+		writeSnapshotFile(t, cfg.GroupsDir, name, body)
+	}
+	for _, folder := range []string{"copied", "declared", "missing"} {
+		if err := database.PutGroup(core.Group{Folder: folder}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := EnsureCorePackage(cfg, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, found, err := database.InstalledPackage("", "core"); err != nil || found {
+		t.Fatalf("pre-store stage invented receipt: %v, %v", found, err)
+	}
+	active := filepath.Join(cfg.ProjectRoot, "package-active/system")
+	before, err := os.Lstat(active)
+	if err != nil {
+		t.Fatal(err)
+	}
+	injected := errors.New("core receipt failure")
+	failure := &packageReceiptFailure{Store: database.Obj(), failure: injected}
+	err = EnsureCorePackage(cfg, store.NewOver(failure))
+	if !errors.Is(err, injected) || !strings.Contains(err.Error(), "incomplete package operation") {
+		t.Fatalf("receipt failure hidden: %v", err)
+	}
+	failure.failure = nil
+	if err := EnsureCorePackage(cfg, store.NewOver(failure)); err != nil {
+		t.Fatal(err)
+	}
+	coreReceipt, found, err := database.InstalledPackage("", "core")
+	if err != nil || !found || coreReceipt.Source != "ant" ||
+		coreReceipt.Revision != coreReceipt.AssetHashes["package_source"] ||
+		!reflect.DeepEqual(coreReceipt.Manifest["skill"], []string{"base"}) {
+		t.Fatalf("completion lost core provenance: %+v, %v, %v", coreReceipt, found, err)
+	}
+	if err := EnsureCorePackage(cfg, database); err != nil {
+		t.Fatal(err)
+	}
+	after, err := os.Lstat(active)
+	if err != nil || !os.SameFile(before, after) {
+		t.Fatalf("retry replaced active reference: %v", err)
+	}
+	writeSnapshotFile(t, cfg.AppSrcDir, "ant/skills/base/SKILL.md", "next release")
+	if err := EnsureCorePackage(cfg, database); err != nil {
+		t.Fatal(err)
+	}
+	got, _, err := database.InstalledPackage("", "optional")
+	if err != nil || !reflect.DeepEqual(got, receipt) {
+		t.Fatalf("core update changed optional receipt: %+v, %v", got, err)
+	}
+	if selected := selectedSnapshots(t, cfg.ProjectRoot, ""); len(selected) != 2 || selected[1] != optional {
+		t.Fatalf("core update lost optional snapshot: %+v", selected)
+	}
+	for name, body := range files {
+		data, err := os.ReadFile(filepath.Join(cfg.GroupsDir, name))
+		if err != nil || string(data) != body {
+			t.Fatalf("core changed group file %s: %q, %v", name, data, err)
+		}
+	}
+	if _, err := os.Lstat(filepath.Join(cfg.GroupsDir, "copied", ManifestFile)); !os.IsNotExist(err) {
+		t.Fatalf("core invented group declaration: %v", err)
+	}
+}
+
+// Missing optional provenance and foreign core receipts refuse before the existing selection changes.
+func TestCorePackageReceiptRefusal(t *testing.T) {
+	for _, invalid := range []string{
+		"missing", "digest", "source", "revision", "inventory", "timestamp", "foreign-core",
+	} {
+		t.Run(invalid, func(t *testing.T) {
+			cfg := corePackageFixture(t)
+			database := corePackageDatabase(t)
+			optional := prepareSnapshot(t, cfg.ProjectRoot, snapshotSource(t, "optional", "optional"))
+			if err := ActivatePackages(cfg.ProjectRoot, "", database, []PackageSnapshot{optional},
+				[]store.InstalledPackage{{Source: "optional-source", Revision: "optional-revision"}}); err != nil {
+				t.Fatal(err)
+			}
+			receipt, _, err := database.InstalledPackage("", "optional")
+			if err != nil {
+				t.Fatal(err)
+			}
+			switch invalid {
+			case "missing":
+				if _, err := database.DeleteInstalledPackage("", "optional"); err != nil {
+					t.Fatal(err)
+				}
+			case "digest":
+				receipt.Manifest["package_source"] = []string{"wrong"}
+			case "source":
+				receipt.Source = ""
+			case "revision":
+				receipt.Revision = ""
+			case "inventory":
+				receipt.Manifest["skill"] = []string{"invented"}
+			case "timestamp":
+				receipt.InstalledAt = ""
+			case "foreign-core":
+				receipt = store.InstalledPackage{Name: "core", Source: "foreign-source"}
+			}
+			if invalid != "missing" {
+				if err := database.PutInstalledPackage(receipt); err != nil {
+					t.Fatal(err)
+				}
+			}
+			before := selectedSnapshots(t, cfg.ProjectRoot, "")
+			if err := EnsureCorePackage(cfg, database); err == nil {
+				t.Fatal("invalid receipt accepted")
+			}
+			if after := selectedSnapshots(t, cfg.ProjectRoot, ""); !reflect.DeepEqual(before, after) {
+				t.Fatalf("receipt refusal changed selection: %+v", after)
+			}
+		})
+	}
+}
+
+// Canonical group names and skills conflict with required core even when a group has no manifest.
+func TestCorePackageCanonicalCollisions(t *testing.T) {
+	for _, conflict := range []string{"group-skill", "group-core", "system-skill", "package-name"} {
+		t.Run(conflict, func(t *testing.T) {
+			cfg := corePackageFixture(t)
+			database := corePackageDatabase(t)
+			if err := database.PutGroup(core.Group{Folder: "team"}); err != nil {
+				t.Fatal(err)
+			}
+			name, skill := "tools", "base"
+			if conflict == "group-core" {
+				name, skill = "core", "other"
+			}
+			if conflict == "package-name" {
+				skill = "group-only"
+				optional := prepareSnapshot(t, cfg.ProjectRoot, snapshotSource(t, "tools", "system tool"))
+				if err := ActivatePackages(cfg.ProjectRoot, "", database, []PackageSnapshot{optional},
+					[]store.InstalledPackage{{Source: "system-source", Revision: "system-revision"}}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			source := t.TempDir()
+			writeSnapshotFile(t, source, ManifestFile, "name = \""+name+"\"\n")
+			writeSnapshotFile(t, source, "skills/"+skill+"/SKILL.md", "conflicting skill")
+			snapshot := prepareSnapshot(t, cfg.ProjectRoot, source)
+			target := "team"
+			if conflict == "system-skill" {
+				target = ""
+			}
+			if err := ActivatePackages(cfg.ProjectRoot, target, database, []PackageSnapshot{snapshot},
+				[]store.InstalledPackage{{Source: source, Revision: snapshot.Digest}}); err != nil {
+				t.Fatal(err)
+			}
+			before := selectedSnapshots(t, cfg.ProjectRoot, "")
+			if err := EnsureCorePackage(cfg, database); err == nil {
+				t.Fatal("canonical collision accepted")
+			}
+			if after := selectedSnapshots(t, cfg.ProjectRoot, ""); !reflect.DeepEqual(before, after) {
+				t.Fatalf("collision changed system selection: %+v", after)
+			}
+		})
+	}
+}
