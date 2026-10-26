@@ -1,0 +1,9 @@
+name: personal
+brand: fiu
+tagline: Personal assistant with persistent memory — knows you across every session.
+env:
+  TELEGRAM_BOT_TOKEN:
+    required: true
+    hint: BotFather token — primary personal channel
+  OPENAI_API_KEY:
+    hint: Optional — enables web search and oracle research tasks

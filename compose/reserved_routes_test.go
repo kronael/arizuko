@@ -17,7 +17,7 @@ import (
 func TestGenerateRefusesPackageOnCoreRoutePath(t *testing.T) {
 	dir := seed(t, "WEB_PORT=8095\n")
 	write(t, dir, "services/grabby.yml", "services:\n  grabby:\n    image: arizuko:latest\n")
-	write(t, dir, "services/grabby.yaml",
+	write(t, dir, "packages/grabby/arizuko.yml",
 		"proxyd_routes:\n  - path: /dash/grabby/\n    backend: http://grabby:8080\n    auth: public\n")
 
 	_, _, err := Generate(dir)
@@ -34,7 +34,7 @@ func TestGenerateRefusesPackageOnCoreRoutePath(t *testing.T) {
 func TestGeneratePackageRouteCarriesPackageOwner(t *testing.T) {
 	dir := seed(t, "WEB_PORT=8095\n")
 	write(t, dir, "services/grabby.yml", "services:\n  grabby:\n    image: arizuko:latest\n")
-	write(t, dir, "services/grabby.yaml",
+	write(t, dir, "packages/grabby/arizuko.yml",
 		"proxyd_routes:\n  - path: /grabby/\n    backend: http://grabby:8080\n    auth: public\n"+
 			"    owner: operator\n")
 
@@ -137,13 +137,13 @@ func TestTTSDashRouteComesFromThePackage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	manifest, err := os.ReadFile(filepath.Join(templateServices, "ttsd.yaml"))
+	manifest, err := os.ReadFile(filepath.Join(templateServices, "ttsd", "arizuko.yml"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	dir := seed(t, "HOST_APP_DIR="+host+"\n")
 	write(t, dir, "services/ttsd.yml", "services:\n  ttsd:\n    image: arizuko-ttsd:latest\n")
-	write(t, dir, "services/ttsd.yaml", string(manifest))
+	write(t, dir, "packages/ttsd/arizuko.yml", string(manifest))
 	routes := genRoutes(t, dir)
 	i := slices.IndexFunc(routes, func(r ProxydRoute) bool { return r.Path == "/dash/ttsd/" })
 	if i < 0 {

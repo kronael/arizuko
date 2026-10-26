@@ -1,0 +1,10 @@
+name: teled
+proxyd_routes:
+  # The operator dashboard (spec 6/31), served by teled itself from the mux
+  # chanlib already builds. `user` so proxyd authenticates and stamps the
+  # operator scope the page gates on. Gated by the adapter's own credential,
+  # so the route exists exactly when the adapter does.
+  - path: /dash/teled/
+    backend: http://teled:8080
+    auth: user
+    gated_by: TELEGRAM_BOT_TOKEN

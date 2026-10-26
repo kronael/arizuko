@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"reflect"
 	"regexp"
 	"slices"
@@ -1017,16 +1018,33 @@ func EmitYAML(manifest map[string]any) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// EnvNeed is one entry of a package manifest's `env` section: a key the
-// package's process reads from the instance .env, and where its value comes
-// from when the operator has set none. Exactly one source is set: `generate`
-// is minted once and written into .env; `default` is derived on every
-// generate and never written; `required` makes install and generate refuse
-// until the operator sets it.
+// EnvNeed declares an environment requirement. Service packages provision it
+// from the instance .env; group packages carry it as descriptive metadata.
 type EnvNeed struct {
 	Generate bool   `yaml:"generate,omitempty"`
 	Default  string `yaml:"default,omitempty"`
 	Required bool   `yaml:"required,omitempty"`
+	Hint     string `yaml:"hint,omitempty"`
+}
+
+type PackageSource struct {
+	Source  string   `yaml:"source"`
+	Folders []string `yaml:"folders,omitempty"`
+}
+
+type ManifestDocument struct {
+	Rows     map[string]any
+	Checksum string
+}
+
+type Manifest struct {
+	Name      string             `yaml:"name,omitempty"`
+	Brand     string             `yaml:"brand,omitempty"`
+	Tagline   string             `yaml:"tagline,omitempty"`
+	Install   string             `yaml:"install,omitempty"`
+	Packages  []PackageSource    `yaml:"packages,omitempty"`
+	Env       map[string]EnvNeed `yaml:"env,omitempty"`
+	Documents []ManifestDocument `yaml:"-"`
 }
 
 // PackageEnvKey is the reserved top-level manifest key holding EnvNeed entries.
@@ -1039,65 +1057,151 @@ var envKeyRE = regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`)
 // top-level key rejects. A package's `env` section is refused, since `apply`
 // would report a success that provisioned nothing.
 func ParseYAML(data []byte) (map[string]any, string, error) {
-	rows, env, checksum, err := ParseManifest(data)
+	manifest, err := ParseManifest(data)
 	if err != nil {
 		return nil, "", err
 	}
-	if len(env) > 0 {
+	if len(manifest.Env) > 0 || manifest.Name != "" || manifest.Brand != "" ||
+		manifest.Tagline != "" || manifest.Install != "" || len(manifest.Packages) > 0 {
 		return nil, "", fmt.Errorf("`%s` is a package declaration that only `arizuko packages` "+
 			"provisions — install this file with `packages add` or `packages install`", PackageEnvKey)
 	}
-	return rows, checksum, nil
+	if len(manifest.Documents) != 1 {
+		return nil, "", fmt.Errorf("expected one manifest document")
+	}
+	return manifest.Documents[0].Rows, manifest.Documents[0].Checksum, nil
 }
 
-// ParseManifest is ParseYAML for the document a package ships: the rows plus
-// its `env` section.
-func ParseManifest(data []byte) (map[string]any, map[string]EnvNeed, string, error) {
-	var doc yaml.Node
-	if err := yaml.Unmarshal(data, &doc); err != nil {
-		return nil, nil, "", fmt.Errorf("yaml unmarshal: %w", err)
-	}
-	if doc.Kind == yaml.DocumentNode && len(doc.Content) > 0 {
-		doc = *doc.Content[0]
-	}
-	if doc.Kind != yaml.MappingNode {
-		return nil, nil, "", fmt.Errorf("manifest root must be a mapping")
-	}
-	out := map[string]any{}
-	var env map[string]EnvNeed
-	var checksum string
+// ParseManifest accepts one YAML stream. Each document's resource rows must
+// belong to one subsystem; metadata and env declarations span the stream.
+func ParseManifest(data []byte) (Manifest, error) {
+	var manifest Manifest
+	decoder := yaml.NewDecoder(bytes.NewReader(data))
+	seen := map[string]bool{}
 	resByName := map[string]*Resource{}
 	for _, r := range All() {
 		resByName[r.Name] = r
 	}
-	for i := 0; i+1 < len(doc.Content); i += 2 {
-		key := doc.Content[i].Value
-		val := doc.Content[i+1]
-		switch key {
-		case "checksum":
-			if err := val.Decode(&checksum); err != nil {
-				return nil, nil, "", fmt.Errorf("checksum: %w", err)
+	for {
+		var doc yaml.Node
+		if err := decoder.Decode(&doc); errors.Is(err, io.EOF) {
+			break
+		} else if err != nil {
+			return manifest, fmt.Errorf("yaml unmarshal: %w", err)
+		}
+		if doc.Kind == yaml.DocumentNode && len(doc.Content) > 0 {
+			doc = *doc.Content[0]
+		}
+		if doc.Kind != yaml.MappingNode {
+			return manifest, fmt.Errorf("manifest root must be a mapping")
+		}
+		out := map[string]any{}
+		var checksum string
+		keys := map[string]bool{}
+		for i := 0; i+1 < len(doc.Content); i += 2 {
+			key := doc.Content[i].Value
+			val := doc.Content[i+1]
+			if keys[key] {
+				return manifest, fmt.Errorf("duplicate manifest key %q", key)
 			}
-			continue
-		case PackageEnvKey:
-			parsed, err := parseEnvNeeds(val)
+			keys[key] = true
+			var metadata any
+			switch key {
+			case "checksum":
+				if err := val.Decode(&checksum); err != nil {
+					return manifest, fmt.Errorf("checksum: %w", err)
+				}
+				continue
+			case "name":
+				metadata = &manifest.Name
+			case "brand":
+				metadata = &manifest.Brand
+			case "tagline":
+				metadata = &manifest.Tagline
+			case "install":
+				metadata = &manifest.Install
+			case "packages":
+				metadata = &manifest.Packages
+			case PackageEnvKey:
+				parsed, err := parseEnvNeeds(val)
+				if err != nil {
+					return manifest, err
+				}
+				if manifest.Env == nil {
+					manifest.Env = map[string]EnvNeed{}
+				}
+				for key, need := range parsed {
+					if _, duplicate := manifest.Env[key]; duplicate {
+						return manifest, fmt.Errorf("env %s declared twice", key)
+					}
+					manifest.Env[key] = need
+				}
+				continue
+			}
+			if metadata != nil {
+				if seen[key] {
+					return manifest, fmt.Errorf("%s declared twice", key)
+				}
+				seen[key] = true
+				if err := decodeStrict(val, metadata); err != nil {
+					return manifest, fmt.Errorf("%s: %w", key, err)
+				}
+				continue
+			}
+			r, ok := resByName[key]
+			if !ok || r.RowType == nil {
+				return manifest, fmt.Errorf("unknown resource key %q (line %d)", key, doc.Content[i].Line)
+			}
+			rows, err := r.ParseRows(val)
 			if err != nil {
-				return nil, nil, "", err
+				return manifest, err
 			}
-			env = parsed
-			continue
+			out[key] = rows
 		}
-		r, ok := resByName[key]
-		if !ok || r.RowType == nil {
-			return nil, nil, "", fmt.Errorf("unknown resource key %q (line %d)", key, doc.Content[i].Line)
+		if len(out) > 0 {
+			if _, err := SubsystemOf(out); err != nil {
+				return manifest, err
+			}
 		}
-		rows, err := r.ParseRows(val)
-		if err != nil {
-			return nil, nil, "", err
-		}
-		out[key] = rows
+		manifest.Documents = append(manifest.Documents, ManifestDocument{out, checksum})
 	}
-	return out, env, checksum, nil
+	for _, source := range manifest.Packages {
+		if source.Source == "" {
+			return manifest, fmt.Errorf("package source is required")
+		}
+	}
+	return manifest, nil
+}
+
+func EncodeManifest(manifest Manifest) ([]byte, error) {
+	var buffer bytes.Buffer
+	encoder := yaml.NewEncoder(&buffer)
+	encoder.SetIndent(2)
+	first := struct {
+		Manifest `yaml:",inline"`
+		Rows     map[string]any `yaml:",inline"`
+		Checksum string         `yaml:"checksum,omitempty"`
+	}{Manifest: manifest}
+	if len(manifest.Documents) > 0 {
+		first.Rows, first.Checksum = manifest.Documents[0].Rows, manifest.Documents[0].Checksum
+	}
+	if err := encoder.Encode(first); err != nil {
+		return nil, err
+	}
+	for i := 1; i < len(manifest.Documents); i++ {
+		document := manifest.Documents[i]
+		rows := maps.Clone(document.Rows)
+		if document.Checksum != "" {
+			rows["checksum"] = document.Checksum
+		}
+		if err := encoder.Encode(rows); err != nil {
+			return nil, err
+		}
+	}
+	if err := encoder.Close(); err != nil {
+		return nil, err
+	}
+	return buffer.Bytes(), nil
 }
 
 // parseEnvNeeds decodes the `env` mapping strictly: a key must be an env var
@@ -1124,7 +1228,7 @@ func parseEnvNeeds(node *yaml.Node) (map[string]EnvNeed, error) {
 				sources++
 			}
 		}
-		if sources != 1 {
+		if sources > 1 || (sources == 0 && need.Hint == "") {
 			return nil, fmt.Errorf("%s.%s: name exactly one of generate, default, required (line %d)",
 				PackageEnvKey, key, line)
 		}

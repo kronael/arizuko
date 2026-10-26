@@ -1,0 +1,8 @@
+name: socials
+brand: phosphene
+tagline: Social presence manager — post, monitor, cross-post.
+env:
+  TELEGRAM_BOT_TOKEN:
+    hint: Operator approval channel (Telegram or Discord — set at least one)
+  DISCORD_BOT_TOKEN:
+    hint: Discord operator channel for post approval

@@ -12,136 +12,17 @@ import (
 	"archive/tar"
 	"bytes"
 	"context"
-	"errors"
-	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/kronael/arizuko/container"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/resreg/resources"
 	"github.com/kronael/arizuko/store"
 )
-
-func coreArchive(t *testing.T, configOnly bool) []byte {
-	t.Helper()
-	dataDir, stores := openInstance(t)
-	if err := stores[resreg.SubsystemRoutd].PutGroupRow(core.Group{Folder: "restored"}); err != nil {
-		t.Fatal(err)
-	}
-	seedGroupFiles(t, dataDir, "restored")
-	var full bytes.Buffer
-	if _, err := buildArchive(t.Context(), stores, dataDir, false, &full); err != nil {
-		t.Fatal(err)
-	}
-	if !configOnly {
-		return full.Bytes()
-	}
-	var config bytes.Buffer
-	writer := tar.NewWriter(&config)
-	reader := tar.NewReader(bytes.NewReader(full.Bytes()))
-	for {
-		header, err := reader.Next()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			t.Fatal(err)
-		}
-		if header.Name != archiveMetaEntry && header.Name != archiveRoutdEntry &&
-			header.Name != archiveOnbodEntry {
-			continue
-		}
-		body, err := io.ReadAll(reader)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := writeTarEntry(writer, header.Name, body); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatal(err)
-	}
-	return config.Bytes()
-}
-
-// Full and config-only restores select core without reseeding nonempty homes.
-func TestArchiveCoreAllRestoredFolders(t *testing.T) {
-	for _, variant := range []string{"full", "full-nonempty", "config", "config-nonempty"} {
-		t.Run(variant, func(t *testing.T) {
-			archive := coreArchive(t, strings.HasPrefix(variant, "config"))
-			dataDir, stores := openInstance(t)
-			if strings.HasSuffix(variant, "nonempty") {
-				mustWrite(t, filepath.Join(dataDir, "groups/restored/CLAUDE.md"), "resident manual")
-				custom := filepath.Join(dataDir, "groups/restored/.claude/skills/custom")
-				mustWrite(t, filepath.Join(custom, "SKILL.md"), "resident skill")
-				mustWrite(t, filepath.Join(custom, ".disabled"), "disabled")
-			}
-			report, err := applyArchive(t.Context(), stores, dataDir,
-				bytes.NewReader(archive), true, nil)
-			if err != nil {
-				t.Fatalf("restore failed: %v, %s", err, report)
-			}
-			selected, err := container.ReadPackageSelection(dataDir, "")
-			receipt, found, rerr := stores[resreg.SubsystemRoutd].InstalledPackage("", "core")
-			if err != nil || rerr != nil || !found || len(selected) != 1 ||
-				receipt.Source != "ant" || receipt.Revision != selected[0].Digest {
-				t.Fatalf("restore omitted core: %+v %+v %v %v", selected, receipt, err, rerr)
-			}
-			if strings.HasSuffix(variant, "nonempty") {
-				if got := readGroupFile(t, dataDir, "restored", "CLAUDE.md"); got != "resident manual" {
-					t.Fatalf("restore reseeded resident manual: %q", got)
-				}
-				got := readGroupFile(t, dataDir, "restored", ".claude/skills/custom/.disabled")
-				if got != "disabled" {
-					t.Fatal(got)
-				}
-			}
-		})
-	}
-}
-
-func TestArchiveCoreIncomingSelectionConflict(t *testing.T) {
-	for _, configOnly := range []bool{false, true} {
-		t.Run(fmt.Sprint(configOnly), func(t *testing.T) {
-			archive := coreArchive(t, configOnly)
-			dataDir, stores := openInstance(t)
-			mustWrite(t, filepath.Join(dataDir, "groups/restored/CLAUDE.md"), "resident manual")
-			source := t.TempDir()
-			mustWrite(t, filepath.Join(source, "arizuko.toml"), "name = \"conflict\"\n")
-			mustWrite(t, filepath.Join(source, "skills/base/SKILL.md"), "conflicting skill")
-			lock, err := container.LockPackages(dataDir)
-			if err != nil {
-				t.Fatal(err)
-			}
-			snapshot, err := container.PreparePackage(dataDir, source)
-			if err != nil {
-				t.Fatal(err)
-			}
-			err = container.SelectPackages(dataDir, "restored",
-				[]container.PackageSnapshot{snapshot})
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := lock.Close(); err != nil {
-				t.Fatal(err)
-			}
-			_, err = applyArchive(t.Context(), stores, dataDir, bytes.NewReader(archive), true, nil)
-			if err == nil || !strings.Contains(err.Error(), "skill:base") {
-				t.Fatalf("incoming group's core conflict was not refused: %v", err)
-			}
-			if _, exists := stores[resreg.SubsystemRoutd].GroupByFolder("restored"); exists {
-				t.Fatal("conflicting incoming group was published")
-			}
-		})
-	}
-}
 
 // msgAt parses a fixture day. Timestamps reach messages.timestamp through
 // core.TS: a fixture that hand-formats that column brings a second format to a
@@ -381,43 +262,11 @@ func TestArchive_RoundTrip_ConfigSecretsMessagesGroups(t *testing.T) {
 		t.Errorf("skills/note.md = %q", got)
 	}
 
-	sourcePackages, err := resreg.Lookup("installed_packages").ScanAll(resreg.On(srcRoutd.Obj()))
-	if err != nil {
-		t.Fatal(err)
-	}
-	targetPackages, err := resreg.Lookup("installed_packages").ScanAll(resreg.On(dstRoutd.Obj()))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Logf("exported package projections: source=%+v target=%+v", sourcePackages, targetPackages)
-	_, err = applyArchive(ctx, dstStores, dstDataDir,
-		bytes.NewReader(archiveBuf.Bytes()), false, nil)
-	if !errors.Is(err, resreg.ErrChecksumMismatch) {
-		t.Fatalf("source archive did not refuse the local core receipt difference: %v", err)
-	}
-	checksum := routdChecksum(t, dstRoutd)
-	cfg, err := core.LoadConfigFrom(dstDataDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	lock, err := container.LockPackages(dstDataDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := errors.Join(container.EnsureCorePackage(cfg, dstRoutd), lock.Close()); err != nil {
-		t.Fatal(err)
-	}
-	if got := routdChecksum(t, dstRoutd); got != checksum {
-		t.Fatalf("completed core initialization changed checksum: %s != %s", got, checksum)
-	}
-	var restoredArchive bytes.Buffer
-	if _, err := buildArchive(ctx, dstStores, dstDataDir, false, &restoredArchive); err != nil {
-		t.Fatal(err)
-	}
-	_, err = applyArchive(ctx, dstStores, dstDataDir,
-		bytes.NewReader(restoredArchive.Bytes()), false, nil)
-	if err != nil {
-		t.Fatalf("restored snapshot no-force replay: %v", err)
+	// --- Re-apply the SAME archive a second time: messages must stay
+	// idempotent (INSERT OR IGNORE) and config apply must succeed against
+	// the now-matching checksum (no --force needed the second time).
+	if _, err := applyArchive(ctx, dstStores, dstDataDir, bytes.NewReader(archiveBuf.Bytes()), false, nil); err != nil {
+		t.Fatalf("second applyArchive (idempotent re-run): %v", err)
 	}
 	n = countMessages(t, dstRoutd, "web:atlas")
 	if n != 2 {

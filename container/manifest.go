@@ -2,40 +2,44 @@ package container
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 
-	"github.com/BurntSushi/toml"
+	"github.com/kronael/arizuko/resreg"
+	_ "github.com/kronael/arizuko/resreg/resources"
 )
 
-const ManifestFile = "arizuko.toml"
+const ManifestFile = "arizuko.yml"
 
 const PackageNamePattern = `^[A-Za-z0-9_][A-Za-z0-9_.-]{0,62}$`
 
-type ProductSource struct {
-	Source string `toml:"source"`
-}
+type ProductSource = resreg.PackageSource
 
-type ProductManifest struct {
-	Name    string   `toml:"name,omitempty"`
-	Brand   string   `toml:"brand,omitempty"`
-	Tagline string   `toml:"tagline,omitempty"`
-	Skills  []string `toml:"skills,omitempty"`
-	Env     []struct {
-		Key      string `toml:"key"`
-		Required bool   `toml:"required"`
-		Hint     string `toml:"hint"`
-	} `toml:"env,omitempty"`
-	Product []ProductSource `toml:"product,omitempty"`
+type ProductManifest = resreg.Manifest
+
+func ReadManifest(path string) (ProductManifest, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ProductManifest{}, err
+	}
+	manifest, err := resreg.ParseManifest(data)
+	if err != nil {
+		return manifest, fmt.Errorf("read %s: %w", path, err)
+	}
+	return manifest, nil
 }
 
 // ReadProductManifest reads source metadata and refuses nested product selections.
 func ReadProductManifest(dir string) (ProductManifest, error) {
 	path := filepath.Join(dir, ManifestFile)
-	var manifest ProductManifest
-	if _, err := toml.DecodeFile(path, &manifest); err != nil {
-		return manifest, fmt.Errorf("read %s: %w", path, err)
+	manifest, err := ReadManifest(path)
+	if err != nil {
+		return manifest, err
 	}
-	if len(manifest.Product) > 0 {
+	if manifest.Name == "" {
+		return manifest, fmt.Errorf("%s requires a package name", path)
+	}
+	if len(manifest.Packages) > 0 {
 		return manifest, fmt.Errorf("%s selects nested products; select those sources explicitly in the group's own %s",
 			path, ManifestFile)
 	}

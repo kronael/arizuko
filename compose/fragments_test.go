@@ -27,7 +27,7 @@ type fragment struct {
 
 func readFragment(t *testing.T, name string) fragment {
 	t.Helper()
-	b, err := os.ReadFile(filepath.Join(templateServices, name+".yml"))
+	b, err := os.ReadFile(filepath.Join(templateServices, name, name+".yml"))
 	if err != nil {
 		t.Fatalf("read fragment: %v", err)
 	}
@@ -86,7 +86,14 @@ func seedCatalog(t *testing.T, catalog, installed map[string]string) (svcDir, tm
 			t.Fatal(err)
 		}
 		for name, body := range files {
-			if err := os.WriteFile(filepath.Join(target, name), []byte(body), 0o644); err != nil {
+			path := filepath.Join(target, name)
+			if target == tmplDir {
+				path = filepath.Join(target, strings.TrimSuffix(name, ".yml"), name)
+			}
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -151,7 +158,7 @@ func TestRelinkCatalogClassifies(t *testing.T) {
 	if !slices.Equal(relinked, []string{"teled"}) {
 		t.Fatalf("relinked = %v, want [teled]", relinked)
 	}
-	isSymlinkTo(t, filepath.Join(svcDir, "teled.yml"), filepath.Join(hostDir, "teled.yml"))
+	isSymlinkTo(t, filepath.Join(svcDir, "teled.yml"), filepath.Join(hostDir, "teled", "teled.yml"))
 	isRealFile(t, filepath.Join(svcDir, "mine.yml"))
 }
 
@@ -328,22 +335,7 @@ func TestRelinkCatalogIdempotent(t *testing.T) {
 	if len(relinked) != 0 {
 		t.Fatalf("second relink = %v, want none (already linked, nothing new)", relinked)
 	}
-	isSymlinkTo(t, filepath.Join(svcDir, "teled.yml"), filepath.Join(hostDir, "teled.yml"))
-}
-
-// A package's manifest fragment carries the same drift risk as its base compose
-// fragment and links alongside it when both sides match.
-func TestRelinkCatalogLinksMatchingSidecar(t *testing.T) {
-	manifest := "proxyd_routes:\n  - path: /slack/\n    backend: http://slakd:8080\n    auth: public\n"
-	svcDir, tmplDir := seedCatalog(t,
-		map[string]string{"slakd.yml": "services:\n  slakd:\n    image: arizuko:latest\n", "slakd.yaml": manifest},
-		map[string]string{"slakd.yml": "services:\n  slakd:\n    image: arizuko:latest\n", "slakd.yaml": manifest})
-	hostDir := filepath.Join(t.TempDir(), "hostview", "template", "services")
-
-	if _, _, err := RelinkCatalog(svcDir, tmplDir, hostDir); err != nil {
-		t.Fatal(err)
-	}
-	isSymlinkTo(t, filepath.Join(svcDir, "slakd.yaml"), filepath.Join(hostDir, "slakd.yaml"))
+	isSymlinkTo(t, filepath.Join(svcDir, "teled.yml"), filepath.Join(hostDir, "teled", "teled.yml"))
 }
 
 // HostCatalogDir must never fall back to this process's own directory — a
@@ -434,7 +426,7 @@ func TestForeignImageEnvCarriesNoCommonKeys(t *testing.T) {
 // to a foreign image, and MODEL_GATEWAY_KEY must stay required (`:?`), or a
 // missing key starts the gateway open to every container on the network.
 func TestLitellmFragmentReadsOnlyItsDeclaredKeys(t *testing.T) {
-	raw, err := os.ReadFile(filepath.Join(templateServices, "litellm.yml"))
+	raw, err := os.ReadFile(filepath.Join(templateServices, "litellm", "litellm.yml"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -479,7 +471,7 @@ func TestLitellmFragmentReadsOnlyItsDeclaredKeys(t *testing.T) {
 // the gateway starts, its data survives a recreate, and it holds the gateway's
 // state rather than the instance's (spec 6/23, 6/39).
 func TestLitellmFragmentWiresItsDatabase(t *testing.T) {
-	raw, err := os.ReadFile(filepath.Join(templateServices, "litellm.yml"))
+	raw, err := os.ReadFile(filepath.Join(templateServices, "litellm", "litellm.yml"))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -71,7 +71,7 @@ func TestHoldBlocksAgentTurn(t *testing.T) {
 		t.Fatalf("hold outcome=%+v want a run_id and busy=false", held)
 	}
 
-	out, err := mgr.Run(context.Background(), runedv1.RunRequest{Folder: "demo", MessageBatch: "hi"})
+	out, err := mgr.Run(context.Background(), runedv1.RunRequest{Packages: []string{"core"}, Folder: "demo", MessageBatch: "hi"})
 	if err != nil {
 		t.Fatalf("run during hold: %v", err)
 	}
@@ -107,7 +107,7 @@ func TestHoldReleaseUnblocks(t *testing.T) {
 	}
 	waitSpawnState(t, db, held.RunID, "killed", "exited")
 
-	out, err := mgr.Run(context.Background(), runedv1.RunRequest{Folder: "demo", MessageBatch: "hi"})
+	out, err := mgr.Run(context.Background(), runedv1.RunRequest{Packages: []string{"core"}, Folder: "demo", MessageBatch: "hi"})
 	if err != nil {
 		t.Fatalf("run after release: %v", err)
 	}
@@ -139,7 +139,7 @@ func TestHoldExpiresOnRunTTL(t *testing.T) {
 		t.Errorf("expired hold state=%q want error (an unreleased hold is a failure, and must be visible as one)", sp.State)
 	}
 
-	out, err := mgr.Run(context.Background(), runedv1.RunRequest{Folder: "demo", MessageBatch: "hi"})
+	out, err := mgr.Run(context.Background(), runedv1.RunRequest{Packages: []string{"core"}, Folder: "demo", MessageBatch: "hi"})
 	if err != nil {
 		t.Fatalf("run after expiry: %v", err)
 	}
@@ -200,7 +200,7 @@ func TestHoldDoesNotTripBreaker(t *testing.T) {
 		t.Fatalf("failures=%d err=%v after %d expired holds; want 0 (breaker is agent-only)",
 			failures, err, circuitBreakerThreshold)
 	}
-	out, err := mgr.Run(context.Background(), runedv1.RunRequest{Folder: "demo", MessageBatch: "hi"})
+	out, err := mgr.Run(context.Background(), runedv1.RunRequest{Packages: []string{"core"}, Folder: "demo", MessageBatch: "hi"})
 	if err != nil {
 		t.Fatalf("run after expired holds: %v", err)
 	}
@@ -237,7 +237,7 @@ func TestHoldDoesNotConsumeContainerCap(t *testing.T) {
 		t.Fatalf("ActiveAgentCount=%d err=%v want 0 (a hold spawns no container)", n, err)
 	}
 
-	out, err := mgr.Run(context.Background(), runedv1.RunRequest{Folder: "free", MessageBatch: "hi"})
+	out, err := mgr.Run(context.Background(), runedv1.RunRequest{Packages: []string{"core"}, Folder: "free", MessageBatch: "hi"})
 	if err != nil {
 		t.Fatalf("run with 3 holds live: %v", err)
 	}

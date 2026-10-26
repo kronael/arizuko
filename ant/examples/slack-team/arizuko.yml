@@ -1,0 +1,31 @@
+name: slack-team
+brand: slack-team
+tagline: One agent in your team's Slack — channel persona, per-teammate memory, email
+  ingest.
+env:
+  SLACK_BOT_TOKEN:
+    required: true
+    hint: xoxb-... from your Slack App's OAuth & Permissions page
+  SLACK_SIGNING_SECRET:
+    required: true
+    hint: from Slack App's Basic Information page
+  EMAIL_ACCOUNT:
+    hint: 'Optional: shared inbox the agent reads (e.g. atlas@yourdomain.com). Enables
+      email-as-data-ingest.'
+  EMAIL_PASSWORD:
+    hint: App password for EMAIL_ACCOUNT. Gmail requires app-specific passwords (Google
+      account > Security > 2FA > App passwords).
+  EMAIL_IMAP_HOST:
+    hint: e.g. imap.gmail.com
+  EMAIL_SMTP_HOST:
+    hint: e.g. smtp.gmail.com
+  ANTHROPIC_API_KEY:
+    required: true
+    hint: for the in-container Claude Code agent
+  OPENAI_API_KEY:
+    hint: 'Optional: enables /oracle skill for second-opinion analysis'
+  GITHUB_CLIENT_ID:
+    hint: 'Optional: OAuth so teammates can link their GitHub identity (per-user memory
+      across surfaces)'
+  GITHUB_CLIENT_SECRET:
+    hint: paired with GITHUB_CLIENT_ID

@@ -34,8 +34,11 @@ func serviceKinds(t *testing.T) map[string]bool {
 	}
 	names := map[string]bool{}
 	for _, e := range entries {
-		if n, ok := strings.CutSuffix(e.Name(), ".yml"); ok && !e.IsDir() {
-			names[n] = true
+		if e.IsDir() {
+			if _, err := os.Stat(filepath.Join(servicesDir, e.Name(), e.Name()+".yml")); err != nil {
+				t.Fatal(err)
+			}
+			names[e.Name()] = true
 		}
 	}
 	kinds := map[string]bool{}

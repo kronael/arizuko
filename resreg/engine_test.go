@@ -290,10 +290,11 @@ testrows:
     name: x
     value: "1"
 `)
-	rows, env, _, err := ParseManifest(manifest)
+	declaration, err := ParseManifest(manifest)
 	if err != nil {
 		t.Fatalf("ParseManifest: %v", err)
 	}
+	rows, env := declaration.Documents[0].Rows, declaration.Env
 	if _, ok := rows[PackageEnvKey]; ok {
 		t.Error("env must not be a resource key")
 	}
@@ -323,12 +324,39 @@ func TestParseManifest_EnvStrict(t *testing.T) {
 		"bad key":     "env:\n  gw-key: {generate: true}\n",
 		"not mapping": "env:\n  - GW_KEY\n",
 	} {
-		if _, _, _, err := ParseManifest([]byte(body)); err == nil {
+		if _, err := ParseManifest([]byte(body)); err == nil {
 			t.Errorf("%s: ParseManifest accepted %q", name, body)
 		}
 	}
 	if _, _, err := ParseYAML([]byte("env:\n  GW_KEY: {generate: true}\ntestrows: []\n")); err == nil {
 		t.Error("ParseYAML must refuse a package env section")
+	}
+}
+
+func TestPackageManifestRoundTrip(t *testing.T) {
+	freshEngine(t)
+	input := []byte("name: group\nbrand: Example\npackages:\n  - source: /src/tool\n    folders: [eng/**]\n" +
+		"env:\n  NEWS_TOKEN: {required: true, hint: Group secret}\n  OPTIONAL_TOKEN: {hint: Optional service}\n" +
+		"testrows:\n  - kind: eng\n    name: first\n    value: one\n---\ntestrows:\n  - kind: eng\n    name: second\n    value: two\n")
+	manifest, err := ParseManifest(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if manifest.Name != "group" || manifest.Packages[0].Folders[0] != "eng/**" || len(manifest.Documents) != 2 {
+		t.Fatalf("declaration lost: %+v", manifest)
+	}
+	encoded, err := EncodeManifest(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := ParseManifest(encoded)
+	if err != nil || !reflect.DeepEqual(manifest, decoded) {
+		t.Fatalf("round trip: %+v, %v", decoded, err)
+	}
+	for _, body := range []string{"packages: [{source: tool, folder: eng}]", "packages: [{}]", "skills: [tool]"} {
+		if _, err := ParseManifest([]byte(body)); err == nil {
+			t.Fatalf("accepted %q", body)
+		}
 	}
 }
 

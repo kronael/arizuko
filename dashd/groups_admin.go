@@ -112,7 +112,7 @@ func (d *dash) handleGroupCreate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "config load failed", http.StatusInternalServerError)
 		return
 	}
-	if err := container.SetupGroup(cfg, d.routdStore(), folder, ""); err != nil {
+	if err := container.SetupGroup(cfg, folder, ""); err != nil {
 		slog.Error("group create: setup", "folder", folder, "err", err)
 		http.Error(w, "setup failed", http.StatusInternalServerError)
 		return
@@ -152,18 +152,64 @@ func (d *dash) handleGroupCreate(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/dash/groups/", http.StatusSeeOther)
 }
 
-func (d *dash) stockSkills(folder string) (container.PackageInventory, error) {
-	return container.ReadPackageInventory(filepath.Dir(d.groupsDir), folder)
+// stockSkills returns the sorted list of skill names from ant/skills/ in appDir.
+// Returns nil when appDir is empty or the directory can't be read.
+func (d *dash) stockSkills(folder string) ([]string, error) {
+	selected, err := d.routdStore().SelectedPackageNames(folder)
+	if err != nil {
+		return nil, err
+	}
+	inventory, err := container.ReadPackageInventory(filepath.Dir(d.groupsDir), selected)
+	var names []string
+	for _, skill := range inventory.Skills {
+		names = append(names, skill.Name)
+	}
+	return names, err
 }
 
-func (d *dash) skillsDisabled(folder string, inventory container.PackageInventory) (map[string]bool, error) {
-	cfg := &core.Config{ProjectRoot: filepath.Dir(d.groupsDir), GroupsDir: d.groupsDir}
-	return container.CheckPackageMountTargets(cfg, folder, inventory)
+// skillsDisabled returns the set of skill names that have a .disabled marker
+// under a group's .claude/skills/ dir.
+func (d *dash) skillsDisabled(folder string) map[string]bool {
+	base := filepath.Join(d.groupsDir, filepath.Clean(folder), ".claude", "skills")
+	entries, err := os.ReadDir(base)
+	if err != nil {
+		return nil
+	}
+	out := make(map[string]bool)
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		marker := filepath.Join(base, e.Name(), ".disabled")
+		if _, err := os.Stat(marker); err == nil {
+			out[e.Name()] = true
+		}
+	}
+	return out
 }
 
+// setSkillDisabled creates or removes the .disabled marker for one skill.
 func (d *dash) setSkillDisabled(folder, skill string, disable bool) error {
-	cfg := &core.Config{ProjectRoot: filepath.Dir(d.groupsDir), GroupsDir: d.groupsDir}
-	return container.SetPackageSkillDisabled(cfg, folder, skill, disable)
+	if !skillNameRe.MatchString(skill) {
+		return fmt.Errorf("invalid skill name: %s", skill)
+	}
+	dir := filepath.Join(d.groupsDir, filepath.Clean(folder), ".claude", "skills", skill)
+	marker := filepath.Join(dir, ".disabled")
+	if disable {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return err
+		}
+		f, err := os.OpenFile(marker, os.O_CREATE|os.O_TRUNC, 0o644)
+		if err != nil {
+			return err
+		}
+		return f.Close()
+	}
+	err := os.Remove(marker)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	return err
 }
 
 // GET /dash/groups/{folder}/settings — show current state. POST persists.
@@ -214,35 +260,13 @@ func (d *dash) handleGroupSettings(w http.ResponseWriter, r *http.Request) {
 	if open {
 		openChecked = " checked"
 	}
-	if d.groupsDir == "" {
-		_, _ = fmt.Fprint(w, htmlBanner("err", "group directory is not configured"))
-		pageClose(w, r)
-		return
-	}
-	lock, err := container.LockPackages(filepath.Dir(d.groupsDir))
+	skills, err := d.stockSkills(folder)
 	if err != nil {
 		_, _ = fmt.Fprint(w, htmlBanner("err", esc(err.Error())))
 		pageClose(w, r)
 		return
 	}
-	// The picker holds the same selection while reading markers.
-	defer lock.Close() //nolint:errcheck
-	inventory, err := d.stockSkills(folder)
-	if err != nil {
-		_, _ = fmt.Fprint(w, htmlBanner("err", esc(err.Error())))
-		pageClose(w, r)
-		return
-	}
-	disabled, err := d.skillsDisabled(folder, inventory)
-	if err != nil {
-		_, _ = fmt.Fprint(w, htmlBanner("err", esc(err.Error())))
-		pageClose(w, r)
-		return
-	}
-	var skills []string
-	for _, skill := range inventory.Skills {
-		skills = append(skills, skill.Name)
-	}
+	disabled := d.skillsDisabled(folder)
 
 	type modelOption struct{ ID, Label string }
 	modelOptions := []modelOption{
@@ -317,26 +341,6 @@ func (d *dash) handleGroupSettingsSave(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad form", http.StatusBadRequest)
 		return
 	}
-	if d.groupsDir == "" {
-		http.Error(w, "group directory is not configured", http.StatusInternalServerError)
-		return
-	}
-	lock, err := container.LockPackages(filepath.Dir(d.groupsDir))
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	// Selection and markers stay fixed through settings persistence.
-	defer lock.Close() //nolint:errcheck
-	inventory, err := d.stockSkills(folder)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	if _, err := d.skillsDisabled(folder, inventory); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
 	open := r.FormValue("open") == "1"
 	// Blank or 0 = clear to default. SetGroupObserveWindow clears on <0, so map
 	// an empty/zero submission to -1 instead of persisting 0 as a real override.
@@ -366,11 +370,15 @@ func (d *dash) handleGroupSettingsSave(w http.ResponseWriter, r *http.Request) {
 			enabledSet[v] = true
 		}
 	}
-	for _, skill := range inventory.Skills {
-		disable := !enabledSet[skill.Name]
-		if err := d.setSkillDisabled(folder, skill.Name, disable); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
+	skills, err := d.stockSkills(folder)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	for _, name := range skills {
+		disable := !enabledSet[name]
+		if err := d.setSkillDisabled(folder, name, disable); err != nil {
+			slog.Warn("group settings save: skill", "folder", folder, "skill", name, "err", err)
 		}
 	}
 
@@ -414,33 +422,6 @@ func (d *dash) handleGroupDelete(w http.ResponseWriter, r *http.Request) {
 	stop := func(ctx context.Context, f string) error {
 		_, err := runed.StopFolder(ctx, f)
 		return err
-	}
-	if d.groupsDir == "" {
-		http.Error(w, "group directory is not configured", http.StatusInternalServerError)
-		return
-	}
-	dataDir := filepath.Dir(d.groupsDir)
-	lock, err := container.LockPackages(dataDir)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("package lock: %v", err), http.StatusInternalServerError)
-		return
-	}
-	// The deletion owns selections until registered identities disappear.
-	defer lock.Close() //nolint:errcheck
-	registered, err := d.routdStore().GroupFolders(0)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	folders := []string{folder}
-	for _, registered := range registered {
-		if registered != folder && groupfolder.Contains(folder, registered) {
-			folders = append(folders, registered)
-		}
-	}
-	if err := container.WithdrawGroupPackages(dataDir, folders); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
 	}
 	// store.DeleteGroupStopping is the ONE purge — what it removes is declared
 	// once, in store.folderScopePurge — and AsUser attributes its audit row to

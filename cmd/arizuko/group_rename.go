@@ -21,7 +21,6 @@ import (
 
 	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/auth"
-	"github.com/kronael/arizuko/container"
 	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/objstore/dynstore"
 	"github.com/kronael/arizuko/store"
@@ -46,12 +45,6 @@ type renamePlan struct {
 	Mapping           renameMap
 	Rows              []renameRow
 	Files             []renameFile
-	Selections        []renameSelection
-}
-
-type renameSelection struct {
-	Target        string
-	Before, After []container.PackageSnapshot
 }
 
 type renameList []string
@@ -93,14 +86,6 @@ func cmdGroupRename(instance, dataDir string, args []string) {
 		die("Failed: target preflight: %v", err)
 	}
 	ctx := context.Background()
-	if !*dryRun {
-		lock, err := container.LockPackages(dataDir)
-		if err != nil {
-			die("Failed: package lock: %v", err)
-		}
-		// The stopped operation owns selections through journal verification.
-		defer lock.Close() //nolint:errcheck
-	}
 	var plan renamePlan
 	if *resume || *rollback {
 		err = renameReadJSON(filepath.Join(*journal, "plan.json"), &plan)
@@ -114,8 +99,7 @@ func cmdGroupRename(instance, dataDir string, args []string) {
 	if err != nil {
 		die("Failed: rename preflight: %v", err)
 	}
-	fmt.Printf("rename: %d items, %d filesystem operations, %d package selections\n",
-		len(plan.Rows), len(plan.Files), len(plan.Selections))
+	fmt.Printf("rename: %d items, %d filesystem operations\n", len(plan.Rows), len(plan.Files))
 	if *dryRun {
 		return
 	}
@@ -340,33 +324,7 @@ func renamePreflight(ctx context.Context, instance, dataDir string, mapping rena
 	}
 	files, err := renamePlanFiles(dataDir, mapping)
 	plan.Files = files
-	if err != nil {
-		return plan, err
-	}
-	slices.Sort(groupFolders)
-	for _, folder := range groupFolders {
-		next := mapping.folder(folder)
-		if folder == next {
-			continue
-		}
-		before, err := container.ReadPackageSelection(dataDir, folder)
-		if err != nil {
-			return plan, fmt.Errorf("packages for %s: %w", folder, err)
-		}
-		after, err := container.ReadPackageSelection(dataDir, next)
-		if err != nil {
-			return plan, fmt.Errorf("packages for %s: %w", next, err)
-		}
-		if len(after) != 0 {
-			return plan, fmt.Errorf("destination %s already selects packages", next)
-		}
-		if len(before) != 0 {
-			plan.Selections = append(plan.Selections,
-				renameSelection{next, after, before},
-				renameSelection{folder, before, nil})
-		}
-	}
-	return plan, nil
+	return plan, err
 }
 
 func renameRowState(ctx context.Context, driver objstore.Store, entity string, item objstore.Item) (bool, bool, error) {
@@ -473,10 +431,8 @@ func renameApplyBatch(ctx context.Context, rows []renameRow, drivers map[string]
 }
 
 type renameStep struct {
-	Rows      []renameRow
-	File      *renameFile
-	Selection *renameSelection
-	DataDir   string
+	Rows []renameRow
+	File *renameFile
 }
 type renameProgress struct {
 	Step          int
@@ -485,9 +441,6 @@ type renameProgress struct {
 
 func renameSteps(plan renamePlan) []renameStep {
 	steps := []renameStep{}
-	for i := range plan.Selections {
-		steps = append(steps, renameStep{Selection: &plan.Selections[i], DataDir: plan.DataDir})
-	}
 	for offset := 0; offset < len(plan.Rows); {
 		end := offset
 		bytes := 0
@@ -644,18 +597,6 @@ func renameExecute(ctx context.Context, journal string, plan renamePlan, drivers
 			return err
 		}
 	}
-	for i, step := range steps {
-		if step.Selection == nil {
-			continue
-		}
-		old, next, err := renameStepState(ctx, step, drivers)
-		if err != nil {
-			return err
-		}
-		if (done[i] && !next) || (!done[i] && !old) {
-			return fmt.Errorf("step %d package selection changed since journal image; no write", i)
-		}
-	}
 	order := make([]int, len(steps))
 	for i := range order {
 		order[i] = i
@@ -667,8 +608,8 @@ func renameExecute(ctx context.Context, journal string, plan renamePlan, drivers
 		if done[i] == !rollback {
 			continue
 		}
-		if steps[i].File != nil || steps[i].Selection != nil {
-			old, next, err := renameStepState(ctx, steps[i], drivers)
+		if steps[i].File != nil {
+			old, next, err := renameFileState(*steps[i].File)
 			if err != nil {
 				return err
 			}
@@ -682,12 +623,6 @@ func renameExecute(ctx context.Context, journal string, plan renamePlan, drivers
 		}
 		if steps[i].File != nil {
 			err = renameApplyFile(*steps[i].File, rollback)
-		} else if selection := steps[i].Selection; selection != nil {
-			snapshots := selection.After
-			if rollback {
-				snapshots = selection.Before
-			}
-			err = container.SelectPackages(plan.DataDir, selection.Target, snapshots)
 		} else {
 			err = renameApplyBatch(ctx, steps[i].Rows, drivers, rollback)
 		}
@@ -726,24 +661,10 @@ func renameExecute(ctx context.Context, journal string, plan renamePlan, drivers
 	if err := renameVerifyRows(ctx, plan.Rows, drivers, rollback); err != nil {
 		return err
 	}
-	for i := range plan.Selections {
-		old, next, err := renameStepState(ctx,
-			renameStep{Selection: &plan.Selections[i], DataDir: plan.DataDir}, drivers)
-		if err != nil {
-			return err
-		}
-		if (!rollback && !next) || (rollback && !old) {
-			return fmt.Errorf("final package selection changed for %s", plan.Selections[i].Target)
-		}
-	}
 	return nil
 }
 
 func renameStepState(ctx context.Context, step renameStep, drivers map[string]objstore.Store) (bool, bool, error) {
-	if selection := step.Selection; selection != nil {
-		current, err := container.ReadPackageSelection(step.DataDir, selection.Target)
-		return slices.Equal(current, selection.Before), slices.Equal(current, selection.After), err
-	}
 	if step.File != nil {
 		return renameFileState(*step.File)
 	}

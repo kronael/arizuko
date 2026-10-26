@@ -12,22 +12,13 @@ import (
 var CodexROMounts = []string{"auth.json", "config.toml"}
 
 // SeedCodexMountTargets creates the RO overmount targets under a group's
-// .codex/ so the mount point exists before the docker daemon needs it.
-//
-// The group's .codex/ is itself a bind mount, so a target docker has to
-// materialize lands on the HOST inside it — created by the daemon, hence
-// root-owned, inside a tree runed (uid 1000) then chowns. That EPERM was 50
-// false warnings per restart on krons, which is exactly how a real root-owned
-// path would go unread.
-//
-// An existing empty root-owned target is replaced: runed owns the directory,
-// so it may unlink there even though it may not chown the file. Only a
-// zero-length file is touched — a real credential is never removed.
+// .codex/ for RunUID. Existing nonempty files remain untouched.
 func SeedCodexMountTargets(codexDir string) {
+	uid, _ := RunUID()
 	for _, name := range CodexROMounts {
 		p := filepath.Join(codexDir, name)
 		if fi, err := os.Lstat(p); err == nil {
-			if !fi.Mode().IsRegular() || fi.Size() > 0 || ownedByContainerUID(fi) {
+			if !fi.Mode().IsRegular() || fi.Size() > 0 || isOwnedByRunUID(fi) {
 				continue
 			}
 			if e := os.Remove(p); e != nil {
@@ -43,6 +34,11 @@ func SeedCodexMountTargets(codexDir string) {
 			}
 			continue
 		}
+		if err := f.Chown(uid, -1); err != nil {
+			slog.Warn("codex mount target: ownership not set",
+				"path", p, "uid", uid, "err", err)
+		}
+		// Empty stub; close failure cannot lose credential bytes.
 		_ = f.Close()
 	}
 }

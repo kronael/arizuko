@@ -3,9 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -16,7 +14,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kronael/arizuko/container"
 	"github.com/kronael/arizuko/core"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 	"github.com/kronael/arizuko/store"
@@ -103,81 +100,6 @@ func seedGroupRmPaths(t *testing.T, cfg *core.Config, folders []string) []string
 		}
 	}
 	return paths
-}
-
-// Subtree deletion withdraws exact configured selections and keeps resolved artifacts.
-func TestGroupRmPackages(t *testing.T) {
-	s := routdStore(t)
-	seedGroups(t, s, "eval", "eval/child", "keeper")
-	cfg := groupRmConfig(t)
-	snapshot := seedGroupPackages(t, cfg.ProjectRoot, []string{"eval", "eval/child", "keeper", ""})
-	var out bytes.Buffer
-	if err := runGroupRm(context.Background(), s, cfg, nil, "eval", true, &out); err != nil {
-		t.Fatal(err)
-	}
-	assertGroupPackages(t, cfg.ProjectRoot, "eval", nil)
-	assertGroupPackages(t, cfg.ProjectRoot, "eval/child", nil)
-	assertGroupPackages(t, cfg.ProjectRoot, "keeper", []container.PackageSnapshot{snapshot})
-	assertGroupPackages(t, cfg.ProjectRoot, "", []container.PackageSnapshot{snapshot})
-}
-
-// A failed subtree withdrawal keeps configured identities available for a safe retry.
-func TestGroupRmPackagesRetry(t *testing.T) {
-	for _, failure := range []string{"preflight", "partial"} {
-		t.Run(failure, func(t *testing.T) {
-			s := routdStore(t)
-			seedGroups(t, s, "eval", "eval/child", "keeper")
-			cfg := groupRmConfig(t)
-			snapshot := seedGroupPackages(t, cfg.ProjectRoot, []string{"eval", "eval/child", "keeper"})
-			key := fmt.Sprintf("group-%x", sha256.Sum256([]byte("eval")))
-			active := filepath.Join(cfg.ProjectRoot, "package-active", key)
-			reference, err := os.Readlink(active)
-			if err != nil {
-				t.Fatal(err)
-			}
-			empty := fmt.Sprintf("%x", sha256.Sum256(nil))
-			obstruction := filepath.Join(cfg.ProjectRoot, "package-selections", key, empty)
-			if failure == "preflight" {
-				if err := os.Remove(active); err != nil {
-					t.Fatal(err)
-				}
-				if err := os.Symlink("../invalid", active); err != nil {
-					t.Fatal(err)
-				}
-			} else if err := os.WriteFile(obstruction, nil, 0o644); err != nil {
-				t.Fatal(err)
-			}
-			var out bytes.Buffer
-			if err := runGroupRm(context.Background(), s, cfg, nil, "eval", true, &out); err == nil {
-				t.Fatal("withdrawal failure was hidden")
-			}
-			for _, folder := range []string{"eval", "eval/child", "keeper"} {
-				if !hasGroup(s, folder) {
-					t.Fatalf("purge started before withdrawal completed: %s", folder)
-				}
-			}
-			if failure == "preflight" {
-				assertGroupPackages(t, cfg.ProjectRoot, "eval/child", []container.PackageSnapshot{snapshot})
-				if err := os.Remove(active); err != nil {
-					t.Fatal(err)
-				}
-				if err := os.Symlink(reference, active); err != nil {
-					t.Fatal(err)
-				}
-			} else {
-				assertGroupPackages(t, cfg.ProjectRoot, "eval/child", nil)
-				if err := os.Remove(obstruction); err != nil {
-					t.Fatal(err)
-				}
-			}
-			if err := runGroupRm(context.Background(), s, cfg, nil, "eval", true, &out); err != nil {
-				t.Fatal(err)
-			}
-			assertGroupPackages(t, cfg.ProjectRoot, "eval", nil)
-			assertGroupPackages(t, cfg.ProjectRoot, "eval/child", nil)
-			assertGroupPackages(t, cfg.ProjectRoot, "keeper", []container.PackageSnapshot{snapshot})
-		})
-	}
 }
 
 // `group rm eval` with child `eval/child` and a reachable runed -> both rows

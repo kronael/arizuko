@@ -123,7 +123,7 @@ func TestSingleAccountEnvUnchanged(t *testing.T) {
 func TestBundledVariantFragmentEnvFileIsWritten(t *testing.T) {
 	dir := seed(t, "TELEGRAM_BOT_TOKEN=base-token\nTELEGRAM_BOT_TOKEN_JYNX=jynx-token\n")
 	installAdapters(t, dir, "teled")
-	body, err := os.ReadFile(filepath.Join(templateServices, "teled-jynx.yml"))
+	body, err := os.ReadFile(filepath.Join(templateServices, "teled-jynx", "teled-jynx.yml"))
 	if err != nil {
 		t.Fatal(err)
 	}

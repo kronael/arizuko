@@ -43,7 +43,7 @@ cp -r "$REPO/ant/examples/helpdesk" "$PROD"
 find "$PROD" -type f | sed "s|$PROD/|   |" | sort
 
 say "apply it as a one-product mix"
-printf '[[product]]\nsource = "%s"\n' "$PROD" > "$GROUP/arizuko.toml"
+printf 'packages:\n  - source: "%s"\n' "$PROD" > "$GROUP/arizuko.yml"
 "$BIN" products "$INST" apply main 2>/dev/null | tail -2
 
 say "what landed in the group home"
@@ -94,14 +94,14 @@ cp "$WORK/s.bak" "$PROD/.claude/settings.json"
 
 say "two-product mix — precedence per payload kind"
 SECOND="$WORK/products/oncall"; mkdir -p "$SECOND/facts" "$SECOND/skills/triage"
-printf 'name = "oncall"\n' > "$SECOND/arizuko.toml"
+printf 'name: oncall\n' > "$SECOND/arizuko.yml"
 printf 'You are an on-call router. Terse. Always name the rota.\n' > "$SECOND/PERSONA.md"
 printf '## Oncall rules\n\n- Page only during an active incident.\n' > "$SECOND/CLAUDE.md"
 printf 'Escalate to the platform rota after 15 minutes.\n' > "$SECOND/facts/rota.md"
 printf -- '---\nname: triage\ndescription: Oncall triage — severity first.\n---\nSeverity, then rota.\n' \
   > "$SECOND/skills/triage/SKILL.md"
-printf '[[product]]\nsource = "%s"\n\n[[product]]\nsource = "%s"\n' "$PROD" "$SECOND" \
-  > "$GROUP/arizuko.toml"
+printf 'packages:\n  - source: "%s"\n  - source: "%s"\n' "$PROD" "$SECOND" \
+  > "$GROUP/arizuko.yml"
 "$BIN" products "$INST" apply main 2>/dev/null | tail -3
 grep -q 'support triage' "$GROUP/PERSONA.md" \
   && ok "PERSONA.md: FIRST provider wins (helpdesk), later warned" \
@@ -135,14 +135,14 @@ say "handing an asset between two products in one mix keeps it (BUGS L34)"
 LG="$DATA/groups/l34"
 PA="$WORK/products/pa"; PB="$WORK/products/pb"
 mkdir -p "$PA/skills/shared" "$PB/skills/shared"
-printf 'name = "pa"\n' > "$PA/arizuko.toml"; printf 'name = "pb"\n' > "$PB/arizuko.toml"
+printf 'name: pa\n' > "$PA/arizuko.yml"; printf 'name: pb\n' > "$PB/arizuko.yml"
 printf -- '---\nname: shared\ndescription: shared skill.\n---\nBody.\n' > "$PA/skills/shared/SKILL.md"
 cp "$PA/skills/shared/SKILL.md" "$PB/skills/shared/SKILL.md"
-printf '[[product]]\nsource = "%s"\n' "$PA" > "$LG/arizuko.toml"
+printf 'packages:\n  - source: "%s"\n' "$PA" > "$LG/arizuko.yml"
 "$BIN" products "$INST" apply l34 >/dev/null 2>&1
 [ -f "$LG/.claude/skills/shared/SKILL.md" ] || bad "setup: pa never owned the skill"
 rm -rf "$PA/skills"
-printf '[[product]]\nsource = "%s"\n\n[[product]]\nsource = "%s"\n' "$PA" "$PB" > "$LG/arizuko.toml"
+printf 'packages:\n  - source: "%s"\n  - source: "%s"\n' "$PA" "$PB" > "$LG/arizuko.yml"
 out=$("$BIN" products "$INST" apply l34 2>&1)
 [ -f "$LG/.claude/skills/shared/SKILL.md" ] \
   && ok "skill survived the handoff from pa to pb" \
@@ -201,7 +201,8 @@ services:
     environment:
       LISTEN_ADDR: ":8080"
 YML
-cat > "$PKG/helpbot.yaml" <<'YAML'
+cat > "$PKG/arizuko.yml" <<'YAML'
+name: helpbot
 proxyd_routes:
   - path: /helpbot/
     backend: http://helpbot:8080

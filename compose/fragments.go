@@ -35,7 +35,8 @@ func HostCatalogDir(dataDir string) (string, bool) {
 // hostCatalogDir/filename: symlink-then-rename, so a mid-failure never leaves
 // the fragment missing.
 func SymlinkFragment(servicesDir, hostCatalogDir, filename string) error {
-	target := filepath.Join(hostCatalogDir, filename)
+	name := strings.TrimSuffix(filename, ".yml")
+	target := filepath.Join(hostCatalogDir, name, filename)
 	dst := filepath.Join(servicesDir, filename)
 	tmp := dst + ".symlink-tmp"
 	_ = os.Remove(tmp)
@@ -66,11 +67,6 @@ func RelinkCatalog(servicesDir, readableCatalogDir, hostCatalogDir string) (reli
 	}
 	for _, name := range names {
 		if isSymlink(filepath.Join(servicesDir, name+".yml")) {
-			// The sidecar is still checked: a package linked before its manifest
-			// shipped has none.
-			if err := relinkSidecar(servicesDir, readableCatalogDir, hostCatalogDir, name); err != nil {
-				return relinked, diverged, err
-			}
 			continue
 		}
 		kind, tmpl, ok := catalogTemplate(readableCatalogDir, name)
@@ -90,9 +86,6 @@ func RelinkCatalog(servicesDir, readableCatalogDir, hostCatalogDir string) (reli
 			return relinked, diverged, err
 		}
 		relinked = append(relinked, name)
-		if err := relinkSidecar(servicesDir, readableCatalogDir, hostCatalogDir, name); err != nil {
-			return relinked, diverged, err
-		}
 	}
 	return relinked, diverged, nil
 }
@@ -145,40 +138,12 @@ func isSymlink(path string) bool {
 	return err == nil && fi.Mode()&os.ModeSymlink != 0
 }
 
-// relinkSidecar links <name>.yaml — the package's manifest — alongside a
-// catalog-linked base fragment: the same drift risk applies to its rows and
-// env needs. Linked when it matches the catalog, created when absent (the
-// linked base fragment is the operator's acceptance of the catalog version);
-// skipped when the catalog ships none, the installed one diverged, or it is
-// already linked.
-func relinkSidecar(servicesDir, readableCatalogDir, hostCatalogDir, name string) error {
-	sidecar := name + ".yaml"
-	if isSymlink(filepath.Join(servicesDir, sidecar)) {
-		return nil
-	}
-	tmpl, terr := os.ReadFile(filepath.Join(readableCatalogDir, sidecar))
-	if os.IsNotExist(terr) {
-		return nil // catalog ships no manifest for this kind
-	}
-	if terr != nil {
-		return fmt.Errorf("read catalog/%s: %w", sidecar, terr)
-	}
-	installed, ierr := os.ReadFile(filepath.Join(servicesDir, sidecar))
-	if ierr != nil && !os.IsNotExist(ierr) {
-		return fmt.Errorf("read services/%s: %w", sidecar, ierr)
-	}
-	if ierr == nil && !bytes.Equal(installed, tmpl) {
-		return nil // hand-edited — keep it real
-	}
-	return SymlinkFragment(servicesDir, hostCatalogDir, sidecar)
-}
-
 // catalogTemplate resolves an installed fragment name to its catalog template;
 // a multi-account variant falls back to the base kind, the same `<kind>-<label>`
 // split variantOf uses.
 func catalogTemplate(tmplDir, name string) (kind string, body []byte, ok bool) {
 	for _, k := range candidateKinds(name) {
-		b, err := os.ReadFile(filepath.Join(tmplDir, k+".yml"))
+		b, err := os.ReadFile(filepath.Join(tmplDir, k, k+".yml"))
 		if err == nil {
 			return k, b, true
 		}

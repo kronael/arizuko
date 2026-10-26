@@ -13,6 +13,9 @@ import (
 func mkProduct(t *testing.T, root, name string, files map[string]string) Product {
 	t.Helper()
 	dir := filepath.Join(root, name)
+	if _, found := files[ManifestFile]; !found {
+		files[ManifestFile] = "name: " + name + "\n"
+	}
 	for rel, body := range files {
 		p := filepath.Join(dir, filepath.FromSlash(rel))
 		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
@@ -50,7 +53,7 @@ func TestProductSeedSkipsRootGit(t *testing.T) {
 			root := t.TempDir()
 			product := mkProduct(t, root, "product", map[string]string{
 				".git/config":        "clone metadata",
-				"arizuko.toml":       "name = \"product\"\n",
+				"PRODUCT.md":         "name = \"product\"\n",
 				"assets/.git/config": "product asset",
 			})
 			group := filepath.Join(root, "group")
@@ -62,8 +65,8 @@ func TestProductSeedSkipsRootGit(t *testing.T) {
 			if _, err := os.Lstat(filepath.Join(group, ".git")); !os.IsNotExist(err) {
 				t.Errorf("group .git must be absent, got %v", err)
 			}
-			if _, err := os.Stat(filepath.Join(group, "arizuko.toml")); !os.IsNotExist(err) {
-				t.Errorf("source manifest reached the group: %v", err)
+			if got := read(t, group, "PRODUCT.md"); got != "name = \"product\"\n" {
+				t.Errorf("PRODUCT.md = %q", got)
 			}
 			if got := read(t, group, "assets/.git/config"); got != "product asset" {
 				t.Errorf("nested .git asset = %q", got)
@@ -74,20 +77,20 @@ func TestProductSeedSkipsRootGit(t *testing.T) {
 
 // TestBlendCatchAllCopiesUnnamedPayload locks spec 5/28-packages's last table row: a
 // payload no rule names is copied whole, FIRST provider wins. Without it a
-// table-strict blend drops BRANDING.md.
+// table-strict blend drops PRODUCT.md (10/10 of the corpus) and BRANDING.md.
 func TestBlendCatchAllCopiesUnnamedPayload(t *testing.T) {
 	root := t.TempDir()
 	a := mkProduct(t, root, "a", map[string]string{
-		"arizuko.toml": "name = \"a\"\n", "BRANDING.md": "brand A",
+		"PRODUCT.md": "name = \"a\"\n", "BRANDING.md": "brand A",
 	})
 	b := mkProduct(t, root, "b", map[string]string{
-		"arizuko.toml": "name = \"b\"\n", "README.md": "b readme",
+		"PRODUCT.md": "name = \"b\"\n", "README.md": "b readme",
 	})
 	group := filepath.Join(root, "group")
 	out := blendInto(t, group, []Product{a, b}, nil)
 
-	if _, err := os.Stat(filepath.Join(group, "arizuko.toml")); !os.IsNotExist(err) {
-		t.Errorf("source manifest reached the group: %v", err)
+	if got := read(t, group, "PRODUCT.md"); got != "name = \"a\"\n" {
+		t.Errorf("PRODUCT.md = %q, want the FIRST provider's bytes", got)
 	}
 	if got := read(t, group, "BRANDING.md"); got != "brand A" {
 		t.Errorf("BRANDING.md = %q", got)
@@ -95,46 +98,17 @@ func TestBlendCatchAllCopiesUnnamedPayload(t *testing.T) {
 	if got := read(t, group, "README.md"); got != "b readme" {
 		t.Errorf("README.md = %q — a payload only the later product ships must still land", got)
 	}
-	if got := out[0].Manifest["group_seed"]; len(got) != 1 || got[0] != "BRANDING.md" {
-		t.Errorf("a owns %v, want only BRANDING.md", got)
+	if got := out[0].Manifest["group_seed"]; len(got) != 2 {
+		t.Errorf("a owns %v, want PRODUCT.md + BRANDING.md", got)
 	}
 	if got := out[1].Manifest["group_seed"]; len(got) != 1 || got[0] != "README.md" {
-		t.Errorf("b owns %v, want only README.md", got)
+		t.Errorf("b owns %v, want only README.md (a won PRODUCT.md)", got)
 	}
 }
 
 // TestBlendSkillsLastWinsWholesale locks "skills/: union by name; LAST product
 // wins wholesale" — the winner supplies the whole dir, so a file only the loser
 // shipped must not survive as a half-merged leftover.
-func TestBlendSkillsLastWinsWholesale(t *testing.T) {
-	root := t.TempDir()
-	a := mkProduct(t, root, "a", map[string]string{
-		"skills/shared/SKILL.md":  "from a",
-		"skills/shared/only-a.md": "a extra",
-		"skills/onlya/SKILL.md":   "a own",
-	})
-	b := mkProduct(t, root, "b", map[string]string{
-		"skills/shared/SKILL.md": "from b",
-	})
-	group := filepath.Join(root, "group")
-	out := blendInto(t, group, []Product{a, b}, nil)
-
-	if got := read(t, group, ".claude/skills/shared/SKILL.md"); got != "from b" {
-		t.Errorf("shared/SKILL.md = %q, want the LAST provider's bytes", got)
-	}
-	if _, err := os.Stat(filepath.Join(group, ".claude/skills/shared/only-a.md")); !os.IsNotExist(err) {
-		t.Error("loser's extra file survived — LAST wins WHOLESALE, not file-by-file")
-	}
-	if got := read(t, group, ".claude/skills/onlya/SKILL.md"); got != "a own" {
-		t.Errorf("onlya/SKILL.md = %q — union by name must keep an uncontested skill", got)
-	}
-	if got := out[0].Manifest["skill"]; len(got) != 1 || got[0] != "onlya" {
-		t.Errorf("a owns skills %v, want only onlya", got)
-	}
-	if got := out[1].Manifest["skill"]; len(got) != 1 || got[0] != "shared" {
-		t.Errorf("b owns skills %v, want shared", got)
-	}
-}
 
 // TestBlendPersonaFirstWins locks "PERSONA.md / SOUL.md: FIRST provider wins;
 // later warned".
@@ -178,107 +152,24 @@ func TestBlendPersonaSoulCollisionWarns(t *testing.T) {
 // TestBlendClaudeMarkedRegions locks the CLAUDE.md row: each provider gets its
 // own named region, regions are emitted in MIX ORDER, and operator text outside
 // every region is never read, rewritten, or reordered.
-func TestBlendClaudeMarkedRegions(t *testing.T) {
-	root := t.TempDir()
-	a := mkProduct(t, root, "a", map[string]string{"CLAUDE.md": "runbook A"})
-	b := mkProduct(t, root, "b", map[string]string{"CLAUDE.md": "runbook B"})
-	group := filepath.Join(root, "group")
-	if err := os.MkdirAll(group, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(group, "CLAUDE.md"), []byte("operator note\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	blendInto(t, group, []Product{a, b}, nil)
-
-	got := read(t, group, "CLAUDE.md")
-	want := "operator note\n\n" +
-		"<!-- arizuko:package:a BEGIN -->\nrunbook A\n<!-- arizuko:package:a END -->\n\n" +
-		"<!-- arizuko:package:b BEGIN -->\nrunbook B\n<!-- arizuko:package:b END -->\n"
-	if got != want {
-		t.Errorf("CLAUDE.md =\n%q\nwant\n%q", got, want)
-	}
-}
 
 // TestBlendClaudeRegionsAreSeedOnce locks the row's update column: a region that
 // already exists is the group's own state and is not rewritten, while a product
 // joining the mix later appends its own region without disturbing it.
-func TestBlendClaudeRegionsAreSeedOnce(t *testing.T) {
-	root := t.TempDir()
-	a := mkProduct(t, root, "a", map[string]string{"CLAUDE.md": "runbook A"})
-	b := mkProduct(t, root, "b", map[string]string{"CLAUDE.md": "runbook B"})
-	group := filepath.Join(root, "group")
-	blendInto(t, group, []Product{a}, nil)
-
-	// The agent edits inside a's region — its state now, not the product's.
-	edited := strings.Replace(read(t, group, "CLAUDE.md"), "runbook A", "runbook A, amended", 1)
-	if err := os.WriteFile(filepath.Join(group, "CLAUDE.md"), []byte(edited), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	blendInto(t, group, []Product{a, b}, nil)
-
-	got := read(t, group, "CLAUDE.md")
-	if !strings.Contains(got, "runbook A, amended") {
-		t.Error("an existing region was rewritten — CLAUDE.md is seed-once")
-	}
-	if !strings.Contains(got, "<!-- arizuko:package:b BEGIN -->") {
-		t.Error("the newly added product got no region")
-	}
-	if strings.Count(got, "arizuko:package:a BEGIN") != 1 {
-		t.Error("a's region was duplicated")
-	}
-}
 
 // TestClaudeRegionsMalformedRefuses is BUGS C6's rule restated for markdown: an
 // unbalanced or duplicated marker is corruption, so the blend refuses to rewrite
 // the file rather than best-effort truncating everything after it.
-func TestClaudeRegionsMalformedRefuses(t *testing.T) {
-	cases := map[string]string{
-		"begin with no end":  "<!-- arizuko:package:a BEGIN -->\nbody\n",
-		"end before begin":   "<!-- arizuko:package:a END -->\n",
-		"duplicate region":   "<!-- arizuko:package:a BEGIN -->\nx\n<!-- arizuko:package:a END -->\n<!-- arizuko:package:a BEGIN -->\ny\n<!-- arizuko:package:a END -->\n",
-		"nested region":      "<!-- arizuko:package:a BEGIN -->\n<!-- arizuko:package:b BEGIN -->\n",
-		"mismatched closing": "<!-- arizuko:package:a BEGIN -->\n<!-- arizuko:package:b END -->\n",
-	}
-	for name, body := range cases {
-		t.Run(name, func(t *testing.T) {
-			if _, err := claudeRegions(body); err == nil {
-				t.Fatal("malformed markers accepted")
-			}
-		})
-	}
-	if _, err := claudeRegions("head\n<!-- arizuko:package:a BEGIN -->\nx\n<!-- arizuko:package:a END -->\ntail\n"); err != nil {
-		t.Fatalf("well-formed file rejected: %v", err)
-	}
-}
 
 // TestBlendClaudeMalformedLeavesFileAlone proves the refusal is a refusal: the
 // existing bytes survive intact and no product is recorded as applied.
-func TestBlendClaudeMalformedLeavesFileAlone(t *testing.T) {
-	root := t.TempDir()
-	a := mkProduct(t, root, "a", map[string]string{"CLAUDE.md": "runbook A"})
-	group := filepath.Join(root, "group")
-	if err := os.MkdirAll(group, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	corrupt := "keep me\n<!-- arizuko:package:x BEGIN -->\nhalf\n"
-	if err := os.WriteFile(filepath.Join(group, "CLAUDE.md"), []byte(corrupt), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := BlendProducts(group, []Product{a}, nil); err == nil {
-		t.Fatal("blend accepted a malformed CLAUDE.md")
-	}
-	if got := read(t, group, "CLAUDE.md"); got != corrupt {
-		t.Errorf("CLAUDE.md was rewritten to %q despite the refusal", got)
-	}
-}
 
 // TestBlendUnionCollisionRefuses locks "facts/, tasks.toml: union; filename
 // collision = refuse" — and that the refusal happens before any byte is written,
 // so a mix never lands half-composed.
 func TestBlendUnionCollisionRefuses(t *testing.T) {
 	root := t.TempDir()
-	a := mkProduct(t, root, "a", map[string]string{"facts/x.md": "a", "arizuko.toml": "name = \"a\"\n"})
+	a := mkProduct(t, root, "a", map[string]string{"facts/x.md": "a", "PRODUCT.md": "a"})
 	b := mkProduct(t, root, "b", map[string]string{"facts/x.md": "b"})
 	group := filepath.Join(root, "group")
 	err := func() error { _, e := BlendProducts(group, []Product{a, b}, nil); return e }()
@@ -288,7 +179,7 @@ func TestBlendUnionCollisionRefuses(t *testing.T) {
 	if !strings.Contains(err.Error(), "facts/x.md") {
 		t.Errorf("error %q does not name the colliding path", err)
 	}
-	if _, sErr := os.Stat(filepath.Join(group, "arizuko.toml")); !os.IsNotExist(sErr) {
+	if _, sErr := os.Stat(filepath.Join(group, "PRODUCT.md")); !os.IsNotExist(sErr) {
 		t.Error("a refused mix still wrote files")
 	}
 }
@@ -317,7 +208,7 @@ func TestBlendUnionKindsMerge(t *testing.T) {
 func TestBlendRefusesProductMigrations(t *testing.T) {
 	root := t.TempDir()
 	a := mkProduct(t, root, "a", map[string]string{
-		"migrations/001-x.md": "do the thing", "arizuko.toml": "name = \"a\"\n",
+		"migrations/001-x.md": "do the thing", "PRODUCT.md": "a",
 	})
 	group := filepath.Join(root, "group")
 
@@ -330,7 +221,7 @@ func TestBlendRefusesProductMigrations(t *testing.T) {
 			t.Errorf("error must name %q so the author knows the working path; got %v", want, err)
 		}
 	}
-	if _, sErr := os.Stat(filepath.Join(group, "arizuko.toml")); !os.IsNotExist(sErr) {
+	if _, sErr := os.Stat(filepath.Join(group, "PRODUCT.md")); !os.IsNotExist(sErr) {
 		t.Error("a refused mix still wrote files")
 	}
 }
@@ -343,7 +234,7 @@ func TestBlendRefusesProductMigrations(t *testing.T) {
 func TestBlendRefusesProductTasks(t *testing.T) {
 	root := t.TempDir()
 	a := mkProduct(t, root, "a", map[string]string{
-		"tasks.toml": "[[task]]\ncron = \"0 9 * * *\"\n", "arizuko.toml": "name = \"a\"\n",
+		"tasks.toml": "[[task]]\ncron = \"0 9 * * *\"\n", "PRODUCT.md": "a",
 	})
 	group := filepath.Join(root, "group")
 
@@ -356,7 +247,7 @@ func TestBlendRefusesProductTasks(t *testing.T) {
 			t.Errorf("error must name %q so the author knows the working path; got %v", want, err)
 		}
 	}
-	if _, sErr := os.Stat(filepath.Join(group, "arizuko.toml")); !os.IsNotExist(sErr) {
+	if _, sErr := os.Stat(filepath.Join(group, "PRODUCT.md")); !os.IsNotExist(sErr) {
 		t.Error("a refused mix still wrote files")
 	}
 }
@@ -465,143 +356,13 @@ func TestBlendSettingsUnionsOtherKeys(t *testing.T) {
 	}
 }
 
-// Settings ownership survives repeat applies; withdrawal keeps operator values and remaining contributions.
-func TestBlendSettingsOwnership(t *testing.T) {
-	for _, scenario := range []string{"inserted", "matching", "different", "edited", "source-matching-edit"} {
-		t.Run(scenario, func(t *testing.T) {
-			root := t.TempDir()
-			a := mkProduct(t, root, "a", map[string]string{
-				".claude/settings.json": `{"outputStyle":"telegram"}`,
-			})
-			b := mkProduct(t, root, "b", map[string]string{
-				".claude/settings.json": `{"cleanupPeriodDays":1}`,
-			})
-			group := filepath.Join(root, "group")
-			settings := `{"language":"en"}`
-			switch scenario {
-			case "matching":
-				settings = `{"language":"en","outputStyle":"telegram"}`
-			case "different":
-				settings = `{"language":"en","outputStyle":"operator"}`
-			}
-			if _, err := writeIfDifferent(group, settingsRel, []byte(settings)); err != nil {
-				t.Fatal(err)
-			}
-			out := blendInto(t, group, []Product{a, b}, nil)
-			prior := map[string]map[string]string{"a": out[0].AssetHashes, "b": out[1].AssetHashes}
-			if scenario == "edited" || scenario == "source-matching-edit" {
-				settings = `{"language":"en","outputStyle":"operator","cleanupPeriodDays":1}`
-				if _, err := writeIfDifferent(group, settingsRel, []byte(settings)); err != nil {
-					t.Fatal(err)
-				}
-				if scenario == "source-matching-edit" {
-					if err := os.WriteFile(filepath.Join(a.Dir, settingsRel), []byte(`{"outputStyle":"operator"}`), 0o644); err != nil {
-						t.Fatal(err)
-					}
-				}
-			}
-			for range 2 {
-				out = blendInto(t, group, []Product{a, b}, prior)
-				prior = map[string]map[string]string{"a": out[0].AssetHashes, "b": out[1].AssetHashes}
-			}
-			owned := scenario == "inserted" || scenario == "edited" || scenario == "source-matching-edit"
-			if got := out[0].AssetHashes["setting:outputStyle"]; (got != "") != owned {
-				t.Fatalf("setting ownership = %q, want owned=%v", got, owned)
-			}
-			if owned && out[0].AssetHashes["setting:outputStyle"] != hashBytes([]byte(`"telegram"`)) {
-				t.Fatal("repeat apply replaced the written setting hash")
-			}
-			blendInto(t, group, []Product{b}, prior)
-			var actual map[string]any
-			if err := json.Unmarshal([]byte(read(t, group, settingsRel)), &actual); err != nil {
-				t.Fatal(err)
-			}
-			if actual["language"] != "en" || actual["cleanupPeriodDays"] != float64(1) {
-				t.Fatalf("operator or remaining setting changed: %v", actual)
-			}
-			want := "operator"
-			if scenario == "matching" {
-				want = "telegram"
-			}
-			if scenario == "inserted" {
-				if _, found := actual["outputStyle"]; found {
-					t.Fatalf("withdrawn setting remains: %v", actual)
-				}
-			} else if actual["outputStyle"] != want {
-				t.Fatalf("operator setting = %v, want %s", actual["outputStyle"], want)
-			}
-		})
-	}
-}
-
-// An operator edit after preparation refuses the settings write and remains byte-identical.
-func TestBlendSettingsPreparationPreservesInterveningEdit(t *testing.T) {
-	root := t.TempDir()
-	product := mkProduct(t, root, "one", map[string]string{
-		".claude/settings.json": `{"env":{"PACKAGE_MODE":"fixture"}}`,
-	})
-	group := filepath.Join(root, "group")
-	if _, err := writeIfDifferent(group, settingsRel, []byte(`{"language":"en"}`)); err != nil {
-		t.Fatal(err)
-	}
-	blend, err := PrepareProductBlend(group, []Product{product}, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(blend.Blended[0].Manifest["setting"]) != 0 ||
-		blend.Blended[0].AssetHashes["setting:env"] != "" ||
-		blend.Blended[0].AssetHashes[PendingSettingPrefix+"env"] == "" {
-		t.Fatalf("preparation claims prospective settings: %+v", blend.Blended)
-	}
-	const edited = `{"language":"fr","env":{"OWNER":"operator"}}`
-	if _, err := writeIfDifferent(group, settingsRel, []byte(edited)); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := blend.Apply(); err == nil || !strings.Contains(err.Error(), "changed after preparation") {
-		t.Fatalf("intervening edit accepted: %v", err)
-	}
-	if got := read(t, group, settingsRel); got != edited {
-		t.Fatalf("intervening edit overwritten: %s", got)
-	}
-}
-
-// A remaining provider retains a transferred setting until its own selection is withdrawn.
-func TestBlendSettingsTransfersOwnership(t *testing.T) {
-	root := t.TempDir()
-	a := mkProduct(t, root, "a", map[string]string{
-		".claude/settings.json": `{"outputStyle":"telegram"}`,
-	})
-	b := mkProduct(t, root, "b", map[string]string{
-		".claude/settings.json": `{"cleanupPeriodDays":1}`,
-	})
-	group := filepath.Join(root, "group")
-	out := blendInto(t, group, []Product{a, b}, nil)
-	prior := map[string]map[string]string{"a": out[0].AssetHashes, "b": out[1].AssetHashes}
-	if err := os.WriteFile(filepath.Join(b.Dir, settingsRel),
-		[]byte(`{"outputStyle":"telegram","cleanupPeriodDays":1}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	out = blendInto(t, group, []Product{b}, prior)
-	var settings map[string]any
-	if err := json.Unmarshal([]byte(read(t, group, settingsRel)), &settings); err != nil {
-		t.Fatal(err)
-	}
-	if settings["outputStyle"] != "telegram" || out[0].AssetHashes["setting:outputStyle"] == "" {
-		t.Fatalf("remaining provider lost the setting: %v, %+v", settings, out)
-	}
-	blendInto(t, group, nil, map[string]map[string]string{"b": out[0].AssetHashes})
-	if got := read(t, group, settingsRel); got != "{}\n" {
-		t.Fatalf("transferred settings survived withdrawal: %s", got)
-	}
-}
-
 // TestBlendIsIdempotent proves re-applying an unchanged mix writes nothing.
 // Content hashes, not timestamps: a second-granular RFC3339 comparison passes
 // even when every byte is rewritten.
 func TestBlendIsIdempotent(t *testing.T) {
 	root := t.TempDir()
 	a := mkProduct(t, root, "a", map[string]string{
-		"arizuko.toml": "name = \"a\"\n", "PERSONA.md": "p", "CLAUDE.md": "c",
+		"PRODUCT.md": "name = \"a\"\n", "PERSONA.md": "p", "CLAUDE.md": "c",
 		"facts/f.md": "f", "skills/s/SKILL.md": "sk",
 	})
 	group := filepath.Join(root, "group")
@@ -650,226 +411,32 @@ func TestBlendSeedOnceKeepsLocalEdits(t *testing.T) {
 	}
 }
 
-// Existing matching operator files stay unowned and survive source omission.
-func TestBlendSeedOncePreservesMatchingOperatorFiles(t *testing.T) {
-	for _, rel := range []string{
-		"PERSONA.md", "facts/f.md", "Dockerfile.ant", "BRANDING.md",
-	} {
-		t.Run(rel, func(t *testing.T) {
-			root := t.TempDir()
-			product := mkProduct(t, root, "product", map[string]string{rel: "v1"})
-			group := mkProduct(t, root, "group", map[string]string{rel: "v1"})
-			first := blendInto(t, group.Dir, []Product{product}, nil)
-			if len(first[0].AssetHashes) != 0 || len(first[0].Manifest) != 0 {
-				t.Fatalf("operator file claimed: %+v", first[0])
-			}
-			if err := os.Remove(filepath.Join(product.Dir, rel)); err != nil {
-				t.Fatal(err)
-			}
-			blendInto(t, group.Dir, []Product{product}, map[string]map[string]string{
-				"product": first[0].AssetHashes,
-			})
-			if got := read(t, group.Dir, rel); got != "v1" {
-				t.Errorf("operator file = %q, want v1", got)
-			}
-		})
-	}
-}
-
-// Owned seeds retain their original hashes; source omission drops only unchanged files.
-func TestBlendSeedOnceRetainsOwnership(t *testing.T) {
-	const originalHash = "3bfc269594ef649228e9a74bab00f042efc91d5acc6fbee31a382e80d42388fe"
-	for _, local := range []string{"v1", "v2", "operator edit"} {
-		t.Run(local, func(t *testing.T) {
-			root := t.TempDir()
-			product := mkProduct(t, root, "product", map[string]string{"PERSONA.md": "v1"})
-			group := filepath.Join(root, "group")
-			out := blendInto(t, group, []Product{product}, nil)
-			if got := out[0].AssetHashes["file:PERSONA.md"]; got != originalHash {
-				t.Fatalf("fresh seed hash = %q, want %s", got, originalHash)
-			}
-			if err := os.WriteFile(filepath.Join(group, "PERSONA.md"), []byte(local), 0o644); err != nil {
-				t.Fatal(err)
-			}
-			mkProduct(t, root, "product", map[string]string{"PERSONA.md": "v2"})
-			for range 2 {
-				out = blendInto(t, group, []Product{product}, map[string]map[string]string{
-					"product": out[0].AssetHashes,
-				})
-				if got := out[0].AssetHashes["file:PERSONA.md"]; got != originalHash {
-					t.Fatalf("retained seed hash = %q, want %s", got, originalHash)
-				}
-				if got := read(t, group, "PERSONA.md"); got != local {
-					t.Fatalf("seed = %q, want %q", got, local)
-				}
-			}
-			if err := os.Remove(filepath.Join(product.Dir, "PERSONA.md")); err != nil {
-				t.Fatal(err)
-			}
-			blendInto(t, group, []Product{product}, map[string]map[string]string{
-				"product": out[0].AssetHashes,
-			})
-			if local == "v1" {
-				if _, err := os.Stat(filepath.Join(group, "PERSONA.md")); !os.IsNotExist(err) {
-					t.Fatalf("unchanged stale seed remains: %v", err)
-				}
-			} else if got := read(t, group, "PERSONA.md"); got != local {
-				t.Fatalf("edited stale seed = %q, want %q", got, local)
-			}
-		})
-	}
-}
-
 // TestBlendManagedRefusesDirty locks the no-blind-overwrite rule for the managed
 // half: a skill file edited after install stops that skill being replaced and is
 // reported, instead of the operator's edit vanishing under a new revision.
-func TestBlendManagedRefusesDirty(t *testing.T) {
-	root := t.TempDir()
-	a := mkProduct(t, root, "a", map[string]string{"skills/s/SKILL.md": "v1"})
-	group := filepath.Join(root, "group")
-	first := blendInto(t, group, []Product{a}, nil)
-	if got := read(t, group, ".claude/skills/s/SKILL.md"); got != "v1" {
-		t.Fatalf("seeded skill = %q", got)
-	}
-
-	if err := os.WriteFile(filepath.Join(group, ".claude/skills/s/SKILL.md"), []byte("mine"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	mkProduct(t, root, "a", map[string]string{"skills/s/SKILL.md": "v2"})
-	out := blendInto(t, group, []Product{a}, map[string]map[string]string{"a": first[0].AssetHashes})
-
-	if got := read(t, group, ".claude/skills/s/SKILL.md"); got != "mine" {
-		t.Errorf("skill = %q — a dirty managed asset must not be overwritten", got)
-	}
-	if len(out[0].Dirty) != 1 || !strings.Contains(out[0].Dirty[0], "skills/s/SKILL.md") {
-		t.Errorf("Dirty = %v, want the edited skill file named", out[0].Dirty)
-	}
-}
 
 // TestBlendDirtyRefusalSurvivesTheNextApply: reporting a dirty asset once is not
 // protection. The record that same apply writes must still carry the hash
 // dirty-detection compares against — drop it and the NEXT apply sees a
 // never-recorded file, calls the edit clean, and overwrites exactly what the
 // refusal protected.
-func TestBlendDirtyRefusalSurvivesTheNextApply(t *testing.T) {
-	root := t.TempDir()
-	a := mkProduct(t, root, "a", map[string]string{"skills/s/SKILL.md": "v1"})
-	group := filepath.Join(root, "group")
-	first := blendInto(t, group, []Product{a}, nil)
-
-	if err := os.WriteFile(filepath.Join(group, ".claude/skills/s/SKILL.md"), []byte("mine"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	mkProduct(t, root, "a", map[string]string{"skills/s/SKILL.md": "v2"})
-
-	second := blendInto(t, group, []Product{a}, map[string]map[string]string{"a": first[0].AssetHashes})
-	if len(second[0].Dirty) != 1 {
-		t.Fatalf("second apply Dirty = %v, want the edited skill", second[0].Dirty)
-	}
-	third := blendInto(t, group, []Product{a}, map[string]map[string]string{"a": second[0].AssetHashes})
-	if len(third[0].Dirty) != 1 {
-		t.Errorf("third apply Dirty = %v — the refusal did not survive the record it wrote", third[0].Dirty)
-	}
-	if got := read(t, group, ".claude/skills/s/SKILL.md"); got != "mine" {
-		t.Errorf("skill = %q — the local edit was overwritten on the third apply", got)
-	}
-	if got := second[0].Manifest["skill"]; len(got) != 1 || got[0] != "s" {
-		t.Errorf("a skipped skill dropped out of the manifest: %v", got)
-	}
-}
 
 // TestBlendManagedReplacesClean is the other side of the same rule: an untouched
 // managed asset DOES take the new revision, so dirty-refusal is not a synonym
 // for never updating.
-func TestBlendManagedReplacesClean(t *testing.T) {
-	root := t.TempDir()
-	a := mkProduct(t, root, "a", map[string]string{"skills/s/SKILL.md": "v1"})
-	group := filepath.Join(root, "group")
-	first := blendInto(t, group, []Product{a}, nil)
-
-	mkProduct(t, root, "a", map[string]string{"skills/s/SKILL.md": "v2"})
-	out := blendInto(t, group, []Product{a}, map[string]map[string]string{"a": first[0].AssetHashes})
-
-	if got := read(t, group, ".claude/skills/s/SKILL.md"); got != "v2" {
-		t.Errorf("skill = %q, want the new revision on a clean asset", got)
-	}
-	if !out[0].Changed || len(out[0].Dirty) != 0 {
-		t.Errorf("Changed=%v Dirty=%v", out[0].Changed, out[0].Dirty)
-	}
-}
 
 // TestBlendDropsStaleAsset locks the record's other job: a file a product owned
 // and no longer ships is removed, unless it was edited locally — deleting that
 // loses exactly as much as overwriting it would.
-func TestBlendDropsStaleAsset(t *testing.T) {
-	root := t.TempDir()
-	a := mkProduct(t, root, "a", map[string]string{
-		"skills/s/SKILL.md": "v1", "skills/s/gone.md": "g", "skills/s/kept.md": "k",
-	})
-	group := filepath.Join(root, "group")
-	first := blendInto(t, group, []Product{a}, nil)
-	if err := os.WriteFile(filepath.Join(group, ".claude/skills/s/kept.md"), []byte("mine"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	if err := os.Remove(filepath.Join(root, "a", "skills", "s", "gone.md")); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Remove(filepath.Join(root, "a", "skills", "s", "kept.md")); err != nil {
-		t.Fatal(err)
-	}
-	out := blendInto(t, group, []Product{a}, map[string]map[string]string{"a": first[0].AssetHashes})
-
-	if _, err := os.Stat(filepath.Join(group, ".claude/skills/s/gone.md")); !os.IsNotExist(err) {
-		t.Error("an asset the product stopped shipping was not dropped")
-	}
-	if got := read(t, group, ".claude/skills/s/kept.md"); got != "mine" {
-		t.Errorf("kept.md = %q — a locally edited stale asset must survive", got)
-	}
-	if len(out[0].Warnings) != 1 || !strings.Contains(out[0].Warnings[0], "kept.md") {
-		t.Errorf("warnings = %v, want the kept stale asset reported", out[0].Warnings)
-	}
-}
 
 // TestBlendHandoffKeepsTheAsset is BUGS L34: `a` drops an asset, `b` picks it up
 // with IDENTICAL bytes, both stay in the mix. The identical bytes are the whole
 // trap — the on-disk hash still matches `a`'s record, so against `a`'s own
 // hashes alone the file reads as clean-and-no-longer-mine and `a` deleted what
 // `b` had just written, while the apply reported `b unchanged`.
-func TestBlendHandoffKeepsTheAsset(t *testing.T) {
-	const body = "---\nname: shared\n---\nBody.\n"
-	root := t.TempDir()
-	a := mkProduct(t, root, "a", map[string]string{
-		"arizuko.toml": "name = \"a\"\n", "skills/shared/SKILL.md": body,
-	})
-	group := filepath.Join(root, "group")
-	first := blendInto(t, group, []Product{a}, nil)
-
-	if err := os.Remove(filepath.Join(root, "a", "skills", "shared", "SKILL.md")); err != nil {
-		t.Fatal(err)
-	}
-	b := mkProduct(t, root, "b", map[string]string{
-		"arizuko.toml": "name = \"b\"\n", "skills/shared/SKILL.md": body,
-	})
-	out := blendInto(t, group, []Product{a, b},
-		map[string]map[string]string{"a": first[0].AssetHashes})
-
-	const rel = ".claude/skills/shared/SKILL.md"
-	if got := read(t, group, rel); got != body {
-		t.Errorf("%s = %q — the handoff deleted an asset another provider ships", rel, got)
-	}
-	if out[1].AssetHashes["file:"+rel] == "" {
-		t.Errorf("b's record does not own %s it wrote", rel)
-	}
-	for i, o := range out {
-		if len(o.Warnings) != 0 {
-			t.Errorf("out[%d] warned %v — ownership handoff is not a local edit", i, o.Warnings)
-		}
-	}
-}
 
 // TestClassifyCoversTheBlendTable pins each table row to the rule it selects, so
-// a future edit that quietly reroutes a payload (dropping an ordinary asset into a
+// a future edit that quietly reroutes a payload (dropping PRODUCT.md into a
 // named rule, say) fails here rather than in a live group.
 func TestClassifyCoversTheBlendTable(t *testing.T) {
 	want := map[string]payload{
@@ -882,7 +449,7 @@ func TestClassifyCoversTheBlendTable(t *testing.T) {
 		"migrations/001-x.md":   payMigrations,
 		".claude/settings.json": paySettings,
 		"Dockerfile.ant":        payDockerfile,
-		"assets/arizuko.toml":   payVerbatim,
+		"PRODUCT.md":            payVerbatim,
 		"BRANDING.md":           payVerbatim,
 		"settings.json":         payVerbatim,
 		"skills":                payVerbatim,

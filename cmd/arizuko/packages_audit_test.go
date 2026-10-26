@@ -60,6 +60,7 @@ func installGrantPkg(t *testing.T, osUser string) *store.Store {
 	t.Setenv("USER", osUser)
 	st := instanceStore(t)
 	src := filepath.Join(base, "grantpkg")
+	mustWrite(t, filepath.Join(src, "arizuko.yml"), "name: grantpkg\n")
 	if err := os.MkdirAll(src, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -67,10 +68,10 @@ func installGrantPkg(t *testing.T, osUser string) *store.Store {
 		[]byte("services:\n  grantpkg:\n    image: x\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(src, "grantpkg.yaml"), []byte(
-		"acl:\n"+
+	if err := os.WriteFile(filepath.Join(src, "arizuko.yml"), []byte("name: grantpkg\n"+
+		("acl:\n"+
 			"  - principal: '@ops'\n    action: mcp:reply\n    scope: eng/*\n    effect: allow\n"+
-			"  - principal: '@ops'\n    action: admin\n    scope: eng/tts\n    effect: allow\n"), 0o644); err != nil {
+			"  - principal: '@ops'\n    action: admin\n    scope: eng/tts\n    effect: allow\n")), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	cmdPackages([]string{"gaudit", "install", src, "--folder", "eng/**"})

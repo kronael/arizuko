@@ -48,7 +48,7 @@ func openInstance(t *testing.T) (string, map[string]*store.Store) {
 	}
 	st := store.NewOver(h)
 	dataDir := t.TempDir()
-	unsealPackageFixtures(t, dataDir)
+
 	t.Setenv("DATA_DIR", dataDir)
 	seedCoreSource(t, filepath.Join(t.TempDir(), "release"))
 	return dataDir, map[string]*store.Store{

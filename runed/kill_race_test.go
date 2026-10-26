@@ -29,7 +29,7 @@ func TestSpawnAbortsWhenKilledBeforeStart(t *testing.T) {
 	}}
 	db, mgr := newMgr(t, rt, 5)
 
-	req := runedv1.RunRequest{Folder: "demo", MessageBatch: "m"}
+	req := runedv1.RunRequest{Packages: []string{"core"}, Folder: "demo", MessageBatch: "m"}
 	c, _, ok, err := mgr.admit(t.Context(), req, KindAgent)
 	if err != nil || !ok {
 		t.Fatalf("admit: ok=%v err=%v", ok, err)
@@ -88,7 +88,7 @@ func TestKilledClaimDoesNotDoubleSpawnFolder(t *testing.T) {
 	}}
 	_, mgr := newMgr(t, rt, 5)
 
-	req := runedv1.RunRequest{Folder: "demo", MessageBatch: "m"}
+	req := runedv1.RunRequest{Packages: []string{"core"}, Folder: "demo", MessageBatch: "m"}
 	c, _, ok, err := mgr.admit(t.Context(), req, KindAgent)
 	if err != nil || !ok {
 		t.Fatalf("admit: ok=%v err=%v", ok, err)

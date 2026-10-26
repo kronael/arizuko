@@ -1,7 +1,6 @@
 package compose
 
 import (
-	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -15,7 +14,6 @@ import (
 
 	"github.com/joho/godotenv"
 
-	"github.com/kronael/arizuko/container"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/objstore/dynstore"
 	"github.com/kronael/arizuko/store"
@@ -646,7 +644,7 @@ func collectProxydRoutes(servicesDir, catalogDir string, services []string, env 
 			// fragment without re-applying its rows, so a revision that added
 			// `/dash/` would reach proxyd_routes through this path alone (BUGS L46).
 			if claimed := ReservedRouteClaim(bundledName(catalogDir, name), r.Path); claimed != "" {
-				return nil, fmt.Errorf("%s.yaml declares route %q, which claims the core surface %q; "+
+				return nil, fmt.Errorf("%s/arizuko.yml declares route %q, which claims the core surface %q; "+
 					"a package may not serve core arizuko's own paths (BUGS L46)", name, r.Path, claimed)
 			}
 			if gatedByOn(env, r.GatedBy) {
@@ -809,13 +807,6 @@ func writeManagedEnv(dataDir, app, flavor string, profiles []string) error {
 // writes into routd's store, NOT config on the compose file: an env var
 // seeded proxyd_routes once and was then ignored forever (BUGS L45).
 func Generate(dataDir string) (string, []ProxydRoute, error) {
-	lock, err := container.LockPackages(dataDir)
-	if err != nil {
-		return "", nil, err
-	}
-	if err := errors.Join(container.PreparePackagePaths(dataDir), lock.Close()); err != nil {
-		return "", nil, err
-	}
 	env, _ := godotenv.Read(filepath.Join(dataDir, ".env"))
 	if env == nil {
 		env = map[string]string{}
@@ -964,7 +955,7 @@ func Generate(dataDir string) (string, []ProxydRoute, error) {
 	b.WriteString(vitedService(app, flavor, dataDir))
 	b.WriteString(dashdService(app, flavor, dataDir, env))
 	b.WriteString(timedService(app, flavor, env))
-	b.WriteString(onbodService(app, flavor, dataDir, env))
+	b.WriteString(onbodService(app, flavor, dataDir))
 	b.WriteString(davdService(app, flavor, dataDir, env))
 	// No egress proxy service: runed starts one `egress` PROCESS per turn on the host
 	// side of that turn's tap and kills it with the turn (spec 6/41 §"Egress by name,
@@ -1218,6 +1209,8 @@ func routdService(app, flavor, dataDir string, env map[string]string) string {
 		ports:      []string{fmt.Sprintf("127.0.0.1:%s:%d", apiPort, core.DefaultAPIPort)},
 		dependsOn:  "authd, runed",
 	}
+	// routd reads ant/skills/self/MIGRATION_VERSION to enqueue /migrate; pointed
+	// at the wrong tree the auto-migrate trigger silently never fires.
 	vol, src := appSrc(env)
 	def.environment = map[string]string{"APP_SRC_DIR": src}
 	if vol != "" {
@@ -1329,26 +1322,24 @@ func timedService(app, flavor string, env map[string]string) string {
 	})
 }
 
-func onbodService(app, flavor, dataDir string, env map[string]string) string {
-	vol, src := appSrc(env)
-	def := svcDef{
+func onbodService(app, flavor, dataDir string) string {
+	// ONBOARDING_ENABLED is forced true inside the container: the profile
+	// decides whether onbod runs. groups/ + web/ only: SetupGroup creates the
+	// folder and its web slots; it never touches ipc/, so a new world can be
+	// provisioned without reach over any running agent's MCP socket.
+	return writeSvc(svcDef{
 		name:        "onbod",
 		app:         app,
 		flavor:      flavor,
 		entrypoint:  "onbod",
 		dataDir:     dataDir,
-		dataSubdirs: append([]string{"groups", "web"}, container.PackagePaths()...),
+		dataSubdirs: []string{"groups", "web"},
 		profile:     "onbod",
 		environment: map[string]string{
-			"APP_SRC_DIR":        src,
 			"ONBOARDING_ENABLED": "true",
 			"ROUTER_URL":         routdURL,
 		},
-	}
-	if vol != "" {
-		def.volumes = []string{vol}
-	}
-	return writeSvc(def)
+	})
 }
 
 func dashdService(app, flavor, dataDir string, env map[string]string) string {
@@ -1356,12 +1347,14 @@ func dashdService(app, flavor, dataDir string, env map[string]string) string {
 	// host path read from inside the container (BUGS F54).
 	vol, src := appSrc(env)
 	def := svcDef{
-		name:        "dashd",
-		app:         app,
-		flavor:      flavor,
-		entrypoint:  "dashd",
-		dataDir:     dataDir,
-		dataSubdirs: append([]string{"groups", "surrogate"}, container.PackagePaths()...),
+		name:       "dashd",
+		app:        app,
+		flavor:     flavor,
+		entrypoint: "dashd",
+		dataDir:    dataDir,
+		// groups/ + surrogate/ only: a whole-tree mount hands dashd .env — every
+		// secret — and ipc/, the live agent MCP sockets (BUGS F51).
+		dataSubdirs: []string{"groups", "surrogate", "packages"},
 		profile:     "web",
 		// The internal listen stays :8080 (the healthcheck target) even when
 		// .env sets DASH_PORT for host-side publish.

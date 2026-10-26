@@ -13,6 +13,7 @@ import "github.com/kronael/arizuko/types"
 // rendered prompt STRING (sysMsgs+autocalls+persona+<observed>+feed), not
 // an array — routd renders, runed runs.
 type RunRequest struct {
+	Packages      []string      `json:"packages"`
 	Folder        types.Folder  `json:"folder"`
 	Topic         string        `json:"topic"`
 	ChatJID       string        `json:"chat_jid"`

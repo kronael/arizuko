@@ -190,7 +190,6 @@ RUN npm install
 # are rare; regressions in Anthropic SDK are fixed by upstream fast.
 RUN npm install @anthropic-ai/claude-agent-sdk@latest
 COPY . ./
-COPY output-styles/ /home/node/.claude/output-styles/
 RUN npm run build && rm -rf dist
 RUN mkdir -p /mnt /run/ipc/input /var/lib/share /var/lib/www /var/lib/groups /opt/arizuko
 

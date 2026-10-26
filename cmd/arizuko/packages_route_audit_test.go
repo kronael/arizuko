@@ -33,6 +33,7 @@ func installRoutePkg(t *testing.T, osUser string) *store.Store {
 	t.Setenv("USER", osUser)
 	st := instanceStore(t)
 	src := filepath.Join(base, "routepkg")
+	mustWrite(t, filepath.Join(src, "arizuko.yml"), "name: routepkg\n")
 	if err := os.MkdirAll(src, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -40,10 +41,10 @@ func installRoutePkg(t *testing.T, osUser string) *store.Store {
 		[]byte("services:\n  routepkg:\n    image: x\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(src, "routepkg.yaml"), []byte(
-		"proxyd_routes:\n"+
+	if err := os.WriteFile(filepath.Join(src, "arizuko.yml"), []byte("name: routepkg\n"+
+		("proxyd_routes:\n"+
 			"  - path: /rp/\n    backend: http://routepkg:8080\n    auth: public\n"+
-			"  - path: /rp-admin/\n    backend: http://routepkg:8080\n    auth: auth\n"), 0o644); err != nil {
+			"  - path: /rp-admin/\n    backend: http://routepkg:8080\n    auth: auth\n")), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	cmdPackages([]string{"raudit", "install", src})

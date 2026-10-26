@@ -21,8 +21,8 @@ func TestPackagesAddProvisionsEnvAndAppliesRows(t *testing.T) {
 	dataDir := seedSyncInstance(t, "mint",
 		map[string]string{
 			"litellm.yml": "services:\n  litellm:\n    image: x\n",
-			"litellm.yaml": "env:\n  MODEL_GATEWAY_KEY: {generate: true}\n" +
-				"network_rules:\n  - folder: ''\n    target: api.anthropic.com\n",
+			"litellm/arizuko.yml": "name: litellm\n" + ("env:\n  MODEL_GATEWAY_KEY: {generate: true}\n" +
+				"network_rules:\n  - folder: ''\n    target: api.anthropic.com\n"),
 		},
 		map[string]string{})
 	seedRoutdDB(t, dataDir)
@@ -36,7 +36,7 @@ func TestPackagesAddProvisionsEnvAndAppliesRows(t *testing.T) {
 	if !strings.Contains(string(dotenv), "MODEL_GATEWAY_KEY=") {
 		t.Fatalf("add did not mint MODEL_GATEWAY_KEY into .env:\n%s", dotenv)
 	}
-	if _, err := os.Lstat(filepath.Join(dataDir, "services", "litellm.yaml")); err != nil {
+	if _, err := os.Lstat(filepath.Join(dataDir, "packages", "litellm", "arizuko.yml")); err != nil {
 		t.Errorf("manifest not linked beside the fragment: %v", err)
 	}
 	rec := mustRec(t, dataDir, "litellm")

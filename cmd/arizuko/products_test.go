@@ -19,7 +19,7 @@ func mixInstance(t *testing.T, files map[string]map[string]string, order []strin
 	seedCoreSource(t, filepath.Join(base, "release"))
 	t.Setenv("ARIZUKO_DATA_DIR", base)
 	dataDir = filepath.Join(base, "arizuko_t")
-	unsealPackageFixtures(t, dataDir)
+
 	t.Setenv("DATA_DIR", dataDir)
 	groupDir := filepath.Join(dataDir, "groups", "main")
 	for _, d := range []string{filepath.Join(dataDir, "store"), groupDir, filepath.Join(dataDir, "ipc")} {
@@ -36,7 +36,7 @@ func mixInstance(t *testing.T, files map[string]map[string]string, order []strin
 	}
 	rdb.Close()
 
-	mix := ""
+	mix := "packages:\n"
 	for _, name := range order {
 		for rel, body := range files[name] {
 			p := filepath.Join(base, "src", name, filepath.FromSlash(rel))
@@ -47,9 +47,9 @@ func mixInstance(t *testing.T, files map[string]map[string]string, order []strin
 				t.Fatal(err)
 			}
 		}
-		mix += "[[product]]\nsource = \"" + filepath.Join(base, "src", name) + "\"\n\n"
+		mix += "  - source: " + filepath.Join(base, "src", name) + "\n"
 	}
-	if err := os.WriteFile(filepath.Join(groupDir, "arizuko.toml"), []byte(mix), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(groupDir, "arizuko.yml"), []byte(mix), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	return dataDir, base
@@ -63,8 +63,8 @@ func mixInstance(t *testing.T, files map[string]map[string]string, order []strin
 func TestProductsApplyWritesGroupScopedRecord(t *testing.T) {
 	t.Cleanup(func() { dropInstance(t) })
 	dataDir, _ := mixInstance(t, map[string]map[string]string{
-		"one": {"arizuko.toml": "name = \"one\"\n", "PERSONA.md": "p1"},
-		"two": {"arizuko.toml": "name = \"two\"\n", "facts/t.md": "f2"},
+		"one": {"arizuko.yml": "name: one\n", "PERSONA.md": "p1"},
+		"two": {"arizuko.yml": "name: two\n", "facts/t.md": "f2"},
 	}, []string{"one", "two"})
 
 	cmdProducts([]string{"t", "apply", "main"})
@@ -110,7 +110,7 @@ func TestProductsApplyWritesGroupScopedRecord(t *testing.T) {
 func TestProductsApplyIsIdempotent(t *testing.T) {
 	t.Cleanup(func() { dropInstance(t) })
 	dataDir, _ := mixInstance(t, map[string]map[string]string{
-		"one": {"arizuko.toml": "name = \"one\"\n", "CLAUDE.md": "runbook", "skills/s/SKILL.md": "v1"},
+		"one": {"arizuko.yml": "name: one\n", "CLAUDE.md": "runbook", "skills/s/SKILL.md": "v1"},
 	}, []string{"one"})
 
 	cmdProducts([]string{"t", "apply", "main"})
@@ -167,7 +167,7 @@ func TestProductsApplyIsIdempotent(t *testing.T) {
 func TestPackagesSyncCoversGroupMix(t *testing.T) {
 	t.Cleanup(func() { dropInstance(t) })
 	dataDir, base := mixInstance(t, map[string]map[string]string{
-		"one": {"arizuko.toml": "name = \"one\"\n", "skills/s/SKILL.md": "v1"},
+		"one": {"arizuko.yml": "name: one\n", "skills/s/SKILL.md": "v1"},
 	}, []string{"one"})
 
 	cmdProducts([]string{"t", "apply", "main"})
@@ -191,8 +191,8 @@ func TestPackagesSyncCoversGroupMix(t *testing.T) {
 // reads that order.
 func TestReadProductMixKeepsOrder(t *testing.T) {
 	dir := t.TempDir()
-	body := "[[product]]\nsource = \"z\"\n\n[[product]]\nsource = \"a\"\n\n[[product]]\nsource = \"m\"\n"
-	if err := os.WriteFile(filepath.Join(dir, "arizuko.toml"), []byte(body), 0o644); err != nil {
+	body := "packages:\n    - source: z\n    - source: a\n    - source: m\n"
+	if err := os.WriteFile(filepath.Join(dir, "arizuko.yml"), []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	mix, ok := readProductMix(dir)
@@ -200,16 +200,16 @@ func TestReadProductMixKeepsOrder(t *testing.T) {
 		t.Fatal("declared mix not found")
 	}
 	want := []string{"z", "a", "m"}
-	if len(mix.Product) != len(want) {
-		t.Fatalf("got %d entries, want %d", len(mix.Product), len(want))
+	if len(mix.Packages) != len(want) {
+		t.Fatalf("got %d entries, want %d", len(mix.Packages), len(want))
 	}
 	for i, w := range want {
-		if mix.Product[i].Source != w {
-			t.Errorf("entry %d = %q, want %q — declaration order is the mix order", i, mix.Product[i].Source, w)
+		if mix.Packages[i].Source != w {
+			t.Errorf("entry %d = %q, want %q — declaration order is the mix order", i, mix.Packages[i].Source, w)
 		}
 	}
 	if _, ok := readProductMix(t.TempDir()); ok {
-		t.Error("a group with no arizuko.toml reported a mix")
+		t.Error("a group with no arizuko.yml reported a mix")
 	}
 }
 
@@ -277,8 +277,8 @@ func TestProductsListReadsBrandAndTagline(t *testing.T) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	manifest := "name = \"trip\"\nbrand = \"wanderd\"\ntagline = \"Trip planner.\"\n"
-	if err := os.WriteFile(filepath.Join(dir, "arizuko.toml"), []byte(manifest), 0o644); err != nil {
+	manifest := "brand: wanderd\nname: trip\ntagline: Trip planner.\n"
+	if err := os.WriteFile(filepath.Join(dir, "arizuko.yml"), []byte(manifest), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -324,8 +324,8 @@ func TestProductsListRefusesADivergentManifestName(t *testing.T) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	manifest := "name = \"growth\"\nbrand = \"Acme\"\ntagline = \"Ships copy.\"\n"
-	if err := os.WriteFile(filepath.Join(dir, "arizuko.toml"), []byte(manifest), 0o644); err != nil {
+	manifest := "brand: Acme\nname: growth\ntagline: Ships copy.\n"
+	if err := os.WriteFile(filepath.Join(dir, "arizuko.yml"), []byte(manifest), 0o644); err != nil {
 		t.Fatal(err)
 	}
 

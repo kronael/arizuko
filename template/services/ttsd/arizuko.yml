@@ -1,0 +1,18 @@
+name: ttsd
+# Installing the package turns TTS on for runed and points it at ttsd's own
+# port (spec 5/8 `env`). Both are derived on every generate, never written:
+# an explicit .env value wins, so an external Kokoro or a cloud TTS is one
+# TTS_BASE_URL line away.
+env:
+  TTS_ENABLED:
+    default: 'true'
+  TTS_BASE_URL:
+    default: 'http://ttsd:8880'
+proxyd_routes:
+  # The operator dashboard (spec 6/28, 6/30), served by ttsd itself. Declared
+  # here like every adapter's, so the route exists exactly when the package
+  # does: an external TTS sets TTS_ENABLED with no ttsd to route to.
+  - path: /dash/ttsd/
+    backend: http://ttsd:8080
+    auth: user
+    gated_by: TTS_ENABLED

@@ -15,6 +15,10 @@
 
 ## What needs you
 
+- `L586`, `L587` — package inventory corrections in the active package change.
+- `L588`, `L589` — remove build references and helpers left by package cleanup.
+- `L590` — keep Codex mount stubs owned by the selected runtime UID.
+
 Every open entry waits on a person, not on work. Grouped by what it waits FOR,
 so the queue can be unblocked without reading 5,000 lines.
 `TestOpenEntriesAreListedHere` (`tests/bugsindex`) fails when this list and the
@@ -396,6 +400,49 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
 - **`L15` — the 2026-08-11 dead-code sweep's rejected hits.** `deadcode ./...` gave 149
   hits, 56 under `-test`; nine survived verification and were filed separately. Kept so
   the next sweep does not re-report the same ~135.
+
+## L586 — package skill discovery rejects regular documentation files (2026-10-26, open)
+
+`ReadPackageSkills` rejects every entry that is not a directory. The toolkit
+source has regular `skills/README.md` and `skills/CLAUDE.md` entries, so its
+normal install fails before the explicit build command runs. The synthetic
+`TestMinimalPackageInstallUpdateRemove` fixture covers regular documentation.
+The active package change owns the fix: skip non-directory entries.
+
+## L587 — duplicate skill refusal prevents normal package overlays (2026-10-26, open)
+
+`ReadPackageInventory` rejects a second provider for a skill. The bundled core
+and toolkit both supply `solve`, `go` and `sh`. Core plus toolkit cannot render
+a turn. The active package change owns the authorized order: core, system,
+then exact-group packages. The last provider supplies a shared skill name.
+The synthetic `TestSelectedPackageHooksAndTools` fixture covers that overlay.
+
+## L588 — agent image copies the removed output-style directory (2026-10-26, open)
+
+`ant/Dockerfile:191` still copies `output-styles/`, but the active package cut
+removes every tracked file and the source directory is absent. A fresh image
+build cannot resolve that COPY input. Measured with `git ls-files
+ant/output-styles` and the absent directory in the isolated U1 tree.
+**Fix:** remove that COPY instruction; no test — ops, the image build verifies it.
+
+## L589 — package cleanup leaves two unused helpers (2026-10-26, open)
+
+Scoped golangci reports unused `cpDirFresh` at `container/runner.go:262` and
+`fhsConfig` at `container/runner_layered_test.go:20`. A source search finds only
+their declarations and comments. The lint gate refuses the package cut.
+**Fix:** delete the unused helpers and resulting unused imports; no test —
+design, scoped lint and existing container tests verify the deletion.
+
+## L590 — Codex mount seeding replaces a selected-runtime-owned stub (2026-10-26, open)
+
+`RunUID` selects this host's non-root UID 1001, but `ownedByContainerUID` in
+`container/runner.go:133` compares only UID 1000. `SeedCodexMountTargets` removes
+and recreates an empty target already owned by the selected runtime UID.
+Measured: the parent U1 library gate fails
+`container/seed_codex_test.go::TestSeedCodexMountTargetsIdempotent` on its second
+call. The existing inode comparison can miss a replacement when the filesystem
+reuses the inode. **Fix:** use the same runtime UID for ownership and creation;
+keep real credential bytes unchanged and make the idempotence check reliable.
 
 ## L572 — routd stores an agent send to a JID with no platform as a chat (2026-10-25, open)
 

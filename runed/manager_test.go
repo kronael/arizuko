@@ -53,7 +53,7 @@ func TestSerializationNoConcurrentDoubleSpawn(t *testing.T) {
 	var wg sync.WaitGroup
 	for range 8 {
 		wg.Go(func() {
-			mgr.Run(context.Background(), runedv1.RunRequest{Folder: "demo", MessageBatch: "m"})
+			mgr.Run(context.Background(), runedv1.RunRequest{Packages: []string{"core"}, Folder: "demo", MessageBatch: "m"})
 		})
 	}
 	wg.Wait()
@@ -86,18 +86,18 @@ func TestFollowupWaitsForActiveRun(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		mgr.Run(t.Context(), runedv1.RunRequest{Folder: "demo", TurnID: "first", MessageBatch: "first"})
+		mgr.Run(t.Context(), runedv1.RunRequest{Packages: []string{"core"}, Folder: "demo", TurnID: "first", MessageBatch: "first"})
 		close(done)
 	}()
 	<-wired
 
-	out, err := mgr.Run(t.Context(), runedv1.RunRequest{Folder: "demo", TurnID: "second", MessageBatch: "second"})
+	out, err := mgr.Run(t.Context(), runedv1.RunRequest{Packages: []string{"core"}, Folder: "demo", TurnID: "second", MessageBatch: "second"})
 	close(release)
 	<-done
 	if err != nil || !out.Busy || out.Steered || out.RunID != "" || steers.Load() != 0 {
 		t.Fatalf("fresh turn entered the active run: out=%+v err=%v steers=%d", out, err, steers.Load())
 	}
-	out, err = mgr.Run(t.Context(), runedv1.RunRequest{Folder: "demo", TurnID: "second", MessageBatch: "second"})
+	out, err = mgr.Run(t.Context(), runedv1.RunRequest{Packages: []string{"core"}, Folder: "demo", TurnID: "second", MessageBatch: "second"})
 	if err != nil || out.Busy || out.Steered || out.RunID == "" || spawns.Load() != 2 {
 		t.Fatalf("follow-up did not start after release: out=%+v err=%v spawns=%d", out, err, spawns.Load())
 	}
@@ -128,7 +128,7 @@ func TestConcurrencyCap(t *testing.T) {
 		wg.Add(1)
 		go func(folder string) {
 			defer wg.Done()
-			mgr.Run(context.Background(), runedv1.RunRequest{Folder: types.Folder(folder), MessageBatch: "m"})
+			mgr.Run(context.Background(), runedv1.RunRequest{Packages: []string{"core"}, Folder: types.Folder(folder), MessageBatch: "m"})
 		}(f)
 	}
 	// let the cap fill, then confirm the third is blocked (live never > cap).
@@ -169,7 +169,7 @@ func TestCircuitBreakerTripAndReset(t *testing.T) {
 	_, mgr := newMgr(t, rt, 5)
 
 	for i := 1; i <= 3; i++ {
-		out, _ := mgr.Run(context.Background(), runedv1.RunRequest{Folder: "demo", MessageBatch: "m"})
+		out, _ := mgr.Run(context.Background(), runedv1.RunRequest{Packages: []string{"core"}, Folder: "demo", MessageBatch: "m"})
 		if out.Outcome != runedv1.OutcomeError {
 			t.Fatalf("run %d outcome=%q want error", i, out.Outcome)
 		}
@@ -183,7 +183,7 @@ func TestCircuitBreakerTripAndReset(t *testing.T) {
 
 	// new inbound resets the breaker and retries; this one succeeds.
 	failNext.Store(false)
-	out, _ := mgr.Run(context.Background(), runedv1.RunRequest{Folder: "demo", MessageBatch: "m"})
+	out, _ := mgr.Run(context.Background(), runedv1.RunRequest{Packages: []string{"core"}, Folder: "demo", MessageBatch: "m"})
 	if out.Outcome != runedv1.OutcomeOK || out.BreakerOpen {
 		t.Fatalf("post-reset run outcome=%q breaker_open=%v want ok,false", out.Outcome, out.BreakerOpen)
 	}
@@ -217,7 +217,7 @@ func TestRunTTLBecomesTheCtxDeadline(t *testing.T) {
 		Cfg: cfg, Folders: folders,
 	})
 
-	mgr.Run(context.Background(), runedv1.RunRequest{Folder: "demo", MessageBatch: "m"})
+	mgr.Run(context.Background(), runedv1.RunRequest{Packages: []string{"core"}, Folder: "demo", MessageBatch: "m"})
 
 	got := time.Duration(gotTTL.Load())
 	if got <= 0 || got > 20*time.Millisecond {
@@ -247,7 +247,7 @@ func TestTurnTTLFoldsTheGuestCeiling(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			m := &Manager{runTTL: c.runTTL, cfg: &core.Config{Timeout: c.cfgTimeout, IdleTimeout: c.idle}}
-			req := runedv1.RunRequest{Folder: "demo"}
+			req := runedv1.RunRequest{Packages: []string{"core"}, Folder: "demo"}
 			if c.groupTimeout > 0 {
 				req.ContainerConfig = map[string]any{"Timeout": int64(c.groupTimeout)}
 			}
@@ -278,7 +278,7 @@ func TestManagerAppliesRunTTLDeadline(t *testing.T) {
 		Cfg: cfg, Folders: folders,
 	})
 
-	out, _ := mgr.Run(context.Background(), runedv1.RunRequest{Folder: "demo", MessageBatch: "m"})
+	out, _ := mgr.Run(context.Background(), runedv1.RunRequest{Packages: []string{"core"}, Folder: "demo", MessageBatch: "m"})
 	if out.Outcome != runedv1.OutcomeError {
 		t.Fatalf("outcome=%q want error (ctx deadline elapsed mid-run)", out.Outcome)
 	}
@@ -296,7 +296,7 @@ func TestTerminalOnWire(t *testing.T) {
 	}}
 	_, mgr := newMgr(t, rt, 5)
 
-	out, err := mgr.Run(context.Background(), runedv1.RunRequest{Folder: "demo", MessageBatch: "m"})
+	out, err := mgr.Run(context.Background(), runedv1.RunRequest{Packages: []string{"core"}, Folder: "demo", MessageBatch: "m"})
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
@@ -333,13 +333,13 @@ func TestBreakerResetsOnSilent(t *testing.T) {
 	// reset this would be the 3rd consecutive failure and trip.
 	for _, oc := range []string{runedv1.OutcomeError, runedv1.OutcomeError, runedv1.OutcomeSilent} {
 		outcome.Store(oc)
-		out, _ := mgr.Run(context.Background(), runedv1.RunRequest{Folder: "demo", MessageBatch: "m"})
+		out, _ := mgr.Run(context.Background(), runedv1.RunRequest{Packages: []string{"core"}, Folder: "demo", MessageBatch: "m"})
 		if out.BreakerOpen {
 			t.Fatalf("outcome=%q tripped breaker early (silent must reset)", oc)
 		}
 	}
 	outcome.Store(runedv1.OutcomeError)
-	out, _ := mgr.Run(context.Background(), runedv1.RunRequest{Folder: "demo", MessageBatch: "m"})
+	out, _ := mgr.Run(context.Background(), runedv1.RunRequest{Packages: []string{"core"}, Folder: "demo", MessageBatch: "m"})
 	if out.BreakerOpen {
 		t.Fatalf("breaker tripped after a silent reset cleared the failure count")
 	}
@@ -370,9 +370,7 @@ func TestIsolatedRunNoSessionLineage(t *testing.T) {
 	}}
 	db, mgr := newMgr(t, rt, 5)
 
-	out, _ := mgr.Run(context.Background(), runedv1.RunRequest{
-		Folder: "demo", MessageBatch: "m", Isolated: true,
-	})
+	out, _ := mgr.Run(context.Background(), runedv1.RunRequest{Packages: []string{"core"}, Folder: "demo", MessageBatch: "m", Isolated: true})
 	if out.Outcome != runedv1.OutcomeOK {
 		t.Fatalf("isolated run outcome=%q want ok", out.Outcome)
 	}
@@ -389,7 +387,7 @@ func TestIsolatedRunNoSessionLineage(t *testing.T) {
 	}
 
 	// a NON-isolated run does record a session_log row.
-	mgr.Run(context.Background(), runedv1.RunRequest{Folder: "demo", MessageBatch: "m"})
+	mgr.Run(context.Background(), runedv1.RunRequest{Packages: []string{"core"}, Folder: "demo", MessageBatch: "m"})
 	if rows, _ := db.RecentSessions(t.Context(), "demo", 10); len(rows) != 1 {
 		t.Fatalf("non-isolated run wrote %d session_log rows, want 1", len(rows))
 	}
@@ -405,7 +403,7 @@ func TestTrippingRunEmitsBreakerOpen(t *testing.T) {
 	_, mgr := newMgr(t, rt, 5)
 
 	for i := 1; i <= circuitBreakerThreshold; i++ {
-		out, _ := mgr.Run(context.Background(), runedv1.RunRequest{Folder: "demo", MessageBatch: "m"})
+		out, _ := mgr.Run(context.Background(), runedv1.RunRequest{Packages: []string{"core"}, Folder: "demo", MessageBatch: "m"})
 		want := i == circuitBreakerThreshold
 		if out.BreakerOpen != want {
 			t.Fatalf("run %d breaker_open=%v want %v (trips only on the threshold run)", i, out.BreakerOpen, want)
@@ -439,7 +437,7 @@ func TestGatewaySpawnWithoutAKeyIsRefused(t *testing.T) {
 		Cfg: cfg, Folders: folders,
 	})
 
-	out, _ := mgr.Run(context.Background(), runedv1.RunRequest{Folder: "demo", MessageBatch: "m"})
+	out, _ := mgr.Run(context.Background(), runedv1.RunRequest{Packages: []string{"core"}, Folder: "demo", MessageBatch: "m"})
 	if out.Outcome != runedv1.OutcomeError || !out.Terminal {
 		t.Fatalf("outcome=%q terminal=%v want a terminal error", out.Outcome, out.Terminal)
 	}
@@ -450,9 +448,7 @@ func TestGatewaySpawnWithoutAKeyIsRefused(t *testing.T) {
 		t.Error("the runtime ran on a turn that can reach no model")
 	}
 	// With the key, the same request runs.
-	out, _ = mgr.Run(context.Background(), runedv1.RunRequest{
-		Folder: "demo", MessageBatch: "m", ModelGatewayKey: "sk-virtual",
-	})
+	out, _ = mgr.Run(context.Background(), runedv1.RunRequest{Packages: []string{"core"}, Folder: "demo", MessageBatch: "m", ModelGatewayKey: "sk-virtual"})
 	if out.Outcome != runedv1.OutcomeOK || !ran.Load() {
 		t.Fatalf("a minted key must run: outcome=%q ran=%v", out.Outcome, ran.Load())
 	}
@@ -474,7 +470,7 @@ func TestAgentRunWithoutARendererIsRefused(t *testing.T) {
 	t.Cleanup(func() { db.Close() })
 	mgr := NewManager(db, rt, ManagerConfig{Instance: "test", MaxConcurrent: 5})
 
-	out, _ := mgr.Run(context.Background(), runedv1.RunRequest{Folder: "demo", MessageBatch: "m"})
+	out, _ := mgr.Run(context.Background(), runedv1.RunRequest{Packages: []string{"core"}, Folder: "demo", MessageBatch: "m"})
 	if out.Outcome != runedv1.OutcomeError || !out.Terminal {
 		t.Fatalf("outcome=%q terminal=%v want a terminal error", out.Outcome, out.Terminal)
 	}

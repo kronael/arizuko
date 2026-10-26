@@ -1,9 +1,0 @@
-proxyd_routes:
-  # The operator dashboard (spec 6/31), served by emaid itself from the mux
-  # chanlib already builds. `user` so proxyd authenticates and stamps the
-  # operator scope the page gates on. Gated by the adapter's own credential,
-  # so the route exists exactly when the adapter does.
-  - path: /dash/emaid/
-    backend: http://emaid:8080
-    auth: user
-    gated_by: EMAIL_ACCOUNT

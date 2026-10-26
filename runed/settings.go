@@ -2,6 +2,7 @@ package runed
 
 import (
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -15,7 +16,7 @@ import (
 func seedSettings(
 	claudeDir string, cfg *core.Config,
 	req runedv1.RunRequest, queryTimeout int64,
-) {
+) error {
 	folder := string(req.Folder)
 	elevated := req.Elevated
 	fp := filepath.Join(claudeDir, "settings.json")
@@ -31,6 +32,11 @@ func seedSettings(
 	if settings == nil {
 		settings = map[string]any{}
 	}
+	hooks, err := readPackageHooks(cfg.ProjectRoot, req.Packages, ".claude/settings.json")
+	if err != nil {
+		return err
+	}
+	settings["hooks"] = hooks
 
 	env, _ := settings["env"].(map[string]any)
 	if env == nil {
@@ -103,10 +109,35 @@ func seedSettings(
 		// root-owned) home. Fail LOUD with the folder so it's not invisible.
 		slog.Error("group home not writable — agent will run config-less and not reply; chown the home to the run uid",
 			"folder", folder, "path", tmp, "err", err)
-		return
+		return err
 	}
 	if err := os.Rename(tmp, fp); err != nil {
-		slog.Warn("failed to rename settings", "from", tmp, "to", fp, "err", err)
+		return err
 	}
 	slog.Debug("settings seeded", "path", fp)
+	return nil
+}
+
+func readPackageHooks(dataDir string, names []string, rel string) (map[string][]json.RawMessage, error) {
+	hooks := map[string][]json.RawMessage{}
+	for _, name := range names {
+		path := filepath.Join(dataDir, "packages", name, filepath.FromSlash(rel))
+		data, err := os.ReadFile(path)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		var config struct {
+			Hooks map[string][]json.RawMessage `json:"hooks"`
+		}
+		if err := json.Unmarshal(data, &config); err != nil {
+			return nil, fmt.Errorf("package hooks %s: %w", path, err)
+		}
+		for event, entries := range config.Hooks {
+			hooks[event] = append(hooks[event], entries...)
+		}
+	}
+	return hooks, nil
 }

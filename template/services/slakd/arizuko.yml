@@ -1,0 +1,16 @@
+name: slakd
+proxyd_routes:
+  - path: /slack/
+    backend: http://slakd:8080
+    auth: public
+    gated_by: SLACK_BOT_TOKEN
+    preserve_headers:
+      - X-Slack-Signature
+      - X-Slack-Request-Timestamp
+  # The operator dashboard (spec 6/31), served by slakd itself from the mux
+  # chanlib already builds. `user` so proxyd authenticates and stamps the
+  # operator scope the page gates on.
+  - path: /dash/slakd/
+    backend: http://slakd:8080
+    auth: user
+    gated_by: SLACK_BOT_TOKEN

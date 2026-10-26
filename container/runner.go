@@ -15,7 +15,6 @@ import (
 
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
-	"github.com/kronael/arizuko/store"
 )
 
 var (
@@ -32,10 +31,8 @@ func SanitizeFolder(folder string) string {
 	return strings.Trim(s, "-")
 }
 
-// SetupGroup borrows database; nil selects core before a store exists.
-// It acquires the instance package lock; callers must not already hold it.
-func SetupGroup(cfg *core.Config, database *store.Store, folder, seedDir string) error {
-	return setupGroup(cfg, database, folder, func(groupDir string) error {
+func SetupGroup(cfg *core.Config, folder, seedDir string) error {
+	return setupGroup(cfg, folder, func(groupDir string) error {
 		if seedDir == "" {
 			return nil
 		}
@@ -52,14 +49,12 @@ func SetupGroup(cfg *core.Config, database *store.Store, folder, seedDir string)
 	})
 }
 
-// ComposeGroup borrows database and acquires the package lock like SetupGroup.
-// prior protects locally edited product assets.
 func ComposeGroup(
-	cfg *core.Config, database *store.Store, folder string,
+	cfg *core.Config, folder string,
 	mix []Product, prior map[string]map[string]string,
 ) ([]Blended, error) {
 	var out []Blended
-	err := setupGroup(cfg, database, folder, func(groupDir string) error {
+	err := setupGroup(cfg, folder, func(groupDir string) error {
 		var berr error
 		out, berr = BlendProducts(groupDir, mix, prior)
 		return berr
@@ -67,28 +62,12 @@ func ComposeGroup(
 	return out, err
 }
 
-func setupGroup(cfg *core.Config, database *store.Store, folder string,
+func setupGroup(cfg *core.Config, folder string,
 	seed func(groupDir string) error) error {
 	r := &groupfolder.Resolver{GroupsDir: cfg.GroupsDir, IpcDir: cfg.IpcDir}
 	groupDir, err := r.GroupPath(folder)
 	if err != nil {
 		return fmt.Errorf("invalid group folder: %w", err)
-	}
-	lock, err := LockPackages(cfg.ProjectRoot)
-	if err != nil {
-		return err
-	}
-	// The lock covers initialization and the new group's filesystem setup.
-	defer lock.Close() //nolint:errcheck
-	selected, err := ReadPackageSelection(cfg.ProjectRoot, folder)
-	if err != nil {
-		return err
-	}
-	if err := CheckPackageSelection(cfg, folder, database, selected); err != nil {
-		return err
-	}
-	if err := EnsureCorePackage(cfg, database); err != nil {
-		return err
 	}
 	if err := os.MkdirAll(groupDir, 0o755); err != nil {
 		return fmt.Errorf("mkdir group: %w", err)
@@ -148,12 +127,10 @@ func RunUID() (uid int, explicit bool) {
 	return containerUID, false
 }
 
-// ownedByContainerUID reports whether a stat already names the agent uid, so a
-// caller can skip a repair it does not need. A platform without a Unix stat
-// answers false: repairing there is harmless, claiming ownership is not.
-func ownedByContainerUID(fi os.FileInfo) bool {
+func isOwnedByRunUID(fi os.FileInfo) bool {
+	uid, _ := RunUID()
 	st, ok := fi.Sys().(*syscall.Stat_t)
-	return ok && int(st.Uid) == containerUID
+	return ok && int(st.Uid) == uid
 }
 
 // warnChown gives the container uid ownership of root and reports failure.
@@ -277,10 +254,6 @@ func CopySession(groupDir, srcUUID, dstUUID string) (bool, error) {
 }
 
 func cpDirOverwrite(src, dst string) { cpDirImpl(src, dst, false) }
-
-// cpDirFresh copies src→dst, skipping files that already exist in dst.
-// Used to seed operator-owned `ours` without clobbering live edits.
-func cpDirFresh(src, dst string) { cpDirImpl(src, dst, true) }
 
 func cpDirImpl(src, dst string, skipExisting bool) {
 	// ERROR, the level seedSettings uses for the same symptom: a destination

@@ -1,9 +1,0 @@
-proxyd_routes:
-  # The operator dashboard (spec 6/31). whapd cannot import chanlib, so it
-  # re-implements the contract in src/dash.ts — the cost the written contract
-  # exists to make payable. `user` so proxyd authenticates and stamps the
-  # operator scope the page gates on.
-  - path: /dash/whapd/
-    backend: http://whapd:8080
-    auth: user
-    gated_by: WHATSAPP_ENABLED

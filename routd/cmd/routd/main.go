@@ -7,7 +7,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"log/slog"
 	"net/http"
 	"os"
@@ -60,10 +59,8 @@ func main() {
 		slog.Error("load core configuration", "err", err)
 		os.Exit(1)
 	}
-	lock, err := container.LockPackages(dataDir)
-	if err == nil {
-		err = errors.Join(container.EnsureCorePackage(cfg, store.NewOver(db.Obj())), lock.Close())
-	}
+	_, err = container.InstallPackage(dataDir, filepath.Join(cfg.EffectiveAppSrcDir(), "ant"), false,
+		store.NewOver(db.Obj()), store.InstalledPackage{Source: "ant", Revision: "release"})
 	if err != nil {
 		slog.Error("initialize required core package", "err", err)
 		os.Exit(1)

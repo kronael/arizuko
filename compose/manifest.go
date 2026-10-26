@@ -13,7 +13,7 @@ import (
 	"github.com/kronael/arizuko/resreg/resources"
 )
 
-// Manifest is the generate-time view of a package's `<name>.yaml`: the parts
+// Manifest is the generate-time view of a package's arizuko.yml: the parts
 // that must exist before any daemon or DB does. Routes go to proxyd_routes;
 // Env is what the package's process needs from the instance .env.
 type Manifest struct {
@@ -21,37 +21,20 @@ type Manifest struct {
 	Env    map[string]resreg.EnvNeed
 }
 
-// ReadManifest reads one package manifest; a missing file is not an error.
-// Parsing goes through resreg.ParseManifest, the decoder `packages install`
-// uses, so a typo rejects identically on both readers.
+// ReadManifest uses the same strict declaration boundary as package install.
 func ReadManifest(path string) (Manifest, error) {
 	var m Manifest
 	b, err := os.ReadFile(path)
-	if os.IsNotExist(err) {
-		return m, nil
-	}
 	if err != nil {
 		return m, fmt.Errorf("read %s: %w", filepath.Base(path), err)
 	}
-	docs, err := resreg.SplitDocuments(b)
+	declaration, err := resreg.ParseManifest(b)
 	if err != nil {
 		return m, fmt.Errorf("%s: %w", filepath.Base(path), err)
 	}
-	for _, doc := range docs {
-		rows, env, _, perr := resreg.ParseManifest(doc)
-		if perr != nil {
-			return m, fmt.Errorf("parse %s: %w", filepath.Base(path), perr)
-		}
-		for key, need := range env {
-			if _, dup := m.Env[key]; dup {
-				return m, fmt.Errorf("%s: env %s declared twice", filepath.Base(path), key)
-			}
-			if m.Env == nil {
-				m.Env = map[string]resreg.EnvNeed{}
-			}
-			m.Env[key] = need
-		}
-		routes, ok := rows[resources.ProxydRoutesName].([]resources.ProxydRoutesRow)
+	m.Env = declaration.Env
+	for _, doc := range declaration.Documents {
+		routes, ok := doc.Rows[resources.ProxydRoutesName].([]resources.ProxydRoutesRow)
 		if !ok {
 			continue
 		}
@@ -93,14 +76,10 @@ func isDir(path string) bool {
 	return err == nil && st.IsDir()
 }
 
-// manifestPath is where generate reads a package's manifest. A catalog link is
-// dangling where the deploy unit runs generate (the container mounts the data
-// dir, not the checkout), and a dangling link reads as "no manifest", so a
-// linked sidecar is read from the readable catalog instead.
 func manifestPath(servicesDir, catalogDir, name string) string {
-	local := filepath.Join(servicesDir, name+".yaml")
-	if isSymlink(local) {
-		return filepath.Join(catalogDir, name+".yaml")
+	local := filepath.Join(filepath.Dir(servicesDir), "packages", name, "arizuko.yml")
+	if isSymlink(filepath.Join(servicesDir, name+".yml")) {
+		return filepath.Join(catalogDir, name, "arizuko.yml")
 	}
 	return local
 }
@@ -210,7 +189,7 @@ func bundledName(catalogDir, name string) string {
 	if catalogDir == "" {
 		return ""
 	}
-	if _, err := os.Stat(filepath.Join(catalogDir, name+".yaml")); err != nil {
+	if _, err := os.Stat(filepath.Join(catalogDir, name, "arizuko.yml")); err != nil {
 		return ""
 	}
 	return name

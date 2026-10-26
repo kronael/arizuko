@@ -177,8 +177,7 @@ func renamePlanFiles(root string, mapping renameMap) ([]renameFile, error) {
 		}
 		components := strings.Split(filepath.ToSlash(relative), "/")
 		if entry.IsDir() {
-			if components[0] == "images" || components[0] == "packages" ||
-				components[0] == "package-selections" || components[0] == "package-active" {
+			if components[0] == "images" || components[0] == "packages" {
 				return filepath.SkipDir
 			}
 			for _, name := range components {

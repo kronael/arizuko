@@ -235,12 +235,23 @@ of file, and the owner of each format defines the file:
   Docker interpolates `${KEY}` from `.env`, so an image from a third party
   reads a minted key without an env file of its own.
 
-- **The skills** are in `skills/<name>/`. Install copies them to
-  `<datadir>/skills/`. `arizuko generate` copies each skill into every existing
-  group and overwrites the copy of the group, see `syncPackageSkills` in `cmd/arizuko/skills.go`. It skips a group whose copy holds a `.disabled`
-  marker, and it skips a name that a stock skill already holds. Delivery runs
-  on `generate` and not at group creation, so a group that existed before the
-  install gets the skill too.
+- **Skills** live in `skills/<name>/SKILL.md`. Install places the package in
+  `<datadir>/packages/<name>/`. Selected skills mount read-only at
+  `~/.claude/skills/<name>/`. A later selected package overrides an earlier
+  skill with the same name.
+- **Tools** live in `bin/`. Each selected executable mounts read-only at
+  `/usr/local/bin/<name>`, which is already on the guest's `PATH`.
+- **Hooks** use `.claude/settings.json` or `.codex/hooks.json`. Put shared
+  hook scripts in `hooks/`; they mount read-only at `~/.claude/hooks/`.
+  Codex reads selected hooks through its native `/etc/codex/` config layer.
+
+A source package declares its name and optional build command in `arizuko.toml`.
+The explicit install or upgrade runs `install` on the host as the invoking
+operator, from the source directory. `PREFIX` names the installed package
+directory. The command must place executables in `$PREFIX/bin/`.
+For example, `kronael/tools` builds its tool with
+`make -C spec-lint install PREFIX="$PREFIX/bin"`.
+The executable runs inside the group. Agent startup runs no installer.
 
 ```yaml
 # helpbot.yaml — a package manifest

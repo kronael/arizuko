@@ -1,150 +1,17 @@
 package compose
 
 import (
-	"errors"
-	"fmt"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"regexp"
 	"slices"
-	"strconv"
 	"strings"
-	"syscall"
 	"testing"
 
-	"github.com/kronael/arizuko/container"
-	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/store"
 )
-
-func TestDataMountsUIDChild(t *testing.T) {
-	phase := os.Getenv("ARIZUKO_PACKAGE_UID_CHILD")
-	if phase == "" {
-		return
-	}
-	dataDir, release := os.Getenv("ARIZUKO_PACKAGE_DATA"), os.Getenv("ARIZUKO_PACKAGE_SOURCE")
-	if phase == "cleanup" {
-		uid, err := strconv.Atoi(os.Getenv("ARIZUKO_PACKAGE_OWNER"))
-		if err != nil {
-			t.Fatal(err)
-		}
-		err = filepath.WalkDir(dataDir, func(path string, entry os.DirEntry, err error) error {
-			if err != nil {
-				return err
-			}
-			if entry.IsDir() {
-				if err := os.Chmod(path, 0o755); err != nil {
-					return err
-				}
-			}
-			return os.Lchown(path, uid, uid)
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		return
-	}
-	if phase == "root" {
-		if _, _, err := Generate(dataDir); err != nil {
-			t.Fatal(err)
-		}
-	} else {
-		if err := syscall.Setgroups(nil); err != nil {
-			t.Fatal(err)
-		}
-		if err := syscall.Setgid(1000); err != nil {
-			t.Fatal(err)
-		}
-		if err := syscall.Setuid(1000); err != nil {
-			t.Fatal(err)
-		}
-		if os.Geteuid() != 1000 {
-			t.Fatalf("daemon phase ran as uid %d", os.Geteuid())
-		}
-	}
-	lock, err := container.LockPackages(dataDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	cfg := &core.Config{ProjectRoot: dataDir, AppSrcDir: release}
-	if err := errors.Join(container.EnsureCorePackage(cfg, nil), lock.Close()); err != nil {
-		t.Fatal(err)
-	}
-}
-
-// Root generation leaves mutable name/key parents writable by the daemon UID.
-func TestDataMountsDaemonUID(t *testing.T) {
-	base := t.TempDir()
-	if err := os.Chmod(filepath.Dir(base), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chmod(base, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	dataDir, release := filepath.Join(base, "arizuko_uid"), filepath.Join(base, "release")
-	if err := os.Mkdir(dataDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Mkdir(filepath.Join(dataDir, "services"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	for name, body := range map[string]string{
-		"arizuko.toml": "name = \"core\"\n", "CLAUDE.md": "core manual",
-		"skills/base/SKILL.md": "core skill", "output-styles/brief.md": "core style",
-	} {
-		path := filepath.Join(release, "ant", name)
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	run := func(phase string) {
-		t.Helper()
-		args := []string{"-n"}
-		args = append(args, "env", "ARIZUKO_PACKAGE_UID_CHILD="+phase,
-			"ARIZUKO_PACKAGE_DATA="+dataDir, "ARIZUKO_PACKAGE_SOURCE="+release,
-			"ARIZUKO_PACKAGE_OWNER="+strconv.Itoa(os.Getuid()), os.Args[0],
-			"-test.run=^TestDataMountsUIDChild$")
-		if out, err := exec.Command("sudo", args...).CombinedOutput(); err != nil {
-			t.Fatalf("%s phase: %v, %s", phase, err, out)
-		}
-	}
-	t.Cleanup(func() { run("cleanup") })
-	run("root")
-	for _, parent := range []string{"packages/core", "package-selections/system", "package-active"} {
-		info, err := os.Stat(filepath.Join(dataDir, parent))
-		if err != nil {
-			t.Fatal(err)
-		}
-		stat, ok := info.Sys().(*syscall.Stat_t)
-		if !ok || stat.Uid != 1000 {
-			t.Fatalf("mutable parent %s has wrong owner: %+v", parent, info.Sys())
-		}
-	}
-	err := os.WriteFile(filepath.Join(release, "ant/skills/base/SKILL.md"),
-		[]byte("new release"), 0o644)
-	if err != nil {
-		t.Fatal(err)
-	}
-	run("daemon")
-	selected, err := container.ReadPackageSelection(dataDir, "")
-	if err != nil || len(selected) != 1 {
-		t.Fatalf("daemon selection failed: %v %v", selected, err)
-	}
-	artifact, err := container.ResolvePackage(dataDir, selected[0])
-	if err != nil {
-		t.Fatal(err)
-	}
-	info, err := os.Stat(artifact)
-	if err != nil || info.Mode().Perm() != 0o555 {
-		t.Fatalf("artifact is not sealed: %v", err)
-	}
-}
 
 // seed writes a data dir with the given .env body and an empty services/.
 func seed(t *testing.T, env string) string {
@@ -161,8 +28,18 @@ func seed(t *testing.T, env string) string {
 
 func write(t *testing.T, dir, rel, body string) {
 	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(filepath.Join(dir, rel)), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(dir, rel), []byte(body), 0o644); err != nil {
 		t.Fatal(err)
+	}
+	if fragment, ok := strings.CutPrefix(rel, "services/"); ok && strings.HasSuffix(fragment, ".yml") {
+		name := strings.TrimSuffix(fragment, ".yml")
+		path := filepath.Join(dir, "packages", name, "arizuko.yml")
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			write(t, dir, "packages/"+name+"/arizuko.yml", "name: "+name+"\n")
+		}
 	}
 }
 
@@ -182,53 +59,6 @@ func gen(t *testing.T, dir string) string {
 		t.Fatal(err)
 	}
 	return out
-}
-
-// Creation daemons share the complete graph and the configured release source.
-func TestDataMountsCoreGraph(t *testing.T) {
-	for _, dev := range []bool{false, true} {
-		t.Run(fmt.Sprint(dev), func(t *testing.T) {
-			env := "HOST_APP_DIR=/src/release\n"
-			if dev {
-				env += "APP_SRC_DEV=1\n"
-			}
-			dir := seed(t, env)
-			out := gen(t, dir)
-			lock, err := os.Lstat(filepath.Join(dir, ".packages.lock"))
-			if err != nil || !lock.Mode().IsRegular() {
-				t.Fatalf("lock must exist as a regular file: %v", err)
-			}
-			gen(t, dir)
-			after, err := os.Lstat(filepath.Join(dir, ".packages.lock"))
-			if err != nil || !os.SameFile(lock, after) {
-				t.Fatalf("generation replaced the lock inode: %v", err)
-			}
-			for _, daemon := range []string{"dashd", "onbod"} {
-				block := serviceBlock(out, daemon)
-				for _, path := range []string{
-					"packages", "package-selections", "package-active", ".packages.lock",
-				} {
-					mount := filepath.Join(dir, path) + ":" + ContainerDataMount + "/" + path
-					if !strings.Contains(block, "- "+mount+"\n") {
-						t.Errorf("%s missing writable mount %s: %s", daemon, mount, block)
-					}
-				}
-				if strings.Contains(block, "- "+dir+":"+ContainerDataMount+"\n") {
-					t.Errorf("%s mounts the complete data directory", daemon)
-				}
-				source := bakedAppSrc
-				if dev {
-					source = containerSrcMount
-					if !strings.Contains(block, "/src/release:"+source+":ro") {
-						t.Errorf("%s missing dev source bind", daemon)
-					}
-				}
-				if !strings.Contains(block, "APP_SRC_DIR: \""+source+"\"") {
-					t.Errorf("%s wrong source: %s", daemon, block)
-				}
-			}
-		})
-	}
 }
 
 // genRoutes is gen for the other half of Generate's output: the proxyd route
@@ -418,7 +248,7 @@ func TestGenerateNoServicesDir(t *testing.T) {
 func TestProxydRoutesAssembled(t *testing.T) {
 	dir := seed(t, "WEB_PORT=8095\nAPI_PORT=8080\nSLACK_BOT_TOKEN=tok\n")
 	write(t, dir, "services/slakd.yml", "services:\n  slakd:\n    image: arizuko:latest\n")
-	write(t, dir, "services/slakd.yaml",
+	write(t, dir, "packages/slakd/arizuko.yml",
 		"proxyd_routes:\n  - path: /slack/\n    backend: http://slakd:8080\n    auth: public\n    gated_by: SLACK_BOT_TOKEN\n")
 	out, routes, err := Generate(dir)
 	if err != nil {
@@ -492,7 +322,7 @@ func TestProxydRoutesGating(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := seed(t, tc.env)
 			write(t, dir, "services/slakd.yml", "services:\n  slakd:\n    image: arizuko:latest\n")
-			write(t, dir, "services/slakd.yaml", routesYAML)
+			write(t, dir, "packages/slakd/arizuko.yml", routesYAML)
 			if got := hasRoute(genRoutes(t, dir), "/slack/"); got != tc.want {
 				t.Errorf("route present=%v, want %v", got, tc.want)
 			}
@@ -770,7 +600,7 @@ const ttsdManifest = "env:\n  TTS_ENABLED: {default: 'true'}\n  TTS_BASE_URL: {d
 func TestPackageEnvDefaultsReachRuned(t *testing.T) {
 	dir := seed(t, "API_PORT=8080\n")
 	write(t, dir, "services/ttsd.yml", "services:\n  ttsd:\n    image: arizuko-ttsd:latest\n")
-	write(t, dir, "services/ttsd.yaml", ttsdManifest)
+	write(t, dir, "packages/ttsd/arizuko.yml", ttsdManifest)
 	gen(t, dir)
 	runed := read(t, dir, "env/runed.env")
 	if !strings.Contains(runed, "TTS_ENABLED=true") || !strings.Contains(runed, "TTS_BASE_URL=http://ttsd:8880") {
@@ -788,7 +618,7 @@ func TestPackageEnvDefaultsReachRuned(t *testing.T) {
 
 	override := seed(t, "TTS_BASE_URL=https://api.openai.com\n")
 	write(t, override, "services/ttsd.yml", "services:\n  ttsd:\n    image: arizuko-ttsd:latest\n")
-	write(t, override, "services/ttsd.yaml", ttsdManifest)
+	write(t, override, "packages/ttsd/arizuko.yml", ttsdManifest)
 	gen(t, override)
 	if !strings.Contains(read(t, override, "env/runed.env"), "TTS_BASE_URL=https://api.openai.com") {
 		t.Error("explicit TTS_BASE_URL must win over the package default")
@@ -804,7 +634,7 @@ const gatewayManifest = "env:\n  MODEL_GATEWAY_KEY: {generate: true}\n  MODEL_GA
 func TestPackageEnvGenerateMintsOnceIntoDotEnv(t *testing.T) {
 	dir := seed(t, "API_PORT=8080\n")
 	write(t, dir, "services/litellm.yml", "services:\n  litellm:\n    image: x\n")
-	write(t, dir, "services/litellm.yaml", gatewayManifest)
+	write(t, dir, "packages/litellm/arizuko.yml", gatewayManifest)
 	gen(t, dir)
 
 	dotenv := read(t, dir, ".env")
@@ -835,7 +665,7 @@ func TestPackageEnvGenerateMintsOnceIntoDotEnv(t *testing.T) {
 
 	mine := seed(t, "MODEL_GATEWAY_KEY=operators-own\n")
 	write(t, mine, "services/litellm.yml", "services:\n  litellm:\n    image: x\n")
-	write(t, mine, "services/litellm.yaml", gatewayManifest)
+	write(t, mine, "packages/litellm/arizuko.yml", gatewayManifest)
 	gen(t, mine)
 	if strings.Count(read(t, mine, ".env"), "MODEL_GATEWAY_KEY=") != 1 ||
 		!strings.Contains(read(t, mine, "env/routd.env"), "MODEL_GATEWAY_KEY=operators-own") {
@@ -862,7 +692,7 @@ func envLine(t *testing.T, body, key string) string {
 func TestPackageEnvRequiredRefusesLoud(t *testing.T) {
 	dir := seed(t, "API_PORT=8080\n")
 	write(t, dir, "services/tok.yml", "services:\n  tok:\n    image: x\n")
-	write(t, dir, "services/tok.yaml", "env:\n  TOK_TOKEN: {required: true}\n")
+	write(t, dir, "packages/tok/arizuko.yml", "env:\n  TOK_TOKEN: {required: true}\n")
 	_, _, err := Generate(dir)
 	if err == nil || !strings.Contains(err.Error(), "TOK_TOKEN") || !strings.Contains(err.Error(), ".env") {
 		t.Fatalf("Generate = %v, want a refusal naming TOK_TOKEN and .env", err)
@@ -876,7 +706,7 @@ func TestPackageEnvRequiredRefusesLoud(t *testing.T) {
 
 	empty := seed(t, "MODEL_GATEWAY_KEY=\n")
 	write(t, empty, "services/litellm.yml", "services:\n  litellm:\n    image: x\n")
-	write(t, empty, "services/litellm.yaml", gatewayManifest)
+	write(t, empty, "packages/litellm/arizuko.yml", gatewayManifest)
 	if _, _, err := Generate(empty); err == nil || !strings.Contains(err.Error(), "present but empty") {
 		t.Fatalf("Generate = %v, want a refusal on the empty operator line", err)
 	}
@@ -892,11 +722,13 @@ func TestLinkedManifestIsReadFromTheCatalog(t *testing.T) {
 	if err := os.MkdirAll(catalog, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	write(t, catalog, "gw.yaml",
+	write(t, catalog, "gw/arizuko.yml",
 		"proxyd_routes:\n  - path: /gw/\n    backend: http://gw:8080\n    auth: user\n"+gatewayManifest)
 	dir := seed(t, "HOST_APP_DIR="+host+"\n")
-	write(t, dir, "services/gw.yml", "services:\n  gw:\n    image: x\n")
-	if err := os.Symlink("/nowhere/template/services/gw.yaml", filepath.Join(dir, "services", "gw.yaml")); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, "services"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("/nowhere/template/services/gw/gw.yml", filepath.Join(dir, "services", "gw.yml")); err != nil {
 		t.Fatal(err)
 	}
 	routes := genRoutes(t, dir)

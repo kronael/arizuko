@@ -2,7 +2,6 @@ package compose
 
 import (
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -38,33 +37,6 @@ func TestWriteOperatorEnvSkipsWhenNoStoreServer(t *testing.T) {
 	}
 	if _, err := os.Stat(operatorEnvPath(dir)); !os.IsNotExist(err) {
 		t.Errorf("operator.env written with no store server: %v", err)
-	}
-}
-
-// A catalog manifest that is present but unreadable is not a catalog that
-// ships none: the second reads as "nothing to link" and leaves the package's
-// rows and env needs silently unlinked.
-func TestRelinkSidecarRefusesAnUnreadableManifest(t *testing.T) {
-	services, catalog := t.TempDir(), t.TempDir()
-	// A directory where the manifest belongs: ReadFile fails with something
-	// other than "does not exist", on any uid, root included.
-	if err := os.Mkdir(filepath.Join(catalog, "teled.yaml"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	err := relinkSidecar(services, catalog, catalog, "teled")
-	if err == nil {
-		t.Fatal("an unreadable catalog manifest was treated as an absent one")
-	}
-	if !strings.Contains(err.Error(), "teled.yaml") {
-		t.Errorf("error does not name the manifest: %v", err)
-	}
-}
-
-// The absent case stays a skip — most kinds ship no manifest at all.
-func TestRelinkSidecarSkipsWhenCatalogShipsNoManifest(t *testing.T) {
-	services, catalog := t.TempDir(), t.TempDir()
-	if err := relinkSidecar(services, catalog, catalog, "teled"); err != nil {
-		t.Fatalf("a catalog with no manifest must be a skip, got %v", err)
 	}
 }
 
@@ -143,7 +115,7 @@ func TestSourcedFragmentCannotReadAPlatformSecret(t *testing.T) {
 
 	// The bundled catalog is exempt, which is what makes a denylist safe: litellm
 	// legitimately interpolates MODEL_GATEWAY_KEY because it IS the gateway.
-	body, rerr := os.ReadFile("../template/services/litellm.yml")
+	body, rerr := os.ReadFile("../template/services/litellm/litellm.yml")
 	if rerr != nil {
 		t.Skipf("no bundled litellm fragment: %v", rerr)
 	}

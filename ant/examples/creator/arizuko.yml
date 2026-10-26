@@ -1,0 +1,9 @@
+name: creator
+brand: inari
+tagline: Content creation pipeline — draft, refine, publish.
+env:
+  CODEX_API_KEY:
+    required: true
+    hint: Oracle — required for multi-source synthesis and drafting
+  TELEGRAM_BOT_TOKEN:
+    hint: Operator approval workflow (pitch → approve → draft → publish)

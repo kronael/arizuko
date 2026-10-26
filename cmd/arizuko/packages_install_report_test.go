@@ -43,9 +43,9 @@ func TestPackageAddSummaryNamesEveryAppliedResource(t *testing.T) {
 	dataDir := seedSyncInstance(t, "rep",
 		map[string]string{
 			"crondpkg.yml": "services:\n  crondpkg:\n    image: x\n",
-			"crondpkg.yaml": "network_rules:\n  - folder: ''\n    target: api.crond.example\n" +
+			"crondpkg/arizuko.yml": "name: crondpkg\n" + ("network_rules:\n  - folder: ''\n    target: api.crond.example\n" +
 				"scheduled_tasks:\n  - id: crondpkg-nightly\n    owner: crondpkg\n" +
-				"    chat_jid: web:ops\n    prompt: run the nightly report\n    cron: '0 3 * * *'\n",
+				"    chat_jid: web:ops\n    prompt: run the nightly report\n    cron: '0 3 * * *'\n"),
 		},
 		map[string]string{})
 	seedRoutdDB(t, dataDir)

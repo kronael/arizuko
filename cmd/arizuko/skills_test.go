@@ -14,11 +14,11 @@ import (
 func TestGenerateKeepsPackagedSkillsInArtifacts(t *testing.T) {
 	t.Cleanup(func() { dropInstance(t) })
 	dataDir := generateInstance(t, "WEB_PORT=8095\n")
-	unsealPackageFixtures(t, dataDir)
+
 	eng := addGroupWithClaudeDir(t, dataDir, "eng")
 
 	src := writePkg(t, filepath.Dir(dataDir), "skpkg", "")
-	mustWrite(t, filepath.Join(src, "arizuko.toml"), "name = \"skpkg\"\n")
+	mustWrite(t, filepath.Join(src, "arizuko.yml"), "name: skpkg\n")
 	if err := os.MkdirAll(filepath.Join(src, "skills", "triage"), 0o755); err != nil {
 		t.Fatal(err)
 	}

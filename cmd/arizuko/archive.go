@@ -472,30 +472,6 @@ func applyArchive(ctx context.Context, stores map[string]*store.Store, dataDir s
 		if bad := preflightFolders(stores, configDocs); len(bad) > 0 {
 			return fmt.Errorf("archive references folders that are not groups: %w", errors.Join(bad...))
 		}
-		cfg, err := core.LoadConfigFrom(dataDir)
-		if err != nil {
-			return err
-		}
-		lock, err := container.LockPackages(dataDir)
-		if err != nil {
-			return err
-		}
-		// The config transaction publishes only validated package selections.
-		defer lock.Close() //nolint:errcheck
-		for _, folder := range knownFolders {
-			selected, err := container.ReadPackageSelection(dataDir, folder)
-			if err != nil {
-				return err
-			}
-			err = container.CheckPackageSelection(cfg, folder,
-				stores[resreg.SubsystemRoutd], selected)
-			if err != nil {
-				return err
-			}
-		}
-		if err := container.EnsureCorePackage(cfg, stores[resreg.SubsystemRoutd]); err != nil {
-			return err
-		}
 		lines, err := applyDocs(ctx, stores, configDocs, applyRun{force: force, actor: "archive-apply"})
 		for _, l := range lines {
 			fmt.Fprintf(&report, "%s\n", l)
@@ -605,6 +581,9 @@ func applyArchive(ctx context.Context, stores map[string]*store.Store, dataDir s
 				return report.String(), fmt.Errorf("groups.tar: %w", gerr)
 			}
 			fmt.Fprintf(&report, "groups.tar: %d folders extracted, %d skipped (non-empty target, use --force)\n", extracted, skipped)
+			if err := setupMissingGroupDirs(dataDir, knownFolders); err != nil {
+				return report.String(), fmt.Errorf("setup fallback: %w", err)
+			}
 
 		default:
 			// Forward-compat: an entry this binary doesn't recognize. The
@@ -618,9 +597,6 @@ func applyArchive(ctx context.Context, stores map[string]*store.Store, dataDir s
 	// config phase commits.
 	if err := flushConfig(); err != nil {
 		return report.String(), err
-	}
-	if err := setupMissingGroupDirs(dataDir, stores[resreg.SubsystemRoutd], knownFolders); err != nil {
-		return report.String(), fmt.Errorf("setup fallback: %w", err)
 	}
 	return report.String(), nil
 }
@@ -852,7 +828,7 @@ func extractTarEntry(groupDir, folder string, hdr *tar.Header, r io.Reader) erro
 // but groups.tar does not cover still needs SOMETHING on disk, or docker exits 125.
 // container.SetupGroup is the ONLY provisioning code path, so this calls it with no
 // seed dir for exactly the folders left untouched above.
-func setupMissingGroupDirs(dataDir string, database *store.Store, knownFolders []string) error {
+func setupMissingGroupDirs(dataDir string, knownFolders []string) error {
 	if len(knownFolders) == 0 {
 		return nil
 	}
@@ -869,7 +845,7 @@ func setupMissingGroupDirs(dataDir string, database *store.Store, knownFolders [
 		if !empty {
 			continue
 		}
-		if err := container.SetupGroup(cfg, database, folder, ""); err != nil {
+		if err := container.SetupGroup(cfg, folder, ""); err != nil {
 			return fmt.Errorf("setup group %q: %w", folder, err)
 		}
 	}

@@ -12,26 +12,11 @@ import (
 	"testing"
 
 	"github.com/kronael/arizuko/core"
-	"github.com/kronael/arizuko/groupfolder"
 )
 
-// fhsConfig is the shared fixture for the mount-layout tests: a data dir with
-// the FHS directories the runner expects, and its resolver.
-func fhsConfig(t *testing.T) (*core.Config, *groupfolder.Resolver) {
-	t.Helper()
-	tmp := t.TempDir()
-	cfg := &core.Config{
-		GroupsDir:   filepath.Join(tmp, "groups"),
-		IpcDir:      filepath.Join(tmp, "ipc"),
-		HostAppDir:  filepath.Join(tmp, "app"),
-		WebDir:      filepath.Join(tmp, "web"),
-		ProjectRoot: tmp,
-	}
-	os.MkdirAll(cfg.GroupsDir, 0o755)
-	os.MkdirAll(cfg.IpcDir, 0o755)
-	os.MkdirAll(filepath.Join(cfg.WebDir, "pub"), 0o755)
-	return cfg, &groupfolder.Resolver{GroupsDir: cfg.GroupsDir, IpcDir: cfg.IpcDir}
-}
+// MaterializeAppSrc is what puts bytes at that staged path. A bind mount reads
+// the host filesystem, so a copy that silently no-ops leaves every agent with an
+// empty /opt/arizuko and no way to migrate.
 
 // TestSetupGroup_CreatesPerGroupWebSlots verifies SetupGroup pre-creates
 // the host-side web/pub/<folder>/ and web/priv/<folder>/ dirs that
@@ -46,8 +31,7 @@ func TestSetupGroup_CreatesPerGroupWebSlots(t *testing.T) {
 	os.MkdirAll(cfg.GroupsDir, 0o755)
 	os.MkdirAll(cfg.IpcDir, 0o755)
 
-	seedCoreRelease(t, cfg)
-	if err := SetupGroup(cfg, nil, "newworld", ""); err != nil {
+	if err := SetupGroup(cfg, "newworld", ""); err != nil {
 		t.Fatalf("SetupGroup: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(cfg.WebDir, "pub", "newworld")); err != nil {
@@ -70,8 +54,7 @@ func TestSetupGroup_NestedWebSlots(t *testing.T) {
 	os.MkdirAll(cfg.GroupsDir, 0o755)
 	os.MkdirAll(cfg.IpcDir, 0o755)
 
-	seedCoreRelease(t, cfg)
-	if err := SetupGroup(cfg, nil, "atlas/support", ""); err != nil {
+	if err := SetupGroup(cfg, "atlas/support", ""); err != nil {
 		t.Fatalf("SetupGroup: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(cfg.WebDir, "pub", "atlas", "support")); err != nil {
@@ -165,8 +148,7 @@ func TestSetupGroup_ChownsWebSlots(t *testing.T) {
 	os.MkdirAll(cfg.IpcDir, 0o755)
 
 	logged := captureWarnings(t)
-	seedCoreRelease(t, cfg)
-	if err := SetupGroup(cfg, nil, "slotted", ""); err != nil {
+	if err := SetupGroup(cfg, "slotted", ""); err != nil {
 		t.Fatalf("SetupGroup: %v", err)
 	}
 
@@ -218,8 +200,7 @@ func TestSetupGroup_WebSlotMkdirIsFatal(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	seedCoreRelease(t, cfg)
-	if err := SetupGroup(cfg, nil, "blocked", ""); err == nil {
+	if err := SetupGroup(cfg, "blocked", ""); err == nil {
 		t.Fatal("SetupGroup ignored an uncreatable web slot (want an error)")
 	}
 }

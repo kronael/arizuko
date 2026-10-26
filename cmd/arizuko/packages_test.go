@@ -79,6 +79,7 @@ func TestPackagesInstallRemove(t *testing.T) {
 		t.Fatal(err)
 	}
 	src := filepath.Join(base, "teledpkg")
+	mustWrite(t, filepath.Join(src, "arizuko.yml"), "name: teledpkg\n")
 	if err := os.MkdirAll(src, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -86,8 +87,8 @@ func TestPackagesInstallRemove(t *testing.T) {
 		[]byte("services:\n  teledpkg:\n    image: x\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(src, "teledpkg.yaml"),
-		[]byte("proxyd_routes:\n  - path: /tp/\n    backend: http://teledpkg:8080\n    auth: public\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(src, "arizuko.yml"),
+		[]byte("name: teledpkg\n"+"proxyd_routes:\n  - path: /tp/\n    backend: http://teledpkg:8080\n    auth: public\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -104,7 +105,7 @@ func TestPackagesInstallRemove(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("record missing: ok=%v err=%v", ok, err)
 	}
-	if len(rec.Manifest["compose_fragment"]) != 2 || rec.AssetHashes["file:teledpkg.yml"] == "" {
+	if len(rec.Manifest["compose_fragment"]) != 1 || rec.AssetHashes["file:teledpkg.yml"] == "" {
 		t.Fatalf("record contents: %+v", rec)
 	}
 	rdb.Close()
@@ -148,13 +149,13 @@ func TestPackagesInstallIgnoresUnrelatedYAML(t *testing.T) {
 	for _, entry := range entries {
 		files = append(files, entry.Name())
 	}
-	if strings.Join(files, ",") != "namedpkg.yaml,namedpkg.yml" {
+	if strings.Join(files, ",") != "namedpkg.yml" {
 		t.Fatalf("installed files = %v", files)
 	}
 	rec := mustRec(t, dataDir, "namedpkg")
-	if strings.Join(rec.Manifest[manifestFiles], ",") != "namedpkg.yaml,namedpkg.yml" ||
+	if strings.Join(rec.Manifest[manifestFiles], ",") != "namedpkg.yml" ||
 		len(rec.AssetHashes) != 2 || rec.AssetHashes["file:namedpkg.yml"] == "" ||
-		rec.AssetHashes["file:namedpkg.yaml"] == "" {
+		rec.AssetHashes["file:arizuko.yml"] == "" {
 		t.Fatalf("record contents: %+v", rec)
 	}
 }
@@ -195,7 +196,7 @@ func TestPackagesLegacyUnrelatedYAML(t *testing.T) {
 				if ok {
 					t.Fatal("remove kept the installed record")
 				}
-			} else if !ok || len(rec.AssetHashes) != 1 ||
+			} else if !ok || len(rec.AssetHashes) != 2 ||
 				strings.Join(rec.Manifest[manifestFiles], ",") != "legacypkg.yml" {
 				t.Fatalf("%s kept unrelated YAML in the record: %+v", action, rec)
 			}
@@ -234,6 +235,7 @@ func TestPackagesUpgradeClean(t *testing.T) {
 		t.Fatal(err)
 	}
 	src := filepath.Join(base, "up")
+	mustWrite(t, filepath.Join(src, "arizuko.yml"), "name: up\n")
 	if err := os.MkdirAll(src, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -268,8 +270,9 @@ func seedPkg(t *testing.T, base, dataDir, inst, name, body string) string {
 	t.Helper()
 	t.Setenv("DATA_DIR", dataDir)
 	seedCoreSource(t, filepath.Join(base, "release"))
-	unsealPackageFixtures(t, dataDir)
+
 	src := filepath.Join(base, name)
+	mustWrite(t, filepath.Join(src, "arizuko.yml"), "name: "+name+"\n")
 	if err := os.MkdirAll(src, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -305,12 +308,12 @@ func TestPackagesUpgradePreservesNonFileManifest(t *testing.T) {
 	dataDir := filepath.Join(base, "arizuko_mf")
 	t.Setenv("DATA_DIR", dataDir)
 	seedCoreSource(t, filepath.Join(base, "release"))
-	unsealPackageFixtures(t, dataDir)
+
 	if err := os.MkdirAll(filepath.Join(dataDir, "store"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	src := filepath.Join(base, "mf")
-	mustWrite(t, filepath.Join(src, "arizuko.toml"), "name = \"mf\"\n")
+	mustWrite(t, filepath.Join(src, "arizuko.yml"), "name: mf\n")
 	if err := os.MkdirAll(filepath.Join(src, "skills", "mfskill"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -371,11 +374,7 @@ func TestPackagesSyncReapplies(t *testing.T) {
 	}
 }
 
-// TestPackagesSyncIdempotent: re-applying an unchanged source reports
-// Changed=false and leaves the record untouched. Asserted against a sentinel
-// InstalledAt rather than two wall-clock reads — RFC3339 is second-granular, so
-// comparing two same-second syncs would pass even if the record WERE rewritten.
-func TestPackagesSyncIdempotent(t *testing.T) {
+func TestPackagesSyncReinstallsSource(t *testing.T) {
 	t.Cleanup(func() { dropInstance(t) })
 	base := t.TempDir()
 	t.Setenv("ARIZUKO_DATA_DIR", base)
@@ -403,15 +402,15 @@ func TestPackagesSyncIdempotent(t *testing.T) {
 	}
 
 	res := reapplyPackage(svcDir, rdb, rec)
-	if res.Changed {
-		t.Fatal("re-applying an unchanged source reported Changed")
+	if !res.Changed || res.Refused != nil {
+		t.Fatalf("explicit sync did not reinstall source: %+v", res)
 	}
 	after, _, err := rdb.InstalledPackage(routd.InstanceWide, "gamma")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if after.InstalledAt != sentinel {
-		t.Fatalf("sync rewrote an unchanged record: InstalledAt %q -> %q", sentinel, after.InstalledAt)
+	if after.InstalledAt == sentinel {
+		t.Fatal("sync did not record the explicit install")
 	}
 }
 
@@ -479,6 +478,7 @@ func TestPackagesInstallGit(t *testing.T) {
 		t.Fatal(err)
 	}
 	repo := filepath.Join(base, "gitpkg")
+	mustWrite(t, filepath.Join(repo, "arizuko.yml"), "name: gitpkg\n")
 	if err := os.MkdirAll(repo, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -513,6 +513,7 @@ func TestPackagesInstallRoutesHotApply(t *testing.T) {
 	base := t.TempDir()
 	t.Setenv("ARIZUKO_DATA_DIR", base)
 	src := filepath.Join(base, "routepkg")
+	mustWrite(t, filepath.Join(src, "arizuko.yml"), "name: routepkg\n")
 	if err := os.MkdirAll(src, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -520,8 +521,8 @@ func TestPackagesInstallRoutesHotApply(t *testing.T) {
 		[]byte("services:\n  routepkg:\n    image: x\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(src, "routepkg.yaml"),
-		[]byte("proxyd_routes:\n  - path: /rp/\n    backend: http://routepkg:8080\n    auth: public\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(src, "arizuko.yml"),
+		[]byte("name: routepkg\n"+"proxyd_routes:\n  - path: /rp/\n    backend: http://routepkg:8080\n    auth: public\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -575,6 +576,7 @@ func TestPackagesInstallGrants(t *testing.T) {
 	base := t.TempDir()
 	t.Setenv("ARIZUKO_DATA_DIR", base)
 	src := filepath.Join(base, "grantpkg")
+	mustWrite(t, filepath.Join(src, "arizuko.yml"), "name: grantpkg\n")
 	if err := os.MkdirAll(src, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -582,8 +584,8 @@ func TestPackagesInstallGrants(t *testing.T) {
 		[]byte("services:\n  grantpkg:\n    image: x\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(src, "grantpkg.yaml"),
-		[]byte("acl:\n  - principal: '@ops'\n    action: mcp:reply\n    scope: eng/*\n    effect: allow\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(src, "arizuko.yml"),
+		[]byte("name: grantpkg\n"+"acl:\n  - principal: '@ops'\n    action: mcp:reply\n    scope: eng/*\n    effect: allow\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -638,7 +640,7 @@ func TestPackagesInstallSkills(t *testing.T) {
 	dataDir := filepath.Join(base, "arizuko_sk")
 	t.Setenv("DATA_DIR", dataDir)
 	seedCoreSource(t, filepath.Join(base, "release"))
-	unsealPackageFixtures(t, dataDir)
+
 	if err := os.MkdirAll(filepath.Join(dataDir, "store"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -653,7 +655,7 @@ func TestPackagesInstallSkills(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(src, "skills", "mytool", "SKILL.md"), []byte("# mytool"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	mustWrite(t, filepath.Join(src, "arizuko.toml"), "name = \"skillpkg\"\n")
+	mustWrite(t, filepath.Join(src, "arizuko.yml"), "name: skillpkg\n")
 
 	cmdPackages([]string{"sk", "install", src})
 
@@ -713,8 +715,8 @@ func TestPackagesUpgradeReportsCatalogManifestDrift(t *testing.T) {
 	t.Cleanup(func() { dropInstance(t) })
 	dataDir := seedSyncInstance(t, "drift",
 		map[string]string{
-			"driftpkg.yml":  "services:\n  driftpkg:\n    image: x\n",
-			"driftpkg.yaml": "network_rules:\n  - folder: ''\n    target: api.one.example\n",
+			"driftpkg.yml":         "services:\n  driftpkg:\n    image: x\n",
+			"driftpkg/arizuko.yml": "name: driftpkg\n" + "network_rules:\n  - folder: ''\n    target: api.one.example\n",
 		},
 		map[string]string{})
 	seedRoutdDB(t, dataDir)
@@ -722,8 +724,8 @@ func TestPackagesUpgradeReportsCatalogManifestDrift(t *testing.T) {
 
 	// The release adds a rule to the shipped manifest. The fragment is a link,
 	// so the instance reads the new bytes; the rows stay as `add` left them.
-	catalog := filepath.Join(filepath.Dir(dataDir), "app", "template", "services", "driftpkg.yaml")
-	if err := os.WriteFile(catalog, []byte("network_rules:\n  - folder: ''\n    target: api.one.example\n"+
+	catalog := filepath.Join(filepath.Dir(dataDir), "app", "template", "services", "driftpkg", "arizuko.yml")
+	if err := os.WriteFile(catalog, []byte("name: driftpkg\nnetwork_rules:\n  - folder: ''\n    target: api.one.example\n"+
 		"  - folder: ''\n    target: api.two.example\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -732,7 +734,7 @@ func TestPackagesUpgradeReportsCatalogManifestDrift(t *testing.T) {
 	if strings.Contains(out, "nothing to do") {
 		t.Errorf("upgrade reports nothing to do while the catalog manifest moved: %q", out)
 	}
-	if !strings.Contains(out, "driftpkg.yaml") {
+	if !strings.Contains(out, "arizuko.yml") {
 		t.Errorf("upgrade does not name the manifest that moved: %q", out)
 	}
 
@@ -740,7 +742,7 @@ func TestPackagesUpgradeReportsCatalogManifestDrift(t *testing.T) {
 	if strings.Contains(out, "unchanged") {
 		t.Errorf("sync reports unchanged while the catalog manifest moved: %q", out)
 	}
-	if !strings.Contains(out, "driftpkg.yaml") {
+	if !strings.Contains(out, "arizuko.yml") {
 		t.Errorf("sync does not name the manifest that moved: %q", out)
 	}
 }

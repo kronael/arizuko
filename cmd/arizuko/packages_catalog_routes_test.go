@@ -13,12 +13,16 @@ import (
 func TestPackagesAddBundledGitdRoutes(t *testing.T) {
 	pkgChildRun()
 	catalog := map[string]string{}
-	for _, name := range []string{"gitd.yml", "gitd.yaml"} {
-		data, err := os.ReadFile(filepath.Join("..", "..", "template", "services", name))
+	for _, name := range []string{"gitd.yml", "arizuko.yml"} {
+		data, err := os.ReadFile(filepath.Join("..", "..", "template", "services", "gitd", name))
 		if err != nil {
 			t.Fatal(err)
 		}
-		catalog[name] = string(data)
+		if name == "arizuko.yml" {
+			catalog["gitd/arizuko.yml"] = string(data)
+		} else {
+			catalog[name] = string(data)
+		}
 	}
 	dataDir := seedSyncInstance(t, "gitd-catalog", catalog, map[string]string{})
 	seedRoutdDB(t, dataDir)
@@ -65,7 +69,7 @@ func TestPackagesAddCatalogRoutesRemainBounded(t *testing.T) {
 		"operator-owner": "proxyd_routes:\n  - path: /dash/gitd/\n    backend: http://gitd:8080\n    auth: user\n    owner: operator\n",
 	} {
 		t.Run(name, func(t *testing.T) {
-			dataDir := seedSyncInstance(t, "catalog-guard", map[string]string{"gitd.yml": "services:\n  gitd:\n    image: x\n", "gitd.yaml": manifest}, map[string]string{})
+			dataDir := seedSyncInstance(t, "catalog-guard", map[string]string{"gitd.yml": "services:\n  gitd:\n    image: x\n", "gitd/arizuko.yml": "name: gitd\n" + manifest}, map[string]string{})
 			seedRoutdDB(t, dataDir)
 			if code := runPkgExpectingDeath(t, []string{"catalog-guard", "add", "gitd"}); code == 0 {
 				t.Fatalf("catalog claim %s installed", name)
@@ -80,7 +84,7 @@ func TestPackagesInstallCatalogNamedSourceRoutesDenied(t *testing.T) {
 	for _, name := range []string{"gitd", "catalog"} {
 		t.Run(name, func(t *testing.T) {
 			manifest := "proxyd_routes:\n  - path: /dash/" + name + "/\n    backend: http://" + name + ":8080\n    auth: user\n"
-			dataDir := seedSyncInstance(t, "source-route", map[string]string{name + ".yml": "services:\n  " + name + ":\n    image: x\n", name + ".yaml": manifest}, map[string]string{})
+			dataDir := seedSyncInstance(t, "source-route", map[string]string{name + ".yml": "services:\n  " + name + ":\n    image: x\n", name + "/arizuko.yml": "name: " + name + "\n" + manifest}, map[string]string{})
 			seedRoutdDB(t, dataDir)
 			source := writePkg(t, filepath.Dir(dataDir), name, manifest)
 			if name == "catalog" {

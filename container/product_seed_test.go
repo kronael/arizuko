@@ -23,15 +23,15 @@ func TestProductManifestOwnership(t *testing.T) {
 			t.Run(fmt.Sprintf("%s/existing=%v", mode, existing), func(t *testing.T) {
 				root := t.TempDir()
 				product := mkProduct(t, root, "source", map[string]string{
-					"arizuko.toml": "name = \"source\"\nproduct = []\n",
-					"PERSONA.md":   "source persona", "assets/arizuko.toml": "ordinary asset",
+					"arizuko.yml": "name: source\npackages: []\n",
+					"PERSONA.md":  "source persona", "assets/arizuko.yml": "ordinary asset",
 				})
 				group := filepath.Join(root, "group")
 				if err := os.MkdirAll(group, 0o755); err != nil {
 					t.Fatal(err)
 				}
-				const caller = "# caller-owned\nname = \"my-group\"\n"
-				path := filepath.Join(group, "arizuko.toml")
+				const caller = "# caller-owned\nname: my-group\n"
+				path := filepath.Join(group, "arizuko.yml")
 				if existing {
 					if err := os.WriteFile(path, []byte(caller), 0o644); err != nil {
 						t.Fatal(err)
@@ -44,11 +44,11 @@ func TestProductManifestOwnership(t *testing.T) {
 				} else {
 					out := blendInto(t, group, []Product{product}, nil)
 					for _, rel := range out[0].Manifest["group_seed"] {
-						if rel == "arizuko.toml" {
+						if rel == "arizuko.yml" {
 							t.Error("source owns the caller manifest")
 						}
 					}
-					if _, ok := out[0].AssetHashes["file:arizuko.toml"]; ok {
+					if _, ok := out[0].AssetHashes["file:arizuko.yml"]; ok {
 						t.Error("source hashes the caller manifest")
 					}
 				}
@@ -59,7 +59,7 @@ func TestProductManifestOwnership(t *testing.T) {
 					t.Errorf("source manifest copied: %q, err=%v", got, err)
 				}
 				if read(t, group, "PERSONA.md") != "source persona" ||
-					read(t, group, "assets/arizuko.toml") != "ordinary asset" {
+					read(t, group, "assets/arizuko.yml") != "ordinary asset" {
 					t.Error("ordinary payload lost")
 				}
 			})
@@ -74,27 +74,27 @@ func TestBlendProtectsGroupManifestFromPriorOwnership(t *testing.T) {
 	if err := os.MkdirAll(group, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	const caller = "name = \"caller\"\n"
-	if err := os.WriteFile(filepath.Join(group, "arizuko.toml"), []byte(caller), 0o644); err != nil {
+	const caller = "name: caller\n"
+	if err := os.WriteFile(filepath.Join(group, "arizuko.yml"), []byte(caller), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	prior := map[string]map[string]string{"source": {"file:arizuko.toml": hashBytes([]byte(caller))}}
+	prior := map[string]map[string]string{"source": {"file:arizuko.yml": hashBytes([]byte(caller))}}
 	out := blendInto(t, group, []Product{product}, prior)
-	if got := read(t, group, "arizuko.toml"); got != caller {
+	if got := read(t, group, "arizuko.yml"); got != caller {
 		t.Errorf("caller manifest changed: %q", got)
 	}
-	if _, ok := out[0].AssetHashes["file:arizuko.toml"]; ok {
+	if _, ok := out[0].AssetHashes["file:arizuko.yml"]; ok {
 		t.Error("obsolete ownership retained")
 	}
 }
 
 func TestProductManifestSourceRefusal(t *testing.T) {
-	for _, body := range []string{"name = [\n", "name = \"source\"\n[[product]]\nsource = \"nested\"\n"} {
+	for _, body := range []string{"name = [\n", "name: source\npackages:\n    - source: nested\n"} {
 		for _, mode := range []string{"check", "seed", "blend"} {
 			t.Run(mode+"/"+body, func(t *testing.T) {
 				root := t.TempDir()
 				product := mkProduct(t, root, "source", map[string]string{
-					"arizuko.toml": body, "PERSONA.md": "must not land",
+					"arizuko.yml": body, "PERSONA.md": "must not land",
 				})
 				group := filepath.Join(root, "group")
 				var err error
@@ -106,7 +106,7 @@ func TestProductManifestSourceRefusal(t *testing.T) {
 				case "blend":
 					_, err = BlendProducts(group, []Product{product}, nil)
 				}
-				if err == nil || !strings.Contains(err.Error(), "arizuko.toml") {
+				if err == nil || !strings.Contains(err.Error(), "arizuko.yml") {
 					t.Errorf("invalid source accepted: %v", err)
 				}
 				if _, err := os.Stat(filepath.Join(group, "PERSONA.md")); !os.IsNotExist(err) {
@@ -191,20 +191,25 @@ func TestProductSeedIsVerbatim(t *testing.T) {
 			if err := os.MkdirAll(cfg.IpcDir, 0o755); err != nil {
 				t.Fatal(err)
 			}
-			seedCoreRelease(t, cfg)
-			if err := SetupGroup(cfg, nil, "seeded", seedDir); err != nil {
+			if err := SetupGroup(cfg, "seeded", seedDir); err != nil {
 				t.Fatalf("SetupGroup: %v", err)
 			}
 
 			got := walkFiles(t, filepath.Join(cfg.GroupsDir, "seeded"))
 			for rel, wantHash := range want {
-				if rel == "arizuko.toml" {
+				if rel == "arizuko.yml" || rel == "CLAUDE.md" {
 					if got[rel] != "" {
 						t.Error("source manifest reached the group")
 					}
 					continue
 				}
-				dst := filepath.FromSlash(productDest(filepath.ToSlash(rel)))
+				if strings.HasPrefix(rel, "skills/") {
+					if got[rel] != "" {
+						t.Error("managed skill was copied")
+					}
+					continue
+				}
+				dst := filepath.FromSlash(rel)
 				gotHash, ok := got[dst]
 				if !ok {
 					t.Errorf("seed DROPPED %s (expected at %s)", rel, dst)
@@ -251,25 +256,9 @@ func TestProductMixSeedsCorpusVerbatim(t *testing.T) {
 			}
 			got := walkFiles(t, group)
 			for rel, wantHash := range want {
-				if rel == "arizuko.toml" {
+				if rel == "arizuko.yml" || rel == "CLAUDE.md" {
 					if got[rel] != "" {
 						t.Error("source manifest reached the group")
-					}
-					continue
-				}
-				if rel == "CLAUDE.md" {
-					body, rerr := os.ReadFile(filepath.Join(seedDir, "CLAUDE.md"))
-					if rerr != nil {
-						t.Fatal(rerr)
-					}
-					region := regionBegin(p.Name()) + "\n" +
-						strings.TrimRight(string(body), "\n") + "\n" + regionEnd(p.Name())
-					blended, rerr := os.ReadFile(filepath.Join(group, "CLAUDE.md"))
-					if rerr != nil {
-						t.Fatalf("blend DROPPED CLAUDE.md: %v", rerr)
-					}
-					if !strings.Contains(string(blended), region) {
-						t.Errorf("CLAUDE.md region altered the product's bytes")
 					}
 					continue
 				}
@@ -278,9 +267,8 @@ func TestProductMixSeedsCorpusVerbatim(t *testing.T) {
 				// key union that is re-serialised. Assert the transformed result instead of
 				// exempting them, or the reference product would silently lose either payload.
 				if strings.HasPrefix(rel, "skills/") {
-					moved := productDest(rel)
-					if got[moved] != wantHash {
-						t.Errorf("skill %s did not land verbatim at %s", rel, moved)
+					if got[rel] != "" {
+						t.Errorf("managed skill %s was copied", rel)
 					}
 					continue
 				}
@@ -319,7 +307,7 @@ func TestProductMixSeedsCorpusVerbatim(t *testing.T) {
 func TestBothSeedersPlaceAlike(t *testing.T) {
 	prod := t.TempDir()
 	for rel, body := range map[string]string{
-		"arizuko.toml":           "name = \"pp\"\n",
+		"arizuko.yml":            "name: pp\n",
 		"skills/triage/SKILL.md": "---\nname: triage\n---\nBody.\n",
 		"facts/sla.md":           "Four hours.\n",
 	} {
@@ -334,8 +322,7 @@ func TestBothSeedersPlaceAlike(t *testing.T) {
 
 	tmp := t.TempDir()
 	cfg := &core.Config{GroupsDir: filepath.Join(tmp, "groups"), IpcDir: filepath.Join(tmp, "ipc")}
-	seedCoreRelease(t, cfg)
-	if err := SetupGroup(cfg, nil, "verbatim", prod); err != nil {
+	if err := SetupGroup(cfg, "verbatim", prod); err != nil {
 		t.Fatalf("SetupGroup: %v", err)
 	}
 	seeded := walkFiles(t, filepath.Join(cfg.GroupsDir, "verbatim"))
@@ -350,8 +337,8 @@ func TestBothSeedersPlaceAlike(t *testing.T) {
 	// than only that the two agree, so both agreeing on the WRONG place fails.
 	const skill = ".claude/skills/triage/SKILL.md"
 	for path, set := range map[string]map[string]string{"verbatim seed": seeded, "blend": mixed} {
-		if set[skill] == "" {
-			t.Errorf("%s: skill did not land at %s", path, skill)
+		if set[skill] != "" {
+			t.Errorf("%s: managed skill was copied to %s", path, skill)
 		}
 		if set["skills/triage/SKILL.md"] != "" {
 			t.Errorf("%s: skill left at the group root, where nothing reads it", path)
@@ -383,18 +370,18 @@ func TestProductCorpusPayloadKinds(t *testing.T) {
 			continue
 		}
 		total++
-		for _, name := range []string{"arizuko.toml", "SOUL.md", "PERSONA.md", "BRANDING.md", "CLAUDE.md"} {
+		for _, name := range []string{"arizuko.yml", "SOUL.md", "PERSONA.md", "BRANDING.md", "CLAUDE.md"} {
 			if _, err := os.Stat(filepath.Join(examplesDir, p.Name(), name)); err == nil {
 				counts[name]++
 			}
 		}
 	}
 	want := map[string]int{
-		"arizuko.toml": 11, // every product
-		"SOUL.md":      6,
-		"PERSONA.md":   5,
-		"BRANDING.md":  3,
-		"CLAUDE.md":    3,
+		"arizuko.yml": 11, // every product
+		"SOUL.md":     6,
+		"PERSONA.md":  5,
+		"BRANDING.md": 3,
+		"CLAUDE.md":   3,
 	}
 	if total != 11 {
 		t.Fatalf("corpus size moved: %d products, spec 5/28 says 11", total)

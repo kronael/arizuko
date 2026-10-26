@@ -120,7 +120,7 @@ func TestStopFolderKillsActiveRun(t *testing.T) {
 	// stand up a live run so the folder has an active spawn to stop.
 	done := make(chan *httptest.ResponseRecorder, 1)
 	go func() {
-		done <- doRun(t, h, runedv1.RunRequest{Folder: "demo", ChatJID: "j", TurnID: "t1", MessageBatch: "m"})
+		done <- doRun(t, h, runedv1.RunRequest{Packages: []string{"core"}, Folder: "demo", ChatJID: "j", TurnID: "t1", MessageBatch: "m"})
 	}()
 	<-started
 	runID, _ := srv.mgr.ActiveRunID(t.Context(), "demo")
@@ -301,7 +301,7 @@ func TestFreshSpawnResolvesSessionID(t *testing.T) {
 		return RunResult{Outcome: runedv1.OutcomeOK}
 	}}
 	db, mgr := newMgr(t, rt, 5)
-	out, _ := mgr.Run(context.Background(), runedv1.RunRequest{Folder: "demo", MessageBatch: "m"})
+	out, _ := mgr.Run(context.Background(), runedv1.RunRequest{Packages: []string{"core"}, Folder: "demo", MessageBatch: "m"})
 	sp, err := db.SpawnByRunID(t.Context(), out.RunID)
 	if err != nil {
 		t.Fatalf("spawn not persisted: %v", err)

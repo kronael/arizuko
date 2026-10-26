@@ -5,14 +5,11 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
 	"testing"
 
-	"github.com/kronael/arizuko/container"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 	"github.com/kronael/arizuko/store"
 )
@@ -71,68 +68,6 @@ func deleteTeam(t *testing.T, d *dash) *httptest.ResponseRecorder {
 	w := httptest.NewRecorder()
 	newMux(d).ServeHTTP(w, adminReq("POST", "/dash/groups/team/delete", "", "alice@x"))
 	return w
-}
-
-// The real delete handler withdraws nested selections before stopping purged groups.
-func TestGroupDeletePackages(t *testing.T) {
-	d, driver := splitAdminDash(t, "alice@x")
-	seedFolder(t, driver, "team/child")
-	seedFolder(t, driver, "keeper")
-	root := filepath.Dir(d.groupsDir)
-	source := t.TempDir()
-	if err := os.WriteFile(filepath.Join(source, "arizuko.toml"), []byte("name = \"probe\"\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	lock, err := container.LockPackages(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	snapshot, err := container.PreparePackage(root, source)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, folder := range []string{"team", "team/child", "keeper", ""} {
-		if err := container.SelectPackages(root, folder, []container.PackageSnapshot{snapshot}); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := lock.Close(); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		for _, name := range []string{"packages", "package-selections"} {
-			if err := filepath.WalkDir(filepath.Join(root, name), func(path string, entry os.DirEntry, err error) error {
-				if err != nil || !entry.IsDir() {
-					return err
-				}
-				return os.Chmod(path, 0o755)
-			}); err != nil {
-				t.Error(err)
-			}
-		}
-	})
-	withRuned(d, stubRuned(t, http.StatusOK, func(folder string) {
-		selected, err := container.ReadPackageSelection(root, folder)
-		if err != nil || len(selected) != 0 {
-			t.Errorf("stop saw active packages for %s: %v %v", folder, selected, err)
-		}
-		if hasFolder(t, driver, folder) {
-			t.Errorf("stop saw registered folder %s", folder)
-		}
-	}))
-	if w := deleteTeam(t, d); w.Code != http.StatusSeeOther {
-		t.Fatalf("delete = %d: %s", w.Code, w.Body.String())
-	}
-	for _, folder := range []string{"team", "team/child", "keeper", ""} {
-		selected, err := container.ReadPackageSelection(root, folder)
-		want := 0
-		if folder == "keeper" || folder == "" {
-			want = 1
-		}
-		if err != nil || len(selected) != want {
-			t.Fatalf("selection %s = %v %v", folder, selected, err)
-		}
-	}
 }
 
 // Deleting `team` with child `team/child` stops runed's run in each folder with

@@ -24,11 +24,15 @@ func writeSourced(t *testing.T, base, name, fragment, manifest string) string {
 	if err := os.MkdirAll(src, 0o755); err != nil {
 		t.Fatal(err)
 	}
+	mustWrite(t, filepath.Join(src, "arizuko.yml"), "name: "+name+"\n")
 	if err := os.WriteFile(filepath.Join(src, name+".yml"), []byte(fragment), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if manifest != "" {
-		if err := os.WriteFile(filepath.Join(src, name+".yaml"), []byte(manifest), 0o644); err != nil {
+		if strings.TrimSpace(manifest) == "{}" {
+			manifest = ""
+		}
+		if err := os.WriteFile(filepath.Join(src, "arizuko.yml"), []byte("name: "+name+"\n"+manifest), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}

@@ -1,0 +1,18 @@
+name: gitd
+proxyd_routes:
+  # GitHub posts here; gitd verifies X-Hub-Signature-256 itself with the
+  # secret the path's source selects, so the route is public. No gated_by:
+  # the secrets live in routd.db, not in env, and the fragment's presence in
+  # services/ is what enables the daemon.
+  - path: /github/
+    backend: http://gitd:8080
+    auth: public
+    preserve_headers:
+      - X-Hub-Signature-256
+      - X-GitHub-Event
+      - X-GitHub-Delivery
+  # The operator dashboard (spec 6/31), served by gitd from the mux chanlib
+  # builds; `user` so proxyd stamps the operator scope the page gates on.
+  - path: /dash/gitd/
+    backend: http://gitd:8080
+    auth: user

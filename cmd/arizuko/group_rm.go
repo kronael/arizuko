@@ -11,7 +11,6 @@ import (
 	"slices"
 	"time"
 
-	"github.com/kronael/arizuko/container"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
@@ -50,20 +49,10 @@ func runGroupRm(
 	ctx context.Context, s *store.Store, cfg *core.Config,
 	client *runedv1.Client, folder string, force bool, out io.Writer,
 ) error {
-	lock, err := container.LockPackages(cfg.ProjectRoot)
-	if err != nil {
-		return err
-	}
-	// The deletion owns selections until registered identities disappear.
-	defer lock.Close() //nolint:errcheck
-	registered, err := s.GroupFolders(0)
-	if err != nil {
-		return err
-	}
 	folders := []string{folder}
-	for _, registered := range registered {
-		if registered != folder && groupfolder.Contains(folder, registered) {
-			folders = append(folders, registered)
+	for _, group := range s.AllGroups() {
+		if group.Folder != folder && groupfolder.Contains(folder, group.Folder) {
+			folders = append(folders, group.Folder)
 		}
 	}
 	slices.SortFunc(folders, func(a, b string) int { return len(b) - len(a) })
@@ -126,9 +115,6 @@ func runGroupRm(
 			_, err := client.StopFolder(ctx, f)
 			return err
 		}
-	}
-	if err := container.WithdrawGroupPackages(cfg.ProjectRoot, folders); err != nil {
-		return err
 	}
 	removed, swept, err := s.DeleteGroupStopping(ctx, folder, stop)
 	if removed == 0 && swept == 0 {

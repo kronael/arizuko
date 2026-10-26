@@ -264,7 +264,7 @@ func TestRunEmitsNoAuditRow(t *testing.T) {
 	})
 	h := srv.Handler()
 
-	if got := doRun(t, h, runedv1.RunRequest{Folder: "demo", ChatJID: "j", TurnID: "t1", MessageBatch: "m"}); got.Code != 200 {
+	if got := doRun(t, h, runedv1.RunRequest{Packages: []string{"core"}, Folder: "demo", ChatJID: "j", TurnID: "t1", MessageBatch: "m"}); got.Code != 200 {
 		t.Fatalf("run = %d want 200 (body=%s)", got.Code, got.Body.String())
 	}
 	if got := countSpawns(t, db); got != 1 {

@@ -1,0 +1,9 @@
+name: reality
+brand: rhias
+tagline: Reality thread holder — ongoing life context across weeks and months.
+env:
+  TELEGRAM_BOT_TOKEN:
+    required: true
+    hint: Primary personal channel — ongoing conversations
+  OPENAI_API_KEY:
+    hint: Optional — for grounding context in external info and longer synthesis

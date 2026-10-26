@@ -50,7 +50,7 @@ COPY --from=build /emaid /usr/local/bin/emaid
 # release is a build and not whatever sits in a checkout on the host.
 COPY --from=build /src/ant/skills /opt/arizuko/ant/skills
 COPY --from=build /src/ant/CLAUDE.md /opt/arizuko/ant/CLAUDE.md
-COPY --from=build /src/ant/arizuko.toml /opt/arizuko/ant/arizuko.toml
+COPY --from=build /src/ant/arizuko.yml /opt/arizuko/ant/arizuko.yml
 COPY --from=build /src/template/services /opt/arizuko/template/services
 COPY --from=build /src/CHANGELOG.md /opt/arizuko/CHANGELOG.md
 WORKDIR /srv/app/home

@@ -48,7 +48,7 @@ func TestDistinctFoldersRunConcurrently(t *testing.T) {
 		wg.Add(1)
 		go func(folder string) {
 			defer wg.Done()
-			mgr.Run(context.Background(), runedv1.RunRequest{Folder: types.Folder(folder), MessageBatch: "m"})
+			mgr.Run(context.Background(), runedv1.RunRequest{Packages: []string{"core"}, Folder: types.Folder(folder), MessageBatch: "m"})
 		}(f)
 	}
 	wg.Wait()
@@ -86,7 +86,7 @@ func TestConcurrencyCapNoOverAdmit(t *testing.T) {
 		go func(i int) {
 			defer wg.Done()
 			out, _ := mgr.Run(context.Background(),
-				runedv1.RunRequest{Folder: types.Folder(fmt.Sprintf("f%d", i)), MessageBatch: "m"})
+				runedv1.RunRequest{Packages: []string{"core"}, Folder: types.Folder(fmt.Sprintf("f%d", i)), MessageBatch: "m"})
 			if out.Busy {
 				atomic.AddInt32(&busy, 1)
 			} else {
@@ -150,12 +150,12 @@ func TestFolderBusySteerFailReturnsBusy(t *testing.T) {
 	_, mgr := newMgr(t, rt, 5)
 
 	go func() {
-		mgr.Run(context.Background(), runedv1.RunRequest{Folder: "demo", MessageBatch: "first"})
+		mgr.Run(context.Background(), runedv1.RunRequest{Packages: []string{"core"}, Folder: "demo", MessageBatch: "first"})
 		close(done)
 	}()
 	<-started // demo has a live spawn; no steer callback wired.
 
-	out, err := mgr.Run(context.Background(), runedv1.RunRequest{Folder: "demo", MessageBatch: "second"})
+	out, err := mgr.Run(context.Background(), runedv1.RunRequest{Packages: []string{"core"}, Folder: "demo", MessageBatch: "second"})
 	if err != nil {
 		t.Fatalf("busy reject returned err=%v want nil (busy is not an error)", err)
 	}
@@ -180,8 +180,8 @@ func TestBreakerPersistsToDB(t *testing.T) {
 	}}, 5)
 
 	// Two failures → count is 2 in DB.
-	mgr.Run(context.Background(), runedv1.RunRequest{Folder: "demo", MessageBatch: "m"})
-	mgr.Run(context.Background(), runedv1.RunRequest{Folder: "demo", MessageBatch: "m"})
+	mgr.Run(context.Background(), runedv1.RunRequest{Packages: []string{"core"}, Folder: "demo", MessageBatch: "m"})
+	mgr.Run(context.Background(), runedv1.RunRequest{Packages: []string{"core"}, Folder: "demo", MessageBatch: "m"})
 
 	got, err := db.FailureStreak(t.Context(), "demo")
 	if err != nil {
@@ -201,7 +201,7 @@ func TestBreakerPersistsToDB(t *testing.T) {
 	})
 
 	// New manager reads existing failure count. A successful run resets it.
-	mgr2.Run(context.Background(), runedv1.RunRequest{Folder: "demo", MessageBatch: "m"})
+	mgr2.Run(context.Background(), runedv1.RunRequest{Packages: []string{"core"}, Folder: "demo", MessageBatch: "m"})
 	got, _ = db.FailureStreak(t.Context(), "demo")
 	if got != 0 {
 		t.Fatalf("failure count after success=%d want 0 (reset)", got)
@@ -263,12 +263,12 @@ func TestKillFreesSlotForNextRun(t *testing.T) {
 	}}}
 	_, mgr := newMgr(t, rt, 1)
 
-	go mgr.Run(context.Background(), runedv1.RunRequest{Folder: "demo", MessageBatch: "first"})
+	go mgr.Run(context.Background(), runedv1.RunRequest{Packages: []string{"core"}, Folder: "demo", MessageBatch: "first"})
 	<-firstStarted
 	runID, _ := mgr.ActiveRunID(t.Context(), "demo")
 
 	// At cap=1 a second folder is rejected busy — runed keeps no queue.
-	out, _ := mgr.Run(context.Background(), runedv1.RunRequest{Folder: "other", MessageBatch: "second"})
+	out, _ := mgr.Run(context.Background(), runedv1.RunRequest{Packages: []string{"core"}, Folder: "other", MessageBatch: "second"})
 	if !out.Busy {
 		t.Fatalf("at cap, second folder out=%+v want Busy=true (no internal queue)", out)
 	}
@@ -277,7 +277,7 @@ func TestKillFreesSlotForNextRun(t *testing.T) {
 	if err := mgr.Kill(t.Context(), runID); err != nil {
 		t.Fatalf("kill: %v", err)
 	}
-	go mgr.Run(context.Background(), runedv1.RunRequest{Folder: "other", MessageBatch: "second"})
+	go mgr.Run(context.Background(), runedv1.RunRequest{Packages: []string{"core"}, Folder: "other", MessageBatch: "second"})
 	select {
 	case <-secondRan:
 	case <-time.After(2 * time.Second):
@@ -297,7 +297,7 @@ func TestSteerWhenNoLiveRunSpawns(t *testing.T) {
 	}}
 	_, mgr := newMgr(t, rt, 5)
 
-	out, _ := mgr.Run(context.Background(), runedv1.RunRequest{Folder: "idle", MessageBatch: "m"})
+	out, _ := mgr.Run(context.Background(), runedv1.RunRequest{Packages: []string{"core"}, Folder: "idle", MessageBatch: "m"})
 	if out.Steered {
 		t.Fatalf("idle-folder run steered=%v want false (no live container to steer into)", out.Steered)
 	}
@@ -326,7 +326,7 @@ func TestStaleSteerRegistrationIsUnreachable(t *testing.T) {
 
 	// The live run has no callback wired, so the batch cannot be steered and
 	// the folder answers Busy — but on no account does it reach the dead run's.
-	_, out, _, err := mgr.admit(t.Context(), runedv1.RunRequest{Folder: "demo", MessageBatch: "hi"}, KindAgent)
+	_, out, _, err := mgr.admit(t.Context(), runedv1.RunRequest{Packages: []string{"core"}, Folder: "demo", MessageBatch: "hi"}, KindAgent)
 	if err != nil {
 		t.Fatalf("admit: %v", err)
 	}

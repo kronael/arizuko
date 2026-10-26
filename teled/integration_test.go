@@ -715,7 +715,7 @@ func TestDataDirDefaultIsTeledStateDirNotTreeRoot(t *testing.T) {
 		t.Fatalf("DATA_DIR default %q is outside the per-owner store/ layout", teledStateDir)
 	}
 
-	frag, err := os.ReadFile(filepath.Join("..", "template", "services", "teled.yml"))
+	frag, err := os.ReadFile(filepath.Join("..", "template", "services", "teled", "teled.yml"))
 	if err != nil {
 		t.Fatal(err)
 	}

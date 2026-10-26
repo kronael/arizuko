@@ -1,0 +1,10 @@
+name: support
+brand: atlas
+tagline: Embedded support agent — answers from your knowledge base, escalates when
+  stuck.
+env:
+  TELEGRAM_BOT_TOKEN:
+    required: true
+    hint: BotFather token — primary channel + escalation target for unanswered questions
+  OPENAI_API_KEY:
+    hint: Optional — enables web search fallback when the knowledge base has no answer

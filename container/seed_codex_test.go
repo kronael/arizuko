@@ -3,6 +3,7 @@ package container
 import (
 	"os"
 	"path/filepath"
+	"syscall"
 	"testing"
 )
 
@@ -27,6 +28,14 @@ func TestSeedCodexMountTargetsCreatesTheTargets(t *testing.T) {
 		}
 		if !fi.Mode().IsRegular() {
 			t.Fatalf("mount target %s is not a regular file: %v", name, fi.Mode())
+		}
+		st, ok := fi.Sys().(*syscall.Stat_t)
+		if !ok {
+			t.Fatal("mount target has no Unix stat")
+		}
+		uid, _ := RunUID()
+		if int(st.Uid) != uid {
+			t.Errorf("mount target %s owned by uid %d, want %d", name, st.Uid, uid)
 		}
 	}
 }
@@ -72,6 +81,9 @@ func TestSeedCodexMountTargetsIdempotent(t *testing.T) {
 	first, err := os.Stat(p)
 	if err != nil {
 		t.Fatalf("first pass did not seed %s: %v", CodexROMounts[0], err)
+	}
+	if err := os.Link(p, filepath.Join(dir, "held-stub")); err != nil {
+		t.Fatal(err)
 	}
 	SeedCodexMountTargets(dir)
 	second, err := os.Stat(p)

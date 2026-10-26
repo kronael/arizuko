@@ -57,7 +57,7 @@ func seedPkgInstance(t *testing.T, base, name string) string {
 	t.Helper()
 	dataDir := filepath.Join(base, "arizuko_"+name)
 	t.Setenv("DATA_DIR", dataDir)
-	unsealPackageFixtures(t, dataDir)
+
 	seedCoreSource(t, filepath.Join(base, "release"))
 	if err := os.MkdirAll(filepath.Join(dataDir, "store"), 0o755); err != nil {
 		t.Fatal(err)
@@ -179,7 +179,7 @@ func TestFailedInstallUnwindsWrittenFiles(t *testing.T) {
 		t.Fatal("install naming a folder that is not a group must fail")
 	}
 
-	for _, n := range []string{"latepkg.yml", "latepkg.yaml"} {
+	for _, n := range []string{"latepkg.yml"} {
 		if _, err := os.Stat(filepath.Join(dataDir, "services", n)); err == nil {
 			t.Errorf("a refused install left %s behind", n)
 		}
@@ -217,7 +217,7 @@ func TestInstallRefusesAResourceNoOwnerAppliesBeforeWriting(t *testing.T) {
 	if code := runPkgExpectingDeath(t, []string{"np", "install", src}); code == 0 {
 		t.Fatal("install of a manifest naming a resource no owner applies must fail")
 	}
-	for _, n := range []string{"projpkg.yml", "projpkg.yaml"} {
+	for _, n := range []string{"projpkg.yml"} {
 		if _, err := os.Stat(filepath.Join(dataDir, "services", n)); err == nil {
 			t.Errorf("a refused install left %s behind", n)
 		}

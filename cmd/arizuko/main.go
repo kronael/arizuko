@@ -40,7 +40,7 @@ func main() {
 		fmt.Println("  packages <instance> list | add <name> | remove <name>")
 		fmt.Println("  packages <instance> install <git-url-or-dir> [--folder <scope>]... | upgrade <name> | sync")
 		fmt.Println("    install, upgrade, remove, sync, list: [--group <exact-folder>] (default: system)")
-		fmt.Println("  products <instance> list | apply <folder>  — the bundled catalog, or blend the group's ~/arizuko.toml mix")
+		fmt.Println("  products <instance> list | apply <folder>  — the bundled catalog, or blend the group's ~/arizuko.yml mix")
 		fmt.Println("  generate <instance>  — writes docker-compose.yml; also relinks any installed fragment that's still an identical catalog copy")
 		fmt.Println("  token    <instance> issue chat <folder> [<suffix>]")
 		fmt.Println("  token    <instance> issue webhook <folder> <label> [<suffix>]")
@@ -334,25 +334,22 @@ func cmdCreate(args []string) {
 		die("Failed: make the store dir at %s: %v", storeDir, err)
 	}
 	chownStore(storeDir)
-	if err := container.SetupGroup(cfg, nil, store.DefaultFolder, productDir); err != nil {
+	if err := container.SetupGroup(cfg, store.DefaultFolder, productDir); err != nil {
 		die("Failed: setup group dir: %v", err)
 	}
 	fmt.Printf("created instance %s at %s\n", name, dataDir)
 	if manifest != nil {
 		fmt.Println()
 		if len(manifest.Env) > 0 {
-			fmt.Printf("env — set in %s/.env:\n", dataDir)
-			for _, e := range manifest.Env {
+			fmt.Println("environment requirements:")
+			for key, e := range manifest.Env {
 				req := "optional"
 				if e.Required {
 					req = "required"
 				}
-				fmt.Printf("  %-28s (%s) %s\n", e.Key, req, e.Hint)
+				fmt.Printf("  %-28s (%s) %s\n", key, req, e.Hint)
 			}
 			fmt.Println()
-		}
-		if len(manifest.Skills) > 0 {
-			fmt.Printf("skills: %s\n", strings.Join(manifest.Skills, ", "))
 		}
 		fmt.Printf("\nnext: populate %s/groups/main/facts/ then: arizuko run %s\n", dataDir, name)
 	}
@@ -432,7 +429,7 @@ func cmdGroup(args []string) {
 			declareProduct(filepath.Join(cfg.GroupsDir, folder), productDir,
 				filepath.ToSlash(filepath.Join("ant", "examples", *productFlag)))
 		}
-		if err := container.SetupGroup(cfg, s, folder, productDir); err != nil {
+		if err := container.SetupGroup(cfg, folder, productDir); err != nil {
 			die("Failed: setup group dir: %v", err)
 		}
 		if err := s.SeedDefaultTasks(folder, folder); err != nil {

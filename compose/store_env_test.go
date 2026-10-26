@@ -186,7 +186,7 @@ func TestOperatorEnvLeavesAForeignEndpoint(t *testing.T) {
 // one fact in two readers — docker's and generate's. Drift silently publishes
 // one port and addresses another.
 func TestStoreFragmentPublishesTheDeclaredPort(t *testing.T) {
-	m, err := ReadManifest(filepath.Join(templateServices, storeService+".yaml"))
+	m, err := ReadManifest(filepath.Join(templateServices, storeService, "arizuko.yml"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -194,7 +194,7 @@ func TestStoreFragmentPublishesTheDeclaredPort(t *testing.T) {
 	if !ok {
 		t.Fatalf("%s.yaml declares no %s", storeService, storeHostPortKey)
 	}
-	fragment := readFile(t, filepath.Join(templateServices, storeService+".yml"))
+	fragment := readFile(t, filepath.Join(templateServices, storeService, storeService+".yml"))
 	want := "- '127.0.0.1:${" + storeHostPortKey + ":-" + need.Default + "}:18443'"
 	if !strings.Contains(fragment, want) {
 		t.Errorf("%s.yml does not publish %q", storeService, want)

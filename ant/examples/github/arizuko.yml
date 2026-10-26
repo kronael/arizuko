@@ -1,0 +1,12 @@
+name: github
+brand: atlas
+tagline: Personal repo worker — triages issues, reviews PRs, opens PRs. Merges only
+  when you say so.
+env:
+  GITHUB_TOKEN:
+    required: true
+    hint: Enables gitd comments as the token's user; also store a folder-scoped token
+      for the GitHub connector
+  WEB_HOST:
+    required: true
+    hint: Public HTTPS host for GitHub webhook delivery and approval links

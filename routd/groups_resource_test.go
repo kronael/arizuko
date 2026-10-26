@@ -35,7 +35,7 @@ func registrationCoreSource(t *testing.T, groupsDir string) {
 	release := t.TempDir()
 	t.Setenv("APP_SRC_DIR", release)
 	for name, body := range map[string]string{
-		"arizuko.toml": "name = \"core\"\n", "CLAUDE.md": "core manual",
+		"arizuko.yml": "name: core\n", "CLAUDE.md": "core manual",
 		"skills/base/SKILL.md": "core skill", "output-styles/brief.md": "core style",
 	} {
 		path := filepath.Join(release, "ant", name)

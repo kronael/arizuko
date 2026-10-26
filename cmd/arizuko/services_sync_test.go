@@ -16,7 +16,7 @@ func seedSyncInstance(t *testing.T, name string, catalog, installed map[string]s
 	dataDir := filepath.Join(base, "arizuko_"+name)
 	t.Setenv("DATA_DIR", dataDir)
 	seedCoreSource(t, filepath.Join(base, "app"))
-	unsealPackageFixtures(t, dataDir)
+
 	tmplDir := filepath.Join(base, "app", "template", "services")
 	svcDir := filepath.Join(dataDir, "services")
 	for dir, files := range map[string]map[string]string{tmplDir: catalog, svcDir: installed} {
@@ -24,7 +24,18 @@ func seedSyncInstance(t *testing.T, name string, catalog, installed map[string]s
 			t.Fatal(err)
 		}
 		for f, body := range files {
-			if err := os.WriteFile(filepath.Join(dir, f), []byte(body), 0o644); err != nil {
+			path := filepath.Join(dir, f)
+			if dir == tmplDir && strings.HasSuffix(f, ".yml") && !strings.Contains(f, "/") {
+				packageName := strings.TrimSuffix(f, ".yml")
+				path = filepath.Join(dir, packageName, f)
+				if _, declared := files[packageName+"/arizuko.yml"]; !declared {
+					mustWrite(t, filepath.Join(dir, packageName, "arizuko.yml"), "name: "+packageName+"\n")
+				}
+			}
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 				t.Fatal(err)
 			}
 		}

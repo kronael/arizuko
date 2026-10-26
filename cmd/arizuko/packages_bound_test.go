@@ -152,7 +152,7 @@ func TestInstallRefusesPackageDeclaredRouteOwner(t *testing.T) {
 // fragment on disk, no record, and no row of either kind the package declared.
 func assertNothingInstalled(t *testing.T, dataDir, name string) {
 	t.Helper()
-	for _, n := range []string{name + ".yml", name + ".yaml"} {
+	for _, n := range []string{name + ".yml"} {
 		if _, err := os.Stat(filepath.Join(dataDir, "services", n)); err == nil {
 			t.Errorf("a refused install left %s behind", n)
 		}

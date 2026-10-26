@@ -92,11 +92,6 @@ func packageTemplates(dataDir string) string {
 	return compose.CatalogDir(hostAppDir)
 }
 
-func dirExists(path string) bool {
-	st, err := os.Stat(path)
-	return err == nil && st.IsDir()
-}
-
 // provisionPkgEnv resolves what a package needs from .env through the same
 // function generate runs, so a refusal (`required` unset) lands here, before
 // the first file is written, and a minted key exists before the first
@@ -135,14 +130,23 @@ func installPackage(dataDir, inst, name, srcDir string, files []string, hashes m
 	if name == container.CorePackageName {
 		die("Failed: core is required from the configured release; use packages upgrade core")
 	}
-	frags := parsePkgManifests(name, srcDir, files, bound, bundled)
+	metadata, err := container.ReadProductManifest(srcDir)
+	if err != nil {
+		die("Failed: %v", err)
+	}
+	if metadata.Name != name {
+		die("Failed: package %s declares %s", name, metadata.Name)
+	}
+	frags := parsePkgManifests(name, srcDir, []string{container.ManifestFile}, bound, bundled)
 	svcDir := filepath.Join(dataDir, "services")
 	if origin != catalogOrigin {
 		if err := checkSourcedFiles(svcDir, name, srcDir, files, nil); err != nil {
 			die("Failed: install %s: %v", name, err)
 		}
 	}
-	provisionPkgEnv(dataDir, filepath.Join(srcDir, name+".yaml"), name)
+	if len(files) > 0 {
+		provisionPkgEnv(dataDir, filepath.Join(srcDir, container.ManifestFile), name)
+	}
 	if err := os.MkdirAll(svcDir, 0o755); err != nil {
 		die("Failed: mkdir services: %v", err)
 	}
@@ -166,7 +170,8 @@ func installPackage(dataDir, inst, name, srcDir string, files []string, hashes m
 	manifest := map[string][]string{manifestFiles: files}
 	applied := map[string][]string{}
 	if len(frags) > 0 {
-		rows, aerr := installPkgRows(dataDir, rdb, name, frags, pkgManifestDigest(srcDir, files))
+		rows, aerr := installPkgRows(dataDir, rdb, name, frags,
+			pkgManifestDigest(srcDir, []string{container.ManifestFile}))
 		if aerr != nil {
 			// The rows are the half that is live the moment it lands, and the
 			// apply left none of them. Take the inert half back down too, so a
@@ -177,10 +182,9 @@ func installPackage(dataDir, inst, name, srcDir string, files []string, hashes m
 		maps.Copy(manifest, rows)
 		applied = rows
 	}
-	grants := installedGrants(frags)
 	// Folder is InstanceWide: install writes compose fragments, proxyd routes
 	// and host files, none of which belong to a group (spec 5/28-packages).
-	if err := rdb.PutInstalledPackage(routd.InstalledPackage{
+	if _, err := container.InstallPackage(dataDir, srcDir, true, store.NewOver(rdb.Obj()), routd.InstalledPackage{
 		Folder:      routd.InstanceWide,
 		Name:        name,
 		Source:      origin,
@@ -197,15 +201,20 @@ func installPackage(dataDir, inst, name, srcDir string, files []string, hashes m
 	// reports itself. A list of kinds written out beside the apply drifts from
 	// it: a package declaring a scheduled task and an egress rule installed
 	// both, live, under `0 route(s), 0 grant(s)` and named neither (BUGS L199).
-	fmt.Printf("installed %s@%s (%d file(s)) — run `arizuko generate %s` to apply\n",
-		name, revision, len(files), inst)
+	reportPackageInstall(name, revision, files, applied, frags)
+	fmt.Printf("run `arizuko generate %s` to apply\n", inst)
+}
+
+func reportPackageInstall(name, revision string, files []string,
+	applied map[string][]string, frags []pkgFragment) {
+	fmt.Printf("installed %s@%s (%d file(s))\n", name, revision, len(files))
 	for _, res := range slices.Sorted(maps.Keys(applied)) {
 		fmt.Printf("  %s: %d row(s), applied now\n", res, len(applied[res]))
 	}
 	// Grants are named on top of being counted: a count cannot distinguish
 	// `reply on eng/*` from `admin on eng/tts`, and a grant is the one asset
 	// kind that changes who can do what (BUGS L36).
-	for _, row := range grants {
+	for _, row := range installedGrants(frags) {
 		fmt.Println("  " + describeGrant(grantRowOf(row)))
 	}
 }
@@ -251,10 +260,6 @@ func fetchSource(src string) (dir, revision string, cleanup func()) {
 
 // packageName derives the package name from its source — the last path segment
 // (git URL or local dir), minus a trailing `.git`.
-func packageName(origin string) string {
-	s := strings.TrimSuffix(strings.TrimRight(strings.TrimPrefix(origin, "git+"), "/"), ".git")
-	return filepath.Base(s)
-}
 
 // checkSourcedFiles bounds what a package from a source may put into
 // services/: no file that would replace one the instance already has (the
@@ -286,20 +291,20 @@ func checkSourcedFiles(svcDir, name, srcDir string, files []string, owned map[st
 	return nil
 }
 
-// readFragmentAssets returns the file asset names in dir and their content
-// hashes. A package ships exactly two kinds of file, split by who OWNS the
-// format: `<name>.yml` is docker's compose fragment, included verbatim, and
-// `<name>.yaml` is arizuko's 5/8 manifest fragment — the rows install applies
-// and generate reads.
 func readFragmentAssets(dir, name string) (files []string, hashes map[string]string) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		die("Failed: read source %s: %v", dir, err)
 	}
 	hashes = map[string]string{}
+	declaration, err := os.ReadFile(filepath.Join(dir, container.ManifestFile))
+	if err != nil {
+		die("Failed: read package manifest: %v", err)
+	}
+	hashes["file:"+container.ManifestFile] = sha256hex(declaration)
 	for _, e := range entries {
 		n := e.Name()
-		if e.IsDir() || (n != name+".yml" && n != name+".yaml") {
+		if e.IsDir() || n != name+".yml" {
 			continue
 		}
 		b, err := os.ReadFile(filepath.Join(dir, n))
@@ -485,7 +490,7 @@ type pkgFragment struct {
 	rows      map[string]any
 }
 
-// parsePkgManifests reads every `<name>.yaml` in dir and groups their rows by
+// parsePkgManifests reads arizuko.yml in dir and groups its rows by
 // owner subsystem. It writes nothing: an unknown resource key, an unknown row
 // field, an unevaluable grant predicate or a resource `apply` never rebuilds all
 // fail here, before the install touches the instance.
@@ -499,25 +504,19 @@ func parsePkgManifests(name, dir string, files []string, bound []string, bundled
 	bySubsystem := map[string]map[string]any{}
 	var order []string
 	for _, n := range files {
-		if !strings.HasSuffix(n, ".yaml") {
+		if n != container.ManifestFile {
 			continue
 		}
 		b, err := os.ReadFile(filepath.Join(dir, n))
 		if err != nil {
 			die("Failed: read %s: %v", n, err)
 		}
-		docs, serr := resreg.SplitDocuments(b)
+		declaration, serr := resreg.ParseManifest(b)
 		if serr != nil {
 			die("Failed: %s: %v", n, serr)
 		}
-		for _, doc := range docs {
-			// ParseManifest, not ParseYAML: a package's document may carry an
-			// `env` section. provisionPkgEnv reads that half; this reader takes
-			// the rows (one declaration, two readers).
-			manifest, _, _, perr := resreg.ParseManifest(doc)
-			if perr != nil {
-				die("Failed: parse %s: %v", n, perr)
-			}
+		for _, doc := range declaration.Documents {
+			manifest := doc.Rows
 			if len(manifest) == 0 {
 				continue
 			}
@@ -693,7 +692,7 @@ func removePkgRows(dataDir string, rdb *routd.DB, rec routd.InstalledPackage) {
 	byOwner := map[string]map[string][]string{}
 	var subs []string
 	for key, pks := range rec.Manifest {
-		if key == manifestFiles || key == manifestSkills || key == manifestArtifact || len(pks) == 0 {
+		if key == manifestFiles || key == manifestSkills || len(pks) == 0 {
 			continue
 		}
 		r := resreg.Lookup(key)
@@ -800,7 +799,7 @@ func installedGrants(frags []pkgFragment) []resources.ACLRow {
 func pkgManifestDigest(dir string, files []string) string {
 	h := sha256.New()
 	for _, n := range files {
-		if !strings.HasSuffix(n, ".yaml") {
+		if n != container.ManifestFile {
 			continue
 		}
 		b, err := os.ReadFile(filepath.Join(dir, n))
@@ -833,7 +832,14 @@ func dirtyAssets(svcDir string, rec routd.InstalledPackage) []string {
 		if !isFile {
 			continue
 		}
-		cur, err := os.ReadFile(filepath.Join(svcDir, fn))
+		path := filepath.Join(svcDir, fn)
+		if fn == container.ManifestFile {
+			path = filepath.Join(filepath.Dir(svcDir), "packages", rec.Name, fn)
+			if rec.Source == catalogOrigin {
+				path = filepath.Join(packageTemplates(filepath.Dir(svcDir)), rec.Name, fn)
+			}
+		}
+		cur, err := os.ReadFile(path)
 		if err != nil {
 			continue
 		}
@@ -870,28 +876,24 @@ func driftReport(name string, drifted []string) string {
 // ONE updater. Only the file half of the manifest is replaced: overwriting the
 // recorded row and skill identities would strand rows `remove` must delete.
 func reapplyPackage(svcDir string, rdb *routd.DB, rec routd.InstalledPackage) reapplyResult {
-	if len(rec.Manifest[manifestArtifact]) > 0 {
-		selected, err := container.ReadPackageSelection(filepath.Dir(svcDir), "")
-		if err != nil {
-			return reapplyResult{Refused: err}
+	if rec.Source != catalogOrigin {
+		if dirty := dirtyAssets(svcDir, rec); len(dirty) > 0 {
+			return reapplyResult{Dirty: dirty}
 		}
-		if !slices.ContainsFunc(selected, func(snapshot container.PackageSnapshot) bool {
-			return snapshot.Name == rec.Name
-		}) {
-			return reapplyResult{Refused: fmt.Errorf("incomplete removal: %s is inactive; retry packages remove", rec.Name)}
-		}
+	}
+	if _, managed := rec.Manifest["skill"]; managed && rec.Source != catalogOrigin {
 		dir, revision, cleanup := fetchSource(rec.Source)
 		defer cleanup()
 		dataDir := filepath.Dir(svcDir)
-		candidate, err := preparePackageCandidate(dataDir, dir, rec.Source, revision)
-		if err == nil && candidate.snapshot.Name != rec.Name {
-			err = fmt.Errorf("source declares %s, installed package is %s", candidate.snapshot.Name, rec.Name)
+		candidate, err := preparePackageCandidate(dir, rec.Source, revision)
+		if err == nil && candidate.name != rec.Name {
+			err = fmt.Errorf("source declares %s, installed package is %s", candidate.name, rec.Name)
 		}
 		if err == nil {
-			err = installManagedPackage(dataDir, rdb, candidate, nil)
+			err = installManagedPackage(dataDir, "", rdb, candidate, nil)
 		}
 		return reapplyResult{Revision: candidate.revision, Refused: err,
-			Changed: rec.AssetHashes[manifestArtifact] != candidate.snapshot.Digest}
+			Changed: err == nil}
 	}
 	if rec.Source == catalogOrigin {
 		// A catalog record has nothing to re-fetch — but only its FILE half
@@ -903,57 +905,13 @@ func reapplyPackage(svcDir string, rdb *routd.DB, rec routd.InstalledPackage) re
 		// behind is already relinkCatalog's FROZEN warning.
 		var moved []string
 		for _, f := range dirtyAssets(svcDir, rec) {
-			if strings.HasSuffix(f, ".yaml") {
+			if f == container.ManifestFile {
 				moved = append(moved, f)
 			}
 		}
 		return reapplyResult{Revision: rec.Revision, Drifted: moved}
 	}
-	if dirty := dirtyAssets(svcDir, rec); len(dirty) > 0 {
-		return reapplyResult{Dirty: dirty}
-	}
-	dir, revision, cleanup := fetchSource(rec.Source)
-	defer cleanup()
-	newFiles, newHashes := readFragmentAssets(dir, rec.Name)
-	if len(newFiles) == 0 {
-		die("Failed: no compose fragment in source %s", rec.Source)
-	}
-	if err := checkSourcedFiles(svcDir, rec.Name, dir, newFiles, rec.AssetHashes); err != nil {
-		return reapplyResult{Refused: err}
-	}
-	for _, n := range newFiles {
-		b, err := os.ReadFile(filepath.Join(dir, n))
-		if err != nil {
-			die("Failed: read %s: %v", n, err)
-		}
-		if err := writeFileAtomic(filepath.Join(svcDir, n), b); err != nil {
-			die("Failed: apply %s: %v", n, err)
-		}
-	}
-	for k := range rec.AssetHashes {
-		if _, present := newHashes[k]; present {
-			continue
-		}
-		if fn, isFile := strings.CutPrefix(k, "file:"); isFile {
-			if err := os.Remove(filepath.Join(svcDir, fn)); err != nil && !os.IsNotExist(err) {
-				die("Failed: drop %s: %v", fn, err)
-			}
-		}
-	}
-	if rec.Revision == revision && maps.Equal(rec.AssetHashes, newHashes) {
-		return reapplyResult{Revision: revision}
-	}
-	if rec.Manifest == nil {
-		rec.Manifest = map[string][]string{}
-	}
-	rec.Manifest[manifestFiles] = newFiles
-	rec.Revision = revision
-	rec.AssetHashes = newHashes
-	rec.InstalledAt = time.Now().UTC().Format(time.RFC3339)
-	if err := rdb.PutInstalledPackage(rec); err != nil {
-		die("Failed: record %s: %v", rec.Name, err)
-	}
-	return reapplyResult{Revision: revision, Changed: true}
+	return reapplyResult{Refused: fmt.Errorf("package %s has no installed skill inventory", rec.Name)}
 }
 
 // listFragments returns the `<name>.yml` service fragments in dir.
@@ -961,6 +919,12 @@ func listFragments(dir string) []string {
 	entries, _ := os.ReadDir(dir)
 	var names []string
 	for _, e := range entries {
+		if e.IsDir() {
+			if _, err := os.Stat(filepath.Join(dir, e.Name(), e.Name()+".yml")); err == nil {
+				names = append(names, e.Name())
+			}
+			continue
+		}
 		if !e.IsDir() && strings.HasSuffix(e.Name(), ".yml") {
 			names = append(names, strings.TrimSuffix(e.Name(), ".yml"))
 		}
@@ -974,28 +938,20 @@ func cmdPackages(args []string) {
 	args, target := parsePackageGroup(args)
 	need(args, 2, usage)
 	dataDir := mustInstanceDir(args[0])
-	lock := lockPackageOperation(dataDir)
-	// Closing the lock releases this operation's exclusive ownership.
-	defer lock.Close() //nolint:errcheck
 	tmplDir := packageTemplates(dataDir)
 	svcDir := filepath.Join(dataDir, "services")
 
 	switch args[1] {
 	case "list":
-		selected, err := container.ReadPackageSelection(dataDir, target)
+		rdb := mustOpenRoutd()
+		defer func() { _ = rdb.Close() }()
+		records, err := rdb.InstalledPackages()
 		if err != nil {
-			die("Failed: list package selection: %v", err)
+			die("Failed: list packages: %v", err)
 		}
-		if len(selected) > 0 {
-			rdb := mustOpenRoutd()
-			// The store has no pending writes.
-			defer rdb.Close() //nolint:errcheck
-			candidates, _, err := existingPackageCandidates(dataDir, target, rdb)
-			if err != nil {
-				die("Failed: %v", err)
-			}
-			for _, candidate := range candidates {
-				fmt.Printf("%-12s selected (%s)\n", candidate.snapshot.Name, candidate.snapshot.Digest)
+		for _, record := range records {
+			if record.Folder == target {
+				fmt.Printf("%-12s installed (%s)\n", record.Name, record.Source)
 			}
 		}
 		if target != "" {
@@ -1028,24 +984,18 @@ func cmdPackages(args []string) {
 		// derived from where this process runs.
 		name, bound := parseInstallFlags(args[2:], usage)
 		mustPkgName(name)
-		fragment, err := os.ReadFile(filepath.Join(tmplDir, name+".yml"))
+		srcDir := filepath.Join(tmplDir, name)
+		fragment, err := os.ReadFile(filepath.Join(srcDir, name+".yml"))
 		if err != nil {
 			die("Failed: add %s: %v (catalog: %s)", name, err, tmplDir)
 		}
-		files := []string{name + ".yml"}
-		hashes := map[string]string{"file:" + name + ".yml": sha256hex(fragment)}
-		if manifest, rErr := os.ReadFile(filepath.Join(tmplDir, name+".yaml")); rErr == nil {
-			files = append(files, name+".yaml")
-			hashes["file:"+name+".yaml"] = sha256hex(manifest)
-		} else if !os.IsNotExist(rErr) {
-			die("Failed: add %s manifest: %v", name, rErr)
-		}
+		files, hashes := readFragmentAssets(srcDir, name)
 		hostDir, linked := compose.HostCatalogDir(dataDir)
 		if !linked {
 			fmt.Fprintln(os.Stderr, "warning: HOST_APP_DIR not set in .env — installing a local copy instead "+
 				"of a catalog link; it will not receive template fixes automatically. Set HOST_APP_DIR (see INSTALL.md).")
 		}
-		installPackage(dataDir, args[0], name, tmplDir, files, hashes, bound, catalogOrigin, catalogOrigin, hostDir, name)
+		installPackage(dataDir, args[0], name, srcDir, files, hashes, bound, catalogOrigin, catalogOrigin, hostDir, name)
 		warnUnsatisfiedDeps(name, fragment, svcDir)
 	case "install":
 		// Spec 5/28-packages: install a package from a source dir or git URL, recording
@@ -1056,38 +1006,19 @@ func cmdPackages(args []string) {
 		if !isGitURL(origin) {
 			origin = dir
 		}
+		candidate, err := preparePackageCandidate(dir, origin, revision)
+		if err != nil {
+			die("Failed: %v", err)
+		}
+		rdb := mustOpenRoutd()
+		defer func() { _ = rdb.Close() }()
 		if target != "" {
-			candidate, err := preparePackageCandidate(dataDir, dir, origin, revision)
-			if err != nil {
-				die("Failed: %v", err)
-			}
-			rdb := mustOpenRoutd()
-			// The store has no pending writes.
-			defer rdb.Close() //nolint:errcheck
 			installGroupPackage(dataDir, target, candidate, rdb)
 			return
 		}
-		if isManifestSource(dir) {
-			candidate, err := preparePackageCandidate(dataDir, dir, origin, revision)
-			if err != nil {
-				die("Failed: %v", err)
-			}
-			rdb := mustOpenRoutd()
-			// The store has no pending writes.
-			defer rdb.Close() //nolint:errcheck
-			if err := installManagedPackage(dataDir, rdb, candidate, bound); err != nil {
-				die("Failed: %v", err)
-			}
-			fmt.Printf("installed %s@%s\n", candidate.snapshot.Name, candidate.revision)
-			return
+		if err := installManagedPackage(dataDir, "", rdb, candidate, bound); err != nil {
+			die("Failed: %v", err)
 		}
-		name := packageName(origin)
-		mustPkgName(name)
-		files, hashes := readFragmentAssets(dir, name)
-		if len(files) == 0 {
-			die("Failed: no compose fragment (*.yml) in source %s", origin)
-		}
-		installPackage(dataDir, args[0], name, dir, files, hashes, bound, origin, revision, "", "")
 	case "upgrade":
 		// P3 (spec 5/28-packages): re-install a package's assets from its recorded source,
 		// but REFUSE to overwrite a locally edited (dirty) asset — emit which and
@@ -1105,7 +1036,9 @@ func cmdPackages(args []string) {
 			if err != nil {
 				die("Failed: load config: %v", err)
 			}
-			if err := container.EnsureCorePackage(cfg, packageStore(rdb)); err != nil {
+			_, err = container.InstallPackage(dataDir, filepath.Join(cfg.EffectiveAppSrcDir(), "ant"), false,
+				packageStore(rdb), routd.InstalledPackage{Source: "ant", Revision: "release"})
+			if err != nil {
 				die("Failed: upgrade core: %v", err)
 			}
 			fmt.Println("upgraded core from the configured release")
@@ -1125,14 +1058,14 @@ func cmdPackages(args []string) {
 			}
 			dir, revision, cleanup := resolveProductSource(cfg, rec.Source)
 			defer cleanup()
-			candidate, err := preparePackageCandidate(dataDir, dir, rec.Source, revision)
+			candidate, err := preparePackageCandidate(dir, rec.Source, revision)
 			if err != nil {
 				die("Failed: %v", err)
 			}
-			if candidate.snapshot.Name != name {
-				die("Failed: source declares %s, installed package is %s", candidate.snapshot.Name, name)
+			if candidate.name != name {
+				die("Failed: source declares %s, installed package is %s", candidate.name, name)
 			}
-			applyProductMixLocked(dataDir, rdb, target, nil, &candidate)
+			applyProductMix(dataDir, rdb, target)
 			return
 		}
 		res := reapplyPackage(svcDir, rdb, rec)
@@ -1163,14 +1096,16 @@ func cmdPackages(args []string) {
 		rdb := mustOpenRoutd()
 		defer func() { _ = rdb.Close() }()
 		if target != "" {
-			applyProductMixLocked(dataDir, rdb, target, nil, nil)
+			applyProductMix(dataDir, rdb, target)
 			return
 		}
 		cfg, err := core.LoadConfigFrom(dataDir)
 		if err != nil {
 			die("Failed: load config: %v", err)
 		}
-		if err := container.EnsureCorePackage(cfg, packageStore(rdb)); err != nil {
+		_, err = container.InstallPackage(dataDir, filepath.Join(cfg.EffectiveAppSrcDir(), "ant"), false,
+			packageStore(rdb), routd.InstalledPackage{Source: "ant", Revision: "release"})
+		if err != nil {
 			die("Failed: sync core: %v", err)
 		}
 		fmt.Println("synced core from the configured release")
@@ -1193,7 +1128,7 @@ func cmdPackages(args []string) {
 		}
 		sort.Strings(mixed)
 		for _, folder := range mixed {
-			applyProductMixLocked(dataDir, rdb, folder, nil, nil)
+			applyProductMix(dataDir, rdb, folder)
 		}
 
 		var instanceWide, updated, skipped int
@@ -1234,7 +1169,8 @@ func cmdPackages(args []string) {
 		if err != nil {
 			die("Failed: read receipt: %v", err)
 		}
-		if target != "" || (exists && len(managed.Manifest[manifestArtifact]) > 0) {
+		_, isManaged := managed.Manifest["skill"]
+		if target != "" || (exists && isManaged && managed.Source != catalogOrigin) {
 			if err := removeManagedPackage(dataDir, target, name, rdb); err != nil {
 				die("Failed: %v", err)
 			}
@@ -1268,9 +1204,6 @@ func cmdPackages(args []string) {
 		}
 		if err := os.Remove(filepath.Join(svcDir, name+".yml")); err != nil {
 			die("Failed: remove %s: %v", name, err)
-		}
-		if err := os.Remove(filepath.Join(svcDir, name+".yaml")); err != nil && !os.IsNotExist(err) {
-			die("Failed: remove %s manifest: %v", name, err)
 		}
 		fmt.Printf("removed %s — run `arizuko generate %s` to apply\n", name, args[0])
 	default:

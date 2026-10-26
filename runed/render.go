@@ -57,7 +57,9 @@ func renderTurn(
 		return Turn{}, err
 	}
 	container.WriteGatewayCaps(groupDir, cfg)
-	seedSettings(filepath.Join(groupDir, ".claude"), cfg, req, queryTimeout)
+	if err := seedSettings(filepath.Join(groupDir, ".claude"), cfg, req, queryTimeout); err != nil {
+		return Turn{}, err
+	}
 
 	p := preparePayload(cfg, req, groupDir)
 	// The payload carries MODEL CREDENTIALS ONLY: the operator anchors from the

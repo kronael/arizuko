@@ -43,12 +43,10 @@ func TestContractRun(t *testing.T) {
 	db, srv := newTestRuned(t, rt)
 	h := srv.Handler()
 
-	rec := doRun(t, h, runedv1.RunRequest{
-		Folder: "demo", ChatJID: "slack:T/C/U", TurnID: "wamid.X",
+	rec := doRun(t, h, runedv1.RunRequest{Packages: []string{"core"}, Folder: "demo", ChatJID: "slack:T/C/U", TurnID: "wamid.X",
 		MessageBatch: "rendered prompt", CallerSub: "user:u1",
 		Model:           "claude-opus-4-8",
-		ContainerConfig: map[string]any{"MaxChildren": 2},
-	})
+		ContainerConfig: map[string]any{"MaxChildren": 2}})
 	if rec.Code != 200 {
 		t.Fatalf("run status=%d body=%s", rec.Code, rec.Body.String())
 	}
@@ -107,7 +105,7 @@ func TestLiveFolderRejectsFreshTurn(t *testing.T) {
 	// register a steerable live run before the second call.
 	done := make(chan *httptest.ResponseRecorder, 1)
 	go func() {
-		done <- doRun(t, h, runedv1.RunRequest{Folder: "demo", ChatJID: "j", TurnID: "t1", MessageBatch: "first"})
+		done <- doRun(t, h, runedv1.RunRequest{Packages: []string{"core"}, Folder: "demo", ChatJID: "j", TurnID: "t1", MessageBatch: "first"})
 	}()
 	<-started
 	// wire the steer callback as the production Runtime would.
@@ -118,7 +116,7 @@ func TestLiveFolderRejectsFreshTurn(t *testing.T) {
 	steered := false
 	srv.mgr.SetSteer(live, func(batch string) bool { steered = true; return true })
 
-	rec := doRun(t, h, runedv1.RunRequest{Folder: "demo", ChatJID: "j", TurnID: "t2", MessageBatch: "steered"})
+	rec := doRun(t, h, runedv1.RunRequest{Packages: []string{"core"}, Folder: "demo", ChatJID: "j", TurnID: "t2", MessageBatch: "steered"})
 	var out runedv1.RunOutcome
 	json.Unmarshal(rec.Body.Bytes(), &out)
 	close(release)

@@ -813,10 +813,15 @@ func (l *Loop) dispatchRun(ctx context.Context, folder, topic, chatJID, turnID, 
 		"egress", egress, "share_readonly", shareRO, "web_publish", webPublish,
 		"gh_write", ghWrite,
 		"shell_env", slices.Sorted(maps.Keys(shellEnv)))
+	packages, err := l.db.store().SelectedPackageNames(folder)
+	if err != nil {
+		return runedv1.RunOutcome{}, err
+	}
 	return l.runner.Run(ctx, runedv1.RunRequest{
-		Folder:  types.Folder(folder),
-		Topic:   topic,
-		ChatJID: chatJID,
+		Packages: packages,
+		Folder:   types.Folder(folder),
+		Topic:    topic,
+		ChatJID:  chatJID,
 		// The JID scheme picks the per-surface output style; a scheme-less JID
 		// yields "" → default. SplitN would hand back the folder path as a
 		// style name, so jidScheme.

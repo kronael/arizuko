@@ -1,0 +1,6 @@
+name: helpdesk
+brand: Helpdesk
+tagline: Triage inbound support, answer what it can, escalate what it cannot.
+env:
+  HELPDESK_ESCALATION_CHANNEL:
+    hint: Folder that billing/account escalations are routed to

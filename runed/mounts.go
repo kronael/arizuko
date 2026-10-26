@@ -1,7 +1,7 @@
 package runed
 
 import (
-	"errors"
+	"encoding/json"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -41,16 +41,8 @@ func buildMounts(
 	folder := string(req.Folder)
 	elevated := req.Elevated
 	var m []core.Mount
-	lock, err := container.LockPackages(cfg.ProjectRoot)
+	inventory, err := container.ReadPackageInventory(cfg.ProjectRoot, req.Packages)
 	if err != nil {
-		return nil, err
-	}
-	inventory, err := container.ReadPackageInventory(cfg.ProjectRoot, folder)
-	if err != nil {
-		return nil, errors.Join(err, lock.Close())
-	}
-	disabled, empty, err := container.PreparePackageMountTargets(cfg, folder, inventory)
-	if err := errors.Join(err, lock.Close()); err != nil {
 		return nil, err
 	}
 
@@ -75,14 +67,76 @@ func buildMounts(
 		RO:        true,
 	})
 	for _, skill := range inventory.Skills {
-		source := skill.Dir
-		if disabled[skill.Name] {
-			source = empty
+		if _, err := os.Stat(filepath.Join(groupDir, ".claude", "skills", skill.Name, ".disabled")); err == nil {
+			continue
 		}
-		m = append(m, core.Mount{Host: source,
+		m = append(m, core.Mount{Host: skill.Dir,
 			Container: core.ContainerHome + "/.claude/skills/" + skill.Name, RO: true})
 	}
-	m = append(m, core.Mount{Host: filepath.Join(inventory.Core, "CLAUDE.md"),
+	for _, product := range inventory.Packages {
+		dir, name := product.Dir, product.Name
+		m = append(m, core.Mount{Host: dir, Container: "/opt/arizuko/packages/" + name, RO: true})
+		entries, err := os.ReadDir(filepath.Join(dir, "hooks"))
+		if err != nil && !os.IsNotExist(err) {
+			return nil, err
+		}
+		for _, entry := range entries {
+			m = append(m, core.Mount{Host: filepath.Join(dir, "hooks", entry.Name()),
+				Container: core.ContainerHome + "/.claude/hooks/" + entry.Name(), RO: true})
+		}
+		entries, err = os.ReadDir(filepath.Join(dir, "bin"))
+		if err != nil && !os.IsNotExist(err) {
+			return nil, err
+		}
+		for _, entry := range entries {
+			m = append(m, core.Mount{Host: filepath.Join(dir, "bin", entry.Name()),
+				Container: "/usr/local/bin/" + entry.Name(), RO: true})
+		}
+	}
+	var manual []byte
+	for _, product := range inventory.Packages {
+		data, err := os.ReadFile(filepath.Join(product.Dir, "CLAUDE.md"))
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		manual = append(append(manual, data...), '\n')
+	}
+	ipcDir, err := folders.IpcPath(folder)
+	if err != nil {
+		return nil, err
+	}
+	if err := os.MkdirAll(ipcDir, 0o755); err != nil {
+		return nil, err
+	}
+	manualFile := filepath.Join(ipcDir, "package-CLAUDE.md")
+	if err := os.WriteFile(manualFile, manual, 0o644); err != nil {
+		return nil, err
+	}
+	hooks, err := readPackageHooks(cfg.ProjectRoot, req.Packages, ".codex/hooks.json")
+	if err != nil {
+		return nil, err
+	}
+	hookData, err := json.Marshal(map[string]any{"hooks": hooks})
+	if err != nil {
+		return nil, err
+	}
+	for _, file := range []struct {
+		name string
+		data []byte
+	}{
+		{"config.toml", []byte("[features]\nhooks = true\n")},
+		{"hooks.json", hookData},
+	} {
+		source := filepath.Join(ipcDir, "codex-"+file.name)
+		if err := os.WriteFile(source, file.data, 0o644); err != nil {
+			return nil, err
+		}
+		m = append(m, core.Mount{Host: source, Container: "/etc/codex/" + file.name, RO: true})
+	}
+	m = append(m, core.Mount{Host: manualFile,
 		Container: core.ContainerHome + "/.claude/CLAUDE.md", RO: true})
 
 	// Every guest gets the world's shared dir at /var/lib/share (writable):
@@ -100,14 +154,11 @@ func buildMounts(
 
 	mkMountSource(filepath.Join(groupDir, ".claude"))
 
-	ipcDir, err := folders.IpcPath(folder)
-	if err == nil {
-		mkMountSource(groupfolder.IpcInputDir(ipcDir))
-		m = append(m, core.Mount{
-			Host:      ipcDir,
-			Container: ipcMount,
-		})
-	}
+	mkMountSource(groupfolder.IpcInputDir(ipcDir))
+	m = append(m, core.Mount{
+		Host:      ipcDir,
+		Container: ipcMount,
+	})
 
 	// ARIZUKO_DEV is documented as bool ("true" or "1") — parse it as one
 	// rather than pinning a single literal spelling (BUGS F74: this compared

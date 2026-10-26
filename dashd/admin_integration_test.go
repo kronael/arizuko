@@ -16,7 +16,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kronael/arizuko/container"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/store"
 	"github.com/kronael/arizuko/tests/testutils"
@@ -238,18 +237,15 @@ func TestGroupDelete_PurgesOrphanAclAndRoutes(t *testing.T) {
 // list handler and silently 200 the wrong page.
 func TestDash_NestedFolderRouting(t *testing.T) {
 	srv, inst, groupsDir := newRWDashServer(t)
-	t.Setenv("DATA_DIR", inst.Tmp)
-	groupCoreSource(t)
-	cfg := &core.Config{ProjectRoot: inst.Tmp, GroupsDir: groupsDir, AppSrcDir: os.Getenv("APP_SRC_DIR")}
 	s := inst.Store
-	lock, err := container.LockPackages(inst.Tmp)
-	if err != nil {
+	coreDir := filepath.Join(inst.Tmp, "packages", "core")
+	if err := os.MkdirAll(coreDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := container.EnsureCorePackage(cfg, s); err != nil {
+	if err := os.WriteFile(filepath.Join(coreDir, "arizuko.yml"), []byte("name: core\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := lock.Close(); err != nil {
+	if err := s.PutInstalledPackage(store.InstalledPackage{Name: "core", Manifest: map[string][]string{"skill": {}}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.AddACLRow(core.ACLRow{

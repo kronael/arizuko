@@ -173,7 +173,7 @@ func TestProbeHealthOKAndErr(t *testing.T) {
 // knows only the first calls every adapter dashboard a 404.
 func manifestRoutePaths(t *testing.T) []string {
 	t.Helper()
-	files, err := filepath.Glob("../template/services/*.yaml")
+	files, err := filepath.Glob("../template/services/*/arizuko.yml")
 	if err != nil {
 		t.Fatal(err)
 	}

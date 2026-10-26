@@ -22,6 +22,22 @@ type InstalledPackage struct {
 	InstalledAt string
 }
 
+func (s *Store) SelectedPackageNames(folder string) ([]string, error) {
+	records, err := s.InstalledPackages()
+	var names []string
+	for _, record := range records {
+		_, assets := record.Manifest["skill"]
+		if assets && (record.Folder == "" || record.Folder == folder) {
+			if record.Name == "core" && record.Folder == "" {
+				names = append([]string{record.Name}, names...)
+			} else {
+				names = append(names, record.Name)
+			}
+		}
+	}
+	return names, err
+}
+
 // PutInstalledPackage upserts a record. An unconditional Put: the coordinate
 // is (folder, name) and every other field is the install's own answer.
 // Manifest and AssetHashes are DOCUMENTS — JSON text, nil normalised to `{}`,

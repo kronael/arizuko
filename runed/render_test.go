@@ -97,8 +97,7 @@ func TestRenderTurnGolden(t *testing.T) {
 	write(t, filepath.Join(groupDir, "SYSTEM.md"), "House rules.\n")
 	write(t, filepath.Join(groupDir, "work.md"), "the work in flight\n")
 
-	turn, err := renderTurn(cfg, folders, runedv1.RunRequest{
-		Folder: "atlas/support", Topic: "t-42", ChatJID: "slack:T1/channel/C9",
+	turn, err := renderTurn(cfg, folders, runedv1.RunRequest{Packages: []string{"core"}, Folder: "atlas/support", Topic: "t-42", ChatJID: "slack:T1/channel/C9",
 		Channel: "slack", SessionID: "11111111-2222-3333-4444-555555555555",
 		MessageBatch: "hello world", TriggerSender: "u1", CallerSub: "user:caller",
 		TurnID: "turn-7", Model: "opus", Effort: "xhigh",
@@ -108,8 +107,7 @@ func TestRenderTurnGolden(t *testing.T) {
 		},
 		ShareReadOnly: true, Egress: true, WebPublish: true, GHWrite: true,
 		EgressAllowlist: []string{"github.com"},
-		Secrets:         map[string]string{"ANTHROPIC_API_KEY": "sk-user"},
-	}, "arizuko-krons-atlas-support-1700000000000", 20*time.Minute)
+		Secrets:         map[string]string{"ANTHROPIC_API_KEY": "sk-user"}}, "arizuko-krons-atlas-support-1700000000000", 20*time.Minute)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,8 +129,10 @@ func TestRenderTurnGolden(t *testing.T) {
 		root + "/groups/atlas/support -> /home/node",
 		selectedCore(t, cfg) + " -> /opt/arizuko/ant ro",
 		selectedCore(t, cfg) + "/skills/base -> /home/node/.claude/skills/base ro",
-		selectedCore(t, cfg) + "/skills/self -> /home/node/.claude/skills/self ro",
-		selectedCore(t, cfg) + "/CLAUDE.md -> /home/node/.claude/CLAUDE.md ro",
+		selectedCore(t, cfg) + " -> /opt/arizuko/packages/core ro",
+		root + "/ipc/atlas/support/codex-config.toml -> /etc/codex/config.toml ro",
+		root + "/ipc/atlas/support/codex-hooks.json -> /etc/codex/hooks.json ro",
+		root + "/ipc/atlas/support/package-CLAUDE.md -> /home/node/.claude/CLAUDE.md ro",
 		root + "/groups/atlas/share -> /var/lib/share ro",
 		root + "/ipc/atlas/support -> /run/ipc",
 		root + "/groups/atlas/support/.codex -> /home/node/.codex",
@@ -195,6 +195,7 @@ func TestRenderTurnGolden(t *testing.T) {
     "WEB_HOST": "krons.fiu.wtf",
     "WEB_PREFIX": "atlas"
   },
+  "hooks": {},
   "mcpServers": {
     "arizuko": {
       "args": [
@@ -232,12 +233,10 @@ func TestRenderTurnGoldenElevated(t *testing.T) {
 	cfg.ModelGatewayURL = "http://litellm:4000"
 	folders := resolverFor(cfg)
 
-	turn, err := renderTurn(cfg, folders, runedv1.RunRequest{
-		Folder: "main", ChatJID: "telegram:user/42", Channel: "telegram",
+	turn, err := renderTurn(cfg, folders, runedv1.RunRequest{Packages: []string{"core"}, Folder: "main", ChatJID: "telegram:user/42", Channel: "telegram",
 		MessageBatch: "do the thing", TurnID: "turn-9", Elevated: true,
 		Secrets:         map[string]string{"ANTHROPIC_API_KEY": "sk-user", "GH_TOKEN": "ghp"},
-		ModelGatewayKey: "sk-virtual-turn",
-	}, "arizuko-krons-main-1700000000000", 0)
+		ModelGatewayKey: "sk-virtual-turn"}, "arizuko-krons-main-1700000000000", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -246,8 +245,10 @@ func TestRenderTurnGoldenElevated(t *testing.T) {
 		root + "/groups/main -> /home/node",
 		selectedCore(t, cfg) + " -> /opt/arizuko/ant ro",
 		selectedCore(t, cfg) + "/skills/base -> /home/node/.claude/skills/base ro",
-		selectedCore(t, cfg) + "/skills/self -> /home/node/.claude/skills/self ro",
-		selectedCore(t, cfg) + "/CLAUDE.md -> /home/node/.claude/CLAUDE.md ro",
+		selectedCore(t, cfg) + " -> /opt/arizuko/packages/core ro",
+		root + "/ipc/main/codex-config.toml -> /etc/codex/config.toml ro",
+		root + "/ipc/main/codex-hooks.json -> /etc/codex/hooks.json ro",
+		root + "/ipc/main/package-CLAUDE.md -> /home/node/.claude/CLAUDE.md ro",
 		root + "/groups/share -> /var/lib/share",
 		root + "/ipc/main -> /run/ipc",
 		root + "/groups/main/.codex -> /home/node/.codex",
@@ -293,11 +294,9 @@ func TestPayloadCarriesOnlyTheAgentsKeys(t *testing.T) {
 	noHostSecrets(t)
 	root := t.TempDir()
 	cfg := goldenCfg(t, root)
-	turn, err := renderTurn(cfg, resolverFor(cfg), runedv1.RunRequest{
-		Folder: "solo/inbox", ChatJID: "web:solo/inbox", Channel: "web",
+	turn, err := renderTurn(cfg, resolverFor(cfg), runedv1.RunRequest{Packages: []string{"core"}, Folder: "solo/inbox", ChatJID: "web:solo/inbox", Channel: "web",
 		SessionID: "s1", MessageBatch: "hi", TriggerSender: "user:u1",
-		TurnID: "m-1", Topic: "t", Secrets: map[string]string{"GH_TOKEN": "x"},
-	}, "h", 0)
+		TurnID: "m-1", Topic: "t", Secrets: map[string]string{"GH_TOKEN": "x"}}, "h", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -330,9 +329,7 @@ func TestPreparePayloadPrependsTheContextLayers(t *testing.T) {
 	groupDir := filepath.Join(cfg.GroupsDir, "atlas")
 	write(t, filepath.Join(groupDir, "work.md"), "## Current task\nfixing bug")
 
-	p := preparePayload(cfg, runedv1.RunRequest{
-		Folder: "atlas", Topic: "inc-1", MessageBatch: "hello world",
-	}, groupDir)
+	p := preparePayload(cfg, runedv1.RunRequest{Packages: []string{"core"}, Folder: "atlas", Topic: "inc-1", MessageBatch: "hello world"}, groupDir)
 
 	for _, want := range []string{
 		"Topic session: inc-1",
@@ -359,7 +356,7 @@ func TestPreparePayloadWithoutLayers(t *testing.T) {
 	cfg := goldenCfg(t, root)
 	groupDir := filepath.Join(cfg.GroupsDir, "atlas")
 
-	p := preparePayload(cfg, runedv1.RunRequest{Folder: "atlas", MessageBatch: "hi"}, groupDir)
+	p := preparePayload(cfg, runedv1.RunRequest{Packages: []string{"core"}, Folder: "atlas", MessageBatch: "hi"}, groupDir)
 	want := "[solve] Invoke /solve now — classify, recall, match skills, then respond.\n\nhi"
 	if p.Prompt != want {
 		t.Errorf("prompt=%q want %q", p.Prompt, want)
@@ -378,7 +375,7 @@ func TestPreparePayloadReadsThePersonaLayers(t *testing.T) {
 	write(t, filepath.Join(groupDir, "SOUL.md"), "  warm and friendly\n")
 	write(t, filepath.Join(groupDir, "SYSTEM.md"), "custom system prompt\n")
 
-	p := preparePayload(cfg, runedv1.RunRequest{Folder: "atlas"}, groupDir)
+	p := preparePayload(cfg, runedv1.RunRequest{Packages: []string{"core"}, Folder: "atlas"}, groupDir)
 	if p.Persona != "warm and friendly" {
 		t.Errorf("persona=%q want the trimmed SOUL.md content", p.Persona)
 	}
@@ -410,10 +407,8 @@ func TestTurnEnvEmissions(t *testing.T) {
 	full := &core.Config{
 		Timezone: "UTC", AgentBackend: "codex", ModelGatewayURL: "http://gw:4000",
 	}
-	got := turnEnv(full, runedv1.RunRequest{
-		Model: "opus", Effort: "xhigh", ModelGatewayKey: "sk-virtual",
-		Elevated: true, GHWrite: true,
-	}, 900000)
+	got := turnEnv(full, runedv1.RunRequest{Packages: []string{"core"}, Model: "opus", Effort: "xhigh", ModelGatewayKey: "sk-virtual",
+		Elevated: true, GHWrite: true}, 900000)
 	want := map[string]string{
 		"TZ":                       "UTC",
 		"ARIZUKO_MODEL":            "opus",
@@ -434,7 +429,7 @@ func TestTurnEnvEmissions(t *testing.T) {
 		}
 	}
 
-	bare := turnEnv(&core.Config{Timezone: "UTC"}, runedv1.RunRequest{}, 0)
+	bare := turnEnv(&core.Config{Timezone: "UTC"}, runedv1.RunRequest{Packages: []string{"core"}}, 0)
 	wantBare := map[string]string{
 		"TZ": "UTC",
 		// Always emitted, "1" or "", so each gate reads present-and-false.
@@ -496,7 +491,7 @@ func TestGroupConfigIgnoresUnknownKeys(t *testing.T) {
 // through untouched and the request's own slice is never mutated.
 func TestEgressAllowlistAppliesTheGrant(t *testing.T) {
 	resolved := []string{"api.acme.com", "github.com"}
-	req := runedv1.RunRequest{EgressAllowlist: resolved}
+	req := runedv1.RunRequest{Packages: []string{"core"}, EgressAllowlist: resolved}
 	if got := egressAllowlist(req); strings.Join(got, ",") != "api.acme.com,github.com" {
 		t.Errorf("no grant: %v want the resolved list", got)
 	}
@@ -507,7 +502,7 @@ func TestEgressAllowlistAppliesTheGrant(t *testing.T) {
 	if strings.Join(resolved, ",") != "api.acme.com,github.com" {
 		t.Errorf("the request's own slice was mutated: %v", resolved)
 	}
-	if got := egressAllowlist(runedv1.RunRequest{Egress: true}); strings.Join(got, ",") != "*" {
+	if got := egressAllowlist(runedv1.RunRequest{Packages: []string{"core"}, Egress: true}); strings.Join(got, ",") != "*" {
 		t.Errorf("grant with no allowlist: %v want [*]", got)
 	}
 }

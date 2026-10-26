@@ -1,0 +1,27 @@
+name: extenddb
+# What the store server needs from the instance .env (spec 5/8 `env`). Neither
+# password has a meaning a human could supply, so both are minted once and land
+# in .env as the operator's lines: the first owns the instance's PostgreSQL
+# role, the second is the role the server itself connects with. The URL is the compose service name, which is
+# also the certificate's SAN, so it holds unless the operator points the
+# instance at another server.
+#
+# The admin password and each daemon's access key are NOT here: the server
+# mints them, and the operator writes them into .env while reading them
+# (INSTALL.md § The store server).
+env:
+  STORE_DB_PASSWORD:
+    generate: true
+  STORE_APP_PASSWORD:
+    generate: true
+  DYNAMODB_URL:
+    default: 'https://extenddb:18443'
+  AWS_REGION:
+    default: 'us-east-1'
+  # The host half of the published port. The daemons never read it — docker
+  # publishes on it and `arizuko generate` writes the operator's own
+  # env/operator.env against it, because the host CLI cannot resolve the
+  # service name the URL above carries. One instance per host keeps the
+  # default; the second sets its own.
+  STORE_HOST_PORT:
+    default: '18443'

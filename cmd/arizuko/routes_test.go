@@ -18,7 +18,7 @@ func generateInstance(t *testing.T, env string) string {
 	t.Setenv("ARIZUKO_DATA_DIR", base)
 	dataDir := filepath.Join(base, "arizuko_g")
 	seedCoreSource(t, filepath.Join(base, "release"))
-	unsealPackageFixtures(t, dataDir)
+
 	if err := os.MkdirAll(filepath.Join(dataDir, "store"), 0o755); err != nil {
 		t.Fatal(err)
 	}
