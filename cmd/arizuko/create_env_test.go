@@ -23,6 +23,8 @@ func TestCreateEnvCarriesNoEgressSwitch(t *testing.T) {
 	base := t.TempDir()
 	t.Setenv("ARIZUKO_DATA_DIR", base)
 	t.Setenv("DATA_DIR", "")
+	seedCoreSource(t, filepath.Join(base, "release"))
+	unsealPackageFixtures(t, filepath.Join(base, "arizuko_egressinst"))
 
 	cmdCreate([]string{"egressinst"})
 
@@ -65,6 +67,8 @@ func TestCreateEnvNamesNoAgentImage(t *testing.T) {
 	base := t.TempDir()
 	t.Setenv("ARIZUKO_DATA_DIR", base)
 	t.Setenv("DATA_DIR", "")
+	seedCoreSource(t, filepath.Join(base, "release"))
+	unsealPackageFixtures(t, filepath.Join(base, "arizuko_imginst"))
 
 	cmdCreate([]string{"imginst"})
 

@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kronael/arizuko/container"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/store"
 	"github.com/kronael/arizuko/tests/testutils"
@@ -237,7 +238,20 @@ func TestGroupDelete_PurgesOrphanAclAndRoutes(t *testing.T) {
 // list handler and silently 200 the wrong page.
 func TestDash_NestedFolderRouting(t *testing.T) {
 	srv, inst, groupsDir := newRWDashServer(t)
+	t.Setenv("DATA_DIR", inst.Tmp)
+	groupCoreSource(t)
+	cfg := &core.Config{ProjectRoot: inst.Tmp, GroupsDir: groupsDir, AppSrcDir: os.Getenv("APP_SRC_DIR")}
 	s := inst.Store
+	lock, err := container.LockPackages(inst.Tmp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := container.EnsureCorePackage(cfg, s); err != nil {
+		t.Fatal(err)
+	}
+	if err := lock.Close(); err != nil {
+		t.Fatal(err)
+	}
 	if err := s.AddACLRow(core.ACLRow{
 		Principal: "alice@x", Action: "admin", Scope: "**", Effect: "allow",
 	}); err != nil {
