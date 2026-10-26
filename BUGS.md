@@ -25,9 +25,6 @@ marker every entry carries. Ten entries said open in the heading and carried no
 `- **Status:** open` line, so a Status-only count answered 22 for a queue of
 31 — this section shipped with those ten missing.
 
-**Package adoption — implementation in progress.**
-
-
 **A contract or design decision.** Each names the question in its own Status
 line; none can be answered from the code.
 
