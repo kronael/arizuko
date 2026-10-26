@@ -25,11 +25,6 @@ marker every entry carries. Ten entries said open in the heading and carried no
 `- **Status:** open` line, so a Status-only count answered 22 for a queue of
 31 — this section shipped with those ten missing.
 
-**Core test fixtures.**
-
-- `L582` — create-env fixtures omit the required core source and sealed-cache cleanup.
-- `L583` — nested settings routing fixture omits the selected core package.
-
 **A contract or design decision.** Each names the question in its own Status
 line; none can be answered from the code.
 
@@ -9011,31 +9006,3 @@ Three shapes, one decision:
   **Fix:** measure instruction/tool exposure and completion behavior, then improve
   the existing declaration so an unambiguous completed task calls the stop tool.
   Do not add a second lifecycle policy or unconditional platform stop hook.
-
-
-## L582 — create-env fixtures omit required core setup (2026-10-26, open)
-
-MEASURED at `09d479424ae4faad589372e6885d9befb8f02ade`, before Step9b.3:
-`TestCreateEnvCarriesNoEgressSwitch` and `TestCreateEnvNamesNoAgentImage` each
-exit the test binary when `cmdCreate` cannot find core in the test binary's
-folder. Neither fixture declares `APP_SRC_DIR`. A diagnostic with an explicit
-source reaches creation, then its temporary cleanup fails on sealed package
-folders. These are fixture gaps in the unpublished package change.
-
-- **Severity:** low — blocks complete release verification; no production fallback is requested.
-- **Test:** `cmd/arizuko/create_env_test.go::{TestCreateEnvCarriesNoEgressSwitch,TestCreateEnvNamesNoAgentImage}`; parent runs each with the source env unset and observes failure.
-- **Fix:** use the existing explicit core-source fixture and immutable-cache cleanup; preserve the original env assertions.
-- **Status:** open — fixture-only follow-up queued after the current guard step.
-
-## L583 — nested settings routing fixture lacks selected core (2026-10-26, open)
-
-MEASURED at `09d479424ae4faad589372e6885d9befb8f02ade`, before Step9b.3:
-`TestDash_NestedFolderRouting` creates only a group row and folder. The settings
-page requires the core inventory and therefore omits the picker that this test
-uses to identify the page. Parent reproduces the existing assertion failure;
-no pending-adoption guard runs on this GET.
-
-- **Severity:** low — blocks complete release verification.
-- **Test:** `dashd/admin_integration_test.go::TestDash_NestedFolderRouting` fails with `settings page not rendered for nested folder`.
-- **Fix:** initialize the required core selection with the existing fixture, keeping settings and delete routing assertions intact.
-- **Status:** open — fixture-only follow-up queued after the current guard step.
