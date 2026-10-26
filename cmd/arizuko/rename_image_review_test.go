@@ -19,7 +19,7 @@ func TestMigrationReviewCompleteImages(t *testing.T) {
 			renameSeed(t, &inventory, drivers, "routd", store.Groups,
 				objstore.Key{Partition: "routd", Sort: "main"},
 				map[string]string{"added_at": "unchanged"})
-			plan, err := renamePreflight(context.Background(), "fixture", "",
+			plan, err := renamePreflight(context.Background(), "fixture", t.TempDir(),
 				renameTestMap(t), inventory, drivers)
 			if err != nil {
 				t.Fatal(err)

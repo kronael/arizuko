@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/chanlib"
+	"github.com/kronael/arizuko/container"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/ipc"
@@ -232,7 +233,7 @@ func (s *Server) registerGroup(jid string, g core.Group) error {
 			// A rollback that ALSO fails leaves the orphan this rollback exists
 			// to prevent, and the next register sees existed==true; the caller
 			// gets both facts (BUGS L343).
-			if _, _, rerr := s.db.DeleteGroup(g.Folder); rerr != nil {
+			if rerr := s.rollbackGroup(g.Folder); rerr != nil {
 				return fmt.Errorf("add route for %s: %w; the group row is still there: %w",
 					g.Folder, err, rerr)
 			}
@@ -241,6 +242,34 @@ func (s *Server) registerGroup(jid string, g core.Group) error {
 	}
 	ensureGroupGitRepo(filepath.Join(s.groupsDir, g.Folder))
 	return nil
+}
+
+func (s *Server) rollbackGroup(folder string) error {
+	if s.groupsDir == "" {
+		return fmt.Errorf("group directory is not configured")
+	}
+	dataDir := filepath.Dir(s.groupsDir)
+	lock, err := container.LockPackages(dataDir)
+	if err != nil {
+		return err
+	}
+	// The rollback owns selections until registered identities disappear.
+	defer lock.Close() //nolint:errcheck
+	registered, err := s.db.store().GroupFolders(0)
+	if err != nil {
+		return err
+	}
+	folders := []string{folder}
+	for _, registered := range registered {
+		if registered != folder && groupfolder.Contains(folder, registered) {
+			folders = append(folders, registered)
+		}
+	}
+	if err := container.WithdrawGroupPackages(dataDir, folders); err != nil {
+		return err
+	}
+	_, _, err = s.db.DeleteGroup(folder)
+	return err
 }
 
 // ensureGroupGitRepo git-inits groupDir + seeds a .gitignore when neither

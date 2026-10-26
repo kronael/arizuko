@@ -418,6 +418,33 @@ func (d *dash) handleGroupDelete(w http.ResponseWriter, r *http.Request) {
 		_, err := runed.StopFolder(ctx, f)
 		return err
 	}
+	if d.groupsDir == "" {
+		http.Error(w, "group directory is not configured", http.StatusInternalServerError)
+		return
+	}
+	dataDir := filepath.Dir(d.groupsDir)
+	lock, err := container.LockPackages(dataDir)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("package lock: %v", err), http.StatusInternalServerError)
+		return
+	}
+	// The deletion owns selections until registered identities disappear.
+	defer lock.Close() //nolint:errcheck
+	registered, err := d.routdStore().GroupFolders(0)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	folders := []string{folder}
+	for _, registered := range registered {
+		if registered != folder && groupfolder.Contains(folder, registered) {
+			folders = append(folders, registered)
+		}
+	}
+	if err := container.WithdrawGroupPackages(dataDir, folders); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 	// store.DeleteGroupStopping is the ONE purge — what it removes is declared
 	// once, in store.folderScopePurge — and AsUser attributes its audit row to
 	// the operator who pressed the button. A second list here is a second thing

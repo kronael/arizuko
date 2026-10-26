@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -39,7 +41,11 @@ func splitAdminDash(t *testing.T, adminSub string) (*dash, objstore.Store) {
 	seedFolder(t, routd, "team")
 	// routdURL: the pages read through routd's /v1 now (6/28), so the tests need
 	// something serving the rows they seed into routd.db.
-	d := &dash{routd: routd, groupsDir: t.TempDir(), routdURL: stubRoutd(t, routd)}
+	groupsDir := filepath.Join(inst.Tmp, "groups")
+	if err := os.MkdirAll(groupsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	d := &dash{routd: routd, groupsDir: groupsDir, routdURL: stubRoutd(t, routd)}
 	withRuned(d, stubRuned(t, http.StatusOK, nil))
 	return d, routd
 }

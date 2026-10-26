@@ -2,19 +2,23 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"maps"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"syscall"
 	"testing"
 
 	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/auth"
+	"github.com/kronael/arizuko/container"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/objstore"
@@ -25,6 +29,215 @@ import (
 	"golang.org/x/sys/unix"
 	"time"
 )
+
+func seedGroupPackages(t *testing.T, root string, folders []string) container.PackageSnapshot {
+	t.Helper()
+	unsealPackageFixtures(t, root)
+	source := t.TempDir()
+	mustWrite(t, filepath.Join(source, "arizuko.toml"), "name = \"lifecycle\"\n")
+	mustWrite(t, filepath.Join(source, "skills/probe/SKILL.md"), "immutable")
+	mustWrite(t, filepath.Join(source, "hook.sh"), "echo "+filepath.Join(root, "groups/main")+" /pub/main\n")
+	lock, err := container.LockPackages(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Close()
+	snapshot, err := container.PreparePackage(root, source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, folder := range folders {
+		if err := container.SelectPackages(root, folder, []container.PackageSnapshot{snapshot}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return snapshot
+}
+
+func assertGroupPackages(t *testing.T, root, folder string, want []container.PackageSnapshot) {
+	t.Helper()
+	got, err := container.ReadPackageSelection(root, folder)
+	if err != nil || !slices.Equal(got, want) {
+		t.Fatalf("selection %s = %v, %v; want %v", folder, got, err, want)
+	}
+}
+
+// Registered nested folders transfer their selections through success, resume and rollback.
+func TestGroupRenamePackages(t *testing.T) {
+	for _, mode := range []string{"success", "resume", "rollback"} {
+		t.Run(mode, func(t *testing.T) {
+			root := t.TempDir()
+			inventory, drivers := renameFixture(t)
+			for _, folder := range []string{"main", "main/main", "keeper"} {
+				renameSeed(t, &inventory, drivers, "routd", store.Groups,
+					objstore.Key{Partition: "routd", Sort: folder}, map[string]string{})
+			}
+			snapshot := seedGroupPackages(t, root, []string{"main", "main/main", "keeper", ""})
+			artifact, err := container.ResolvePackage(root, snapshot)
+			if err != nil {
+				t.Fatal(err)
+			}
+			oldSelections, err := os.ReadDir(filepath.Join(root, "package-selections"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			plan, err := renamePreflight(context.Background(), "fixture", root, renameTestMap(t), inventory, drivers)
+			if err != nil {
+				t.Fatal(err)
+			}
+			journal := filepath.Join(t.TempDir(), "journal")
+			if mode != "success" {
+				original := drivers["routd"]
+				drivers["routd"] = &renameFaultStore{Store: original, Fail: 1, After: true}
+				if err := renameExecute(context.Background(), journal, plan, drivers, false, false); err == nil {
+					t.Fatal("interruption did not surface")
+				}
+				drivers["routd"] = original
+			}
+			if err := renameExecute(context.Background(), journal, plan, drivers, mode != "success", mode == "rollback"); err != nil {
+				t.Fatal(err)
+			}
+			for before, after := range map[string]string{"main": "sloth", "main/main": "sloth/discord"} {
+				if mode == "rollback" {
+					before, after = after, before
+				}
+				assertGroupPackages(t, root, before, nil)
+				assertGroupPackages(t, root, after, []container.PackageSnapshot{snapshot})
+			}
+			assertGroupPackages(t, root, "keeper", []container.PackageSnapshot{snapshot})
+			assertGroupPackages(t, root, "", []container.PackageSnapshot{snapshot})
+			if _, err := container.ResolvePackage(root, snapshot); err != nil {
+				t.Fatalf("artifact changed: %v", err)
+			}
+			for _, entry := range oldSelections {
+				if _, err := os.Stat(filepath.Join(root, "package-selections", entry.Name())); err != nil {
+					t.Fatalf("old turn selection lost: %v", err)
+				}
+			}
+			body, err := os.ReadFile(filepath.Join(artifact, "hook.sh"))
+			if err != nil || !strings.Contains(string(body), "/pub/main") {
+				t.Fatalf("immutable bytes changed: %q %v", body, err)
+			}
+		})
+	}
+}
+
+// Preflight reads configured groups without creating package state.
+func TestGroupRenamePackagesDryRun(t *testing.T) {
+	for _, seeded := range []bool{false, true} {
+		t.Run(fmt.Sprint(seeded), func(t *testing.T) {
+			root := t.TempDir()
+			inventory, drivers := renameFixture(t)
+			renameSeed(t, &inventory, drivers, "routd", store.Groups,
+				objstore.Key{Partition: "routd", Sort: "main"}, map[string]string{})
+			var snapshots []container.PackageSnapshot
+			if seeded {
+				snapshots = append(snapshots, seedGroupPackages(t, root, []string{"main"}))
+				if err := os.Remove(filepath.Join(root, ".packages.lock")); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, err := renamePreflight(context.Background(), "fixture", root, renameTestMap(t), inventory, drivers); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := os.Lstat(filepath.Join(root, ".packages.lock")); !os.IsNotExist(err) {
+				t.Fatalf("dry run created package lock: %v", err)
+			}
+			assertGroupPackages(t, root, "main", snapshots)
+			assertGroupPackages(t, root, "sloth", nil)
+			entries, err := os.ReadDir(filepath.Join(root, "package-selections"))
+			if seeded {
+				if err != nil || len(entries) != 1 {
+					t.Fatalf("dry run changed selection namespaces: %v %v", entries, err)
+				}
+			} else if !os.IsNotExist(err) {
+				t.Fatalf("dry run created selection namespaces: %v %v", entries, err)
+			}
+		})
+	}
+}
+
+// An interrupted target update settles through the existing journal in either direction.
+func TestGroupRenamePackagesPartial(t *testing.T) {
+	for _, rollback := range []bool{false, true} {
+		t.Run(fmt.Sprint(rollback), func(t *testing.T) {
+			root := t.TempDir()
+			inventory, drivers := renameFixture(t)
+			renameSeed(t, &inventory, drivers, "routd", store.Groups,
+				objstore.Key{Partition: "routd", Sort: "main"}, map[string]string{})
+			snapshot := seedGroupPackages(t, root, []string{"main", "keeper"})
+			plan, err := renamePreflight(context.Background(), "fixture", root, renameTestMap(t), inventory, drivers)
+			if err != nil {
+				t.Fatal(err)
+			}
+			key := fmt.Sprintf("group-%x", sha256.Sum256([]byte("main")))
+			empty := fmt.Sprintf("%x", sha256.Sum256(nil))
+			obstruction := filepath.Join(root, "package-selections", key, empty)
+			if err := os.WriteFile(obstruction, nil, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			journal := filepath.Join(t.TempDir(), "journal")
+			if err := renameExecute(context.Background(), journal, plan, drivers, false, false); err == nil {
+				t.Fatal("selection failure did not surface")
+			}
+			assertGroupPackages(t, root, "sloth", []container.PackageSnapshot{snapshot})
+			assertGroupPackages(t, root, "main", []container.PackageSnapshot{snapshot})
+			if err := os.Remove(obstruction); err != nil {
+				t.Fatal(err)
+			}
+			var recovered renamePlan
+			if err := renameReadJSON(filepath.Join(journal, "plan.json"), &recovered); err != nil {
+				t.Fatal(err)
+			}
+			if err := renameExecute(context.Background(), journal, recovered, drivers, true, rollback); err != nil {
+				t.Fatal(err)
+			}
+			before, after := "main", "sloth"
+			if rollback {
+				before, after = after, before
+			}
+			assertGroupPackages(t, root, before, nil)
+			assertGroupPackages(t, root, after, []container.PackageSnapshot{snapshot})
+			assertGroupPackages(t, root, "keeper", []container.PackageSnapshot{snapshot})
+		})
+	}
+}
+
+// An operator selection change after interruption refuses before further DB writes.
+func TestGroupRenamePackagesChanged(t *testing.T) {
+	root := t.TempDir()
+	inventory, drivers := renameFixture(t)
+	renameSeed(t, &inventory, drivers, "routd", store.Groups,
+		objstore.Key{Partition: "routd", Sort: "main"}, map[string]string{})
+	snapshot := seedGroupPackages(t, root, []string{"main"})
+	plan, err := renamePreflight(context.Background(), "fixture", root, renameTestMap(t), inventory, drivers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	original := drivers["routd"]
+	drivers["routd"] = &renameFaultStore{Store: original, Fail: 1}
+	journal := filepath.Join(t.TempDir(), "journal")
+	if err := renameExecute(context.Background(), journal, plan, drivers, false, false); err == nil {
+		t.Fatal("interruption was hidden")
+	}
+	drivers["routd"] = original
+	if err := container.SelectPackages(root, "sloth", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := renameExecute(context.Background(), journal, plan, drivers, true, false); err == nil {
+		t.Fatal("operator selection change was accepted")
+	}
+	groups, err := drivers["routd"].Query(context.Background(), objstore.Query{Entity: store.Groups, Partition: "routd"})
+	if err != nil || len(groups) != 1 || groups[0].Key.Sort != "main" {
+		t.Fatalf("resume mutated DB after graph conflict: %v %v", groups, err)
+	}
+	if err := container.SelectPackages(root, "sloth", []container.PackageSnapshot{snapshot}); err != nil {
+		t.Fatal(err)
+	}
+	if err := renameExecute(context.Background(), journal, plan, drivers, true, false); err != nil {
+		t.Fatal(err)
+	}
+}
 
 func renameTestMap(t *testing.T) renameMap {
 	t.Helper()
@@ -850,7 +1063,7 @@ func TestGroupRenameLegacyLocalFeedsAndRouting(t *testing.T) {
 	if rt := router.ResolveRouteTarget(core.Message{ChatJID: "local:main"}, db.AllRoutes()); rt.Folder != "main/main" {
 		t.Fatalf("fixture route: %#v", rt)
 	}
-	plan, err := renamePreflight(ctx, "fixture", "", mapping, inventory, drivers)
+	plan, err := renamePreflight(ctx, "fixture", t.TempDir(), mapping, inventory, drivers)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -912,7 +1125,7 @@ func TestGroupRenameACLScopeDecisions(t *testing.T) {
 			renameSeed(t, &inventory, drivers, "routd", store.ACL, key, nil)
 			counter := &renameFaultStore{Store: source}
 			drivers["routd"] = counter
-			_, err := renamePreflight(ctx, "fixture", "", renameTestMap(t), inventory, drivers)
+			_, err := renamePreflight(ctx, "fixture", t.TempDir(), renameTestMap(t), inventory, drivers)
 			if fixture.refuse && (err == nil || !strings.Contains(err.Error(), "ACL scope")) {
 				t.Errorf("unsafe scope %q accepted or wrong refusal: %v", fixture.scope, err)
 			}
@@ -1091,7 +1304,7 @@ func TestGroupRenameACLExactCoordinateMatchers(t *testing.T) {
 			}
 			counter := &renameFaultStore{Store: drivers["routd"]}
 			drivers["routd"] = counter
-			plan, err := renamePreflight(ctx, "fixture", "", renameTestMap(t), inventory, drivers)
+			plan, err := renamePreflight(ctx, "fixture", t.TempDir(), renameTestMap(t), inventory, drivers)
 			if counter.Calls != 0 {
 				t.Fatalf("preflight wrote %d batches", counter.Calls)
 			}
@@ -1214,7 +1427,7 @@ func TestGroupRenameTokenRecordedOwnership(t *testing.T) {
 			renameSeed(t, &inventory, drivers, "routd", store.RouteTokens, key, attrs)
 			counter := &renameFaultStore{Store: drivers["routd"]}
 			drivers["routd"] = counter
-			plan, err := renamePreflight(ctx, "fixture", "", renameTestMap(t), inventory, drivers)
+			plan, err := renamePreflight(ctx, "fixture", t.TempDir(), renameTestMap(t), inventory, drivers)
 			if counter.Calls != 0 {
 				t.Fatalf("preflight wrote %d batches", counter.Calls)
 			}

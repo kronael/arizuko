@@ -292,6 +292,32 @@ func ReadPackageSelection(dataDir, target string) ([]PackageSnapshot, error) {
 	return readPackageSelection(root, selection)
 }
 
+// WithdrawGroupPackages validates every exact configured target before any
+// withdrawal. The caller holds the instance package lock through group purge.
+// Immutable selections and artifacts remain available to already resolved turns.
+func WithdrawGroupPackages(dataDir string, folders []string) error {
+	selected := make([][]PackageSnapshot, len(folders))
+	for i, folder := range folders {
+		if folder == "" {
+			return fmt.Errorf("group package withdrawal requires an exact folder")
+		}
+		var err error
+		selected[i], err = ReadPackageSelection(dataDir, folder)
+		if err != nil {
+			return fmt.Errorf("preflight packages for %s: %w", folder, err)
+		}
+	}
+	for i, folder := range folders {
+		if len(selected[i]) == 0 {
+			continue
+		}
+		if err := SelectPackages(dataDir, folder, nil); err != nil {
+			return fmt.Errorf("withdraw packages for %s: %w; group purge did not start; retry deletion", folder, err)
+		}
+	}
+	return nil
+}
+
 func readPackageSelection(root *os.Root, selection string) ([]PackageSnapshot, error) {
 	if err := checkPackageDirs(root, selection); err != nil {
 		return nil, err

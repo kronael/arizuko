@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -72,6 +73,74 @@ func selectedSnapshots(t *testing.T, dataDir, target string) []PackageSnapshot {
 		t.Fatal(err)
 	}
 	return snapshots
+}
+
+// A malformed subtree refuses before withdrawal; an IO failure leaves visible,
+// retryable progress while immutable snapshots remain available.
+func TestPackageGroupWithdrawal(t *testing.T) {
+	for _, failure := range []string{"preflight", "partial"} {
+		t.Run(failure, func(t *testing.T) {
+			root := t.TempDir()
+			lockSnapshotPackages(t, root)
+			snapshot := prepareSnapshot(t, root, snapshotSource(t, "probe", "retained"))
+			for _, folder := range []string{"team", "team/child", "keeper", ""} {
+				if err := SelectPackages(root, folder, []PackageSnapshot{snapshot}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			key, err := packageTarget("team/child")
+			if err != nil {
+				t.Fatal(err)
+			}
+			active := filepath.Join(root, "package-active", key)
+			reference, err := os.Readlink(active)
+			if err != nil {
+				t.Fatal(err)
+			}
+			obstruction := filepath.Join(root, "package-selections", key, packageSelectionDigest(nil))
+			if failure == "preflight" {
+				if err := os.Remove(active); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink("../invalid", active); err != nil {
+					t.Fatal(err)
+				}
+			} else if err := os.WriteFile(obstruction, nil, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if err := WithdrawGroupPackages(root, []string{"team", "team/child"}); err == nil {
+				t.Fatal("failure was hidden")
+			}
+			want := 0
+			if failure == "preflight" {
+				want = 1
+				if err := os.Remove(active); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(reference, active); err != nil {
+					t.Fatal(err)
+				}
+			} else if err := os.Remove(obstruction); err != nil {
+				t.Fatal(err)
+			}
+			if got := selectedSnapshots(t, root, "team"); len(got) != want {
+				t.Fatalf("unexpected partial state: %v", got)
+			}
+			if err := WithdrawGroupPackages(root, []string{"team", "team/child"}); err != nil {
+				t.Fatal(err)
+			}
+			for _, folder := range []string{"team", "team/child"} {
+				if got := selectedSnapshots(t, root, folder); len(got) != 0 {
+					t.Fatalf("orphan selection %s: %v", folder, got)
+				}
+			}
+			for _, folder := range []string{"keeper", ""} {
+				if got := selectedSnapshots(t, root, folder); !slices.Equal(got, []PackageSnapshot{snapshot}) {
+					t.Fatalf("unrelated selection %s: %v", folder, got)
+				}
+			}
+		})
+	}
 }
 
 func snapshotBytes(t *testing.T, dir, want string) {

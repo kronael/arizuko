@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/kronael/arizuko/container"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/store"
@@ -174,6 +175,67 @@ func TestRegisterGroup_RollsBackOnlyWhatItCreated(t *testing.T) {
 	for _, folder := range []string{"acme", "acme/eng"} {
 		if !d.GroupExists(folder) {
 			t.Errorf("the rollback deleted %s, which this call did not create", folder)
+		}
+	}
+}
+
+// Failed route registration withdraws the newly registered subtree's packages.
+func TestRegisterGroupRollbackPackages(t *testing.T) {
+	db := memDB(t)
+	root := t.TempDir()
+	srv := &Server{db: db, groupsDir: filepath.Join(root, "groups")}
+	source := t.TempDir()
+	if err := os.WriteFile(filepath.Join(source, "arizuko.toml"), []byte("name = \"probe\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	lock, err := container.LockPackages(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := container.PreparePackage(root, source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, folder := range []string{"new", "new/child", "keeper"} {
+		if folder != "new" {
+			if err := db.PutGroup(core.Group{Folder: folder}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := container.SelectPackages(root, folder, []container.PackageSnapshot{snapshot}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := lock.Close(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		for _, name := range []string{"packages", "package-selections"} {
+			if err := filepath.WalkDir(filepath.Join(root, name), func(path string, entry os.DirEntry, err error) error {
+				if err != nil || !entry.IsDir() {
+					return err
+				}
+				return os.Chmod(path, 0o755)
+			}); err != nil {
+				t.Error(err)
+			}
+		}
+	})
+	dropEntity(t, db, store.Routes)
+	if err := srv.registerGroup("telegram:777", core.Group{Folder: "new"}); err == nil {
+		t.Fatal("route failure was hidden")
+	}
+	for _, folder := range []string{"new", "new/child", "keeper"} {
+		selected, err := container.ReadPackageSelection(root, folder)
+		want := 0
+		if folder == "keeper" {
+			want = 1
+		}
+		if err != nil || len(selected) != want {
+			t.Fatalf("selection %s = %v %v", folder, selected, err)
+		}
+		if db.GroupExists(folder) != (folder == "keeper") {
+			t.Fatalf("unexpected group state for %s", folder)
 		}
 	}
 }
