@@ -13,6 +13,16 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.70.15] — 2026-10-26
+
+> arizuko v0.70.15 — headed Chromium in every guest
+>
+> The agent image now carries Xvfb, so an agent can run Chromium headed where a site blocks headless browsers.
+>
+> • Agent image — `xvfb` and `xauth` are installed; no extra image is needed for headed browsing.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
 ## [v0.70.14] — 2026-10-26
 
 > arizuko v0.70.14 — curl in the guest uses the egress proxy
