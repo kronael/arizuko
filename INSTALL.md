@@ -316,16 +316,16 @@ is for `routd`:
 ```bash
 sudo docker exec -e EXTENDDB_PASSWORD=$STORE_ADMIN_PASSWORD arizuko_extenddb_<name> \
   extenddb manage -c /var/lib/extenddb/extenddb.toml --user admin \
-  create-user --account $STORE_ACCOUNT_ID --name routd
+  create-user --account-id $STORE_ACCOUNT_ID --user-name routd
 
 sudo docker exec -e EXTENDDB_PASSWORD=$STORE_ADMIN_PASSWORD arizuko_extenddb_<name> \
   extenddb manage -c /var/lib/extenddb/extenddb.toml --user admin \
-  put-user-policy --account $STORE_ACCOUNT_ID --name routd --policy-name tables \
-  --policy '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"dynamodb:*","Resource":["arn:aws:dynamodb:*:*:table/routd.*"]}]}'
+  put-user-policy --account-id $STORE_ACCOUNT_ID --user-name routd --policy-name tables \
+  --policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"dynamodb:*","Resource":["arn:aws:dynamodb:*:*:table/routd.*"]}]}'
 
 sudo docker exec -e EXTENDDB_PASSWORD=$STORE_ADMIN_PASSWORD arizuko_extenddb_<name> \
   extenddb manage -c /var/lib/extenddb/extenddb.toml --user admin \
-  create-access-key --account $STORE_ACCOUNT_ID --name routd
+  create-access-key --account-id $STORE_ACCOUNT_ID --user-name routd
 ```
 
 Write the printed pair into `env/routd.env` as `AWS_ACCESS_KEY_ID` and
