@@ -168,7 +168,7 @@ func (s *Server) recordTurnResult(turnID string, req apiv1.TurnResult) (ipc.Turn
 	}
 	notice := ""
 	if req.Status == "success" && !s.db.TurnResultRecorded(tc.Folder, turnID) {
-		if req.TimedOut && !delivered {
+		if req.TimedOut {
 			notice = timedOutNotice
 			end = endFailed
 		} else if !delivered {
