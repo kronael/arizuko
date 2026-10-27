@@ -141,7 +141,7 @@ func TestRecordOutboundReply_RecordsTheThreadItRooted(t *testing.T) {
 	db := StoreFns{PutOutbound: func(m core.Message, _ string) error { got = m; return nil }}
 
 	const root = "1545760882322182276"
-	recordOutboundReply(RoutdFns{}, db, "discord:g/channel/C1", "answer", "m-9", "sloth/desk", root, "")
+	recordOutboundReply(RoutdFns{}, db, "discord:g/channel/C1", "answer", "m-9", "sloth/desk", root, "", "reply")
 
 	if got.Topic != root {
 		t.Fatalf("Topic = %q, want the thread it rooted (%s)", got.Topic, root)
@@ -158,7 +158,7 @@ func TestRecordOutboundReply_RecordsTheResolvedDestinationTopic(t *testing.T) {
 	}
 
 	for _, topic := range []string{"", "destination-topic"} {
-		recordOutboundReply(RoutdFns{}, db, "discord:g/channel/C1", "answer", "m-9", "sloth/desk", topic, "")
+		recordOutboundReply(RoutdFns{}, db, "discord:g/channel/C1", "answer", "m-9", "sloth/desk", topic, "", "reply")
 		if got.Topic != topic {
 			t.Fatalf("Topic = %q, want resolved destination %q", got.Topic, topic)
 		}
@@ -180,7 +180,7 @@ func TestRecordOutboundFailure_KeepsTheThreadTheReplyMeantToRoot(t *testing.T) {
 
 	const root = "1545760882322182276"
 	_ = recordOutboundFailure(RoutdFns{}, db, "discord:g/channel/C1", "answer", "sloth/desk",
-		"parent-msg", root, "", true, errors.New("502 bad gateway"))
+		"parent-msg", root, "", "reply", true, errors.New("502 bad gateway"))
 
 	if got.Topic != root {
 		t.Fatalf("Topic = %q, want the thread it meant to root (%s) — the sweep cannot put it back without one", got.Topic, root)
@@ -203,7 +203,7 @@ func TestRecordOutboundFailure_TellsTheAgentWhoOwnsTheRetry(t *testing.T) {
 	db := StoreFns{PutOutbound: func(core.Message, string) error { return nil }}
 
 	transient := recordOutboundFailure(RoutdFns{}, db, "discord:g/channel/C1", "answer",
-		"sloth/desk", "", "", "", true, errors.New("502 bad gateway"))
+		"sloth/desk", "", "", "", "reply", true, errors.New("502 bad gateway"))
 	if transient == nil {
 		t.Fatal("transient failure returned nil, want the error the tool hands the agent")
 	}
@@ -215,7 +215,7 @@ func TestRecordOutboundFailure_TellsTheAgentWhoOwnsTheRetry(t *testing.T) {
 	}
 
 	permanent := recordOutboundFailure(RoutdFns{}, db, "discord:g/channel/C1", "answer",
-		"sloth/desk", "", "", "", true, fmt.Errorf("%w: chat gone", chanlib.ErrPermanent))
+		"sloth/desk", "", "", "", "reply", true, fmt.Errorf("%w: chat gone", chanlib.ErrPermanent))
 	if permanent == nil {
 		t.Fatal("permanent failure returned nil, want the error the tool hands the agent")
 	}

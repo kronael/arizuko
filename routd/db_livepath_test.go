@@ -24,10 +24,6 @@ func addMembership(d *DB, child, parent, addedBy string) error {
 	return store.NewOver(d.Obj()).PutMembership(child, parent, addedBy)
 }
 
-func setThreadReplies(d *DB, folder string, on *bool) error {
-	return store.NewOver(d.Obj()).SetThreadReplies(folder, on)
-}
-
 func messageExists(d *DB, chatJID, id string) bool {
 	_, ok := store.NewOver(d.Obj()).MessageByID(chatJID, id)
 	return ok

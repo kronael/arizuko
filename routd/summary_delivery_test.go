@@ -82,10 +82,31 @@ func TestTaskSummaryPendingOpenerCannotQueueAParentReply(t *testing.T) {
 	dl := &recDeliverer{failIdem: summaryID("t1")}
 	db, srv, sock := summaryBroker(t, dl)
 	declareTask(t, srv)
-	for _, tool := range []string{"send", "reply"} {
-		if _, msg := callToolOverSock(t, sock, tool, map[string]any{"chatJid": progressJID, "text": "the result"}); !strings.Contains(msg, "not delivered, and no retry follows") {
-			t.Fatalf("unresolved opener retained an unplaced child: %q", msg)
+	if _, msg := callToolOverSock(t, sock, "reply", map[string]any{"chatJid": progressJID, "text": "the result"}); !strings.Contains(msg, "not delivered, and no retry follows") {
+		t.Fatalf("unresolved opener retained an unplaced child: %q", msg)
+	}
+	if _, msg := callToolOverSock(t, sock, "send", map[string]any{"chatJid": progressJID, "text": "parent notice"}); msg != "" {
+		t.Fatal(msg)
+	}
+	parent := dl.sends[len(dl.sends)-1]
+	if parent.threadID != "" || parent.threadRoot != "" {
+		t.Fatalf("parent send inherited opener: %+v", parent)
+	}
+	stored, err := db.MessagesSince(progressJID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, row := range stored {
+		if row.Content == "parent notice" {
+			found = true
+			if row.Topic != "" {
+				t.Fatalf("parent send stored topic: %+v", row)
+			}
 		}
+	}
+	if !found {
+		t.Fatal("parent send was not stored")
 	}
 	rows, err := db.PendingOutbound(time.Now().Add(time.Hour), 10)
 	if err != nil || len(rows) != 1 || rows[0].ID != summaryID("t1") {
@@ -98,7 +119,7 @@ func TestTaskSummaryPendingOpenerCannotQueueAParentReply(t *testing.T) {
 		if send.text == "the result" {
 			t.Fatal("outbound replay sent a child that the tool refused")
 		}
-		if send.idem != summaryID("t1") {
+		if send.text != "parent notice" && send.idem != summaryID("t1") {
 			t.Fatal("opener retry changed its idempotency key")
 		}
 	}

@@ -11,7 +11,7 @@ package store
 //
 // Two JSON documents live in attributes: `container_config` is
 // core.Group.Config (the spawn shape), and `config` is the operator SETTINGS
-// (model, open, the two observe windows, thread_replies). Only the settings'
+// (model, open, the two observe windows). Only the settings'
 // own writers touch the second, which is what makes an upsert of the first
 // safe.
 
@@ -50,7 +50,6 @@ const (
 	cfgOpen           = "open"
 	cfgObserveWinMsgs = "observe_window_messages"
 	cfgObserveWinChar = "observe_window_chars"
-	cfgThreadReplies  = "thread_replies"
 )
 
 // groupKey is the coordinate of one group.
@@ -507,16 +506,6 @@ func (s *Store) SetGroupObserveWindow(folder string, msgs, chars int) error {
 	return err
 }
 
-// SetThreadReplies sets the per-group thread_replies preference. nil resets to
-// the default (group chats thread, DMs do not); true always threads; false
-// never threads.
-func (s *Store) SetThreadReplies(folder string, on *bool) error {
-	if on == nil {
-		return s.setSetting(folder, cfgThreadReplies, nil, true)
-	}
-	return s.setSetting(folder, cfgThreadReplies, btoi(*on), false)
-}
-
 // SetGroupModel sets the per-group model override. Empty string clears it.
 func (s *Store) SetGroupModel(folder, model string) error {
 	if model == "" {
@@ -590,20 +579,6 @@ func (s *Store) GroupConfig(folder string) (model string, cfg map[string]any) {
 		}
 	}
 	return model, cfg
-}
-
-// ThreadReplies reads the group's thread_replies preference. A missing key (and
-// an unknown group) yields dflt, which the caller sets from the chat's kind.
-func (s *Store) ThreadReplies(folder string, dflt bool) bool {
-	it, ok, err := s.groupItem(context.Background(), folder)
-	if err != nil || !ok {
-		return dflt
-	}
-	on, set := settingNum(settingsOf(it), cfgThreadReplies)
-	if !set {
-		return dflt
-	}
-	return on == 1
 }
 
 // FolderCap returns the folder's per-day spend cap in cents. Zero means

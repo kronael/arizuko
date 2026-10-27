@@ -274,8 +274,8 @@ func (s *Server) mcpDeliver(turnID, jid, text, replyTo, msgID string, threaded b
 		return "", "", nil
 	}
 	topic, threadRoot := "", ""
-	if tc, ok := s.db.GetTurnContext(turnID); ok {
-		place, err := placeTurnDelivery(s.db, s.deliver, tc, jid, "", threaded)
+	if tc, ok := s.db.GetTurnContext(turnID); threaded && ok {
+		place, err := placeTurnDelivery(s.db, s.deliver, tc, jid, "", true)
 		if err != nil {
 			return "", "", err
 		}
@@ -409,13 +409,19 @@ func (s *Server) submitStatus(status ipc.TurnStatus) error {
 	if status.Kind == ipc.StatusSummary {
 		return s.declareSummary(tc, jid, status.Text)
 	}
-	if status.Kind == ipc.StatusProgress && summaryThreadEnabled(s.db, s.deliver, tc, jid) {
-		_, ok, err := readTaskSummary(s.db, jid, tc.TurnID)
+	if status.Kind == ipc.StatusProgress {
+		enabled, err := summaryThreadEnabled(s.db, s.deliver, tc, jid)
 		if err != nil {
 			return err
 		}
-		if !ok {
-			return fmt.Errorf("declare the overall task summary before progress")
+		if enabled {
+			_, ok, err := readTaskSummary(s.db, jid, tc.TurnID)
+			if err != nil {
+				return err
+			}
+			if !ok {
+				return fmt.Errorf("declare the overall task summary before progress")
+			}
 		}
 	}
 	return s.updateProgress(tc, jid, status.Text)
@@ -653,5 +659,6 @@ func (s *Server) ServeTurnMCP(t turnMCP, ipcDir string) (func(), error) {
 	packages := s.installedPackagesPostBuild(t.folder, callerSub, authorize, visible)
 	auditTools := s.auditPostBuild(t.folder, callerSub, authorize, visible)
 	deadLetters := s.deadLettersPostBuild(t.folder, callerSub, authorize, visible)
-	return ipc.ServeMCP(sockPath, s.buildRoutdFns(t), s.buildStoreFns(t), t.folder, callerID.IsRoot, expectedUID, callerSub, webRoutes, networkRules, scheduledTasks, routes, acl, routeTokens, githubSources, gdriveFiles, groups, membership, packages, auditTools, deadLetters)
+	chats := s.chatsPostBuild(t.folder, callerSub, authorize, visible)
+	return ipc.ServeMCP(sockPath, s.buildRoutdFns(t), s.buildStoreFns(t), t.folder, callerID.IsRoot, expectedUID, callerSub, webRoutes, networkRules, scheduledTasks, routes, acl, routeTokens, githubSources, gdriveFiles, groups, membership, packages, auditTools, deadLetters, chats)
 }

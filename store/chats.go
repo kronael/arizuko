@@ -31,8 +31,9 @@ import (
 // The attributes a chat item carries. `jid` is not among them: it is the
 // coordinate.
 const (
-	attrChatErrored = "errored"
-	attrChatIsGroup = "is_group"
+	attrChatErrored       = "errored"
+	attrChatIsGroup       = "is_group"
+	attrChatThreadReplies = "thread_replies"
 	// Exported: the move that carries these rows names the cursor it must NOT
 	// re-render, and folder_scope.go reads the group pin and clears both.
 	AttrChatAgentCursor = "agent_cursor"
@@ -250,6 +251,43 @@ func (s *Store) ChatIsGroup(jid string) (bool, error) {
 		return false, err
 	}
 	return it.Attrs[attrChatIsGroup] == flagSet, nil
+}
+
+// ChatThreadReplies returns the chat's preference or its group-chat default.
+func (s *Store) ChatThreadReplies(jid string) (bool, error) {
+	it, ok, err := s.chatItem(context.Background(), jid)
+	if err != nil || !ok {
+		return false, err
+	}
+	if value, set := it.Attrs[attrChatThreadReplies]; set {
+		switch value {
+		case "1":
+			return true, nil
+		case "0":
+			return false, nil
+		default:
+			return false, fmt.Errorf("chat %s has invalid thread_replies %q", jid, value)
+		}
+	}
+	return it.Attrs[attrChatIsGroup] == flagSet, nil
+}
+
+// SetChatThreadRepliesInto buffers a preference or clears it to use the default.
+func (s *Store) SetChatThreadRepliesInto(ws *WriteSet, jid string, on *bool) error {
+	key, err := chatKey(jid)
+	if err != nil {
+		return err
+	}
+	write := objstore.Write{Op: objstore.Merge, Entity: Chats, Key: key}
+	if on == nil {
+		write.Remove = []string{attrChatThreadReplies}
+	} else if *on {
+		write.Attrs = map[string]string{attrChatThreadReplies: "1"}
+	} else {
+		write.Attrs = map[string]string{attrChatThreadReplies: "0"}
+	}
+	ws.Add(write)
+	return nil
 }
 
 // StickyPins answers the @group / #topic navigation pins a chat is steered by.

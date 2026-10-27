@@ -151,12 +151,6 @@ func (d *DB) SetGroupOpen(folder string, open bool) error {
 	return d.store().SetGroupOpen(folder, open)
 }
 
-// ThreadReplies reads the group's thread_replies preference; unset yields dflt
-// (the chat's multi-user flag: group chats thread by default, DMs don't).
-func (d *DB) ThreadReplies(folder string, dflt bool) bool {
-	return d.store().ThreadReplies(folder, dflt)
-}
-
 // SetGroupObserveWindow overrides the group's observe-window (messages, chars).
 // A negative value clears the key so the cfg default wins.
 func (d *DB) SetGroupObserveWindow(folder string, msgs, chars int) error {

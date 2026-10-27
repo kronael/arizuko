@@ -18,15 +18,21 @@ func (p deliveryPlace) topic() string {
 	return p.threadRoot
 }
 
-func summaryThreadEnabled(db *DB, dl Deliverer, tc TurnContext, jid string) bool {
+func summaryThreadEnabled(db *DB, dl Deliverer, tc TurnContext, jid string) (bool, error) {
 	if dl == nil {
-		return false
+		return false, nil
 	}
 	if tc.Topic != "" {
-		return dl.HasCapability(jid, "thread_id")
+		return dl.HasCapability(jid, "thread_id"), nil
 	}
-	return dl.HasCapability(jid, "thread_root") &&
-		db.ChatIsGroup(jid) && db.ThreadReplies(tc.Folder, true)
+	if !dl.HasCapability(jid, "thread_root") {
+		return false, nil
+	}
+	on, err := db.store().ChatThreadReplies(jid)
+	if err != nil || !on {
+		return false, err
+	}
+	return db.store().ChatIsGroup(jid)
 }
 
 func placeTurnDelivery(db *DB, dl Deliverer, tc TurnContext, jid, explicitThread string, reply bool) (deliveryPlace, error) {
@@ -51,7 +57,11 @@ func placeTurnDelivery(db *DB, dl Deliverer, tc TurnContext, jid, explicitThread
 		p.threadRoot, p.threadID = p.threadID, ""
 		return p, nil
 	}
-	if summaryThreadEnabled(db, dl, tc, p.jid) {
+	enabled, err := summaryThreadEnabled(db, dl, tc, p.jid)
+	if err != nil {
+		return p, fmt.Errorf("%w: chat thread preference could not be read: %v", chanlib.ErrPermanent, err)
+	}
+	if enabled {
 		row, ok, err := readTaskSummary(db, p.jid, tc.TurnID)
 		if err != nil {
 			return p, fmt.Errorf("%w: task summary could not be read; this message was not delivered; retry after storage recovers: %v", chanlib.ErrPermanent, err)
@@ -75,11 +85,14 @@ func placeTurnDelivery(db *DB, dl Deliverer, tc TurnContext, jid, explicitThread
 			return p, nil
 		}
 	}
-	if reply && p.threadID == "" && p.jid == tc.ChatJID &&
-		db.ThreadReplies(tc.Folder, db.ChatIsGroup(p.jid)) {
-		// The topic a reply row stores is the topic a user's reply in that
-		// thread carries.
-		p.threadRoot = trigger
+	if reply && p.threadID == "" && p.jid == tc.ChatJID {
+		on, err := db.store().ChatThreadReplies(p.jid)
+		if err != nil {
+			return p, fmt.Errorf("%w: chat thread preference could not be read: %v", chanlib.ErrPermanent, err)
+		}
+		if on {
+			p.threadRoot = trigger
+		}
 	}
 	return p, nil
 }

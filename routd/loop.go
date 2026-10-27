@@ -383,13 +383,14 @@ func (l *Loop) maybeRetryOutbound(now time.Time) {
 			continue
 		}
 		place := deliveryPlace{jid: m.ChatJID, threadID: m.Topic}
-		if tc, ok := l.db.GetTurnContext(m.TurnID); ok && m.Verb != store.VerbStatusSummary {
-			resolved, err := placeTurnDelivery(l.db, l.deliver, tc, m.ChatJID, m.Topic, m.Topic != "")
-			if err != nil {
-				slog.Warn("retry outbound: resolve thread", "id", m.ID, "err", err)
-				continue
+		if tc, ok := l.db.GetTurnContext(m.TurnID); ok {
+			if m.Verb == "reply" && m.ChatJID == tc.ChatJID {
+				place.jid = returnTarget(tc, m.ChatJID)
 			}
-			place = resolved
+			if m.Topic != "" && m.Verb != store.VerbStatusSummary && tc.Topic == "" &&
+				(m.ChatJID == tc.ChatJID || m.ChatJID == returnTarget(tc, tc.ChatJID)) {
+				place.threadID, place.threadRoot = "", m.Topic
+			}
 		}
 		pid, derr := l.deliver.Send(place.jid, m.Content, m.ReplyToID, place.threadID, place.threadRoot, m.ID)
 		switch {

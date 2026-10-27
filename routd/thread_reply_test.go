@@ -1,11 +1,13 @@
 package routd
 
 import (
+	"context"
 	"testing"
 	"time"
 
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/store"
 )
 
 func (s *Server) replyThreadRoot(tc TurnContext, jid string) string {
@@ -51,7 +53,7 @@ func TestReplyThreadsOnTrigger(t *testing.T) {
 
 // No thread root when: the turn already runs in a thread (topic set → the
 // adapter threads via threadID), the chat is a DM (is_group=0), or the
-// group's thread_replies preference is off.
+// chat's thread_replies preference is off.
 func TestReplyThreadRootSuppressed(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
@@ -85,7 +87,11 @@ func TestReplyThreadRootSuppressed(t *testing.T) {
 		t.Fatal(err)
 	}
 	bFalse := false
-	if err := setThreadReplies(db, "demo", &bFalse); err != nil {
+	var off store.WriteSet
+	if err := db.store().SetChatThreadRepliesInto(&off, jid, &bFalse); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.store().Apply(context.Background(), &off); err != nil {
 		t.Fatal(err)
 	}
 	threadTurn(t, db, "t-off", "demo", jid, "root-3")
@@ -96,7 +102,11 @@ func TestReplyThreadRootSuppressed(t *testing.T) {
 
 	// Preference on beats the DM default.
 	bTrue := true
-	if err := setThreadReplies(db, "demo", &bTrue); err != nil {
+	var on store.WriteSet
+	if err := db.store().SetChatThreadRepliesInto(&on, dm, &bTrue); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.store().Apply(context.Background(), &on); err != nil {
 		t.Fatal(err)
 	}
 	threadTurn(t, db, "t-on", "demo", dm, "root-4")
@@ -188,7 +198,11 @@ func TestReplyThreadPrefOffKeepsThreadID(t *testing.T) {
 		t.Fatal(err)
 	}
 	atlFalse := false
-	if err := setThreadReplies(db, "atlas", &atlFalse); err != nil {
+	var off store.WriteSet
+	if err := db.store().SetChatThreadRepliesInto(&off, jid, &atlFalse); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.store().Apply(context.Background(), &off); err != nil {
 		t.Fatal(err)
 	}
 	// Turn is IN a thread: topic = existing thread_ts.

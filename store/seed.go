@@ -63,10 +63,11 @@ var baseAllowlist = []string{"anthropic.com", "api.anthropic.com"}
 
 // The instants the floor carries. Fixed, so two fresh instances agree.
 var (
-	operatorGrantedAt  = time.Date(2026, 7, 30, 0, 0, 0, 0, time.UTC)
-	memberGrantedAt    = time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
-	allowlistAddedAt   = time.Date(2026, 8, 4, 0, 0, 0, 0, time.UTC)
-	skipFloorGrantedAt = time.Date(2026, 9, 12, 0, 0, 0, 0, time.UTC)
+	operatorGrantedAt     = time.Date(2026, 7, 30, 0, 0, 0, 0, time.UTC)
+	memberGrantedAt       = time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
+	allowlistAddedAt      = time.Date(2026, 8, 4, 0, 0, 0, 0, time.UTC)
+	chatSettingsGrantedAt = time.Date(2026, 10, 27, 0, 0, 0, 0, time.UTC)
+	skipFloorGrantedAt    = time.Date(2026, 9, 12, 0, 0, 0, 0, time.UTC)
 )
 
 // SeedRoutdFloor writes the floor into a routd store that holds none of it. An
@@ -81,6 +82,12 @@ func SeedRoutdFloor(ctx context.Context, d objstore.Store) error {
 			Principal: RoleOperator, Action: "*", Scope: "**", Effect: "allow",
 			GrantedBy: "system", GrantedAt: core.TS(operatorGrantedAt), GrantOption: true,
 		}}
+		for _, action := range []string{"chats:get", "chats:update"} {
+			rows = append(rows, core.ACLRow{
+				Principal: "service:dashd", Action: action, Scope: "**", Effect: EffectAllow,
+				GrantedBy: "system", GrantedAt: core.TS(chatSettingsGrantedAt),
+			})
+		}
 		for _, verb := range memberVerbs {
 			rows = append(rows, core.ACLRow{
 				Principal: RoleMember, Action: verb, Scope: "**", Effect: EffectAllow,

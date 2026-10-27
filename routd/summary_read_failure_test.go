@@ -45,6 +45,16 @@ func TestTaskSummaryReadFailureCannotMoveTheAnswer(t *testing.T) {
 		!strings.Contains(message, "retry after storage recovers") {
 		t.Fatalf("unplaced answer must not be queued: %q", message)
 	}
+	if _, message := callToolOverSock(t, sock, "send", map[string]any{
+		"chatJid": progressJID, "text": "parent notice",
+	}); message != "" {
+		t.Fatal(message)
+	}
+	parent := dl.sends[len(dl.sends)-1]
+	if parent.threadID != "" || parent.threadRoot != "" {
+		t.Fatalf("parent send inherited opener: %+v", parent)
+	}
+	before++
 	for _, status := range []ipc.TurnStatus{
 		{TurnID: "t1", Kind: ipc.StatusSummary, Text: "a duplicate declaration"},
 		{TurnID: "t1", Kind: ipc.StatusProgress, Text: "☐ verify"},

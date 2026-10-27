@@ -5,8 +5,7 @@ package routd
 // this is a FORWARDER (Store nil): resreg writes no audit row and the handler
 // emits the event itself. resreg SKIPS the Gate for forwarders, so ALL of
 // register_group's auth rides Authz: db.Authorize scoped to cover the CHILD
-// folder, plus the one non-scope residue that worlds are CLI-only. Only the
-// AGENT face rides this resource.
+// folder, plus the one non-scope residue that worlds are CLI-only.
 
 import (
 	"context"
@@ -29,7 +28,7 @@ import (
 // side-effects ride a forwarder, not the engine's create tx.
 const groupsActionRegister = resreg.Action("register")
 
-// groupsResource is the single renderer for the two group tools. FORWARDER
+// groupsResource is the single renderer for group reads and registration. FORWARDER
 // (Store nil); for a forwarder invoke runs Authz, never Gate.
 func (s *Server) groupsResource(authz func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error)) resreg.Resource {
 	r := resreg.Mount(resources.GroupsName)
@@ -38,7 +37,7 @@ func (s *Server) groupsResource(authz func(resreg.Caller, resreg.Action, resreg.
 	return r
 }
 
-// groupsHandler runs register/list. register: the row, room route and git-init
+// groupsHandler runs register/list/get. register: the row, room route and git-init
 // via s.registerGroup, then the audit emit. list (refresh_groups): every
 // group's folder, limited only by the mcp:refresh_groups grant at visibility.
 func (s *Server) groupsHandler(_ context.Context, x resreg.Execution) (any, error) {
@@ -56,6 +55,14 @@ func (s *Server) groupsHandler(_ context.Context, x resreg.Execution) (any, erro
 			out = append(out, resources.GroupsFolderRef{Folder: g.Folder})
 		}
 		return out, nil
+
+	case resreg.ActionGet:
+		folder := x.Args.Str("folder")
+		group, ok := s.db.store().GroupByFolder(folder)
+		if !ok {
+			return nil, resreg.Errorf(http.StatusNotFound, "no group %s", folder)
+		}
+		return group, nil
 
 	case groupsActionRegister:
 		jid := argString(x.Args, "jid")
@@ -105,13 +112,24 @@ func (s *Server) emitGroupRegisterAudit(c resreg.Caller, childFolder, jid string
 	})
 }
 
-// groupsPostBuild mounts register_group + refresh_groups on the agent socket.
-// Forwarder auth rides Authz: register_group runs db.Authorize scoped to cover
-// the child folder; refresh_groups carries no runtime authz. Both are gated at
+// groupsPostBuild mounts the group tools on the agent socket.
+// Forwarder auth rides Authz: registration and detail reads authorize their
+// target folder; refresh_groups carries no runtime authz. Both are gated at
 // VISIBILITY by the same held-grant view, so dashd's tool browser mirrors the
 // socket exactly.
 func (s *Server) groupsPostBuild(folder, callerSub string, authorize authorizeFn, visible func(string) bool, callerID auth.Identity) func(*mcpserver.MCPServer) {
 	authz := func(_ resreg.Caller, a resreg.Action, args resreg.Args) (string, map[string]string, error) {
+		if a == resreg.ActionGet {
+			target := args.Str("folder")
+			if !groupfolder.IsValidFolder(target) {
+				return "", nil, resreg.Errorf(http.StatusBadRequest, "invalid folder")
+			}
+			params := map[string]string{"folder": target}
+			if !authorize(target, "mcp:"+resources.GroupsMCPNames[a], params) {
+				return "", nil, resreg.Errorf(http.StatusForbidden, "forbidden")
+			}
+			return target, params, nil
+		}
 		if a != groupsActionRegister {
 			return "", nil, nil // refresh_groups: read, no runtime authz (visibility-gated only)
 		}

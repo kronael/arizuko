@@ -10,6 +10,7 @@ const (
 	ACLName               = "acl"
 	ACLMembershipName     = "acl_membership"
 	AuditName             = "audit"
+	ChatsName             = "chats"
 	DeadLettersName       = "dead_letters"
 	GDriveFilesName       = "gdrive_files"
 	GitHubSourcesName     = "github_sources"

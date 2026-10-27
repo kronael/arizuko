@@ -73,7 +73,11 @@ func (s *Server) declareSummary(tc TurnContext, jid, text string) error {
 	if tc.State == store.TurnDone {
 		return nil
 	}
-	if !summaryThreadEnabled(s.db, s.deliver, tc, jid) {
+	enabled, err := summaryThreadEnabled(s.db, s.deliver, tc, jid)
+	if err != nil {
+		return err
+	}
+	if !enabled {
 		return s.updateProgress(tc, jid, text)
 	}
 	_, ok, err := readTaskSummary(s.db, jid, tc.TurnID)

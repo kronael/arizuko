@@ -29,7 +29,7 @@ import (
 func main() {
 	if len(os.Args) < 2 {
 		fmt.Println("usage: arizuko <run|create|group|gate|invite|chat|talk|status|pair|generate|packages|token|apply|plan|get|export> ...")
-		fmt.Println("  group    <instance> list | add | rm [-f] <folder> | grant | ungrant | grants | thread-replies <folder> <on|off|default>")
+		fmt.Println("  group    <instance> list | add | rm [-f] <folder> | grant | ungrant | grants")
 		fmt.Println("  gate     <instance> list | add | rm | enable | disable")
 		fmt.Println("  invite   <instance> create <target_glob> [--max-uses|-n N] [--expires|-e DURATION]")
 		fmt.Println("  invite   <instance> list [--issued-by|-b SUB]")
@@ -47,7 +47,7 @@ func main() {
 		fmt.Println("  token    <instance> issue bearer <folder> --scope|-s s1,s2 [--ttl|-t 1h] [--sub SUB]")
 		fmt.Println("  token    <instance> list <folder>")
 		fmt.Println("  token    <instance> revoke <jid>")
-		fmt.Println("  chat     <instance>  — interactive Claude Code session bound to root MCP socket")
+		fmt.Println("  chat     <instance> [--folder <folder>] | thread-replies <jid> [on|off|default]")
 		fmt.Println("  send     <instance> <folder> \"<msg>\" [--wait|-w | --stream|-S] [--token|-t <raw>] [--topic|-T <t>]")
 		fmt.Println("  talk     [@name] [-g <folder>] [-t <thread>] [-p [prompt]]  — REPL against a live instance; no DB, config in ~/.config/arizuko/talk.toml")
 		fmt.Println("  secret   <instance> set <folder> KEY --value|-v V | list <folder> | delete <folder> KEY")
@@ -379,7 +379,7 @@ func chownStore(storeDir string) {
 }
 
 func cmdGroup(args []string) {
-	need(args, 2, "arizuko group <instance> <list|add|rm|grant|ungrant|grants|thread-replies> ...")
+	need(args, 2, "arizuko group <instance> <list|add|rm|grant|ungrant|grants> ...")
 	instance, action := args[0], args[1]
 
 	dataDir := mustInstanceDir(instance)
@@ -505,31 +505,6 @@ func cmdGroup(args []string) {
 		if err := runGrants(s, sub, os.Stdout); err != nil {
 			die("Failed: grants: %v", err)
 		}
-
-	case "thread-replies":
-		need(args, 4, "arizuko group <instance> thread-replies <folder> <on|off|default>")
-		folder, val := args[2], args[3]
-		var on *bool
-		switch val {
-		case "on":
-			v := true
-			on = &v
-		case "off":
-			v := false
-			on = &v
-		case "default":
-			on = nil
-		default:
-			die("Failed: expected on|off|default, got %q", val)
-		}
-		if err := s.SetThreadReplies(folder, on); err != nil {
-			die("Failed: set thread-replies: %v", err)
-		}
-		label := val
-		if on == nil {
-			label = "default (group chats thread, DMs do not)"
-		}
-		fmt.Printf("thread-replies for %s set to %s\n", folder, label)
 
 	default:
 		die("unknown group action: %s", action)
@@ -884,6 +859,10 @@ func cmdInvite(args []string) {
 // IPC socket via socat. Local-operator only — socket access is the auth.
 func cmdChat(args []string) {
 	need(args, 1, "arizuko chat <instance> [--folder <folder>]")
+	if len(args) > 1 && args[1] == "thread-replies" {
+		cmdChatThreadReplies(args)
+		return
+	}
 	fs := flag.NewFlagSet("chat", flag.ContinueOnError)
 	folder := fs.String("folder", "main", "group folder for the IPC socket")
 	if err := flexParse(fs, args); err != nil || fs.NArg() != 1 || !groupfolder.IsValidFolder(*folder) {

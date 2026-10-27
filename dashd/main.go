@@ -1112,6 +1112,8 @@ func (d *dash) dispatchGroupsGet(w http.ResponseWriter, r *http.Request) {
 func (d *dash) dispatchGroupsPost(w http.ResponseWriter, r *http.Request) {
 	rest := r.PathValue("folder")
 	switch {
+	case strings.HasSuffix(rest, "/settings/chat"):
+		d.handleChatSettingsSave(w, r)
 	case strings.HasSuffix(rest, "/settings"):
 		d.handleGroupSettingsSave(w, r)
 	case strings.HasSuffix(rest, "/delete"):

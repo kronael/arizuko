@@ -19,6 +19,7 @@ import (
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/dashd/dashstore"
 	"github.com/kronael/arizuko/groupfolder"
+	"github.com/kronael/arizuko/resreg/resources"
 )
 
 var skillNameRe = regexp.MustCompile(`^[a-z0-9-]+$`)
@@ -222,6 +223,15 @@ func (d *dash) handleGroupSettings(w http.ResponseWriter, r *http.Request) {
 	if !d.requireVisible(w, r, folder) {
 		return
 	}
+	jid := strings.TrimSpace(r.URL.Query().Get("jid"))
+	var chat *resources.ChatSettingsResponse
+	if jid != "" {
+		var ok bool
+		chat, ok = d.readChatSettings(w, r, folder, jid)
+		if !ok {
+			return
+		}
+	}
 	pageTopFor(w, r, "Settings — "+folder,
 		crumb{"/dash/groups/", "Groups"},
 		crumb{"", folder},
@@ -316,6 +326,14 @@ func (d *dash) handleGroupSettings(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_, _ = fmt.Fprint(w, `<p><button type="submit">save</button></p></form>`)
+	_, _ = fmt.Fprintf(w, `<h2>Chat setup</h2><form method="get" action="/dash/groups/%s/settings"><label>Chat JID <input name="jid" value="%s" required></label> <button type="submit">load</button></form>`, folderPath(folder), esc(jid))
+	if chat != nil {
+		current := "off"
+		if chat.ThreadReplies {
+			current = "on"
+		}
+		_, _ = fmt.Fprintf(w, `<p>Thread replies: %s</p><form method="post" action="/dash/groups/%s/settings/chat"><input type="hidden" name="jid" value="%s"><button name="thread_replies" value="on">on</button> <button name="thread_replies" value="off">off</button> <button name="thread_replies" value="default">reset to default</button></form>`, current, folderPath(folder), esc(jid))
+	}
 
 	_, _ = fmt.Fprintf(w, `<p><a href="/dash/groups/%s/grants">Manage grants &rarr;</a></p>`, folderPath(folder))
 	_, _ = fmt.Fprintf(w, `<p><a href="/dash/groups/%s/tools">Browse tools &rarr;</a></p>`, folderPath(folder))

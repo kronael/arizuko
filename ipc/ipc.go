@@ -775,12 +775,12 @@ func activeTopic(db StoreFns, folder string) string {
 
 // recordOutbound appends the durable row for a DELIVERED outbound message.
 func recordOutbound(routd RoutdFns, db StoreFns, jid, text, platformID, folder, msgID string) {
-	putOutboundRow(routd, db, jid, text, platformID, folder, "", activeTopic(db, folder), msgID, core.MessageStatusSent)
+	putOutboundRow(routd, db, jid, text, platformID, folder, "", activeTopic(db, folder), msgID, core.MessageStatusSent, "")
 }
 
 // recordOutboundReply records the thread resolved by the delivery path.
-func recordOutboundReply(routd RoutdFns, db StoreFns, jid, text, platformID, folder, threadRoot, msgID string) {
-	putOutboundRow(routd, db, jid, text, platformID, folder, "", threadRoot, msgID, core.MessageStatusSent)
+func recordOutboundReply(routd RoutdFns, db StoreFns, jid, text, platformID, folder, threadRoot, msgID, verb string) {
+	putOutboundRow(routd, db, jid, text, platformID, folder, "", threadRoot, msgID, core.MessageStatusSent, verb)
 }
 
 // recordOutboundFailure appends the durable row for an outbound message the
@@ -801,14 +801,14 @@ func recordOutboundReply(routd RoutdFns, db StoreFns, jid, text, platformID, fol
 // a `reply` answered 502, the sweep delivered the row 52 s later, and the agent,
 // told only that it failed, re-sent the same text six seconds after that, so the
 // channel got both copies (BUGS L165).
-func recordOutboundFailure(routd RoutdFns, db StoreFns, jid, text, folder, replyToID, threadRoot, msgID string, retryable bool, err error) error {
+func recordOutboundFailure(routd RoutdFns, db StoreFns, jid, text, folder, replyToID, threadRoot, msgID, verb string, retryable bool, err error) error {
 	status := core.MessageStatusPending
 	if !retryable || errors.Is(err, chanlib.ErrPermanent) {
 		status = core.MessageStatusFailed
 	}
 	slog.Error("outbound send failed: recording undelivered row",
 		"folder", folder, "jid", jid, "status", status, "err", err)
-	putOutboundRow(routd, db, jid, text, "", folder, replyToID, threadRoot, msgID, status)
+	putOutboundRow(routd, db, jid, text, "", folder, replyToID, threadRoot, msgID, status, verb)
 	if status == core.MessageStatusPending {
 		return fmt.Errorf("%w (queued: the router re-sends this message — do NOT send it again)", err)
 	}
@@ -821,7 +821,7 @@ func recordOutboundFailure(routd RoutdFns, db StoreFns, jid, text, folder, reply
 // A verb whose Deliverer takes no idempotency key — voice, post and the social
 // verbs — passes msgID="" and the row mints its own id: there is nothing for it
 // to have to match.
-func putOutboundRow(routd RoutdFns, db StoreFns, jid, text, platformID, folder, replyToID, threadRoot, msgID, status string) {
+func putOutboundRow(routd RoutdFns, db StoreFns, jid, text, platformID, folder, replyToID, threadRoot, msgID, status, verb string) {
 	// Key last-reply + engagement under the active turn's topic — same
 	// key the gateway seeds (SetLastReply at turn start). "" would chain
 	// the next in-thread reply off the wrong (root) key.
@@ -860,6 +860,7 @@ func putOutboundRow(routd RoutdFns, db StoreFns, jid, text, platformID, folder, 
 			FromMe:    true,
 			BotMsg:    true,
 			TurnID:    turnID,
+			Verb:      verb,
 			// An undelivered row carries the reply target so the sweep re-sends
 			// it into the same thread. A delivered row leaves it empty: its own
 			// platform id belongs in platform_id.
@@ -895,9 +896,9 @@ func internalSend(routd RoutdFns, db StoreFns, folder, jid, text string, files [
 		msgID := core.MsgID("mcp")
 		platformID, thread, err := routd.SendMessage(jid, text, msgID)
 		if err != nil {
-			return "", recordOutboundFailure(routd, db, jid, text, folder, "", thread, msgID, true, err)
+			return "", recordOutboundFailure(routd, db, jid, text, folder, "", thread, msgID, "", true, err)
 		}
-		recordOutboundReply(routd, db, jid, text, platformID, folder, thread, msgID)
+		recordOutboundReply(routd, db, jid, text, platformID, folder, thread, msgID, "")
 		return platformID, nil
 	}
 	if routd.SendDocument == nil {
@@ -909,9 +910,9 @@ func internalSend(routd RoutdFns, db StoreFns, folder, jid, text string, files [
 		msgID := core.MsgID("mcp")
 		platformID, thread, err := routd.SendDocument(jid, f.LocalPath, f.Filename, text, f.ReplyTo, f.ThreadID, msgID)
 		if err != nil {
-			return "", recordOutboundFailure(routd, db, jid, text, folder, f.ReplyTo, thread, msgID, false, err)
+			return "", recordOutboundFailure(routd, db, jid, text, folder, f.ReplyTo, thread, msgID, "", false, err)
 		}
-		recordOutboundReply(routd, db, jid, text, platformID, folder, thread, msgID)
+		recordOutboundReply(routd, db, jid, text, platformID, folder, thread, msgID, "")
 		lastID = platformID
 	}
 	return lastID, nil
@@ -1283,7 +1284,7 @@ func buildMCPServer(routd RoutdFns, db StoreFns, folder string, isRoot bool, cal
 			})
 	}
 
-	registerRaw("send", "Send a notification or a message to an explicit chat. Use `reply` for answers and `send_file` for files. Where supported, sends share the current task's existing thread or the declared summary's thread. An explicit different chat keeps its own destination. Returns the sent message's `id`. Use `<status>` and `TodoWrite` for live progress.",
+	registerRaw("send", "Send a notification or a message to an explicit chat. Use `reply` for answers and `send_file` for files. Sends target the specified chat's main channel. Returns the sent message's `id`. Use `<status>` and `TodoWrite` for live progress.",
 		[]mcp.ToolOption{
 			mcp.WithString("chatJid", mcp.Required()),
 			mcp.WithString("text", mcp.Required()),
@@ -1340,10 +1341,10 @@ func buildMCPServer(routd RoutdFns, db StoreFns, folder string, isRoot bool, cal
 			msgID := core.MsgID("mcp")
 			platformID, threadRoot, err := routd.SendReply(jid, text, replyToID, msgID)
 			if err != nil {
-				err = recordOutboundFailure(routd, db, jid, text, folder, replyToID, threadRoot, msgID, true, err)
+				err = recordOutboundFailure(routd, db, jid, text, folder, replyToID, threadRoot, msgID, "reply", true, err)
 				return toolErr(err.Error())
 			}
-			recordOutboundReply(routd, db, jid, text, platformID, folder, threadRoot, msgID)
+			recordOutboundReply(routd, db, jid, text, platformID, folder, threadRoot, msgID, "reply")
 			return toolJSON(map[string]any{"ok": true, "id": platformID})
 		})
 
@@ -1423,7 +1424,7 @@ func buildMCPServer(routd RoutdFns, db StoreFns, folder string, isRoot bool, cal
 			if err != nil {
 				return toolMaybeUnsupported(err)
 			}
-			recordOutboundReply(routd, db, jid, text, platformID, folder, thread, "")
+			recordOutboundReply(routd, db, jid, text, platformID, folder, thread, "", "")
 			return toolJSON(map[string]any{"ok": true, "id": platformID})
 		})
 
