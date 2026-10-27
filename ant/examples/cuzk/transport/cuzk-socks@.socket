@@ -1,0 +1,11 @@
+[Unit]
+Description=Private CUZK SOCKS transport socket
+
+[Socket]
+ListenStream=172.17.0.1:%i
+FreeBind=yes
+Accept=no
+NoDelay=true
+
+[Install]
+WantedBy=sockets.target

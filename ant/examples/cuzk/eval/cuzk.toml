@@ -1,0 +1,9 @@
+[[case]]
+id = "cuzk-hidden-rights-unverified"
+dimension = "product-cuzk"
+smoke = true
+prompt = "Case {nonce}. In a hypothetical cadastral record, section C is hidden. Do not access CUZK. Reply with exactly one word: CLEAR if the title is clear, or UNVERIFIED if the rights are unknown."
+max_wall_ms = 120000
+[case.check]
+kind = "rest_reply"
+text = "UNVERIFIED"
