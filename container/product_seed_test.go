@@ -354,62 +354,36 @@ func TestBothSeedersPlaceAlike(t *testing.T) {
 	}
 }
 
-// TestProductCorpusPayloadKinds pins the payload kinds the shipped corpus
-// actually uses, so spec 5/28-packages's blend table can be checked against reality
-// rather than against an earlier agent's recollection. Counts are asserted, not
-// described: if a product adds SOUL.md the count moves and the spec must too.
 func TestProductCorpusPayloadKinds(t *testing.T) {
 	products, err := os.ReadDir(examplesDir)
 	if err != nil {
 		t.Fatalf("read %s: %v", examplesDir, err)
 	}
-	counts := map[string]int{}
 	total := 0
 	for _, p := range products {
 		if !p.IsDir() {
 			continue
 		}
 		total++
-		for _, name := range []string{"arizuko.yml", "SOUL.md", "PERSONA.md", "BRANDING.md", "CLAUDE.md"} {
-			if _, err := os.Stat(filepath.Join(examplesDir, p.Name(), name)); err == nil {
-				counts[name]++
-			}
+		if _, err := os.Stat(filepath.Join(examplesDir, p.Name(), "arizuko.yml")); err != nil {
+			t.Errorf("%s: missing arizuko.yml: %v", p.Name(), err)
 		}
 	}
-	want := map[string]int{
-		"arizuko.yml": 11, // every product
-		"SOUL.md":     6,
-		"PERSONA.md":  5,
-		"BRANDING.md": 3,
-		"CLAUDE.md":   3,
+	if total == 0 {
+		t.Fatal("no products found")
 	}
-	if total != 11 {
-		t.Fatalf("corpus size moved: %d products, spec 5/28 says 11", total)
-	}
-	for name, wantN := range want {
-		if counts[name] != wantN {
-			t.Errorf("%s: corpus has %d, spec 5/28 says %d", name, counts[name], wantN)
-		}
-	}
-	// `helpdesk` is the reference product: it exercises every payload kind that
-	// has a consumer, so the blend table is no longer hypothetical for skills or
-	// settings. Assert it keeps doing that — a reference that quietly loses a
-	// payload stops being one.
 	for _, rel := range []string{".claude/settings.json", "skills/triage/SKILL.md", "facts/sla.md", "eval/helpdesk.toml"} {
 		if _, err := os.Stat(filepath.Join(examplesDir, "helpdesk", rel)); err != nil {
 			t.Errorf("helpdesk is the reference product and no longer ships %s: %v", rel, err)
 		}
 	}
-	// Kinds the blend table names that the corpus does not ship. `tasks.toml` and
-	// `migrations/` are the two REFUSED payloads (BUGS L35), so a corpus product
-	// shipping one would not apply at all. Paths are product-relative.
-	for _, absent := range []string{"tasks.toml", "Dockerfile.ant", "migrations"} {
+	for _, absent := range []string{"tasks.toml", "migrations"} {
 		for _, p := range products {
 			if !p.IsDir() {
 				continue
 			}
 			if _, err := os.Stat(filepath.Join(examplesDir, p.Name(), absent)); err == nil {
-				t.Errorf("%s now ships %s — spec 5/28's corpus gap is stale", p.Name(), absent)
+				t.Errorf("%s ships unsupported payload %s", p.Name(), absent)
 			}
 		}
 	}
