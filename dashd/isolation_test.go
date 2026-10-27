@@ -16,6 +16,8 @@ package main
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -92,6 +94,36 @@ func get(t *testing.T, mux *http.ServeMux, r *http.Request) (int, string) {
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, r)
 	return w.Code, w.Body.String()
+}
+
+func TestGroupSettingsAgentFilesNestedFolder(t *testing.T) {
+	d, db := splitAdminDash(t, "alice@x")
+	seedFolder(t, db, "corp/eng/sre")
+	coreDir := filepath.Join(filepath.Dir(d.groupsDir), "packages", "core")
+	if err := os.MkdirAll(coreDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(coreDir, "arizuko.yml"), []byte("name: core\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.NewOver(db).PutInstalledPackage(store.InstalledPackage{Name: "core", Manifest: map[string][]string{"skill": {}}}); err != nil {
+		t.Fatal(err)
+	}
+	code, body := get(t, newMux(d), as(httptest.NewRequest("GET", "/dash/groups/corp/eng/sre/settings", nil), "alice@x", "**"))
+	if code != http.StatusOK {
+		t.Fatalf("settings status = %d: %s", code, body)
+	}
+	if i := strings.Index(body, `<div class="banner-err">`); i >= 0 {
+		t.Fatalf("settings error: %s", body[i:])
+	}
+	for _, want := range []string{
+		`<a href="/dav/corp%2Feng%2Fsre/SYSTEM.md" target="_blank">SYSTEM.md</a> — instructions read on every turn`,
+		`<a href="/dav/corp%2Feng%2Fsre/CLAUDE.md" target="_blank">CLAUDE.md</a> — group policy and metadata`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("settings missing %q", want)
+		}
+	}
 }
 
 //  1. alice's /dash/groups shows corp/eng AND corp/eng/sre (subtree inclusion),

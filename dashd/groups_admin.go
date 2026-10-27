@@ -306,11 +306,12 @@ func (d *dash) handleGroupSettings(w http.ResponseWriter, r *http.Request) {
 	_, _ = fmt.Fprintf(w, `<h2>Agent files</h2>`+
 		`<p class="dim">Edit in the workspace browser — dufs opens text files in its built-in editor.</p>`+
 		`<ul>`+
-		`<li><a href="/dav/%s/CLAUDE.md" target="_blank">CLAUDE.md</a> — instructions the agent reads on every container start</li>`+
+		`<li><a href="/dav/%s/SYSTEM.md" target="_blank">SYSTEM.md</a> — instructions read on every turn</li>`+
+		`<li><a href="/dav/%s/CLAUDE.md" target="_blank">CLAUDE.md</a> — group policy and metadata</li>`+
 		`<li><a href="/dav/%s/PERSONA.md" target="_blank">PERSONA.md</a> — name, tone, role</li>`+
 		`<li><a href="/dav/%s/MEMORY.md" target="_blank">MEMORY.md</a> — persistent cross-session notes</li>`+
 		`<li><a href="/dav/%s/" target="_blank">workspace/</a> — browse all group files</li>`+
-		`</ul>`, folderPath(folder), folderPath(folder), folderPath(folder), folderPath(folder))
+		`</ul>`, folderPath(folder), folderPath(folder), folderPath(folder), folderPath(folder), folderPath(folder))
 
 	if len(skills) > 0 {
 		_, _ = fmt.Fprint(w, `<h2>Skills</h2><p class="dim">Unchecked skills are disabled on next agent run.</p><ul class="plain-list">`)
