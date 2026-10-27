@@ -62,7 +62,7 @@ func (d *dash) handleGroupNewForm(w http.ResponseWriter, r *http.Request) {
 </select></label></p>
 <p><button type="submit">create</button></p>
 </form>
-<p class="dim">The folder skeleton (skills, settings, default tasks) is seeded via <code>container.SetupGroup</code>; admin is granted to the creator.</p>`)
+<p class="dim">Creating a group creates its folder and grants you admin. The dashboard also attempts to seed default tasks.</p>`)
 	pageClose(w, r)
 }
 
