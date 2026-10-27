@@ -1,6 +1,8 @@
 package main
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -83,6 +85,15 @@ func TestCommentActionDeliveryIdentitySurvivesOriginalObject(t *testing.T) {
 func TestAutomatedPRStateUsesAssignmentWithoutCommentLoops(t *testing.T) {
 	e := newTestEnv(t, secretMap{"repo/kronael/arizuko": "fixture-secret"})
 	e.srv.bot.login.Store(botLogin)
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/reviews") {
+			_, _ = w.Write([]byte(`[]`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"number":5,"assignees":[],"requested_reviewers":[],"base":{"repo":{"full_name":"kronael/arizuko"}}}`))
+	}))
+	defer api.Close()
+	e.srv.bot.cfg.APIBase = api.URL
 	for _, scenario := range []struct{ name, event, fields, want string }{
 		{"automated closure", "pull_request", `"action":"closed",` + assigned("", botLogin), "mention"},
 		{"automated head", "pull_request", `"action":"synchronize",` + assigned("", botLogin), "mention"},
@@ -99,8 +110,12 @@ func TestAutomatedPRStateUsesAssignmentWithoutCommentLoops(t *testing.T) {
 				e.routd.mu.Unlock()
 				got := e.deliver(t, "/github/repo/kronael/arizuko", "fixture-secret", scenario.event, "automation", []byte(raw))
 				messages := e.routd.messages()
-				if got.Code != 200 || (scenario.want == "" && len(messages) != 0) ||
-					(scenario.want != "" && (len(messages) != 1 || messages[0].Verb != scenario.want)) {
+				want := scenario.want
+				if login == botLogin && want != "" {
+					want = scenario.event
+				}
+				if got.Code != 200 || (want == "" && len(messages) != 0) ||
+					(want != "" && (len(messages) != 1 || messages[0].Verb != want)) {
 					t.Fatalf("login=%s status=%d messages=%+v", login, got.Code, messages)
 				}
 			}

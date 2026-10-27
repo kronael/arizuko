@@ -42,10 +42,24 @@ func (p *payload) ciParts(event string, run *ciRun) (location, string) {
 		fmt.Sprintf("%s %s: %s (%s)", event, p.Action, run.Name, run.Conclusion)
 }
 
-func (s *server) ciMessages(ctx context.Context, event string, body []byte, base chanlib.InboundMsg) ([]chanlib.InboundMsg, error) {
+func (s *server) eventMessages(ctx context.Context, event string, body []byte, base chanlib.InboundMsg) ([]chanlib.InboundMsg, error) {
 	messages := []chanlib.InboundMsg{base}
 	var p payload
 	if _, known := p.ciRun(event); !known {
+		jid, ok := chanlib.ParseGitHubJID(base.ChatJID)
+		login := s.bot.Login()
+		if !ok || jid.Kind != "pr" || login == "" || strings.EqualFold(base.Sender, "github:"+login) || base.Verb == "mention" {
+			return messages, nil
+		}
+		ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+		responsible, err := s.hasPRResponsibility(ctx, jid)
+		if err != nil {
+			return nil, err
+		}
+		if responsible {
+			messages[0].Verb = "mention"
+		}
 		return messages, nil
 	}
 	if err := json.Unmarshal(body, &p); err != nil {
@@ -76,36 +90,71 @@ func (s *server) ciMessages(ctx context.Context, event string, body []byte, base
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	for _, number := range numbers {
-		url := fmt.Sprintf("%s/repos/%s/%s/pulls/%d", s.bot.cfg.APIBase, j.Owner, j.Repo, number)
-		raw, err := s.bot.callContext(ctx, http.MethodGet, url, nil, []int{http.StatusOK})
+		j.Kind, j.Number = "pr", number
+		responsible, err := s.hasPRResponsibility(ctx, j)
 		if err != nil {
-			return nil, fmt.Errorf("read CI pull-request assignment: %w", err)
-		}
-		var pr struct {
-			Number    int        `json:"number"`
-			Assignees *[]account `json:"assignees"`
-			Base      struct {
-				Repo struct {
-					FullName string `json:"full_name"`
-				} `json:"repo"`
-			} `json:"base"`
-		}
-		if err := json.Unmarshal(raw, &pr); err != nil {
 			return nil, err
 		}
-		if pr.Number != number || pr.Assignees == nil || !strings.EqualFold(pr.Base.Repo.FullName, j.Owner+"/"+j.Repo) {
-			return nil, errors.New("CI pull-request response does not match the verified repository")
-		}
-		j.Kind, j.Number = "pr", number
 		msg := base
 		msg.ID += "-pr" + strconv.Itoa(number)
 		loc, body := p.ciParts(event, run)
 		msg.Content = loc.render(msg.ID, body)
 		msg.ChatJID, msg.ChatName, msg.Topic = j.String(), strings.TrimPrefix(j.String(), "github:"), j.Topic()
-		if hasAssignee(s.bot.Login(), *pr.Assignees) {
+		if responsible && !strings.EqualFold(base.Sender, "github:"+s.bot.Login()) {
 			msg.Verb = "mention"
 		}
 		messages = append(messages, msg)
 	}
 	return messages, nil
+}
+
+func (s *server) hasPRResponsibility(ctx context.Context, jid chanlib.GitHubJID) (bool, error) {
+	url := fmt.Sprintf("%s/repos/%s/%s/pulls/%d", s.bot.cfg.APIBase, jid.Owner, jid.Repo, jid.Number)
+	raw, err := s.bot.callContext(ctx, http.MethodGet, url, nil, []int{http.StatusOK})
+	if err != nil {
+		return false, err
+	}
+	var pr struct {
+		Number             int        `json:"number"`
+		Assignees          *[]account `json:"assignees"`
+		RequestedReviewers *[]account `json:"requested_reviewers"`
+		Base               struct {
+			Repo struct {
+				FullName string `json:"full_name"`
+			} `json:"repo"`
+		} `json:"base"`
+	}
+	if err := json.Unmarshal(raw, &pr); err != nil {
+		return false, err
+	}
+	if pr.Number != jid.Number || pr.Assignees == nil || pr.RequestedReviewers == nil || !strings.EqualFold(pr.Base.Repo.FullName, jid.Owner+"/"+jid.Repo) {
+		return false, errors.New("pull-request response does not match the verified repository or lacks required fields")
+	}
+	if hasAssignee(s.bot.Login(), *pr.Assignees) || hasAssignee(s.bot.Login(), *pr.RequestedReviewers) {
+		return true, nil
+	}
+	for page := 1; ; page++ {
+		raw, err := s.bot.callContext(ctx, http.MethodGet, fmt.Sprintf("%s/reviews?per_page=100&page=%d", url, page), nil, []int{http.StatusOK})
+		if err != nil {
+			return false, err
+		}
+		var reviews *[]struct {
+			User        *account `json:"user"`
+			SubmittedAt string   `json:"submitted_at"`
+		}
+		if err := json.Unmarshal(raw, &reviews); err != nil {
+			return false, err
+		}
+		if reviews == nil {
+			return false, errors.New("null pull-request reviews")
+		}
+		for _, review := range *reviews {
+			if review.SubmittedAt != "" && review.User.hasLogin(s.bot.Login()) {
+				return true, nil
+			}
+		}
+		if len(*reviews) < 100 {
+			return false, nil
+		}
+	}
 }

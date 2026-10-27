@@ -85,10 +85,10 @@ func (s *server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		chanlib.WriteJSON(w, map[string]any{"ok": true, "dropped": drop})
 		return
 	}
-	messages, err := s.ciMessages(r.Context(), event, body, msg)
+	messages, err := s.eventMessages(r.Context(), event, body, msg)
 	if err != nil {
-		slog.Warn("github CI assignment lookup failed", "source", key, "event", event, "err", err)
-		chanlib.WriteErr(w, http.StatusServiceUnavailable, "CI assignment lookup failed")
+		slog.Warn("github PR responsibility lookup failed", "source", key, "event", event, "err", err)
+		chanlib.WriteErr(w, http.StatusServiceUnavailable, "PR responsibility lookup failed")
 		return
 	}
 	lost, retained := false, false

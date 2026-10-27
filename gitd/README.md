@@ -50,7 +50,8 @@ login and PR comment are one identity.
 ## Observe vs trigger
 
 `add` seeds mention routes and `<folder>#observe` fallbacks. The bot's login
-comes from `GITHUB_TOKEN`. Assign the bot to each PR it should watch.
+comes from `GITHUB_TOKEN`. Assign the bot or request its review on a PR to
+receive its activity as mentions. A submitted review also qualifies.
 
 | Event                                                                             | Default result |
 | --------------------------------------------------------------------------------- | -------------- |
@@ -58,18 +59,19 @@ comes from `GITHUB_TOKEN`. Assign the bot to each PR it should watch.
 | Inline PR comment directly replies to a stored bot comment                        | Turn           |
 | Human comment, inline comment or review with a body on a bot-authored PR or issue | `mention`      |
 | PR assignment or individual review request targets the bot                        | Turn           |
-| Watched PR changes state, head, labels or review status                           | Turn           |
-| Completed check, suite or workflow names a PR currently assigned to the bot       | Turn           |
-| Other plain comment or discussion, including on a watched PR                      | Observe        |
-| Assignment or review request targets someone else                                 | Observe        |
+| PR activity where the bot is assigned, requested or has submitted a review        | Turn           |
+| Completed check, suite or workflow names such a PR                                | Turn           |
+| Other plain comment or discussion                                                 | Observe        |
+| Assignment or review request targets someone else on an unrelated PR              | Observe        |
 | Other issue-only, repository-only, queued or in-progress event                    | Observe        |
 
-Review requests are one-time asks. The PR's assignees declare the watch.
 Human conversation on a PR or issue that the bot authored maps to `mention`.
+The bot's own comments drop, and its retained metadata never becomes a mention.
 A person's `message` or `mention` keeps a PR or issue engaged after a reply, as
 on every channel: a human comment on an engaged PR starts a turn without a new
-mention. A `check_run`, `workflow_run` or review-state row never rides
-engagement and lands on the `#observe` fallback. To let CI continue an open
+mention. A `check_run`, `workflow_run` or review-state row that is not promoted
+to `mention` does not ride engagement. It lands on the `#observe` fallback.
+To let CI continue an open
 conversation, add one route above the fallback, for example
 `chat_jid=github:o/r/pr/* verb=check_run` to `sloth/morha#engaged`
 ([`ROUTING.md`](../ROUTING.md)). gitd carries no flag for this.
@@ -81,9 +83,10 @@ mention trigger rows. Keep its PR mention route and observation fallbacks.
 Subscribe to `issue_comment`, `pull_request`, `pull_request_review`,
 `pull_request_review_comment` and `pull_request_review_thread` for PR conversations
 and state. For CI, add `check_run`, `check_suite` and `workflow_run` events.
-Each completed delivery reads current assignees through `GET /repos/{owner}/{repo}/pulls/{number}`.
-The token needs Pull requests read access. An unassociated event performs no
-API lookup. A delivery allows at most ten distinct PRs and ten seconds for
+gitd reads the PR's assignees, requested reviewers and submitted review history
+through the authenticated GitHub API. The token needs Pull requests read access.
+Unassociated, queued and in-progress CI events perform no API lookup. A CI
+delivery allows at most ten distinct PRs. Each delivery has ten seconds for
 lookups. Failed or incomplete lookups return 503 before forwarding any row;
 use GitHub's redeliver button after recovery. Associated PR rows use stable
 delivery-and-PR IDs, so routd deduplicates a replay.
@@ -92,8 +95,8 @@ Fork checks with empty PR associations remain observations.
 Created comments keep their replyable object IDs. Edits, deletions and review
 dismissals use delivery IDs, so their notifications survive ingestion.
 Those notifications do not rewrite or remove the original stored text. gitd
-sets `ReplyTo` only on a created review comment, so an edit or deletion of a
-reply never becomes a mention.
+sets `ReplyTo` only on a created review comment. An edit or deletion can still
+become a mention when the bot has responsibility for the PR.
 
 ## Location header
 

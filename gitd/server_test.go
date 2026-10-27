@@ -283,3 +283,37 @@ func TestWebhook_ReviewRequestFromBotIsMention(t *testing.T) {
 		t.Fatalf("routd got %+v", got)
 	}
 }
+
+func TestWebhookResponsibilitySkipsUnneededLookups(t *testing.T) {
+	e := newTestEnv(t, secretMap{"repo/kronael/arizuko": "fixture-secret"})
+	calls := 0
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { calls++; w.WriteHeader(500) }))
+	defer api.Close()
+	e.srv.bot.cfg.APIBase = api.URL
+	pr := `"action":"created","issue":{"number":5,"pull_request":{}},"comment":{"id":42,"body":"hello"}`
+	for _, scenario := range []struct {
+		name, login, secret, fields string
+		code                        int
+	}{
+		{"unresolved", "", "fixture-secret", pr, 200},
+		{"mention", botLogin, "fixture-secret", strings.Replace(pr, "hello", "@arizuko-bot hello", 1), 200},
+		{"signature", botLogin, "wrong", pr, 401},
+		{"self", botLogin, "fixture-secret", pr, 200},
+		{"other bot", botLogin, "fixture-secret", pr, 200},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			e.srv.bot.login.Store(scenario.login)
+			raw := body(scenario.fields)
+			if scenario.name == "self" {
+				raw = []byte(strings.Replace(string(raw), `"sender":{"login":"rhias","type":"User"}`, `"sender":{"login":"arizuko-bot","type":"User"}`, 1))
+			}
+			if scenario.name == "other bot" {
+				raw = []byte(strings.Replace(string(raw), `"sender":{"login":"rhias","type":"User"}`, `"sender":{"login":"other-bot","type":"Bot"}`, 1))
+			}
+			got := e.deliver(t, "/github/repo/kronael/arizuko", scenario.secret, "issue_comment", "skip", raw)
+			if got.Code != scenario.code || calls != 0 {
+				t.Fatalf("status=%d calls=%d body=%s", got.Code, calls, got.Body.String())
+			}
+		})
+	}
+}

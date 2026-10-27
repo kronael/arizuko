@@ -493,6 +493,9 @@ func mapEvent(kind, name, event, delivery string, body []byte, now time.Time, bo
 	if !self && p.Sender.Type == "User" && conversationAuthor.hasLogin(botLogin) {
 		msg.Verb = "mention"
 	}
+	if self {
+		msg.Verb = event
+	}
 	msg.ChatJID = jid.String()
 	msg.Topic = jid.Topic()
 	msg.ChatName = strings.TrimPrefix(msg.ChatJID, "github:")

@@ -58,3 +58,38 @@ func TestGitHubIngressPromotesOnlyAReplyToTheBot(t *testing.T) {
 		}
 	}
 }
+
+func TestGitHubIngressResponsibilityMentionUsesRoute(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	const jid, topic = "github:kronael/arizuko/pr/5", "pr/5"
+	doSetRoutes(t, db, []core.Route{
+		{Seq: 0, Match: "chat_jid=" + jid + " verb=mention", Target: "review"},
+		{Seq: 1, Match: "chat_jid=" + jid, Target: "fallback"},
+	})
+	srv := NewServer(db, nil, nil, nil, time.Hour, "")
+	loop := NewLoop(db, nil, LoopConfig{})
+	defer loop.StopQueue()
+	for i, stopped := range []bool{false, true} {
+		if stopped {
+			if err := db.store().BumpEngagement(jid, topic, "fallback", time.Time{}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		id := []string{"first", "after-disengage"}[i]
+		rec := doJSON(t, srv.Handler(), "POST", "/v1/messages", "", chanlib.InboundMsg{ID: id, ChatJID: jid, Topic: topic, Sender: "github:human", Content: "correction", Verb: "mention", IsGroup: true})
+		if rec.Code != 200 {
+			t.Fatalf("ingress %d: %s", rec.Code, rec.Body.String())
+		}
+		seen, ok := db.MessageByID(jid, id)
+		if !ok {
+			t.Fatal("missing message")
+		}
+		if got := loop.resolve(jid, seen); got.Folder != "review" {
+			t.Fatalf("stopped=%v route=%+v", stopped, got)
+		}
+	}
+}
