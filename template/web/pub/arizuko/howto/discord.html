@@ -113,15 +113,14 @@
     </ol>
 
     <h2>Step 3: configure the instance</h2>
-    <p>Add the package, then add the token to <code>/srv/data/arizuko_&lt;instance&gt;/.env</code>:</p>
-    <pre><code>./arizuko packages &lt;instance&gt; add discd</code></pre>
+    <p>Add the token to <code>/srv/data/arizuko_&lt;instance&gt;/.env</code>:</p>
     <pre><code># bot mode
 DISCORD_BOT_TOKEN=your_bot_token_here
 
 # user mode, personal use
 # DISCORD_USER_TOKEN=your_user_token_here</code></pre>
-    <p>Write the compose file again and restart:</p>
-    <pre><code>./arizuko generate &lt;instance&gt;
+    <p>Select the package and restart. The existing package selections stay:</p>
+    <pre><code>./arizuko package add -i &lt;instance&gt; catalog:discd
 sudo systemctl restart arizuko_&lt;instance&gt;</code></pre>
     <p>Read the log to see that the adapter is connected:</p>
     <pre><code>sudo journalctl -u arizuko_&lt;instance&gt; --since "30s ago" --no-pager \
@@ -130,7 +129,7 @@ sudo systemctl restart arizuko_&lt;instance&gt;</code></pre>
 
     <h2>Step 4: add a route</h2>
     <p>Without a route, <code>routd</code> stores the Discord messages and starts no turn. Add at least one route. The CLI is the shortest way:</p>
-    <pre><code>./arizuko route &lt;instance&gt; add 'platform=discord' main</code></pre>
+    <pre><code>./arizuko route -i &lt;instance&gt; add 'platform=discord' main</code></pre>
     <p>The operator dashboard has the same function at <code>/dash/routes/</code>. You can also ask the root agent in a chat: "add a route that sends all Discord messages to main". The agent calls the <code>add_route</code> MCP tool. A new route applies at once, with no restart.</p>
 
     <h2>The first route that matches decides the folder</h2>
@@ -147,13 +146,13 @@ sudo systemctl restart arizuko_&lt;instance&gt;</code></pre>
     </table>
 
     <h3>One agent for all servers</h3>
-    <pre><code>./arizuko route &lt;instance&gt; add 'platform=discord' main</code></pre>
+    <pre><code>./arizuko route -i &lt;instance&gt; add 'platform=discord' main</code></pre>
     <p>Every message from every channel of every server where the bot is goes to the <code>main</code> group.</p>
 
     <h3>One agent for each channel</h3>
-    <pre><code>./arizuko route &lt;instance&gt; add 'chat_jid=discord:123456789/111111111' engineering --seq 10
-./arizuko route &lt;instance&gt; add 'chat_jid=discord:123456789/222222222' marketing --seq 20
-./arizuko route &lt;instance&gt; add 'platform=discord' main --seq 30</code></pre>
+    <pre><code>./arizuko route -i &lt;instance&gt; add 'chat_jid=discord:123456789/111111111' engineering --seq 10
+./arizuko route -i &lt;instance&gt; add 'chat_jid=discord:123456789/222222222' marketing --seq 20
+./arizuko route -i &lt;instance&gt; add 'platform=discord' main --seq 30</code></pre>
     <p>The last route takes the messages of all other channels.</p>
 
     <h3 id="mention-only">Mention-only channels</h3>
@@ -195,12 +194,12 @@ send_file chatJid:="discord:123456789/987654321" \
         <tr><td>disconnected</td><td>503</td><td>the WebSocket is not open; check the token and the network</td></tr>
       </tbody>
     </table>
-    <pre><code>./arizuko status &lt;instance&gt;</code></pre>
+    <pre><code>./arizuko status -i &lt;instance&gt;</code></pre>
 
     <h2>Six problems have a known cause</h2>
     <dl>
       <dt>The bot is in the server and does not answer</dt>
-      <dd>Check that a route exists with <code>./arizuko route &lt;instance&gt; list</code>. Without a route, no turn starts.</dd>
+      <dd>Check that a route exists with <code>./arizuko route -i &lt;instance&gt; list</code>. Without a route, no turn starts.</dd>
       <dt>Messages arrive with no text in bot mode</dt>
       <dd>Message Content Intent is off. Open the Discord Developer Portal, then Bot, then Privileged Gateway Intents, and turn it on. User mode needs no intents.</dd>
       <dt><code>discd</code> reports "disconnected"</dt>
@@ -232,7 +231,7 @@ send_file chatJid:="discord:123456789/987654321" \
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/howto/discord.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-21">2026-10-21</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-24">2026-10-24</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

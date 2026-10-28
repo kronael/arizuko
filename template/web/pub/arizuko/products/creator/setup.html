@@ -32,6 +32,7 @@
             <li><a href="../creator/">Content pipeline (Inari)</a></li>
             <li><a href="../socials/">Social presence (Phosphene)</a></li>
             <li><a href="../strategy/">Domain researcher (Prometheus)</a></li>
+            <li><a href="../cuzk/">CUZK cadastral lookup</a></li>
             <li><a href="../shapes.html">Shapes</a></li>
           </ul>
         </li>
@@ -50,24 +51,33 @@
       <ul>
         <li>A running instance, from <a href="../../howto/">getting started</a>.</li>
         <li><code>CODEX_API_KEY</code>, which the product declares as required. The oracle skill combines several sources. Without it, the agent drafts from one source at a time.</li>
-        <li>An approval channel, for example Telegram with <code>TELEGRAM_BOT_TOKEN</code> and <code>arizuko packages &lt;instance&gt; add teled</code>. For publishing, also one publish adapter.</li>
+        <li>An approval channel, for example Telegram with <code>TELEGRAM_BOT_TOKEN</code> and the Telegram adapter. For publishing, also add a publish adapter.</li>
       </ul>
 
       <h2>group add makes the group from the product</h2>
-      <pre><code>arizuko group &lt;instance&gt; add telegram:user/12345678 content --product creator</code></pre>
+      <pre><code>arizuko group -i &lt;instance&gt; add telegram:&lt;bot-id&gt;/user/12345678 content -p creator</code></pre>
+      <p>The command records the product selection for the group in the <code>installed_packages</code> resource. Run <code>arizuko package sync</code> after selecting the adapters below.</p>
 
       <h2>The style file comes first</h2>
       <p><code>facts/style.md</code> is the core of the product. It ships as an instruction to the operator and not as content, because a generic voice file gives generic drafts. Record formal or casual, first or third person, the topics in scope, the topics out of scope, length and format, and the rules for each platform, for example short Bluesky posts and the thread shape on X.</p>
+      <p>The <code>facts/</code> files of the product are examples, not package files, so <code>arizuko package sync</code> never rewrites them. Copy them once from the repository checkout:</p>
+      <pre><code>cp -r ant/examples/creator/facts /srv/data/arizuko_&lt;instance&gt;/groups/content/</code></pre>
       <div class="callout"><strong>The draft quality follows this one file.</strong> If the drafts read as if nobody wrote them, fix this file. The fix is not in the prompt and not in the model.</div>
 
       <h2>A publish adapter lets the agent post</h2>
-      <pre><code>arizuko packages &lt;instance&gt; add slakd</code></pre>
-      <pre><code>SLACK_BOT_TOKEN=REPLACE_ME
+      <p>For Telegram approval, select <code>catalog:teled</code>. For Slack publishing, also select <code>catalog:slakd</code>. The existing package selections stay.</p>
+      <pre><code>arizuko package add -i &lt;instance&gt; catalog:teled
+arizuko package add -i &lt;instance&gt; catalog:slakd</code></pre>
+      <p>Add the adapter keys to <code>/srv/data/arizuko_&lt;instance&gt;/.env</code>:</p>
+      <pre><code>TELEGRAM_BOT_TOKEN=REPLACE_ME
+SLACK_BOT_TOKEN=REPLACE_ME
 SLACK_SIGNING_SECRET=REPLACE_ME</code></pre>
+      <p>Restart the running instance:</p>
+      <pre><code>sudo systemctl restart arizuko_&lt;instance&gt;</code></pre>
       <p>Publishing is a normal adapter call, so the agent can post only where you installed an adapter and granted the action. Without an adapter, the agent does not publish, and the drafts come back in the chat.</p>
 
       <h2>The agent must ask for a brief</h2>
-      <pre><code>arizuko send &lt;instance&gt; content "pitch me three angles on last week's outage" --wait</code></pre>
+      <pre><code>arizuko send -i &lt;instance&gt; content "pitch me three angles on last week's outage" --wait</code></pre>
       <p>A correct answer proposes angles and then asks for a brief and a platform. If the agent gives a finished draft without a request, the persona file is not in the folder.</p>
 
       <h2>Three changes tune the pipeline</h2>

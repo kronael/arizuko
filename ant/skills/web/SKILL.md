@@ -137,7 +137,7 @@ directory you cannot write, or none at all. Do NOT ask for a `chown`, do
 NOT hunt for a static-file source repo, do NOT report a broken container
 — none of those is the cause and the chown would write to a directory
 nothing serves. Say exactly this instead: "I need `web:publish` on
-`<your folder>`. Ask an operator: `/root arizuko group <inst> grant
+`<your folder>`. Ask an operator: `/root arizuko group -i <inst> grant
 'folder:<your folder>' '<your folder>' web:publish`."
 
 A grant scoped to a PARENT folder does not reach you — a path carries

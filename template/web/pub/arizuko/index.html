@@ -40,13 +40,9 @@
         directory on your server holds the folders and the store. You change
         an agent in chat, then read the result in its files.
       </p>
-      <p>Three commands create, configure and start an instance. They work after the setup guide builds the images and sets up the store server:</p>
-      <pre><code>arizuko create demo --product slack-team   # makes /srv/data/arizuko_demo, prints the keys to set
-$EDITOR /srv/data/arizuko_demo/.env         # the keys that create printed
-arizuko run demo                            # starts the instance</code></pre>
+      <p>The <a href="howto/">setup guide</a> builds the images, creates an instance, initializes the store and starts the instance. To select a product, add <code>--product slack-team</code> to the guide's <code>create</code> command. <code>routd</code> selects the product for the <code>main</code> group at its first boot. After that, <code>arizuko package sync</code> installs the product files.</p>
       <p>
-        The <a href="howto/">setup guide</a> adds the build, the store
-        server and the chat connection. See also
+        The setup guide also covers the chat connection. See
         <a href="products/">all products</a> and the
         <a href="https://github.com/kronael/arizuko">source on GitHub</a>.
         arizuko is free under the MIT license.

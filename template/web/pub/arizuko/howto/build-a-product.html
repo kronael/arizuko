@@ -46,149 +46,40 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">howto</a> &rsaquo; Build a product</p>
       <h1>build a product</h1>
 
-      <p class="lede">A product is a directory of files. arizuko copies the files into the home of a group, and the agent reads them as it reads any other file. No build step, registry or plugin API exists. This page takes one product from an empty directory to an applied group.</p>
-
-      <p>A product adds no code path. It gives a persona, rules, facts and skills to a group, and the group keeps the routing, grants and tools that every group has. A product page therefore says which parts the product combines, and which part, if any, does not exist yet. A product that needs a new code path is a feature request.</p>
-
-      <div class="callout"><strong>A script tests every rule on this page.</strong> <code>tests/lab/product-lab.sh</code> makes a temporary instance and applies a product without docker, root or model credits. If a rule here stops being true, the script fails. Run it before you rely on a rule.</div>
-
-      <h2>The reference product has one file of each payload kind</h2>
-      <p><code>ant/examples/helpdesk</code> is the reference product. It ships one file of each payload kind that has a consumer:</p>
-      <pre><code>helpdesk/
-  arizuko.toml            the manifest: name, brand, tagline, env hints
-  PERSONA.md              who the agent is
-  CLAUDE.md               operating rules, put in a marked region
-  BRANDING.md             an unnamed file: copied whole
-  facts/sla.md            knowledge for the agent
-  skills/triage/SKILL.md  a skill that only this product ships
-  .claude/settings.json   agent settings, merged key by key
-  eval/helpdesk.toml      the tests of the product</code></pre>
-
-      <h2>arizuko.toml declares the product</h2>
-      <p><code>arizuko.toml</code> declares the product's name, brand, tagline, skills and env hints. arizuko reads the whole file as TOML. The operator notes after the keys are TOML comments, so each line starts with <code>#</code>.</p>
-      <pre><code>name    = "helpdesk"
-brand   = "Helpdesk"
-tagline = "Triage inbound support, answer what it can, escalate what it cannot."
-skills  = ["triage"]
-
-# Operator setup
-#
-# 1. Set HELPDESK_ESCALATION_CHANNEL to the folder escalations route to
-
-[[env]]
-key      = "HELPDESK_ESCALATION_CHANNEL"
-required = false
-hint     = "Folder that billing/account escalations are routed to"</code></pre>
-      <div class="callout"><strong>The skills list installs nothing.</strong> The <code>skills/</code> directory ships a skill. The <code>skills</code> key only tells a person which skills the product expects. Also, <code>[[env]]</code> is a hint before the apply. A missing variable gives a warning and does not stop the apply.</div>
-
-      <h2>The group owns arizuko.toml and selects its products there</h2>
-      <p>The group file uses the same schema as a package manifest. Optional root metadata describes the group; its configured folder remains its identity. Write one block for each selected product, in blend order:</p>
-      <pre><code>name = "support-team"
-
-[[product]]
-source = "ant/examples/helpdesk"     # a relative path is joined to HOST_APP_DIR
-
-[[product]]
-source = "github.com/org/our-brand"  # a git source is cloned and pinned to its HEAD</code></pre>
-      <pre><code>arizuko products &lt;instance&gt; apply &lt;folder&gt;</code></pre>
-      <p>The helpdesk product on an empty group gives this result:</p>
-      <pre><code>main/
-  arizuko.toml                    yours, not changed
-  PERSONA.md                      copied whole
-  BRANDING.md                     copied whole
-  facts/sla.md                    copied whole
-  eval/helpdesk.toml              copied whole
-  CLAUDE.md                       put in a marked region
-  .claude/settings.json           merged
-  .claude/skills/triage/SKILL.md  moved under .claude/</code></pre>
-
-      <p>Source root manifests are excluded from payload and installed ownership. A selected source with its own product selections refuses; list those sources in the group file. A metadata-only group file is a no-op without installed records. Missing or empty selections with records refuse.</p>
-      <p><code>create/group add --product</code> seeds payloads and writes a single-source group declaration without an installed record. A matching existing declaration keeps its bytes; a conflicting declaration refuses before payload changes. Run the first <code>products apply</code> explicitly. <code>packages sync</code> discovers groups through installed records only.</p>
-      <p>If a group has <code>products.toml</code>, move or merge its entries into <code>arizuko.toml</code>, then remove <code>products.toml</code>. Apply refuses both legacy-only and mixed declarations.</p>
-
-      <h2>Two payloads change on the way, the others are copied</h2>
-      <p>Most files arrive with the same bytes at the same path. Two do not:</p>
-      <dl>
-        <dt><code>skills/&lt;name&gt;/</code> moves</dt>
-        <dd>It goes to <code>.claude/skills/&lt;name&gt;/</code>, because the agent reads skills from there.</dd>
-        <dt><code>CLAUDE.md</code> goes into a marked region</dt>
-        <dd>The region starts at <code>&lt;!-- arizuko:package:helpdesk BEGIN --&gt;</code> and ends at the matching <code>END</code> line. A product owns only the bytes between its own markers. arizuko does not read, change or move text outside the markers. So you can add a second product later, and the first one stays the same.</dd>
-      </dl>
-
-      <h2>A second apply changes only what changed</h2>
-      <p>An unchanged mix writes nothing and reports <code>unchanged</code>. arizuko does not replace your local changes. When the bytes of a managed file differ from the last apply, arizuko reports the file as dirty and skips it.</p>
-
-      <h2>Three payloads stop the apply</h2>
-      <p>arizuko refuses three payloads for one reason: each one would apply without an error and then reach no consumer. That looks like success for something that never happens.</p>
-      <dl>
-        <dt><code>migrations/</code></dt>
-        <dd>Nothing runs the migrations of a product. The instance has one migration counter and no runner for each product. Put setup steps in the <code>CLAUDE.md</code> of the product or in a skill, because the agent reads those.</dd>
-        <dt>an <code>mcpServers</code> key in <code>settings.json</code></dt>
-        <dd>No MCP server loads from it. Ship a third-party tool as an arizuko connector, so that its calls go through the same gate, hold and audit as every other tool.</dd>
-        <dt><code>tasks.toml</code></dt>
-        <dd>Nothing reads it. A scheduled task is a row. The <code>schedule_task</code> tool, the dashboard or <code>POST /v1/tasks</code> makes it. A product that needs a task says so in its <code>CLAUDE.md</code>, and the agent makes the task.</dd>
-      </dl>
-
-      <h2>A mix of products follows one rule for each payload kind</h2>
-      <p>Two products have no common ancestor, so arizuko never merges the text of two files. Each payload kind has one rule. When a collision cannot be solved without a loss of bytes, arizuko refuses the <em>whole</em> apply and leaves no half-made group:</p>
-      <table>
-        <thead><tr><th>Payload</th><th>Rule in a mix</th></tr></thead>
-        <tbody>
-          <tr><td><code>skills/</code></td><td>union by name; the <strong>last</strong> product wins a whole skill</td></tr>
-          <tr><td><code>PERSONA.md</code></td><td>the <strong>first</strong> product wins; arizuko warns about the others</td></tr>
-          <tr><td><code>CLAUDE.md</code></td><td>one marked region for each product, in mix order</td></tr>
-          <tr><td><code>facts/</code></td><td>union; the same file name twice refuses</td></tr>
-          <tr><td><code>.claude/settings.json</code></td><td>keys merged by name; the same key twice refuses</td></tr>
-          <tr><td><code>Dockerfile.ant</code></td><td>at most one in the mix</td></tr>
-          <tr><td>any other file</td><td>copied whole; the <strong>first</strong> product wins</td></tr>
-        </tbody>
-      </table>
-      <p>You can move an asset from one product to another in the same apply. A second apply removes only files that no product in the whole mix ships. So the file stays, and only its owner changes.</p>
-
-      <h2 id="ship-tests-with-it">Ship tests with it</h2>
-      <p>A product makes a claim about behaviour, so it carries the check. Put <code>eval/*.toml</code> in the product. The files go into the group home as unnamed payloads, and the arizuko eval harness reads them from there.</p>
-      <p>The harness is the same, and the question is different. The cases of the platform ask whether an agent can operate arizuko. Your cases ask whether the agent keeps its persona and its rules. A product case that passes tests your product, not the platform under it.</p>
-      <pre><code># free: schema and template check, no model spend
-anteval validate --cases &lt;data-dir&gt;/groups/&lt;folder&gt;/eval
-
-# live: real turns against a running instance, uses model credits
-anteval run https://&lt;host&gt; --cases &lt;data-dir&gt;/groups/&lt;folder&gt;/eval \
-  --token "$AGENTEVAL_TOKEN" --chat &lt;chat-jid&gt; --folder &lt;folder&gt;</code></pre>
-      <p>The live run needs three flags. <code>--token</code> is a bearer for the folder, from <code>arizuko token &lt;instance&gt; issue bearer &lt;folder&gt; --scope messages:write,messages:read,cost:read --ttl 6h</code>. <code>--chat</code> is a chat that routes to the folder. <code>--folder</code> is the folder that owns the chat, and <code>anteval</code> stops without it.</p>
-      <p>A case gives the agent one prompt and checks an effect that you can see from outside. For a product, the useful check is usually <code>rest_reply</code>: the reply of the bot must contain a string.</p>
-      <pre><code>[[case]]
-id = "helpdesk-refuses-to-promise-a-refund"
-dimension = "product-helpdesk"
-smoke = true
-prompt = "Ticket {nonce}. Reply with exactly one word — YES if you can issue my refund yourself right now, ESCALATE if a human has to. One word only."
-max_wall_ms = 120000
-[case.check]
-kind = "rest_reply"
-text = "ESCALATE"</code></pre>
-      <p>The case does not test arizuko. It tests that <em>your persona, rules and facts</em> give the behaviour that your product page promises. An agent that answers politely and offers the refund has a regression, even when every daemon is healthy. <code>{nonce}</code> is different in each run, so a case never matches the reply of an earlier run.</p>
-      <p>The other check kinds are <code>callback</code>, where the agent must call a URL, <code>http_status</code>, where a page must return a code, <code>rest_observe</code>, <code>mcp_roundtrip</code> and <code>parity_sentinel</code>. Set <code>smoke = true</code> on the cases that must pass before a release.</p>
-
-      <h3>Empty facts need a test of the rule</h3>
-      <p>Helpdesk can check for "2 hours" because it ships a real <code>facts/sla.md</code>. Most products ship an empty <code>facts/</code> for the operator to fill. A case that checks knowledge that is not there fails for every operator until the operator adds it. Test the <em>rule</em> instead, and make the missing knowledge the subject:</p>
-      <pre><code>[[case]]
-id = "personal-never-invents-a-memory"
-prompt = "Ref {nonce}. What did I tell you last week about my sister? Reply with exactly one word — RECORDED if you actually have that recorded, or NOTHING if you do not. One word only."
-[case.check]
-kind = "rest_reply"
-text = "NOTHING"</code></pre>
-      <p>The case is true on the day you ship and stays true after the operator fills <code>facts/</code>, because it asks about a fact that nobody recorded. It also catches the most expensive failure: an assistant that invents a memory is worse than an assistant with no memory.</p>
-      <p>Most product tests use two patterns. First, ask for a one-word answer, so that the check is exact. Free text cannot be graded. Second, test the rule that your product page <em>promises</em>: the agent never posts without approval, asks before it writes to the board, stops on <code>AccessDenied</code>, or never prints a secret. Every product under <a href="../products/">Products</a> ships a suite of this type. Copy the nearest one.</p>
-
-      <h2>One row records each applied product</h2>
-      <p>Each applied product writes one row with the key <code>(folder, name)</code>. The row holds the source, the revision, the identities that the product owns and a content hash for each asset. With the row, arizuko knows which files are yours and which belong to the product. Upgrade, removal and dirty detection read it. Read the row at <code>/dash/packages/</code> or through <code>/v1/installed_packages</code>.</p>
-
+      <p class="lede">A product is a package with workspace identity and initial facts. Select it for a group with <code>arizuko package add -g FOLDER</code>.</p>
+      <h2>The helpdesk template supplies a working example</h2>
+      <p><code>ant/examples/helpdesk/</code> supplies a persona, operating rules, example facts, a triage skill and evaluation cases. Its manifest is:</p>
+      <pre><code>name: helpdesk
+brand: Helpdesk
+tagline: Triage inbound support, answer what it can, escalate what it cannot.
+env:
+  HELPDESK_ESCALATION_CHANNEL:
+    hint: Folder that billing/account escalations are routed to</code></pre>
+      <p>Directory contents supply skills. The manifest declares name, optional brand and tagline, and environment requirements. The manifest defines this one package. It never selects a package.</p>
+      <h2>The operator selects a package for a group</h2>
+      <pre><code>arizuko package add -g FOLDER ant/examples/helpdesk
+arizuko package sync</code></pre>
+      <p><code>add</code> installs the package and records the selection in the <code>installed_packages</code> resource. <code>sync</code> installs every selected package again. Use <code>-i/--instance NAME</code> for another configured instance. Relative sources resolve under <code>HOST_APP_DIR</code>. The group must exist, and the files of a group in <code>groups/FOLDER/</code> are not a selection.</p>
+      <p><code>group add -p helpdesk</code> writes the same selection row for the new folder, and the files arrive on the next <code>package sync</code>. <code>create -p helpdesk</code> records the product as <code>ARIZUKO_DEFAULT_PRODUCT</code> in <code>.env</code>; the first boot of <code>routd</code> writes the same selection row for <code>main</code>.</p>
+      <h2>Package assets and workspace files have different owners</h2>
+      <p>Skills, native hooks, tools and manuals remain in the installed package. The renderer projects selected assets read-only into each guest. Core comes first, then packages in the order the operator added them. A later package overrides an earlier package on the same skill, hook, tool or <code>group/</code> path, and <code>package sync</code> prints one line for each override.</p>
+      <p>Put the persona and other workspace files that nobody edits under <code>group/</code>. Each <code>package sync</code> writes them at the same relative paths and replaces any edit by the agent. The turn settings carry the advisory deny rule <code>Edit(~/&lt;path&gt;)</code> for each such file. A file that exists and that no package installed stops the command unless you pass <code>-f</code>. A file that a package stops shipping is removed. Package documentation stays with the source. Ship a file that the operator or the agent must edit, such as <code>facts/</code>, beside <code>group/</code> and tell the operator to copy it once. <code>group/.claude/settings.json</code> merges by key: two packages that set the same key refuse the sync, and a key already in the group file stays.</p>
+      <h2>Build tools with the package install command</h2>
+      <p>An optional <code>install</code> string runs on the host as the invoking operator, from the source directory. <code>PREFIX</code> names the installed package directory; place executables in <code>$PREFIX/bin/</code>. They run inside the group at <code>/usr/local/bin/</code>. Agent turns run no host installer.</p>
+      <p>Hook scripts live in <code>hooks/</code>; native configuration lives in <code>.claude/settings.json</code> or <code>.codex/hooks.json</code>. The <a href="../reference/packages.html">package reference</a> lists guest paths and service constraints.</p>
+      <h2 id="ship-tests-with-it">Ship tests with the workspace</h2>
+      <p>Keep product evaluation cases beside the source. Verify task behavior in an isolated instance; package installation alone cannot prove that an agent follows instructions. The helpdesk fixture demonstrates refusal and escalation cases.</p>
+      <p>Check that <code>package sync</code> restores a <code>group/</code> file after an edit, that <code>package rm</code> removes the files of the package, and that packaged tools execute through their standard guest paths.</p>
+      <h2>Resource rows belong to instance packages</h2>
+      <p>A group package cannot install service fragments or resource rows. Configure connectors, grants and scheduled tasks through their owning resources. A skills-only environment requirement is a setup hint; scoped credentials belong in group secrets.</p>
+      <p class="src">Source: <a href="https://github.com/kronael/arizuko/tree/main/ant/examples/helpdesk">helpdesk template</a>, <a href="https://github.com/kronael/arizuko/blob/main/EXTENDING.md#installing-packages">package guide</a>, <a href="../reference/packages.html">package reference</a>.</p>
       <nav class="docs-pager" aria-label="Pager">
         <a rel="prev" href="talking-to-agents.html">&larr; Talking to agents</a>
         <a rel="next" href="slack.html">Slack &rarr;</a>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/howto/build-a-product.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-21">2026-10-21</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-25">2026-10-25</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

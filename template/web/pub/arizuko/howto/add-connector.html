@@ -79,15 +79,15 @@ headers   = { Authorization = "OAuth {secret:STATUSPAGE_TOKEN}" }
 
       <h2>The secret goes into the secrets table, not into .env</h2>
       <p>At each call, the connector reads the keys in <code>secrets</code> from the <code>secrets</code> table. Set the key for the folder that uses it:</p>
-      <pre><code>arizuko secret &lt;instance&gt; set main/infra STATUSPAGE_TOKEN --value 'sp_live_REPLACE_ME'</code></pre>
+      <pre><code>arizuko secret -i &lt;instance&gt; set main/infra STATUSPAGE_TOKEN --value 'sp_live_REPLACE_ME'</code></pre>
       <p>A person can store an own key. For turns that the person starts, that key wins over the folder key:</p>
-      <pre><code>arizuko user-secret &lt;instance&gt; set 'slack:user/U123' STATUSPAGE_TOKEN --value 'sp_live_REPLACE_ME'</code></pre>
+      <pre><code>arizuko user-secret -i &lt;instance&gt; set 'slack:user/U123' STATUSPAGE_TOKEN --value 'sp_live_REPLACE_ME'</code></pre>
       <p>The connector reads only this row. The <code>.env</code> of the instance is the environment of the daemons. The connector never sends a <code>STATUSPAGE_TOKEN</code> from <code>.env</code>. The two places can hold different values under one name.</p>
 
       <h2>A folder sees the tool only with the grant</h2>
       <p>A folder without the scope of a tool does not see the tool in <code>tools/list</code>. Read and write are two scopes, so you can grant them separately:</p>
-      <pre><code>arizuko group &lt;instance&gt; grant folder:main/infra 'main/infra/**' 'ext:statuspage:incident:read'
-arizuko group &lt;instance&gt; grant folder:main/infra 'main/infra/**' 'ext:statuspage:incident:write'</code></pre>
+      <pre><code>arizuko group -i &lt;instance&gt; grant folder:main/infra 'main/infra/**' 'ext:statuspage:incident:read'
+arizuko group -i &lt;instance&gt; grant folder:main/infra 'main/infra/**' 'ext:statuspage:incident:write'</code></pre>
 
       <h2>routd loads connectors at start</h2>
       <p><code>routd</code> reads the connectors when it starts, so restart the instance before you look for the tool:</p>

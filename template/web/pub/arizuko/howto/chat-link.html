@@ -57,7 +57,7 @@
 
       <h2>The CLI or the agent makes the token</h2>
       <p>From the CLI, on the instance <code>demo</code>:</p>
-      <pre><code>arizuko token demo issue chat acme
+      <pre><code>arizuko token -i demo issue chat acme
 # jid:   web:acme
 # token: Yp3v...Q2</code></pre>
       <p>The CLI shows the token only once. The URL is <code>https://&lt;host&gt;/chat/&lt;token&gt;/</code>. Put it behind the "Chat with us" button on the website. The token is in the URL, so the whole URL is a bearer credential that anyone can use.</p>
@@ -73,19 +73,19 @@
       <p>Both ways take an optional <code>context</code>. The context tells the agent how to process the messages that come through this link:</p>
       <pre><code>issue_chat_link(context="bug reports from the acme site; triage and file, don't chat back")
 
-arizuko token demo issue chat acme --context "bug reports; triage, don't chat"</code></pre>
+arizuko token -i demo issue chat acme --context "bug reports; triage, don't chat"</code></pre>
       <p>Each message that comes through the link brings the text into the prompt as a <code>&lt;link-context&gt;</code> block. The agent reads the block as the rule for the link, not as a message to answer. Two links to the same folder can carry two different rules. The context is fixed when you make the link. To change it, make a new link and revoke the old one.</p>
 
       <h2>The visitor sees a chat page with live replies</h2>
-      <p><code>GET /chat/&lt;token&gt;/</code> returns a small HTML chat page that <code>webd</code> contains. The visitor types, and the page posts the text to the same URL. The answer holds a <code>turn_id</code>. An SSE stream at <code>/chat/&lt;token&gt;/&lt;turn_id&gt;/sse</code> sends the reply frames of the agent while the turn runs.</p>
-      <p>After a lost connection, the page connects again with <code>Last-Event-Id</code>. <code>webd</code> sends the missed frames again and then continues live. The page works in every current browser without an account, a cookie or a sign-in.</p>
+      <p><code>GET /chat/&lt;token&gt;/</code> returns a small HTML chat page that <code>webd</code> contains. The visitor types, and the page posts the text to the same URL. The page opens an SSE stream at <code>/chat/stream</code> for the current topic and displays replies as they arrive.</p>
+      <p>After a lost connection, the page reconnects to the topic stream. The page works without an account, a cookie or a sign-in.</p>
 
       <h2>A suffix splits one folder across pages</h2>
       <p>Add a suffix to put two URLs of the same folder on different pages and tell them apart in the routing:</p>
-      <pre><code>arizuko token demo issue chat acme support
+      <pre><code>arizuko token -i demo issue chat acme support
 # jid:   web:acme/support
 
-arizuko token demo issue chat acme sales
+arizuko token -i demo issue chat acme sales
 # jid:   web:acme/sales</code></pre>
       <p>Both URLs reach the same <code>acme</code> agent. The JID lets route rules act differently, for example with a different persona, a different <a href="../concepts/topics.html">topic</a> or a different escalation. A suffix is a path segment, not a query parameter. Pick names that are easy to read in the route table.</p>
 
@@ -93,7 +93,7 @@ arizuko token demo issue chat acme sales
       <div class="callout"><strong><code>/chat/&lt;token&gt;/</code> is the anonymous bearer URL.</strong> Signed-in chat is a private panel of a team member for a folder, behind the OAuth gate of <code>proxyd</code>. <a href="../components/webd.html">webd</a> serves it, and this page does not cover it.</div>
 
       <h2>Revoke a link by its JID</h2>
-      <pre><code>arizuko token demo revoke web:acme/support</code></pre>
+      <pre><code>arizuko token -i demo revoke web:acme/support</code></pre>
       <p>After the revoke, the URL returns 404 at once. Issue a token with the same suffix to get a new URL with the same JID, and replace the URL on the website. No rotation in place exists, because the URL is the credential.</p>
 
       <h2>Four pages give the details</h2>

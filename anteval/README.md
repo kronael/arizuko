@@ -2,9 +2,8 @@
 
 Agent-capability eval — a black-box prober that certifies a live arizuko
 agent can operate the platform itself. It is a shipped binary and not a
-`go test`, because the question it answers is about a deployed instance: a
-release gate and a regression watch run it against the instance that serves
-users, and a build has no such instance.
+`go test`, because it exercises a running instance. The owner runs it by hand
+only against a throwaway instance, never against a live instance.
 
 Each case injects one real task through a public surface, lets the live agent
 do it with its own MCP tools, and asserts an **externally observable effect** —
@@ -18,8 +17,8 @@ external tool uses, so it can ship alone.
 ```bash
 make build
 # mint the injecting bearer (operator, on the instance host):
-arizuko token krons issue bearer eval --scope messages:write,messages:read,cost:read
-./anteval run https://krons.fiu.wtf \
+arizuko token -i throwaway issue bearer eval --scope messages:write,messages:read,cost:read
+./anteval run https://<throwaway-host> \
   --api   http://localhost:8081 \ # routd /v1 base reachable from the eval host
   --token "$AGENTEVAL_TOKEN" \    # bearer minted above, for the eval folder
   --chat  web:eval \              # chat JID tasks are injected into (folder must own it)
@@ -33,7 +32,7 @@ make validate                     # load+validate the case catalog (no target)
 ```
 
 Live preconditions: the eval folder exists
-(`arizuko group <inst> add web:eval eval`), it holds the grants the cases need,
+(`arizuko group -i <inst> add web:eval eval`), it holds the grants the cases need,
 its egress allows the sink, and the sink URL answers from an agent guest.
 Mint the bearer with `--ttl 6h`: the default lifetime is one hour, and a full
 catalog run is longer. The cases run one at a time on one chat: routd
@@ -45,11 +44,11 @@ The operator recipe, with the commands and the two traps that abort a run, is
 never run it".
 
 **Tiers** (2026-08-21; `cases/anteval.toml` notes in place the traps that
-rule a case out): `--smoke` is the per-release gate —
+rule a case out): `--smoke` is the shorter manual suite —
 9 cases, ~10 min measured on a healthy run (krons 2026-08-21: passing cases
 22–156s, avg ~50s), bounded by the wall caps at ~21 min. The full catalog —
-23 cases, ~30 min healthy, ≤~55 min cap-bounded per backend — runs before a
-tag and when certifying a backend (`ARIZUKO_BACKEND` = claude | codex | pi).
+23 cases, ~30 min healthy, ≤~55 min cap-bounded per backend — runs when
+the owner chooses to certify a backend (`ARIZUKO_BACKEND` = claude | codex | pi).
 The suite's cost is failure-dominated: a failing case burns its whole
 `max_wall_ms` (a misconfigured sink once made the catalog read ~4 min/case),
 so a case that cannot pass is pure burn — the reduction cut ~30 min of cap
@@ -57,8 +56,8 @@ exposure per backend, of which three cases were guaranteed-fail on the
 documented setup. A catalog too expensive to run certifies nothing; a case
 earns its slot only by evidence no cheaper tier can produce.
 
-**anteval is a manual, operator-invoked tool.** It needs a live instance and a
-minted token, and it drives a real agent at real cost. Never wire it into CI,
+**anteval is a manual, operator-invoked tool.** It needs a running throwaway
+instance and a minted token, and it drives a real agent at real cost. Never wire it into CI,
 a git hook, a cron, a scheduled task, or any `make test*`/`make smoke` gate —
 `make validate` (catalog load + schema check, no target) is the only anteval
 step that belongs in an automated pipeline.
@@ -95,7 +94,7 @@ reader can tell an ungranted tool from a failed agent. To grant them:
 ```bash
 for a in mcp:register_group mcp:delegate_group mcp:issue_webhook \
          mcp:issue_chat_token mcp:add_acl mcp:web_route_set; do
-  arizuko group <inst> grant folder:eval 'eval/**' "$a"
+  arizuko group -i <inst> grant folder:eval 'eval/**' "$a"
 done
 ```
 

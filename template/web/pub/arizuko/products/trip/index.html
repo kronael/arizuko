@@ -32,6 +32,7 @@
             <li><a href="../creator/">Content pipeline (Inari)</a></li>
             <li><a href="../socials/">Social presence (Phosphene)</a></li>
             <li><a href="../strategy/">Domain researcher (Prometheus)</a></li>
+            <li><a href="../cuzk/">CUZK cadastral lookup</a></li>
             <li><a href="../shapes.html">Shapes</a></li>
           </ul>
         </li>
@@ -64,7 +65,7 @@
         <dt>Preferences file</dt>
         <dd><code>facts/preferences.md</code> is the traveller profile: the usual budget range, the type of accommodation, the pace, food limits and interests. The operator fills it before the first use. The agent updates it when you mention a preference.</dd>
         <dt>Research with oracle</dt>
-        <dd>For each destination, May searches the web for current conditions, visa rules, transport and accommodation. Then the <code>oracle</code> skill combines the sources into one plan. The product needs oracle, and oracle needs <code>CODEX_API_KEY</code>.</dd>
+        <dd>For each destination, May searches the web for current conditions, visa rules, transport and accommodation. Then the <code>oracle</code> skill combines the sources into one plan. Oracle accepts a host Codex login or a <code>CODEX_API_KEY</code> or <code>OPENAI_API_KEY</code>.</dd>
         <dt>Structured output</dt>
         <dd>The itinerary is one document: the daily schedule, the logistics for flights and ground transport, the visa block, the budget estimate and the packing list. May saves it to <code>facts/trips/YYYY-&lt;dest&gt;.md</code>.</dd>
         <dt>Trip archive</dt>
@@ -108,7 +109,7 @@
       <h2>The product lists five skills</h2>
       <dl>
         <dt><code>web</code></dt><dd>Live search for visa rules, transport and current prices.</dd>
-        <dt><code>oracle</code></dt><dd>Combines the sources into one plan. Needs <code>CODEX_API_KEY</code>.</dd>
+        <dt><code>oracle</code></dt><dd>Combines the sources into one plan using a Codex login or API key.</dd>
         <dt><code>recall-memories</code> and <code>find</code></dt><dd>Read the preferences and find past trips.</dd>
         <dt><code>diary</code></dt><dd>Records each research session for later recall.</dd>
       </dl>
@@ -121,18 +122,19 @@
         <dt>Your server</dt>
         <dd>The preferences, the trip archive and the diary are files under <code>/srv/data/arizuko_&lt;name&gt;/groups/</code>. The conversation history is on the store server of the instance.</dd>
         <dt>Outbound paths</dt>
-        <dd>Telegram for the bot, Anthropic for model calls, and oracle through <code>CODEX_API_KEY</code>. Web research goes through <a href="../../components/egress.html">egress</a>, and you allow the domains that May can reach.</dd>
+        <dd>Telegram for the bot, Anthropic for model calls, and oracle through a Codex login or API key. Web research goes through <a href="../../components/egress.html">egress</a>, and you allow the domains that May can reach.</dd>
         <dt>One user</dt>
         <dd>The deployment is personal, so no per-user memory files exist. The traveller profile is the whole of <code>facts/preferences.md</code>.</dd>
       </dl>
 
-      <h2>Six commands set it up</h2>
-      <pre><code>arizuko create travel --product trip
-arizuko packages travel add teled
+      <h2>A package selection installs Telegram</h2>
+      <pre><code>arizuko create -i travel --product trip
 $EDITOR /srv/data/arizuko_travel/.env    # TELEGRAM_BOT_TOKEN, CODEX_API_KEY, a model key
-$EDITOR /srv/data/arizuko_travel/groups/main/facts/preferences.md
-arizuko route travel add 'platform=telegram' main
-arizuko run travel</code></pre>
+$EDITOR /srv/data/arizuko_travel/groups/main/facts/preferences.md</code></pre>
+      <p>Start the instance as a systemd service using <a href="../../howto/">getting started</a>. Select the adapter package and restart the service:</p>
+      <pre><code>arizuko package add -i travel catalog:teled
+sudo systemctl restart arizuko_travel
+arizuko route -i travel add 'platform=telegram' main</code></pre>
       <p>The <a href="setup.html">operator setup guide</a> has every step: the preferences file, the route and the check of the first research run.</p>
 
       <h2>Five pages give the details</h2>

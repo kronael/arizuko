@@ -61,7 +61,7 @@ URL combines three independent parts:
 3. **Context, set by optional instructions.** The context says how to process
    the messages that arrive through this link. The issuer sets it when it
    mints the token, with `issue_chat_link(context=…)`,
-   `issue_webhook(context=…)`, REST, dashd or `arizuko token <instance> issue
+   `issue_webhook(context=…)`, REST, dashd or `arizuko token -i <instance> issue
 … --context`. The ingest copies it to each message in
    `messages.link_context`, and the turn envelope shows it to the agent as
    `<link-context>`.
@@ -115,13 +115,13 @@ shape.
 
 ```bash
 # All Telegram chats go to atlas/content by default
-arizuko route krons add 'platform=telegram' atlas/content --seq 0
+arizuko route -i demo add 'platform=telegram' atlas/content --seq 0
 
 # One Telegram chat overrides the default
-arizuko route krons add 'chat_jid=telegram:group/12345' atlas/legal --seq -10
+arizuko route -i demo add 'chat_jid=telegram:group/12345' atlas/legal --seq -10
 
 # All Discord chats fall back to atlas/social
-arizuko route krons add 'platform=discord' atlas/social --seq 9999
+arizuko route -i demo add 'platform=discord' atlas/social --seq 9999
 ```
 
 ### A match expression is a list of key=glob predicates
@@ -162,10 +162,10 @@ verbs, and `routd` rewrites some of them at ingest:
 
 ```bash
 # Slack mentions only, from any workspace
-arizuko route krons add 'platform=slack verb=mention' atlas/mentions
+arizuko route -i demo add 'platform=slack verb=mention' atlas/mentions
 
 # All Slack direct messages
-arizuko route krons add 'platform=slack room=*/dm/*' atlas/dm
+arizuko route -i demo add 'platform=slack room=*/dm/*' atlas/dm
 ```
 
 ### A target can name the sender
@@ -175,7 +175,7 @@ the sender id, and each sender gets a child group:
 
 ```bash
 # Each Discord user gets a group under atlas/
-arizuko route krons add 'platform=discord' 'atlas/{sender}'
+arizuko route -i demo add 'platform=discord' 'atlas/{sender}'
 # discord:user/alice becomes atlas/dc-alice, discord:user/bob becomes atlas/dc-bob
 ```
 
@@ -223,7 +223,7 @@ matches, whatever their verb. An operator who wants CI to continue an open
 conversation writes the row above the `#observe` fallback:
 
 ```
-arizuko route krons add 'chat_jid=github:o/r/pr/* verb=check_run' sloth/morha#engaged --seq 50
+arizuko route -i demo add 'chat_jid=github:o/r/pr/* verb=check_run' team/reviewer#engaged --seq 50
 ```
 
 The row fires a turn while the chat and topic are engaged, in the folder that
@@ -599,8 +599,12 @@ own Claude session, reply chain and message history.
    agent lands in a thread off the message it answers. Discord starts a thread
    if none exists, and Slack roots `thread_ts` on the trigger. The reply of the
    agent therefore seeds the topic that later in-thread messages inherit.
-   `send` stays top-level. The group setting `thread_replies` toggles this
-   behavior. It is on by default for group chats and off in direct messages.
+   `send` stays top-level. The chat setting `thread_replies` toggles new-thread
+   creation. It is on by default for group chats and off in direct messages.
+   Existing-thread replies and progress stay in that thread.
+   The chat JID identifies the setting in the CLI, dashboard, REST and MCP.
+   `GET` and `PUT /v1/chats/{jid}` and `get_chat` and `set_chat` use the same
+   value. Omitting `thread_replies` on an update restores the default.
 2. **The web channel.** Web messages carry a topic slug. The JID format is
    `web:<folder>`, and the topics arrive already set.
 3. **A `#topic` prefix.** When a message starts with `#name`, `routd` runs the

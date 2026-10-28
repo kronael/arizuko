@@ -32,6 +32,7 @@
             <li><a href="../creator/">Content pipeline (Inari)</a></li>
             <li><a href="../socials/">Social presence (Phosphene)</a></li>
             <li><a href="../strategy/">Domain researcher (Prometheus)</a></li>
+            <li><a href="../cuzk/">CUZK cadastral lookup</a></li>
             <li><a href="../shapes.html">Shapes</a></li>
           </ul>
         </li>
@@ -44,7 +45,7 @@
       <p class="docs-crumb"><a href="../../">arizuko</a> &rsaquo; <a href="../">products</a> &rsaquo; Trip planner &mdash; setup</p>
       <h1>Trip planner &mdash; setup</h1>
 
-      <p class="lede">May needs one Telegram bot, a preferences file and <code>CODEX_API_KEY</code> for the oracle skill.</p>
+      <p class="lede">May needs one Telegram bot, a preferences file and Codex authentication for the oracle skill.</p>
 
       <h2>The planner needs KVM, a model key, a bot and a Codex key</h2>
       <ul>
@@ -52,23 +53,28 @@
         <li>The build part of the <a href="../../howto/index.html#install">install</a>: the binary, the images and the guest kernel, with <code>DATA_DIR</code> set to the data directory of this instance. A turn is one KVM guest, so the host needs <code>/dev/kvm</code>.</li>
         <li>Anthropic API access, <code>ANTHROPIC_API_KEY</code>.</li>
         <li>A Telegram bot token, <code>TELEGRAM_BOT_TOKEN</code>. The planner is a personal Telegram bot.</li>
-        <li><strong>A Codex API key, <code>CODEX_API_KEY</code>.</strong> The oracle skill does not run without it. Without oracle, the planner gives a shallow answer.</li>
+        <li>Codex authentication for oracle: a host login, <code>CODEX_API_KEY</code>, or <code>OPENAI_API_KEY</code>. The trip manifest declares <code>CODEX_API_KEY</code> as a requirement.</li>
       </ul>
 
-      <h2>create seeds the main group from the trip product</h2>
-      <pre><code>arizuko create travel --product trip
-arizuko packages travel add teled
+      <h2>create records the trip product for the main group</h2>
+      <pre><code>arizuko create -i travel --product trip
 $EDITOR /srv/data/arizuko_travel/.env</code></pre>
-      <p><code>--product trip</code> copies the payloads of <code>ant/examples/trip/</code> into the <code>main</code> group: the <code>PERSONA.md</code> of May, a first <code>facts/preferences.md</code> and the <code>eval/</code> tests. It writes the group's own <code>arizuko.toml</code> selecting that source. <code>arizuko create</code> also writes <code>.env</code> with a new <code>AUTH_SECRET</code> and <code>SECRETS_KEY</code>. <code>packages add teled</code> installs the Telegram adapter. Add the other values:</p>
+      <p><code>--product trip</code> records the product as <code>ARIZUKO_DEFAULT_PRODUCT</code> in <code>.env</code> and copies no file. At its first boot <code>routd</code> selects the product for the <code>main</code> group. The next <code>arizuko package sync</code> installs the <code>group/</code> files of <code>ant/examples/trip/</code>, including the <code>PERSONA.md</code> of May. <code>arizuko create</code> also writes <code>.env</code> with a new <code>AUTH_SECRET</code> and <code>SECRETS_KEY</code>. Add the other values:</p>
       <pre><code>ASSISTANT_NAME=may
 WEB_HOST=travel.example.com
 ANTHROPIC_API_KEY=sk-ant-REPLACE_ME
 TELEGRAM_BOT_TOKEN=REPLACE_ME
 CODEX_API_KEY=REPLACE_ME</code></pre>
 
+      <h2>A package selection installs Telegram</h2>
+      <p>Start the instance as a systemd service, as <a href="../../howto/">getting started</a> shows. Select the adapter package, then restart the service to start the adapter.</p>
+      <pre><code>arizuko package add -i travel catalog:teled
+sudo systemctl restart arizuko_travel</code></pre>
+
       <h2>The preferences file is the baseline of every plan</h2>
-      <p>May reads <code>facts/preferences.md</code> at the start of every planning session. Without it, she has no baseline and asks the same questions each time. Replace the first file with your own profile before the first message:</p>
-      <pre><code>cat &gt; /srv/data/arizuko_travel/groups/main/facts/preferences.md &lt;&lt;'EOF'
+      <p>May reads <code>facts/preferences.md</code> at the start of every planning session. Without it, she has no baseline and asks the same questions each time. Copy the example first, then replace the file with your own profile before the first message. <code>package sync</code> never rewrites it:</p>
+      <pre><code>cp -r ant/examples/trip/facts /srv/data/arizuko_travel/groups/main/
+cat &gt; /srv/data/arizuko_travel/groups/main/facts/preferences.md &lt;&lt;'EOF'
 # Travel Preferences
 
 ## Profile
@@ -94,10 +100,7 @@ EOF</code></pre>
 
       <h2>One route sends Telegram to main</h2>
       <p><code>arizuko create</code> writes no routes. Send your Telegram messages to the <code>main</code> group:</p>
-      <pre><code>arizuko route travel add 'platform=telegram' main</code></pre>
-
-      <h2>arizuko run starts the instance</h2>
-      <pre><code>arizuko run travel</code></pre>
+      <pre><code>arizuko route -i travel add 'platform=telegram' main</code></pre>
 
       <h2>May must ask before she researches</h2>
       <ul>
@@ -127,7 +130,7 @@ EOF</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/trip/setup.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-21">2026-10-21</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-25">2026-10-25</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

@@ -19,7 +19,7 @@ slakd receives Slack events from the Events API webhook, which proxyd forwards t
 
 - The binary is `slakd/main.go`.
 - The listener is `$LISTEN_ADDR`, default `:8080`, which is the container-internal port by the convention of arizuko.
-- The public surface is `/slack/`. The `proxyd_routes` row in `template/services/slakd.yaml` has `auth: public` and `preserve_headers` for `X-Slack-Signature` and `X-Slack-Request-Timestamp`. proxyd forwards `/slack/events` and `/slack/interactivity` to `slakd:8080`. The row is live only when `SLACK_BOT_TOKEN` is set.
+- The public surface is `/slack/`. The `proxyd_routes` row in `template/services/slakd/arizuko.yml` has `auth: public` and `preserve_headers` for `X-Slack-Signature` and `X-Slack-Request-Timestamp`. proxyd forwards `/slack/events` and `/slack/interactivity` to `slakd:8080`. `generate` skips the route write when `SLACK_BOT_TOKEN` is unset, but does not delete an existing row. `sync` applies the route without evaluating that variable.
 - The router registration uses the prefix `slack:` and the caps `send_text`, `send_file`, `typing`, `edit`, `like`, `delete`, `dislike`, `post`, `pin` and `buttons`. `fetch_history` is false, because slakd wires no history API. The verbs `forward`, `quote` and `repost` are hint-only and return 501 with structured hints.
 - `GET /dash/slakd/` is the operator page. `chanlib.NewAdapterMux` mounts it from the one renderer in `chanlib/dash.go`. The path uses the daemon name from `AUTHD_SERVICE_NAME` and never the platform name.
 - `POST /v1/pane/prompts` and `POST /v1/pane/title` serve the assistant pane, as described below.
@@ -104,7 +104,7 @@ SLAKD_STALE_FAIL_LIMIT=5      consecutive auth.test failures, while stale, befor
 5. Under **Basic Information**, copy the _Signing Secret_ into `SLACK_SIGNING_SECRET`.
 6. Install the app to the workspace. Copy the _Bot User OAuth Token_, which starts with `xoxb-`, into `SLACK_BOT_TOKEN`.
 7. Invite the bot to channels with `/invite @<botname>`.
-8. Run `arizuko create <inst> && arizuko run <inst>`. Check that `GET /health` returns 200 once `auth.test` succeeds.
+8. Run `arizuko create -i <inst> && arizuko run -i <inst>`. Check that `GET /health` returns 200 once `auth.test` succeeds.
 
 ## Health signal
 

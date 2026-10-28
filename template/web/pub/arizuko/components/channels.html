@@ -52,7 +52,7 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">components</a> &rsaquo; channel adapters</p>
       <h1>channel adapters</h1>
 
-      <p class="lede">A channel adapter is a small daemon that translates one chat platform to the HTTP contract of routd, and ten adapters ship with arizuko.</p>
+      <p class="lede">A channel adapter is a small daemon that translates one chat platform to the HTTP contract of routd, and six adapters ship with arizuko.</p>
 
 <h2>An adapter translates between one chat platform and routd</h2>
 <p>A channel adapter translates between one chat app and arizuko. Each app, such as Telegram, Slack or WhatsApp, talks in its own way. The adapter turns that into the one format that arizuko understands, and turns the replies of arizuko into posts that the app accepts.</p>
@@ -136,7 +136,7 @@
 
 <p>Trust works the same in both directions: both are ES256 bearers, verified against the JWKS of <code>authd</code>, with no shared HMAC secret. For inbound calls, <code>routd</code> requires a <code>service:</code> subject. For outbound calls, the <code>chanlib</code> gate of the adapter requires exactly <code>service:routd</code>. Each token comes from <code>AUTHD_SERVICE_KEY</code> and rotates about every hour. See <a href="../concepts/auth.html">auth</a>.</p>
 
-<h2>Ten adapters ship with arizuko</h2>
+<h2>Six adapters ship with arizuko</h2>
 <table>
   <thead>
     <tr><th>name</th><th>platform</th><th>language</th><th>notes</th></tr>
@@ -147,7 +147,7 @@
     <tr><td class="name"><a href="../components/discd.html">discd</a></td><td>Discord</td><td>Go</td><td>The gateway over a websocket, ActionRow buttons and channel threads.</td></tr>
     <tr><td class="name"><a href="../components/emaid.html">emaid</a></td><td>email</td><td>Go</td><td>IMAP in, SMTP out, and threads by Message-ID.</td></tr>
     <tr><td class="name"><a href="../components/whapd.html">whapd</a></td><td>WhatsApp</td><td>TypeScript</td><td>A Baileys client, QR pairing and voice notes.</td></tr>
-    <tr><td class="name"><a href="../components/gitd.html">gitd</a></td><td>GitHub</td><td>Go</td><td>Signed webhook intake. With <code>GITHUB_TOKEN</code>, it posts and edits its own comments. Merges, labels and reviews go through the GitHub MCP connector.</td></tr>
+    <tr><td class="name"><a href="../components/gitd.html">gitd</a></td><td>GitHub</td><td>Go</td><td>Signed webhook intake. With <code>GITHUB_TOKEN</code>, it posts comments. Merges, labels and reviews go through the GitHub MCP connector.</td></tr>
   </tbody>
 </table>
 
@@ -155,7 +155,7 @@
 
 <p>The details of each platform stay inside its adapter. Slack threads, Discord ActionRows, WhatsApp QR pairing and IMAP folder watching never reach <code>routd</code>. The store sees the same <code>messages</code> row for every source.</p>
 
-<p>Output rendering follows the same rule of one renderer. The agent uses one Claude Code output style per channel. <code>slack</code> writes Slack mrkdwn: <code>*bold*</code>, <code>_italic_</code> and <code>&lt;url|text&gt;</code>. Other channels use CommonMark. runed selects the style when it renders the turn, in <code>pickOutputStyle</code> in <code>runed/settings.go</code>, so the adapter receives text that is already shaped for the channel.</p>
+<p>The core messaging skill gives agents formatting guidance for each channel. Slack uses mrkdwn, while other channels use their supported text format.</p>
 
 <p>The upstream SDK decides the language. Most platforms have a maintained Go client, so their adapter is Go. WhatsApp has its best client in TypeScript, Baileys, so whapd is TypeScript and runs on Node. The HTTP contract is the same for all adapters.</p>
 
@@ -164,7 +164,7 @@
 
 <ol>
   <li>Write the daemon. Implement <code>chanlib.BotHandler</code>, and embed <code>NoSocial</code> and <code>NoVoiceSender</code> for what the platform does not have. Serve the standard HTTP endpoints on <code>LISTEN_ADDR=:8080</code>.</li>
-  <li>Add <code>template/services/&lt;daemon&gt;.yml</code>, a partial compose file that docker includes as written, with the environment block of the service. If the adapter takes inbound web traffic, add the configuration manifest <code>&lt;daemon&gt;.yaml</code> next to it, with a <code>proxyd_routes</code> block. The next <code>arizuko run</code> uses both.</li>
+  <li>Add <code>template/services/&lt;daemon&gt;/&lt;daemon&gt;.yml</code> for Docker and <code>arizuko.yml</code> for package metadata. Declare inbound web paths in the manifest's <code>proxyd_routes</code> block.</li>
 </ol>
 
 <p><a href="https://github.com/kronael/arizuko/blob/main/chanlib/README.md">[chanlib/README.md]</a> has the delivery contract of every adapter and the error classes it returns. <a href="https://github.com/kronael/arizuko/blob/main/EXTENDING.md">[EXTENDING.md]</a> has the extension points.</p>

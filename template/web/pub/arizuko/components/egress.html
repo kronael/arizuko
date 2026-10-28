@@ -162,7 +162,7 @@ HTTPS_PROXY=http://127.0.0.1:3128 curl https://github.com</code></pre>
 
     <h2>The allowlist is the only setting</h2>
     <p>egress isolation has no switch: every turn gets a proxy, and runed refuses to start if the <code>egress</code> binary is missing. The allowlist of each folder is what you configure:</p>
-    <pre><code>arizuko network &lt;instance&gt; allow &lt;folder&gt; api.github.com</code></pre>
+    <pre><code>arizuko network -i &lt;instance&gt; allow &lt;folder&gt; api.github.com</code></pre>
 
     <p>The tap subnet and the proxy port are settings of runed, not of the <code>egress</code> binary. See <a href="https://github.com/kronael/arizuko/blob/main/runed/README.md">[runed/README.md]</a>.</p>
 
@@ -181,7 +181,7 @@ HTTPS_PROXY=http://127.0.0.1:3128 curl https://github.com</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/components/egress.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-21">2026-10-21</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-26">2026-10-26</time>
       </div>
     </main>
 

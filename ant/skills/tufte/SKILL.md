@@ -102,9 +102,8 @@ These belong in most Tufte charts:
 
 ## arizuko notes
 
-- Skill files live at `/opt/arizuko/ant/skills/tufte/` inside the
-  agent container (mounted from the host image build); after the
-  migrate skill seeds them, `~/.claude/skills/tufte/` on each group.
+- The core package mounts this skill at `~/.claude/skills/tufte/` in each
+  agent container.
 - Default output is a single self-contained `.html` file written to
   the group's `media/<YYYYMMDD>/` dir, then attached via `send_file`.
   No external CSS, no external JS, no font links — inline SVG only.

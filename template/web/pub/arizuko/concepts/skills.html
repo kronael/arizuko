@@ -71,33 +71,19 @@ description: one-line summary; say in prose when the skill applies
 ---
 
 Skill instructions here...</code></pre>
-    <p>A name must match <code>^[a-z0-9\-]+$</code>, and the seeder skips every other name. Next to <code>SKILL.md</code>, the directory can hold reference files such as <code>*.md</code> and executable helpers such as <code>*.sh</code> and <code>*.ts</code>.</p>
+    <p>A name must match <code>^[a-z0-9\-]+$</code>, and the installer rejects every other name. Next to <code>SKILL.md</code>, the directory can hold reference files such as <code>*.md</code> and executable helpers such as <code>*.sh</code> and <code>*.ts</code>.</p>
 
-    <h2>Skills come from three sources</h2>
-    <dl>
-      <dt>Built-in</dt>
-      <dd>Everything under <code>ant/skills/</code> in the arizuko repo, such as <code>self</code>, <code>migrate</code>, <code>diary</code>, <code>find</code>, <code>oracle</code>, <code>persona</code> and <code>visual</code>. They ship inside the <code>arizuko-ant</code> image, and <code>container.seedSkills()</code> copies them into every new group. <a href="../concepts/onboarding.html">onboarding</a> describes the copy.</dd>
-      <dt>Package</dt>
-      <dd>A package can ship a <code>skills/</code> folder. <code>arizuko generate</code> copies each of its skills into every existing group and overwrites the copy of the group. It skips a skill that the group disabled or whose name a built-in skill already uses.</dd>
-      <dt>User</dt>
-      <dd>A group can add its own skills under <code>/home/node/.claude/skills/</code>, the group folder mounted in the guest. The agent loads them in the same way. They live in the data directory of the group, not in the image.</dd>
-    </dl>
-    <p>Every <code>/migrate</code> run refreshes the built-in skills and never overwrites user skills.</p>
-
+    <h2>Packages and groups supply skills</h2>
+    <p>Core is an ordinary package installed for every group. Other packages add skills through their <code>skills/</code> directories. The renderer mounts selected skills read-only: core first, then packages in the order the operator added them. The later same-name skill wins.</p>
+    <p>A group can keep writable custom skills under <code>~/.claude/skills/</code>. A local <code>.disabled</code> marker suppresses a packaged skill mount. Group selections inherit no parent directory.</p>
     <h2>The prompt tells the agent to find its skills</h2>
     <p><code>runed</code> adds a <code>[solve]</code> line to the notes at the start of every prompt. The line tells the agent to run <code>/solve</code> first. <code>/solve</code> classifies the message, recalls the context and then runs <code>/dispatch</code>. <code>/dispatch</code> compares the <code>description</code> of every skill with the request and loads the matches.</p>
 
-    <h2>One version number triggers the skill update and the announcement</h2>
-    <p>The agent image carries a version number in <code>ant/skills/self/MIGRATION_VERSION</code>, a single integer. Every release increments it, a docs-only release included. Before each turn, <code>runed</code> compares the version of the image with the last version the group saw:</p>
-    <ul>
-      <li>If the image is newer, the prompt carries a <code>[pending migration]</code> line, and the agent runs <code>/migrate</code>. <code>/migrate</code> copies new and changed skill files from the image into <code>.claude/skills/</code> of the group. It replaces built-in skills and keeps user skills.</li>
-      <li>The same run announces the release. <code>/migrate</code> sends one message to each channel that a route marks <code>#announce</code>: the version, the first bullet of the <code>&gt;</code> blockquote at the top of the new <code>CHANGELOG.md</code> entry, and the changelog link. A group with no <code>#announce</code> route announces nowhere.</li>
-    </ul>
-    <p>Each version increment has a matching <code>ant/skills/self/migrations/NNN-vX.Y.Z-summary.md</code> file. A release with only doc changes can use a short file.</p>
-
-    <h2>Related pages cover seeding and shipping</h2>
-    <p><a href="../concepts/onboarding.html">onboarding</a> shows how a group gets its first skills. The &ldquo;Skills&rdquo; section of <a href="https://github.com/kronael/arizuko/blob/main/EXTENDING.md">[EXTENDING.md]</a> has the format rules and the layout of a skill. The &ldquo;Shipping changes&rdquo; section of <a href="https://github.com/kronael/arizuko/blob/main/CLAUDE.md">[CLAUDE.md]</a> has the release steps that increment <code>MIGRATION_VERSION</code> and add a migration file. <a href="../changelog/">changelog</a> lists what each version ships.</p>
-
+    <h2>Package updates start no migration turn</h2>
+    <p>Startup installs released core assets; an explicit <code>arizuko package sync</code> updates other selected sources. The next turn reads those assets. <a href="../reference/packages.html">Packages</a> documents sources, native hooks, host builds and guest paths.</p>
+    <h2>Release announcements use configured routes</h2>
+    <p>The router queues one short notice for each configured <code>#announce</code> destination: the release version, first changelog bullet and changelog link. The existing outbound queue handles delivery. A group with no announcement route gets no release notice and no release-triggered agent turn.</p>
+    <p>The <a href="../howto/upgrade.html">upgrade guide</a> covers images and verification; the <a href="../changelog/">changelog</a> records each release.</p>
       <nav class="docs-pager" aria-label="Pager">
         <a rel="prev" href="audit.html">&larr; Audit trail</a>
         <a rel="next" href="tasks.html">Tasks &rarr;</a>

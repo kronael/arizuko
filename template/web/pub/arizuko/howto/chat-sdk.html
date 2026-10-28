@@ -48,11 +48,11 @@
 
       <p class="lede">The <a href="chat-link.html">chat link</a> gives a ready chat page at <code>/chat/&lt;token&gt;/</code> without code. To put the conversation inside your own page, with your fonts, layout and message bubbles, use <code>arizuko-client.js</code>. This browser SDK uses the same token URLs.</p>
 
-      <div class="callout"><strong>The SDK and the built-in page use the same endpoints.</strong> The SDK calls the <code>/chat/&lt;token&gt;/</code> POST and SSE endpoints of the built-in page. <a href="../reference/tokens.html">Route token reference</a> shows the wire shapes. <a href="../concepts/tokens.html">Route tokens</a> explains the bearer model.</div>
+      <div class="callout"><strong>The SDK and the built-in page use the same chat token.</strong> The SDK uses the token chat POST and turn SSE endpoints. The built-in page uses a topic stream. <a href="../reference/tokens.html">Route token reference</a> shows the wire shapes. <a href="../concepts/tokens.html">Route tokens</a> explains the bearer model.</div>
 
       <h2>A web chat token opens the conversation</h2>
       <p>Make a <code>web:</code> chat token for the folder of the agent. Here the instance is <code>demo</code> and the folder is <code>acme</code>:</p>
-      <pre><code>arizuko token demo issue chat acme
+      <pre><code>arizuko token -i demo issue chat acme
 # jid:   web:acme
 # token: Yp3v...Q2</code></pre>
       <p>The token is a bearer credential that anyone can use. A person with the token can chat with the agent of that folder as an anonymous visitor.</p>
@@ -72,7 +72,7 @@
       </dl>
 
       <h2>One HTML file is a complete client</h2>
-      <p>The sample is a full chat page with a header, a thread and an input box, built on the three calls. Put your token in the file, or add <code>?token=&lt;t&gt;</code> to the URL. Open the file in a browser, and you have a chat client with your own style.</p>
+      <p>The sample is a full chat page with a header, a thread and an input box, built on the three calls. Put your token in the file, or add <code>?token=&lt;t&gt;</code> to the URL. Set <code>baseURL</code> to your chat host. The sample keeps one topic for each page load so its messages share a conversation.</p>
 
       <pre><code>&lt;!doctype html&gt;
 &lt;html lang="en"&gt;
@@ -99,6 +99,7 @@
     &lt;script&gt;
       // Paste your chat token here, or override via ?token=&lt;t&gt; in the URL.
       const TOKEN = new URLSearchParams(location.search).get('token') || 'REPLACE_WITH_CHAT_TOKEN';
+      const topic = crypto.randomUUID();
       const thread = document.getElementById('thread');
       const btn = document.getElementById('b');
       const input = document.getElementById('m');
@@ -114,7 +115,7 @@
 
       (async () =&gt; {
         try {
-          const slink = await Arizuko.connect(TOKEN);
+          const slink = await Arizuko.connect(TOKEN, { baseURL: 'https://acme.example.com' });
           document.getElementById('name').textContent = slink.name;
           document.getElementById('folder').textContent = slink.folder;
           btn.disabled = false;
@@ -127,7 +128,7 @@
             btn.disabled = true;
             add('user', content);
             try {
-              const turn = await slink.send(content);
+              const turn = await slink.send(content, { topic });
               const typing = add('status', 'thinking…');
               slink.stream(turn.turn_id, {
                 onMessage: (f) =&gt; { typing.remove(); add('assistant', f.content); },

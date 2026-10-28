@@ -32,6 +32,7 @@
             <li><a href="../creator/">Content pipeline (Inari)</a></li>
             <li><a href="../socials/">Social presence (Phosphene)</a></li>
             <li><a href="../strategy/">Domain researcher (Prometheus)</a></li>
+            <li><a href="../cuzk/">CUZK cadastral lookup</a></li>
             <li><a href="../shapes.html">Shapes</a></li>
           </ul>
         </li>
@@ -64,7 +65,7 @@
         <dt>Monthly sweep</dt>
         <dd>The product ships no scheduled task. After you schedule one, as <a href="setup.html">setup</a> shows, <code>timed</code> sends the prompt each month. The persona tells the agent to compact the diary and the episodes and to report what changed, what is resolved and what is still open.</dd>
         <dt>Content folder</dt>
-        <dd>A separate <code>rhias/content</code> group for longer writing, such as drafts, edits and publishing. It has its own memory and persona, apart from the main conversation.</dd>
+        <dd>A separate <code>assistant/content</code> group for longer writing, such as drafts, edits and publishing. It has its own memory and persona, apart from the main conversation.</dd>
       </dl>
 
       <h2>The persona tells Rhias to ask before it files anything</h2>
@@ -74,18 +75,18 @@
       <pre><code>telegram &middot; DM
 
   alice  i'm second-guessing the lambda piece of the q3 plan again
-  rhias  We tracked this in q3-architecture (last touched 19 Apr).
+  assistant  We tracked this in q3-architecture (last touched 19 Apr).
          Two open items there: cold-start latency, and the
          per-service vs bundled import call. Want to walk through
          either?
 
   alice  the cold-start one
-  rhias  Last decision (8 Apr, your diary): per-service imports.
+  assistant  Last decision (8 Apr, your diary): per-service imports.
          Reason logged: bundle growth post-deploy traced to broad
          SDK imports. Anything new since that changes the call?
 
   alice  yeah, sentry pinged us about a separate cold start spike
-  rhias  Want me to file that under q3-architecture or open a new
+  assistant  Want me to file that under q3-architecture or open a new
          thread? It reads like related-but-distinct.
 </code></pre>
       <p>The persona tells the agent to scan the diary for recent context when a session opens, and to update the thread file, here <code>facts/threads/q3-architecture.md</code>, after the session.</p>
@@ -108,10 +109,10 @@
         <dt>Keep one conversation</dt>
         <dd>If the bot also replies on WhatsApp, the team has two threads to follow, and the WhatsApp group gets more messages than its members want.</dd>
       </dl>
-      <p>Two routes solve this. WhatsApp routes to <code>rhias/nemo#observe</code>: the messages go into the folder, the agent can read them through the same ACL, and the route mode tells <code>routd</code> to start no turn. Telegram routes to <code>rhias/nemo</code> and starts turns. When something from WhatsApp matters, Rhias posts it to Telegram with a one-line source note. The WhatsApp side stays silent.</p>
+      <p>Two routes solve this. WhatsApp routes to <code>assistant/demo#observe</code>: the messages go into the folder, the agent can read them through the same ACL, and the route mode tells <code>routd</code> to start no turn. Telegram routes to <code>assistant/demo</code> and starts turns. When something from WhatsApp matters, Rhias posts it to Telegram with a one-line source note. The WhatsApp side stays silent.</p>
       <pre><code>seq  match                                           target
-10   platform=telegram room=group/5229089286         rhias/nemo
-20   platform=whatsapp room=120363012345678901@g.us  rhias/nemo#observe
+10   platform=telegram room=group/5229089286         assistant/demo
+20   platform=whatsapp room=120363012345678901@g.us  assistant/demo#observe
 </code></pre>
       <p>The pattern extends to more sources: RSS, partner WhatsApp groups or a Slack workspace into one folder, with replies on one main channel. <a href="../../concepts/routing.html#modes">Routing modes</a> lists the fragments.</p>
       <p>The <code>CLAUDE.md</code> of the agent can add a rule such as "never <code>send</code> or <code>reply</code> to WhatsApp". The route mode does not replace that rule. <code>#observe</code> only stops an inbound message from starting a turn. <code>send</code> and <code>reply</code> still work for a chat that has a route, so only the <code>CLAUDE.md</code> rule or a grant on the tool limits outbound sends.</p>
@@ -129,13 +130,15 @@
         <dd>The main group and the <code>content</code> folder have separate home folders and memories. Both see the shared directory <code>/var/lib/share</code> of their world.</dd>
       </dl>
 
-      <h2>Five commands set it up</h2>
-      <pre><code>arizuko create nemo
-arizuko packages nemo add teled
-$EDITOR /srv/data/arizuko_nemo/.env     # TELEGRAM_BOT_TOKEN, a model key
-arizuko group nemo add 'telegram:user/&lt;your-tg-id&gt;' rhias --product reality
-arizuko run nemo</code></pre>
-      <p>Then add files for your current situations in <code>groups/rhias/facts/threads/</code>. The <a href="setup.html">operator setup guide</a> has every step: the threads, the monthly sweep, the WhatsApp and Telegram routes, and the <code>rhias/content</code> group for longer writing.</p>
+      <h2>A package selection installs Telegram</h2>
+      <pre><code>arizuko create -i demo
+$EDITOR /srv/data/arizuko_demo/.env     # TELEGRAM_BOT_TOKEN, a model key</code></pre>
+      <p>Start the instance as a systemd service using <a href="../../howto/">getting started</a>. Select the adapter package, add the group, sync and restart the service:</p>
+      <pre><code>arizuko package add -i demo catalog:teled
+arizuko group -i demo add 'telegram:&lt;bot-id&gt;/user/&lt;your-tg-id&gt;' assistant -p reality
+arizuko package sync -i demo
+sudo systemctl restart arizuko_demo</code></pre>
+      <p>Then add files for your current situations in <code>groups/assistant/facts/threads/</code>. The <a href="setup.html">operator setup guide</a> has every step: the threads, the monthly sweep, the WhatsApp and Telegram routes, and the <code>assistant/content</code> group for longer writing.</p>
 
       <h2>Five pages give the details</h2>
       <dl>

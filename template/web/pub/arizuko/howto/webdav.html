@@ -56,7 +56,7 @@ rclone config create arizuko webdav \
     vendor=other
 
 # 2. on the host, mint a Bearer token that authd's key signs
-arizuko token &lt;instance&gt; issue bearer &lt;folder&gt; --scope &lt;scope&gt; --sub &lt;your-sub&gt; --ttl 24h
+arizuko token -i &lt;instance&gt; issue bearer &lt;folder&gt; --scope &lt;scope&gt; --sub &lt;your-sub&gt; --ttl 24h
 
 # 3. give the token to rclone; it stores it in ~/.config/rclone/rclone.conf
 rclone config update arizuko bearer_token=&lt;paste-token-here&gt;
@@ -86,7 +86,7 @@ rclone mount arizuko:atlas ~/arizuko-atlas --vfs-cache-mode writes</code></pre>
       <thead><tr><th>client</th><th>credential</th><th>how</th></tr></thead>
       <tbody>
         <tr><td>browser</td><td>JWT cookie</td><td>sign in at <code>/auth/login</code>; the <code>refresh_token</code> cookie also works for <code>/dav/</code></td></tr>
-        <tr><td>rclone, curl</td><td>Bearer token</td><td>mint it with <code>arizuko token &lt;instance&gt; issue bearer</code> and send <code>Authorization: Bearer &lt;token&gt;</code></td></tr>
+        <tr><td>rclone, curl</td><td>Bearer token</td><td>mint it with <code>arizuko token -i &lt;instance&gt; issue bearer</code> and send <code>Authorization: Bearer &lt;token&gt;</code></td></tr>
       </tbody>
     </table>
     <p>A request without a credential gets <code>303 See Other</code> with <code>Location: /auth/login</code>. A browser follows the redirect. <code>curl</code> follows it only with <code>-L</code>. To check:</p>
@@ -97,7 +97,7 @@ curl -s -o /dev/null -w '%{http_code}\n' \
      -H "Authorization: Bearer $TOKEN" \
      https://&lt;host&gt;/dav/atlas/
 # 200</code></pre>
-    <p>The dashboard does not issue Bearer tokens. <code>arizuko token &lt;instance&gt; issue bearer</code> signs a JWT with the active key of <code>authd</code>, for the sub that <code>--sub</code> names. <code>proxyd</code> then reads the grants of that sub. No test opens <code>/dav/</code> with such a token end to end.</p>
+    <p>The dashboard does not issue Bearer tokens. <code>arizuko token -i &lt;instance&gt; issue bearer</code> signs a JWT with the active key of <code>authd</code>, for the sub that <code>--sub</code> names. <code>proxyd</code> then reads the grants of that sub. No test opens <code>/dav/</code> with such a token end to end.</p>
     <div class="callout"><strong>A Bearer token is a password.</strong> A person with your token can read every group that the grants of its sub cover. Give it a short <code>--ttl</code>.</div>
 
     <h2>Grants decide which groups a user can open</h2>
@@ -185,7 +185,7 @@ curl -X PUT --data-binary @./notes.md \
     <h2>Six problems have a known cause</h2>
     <dl>
       <dt>303 redirect to <code>/auth/login</code></dt>
-      <dd>You are not signed in. In a browser, follow the redirect and sign in. With <code>curl</code> or rclone, send <code>Authorization: Bearer &lt;token&gt;</code>. <code>arizuko token &lt;instance&gt; issue bearer</code> makes the token.</dd>
+      <dd>You are not signed in. In a browser, follow the redirect and sign in. With <code>curl</code> or rclone, send <code>Authorization: Bearer &lt;token&gt;</code>. <code>arizuko token -i &lt;instance&gt; issue bearer</code> makes the token.</dd>
       <dt>403 Forbidden on a path that you can read</dt>
       <dd>The write block applies, because you wrote under <code>logs/</code> or to <code>.env</code>, a <code>*.pem</code> file or <code>.git</code>. Or you have no grant for that group. <code>journalctl -u arizuko_&lt;inst&gt; | grep -E "dav (forbidden|blocked)"</code> shows which one.</dd>
       <dt>404 "WebDAV not configured"</dt>

@@ -48,36 +48,36 @@
 
     <p class="lede">An upgrade builds the images from the new checkout and restarts the instance. Each of the two guest artifacts goes into a new directory, and <code>.env</code> must name the new directory.</p>
 
-    <h2 id="steps">Eight commands upgrade an instance</h2>
+    <h2 id="steps">The commands upgrade an instance</h2>
     <p>Run the commands in the arizuko checkout. Replace <code>demo</code> with the name of the instance.</p>
     <pre><code>git pull                                          # the new release
 make build                                        # ./arizuko and the daemon binaries
 sudo make images DATA_DIR=/srv/data/arizuko_demo  # prints rootfs: &lt;dir&gt;
 sudo make kernel DATA_DIR=/srv/data/arizuko_demo  # prints kernel: &lt;dir&gt;
 sudoedit /srv/data/arizuko_demo/.env              # RUNED_ROOTFS_DIR, RUNED_KERNEL_DIR
-./arizuko generate demo                           # read every warning it prints
-sudo systemctl restart arizuko_demo               # arizuko run regenerates and starts
-./arizuko send demo main "ping" --wait            # one reply proves the path</code></pre>
+./arizuko generate -i demo                           # read every warning it prints
+sudoedit /etc/systemd/system/arizuko_demo.service  # set the release image tag if it changed
+sudo systemctl daemon-reload                       # load the unit if it changed
+sudo systemctl restart arizuko_demo               # the service generates and starts
+./arizuko send -i demo main "ping" --wait            # one reply proves the path</code></pre>
 
     <h2 id="artifacts">Each artifact goes into a new directory</h2>
     <p>A turn starts a guest kernel and a root filesystem from the data directory. The name of each directory contains a hash of its content. runed reads the two paths from <code>.env</code>:</p>
     <pre><code>make images ──► DATA_DIR/images/rootfs-&lt;image id&gt;/        ◄── RUNED_ROOTFS_DIR
 make kernel ──► DATA_DIR/images/kernel-&lt;version&gt;-&lt;hash&gt;/  ◄── RUNED_KERNEL_DIR</code></pre>
-    <p><code>make images</code> exports a new rootfs tree only when the <code>arizuko-ant</code> image changed. It prints the directory in both cases. It deletes no tree. <code>arizuko images &lt;name&gt;</code> lists every rootfs and kernel tree, and <code>arizuko images &lt;name&gt; --prune</code> removes every tree that <code>.env</code> does not name. <code>make kernel</code> builds only when <code>kernel/Dockerfile</code>, <code>kernel/arizuko.fragment</code>, <code>kernel/check-config.sh</code> or <code>kernel/guest-init/*.go</code> changed. In all other cases it prints <code>is current</code>, and <code>RUNED_KERNEL_DIR</code> does not change.</p>
+    <p><code>make images</code> exports a new rootfs tree only when the <code>arizuko-ant</code> image changed. It prints the directory in both cases. It deletes no tree. <code>arizuko images -i &lt;name&gt;</code> lists every rootfs and kernel tree, and <code>arizuko images -i &lt;name&gt; --prune</code> removes every tree that <code>.env</code> does not name. <code>make kernel</code> builds only when <code>kernel/Dockerfile</code>, <code>kernel/arizuko.fragment</code>, <code>kernel/check-config.sh</code> or <code>kernel/guest-init/*.go</code> changed. In all other cases it prints <code>is current</code>, and <code>RUNED_KERNEL_DIR</code> does not change.</p>
     <p>When <code>RUNED_ROOTFS_DIR</code> keeps the old value, the new daemons start the guest of the previous release. No error occurs.</p>
 
     <h2 id="generate">arizuko generate shows its warnings before the restart</h2>
-    <p><code>systemctl restart</code> runs <code>arizuko run</code>, and <code>arizuko run</code> writes the compose file again. <code>arizuko generate</code> before the restart shows its warnings on the terminal, not in the journal. Two warnings need a fix before the restart: a <a href="operate.html#frozen-fragment">FROZEN fragment</a>, and a <a href="operate.html#store-key">daemon without a store key</a>. A daemon without a store key restarts the whole instance in a loop.</p>
+    <p><code>systemctl restart</code> runs the generator from the service's release image, then starts Docker Compose. <code>arizuko generate</code> before the restart shows its warnings on the terminal, not in the journal. Two warnings need a fix before the restart: a <a href="operate.html#frozen-fragment">FROZEN fragment</a>, and a <a href="operate.html#store-key">daemon without a store key</a>. A daemon without a store key restarts the whole instance in a loop.</p>
 
-    <h2 id="migrate">A release queues one /migrate turn for each folder</h2>
-    <p>When a release increases <code>MIGRATION_VERSION</code>, routd queues one <code>/migrate</code> turn for each folder with old skills. Other messages wait behind these turns, so the first replies after an upgrade are slow. The queue is empty when no guest runs:</p>
-    <pre><code>pgrep -c qemu-system-x86    # prints 0 when the /migrate turns are done</code></pre>
-
+    <h2 id="packages">The next turn reads released package assets</h2>
+    <p>Startup installs core. Run <code>arizuko package sync -i NAME</code> to update other selected sources. Release notices use the existing outbound queue and only configured <code>#announce</code> destinations. Package updates start no agent migration turns.</p>
     <h2 id="rollback">The older rootfs tree rolls back the guest</h2>
     <p>The older rootfs tree stays on disk. Set <code>RUNED_ROOTFS_DIR</code> to the older tree and restart. The daemons keep the new images. A rollback of the daemons needs a build from the old checkout.</p>
 
     <h2 id="gates">Five gates end a release</h2>
-    <p>A maintainer release runs the five post-deploy gates in <a href="https://github.com/kronael/arizuko/blob/main/.claude/skills/eval/gates.md">[gates.md]</a>. Only the last gate, <code>anteval --smoke</code>, shows that a live agent answers. Run it after the <code>/migrate</code> turns end. Before that, it measures the queue and not the release.</p>
+    <p>A maintainer runs post-deploy gates 1–4 in <a href="https://github.com/kronael/arizuko/blob/main/.claude/skills/eval/gates.md">[gates.md]</a>. The owner may run <code>anteval</code> by hand on a throwaway instance to check agent behavior; never run it against a live instance.</p>
 
       <nav class="docs-pager" aria-label="Pager">
         <a rel="prev" href="operate.html">&larr; Operate</a>

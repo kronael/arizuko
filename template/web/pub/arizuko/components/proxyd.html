@@ -116,7 +116,7 @@ requireAuth
 
     <p>The final catch-all handles the host of a world: <code>krons.example.com/guide</code> answers with a 302 to <code>/pub/krons/guide</code>. Every reserved prefix is handled above it, so the redirect cannot hide <code>/dash</code> or <code>/chat</code> on any host. It cannot loop either, because <code>/pub/</code> never redirects again.</p>
 
-    <p>Rows come from two places. One is a static core list in <code>compose/compose.go</code> for dashd, webd, davd and onbod. The other is the <code>proxyd_routes</code> block in the <code>template/services/&lt;name&gt;.yaml</code> manifest of each package, next to the <code>&lt;name&gt;.yml</code> compose fragment. <code>arizuko generate</code> drops the routes whose <code>gated_by</code> variable is off and writes the rest as rows. <code>arizuko packages install</code> applies the same manifest: one declaration with two readers. To add a channel adapter, ship a fragment and its manifest, with no edit to <code>main.go</code>.</p>
+    <p>Rows come from the core list in <code>compose/compose.go</code> and each service package's <code>proxyd_routes</code> declaration. For a symlinked service fragment, <code>generate</code> reads <code>template/services/&lt;name&gt;/arizuko.yml</code> from the catalog. Otherwise, it reads <code>packages/&lt;name&gt;/arizuko.yml</code> in the instance. <code>generate</code> skips a route write when its <code>gated_by</code> variable is off, but does not delete an existing row. <code>sync</code> applies package routes without evaluating the field. proxyd does not evaluate it at request time.</p>
 
     <p><code>/chat/*</code> and <code>/hook/*</code> are plain rows with <code>auth: optional</code>. proxyd stamps your identity if your bearer is valid and forwards you anonymously if not. In both cases it attaches its own <code>service:proxyd</code> bearer. webd resolves the token and applies the rate limits. <code>/dav/*</code> requires auth, limits the path to a group you belong to, and blocks writes to <code>.env</code>, <code>*.pem</code>, <code>.git</code> and everything under <code>&lt;group&gt;/logs/</code>.</p>
 
@@ -133,7 +133,7 @@ export AUTHD_URL=http://authd:8080
 export AUTHD_SERVICE_KEY=$(openssl rand -hex 32)
 ./proxyd</code></pre>
 
-    <p>Without <code>AUTHD_URL</code>, proxyd still proxies, but it stamps <code>X-User-*</code> with no bearer, so a backend has nothing to check. Use that on a laptop, never on a public port. No shared secret exists to copy: backends fetch the public keys of <code>authd</code> and verify offline.</p>
+    <p>Without <code>AUTHD_URL</code>, proxyd authenticates nobody. Public routes can still proxy; authenticated surfaces are unavailable. No shared secret exists to copy: backends fetch the public keys of <code>authd</code> and verify offline.</p>
 
     <p><code>TRUSTED_PROXIES</code> is a comma-separated list of CIDRs. proxyd accepts <code>X-Forwarded-For</code> only from peers in one of those ranges, and replaces it with the TCP peer for every other caller. An empty list trusts nothing.</p>
 

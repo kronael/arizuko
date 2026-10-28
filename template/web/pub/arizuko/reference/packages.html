@@ -39,211 +39,46 @@
     <main class="docs-content">
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">reference</a> &rsaquo; packages</p>
       <h1>packages</h1>
-      <p class="lede">A <strong>package</strong> is a git source or a local directory that ships any subset of the asset kinds as one versioned unit. The figure shows the path from the catalog or a git source to a running container.</p>
-
-<pre id="twin-packages"><code>┌──────────────────────────────┐   ┌──────────────────────────────┐
-│ catalog: template/services/  │   │ source: git URL or local dir │
-│ &lt;name&gt;.yml, &lt;name&gt;.yaml      │   │ *.yml, *.yaml, skills/       │
-└──────────────┬───────────────┘   └──────────────┬───────────────┘
-               │ packages add &lt;name&gt;              │ packages install &lt;src&gt;
-               │ files linked                     │ files copied
-               └─────────────────┬────────────────┘
-                                 ▼
-┌──────────────────────────────────────────────────────────────┐
-│ installPackage: every check before the first write           │
-│ 1 parsePkgManifests: rows parse, grants inside --folder,     │
-│   no core route path, owner stamped package:&lt;name&gt;           │
-│ 2 checkSourcedFiles: install only, the fragment stays in     │
-│   its own namespace                                          │
-│ 3 provisionPkgEnv: generate, default, required against .env  │
-│ 4 files into &lt;data&gt;/services/                                │
-│ 5 rows applied live through apply's engine, all or none      │
-│ 6 skills/ into &lt;data&gt;/skills/                                │
-│ 7 installed_packages row (folder '', name)                   │
-└────────────────────────────────┬─────────────────────────────┘
-                                 │ upgrade, sync, remove read the row back
-                                 ▼
-┌──────────────────────────────────────────────────────────────┐
-│ arizuko generate                                             │
-│ relink catalog copies, then compose.Generate: one include:   │
-│ per fragment and COMPOSE_PROFILES; write proxyd_routes rows; │
-│ copy package skills into every group; write                  │
-│ docker-compose.yml                                           │
-└────────────────────────────────┬─────────────────────────────┘
-                                 ▼
-                          docker compose up
-
-products apply &lt;folder&gt;: the group-scoped half. groups/&lt;folder&gt;/arizuko.toml
-is blended into that group, one installed_packages row per (folder, product).</code></pre>
-
-      <p>Every check runs before step 4. A row apply that fails in step 5 removes the files again, so a refused package leaves no fragment and no row. The rows of step 5 apply at once. Only the compose fragment waits for <code>generate</code>.</p>
-
-      <h2>Six commands manage packages</h2>
-      <pre><code>arizuko packages &lt;instance&gt; add gitd                     # a bundled package, from template/services/
-arizuko packages &lt;instance&gt; install github.com/org/pkg   # or a local dir
-arizuko packages &lt;instance&gt; upgrade pkg                   # refuses locally-edited assets
-arizuko packages &lt;instance&gt; sync                          # re-apply every package at once
-arizuko packages &lt;instance&gt; remove  pkg                   # deletes exactly what it owns
-arizuko packages &lt;instance&gt; list</code></pre>
-
-      <p>A package that adds a daemon which reads the store, <code>gitd</code> or a
-      channel adapter, needs that daemon&rsquo;s own store key minted and written to
-      <code>env/&lt;daemon&gt;.env</code> before the next <code>generate</code>
-      (<a href="https://github.com/kronael/arizuko/blob/main/INSTALL.md">INSTALL.md</a>
-      &sect; The per-daemon store keys). Without it the daemon refuses to dial the
-      store and exits at boot, and that one exit takes the whole instance into a
-      restart loop under systemd (BUGS <code>L406</code>); <code>generate</code>
-      logs <code>store enrolment is partial</code> at ERROR, names it, and then
-      continues.</p>
-
-      <p><code>sync</code> is <code>upgrade</code> for every installed package in
-      one pass — useful after pulling new revisions of several sources. It prints
-      <code>updated</code>, <code>unchanged</code> or <code>SKIPPED</code> per
-      package, and a package already at its recorded revision is left completely
-      alone, so running it twice costs nothing. A hand-edited file is skipped with
-      a note rather than stopping the run: one local edit should not block every
-      other package from syncing.</p>
-
-      <p class="note">Not the same as the catalog relink <code>generate</code>
-      does. That one turns a fragment which is still an exact copy of the bundled
-      catalog into a symlink, so catalog fixes reach you; it never looks at the
-      installed-package record. <code>sync</code> is about sources and revisions.</p>
-
-      <h2>A package ships three asset kinds</h2>
-      <table>
-        <thead><tr><th>Kind</th><th>File</th><th>Applied to</th></tr></thead>
-        <tbody>
-          <tr><td>compose fragment</td><td><code>&lt;name&gt;.yml</code></td><td><code>services/</code>, up on <code>generate</code></td></tr>
-          <tr><td>config manifest</td><td><code>&lt;name&gt;.yaml</code></td><td>the rows it names — <code>proxyd_routes</code>, <code>acl</code>, <code>scheduled_tasks</code>, <code>network_rules</code>, <code>web_routes</code> — applied live in one transaction, <strong>no restart</strong></td></tr>
-          <tr><td>skills</td><td><code>skills/&lt;name&gt;/</code></td><td>copied into every existing group on each <code>generate</code>, overwriting the group&rsquo;s copy; a <code>.disabled</code> marker or a stock skill&rsquo;s name stops it</td></tr>
-        </tbody>
-      </table>
-
-      <h2 id="env">What a package needs from <code>.env</code></h2>
-      <p>A manifest&rsquo;s <code>env</code> section names each key the
-      process needs, with one of three sources: <code>generate: true</code>
-      (minted once at install, then it is your line),
-      <code>default: &lt;value&gt;</code> (derived on every generate, never
-      written; your <code>.env</code> value wins) or <code>required:
-      true</code> (install and generate refuse until you set it). The point:
-      a package never installs and then fails to start.</p>
-      <p>The section is a declaration, never a script. It names keys and
-      where their values come from, and nothing runs. Hand the same file to
-      <code>arizuko apply</code> and it refuses the <code>env</code> section
-      and points you at <code>packages add</code>, because an apply would
-      report success for keys it never provisioned.</p>
-
-      <h2>Upgrade and remove touch only what the package owns</h2>
-      <ul>
-        <li>Each install writes an <strong>installed-package record</strong> (source +
-        resolved revision + owned identities + a per-asset content hash).</li>
-        <li><code>upgrade</code> compares the current content hash against the record;
-        a <strong>locally edited (dirty) asset is refused</strong>, not overwritten.</li>
-        <li>An install is <strong>whole or nothing</strong>: the manifest is validated
-        before the first write and its rows land in one transaction with pre-image
-        rollback, so a package whose third grant is bad leaves the first two unwritten.</li>
-        <li><code>remove</code> deletes exactly the identities the record owns —
-        rows are withdrawn before the fragment is dropped, and a route or grant you
-        added yourself at another key is untouched.</li>
-        <li><code>upgrade</code> and <code>sync</code> run the same updater, so
-        the refuse-a-dirty-asset rule is identical by construction. They rewrite
-        only the file half of the record; the rows and skills it owns stay
-        recorded, so <code>remove</code> can still find them.</li>
-        <li>A catalog package has nothing to re-fetch: its fragment is a link
-        that follows the catalog. Its rows were applied once, by
-        <code>add</code>. If the catalog manifest moved since then,
-        <code>upgrade</code> and <code>sync</code> say so and name the fix,
-        <code>packages remove</code> then <code>packages add</code>, rather
-        than answering &ldquo;nothing to do&rdquo;.</li>
-      </ul>
-
-      <h2 id="blending-several-products-into-one-group">Blending several products into one group</h2>
-      <p>A package installs against the whole instance. A
-      <a href="../products/">product</a> seeds one group — and a group is not
-      limited to one. Write <code>groups/&lt;folder&gt;/arizuko.toml</code> (the
-      agent sees it as <code>~/arizuko.toml</code>), listing the products in the
-      order they should blend, then apply it:</p>
-
-      <pre><code>name = "support-team"
-
-[[product]]
-source = "ant/examples/support"     # relative → joined to HOST_APP_DIR
-
-[[product]]
-source = "github.com/org/our-brand" # git → cloned and pinned to a revision</code></pre>
-
-      <pre><code>arizuko products &lt;instance&gt; apply &lt;folder&gt;</code></pre>
-
-      <p>Two products have no common ancestor, so nothing here merges two files'
-      text. Each <em>kind</em> of file gets one rule:</p>
-
-      <table>
-        <thead><tr><th>File</th><th>Rule</th><th>Yours to edit after?</th></tr></thead>
-        <tbody>
-          <tr><td>source root <code>arizuko.toml</code></td><td>metadata only; excluded from payload and installed ownership</td><td>the group owns its own file</td></tr>
-          <tr><td><code>skills/</code></td><td>union by name; the last product wins a whole skill</td><td>yes — an edit is detected and skipped, never overwritten</td></tr>
-          <tr><td><code>PERSONA.md</code> / <code>SOUL.md</code></td><td>the first product wins; later ones are warned about</td><td>yes — written once, never re-written</td></tr>
-          <tr><td><code>CLAUDE.md</code></td><td>one marked region per product, in mix order</td><td>yes — anything outside the markers is untouched</td></tr>
-          <tr><td><code>facts/</code></td><td>union; the same filename twice <strong>refuses</strong></td><td>yes — written once</td></tr>
-          <tr><td><code>migrations/</code></td><td><strong>refuses the apply.</strong> Nothing runs a product's migrations — there is one instance-wide migration counter and no per-product runner, so seeding them would report success for instructions that never execute. Put setup steps in the product's <code>CLAUDE.md</code> or a skill, which the agent reads</td><td>n/a</td></tr>
-          <tr><td><code>eval/*.toml</code></td><td>copied whole — the product's own live tests. See <a href="../howto/build-a-product.html">build a product</a></td><td>yes — written once</td></tr>
-          <tr><td><code>tasks.toml</code></td><td><strong>refuses the apply.</strong> Nothing reads a product's tasks file — a scheduled task is a <code>scheduled_tasks</code> row created through the <code>schedule_task</code> tool, the dashboard or <code>POST /v1/tasks</code>. A product that wants one says so in its <code>CLAUDE.md</code> and the agent creates it</td><td>n/a</td></tr>
-          <tr><td><code>.claude/settings.json</code></td><td>keys merged by name; a key twice <strong>refuses</strong>. An <code>mcpServers</code> key <strong>refuses the apply</strong> &mdash; no MCP server loads from it, so ship third-party tools as an arizuko connector instead</td><td>yes — an edit is skipped, not overwritten</td></tr>
-          <tr><td><code>Dockerfile.ant</code></td><td>at most one in the whole mix</td><td>you rebuild the image yourself</td></tr>
-          <tr><td><strong>everything else</strong></td><td><strong>copied whole; the first product wins</strong></td><td>yes — written once</td></tr>
-        </tbody>
-      </table>
-
-      <p>The group owns its <code>arizuko.toml</code>. Root metadata and ordered selections
-      stay byte-identical through apply and sync. A selected source with its own nonempty
-      selections refuses; list those sources explicitly in the group file.</p>
-      <p>A metadata-only manifest is a no-op without installed records. Missing or empty
-      selections with records refuse before writes. If a group has <code>products.toml</code>,
-      move or merge its entries into <code>arizuko.toml</code>, then remove
-      <code>products.toml</code>. Both legacy-only and mixed declarations refuse.</p>
-
-      <p>The <code>CLAUDE.md</code> regions are
-      <code>&lt;!-- arizuko:package:&lt;name&gt; BEGIN --&gt;</code> and its
-      <code>END</code> twin, one pair per product. A malformed marker &mdash;
-      a BEGIN with no END, a duplicate, an END before its BEGIN &mdash;
-      refuses to rewrite the file. The alternative is guessing where a
-      region stops, and a wrong guess deletes your own lines.</p>
-
-      <p>Re-applying also drops what a product shipped last time and no
-      product in the mix ships now. &ldquo;Still shipped&rdquo; is checked
-      against the whole mix, so moving an asset from product A to product
-      B keeps the file. A dropped file that you edited since the last apply
-      stays where it is, with a warning.</p>
-
-      <p class="note">A collision <strong>refuses the whole apply</strong> and
-      writes nothing, rather than picking a winner — if two products both ship
-      <code>facts/pricing.md</code>, silently keeping one discards the other's
-      knowledge. Rename one, or drop it from the mix.</p>
-
-      <p>Each product in the mix gets its own installed-package record, so
-      re-applying is safe: an unchanged mix writes nothing and reports
-      <code>unchanged</code>. <code>arizuko packages &lt;instance&gt; sync</code>
-      re-applies groups discovered through installed records alongside the instance's packages.</p>
-
-      <p><code>arizuko create --product</code> and
-      <code>arizuko group &lt;instance&gt; add &lt;jid&gt; &lt;folder&gt; --product</code>
-      seed one product's payload and write a single-source group declaration. They create
-      no installed record. Matching existing declarations keep their bytes; conflicts
-      refuse before payload writes. Run the first <code>products apply</code> explicitly
-      before <code>packages sync</code> can update the group.</p>
-
-      <p>Installed packages and blended products are both listed in the operator
-      dashboard at <code>/dash/packages/</code>; the <code>folder</code> column
-      is empty for an instance-wide package and names the group for a product.</p>
-
-      <nav class="docs-pager" aria-label="Pager">
-        <a rel="prev" href="cli.html">&larr; CLI</a>
-        <a rel="next" href="env.html">Environment variables &rarr;</a>
-      </nav>
-      <div class="docs-footer">
-        <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/reference/packages.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-21">2026-10-21</time>
-      </div>
+      <p class="lede">Run <code>arizuko package add</code> to select a package. <code>arizuko package sync</code> installs the selected packages and their resource rows.</p>
+      <pre id="twin-packages"><code>┌──────────────────────────────┐     ┌──────────────────────────┐
+│ installed_packages rows      │     │ Local or Git source      │
+│ from package add and rm      ├────►│ arizuko.yml and assets   │
+└──────────────────────────────┘     └────────────┬─────────────┘
+                                                  │ package sync
+                                    ┌─────────────▼────────────┐
+                                    │ Installed package assets │
+                                    │ and owned resource rows  │
+                                    └─────────────┬────────────┘
+                                                  │ generate
+                                    ┌─────────────▼────────────┐
+                                    │ Services and compose     │
+                                    └─────────────┬────────────┘
+                                                  │ deployment
+                                    ┌─────────────▼────────────┐
+                                    │ Running services         │
+                                    └──────────────────────────┘</code></pre>
+      <h2>The installed_packages rows select packages</h2>
+      <p>Each selection is one row in the <code>installed_packages</code> resource. The <code>arizuko.yml</code> file in a package source defines that package and selects nothing. Group <code>arizuko.yml</code> files are not read.</p>
+      <pre><code>arizuko package add [-g folder] &lt;source&gt;
+arizuko package rm [-g folder] &lt;name&gt;
+arizuko package sync</code></pre>
+      <p><code>add</code> installs a package and records the selection. <code>rm</code> withdraws the selection, its rows and its services. <code>sync</code> installs every selected package again from its source. Without <code>-g</code>, a package applies to the whole instance. With <code>-g folder</code>, it applies to that group only. Use <code>-i/--instance NAME</code> to select another instance. Use <code>-f/--force</code> only to replace an existing destination that no package owns.</p>
+      <p>Installing <code>github.com/kronael/tools</code> requires <code>uv</code> on the host and can download Python and dependencies. The installed checker runs offline in the guest.</p>
+      <p>Catalog sources select bundled services. Other sources are local directories or Git repositories; relative paths resolve under <code>HOST_APP_DIR</code>. The same strict YAML format declares package metadata and typed resource documents. A source requires a name, and the name of the source directory does not define the package identity.</p>
+      <h2>Packages supply standard guest assets</h2>
+      <p>Skills, native hooks, manuals and executables stay under <code>packages/NAME/</code>. The renderer mounts selected assets read-only. Executables use <code>/usr/local/bin</code>; hook files use native Claude and Codex configuration paths. Core is an ordinary package installed for every group.</p>
+      <p>An optional <code>install</code> command runs on the host as the invoking operator during <code>package add</code> and <code>package sync</code>. <code>PREFIX</code> names the installed directory. Builds place executables in <code>$PREFIX/bin/</code>; agent turns run no host installer.</p>
+      <h2 id="env">Services provision shared environment values</h2>
+      <p>A service package ships a Docker compose fragment beside its manifest. Only service packages provision shared <code>.env</code> values: <code>generate</code> mints once, <code>default</code> supplies a compose default, and <code>required</code> refuses a missing value. Skills-only requirements are metadata; use scoped group secrets for credentials.</p>
+      <h2>Ownership bounds updates and removal</h2>
+      <p>The existing installed-package resource records source, resolved revision, selected folder, owned row keys and service hashes. <code>package sync</code> replaces package-owned rows. <code>package rm</code> withdraws the rows and services of one package. Unrelated operator rows remain. Edited service fragments refuse replacement.</p>
+      <p>Group packages cannot supply services or resource rows. Package grant scopes must fit the selection's <code>folders</code> bounds. Reserved core web paths and forged owners refuse before apply.</p>
+      <h2 id="blending-several-products-into-one-group">Later packages override earlier packages</h2>
+      <p>Core comes first. Packages follow in the order the operator added them; to move a package later, run <code>package rm</code> and then <code>package add</code>. A later package overrides an earlier package on the same skill, hook, tool (<code>bin/</code>) or <code>group/</code> path. <code>package sync</code> prints one line for each override. A local <code>.disabled</code> marker suppresses a packaged skill mount.</p>
+      <pre><code>demo: kronael-tools overrides core on skills/diary</code></pre>
+      <h2>Group files come from the winning package</h2>
+      <p>The <code>group/</code> directory of a package holds files for the group folder, at the same relative paths. Each <code>package sync</code> rewrites every such file from the winning package and replaces any edit by the agent. A file that a package stops shipping is removed. A file that no package ships stays the file of the group. The runtime adds the deny rule <code>Edit(~/&lt;path&gt;)</code> to the turn settings for each package file. The rule asks the agent not to edit the file; it is advice and no security boundary. A file that exists and that no package installed stops the command unless you pass <code>-f</code>. The <a href="../howto/build-a-product.html">product guide</a> explains workspace templates.</p>
+      <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/EXTENDING.md#installing-packages">package guide</a>, <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/sync.go">sync implementation</a>, <a href="https://github.com/kronael/arizuko/blob/main/runed/README.md#mounts">guest mounts</a>.</p>
     </main>
 
     <aside class="docs-toc" aria-label="On this page"></aside>

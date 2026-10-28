@@ -84,7 +84,7 @@
       <dt><code>/hook/&lt;token&gt;</code></dt>
       <dd>POST only. It appends the body, returns 204 and does not wait for the agent.</dd>
     </dl>
-    <p>Either URL accepts any valid token. The JID kind, <code>web:</code> or <code>hook:</code>, is metadata that sets the sender attribution and the default output style. It does not limit which URL works. Each issuance verb returns its own URL: <code>issue_chat_link</code> returns <code>/chat/&lt;token&gt;/</code>, and <code>issue_webhook</code> returns <code>/hook/&lt;token&gt;</code>. <a href="../reference/tokens.html">reference / tokens</a> has the full column list, the payload shapes and the MCP tools for tokens.</p>
+    <p>Either URL accepts any valid token. The JID kind, <code>web:</code> or <code>hook:</code>, sets sender attribution. It does not limit which URL works. Each issuance verb returns its own URL: <code>issue_chat_link</code> returns <code>/chat/&lt;token&gt;/</code>, and <code>issue_webhook</code> returns <code>/hook/&lt;token&gt;</code>. <a href="../reference/tokens.html">reference / tokens</a> has the full column list, the payload shapes and the MCP tools for tokens.</p>
 
     <h2>The JID names the folder and the source</h2>
     <p><code>web:&lt;folder&gt;</code> means an anonymous visitor chat at this folder. <code>web:acme</code> is the public chat URL of acme. Add a suffix to split one folder across pages. <code>web:acme/support</code> and <code>web:acme/sales</code> are different conversations with the same agent, and routing rules can tell them apart.</p>

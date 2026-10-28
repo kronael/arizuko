@@ -97,7 +97,7 @@ Direct, no preamble. Defaults to short answers. Lowercase info, capitalized erro
 </code></pre>
     <p>The block sits next to the autocalls envelope inside the user message. So the agent keeps its voice even when the session is long and the system prompt is far back in the context.</p>
 
-    <p>The whole file goes into the system prompt too. <code>runed</code> sends <code>PERSONA.md</code> with every turn, and the agent runtime puts it after <code>SYSTEM.md</code> and before the output style. A <code>SYSTEM.md</code> in the group replaces the base prompt completely, and the persona never merges into it. The agent can read the guide again on purpose with the <code>/persona</code> skill.</p>
+    <p>The whole file goes into the system prompt. <code>runed</code> sends <code>PERSONA.md</code> with every turn. A <code>SYSTEM.md</code> in the group replaces the base prompt completely, and the persona never merges into it. The agent can read the guide again with the <code>/persona</code> skill.</p>
 
     <h2>Voice, register floor and length live in three files</h2>
     <p>Three layers decide how the agent sounds, and each layer has one file:</p>
@@ -107,7 +107,7 @@ Direct, no preamble. Defaults to short answers. Lowercase info, capitalized erro
       <dt>Register floor</dt>
       <dd>The rules every agent keeps, whatever its voice, in the always-loaded <code>ant/CLAUDE.md</code>.</dd>
       <dt>Length and format</dt>
-      <dd>The output style, one file per surface in <code>ant/output-styles/</code>, one style per session.</dd>
+      <dd>The core messaging skill gives channel-specific guidance.</dd>
     </dl>
 
     <h2>An incomplete persona file gives no persona block</h2>

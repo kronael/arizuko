@@ -102,9 +102,9 @@ once, plug it into any agent. The contract is the protocol.
 ## Day 11 — Agent evolving itself
 
 Problem: updating agent behavior means a deploy. In arizuko, the
-agent edits its own skills, updates its config, runs /migrate to
-push changes to every group. Markdown files and git commits. No
-pipeline. The agent is the deployment tool.
+agent edits its own group skills and instructions. Shared package updates
+go through operator-run arizuko package sync. Markdown files and git commits
+keep the behavior legible.
 
 ---
 

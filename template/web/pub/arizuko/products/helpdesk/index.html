@@ -32,6 +32,7 @@
             <li><a href="../creator/">Content pipeline (Inari)</a></li>
             <li><a href="../socials/">Social presence (Phosphene)</a></li>
             <li><a href="../strategy/">Domain researcher (Prometheus)</a></li>
+            <li><a href="../cuzk/">CUZK cadastral lookup</a></li>
             <li><a href="../shapes.html">Shapes</a></li>
           </ul>
         </li>
@@ -73,13 +74,13 @@ agent  Ticket 4417 — first response target is 2 hours during business
       <table>
         <thead><tr><th>File</th><th>What it is</th></tr></thead>
         <tbody>
-          <tr><td><code>arizuko.toml</code></td><td>the TOML manifest: name, brand, tagline and env hints</td></tr>
-          <tr><td><code>PERSONA.md</code></td><td>who the agent is</td></tr>
-          <tr><td><code>CLAUDE.md</code></td><td>operating rules in a marked region; arizuko does not change your text outside it</td></tr>
+          <tr><td><code>arizuko.yml</code></td><td>the YAML manifest: name, brand, tagline and env hints</td></tr>
+          <tr><td><code>group/PERSONA.md</code></td><td>who the agent is</td></tr>
+          <tr><td><code>CLAUDE.md</code></td><td>package operating rules, mounted with the other package manuals</td></tr>
           <tr><td><code>facts/sla.md</code></td><td>knowledge that the agent answers from</td></tr>
-          <tr><td><code>skills/triage/</code></td><td>a skill that only this product ships; it moves under <code>.claude/</code></td></tr>
-          <tr><td><code>.claude/settings.json</code></td><td>agent settings, merged key by key</td></tr>
-          <tr><td><code>BRANDING.md</code></td><td>an unnamed file: copied whole</td></tr>
+          <tr><td><code>skills/triage/</code></td><td>a skill that only this product ships; mounted read-only under <code>.claude/</code></td></tr>
+          <tr><td><code>group/.claude/settings.json</code></td><td>agent settings, merged key by key</td></tr>
+          <tr><td><code>group/BRANDING.md</code></td><td>an unnamed file: copied whole</td></tr>
           <tr><td><code>eval/helpdesk.toml</code></td><td>the tests of the product</td></tr>
         </tbody>
       </table>
@@ -93,7 +94,7 @@ agent  Ticket 4417 — first response target is 2 hours during business
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/helpdesk/index.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-21">2026-10-21</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-25">2026-10-25</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

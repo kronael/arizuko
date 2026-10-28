@@ -1,8 +1,7 @@
 ---
 name: info
 description: >
-  Quick status: instance name, available skills, uptime, migration
-  version. USE for "/info", "status", short "what's available". NOT
+  Quick status: instance name, available skills and uptime. USE for "/info", "status", short "what's available". NOT
   for deep identity/tools introspection (use self) or web hostname
   setup (use infra).
 user-invocable: true
@@ -12,9 +11,6 @@ user-invocable: true
 
 Report:
 
-1. Instance name (from hostname or config path)
+1. Instance name from the prompt's `<autocalls>` block
 2. Available skills: `ls ~/.claude/skills/`
 3. Uptime: `awk '{print $1}' /proc/uptime`
-4. Migration version: `cat ~/.claude/skills/self/MIGRATION_VERSION` vs
-   `/opt/arizuko/ant/skills/self/MIGRATION_VERSION` — if behind, warn
-   "migrations pending — run /migrate"

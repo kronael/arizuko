@@ -23,8 +23,8 @@ speaks is [`chanlib/README.md`](../chanlib/README.md).
   target folder (`routd/gdrive_files_resource.go`, `arizuko gdrive`), and
   `DeleteGroup` sweeps it with the folder.
 
-googd has no `template/services/` fragment, so `arizuko packages add` cannot
-install it, and it has no components page.
+googd has no `template/services/` package, so `arizuko package add` cannot install it
+from the bundled catalog. It has no components page.
 
 ## Not built
 

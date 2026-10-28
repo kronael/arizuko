@@ -32,6 +32,7 @@
             <li><a href="../creator/">Content pipeline (Inari)</a></li>
             <li><a href="../socials/">Social presence (Phosphene)</a></li>
             <li><a href="../strategy/">Domain researcher (Prometheus)</a></li>
+            <li><a href="../cuzk/">CUZK cadastral lookup</a></li>
             <li><a href="../shapes.html">Shapes</a></li>
           </ul>
         </li>
@@ -52,23 +53,30 @@
         <li><code>TELEGRAM_BOT_TOKEN</code>. The product declares it as required, because an assistant with no channel is only a directory.</li>
       </ul>
 
-      <h2>create seeds the instance from the product</h2>
-      <pre><code>arizuko create fiu --product personal
-arizuko packages fiu add teled</code></pre>
-      <p>The first command copies the product tree into the default group. To add the product to an existing instance as one more group:</p>
-      <pre><code>arizuko group &lt;instance&gt; add telegram:user/12345678 me --product personal</code></pre>
+      <h2>create records the product for the instance</h2>
+      <pre><code>arizuko create -i fiu --product personal</code></pre>
+      <p>The command records the product as <code>ARIZUKO_DEFAULT_PRODUCT</code> in <code>.env</code> and copies no file. At its first boot <code>routd</code> selects the product for the <code>main</code> group. The next <code>arizuko package sync -i fiu</code> installs the product files. To add the product to an existing instance as one more group:</p>
+      <pre><code>arizuko group -i &lt;instance&gt; add telegram:&lt;bot-id&gt;/user/12345678 me -p personal
+arizuko package sync -i &lt;instance&gt;</code></pre>
 
       <h2>.env holds the token</h2>
       <pre><code>TELEGRAM_BOT_TOKEN=REPLACE_ME
 OPENAI_API_KEY=REPLACE_ME   # optional: the oracle skill</code></pre>
 
+      <h2>package add installs the Telegram adapter</h2>
+      <p>Start the instance as a systemd service, as <a href="../../howto/">getting started</a> shows. Select the package, then restart the service to start the adapter. For an existing instance, replace <code>fiu</code> with its name:</p>
+      <pre><code>arizuko package add -i fiu catalog:teled
+sudo systemctl restart arizuko_fiu</code></pre>
+
       <h2>The preferences file holds what Fiu must know</h2>
       <p><code>facts/preferences.md</code> makes the difference between a generic assistant and your assistant. Write what you would otherwise repeat: how you like drafts, what you work on, your timezone and the names that come up often. It is a file, so edit it when it is wrong.</p>
+      <p>The <code>facts/</code> files of the product are examples, not package files, so <code>arizuko package sync</code> never rewrites them. Copy them once from the repository checkout:</p>
+      <pre><code>cp -r ant/examples/personal/facts /srv/data/arizuko_fiu/groups/main/</code></pre>
       <div class="callout"><strong>Memory belongs to one folder.</strong> The diary and <code>facts/</code> belong to the group, so a second group has a second memory, and nothing is shared. That is the containment guarantee, not a limit to work around. <a href="../../concepts/scopes.html">Scopes</a> explains it.</div>
 
       <h2>The assistant must quote your preferences</h2>
-      <pre><code>arizuko send &lt;instance&gt; me "what do you know about how I like drafts?" --wait</code></pre>
-      <p>A correct answer quotes your preferences file. A generic answer means that the file is not in place. Check <code>groups/me/facts/preferences.md</code>.</p>
+      <pre><code>arizuko send -i fiu main "what do you know about how I like drafts?" --wait</code></pre>
+      <p>A correct answer quotes your preferences file. A generic answer means that the file is not in place. Check <code>groups/main/facts/preferences.md</code>. For the existing-instance example, use its name and the <code>me</code> folder.</p>
 
       <h2>Three changes tune the assistant</h2>
       <dl>

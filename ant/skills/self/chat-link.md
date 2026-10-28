@@ -29,7 +29,7 @@ So: **check your live tool list, don't assume.** If `issue_chat_link` is
 there, you hold the grant — use it. If it is absent, that is the grant
 working, not an outage: do NOT shell out to `mcpc`. Give the operator the
 exact fix — either `/root <request>`, or
-`arizuko group <inst> grant folder:<yours> <scope> mcp:issue_chat_link`.
+`arizuko group -i <inst> grant folder:<yours> <scope> mcp:issue_chat_link`.
 
 `list_tokens` / `revoke_token` stay available to any folder granted them
 (they touch only tokens your folder owns).

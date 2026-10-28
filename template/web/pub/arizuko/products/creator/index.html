@@ -32,6 +32,7 @@
             <li><a href="../creator/">Content pipeline (Inari)</a></li>
             <li><a href="../socials/">Social presence (Phosphene)</a></li>
             <li><a href="../strategy/">Domain researcher (Prometheus)</a></li>
+            <li><a href="../cuzk/">CUZK cadastral lookup</a></li>
             <li><a href="../shapes.html">Shapes</a></li>
           </ul>
         </li>
@@ -70,14 +71,14 @@ agent  Brief first: how technical, and do you want the outage named?</code></pre
       <table>
         <thead><tr><th>File</th><th>What it is</th></tr></thead>
         <tbody>
-          <tr><td><code>arizuko.toml</code></td><td>the manifest: name, brand, tagline and env hints</td></tr>
-          <tr><td><code>SOUL.md</code></td><td>who the agent is: drafts in your voice and waits for approval; <code>runed</code> renames it to <code>PERSONA.md</code> at the first turn</td></tr>
+          <tr><td><code>arizuko.yml</code></td><td>the manifest: name, brand, tagline and env hints</td></tr>
+          <tr><td><code>group/SOUL.md</code></td><td>who the agent is: drafts in your voice and waits for approval; <code>runed</code> renames it to <code>PERSONA.md</code> at the first turn</td></tr>
           <tr><td><code>facts/style.md</code></td><td>the voice, the tone, the topics in scope and the platform rules</td></tr>
         </tbody>
       </table>
       <p>The product also ships its tests in <code>eval/</code>.</p>
 
-      <p>For platform mix and timing, see <a href="../socials/">the social presence manager</a>. A group takes one persona, so two products in one group keep the persona of the first.</p>
+      <p>For platform mix and timing, see <a href="../socials/">the social presence manager</a>. A group takes one persona. When two products in one group ship the same <code>group/</code> file, the package added later wins.</p>
 
       <p><a href="setup.html">Set it up &rsaquo;</a></p>
 
@@ -87,7 +88,7 @@ agent  Brief first: how technical, and do you want the outage named?</code></pre
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/creator/index.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-21">2026-10-21</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-25">2026-10-25</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

@@ -91,6 +91,7 @@
     <p>A message that lists the bot in <code>m.Mentions</code>, or that replies to a message of the bot, gets <code>verb=mention</code>. Every other guild message gets <code>verb=message</code>. A reaction from <code>MessageReactionAdd</code> becomes a synthetic <code>like</code> or <code>dislike</code> inbound row, classified by <code>chanlib.ClassifyEmoji</code>.</p>
 
     <p>Attachments use direct Discord CDN URLs, cached in the shared <code>chanlib.URLCache</code>.</p>
+    <p>Discord guild chats start reply threads by default. Change a chat's setting from the group dashboard or with <code>arizuko chat thread-replies &lt;jid&gt; on|off|default</code>. Replies and progress inside an existing thread stay there. A deliberate send can address the parent channel.</p>
 
     <h2>discd runs alone with routd and a token</h2>
     <p>discd is a plain Go binary. It needs a reachable routd and a Discord bot token or user token.</p>

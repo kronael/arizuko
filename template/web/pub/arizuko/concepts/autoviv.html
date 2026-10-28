@@ -103,7 +103,7 @@ senders &mdash; ask the operator instead.</code></pre>
       <dt>A second call writes nothing new</dt>
       <dd>The route key is its <code>seq</code>, match and target. So a second <code>register_group</code> call with the same JID and folder adds no second route.</dd>
       <dt>The new folder gets no seed</dt>
-      <dd><code>register_group</code> does not call <code>container.SetupGroup</code>, so the new folder starts without the skills, the <code>.claude/CLAUDE.md</code> copy and the <code>.claude.json</code> that onboarding and the CLI write. The first spawn writes <code>settings.json</code>, and the missing <code>MIGRATION_VERSION</code> file adds a <code>[pending migration]</code> line to the prompt. Check <code>groups/&lt;folder&gt;/</code> if the new agent knows nothing.</dd>
+      <dd><code>register_group</code> does not call <code>container.SetupGroup</code>. Check <code>groups/&lt;folder&gt;/</code> if the new agent lacks its expected workspace files.</dd>
     </dl>
 
     <h2>Routing and grants explain the parts</h2>

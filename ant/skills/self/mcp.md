@@ -22,7 +22,7 @@ expect is missing, you were not granted it — ask, don't work around it.
 | Tool             | Description                                                               |
 | ---------------- | ------------------------------------------------------------------------- |
 | `send`           | Send a text message to a chat (use chatJid param to target); returns `id` |
-| `reply`          | Reply to current conversation (auto-injects replyTo); returns `id`        |
+| `reply`          | Reply to the current conversation; returns `id`. GitHub requires `replyToId` with the message ID. Other platforms use the current conversation when omitted. |
 | `send_file`      | Send a file from workspace to user as platform-native attachment; returns `id` |
 | `send_voice`     | Synthesize text and deliver as voice (Telegram/WhatsApp PTT, Discord audio) |
 | `post`           | Create a new top-level post on a feed/timeline (discord, …)     |

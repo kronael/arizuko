@@ -121,10 +121,10 @@ rules are in [`auth/README.md`](auth/README.md#authorization-is-one-row-and-one-
 | Authn               | GitHub / Google / Discord OAuth, and Dex when configured → JWT (15 min) + refresh (30 d)                                                                                                                                                                                                                                                     | `authd/oauth.go`, `authd/main.go` (`accessTTL`, `refreshTTL`)                                                                                   |
 | Authz               | Unified `acl` + `acl_membership` → `auth.Authorize`; a row's `params` predicates do per-tool arg gating; `auth.Delegate` bounds re-delegation to a subset of rows held WITH GRANT OPTION                                                                                                                                                     | `auth/authorize.go`, `auth/delegate.go`, `auth/acl.go`                                                                                          |
 | Channel ingress     | ES256 service token (`AUTHD_SERVICE_KEY`); adapter exchanges key for `service:<daemon>` JWT on startup, presents bearer on every routd call; docker-network only. A channel name is locked to the first principal that registers it; an inbound `chat_jid` must sit under the adapter's prefixes and its `sender` under the adapter's scheme | `chanlib/run.go`, `chanreg/chanreg.go`, `routd/server.go`, `chanreg/README.md`                                                                  |
-| Slack webhook       | proxyd forwards `/slack/*` → `slakd:8080` verbatim; `X-Slack-Signature` HMAC over `v0:<ts>:<body>` (signing secret); ±5min skew                                                                                                                                                                                                              | `slakd/bot.go` (verify), `template/services/slakd.yaml` (route), `slakd/README.md` § Threat model                                               |
+| Slack webhook       | proxyd forwards `/slack/*` → `slakd:8080` verbatim; `X-Slack-Signature` HMAC over `v0:<ts>:<body>` (signing secret); ±5min skew                                                                                                                                                                                                              | `slakd/bot.go` (verify), `template/services/slakd/arizuko.yml` (route), `slakd/README.md` § Threat model                                        |
 | Email sender auth   | DMARC via pinned `Authentication-Results` authserv-id + operator allowlist; fail → `verb=untrusted`, never promoted to `mention`                                                                                                                                                                                                             | `emaid/imap.go`                                                                                                                                 |
 | Mention promotion   | routd-side `verb=mention` rewrite when parent is bot-authored; one renderer across all adapters, untrusted verbs never promote                                                                                                                                                                                                               | `routd/server.go`                                                                                                                               |
-| Secrets at rest     | AES-256-GCM encrypted (`v2:` prefix, key=SHA-256(`SECRETS_KEY`); required — routd refuses to start without it, no `AUTH_SECRET` fallback); comma keyring for rotation; legacy plaintext rows sealed in place by the explicit `arizuko secret <inst> seal-legacy` verb (never on boot, never deleted)                                         | `store/secrets.go`, `cmd/arizuko/secret.go`                                                                                                     |
+| Secrets at rest     | AES-256-GCM encrypted (`v2:` prefix, key=SHA-256(`SECRETS_KEY`); required — routd refuses to start without it, no `AUTH_SECRET` fallback); comma keyring for rotation; legacy plaintext rows sealed in place by the explicit `arizuko secret -i <inst> seal-legacy` verb (never on boot, never deleted)                                      | `store/secrets.go`, `cmd/arizuko/secret.go`                                                                                                     |
 | Secret injection    | Model credentials reach the guest at spawn. Explicit `shell:env:<KEY>` grants add selected capability keys. Brokered tools resolve credentials on the host per call and scrub them from results. [Secret injection](#secret-injection)                                                                                                       | `routd/sibling_db.go` (`EnvProfileSecrets`, `ShellEnvSecrets`), `runed/secrets.go` (`mergeSecrets`), `routd/mcp.go` (`ResolveConnectorSecrets`) |
 | Onboarding rate cap | Per-gate daily limit from `onboarding_gates` table                                                                                                                                                                                                                                                                                           | `onbod/main.go` (`admitFromQueue`)                                                                                                              |
 | Network egress      | Default-deny for TCP: the turn's tap has no route but to its own proxy, which holds the per-folder allowlist and serves that turn's address only. UDP/53 has nowhere to go ([No DNS filter](#the-guest-has-no-resolver-so-there-is-no-dns-filter)) and IPv6 is taken off the tap before the link comes up                                    | `egress/`, `store/network.go`, `runed/vmnet.go`                                                                                                 |
@@ -362,15 +362,14 @@ installing a package would hand its author the instance.
 
 - **Core routes are reserved.** A route cannot take a path that core arizuko
   serves. The reserved set comes from `compose.coreProxydRoutes`, so no second
-  list exists. `arizuko generate` applies the same rule, because
-  `packages upgrade` rewrites a fragment without applying its rows again. One
+  list exists. `arizuko generate` applies the same rule when reading installed package metadata. One
   exception exists. A daemon that the release itself ships can serve its own
   `/dash/<name>/`.
-- **`--folder` bounds the grants.** Every grant scope that a package declares
+- **Package selection bounds the grants.** Every grant scope that a package declares
   must lie inside the folders named at install. This is the same
   subset-of-held rule as the delegation of a person. `**` and `*` are always
-  refused, because an operator is exactly such a row. An install without
-  `--folder` has a bound of nothing, so a package that declares any grant is
+  refused, because an operator is exactly such a row. A selection without
+  `folders` has a bound of nothing, so a package that declares any grant is
   refused.
 - **Install stamps the owner and never reads it.** Install writes
   `owner = package:<name>` on every route and `granted_by = package:<name>` on
@@ -464,10 +463,10 @@ Set the value and grant its shell use separately. Replace the placeholders
 with your instance, folder and value:
 
 ```bash
-arizuko secret <instance> set <folder> SERVICE_TOKEN --value V
-arizuko group <instance> grant folder:<folder> <folder> shell:env:SERVICE_TOKEN
-arizuko secret <instance> list <folder>
-arizuko group <instance> grants folder:<folder>
+arizuko secret -i <instance> set <folder> SERVICE_TOKEN --value V
+arizuko group -i <instance> grant folder:<folder> <folder> shell:env:SERVICE_TOKEN
+arizuko secret -i <instance> list <folder>
+arizuko group -i <instance> grants folder:<folder>
 ```
 
 `secret list` prints key names and creation times, never values. `group grants`
@@ -664,7 +663,7 @@ binary is absent.
   every turn with a gateway fails without it, see `EgressRules` in `container/egress.go`.
 - The default seed is `anthropic.com` and `api.anthropic.com`
   , see `store/seed.go`. An operator adds rules with
-  `arizuko network <instance> allow <folder> <target>`.
+  `arizuko network -i <instance> allow <folder> <target>`.
 - The wildcard `"*"` is added when the folder holds the `egress` grant, when
   the turn is an elevated `/root` turn, or when the operator wrote a `*` row with
   `arizuko network`. Without that grant, a folder stays

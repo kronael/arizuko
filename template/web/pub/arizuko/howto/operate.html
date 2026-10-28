@@ -49,7 +49,7 @@
     <p class="lede">A message that gets no reply stops at one of four daemons. Check each daemon in the order the message passes it. The first check that fails names the incident. Each incident below gives what to read, the cause, the fix and the source line.</p>
 
     <h2 id="logs">The journal holds the log of every daemon</h2>
-    <p>The systemd unit runs <code>arizuko run</code>. <code>arizuko run</code> runs <code>docker compose up</code> in the foreground. Compose writes the output of every container to its stdout, and journald keeps that output. One command reads all daemons:</p>
+    <p>The systemd unit runs the generator from the release image, then runs <code>docker compose up</code> in the foreground. Compose writes the output of every container to its stdout, and journald keeps that output. One command reads all daemons:</p>
     <pre><code>sudo journalctl -u arizuko_&lt;name&gt; --since "15 min ago" --no-pager</code></pre>
     <p>Do not use <code>docker logs</code>. When the Docker daemon sets <code>"log-driver": "none"</code>, <code>docker logs</code> writes an error to stderr and nothing to stdout. A <code>| grep -c ERROR</code> after it then prints <code>0</code>, and the count is wrong.</p>
 
@@ -76,7 +76,7 @@
       ▼
 routd ──► adapter ──► platform reply</code></pre>
     <p><code>arizuko send</code> writes a message into the queue of a folder as the operator and prints the reply. It does not use the platform:</p>
-    <pre><code>./arizuko send &lt;name&gt; &lt;folder&gt; "ping" --wait</code></pre>
+    <pre><code>./arizuko send -i &lt;name&gt; &lt;folder&gt; "ping" --wait</code></pre>
     <p>When this command gets a reply and the platform chat does not, the fault is in the adapter. When this command gets no reply, the fault is in routd, runed or the guest.</p>
 
     <h2 id="incidents">Each incident has one log line, one cause and one fix</h2>
@@ -120,11 +120,11 @@ routd ──► adapter ──► platform reply</code></pre>
     <h3 id="store-key">A daemon without a store key restarts the whole instance</h3>
     <dl>
       <dt>Read</dt>
-      <dd><code>systemctl is-active arizuko_&lt;name&gt;</code> prints <code>activating</code>. Two of fifteen containers run. The journal shows <code>dynstore: endpoint "https://extenddb:18443" takes an access key and a secret</code> from the daemon that <code>packages add</code> enabled. Before that, <code>arizuko generate</code> printed <code>store enrolment is partial</code>.</dd>
+      <dd><code>systemctl is-active arizuko_&lt;name&gt;</code> prints <code>activating</code>. Two of fifteen containers run. The journal shows <code>dynstore: endpoint "https://extenddb:18443" takes an access key and a secret</code> from the enabled daemon. Before that, <code>arizuko generate</code> printed <code>store enrolment is partial</code>.</dd>
       <dt>Cause</dt>
       <dd>The daemon reads the store and has no key for it. The daemon exits at its first store access. Its exit stops <code>docker compose up</code>, and systemd starts the whole instance again. No arizuko command makes a store key. BUGS entries <code>L319</code> and <code>L406</code> record this gap.</dd>
       <dt>Fix</dt>
-      <dd>Run <code>./arizuko packages &lt;name&gt; remove &lt;pkg&gt;</code> and <code>./arizuko generate &lt;name&gt;</code>, then restart. Make the key as <a href="https://github.com/kronael/arizuko/blob/main/INSTALL.md#the-per-daemon-store-keys">[INSTALL § The per-daemon store keys]</a> describes. Then add the package again.</dd>
+      <dd>Make the key as <a href="https://github.com/kronael/arizuko/blob/main/INSTALL.md#the-per-daemon-store-keys">[INSTALL § The per-daemon store keys]</a> describes. Then restart the service with <code>sudo systemctl restart arizuko_&lt;name&gt;</code>.</dd>
       <dt>Source</dt>
       <dd><code>objstore/dynstore/dynstore.go:69</code>, the warning at <code>compose/compose.go:1100</code></dd>
     </dl>
@@ -153,26 +153,14 @@ routd ──► adapter ──► platform reply</code></pre>
       <dd><code>runed/vmrecord.go:208</code> <code>allocateCID</code>, <code>runed/vmrecord.go:238</code> <code>vsockPorts</code>, <code>runed/vmctl.go:98</code>, <code>runed/vmnet.go:38</code></dd>
     </dl>
 
-    <h3 id="migrate-storm">A release queues one /migrate turn for each folder</h3>
-    <dl>
-      <dt>Read</dt>
-      <dd><code>sudo journalctl -u arizuko_&lt;name&gt; | grep 'auto-migrate'</code> shows one <code>version behind, triggering /migrate</code> line for each folder.</dd>
-      <dt>Cause</dt>
-      <dd>When a release increases <code>MIGRATION_VERSION</code>, routd queues one <code>/migrate</code> turn for each folder with old skills. These turns use the run slots, so other messages wait.</dd>
-      <dt>Fix</dt>
-      <dd>Wait until no guest runs: <code>pgrep -c qemu-system-x86</code> prints 0. The kernel cuts the process name to 15 characters, so use this exact name. Do not use <code>pgrep -f</code>, because it also finds its own shell. Start an eval only after the count is 0.</dd>
-      <dt>Source</dt>
-      <dd><code>routd/loop.go:475</code> <code>checkMigrationVersion</code></dd>
-    </dl>
-
     <h3 id="disk">Old rootfs trees fill the data disk</h3>
     <dl>
       <dt>Read</dt>
-      <dd><code>sudo arizuko images &lt;name&gt;</code> lists every rootfs and kernel tree of the instance with its size, and marks each tree as in use, mounted or unused. One rootfs tree is about 7 GB.</dd>
+      <dd><code>sudo arizuko images -i &lt;name&gt;</code> lists every rootfs and kernel tree of the instance with its size, and marks each tree as in use, mounted or unused. One rootfs tree is about 7 GB.</dd>
       <dt>Cause</dt>
       <dd>A release with a changed agent image exports a new <code>images/rootfs-&lt;hash&gt;/</code> tree. <code>make images</code> deletes no tree, because a running turn can use an older tree.</dd>
       <dt>Fix</dt>
-      <dd><code>sudo arizuko images &lt;name&gt; --prune</code> removes every unused tree. It keeps the trees that <code>RUNED_ROOTFS_DIR</code> and <code>RUNED_KERNEL_DIR</code> name, and it removes nothing while a tree has a mount. Instances on the same <code>arizuko-ant</code> image can use one <code>DATA_DIR</code> for the artifacts, so the export occurs once. <code>docker builder prune -f</code> removes the build cache. Do not run <code>docker image prune -a</code>: no container holds <code>arizuko-ant</code> between turns, so the prune deletes it, and the next rootfs export fails.</dd>
+      <dd><code>sudo arizuko images -i &lt;name&gt; --prune</code> removes every unused tree. It keeps the trees that <code>RUNED_ROOTFS_DIR</code> and <code>RUNED_KERNEL_DIR</code> name, and it removes nothing while a tree has a mount. Instances on the same <code>arizuko-ant</code> image can use one <code>DATA_DIR</code> for the artifacts, so the export occurs once. <code>docker builder prune -f</code> removes the build cache. Do not run <code>docker image prune -a</code>: no container holds <code>arizuko-ant</code> between turns, so the prune deletes it, and the next rootfs export fails.</dd>
       <dt>Source</dt>
       <dd><code>cmd/arizuko/images.go</code> <code>runImages</code>, <code>compose/compose.go:1237</code> <code>hostViewPaths</code></dd>
     </dl>
@@ -198,7 +186,7 @@ routd ──► adapter ──► platform reply</code></pre>
       <dt>Fix</dt>
       <dd>Set the override, for example <code>TELEGRAM_BOT_TOKEN_JYNX</code> for <code>teled-jynx.yml</code>. Run <code>arizuko generate</code>, then restart. Do not add a second token to the base fragment.</dd>
       <dt>Source</dt>
-      <dd><code>compose/compose.go:263</code> <code>variantOf</code>, <code>template/services/teled-jynx.yml</code>, <a href="https://github.com/kronael/arizuko/blob/main/compose/README.md#several-accounts-on-one-platform">[compose README]</a></dd>
+      <dd><code>compose/compose.go</code>, <a href="https://github.com/kronael/arizuko/blob/main/compose/README.md#several-accounts-on-one-platform">[compose README]</a></dd>
     </dl>
 
     <h3 id="frozen-fragment">A changed fragment does not get release fixes</h3>
@@ -210,7 +198,7 @@ routd ──► adapter ──► platform reply</code></pre>
       <dt>Fix</dt>
       <dd>Move the difference into <code>.env</code>. <code>.env</code> holds <code>STORE_HOST_PORT</code> and the <code>&lt;KEY&gt;_&lt;LABEL&gt;</code> overrides. Copy the template over the changed file. The next <code>arizuko generate</code> replaces it with a link.</dd>
       <dt>Source</dt>
-      <dd><code>compose/fragments.go:62</code> <code>RelinkCatalog</code>, <code>cmd/arizuko/packages.go:1228</code></dd>
+      <dd><code>compose/fragments.go:62</code> <code>RelinkCatalog</code>, <code>cmd/arizuko/packages.go</code></dd>
     </dl>
 
     <h3 id="adapter-health">An adapter that fails its healthcheck stays at "starting"</h3>
@@ -228,7 +216,7 @@ routd ──► adapter ──► platform reply</code></pre>
     <h3 id="unanswered">A chat without a matching route gets no reply</h3>
     <dl>
       <dt>Read</dt>
-      <dd><code>/dash/activity/</code> shows the newest message in and out of the chat. The unrouted section of <code>/dash/routes/</code> lists every chat that routd drops. <code>./arizuko route &lt;name&gt; list</code> prints the route table by seq.</dd>
+      <dd><code>/dash/activity/</code> shows the newest message in and out of the chat. The unrouted section of <code>/dash/routes/</code> lists every chat that routd drops. <code>./arizuko route -i &lt;name&gt; list</code> prints the route table by seq.</dd>
       <dt>Cause</dt>
       <dd>When no route matches, routd marks the messages as seen and starts no turn. An <code>#observe</code> route above the answering route has the same result: the first match wins, and an observe route has no verb, so it takes every message, mentions included. BUGS entry <code>L327</code> records this. The cursor moves, the breaker stays closed, and no error occurs.</dd>
       <dt>Fix</dt>

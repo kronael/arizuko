@@ -115,9 +115,9 @@ the next message reaches the world; history does not move</code></pre>
 
     <h2>An invite token admits one person to one folder</h2>
     <p>An operator creates a token with the CLI:</p>
-    <pre><code>arizuko invite &lt;instance&gt; create &lt;target_glob&gt; [--max-uses N] [--expires DURATION]
-arizuko invite &lt;instance&gt; list   [--issued-by SUB]
-arizuko invite &lt;instance&gt; revoke &lt;ref&gt;</code></pre>
+    <pre><code>arizuko invite -i &lt;instance&gt; create &lt;target_glob&gt; [--max-uses N] [--expires DURATION]
+arizuko invite -i &lt;instance&gt; list   [--issued-by SUB]
+arizuko invite -i &lt;instance&gt; revoke &lt;ref&gt;</code></pre>
     <p>The token is a row in the <code>invites</code> table, which <code>onbod</code> owns. <code>target_glob</code> is a folder, and a trailing slash changes its meaning:</p>
     <dl>
       <dt><code>corp/eng</code></dt>
@@ -165,18 +165,8 @@ arizuko invite &lt;instance&gt; revoke &lt;ref&gt;</code></pre>
 
     <h2>SetupGroup writes every new group</h2>
     <p>When a user has the right to a workspace, through an invite or through an approval under a gate, <code>onbod</code> calls <code>container.SetupGroup(cfg, folder, seedDir)</code>. <code>arizuko create</code>, <code>arizuko group add</code> and <code>dashd</code> call the same function. <code>register_group</code> does not.</p>
-    <p>The function creates the group directory and <code>logs/</code>. If a <code>seedDir</code> is given, it copies that directory in: the CLI passes a product template, and onboarding passes none. Then it runs <code>seedGroupDir</code>, which writes four things:</p>
-    <dl>
-      <dt><code>.claude/skills/</code></dt>
-      <dd>Every directory under <code>ant/skills/</code> with a valid name. See <a href="../concepts/skills.html">skills</a>.</dd>
-      <dt><code>.claude/CLAUDE.md</code></dt>
-      <dd>A copy of <code>ant/CLAUDE.md</code>.</dd>
-      <dt><code>.claude/.claude.json</code></dt>
-      <dd>A user id for the folder, the sha256 of <code>arizuko:&lt;folder&gt;</code>.</dd>
-      <dt>Ownership</dt>
-      <dd>Every file belongs to uid 1000, so the <code>node</code> user of the guest can write.</dd>
-    </dl>
-    <p>A folder made without <code>SetupGroup</code> has none of these four. <code>runed</code> still writes <code>settings.json</code> into it on every spawn.</p>
+    <p>The function creates the group directory and <code>logs/</code>. If a <code>seedDir</code> is given, it copies that directory in. It creates <code>.claude/.claude.json</code> with a stable user id derived from the folder and attempts to give the files to uid 1000.</p>
+    <p>At turn start, <code>runed</code> mounts the selected packages' skills and combined manuals into the guest. It also writes the turn's <code>settings.json</code>.</p>
 
     <h2>A second chat pairs to the same account</h2>
     <p>A person who already has a world and arrives on another platform does not onboard again. The person pairs the new chat to the existing account, and the chat gets everything that account holds. No queue and no new group are involved.</p>
@@ -194,7 +184,7 @@ arizuko invite &lt;instance&gt; revoke &lt;ref&gt;</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/concepts/onboarding.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-23">2026-10-23</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-24">2026-10-24</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

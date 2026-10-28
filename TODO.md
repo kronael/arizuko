@@ -82,37 +82,11 @@ for shipped milestones.
   page (`dashd/grants_admin.go:111`) — no list, no cut. The blocker is a
   design call, not markup: `DELETE /v1/acl_membership` binds the caller's
   sub to `parent` on purpose, so an operator cannot use it, and the spec
-  says the third path is `arizuko apply`. Either that answer stands and
-  dashd shows the edges read-only, or the operator gets a face — decide
-  before building.
+  previously named `arizuko apply`, which is retired. Decide whether dashd
+  shows the edges read-only or gives operators a control before building.
 - **`/pub/arizuko/` 13-post series** — specced in
   `content/spec.md`, voice in `content/meta/voice.md`. Long-form
   content authorship; separate session.
-
-## Products, templates, and skill mixins
-
-Current template/skill system is flat file layering — no first-class
-"product" or "mixin" abstraction. Issues:
-
-- **No product concept**: Can't define "a finance bot" as a bundle of
-  PERSONA.md + skills + output-style + CLAUDE.md sections. Template overlays
-  exist (`/migrate` + TEMPLATES file) but are manual, root-only, and
-  undocumented.
-- **CLAUDE.md is one-shot**: Seeded once from `ant/CLAUDE.md`, then
-  diverges. No merge-on-update path without running `/migrate`.
-- **Skill re-seeding is all-or-nothing**: `seedSkills()` copies the full
-  `ant/skills/` tree every spawn. No per-group skill selection — groups
-  get all 38 skills even if they only need 5.
-- **No mixin composition**: Template overlays overwrite PERSONA.md, additive-
-  merge CLAUDE.md sections. No conflict resolution, no ordering, no
-  dependency between mixins.
-- **No product registry**: Operators can't browse/select products. Must
-  hand-edit TEMPLATES file and know the template directory names.
-
-Desired direction: a "product" is a named bundle (SOUL + skills + CLAUDE
-sections + output-style + config). Groups select one product at creation.
-Mixins are optional add-ons that compose on top. Both declared in TOML or
-similar, resolved at seed time by `container/runner.go` (group setup).
 
 ## Next (small wins)
 

@@ -76,9 +76,9 @@
       <tr><td><code>app</code></td><td><code>&lt;slug&gt;</code></td><td>the webhook settings of the GitHub App, for every installation</td></tr>
     </table>
 
-    <pre><code>arizuko github &lt;inst&gt; add app arizuko-krons eng   # prints url + secret ONCE
-arizuko github &lt;inst&gt; list                        # secrets never print again
-arizuko github &lt;inst&gt; rm app/arizuko-krons eng    # 404s the URL, drops the routes</code></pre>
+    <pre><code>arizuko github -i &lt;inst&gt; add app arizuko-krons eng   # prints url + secret ONCE
+arizuko github -i &lt;inst&gt; list                        # secrets never print again
+arizuko github -i &lt;inst&gt; rm app/arizuko-krons eng    # 404s the URL, drops the routes</code></pre>
 
     <p>routd seals the secret under <code>SECRETS_KEY</code> in its <code>github_sources</code> table, and gitd unseals it for each delivery. The URL path <code>/github/&lt;kind&gt;/&lt;name&gt;</code> selects the secret that verifies the signature, so a payload never chooses its own verifier. A repository or organization source is also bound to its repository or organization. gitd refuses a payload that names another repository with 400, even when the signature is valid.</p>
 
@@ -91,7 +91,7 @@ github:&lt;owner&gt;/&lt;repo&gt;/issue/&lt;n&gt;   one issue,         topic=iss
     <p>The owner and the repository are in the JID, so one App secret for fifty repositories gives fifty JIDs. The ordinary <a href="../reference/cli.html">route table</a> maps them. The sender is <code>github:&lt;login&gt;</code>, the same principal that <a href="authd.html">authd</a> creates for a GitHub sign-in. So the dashboard login of a person and the comment of that person on a pull request are one identity.</p>
 
     <h2>Requests to the bot start a turn and the rest is observed</h2>
-    <p>A new source gets seeded route rows. A pull request mention or a direct reply to a bot comment starts a turn. Pull request activity also starts a turn when the bot is assigned, requested for review or has submitted a review. Human comments and reviews with a body on a bot-authored pull request or issue also map to <code>mention</code>. Other activity lands as <code>&lt;folder&gt;#observe</code>. After the bot replies, a human comment on an engaged pull request or issue starts a turn without a new mention. Only a <code>message</code> or <code>mention</code> rides that engagement. To route other CI rows while a conversation is engaged, add a route above the fallback, for example <code>chat_jid=github:o/r/pr/* verb=check_run</code> to <code>sloth/morha#engaged</code>.</p>
+    <p>A new source gets seeded route rows. A pull request mention or a direct reply to a bot comment starts a turn. Pull request activity also starts a turn when the bot is assigned, requested for review or has submitted a review. Human comments and reviews with a body on a bot-authored pull request or issue also map to <code>mention</code>. Other activity lands as <code>&lt;folder&gt;#observe</code>. After the bot replies, a human comment on an engaged pull request or issue starts a turn without a new mention. Only a <code>message</code> or <code>mention</code> rides that engagement. To route other CI rows while a conversation is engaged, add a route above the fallback, for example <code>chat_jid=github:o/r/pr/* verb=check_run</code> to <code>team/reviewer#engaged</code>.</p>
 
     <p>gitd reads assignees, requested reviewers and submitted review history from GitHub. The token needs the Pull requests read permission. For CI, subscribe to <code>check_run</code>, <code>check_suite</code> and <code>workflow_run</code>. An event with no associated pull request, a queued event and an in-progress event do no lookup. One CI delivery allows ten distinct pull requests. Each delivery allows ten seconds for lookups. If a lookup fails, gitd answers 503 before it forwards any row. GitHub can redeliver the same event after recovery.</p>
 
@@ -151,7 +151,7 @@ export LISTEN_ADDR=:8080
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/components/gitd.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-24">2026-10-24</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-27">2026-10-27</time>
       </div>
   </main>
 

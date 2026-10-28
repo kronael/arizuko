@@ -18,9 +18,9 @@ one receiver — GitHub sends the same signed POST for all of them:
 | `app`  | `<slug>`         | the GitHub App's Webhook settings (every installation's repo) |
 
 ```bash
-arizuko github <inst> add app arizuko-krons eng      # prints url + secret ONCE
-arizuko github <inst> list                           # secrets never print again
-arizuko github <inst> rm app/arizuko-krons eng       # 404s the URL, drops the routes
+arizuko github -i <inst> add app arizuko-krons eng      # prints url + secret ONCE
+arizuko github -i <inst> list                           # secrets never print again
+arizuko github -i <inst> rm app/arizuko-krons eng       # 404s the URL, drops the routes
 ```
 
 The same three actions are `/v1/github_sources` on routd (REST) and the
@@ -73,7 +73,7 @@ mention. A `check_run`, `workflow_run` or review-state row that is not promoted
 to `mention` does not ride engagement. It lands on the `#observe` fallback.
 To let CI continue an open
 conversation, add one route above the fallback, for example
-`chat_jid=github:o/r/pr/* verb=check_run` to `sloth/morha#engaged`
+`chat_jid=github:o/r/pr/* verb=check_run` to `team/reviewer#engaged`
 ([`ROUTING.md`](../ROUTING.md)). gitd carries no flag for this.
 Repo rows sit at seq 10/100, org at 20/200, app at
 30/300, so a narrower registration wins. Operators can edit the route rows.

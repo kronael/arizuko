@@ -5,14 +5,13 @@ The [package guide](../../../EXTENDING.md) explains package selection and instal
 
 ## Install
 
-Add the source to the group's `arizuko.yml`, then run `arizuko sync`:
+Select the package for a group. The command installs it:
 
-```yml
-packages:
-  - source: ant/examples/cuzk
+```sh
+arizuko package add -g FOLDER ant/examples/cuzk
 ```
 
-Use `arizuko sync -i NAME` to select another configured instance.
+Use `-i/--instance NAME` to select another configured instance. `arizuko package sync` installs every selected package again.
 The standard agent image supplies Python, socat, agent-browser, Chromium, Xvfb and xauth.
 Installation sends no CUZK requests.
 

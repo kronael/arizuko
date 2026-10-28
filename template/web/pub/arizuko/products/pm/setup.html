@@ -32,6 +32,7 @@
             <li><a href="../creator/">Content pipeline (Inari)</a></li>
             <li><a href="../socials/">Social presence (Phosphene)</a></li>
             <li><a href="../strategy/">Domain researcher (Prometheus)</a></li>
+            <li><a href="../cuzk/">CUZK cadastral lookup</a></li>
             <li><a href="../shapes.html">Shapes</a></li>
           </ul>
         </li>
@@ -49,19 +50,27 @@
       <h2>The agent needs an instance and one team channel</h2>
       <ul>
         <li>A running instance, from <a href="../../howto/">getting started</a>.</li>
-        <li>One team channel. The product declares <code>TELEGRAM_BOT_TOKEN</code> and <code>DISCORD_BOT_TOKEN</code> as optional. Set at least one and install its adapter, for example <code>arizuko packages &lt;instance&gt; add discd</code>. Without a channel, the board reaches nobody.</li>
+        <li>One team channel. The product declares <code>TELEGRAM_BOT_TOKEN</code> and <code>DISCORD_BOT_TOKEN</code> as optional. Set at least one and install its adapter package. Without a channel, the board reaches nobody.</li>
       </ul>
 
+      <p>For Discord, select the adapter package. The existing selections stay:</p>
+      <pre><code>arizuko package add -i &lt;instance&gt; catalog:discd</code></pre>
+      <p>Then restart the running instance to start the adapter.</p>
+      <p>If systemd manages the instance, run <code>sudo systemctl restart arizuko_&lt;instance&gt;</code>.</p>
+
       <h2>group add makes the group from the product</h2>
-      <pre><code>arizuko group &lt;instance&gt; add discord:123456789/987654321 pm --product pm</code></pre>
-      <p>The JID is <code>discord:&lt;guild_id&gt;/&lt;channel_id&gt;</code>. For a Discord server channel, the command writes a mention route and an observe route.</p>
+      <pre><code>arizuko group -i &lt;instance&gt; add discord:123456789/987654321 pm -p pm</code></pre>
+      <p>The JID is <code>discord:&lt;guild_id&gt;/&lt;channel_id&gt;</code>. For a Discord server channel, the command writes a mention route and an observe route. The command also selects the product for the group. Sync to install it:</p>
+      <pre><code>arizuko package sync -i &lt;instance&gt;</code></pre>
 
       <h2>facts/team.md names the owners</h2>
       <p><code>facts/team.md</code> gives an owner name its meaning. Without it, the agent cannot tell whether "mira" is a person or a service. List the members, their roles and how to reach them.</p>
+      <p>The <code>facts/</code> files of the product are examples, not package files, so <code>arizuko package sync</code> never rewrites them. Copy them once from the repository checkout:</p>
+      <pre><code>cp -r ant/examples/pm/facts /srv/data/arizuko_&lt;instance&gt;/groups/pm/</code></pre>
       <p><code>facts/tasks.md</code> can stay as it ships. The agent adds rows, and an empty start avoids a board full of imported items that nobody owns.</p>
 
       <h2>The agent must confirm before it writes</h2>
-      <pre><code>arizuko send &lt;instance&gt; pm "add a task: rotate route tokens, owner mira, due friday" --wait</code></pre>
+      <pre><code>arizuko send -i &lt;instance&gt; pm "add a task: rotate route tokens, owner mira, due friday" --wait</code></pre>
       <p>A correct answer confirms the owner and the deadline <em>before</em> it writes. If the agent writes at once, the persona is not in place. Check <code>groups/pm/PERSONA.md</code>, which <code>SOUL.md</code> becomes at the first turn.</p>
 
       <h2>A scheduled task writes the weekly status</h2>

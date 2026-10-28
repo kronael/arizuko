@@ -24,7 +24,7 @@
 #
 #   NOT SHIPPED: the upstream review, PR-comment and PR-draft skills. Their
 #   text is owner-host text (push, merge and PR bans, a sign-off prompt, owner
-#   hooks). The agent's GitHub conduct is output-styles/github.md alone.
+#   hooks).
 #
 #   UPSTREAM-AHEAD — upstream added real content AND arizuko tuned the same
 #   file, so these are a per-skill MERGE, never a sync: py rs software ts.

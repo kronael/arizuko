@@ -1,7 +1,7 @@
 # Installing arizuko
 
-This guide takes a bare Linux host to a first reply. Follow it from top to
-bottom.
+Check the host, then run the fresh-store bootstrap. Use the remaining sections
+to configure a channel and operate the instance.
 
 ## Check the host before you install
 
@@ -92,27 +92,14 @@ docker compose version   # verify
 sudo usermod -aG docker $USER
 docker ps
 
-# Option B: run the arizuko commands with sudo
-sudo ./arizuko run <name>
+# Option B: run Docker commands with sudo
+sudo docker ps
 ```
 
 ### /srv/data is not writable
 
-Option A gives your user the directory:
-
-```bash
-sudo mkdir -p /srv/data
-sudo chown -R $(whoami):$(whoami) /srv/data
-```
-
-Option B sets another prefix. Every `arizuko` command then keeps an instance in
-`$PREFIX/data/arizuko_<name>`. The variable `ARIZUKO_DATA_DIR` has a higher
-priority than `PREFIX`. It names the directory that holds the instance
-directories.
-
-```bash
-export PREFIX=~/.arizuko
-```
+The fresh-store bootstrap uses sudo to create the instance under `/srv/data`.
+The operator does not need write access to `/srv/data`.
 
 ### /dev/kvm is missing
 
@@ -129,19 +116,154 @@ If both `modprobe` commands fail, enable virtualization in the BIOS or UEFI. The
 setting is Intel VT-x or AMD-V. On a cloud instance, check that the provider offers nested
 virtualization. A guest without nesting has no `/dev/kvm`.
 
-## Build the binaries
+## Get the repository
 
 ```bash
 git clone https://github.com/kronael/arizuko && cd arizuko
+```
+
+## Bootstrap a fresh store
+
+This procedure creates a new instance and a dedicated store. It requires a
+UID 1000 operator with sudo, Python 3, OpenSSL, curl, Go and Docker Compose.
+Run it from the repository in a Bash shell. Choose a name other than `demo`
+if that instance exists. The command refuses to overwrite its directory.
+
+The commands build the daemon image and guest artifacts in the new instance.
+Enter the two absolute artifact directories printed by the build when prompted. The instance uses
+the image `arizuko:latest`. This procedure creates five scoped store users and
+keeps their keys in `env/`. The admin password is in `env/store-admin.env`.
+Keep the instance and the temporary bootstrap directory private. If a command
+fails, inspect the instance and the temporary directory before retrying. Sync may
+report missing keys for other daemons; enroll each one before enabling it.
+
+A disposable test initialized the store, ran `package add` and `package sync`, and restarted the
+seven services. The test used a separate image and host ports. It reused
+read-only guest artifacts. It did not test the release image build, `arizuko
+run`, or guest execution.
+
+<!-- twin:install -->
+
+```bash
+# Run from the repository as the instance owner, with UID 1000.
+set -Eeuo pipefail
+umask 077
+source_dir=$PWD
+flavor=demo
+project="arizuko_${flavor}"
+data="/srv/data/arizuko_$flavor"
+[ "$(id -u)" = 1000 ] || { echo 'Use the UID 1000 instance owner.'; exit 1; }
+# mkdir fails if the instance already exists. Never reuse an instance here.
+sudo mkdir -p /srv/data
+sudo mkdir -m 0711 -- "$data"
+sudo chown "$(id -u):$(id -g)" "$data"
+proof=$(mktemp -d)
+mkdir "$proof/bin"
+# Stop only the bootstrap owner processes if the commands fail.
+cleanup_owners() {
+  for name in onbod routd authd; do
+    if [ -f "$proof/$name.pid" ]; then
+      pid=$(cat "$proof/$name.pid"); kill "$pid" 2>/dev/null || true
+      wait "$pid" 2>/dev/null || true
+    fi
+  done
+}
+trap cleanup_owners EXIT
+freeport() { python3 -c 'import socket;s=socket.socket();s.bind(("127.0.0.1",0));print(s.getsockname()[1]);s.close()'; }
+# Keep the CLI in the checkout for later commands.
+go build -o ./arizuko ./cmd/arizuko
+go build -o "$proof/bin/authd" ./authd
+go build -o "$proof/bin/routd" ./routd/cmd/routd
+go build -o "$proof/bin/onbod" ./onbod
+port=$(freeport)
+env -i PATH=/usr/bin:/bin HOST_APP_DIR="$source_dir" ./arizuko create -i "$flavor" > "$proof/create.log" 2>&1
+sudo make images DATA_DIR="$data"
+sudo make kernel DATA_DIR="$data"
+read -r -p 'Guest kernel directory: ' kernel_dir
+read -r -p 'Guest rootfs directory: ' rootfs_dir
+sudo test -s "$kernel_dir/bzImage" && sudo test -s "$kernel_dir/initrd.gz"
+[ -d "$rootfs_dir" ]
+store_db_password=$(openssl rand -hex 24); store_app_password=$(openssl rand -hex 24)
+printf 'HOST_APP_DIR=%s\nDYNAMODB_URL=https://extenddb:18443\nAWS_REGION=us-east-1\nSTORE_HOST_PORT=%s\nSTORE_DB_PASSWORD=%s\nSTORE_APP_PASSWORD=%s\n' "$source_dir" "$port" "$store_db_password" "$store_app_password" >> "$data/.env"
+printf 'APP=arizuko\nFLAVOR=%s\nDATA_DIR=%s\nSTORE_HOST_PORT=%s\nSTORE_DB_PASSWORD=%s\nSTORE_APP_PASSWORD=%s\n' "$flavor" "$data" "$port" "$store_db_password" "$store_app_password" > "$proof/compose.env"
+mkdir -p "$data/store/extenddb" "$data/store/extenddb_db"
+sudo chown 1000:1000 "$data/store/extenddb" "$data/store/extenddb_db"
+chmod 711 "$data" "$data/store"
+sudo docker compose -p "$project" --env-file "$proof/compose.env" -f template/services/extenddb/extenddb.yml up -d --wait extenddb_db > "$proof/store-db.log" 2>&1
+export EXTENDDB_PG_PASSWORD="$store_db_password" EXTENDDB_APP_PASSWORD="$store_app_password"
+# Init prints credentials; hold output in memory and write only a private env file.
+init_output=$(sudo --preserve-env=EXTENDDB_PG_PASSWORD,EXTENDDB_APP_PASSWORD docker compose -p "$project" --env-file "$proof/compose.env" -f template/services/extenddb/extenddb.yml run --rm --no-deps -e EXTENDDB_PG_PASSWORD -e EXTENDDB_APP_PASSWORD extenddb init --pg-host extenddb_db --pg-port 5432 --pg-user "arizuko_$flavor" --extenddb-user "arizuko_${flavor}_app" --bind-addr 0.0.0.0 --tls-san extenddb --config /var/lib/extenddb/extenddb.toml 2>/dev/null)
+printf '%s' "$init_output" | python3 -c 'import re,sys; s=sys.stdin.read(); p=re.search(r"Password:\s*([^\s│]+)",s).group(1); a=re.search(r"Account ID:\s*(\d+)",s).group(1); print("EXTENDDB_PASSWORD="+p+"\nSTORE_ACCOUNT_ID="+a)' > "$proof/admin.env"
+unset init_output
+sudo docker compose -p "$project" --env-file "$proof/compose.env" -f template/services/extenddb/extenddb.yml up -d --wait extenddb > "$proof/store-server.log" 2>&1
+set -a; . "$proof/admin.env"; set +a
+container=$(sudo docker compose -p "$project" --env-file "$proof/compose.env" -f template/services/extenddb/extenddb.yml ps -q extenddb)
+sudo --preserve-env=EXTENDDB_PASSWORD docker exec -e EXTENDDB_PASSWORD "$container" extenddb settings -c /var/lib/extenddb/extenddb.toml set control_plane_delay_seconds 0 >/dev/null 2>&1
+for user in authd routd onbod operator runed; do
+  case "$user" in
+    authd) resources='["arn:aws:dynamodb:*:*:table/authd.*"]';;
+    routd) resources='["arn:aws:dynamodb:*:*:table/routd.*"]';;
+    onbod) resources='["arn:aws:dynamodb:*:*:table/onbod.*","arn:aws:dynamodb:*:*:table/routd.*"]';;
+    operator) resources='["arn:aws:dynamodb:*:*:table/authd.*","arn:aws:dynamodb:*:*:table/onbod.*","arn:aws:dynamodb:*:*:table/routd.*"]';;
+    runed) resources='["arn:aws:dynamodb:*:*:table/runed.*"]';;
+  esac
+  policy="{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":\"dynamodb:*\",\"Resource\":$resources}]}"
+  sudo --preserve-env=EXTENDDB_PASSWORD docker exec -e EXTENDDB_PASSWORD "$container" extenddb manage -c /var/lib/extenddb/extenddb.toml --user admin create-user --account-id "$STORE_ACCOUNT_ID" --user-name "$user" >/dev/null 2>&1
+  sudo --preserve-env=EXTENDDB_PASSWORD docker exec -e EXTENDDB_PASSWORD "$container" extenddb manage -c /var/lib/extenddb/extenddb.toml --user admin put-user-policy --account-id "$STORE_ACCOUNT_ID" --user-name "$user" --policy-name tables --policy-document "$policy" >/dev/null 2>&1
+  key=$(sudo --preserve-env=EXTENDDB_PASSWORD docker exec -e EXTENDDB_PASSWORD "$container" extenddb manage -c /var/lib/extenddb/extenddb.toml --user admin create-access-key --account-id "$STORE_ACCOUNT_ID" --user-name "$user" 2>/dev/null)
+  printf '%s' "$key" | python3 -c 'import json,sys; x=json.load(sys.stdin); print("AWS_ACCESS_KEY_ID="+x["access_key_id"]+"\nAWS_SECRET_ACCESS_KEY="+x["secret_access_key"])' > "$proof/$user.env"
+  unset key
+done
+sudo cat "$data/store/extenddb/.extenddb/tls/cert.pem" | base64 -w0 > "$proof/ca"
+printf 'AUTHD_SERVICE_KEY=%s\n' "$(openssl rand -hex 32)" > "$proof/service.env"
+printf 'STORE_CA=%s\nRUNED_KERNEL_DIR=%s\nRUNED_ROOTFS_DIR=%s\n' "$(cat "$proof/ca")" "$kernel_dir" "$rootfs_dir" >> "$data/.env"
+mkdir -p "$data/env"
+for name in authd routd onbod runed; do cp "$proof/$name.env" "$data/env/$name.env"; done
+cp "$proof/operator.env" "$data/env/operator.env"
+printf 'DYNAMODB_URL=https://127.0.0.1:%s\n' "$port" >> "$data/env/operator.env"
+common=(PATH=/usr/bin:/bin HOST_APP_DIR="$source_dir" DYNAMODB_URL="https://127.0.0.1:$port" AWS_REGION=us-east-1 STORE_CA="$(cat "$proof/ca")")
+health() { local name=$1 hp=$2; for n in $(seq 1 60); do if curl -fsS "http://127.0.0.1:$hp/health" >/dev/null 2>&1; then return 0; fi; kill -0 "$(cat "$proof/$name.pid")" 2>/dev/null || return 1; sleep 1; done; return 1; }
+auth_port=$(freeport); rout_port=$(freeport); onbod_port=$(freeport)
+set -a; . "$proof/authd.env"; . "$proof/service.env"; set +a
+env -i "${common[@]}" DATA_DIR="$data" AWS_ACCESS_KEY_ID="$AWS_ACCESS_KEY_ID" AWS_SECRET_ACCESS_KEY="$AWS_SECRET_ACCESS_KEY" LISTEN_ADDR="127.0.0.1:$auth_port" AUTHD_SERVICE_KEYS="service:onbod=$AUTHD_SERVICE_KEY" "$proof/bin/authd" > "$proof/authd.log" 2>&1 & printf '%s\n' "$!" > "$proof/authd.pid"
+health authd "$auth_port"
+set -a; . "$proof/routd.env"; set +a
+env -i "${common[@]}" DATA_DIR="$data" AWS_ACCESS_KEY_ID="$AWS_ACCESS_KEY_ID" AWS_SECRET_ACCESS_KEY="$AWS_SECRET_ACCESS_KEY" LISTEN_ADDR="127.0.0.1:$rout_port" "$proof/bin/routd" > "$proof/routd.log" 2>&1 & printf '%s\n' "$!" > "$proof/routd.pid"
+health routd "$rout_port"
+set -a; . "$proof/onbod.env"; set +a
+env -i "${common[@]}" DATA_DIR="$data" AWS_ACCESS_KEY_ID="$AWS_ACCESS_KEY_ID" AWS_SECRET_ACCESS_KEY="$AWS_SECRET_ACCESS_KEY" ONBOD_LISTEN_ADDR="127.0.0.1:$onbod_port" AUTHD_URL="http://127.0.0.1:$auth_port" AUTHD_SERVICE_KEY="$AUTHD_SERVICE_KEY" ROUTER_URL="http://127.0.0.1:$rout_port" "$proof/bin/onbod" > "$proof/onbod.log" 2>&1 & printf '%s\n' "$!" > "$proof/onbod.pid"
+health onbod "$onbod_port"
+for name in onbod routd authd; do kill "$(cat "$proof/$name.pid")"; wait "$(cat "$proof/$name.pid")" || true; rm "$proof/$name.pid"; done
+printf 'owner health passed\n'
+# Preserve the one-time admin credentials for later store management.
+cp "$proof/admin.env" "$data/env/store-admin.env"
+env -i PATH=/usr/bin:/bin ./arizuko package add -i "$flavor" catalog:extenddb
+env -i PATH=/usr/bin:/bin ./arizuko package sync -i "$flavor"
+# The instance is new; give its runtime files to the daemon user.
+sudo chown -R 1000:1000 "$data/packages" "$data/groups" "$data/app-src" "$data/surrogate" "$data/web"
+sudo docker compose -p "$project" --project-directory "$data" --env-file "$data/.env" \
+  -f "$data/docker-compose.yml" --profile onbod --profile timed up -d --wait --wait-timeout 120
+sudo docker compose -p "$project" --project-directory "$data" --env-file "$data/.env" \
+  -f "$data/docker-compose.yml" --profile onbod --profile timed ps
+printf 'Private bootstrap files remain in %s; protect or remove them after saving the admin credentials.\n' "$proof"
+```
+
+<!-- /twin -->
+
+## Build the binaries
+
+For development or an upgrade, build the binaries and run the tests:
+
+```bash
 make build                  # ./arizuko CLI and the daemon binaries
 make test                   # go test ./... -short
 ```
 
 ## Build the images and the guest kernel
 
-`DATA_DIR` names the directory that receives the guest kernel and the release
-rootfs. Use the directory that the next section creates,
-`/srv/data/arizuko_<name>`. `mkdir -p` creates it now if it does not exist.
+The bootstrap builds both artifacts. To rebuild them, `DATA_DIR` names the
+instance directory that receives the guest kernel and the release rootfs,
+`/srv/data/arizuko_<name>`.
 Instances that run the same `arizuko-ant` image can share one `DATA_DIR`, so
 the export runs once. [`kernel/README.md`](kernel/README.md) says what
 `make kernel` builds and why it is a separate artifact.
@@ -160,8 +282,8 @@ sudo make kernel DATA_DIR=/srv/data/arizuko_<name>
 trees fill the disk. Free them with the operator command, on the host, as root:
 
 ```bash
-sudo arizuko images <name>            # list every rootfs and kernel tree, with its size
-sudo arizuko images <name> --prune    # remove every tree that is not in use
+sudo ./arizuko images -i <name>            # list every rootfs and kernel tree, with its size
+sudo ./arizuko images -i <name> --prune    # remove every tree that is not in use
 ```
 
 The in-use trees are the two that `RUNED_ROOTFS_DIR` and `RUNED_KERNEL_DIR` name
@@ -185,22 +307,10 @@ sudo make agent             # arizuko-ant:latest only
 sudo make -C whapd image    # the WhatsApp adapter only
 ```
 
-## Create the instance
+## The instance directory
 
-```bash
-./arizuko create <name>     # for example ./arizuko create mybot
-```
-
-The command creates `/srv/data/arizuko_<name>/` with a `.env` file. It writes
-`ASSISTANT_NAME`, `AUTH_SECRET` and `SECRETS_KEY` for you, so do not create
-the two secrets by hand.
-
-`create` makes the files of the instance and nothing else. It makes the
-directory, the `.env`, the compose fragments and the tree of the default group.
-It runs before the instance has a store server. The owner daemon of each row
-writes that row at its first boot. `routd` seeds the access floor, the egress
-floor and the `main` group, and it uses the `--product` choice that `create`
-wrote to `ARIZUKO_DEFAULT_PRODUCT`.
+The bootstrap creates `/srv/data/arizuko_<name>/` and its `.env` file. It writes
+`ASSISTANT_NAME`, `AUTH_SECRET` and `SECRETS_KEY`.
 
 The instance directory, `${PREFIX:-/srv}/data/arizuko_<name>/`, holds these
 paths:
@@ -228,36 +338,7 @@ daemon down to PostgreSQL. Follow this section for a server of the instance's
 own. Follow "Share one store server between instances" to put several
 instances on one server.
 
-The package starts both containers. You run the `init` command of the server
-yourself, because it prints an admin password once and mints one access key for
-each daemon.
-
-```bash
-./arizuko packages <name> add extenddb   # mints STORE_DB_PASSWORD and STORE_APP_PASSWORD
-./arizuko generate <name>
-cd /srv/data/arizuko_<name>
-set -a; . ./.env; set +a                          # load the STORE_* values into this shell
-sudo docker compose up -d extenddb_db    # PostgreSQL of the instance
-sudo docker compose run --rm extenddb init \
-  --pg-host extenddb_db --pg-port 5432 \
-  --pg-user arizuko_<name> --pg-pass "$STORE_DB_PASSWORD" \
-  --extenddb-user arizuko_<name>_app --extenddb-pass "$STORE_APP_PASSWORD" \
-  --bind-addr 0.0.0.0 --tls-san extenddb \
-  --config /var/lib/extenddb/extenddb.toml
-```
-
-`init` prints the admin password and the account id once. Save both in `.env`
-before you lose them. The names `STORE_ADMIN_PASSWORD` and `STORE_ACCOUNT_ID`
-are only shell variables for this guide, and no daemon reads them. Then start
-the server and set the control-plane delay to zero. A table is then ready the
-moment `CreateTable` returns.
-
-```bash
-set -a; . ./.env; set +a                          # load the STORE_* values into this shell
-sudo docker compose up -d extenddb
-sudo docker exec -e EXTENDDB_PASSWORD=$STORE_ADMIN_PASSWORD arizuko_extenddb_<name> \
-  extenddb settings -c /var/lib/extenddb/extenddb.toml set control_plane_delay_seconds 0
-```
+The bootstrap initializes the store server and the owner tables before the first `package add`. The server prints its admin password once. Keep that password and the account ID in a private file.
 
 <a id="the-per-daemon-store-keys"></a>
 
@@ -352,7 +433,7 @@ needs the certificate that the `init` run made:
 ```bash
 echo "STORE_CA=$(sudo base64 -w0 store/extenddb/.extenddb/tls/cert.pem)" | sudo tee -a .env
 echo 'DYNAMODB_URL=https://extenddb:18443' | sudo tee -a .env
-./arizuko generate <name>
+./arizuko generate -i <name>
 ```
 
 `DYNAMODB_URL` names the server that every daemon opens its tables on. A daemon
@@ -505,11 +586,8 @@ WEB_HOST=myhost.example.com
 # AUTH_SECRET=...
 # SECRETS_KEY=...
 
-# Host path of the arizuko checkout (this repository). `arizuko packages add`
-# links the compose fragment of an adapter at this path and does not copy it,
-# so a template fix reaches the instance on the next `arizuko generate`.
-# Required when `arizuko generate` runs inside a container, because the
-# container cannot see the checkout.
+# Host path of the arizuko checkout (this repository). Catalog sources and
+# relative package paths resolve from this directory.
 HOST_APP_DIR=/path/to/arizuko
 ```
 
@@ -517,30 +595,29 @@ HOST_APP_DIR=/path/to/arizuko
 
 Add the credentials for the adapters that you choose:
 
-| Adapter              | Env vars                                                                                                  | Where to get them                  |
-| -------------------- | --------------------------------------------------------------------------------------------------------- | ---------------------------------- |
-| **teled** (Telegram) | `TELEGRAM_BOT_TOKEN`                                                                                      | @BotFather, then /newbot           |
-| **discd** (Discord)  | `DISCORD_BOT_TOKEN`                                                                                       | discord.com/developers, Bot, Token |
-| **slakd** (Slack)    | `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`                                                                 | api.slack.com, App, OAuth          |
-| **emaid** (Email)    | `EMAIL_IMAP_HOST`, `EMAIL_SMTP_HOST`, `EMAIL_ACCOUNT`, `EMAIL_PASSWORD`                                   | Your email provider                |
-| **whapd** (WhatsApp) | none; the adapter pairs with a QR code                                                                    | `./arizuko pair <name> whapd`      |
-| **gitd** (GitHub)    | none in `.env`; `./arizuko github <name> add …` mints the secret. `GITHUB_TOKEN` is optional, for replies | GitHub, Settings, Webhooks or App  |
+| Adapter              | Env vars                                                                                                     | Where to get them                  |
+| -------------------- | ------------------------------------------------------------------------------------------------------------ | ---------------------------------- |
+| **teled** (Telegram) | `TELEGRAM_BOT_TOKEN`                                                                                         | @BotFather, then /newbot           |
+| **discd** (Discord)  | `DISCORD_BOT_TOKEN`                                                                                          | discord.com/developers, Bot, Token |
+| **slakd** (Slack)    | `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`                                                                    | api.slack.com, App, OAuth          |
+| **emaid** (Email)    | `EMAIL_IMAP_HOST`, `EMAIL_SMTP_HOST`, `EMAIL_ACCOUNT`, `EMAIL_PASSWORD`                                      | Your email provider                |
+| **whapd** (WhatsApp) | none; the adapter pairs with a QR code                                                                       | `./arizuko pair -i <name> whapd`   |
+| **gitd** (GitHub)    | none in `.env`; `./arizuko github -i <name> add …` mints the secret. `GITHUB_TOKEN` is optional, for replies | GitHub, Settings, Webhooks or App  |
 
 Telegram is the simplest choice. It needs one token from @BotFather.
 
 ## Enable the channel adapter
 
-Add the package of the adapter to the instance:
+Select the adapters you want with `arizuko package add`, for example:
 
-```bash
-./arizuko packages <name> list           # available and enabled packages
-./arizuko packages <name> add teled      # Telegram
-./arizuko packages <name> add discd      # Discord
-./arizuko packages <name> add slakd      # Slack
-./arizuko packages <name> add gitd       # GitHub webhooks, then `arizuko github <name> add …`
+```sh
+./arizuko package add -i <name> catalog:teled
+./arizuko package add -i <name> catalog:gitd
 ```
 
-No adapter starts until you add its package. Each adapter needs its package in
+Each `add` installs the package and records the selection in the
+`installed_packages` rows. `./arizuko package sync -i <name>` installs every
+selected package again. An adapter starts only when its package is installed in
 `services/`.
 
 Mint the access key of the adapter into `env/<adapter>.env` before you enable
@@ -555,15 +632,10 @@ credential from `.env`. The `litellm` package moves the credential into a
 gateway container. The agent then gets a virtual key that only the gateway
 accepts.
 
-```bash
-./arizuko packages <name> add litellm
-# generated MODEL_GATEWAY_KEY for litellm into .env
-./arizuko generate <name>
-```
-
-`add` writes `MODEL_GATEWAY_KEY` and `MODEL_GATEWAY_DB_PASSWORD` into
-`/srv/data/arizuko_<name>/.env`. The `litellm.yaml` file of the package
-declares both as `generate`. Every `generate` sets
+Run `arizuko package add -i <name> catalog:litellm`.
+The command writes `MODEL_GATEWAY_KEY` and `MODEL_GATEWAY_DB_PASSWORD` into
+`/srv/data/arizuko_<name>/.env`. The package `arizuko.yml` declares both as
+`generate`. Every `generate` sets
 `MODEL_GATEWAY_URL=http://litellm:4000` unless `.env` names another gateway. To
 rotate a secret, delete its line. The next `generate` mints a new value.
 
@@ -604,48 +676,49 @@ spans for tokens and cost of each request go to the OTLP collector.
 ```bash
 # Telegram. Add @userinfobot to your group to get the chat id.
 # The JID uses the positive number and drops the minus sign of a group id.
-./arizuko group <name> add telegram:group/123456789 main
+./arizuko group -i <name> add telegram:group/123456789 main
 
 # Discord
-./arizuko group <name> add discord:<guild_id>/<channel_id> main
+./arizuko group -i <name> add discord:<guild_id>/<channel_id> main
 
 # Slack
-./arizuko group <name> add slack:<team_id>/channel/<channel_id> main
+./arizuko group -i <name> add slack:<team_id>/channel/<channel_id> main
 ```
 
 ## Run the instance
 
-```bash
-./arizuko run <name>        # writes docker-compose.yml and starts the containers in the foreground
-```
-
-The command runs `docker compose up` in the foreground. Press Ctrl+C to stop.
-To run it in the background, use job control or run it under systemd as shown
-in the next section:
-
-```bash
-./arizuko run <name> &
-```
+The bootstrap starts the instance. For later deployments, restart its systemd
+service. `arizuko run` is for initial setup.
 
 ### systemd keeps the instance running
 
-systemd keeps `arizuko run` up and sends its output to the journal:
+Replace `<name>` and `<release-image>` with the instance name and the local
+release image tag. `make images` builds `arizuko:latest`; use that local tag
+or tag the image with the version you choose. The unit starts the store, runs
+the generator from that image, and starts Compose in the foreground. The bootstrap has already created the
+compose file and store.
 
 ```bash
-sudo tee /etc/systemd/system/arizuko_<name>.service <<EOF
+sudo tee /etc/systemd/system/arizuko_<name>.service <<'EOF'
 [Unit]
-Description=arizuko <name>
+Description=arizuko <name> (docker compose)
 After=docker.service
 Requires=docker.service
 
 [Service]
 Type=simple
 WorkingDirectory=/srv/data/arizuko_<name>
-ExecStart=/path/to/arizuko run <name>
+ExecStartPre=/usr/bin/docker compose -f /srv/data/arizuko_<name>/docker-compose.yml down --remove-orphans
+ExecStartPre=/usr/bin/docker compose -f /srv/data/arizuko_<name>/docker-compose.yml up -d --wait extenddb_db extenddb
+ExecStartPre=/usr/bin/docker run --rm --pull=never --network arizuko_<name>_default -e DYNAMODB_URL=https://extenddb:18443 -v /srv/data/arizuko_<name>:/srv/data/arizuko_<name> -v /var/run/docker.sock:/var/run/docker.sock <release-image> arizuko generate -i <name>
+ExecStart=/usr/bin/docker compose -f /srv/data/arizuko_<name>/docker-compose.yml up --remove-orphans
+ExecStop=/usr/bin/docker compose -f /srv/data/arizuko_<name>/docker-compose.yml down
 Restart=on-failure
+RestartSec=5
+TimeoutStartSec=infinity
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=default.target
 EOF
 
 sudo systemctl daemon-reload
@@ -653,6 +726,11 @@ sudo systemctl enable --now arizuko_<name>
 sudo systemctl status arizuko_<name>
 sudo journalctl -u arizuko_<name> -f
 ```
+
+For each deployment, run `sudo systemctl restart arizuko_<name>`. The unit
+runs the generator from its configured release image on every start.
+When the release image tag changes, update the unit and run
+`sudo systemctl daemon-reload` before the restart.
 
 ## Check that the instance answers
 
@@ -685,14 +763,16 @@ make build                                        # ./arizuko and the daemon bin
 sudo make images DATA_DIR=/srv/data/arizuko_demo  # prints rootfs: <dir>
 sudo make kernel DATA_DIR=/srv/data/arizuko_demo  # prints kernel: <dir>
 sudoedit /srv/data/arizuko_demo/.env              # RUNED_ROOTFS_DIR, RUNED_KERNEL_DIR
-./arizuko generate demo                           # read every warning it prints
-sudo systemctl restart arizuko_demo               # arizuko run regenerates and starts
-./arizuko send demo main "ping" --wait            # one reply proves the path
+./arizuko generate -i demo                           # read every warning it prints
+sudoedit /etc/systemd/system/arizuko_demo.service  # set the release image tag if it changed
+sudo systemctl daemon-reload                       # load the unit if it changed
+sudo systemctl restart arizuko_demo               # the service generates and starts
+./arizuko send -i demo main "ping" --wait            # one reply proves the path
 ```
 
 - `make images` exports a new rootfs tree only when the `arizuko-ant` image
   changed. It removes no tree. To roll back the guest, set `RUNED_ROOTFS_DIR`
-  to an older tree that is still on disk and restart. `arizuko images <name>
+  to an older tree that is still on disk and restart. `arizuko images -i <name>
 --prune` removes every tree that `.env` does not name.
 - `make kernel` builds only when `kernel/Dockerfile`, `kernel/arizuko.fragment`,
   `kernel/check-config.sh` or `kernel/guest-init/*.go` changed. Otherwise it
@@ -700,12 +780,11 @@ sudo systemctl restart arizuko_demo               # arizuko run regenerates and 
 - `arizuko generate` names every fragment that is frozen and every daemon that
   has no store key. Fix both before the restart. A daemon without a store key
   restarts the whole instance in a loop.
-- A release that increases `MIGRATION_VERSION` makes `routd` queue one
-  `/migrate` turn for every folder. Replies wait behind those turns. The queue
-  is empty when `pgrep -c qemu-system-x86` prints 0.
-- A maintainer's release runs the five post-deploy gates in
-  [`.claude/skills/eval/gates.md`](.claude/skills/eval/gates.md). The last gate,
-  `anteval --smoke`, is the only gate that proves that a live agent answers.
+- Startup installs the release's required core package. Existing sessions
+  continue; the next turn reads the installed skills and manual.
+- A maintainer runs post-deploy gates 1–4 in
+  [`.claude/skills/eval/gates.md`](.claude/skills/eval/gates.md). The owner may
+  run `anteval` by hand against a throwaway instance to check agent behavior.
 
 ## A tar or an archive restores an instance
 
@@ -750,7 +829,7 @@ sudo systemctl start arizuko_<name>
 
 ### An archive copies one instance into another
 
-`arizuko archive export <name> [file] [--quiesced]` writes one tar. Without
+`arizuko archive -i <name> export [file] [--quiesced]` writes one tar. Without
 `file`, it writes the tar to standard output. The tar holds these entries:
 
 | Entry                | Holds                                                                             |
@@ -769,13 +848,13 @@ subsystem is a snapshot from its own moment. The flag `--quiesced` only writes
 `quiesced` into `archive.yaml`. It stops nothing and checks nothing, so use it
 only when every writer is down. Export writes the file with mode 0600.
 
-`arizuko archive apply <name> <archive.tar> [--force] [--stopped]` restores
+`arizuko archive -i <name> apply <archive.tar> [--force|-f] [--stopped]` restores
 the archive:
 
 - It refuses an archive with a `format_version` newer than the binary. It also
   refuses a row that names a folder that is not a group.
 - It applies the config documents through the same claim-gated path as
-  `arizuko apply`. If a later subsystem fails, it rolls back. `--force` skips
+  `arizuko package sync`. If a later subsystem fails, it rolls back. `--force` skips
   the content-hash check.
 - It opens every secret with the `SECRETS_KEY` of the target before it writes
   any secret. A target with another key needs the source key in its keyring:
@@ -799,7 +878,7 @@ sudo systemctl stop arizuko_<name>
 cd /srv/data/arizuko_<name>
 sudo docker compose up -d extenddb_db extenddb
 cd -
-./arizuko archive apply <name> <archive.tar> --stopped
+./arizuko archive -i <name> apply <archive.tar> --stopped
 sudo systemctl start arizuko_<name>
 ```
 
@@ -837,43 +916,3 @@ log driver is `none` answers `docker logs` with nothing on standard output.
 
 [howto/operate.html](template/web/pub/arizuko/howto/operate.html) lists every
 other incident with the line to read, the cause and the fix.
-
-## The whole install in one block
-
-The sections above explain each line.
-
-<!-- twin:install -->
-
-```bash
-git clone https://github.com/kronael/arizuko && cd arizuko
-make build                                        # ./arizuko + daemon binaries
-sudo make images DATA_DIR=/srv/data/arizuko_demo  # daemon images + the guest rootfs
-sudo make kernel DATA_DIR=/srv/data/arizuko_demo  # the guest kernel, built once
-./arizuko create demo                             # /srv/data/arizuko_demo + .env
-./arizuko packages demo add extenddb              # the store server, two passwords
-./arizuko generate demo
-cd /srv/data/arizuko_demo
-set -a; . ./.env; set +a                          # load the STORE_* values into this shell
-sudo docker compose up -d extenddb_db
-sudo docker compose run --rm extenddb init \
-  --pg-host extenddb_db --pg-port 5432 \
-  --pg-user arizuko_demo --pg-pass "$STORE_DB_PASSWORD" \
-  --extenddb-user arizuko_demo_app --extenddb-pass "$STORE_APP_PASSWORD" \
-  --bind-addr 0.0.0.0 --tls-san extenddb \
-  --config /var/lib/extenddb/extenddb.toml
-vim .env    # STORE_ADMIN_PASSWORD and STORE_ACCOUNT_ID, which init prints once;
-            # ASSISTANT_NAME, a model key, a bot token, RUNED_KERNEL_DIR, RUNED_ROOTFS_DIR
-set -a; . ./.env; set +a                          # load the STORE_* values into this shell
-sudo docker compose up -d extenddb
-sudo docker exec -e EXTENDDB_PASSWORD=$STORE_ADMIN_PASSWORD arizuko_extenddb_demo \
-  extenddb settings -c /var/lib/extenddb/extenddb.toml set control_plane_delay_seconds 0
-echo "STORE_CA=$(sudo base64 -w0 store/extenddb/.extenddb/tls/cert.pem)" | sudo tee -a .env
-echo 'DYNAMODB_URL=https://extenddb:18443' | sudo tee -a .env
-# one store key per daemon: INSTALL.md § The per-daemon store keys
-cd -
-./arizuko packages demo add teled                 # one channel adapter
-./arizuko group demo add telegram:group/123456789 main
-./arizuko run demo                                # generate compose, docker compose up
-```
-
-<!-- /twin -->

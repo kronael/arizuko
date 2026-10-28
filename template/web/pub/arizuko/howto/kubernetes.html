@@ -57,7 +57,7 @@ helm install arizuko deploy/helm/arizuko \
       <p>Kubernetes gives you two things. The secrets live in etcd or in an external secret store, not in a mode-0600 <code>.env</code>. And the daemons that hold no file can run on more than one node. Kubernetes does not give you an agent runtime over several nodes. The turn path stays on one machine.</p>
 
       <h2>The rows live on the store server, off the node</h2>
-      <p>Every daemon keeps its tables on one DynamoDB-protocol server. With <code>DYNAMODB_URL</code> set, a daemon opens its tables at that endpoint and opens no file. The chart runs no store. The endpoint can be the <code>extenddb</code> pair from <code>template/services/extenddb.yml</code>, a PostgreSQL that you run, or Amazon DynamoDB. The daemons speak one protocol and do not know which server answers.</p>
+      <p>Every daemon keeps its tables on one DynamoDB-protocol server. With <code>DYNAMODB_URL</code> set, a daemon opens its tables at that endpoint and opens no file. The chart runs no store. The endpoint can be the <code>extenddb</code> pair from <code>template/services/extenddb/extenddb.yml</code>, a PostgreSQL that you run, or Amazon DynamoDB. The daemons speak one protocol and do not know which server answers.</p>
       <p>A daemon needs five values to reach the store, and it refuses a partial set at start:</p>
       <table>
         <thead><tr><th>variable</th><th>meaning</th></tr></thead>
@@ -80,7 +80,7 @@ helm install arizuko deploy/helm/arizuko \
         <dt>runed must open every path that a turn mounts</dt>
         <dd><code>runed</code> builds the staging tree of each turn with bind mounts in its own mount namespace and exports it with its child <code>virtiofsd</code>. No path is translated. So <code>runed</code> must open the group folder, the kernel and rootfs directories, and every root in <code>MOUNT_ALLOWED_ROOTS</code>. A path outside the data volume needs its own mount in the <code>runed</code> pod at the same absolute path. Otherwise the staging tree refuses it, and the turn fails.</dd>
         <dt>The group tree is files</dt>
-        <dd><code>routd</code> reads <code>PERSONA.md</code> for the prompt, <code>CLAUDE.md</code> for proactive mode, and the <code>MIGRATION_VERSION</code> of each folder. <code>runed</code> mounts the same folder as the home of the agent.</dd>
+        <dd><code>routd</code> reads <code>PERSONA.md</code> for the prompt and <code>CLAUDE.md</code> for proactive mode. <code>runed</code> mounts the same folder as the home of the agent.</dd>
       </dl>
       <div class="callout"><strong>AppArmor, not seccomp, blocks the bind mounts.</strong> The default AppArmor profile denies <code>mount(2)</code> to a container, whatever its capabilities. Then the staging binds of <code>runed</code> fail with "permission denied", and every turn fails. Compose sets <code>apparmor=unconfined</code> on <code>runed</code>, and the chart sets <code>appArmorProfile: Unconfined</code>, which needs Kubernetes 1.30 or newer. The default seccomp profile already allows <code>mount</code> to a holder of <code>CAP_SYS_ADMIN</code>.</div>
 
@@ -107,7 +107,7 @@ helm install arizuko deploy/helm/arizuko \
       </ul>
       <p>So run one replica for each adapter account, with a small persistent volume. Two Telegram bots are two Deployments, not two replicas. The chart mounts no volume into an adapter, so the state of <code>teled</code> and <code>slakd</code> is lost with the pod. The chart does not include <code>whapd</code>.</p>
 
-      <h2>The shared volume holds five directories</h2>
+      <h2>The shared volume holds six directories</h2>
       <p>When the rows are on the store server, the shared volume holds only files:</p>
       <table>
         <thead><tr><th>path</th><th>holds</th><th>who uses it</th></tr></thead>
@@ -116,10 +116,11 @@ helm install arizuko deploy/helm/arizuko \
           <tr><td><code>web/</code></td><td><code>pub/&lt;folder&gt;/</code> and <code>priv/&lt;folder&gt;/</code>, the web folders where an agent publishes</td><td><code>runed</code> mounts, <code>onbod</code> creates</td></tr>
           <tr><td><code>ipc/</code></td><td>one Unix socket for each folder during a turn</td><td><code>routd</code> binds, the bridge of <code>runed</code> connects</td></tr>
           <tr><td><code>app-src/</code></td><td>the <code>ant/</code> tree of the release, which <code>runed</code> copies out of its image at each start to share it into each guest</td><td><code>runed</code> writes, the agent reads</td></tr>
+          <tr><td><code>packages/</code></td><td>installed package assets shared with guests</td><td><code>runed</code> mounts, the agent reads</td></tr>
           <tr><td><code>images/</code></td><td>the guest kernel and the rootfs from <code>make kernel</code> and <code>make rootfs</code></td><td><code>runed</code> boots them</td></tr>
         </tbody>
       </table>
-      <p>All five are on one <code>ReadWriteOnce</code> volume that <code>routd</code> and <code>runed</code> mount at <code>/srv/app/home</code>. The chart puts every pod that mounts the volume on one node, through <code>nodeName</code> or <code>nodeSelector</code>. A node-local class such as <code>local-path</code> works. Whether a remote-attach CSI volume can back a <code>virtiofsd</code> export is not measured.</p>
+      <p>All six are on one <code>ReadWriteOnce</code> volume that <code>routd</code> and <code>runed</code> mount at <code>/srv/app/home</code>. The chart puts every pod that mounts the volume on one node, through <code>nodeName</code> or <code>nodeSelector</code>. A node-local class such as <code>local-path</code> works. Whether a remote-attach CSI volume can back a <code>virtiofsd</code> export is not measured.</p>
 
       <h2>The proxyd route rows must name the chart Services</h2>
       <p><code>proxyd</code> forwards by the <code>proxyd_routes</code> rows on the store. <code>arizuko generate</code> writes those rows with backends of the form <code>http://&lt;daemon&gt;:8080</code>, the Compose service names. The Services of the chart are named <code>&lt;release&gt;-&lt;daemon&gt;</code>, so those rows do not resolve on the cluster. The chart writes no rows, and you must write rows that name the chart Services. <code>proxyd</code> serves plain HTTP on <code>:8080</code> and ends no TLS, so put an Ingress in front of it. The chart has an optional <code>ingress.yaml</code>.</p>

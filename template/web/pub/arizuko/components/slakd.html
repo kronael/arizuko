@@ -89,7 +89,7 @@
     <h2>slakd starts a pane session when the user opens the sidebar</h2>
     <p>With the <code>assistant:write</code> scope and the <code>assistant_thread_started</code> and <code>assistant_thread_context_changed</code> subscriptions, slakd does four things when a user opens the sidebar. It writes or updates a row in <code>pane_sessions</code>. It sets the title to <code>&lt;ASSISTANT_NAME&gt; &mdash; chat</code>. It sets three suggested prompts. It sends a synthetic <code>pane_open</code> inbound message. Prompts and titles that MCP tools set wait until the next <code>chat.postMessage</code>, which applies them.</p>
 
-    <p>For Slack, the agent uses the <code>slack</code> Claude Code output style, with <code>*bold*</code>, <code>_italic_</code> and <code>&lt;url|text&gt;</code>, so the bot writes Slack mrkdwn and not CommonMark.</p>
+    <p>The core messaging skill tells the agent to use Slack mrkdwn, including <code>*bold*</code>, <code>_italic_</code> and <code>&lt;url|text&gt;</code>.</p>
 
     <h2>slakd runs alone with routd, a Slack app and a public URL</h2>
     <p>slakd is a plain Go binary. It needs a reachable routd, a Slack app with a bot token, and a public URL that forwards <code>/slack/events</code> to it.</p>

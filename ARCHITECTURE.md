@@ -66,6 +66,15 @@ turn to runed over `POST /v1/runs`, and ant speaks MCP inside the guest. A
 second harness is a sibling of ant, never of runed (`ant/README.md` § The
 harness).
 
+Packages supply selected guest capabilities. The common installer keeps one
+current copy at `<data>/packages/<name>/`; `installed_packages` rows select
+system and exact-folder membership. Core is a normal, required system package.
+routd sends those names to runed, whose renderer mounts their skills, native
+hooks and executables read-only. Explicit operator package commands run optional
+host builds. Agent turns only read installed payloads. Source authoring belongs
+in [EXTENDING.md](EXTENDING.md#installing-packages); runtime paths belong in
+[runed/README.md](runed/README.md#mounts).
+
 ## The three planes
 
 Each plane is one daemon that owns its own tables. The planes talk over HTTP
@@ -207,10 +216,10 @@ The figure and the rules head
 [`resreg/README.md` § One handler, two faces](resreg/README.md#one-handler-two-faces).
 
 The cold tier is every name in `resreg/resources/names.go`; `secrets` is
-REST-only, `network_rules` agent-only, the `groups` REST twin list-only. The
-hot tier is MCP-only. `submit_turn`, `check_turn` and `submit_status` sit below
-it, hidden from `tools/list`. `arizuko apply` writes config tables only, and no daemon
-caches a config row, so an apply is live on the next read. Nothing
+REST-only, and `network_rules` agent-only. The `groups` REST face lists folders
+and reads group details. The hot tier is MCP-only. `submit_turn`, `check_turn`
+and `submit_status` sit below it, hidden from `tools/list`. Operator commands such as
+`arizuko package sync` write config tables. No daemon caches a config row, so a change is live on the next read. Nothing
 bulk-deletes a runtime table: a removed group keeps its history.
 
 ## Daemon conventions
@@ -257,7 +266,7 @@ and the reason. A change that reverses a row answers the reason first.
 | No warm pool; every turn boots a fresh guest.                                                                                                                                                                                           | A pool of booted guests                                               | A guest's identity is its mount set, fixed in the QEMU argument list, so a generic warm guest can never become a folder's guest. A pooled sandbox lives for days and keeps what the agent wrote; a turn guest keeps nothing but the folder. The reopen gate is in `runed/README.md` § Boot timing.                                                                 |
 | No durable workflow engine; the recovery unit is the turn.                                                                                                                                                                              | A checkpoint-and-replay engine under every turn                       | Replay assumes deterministic orchestration code, and here the orchestrator is a model. A failed turn retries whole; sleep is `timed`; a wait is a route; child work is `delegate_group` or `escalate_group`; durability is store rows plus the folder. Reopens for a multi-hour job with side effects that cannot run twice, as its own daemon with its own store. |
 | No database layer: `objstore` is two methods over the DynamoDB protocol.                                                                                                                                                                | SQLite files per daemon, or a SQL layer                               | `objstore/README.md` § Why the store has this shape.                                                                                                                                                                                                                                                                                                               |
-| The store is authoritative; YAML is a dump and restore format.                                                                                                                                                                          | DB-to-YAML sync, apply at startup, reload on SIGHUP                   | With one direction there is no drift to detect; a dump never claims to be live.                                                                                                                                                                                                                                                                                    |
+| The store is authoritative at runtime; the `installed_packages` rows select packages and `arizuko package sync` writes the rows that packages own.                                                                                      | In-memory configuration caches                                        | Daemons read the stored rows, and `arizuko.yml` only defines a package.                                                                                                                                                                                                                                                                                            |
 | `acl` and `acl_membership` stay in routd, which is the policy decision point.                                                                                                                                                           | Move them to authd behind a `/v1/authorize` endpoint                  | routd reads `acl` in-process on every agent tool call and every REST mutation; a move puts an HTTP hop on the busiest paths.                                                                                                                                                                                                                                       |
 | A path carries no authority; there are no tiers. Root is a grant, `role:member` is the one default role, and no tier is emitted to the agent.                                                                                           | Capability derived from folder depth                                  | A depth-derived scalar gave two-segment sub-groups unconstrained egress.                                                                                                                                                                                                                                                                                           |
 | arizuko does not run `mcpfw`.                                                                                                                                                                                                           | `mcpfw` in front of the agent socket                                  | Two gates on one call drift, and a `{tool, action}` rule cannot carry folder containment or parameters (`mcpfw/README.md`).                                                                                                                                                                                                                                        |

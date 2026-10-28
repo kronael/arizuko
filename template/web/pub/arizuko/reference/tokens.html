@@ -58,7 +58,7 @@
     <dl>
       <dt>token_hash</dt><dd>sha256 of the raw token. The raw token is returned exactly once at issuance.</dd>
       <dt>jid</dt><dd>The chat's name. <code>web:&lt;folder&gt;[/&lt;suffix&gt;]</code> for chat tokens, <code>hook:&lt;folder&gt;/&lt;source&gt;[/&lt;suffix&gt;]</code> for webhooks. Read it as a label, not as an address &mdash; once a suffix is present the folder cannot be recovered from it, which is why <code>target_folder</code> exists.</dd>
-      <dt>owner_folder</dt><dd>Folder of the issuing principal. Bounds revocation: <code>revoke_token</code> requires admin on this folder, not on the delivery folder.</dd>
+      <dt>owner_folder</dt><dd>Folder of the issuing principal. The MCP <code>revoke_token</code> action needs its grant on the caller's turn folder and deletes only tokens owned by that exact folder.</dd>
       <dt>target_folder</dt><dd>Where the token delivers. Recorded by the mint, because the JID alone is ambiguous: <code>web:team/forms</code> reads exactly like a plain token at a folder named <code>team/forms</code>, and <code>hook:a/b/c</code> reads as folder <code>a/b</code>. Routing and dashboard visibility read this attribute, and nothing parses the folder back out of the JID. A row without it falls back to the JID reading. One JID delivers to one folder: <code>CheckRouteTokenTarget</code> refuses a mint that binds a JID already delivering elsewhere, and the second mint returns <code>409</code>.</dd>
       <dt>created_at</dt><dd>RFC3339 timestamp.</dd>
       <dt>context</dt><dd>Optional. Free-text instructions from the issuer on how to process this link's inbound. Snapshotted onto each arriving message and rendered to the agent as <code>&lt;link-context&gt;</code>. Empty means no instructions and no tag.</dd>
@@ -131,7 +131,7 @@ Bug reports from the acme website. Triage and file; don't chat back.
 
     <h2 id="endpoint">Both URL prefixes accept any valid token</h2>
 
-    <p>The two URLs share handler internals &mdash; same lookup, same append path. Lookup does not filter on the token's JID kind: a <code>hook:</code> token works at <code>/chat/&lt;token&gt;/</code> and a <code>web:</code> token works at <code>/hook/&lt;token&gt;</code>. Kind is metadata &mdash; it drives sender attribution and default output style &mdash; not a URL access gate. Each issuance verb still returns its canonical URL: <code>issue_chat_link</code> &rarr; <code>/chat/&lt;token&gt;/</code>, <code>issue_webhook</code> &rarr; <code>/hook/&lt;token&gt;</code>.</p>
+    <p>The two URLs share the same lookup and append path. Lookup does not filter on the token's JID kind: a <code>hook:</code> token works at <code>/chat/&lt;token&gt;/</code> and a <code>web:</code> token works at <code>/hook/&lt;token&gt;</code>. Kind drives sender attribution, not URL access. Each issuance verb returns its canonical URL: <code>issue_chat_link</code> &rarr; <code>/chat/&lt;token&gt;/</code>, <code>issue_webhook</code> &rarr; <code>/hook/&lt;token&gt;</code>.</p>
 
     <table>
       <tr><th>Method</th><th>Path</th><th>Purpose</th></tr>
@@ -142,7 +142,7 @@ Bug reports from the acme website. Triage and file; don't chat back.
       <tr><td>POST</td><td><code>/hook/{token}</code></td><td>Append body verbatim as one inbound at the row's JID. Fire-and-forget; returns 204.</td></tr>
     </table>
 
-    <p>The token row's JID prefix drives sender attribution and default output style. Body shape, snapshot/status URLs, SSE events, and reconnect via <code>Last-Event-Id</code> are the same round-handle protocol used by every web reply &mdash; see <a href="../components/webd.html">components/webd</a>.</p>
+    <p>The token row's JID prefix drives sender attribution. Body shape, snapshot/status URLs, SSE events and reconnect via <code>Last-Event-Id</code> use the same round-handle protocol as every web reply. See <a href="../components/webd.html">components/webd</a>.</p>
 
     <p>POST body:</p>
     <pre><code>{"content": "...", "topic": "..."}    # JSON
@@ -178,13 +178,13 @@ content=...&amp;topic=...                  # form
 
     <h2 id="cli">The CLI manages tokens on the host</h2>
 
-    <pre><code>arizuko token &lt;instance&gt; issue chat &lt;folder&gt;                    # mints web:&lt;folder&gt;
-arizuko token &lt;instance&gt; issue chat &lt;folder&gt; support            # mints web:&lt;folder&gt;/support
-arizuko token &lt;instance&gt; issue webhook &lt;folder&gt; github          # mints hook:&lt;folder&gt;/github
-arizuko token &lt;instance&gt; issue webhook &lt;folder&gt; linear issues   # mints hook:&lt;folder&gt;/linear/issues
-arizuko token &lt;instance&gt; issue chat &lt;folder&gt; --context "bug reports; triage, don't chat"
-arizuko token &lt;instance&gt; list &lt;folder&gt;
-arizuko token &lt;instance&gt; revoke &lt;jid&gt; [&lt;owner_folder&gt;]</code></pre>
+    <pre><code>arizuko token -i &lt;instance&gt; issue chat &lt;folder&gt;                    # mints web:&lt;folder&gt;
+arizuko token -i &lt;instance&gt; issue chat &lt;folder&gt; support            # mints web:&lt;folder&gt;/support
+arizuko token -i &lt;instance&gt; issue webhook &lt;folder&gt; github          # mints hook:&lt;folder&gt;/github
+arizuko token -i &lt;instance&gt; issue webhook &lt;folder&gt; linear issues   # mints hook:&lt;folder&gt;/linear/issues
+arizuko token -i &lt;instance&gt; issue chat &lt;folder&gt; --context "bug reports; triage, don't chat"
+arizuko token -i &lt;instance&gt; list &lt;folder&gt;
+arizuko token -i &lt;instance&gt; revoke &lt;jid&gt; [&lt;owner_folder&gt;]</code></pre>
 
     <p>The CLI is the host-admin path: it writes the same <code>route_tokens</code> row straight into routd's store (<code>cmd/arizuko/token.go</code>) and prints the raw token once. <code>--context</code> (<code>-c</code>) attaches per-link instructions, same as the <code>context</code> mint param.</p>
 

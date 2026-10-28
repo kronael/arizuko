@@ -281,8 +281,7 @@ func LoadConfig() (*Config, error) {
 	return c, nil
 }
 
-// EffectiveAppSrcDir returns the in-container source path for reading ant/ skills and
-// output-styles.
+// EffectiveAppSrcDir returns the in-container source path for reading ant/ assets.
 //
 // The HostAppDir branch is TEST SCAFFOLDING and cannot fire in production:
 // `LoadConfig` sets AppSrcDir from `AppSrcDir()`, which ends at `execDir()`, which ends

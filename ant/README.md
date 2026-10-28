@@ -8,11 +8,9 @@ memory, and exposes MCP tools over routd's unix socket.
 
 Every turn runs in a fresh KVM guest booted from this image's exported rootfs.
 `ant/src/index.ts` is the entrypoint: it reads stdin for the prompt,
-loads the group's `PERSONA.md` / `CLAUDE.md` / `~/.claude/settings.json`,
-assembles MCP servers (core `arizuko` server via socat to `gated.sock` +
-third-party connectors from `settings.json`), runs the Claude Code SDK,
-and reports the outcome via the `submit_turn` JSON-RPC method back to
-`routd`.
+renders the persona and package manual, connects the `arizuko` MCP server
+via socat to `gated.sock`, runs the configured harness, and reports the outcome
+via `submit_turn` to `routd`. Third-party connectors use that same gated socket.
 
 ## TS runtime (`src/`)
 
@@ -80,8 +78,9 @@ defers its own `TaskStop`; the agent loads it with `ToolSearch`.
 
 ## The resident file
 
-`ant/CLAUDE.md` is the one file loaded into every turn. The selected core
-package supplies it read-only at `~/.claude/CLAUDE.md`. Claude Code reads it as user
+The turn renderer combines the selected packages' `CLAUDE.md` files, starting
+with core's `ant/CLAUDE.md`, once at read-only `~/.claude/CLAUDE.md`.
+Claude Code reads it as user
 memory through `settingSources: ['project', 'user']` with the cwd at the
 guest's home (`src/claude.ts:512`); codex and pi receive the same file rendered into
 their system prompt. The repo-root `CLAUDE.md` is the maintainers' file and
@@ -224,9 +223,9 @@ The guest mounts the group folder at `/home/node/`:
   private_html/       bind-mount → /priv/<folder>/ (JWT)
 ```
 
-Skills in `~/.claude/skills/<name>/` that match stock names in
-`/opt/arizuko/ant/skills/<name>/` are managed (seeded + merged).
-Custom-named skills are untouched.
+Packaged skills mount read-only at `~/.claude/skills/<name>/`.
+Custom skills remain writable. Package selection and updates follow
+[EXTENDING.md](../EXTENDING.md#installing-packages).
 
 ## Skills
 
@@ -242,9 +241,10 @@ nothing.
 make image      # docker build → arizuko-ant:latest (TS runtime)
 ```
 
-The image is `FROM node:22-bookworm-slim`, installs `claude` CLI +
-`socat` + runtimes (uv/bun/go/rust), copies `skills/` to
-`/opt/arizuko/ant/skills/`, and sets `ENTRYPOINT ["node", "dist/index.js"]`.
+The image uses `node:22-slim` and copies the `ant/` build context to `/app`.
+The build checks the TypeScript and removes `dist`. The `/app/entrypoint.sh`
+entrypoint compiles to `/tmp/dist` for each turn and runs `index.js`.
+`runed` mounts installed packages and selected skills read-only into the guest.
 
 `ant/Dockerfile` is the one inventory of what else the agent can reach —
 chromium and `agent-browser` for the web, `ffmpeg` and `yt-dlp` for media,
@@ -265,6 +265,6 @@ ant/
   CLAUDE.md              the resident file (§ The resident file)
   PERSONA.md             Default persona
   skills/                Stock skills
-  examples/              the product catalog `arizuko create --product` reads
+  examples/              workspace templates, including cuzk/README.md
   Dockerfile             Builds arizuko-ant:latest (TS)
 ```

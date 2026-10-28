@@ -57,8 +57,8 @@ otherwise render the template as-is. Do not invoke `/soul`.
 ## 2 — Read the content + style specs
 
 ```bash
-cat /opt/arizuko/ant/skills/web/template/pub/howto/CONTENT.md
-cat /opt/arizuko/ant/skills/web/template/pub/howto/STYLE.md
+cat /opt/arizuko/packages/core/skills/web/template/pub/howto/CONTENT.md
+cat /opt/arizuko/packages/core/skills/web/template/pub/howto/STYLE.md
 ```
 
 ## 3 — Pick a style

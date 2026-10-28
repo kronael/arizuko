@@ -103,17 +103,16 @@ users:read</code></pre>
       </ol>
 
       <h2>Step 5: configure the instance</h2>
-      <p>Add the package and the secrets. The secrets go into <code>/srv/data/arizuko_&lt;instance&gt;/.env</code>:</p>
-      <pre><code>./arizuko packages &lt;instance&gt; add slakd</code></pre>
+      <p>Add the secrets to <code>/srv/data/arizuko_&lt;instance&gt;/.env</code>:</p>
       <pre><code>SLACK_BOT_TOKEN=xoxb-...
 SLACK_SIGNING_SECRET=...
 # optional
 SLAKD_USERS_CACHE_TTL=900</code></pre>
-      <p>Write the compose file again and restart:</p>
-      <pre><code>./arizuko generate &lt;instance&gt;
+      <p>Select the package and restart. The existing package selections stay:</p>
+      <pre><code>./arizuko package add -i &lt;instance&gt; catalog:slakd
 sudo systemctl restart arizuko_&lt;instance&gt;</code></pre>
       <p>Check that <code>slakd</code> runs:</p>
-      <pre><code>./arizuko status &lt;instance&gt;
+      <pre><code>./arizuko status -i &lt;instance&gt;
 sudo journalctl -u arizuko_&lt;instance&gt; --since "30s ago" --no-pager \
   | grep -E "slack|slakd"</code></pre>
 
@@ -124,9 +123,9 @@ sudo journalctl -u arizuko_&lt;instance&gt; --since "30s ago" --no-pager \
 
       <h2>Step 7: add a route</h2>
       <p>Without a route, <code>routd</code> stores the Slack messages and starts no turn. Add a route for the whole platform:</p>
-      <pre><code>./arizuko route &lt;instance&gt; add 'platform=slack' main</code></pre>
+      <pre><code>./arizuko route -i &lt;instance&gt; add 'platform=slack' main</code></pre>
       <p>Or add a route for one channel:</p>
-      <pre><code>./arizuko route &lt;instance&gt; add 'chat_jid=slack:T012ABCD/channel/C0HJKL456' engineering</code></pre>
+      <pre><code>./arizuko route -i &lt;instance&gt; add 'chat_jid=slack:T012ABCD/channel/C0HJKL456' engineering</code></pre>
 
       <h2 id="step-8">Step 8: enable the AI pane</h2>
       <p>This step is optional. The Slack "Agents &amp; AI Apps" pane gives the bot its own panel with a title, suggested prompts and a typing indicator. The bot also sees which channel the user has open. <a href="../concepts/slack-pane.html">Slack pane</a> explains the concept.</p>

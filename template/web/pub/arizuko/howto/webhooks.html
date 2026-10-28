@@ -74,7 +74,7 @@
 }</code></pre>
       <p>The agent usually writes the URL into the chat, so that a person can paste it into GitHub. The store keeps only a hash of the token. If the URL is lost, issue a new token.</p>
       <p>An operator uses the CLI, here on the instance <code>demo</code>:</p>
-      <pre><code>arizuko token demo issue webhook acme/eng github
+      <pre><code>arizuko token -i demo issue webhook acme/eng github
 # jid:   hook:acme/eng/github
 # token: Yp3v...Q2</code></pre>
       <p>The URL is <code>https://&lt;host&gt;/hook/&lt;token&gt;</code>. An external tool uses <code>POST /v1/route_tokens/hook</code> on <code>routd</code>. The dashboard lists the tokens of a folder at <code>/dash/tokens/&lt;folder&gt;/</code> and can revoke them, but it does not make tokens.</p>
@@ -112,7 +112,7 @@ issue_webhook(source_label="linear", jid_suffix="issues")
       <p>Revoke through MCP or the CLI:</p>
       <pre><code>revoke_token(jid="hook:acme/eng/github")
 # or
-arizuko token demo revoke hook:acme/eng/github</code></pre>
+arizuko token -i demo revoke hook:acme/eng/github</code></pre>
       <p>The next request to that URL returns 404. No grace period exists. The caller of <code>revoke_token</code> must own the token: the <code>owner_folder</code> of the token must be the folder of the caller.</p>
 
       <h2 id="security-model">The URL is the only secret</h2>

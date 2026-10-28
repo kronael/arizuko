@@ -115,7 +115,7 @@ headers   = { Authorization = "Bearer {secret:CF_API_TOKEN}" }
     <h2>The grant decides which folder sees the tool</h2>
     <p>Each tool carries a <code>scope</code> in the form <code>ext:&lt;service&gt;:&lt;operation&gt;</code>. Grants filter registration as for every other MCP tool: the tool joins <code>tools/list</code> only where <code>Authorize(folder, scope)</code> passes. A folder without the grant gets no refusal. It does not see the tool. The check at call time runs anyway, as a second defence.</p>
     <p>A grant per folder decides which folder gets which tool:</p>
-    <pre><code>arizuko group &lt;instance&gt; grant folder:main/infra 'main/infra/**' 'ext:cloudflare:dns:read'</code></pre>
+    <pre><code>arizuko group -i &lt;instance&gt; grant folder:main/infra 'main/infra/**' 'ext:cloudflare:dns:read'</code></pre>
 
     <h2>Four DNS registrars ship as descriptors</h2>
     <p>arizuko embeds descriptors in <code>routd/extproviders/</code>. A descriptor does nothing until the operator sets the token of that provider.</p>

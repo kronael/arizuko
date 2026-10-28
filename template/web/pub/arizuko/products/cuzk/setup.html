@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CUZK cadastral lookup &mdash; setup &middot; arizuko</title>
+  <link rel="stylesheet" href="../../assets/hub.css">
+</head>
+<body>
+  <header class="docs-topbar">
+    <button class="docs-navtoggle" aria-label="Toggle navigation" aria-expanded="false">&#9776;</button>
+    <a class="docs-wordmark" href="../../">arizuko</a>
+  </header>
+  <div class="docs-layout">
+    <nav class="docs-nav" aria-label="Products">
+      <ul>
+        <li><a class="nav-section" href="../../concepts/">Concepts</a></li>
+        <li><a class="nav-section" href="../../reference/">Reference</a></li>
+        <li><a class="nav-section" href="../../howto/">How-to</a></li>
+        <li><a class="nav-section" href="../../components/">Components</a></li>
+        <li><a class="nav-section" href="../">Products</a>
+          <ul class="nav-children">
+            <li><a href="../">Start here</a></li>
+            <li><a href="../helpdesk/">Helpdesk (reference)</a></li>
+            <li><a href="../trip/">Trip planner (May)</a></li>
+            <li><a href="../slack-team/">Slack team agent</a></li>
+            <li><a href="../github/">Repo worker (Atlas)</a></li>
+            <li><a href="../reality/">Reality agent</a></li>
+            <li><a href="../support/">Support desk (Atlas)</a></li>
+            <li><a href="../personal/">Personal assistant (Fiu)</a></li>
+            <li><a href="../pm/">PM agent (Sloth)</a></li>
+            <li><a href="../creator/">Content pipeline (Inari)</a></li>
+            <li><a href="../socials/">Social presence (Phosphene)</a></li>
+            <li><a href="../strategy/">Domain researcher (Prometheus)</a></li>
+            <li><a href="../cuzk/">CUZK cadastral lookup</a></li>
+            <li><a href="../shapes.html">Shapes</a></li>
+          </ul>
+        </li>
+        <li><a class="nav-section" href="../../security/">Security</a></li>
+        <li><a class="nav-section" href="../../changelog/">Changelog</a></li>
+      </ul>
+    </nav>
+
+    <main class="docs-content">
+      <p class="docs-crumb"><a href="../../">arizuko</a> &rsaquo; <a href="../">products</a> &rsaquo; CUZK cadastral lookup &mdash; setup</p>
+      <h1>CUZK cadastral lookup &mdash; setup</h1>
+      <p class="lede">Install the CUZK package and configure the host relay before opening the cadastral site.</p>
+      <h2>Select the package</h2>
+      <p>Select the package for the group. The command installs it.</p>
+      <pre><code>arizuko package add -g FOLDER ant/examples/cuzk</code></pre>
+      <p>The standard agent image supplies the browser and its support tools. Installation sends no CUZK requests.</p>
+      <h2>Configure the relay</h2>
+      <p>Provide SOCKS on <code>127.0.0.1:1080</code>. Install the package’s two transport units and enable <code>cuzk-socks@1081.socket</code>. Restrict the relay’s source network with the host firewall. The relay accepts arbitrary SOCKS targets and does not authenticate groups.</p>
+      <p>Permit <code>host.docker.internal</code> in the group’s egress grant. Set <code>KATASTR_RELAY_PORT</code> if the relay uses another port.</p>
+      <h2>Preserve the quota ledger</h2>
+      <p>Keep the browser profile and quota history under <code>~/tmp/katastr</code> when updating the package. Verify browser access in a guest. An HTTP response alone does not prove ownership details are visible.</p>
+      <p>The <a href="https://github.com/kronael/arizuko/blob/main/ant/examples/cuzk/README.md">package guide</a> lists the commands and transport units.</p>
+      <div class="docs-footer">
+        <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/cuzk/setup.html">Edit this page</a>
+        &middot; updated <time class="docs-updated" datetime="2026-10-27">2026-10-27</time>
+      </div>
+    </main>
+    <aside class="docs-toc" aria-label="On this page"></aside>
+
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="../../assets/hub.js"></script>
+</body>
+</html>

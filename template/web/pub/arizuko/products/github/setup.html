@@ -32,6 +32,7 @@
             <li><a href="../creator/">Content pipeline (Inari)</a></li>
             <li><a href="../socials/">Social presence (Phosphene)</a></li>
             <li><a href="../strategy/">Domain researcher (Prometheus)</a></li>
+            <li><a href="../cuzk/">CUZK cadastral lookup</a></li>
             <li><a href="../shapes.html">Shapes</a></li>
           </ul>
         </li>
@@ -50,11 +51,13 @@
 
       <h2>group add makes the group from the product</h2>
       <p>On a running instance, make the group with the GitHub product. The persona and the facts of the agent belong to that group.</p>
-      <pre><code>arizuko group &lt;inst&gt; add web:dev dev --product github</code></pre>
+      <pre><code>arizuko group -i &lt;inst&gt; add web:dev dev -p github</code></pre>
+      <p>The command records the product selection for the group. Run <code>arizuko package sync</code> to install the files of the product.</p>
 
       <h2>The gitd package needs a token and a public host</h2>
-      <pre><code>arizuko packages &lt;inst&gt; add gitd</code></pre>
-      <p>The package installs the compose fragment and the webhook routes of <code>gitd</code>. Set these values in <code>&lt;data-dir&gt;/.env</code>:</p>
+      <p>Select the package:</p>
+      <pre><code>arizuko package add -i &lt;inst&gt; catalog:gitd</code></pre>
+      <p>Set these values in <code>&lt;data-dir&gt;/.env</code>:</p>
       <table>
         <thead><tr><th>Variable</th><th>Required</th><th>What it is</th></tr></thead>
         <tbody>
@@ -63,24 +66,27 @@
         </tbody>
       </table>
 
+      <p><code>package add</code> installs the compose fragment and the webhook routes. Restart the instance:</p>
+      <pre><code>sudo systemctl restart arizuko_&lt;inst&gt;</code></pre>
+
       <h2>The GitHub connector gives the agent its tools</h2>
       <p>Copy the <code>[[connector]]</code> block from <code>template/connectors/github.toml</code> into <code>&lt;data-dir&gt;/connectors.toml</code> once. The hosted MCP server of GitHub gives the tools. Store a separate token for the folder, which the <a href="../../concepts/secrets.html">broker</a> uses. The agent never receives that credential.</p>
-      <pre><code>arizuko secret &lt;inst&gt; set dev GITHUB_TOKEN --value &lt;token&gt;
-arizuko group &lt;inst&gt; grant folder:dev dev "mcp:github_&lt;tool&gt;"</code></pre>
+      <pre><code>arizuko secret -i &lt;inst&gt; set dev GITHUB_TOKEN --value &lt;token&gt;
+arizuko group -i &lt;inst&gt; grant folder:dev dev "mcp:github_&lt;tool&gt;"</code></pre>
       <p>The secret scope is the folder path, <code>dev</code>. The grant principal is <code>folder:dev</code>. Grant each tool that the agent needs by its exact name. Limit the token to the repositories and the operations that the agent needs.</p>
 
       <h2>A webhook source connects a repository to the group</h2>
       <p>Register a source. The command makes a sealed secret and writes the routes:</p>
-      <pre><code>arizuko github &lt;inst&gt; add repo me/proj dev</code></pre>
-      <p>Paste the printed URL and secret into Settings &rarr; Webhooks of the repository. Select <code>application/json</code> and the events that the agent must receive. Pull request mentions, direct replies and requests start turns. Assign the user of the token to each pull request to watch its state and its completed CI. Human comments, inline comments and submitted reviews with a body on bot-authored pull requests or issues map to <code>mention</code>. After the agent replies, a human comment on that pull request starts a turn without a new mention. Other plain comments and issue-only events go to <code>dev#observe</code> as context, and so do CI results unless you add a <code>#engaged</code> route for them. The addresses are <code>github:me/proj/pr/&lt;n&gt;</code> and <code>github:me/proj/issue/&lt;n&gt;</code>. In one repository, each pull request or issue has its own topic.</p>
-      <p>Select <code>issue_comment</code>, <code>pull_request</code>, <code>pull_request_review</code>, <code>pull_request_review_comment</code> and <code>pull_request_review_thread</code> for pull request conversations and state. Add <code>check_run</code>, <code>check_suite</code> and <code>workflow_run</code> for completed CI. The token needs the Pull requests read permission for the assignment lookups. A review request is a one-time ask, and the assignees declare the watch. For an existing source, remove the message trigger rows and the issue mention trigger rows. Keep the pull request mention route and the observation fallbacks.</p>
+      <pre><code>arizuko github -i &lt;inst&gt; add repo me/proj dev</code></pre>
+      <p>Paste the printed URL and secret into Settings &rarr; Webhooks of the repository. Select <code>application/json</code> and the events that the agent must receive. Pull request activity starts turns when the bot is assigned, requested for review or has submitted a review. Explicit mentions and direct replies also start turns. Human conversation on a bot-authored pull request or issue maps to <code>mention</code>. Other activity goes to <code>dev#observe</code> as context. The addresses are <code>github:me/proj/pr/&lt;n&gt;</code> and <code>github:me/proj/issue/&lt;n&gt;</code>. Each pull request or issue has its own topic.</p>
+      <p>Select <code>issue_comment</code>, <code>pull_request</code>, <code>pull_request_review</code>, <code>pull_request_review_comment</code> and <code>pull_request_review_thread</code> for pull request conversations and state. Add <code>check_run</code>, <code>check_suite</code> and <code>workflow_run</code> for completed CI. The token needs Pull requests read permission for responsibility lookups. For an existing source, remove the message trigger rows and the issue mention trigger rows. Keep the pull request mention route and the observation fallbacks.</p>
       <p>For an installed GitHub App, register an App source:</p>
-      <pre><code>arizuko github &lt;inst&gt; add app &lt;slug&gt; dev</code></pre>
+      <pre><code>arizuko github -i &lt;inst&gt; add app &lt;slug&gt; dev</code></pre>
       <p>Paste the URL and secret into the webhook settings of the App. Install the App on the repositories that it must watch. One App source receives the events of all its installations. The registration does not give an outbound App token.</p>
 
       <h2>A hold grant stops the merge</h2>
       <p>Merge is the call that matters. A <a href="../../reference/grants.html">hold grant</a> stops the call and asks you:</p>
-      <pre><code>arizuko group &lt;inst&gt; grant folder:dev dev "hold:mcp:github_merge_pull_request"</code></pre>
+      <pre><code>arizuko group -i &lt;inst&gt; grant folder:dev dev "hold:mcp:github_merge_pull_request"</code></pre>
       <p>A hold does not grant access to the tool. Approvals reach you in two ways, also with no chat platform: <code>/approve &lt;id&gt;</code> where you talk to the agent, and the link in the hold notice to <code>/dash/approvals/</code>.</p>
 
       <h2>A restart loads the connector</h2>
@@ -88,13 +94,13 @@ arizuko group &lt;inst&gt; grant folder:dev dev "mcp:github_&lt;tool&gt;"</code>
 
       <h2>facts/repo.md must hold your real commands</h2>
       <p><code>facts/repo.md</code> ships as a placeholder, and you must replace it. Write the exact build, test and lint commands, name the generated directories that nobody edits by hand, and write what "done" means for a change.</p>
+      <p>The <code>facts/</code> files of the product are examples, not package files, so <code>arizuko package sync</code> never rewrites them. Copy them once from the repository checkout:</p>
+      <pre><code>cp -r ant/examples/github/facts /srv/data/arizuko_&lt;inst&gt;/groups/dev/</code></pre>
       <p>A wrong fact is worse than a missing one, because the agent cites it. A stale line in <code>facts/</code> is a bug with a file name.</p>
 
       <h2>The agent must quote facts/repo.md</h2>
-      <pre><code>arizuko send &lt;inst&gt; dev "what are the build and test commands here?" --wait</code></pre>
-      <p>A correct answer quotes <code>facts/repo.md</code>. If the agent guesses from the source tree, the product files are not in that folder. Then run the tests of the product against the live agent:</p>
-      <pre><code>anteval run https://&lt;host&gt; --cases &lt;data-dir&gt;/groups/dev/eval \
-  --token "$AGENTEVAL_TOKEN" --chat &lt;chat-jid&gt; --folder dev</code></pre>
+      <pre><code>arizuko send -i &lt;inst&gt; dev "what are the build and test commands here?" --wait</code></pre>
+      <p>A correct answer quotes <code>facts/repo.md</code>. If the agent guesses from the source tree, check that the product files are in the folder. Run product evaluations only against a throwaway instance.</p>
       <p>The three flags and the token command are in <a href="../../howto/build-a-product.html#ship-tests-with-it">Ship tests with it</a>.</p>
 
       <nav class="docs-pager" aria-label="Pager">

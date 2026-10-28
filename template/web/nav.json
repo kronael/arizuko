@@ -116,6 +116,7 @@
         { "href": "creator/", "label": "Content pipeline (Inari)" },
         { "href": "socials/", "label": "Social presence (Phosphene)" },
         { "href": "strategy/", "label": "Domain researcher (Prometheus)" },
+        { "href": "cuzk/", "label": "CUZK cadastral lookup" },
         { "href": "shapes.html", "label": "Shapes" }
       ]
     },

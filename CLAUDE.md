@@ -45,7 +45,7 @@ them on each request.
   **reader**, never a second **format**. Ask "who else reads this?", not
   "what file do I need?". Cost: BUGS `L44` (a package declared grants and
   routes in two JSON sidecars beside the manifest that already carried
-  both; `specs/5/28-packages.md`).
+  both; `EXTENDING.md` § Installing packages).
 - **A format is a coupling; keep the parts orthogonal.** A package ships
   docker's compose fragment AND arizuko's manifest — two files because
   they answer to two owners, not one file that knows about both. Split by

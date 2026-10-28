@@ -294,7 +294,7 @@ Type `/skill-name` at the start of your message to invoke one. The agent can als
 ```
 /hello  /self  /find  /recall-memories
 /compact-memories  /diary  /web  /howto
-/users  /migrate  /info  /commit
+/users  /info  /commit
 
 you   what skills do you have?
 agent Running /self… [lists all loaded skills]

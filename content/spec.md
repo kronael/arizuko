@@ -116,10 +116,9 @@ a new skill, a new sidecar.
     the correct abstraction for LLM-driven customization.
 
 13. **"The self-modifying system"** — When the agent reads its own SKILL.md,
-    updates its own CLAUDE.md, and runs `/migrate` to propagate changes to
-    all groups — that is the culmination of the architecture. Simplicity,
-    convention, and clear contracts together produce a system the agent can
-    reason about and modify safely.
+    and updates its group instructions and writable skills, it can adapt its
+    own behavior. Shared package updates go through operator-run `arizuko package sync`;
+    clear contracts make that boundary legible.
 
 ---
 

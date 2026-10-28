@@ -32,6 +32,7 @@
             <li><a href="../creator/">Content pipeline (Inari)</a></li>
             <li><a href="../socials/">Social presence (Phosphene)</a></li>
             <li><a href="../strategy/">Domain researcher (Prometheus)</a></li>
+            <li><a href="../cuzk/">CUZK cadastral lookup</a></li>
             <li><a href="../shapes.html">Shapes</a></li>
           </ul>
         </li>
@@ -53,38 +54,43 @@
         <li>Your answers in writing. Without <code>facts/</code>, the agent can only search the web, and the product exists to avoid that.</li>
       </ul>
 
+      <p>For Telegram, select the adapter package. The existing selections stay:</p>
+      <pre><code>arizuko package add -i &lt;instance&gt; catalog:teled</code></pre>
+      <p>Set the token in <code>.env</code> and restart the running instance to start the adapter.</p>
+
       <h2>group add makes the group and its route</h2>
-      <pre><code>arizuko group &lt;instance&gt; add telegram:group/100123 support --product support</code></pre>
-      <p>The command copies the product tree into <code>groups/support/</code> once and writes the route. After that, the files belong to the group: edit the persona and add facts, and nothing writes over them. A Telegram group ID is negative, and the JID drops the minus sign.</p>
-      <p>Or add the product to a group that you already have, next to other products:</p>
-      <pre><code>[[product]]
-source = "ant/examples/support"</code></pre>
-      <pre><code>arizuko products &lt;instance&gt; apply support</code></pre>
+      <pre><code>arizuko group -i &lt;instance&gt; add telegram:group/100123 support -p support</code></pre>
+      <p>The command selects the product for <code>support</code> and writes the route. A Telegram group ID is negative, and the JID drops the minus sign. Sync to install the product files into <code>groups/support/</code>:</p>
+      <pre><code>arizuko package sync -i &lt;instance&gt;</code></pre>
+      <p>Or select the product for a group that you already have, next to other products:</p>
+      <pre><code>arizuko package add -i &lt;instance&gt; -g support ant/examples/support</code></pre>
 
       <h2>.env holds the channel token</h2>
       <pre><code>TELEGRAM_BOT_TOKEN=REPLACE_ME
 OPENAI_API_KEY=REPLACE_ME   # optional: the oracle skill</code></pre>
-      <p>The <code>[[env]]</code> block in <code>arizuko.toml</code> is a checklist, not a gate. <code>arizuko create --product</code> prints it, and <code>group add</code> does not. A missing value does not stop the apply. It stops the channel later, and that is harder to find. Set the values now.</p>
+      <p>The product manifest lists its environment requirements. Set the channel token before you select the adapter package.</p>
 
       <h2>One file for each topic fills the knowledge base</h2>
       <p><code>facts/kb.md</code> ships as a seed. Replace it, then add one file for each topic, for example <code>facts/api.md</code>, <code>facts/billing.md</code> and <code>facts/limits.md</code>. Longer reference documents go under <code>refs/</code>. The agent reads both before it answers and cites the path, so users see the file names. Name the files as you want to see them quoted.</p>
+      <p>The <code>facts/</code> files of the product are examples, not package files, so <code>arizuko package sync</code> never rewrites them. Copy them once from the repository checkout:</p>
+      <pre><code>cp -r ant/examples/support/facts /srv/data/arizuko_&lt;instance&gt;/groups/support/</code></pre>
       <div class="callout"><strong>A fact file is not a knowledge dump.</strong> The agent quotes what it finds, so a stale line is a wrong answer with a citation, which is worse than no answer. Treat stale facts as bugs, as the persona already does.</div>
 
       <h2>The answer must cite a path or say that nothing is recorded</h2>
-      <pre><code>arizuko send &lt;instance&gt; support "does the export endpoint support pagination?" --wait</code></pre>
-      <p>A correct answer cites a path from <code>facts/</code> or says that nothing is recorded. An answer with neither means that the persona is not in place. Check that <code>groups/support/PERSONA.md</code> exists and that <code>CLAUDE.md</code> has an <code>arizuko:package:support</code> marked region.</p>
+      <pre><code>arizuko send -i &lt;instance&gt; support "does the export endpoint support pagination?" --wait</code></pre>
+      <p>A correct answer cites a path from <code>facts/</code> or says that nothing is recorded. An answer with neither means that the persona is not in place. Check that <code>groups/support/PERSONA.md</code> exists and that the support package is selected and installed.</p>
 
       <h2>Unanswered questions go to an escalation folder</h2>
       <p>The unanswered questions are the real output of the product. Send them to a second folder, where a person or another agent owns the queue:</p>
-      <pre><code>arizuko group &lt;instance&gt; add telegram:group/100999 support/escalations</code></pre>
+      <pre><code>arizuko group -i &lt;instance&gt; add telegram:group/100999 support/escalations</code></pre>
       <p>Delegation to that folder needs the <code>delegate_group</code> grant on the support folder, because <code>role:member</code> does not hold it. Until an operator grants it, the agent says that it cannot escalate. That is the correct failure. <a href="../../concepts/grants.html">Grants</a> explains the rows.</p>
 
       <h2>Three changes tune the desk</h2>
       <dl>
         <dt>Voice</dt>
-        <dd>Edit <code>PERSONA.md</code>. The lowercase register without exclamation marks is a choice. Change it if your users expect another one.</dd>
+        <dd>Edit <code>group/PERSONA.md</code> in the package source and run <code>arizuko package sync</code>. The lowercase register without exclamation marks is a choice. Change it if your users expect another one.</dd>
         <dt>Rules</dt>
-        <dd>Edit inside the marked region of <code>CLAUDE.md</code>. arizuko does not change text outside the markers.</dd>
+        <dd>Edit the package source's <code>CLAUDE.md</code> and run <code>arizuko package sync</code>. Its manual is mounted read-only in the guest.</dd>
         <dt>Coverage</dt>
         <dd>Every "I don't have that recorded" is a missing file. Add the file, and the same question has an answer next time.</dd>
       </dl>
@@ -95,7 +101,7 @@ OPENAI_API_KEY=REPLACE_ME   # optional: the oracle skill</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/support/setup.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-21">2026-10-21</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-25">2026-10-25</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

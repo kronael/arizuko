@@ -57,7 +57,7 @@
     <h2>litellm holds the model credential so the guest does not</h2>
     <p>litellm is the model gateway: a third-party LLM proxy, <a href="https://github.com/BerriAI/litellm">BerriAI/litellm</a> with the image <code>ghcr.io/berriai/litellm</code>, that arizuko ships as a package. It holds the model credential of the instance and forwards every agent request to Anthropic with it. The guest of the agent never sees that credential. It gets <code>MODEL_GATEWAY_KEY</code>, a virtual key that only the gateway accepts.</p>
 
-    <p>Add it with <code>arizuko packages &lt;instance&gt; add litellm</code>. The package is one compose fragment, <code>template/services/litellm.yml</code>, with the litellm configuration inline. No route reaches it from outside the docker network, so it ships no <code>.yaml</code> manifest.</p>
+    <p>Run <code>arizuko package add -i &lt;instance&gt; catalog:litellm</code>. Restart the instance to start the gateway. The package contains a compose fragment, <code>template/services/litellm/litellm.yml</code>, and an <code>arizuko.yml</code> manifest. The fragment contains the litellm configuration. No route reaches it from outside the docker network.</p>
 
     <h2>Without a gateway, the model credential enters the guest</h2>
     <p>Without the gateway, the model credential is the one secret that enters the guest by design. <code>ANTHROPIC_API_KEY</code> or <code>CLAUDE_CODE_OAUTH_TOKEN</code> is in the environment of the turn, because the Claude Code process itself uses it. See <a href="../concepts/secrets.html">concepts/secrets</a>. Anything that runs in that guest can read it, and the only revocation is a rotation of the credential for everyone who shares it.</p>
@@ -96,7 +96,7 @@
       <dt>Outputs</dt>
       <dd>HTTPS to the model provider.</dd>
       <dt>Dependencies</dt>
-      <dd><code>MODEL_GATEWAY_KEY</code> in <code>.env</code>. <code>arizuko packages &lt;name&gt; add litellm</code> creates it there. The fragment requires the key. So a fragment copied by hand with no key does not start, and no gateway runs that accepts every caller.</dd>
+      <dd><code>MODEL_GATEWAY_KEY</code> in <code>.env</code>. <code>arizuko package add -i &lt;instance&gt; catalog:litellm</code> creates it there if absent. The fragment requires the key. So a fragment copied by hand with no key does not start, and no gateway runs that accepts every caller.</dd>
     </dl>
 
     <p>Egress isolation is not a setting. Every turn reaches the gateway through its own <a href="egress.html">egress</a> proxy, which runs in the container of runed on the compose network where <code>litellm</code> resolves. The proxy forwards plain HTTP to any host on the allowlist of the turn, so <code>litellm</code> must be on that list.</p>
@@ -158,7 +158,7 @@ ANTHROPIC_BASE_URL=http://localhost:4000 ANTHROPIC_AUTH_TOKEN=sk-my-virtual-key 
     <h2>Four settings configure the gateway</h2>
     <dl>
       <dt><code>MODEL_GATEWAY_KEY</code></dt>
-      <dd>The virtual key: the master key of litellm on one side, and the <code>ANTHROPIC_AUTH_TOKEN</code> of the guest on the other. <code>packages add</code> writes it into <code>.env</code>. Delete the line to rotate it on the next generate.</dd>
+      <dd>The litellm master key. <code>arizuko package add -i &lt;instance&gt; catalog:litellm</code> creates it in <code>.env</code> if absent. The gateway issues a separate virtual key for each turn. Delete the line to rotate it on the next generate.</dd>
       <dt><code>MODEL_GATEWAY_URL</code></dt>
       <dd>While the package is installed, every generate sets it to <code>http://litellm:4000</code> by default. runed gives it to the spawn as its base URL. Set it in <code>.env</code> to use another gateway.</dd>
       <dt><code>ANTHROPIC_API_KEY</code>, <code>CLAUDE_CODE_OAUTH_TOKEN</code></dt>

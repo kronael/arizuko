@@ -96,25 +96,25 @@
       </table>
 
       <h3>Solo</h3>
-      <pre><code>arizuko create myagent
-arizuko group myagent add telegram:user/123456789 main
+      <pre><code>arizuko create -i myagent
+arizuko group -i myagent add telegram:user/123456789 main
 arizuko run myagent</code></pre>
       <p>One user, one channel. <a href="../howto/">Getting started</a> shows the full setup.</p>
 
       <h3>Dogfood</h3>
-      <pre><code>arizuko invite myagent create 'alice/**' --max-uses 1
-arizuko group myagent add slack:T1234/channel/C5678 alice</code></pre>
+      <pre><code>arizuko invite -i myagent create 'alice/**' --max-uses 1
+arizuko group -i myagent add slack:T1234/channel/C5678 alice</code></pre>
       <p>Add the adapters to <code>.env</code>, issue invites and create folders. The <a href="../reference/env.html">env reference</a> lists the adapter tokens.</p>
 
       <h3>Team</h3>
-      <pre><code>arizuko group myagent add slack:T1234/channel/C1111 eng
-arizuko group myagent add slack:T1234/channel/C2222 eng/frontend
-arizuko group myagent grant google:alice 'eng/**' admin</code></pre>
+      <pre><code>arizuko group -i myagent add slack:T1234/channel/C1111 eng
+arizuko group -i myagent add slack:T1234/channel/C2222 eng/frontend
+arizuko group -i myagent grant google:alice 'eng/**' admin</code></pre>
       <p>A nested folder gets no rights from its parent. The glob sets the reach: <code>eng/**</code> covers <code>eng</code> and every folder under it, and a bare <code>eng</code> covers that one folder. See <a href="grants.html">grants</a> and <a href="scopes.html">scopes</a>.</p>
 
       <h3>Internet</h3>
-      <pre><code>arizuko token myagent issue chat support
-arizuko gate myagent add '*' 50/day</code></pre>
+      <pre><code>arizuko token -i myagent issue chat support
+arizuko gate -i myagent add '*' 50/day</code></pre>
       <p>A route token lets anonymous visitors in. An admission gate limits how many new users <code>onbod</code> admits each day. Every turn already runs behind its own filtered egress proxy, and there is no switch to turn it on. See <a href="tokens.html">tokens</a> and <a href="onboarding.html">onboarding</a>.</p>
 
       <h2>Three mechanisms keep tenants apart</h2>

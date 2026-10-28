@@ -1,21 +1,21 @@
 # template
 
-Instance seed files + bundled adapter TOMLs + Vite web scaffold.
+Instance seed files, bundled adapter packages and Vite web scaffold.
 
 ## Purpose
 
 Files copied into a new instance's data dir by `arizuko create` and by
-`compose.Generate`. `services/` holds adapter TOMLs operators copy into
-`<dataDir>/services/` to enable a channel. `web/` is a minimal Vite
+`compose.Generate`. `services/` holds bundled adapter packages that
+`arizuko package add` selects. `web/` is a minimal Vite
 scaffold that `vited` serves in dev.
 
 ## Contents
 
 - `env.example` — default `.env` with every knob and a comment per var
-- `services/*.yml` — bundled adapter packages (partial compose files):
+- `services/<name>/` — bundled adapter packages (partial compose files):
   `teled`, `discd`, `slakd`, `emaid`,
   `whapd`, `ttsd`, `kokoro`, `litellm`. A package that
-  needs anything from the system ships `<name>.yaml` beside it — its package
+  needs anything from the system ships `arizuko.yml` beside it — its package
   manifest: a `proxyd_routes` block for inbound web paths (see `slakd`),
   an `env` block for what its process needs from `.env` (see `litellm`,
   whose virtual key is minted at install, and `ttsd`, whose defaults turn
@@ -27,14 +27,11 @@ scaffold that `vited` serves in dev.
 
 ## Usage
 
-- `arizuko create <name>` writes a new instance's `.env` from its own key
-  set — the generated secrets and the product choice. It writes no egress
-  switch, because every turn runs behind the egress proxy. It does not read
-  `env.example`, which stays the operator's reference for every remaining knob
-- `arizuko packages <instance> add <name>` links a package into
-  `<dataDir>/services/`, provisions its `env` needs and applies its rows
-  (`list` shows available vs enabled, `remove` withdraws exactly what the
-  record names)
+- `arizuko create -i <name>` writes a new instance's `.env`. `env.example`
+  stays the operator's reference for the remaining settings.
+- Select a catalog source with `arizuko package add -i <name> catalog:<name>`;
+  the command installs its fragment, provisions service environment needs and
+  applies its rows.
 - `compose.Generate` emits one `include:` per `<dataDir>/services/*.yml`;
   docker loads the fragments
 

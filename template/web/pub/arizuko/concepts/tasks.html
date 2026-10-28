@@ -94,7 +94,7 @@
       <dt><code>PATCH</code></dt><dd>Takes <code>{status}</code> to pause or resume, and <code>{next_run}</code> to run now.</dd>
       <dt><code>DELETE</code></dt><dd>Cancels a task.</dd>
     </dl>
-    <p>Only agent tools create a task. No <code>arizuko task</code> CLI subcommand exists. Without the REST calls, an operator uses the agent through <code>arizuko chat</code>, or <code>arizuko get</code> and <code>arizuko apply</code> on the <code>scheduled_tasks</code> resource.</p>
+    <p>No <code>arizuko task</code> CLI subcommand exists. An operator can use the REST resource, and the agent can use <code>arizuko chat</code>.</p>
 
     <p>Every group starts with five tasks: <code>/compact-memories</code> for episodes by day, week and month, and for the diary by week and month. They run isolated, so a compaction never summarises its own work. <a href="../concepts/ant.html">the ant</a> shows what they compact.</p>
 

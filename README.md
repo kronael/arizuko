@@ -34,6 +34,9 @@ https://krons.fiu.wtf/pub/arizuko/.
 - **grant**: an `acl` row. It allows or denies one action on one scope for one
   principal.
 - **route token**: a secret URL, `/chat/<token>/` or `/hook/<token>`.
+- **package**: a source of skills, native hooks, tools or system services.
+  Core is always installed. [Install packages](EXTENDING.md#installing-packages)
+  system-wide or for one group.
 
 ## What you can run with it
 
@@ -125,18 +128,22 @@ lists the comparable systems and how each one differs.
 ## Getting started
 
 You need a Linux x86_64 host with `/dev/kvm`, Docker with Compose v2.20 or
-newer, Go, write access to `/srv/data/`, and a token for one channel. Three
-commands create, configure and start an instance, after the images and the
-store server exist:
+newer, Go, write access to `/srv/data/`, and a token for one channel. The
+commands below show the intended instance workflow. Before the first
+`package add`, the instance needs its images, store server and owner tables provisioned:
 
 ```bash
-./arizuko create demo --product slack-team   # makes /srv/data/arizuko_demo, prints the keys to set
-$EDITOR /srv/data/arizuko_demo/.env          # the keys that create printed
-./arizuko run demo                           # generates compose, starts the instance
+./arizuko create -i demo --product slack-team  # makes /srv/data/arizuko_demo
+$EDITOR /srv/data/arizuko_demo/.env             # set credentials and image paths
+# Provision the store and owner tables; see the bootstrap gap below.
+./arizuko package add -i demo catalog:slakd    # select a service package
+./arizuko run -i demo                          # generates compose, starts the instance
+# In a second terminal, after routd has booted, install the product files:
+./arizuko package sync -i demo
 ```
 
-[INSTALL.md](INSTALL.md#the-whole-install-in-one-block) lists every command
-from the clone to the first reply and explains each one. Mint the store key of
+[INSTALL.md](INSTALL.md#bootstrap-a-fresh-store) describes manual store
+bootstrap and configuration. Mint the store key of
 a daemon before you enable its package, or the whole instance restarts in a
 loop. INSTALL.md also holds the checklist for an agent that does not reply.
 [EXTENDING.md](EXTENDING.md) covers packages, products and adapters.
@@ -184,8 +191,8 @@ REST interface for people and an MCP interface for agents, behind one
 authorization gate. [ARCHITECTURE.md](ARCHITECTURE.md#cold-tier-vs-hot-tier)
 lists the exceptions. The store holds messages, routes, grants and tasks. The
 folder on disk holds the files of each agent. Both survive a restart.
-`arizuko export` writes the store config to a YAML manifest, and `arizuko
-apply` reads one back. A manifest is a copy, not a second source.
+`arizuko export` writes store configuration to YAML. The
+`installed_packages` rows select packages, and `arizuko package sync` installs them.
 
 ## How to read this
 
@@ -203,7 +210,7 @@ apply` reads one back. A manifest is a copy, not a second source.
 |       | [`cmd/arizuko/README.md`](cmd/arizuko/README.md) | What does each `arizuko` subcommand do?                               |
 |       | [FEATURES.md](FEATURES.md)                       | What does it do today, and which test proves it?                      |
 |       | [`tests/README.md`](tests/README.md)             | How do I run the tests, and what does each suite need?                |
-|       | [`anteval/`](anteval/README.md)                  | What can an agent do on a live instance, graded on real tasks?        |
+|       | [`anteval/`](anteval/README.md)                  | What can an agent do on a throwaway instance, graded on real tasks?   |
 |       | [`specs/index.md`](specs/index.md)               | Where do design directions live, and how do I list the retired specs? |
 |       | [`BUGS.md`](BUGS.md)                             | What is open, and what waits on a person?                             |
 |       | [LICENSE](LICENSE)                               | MIT.                                                                  |

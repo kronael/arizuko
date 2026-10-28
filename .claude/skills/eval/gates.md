@@ -43,7 +43,7 @@ them). Run it on every release, and after any deploy touching routd, runed,
 ipc, ant or an adapter:
 
 ```bash
-sudo ./arizuko token $I issue bearer eval \
+sudo ./arizuko token -i $I issue bearer eval \
   --scope messages:write,messages:read,cost:read --ttl 2h    # token: line
 GW=$(sudo docker network inspect arizuko_${I}_default \
   --format '{{range .IPAM.Config}}{{.Gateway}}{{end}}')      # NOT a hardcoded IP
@@ -131,7 +131,7 @@ extenddb … server misbehaving`. Write the published port instead, and set mode
 **2. The eval folder is a group, never a `mkdir`.**
 
 ```bash
-sudo ./arizuko group $I add web:eval eval
+sudo ./arizuko group -i $I add web:eval eval
 ```
 
 **3. Sixteen grants.** The `role:member` floor is messaging only, so without
@@ -145,9 +145,9 @@ for spec in "eval egress" "eval web:publish" "eval/** mcp:add_acl" \
   "eval mcp:issue_webhook" "eval/** mcp:issue_webhook" \
   "eval mcp:register_group" "eval/** mcp:register_group" \
   "eval/** mcp:remove_acl" "eval mcp:web_route_set" "eval/** mcp:web_route_set"; do
-  set -- $spec; sudo ./arizuko group $I grant folder:eval "$1" "$2"
+  set -- $spec; sudo ./arizuko group -i $I grant folder:eval "$1" "$2"
 done
-sudo ./arizuko group $I grants folder:eval
+sudo ./arizuko group -i $I grants folder:eval
 ```
 
 Read the grants back with the principal `folder:eval`. `grants eval` prints
@@ -157,7 +157,7 @@ Read the grants back with the principal `folder:eval`. `grants eval` prints
 IP, so only a folder `*` rule covers it:
 
 ```bash
-sudo ./arizuko network $I allow eval '*'
+sudo ./arizuko network -i $I allow eval '*'
 ```
 
 **5. Prove the sink from the folder's own network, before the run.** Five
@@ -180,7 +180,7 @@ the sink is bound.
 `/compact-memories` tasks that fire at once, about 35 s apart, and every one
 of those turns persists a ROOT session (BUGS `L312`). `anteval` refuses to
 inject against a root session and aborts the run with `root session <uuid>
-survived /new for 1m30s`. A single `arizuko send $I eval "hello"` probe leaves
+survived /new for 1m30s`. A single `arizuko send -i $I eval "hello"` probe leaves
 the same root session and costs the same abort. Wait for both:
 
 ```bash

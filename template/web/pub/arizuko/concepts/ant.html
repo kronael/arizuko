@@ -73,7 +73,7 @@
   episodes/        compacted day, week and month summaries
   facts/           durable knowledge
   users/           one file per person the agent talks to
-  .claude/         CLAUDE.md, skills/, output-styles/, session state</code></pre>
+  .claude/         CLAUDE.md, skills/, session state</code></pre>
     <p>If you copy the folder, you copy the ant. If you delete the folder, the ant is gone. No separate database row holds the persona.</p>
 
     <h2>Memory is layers of files in the folder</h2>
@@ -109,17 +109,16 @@ session transcripts ──► /compact-memories episodes day ──► ~/episode
          │ POST /v1/runs
          ▼
 runed  preparePayload, runed/render.go:177 ────► the guest's stdin prompt
-       [pending migration]  Topic session:  &lt;episodes&gt;
+       Topic session:  &lt;episodes&gt;
        &lt;knowledge layer="diary"&gt;  &lt;knowledge layer="work"&gt;  &lt;user&gt;
        [solve], then routd's string unchanged
          │
          │ vsock, guest-init, stdin
          ▼
 ant    buildSystemPrompt, ant/src/index.ts:49 ─► the system prompt
-       SYSTEM.md, ant/CLAUDE.md for codex and pi, PERSONA.md,
-       the output style</code></pre>
+       SYSTEM.md, the package manual for codex and pi, PERSONA.md</code></pre>
     <p>The <code>&lt;user&gt;</code> tag is a pointer, not content. It names the file of the sender in <code>users/</code>, and the agent decides whether to open it. Bot rows never start a turn. When a tool returns history on purpose, each bot row carries <code>bot="true"</code>. So the agent does not read its own past words as the words of another person.</p>
-    <p>One file is always loaded: <code>ant/CLAUDE.md</code>, which the group gets as <code>~/.claude/CLAUDE.md</code>. The agent reads all of this file on every turn, so a section stays in it only for one of four reasons:</p>
+    <p>The selected packages' manuals are combined at <code>~/.claude/CLAUDE.md</code>, including the required core manual. The agent reads the file on each turn, so a section stays in it only for one of four reasons:</p>
     <ul>
       <li>The agent needs the section before it can know to ask for it.</li>
       <li>A break in the section fails without an error.</li>
@@ -127,7 +126,7 @@ ant    buildSystemPrompt, ant/src/index.ts:49 ─► the system prompt
       <li>A skill reads the section from that file.</li>
     </ul>
     <p>Everything else lives in skills. A test fails when the file points at a skill or a doc that does not exist.</p>
-    <p>If a group has a <code>SYSTEM.md</code>, that file replaces the base system prompt completely, and nothing merges into it. <code>PERSONA.md</code> and the output style come after it.</p>
+    <p>If a group has a <code>SYSTEM.md</code>, that file replaces the base system prompt completely, and nothing merges into it. <code>PERSONA.md</code> follows it.</p>
 
     <h2>Each turn gets a new guest</h2>
     <p>The guest lives for one turn. <code>runed</code> starts it when a message arrives, the agent reads the prompt and replies, and the guest powers off. Nothing that matters lives inside the guest, only in the mounted folder. The next turn gets a new guest and a new kernel with the same folder.</p>
@@ -139,9 +138,8 @@ ant    buildSystemPrompt, ant/src/index.ts:49 ─► the system prompt
     <h2>The agent calls tools over one socket</h2>
     <p>The agent calls MCP tools, such as <code>send</code> or <code>find_messages</code>, over a unix socket. <code>routd</code> hosts one socket per group at <code>ipc/&lt;folder&gt;/gated.sock</code> on the host. For each turn, <code>runed</code> runs a small bridge that accepts the vsock connection of the guest and connects it to that socket. Inside the guest, the <code>mcpServers</code> config of Claude Code points at a local path. Every tool call is a JSON-RPC message over that socket. <code>routd</code> runs the same grant check on it as on a call to the matching REST endpoint.</p>
 
-    <h2>Each group updates its own skills</h2>
-    <p>A new arizuko version can ship new built-in skills, and every group folder must get them. <code>runed</code> reads <code>ant/skills/self/MIGRATION_VERSION</code> from the agent image and compares it with <code>&lt;group&gt;/.claude/skills/self/MIGRATION_VERSION</code>. If the group is older, <code>runed</code> adds a <code>[pending migration]</code> line to the next prompt. The agent then runs <code>/migrate</code>, which copies the new skills into its own folder. Each group updates at its own pace, and nothing overwrites a folder from outside.</p>
-
+    <h2>Selected packages supply the next turn</h2>
+    <p>Startup installs the release's core package. <code>arizuko package sync</code> updates selected package sources. The turn renderer mounts their skills, native hooks, tools and combined manual read-only; custom group skills stay writable. Package updates need no agent migration turn.</p>
     <h2>The folder stays and the guest goes</h2>
     <dl>
       <dt>Stays</dt>

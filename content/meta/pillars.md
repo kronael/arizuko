@@ -70,8 +70,7 @@ and written to be read. Microservices are not an architecture pattern here; they
 extension safe, legible, and composable by a language model.
 
 **Evidence:** An arizuko skill is a single markdown file the agent reads and executes. A new
-adapter is ~200 lines against one documented HTTP contract. The agent runs `/migrate` to
-propagate its own skill updates to every group. The system can reason about and modify itself
+adapter is ~200 lines against one documented HTTP contract. An operator runs `arizuko package sync` to install shared package updates; agents can edit their own group skills. The system can reason about and modify itself
 because the boundaries are explicit and the contracts are in plain text.
 
 **Counter:** "LLMs will hallucinate extensions." → Yes — when contracts are implicit. When

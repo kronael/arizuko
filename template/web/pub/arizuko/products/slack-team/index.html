@@ -32,6 +32,7 @@
             <li><a href="../creator/">Content pipeline (Inari)</a></li>
             <li><a href="../socials/">Social presence (Phosphene)</a></li>
             <li><a href="../strategy/">Domain researcher (Prometheus)</a></li>
+            <li><a href="../cuzk/">CUZK cadastral lookup</a></li>
             <li><a href="../shapes.html">Shapes</a></li>
           </ul>
         </li>
@@ -68,19 +69,19 @@
         <dt>Per-teammate grants</dt>
         <dd>Grant rows decide which actions each teammate can ask the agent to do. Operators set the defaults, and each person can have own rows.</dd>
         <dt>Linked identities</dt>
-        <dd>The channel needs no sign-in, because membership of the workspace is the fence. A teammate who signs in at <code>/auth/login</code> with GitHub, Google or Discord links that identity to the Slack user. The same person then reaches the same memory and grants from the web chat, a DM or another channel.</dd>
+        <dd>A teammate signs in at <code>/auth/login</code> with GitHub, Google or Discord. Linking a Slack identity also requires confirming a pairing link. Pairing expands grants across linked identities; memory files remain keyed by the sender identity.</dd>
       </dl>
 
       <h2>A Slack channel is a group folder</h2>
       <dl>
         <dt>Channel as workspace</dt>
-        <dd>A Slack channel maps to an arizuko group folder. The product puts its persona and its rules into the <code>CLAUDE.md</code> of the group, inside a marked region. The channel adds its own rules outside the region: allowed tools, citation rules, refusals and the voice for this channel. So #eng-support acts differently from #design and #incidents. The folder is available over WebDAV at <code>/dav/&lt;folder&gt;/</code>.</dd>
+        <dd>A Slack channel maps to an arizuko group folder. The product supplies a persona and a package manual. The channel can add instructions in <code>SYSTEM.md</code> and set tool grants for its folder. So #eng-support acts differently from #design and #incidents. The folder is available over WebDAV at <code>/dav/&lt;folder&gt;/</code>.</dd>
         <dt>Per-user memory</dt>
         <dd>The <code>users</code> skill keeps one file for each sender in <code>users/</code> in the channel folder, for example <code>users/tg-123456.md</code>. The prompt names the file of the sender. Per-user <em>secrets</em> are different: they live at <code>/dash/me/secrets</code>, and the broker on the host gives them to tools.</dd>
         <dt>Per-user grants</dt>
         <dd>Grant rows for each user decide which actions that user can ask the agent to do. A child folder such as <code>eng/alice/</code> has its own files. It copies nothing from the parent folder.</dd>
         <dt>Changes stay in place</dt>
-        <dd>The persona, the skills and the channel rules are Markdown files that you edit over WebDAV or in the chat. A release that changes the platform skills increases <code>MIGRATION_VERSION</code>, and each group runs one <code>/migrate</code> turn to update itself.</dd>
+        <dd>The persona, skills and channel rules are Markdown files. Startup installs the core package and <code>arizuko package sync</code> updates selected packages.</dd>
       </dl>
 
       <h2>One workspace can hold an agent for each department</h2>
@@ -105,12 +106,12 @@
          source: /docs/runbooks/lambda-cold-start.md:67
 
   bob    @bot save that conclusion to my notes
-  bot    Wrote notes/lambda-cold-start.md in your user area.
+  bot    Saved the conclusion to your memory file.
 
   alice  @bot remember: prefer per-service imports for any new lambda
   bot    Saved to your memory.
 </code></pre>
-      <p>The thread and the channel <code>CLAUDE.md</code> are the same, and the user state is different. The team sees the answer. The write of Bob goes to the user area of Bob, and the preference of Alice goes to her memory file. Alice cannot see the notes of Bob, and the memory of neither user goes into the shared context of the channel.</p>
+      <p>The thread and channel share instructions. When present, the prompt names the sender's memory file, but all user files live in the same group folder that the agent can access. Do not treat those files as a private boundary between teammates.</p>
 
       <h2>Teammates use the pane, channels, threads and DMs</h2>
       <dl>
@@ -144,7 +145,7 @@
       </dl>
 
       <h2>The same shape works on Discord</h2>
-      <p>Most of this page applies to Discord. Server channels act like Slack channels, with a JID for each room, a <code>CLAUDE.md</code> for each channel and per-user memory. Threads act like Slack threads. Three things differ:</p>
+      <p>Most of this page applies to Discord. Server channels act like Slack channels, with a JID for each room, a <code>SYSTEM.md</code> for each channel and per-user memory. Threads act like Slack threads. Three things differ:</p>
       <dl>
         <dt>No AI pane</dt>
         <dd>Discord has no assistant pane like Slack, and <code>discd</code> shows no suggested prompts. DMs and mentions work the same.</dd>
@@ -155,18 +156,14 @@
       </dl>
       <p>To run the product on both platforms, install both adapters and route each channel to the same folder. The agent does not see a difference.</p>
 
-      <h2>Five commands set it up</h2>
-      <pre><code>arizuko create acme --product slack-team
-arizuko packages acme add slakd
-$EDITOR /srv/data/arizuko_acme/.env    # SLACK_BOT_TOKEN, SLACK_SIGNING_SECRET, ANTHROPIC_API_KEY
-arizuko group acme add slack:T012ABCD/channel/C0ENGSUP main
-arizuko run acme
-
-# in Slack:
-#   make the Slack app; put the bot token and signing secret in .env
-#   point the events at https://&lt;your-host&gt;/slack/events
-#   invite the bot to a channel; teammates sign in at /auth/login</code></pre>
-      <p>The <a href="setup.html">operator setup guide</a> has every step. The <a href="../../howto/slack.html">Slack how-to</a> covers the Slack details. The <code>CLAUDE.md</code> of each channel is in the channel folder. Edit it over WebDAV or on the server.</p>
+      <h2>A package selection installs Slack</h2>
+      <pre><code>arizuko create -i acme --product slack-team
+$EDITOR /srv/data/arizuko_acme/.env    # SLACK_BOT_TOKEN, SLACK_SIGNING_SECRET, ANTHROPIC_API_KEY</code></pre>
+      <p>Start the instance as a service, select <code>catalog:slakd</code> and restart it.</p>
+      <pre><code>arizuko package add -i acme catalog:slakd
+sudo systemctl restart arizuko_acme
+arizuko group -i acme add slack:T012ABCD/channel/C0ENGSUP main</code></pre>
+      <p>The <a href="setup.html">operator setup guide</a> has every step. The <a href="../../howto/slack.html">Slack how-to</a> covers the Slack details. The <code>SYSTEM.md</code> of each channel is in the channel folder. Edit it over WebDAV or on the server.</p>
 
       <h2>Seven pages give the details</h2>
       <dl>

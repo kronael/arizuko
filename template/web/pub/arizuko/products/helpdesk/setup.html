@@ -32,6 +32,7 @@
             <li><a href="../creator/">Content pipeline (Inari)</a></li>
             <li><a href="../socials/">Social presence (Phosphene)</a></li>
             <li><a href="../strategy/">Domain researcher (Prometheus)</a></li>
+            <li><a href="../cuzk/">CUZK cadastral lookup</a></li>
             <li><a href="../shapes.html">Shapes</a></li>
           </ul>
         </li>
@@ -56,48 +57,46 @@
 
       <h2>group add makes a new group with the product and its route</h2>
       <p>The Slack JID names the workspace, the kind and the channel. Send <code>/chatid</code> in the channel to get it.</p>
-      <pre><code>arizuko group &lt;instance&gt; add slack:T012ABCD/channel/C0SUPPORT acme/support --product helpdesk
-arizuko route &lt;instance&gt; list</code></pre>
+      <pre><code>arizuko group -i &lt;instance&gt; add slack:T012ABCD/channel/C0SUPPORT acme/support --product helpdesk
+arizuko route -i &lt;instance&gt; list</code></pre>
       <pre><code>ID  SEQ  MATCH                            TARGET
 1   0    room=T012ABCD/channel/C0SUPPORT  acme/support</code></pre>
-      <p>The command copies the product tree into <code>groups/acme/support/</code> once. After that, the files belong to the group. Edit the persona and add facts, and nothing writes over them. <code>group add</code> also writes the route, so every message in that Slack channel reaches the <code>acme/support</code> agent.</p>
+      <p>The command records the selection of the product for <code>acme/support</code> in the <code>installed_packages</code> resource. The next <code>arizuko package sync</code> writes the <code>group/</code> files of the product into <code>groups/acme/support/</code> and replaces any edit of them. <code>group add</code> also writes the route, so every message in that Slack channel reaches the <code>acme/support</code> agent.</p>
       <p>To add a second channel, add a second group. To add a webhook or a public chat link, make a route token, as <a href="../../howto/webhooks.html">webhooks</a> and <a href="../../howto/chat-link.html">chat link</a> show. All of these inputs reach the same folder and the same agent.</p>
 
-      <h2>arizuko.toml selects the products of an existing group</h2>
-      <p>A group can run several products. Write the mix into its own <code>arizuko.toml</code> and apply it:</p>
-      <pre><code>[[product]]
-source = "ant/examples/helpdesk"</code></pre>
-      <pre><code>arizuko products &lt;instance&gt; apply acme/support</code></pre>
-      <p>A second apply of an unchanged mix writes nothing and reports <code>unchanged</code>. arizuko reports a file that you changed as dirty and skips it.</p>
+      <h2>package add selects a product for an existing group</h2>
+      <p>A group can run several products. Select each one for the group, then sync:</p>
+      <pre><code>arizuko package add -i &lt;instance&gt; -g acme/support ant/examples/helpdesk
+arizuko package sync -i &lt;instance&gt;</code></pre>
 
       <h2>An escalation to an agent is a delegation</h2>
       <p>The product escalates billing and account questions. An escalation to a <em>person</em> is a message. An escalation to another <em>agent</em> is a delegation. Make the billing group first, because nothing makes it for you:</p>
-      <pre><code>arizuko group &lt;instance&gt; add slack:T012ABCD/channel/C0BILLING acme/billing</code></pre>
+      <pre><code>arizuko group -i &lt;instance&gt; add slack:T012ABCD/channel/C0BILLING acme/billing</code></pre>
       <p>The support agent then calls <code>delegate_group</code> with the billing folder and the request. The billing agent runs its own turn, in its own guest, with its own grants and its own egress allowlist. It is a peer, not a subroutine.</p>
       <div class="callout"><strong>The delegating agent needs a grant.</strong> <code>role:member</code> does not hold <code>delegate_group</code>, so an operator must grant it to the support folder, with a scope that covers <code>acme/billing</code>. Until then, the agent says that it cannot escalate. That is the correct failure.</div>
-      <p>The billing agent can also only <em>watch</em> the support channel and get no tickets. Give it an observe route on the same chat:</p>
-      <pre><code>arizuko route &lt;instance&gt; add 'chat_jid=slack:T012ABCD/channel/C0SUPPORT' 'acme/billing#observe' --seq 2</code></pre>
-      <p>With <code>#observe</code>, the billing agent sees the messages and does not reply. Two agents read one channel, and one of them is silent. <a href="../../concepts/routing.html">Routing</a> has the full match and fragment grammar.</p>
+      <p>A route selects one destination for each message. Use delegation to bring the billing agent into the same issue. <a href="../../concepts/routing.html">Routing</a> explains how routes are matched.</p>
 
       <h2>One optional variable names the escalation target</h2>
-      <p>The product declares one optional variable. It is a hint: a missing value gives a warning and does not stop the apply.</p>
+      <p>The product declares one optional variable for the escalation target.</p>
       <pre><code>HELPDESK_ESCALATION_CHANNEL=acme/billing</code></pre>
 
       <h2>The facts folder holds what your team promises</h2>
       <p><code>facts/sla.md</code> ships with one line, so the shape is clear. Replace it with what your team promises, and add one file for each topic, for example the refund window, the supported versions and the escalation rota. The agent answers from these files. It escalates every question that the files do not answer.</p>
+      <p>The <code>facts/</code> files of the product are examples, not package files, so <code>arizuko package sync</code> never rewrites them. Copy them once from the repository checkout:</p>
+      <pre><code>cp -r ant/examples/helpdesk/facts /srv/data/arizuko_&lt;instance&gt;/groups/acme/support/</code></pre>
 
       <h2>A billing question must escalate</h2>
-      <pre><code>arizuko send &lt;instance&gt; acme/support "I was charged twice for March, ticket 4417" --wait</code></pre>
-      <p>A correct answer escalates, does not resolve, and quotes the ticket ID. If the agent offers a refund, the <code>CLAUDE.md</code> region did not arrive. Check that <code>groups/acme/support/CLAUDE.md</code> has an <code>arizuko:package:helpdesk</code> marked region.</p>
+      <pre><code>arizuko send -i &lt;instance&gt; acme/support "I was charged twice for March, ticket 4417" --wait</code></pre>
+      <p>A correct answer escalates, does not resolve, and quotes the ticket ID. If the agent offers a refund, check that the helpdesk package is selected and its manual is installed.</p>
 
       <h2>Four files tune the agent</h2>
       <dl>
         <dt>Voice</dt>
-        <dd>Edit <code>PERSONA.md</code>.</dd>
+        <dd>Edit <code>group/PERSONA.md</code> in the package source and run <code>arizuko package sync</code>.</dd>
         <dt>Rules</dt>
-        <dd>Edit inside the marked region of <code>CLAUDE.md</code>, or write your own rules outside it. arizuko does not change text outside the markers.</dd>
+        <dd>Edit the package source's <code>CLAUDE.md</code> and run <code>arizuko package sync</code>. The combined manual is mounted read-only in the guest.</dd>
         <dt>Triage classes</dt>
-        <dd>Edit <code>.claude/skills/triage/SKILL.md</code>. It is under <code>.claude/</code> in the group, although the product ships it at <code>skills/triage/</code>.</dd>
+        <dd>Edit the package source's <code>skills/triage/SKILL.md</code> and run <code>arizuko package sync</code>. The installed skill is mounted read-only in the guest.</dd>
         <dt>A skill to turn off</dt>
         <dd>Put a <code>.disabled</code> file in the directory of the skill.</dd>
       </dl>
@@ -108,7 +107,7 @@ source = "ant/examples/helpdesk"</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/helpdesk/setup.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-21">2026-10-21</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-25">2026-10-25</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

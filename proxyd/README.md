@@ -106,14 +106,14 @@ One URL has one backing store. The slot of a group is `/pub/<folder>/`, and thes
 
 `proxyd_routes` is the only route configuration. proxyd reads it on every request and never from env. An env var that proxyd reads once at boot stops applying without a sign when a package changes the set, and a row cannot do that. A new row is live on the next request. There is no reload verb and no `enabled` column. To disable a route, delete its row.
 
-`arizuko generate` writes the rows of the release. It takes the static `coreProxydRoutes` slice in `compose/compose.go` and the `proxyd_routes` block of the `services/<name>.yaml` of every installed package. It drops each route whose `gated_by` variable is off and writes the rest through `store.SyncProxydRoutes`. The manifest is the same file that `arizuko packages install` applies. That is one declaration with two readers, because `generate` needs the routes before any daemon or store exists.
+`arizuko generate` writes the rows of the release. It takes the static `coreProxydRoutes` slice in `compose/compose.go` and the `proxyd_routes` block of each service's package manifest. For a symlinked service fragment, it reads `template/services/<name>/arizuko.yml` from the visible checkout or the baked catalog. Otherwise, it reads `packages/<name>/arizuko.yml` in the instance. It skips writes for routes whose `gated_by` variable is off, but does not delete existing rows. `arizuko package sync` applies declared package routes without evaluating `gated_by`. Both commands read the package manifest.
 
 | Field              | Meaning                                                                                                                                                                      |
 | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `path`             | With a trailing `/` it is a prefix. Without one it is an exact match. The longest match wins. There is no glob and no regex (`MatchRoute` in `routes.go`).                   |
 | `backend`          | The URL that proxyd forwards to. The outbound `Host` is the host of the backend and not the host of the caller.                                                              |
 | `auth`             | `public`, `optional`, `user` or `operator`, as the next table shows.                                                                                                         |
-| `gated_by`         | One env var name. `generate` drops the route when the variable is off. proxyd never reads the field, so every row in the table already passed its gate.                      |
+| `gated_by`         | One env var name. `generate` skips the write when the variable is off. `sync` and proxyd do not evaluate it.                                                                 |
 | `preserve_headers` | Inbound headers that proxyd sets again on the outbound request after the rewrite, such as the signature pair of Slack. A backend that verifies its own signature names them. |
 | `strip_prefix`     | The default is `false`. When it is `true`, proxyd removes `path` from the forwarded URL. `/dav/` uses it.                                                                    |
 | `redirect_to`      | When set, proxyd answers 302 to it and `backend` is empty.                                                                                                                   |
@@ -164,7 +164,7 @@ This is the subrequest surface for a proxy that fronts arizuko: Caddy `forward_a
 
 proxyd never caches the decision, because a cached answer is a revocation that does not take effect. The proof is the bearer that proxyd already holds, which limits a captured answer to the remaining life of that bearer. See [SECURITY.md](../SECURITY.md#a-fronting-proxy-receives-the-proof-for-up-to-15-minutes).
 
-`arizuko proxy-config <instance> --forward-auth <host:port>` renders the rows as a Caddyfile that points at this endpoint. The render rules are in [`proxycfg/README.md`](../proxycfg/README.md).
+`arizuko proxy-config -i <instance> --forward-auth <host:port>` renders the rows as a Caddyfile that points at this endpoint. The render rules are in [`proxycfg/README.md`](../proxycfg/README.md).
 
 ## Why proxyd reads routd's tables directly
 

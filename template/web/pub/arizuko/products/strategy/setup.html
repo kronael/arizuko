@@ -32,6 +32,7 @@
             <li><a href="../creator/">Content pipeline (Inari)</a></li>
             <li><a href="../socials/">Social presence (Phosphene)</a></li>
             <li><a href="../strategy/">Domain researcher (Prometheus)</a></li>
+            <li><a href="../cuzk/">CUZK cadastral lookup</a></li>
             <li><a href="../shapes.html">Shapes</a></li>
           </ul>
         </li>
@@ -55,17 +56,20 @@
       </ul>
 
       <h2>group add makes the group from the product</h2>
-      <pre><code>arizuko group &lt;instance&gt; add telegram:group/100123 research --product strategy</code></pre>
+      <pre><code>arizuko group -i &lt;instance&gt; add telegram:group/100123 research -p strategy
+arizuko package sync -i &lt;instance&gt;</code></pre>
       <p>A Telegram group ID is negative, and the JID drops the minus sign.</p>
 
       <h2>Two files define the domain and the sources</h2>
       <p><code>facts/domain.md</code> says what the domain is, who the main players are and what counts as important. <code>facts/watchlist.md</code> says where to look: sources, companies and topics. Both ship as instructions to the operator and not as content, because a researcher without a subject writes a newsletter about nothing.</p>
+      <p>The <code>facts/</code> files of the product are examples, not package files, so <code>arizuko package sync</code> never rewrites them. Copy them once from the repository checkout:</p>
+      <pre><code>cp -r ant/examples/strategy/facts /srv/data/arizuko_&lt;instance&gt;/groups/research/</code></pre>
 
       <h2>A scheduled task delivers the briefing</h2>
       <p>Ask in the chat, for example "brief me every Monday at 07:00", and the agent makes the <a href="../../concepts/tasks.html">scheduled task</a>. Products ship no task files. The task tool makes the row, so you can list, pause and cancel it like any other task.</p>
 
       <h2>Each finding must carry a confidence marker</h2>
-      <pre><code>arizuko send &lt;instance&gt; research "what changed in the domain this week?" --wait</code></pre>
+      <pre><code>arizuko send -i &lt;instance&gt; research "what changed in the domain this week?" --wait</code></pre>
       <p>A correct answer marks each item as confirmed, inferred or speculative and cites sources in the text. A long block of prose without markers means that the persona is not in place.</p>
 
       <h2>Three changes tune the researcher</h2>

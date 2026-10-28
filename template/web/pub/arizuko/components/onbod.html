@@ -104,7 +104,7 @@ export AUTHD_SERVICE_KEY=$(grep ^AUTHD_SERVICE_KEY .env | cut -d= -f2)
 export AUTH_BASE_URL=https://example.com
 export ONBOARDING_ENABLED=1
 ./onbod
-arizuko gate &lt;instance&gt; add '*' 50/day</code></pre>
+arizuko gate -i &lt;instance&gt; add '*' 50/day</code></pre>
 
     <p>With <code>ONBOARDING_ENABLED=0</code>, onbod exits at once. <code>GET /health</code> returns 200 when the store is reachable. A queued user sees the queue position on <code>/onboard</code>, which refreshes every 30 seconds.</p>
 

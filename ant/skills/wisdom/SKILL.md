@@ -97,17 +97,10 @@ Test that `/resolve` matches it for the intended task; if not, sharpen
 ```bash
 ls ~/.claude/skills/
 grep -E '^description:' ~/.claude/skills/*/SKILL.md
-diff ~/.claude/skills/myskill/SKILL.md /opt/arizuko/ant/skills/myskill/SKILL.md
 ```
-
-## Historical: when_to_use
-
-Older skills carried a separate `when_to_use:` field. arizuko's
-dispatch awk loop never read it; folded the content into
-`description:` in v0.33.26. Don't reintroduce the field — it's
-silently ignored.
 
 ## Canonical location
 
-- Source: `/opt/arizuko/ant/skills/` (read-only, baked into image)
-- Agent copy: `~/.claude/skills/` (seeded on first spawn; `/migrate` syncs)
+- Installed packages: `/opt/arizuko/packages/<name>/`, read-only.
+- Effective skills: `~/.claude/skills/`, selected package mounts and writable custom skills.
+- Update packaged instructions in their maintained source, then ask the operator to run `arizuko package sync`.

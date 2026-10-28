@@ -142,13 +142,13 @@ predicate: discord:guild=G123       # only when the caller's token carries that 
 
     <p><a href="https://github.com/kronael/arizuko/blob/main/auth/authorize.go"><code>auth.Authorize</code></a> is the sole runtime evaluator. Operator REST calls and the agent's MCP socket both land here, over the same rows &mdash; one mechanism, two callers, not two systems.</p>
 
-    <pre><code>1. Expand the caller's principals transitively through acl_membership.
-2. Load exact-match rows, plus wildcard rows matching the expanded set.
-3. Keep rows where action covers, scope matches, predicate holds,
-   params hold.
-4. Any surviving deny row &rArr; denied.
-5. Otherwise any surviving allow row &rArr; allowed.
-6. No surviving row &rArr; denied.</code></pre>
+    <pre><code>1. Expand the caller's principals through acl_membership.
+2. Load exact and wildcard rows for those principals.
+3. Check scope, predicate and parameters. Matching denies apply on either axis.
+4. Route grants use their full scope and action coverage.
+5. Sender-only grants allow targets inside the turn folder's subtree, with an
+   exact action or that action namespace's wildcard.
+6. Any matching deny wins; otherwise a matching allow wins; else deny.</code></pre>
 
     <p><strong>There is no fallback.</strong> An action with no matching allow row is refused, loudly. Nothing is computed from the folder's shape when the table comes up empty.</p>
 
@@ -171,7 +171,7 @@ like, dislike, edit, delete, disengage</code></pre>
     <p>Making someone an operator is one membership edge. The permissions row is shared, so a second operator costs one row:</p>
 
     <pre><code># Make alice an operator: one acl_membership edge to role:operator.
-arizuko group krons grant google:114alice '**'</code></pre>
+arizuko group -i krons grant google:114alice '**'</code></pre>
 
     <p>Any other pattern writes an ordinary <code>acl</code> row instead &mdash; see <a href="cli.html#group-grant"><code>arizuko group &hellip; grant</code></a>.</p>
 
@@ -192,7 +192,7 @@ arizuko group krons grant google:114alice '**'</code></pre>
 
     <h2>The scope glob contains the folder</h2>
 
-    <p>Containment is the grant's scope glob. There is no separate hierarchy walk and no persisted containment row &mdash; <code>Authorize(caller, action, ACTUAL-target, params)</code> checks magnitude and containment in the same call.</p>
+    <p>The grant's scope glob bounds its target. For an agent turn, sender-only allows also require the target to be inside the turn folder's subtree. Route grants retain their full scope. <code>Authorize(caller, action, ACTUAL-target, params)</code> checks these rules in one call.</p>
 
     <pre><code>acl(folder:acme/ops, mcp:register_group, 'acme/**', allow)
 

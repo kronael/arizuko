@@ -388,8 +388,8 @@ describe('dns_exfil asks for interpolation in the query name', () => {
 // ate `migrate/SKILL.md`, the delivery path for every `ant/CLAUDE.md` change:
 // the fleet stopped taking instructions at all.
 //
-// Helper pages under a skill are not pinned here. Seven migration notes and
-// `self/extension.md` DO instruct a write to an agent config, `self/chat-link.md`
+// Helper pages under a skill are not pinned here. `self/extension.md`
+// instructs a write to an agent config, `self/chat-link.md`
 // puts a route token in an outbound URL and `software/docker.md` pipes curl to
 // sh — all true positives, left blocked.
 describe('the shipped skill corpus', () => {

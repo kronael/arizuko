@@ -52,7 +52,7 @@ directly) — don't load the whole `self/` directory into context. The
 | `uv`, `bun`, `go`, `cargo` rules               | `runtimes.md`       |
 | Adding skills, MCP servers, settings           | `extension.md`      |
 
-All paths under `/opt/arizuko/ant/skills/self/` (read-only canonical)
+All paths under `/opt/arizuko/packages/core/skills/self/` (read-only canonical)
 or `~/.claude/skills/self/` (the mounted package).
 
 ## See also

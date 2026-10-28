@@ -40,7 +40,7 @@
       <p>The guest has one network interface, a tap. The rule set of the tap accepts the proxy port of that guest and drops every other packet in both directions. <code>runed</code> starts one <code>egress</code> proxy on the host side of the tap, loads the allowlist of the folder into it, waits until its <code>/health</code> answers, and only then boots the guest. The proxy ends with the turn. No switch turns this off, and <code>runed</code> refuses to start when the <code>egress</code> binary is missing.</p>
       <p>The proxy filters host names, and the tap rules confine the guest. A process that ignores <code>HTTPS_PROXY</code> and opens a raw socket finds every packet dropped on the host side. The proxy serves exactly one address, the address of that guest. It answers <code>403</code> to every other peer and to every host off the list. It tunnels <code>CONNECT</code> and never decrypts it. The <a href="../components/egress.html">egress page</a> draws the whole path, refused branches included.</p>
       <p>The default allowlist holds <code>anthropic.com</code> and <code>api.anthropic.com</code>. An operator adds hosts for one folder, and the folder also inherits the hosts of its parent folders:</p>
-      <pre><code>arizuko network &lt;instance&gt; allow &lt;folder&gt; api.github.com</code></pre>
+      <pre><code>arizuko network -i &lt;instance&gt; allow &lt;folder&gt; api.github.com</code></pre>
       <p>The wildcard <code>*</code> is added only for a folder that holds the <code>egress</code> grant, or for an elevated <code>/root</code> turn. The allowlist matches names. A row written as an IP address matches nothing and grants no access.</p>
 
       <h2 id="secrets">Model keys enter the guest, and a shell:env grant adds a folder secret</h2>
@@ -66,10 +66,10 @@ Authorization: Bearer &lt;ES256 service:proxyd token&gt;</code></pre>
       <p>Every security setting is reachable two ways: secrets, allowlists, grants, routes and invites. One handler serves each resource on both.</p>
       <ul>
         <li><strong>Outside the box, REST.</strong> Each daemon serves <code>/v1/&lt;resource&gt;</code> for its own tables, behind the OAuth login of <code>proxyd</code>. <code>dashd</code> builds the operator pages on top.</li>
-        <li><strong>Inside the agent, MCP.</strong> The same operations are MCP tools on the unix socket of the group, gated on the same <code>acl</code> rows. Both faces call <code>auth.Authorize</code>. Only the identity source differs: a JWT subject for REST, the folder of the socket for MCP.</li>
+        <li><strong>Inside the agent, MCP.</strong> The same operations are MCP tools on the unix socket of the group. A turn's tool calls use grants for both the turn's folder and the sender attested by the channel. The folder's grants apply within their scopes. The sender's allow grants add authority only for targets in the turn's folder or its subtree, and only for the exact action or its namespace wildcard. A sender's deny grant can refuse a call outside that subtree.</li>
       </ul>
       <p>The position of a folder in the tree grants nothing. A folder starts with the messaging verbs and nothing else. An operation that creates state, changes an ACL or reads audit data needs a row that somebody delegated. The scope glob of that row is the boundary the folder may act inside. An action with no matching row is refused.</p>
-      <p>The MCP tool list that a session sees is filtered by grants. A tool appears only when the folder holds its scope, so an agent sees exactly what it may call. External REST tools declared with <code>[[connector]]</code> and <code>transport = "rest"</code> join the same surface, gated on <code>ext:&lt;service&gt;:&lt;operation&gt;</code>.</p>
+      <p>The MCP tool list that a session sees is filtered by the turn's folder and sender grants. A listed tool still needs authorization for its target on each call. External REST tools declared with <code>[[connector]]</code> and <code>transport = "rest"</code> join the same surface, gated on <code>ext:&lt;service&gt;:&lt;operation&gt;</code>.</p>
 
       <h2 id="limits">What arizuko does not do</h2>
       <ul>
@@ -117,7 +117,7 @@ Authorization: Bearer &lt;ES256 service:proxyd token&gt;</code></pre>
 
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/security/index.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-21">2026-10-21</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-23">2026-10-23</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

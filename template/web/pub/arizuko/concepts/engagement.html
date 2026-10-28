@@ -82,7 +82,7 @@
     <div class="callout"><strong>A person's message overrides the route table.</strong> When a chat and topic pair is engaged, <code>routd</code> delivers a <code>message</code> or <code>mention</code> to the engaged folder and starts a turn whatever the route table says. This includes <code>#observe</code> targets, trigger routes to another folder, and no matching route at all. It holds on every channel, GitHub included. Every other row follows its route: a reaction, an edit, a join or a GitHub <code>check_run</code> is stored as observed on an <code>#observe</code> route. The table applies to all rows again when the window expires or someone calls <code>disengage()</code>.</div>
     <h2>A route can extend the window to CI</h2>
     <p>A route with the target fragment <code>#engaged</code> fires a turn while the pair is engaged and stores the row as observed otherwise. It matches any verb and never addresses the agent. This row lets CI results continue an open pull request conversation:</p>
-    <pre><code>arizuko route krons add 'chat_jid=github:o/r/pr/* verb=check_run' sloth/morha#engaged --seq 50</code></pre>
+    <pre><code>arizuko route -i demo add 'chat_jid=github:o/r/pr/* verb=check_run' team/reviewer#engaged --seq 50</code></pre>
     <p>Write the row above the <code>#observe</code> fallback. A reply in the turn that the row starts renews the window, so CI that keeps arriving while the agent keeps replying holds the conversation open. The default routes carry no <code>#engaged</code> row.</p>
 
     <h2>A reply in a Slack channel opens a thread</h2>
@@ -94,17 +94,8 @@
     <p>Sometimes the user corrects the last reply of the bot, for example &ldquo;no, that is wrong&rdquo; or &ldquo;rephrase&rdquo;, instead of continuing. The agent can then <a href="../concepts/topics.html">fork</a> the topic to <code>&lt;current&gt;#fix</code> and run the correction there. The main thread stays clean, and the correction happens in a child thread on the incorrect reply. When the correction is complete, the agent posts one corrected answer to the parent and calls <code>disengage()</code> on the fix topic.</p>
     <p>The fork is a convention. The agent decides when to fork, and <code>routd</code> does not enforce it.</p>
 
-    <h2>An output style sets the reply length for each surface</h2>
-    <p>On every spawn, <code>runed</code> sets the <code>outputStyle</code> of the agent to <code>&lt;platform&gt;-&lt;surface&gt;</code>, or to <code>&lt;platform&gt;</code> when the platform has no surface split. The function <code>pickOutputStyle</code> in <code>runed/settings.go</code> derives the surface from the chat JID, the topic and the Slack pane lookup. The file of that name in <code>ant/output-styles/</code> holds the length and format rules.</p>
-    <table>
-      <thead><tr><th>Platform</th><th>Surfaces</th></tr></thead>
-      <tbody>
-        <tr><td>Slack</td><td><code>dm</code>, <code>channel</code>, <code>thread</code> when a topic is set, <code>pane</code></td></tr>
-        <tr><td>Discord</td><td><code>dm</code>, <code>channel</code></td></tr>
-        <tr><td>Telegram</td><td><code>dm</code>, <code>group</code></td></tr>
-      </tbody>
-    </table>
-    <p>Other platforms use one file named after the platform, such as <code>web.md</code>. <code>routd</code> adds one <code>&lt;surface&gt;</code> tag to a prompt, <code>&lt;surface&gt;slack-pane&lt;/surface&gt;</code>, for the Slack assistant pane. The code is in <code>routd/prompt.go</code>.</p>
+    <h2>Messaging guidance matches the channel</h2>
+    <p>The core messaging skill gives the agent formatting and length guidance for the channel. <code>routd</code> includes a <code>&lt;surface&gt;</code> tag for the Slack assistant pane.</p>
 
     <h2>Two MCP tools control the window</h2>
     <dl>
@@ -153,7 +144,7 @@ curl -X POST -H "Authorization: Bearer $TOKEN" \
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/concepts/engagement.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-24">2026-10-24</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-28">2026-10-28</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>
