@@ -65,7 +65,7 @@ func instanceRoutes(t *testing.T, dataDir string) map[string]store.ProxydRoute {
 // where a route that reads correctly there still never reached the instance.
 func TestGenerateWritesProxydRoutes(t *testing.T) {
 	dataDir := generateInstance(t, "WEB_PORT=8095\nONBOARDING_ENABLED=true\n")
-	generateCompose(dataDir)
+	generateCompose(dataDir, "g")
 
 	rows := instanceRoutes(t, dataDir)
 	// The seven krons never received, plus the /dash/ catch-all beside them.
@@ -91,7 +91,7 @@ func TestGenerateSkipsGatedOffRoute(t *testing.T) {
 	// to os.Getenv, and an earlier test's .env reaches it through godotenv.Load.
 	t.Setenv("ONBOARDING_ENABLED", "")
 	dataDir := generateInstance(t, "WEB_PORT=8095\nWEBDAV_ENABLED=false\n")
-	generateCompose(dataDir)
+	generateCompose(dataDir, "g")
 
 	rows := instanceRoutes(t, dataDir)
 	if r, ok := rows["/dav/"]; ok {
@@ -126,7 +126,7 @@ func TestGenerateKeepsOperatorRoutes(t *testing.T) {
 	}
 	rdb.Close()
 
-	generateCompose(dataDir)
+	generateCompose(dataDir, "g")
 
 	rows := instanceRoutes(t, dataDir)
 	own, ok := rows["/arizuko"]
@@ -165,7 +165,7 @@ func TestGenerateRewritesChangedArizukoRoute(t *testing.T) {
 	}
 	rdb.Close()
 
-	generateCompose(dataDir)
+	generateCompose(dataDir, "g")
 
 	got := instanceRoutes(t, dataDir)["/chat/"]
 	if got.Backend != "http://webd:8080" || got.Auth != "optional" {

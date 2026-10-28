@@ -54,7 +54,7 @@ func read(t *testing.T, dir, rel string) string {
 
 func gen(t *testing.T, dir string) string {
 	t.Helper()
-	out, _, err := Generate(dir)
+	out, _, err := Generate(dir, "test")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +65,7 @@ func gen(t *testing.T, dir string) string {
 // table the run decided on, which the CLI writes into proxyd_routes.
 func genRoutes(t *testing.T, dir string) []ProxydRoute {
 	t.Helper()
-	_, routes, err := Generate(dir)
+	_, routes, err := Generate(dir, "test")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -229,13 +229,13 @@ func TestIncludeFragments(t *testing.T) {
 func TestFragmentFilenameValidated(t *testing.T) {
 	dir := seed(t, "")
 	write(t, dir, "services/bad name.yml", "services: {}\n")
-	if _, _, err := Generate(dir); err == nil {
+	if _, _, err := Generate(dir, "test"); err == nil {
 		t.Error("expected error for invalid fragment filename")
 	}
 }
 
 func TestGenerateNoServicesDir(t *testing.T) {
-	if _, _, err := Generate(t.TempDir()); err == nil {
+	if _, _, err := Generate(t.TempDir(), "test"); err == nil {
 		t.Error("expected error for missing services dir")
 	}
 }
@@ -250,7 +250,7 @@ func TestProxydRoutesAssembled(t *testing.T) {
 	write(t, dir, "services/slakd.yml", "services:\n  slakd:\n    image: arizuko:latest\n")
 	write(t, dir, "packages/slakd/arizuko.yml",
 		"proxyd_routes:\n  - path: /slack/\n    backend: http://slakd:8080\n    auth: public\n    gated_by: SLACK_BOT_TOKEN\n")
-	out, routes, err := Generate(dir)
+	out, routes, err := Generate(dir, "test")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -693,7 +693,7 @@ func TestPackageEnvRequiredRefusesLoud(t *testing.T) {
 	dir := seed(t, "API_PORT=8080\n")
 	write(t, dir, "services/tok.yml", "services:\n  tok:\n    image: x\n")
 	write(t, dir, "packages/tok/arizuko.yml", "env:\n  TOK_TOKEN: {required: true}\n")
-	_, _, err := Generate(dir)
+	_, _, err := Generate(dir, "test")
 	if err == nil || !strings.Contains(err.Error(), "TOK_TOKEN") || !strings.Contains(err.Error(), ".env") {
 		t.Fatalf("Generate = %v, want a refusal naming TOK_TOKEN and .env", err)
 	}
@@ -707,7 +707,7 @@ func TestPackageEnvRequiredRefusesLoud(t *testing.T) {
 	empty := seed(t, "MODEL_GATEWAY_KEY=\n")
 	write(t, empty, "services/litellm.yml", "services:\n  litellm:\n    image: x\n")
 	write(t, empty, "packages/litellm/arizuko.yml", gatewayManifest)
-	if _, _, err := Generate(empty); err == nil || !strings.Contains(err.Error(), "present but empty") {
+	if _, _, err := Generate(empty, "test"); err == nil || !strings.Contains(err.Error(), "present but empty") {
 		t.Fatalf("Generate = %v, want a refusal on the empty operator line", err)
 	}
 }
@@ -1201,6 +1201,39 @@ func TestRoutdAndRunedReadOneRunCap(t *testing.T) {
 		if !strings.Contains(env, "MAX_CONCURRENT_CONTAINERS=2") {
 			t.Errorf("%s reads MAX_CONCURRENT_CONTAINERS and compose does not emit it, "+
 				"so its cap stays at the default 5 while the other daemon holds 2:\n%s", d, env)
+		}
+	}
+}
+
+func TestGenerateTakesIdentityFromTheName(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "zzapp_zzflavor")
+	if err := os.MkdirAll(filepath.Join(dir, "services"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mustWrite(t, filepath.Join(dir, ".env"), "ASSISTANT_NAME=test\n")
+	out, _, err := Generate(dir, "right")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"name: arizuko_right\n", "container_name: arizuko_runed_right\n"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("compose file lacks %q", want)
+		}
+	}
+	for _, line := range strings.Split(out, "\n") {
+		if (strings.HasPrefix(line, "name:") || strings.Contains(line, "container_name:")) && strings.Contains(line, "zz") {
+			t.Errorf("identity line read from the data dir path: %q", line)
+		}
+	}
+	if got := read(t, dir, "env/runed.env"); !strings.Contains(got, "ARIZUKO_INSTANCE=right\n") {
+		t.Errorf("env/runed.env lacks ARIZUKO_INSTANCE=right:\n%s", got)
+	}
+	if got := read(t, dir, ".env"); !strings.Contains(got, "APP=arizuko\nFLAVOR=right\n") {
+		t.Errorf(".env managed block lacks APP=arizuko FLAVOR=right:\n%s", got)
+	}
+	for _, name := range []string{"", "bad name", "-x"} {
+		if _, _, err := Generate(dir, name); err == nil {
+			t.Errorf("Generate accepted instance name %q", name)
 		}
 	}
 }

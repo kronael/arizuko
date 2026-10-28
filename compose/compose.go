@@ -800,31 +800,20 @@ func writeManagedEnv(dataDir, app, flavor string, profiles []string) error {
 // proxyd route table the same run decided on. The routes are rows the caller
 // writes into routd's store, NOT config on the compose file: an env var
 // seeded proxyd_routes once and was then ignored forever (BUGS L45).
-func Generate(dataDir string) (string, []ProxydRoute, error) {
+// instance is the configured name (`-i`); no identity is read from dataDir.
+func Generate(dataDir, instance string) (string, []ProxydRoute, error) {
 	env, _ := godotenv.Read(filepath.Join(dataDir, ".env"))
 	if env == nil {
 		env = map[string]string{}
 	}
 	seedSharedDefaults(env)
 
-	// Compose owns the project name; the derived names are written into env
-	// so daemons inside containers never guess them from filesystem paths.
-	project := filepath.Base(dataDir)
-	app, flavor, _ := strings.Cut(project, "_")
-	if !identRE.MatchString(app) {
-		return "", nil, fmt.Errorf("invalid compose project app %q (derived from data dir basename)", app)
+	if !identRE.MatchString(instance) {
+		return "", nil, fmt.Errorf("invalid instance name %q (pass -i <name>)", instance)
 	}
-	if flavor != "" && !identRE.MatchString(flavor) {
-		return "", nil, fmt.Errorf("invalid instance flavor %q (derived from data dir basename)", flavor)
-	}
+	const app = "arizuko"
 	// ARIZUKO_INSTANCE is the OTLP service.instance.id (spec 5/O-observability).
-	if _, ok := env["ARIZUKO_INSTANCE"]; !ok {
-		if flavor != "" {
-			env["ARIZUKO_INSTANCE"] = flavor
-		} else {
-			env["ARIZUKO_INSTANCE"] = app
-		}
-	}
+	env["ARIZUKO_INSTANCE"] = instance
 	// Service-key provisioning (spec 5/E-routd + 5/P-runed): each daemon authenticates to
 	// authd with its own AUTHD_SERVICE_KEY, which authd recognises via
 	// AUTHD_SERVICE_KEYS (hashed at compare time). Keys persist in the
@@ -926,12 +915,12 @@ func Generate(dataDir string) (string, []ProxydRoute, error) {
 	}
 	// Fatal: without the managed block every fragment interpolates to an empty
 	// container name and an empty host mount.
-	if err := writeManagedEnv(dataDir, app, flavor, activeProfiles(env)); err != nil {
+	if err := writeManagedEnv(dataDir, app, instance, activeProfiles(env)); err != nil {
 		return "", nil, fmt.Errorf("write .env compose block: %w", err)
 	}
 
 	var b strings.Builder
-	fmt.Fprintf(&b, "name: %s\n", project)
+	fmt.Fprintf(&b, "name: %s_%s\n", app, instance)
 	if len(services) > 0 {
 		b.WriteString("include:\n")
 		for _, name := range services {
@@ -941,16 +930,16 @@ func Generate(dataDir string) (string, []ProxydRoute, error) {
 	b.WriteString("services:\n")
 	// authd + routd + runed are the only topology (spec 5/E-routd + 5/P-runed), so they
 	// carry no profile.
-	b.WriteString(authdService(app, flavor))
-	b.WriteString(routdService(app, flavor, dataDir, env))
-	b.WriteString(runedService(app, flavor, dataDir, env))
-	b.WriteString(webdService(app, flavor))
-	b.WriteString(proxydService(app, flavor, env))
-	b.WriteString(vitedService(app, flavor, dataDir))
-	b.WriteString(dashdService(app, flavor, dataDir, env))
-	b.WriteString(timedService(app, flavor, env))
-	b.WriteString(onbodService(app, flavor, dataDir))
-	b.WriteString(davdService(app, flavor, dataDir, env))
+	b.WriteString(authdService(app, instance))
+	b.WriteString(routdService(app, instance, dataDir, env))
+	b.WriteString(runedService(app, instance, dataDir, env))
+	b.WriteString(webdService(app, instance))
+	b.WriteString(proxydService(app, instance, env))
+	b.WriteString(vitedService(app, instance, dataDir))
+	b.WriteString(dashdService(app, instance, dataDir, env))
+	b.WriteString(timedService(app, instance, env))
+	b.WriteString(onbodService(app, instance, dataDir))
+	b.WriteString(davdService(app, instance, dataDir, env))
 	// No egress proxy service: runed starts one `egress` PROCESS per turn on the host
 	// side of that turn's tap and kills it with the turn (spec 6/41 §"Egress by name,
 	// sealed below the kernel"). There is no image to name: EGRESS_IMAGE went with the

@@ -16,7 +16,6 @@
 ## What needs you
 
 - `L637` — a package install dies on an ignored leftover under `ant/skills/` of the source checkout.
-- `L632` — compose derives ARIZUKO_INSTANCE from the data dir name.
 - `L627` — install mandatory core in integration test fixtures.
 - `L626` — make ACL endpoint test assert the intended row.
 - `L625` — update the exported seeded-grant expectation.
@@ -431,23 +430,6 @@ decision: keep the rule and document `APP_SRC_DIR=<clean tree>`, or loosen it.
 The second deploy note, "pass your PATH under sudo so the install finds uv", is
 sudo's `secure_path` reset before the manifest `install:` command runs; no code
 path sets it.
-
-## L632 — compose derives the instance name from a path (2026-10-28, open)
-
-Read from code, not reproduced: `compose/compose.go` (~812-826) builds
-`ARIZUKO_INSTANCE` from `filepath.Base(dataDir)`. CLAUDE.md forbids deriving
-identity from a runtime path (the krons outage of 2026-04-29). The instance name
-must come from configuration, never from the directory name.
-
-Measured 2026-10-28 at v0.71.0: the only producer of the directory is
-`instanceDir` (`cmd/arizuko/main.go`), which builds `arizuko_<name>` from `-i`,
-so on every supported path the basename already equals the configured name and
-`ARIZUKO_INSTANCE` is right. The same `filepath.Base` also yields `app` and
-`flavor`, which name every container and network; moving only the instance id
-leaves two sources for one identity. A fix passes the `-i` name into
-`compose.Generate` and derives `app_flavor` from it as well (signature change,
-every `Generate` caller and the `DATA_DIR` env path that has no name), so it
-waits on the owner.
 
 ## L627 — integration fixtures omit the mandatory core package (2026-10-27, open)
 

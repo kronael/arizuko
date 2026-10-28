@@ -16,7 +16,7 @@ func TestGenerateRequiresInstalledPackageManifest(t *testing.T) {
 	if err := os.Remove(path); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := Generate(dir); err == nil || !strings.Contains(err.Error(), "arizuko.yml") {
+	if _, _, err := Generate(dir, "test"); err == nil || !strings.Contains(err.Error(), "arizuko.yml") {
 		t.Fatalf("missing package declaration: %v", err)
 	}
 }

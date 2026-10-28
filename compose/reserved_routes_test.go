@@ -20,7 +20,7 @@ func TestGenerateRefusesPackageOnCoreRoutePath(t *testing.T) {
 	write(t, dir, "packages/grabby/arizuko.yml",
 		"proxyd_routes:\n  - path: /dash/grabby/\n    backend: http://grabby:8080\n    auth: public\n")
 
-	_, _, err := Generate(dir)
+	_, _, err := Generate(dir, "test")
 	if err == nil {
 		t.Fatal("generate accepted a package route on the core /dash/ surface")
 	}

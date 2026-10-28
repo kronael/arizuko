@@ -55,8 +55,11 @@ package is on when its fragment is in `services/` and off when it is not.
 A new profile is a new env
 var read by `activeProfiles`, never a second switch.
 
-Every container is named `<app>_<service>_<flavor>`. `Generate` reads `app`
-and `flavor` from the data dir name and writes them into the managed block.
+Every container is named `<app>_<service>_<flavor>`. `app` is `arizuko`.
+`Generate(dataDir, instance)` takes `flavor` from its `instance` argument, the
+`-i` name, and writes both into the managed block. It sets `ARIZUKO_INSTANCE`
+to the same name. It reads no name from the data dir path, and it refuses an
+empty or invalid name.
 A daemon reads them from its env and never derives them from a path inside
 its container.
 

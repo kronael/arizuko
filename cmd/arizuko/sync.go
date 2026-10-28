@@ -398,6 +398,6 @@ func cmdPackage(args []string) {
 			die("Failed: %v", err)
 		}
 	}
-	generateCompose(dataDir)
+	generateCompose(dataDir, args[0])
 	fmt.Println("synced")
 }

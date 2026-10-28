@@ -144,7 +144,7 @@ func auditCLI(s *store.Store, cmd string, args []string) {
 
 func cmdRun(args []string) {
 	args = need(args, 1, 1, "arizuko run [-i instance]")
-	outPath := generateCompose(mustInstanceDir(args[0]))
+	outPath := generateCompose(mustInstanceDir(args[0]), args[0])
 	cmd := exec.Command("docker", "compose", "-f", outPath, "up", "--remove-orphans")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -156,16 +156,16 @@ func cmdRun(args []string) {
 func cmdGenerate(args []string) {
 	args = need(args, 1, 1, "arizuko generate [-i instance]")
 	dataDir := mustInstanceDir(args[0])
-	generateCompose(dataDir)
+	generateCompose(dataDir, args[0])
 }
 
-func generateCompose(dataDir string) string {
+func generateCompose(dataDir, instance string) string {
 	// Installed fragments that are still identical copies of the bundled
 	// catalog become symlinks here, so a shipped fix (adapter state mounts, a
 	// retired env var) reaches this instance on every generate/deploy — no
 	// operator step, no flag to remember (BUGS R1).
 	relinkCatalog(dataDir)
-	yml, routes, err := compose.Generate(dataDir)
+	yml, routes, err := compose.Generate(dataDir, instance)
 	if err != nil {
 		die("Failed: %v", err)
 	}
