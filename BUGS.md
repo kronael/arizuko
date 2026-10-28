@@ -15,6 +15,8 @@
 
 ## What needs you
 
+- `L636` — `package` run under sudo leaves root-owned package dirs that routd cannot write.
+- `L635` — package sync calls a catalog-linked fragment locally edited after any catalog change.
 - `L634` — no command writes instance resource rows such as `container_config`.
 - `L633` — a group package with settings breaks the next package sync.
 - `L632` — compose derives ARIZUKO_INSTANCE from the data dir name.
@@ -437,6 +439,25 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
 - **`L15` — the 2026-08-11 dead-code sweep's rejected hits.** `deadcode ./...` gave 149
   hits, 56 under `-test`; nine survived verification and were filed separately. Kept so
   the next sweep does not re-report the same ~135.
+
+## L636 — sudo package runs leave root-owned package dirs (2026-10-28, open)
+
+Measured on the krons v0.71.0 deploy: routd restart-looped with
+`initialize required core package ... mkdir /srv/app/home/packages/core:
+permission denied`, because `<data_dir>/packages` belonged to root and routd runs
+as uid 1000. `arizuko package` needs sudo to read the root-owned instance
+`.env`, so every run writes `packages/<name>` as root again, and routd writes
+`packages/core` at each start. Mitigation used: `sudo chown -R 1000:1000
+<data_dir>/packages` after each run. A fix must make one owner write the tree.
+
+## L635 — catalog-linked fragments count as locally edited (2026-10-28, open)
+
+Measured on the sloth v0.71.0 cutover: `arizuko package sync -i sloth` failed
+with `locally edited service assets: gitd.yml`. `services/gitd.yml` is a symlink
+into the catalog; `dirtyAssets` (`cmd/arizuko/packages.go`) reads through the
+link and compares with the hash recorded at install, so any catalog change in a
+release makes every catalog package look edited and blocks every sync. A
+symlinked fragment is catalog-managed and cannot carry a local edit.
 
 ## L634 — instance resource rows have no write path (2026-10-28, open)
 

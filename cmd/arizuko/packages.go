@@ -321,6 +321,9 @@ func dirtyAssets(svcDir string, rec routd.InstalledPackage) []string {
 			continue
 		}
 		path := filepath.Join(svcDir, fn)
+		if st, err := os.Lstat(path); err == nil && st.Mode()&os.ModeSymlink != 0 {
+			continue
+		}
 		cur, err := os.ReadFile(path)
 		if err != nil {
 			continue

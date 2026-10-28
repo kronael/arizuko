@@ -86,6 +86,17 @@ func TestDirtyAssets(t *testing.T) {
 	if d := dirtyAssets(svc, rec); len(d) != 1 || d[0] != "a.yml" {
 		t.Fatalf("edited asset not flagged dirty: %v", d)
 	}
+	catalog := filepath.Join(t.TempDir(), "b.yml")
+	if err := os.WriteFile(catalog, []byte("next release"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(catalog, filepath.Join(svc, "b.yml")); err != nil {
+		t.Fatal(err)
+	}
+	rec.AssetHashes["file:b.yml"] = sha256hex([]byte("previous release"))
+	if d := dirtyAssets(svc, rec); len(d) != 1 || d[0] != "a.yml" {
+		t.Fatalf("catalog-linked fragment flagged dirty (BUGS L635): %v", d)
+	}
 }
 
 // TestPackagesUpgradeClean: an unedited install upgrades to the source's new
