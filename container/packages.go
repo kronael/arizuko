@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strings"
 
 	"github.com/kronael/arizuko/chanlib"
 )
@@ -14,7 +15,14 @@ const CorePackageName = "core"
 
 var packageNameRE = regexp.MustCompile(PackageNamePattern)
 
+// ReadPackageSkills lists the skill directories of an installed package. A
+// directory without SKILL.md is an error. InstallPackage reads a source tree
+// through git instead: in a checkout only tracked directories count.
 func ReadPackageSkills(dir string) ([]string, error) {
+	return readSkills(dir, nil)
+}
+
+func readSkills(dir string, tracked map[string]bool) ([]string, error) {
 	entries, err := os.ReadDir(filepath.Join(dir, "skills"))
 	if os.IsNotExist(err) {
 		return nil, nil
@@ -24,7 +32,7 @@ func ReadPackageSkills(dir string) ([]string, error) {
 	}
 	var names []string
 	for _, entry := range entries {
-		if !entry.IsDir() {
+		if !entry.IsDir() || (tracked != nil && !tracked[entry.Name()]) {
 			continue
 		}
 		if !skillNameRe.MatchString(entry.Name()) {
@@ -38,6 +46,23 @@ func ReadPackageSkills(dir string) ([]string, error) {
 	return names, nil
 }
 
+func trackedSkillDirs(dir string) map[string]bool {
+	out, err := exec.Command("git", "-C", dir, "ls-files", "-z", "--", "skills").Output()
+	if err != nil {
+		return nil
+	}
+	tracked := map[string]bool{}
+	for _, path := range strings.Split(string(out), "\x00") {
+		if name, _, found := strings.Cut(strings.TrimPrefix(path, "skills/"), "/"); found {
+			tracked[name] = true
+		}
+	}
+	if len(tracked) == 0 {
+		return nil
+	}
+	return tracked
+}
+
 func InstallPackage(dataDir, source string, build bool) (ProductManifest, []string, error) {
 	manifest, err := ReadProductManifest(source)
 	if err != nil {
@@ -46,7 +71,8 @@ func InstallPackage(dataDir, source string, build bool) (ProductManifest, []stri
 	if !packageNameRE.MatchString(manifest.Name) {
 		return manifest, nil, fmt.Errorf("invalid package name %q", manifest.Name)
 	}
-	if _, err := ReadPackageSkills(source); err != nil {
+	sourceSkills, err := readSkills(source, trackedSkillDirs(source))
+	if err != nil {
 		return manifest, nil, err
 	}
 	dir := filepath.Join(dataDir, "packages", manifest.Name)
@@ -56,7 +82,7 @@ func InstallPackage(dataDir, source string, build bool) (ProductManifest, []stri
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return manifest, nil, err
 	}
-	for _, name := range []string{ManifestFile, "CLAUDE.md", "skills", "hooks", "bin", ".claude", ".codex"} {
+	for _, name := range []string{ManifestFile, "CLAUDE.md", "hooks", "bin", ".claude", ".codex"} {
 		path := filepath.Join(source, name)
 		info, err := os.Stat(path)
 		if os.IsNotExist(err) {
@@ -71,6 +97,11 @@ func InstallPackage(dataDir, source string, build bool) (ProductManifest, []stri
 			err = chanlib.CopyFile(path, filepath.Join(dir, name))
 		}
 		if err != nil {
+			return manifest, nil, err
+		}
+	}
+	for _, name := range sourceSkills {
+		if err := os.CopyFS(filepath.Join(dir, "skills", name), os.DirFS(filepath.Join(source, "skills", name))); err != nil {
 			return manifest, nil, err
 		}
 	}

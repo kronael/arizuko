@@ -69,3 +69,77 @@ func TestInstallPackageHandsTreeToDaemonUID(t *testing.T) {
 		}
 	}
 }
+
+func gitInit(t *testing.T, dir string, tracked ...string) {
+	t.Helper()
+	for _, args := range [][]string{{"init", "-q"}, append([]string{"add"}, tracked...)} {
+		if output, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %s (%v)", args, output, err)
+		}
+	}
+}
+
+func writeSkillTree(t *testing.T, source string, files map[string]string) {
+	t.Helper()
+	for path, body := range files {
+		full := filepath.Join(source, path)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestInstallPackageIgnoresUntrackedSkillDirs(t *testing.T) {
+	source, dataDir := t.TempDir(), t.TempDir()
+	writeSkillTree(t, source, map[string]string{
+		ManifestFile:                    "name: example\n",
+		".gitignore":                    "skills/ignored/\n",
+		"skills/sample/SKILL.md":        "skill",
+		"skills/ignored/notes.txt":      "leftover",
+		"skills/untracked/leftover.txt": "leftover",
+		"skills/untracked-empty/.keep":  "",
+	})
+	if err := os.MkdirAll(filepath.Join(source, "skills", "empty"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	gitInit(t, source, ManifestFile, ".gitignore", "skills/sample")
+	_, skills, err := InstallPackage(dataDir, source, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(skills, []string{"sample"}) {
+		t.Fatalf("installed skills %v, want [sample]", skills)
+	}
+	entries, err := os.ReadDir(filepath.Join(dataDir, "packages", "example", "skills"))
+	if err != nil || len(entries) != 1 || entries[0].Name() != "sample" {
+		t.Fatalf("installed skills dir holds %v: %v", entries, err)
+	}
+}
+
+func TestInstallPackageRefusesTrackedSkillWithoutSkillFile(t *testing.T) {
+	source, dataDir := t.TempDir(), t.TempDir()
+	writeSkillTree(t, source, map[string]string{
+		ManifestFile:              "name: example\n",
+		"skills/sample/SKILL.md":  "skill",
+		"skills/broken/notes.txt": "tracked, no SKILL.md",
+	})
+	gitInit(t, source, ManifestFile, "skills")
+	if _, _, err := InstallPackage(dataDir, source, false); err == nil {
+		t.Fatal("a tracked skill directory without SKILL.md was installed")
+	}
+}
+
+func TestInstallPackageRefusesSkillWithoutSkillFileOutsideGit(t *testing.T) {
+	source, dataDir := t.TempDir(), t.TempDir()
+	writeSkillTree(t, source, map[string]string{
+		ManifestFile:              "name: example\n",
+		"skills/sample/SKILL.md":  "skill",
+		"skills/broken/notes.txt": "no SKILL.md",
+	})
+	if _, _, err := InstallPackage(dataDir, source, false); err == nil {
+		t.Fatal("a skill directory without SKILL.md was installed from a tree git does not track")
+	}
+}

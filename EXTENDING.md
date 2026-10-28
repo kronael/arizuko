@@ -216,6 +216,10 @@ Only the `installed_packages` rows select packages.
 directories or Git sources. Relative paths resolve under `HOST_APP_DIR`.
 Each source declares `name` in its own `arizuko.yml`; the source directory name
 does not define package identity.
+In a git checkout, `arizuko package` installs only the `skills/` directories
+that git tracks, so an ignored leftover does not stop an install. A tracked
+directory without `SKILL.md` is an error. A source that git does not track, such
+as the release image, installs every directory, and each needs `SKILL.md`.
 The bundled `ant/` declares `core`, an ordinary package installed for every group.
 Startup refreshes core from the release without running a build.
 

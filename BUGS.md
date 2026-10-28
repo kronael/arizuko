@@ -15,7 +15,6 @@
 
 ## What needs you
 
-- `L637` — a package install dies on an ignored leftover under `ant/skills/` of the source checkout.
 - `L627` — install mandatory core in integration test fixtures.
 - `L626` — make ACL endpoint test assert the intended row.
 - `L625` — update the exported seeded-grant expectation.
@@ -413,23 +412,6 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
 - **`L15` — the 2026-08-11 dead-code sweep's rejected hits.** `deadcode ./...` gave 149
   hits, 56 under `-test`; nine survived verification and were filed separately. Kept so
   the next sweep does not re-report the same ~135.
-
-## L637 — a package install dies on an ignored leftover in the source checkout (2026-10-28, open)
-
-Measured on the krons v0.71.0 deploy: `arizuko package` with `APP_SRC_DIR` set
-to the main checkout failed, and a clean tree worked. The core package is read
-from `<APP_SRC_DIR>/ant`; `container.ReadPackageSkills` rejects any
-`ant/skills/<dir>` without a `SKILL.md`. That checkout holds gitignored
-`ant/skills/create-excalidraw/` and `ant/skills/create-video-render/`, neither
-with one. Reproduced on a copy of `ant/` with an empty `skills/leftover/`:
-`InstallPackage` returns `stat .../skills/leftover/SKILL.md: no such file or
-directory`. The error names the path, and the strict rejection is intended
-(`invalid packaged skill`). Skipping such a directory would be a silent
-fallback; reading only tracked files would be a second mechanism. Owner
-decision: keep the rule and document `APP_SRC_DIR=<clean tree>`, or loosen it.
-The second deploy note, "pass your PATH under sudo so the install finds uv", is
-sudo's `secure_path` reset before the manifest `install:` command runs; no code
-path sets it.
 
 ## L627 — integration fixtures omit the mandatory core package (2026-10-27, open)
 
